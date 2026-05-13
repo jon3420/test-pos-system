@@ -1,0 +1,892 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>餐車 POS</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/main.css">
+</head>
+<body>
+
+<!-- 頂部導覽 -->
+<header class="topbar">
+  <div class="topbar-left">
+    <span class="shop-icon">🍱</span>
+    <span class="shop-name" id="shopName">餐車 POS</span>
+  </div>
+  <nav class="topbar-nav">
+    <button class="nav-btn active" data-page="pos" onclick="showPage('pos')">
+      <span class="nav-icon">🛒</span><span>點餐</span>
+    </button>
+    <button class="nav-btn" data-page="orders" onclick="showPage('orders')">
+      <span class="nav-icon">📋</span><span>訂單</span>
+    </button>
+    <button class="nav-btn" data-page="products" onclick="showPage('products')">
+      <span class="nav-icon">📦</span><span>商品</span>
+    </button>
+    <button class="nav-btn" data-page="inventory" onclick="showPage('inventory')">
+      <span class="nav-icon">🏪</span><span>庫存</span>
+    </button>
+    <button class="nav-btn" data-page="categories" onclick="showPage('categories')">
+      <span class="nav-icon">🏷️</span><span>分類</span>
+    </button>
+    <button class="nav-btn" data-page="settings" onclick="showPage('settings')">
+      <span class="nav-icon">⚙️</span><span>設定</span>
+    </button>
+  </nav>
+  <div class="topbar-right">
+    <span class="clock" id="clock">--:--</span>
+  </div>
+</header>
+
+<!-- POS 點餐頁 -->
+<div id="page-pos" class="page active">
+  <div class="pos-layout">
+    <!-- 左側：商品區 -->
+    <div class="product-panel">
+      <div class="category-tabs" id="categoryTabs">
+        <button class="cat-btn active" data-cat="all" onclick="filterCategory('all')">全部</button>
+      </div>
+      <div class="product-grid" id="productGrid">
+        <div class="loading-card">載入商品中...</div>
+      </div>
+    </div>
+
+    <!-- 右側：購物車 -->
+    <div class="cart-panel">
+
+      <!-- 1. 訂單模式切換 -->
+      <div class="order-mode-tabs">
+        <button class="mode-btn active" data-mode="dine_in"  onclick="switchOrderMode('dine_in')">🍽️ 內用</button>
+        <button class="mode-btn"        data-mode="takeout"  onclick="switchOrderMode('takeout')">🛍️ 外帶</button>
+        <button class="mode-btn"        data-mode="delivery" onclick="switchOrderMode('delivery')">🛵 外送</button>
+      </div>
+
+      <!-- 2. 購物車商品清單 -->
+      <div class="cart-header">
+        <h2 class="cart-title" id="cartTitle">📝 內用點餐</h2>
+        <button class="btn-clear" onclick="clearCart()">清空</button>
+      </div>
+      <div class="cart-items" id="cartItems">
+        <div class="cart-empty">
+          <span class="cart-empty-icon">🛒</span>
+          <p>點選左側商品加入</p>
+        </div>
+      </div>
+
+      <!-- 3. 訂單資訊填寫區（可展開/隱藏） -->
+      <div class="order-info-section">
+        <button class="order-info-toggle" id="orderInfoToggle" onclick="toggleOrderInfo()">
+          <span id="orderInfoToggleLabel">訂單資訊</span>
+          <span class="toggle-arrow" id="toggleArrow">▼</span>
+        </button>
+        <div id="orderInfoBody">
+          <!-- 外送：平台選擇（在資訊區頂部，跟 fields 同層） -->
+          <div id="delivery-platform-wrap" style="display:none;padding:6px 10px 0">
+            <div class="delivery-platform-selector" id="platformSelector"></div>
+          </div>
+          <!-- 可收合的欄位 -->
+          <div id="orderInfoFields">
+            <!-- 內用欄位 -->
+            <div id="fields-dine_in" class="mode-fields">
+              <div class="mode-fields-row">
+                <input type="text"   id="tableNumber" placeholder="🪑 桌號（例：A3）" maxlength="10">
+                <input type="number" id="guestCount"  placeholder="👥 人數" min="1" max="99">
+              </div>
+              <input type="text" id="notedinein" placeholder="📝 備註" maxlength="100">
+            </div>
+            <!-- 外帶欄位 -->
+            <div id="fields-takeout" class="mode-fields" style="display:none">
+              <div class="mode-fields-row">
+                <input type="text" id="pickupName"   placeholder="👤 取餐姓名" maxlength="20">
+                <input type="tel"  id="takeoutPhone" placeholder="📱 電話" maxlength="20">
+              </div>
+              <input type="time" id="pickupTime" style="width:100%">
+              <input type="text" id="notetakeout" placeholder="📝 備註" maxlength="100">
+            </div>
+            <!-- 外送欄位（非平台選擇部分） -->
+            <div id="fields-delivery" class="mode-fields" style="display:none">
+              <div class="mode-fields-row">
+                <input type="text" id="deliveryName"  placeholder="👤 顧客姓名" maxlength="20">
+                <input type="tel"  id="deliveryPhone" placeholder="📱 電話" maxlength="20">
+              </div>
+              <input type="text" id="platformOrderNo" placeholder="🔖 請輸入平台訂單編號（必填）" maxlength="200" required>
+              <input type="text" id="deliveryAddress"   placeholder="📍 外送地址" maxlength="100">
+              <input type="time" id="estimatedDelivery" style="width:100%">
+              <input type="text" id="notedelivery"      placeholder="📝 備註" maxlength="100">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 4. 金額計算區 -->
+      <div class="cart-total-area">
+        <div class="total-row">
+          <span>小計</span>
+          <span id="subtotalDisplay">$0</span>
+        </div>
+        <div class="delivery-calc" id="deliveryCalc" style="display:none">
+          <div class="delivery-calc-row">
+            <span id="dcPlatformName">平台</span>抽成&nbsp;<span id="dcRate" class="dc-rate">0%</span>
+            <span id="dcCommission" class="dc-commission">NT$0</span>
+          </div>
+          <div class="delivery-calc-row dc-income">
+            <span>店家實收</span><span id="dcStoreIncome">NT$0</span>
+          </div>
+        </div>
+        <div class="total-row grand">
+          <span>總計</span>
+          <span id="totalDisplay">$0</span>
+        </div>
+      </div>
+
+      <!-- 5. 付款方式（動態渲染） -->
+      <div class="payment-methods" id="paymentMethodsContainer"></div>
+      <p class="payment-warn" id="paymentWarn" style="display:none">⚠️ 請先至「設定 → 付款方式」啟用付款方式</p>
+
+      <!-- 現金找零區 -->
+      <div class="cash-change-panel" id="cashChangePanel" style="display:none">
+        <div class="cash-row">
+          <span class="cash-label">應收</span>
+          <span class="cash-value" id="cashDue">NT$0</span>
+        </div>
+        <div class="cash-row">
+          <span class="cash-label">實收</span>
+          <input type="number" id="receivedAmount" class="cash-input"
+            placeholder="輸入收到金額" min="0" step="1" oninput="calcChange()">
+        </div>
+        <div class="cash-row change-row">
+          <span class="cash-label">找零</span>
+          <span class="cash-value change-val" id="changeAmount">NT$0</span>
+        </div>
+        <p class="cash-warn" id="cashWarn" style="display:none">⚠️ 實收金額不足</p>
+      </div>
+
+      <!-- 6. 結帳按鈕 -->
+      <button class="btn-checkout" id="checkoutBtn" onclick="checkout()">結帳</button>
+    </div>
+  </div>
+</div>
+
+<!-- 訂單記錄頁 -->
+<div id="page-orders" class="page">
+  <div class="page-inner">
+    <div class="page-toolbar">
+      <h1 class="page-title">📋 訂單記錄</h1>
+      <div class="toolbar-right" style="flex-wrap:wrap;gap:6px">
+        <div class="date-shortcuts">
+          <button class="shortcut-btn active" data-range="today"     onclick="setDateRange('today')">今日</button>
+          <button class="shortcut-btn"        data-range="yesterday" onclick="setDateRange('yesterday')">昨日</button>
+          <button class="shortcut-btn"        data-range="week"      onclick="setDateRange('week')">本週</button>
+          <button class="shortcut-btn"        data-range="month"     onclick="setDateRange('month')">本月</button>
+          <button class="shortcut-btn"        data-range="custom"    onclick="setDateRange('custom')">自訂</button>
+        </div>
+        <div id="customDateRange" style="display:none;gap:4px;align-items:center;display:flex">
+          <input type="date" id="dateFrom">
+          <span style="color:var(--text-muted)">～</span>
+          <input type="date" id="dateTo">
+        </div>
+        <button class="btn-secondary" onclick="loadCurrentOrderTab()">🔄 查詢</button>
+      </div>
+    </div>
+
+    <!-- 訂單分頁 -->
+    <div class="order-tabs">
+      <button class="order-tab-btn active" data-tab="all"      onclick="switchOrderTab('all')">📋 全部訂單</button>
+      <button class="order-tab-btn"        data-tab="pos"      onclick="switchOrderTab('pos')">🍽️ 內用/外帶</button>
+      <button class="order-tab-btn"        data-tab="delivery" onclick="switchOrderTab('delivery')">🛵 外送報表</button>
+    </div>
+
+    <!-- 統計卡片 -->
+    <div class="stat-cards" id="statCards"></div>
+
+    <!-- 全部訂單 / 內用外帶 -->
+    <div id="order-tab-all" class="order-tab-panel">
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>訂單編號</th><th>模式</th><th>時間</th><th>顧客/桌號</th>
+              <th>商品</th><th>付款</th><th>金額</th><th>狀態</th><th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="ordersBody">
+            <tr><td colspan="9" class="table-empty">載入中...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 外送報表 -->
+    <div id="order-tab-delivery" class="order-tab-panel" style="display:none">
+      <!-- 平台分組統計 -->
+      <div id="platformStats" style="margin-bottom:16px"></div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>訂單編號</th><th>時間</th><th>平台</th><th>平台單號</th><th>顧客</th>
+              <th>商品</th><th>訂單金額</th><th>平台抽成</th><th>店家實收</th><th>付款方式</th><th>外送狀態</th><th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="deliveryOrdersBody">
+            <tr><td colspan="12" class="table-empty">載入中...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 商品管理頁 -->
+<div id="page-products" class="page">
+  <div class="page-inner">
+    <div class="page-toolbar">
+      <h1 class="page-title">📦 商品管理</h1>
+      <button class="btn-primary" onclick="openProductModal()">＋ 新增商品</button>
+    </div>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th style="width:60px">圖片</th><th>商品名稱</th><th>分類</th><th>價格</th><th>狀態</th><th>操作</th>
+          </tr>
+        </thead>
+        <tbody id="productsBody">
+          <tr><td colspan="5" class="table-empty">載入中...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- 設定頁 -->
+<div id="page-settings" class="page">
+  <div class="page-inner">
+    <h1 class="page-title">⚙️ 系統設定</h1>
+
+    <!-- 設定頁分頁 -->
+    <div class="settings-tabs">
+      <button class="settings-tab-btn active" data-stab="basic"    onclick="switchSettingsTab('basic')">🏪 基本設定</button>
+      <button class="settings-tab-btn"        data-stab="payment"  onclick="switchSettingsTab('payment')">💳 付款方式</button>
+      <button class="settings-tab-btn"        data-stab="gateway"  onclick="switchSettingsTab('gateway')">🔌 金流設定</button>
+      <button class="settings-tab-btn"        data-stab="platform" onclick="switchSettingsTab('platform')">🛵 外送平台</button>
+      <button class="settings-tab-btn"        data-stab="printer"  onclick="switchSettingsTab('printer')">🖨️ 出單機</button>
+    </div>
+
+    <!-- 基本設定 -->
+    <div class="settings-tab-panel" id="stab-basic">
+      <div class="settings-grid">
+        <div class="settings-card">
+          <h3>🏪 店家資訊</h3>
+          <label>店名<input type="text" id="set-shop_name" placeholder="阿義餐車"></label>
+          <label>收據備註<input type="text" id="set-receipt_footer" placeholder="感謝光臨！"></label>
+        </div>
+        <div class="settings-card">
+          <h3>🔗 自動化串接</h3>
+          <label>n8n Webhook URL
+            <input type="url" id="set-n8n_webhook_url" placeholder="https://your-n8n.com/webhook/xxx">
+          </label>
+          <label>LINE Channel Token
+            <input type="text" id="set-line_channel_token" placeholder="Bearer Token">
+          </label>
+          <p class="settings-hint">💡 設定 n8n Webhook URL 後，每筆訂單結帳時將自動推送資料</p>
+        </div>
+        <div class="settings-card full">
+          <h3>📡 API 文件</h3>
+          <div class="api-docs">
+            <div class="api-row"><span class="method get">GET</span><code>/api/products</code><span>取得所有商品</span></div>
+            <div class="api-row"><span class="method post">POST</span><code>/api/orders</code><span>建立訂單（支援 order_mode）</span></div>
+            <div class="api-row"><span class="method get">GET</span><code>/api/payment-methods</code><span>取得付款方式（?mode=&active=1）</span></div>
+            <div class="api-row"><span class="method get">GET</span><code>/api/payment-gateways</code><span>取得金流設定</span></div>
+            <div class="api-row"><span class="method get">GET</span><code>/api/platforms</code><span>外送平台列表</span></div>
+          </div>
+        </div>
+      </div>
+      <button class="btn-primary" onclick="saveSettings()">💾 儲存基本設定</button>
+    </div>
+
+    <!-- 付款方式管理 -->
+    <div class="settings-tab-panel" id="stab-payment" style="display:none">
+      <div class="settings-card full">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+          <h3>💳 付款方式管理</h3>
+          <p class="settings-hint" style="margin:0">修改後立即同步前台</p>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>付款方式</th><th>啟用</th><th>🍽️ 內用</th><th>🛍️ 外帶</th><th>🛵 外送</th><th>排序</th><th>預設</th><th>儲存</th>
+              </tr>
+            </thead>
+            <tbody id="paymentMethodsBody">
+              <tr><td colspan="8" class="table-empty">載入中...</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="settings-hint" style="margin-top:10px">💡 關閉付款方式不影響歷史訂單。金流未啟用時相關付款方式自動停用。</p>
+      </div>
+    </div>
+
+    <!-- 金流設定 -->
+    <div class="settings-tab-panel" id="stab-gateway" style="display:none">
+      <div id="gatewayCards" class="gateway-grid"></div>
+    </div>
+
+    <!-- 外送平台設定 -->
+    <div class="settings-tab-panel" id="stab-platform" style="display:none">
+      <div class="settings-card full">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+          <h3>🛵 外送平台抽成設定</h3>
+          <button class="btn-primary" style="font-size:13px" onclick="openPlatformModal()">＋ 新增平台</button>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>平台名稱</th><th>抽成比例</th><th>狀態</th><th>操作</th></tr></thead>
+            <tbody id="platformsBody"><tr><td colspan="4" class="table-empty">載入中...</td></tr></tbody>
+          </table>
+        </div>
+        <p class="settings-hint" style="margin-top:10px">💡 抽成比例建立訂單時寫入，修改後不影響歷史訂單</p>
+      </div>
+    </div>
+
+    <!-- 出單機設定 -->
+    <div class="settings-tab-panel" id="stab-printer" style="display:none">
+      <div class="settings-grid">
+        <!-- 狀態與測試 -->
+        <div class="settings-card">
+          <h3>🖨️ 印表機狀態</h3>
+          <div id="printerStatusBadge" style="margin-bottom:12px">
+            <span class="order-status status-void">未啟用</span>
+          </div>
+          <p id="printerStatusMsg" style="font-size:12px;color:var(--text-muted);margin-bottom:10px"></p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn-secondary" onclick="checkPrinterStatus()">🔄 檢查狀態</button>
+            <button class="btn-secondary" onclick="testPrint()">🧪 測試列印</button>
+            <button class="btn-secondary" onclick="testKitchenPrint()">👨‍🍳 廚房單測試</button>
+            <button class="btn-secondary" onclick="testCashDrawer()">💰 測試開錢櫃</button>
+          </div>
+          <p id="printerTestResult" style="margin-top:10px;font-size:12px;color:var(--text-muted)"></p>
+        </div>
+
+        <!-- 連線設定 -->
+        <div class="settings-card">
+          <h3>🔌 連線設定</h3>
+          <label class="checkbox-label" style="margin-bottom:12px">
+            <input type="checkbox" id="set-printer_enabled" onchange="onPrinterEnabledChange()">
+            <span>啟用印表機</span>
+          </label>
+          <label>連線方式
+            <select id="set-printer_type" onchange="onPrinterTypeChange()">
+              <option value="network">🌐 LAN / Network（IP:9100）</option>
+              <option value="usb">🖨️ USB（Windows 印表機名稱）</option>
+            </select>
+          </label>
+
+          <!-- LAN 欄位（USB 時隱藏） -->
+          <div id="networkFields">
+            <label>印表機 IP
+              <input type="text" id="set-printer_ip" placeholder="192.168.1.100">
+            </label>
+            <label>連接埠 (Port)
+              <input type="number" id="set-printer_port" placeholder="9100">
+            </label>
+          </div>
+
+          <!-- USB 欄位（LAN 時隱藏） -->
+          <div id="usbFields" style="display:none">
+            <label style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+              <span>Windows 印表機</span>
+              <button type="button" class="btn-icon" onclick="refreshPrinterList()" style="font-size:12px;padding:4px 8px">🔄 重新整理</button>
+            </label>
+            <select id="printerNameSelect" onchange="onPrinterNameSelect()" style="width:100%;background:var(--bg-base);border:1px solid var(--border);color:var(--text-primary);padding:8px 10px;border-radius:var(--radius-sm);font-size:14px">
+              <option value="">— 點擊「重新整理」載入印表機清單 —</option>
+            </select>
+            <input type="text" id="set-printer_name" placeholder="或手動輸入印表機顯示名稱（選填）" style="margin-top:6px;width:100%">
+            <label style="margin-top:10px;display:block">
+              <span style="font-size:13px;color:var(--text-secondary);font-weight:600">Windows 印表機共享名稱 *</span>
+              <input type="text" id="set-printer_share_name" placeholder="例如：XP80" style="margin-top:4px;width:100%">
+            </label>
+            <p style="font-size:11px;color:var(--text-muted);margin-top:6px;line-height:1.6">
+              💡 <strong>必填</strong>：請先到 Windows <code>控制台 → 印表機 → 右鍵內容 → 共用</code>，<br>
+              將印表機共享並設定共享名稱（例如 <code>XP80</code>，不要有空格）。<br>
+              POS 會使用 <code>\\127.0.0.1\XP80</code> 傳送 RAW ESC/POS 列印資料。
+            </p>
+          </div>
+
+          <button class="btn-primary" style="margin-top:10px;width:100%" onclick="savePrinterSettings()">💾 儲存連線設定</button>
+        </div>
+
+        <!-- 自動化設定 -->
+        <div class="settings-card full">
+          <h3>⚡ 自動化設定</h3>
+          <label class="checkbox-label" style="margin-bottom:10px">
+            <input type="checkbox" id="set-auto_print">
+            <span>✅ 結帳後自動列印收據</span>
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" id="set-auto_drawer">
+            <span>💰 現金付款後自動開錢櫃</span>
+          </label>
+          <button class="btn-secondary" style="margin-top:12px" onclick="savePrinterSettings()">💾 儲存自動化設定</button>
+          <div class="settings-hint" style="margin-top:10px">
+            💡 Xprinter XP-N160II LAN 模式預設：IP 192.168.1.100，Port 9100<br>
+            USB 模式：選擇 Windows 控制台已安裝的印表機名稱，無需額外驅動。<br>
+            錢櫃透過 RJ11 接至印表機錢櫃孔（ESC p 指令）。<br>
+            非現金付款（LINE Pay / 街口 / 刷卡 / 轉帳 / 外送平台）不開錢櫃。
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- 商品編輯 Modal -->
+<div class="modal-overlay" id="productModal" onclick="if(event.target===this)closeProductModal()">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="productModalTitle">新增商品</h3>
+      <button class="modal-close" onclick="closeProductModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="editProductId">
+      <input type="hidden" id="editProductImage">
+
+      <!-- 圖片上傳區：用 div 不用 label 避免雙重 click 觸發 -->
+      <div style="color:var(--text-secondary);font-size:13px;display:flex;flex-direction:column;gap:6px">
+        <span>商品圖片</span>
+        <!-- 上傳區：JS 綁定 click，不用 onclick 屬性避免衝突 -->
+        <div class="img-upload-area" id="imgUploadArea">
+          <div class="img-preview-wrap" id="imgPreviewWrap">
+            <div class="img-placeholder" id="imgPlaceholder">
+              <span class="img-placeholder-icon">🖼️</span>
+              <span>點擊上傳圖片</span>
+              <span style="font-size:11px;color:var(--text-muted)">JPG / PNG / WebP，建議 400×400px</span>
+            </div>
+            <img id="imgPreview" class="img-preview" src="" alt="" style="display:none">
+          </div>
+          <!-- input 在 div 外層，不在可點擊區域內，避免冒泡 -->
+        </div>
+        <input type="file" id="imgFileInput" accept="image/*" style="display:none">
+        <div class="img-actions" id="imgActions" style="display:none">
+          <button type="button" class="btn-secondary" style="font-size:12px;padding:5px 10px" onclick="clearProductImage()">✕ 移除圖片</button>
+        </div>
+        <input type="text" id="editProductImageUrl" placeholder="或貼上圖片網址 (https://...)" style="font-size:12px" oninput="handleImageUrl(this.value)">
+      </div>
+
+      <label>商品名稱 *<input type="text" id="editProductName" placeholder="冷拌麻油腰子"></label>
+      <label>分類 *
+        <select id="editProductCategory">
+          <option value="主食">🍚 主食</option>
+          <option value="小菜">🥗 小菜</option>
+          <option value="飲料">🧋 飲料</option>
+          <option value="其他">📌 其他</option>
+        </select>
+      </label>
+      <label>定價 (NT$) *<input type="number" id="editProductPrice" placeholder="150" min="0"></label>
+
+      <!-- 多模式價格 -->
+      <div style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px;background:var(--bg-base)">
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:8px">💡 多模式價格（空白時自動使用定價）</p>
+        <div style="display:flex;gap:6px">
+          <label style="flex:1;font-size:12px;color:var(--text-muted)">🍽️ 內用
+            <input type="number" id="editDineInPrice" placeholder="同定價" min="0">
+          </label>
+          <label style="flex:1;font-size:12px;color:var(--text-muted)">🛍️ 外帶
+            <input type="number" id="editTakeawayPrice" placeholder="同定價" min="0">
+          </label>
+          <label style="flex:1;font-size:12px;color:var(--text-muted)">🛵 外送
+            <input type="number" id="editDeliveryPrice" placeholder="同定價" min="0">
+          </label>
+        </div>
+      </div>
+      <label class="checkbox-label">
+        <input type="checkbox" id="editProductEnabled" checked>
+        <span>啟用販售</span>
+      </label>
+
+      <!-- 庫存設定 -->
+      <div style="border-top:1px solid var(--border);margin-top:8px;padding-top:12px">
+        <label class="checkbox-label">
+          <input type="checkbox" id="editInventoryEnabled" onchange="toggleInventoryFields()">
+          <span>📦 啟用庫存管理（重量制）</span>
+        </label>
+        <div id="inventoryFields" style="display:none;margin-top:10px;display:none">
+          <label>每份分配克數 (g)
+            <input type="number" id="editAllocatedGrams" placeholder="例：200" min="1">
+          </label>
+          <label>目前庫存克數 (g)
+            <input type="number" id="editCurrentStockGrams" placeholder="例：3000" min="0">
+          </label>
+          <label>低庫存警戒（份數）
+            <input type="number" id="editLowStockAlert" placeholder="例：5" min="0">
+          </label>
+          <div class="inv-preview" id="invPreview" style="display:none"></div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeProductModal()">取消</button>
+      <button class="btn-primary" onclick="saveProduct()">儲存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 結帳成功 Modal -->
+<div class="modal-overlay" id="successModal">
+  <div class="modal receipt-modal">
+    <div class="receipt-header">
+      <div class="receipt-logo">🍱</div>
+      <h2 id="receiptShopName">阿義餐車</h2>
+      <p id="receiptOrderNum" class="receipt-order-num"></p>
+      <p id="receiptTime" class="receipt-time"></p>
+    </div>
+    <div class="receipt-body" id="receiptBody"></div>
+    <div class="receipt-total">
+      <div class="receipt-total-row">
+        <span>付款方式</span>
+        <span id="receiptPayment"></span>
+      </div>
+      <div class="receipt-total-row grand">
+        <span>應收</span>
+        <span id="receiptTotal"></span>
+      </div>
+      <!-- 現金才顯示 -->
+      <div class="receipt-total-row" id="receiptReceivedRow" style="display:none">
+        <span>實收</span>
+        <span id="receiptReceived"></span>
+      </div>
+      <div class="receipt-total-row" id="receiptChangeRow" style="display:none">
+        <span>找零</span>
+        <span id="receiptChange" style="color:var(--success)"></span>
+      </div>
+    </div>
+    <p class="receipt-footer" id="receiptFooter">感謝您的光臨！歡迎再次惠顧</p>
+    <div class="receipt-actions">
+      <button class="btn-secondary" onclick="printReceipt()">🖨️ 補印</button>
+      <button class="btn-primary" id="checkoutCompleteBtn" onclick="completeCheckout()">✓ 完成</button>
+    </div>
+    <p id="printStatusMsg" style="font-size:12px;text-align:center;color:var(--text-muted);padding:0 16px 10px;display:none"></p>
+  </div>
+</div>
+
+<!-- 訂單詳情 Modal -->
+<div class="modal-overlay" id="orderDetailModal" onclick="if(event.target===this)closeOrderDetail()">
+  <div class="modal receipt-modal" style="max-width:520px">
+    <div class="modal-header">
+      <h3>訂單明細</h3>
+      <button class="modal-close" onclick="closeOrderDetail()">✕</button>
+    </div>
+    <div id="orderDetailBody" style="max-height:70vh;overflow-y:auto"></div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="printOrderReceipt()">🖨️ 列印</button>
+      <button class="btn-primary" onclick="closeOrderDetail()">關閉</button>
+    </div>
+  </div>
+</div>
+
+<!-- 訂單編輯 Modal -->
+<div class="modal-overlay" id="editOrderModal" onclick="if(event.target===this)closeEditOrder()">
+  <div class="modal" style="max-width:600px;max-height:92vh;overflow-y:auto">
+    <div class="modal-header">
+      <h3>✏️ 修改訂單 <span id="editOrderNum" style="font-size:13px;color:var(--accent);font-family:monospace"></span></h3>
+      <button class="modal-close" onclick="closeEditOrder()">✕</button>
+    </div>
+    <div class="modal-body" id="editOrderBody">
+      <input type="hidden" id="editOrderId">
+
+      <!-- 商品列表 -->
+      <label>商品明細</label>
+      <div id="editOrderItems" class="edit-items-list"></div>
+      <button type="button" class="btn-secondary" style="margin-top:6px;width:100%;font-size:13px" onclick="openAddItemToOrder()">＋ 加購商品</button>
+
+      <!-- 快速加購 -->
+      <div id="addItemPanel" style="display:none;background:var(--bg-base);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;margin-top:6px">
+        <select id="addItemSelect" style="width:100%;margin-bottom:6px">
+          <option value="">選擇商品...</option>
+        </select>
+        <div style="display:flex;gap:6px">
+          <input type="number" id="addItemQty" value="1" min="1" style="width:80px">
+          <button type="button" class="btn-primary" style="flex:1" onclick="confirmAddItem()">加入</button>
+          <button type="button" class="btn-secondary" onclick="document.getElementById('addItemPanel').style.display='none'">取消</button>
+        </div>
+      </div>
+
+      <!-- 小計 -->
+      <div style="display:flex;justify-content:space-between;padding:10px 0;border-top:1px solid var(--border);margin-top:8px;font-weight:700;font-size:16px">
+        <span>新總金額</span>
+        <span id="editOrderNewTotal" style="color:var(--accent);font-family:monospace">$0</span>
+      </div>
+      <div id="editAmountDiff" class="amount-diff-banner" style="display:none"></div>
+
+      <!-- 付款方式 -->
+      <label>付款方式
+        <select id="editOrderPayment" onchange="onEditPaymentChange()">
+          <option value="cash">💵 現金</option>
+          <option value="linepay">💚 LINE Pay</option>
+          <option value="card">💳 刷卡</option>
+          <option value="transfer">🏦 轉帳</option>
+        </select>
+      </label>
+
+      <!-- 現金找零（編輯用） -->
+      <div id="editCashPanel" class="cash-change-panel" style="margin:0">
+        <div class="cash-row">
+          <span class="cash-label">實收</span>
+          <input type="number" id="editReceivedAmount" class="cash-input" placeholder="輸入實收金額" min="0" oninput="calcEditChange()">
+        </div>
+        <div class="cash-row change-row" id="editChangeRow">
+          <span class="cash-label">找零</span>
+          <span class="cash-value change-val" id="editChangeAmount">NT$0</span>
+        </div>
+        <p class="cash-warn" id="editCashWarn" style="display:none">⚠️ 實收金額不足</p>
+      </div>
+
+      <!-- 顧客資料 -->
+      <label>顧客姓名<input type="text" id="editCustomerName" placeholder="選填"></label>
+      <label>顧客電話<input type="tel" id="editCustomerPhone" placeholder="選填"></label>
+      <label>備註<input type="text" id="editOrderNote" placeholder="選填"></label>
+
+      <!-- 修改原因（必填） -->
+      <label>修改原因 *
+        <select id="editOrderReason">
+          <option value="">請選擇原因...</option>
+          <option value="客人換商品">客人換商品</option>
+          <option value="點錯商品">點錯商品</option>
+          <option value="數量錯誤">數量錯誤</option>
+          <option value="付款方式錯誤">付款方式錯誤</option>
+          <option value="實收金額錯誤">實收金額錯誤</option>
+          <option value="其他">其他</option>
+        </select>
+      </label>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeEditOrder()">取消</button>
+      <button class="btn-primary" onclick="saveEditOrder()">💾 儲存修改</button>
+    </div>
+  </div>
+</div>
+
+<!-- 作廢確認 Modal -->
+<div class="modal-overlay" id="voidOrderModal" onclick="if(event.target===this)closeVoidModal()">
+  <div class="modal" style="max-width:420px">
+    <div class="modal-header">
+      <h3>🚫 確認作廢訂單</h3>
+      <button class="modal-close" onclick="closeVoidModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="voidOrderId">
+      <p style="color:var(--danger);margin-bottom:12px">作廢後該筆訂單將從今日營業額中扣除，且不可再修改。</p>
+      <p style="margin-bottom:4px;font-size:13px;color:var(--text-secondary)">訂單：<span id="voidOrderNum" style="color:var(--accent);font-family:monospace"></span></p>
+      <p style="margin-bottom:16px;font-size:13px;color:var(--text-secondary)">金額：<span id="voidOrderAmount" style="color:var(--accent)"></span></p>
+      <label>作廢原因 *
+        <select id="voidReason">
+          <option value="">請選擇原因...</option>
+          <option value="顧客取消">顧客取消</option>
+          <option value="點錯訂單">點錯訂單</option>
+          <option value="重複下單">重複下單</option>
+          <option value="系統測試">系統測試</option>
+          <option value="其他">其他</option>
+        </select>
+      </label>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeVoidModal()">取消</button>
+      <button class="btn-primary" style="background:var(--danger)" onclick="confirmVoid()">確認作廢</button>
+    </div>
+  </div>
+</div>
+
+<!-- ======= 分類管理頁 ======= -->
+<div id="page-categories" class="page">
+  <div class="page-inner">
+    <div class="page-toolbar">
+      <h1 class="page-title">🏷️ 分類管理</h1>
+      <button class="btn-primary" onclick="openCatModal()">＋ 新增分類</button>
+    </div>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr><th style="width:50px">圖示</th><th>分類名稱</th><th>排序</th><th>狀態</th><th>操作</th></tr>
+        </thead>
+        <tbody id="categoriesBody">
+          <tr><td colspan="5" class="table-empty">載入中...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- 分類編輯 Modal -->
+<div class="modal-overlay" id="catModal" onclick="if(event.target===this)closeCatModal()">
+  <div class="modal" style="max-width:400px">
+    <div class="modal-header">
+      <h3 id="catModalTitle">新增分類</h3>
+      <button class="modal-close" onclick="closeCatModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="editCatId">
+      <label>圖示 Emoji
+        <input type="text" id="editCatIcon" placeholder="🍚" maxlength="4" style="font-size:24px;width:80px;text-align:center">
+      </label>
+      <label>分類名稱 *
+        <input type="text" id="editCatName" placeholder="例：主食">
+      </label>
+      <label>排序（數字越小越前面）
+        <input type="number" id="editCatOrder" value="0" min="0">
+      </label>
+      <label class="checkbox-label">
+        <input type="checkbox" id="editCatActive" checked>
+        <span>啟用此分類</span>
+      </label>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeCatModal()">取消</button>
+      <button class="btn-primary" onclick="saveCat()">儲存</button>
+    </div>
+  </div>
+</div>
+
+<!-- ======= 庫存管理頁 ======= -->
+<div id="page-inventory" class="page">
+  <div class="page-inner">
+    <div class="page-toolbar">
+      <h1 class="page-title">🏪 庫存管理</h1>
+      <div class="toolbar-right">
+        <button class="btn-secondary" onclick="loadInventoryPage()">🔄 重新整理</button>
+        <button class="btn-secondary" onclick="showInventoryLogs()">📜 庫存紀錄</button>
+      </div>
+    </div>
+    <!-- 低庫存警示 -->
+    <div id="lowStockAlerts" style="margin-bottom:16px"></div>
+    <!-- 庫存表格 -->
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>商品名稱</th>
+            <th>每份克數</th>
+            <th>目前庫存(g)</th>
+            <th>可售數量</th>
+            <th>低庫存警戒</th>
+            <th>狀態</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody id="inventoryBody">
+          <tr><td colspan="7" class="table-empty">載入中...</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <!-- 無庫存商品提示 -->
+    <div id="noInventoryNote" style="display:none;margin-top:16px;padding:14px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);color:var(--text-muted);font-size:13px">
+      💡 目前無啟用庫存管理的商品。<br>請到「商品管理」→ 編輯商品 → 啟用庫存功能。
+    </div>
+  </div>
+</div>
+
+<!-- 補貨 Modal -->
+<div class="modal-overlay" id="restockModal" onclick="if(event.target===this)closeRestockModal()">
+  <div class="modal" style="max-width:400px">
+    <div class="modal-header">
+      <h3>📦 補貨</h3>
+      <button class="modal-close" onclick="closeRestockModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="restockProductId">
+      <p id="restockProductName" style="font-weight:700;font-size:16px;margin-bottom:4px"></p>
+      <p id="restockCurrentInfo" style="font-size:13px;color:var(--text-secondary);margin-bottom:12px"></p>
+      <label>補貨克數 (g) *
+        <input type="number" id="restockGrams" placeholder="例：3000" min="1">
+      </label>
+      <label>備註
+        <input type="text" id="restockReason" value="補貨" placeholder="補貨原因">
+      </label>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeRestockModal()">取消</button>
+      <button class="btn-primary" onclick="confirmRestock()">確認補貨</button>
+    </div>
+  </div>
+</div>
+
+<!-- 庫存調整 Modal -->
+<div class="modal-overlay" id="adjustModal" onclick="if(event.target===this)closeAdjustModal()">
+  <div class="modal" style="max-width:400px">
+    <div class="modal-header">
+      <h3>🔧 手動調整庫存</h3>
+      <button class="modal-close" onclick="closeAdjustModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="adjustProductId">
+      <p id="adjustProductName" style="font-weight:700;font-size:16px;margin-bottom:4px"></p>
+      <p id="adjustCurrentInfo" style="font-size:13px;color:var(--text-secondary);margin-bottom:12px"></p>
+      <label>調整克數（正數增加，負數減少）*
+        <input type="number" id="adjustGrams" placeholder="例：-200 或 500">
+      </label>
+      <label>調整原因 *
+        <select id="adjustReason">
+          <option value="報廢">報廢</option>
+          <option value="試吃">試吃</option>
+          <option value="員工餐">員工餐</option>
+          <option value="盤點修正">盤點修正</option>
+          <option value="其他">其他</option>
+        </select>
+      </label>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeAdjustModal()">取消</button>
+      <button class="btn-primary" onclick="confirmAdjust()">確認調整</button>
+    </div>
+  </div>
+</div>
+
+<!-- 庫存紀錄 Modal -->
+<div class="modal-overlay" id="invLogsModal" onclick="if(event.target===this)closeInvLogs()">
+  <div class="modal" style="max-width:640px;max-height:90vh">
+    <div class="modal-header">
+      <h3>📜 庫存操作紀錄</h3>
+      <button class="modal-close" onclick="closeInvLogs()">✕</button>
+    </div>
+    <div id="invLogsBody" style="max-height:65vh;overflow-y:auto;padding:16px 20px"></div>
+    <div class="modal-footer">
+      <button class="btn-primary" onclick="closeInvLogs()">關閉</button>
+    </div>
+  </div>
+</div>
+
+<!-- 外送平台 Modal -->
+<div class="modal-overlay" id="platformModal" onclick="if(event.target===this)closePlatformModal()">
+  <div class="modal" style="max-width:400px">
+    <div class="modal-header">
+      <h3 id="platformModalTitle">新增外送平台</h3>
+      <button class="modal-close" onclick="closePlatformModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="editPlatformId">
+      <label>平台名稱 *<input type="text" id="editPlatformName" placeholder="例：Uber Eats"></label>
+      <label>抽成比例 (%)
+        <input type="number" id="editPlatformRate" placeholder="例：30" min="0" max="100" step="0.1">
+      </label>
+      <label class="checkbox-label">
+        <input type="checkbox" id="editPlatformActive" checked>
+        <span>啟用此平台</span>
+      </label>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closePlatformModal()">取消</button>
+      <button class="btn-primary" onclick="savePlatform()">儲存</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast 通知 -->
+<div class="toast-container" id="toastContainer"></div>
+
+<script src="/js/app.js"></script>
+</body>
+</html>

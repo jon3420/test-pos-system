@@ -1,0 +1,24 @@
+{
+  "name": "foodtruck-pos",
+  "version": "1.0.0",
+  "description": "餐車 POS 系統",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "npx nodemon server.js"
+  },
+  "dependencies": {
+    "@node-escpos/core": "^0.6.0",
+    "@node-escpos/network-adapter": "^0.0.1",
+    "body-parser": "^1.20.2",
+    "cors": "^2.8.5",
+    "escpos": "^3.0.0-alpha.6",
+    "escpos-network": "^3.0.0-alpha.5",
+    "express": "^4.18.2",
+    "lowdb": "^3.0.0",
+    "node-fetch": "^2.7.0",
+    "sql.js": "^1.14.1",
+    "uuid": "^9.0.0",
+    "iconv-lite": "^0.6.3"
+  }
+}
