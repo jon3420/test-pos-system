@@ -169,7 +169,20 @@ initDb().then((db) => {
 
   const { router: invRouter } = require('./routes/inventory');
   app.use('/api/inventory', requireFeature('inventory'), invRouter);
-  app.use('/api', require('./routes/importExport'));
+
+  // ── importExport：分拆掛載，對 ingredient 相關 import/export 加授權保護 ──
+  // 先掛受保護的 ingredient import/export（/api/import/ingredients 等）
+  const importExportRouter = require('./routes/importExport');
+  // 建立 middleware：只保護 ingredient / ingredient-formula 路徑
+  const _guardIngredientImport = (req, res, next) => {
+    const path = req.path; // e.g. /import/ingredients
+    const needsGuard = /\/(import|export)\/ingredient/.test(path);
+    if (needsGuard) {
+      return requireFeature('inventory')(req, res, next);
+    }
+    next();
+  };
+  app.use('/api', _guardIngredientImport, importExportRouter);
 
   app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 

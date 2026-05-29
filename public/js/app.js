@@ -3815,8 +3815,23 @@ async function submitImport(type, btn) {
   btn.disabled = true; btn.textContent = '匯入中…';
   try {
     const res  = await fetch(`/api/import/${type}`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ rows }) });
-    const json = await res.json();
     const resultDiv = document.getElementById(`_import-result-${type}`);
+
+    // ── v18-r1-fix1：先檢查 HTTP 狀態，處理 403 授權擋住的情況 ──
+    if (!res.ok) {
+      let errMsg = `HTTP ${res.status}`;
+      try {
+        const errJson = await res.json();
+        errMsg = errJson.message || errMsg;
+      } catch {}
+      resultDiv.innerHTML = `<div style="color:#f87171">❌ 匯入失敗：${escHtml(errMsg)}</div>`;
+      resultDiv.style.cssText = 'display:block;background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.3);border-radius:8px;padding:12px;margin-top:10px';
+      showToast('匯入失敗：' + errMsg, 'error');
+      btn.disabled = false; btn.textContent = '開始匯入';
+      return;
+    }
+
+    const json = await res.json();
     if (json.success) {
       const parts = [];
       if (json.added)   parts.push(`新增 ${json.added} 筆`);
@@ -3828,15 +3843,16 @@ async function submitImport(type, btn) {
       }
       resultDiv.innerHTML = html;
       resultDiv.style.cssText = 'display:block;background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.3);border-radius:8px;padding:12px;margin-top:10px';
-      // reload relevant data
+      // reload relevant data（只有真的寫入成功才重新載入）
       if (type === 'products' || type === 'product-inventory') { loadInventoryPage(); if (typeof loadProductsPage === 'function') loadProductsPage(); }
       if (type === 'ingredients' || type === 'ingredient-formulas') loadIngredientsPage();
       showToast('匯入完成', 'success');
     } else {
       resultDiv.innerHTML = `<div style="color:#f87171">❌ 匯入失敗：${escHtml(json.message)}</div>`;
       resultDiv.style.cssText = 'display:block;background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.3);border-radius:8px;padding:12px;margin-top:10px';
+      showToast('匯入失敗：' + (json.message || ''), 'error');
     }
-  } catch(e) { showToast('網路錯誤', 'error'); }
+  } catch(e) { showToast('網路錯誤：' + e.message, 'error'); }
   btn.disabled = false; btn.textContent = '開始匯入';
 }
 
