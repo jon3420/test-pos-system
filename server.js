@@ -128,11 +128,23 @@ initDb().then((db) => {
     console.log(`[Migration] orders id 修復完成，有效訂單：${fixed?.c ?? 0} 筆`);
   } catch(e) { console.error('[Migration] id 修復失敗:', e.message); }
 
-  // ── v18+ 授權系統 ─────────────────────────────────────────
+  // ── v18+ 授權系統（r1-fix2）─────────────────────────────────
+  // 設計原則：
+  //   Web POS 後台完整開放（店家正常管理生意）
+  //   Android POS 根據 /api/license/:storeId 授權控制功能
+  //   授權 middleware 只用於 /api/license CRUD 的管理員保護
+  // ─────────────────────────────────────────────────────────────
   const { router: licenseRouter } = require('./routes/license');
-  const { requireFeature } = require('./middleware/licenseGuard');
+  const { requireAdminMode }      = require('./middleware/adminGuard');
   app.use('/api/license', licenseRouter);
 
+  // ── 管理員狀態 API ────────────────────────────────────────
+  app.get('/api/admin/status', (req, res) => {
+    const adminMode = process.env.ADMIN_MODE === 'true';
+    res.json({ admin_mode: adminMode });
+  });
+
+  // ── Web POS 核心路由（無授權限制，Web 後台完整開放）────────
   app.use('/api/products',         require('./routes/products'));
   app.use('/api/orders',           require('./routes/orders'));
   app.use('/api/customers',        require('./routes/customers'));
@@ -145,17 +157,16 @@ initDb().then((db) => {
   app.use('/api/print-jobs',       require('./routes/printJobs'));
   app.use('/api/sync',             require('./routes/sync'));
   app.use('/api/kitchen',          require('./routes/kitchen'));
-  // v16 新增：食材庫存管理（授權保護）
-  app.use('/api/ingredients',      requireFeature('inventory'), require('./routes/ingredients'));
+  // 食材庫存管理（Web POS 完整開放）
+  app.use('/api/ingredients',      require('./routes/ingredients'));
 
-  // LINE 點餐系統（授權保護）
+  // LINE 點餐系統（Web POS 完整開放，Android 由 LicenseManager 控制）
   const lineOrderRouter = require('./routes/line-orders');
-  app.use('/api/line-shop',     requireFeature('line_order'), (req, res, next) => { req.url = '/shop'; lineOrderRouter(req, res, next); });
-  app.use('/api/line-menu',     requireFeature('line_order'), (req, res, next) => { req.url = '/menu'; lineOrderRouter(req, res, next); });
-  app.use('/api/line-orders',   requireFeature('line_order'), lineOrderRouter);
-  // v18：直接掛載獨立的 online-orders 路由（不透過 line-orders 別名轉接）
-  // 確保 PATCH /api/online-orders/:id/status 不會掉到 index.html fallback
-  app.use('/api/online-orders', requireFeature('line_order'), require('./routes/online-orders'));
+  app.use('/api/line-shop',    (req, res, next) => { req.url = '/shop'; lineOrderRouter(req, res, next); });
+  app.use('/api/line-menu',    (req, res, next) => { req.url = '/menu'; lineOrderRouter(req, res, next); });
+  app.use('/api/line-orders',  lineOrderRouter);
+  // online-orders 獨立路由（Web POS 完整開放）
+  app.use('/api/online-orders', require('./routes/online-orders'));
 
   app.get('/api/printers/list', async (req, res) => {
     try {
@@ -168,21 +179,10 @@ initDb().then((db) => {
   });
 
   const { router: invRouter } = require('./routes/inventory');
-  app.use('/api/inventory', requireFeature('inventory'), invRouter);
+  app.use('/api/inventory', invRouter);
 
-  // ── importExport：分拆掛載，對 ingredient 相關 import/export 加授權保護 ──
-  // 先掛受保護的 ingredient import/export（/api/import/ingredients 等）
-  const importExportRouter = require('./routes/importExport');
-  // 建立 middleware：只保護 ingredient / ingredient-formula 路徑
-  const _guardIngredientImport = (req, res, next) => {
-    const path = req.path; // e.g. /import/ingredients
-    const needsGuard = /\/(import|export)\/ingredient/.test(path);
-    if (needsGuard) {
-      return requireFeature('inventory')(req, res, next);
-    }
-    next();
-  };
-  app.use('/api', _guardIngredientImport, importExportRouter);
+  // importExport 完整開放（Web POS 自用）
+  app.use('/api', require('./routes/importExport'));
 
   app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 

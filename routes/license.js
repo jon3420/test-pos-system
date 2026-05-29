@@ -1,7 +1,16 @@
-// routes/license.js — 雲端授權管理 API (v18-r1)
+// routes/license.js — 雲端授權管理 API (v18-r1-fix2)
 const express = require('express');
 const router  = express.Router();
 const { getDb } = require('../utils/db');
+const { requireAdminMode } = require('../middleware/adminGuard');
+
+// ── 管理員模式說明 ────────────────────────────────────────
+// GET  /api/license           → 開放（管理員查詢清單）
+// GET  /api/license/plans/defaults → 開放（前台套用預設）
+// GET  /api/license/:storeId  → 開放（Android 查詢授權）
+// POST /api/license           → 需要 ADMIN_MODE=true
+// PUT  /api/license/:storeId  → 需要 ADMIN_MODE=true
+// DELETE /api/license/:storeId → 需要 ADMIN_MODE=true
 
 // ── 預設方案功能清單 ──────────────────────────────────────
 const PLAN_DEFAULTS = {
@@ -113,8 +122,8 @@ router.get('/:storeId', (req, res) => {
   }
 });
 
-// ── POST /api/license — 新增授權 ─────────────────────────
-router.post('/', (req, res) => {
+// ── POST /api/license — 新增授權（需 ADMIN_MODE）────────────
+router.post('/', requireAdminMode, (req, res) => {
   try {
     const db = getDb();
     ensureLicenseTable(db);
@@ -137,8 +146,8 @@ router.post('/', (req, res) => {
   }
 });
 
-// ── PUT /api/license/:storeId — 更新授權 ────────────────
-router.put('/:storeId', (req, res) => {
+// ── PUT /api/license/:storeId — 更新授權（需 ADMIN_MODE）──
+router.put('/:storeId', requireAdminMode, (req, res) => {
   try {
     const db = getDb();
     ensureLicenseTable(db);
@@ -181,8 +190,8 @@ router.put('/:storeId', (req, res) => {
   }
 });
 
-// ── DELETE /api/license/:storeId — 刪除授權 ─────────────
-router.delete('/:storeId', (req, res) => {
+// ── DELETE /api/license/:storeId — 刪除授權（需 ADMIN_MODE）
+router.delete('/:storeId', requireAdminMode, (req, res) => {
   try {
     const db = getDb();
     ensureLicenseTable(db);

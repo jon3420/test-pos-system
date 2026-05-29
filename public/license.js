@@ -1,9 +1,9 @@
-/* license.js — 店家授權管理 (v18-r1-fix1)
- * 修正：
- *  1. switchSettingsTab patch 改用 DOMContentLoaded 後掛 tab=license 事件
- *  2. showToast 呼叫加上第二參數
- *  3. Modal 確保掛在 body 上可互動
- *  4. 刪除確認後重新載入清單
+/* license.js — 店家授權管理 (v18-r1-fix2)
+ *
+ * Fix2 修正：
+ *  1. 編輯按鈕 onclick 雙引號衝突 → 改用 data-store-id attribute + addEventListener
+ *  2. 新增 ADMIN_MODE 控制：呼叫 /api/admin/status 決定是否顯示授權管理
+ *  3. 非 ADMIN_MODE 下隱藏整個授權 Tab
  */
 
 const FEATURE_LABELS = {
@@ -26,24 +26,52 @@ const PLAN_COLORS = { basic: '#607d8b', pro: '#1976d2', enterprise: '#7b1fa2' };
 
 let _editingStoreId = null;
 let _allLicenses    = [];
+let _adminMode      = false;
 
-// ── 小工具 ───────────────────────────────────────────────
+// ── 工具 ─────────────────────────────────────────────────
 function escHtml(s) {
   return String(s == null ? '' : s)
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
-
 function licToast(msg, type) {
   if (typeof showToast === 'function') showToast(msg, type || 'success');
 }
 
+// ── ADMIN_MODE 初始化 ─────────────────────────────────────
+async function initAdminMode() {
+  try {
+    const res  = await fetch('/api/admin/status');
+    const data = await res.json();
+    _adminMode = !!data.admin_mode;
+  } catch {
+    _adminMode = false;
+  }
+  applyAdminModeUI();
+}
+
+function applyAdminModeUI() {
+  const tabBtn = document.querySelector('[data-stab="license"]');
+  if (!tabBtn) return;
+  if (_adminMode) {
+    tabBtn.style.display = '';
+  } else {
+    tabBtn.style.display = 'none';
+    // 若目前在 license tab，切回 basic
+    const panel = document.getElementById('stab-license');
+    if (panel && panel.style.display !== 'none') {
+      if (typeof switchSettingsTab === 'function') switchSettingsTab('basic');
+    }
+  }
+}
+
 // ── 載入授權清單 ──────────────────────────────────────────
 async function loadLicenses() {
+  if (!_adminMode) return;
   const el = document.getElementById('licenseList');
   if (!el) return;
-  el.innerHTML = '<div style="color:var(--text-secondary,#aaa);font-size:14px;padding:12px">載入中…</div>';
+  el.innerHTML = '<div style="color:var(--text-secondary,#aaa);padding:12px">載入中…</div>';
   try {
-    const res  = await fetch('/api/license');
+    const res = await fetch('/api/license');
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     if (!data.success) throw new Error(data.message || '未知錯誤');
@@ -54,6 +82,7 @@ async function loadLicenses() {
   }
 }
 
+// ── 渲染清單（使用 data-* attribute，避免 onclick 引號衝突）────
 function renderLicenseList(list) {
   const el = document.getElementById('licenseList');
   if (!el) return;
@@ -63,7 +92,7 @@ function renderLicenseList(list) {
     return;
   }
 
-  el.innerHTML = list.map(lic => {
+  el.innerHTML = list.map((lic, idx) => {
     const planColor = PLAN_COLORS[lic.plan] || '#607d8b';
     const activeTag = lic.active
       ? '<span style="background:#43a047;color:#fff;padding:2px 8px;border-radius:10px;font-size:12px">✅ 啟用</span>'
@@ -72,33 +101,51 @@ function renderLicenseList(list) {
     const chips = Object.entries(FEATURE_LABELS).map(([k, label]) => {
       const on = lic.features && lic.features[k];
       return `<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:12px;margin:2px;
-        background:${on?'#e8f5e9':'#f5f5f5'};color:${on?'#2e7d32':'#9e9e9e'};
-        border:1px solid ${on?'#a5d6a7':'#e0e0e0'}">${escHtml(label)} ${on?'✓':'✗'}</span>`;
+        background:${on?'#e8f5e9':'#2a2a2a'};color:${on?'#2e7d32':'#9e9e9e'};
+        border:1px solid ${on?'#a5d6a7':'#444'}">${escHtml(label)} ${on?'✓':'✗'}</span>`;
     }).join('');
 
-    const sid = escHtml(lic.store_id);
-    const sname = escHtml(lic.store_name);
-
+    // ★ 關鍵修正：使用 data-idx attribute，不在 onclick 直接嵌入字串
     return `<div style="border:1px solid var(--border,#333);border-radius:10px;padding:16px;margin-bottom:12px;background:var(--bg-card,#1e1e2e)">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
-        <span style="font-weight:700;font-size:16px">${sname}</span>
-        <span style="font-size:12px;color:#888">ID: <code>${sid}</code></span>
+        <span style="font-weight:700;font-size:16px">${escHtml(lic.store_name)}</span>
+        <span style="font-size:12px;color:#888">ID: <code>${escHtml(lic.store_id)}</code></span>
         <span style="background:${planColor};color:#fff;padding:2px 8px;border-radius:10px;font-size:12px">${escHtml(PLAN_LABELS[lic.plan]||lic.plan)}</span>
         ${activeTag}
         <div style="margin-left:auto;display:flex;gap:6px;flex-shrink:0">
-          <button class="btn-secondary" style="font-size:12px;padding:4px 12px"
-            onclick="licenseEdit(${JSON.stringify(sid)})">✏️ 編輯</button>
-          <button class="btn-secondary" style="font-size:12px;padding:4px 12px;color:#e53935;border-color:#e53935"
-            onclick="licenseDelete(${JSON.stringify(sid)},${JSON.stringify(sname)})">🗑️ 刪除</button>
+          <button class="lic-edit-btn" data-idx="${idx}"
+            style="font-size:12px;padding:4px 12px;background:transparent;border:1px solid var(--border,#555);border-radius:6px;color:var(--text-primary,#fff);cursor:pointer">
+            ✏️ 編輯</button>
+          <button class="lic-del-btn" data-idx="${idx}"
+            style="font-size:12px;padding:4px 12px;background:transparent;border:1px solid #e53935;border-radius:6px;color:#e53935;cursor:pointer">
+            🗑️ 刪除</button>
         </div>
       </div>
       <div>${chips}</div>
     </div>`;
   }).join('');
+
+  // ★ 事件委派：統一在 licenseList 上綁定，避免 onclick HTML 屬性的引號問題
+  el.removeEventListener('click', _licenseListClick);
+  el.addEventListener('click', _licenseListClick);
+}
+
+function _licenseListClick(e) {
+  const editBtn = e.target.closest('.lic-edit-btn');
+  const delBtn  = e.target.closest('.lic-del-btn');
+  if (editBtn) {
+    const idx = parseInt(editBtn.dataset.idx, 10);
+    licenseEdit(_allLicenses[idx]);
+  } else if (delBtn) {
+    const idx = parseInt(delBtn.dataset.idx, 10);
+    const lic = _allLicenses[idx];
+    licenseDelete(lic.store_id, lic.store_name);
+  }
 }
 
 // ── 新增 ──────────────────────────────────────────────────
 function licenseOpenAddModal() {
+  if (!_adminMode) return;
   _editingStoreId = null;
   showLicenseModal({
     store_id: '', store_name: '', plan: 'basic', active: true,
@@ -108,19 +155,16 @@ function licenseOpenAddModal() {
   }, '➕ 新增店家授權');
 }
 
-// ── 編輯（從清單點擊）─────────────────────────────────────
-function licenseEdit(storeId) {
-  const lic = _allLicenses.find(l => l.store_id === storeId);
+// ── 編輯（傳入 lic 物件，不再傳字串避免引號問題）──────────
+function licenseEdit(lic) {
+  if (!_adminMode) return;
   if (!lic) { alert('找不到授權資料，請重新整理'); return; }
-  _editingStoreId = storeId;
+  _editingStoreId = lic.store_id;
   showLicenseModal(lic, `✏️ 編輯授權：${lic.store_name}`);
 }
-// 保留舊名稱相容性
-function licenseOpenEditModal(storeId) { licenseEdit(storeId); }
 
-// ── 顯示 Modal ────────────────────────────────────────────
+// ── Modal ─────────────────────────────────────────────────
 function showLicenseModal(lic, title) {
-  // 移除舊 modal
   document.getElementById('licenseModal')?.remove();
 
   const planOptions = ['basic','pro','enterprise'].map(p =>
@@ -136,39 +180,34 @@ function showLicenseModal(lic, title) {
   }).join('');
 
   const isEdit = !!_editingStoreId;
+  const inputStyle = 'width:100%;box-sizing:border-box;padding:8px 10px;background:var(--bg-card,#1e1e2e);border:1px solid var(--border,#444);border-radius:6px;color:var(--text-primary,#fff);font-size:14px';
+  const readonlyStyle = inputStyle + ';opacity:.6;cursor:not-allowed';
 
-  const html = `<div id="licenseModal"
-    style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.7);
-           z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px"
-    onclick="if(event.target===this)closeLicenseModal()">
+  const modal = document.createElement('div');
+  modal.id = 'licenseModal';
+  modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.75);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px';
+  modal.innerHTML = `
     <div style="background:var(--bg-primary,#12121f);border:1px solid var(--border,#333);border-radius:12px;
                 padding:24px;max-width:520px;width:100%;max-height:90vh;overflow-y:auto;
-                box-shadow:0 20px 60px rgba(0,0,0,.5)">
+                box-shadow:0 20px 60px rgba(0,0,0,.6)">
       <h2 style="margin:0 0 20px;font-size:18px">${escHtml(title)}</h2>
 
       <div style="margin-bottom:14px">
         <label style="display:block;font-size:12px;color:var(--text-secondary,#aaa);margin-bottom:4px">店家名稱 *</label>
-        <input id="lm_store_name" type="text" value="${escHtml(lic.store_name)}" placeholder="例：台北店"
-          style="width:100%;box-sizing:border-box;padding:8px 10px;background:var(--bg-card,#1e1e2e);
-                 border:1px solid var(--border,#444);border-radius:6px;color:var(--text-primary,#fff);font-size:14px">
+        <input id="lm_store_name" type="text" value="${escHtml(lic.store_name)}" placeholder="例：台北店" style="${inputStyle}">
       </div>
 
       <div style="margin-bottom:14px">
         <label style="display:block;font-size:12px;color:var(--text-secondary,#aaa);margin-bottom:4px">
-          Store ID * <span style="color:#888;font-size:11px">（英數字 / 底線，唯一識別）</span>
+          Store ID * <span style="color:#888;font-size:11px">${isEdit ? '（編輯模式不可修改）' : '（英數字 / 底線，唯一識別）'}</span>
         </label>
         <input id="lm_store_id" type="text" value="${escHtml(lic.store_id)}" placeholder="例：taipei_01"
-          ${isEdit?'readonly style="width:100%;box-sizing:border-box;padding:8px 10px;background:var(--bg-card,#1e1e2e);border:1px solid var(--border,#444);border-radius:6px;color:#888;font-size:14px;opacity:.7"'
-                  :'style="width:100%;box-sizing:border-box;padding:8px 10px;background:var(--bg-card,#1e1e2e);border:1px solid var(--border,#444);border-radius:6px;color:var(--text-primary,#fff);font-size:14px"'}>
+          ${isEdit ? 'readonly' : ''} style="${isEdit ? readonlyStyle : inputStyle}">
       </div>
 
       <div style="margin-bottom:14px">
         <label style="display:block;font-size:12px;color:var(--text-secondary,#aaa);margin-bottom:4px">方案</label>
-        <select id="lm_plan"
-          style="width:100%;padding:8px 10px;background:var(--bg-card,#1e1e2e);border:1px solid var(--border,#444);
-                 border-radius:6px;color:var(--text-primary,#fff);font-size:14px">
-          ${planOptions}
-        </select>
+        <select id="lm_plan" style="${inputStyle}">${planOptions}</select>
       </div>
 
       <div style="margin-bottom:18px">
@@ -181,8 +220,8 @@ function showLicenseModal(lic, title) {
       <div style="border:1px solid var(--border,#444);border-radius:8px;padding:14px;margin-bottom:18px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
           <strong style="font-size:14px">功能授權開關</strong>
-          <button onclick="licenseApplyPlanDefaults()"
-            style="font-size:12px;padding:4px 12px;background:transparent;border:1px solid var(--border,#444);
+          <button id="lm_apply_plan_btn"
+            style="font-size:12px;padding:4px 12px;background:transparent;border:1px solid var(--border,#555);
                    border-radius:6px;color:var(--text-primary,#fff);cursor:pointer">
             🔄 套用方案預設
           </button>
@@ -191,21 +230,27 @@ function showLicenseModal(lic, title) {
       </div>
 
       <div style="display:flex;gap:10px;justify-content:flex-end">
-        <button onclick="closeLicenseModal()"
-          style="padding:8px 20px;background:transparent;border:1px solid var(--border,#444);
+        <button id="lm_cancel_btn"
+          style="padding:8px 20px;background:transparent;border:1px solid var(--border,#555);
                  border-radius:6px;color:var(--text-primary,#fff);cursor:pointer;font-size:14px">
           取消
         </button>
-        <button onclick="licenseSave()"
+        <button id="lm_save_btn"
           style="padding:8px 20px;background:#1976d2;border:none;border-radius:6px;
                  color:#fff;cursor:pointer;font-size:14px;font-weight:600">
           💾 儲存
         </button>
       </div>
-    </div>
-  </div>`;
+    </div>`;
 
-  document.body.insertAdjacentHTML('beforeend', html);
+  // backdrop click
+  modal.addEventListener('click', e => { if (e.target === modal) closeLicenseModal(); });
+  document.body.appendChild(modal);
+
+  // button events (DOM-based, no onclick attr)
+  modal.querySelector('#lm_cancel_btn').addEventListener('click', closeLicenseModal);
+  modal.querySelector('#lm_save_btn').addEventListener('click', licenseSave);
+  modal.querySelector('#lm_apply_plan_btn').addEventListener('click', licenseApplyPlanDefaults);
 }
 
 function closeLicenseModal() {
@@ -225,13 +270,13 @@ async function licenseApplyPlanDefaults() {
       const cb = document.getElementById(`lf_${k}`);
       if (cb) cb.checked = !!v;
     });
-    licToast(`已套用 ${PLAN_LABELS[plan] || plan} 方案預設`, 'success');
+    licToast(`已套用 ${PLAN_LABELS[plan]||plan} 方案預設`, 'success');
   } catch(e) {
     alert('無法取得方案預設：' + e.message);
   }
 }
 
-// ── 儲存（新增 or 更新）──────────────────────────────────
+// ── 儲存 ──────────────────────────────────────────────────
 async function licenseSave() {
   const store_id   = (document.getElementById('lm_store_id')?.value || '').trim();
   const store_name = (document.getElementById('lm_store_name')?.value || '').trim();
@@ -246,7 +291,7 @@ async function licenseSave() {
     features[k] = !!(document.getElementById(`lf_${k}`)?.checked);
   });
 
-  const saveBtn = document.querySelector('#licenseModal button[onclick="licenseSave()"]');
+  const saveBtn = document.getElementById('lm_save_btn');
   if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = '儲存中…'; }
 
   try {
@@ -263,6 +308,10 @@ async function licenseSave() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ store_id, store_name, plan, active, features })
       });
+    }
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message || `HTTP ${res.status}`);
     }
     const data = await res.json();
     if (!data.success) throw new Error(data.message || '儲存失敗');
@@ -281,6 +330,7 @@ async function licenseDelete(storeId, storeName) {
   if (!confirm(`確定要刪除「${storeName}」的授權嗎？\n此操作無法復原。`)) return;
   try {
     const res  = await fetch(`/api/license/${encodeURIComponent(storeId)}`, { method: 'DELETE' });
+    if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.message||`HTTP ${res.status}`); }
     const data = await res.json();
     if (!data.success) throw new Error(data.message || '刪除失敗');
     await loadLicenses();
@@ -290,25 +340,23 @@ async function licenseDelete(storeId, storeName) {
   }
 }
 
-// ── 掛接 switchSettingsTab（在 DOMContentLoaded 後執行，確保 app.js 已定義）──
+// ── Tab 切換掛接 ──────────────────────────────────────────
 function _hookLicenseTab() {
-  // app.js 的 switchSettingsTab 已在 index.html 中 inline 呼叫，直接攔截它
   const origFn = window.switchSettingsTab;
   if (typeof origFn === 'function') {
     window.switchSettingsTab = function(tab) {
       origFn.call(this, tab);
-      if (tab === 'license') loadLicenses();
+      if (tab === 'license' && _adminMode) loadLicenses();
     };
-  }
-  // 若已在 license tab，立即載入
-  if (document.getElementById('stab-license')?.style.display !== 'none') {
-    loadLicenses();
   }
 }
 
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', _hookLicenseTab);
-} else {
-  // 若 license.js 在 app.js 之後載入（實際情況），直接執行
-  _hookLicenseTab();
-}
+// ── 初始化 ────────────────────────────────────────────────
+(function init() {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => { _hookLicenseTab(); initAdminMode(); });
+  } else {
+    _hookLicenseTab();
+    initAdminMode();
+  }
+})();
