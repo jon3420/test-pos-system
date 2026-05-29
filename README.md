@@ -43,7 +43,7 @@ npm install
 npm start
 
 # 4. 開啟瀏覽器
-# 前往 http://localhost:3000
+# 前往 http://localhost:5000
 ```
 
 ### 開發模式（自動重啟）
@@ -239,7 +239,7 @@ railway init
 railway up
 
 # 3. 設定環境變數
-railway env set PORT=3000
+railway env set PORT=5000
 ```
 
 ### Render 部署
@@ -256,18 +256,18 @@ railway env set PORT=3000
 ### 基本 API 測試
 ```bash
 # 健康檢查
-curl http://localhost:3000/api/health
+curl http://localhost:5000/api/health
 
 # 取得商品
-curl http://localhost:3000/api/products
+curl http://localhost:5000/api/products
 
 # 新增商品
-curl -X POST http://localhost:3000/api/products \
+curl -X POST http://localhost:5000/api/products \
   -H "Content-Type: application/json" \
   -d '{"name":"炒米粉","category":"主食","price":80}'
 
 # 結帳（模擬）
-curl -X POST http://localhost:3000/api/orders \
+curl -X POST http://localhost:5000/api/orders \
   -H "Content-Type: application/json" \
   -d '{
     "items": [{"productId":1,"name":"冷拌麻油腰子","price":150,"qty":1,"subtotal":150}],
@@ -277,18 +277,18 @@ curl -X POST http://localhost:3000/api/orders \
   }'
 
 # 今日統計
-curl http://localhost:3000/api/stats/today
+curl http://localhost:5000/api/stats/today
 ```
 
 ### Webhook 測試
 ```bash
 # 手動觸發 Webhook（替換 ORDER_ID）
-curl -X POST http://localhost:3000/api/orders/webhook-test/ORDER_ID
+curl -X POST http://localhost:5000/api/orders/webhook-test/ORDER_ID
 ```
 
 ### 模擬 n8n Webhook 接收
 ```bash
-curl -X POST http://localhost:3000/webhook/n8n \
+curl -X POST http://localhost:5000/webhook/n8n \
   -H "Content-Type: application/json" \
   -d '{"test": "hello from n8n"}'
 ```

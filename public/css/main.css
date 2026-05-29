@@ -1270,8 +1270,9 @@ body {
   color: #4caf50;
   font-family: var(--font-mono);
 }
-.product-card-stock.low  { background: #1a1200; color: var(--accent); }
-.product-card-stock.zero { background: #2a0a0a; color: var(--danger); }
+.product-card-stock.ok   { background: rgba(74,222,128,.12); color: #4ade80; }
+.product-card-stock.low  { background: rgba(251,191,36,.12); color: #fbbf24; }
+.product-card-stock.zero { background: rgba(248,113,113,.12); color: #f87171; }
 
 /* 已售完遮罩 */
 .product-card.sold-out {
@@ -1459,7 +1460,9 @@ body {
   font-weight: 700;
 }
 .ostatus-pending    { background: #1a1200; color: #ffb74d; }
+.ostatus-accepted   { background: #0a2a0a; color: #81c784; }
 .ostatus-preparing  { background: #0a1a2a; color: #64b5f6; }
+.ostatus-ready      { background: #1a0a2a; color: #ce93d8; }
 .ostatus-delivering { background: #1a0a2a; color: #ce93d8; }
 .ostatus-completed  { background: #0a2a0a; color: #4caf50; }
 .ostatus-cancelled  { background: #2a0a0a; color: #e53935; }
@@ -1728,4 +1731,521 @@ body {
   margin-right: 3px;
   vertical-align: middle;
   letter-spacing: 0.3px;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   v16 整合 UI 修正：防溢出 + Modal 文字深色 + bizHoursGrid
+   ═══════════════════════════════════════════════════════════ */
+
+/* 防止設定頁產生水平捲軸 */
+.settings-tab-panel {
+  overflow-x: hidden;
+  box-sizing: border-box;
+}
+.settings-card {
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+/* bizHoursGrid 卡片強制不超出 */
+#bizHoursGrid > div {
+  box-sizing: border-box;
+  min-width: 0;
+}
+#bizHoursGrid input[type="time"] {
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  color: #222 !important;
+  background: #fff !important;
+}
+#bizHoursGrid label {
+  color: #222 !important;
+}
+
+/* 食材庫存表格：白底深字，不受 dark theme 影響 */
+#ingredientsList table {
+  color: #222 !important;
+}
+#ingredientsList thead tr {
+  background: #1e3a52 !important;
+  color: #fff !important;
+}
+#ingredientsList thead th {
+  color: #fff !important;
+}
+#ingredientsList tbody tr {
+  background: #fff;
+}
+#ingredientsList tbody tr:nth-child(even) {
+  background: #f9fafb;
+}
+#ingredientsList tbody td {
+  color: #222;
+}
+
+/* 動態插入的 Modal 強制白底深字 */
+#_ingLogModal > div,
+#_fmlModal > div {
+  background: #fff !important;
+  color: #222 !important;
+}
+#_ingLogModal h3,
+#_fmlModal h3,
+#_ingLogModal h4,
+#_fmlModal h4 {
+  color: #222 !important;
+}
+#_ingLogModal table,
+#_fmlModal table {
+  color: #222 !important;
+}
+#_ingLogModal thead th,
+#_fmlModal thead th {
+  color: #fff !important;
+  background: #1e3a52 !important;
+}
+#_ingLogModal tbody td,
+#_fmlModal tbody td {
+  color: #333 !important;
+}
+#_ingLogModal input,
+#_ingLogModal select,
+#_fmlModal input,
+#_fmlModal select {
+  color: #222 !important;
+  background: #fff !important;
+}
+
+/* 動態 Modal X 按鈕 hover */
+#_ingLogClose:hover,
+#_fmlClose:hover {
+  background: #e0e0e0 !important;
+}
+
+@media (max-width: 600px) {
+  #bizHoursGrid {
+    grid-template-columns: 1fr 1fr !important;
+  }
+}
+@media (max-width: 400px) {
+  #bizHoursGrid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* ===== 食材庫存管理 - 正式營運版介面 ===== */
+
+/* 工具列 */
+.ing-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.ing-toolbar-left { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.ing-toolbar-right { display: flex; gap: 8px; align-items: center; }
+
+.ing-btn-primary {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--accent); color: #000;
+  border: none; border-radius: 8px;
+  padding: 9px 16px; font-size: 13px; font-weight: 700;
+  cursor: pointer; font-family: var(--font-body);
+  transition: background .15s, transform .1s;
+  white-space: nowrap;
+}
+.ing-btn-primary:hover { background: var(--accent-light); transform: translateY(-1px); }
+.ing-btn-primary:active { transform: translateY(0); }
+
+.ing-btn-secondary {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--bg-card); color: var(--text-primary);
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: 8px 14px; font-size: 13px; font-weight: 600;
+  cursor: pointer; font-family: var(--font-body);
+  transition: border-color .15s, background .15s;
+  white-space: nowrap;
+}
+.ing-btn-secondary:hover { border-color: var(--accent); color: var(--accent); background: rgba(245,166,35,.08); }
+
+.ing-btn-ghost {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: transparent; color: var(--text-secondary);
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: 8px 14px; font-size: 13px; font-weight: 500;
+  cursor: pointer; font-family: var(--font-body);
+  transition: color .15s, border-color .15s;
+  white-space: nowrap;
+}
+.ing-btn-ghost:hover { color: var(--text-primary); border-color: #555; }
+.ing-btn-disabled { opacity: .45; pointer-events: none; }
+
+/* 搜尋列 */
+.ing-search-row {
+  display: flex; align-items: center; gap: 12px;
+  margin-bottom: 14px; flex-wrap: wrap;
+}
+.ing-search-wrap {
+  position: relative; flex: 1; min-width: 200px;
+}
+.ing-search-icon {
+  position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+  color: var(--text-muted); pointer-events: none;
+}
+.ing-search-input {
+  width: 100%; background: var(--bg-card);
+  border: 1px solid var(--border); border-radius: 8px;
+  color: var(--text-primary); font-family: var(--font-body);
+  font-size: 13px; padding: 9px 12px 9px 38px;
+  transition: border-color .15s;
+  outline: none;
+}
+.ing-search-input:focus { border-color: var(--accent); }
+.ing-search-input::placeholder { color: var(--text-muted); }
+
+/* 分類標籤 */
+.ing-cat-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+.ing-cat-tag {
+  padding: 5px 12px; border-radius: 20px; font-size: 12px; font-weight: 600;
+  background: var(--bg-card); border: 1px solid var(--border);
+  color: var(--text-secondary); cursor: pointer;
+  transition: all .15s; white-space: nowrap;
+}
+.ing-cat-tag:hover { border-color: var(--accent); color: var(--accent); }
+.ing-cat-tag.active { background: var(--accent); border-color: var(--accent); color: #000; }
+
+/* 列表容器 */
+.ing-list-wrap {
+  display: flex; flex-direction: column; gap: 0;
+  border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
+}
+.ing-loading {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  padding: 48px; color: var(--text-muted); font-size: 14px;
+}
+
+/* 表頭 */
+.ing-table-header {
+  display: grid;
+  grid-template-columns: 2fr 60px 90px 90px 110px 90px 80px 1fr;
+  background: linear-gradient(135deg, #1a1a1a 0%, #222 100%);
+  border-bottom: 2px solid var(--accent);
+  padding: 0;
+}
+.ing-th {
+  padding: 11px 10px; font-size: 11px; font-weight: 700;
+  color: var(--accent); text-transform: uppercase; letter-spacing: .05em;
+  text-align: center;
+}
+.ing-th:first-child { text-align: left; }
+
+/* 食材行 */
+.ing-row {
+  display: grid;
+  grid-template-columns: 2fr 60px 90px 90px 110px 90px 80px 1fr;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+  transition: background .12s;
+}
+.ing-row:last-child { border-bottom: none; }
+.ing-row:hover { background: var(--bg-hover); }
+
+.ing-cell {
+  padding: 12px 10px; font-size: 13px; text-align: center;
+  color: var(--text-primary);
+}
+.ing-cell:first-child { text-align: left; }
+
+/* 食材名稱 */
+.ing-name {
+  font-weight: 700; font-size: 14px; color: var(--text-primary);
+  display: flex; align-items: center; gap: 8px;
+}
+.ing-unit-badge {
+  font-size: 10px; font-weight: 600; padding: 2px 7px;
+  border-radius: 4px; background: rgba(245,166,35,.15);
+  color: var(--accent); border: 1px solid rgba(245,166,35,.3);
+  letter-spacing: .03em;
+}
+
+/* 庫存數值 */
+.ing-stock-frozen { color: #60a5fa; font-weight: 700; }
+.ing-stock-thawing { color: #fb923c; font-weight: 600; }
+.ing-stock-refrigerated { color: #4ade80; font-weight: 700; font-size: 15px; }
+.ing-stock-total { color: var(--text-primary); font-weight: 600; }
+
+/* 狀態標籤 */
+.ing-status {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 9px; border-radius: 5px;
+  font-size: 11px; font-weight: 700; letter-spacing: .03em;
+}
+.ing-status-ok { background: rgba(74,222,128,.15); color: #4ade80; border: 1px solid rgba(74,222,128,.3); }
+.ing-status-low { background: rgba(251,191,36,.15); color: #fbbf24; border: 1px solid rgba(251,191,36,.3); }
+.ing-status-out { background: rgba(248,113,113,.15); color: #f87171; border: 1px solid rgba(248,113,113,.3); }
+
+/* 操作按鈕群組 */
+.ing-actions {
+  display: flex; gap: 4px; align-items: center; flex-wrap: wrap;
+  padding: 8px 8px;
+}
+.ing-act-btn {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 5px 9px; border-radius: 6px; font-size: 11px; font-weight: 600;
+  border: 1px solid; cursor: pointer; font-family: var(--font-body);
+  transition: all .12s; white-space: nowrap;
+}
+.ing-act-btn:hover { transform: translateY(-1px); }
+.ing-act-purchase { background: rgba(96,165,250,.12); color: #60a5fa; border-color: rgba(96,165,250,.3); }
+.ing-act-purchase:hover { background: rgba(96,165,250,.25); }
+.ing-act-freeze { background: rgba(167,139,250,.12); color: #a78bfa; border-color: rgba(167,139,250,.3); }
+.ing-act-freeze:hover { background: rgba(167,139,250,.25); }
+.ing-act-thaw { background: rgba(74,222,128,.12); color: #4ade80; border-color: rgba(74,222,128,.3); }
+.ing-act-thaw:hover { background: rgba(74,222,128,.25); }
+.ing-act-scrap { background: rgba(251,191,36,.12); color: #fbbf24; border-color: rgba(251,191,36,.3); }
+.ing-act-scrap:hover { background: rgba(251,191,36,.25); }
+.ing-act-edit { background: rgba(245,166,35,.12); color: var(--accent); border-color: rgba(245,166,35,.3); }
+.ing-act-edit:hover { background: rgba(245,166,35,.25); }
+.ing-act-delete { background: rgba(248,113,113,.12); color: #f87171; border-color: rgba(248,113,113,.3); }
+.ing-act-delete:hover { background: rgba(248,113,113,.25); }
+
+/* 手機版：隱藏文字，只顯示 icon */
+@media (max-width: 700px) {
+  .ing-toolbar { gap: 8px; }
+  .ing-btn-primary span, .ing-btn-secondary span { display: none; }
+  .ing-table-header { display: none; }
+  .ing-row {
+    display: block; padding: 14px;
+    border-radius: 10px; margin-bottom: 8px;
+    border: 1px solid var(--border);
+  }
+  .ing-list-wrap { border: none; background: transparent; gap: 8px; }
+  .ing-cell { padding: 4px 0; display: flex; justify-content: space-between; align-items: center; }
+  .ing-cell::before {
+    content: attr(data-label);
+    font-size: 11px; color: var(--text-muted); font-weight: 600;
+    text-transform: uppercase; letter-spacing: .05em; flex-shrink: 0;
+  }
+  .ing-cell:first-child { border-bottom: 1px solid var(--border); padding-bottom: 10px; margin-bottom: 8px; }
+  .ing-act-btn .act-label { display: none; }
+  .ing-actions { justify-content: flex-end; padding: 8px 0 0; }
+  .ing-act-btn { padding: 7px 10px; }
+}
+
+/* 新增食材 Modal */
+.ing-modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.75);
+  z-index: 9999; display: flex; align-items: center; justify-content: center;
+  padding: 16px; box-sizing: border-box;
+  backdrop-filter: blur(4px);
+  opacity: 0; transition: opacity .2s;
+}
+.ing-modal-overlay.open { opacity: 1; }
+.ing-modal {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 14px; padding: 24px;
+  max-width: 440px; width: 100%;
+  box-shadow: 0 20px 60px rgba(0,0,0,.7);
+  transform: scale(.95); transition: transform .2s;
+}
+.ing-modal-overlay.open .ing-modal { transform: scale(1); }
+
+.ing-modal-header {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 20px;
+}
+.ing-modal-title {
+  font-size: 16px; font-weight: 800; color: var(--text-primary);
+  display: flex; align-items: center; gap: 8px;
+}
+.ing-modal-title::before {
+  content: ''; display: block; width: 4px; height: 18px;
+  background: var(--accent); border-radius: 2px;
+}
+.ing-modal-close {
+  background: var(--bg-hover); border: none; color: var(--text-secondary);
+  width: 30px; height: 30px; border-radius: 50%; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; font-size: 16px;
+  transition: background .12s, color .12s;
+}
+.ing-modal-close:hover { background: var(--bg-active); color: var(--text-primary); }
+
+.ing-form-group { margin-bottom: 16px; }
+.ing-form-label {
+  display: block; font-size: 12px; font-weight: 700;
+  color: var(--text-secondary); text-transform: uppercase;
+  letter-spacing: .05em; margin-bottom: 7px;
+}
+.ing-form-input, .ing-form-select {
+  width: 100%; background: var(--bg-card);
+  border: 1px solid var(--border); border-radius: 8px;
+  color: var(--text-primary); font-family: var(--font-body);
+  font-size: 14px; padding: 10px 12px; outline: none;
+  transition: border-color .15s;
+}
+.ing-form-input:focus, .ing-form-select:focus { border-color: var(--accent); }
+.ing-form-input::placeholder { color: var(--text-muted); }
+.ing-form-select option { background: var(--bg-card); }
+
+.ing-form-hint {
+  font-size: 11px; color: var(--text-muted); margin-top: 5px;
+}
+
+.ing-modal-footer {
+  display: flex; gap: 10px; justify-content: flex-end; margin-top: 22px;
+}
+.ing-modal-cancel {
+  padding: 9px 18px; border-radius: 8px; font-size: 13px; font-weight: 600;
+  background: var(--bg-hover); border: 1px solid var(--border);
+  color: var(--text-secondary); cursor: pointer; font-family: var(--font-body);
+  transition: background .12s;
+}
+.ing-modal-cancel:hover { background: var(--bg-active); color: var(--text-primary); }
+.ing-modal-submit {
+  padding: 9px 22px; border-radius: 8px; font-size: 13px; font-weight: 700;
+  background: var(--accent); border: none; color: #000;
+  cursor: pointer; font-family: var(--font-body);
+  transition: background .12s, transform .1s;
+}
+.ing-modal-submit:hover { background: var(--accent-light); transform: translateY(-1px); }
+
+/* Action Modal (進貨/解凍/報廢) */
+.ing-action-modal {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 14px; padding: 24px;
+  max-width: 400px; width: 100%;
+  box-shadow: 0 20px 60px rgba(0,0,0,.7);
+}
+.ing-action-info {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 8px; padding: 12px 14px; margin-bottom: 16px;
+}
+.ing-action-info-row {
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 13px; padding: 3px 0;
+}
+.ing-action-info-label { color: var(--text-muted); }
+.ing-action-info-value { font-weight: 700; color: var(--text-primary); }
+
+/* 異動紀錄 Modal */
+.ing-log-modal {
+  background: var(--bg-panel); border: 1px solid var(--border);
+  border-radius: 14px; padding: 0;
+  max-width: 860px; width: 100%;
+  max-height: 90vh; display: flex; flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0,0,0,.7);
+  overflow: hidden;
+}
+.ing-log-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 20px 24px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+}
+.ing-log-body { overflow-y: auto; flex: 1; }
+.ing-log-table {
+  width: 100%; border-collapse: collapse; font-size: 13px;
+}
+.ing-log-table thead th {
+  padding: 10px 14px; text-align: left; font-size: 11px; font-weight: 700;
+  color: var(--accent); text-transform: uppercase; letter-spacing: .05em;
+  background: var(--bg-card); border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; z-index: 1;
+}
+.ing-log-table tbody td { padding: 11px 14px; border-bottom: 1px solid rgba(255,255,255,.05); }
+.ing-log-table tbody tr:hover td { background: var(--bg-hover); }
+
+.ing-log-type {
+  display: inline-flex; align-items: center;
+  padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 700;
+}
+.log-type-purchase { background: rgba(96,165,250,.15); color: #60a5fa; }
+.log-type-freeze { background: rgba(167,139,250,.15); color: #a78bfa; }
+.log-type-thaw { background: rgba(74,222,128,.15); color: #4ade80; }
+.log-type-sale { background: rgba(245,166,35,.15); color: var(--accent); }
+.log-type-scrap { background: rgba(248,113,113,.15); color: #f87171; }
+.log-type-manual { background: rgba(156,163,175,.15); color: #9ca3af; }
+
+/* 商品扣料公式 Modal */
+.ing-formula-modal {
+  background: var(--bg-panel); border: 1px solid var(--border);
+  border-radius: 14px; padding: 0;
+  max-width: 740px; width: 100%;
+  max-height: 90vh; display: flex; flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0,0,0,.7);
+  overflow: hidden;
+}
+.ing-formula-add {
+  background: rgba(245,166,35,.06); border: 1px solid rgba(245,166,35,.2);
+  border-radius: 10px; padding: 16px; margin: 16px 20px;
+}
+.ing-formula-add-title {
+  font-size: 12px; font-weight: 700; color: var(--accent);
+  text-transform: uppercase; letter-spacing: .05em; margin-bottom: 12px;
+}
+.ing-formula-fields {
+  display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end;
+}
+.ing-formula-field { display: flex; flex-direction: column; gap: 5px; }
+.ing-formula-field label { font-size: 11px; color: var(--text-muted); font-weight: 600; }
+.ing-formula-field select,
+.ing-formula-field input {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 6px; color: var(--text-primary); font-family: var(--font-body);
+  font-size: 13px; padding: 8px 10px; outline: none;
+  transition: border-color .15s;
+}
+.ing-formula-field select:focus, .ing-formula-field input:focus { border-color: var(--accent); }
+.ing-formula-field select { min-width: 160px; }
+.ing-formula-field input { width: 100px; }
+
+.ing-formula-table-wrap { overflow-y: auto; flex: 1; padding: 0 20px 20px; }
+.ing-formula-table {
+  width: 100%; border-collapse: collapse; font-size: 13px;
+  border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
+}
+.ing-formula-table thead th {
+  padding: 10px 14px; font-size: 11px; font-weight: 700;
+  color: var(--accent); text-transform: uppercase; letter-spacing: .05em;
+  background: var(--bg-card); border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+.ing-formula-table tbody td { padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,.05); }
+.ing-formula-table tbody tr:hover td { background: var(--bg-hover); }
+
+/* 動畫 */
+@keyframes ing-spin {
+  to { transform: rotate(360deg); }
+}
+.ing-spin { animation: ing-spin 1.2s linear infinite; }
+
+@keyframes ing-row-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.ing-row { animation: ing-row-in .18s ease forwards; }
+
+/* ===== 庫存管理 — 子分頁切換 ===== */
+.inv-subtabs {
+  display: flex; gap: 0; margin-bottom: 18px;
+  border-bottom: 2px solid var(--border);
+}
+.inv-subtab {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 10px 20px; font-size: 13px; font-weight: 700;
+  background: transparent; border: none;
+  color: var(--text-muted); cursor: pointer;
+  font-family: var(--font-body); border-bottom: 2px solid transparent;
+  margin-bottom: -2px; transition: color .15s, border-color .15s;
+  white-space: nowrap;
+}
+.inv-subtab:hover { color: var(--text-primary); }
+.inv-subtab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
 }

@@ -245,7 +245,12 @@
   <div class="page-inner">
     <div class="page-toolbar">
       <h1 class="page-title">📦 商品管理</h1>
-      <button class="btn-primary" onclick="openProductModal()">＋ 新增商品</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <button class="btn-primary" onclick="openProductModal()">＋ 新增商品</button>
+        <button class="btn-secondary" onclick="openImportModal('products')">📥 匯入商品</button>
+        <button class="btn-secondary" onclick="exportCsv('products')">📤 匯出商品</button>
+        <button class="ing-btn-ghost" onclick="downloadTemplate('products')">📋 下載範本</button>
+      </div>
     </div>
     <div class="table-wrap">
       <table class="data-table">
@@ -274,6 +279,8 @@
       <button class="settings-tab-btn"        data-stab="gateway"  onclick="switchSettingsTab('gateway')">🔌 金流設定</button>
       <button class="settings-tab-btn"        data-stab="platform" onclick="switchSettingsTab('platform')">🛵 外送平台</button>
       <button class="settings-tab-btn"        data-stab="printer"  onclick="switchSettingsTab('printer')">🖨️ 出單機</button>
+      <button class="settings-tab-btn"        data-stab="line_biz" onclick="switchSettingsTab('line_biz')">📡 LINE 營業</button>
+      <button class="settings-tab-btn"        data-stab="license"  onclick="switchSettingsTab('license')">&#x1F511; 店家授權</button>
     </div>
 
     <!-- 基本設定 -->
@@ -442,6 +449,129 @@
       </div>
     </div>
 
+    <!-- LINE 營業設定 Tab -->
+    <div class="settings-tab-panel" id="stab-line_biz" style="display:none">
+      <div class="settings-grid">
+        <div class="settings-card">
+          <h3>📡 LINE 點餐總開關</h3>
+          <div id="lineOrderingStatus" style="margin-bottom:12px;font-size:14px;font-weight:600">載入中…</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn-primary" style="background:#06C755;border-color:#06C755" onclick="setLineOrdering(true)">🟢 開啟 LINE 點餐</button>
+            <button class="btn-primary" style="background:#e53935;border-color:#e53935" onclick="setLineOrdering(false)">🔴 關閉 LINE 點餐</button>
+          </div>
+          <hr style="margin:16px 0;border-color:#eee">
+          <h3>🌙 今日臨時休息</h3>
+          <div id="todayClosedStatus" style="margin-bottom:12px;font-size:14px">載入中…</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn-secondary" onclick="setTodayClosed(true)">🌙 設定今日休息</button>
+            <button class="btn-secondary" onclick="setTodayClosed(false)">✅ 取消今日休息</button>
+          </div>
+          <p style="font-size:12px;color:#888;margin-top:8px">隔日自動恢復</p>
+        </div>
+        <div class="settings-card">
+          <h3>🚴 自取 / 外送開關</h3>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+            <button class="btn-secondary" onclick="setPickup(true)">✅ 開啟自取</button>
+            <button class="btn-secondary" onclick="setPickup(false)">❌ 關閉自取</button>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn-secondary" onclick="setDelivery(true)">✅ 開啟外送</button>
+            <button class="btn-secondary" onclick="setDelivery(false)">❌ 關閉外送</button>
+          </div>
+          <div id="pickupDeliveryStatus" style="margin-top:12px;font-size:13px;color:#333;font-weight:600">載入中…</div>
+        </div>
+        <div class="settings-card">
+          <h3>💳 LINE 點餐付款方式</h3>
+          <p style="font-size:12px;color:#888;margin-bottom:12px">控制 LINE 點餐頁顯示的付款方式</p>
+          <div style="display:flex;flex-direction:column;gap:10px" id="linePaymentToggles">
+            <label class="checkbox-label">
+              <input type="checkbox" id="lp-cash" onchange="saveLinePaymentSettings()">
+              <span>💵 現金 (cash)</span>
+            </label>
+            <label class="checkbox-label">
+              <input type="checkbox" id="lp-linepay" onchange="saveLinePaymentSettings()">
+              <span>💚 LINE Pay</span>
+            </label>
+            <label class="checkbox-label">
+              <input type="checkbox" id="lp-transfer" onchange="saveLinePaymentSettings()">
+              <span>🏦 轉帳</span>
+            </label>
+            <label class="checkbox-label">
+              <input type="checkbox" id="lp-platform" onchange="saveLinePaymentSettings()">
+              <span>📱 平台付款</span>
+            </label>
+            <label class="checkbox-label">
+              <input type="checkbox" id="lp-credit_card" onchange="saveLinePaymentSettings()">
+              <span>💳 信用卡</span>
+            </label>
+          </div>
+          <div id="linePaymentStatus" style="margin-top:10px;font-size:12px;color:#888"></div>
+        </div>
+        <div class="settings-card" style="grid-column:1/-1;overflow:hidden">
+          <h3>🕐 LINE 點餐營業時間</h3>
+          <label class="checkbox-label" style="margin-bottom:14px">
+            <input type="checkbox" id="set-line_business_hours_enabled" onchange="saveLineBizSettings()">
+            <span>啟用營業時間限制（未啟用則全天可點）</span>
+          </label>
+          <div id="bizHoursGrid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;width:100%;box-sizing:border-box">
+            <!-- 由 JS 動態產生 -->
+          </div>
+          <button class="btn-primary" style="margin-top:14px" onclick="saveLineBizSettings()">💾 儲存營業設定</button>
+        </div>
+        <!-- 預約設定 -->
+        <div class="settings-card" style="grid-column:1/-1">
+          <h3>⏱️ 預約取餐時間設定</h3>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-bottom:16px">
+            <label>
+              <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:6px">當日最短備餐時間（分鐘）</div>
+              <input type="number" id="set-same_day_preorder_minutes" min="0" step="5" placeholder="30" class="form-input" style="width:100%">
+              <div style="font-size:11px;color:var(--text-muted);margin-top:4px">客人選今天取餐，可選時段需超過「現在+N分鐘」</div>
+            </label>
+            <label>
+              <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:6px">隔日最短預訂時間（小時）</div>
+              <input type="number" id="set-next_day_preorder_hours" min="0" step="1" placeholder="2" class="form-input" style="width:100%">
+              <div style="font-size:11px;color:var(--text-muted);margin-top:4px">預留給明天 / 後天的最短前置時間</div>
+            </label>
+          </div>
+          <h3 style="margin-top:8px">📅 固定公休日</h3>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px" id="closedWeekdayBtns">
+            <label class="checkbox-label"><input type="checkbox" class="cwd-chk" value="mon"> 週一</label>
+            <label class="checkbox-label"><input type="checkbox" class="cwd-chk" value="tue"> 週二</label>
+            <label class="checkbox-label"><input type="checkbox" class="cwd-chk" value="wed"> 週三</label>
+            <label class="checkbox-label"><input type="checkbox" class="cwd-chk" value="thu"> 週四</label>
+            <label class="checkbox-label"><input type="checkbox" class="cwd-chk" value="fri"> 週五</label>
+            <label class="checkbox-label"><input type="checkbox" class="cwd-chk" value="sat"> 週六</label>
+            <label class="checkbox-label"><input type="checkbox" class="cwd-chk" value="sun"> 週日</label>
+          </div>
+          <h3>📋 指定店休日（每行一個日期，格式 YYYY-MM-DD）</h3>
+          <textarea id="set-line_closed_dates_text" rows="3" placeholder="例：2026-06-04\n2026-06-05" style="width:100%;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);padding:8px 10px;font-family:var(--font-body);font-size:13px;resize:vertical"></textarea>
+          <button class="btn-primary" style="margin-top:12px" onclick="saveAdvancedLineSettings()">💾 儲存預約設定</button>
+        </div>
+      </div>
+    </div>
+
+
+
+    <!-- 授權管理 Tab -->
+    <div class="settings-tab-panel" id="stab-license" style="display:none">
+      <div class="settings-grid">
+        <!-- 說明 -->
+        <div class="settings-card full">
+          <h3>🔑 店家授權管理</h3>
+          <p style="color:var(--text-secondary);font-size:13px;margin-bottom:16px">
+            控制各店家可使用的功能。Android App 功能顯示由此控制，後端 API 亦受授權保護。
+          </p>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px">
+            <button class="btn-primary" onclick="licenseOpenAddModal()">➕ 新增店家授權</button>
+            <button class="btn-secondary" onclick="loadLicenses()">🔄 重新整理</button>
+          </div>
+          <div id="licenseList">
+            <div style="color:var(--text-secondary);font-size:14px">載入中…</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -515,13 +645,21 @@
           <input type="checkbox" id="editInventoryEnabled" onchange="toggleInventoryFields()">
           <span>📦 啟用庫存管理（重量制）</span>
         </label>
-        <div id="inventoryFields" style="display:none;margin-top:10px;display:none">
+        <div id="inventoryFields" style="display:none;margin-top:10px">
+          <!-- 食材控管提示 (由 JS 顯示/隱藏) -->
+          <div id="formulaControlledNotice" style="display:none;background:rgba(167,139,250,.12);border:1px solid rgba(167,139,250,.3);border-radius:8px;padding:10px 12px;margin-bottom:10px;font-size:12px;color:#a78bfa">
+            <strong>🔗 此商品由食材庫存控管</strong><br>
+            目前庫存與可售數量由「商品扣料公式」對應的食材冷藏可販售量自動計算，<br>無需手動輸入庫存克數。
+          </div>
           <label>每份分配克數 (g)
             <input type="number" id="editAllocatedGrams" placeholder="例：200" min="1">
           </label>
-          <label>目前庫存克數 (g)
-            <input type="number" id="editCurrentStockGrams" placeholder="例：3000" min="0">
-          </label>
+          <!-- 目前庫存只在非食材控管時顯示 -->
+          <div id="stockGramsRow">
+            <label>目前庫存克數 (g)
+              <input type="number" id="editCurrentStockGrams" placeholder="例：3000" min="0">
+            </label>
+          </div>
           <label>低庫存警戒（份數）
             <input type="number" id="editLowStockAlert" placeholder="例：5" min="0">
           </label>
@@ -756,36 +894,116 @@
   <div class="page-inner">
     <div class="page-toolbar">
       <h1 class="page-title">🏪 庫存管理</h1>
-      <div class="toolbar-right">
+    </div>
+
+    <!-- 子分頁切換 -->
+    <div class="inv-subtabs">
+      <button class="inv-subtab active" id="invSubtab-product" onclick="switchInvSubtab('product')">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+        商品庫存
+      </button>
+      <button class="inv-subtab" id="invSubtab-ingredient" onclick="switchInvSubtab('ingredient')">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a9 9 0 0 1 9 9v1H3v-1a9 9 0 0 1 9-9z"/><path d="M5 22h14"/><path d="M12 12v10"/></svg>
+        食材庫存 / 備料管理
+      </button>
+    </div>
+
+    <!-- ===== 子分頁A：商品庫存 ===== -->
+    <div id="invPanel-product">
+      <div id="lowStockAlerts" style="margin-bottom:16px"></div>
+      <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
         <button class="btn-secondary" onclick="loadInventoryPage()">🔄 重新整理</button>
         <button class="btn-secondary" onclick="showInventoryLogs()">📜 庫存紀錄</button>
+        <button class="btn-secondary" onclick="openImportModal('product-inventory')">📥 匯入庫存</button>
+        <button class="btn-secondary" onclick="exportCsv('product-inventory')">📤 匯出庫存</button>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>商品名稱</th>
+              <th>每份克數 / 來源</th>
+              <th>目前庫存(g)</th>
+              <th>可售數量</th>
+              <th>低庫存警戒</th>
+              <th>狀態</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="inventoryBody">
+            <tr><td colspan="7" class="table-empty">載入中...</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div id="noInventoryNote" style="display:none;margin-top:16px;padding:14px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);color:var(--text-muted);font-size:13px">
+        💡 目前無啟用庫存管理的商品。<br>請到「商品管理」→ 編輯商品 → 啟用庫存功能。
       </div>
     </div>
-    <!-- 低庫存警示 -->
-    <div id="lowStockAlerts" style="margin-bottom:16px"></div>
-    <!-- 庫存表格 -->
-    <div class="table-wrap">
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>商品名稱</th>
-            <th>每份克數</th>
-            <th>目前庫存(g)</th>
-            <th>可售數量</th>
-            <th>低庫存警戒</th>
-            <th>狀態</th>
-            <th>操作</th>
-          </tr>
-        </thead>
-        <tbody id="inventoryBody">
-          <tr><td colspan="7" class="table-empty">載入中...</td></tr>
-        </tbody>
-      </table>
+
+    <!-- ===== 子分頁B：食材庫存 / 備料管理 ===== -->
+    <div id="invPanel-ingredient" style="display:none">
+
+      <!-- 頂部工具列 -->
+      <div class="ing-toolbar">
+        <div class="ing-toolbar-left">
+          <button class="ing-btn-primary" onclick="openIngredientModal()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            新增食材
+          </button>
+          <button class="ing-btn-secondary" onclick="openBatchPurchaseModal()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+            批次進貨
+          </button>
+          <button class="ing-btn-secondary" onclick="openFormulaManagerModal()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+            商品扣料公式
+          </button>
+          <button class="ing-btn-secondary" onclick="openIngredientLogsModal()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+            異動紀錄
+          </button>
+        </div>
+        <div class="ing-toolbar-right">
+          <button class="ing-btn-ghost" onclick="openImportModal('ingredients')">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            匯入食材
+          </button>
+          <button class="ing-btn-ghost" onclick="exportCsv('ingredients')">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            匯出食材
+          </button>
+          <button class="ing-btn-ghost" onclick="downloadTemplate('ingredients')">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            下載範本
+          </button>
+          <button class="ing-btn-ghost" onclick="loadIngredientsPage()">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+            庫存重整
+          </button>
+        </div>
+      </div>
+
+      <!-- 搜尋列 + 分類預留 -->
+      <div class="ing-search-row">
+        <div class="ing-search-wrap">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="ing-search-icon"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="text" id="ingSearchInput" class="ing-search-input" placeholder="搜尋食材名稱或單位…" oninput="filterIngredients(this.value)">
+        </div>
+        <div class="ing-cat-tags">
+          <span class="ing-cat-tag active" onclick="filterIngCat(this,'all')">全部</span>
+          <span class="ing-cat-tag" onclick="filterIngCat(this,'meat')">🥩 肉類</span>
+          <span class="ing-cat-tag" onclick="filterIngCat(this,'side')">🥗 小菜</span>
+          <span class="ing-cat-tag" onclick="filterIngCat(this,'drink')">🧋 飲料</span>
+          <span class="ing-cat-tag" onclick="filterIngCat(this,'sauce')">🫙 醬料</span>
+        </div>
+      </div>
+
+      <!-- 食材列表 -->
+      <div id="ingredientsList" class="ing-list-wrap">
+        <div class="ing-loading"><span>載入中…</span></div>
+      </div>
     </div>
-    <!-- 無庫存商品提示 -->
-    <div id="noInventoryNote" style="display:none;margin-top:16px;padding:14px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);color:var(--text-muted);font-size:13px">
-      💡 目前無啟用庫存管理的商品。<br>請到「商品管理」→ 編輯商品 → 啟用庫存功能。
-    </div>
+
   </div>
 </div>
 
@@ -888,5 +1106,97 @@
 <div class="toast-container" id="toastContainer"></div>
 
 <script src="/js/app.js"></script>
+<script src="/license.js"></script>
+
+<!-- LINE 商品設定 Modal (v16) -->
+<div class="modal-overlay" id="lineSettingsModal" onclick="if(event.target===this)closeLineSettingsModal()">
+  <div class="modal" style="max-width:560px;max-height:92vh;overflow-y:auto">
+    <div class="modal-header">
+      <h3 style="color:#06C755">📲 LINE 上架設定</h3>
+      <button class="modal-close" onclick="closeLineSettingsModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="lineSettingsProductId">
+      <p id="lineSettingsProductName" style="font-weight:700;font-size:15px;margin-bottom:12px;color:#222"></p>
+
+      <!-- LINE 顯示開關 -->
+      <label class="checkbox-label" style="margin-bottom:12px">
+        <input type="checkbox" id="lineShowOnLine" checked>
+        <span>👁 在 LINE 點餐頁顯示此商品</span>
+      </label>
+
+      <!-- 販售狀態 -->
+      <label>販售狀態
+        <select id="lineSaleStatus">
+          <option value="available">✅ 正常販售（可購買）</option>
+          <option value="sold_out_today">⏰ 今日完售（顯示但不可購買）</option>
+          <option value="paused">⏸ 暫停販售（顯示但不可購買）</option>
+          <option value="sold_out_indefinitely">🚫 長期下架（顯示但不可購買）</option>
+        </select>
+      </label>
+
+      <!-- LINE 名稱 -->
+      <label>LINE 顯示名稱
+        <input type="text" id="lineProductName" placeholder="空白時使用商品名稱">
+      </label>
+
+      <!-- LINE 價格 -->
+      <label>LINE 售價 (NT$)
+        <input type="number" id="lineProductPrice" placeholder="空白時使用 POS 售價" min="0">
+      </label>
+
+      <!-- LINE 描述 -->
+      <label>LINE 商品描述
+        <textarea id="lineProductDesc" placeholder="商品說明、配料、備註…" rows="3" style="resize:vertical"></textarea>
+      </label>
+
+      <!-- LINE 圖片 -->
+      <label>LINE 商品圖片 URL
+        <input type="text" id="lineImageUrl" placeholder="https://example.com/image.jpg">
+      </label>
+      <div id="lineImgPreviewWrap" style="margin-top:6px;display:none">
+        <img id="lineImgPreview" src="" alt="預覽" style="max-width:120px;max-height:120px;border-radius:8px;border:1px solid #eee">
+      </div>
+
+      <!-- LINE 顯示分類（客人端）：此分類只影響 LINE 點餐頁顯示，不影響 Web / Android 內部分類 -->
+      <label>LINE 顯示分類（客人端）
+        <select id="lineCategory" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;font-size:14px">
+          <option value="">（使用 POS 內部分類）</option>
+        </select>
+        <input type="hidden" id="lineCategoryId" value="0">
+        <span style="font-size:11px;color:#888;margin-top:4px;display:block">
+          💡 LINE 客人看到的分類。若留空則自動沿用 POS 內部分類。POS / Android 內部分類不受此影響。
+        </span>
+      </label>
+
+      <!-- 標籤 -->
+      <div style="display:flex;gap:16px;margin-top:4px">
+        <label class="checkbox-label">
+          <input type="checkbox" id="lineHot">
+          <span>🔥 熱銷標籤</span>
+        </label>
+        <label class="checkbox-label">
+          <input type="checkbox" id="linePromo">
+          <span>🎁 優惠標籤</span>
+        </label>
+        <label class="checkbox-label">
+          <input type="checkbox" id="lineSoldOut">
+          <span>❌ 售完（強制停止加購）</span>
+        </label>
+      </div>
+
+      <!-- 隔日自動恢復 -->
+      <label class="checkbox-label" style="margin-top:8px">
+        <input type="checkbox" id="lineAutoRestore" checked>
+        <span>🔄 今日完售隔日自動恢復為正常販售</span>
+      </label>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeLineSettingsModal()">取消</button>
+      <button class="btn-primary" style="background:#06C755;border-color:#06C755" onclick="saveLineSettings()">💾 儲存 LINE 設定</button>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>

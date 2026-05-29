@@ -2,6 +2,8 @@
 const express = require('express');
 const router = express.Router();
 const { getDb } = require('../utils/db');
+const { toGrams, fromGrams } = require('../utils/unitConvert');
+const { getAllInventoryStatuses, getProductInventoryStatus } = require('../utils/inventoryHelper');
 
 // ── helper ────────────────────────────────────────────────
 function calcUnits(grams, allocatedGrams) {
@@ -27,13 +29,24 @@ function writeInventoryLog(db, productId, productName, action, before, change, a
 router.get('/', (req, res) => {
   try {
     const db = getDb();
-    const products = db.all('SELECT * FROM products WHERE inventory_enabled=1 ORDER BY sort_order ASC, id ASC');
-    const enriched = products.map(p => ({
-      ...p,
-      available_units: calcUnits(p.current_stock_grams, p.allocated_grams),
-      is_low_stock: calcUnits(p.current_stock_grams, p.allocated_grams) <= Number(p.low_stock_alert || 5),
-      is_out_of_stock: calcUnits(p.current_stock_grams, p.allocated_grams) <= 0,
-    }));
+    // 使用統一 inventoryHelper，確保與結帳/警示等完全一致
+    const statuses = getAllInventoryStatuses(db);
+    // 補上商品完整欄位供前端使用
+    const enriched = statuses.map(s => {
+      const prod = db.get('SELECT * FROM products WHERE id=?', [s.product_id]);
+      return {
+        ...(prod || {}),
+        // 覆蓋庫存相關欄位為統一計算值
+        current_stock_grams: s.available_grams,
+        available_units:     s.available_units,
+        available_grams:     s.available_grams,
+        is_low_stock:        s.is_low_stock,
+        is_out_of_stock:     s.is_out_of_stock,
+        uses_ingredient:     s.is_formula_controlled,
+        low_stock_alert:     s.low_stock_alert,
+        status:              s.status,
+      };
+    });
     res.json({ success: true, data: enriched });
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });

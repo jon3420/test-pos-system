@@ -1,4 +1,4 @@
-// routes/categories.js
+// routes/categories.js — v16 整合版（含 LINE 聯動）
 const express = require('express');
 const router = express.Router();
 const { getDb } = require('../utils/db');
@@ -13,6 +13,31 @@ router.get('/', (req, res) => {
     if (active !== undefined) { sql += ' AND is_active=?'; p.push(Number(active)); }
     sql += ' ORDER BY sort_order ASC, id ASC';
     res.json({ success: true, data: db.all(sql, p) });
+  } catch(e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+// GET /api/categories/line-options — LINE 顯示分類下拉選單（客人端）
+// 說明：資料來自同一個 categories 表，但用途是 LINE 點餐頁的「客人端顯示分類」
+//       與 POS 內部分類是同一份資料，只是呈現在不同入口
+router.get('/line-options', (req, res) => {
+  try {
+    const db = getDb();
+    const cats = db.all(
+      'SELECT id, name, icon, sort_order FROM categories WHERE is_active=1 ORDER BY sort_order ASC, id ASC'
+    );
+    res.json({ success: true, data: cats });
+  } catch(e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+// GET /api/categories/pos-options — POS 內部分類下拉選單（Web + Android 共用）
+// 用途：Web 商品新增/編輯的分類選單
+router.get('/pos-options', (req, res) => {
+  try {
+    const db = getDb();
+    const cats = db.all(
+      'SELECT id, name, icon, sort_order FROM categories WHERE is_active=1 ORDER BY sort_order ASC, id ASC'
+    );
+    res.json({ success: true, data: cats });
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
 
@@ -43,9 +68,15 @@ router.put('/:id', (req, res) => {
       const dup = db.get('SELECT id FROM categories WHERE name=? AND id!=?', [name.trim(), cat.id]);
       if (dup) return res.status(409).json({ success: false, message: '分類名稱已存在' });
     }
+    const newName = name ?? cat.name;
+    // 同步更新 products.line_category（若分類名稱改變）
+    if (name && name.trim() !== cat.name) {
+      db.run(`UPDATE products SET line_category=?,updated_at=datetime('now','localtime') WHERE line_category=?`,
+        [name.trim(), cat.name]);
+    }
     db.run(
       "UPDATE categories SET name=?,icon=?,sort_order=?,is_active=?,updated_at=datetime('now','localtime') WHERE id=?",
-      [name??cat.name, icon??cat.icon, sort_order!==undefined?Number(sort_order):cat.sort_order,
+      [newName, icon??cat.icon, sort_order!==undefined?Number(sort_order):cat.sort_order,
        is_active!==undefined?Number(is_active):cat.is_active, cat.id]
     );
     res.json({ success: true, data: db.get('SELECT * FROM categories WHERE id=?', [cat.id]) });

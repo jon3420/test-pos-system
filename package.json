@@ -1,11 +1,12 @@
 {
   "name": "foodtruck-pos",
   "version": "1.0.0",
-  "description": "餐車 POS 系統",
+  "description": "餐車 POS 系統 — 預設 http://localhost:5000",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "npx nodemon server.js"
+    "dev": "npx nodemon server.js",
+    "start:5000": "PORT=5000 node server.js"
   },
   "dependencies": {
     "@node-escpos/core": "^0.6.0",
@@ -19,6 +20,7 @@
     "node-fetch": "^2.7.0",
     "sql.js": "^1.14.1",
     "uuid": "^9.0.0",
-    "iconv-lite": "^0.6.3"
+    "iconv-lite": "^0.6.3",
+    "ws": "^8.17.0"
   }
 }

@@ -1,3 +1,8 @@
+// ── 單位換算工具（前端版）────────────────────────────────
+const UNIT_TO_G = { '斤': 600, 'kg': 1000, 'g': 1 };
+function toGrams(amount, unit) { return Number(amount) * (UNIT_TO_G[unit] || 1); }
+function fromGrams(grams, unit) { return Number(grams) / (UNIT_TO_G[unit] || 1); }
+
 // ===== POS 系統 前端邏輯 =====
 
 const API = '';  // 同域，不需要前綴
@@ -54,17 +59,82 @@ function initDateRange() {
 }
 
 // ===== 頁面切換 =====
+let _invRefreshInterval = null;
+
 function showPage(name) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('page-' + name)?.classList.add('active');
   document.querySelector(`[data-page="${name}"]`)?.classList.add('active');
 
+  // 點餐頁：啟動庫存自動刷新（10秒）
+  if (name === 'pos') {
+    if (!_invRefreshInterval) {
+      _invRefreshInterval = setInterval(refreshInventoryForProducts, 10000);
+    }
+    refreshInventoryForProducts(); // 切換到點餐頁立即刷新一次
+  } else {
+    // 離開點餐頁時停止刷新
+    if (_invRefreshInterval) { clearInterval(_invRefreshInterval); _invRefreshInterval = null; }
+  }
+
   if (name === 'orders')     { loadCurrentOrderTab(); }
   if (name === 'products')   loadProductsPage();
   if (name === 'settings')   { loadSettingsPage(); switchSettingsTab('basic'); }
   if (name === 'categories') loadCategoriesPage();
-  if (name === 'inventory')  loadInventoryPage();
+  if (name === 'inventory')  { loadInventoryPage(); }
+}
+
+/**
+ * refreshInventoryForProducts — 背景刷新庫存，不清空購物車或重置分類
+ * 每 10 秒由 setInterval 呼叫，也可手動觸發（結帳後）
+ */
+async function refreshInventoryForProducts() {
+  try {
+    const invRes  = await fetch('/api/inventory');
+    const invJson = await invRes.json();
+    if (!invJson.success) return;
+
+    // 建立庫存 map
+    const invMap = {};
+    (invJson.data || []).forEach(iv => { invMap[iv.id] = iv; });
+
+    // 更新 allProducts 中的庫存欄位（不重建陣列，只 merge）
+    let cartAdjusted = false;
+    allProducts = allProducts.map(p => {
+      const iv = invMap[p.id];
+      if (!iv) return p;
+      const updated = {
+        ...p,
+        available_units: iv.available_units,
+        available_grams: iv.available_grams != null ? iv.available_grams : iv.current_stock_grams,
+        is_low_stock:    iv.is_low_stock,
+        is_out_of_stock: iv.is_out_of_stock,
+        uses_ingredient: iv.uses_ingredient,
+      };
+      // 購物車數量超出最新庫存時警示
+      if (iv.available_units !== null && cart.find(c => c.productId === p.id)) {
+        const cartItem = cart.find(c => c.productId === p.id);
+        if (cartItem && cartItem.qty > iv.available_units) {
+          if (!cartAdjusted) {
+            const newQty = Math.max(0, iv.available_units);
+            showToast(`庫存已更新，${p.name} 目前最多可售 ${newQty} 份`, 'info');
+            cartItem.qty = newQty;
+            if (cartItem.qty <= 0) cart = cart.filter(c => c.productId !== p.id);
+            cartAdjusted = true;
+          }
+        }
+      }
+      return updated;
+    });
+
+    // 同步 filteredProducts
+    const activeCat = document.querySelector('.cat-btn.active')?.dataset?.cat || 'all';
+    filteredProducts = activeCat === 'all' ? allProducts : allProducts.filter(p => p.category === activeCat);
+
+    // 只重繪商品格（不動購物車、分類、付款方式）
+    renderProductGrid();
+  } catch { /* silent — 背景刷新失敗不打擾使用者 */ }
 }
 
 // ===== 設定頁分頁 =====
@@ -73,14 +143,17 @@ let currentSettingsTab = 'basic';
 function switchSettingsTab(tab) {
   currentSettingsTab = tab;
   document.querySelectorAll('.settings-tab-btn').forEach(b => b.classList.toggle('active', b.dataset.stab === tab));
-  document.querySelectorAll('.settings-tab-panel').forEach(p => p.style.display = 'none');
+  document.querySelectorAll('.settings-tab-panel').forEach(p => { p.style.display = 'none'; });
   const panel = document.getElementById('stab-' + tab);
   if (panel) panel.style.display = 'block';
 
-  if (tab === 'payment')  loadPaymentMethodsPage();
-  if (tab === 'gateway')  loadGatewayPage();
-  if (tab === 'platform') loadPlatformsPage();
-  if (tab === 'printer')  loadPrinterSettings();
+  // 各 Tab 的資料載入
+  if (tab === 'payment')     loadPaymentMethodsPage();
+  if (tab === 'gateway')     loadGatewayPage();
+  if (tab === 'platform')    loadPlatformsPage();
+  if (tab === 'printer')     loadPrinterSettings();
+  if (tab === 'line_biz')    loadLineBizStatus();
+  if (tab === 'ingredients') loadIngredientsPage();
 }
 
 // ===== 設定 =====
@@ -130,18 +203,41 @@ async function saveSettings() {
 // ===== 商品載入（永遠從 server 取最新庫存，不使用舊快取） =====
 async function loadProducts() {
   try {
-    // 加 timestamp 防止瀏覽器快取舊回應
-    const res = await fetch('/api/products?enabled=1&_t=' + Date.now());
-    const json = await res.json();
-    if (json.success) {
-      allProducts = json.data.map(p => {
+    // 並行取商品列表 + 庫存資料（統一來源）
+    const [prodRes, invRes] = await Promise.all([
+      fetch('/api/products?enabled=1&_t=' + Date.now()),
+      fetch('/api/inventory')
+    ]);
+    const prodJson = await prodRes.json();
+    const invJson  = await invRes.json();
+
+    // 建立 inventory map: productId -> inventory record
+    const invMap = {};
+    if (invJson.success) {
+      (invJson.data || []).forEach(iv => { invMap[iv.id] = iv; });
+    }
+
+    if (prodJson.success) {
+      allProducts = prodJson.data.map(p => {
         // 合併 localStorage 圖片快取（base64 大圖）
         if (!p.image) {
           const local = getLocalImage(p.id);
           if (local) p = { ...p, image: local };
         }
-        // 防禦性：在前端重算 available_units，確保與 server 公式一致
-        if (p.inventory_enabled && p.allocated_grams > 0) {
+        // 統一從 /api/inventory 取庫存數量
+        const iv = invMap[p.id];
+        if (iv) {
+          // inventory 已包含單位換算後的正確數值
+          p = {
+            ...p,
+            available_units: iv.available_units,
+            available_grams: iv.current_stock_grams,
+            is_low_stock:    iv.is_low_stock,
+            is_out_of_stock: iv.is_out_of_stock,
+            uses_ingredient: iv.uses_ingredient,
+          };
+        } else if (p.inventory_enabled && Number(p.allocated_grams) > 0 && !p.has_formula) {
+          // fallback：商品自身庫存
           const freshUnits = Math.floor(Number(p.current_stock_grams) / Number(p.allocated_grams));
           p = {
             ...p,
@@ -225,19 +321,19 @@ function renderProductGrid() {
         <span class="product-card-img-placeholder-cat">${p.category}</span>
       </div>`;
 
-    // 庫存徽章
+    // 庫存徽章 — 統一從 available_units 讀取（已由 loadProducts 從 /api/inventory 同步）
     let stockBadge = '';
     let soldOutClass = '';
-    if (p.inventory_enabled && Number(p.allocated_grams) > 0) {
-      const units = Math.floor(Number(p.current_stock_grams) / Number(p.allocated_grams));
+    if (p.inventory_enabled && p.available_units !== null && p.available_units !== undefined) {
+      const units    = p.available_units;
       const lowAlert = Number(p.low_stock_alert || 5);
       if (units <= 0) {
         soldOutClass = ' sold-out';
-        stockBadge = `<div class="product-card-stock zero">已售完</div>`;
+        stockBadge = `<div class="product-card-stock zero">🔴 售完</div>`;
       } else if (units <= lowAlert) {
-        stockBadge = `<div class="product-card-stock low">⚠️ 剩 ${units} 份</div>`;
+        stockBadge = `<div class="product-card-stock low">🟡 剩 ${units} 份</div>`;
       } else {
-        stockBadge = `<div class="product-card-stock">剩 ${units} 份</div>`;
+        stockBadge = `<div class="product-card-stock ok">🟢 剩 ${units} 份</div>`;
       }
     }
 
@@ -265,16 +361,16 @@ function addToCart(productId) {
   const product = allProducts.find(p => p.id === productId);
   if (!product) return;
 
-  // 即時庫存防護：已售完直接擋
-  if (product.inventory_enabled && product.allocated_grams > 0) {
-    const freshUnits = Math.floor(Number(product.current_stock_grams) / Number(product.allocated_grams));
+  // 即時庫存防護：已售完直接擋（使用已同步的 available_units）
+  if (product.inventory_enabled && product.available_units !== null && product.available_units !== undefined) {
+    const units = product.available_units;
     const alreadyInCart = cart.find(i => i.productId === productId)?.qty || 0;
-    if (freshUnits <= 0) {
+    if (units <= 0) {
       showToast(`${product.name} 已售完`, 'error');
       return;
     }
-    if (alreadyInCart >= freshUnits) {
-      showToast(`${product.name} 庫存不足（最多 ${freshUnits} 份）`, 'error');
+    if (alreadyInCart >= units) {
+      showToast(`${product.name} 庫存不足（最多 ${units} 份）`, 'error');
       return;
     }
   }
@@ -559,6 +655,8 @@ async function checkout() {
       calcChange();
       _invProducts = [];
       loadProducts();
+      // 結帳成功後立即刷新庫存（不等下一個 10 秒週期）
+      refreshInventoryForProducts();
     } else {
       showToast('結帳失敗：' + (json.message || '未知錯誤'), 'error');
     }
@@ -578,7 +676,7 @@ function showReceiptModal(order) {
   };
   document.getElementById('receiptShopName').textContent = settings.shop_name || '餐車 POS';
   document.getElementById('receiptOrderNum').textContent = '訂單：' + order.order_number;
-  document.getElementById('receiptTime').textContent = order.created_at;
+  document.getElementById('receiptTime').textContent = twTime(order.created_at,'datetime');
   document.getElementById('receiptPayment').textContent = payLabel[order.payment_method] || order.payment_method;
   document.getElementById('receiptTotal').textContent = 'NT$' + order.total;
   document.getElementById('receiptFooter').textContent = settings.receipt_footer || '感謝您的光臨！';
@@ -586,7 +684,12 @@ function showReceiptModal(order) {
   // 模式資訊
   const modeInfo = [];
   if (order.order_mode === 'dine_in' && order.table_number) modeInfo.push(`桌號：${order.table_number}`);
-  if (order.order_mode === 'takeout' && order.pickup_name)  modeInfo.push(`取餐：${order.pickup_name}`);
+  if (order.order_mode === 'takeout' && order.pickup_name)  modeInfo.push(`取餐人：${order.pickup_name}`);
+  // pickup_time：LINE 訂單取餐時間（有值且非「盡快」才顯示）
+  if (order.pickup_time && order.pickup_time.trim() && order.pickup_time !== '盡快')
+    modeInfo.push(`⏰ 取餐時間：${order.pickup_time}`);
+  else if (order.pickup_time === '盡快')
+    modeInfo.push(`⏰ 取餐時間：盡快`);
   if (order.order_mode === 'delivery') {
     if (order.delivery_platform) modeInfo.push(`平台：${order.delivery_platform}`);
     if (order.delivery_address)  modeInfo.push(`地址：${order.delivery_address}`);
@@ -695,10 +798,12 @@ function openPrintWindow(order, printType='receipt') {
     ${order.customer_name     ? `<tr><td>顧客</td><td colspan="3" style="text-align:right">${escHtml(order.customer_name)}</td></tr>` : ''}
     ${order.customer_phone    ? `<tr><td>電話</td><td colspan="3" style="text-align:right">${escHtml(order.customer_phone)}</td></tr>` : ''}
     ${order.delivery_address  ? `<tr><td>地址</td><td colspan="3" style="text-align:right">${escHtml(order.delivery_address)}</td></tr>` : ''}
+    ${order.pickup_time       ? `<tr><td>⏰取餐時間</td><td colspan="3" style="text-align:right">${escHtml(order.pickup_time)}</td></tr>` : ''}
   ` : order.order_mode === 'dine_in' && order.table_number ? `
     <tr><td>桌號</td><td colspan="3" style="text-align:right">${escHtml(order.table_number)}</td></tr>
-  ` : order.order_mode === 'takeout' && order.pickup_name ? `
-    <tr><td>取餐</td><td colspan="3" style="text-align:right">${escHtml(order.pickup_name)}</td></tr>
+  ` : order.order_mode === 'takeout' ? `
+    ${order.pickup_name ? `<tr><td>取餐人</td><td colspan="3" style="text-align:right">${escHtml(order.pickup_name)}</td></tr>` : ''}
+    ${order.pickup_time ? `<tr><td>⏰取餐時間</td><td colspan="3" style="text-align:right">${escHtml(order.pickup_time)}</td></tr>` : ''}
   ` : '';
 
   const html = `<!DOCTYPE html><html><head>
@@ -720,7 +825,7 @@ function openPrintWindow(order, printType='receipt') {
     ${mode ? `<div class="mode">【${mode}】</div>` : ''}
     ${voidBanner}
     <p class="center" style="font-size:11px">訂單：${order.order_number}</p>
-    <p class="center" style="font-size:11px">${order.created_at}</p>
+    <p class="center" style="font-size:11px">${twTime(order.created_at,'datetime')}</p>
     <div class="dashed"></div>
     <table>
       <tr style="font-weight:bold;border-bottom:1px solid #000"><td>品項</td><td style="text-align:center">數量</td><td style="text-align:center">單價</td><td style="text-align:right">小計</td></tr>
@@ -890,8 +995,8 @@ function renderOrdersTable(orders) {
   const payLabel = { cash:'現金', card:'刷卡', linepay:'LINE', jkopay:'街口', transfer:'轉帳', platform:'平台' };
   const statusMap = { completed:['status-completed','正常'], modified:['status-modified','已修改'], void:['status-void','已作廢'] };
   const modeLabel = { dine_in:'🍽️ 內用', takeout:'🛍️ 外帶', delivery:'🛵 外送' };
-  const ostatusLabel = { pending:'待接單', preparing:'製作中', delivering:'配送中', completed:'已完成', cancelled:'已取消' };
-  const ostatusCls   = { pending:'ostatus-pending', preparing:'ostatus-preparing', delivering:'ostatus-delivering', completed:'ostatus-completed', cancelled:'ostatus-cancelled' };
+  const ostatusLabel = { pending:'待接單', accepted:'已接單', preparing:'製作中', ready:'可取餐', delivering:'配送中', completed:'已完成', cancelled:'已取消' };
+  const ostatusCls   = { pending:'ostatus-pending', accepted:'ostatus-accepted', preparing:'ostatus-preparing', ready:'ostatus-ready', delivering:'ostatus-delivering', completed:'ostatus-completed', cancelled:'ostatus-cancelled' };
 
   tbody.innerHTML = orders.map(o => {
     const [sCls, sLabel] = statusMap[o.status] || ['status-completed','正常'];
@@ -900,12 +1005,15 @@ function renderOrdersTable(orders) {
     const ident = o.order_mode === 'dine_in' ? (o.table_number||'—') :
                   o.order_mode === 'takeout'  ? (o.pickup_name||o.customer_name||'—') :
                   (o.delivery_platform||o.customer_name||'—');
+    // pickup_time 顯示（LINE 訂單取餐時間）
+    const pickupTag = (o.source === 'line' || o.customer_line_id) && o.pickup_time && o.pickup_time !== '盡快'
+      ? `<br><span style="font-size:11px;color:#06C755">⏰${o.pickup_time}</span>` : '';
     return `
       <tr style="${isVoid?'opacity:0.5':''}">
         <td><span class="order-num">${escHtml(o.order_number)}</span></td>
         <td><span class="mode-badge mode-${modeKey}">${modeLabel[modeKey]||modeKey}</span></td>
-        <td style="font-size:12px;color:#999">${o.created_at?.slice(11,19)||''}</td>
-        <td style="font-size:13px">${escHtml(ident)}</td>
+        <td style="font-size:12px;color:#999">${twTime(o.created_at,'time')}</td>
+        <td style="font-size:13px">${escHtml(ident)}${pickupTag}</td>
         <td style="font-size:12px">${o.items.map(i=>`${i.name}×${i.qty}`).join('、')}</td>
         <td style="font-size:12px">${payLabel[o.payment_method]||o.payment_method}</td>
         <td style="font-family:monospace;font-weight:700;color:#f5a623">NT$${o.total}</td>
@@ -955,7 +1063,7 @@ function renderDeliveryTable(orders) {
     return `
       <tr style="${isVoid||isCancelled ? 'opacity:0.55' : ''}">
         <td><span class="order-num">${escHtml(o.order_number)}</span></td>
-        <td style="font-size:12px;color:#999;white-space:nowrap">${o.created_at?.slice(11,19)||''}</td>
+        <td style="font-size:12px;color:#999;white-space:nowrap">${twTime(o.created_at,'time')}</td>
         <td style="font-weight:600;color:#ce93d8">${escHtml(o.delivery_platform||'—')}</td>
         <td style="font-size:12px;color:var(--text-muted);font-family:monospace">${escHtml(o.platform_order_no||'—')}</td>
         <td style="font-size:13px">${escHtml(o.customer_name||o.pickup_name||'—')}</td>
@@ -1021,7 +1129,7 @@ async function showOrderDetail(orderId) {
           <div class="log-item">
             <div class="log-item-header">
               <span class="log-action-${l.action}">${l.action === 'void' ? '🚫 作廢' : '✏️ 修改'}</span>
-              <span class="log-time">${l.created_at||''}</span>
+              <span class="log-time">${twTime(l.created_at,'datetime')}</span>
             </div>
             <div class="log-reason">原因：${escHtml(l.reason||'—')}</div>
             <div class="log-diff">
@@ -1038,7 +1146,7 @@ async function showOrderDetail(orderId) {
           <p style="font-family:monospace;color:#f5a623">訂單：${escHtml(o.order_number)}</p>
           <span class="order-status ${isVoid?'status-void':o.status==='modified'?'status-modified':'status-completed'}">${statusMap[o.status]||'正常'}</span>
         </div>
-        <p style="font-size:12px;color:#999;margin-bottom:16px">${o.created_at}</p>
+        <p style="font-size:12px;color:#999;margin-bottom:16px">${twTime(o.created_at,'datetime')}</p>
         ${isVoid ? `<div style="background:#2a0a0a;border:1px solid var(--danger);border-radius:6px;padding:8px 12px;margin-bottom:12px;font-size:13px;color:var(--danger)">🚫 作廢原因：${escHtml(o.void_reason||'—')}</div>` : ''}
         <div class="receipt-body" style="margin:0;padding:0;border-bottom:1px dashed #333;padding-bottom:12px;margin-bottom:12px">
           ${o.items.map(i=>`
@@ -1110,19 +1218,33 @@ function renderProductsTable(products) {
 
     let invBadge = '';
     if (p.inventory_enabled) {
-      const units = p.available_units !== null ? p.available_units : 0;
-      const cls = units <= 0 ? 'status-void' : p.is_low_stock ? 'status-modified' : 'status-completed';
-      invBadge = `<br><span class="order-status ${cls}" style="margin-top:4px;display:inline-block">${units <= 0 ? '售完' : `庫存${units}份`}</span>`;
+      if (p.has_formula) {
+        invBadge = `<br><span class="order-status" style="margin-top:4px;display:inline-block;background:rgba(167,139,250,.15);color:#a78bfa;border:1px solid rgba(167,139,250,.3)">食材控管</span>`;
+      } else {
+        const units = p.available_units !== null ? p.available_units : 0;
+        const cls = units <= 0 ? 'status-void' : p.is_low_stock ? 'status-modified' : 'status-completed';
+        invBadge = `<br><span class="order-status ${cls}" style="margin-top:4px;display:inline-block">${units <= 0 ? '售完' : `庫存${units}份`}</span>`;
+      }
     }
+    // LINE 狀態 badge
+    const showOnLine  = p.show_on_line != null ? Number(p.show_on_line) : 1;
+    const saleStatus  = p.sale_status  || 'available';
+    const lineBadge   = !showOnLine
+      ? '<span class="order-status status-void" style="margin-left:4px;display:inline-block;font-size:11px">LINE未上架</span>'
+      : '<span class="order-status status-completed" style="margin-left:4px;display:inline-block;font-size:11px">LINE上架</span>';
+    const saleBadge   = { sold_out_today:'<span class="order-status status-modified" style="margin-left:4px;display:inline-block;font-size:11px">今日完售</span>',
+        paused:'<span class="order-status status-void" style="margin-left:4px;display:inline-block;font-size:11px">暫停販售</span>',
+        sold_out_indefinitely:'<span class="order-status status-void" style="margin-left:4px;display:inline-block;font-size:11px">長期下架</span>' }[saleStatus] || '';
     return `
       <tr>
         <td>${thumbHtml}</td>
-        <td style="font-weight:600">${escHtml(p.name)}${invBadge}</td>
+        <td style="font-weight:600">${escHtml(p.name)}${invBadge}${lineBadge}${saleBadge}</td>
         <td>${catEmoji[p.category] || ''} ${p.category}</td>
         <td style="font-family:monospace;color:#f5a623;font-weight:700">$${p.price}</td>
         <td><span class="status-badge ${p.enabled ? 'status-on' : 'status-off'}">${p.enabled ? '販售中' : '已停用'}</span></td>
         <td>
           <button class="btn-icon" onclick="openProductModal(${p.id})" style="margin-right:4px">✏️ 編輯</button>
+          <button class="btn-icon" onclick="openLineSettingsModal(${p.id})" style="margin-right:4px;background:#06C755;color:#fff;border:none">📲 LINE設定</button>
           <button class="btn-icon danger" onclick="deleteProduct(${p.id})">🗑️ 刪除</button>
         </td>
       </tr>`;
@@ -1147,8 +1269,9 @@ function openProductModal(id) {
   document.getElementById('editAllocatedGrams').value = '';
   document.getElementById('editCurrentStockGrams').value = '';
   document.getElementById('editLowStockAlert').value = '5';
+  window._editProductHasFormula = false;
   setImagePreview('');
-  toggleInventoryFields();
+  toggleInventoryFields(false);
 
   // 動態分類選單
   const catSel = document.getElementById('editProductCategory');
@@ -1176,7 +1299,8 @@ function openProductModal(id) {
         document.getElementById('editAllocatedGrams').value = p.allocated_grams || '';
         document.getElementById('editCurrentStockGrams').value = p.current_stock_grams || '';
         document.getElementById('editLowStockAlert').value = p.low_stock_alert || 5;
-        toggleInventoryFields();
+        window._editProductHasFormula = !!p.has_formula;
+        toggleInventoryFields(!!p.has_formula);
         // 載入圖片：優先 server，再查 localStorage（但若已清除不重帶）
         const imgSrc = p.image || getLocalImage(p.id) || '';
         document.getElementById('editProductImage').value = imgSrc;
@@ -1190,10 +1314,16 @@ function openProductModal(id) {
   document.getElementById('productModal').classList.add('open');
 }
 
-function toggleInventoryFields() {
+function toggleInventoryFields(hasFormula) {
   const enabled = document.getElementById('editInventoryEnabled')?.checked;
-  const fields = document.getElementById('inventoryFields');
-  if (fields) fields.style.display = enabled ? 'block' : 'none';
+  const fields  = document.getElementById('inventoryFields');
+  if (!fields) return;
+  fields.style.display = enabled ? 'block' : 'none';
+  const isFormula = hasFormula != null ? hasFormula : (window._editProductHasFormula || false);
+  const notice   = document.getElementById('formulaControlledNotice');
+  const stockRow = document.getElementById('stockGramsRow');
+  if (notice)   notice.style.display   = (enabled && isFormula) ? 'block' : 'none';
+  if (stockRow) stockRow.style.display = (enabled && isFormula) ? 'none'  : '';
 }
 
 function closeProductModal() {
@@ -1210,7 +1340,10 @@ async function saveProduct() {
   const image = document.getElementById('editProductImage').value || '';
   const inventory_enabled = document.getElementById('editInventoryEnabled')?.checked ? 1 : 0;
   const allocated_grams     = parseFloat(document.getElementById('editAllocatedGrams')?.value || '0') || 0;
-  const current_stock_grams = parseFloat(document.getElementById('editCurrentStockGrams')?.value || '0') || 0;
+  const _isFormulaCtrl = window._editProductHasFormula || false;
+  const current_stock_grams = _isFormulaCtrl
+    ? undefined
+    : (parseFloat(document.getElementById('editCurrentStockGrams')?.value || '0') || 0);
   const low_stock_alert     = parseInt(document.getElementById('editLowStockAlert')?.value || '5') || 5;
   // 多模式價格（空白時後端自動 fallback 到定價）
   const dine_in_price  = parseFloat(document.getElementById('editDineInPrice')?.value || '') || null;
@@ -1286,6 +1419,144 @@ async function deleteProduct(id) {
     showToast('網路錯誤', 'error');
   }
 }
+
+// ===== LINE 商品設定 Modal (v16) =====
+
+async function openLineSettingsModal(id) {
+  try {
+    // 載入分類選項（LINE 唯一來源）
+    await loadLineCategoryOptions();
+
+    const res = await fetch('/api/products/' + id);
+    const json = await res.json();
+    if (!json.success) { showToast('載入失敗', 'error'); return; }
+    const p = json.data;
+
+    document.getElementById('lineSettingsProductId').value = id;
+    document.getElementById('lineSettingsProductName').textContent = p.name + (p.category ? ` （${p.category}）` : '');
+    document.getElementById('lineShowOnLine').checked  = p.show_on_line != null ? !!Number(p.show_on_line) : true;
+    document.getElementById('lineSaleStatus').value    = p.sale_status  || 'available';
+    document.getElementById('lineProductName').value   = p.line_name    || '';
+    document.getElementById('lineProductPrice').value  = p.line_price   || '';
+    document.getElementById('lineProductDesc').value   = p.line_description || '';
+    document.getElementById('lineImageUrl').value      = p.line_image_url   || '';
+    document.getElementById('lineHot').checked         = !!Number(p.line_hot);
+    document.getElementById('linePromo').checked       = !!Number(p.line_promo);
+    document.getElementById('lineSoldOut').checked     = !!Number(p.line_sold_out);
+    document.getElementById('lineAutoRestore').checked = p.auto_restore_next_day != null ? !!Number(p.auto_restore_next_day) : true;
+
+    // ── LINE 顯示分類（客人端）設定 ──
+    // 邏輯：優先用 line_category_id；若未設定，預設帶入 category_id（第一次設定時自動帶）
+    const lineCatId = Number(p.line_category_id) || 0;
+    const fallbackCatId = Number(p.category_id) || 0;  // POS 內部分類 id（備援）
+    const catSel = document.getElementById('lineCategory');
+
+    // 更新說明文字：顯示目前 POS 內部分類
+    const posLabelHint = document.querySelector('#lineCategory + input + span');
+    if (posLabelHint) {
+      const posCatName = p.category || '（未設定）';
+      posLabelHint.textContent = `💡 LINE 客人看到的分類。若留空則自動沿用 POS 內部分類「${posCatName}」。POS / Android 不受此影響。`;
+    }
+
+    if (lineCatId > 0) {
+      // 已明確設定 LINE 顯示分類
+      catSel.value = String(lineCatId);
+      document.getElementById('lineCategoryId').value = lineCatId;
+    } else if (fallbackCatId > 0) {
+      // 尚未設定 LINE 分類 → 預設帶入 POS 內部分類（方便老闆第一次設定）
+      catSel.value = String(fallbackCatId);
+      document.getElementById('lineCategoryId').value = fallbackCatId;
+    } else if (p.category) {
+      // 用名稱比對
+      const opts = Array.from(catSel.options);
+      const match = opts.find(o => o.textContent.includes(p.category));
+      if (match) { catSel.value = match.value; document.getElementById('lineCategoryId').value = match.value; }
+      else { catSel.value = ''; document.getElementById('lineCategoryId').value = 0; }
+    } else {
+      catSel.value = '';
+      document.getElementById('lineCategoryId').value = 0;
+    }
+    catSel.onchange = function() { document.getElementById('lineCategoryId').value = this.value || 0; };
+
+    // 圖片預覽
+    const imgUrl = p.line_image_url || '';
+    const previewWrap = document.getElementById('lineImgPreviewWrap');
+    if (imgUrl) {
+      document.getElementById('lineImgPreview').src = imgUrl;
+      previewWrap.style.display = 'block';
+    } else {
+      previewWrap.style.display = 'none';
+    }
+    document.getElementById('lineImageUrl').oninput = function() {
+      const url = this.value.trim();
+      if (url) { document.getElementById('lineImgPreview').src = url; previewWrap.style.display = 'block'; }
+      else { previewWrap.style.display = 'none'; }
+    };
+
+    document.getElementById('lineSettingsModal').classList.add('open');
+  } catch(e) { showToast('載入商品資料失敗：' + e.message, 'error'); }
+}
+
+// 載入 LINE 顯示分類下拉選項（資料來源：分類管理，與 POS 內部分類共用同一張表）
+async function loadLineCategoryOptions() {
+  try {
+    const res  = await fetch('/api/categories/line-options');
+    const json = await res.json();
+    const sel  = document.getElementById('lineCategory');
+    if (!sel) return;
+    const curVal = sel.value;
+    sel.innerHTML = '<option value="">（使用 POS 內部分類）</option>';
+    (json.data || []).forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.id;
+      opt.textContent = `${c.icon||'📌'} ${c.name}`;
+      sel.appendChild(opt);
+    });
+    if (curVal) sel.value = curVal;
+  } catch {}
+}
+
+function closeLineSettingsModal() {
+  document.getElementById('lineSettingsModal').classList.remove('open');
+}
+
+async function saveLineSettings() {
+  const id          = document.getElementById('lineSettingsProductId').value;
+  const show_on_line       = document.getElementById('lineShowOnLine').checked ? 1 : 0;
+  const sale_status        = document.getElementById('lineSaleStatus').value;
+  const line_name          = document.getElementById('lineProductName').value.trim();
+  const line_price_raw     = document.getElementById('lineProductPrice').value;
+  const line_price         = line_price_raw ? parseFloat(line_price_raw) : 0;
+  const line_description   = document.getElementById('lineProductDesc').value.trim();
+  const line_image_url     = document.getElementById('lineImageUrl').value.trim();
+  const line_category_id   = Number(document.getElementById('lineCategoryId').value) || 0;
+  const line_hot           = document.getElementById('lineHot').checked ? 1 : 0;
+  const line_promo         = document.getElementById('linePromo').checked ? 1 : 0;
+  const line_sold_out      = document.getElementById('lineSoldOut').checked ? 1 : 0;
+  const auto_restore_next_day = document.getElementById('lineAutoRestore').checked ? 1 : 0;
+
+  try {
+    const res = await fetch(`/api/products/${id}/line-settings`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        show_on_line, sale_status, line_name, line_price,
+        line_description, line_image_url, line_category_id,
+        line_hot, line_promo, line_sold_out, auto_restore_next_day
+      })
+    });
+    const json = await res.json();
+    if (json.success) {
+      showToast('LINE 設定已儲存', 'success');
+      closeLineSettingsModal();
+      loadProductsPage();
+    } else {
+      showToast(json.message || '儲存失敗', 'error');
+    }
+  } catch(e) { showToast('網路錯誤', 'error'); }
+}
+
+
 
 // ===== 重新列印 =====
 async function reprintOrder(orderId) {
@@ -1524,6 +1795,36 @@ async function saveEditOrder() {
 }
 
 // ===== Toast =====
+/**
+ * twTime(str) — 將資料庫 created_at 字串轉換為台灣時間顯示
+ * 支援：
+ *   "2024-01-15 05:17:57"  (localtime 已是台灣時間，直接顯示)
+ *   "2024-01-15T05:17:57Z" (UTC，需 +8)
+ *   "2024-01-15T05:17:57.000Z" (ISO UTC)
+ */
+function twTime(str, mode = 'datetime') {
+  if (!str) return '';
+  try {
+    let d;
+    // 判斷是否為 ISO UTC（含 Z 或 +00:00）
+    if (/Z$|[+-]\d{2}:\d{2}$/.test(str)) {
+      d = new Date(str); // 已帶時區，直接 parse
+    } else {
+      // 資料庫 localtime 格式 "YYYY-MM-DD HH:MM:SS" → 視為台灣時間
+      // 加上 +08:00 讓 Date 正確解析
+      d = new Date(str.replace(' ', 'T') + '+08:00');
+    }
+    if (isNaN(d.getTime())) return str; // parse 失敗就原樣回傳
+    const opts = mode === 'time'
+      ? { timeZone:'Asia/Taipei', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false }
+      : mode === 'date'
+      ? { timeZone:'Asia/Taipei', year:'numeric', month:'2-digit', day:'2-digit' }
+      : { timeZone:'Asia/Taipei', year:'numeric', month:'2-digit', day:'2-digit',
+          hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false };
+    return d.toLocaleString('zh-TW', opts);
+  } catch { return str; }
+}
+
 function showToast(msg, type = 'info') {
   const container = document.getElementById('toastContainer');
   const toast = document.createElement('div');
@@ -1833,16 +2134,32 @@ async function loadInventoryPage() {
   } catch { showToast('庫存載入失敗', 'error'); }
 }
 
+function switchInvSubtab(tab) {
+  ['product','ingredient'].forEach(t => {
+    const btn = document.getElementById('invSubtab-' + t);
+    const panel = document.getElementById('invPanel-' + t);
+    if (btn) btn.classList.toggle('active', t === tab);
+    if (panel) panel.style.display = t === tab ? '' : 'none';
+  });
+  if (tab === 'ingredient') loadIngredientsPage();
+  if (tab === 'product') loadInventoryPage();
+}
+
 function renderLowStockAlerts(items) {
   if (!items.length) { document.getElementById('lowStockAlerts').innerHTML = ''; return; }
   document.getElementById('lowStockAlerts').innerHTML = `
     <div class="low-stock-banner">
       <h4>⚠️ 低庫存警示（${items.length} 項商品）</h4>
-      ${items.map(p => `
-        <div class="low-stock-item">
-          <span>${escHtml(p.name)}</span>
-          <span class="inv-stock-low">剩 ${p.available_units} 份（${p.current_stock_grams}g）</span>
-        </div>`).join('')}
+      ${items.map(p => {
+        // available_grams 優先（inventoryHelper 已換算）；fallback 到 current_stock_grams
+        const grams = p.available_grams != null ? p.available_grams : p.current_stock_grams;
+        const units = p.available_units;
+        const src   = p.is_formula_controlled ? ' 🔗食材控管' : '';
+        return `<div class="low-stock-item">
+          <span>${escHtml(p.name)}${src}</span>
+          <span class="inv-stock-low">剩 ${units} 份（${Number(grams||0).toFixed(0)}g）</span>
+        </div>`;
+      }).join('')}
     </div>`;
 }
 
@@ -1860,18 +2177,28 @@ function renderInventoryTable(products) {
     const stockCls = units <= 0 ? 'inv-stock-empty' : p.is_low_stock ? 'inv-stock-low' : 'inv-stock-ok';
     const statusText = units <= 0 ? '已售完' : p.is_low_stock ? '低庫存' : '正常';
     const statusCls  = units <= 0 ? 'status-void' : p.is_low_stock ? 'status-modified' : 'status-completed';
+    const ingControlled = p.uses_ingredient;
+    const sourceCell = ingControlled
+      ? `<td style="font-size:11px"><span style="background:rgba(167,139,250,.15);color:#a78bfa;border:1px solid rgba(167,139,250,.3);padding:2px 7px;border-radius:4px;font-weight:600">食材控管</span><br><span style="color:var(--text-muted);font-size:11px">${escHtml(p.ingredient_name||'')}</span></td>`
+      : `<td style="font-family:monospace">${p.allocated_grams}g</td>`;
+    const actionCell = ingControlled
+      ? `<td>
+           <button class="btn-icon" style="opacity:.5;cursor:not-allowed" onclick="showToast('此商品由食材庫存控管，請至「食材庫存」進貨或完成解凍','info')">📦 補貨</button>
+           <button class="btn-icon" style="opacity:.5;cursor:not-allowed" onclick="showToast('此商品由食材庫存控管，請至「食材庫存」操作','info')">🔧 調整</button>
+         </td>`
+      : `<td>
+           <button class="btn-icon edit-btn" style="margin-right:4px" onclick="openRestockModal(${p.id})">📦 補貨</button>
+           <button class="btn-icon" onclick="openAdjustModal(${p.id})">🔧 調整</button>
+         </td>`;
     return `
       <tr>
         <td style="font-weight:600">${escHtml(p.name)}</td>
-        <td style="font-family:monospace">${p.allocated_grams}g</td>
+        ${sourceCell}
         <td style="font-family:monospace">${Number(p.current_stock_grams).toFixed(0)}g</td>
         <td class="${stockCls}">${units} 份</td>
         <td style="font-family:monospace;color:var(--text-muted)">${p.low_stock_alert} 份</td>
         <td><span class="order-status ${statusCls}">${statusText}</span></td>
-        <td>
-          <button class="btn-icon edit-btn" style="margin-right:4px" onclick="openRestockModal(${p.id})">📦 補貨</button>
-          <button class="btn-icon" onclick="openAdjustModal(${p.id})">🔧 調整</button>
-        </td>
+        ${actionCell}
       </tr>`;
   }).join('');
 }
@@ -1968,7 +2295,7 @@ async function showInventoryLogs(productId) {
           <tbody>
           ${logs.map(l => `
             <tr>
-              <td style="font-family:monospace;white-space:nowrap">${l.created_at?.slice(0,16)||''}</td>
+              <td style="font-family:monospace;white-space:nowrap">${twTime(l.created_at,'datetime')}</td>
               <td>${escHtml(l.product_name)}</td>
               <td><span class="order-status ${l.action.includes('return')||l.action==='restock'?'status-completed':l.action==='sale'?'status-modified':'status-completed'}">${actionLabel[l.action]||l.action}</span></td>
               <td style="font-family:monospace;color:${l.change_grams>=0?'#4caf50':'#e53935'}">${l.change_grams>=0?'+':''}${l.change_grams}g</td>
@@ -2086,14 +2413,25 @@ function _afterRenderCart() {
 let allPlatformsAdmin = [];
 
 async function loadPlatformsPage() {
+  const tbody = document.getElementById('platformsBody');
+  if (tbody) tbody.innerHTML = '<tr><td colspan="4" class="table-empty">載入中…</td></tr>';
   try {
     const res  = await fetch('/api/platforms');
     const json = await res.json();
     if (json.success) {
       allPlatformsAdmin = json.data;
-      renderPlatformsTable(json.data);
+      if (!json.data || json.data.length === 0) {
+        if (tbody) tbody.innerHTML = '<tr><td colspan="4" class="table-empty">目前尚無資料</td></tr>';
+      } else {
+        renderPlatformsTable(json.data);
+      }
+    } else {
+      if (tbody) tbody.innerHTML = `<tr><td colspan="4" class="table-empty" style="color:#e53935">載入失敗：${json.message||'API 錯誤'}</td></tr>`;
     }
-  } catch { showToast('平台載入失敗', 'error'); }
+  } catch(e) {
+    if (tbody) tbody.innerHTML = '<tr><td colspan="4" class="table-empty" style="color:#e53935">載入失敗，請檢查後端 API</td></tr>';
+    showToast('平台載入失敗：' + e.message, 'error');
+  }
 }
 
 function renderPlatformsTable(platforms) {
@@ -2197,11 +2535,24 @@ document.addEventListener('DOMContentLoaded', () => {
 // =============================================
 
 async function loadPaymentMethodsPage() {
+  const tbody = document.getElementById('paymentMethodsBody');
+  if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="table-empty">載入中…</td></tr>';
   try {
     const res  = await fetch('/api/payment-methods');
     const json = await res.json();
-    if (json.success) renderPaymentMethodsTable(json.data);
-  } catch { showToast('付款方式載入失敗', 'error'); }
+    if (json.success) {
+      if (!json.data || json.data.length === 0) {
+        if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="table-empty">目前尚無資料</td></tr>';
+      } else {
+        renderPaymentMethodsTable(json.data);
+      }
+    } else {
+      if (tbody) tbody.innerHTML = `<tr><td colspan="8" class="table-empty" style="color:#e53935">載入失敗：${json.message||'API 錯誤'}</td></tr>`;
+    }
+  } catch(e) {
+    if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="table-empty" style="color:#e53935">載入失敗，請檢查後端 API</td></tr>';
+    showToast('付款方式載入失敗：' + e.message, 'error');
+  }
 }
 
 function renderPaymentMethodsTable(methods) {
@@ -2262,11 +2613,24 @@ async function updatePM(id, fields) {
 // =============================================
 
 async function loadGatewayPage() {
+  const container = document.getElementById('gatewayCards');
+  if (container) container.innerHTML = '<p style="color:#888;padding:20px">載入中…</p>';
   try {
     const res  = await fetch('/api/payment-gateways');
     const json = await res.json();
-    if (json.success) renderGatewayCards(json.data);
-  } catch { showToast('金流載入失敗', 'error'); }
+    if (json.success) {
+      if (!json.data || json.data.length === 0) {
+        if (container) container.innerHTML = '<p style="color:#888;padding:20px">目前尚無資料</p>';
+      } else {
+        renderGatewayCards(json.data);
+      }
+    } else {
+      if (container) container.innerHTML = `<p style="color:#e53935;padding:20px">載入失敗：${json.message||'API 錯誤'}</p>`;
+    }
+  } catch(e) {
+    if (container) container.innerHTML = '<p style="color:#e53935;padding:20px">載入失敗，請檢查後端 API</p>';
+    showToast('金流載入失敗：' + e.message, 'error');
+  }
 }
 
 function renderGatewayCards(gateways) {
@@ -2596,3 +2960,983 @@ async function checkPrinterStatus() {
     return null;
   }
 }
+
+// ═══════════════════════════════════════════════════════════
+// v16 整合：LINE 營業設定 + 食材庫存管理
+// ═══════════════════════════════════════════════════════════
+
+// ── LINE 總開關 ──────────────────────────────────────────
+async function loadLineBizStatus() {
+  try {
+    const res  = await fetch('/api/settings');
+    const json = await res.json();
+    const d    = json.data || {};
+    const el   = document.getElementById('lineOrderingStatus');
+    const todayStr = new Date().toISOString().slice(0,10);
+    if (el) {
+      const isOn  = d.line_ordering_enabled !== '0';
+      const isCls = d.line_today_closed === '1' && d.line_today_closed_date === todayStr;
+      el.innerHTML = isOn
+        ? '<span style="color:#06C755">● 目前：營業中</span>'
+        : '<span style="color:#e53935">● 目前：已關閉</span>';
+      const todayEl = document.getElementById('todayClosedStatus');
+      if (todayEl) todayEl.innerHTML = isCls
+        ? '<span style="color:#e53935">● 今日已設定臨時休息</span>'
+        : '<span style="color:#06C755">● 今日正常營業</span>';
+      const pdEl = document.getElementById('pickupDeliveryStatus');
+      if (pdEl) pdEl.innerHTML =
+        `自取：${d.pickup_enabled !== '0' ? '✅ 開啟' : '❌ 關閉'}　外送：${d.delivery_enabled !== '0' ? '✅ 開啟' : '❌ 關閉'}`;
+      // 填入 LINE 付款方式設定
+      const lpMap = {
+        cash: 'line_payment_cash_enabled', linepay: 'line_payment_linepay_enabled',
+        transfer: 'line_payment_transfer_enabled', platform: 'line_payment_platform_enabled',
+        credit_card: 'line_payment_credit_card_enabled'
+      };
+      Object.entries(lpMap).forEach(([code, key]) => {
+        const el = document.getElementById(`lp-${code}`);
+        if (el) el.checked = d[key] === '1';
+      });
+    }
+    // 填入營業時間設定
+    const bhe = document.getElementById('set-line_business_hours_enabled');
+    if (bhe) bhe.checked = d.line_business_hours_enabled === '1';
+    renderBizHoursGrid(d.line_business_hours);
+    // 填入進階預約設定
+    const sdm = document.getElementById('set-same_day_preorder_minutes');
+    if (sdm) sdm.value = d.same_day_preorder_minutes || 30;
+    const ndh = document.getElementById('set-next_day_preorder_hours');
+    if (ndh) ndh.value = d.next_day_preorder_hours || 2;
+    // 固定公休日
+    const cwds = (() => { try { return JSON.parse(d.line_closed_weekdays || '[]'); } catch { return []; } })();
+    document.querySelectorAll('.cwd-chk').forEach(cb => { cb.checked = cwds.includes(cb.value); });
+    // 指定店休日
+    const cdates = (() => { try { return JSON.parse(d.line_closed_dates || '[]'); } catch { return []; } })();
+    const cdText = document.getElementById('set-line_closed_dates_text');
+    if (cdText) cdText.value = cdates.join('\n');
+  } catch {}
+}
+
+async function saveAdvancedLineSettings() {
+  const sdm = parseInt(document.getElementById('set-same_day_preorder_minutes')?.value || 30) || 30;
+  const ndh = parseInt(document.getElementById('set-next_day_preorder_hours')?.value || 2)  || 2;
+  const cwds = Array.from(document.querySelectorAll('.cwd-chk:checked')).map(cb => cb.value);
+  const cdRaw = (document.getElementById('set-line_closed_dates_text')?.value || '').split('\n')
+    .map(d => d.trim()).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d));
+  try {
+    await fetch('/api/settings', { method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        same_day_preorder_minutes: String(sdm),
+        next_day_preorder_hours:   String(ndh),
+        line_closed_weekdays:      JSON.stringify(cwds),
+        line_closed_dates:         JSON.stringify(cdRaw),
+      }) });
+    showToast('✅ 預約設定已儲存', 'success');
+    loadLineBizStatus();
+  } catch(e) { showToast('儲存失敗', 'error'); }
+}
+
+async function setLineOrdering(enable) {
+  const msg = enable
+    ? '確定要開啟 LINE 點餐營業嗎？\n開啟後客人可以重新透過 LINE 下單。'
+    : '確定要關閉 LINE 點餐營業嗎？\n關閉後客人將無法透過 LINE 下單，但現場 POS 不受影響。';
+  if (!confirm(msg)) return;
+  try {
+    await fetch('/api/settings', { method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ line_ordering_enabled: enable ? '1' : '0' }) });
+    showToast(enable ? '✅ LINE 點餐已開啟' : '🔴 LINE 點餐已關閉', 'success');
+    loadLineBizStatus();
+  } catch(e) { showToast('操作失敗', 'error'); }
+}
+
+async function setTodayClosed(closed) {
+  const msg = closed
+    ? '確定要設定今日臨時休息？\n今日 LINE 點餐將無法下單，隔日自動恢復。'
+    : '確定要取消今日臨時休息？';
+  if (!confirm(msg)) return;
+  const todayStr = new Date().toISOString().slice(0,10);
+  try {
+    await fetch('/api/settings', { method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ line_today_closed: closed ? '1' : '0', line_today_closed_date: todayStr }) });
+    showToast(closed ? '🌙 今日已設定臨時休息' : '✅ 已取消今日休息', 'success');
+    loadLineBizStatus();
+  } catch(e) { showToast('操作失敗', 'error'); }
+}
+
+async function setPickup(enable) {
+  await fetch('/api/settings', { method:'PUT', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ pickup_enabled: enable ? '1' : '0' }) });
+  showToast(enable ? '✅ 自取已開啟' : '❌ 自取已關閉', 'success');
+  loadLineBizStatus();
+}
+
+async function setDelivery(enable) {
+  await fetch('/api/settings', { method:'PUT', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ delivery_enabled: enable ? '1' : '0' }) });
+  showToast(enable ? '✅ 外送已開啟' : '❌ 外送已關閉', 'success');
+  loadLineBizStatus();
+}
+
+async function saveLinePaymentSettings() {
+  const lpMap = {
+    cash: 'line_payment_cash_enabled', linepay: 'line_payment_linepay_enabled',
+    transfer: 'line_payment_transfer_enabled', platform: 'line_payment_platform_enabled',
+    credit_card: 'line_payment_credit_card_enabled'
+  };
+  const body = {};
+  Object.entries(lpMap).forEach(([code, key]) => {
+    const el = document.getElementById(`lp-${code}`);
+    if (el) body[key] = el.checked ? '1' : '0';
+  });
+  try {
+    await fetch('/api/settings', { method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(body) });
+    const enabled = Object.entries(lpMap)
+      .filter(([code]) => document.getElementById(`lp-${code}`)?.checked)
+      .map(([code]) => ({ cash:'現金', linepay:'LINE Pay', transfer:'轉帳', platform:'平台付款', credit_card:'信用卡' }[code]))
+      .join('、');
+    const st = document.getElementById('linePaymentStatus');
+    if (st) st.textContent = enabled ? `✅ 已開啟：${enabled}` : '⚠️ 所有付款方式已關閉';
+    showToast('✅ LINE 付款方式已儲存', 'success');
+  } catch(e) { showToast('儲存失敗', 'error'); }
+}
+
+const DAY_NAMES = { mon:'週一', tue:'週二', wed:'週三', thu:'週四', fri:'週五', sat:'週六', sun:'週日' };
+const DAY_KEYS  = ['mon','tue','wed','thu','fri','sat','sun'];
+
+function renderBizHoursGrid(hoursJsonStr) {
+  const grid = document.getElementById('bizHoursGrid');
+  if (!grid) return;
+  let hours = {};
+  try { hours = JSON.parse(hoursJsonStr || '{}'); } catch {}
+  grid.innerHTML = DAY_KEYS.map(d => {
+    const dh = hours[d] || { open:'09:00', close:'21:00', enabled: d !== 'sun' };
+    return `<div style="background:#fff;padding:10px 12px;border-radius:8px;border:1px solid #ddd;box-sizing:border-box;min-width:0">
+      <label style="display:flex;align-items:center;gap:6px;margin-bottom:8px;font-weight:700;color:#222;cursor:pointer">
+        <input type="checkbox" id="bh-${d}-en" ${dh.enabled?'checked':''} onchange="saveBizHoursFromGrid()">
+        <span>${DAY_NAMES[d]}</span>
+      </label>
+      <div style="display:flex;gap:4px;align-items:center;font-size:13px;flex-wrap:wrap">
+        <input type="time" id="bh-${d}-open" value="${dh.open||'09:00'}" onchange="saveBizHoursFromGrid()" style="flex:1;min-width:80px;padding:4px 6px;border:1px solid #ccc;border-radius:4px;font-size:13px;color:#222;background:#fff;box-sizing:border-box">
+        <span style="color:#555;flex-shrink:0">～</span>
+        <input type="time" id="bh-${d}-close" value="${dh.close||'21:00'}" onchange="saveBizHoursFromGrid()" style="flex:1;min-width:80px;padding:4px 6px;border:1px solid #ccc;border-radius:4px;font-size:13px;color:#222;background:#fff;box-sizing:border-box">
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function saveLineBizSettings() {
+  const hours = {};
+  DAY_KEYS.forEach(d => {
+    const en    = document.getElementById(`bh-${d}-en`);
+    const open  = document.getElementById(`bh-${d}-open`);
+    const close = document.getElementById(`bh-${d}-close`);
+    if (en) hours[d] = { enabled: en.checked, open: open?.value||'09:00', close: close?.value||'21:00' };
+  });
+  const bhe = document.getElementById('set-line_business_hours_enabled');
+  try {
+    await fetch('/api/settings', { method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        line_business_hours_enabled: bhe?.checked ? '1' : '0',
+        line_business_hours: JSON.stringify(hours)
+      })
+    });
+    showToast('✅ 營業時間已儲存', 'success');
+  } catch(e) { showToast('儲存失敗', 'error'); }
+}
+
+async function saveBizHoursFromGrid() { /* 即時儲存，不需 Toast */ saveLineBizSettings().catch(()=>{}); }
+
+// ── 食材庫存管理 ──────────────────────────────────────────
+let _ingredients = [];
+let _ingSearchQuery = '';
+
+async function loadIngredientsPage() {
+  const el = document.getElementById('ingredientsList');
+  if (!el) return;
+  el.innerHTML = '<div class="ing-loading"><span>載入中…</span></div>';
+  try {
+    const res  = await fetch('/api/ingredients');
+    const json = await res.json();
+    _ingredients = json.data || [];
+    renderIngredientsList(_ingredients);
+  } catch(e) { el.innerHTML = `<div class="ing-loading" style="color:var(--danger)">載入失敗：${e.message}</div>`; }
+}
+
+function filterIngredients(query) {
+  _ingSearchQuery = (query||'').trim().toLowerCase();
+  renderIngredientsList(_ingredients);
+}
+
+function filterIngCat(el, cat) {
+  document.querySelectorAll('.ing-cat-tag').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  renderIngredientsList(_ingredients);
+}
+
+function getIngStatus(ing) {
+  const total = Number(ing.total_stock||0);
+  const threshold = Number(ing.low_stock_threshold||0);
+  if (total <= 0) return 'out';
+  if (threshold > 0 && total <= threshold) return 'low';
+  return 'ok';
+}
+
+function renderIngredientsList(list) {
+  const el = document.getElementById('ingredientsList');
+  if (!el) return;
+  const q = _ingSearchQuery;
+  const filtered = q ? list.filter(i =>
+    i.name.toLowerCase().includes(q) || i.unit.toLowerCase().includes(q)
+  ) : list;
+
+  if (!filtered.length) {
+    el.innerHTML = `<div class="ing-loading" style="flex-direction:column;gap:12px">
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+      <span style="color:var(--text-muted)">${q ? `找不到「${q}」相關食材` : '尚無食材，請點「新增食材」'}</span>
+    </div>`;
+    return;
+  }
+
+  const statusLabel = { ok:'正常', low:'低庫存', out:'缺貨' };
+  const statusClass = { ok:'ing-status-ok', low:'ing-status-low', out:'ing-status-out' };
+
+  el.innerHTML = `
+    <div class="ing-table-header">
+      <div class="ing-th">食材名稱</div>
+      <div class="ing-th">單位</div>
+      <div class="ing-th">❄️ 冷凍</div>
+      <div class="ing-th">🌡️ 解凍中</div>
+      <div class="ing-th">🧊 冷藏可販售</div>
+      <div class="ing-th">總庫存</div>
+      <div class="ing-th">狀態</div>
+      <div class="ing-th">操作</div>
+    </div>
+    ${filtered.map((i, idx) => {
+      const status = getIngStatus(i);
+      return `<div class="ing-row" style="animation-delay:${idx*0.03}s">
+        <div class="ing-cell" data-label="食材">
+          <span class="ing-name">${escHtml(i.name)}<span class="ing-unit-badge">${escHtml(i.unit)}</span></span>
+        </div>
+        <div class="ing-cell" data-label="單位" style="color:var(--text-muted);font-size:12px">${escHtml(i.unit)}</div>
+        <div class="ing-cell ing-stock-frozen" data-label="冷凍">${Number(i.frozen_stock).toFixed(1)}</div>
+        <div class="ing-cell ing-stock-thawing" data-label="解凍中">${Number(i.thawing_stock).toFixed(1)}</div>
+        <div class="ing-cell ing-stock-refrigerated" data-label="冷藏可販售">${Number(i.refrigerated_stock).toFixed(1)}</div>
+        <div class="ing-cell ing-stock-total" data-label="總庫存">${Number(i.total_stock).toFixed(1)}</div>
+        <div class="ing-cell" data-label="狀態"><span class="ing-status ${statusClass[status]}">${statusLabel[status]}</span></div>
+        <div class="ing-cell ing-actions" data-label="操作">
+          <button class="ing-act-btn ing-act-purchase" onclick="openIngActionModal(${i.id},'purchase')" title="進貨入庫">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            <span class="act-label">進貨</span>
+          </button>
+          <button class="ing-act-btn ing-act-freeze" onclick="openIngActionModal(${i.id},'freeze-to-thaw')" title="轉解凍中">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+            <span class="act-label">轉解凍</span>
+          </button>
+          <button class="ing-act-btn ing-act-thaw" onclick="openIngActionModal(${i.id},'thaw-complete')" title="解凍完成">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+            <span class="act-label">完成解凍</span>
+          </button>
+          <button class="ing-act-btn ing-act-scrap" onclick="openIngActionModal(${i.id},'scrap')" title="報廢">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+            <span class="act-label">報廢</span>
+          </button>
+          <button class="ing-act-btn ing-act-edit" onclick="openIngredientEditModal(${i.id})" title="編輯">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            <span class="act-label">編輯</span>
+          </button>
+          <button class="ing-act-btn ing-act-delete" onclick="deleteIngredient(${i.id},'${escHtml(i.name)}')" title="刪除">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            <span class="act-label">刪除</span>
+          </button>
+        </div>
+      </div>`;
+    }).join('')}`;
+}
+
+function openIngredientModal() {
+  const overlay = document.createElement('div');
+  overlay.className = 'ing-modal-overlay';
+  overlay.innerHTML = `<div class="ing-modal">
+    <div class="ing-modal-header">
+      <div class="ing-modal-title">新增食材</div>
+      <button class="ing-modal-close" onclick="this.closest('.ing-modal-overlay').remove()">✕</button>
+    </div>
+    <div class="ing-form-group">
+      <label class="ing-form-label">食材名稱 *</label>
+      <input type="text" class="ing-form-input" id="_ing-name" placeholder="例：豬腰、雞腿、番茄">
+    </div>
+    <div class="ing-form-group">
+      <label class="ing-form-label">計量單位 *</label>
+      <select class="ing-form-select" id="_ing-unit">
+        <option value="斤">斤（台斤）</option>
+        <option value="g">g（公克）</option>
+        <option value="kg">kg（公斤）</option>
+        <option value="個">個</option>
+        <option value="份">份</option>
+        <option value="盒">盒</option>
+      </select>
+    </div>
+    <div class="ing-form-group">
+      <label class="ing-form-label">低庫存警戒值</label>
+      <input type="number" class="ing-form-input" id="_ing-threshold" placeholder="例：3（低於此數量時顯示黃色警示）" min="0" step="0.1">
+      <div class="ing-form-hint">空白表示不設警戒值</div>
+    </div>
+    <div class="ing-form-group">
+      <label class="ing-form-label">預設解凍時間（小時）</label>
+      <input type="number" class="ing-form-input" id="_ing-thaw-hours" placeholder="例：8（豬腰 8 小時）" min="0" step="0.5">
+      <div class="ing-form-hint">轉解凍時自動帶入完成時間，可手動修改</div>
+    </div>
+    <div class="ing-form-group">
+      <label class="ing-form-label">初始冷凍庫存</label>
+      <input type="number" class="ing-form-input" id="_ing-stock" placeholder="0" min="0" step="0.1">
+      <div class="ing-form-hint">建立後自動計算冷凍、總庫存</div>
+    </div>
+    <div class="ing-modal-footer">
+      <button class="ing-modal-cancel" onclick="this.closest('.ing-modal-overlay').remove()">取消</button>
+      <button class="ing-modal-submit" onclick="submitNewIngredient(this)">建立食材</button>
+    </div>
+  </div>`;
+  overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+  document.addEventListener('keydown', function esc(e) { if (e.key==='Escape') { overlay.remove(); document.removeEventListener('keydown', esc); } });
+  document.body.appendChild(overlay);
+  requestAnimationFrame(() => overlay.classList.add('open'));
+  overlay.querySelector('#_ing-name').focus();
+}
+
+async function submitNewIngredient(btn) {
+  const name = document.getElementById('_ing-name')?.value.trim();
+  const unit = document.getElementById('_ing-unit')?.value;
+  const threshold = parseFloat(document.getElementById('_ing-threshold')?.value) || 0;
+  const thawHours = parseFloat(document.getElementById('_ing-thaw-hours')?.value) || 0;
+  const stock = parseFloat(document.getElementById('_ing-stock')?.value) || 0;
+  if (!name) { showToast('請輸入食材名稱', 'error'); return; }
+  btn.disabled = true; btn.textContent = '建立中…';
+  try {
+    const res = await fetch('/api/ingredients', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ name, unit, initial_stock: stock, low_stock_threshold: threshold, default_thaw_hours: thawHours }) });
+    const j = await res.json();
+    if (j.success) {
+      showToast(`✅ 食材「${name}」已建立`, 'success');
+      btn.closest('.ing-modal-overlay').remove();
+      loadIngredientsPage();
+    } else { showToast(j.message||'新增失敗', 'error'); btn.disabled=false; btn.textContent='建立食材'; }
+  } catch(e) { showToast('網路錯誤', 'error'); btn.disabled=false; btn.textContent='建立食材'; }
+}
+
+function openIngredientEditModal(id) {
+  const ing = _ingredients.find(i=>i.id===id);
+  if (!ing) return;
+  const overlay = document.createElement('div');
+  overlay.className = 'ing-modal-overlay';
+  overlay.innerHTML = `<div class="ing-modal">
+    <div class="ing-modal-header">
+      <div class="ing-modal-title">編輯食材</div>
+      <button class="ing-modal-close" onclick="this.closest('.ing-modal-overlay').remove()">✕</button>
+    </div>
+    <div class="ing-form-group">
+      <label class="ing-form-label">食材名稱 *</label>
+      <input type="text" class="ing-form-input" id="_ing-edit-name" value="${escHtml(ing.name)}">
+    </div>
+    <div class="ing-form-group">
+      <label class="ing-form-label">計量單位</label>
+      <select class="ing-form-select" id="_ing-edit-unit">
+        <option value="斤" ${ing.unit==='斤'?'selected':''}>斤</option>
+        <option value="g" ${ing.unit==='g'?'selected':''}>g</option>
+        <option value="kg" ${ing.unit==='kg'?'selected':''}>kg</option>
+        <option value="個" ${ing.unit==='個'?'selected':''}>個</option>
+        <option value="份" ${ing.unit==='份'?'selected':''}>份</option>
+        <option value="盒" ${ing.unit==='盒'?'selected':''}>盒</option>
+      </select>
+    </div>
+    <div class="ing-form-group">
+      <label class="ing-form-label">低庫存警戒值</label>
+      <input type="number" class="ing-form-input" id="_ing-edit-threshold" value="${ing.low_stock_threshold||''}" placeholder="空白表示不設警戒" min="0" step="0.1">
+    </div>
+    <div class="ing-form-group">
+      <label class="ing-form-label">預設解凍時間（小時）</label>
+      <input type="number" class="ing-form-input" id="_ing-edit-thaw-hours" value="${ing.default_thaw_hours||''}" placeholder="例：8" min="0" step="0.5">
+      <div class="ing-form-hint">轉解凍時自動帶入完成時間</div>
+    </div>
+    <div class="ing-modal-footer">
+      <button class="ing-modal-cancel" onclick="this.closest('.ing-modal-overlay').remove()">取消</button>
+      <button class="ing-modal-submit" onclick="submitEditIngredient(${id},this)">儲存變更</button>
+    </div>
+  </div>`;
+  overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+  document.body.appendChild(overlay);
+  requestAnimationFrame(() => overlay.classList.add('open'));
+}
+
+async function submitEditIngredient(id, btn) {
+  const name = document.getElementById('_ing-edit-name')?.value.trim();
+  const unit = document.getElementById('_ing-edit-unit')?.value;
+  const threshold = parseFloat(document.getElementById('_ing-edit-threshold')?.value) || 0;
+  const thawHours = parseFloat(document.getElementById('_ing-edit-thaw-hours')?.value) || 0;
+  if (!name) { showToast('請輸入食材名稱', 'error'); return; }
+  btn.disabled=true; btn.textContent='儲存中…';
+  try {
+    const res = await fetch(`/api/ingredients/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ name, unit, low_stock_threshold: threshold, default_thaw_hours: thawHours }) });
+    const j = await res.json();
+    if (j.success) { showToast('✅ 已更新', 'success'); btn.closest('.ing-modal-overlay').remove(); loadIngredientsPage(); }
+    else { showToast(j.message||'更新失敗', 'error'); btn.disabled=false; btn.textContent='儲存變更'; }
+  } catch(e) { showToast('網路錯誤','error'); btn.disabled=false; btn.textContent='儲存變更'; }
+}
+
+async function deleteIngredient(id, name) {
+  if (!confirm(`確定刪除「${name}」？此操作無法復原。`)) return;
+  try {
+    const res = await fetch(`/api/ingredients/${id}`, { method:'DELETE' });
+    const j = await res.json();
+    if (j.success) { showToast(`✅ 已刪除「${name}」`, 'success'); loadIngredientsPage(); }
+    else showToast(j.message||'刪除失敗', 'error');
+  } catch(e) { showToast('網路錯誤','error'); }
+}
+
+function openIngActionModal(id, action) {
+  const ing = _ingredients.find(i=>i.id===id);
+  if (!ing) return;
+  const labels = { purchase:'進貨入庫', 'freeze-to-thaw':'轉解凍中', 'thaw-complete':'完成解凍→冷藏可販售', scrap:'報廢' };
+  const colors = { purchase:'#60a5fa', 'freeze-to-thaw':'#a78bfa', 'thaw-complete':'#4ade80', scrap:'#f87171' };
+  const infos = [
+    { label:'冷凍庫存', value:`${Number(ing.frozen_stock).toFixed(1)} ${ing.unit}` },
+    { label:'解凍中', value:`${Number(ing.thawing_stock).toFixed(1)} ${ing.unit}` },
+    { label:'冷藏可販售', value:`${Number(ing.refrigerated_stock).toFixed(1)} ${ing.unit}` },
+  ];
+  let extraFields = '';
+  if (action === 'freeze-to-thaw') {
+    // 自動帶入預設解凍時間
+    let defaultThawVal = '';
+    if (ing.default_thaw_hours && Number(ing.default_thaw_hours) > 0) {
+      const now = new Date();
+      now.setMinutes(now.getMinutes() + Math.round(Number(ing.default_thaw_hours) * 60));
+      // format to datetime-local: YYYY-MM-DDTHH:mm
+      const pad = v => String(v).padStart(2,'0');
+      defaultThawVal = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+    }
+    extraFields = `<div class="ing-form-group">
+      <label class="ing-form-label">預計解凍完成時間</label>
+      <input type="datetime-local" class="ing-form-input" id="_act-thawtime" value="${defaultThawVal}">
+      ${ing.default_thaw_hours > 0 ? `<div class="ing-form-hint">已依預設 ${ing.default_thaw_hours} 小時自動帶入，可手動修改</div>` : ''}
+    </div>`;
+  } else if (action === 'purchase') {
+    extraFields = `<div class="ing-form-group">
+      <label class="ing-form-label">批號（選填）</label>
+      <input type="text" class="ing-form-input" id="_act-batchno" placeholder="自動產生">
+    </div>`;
+  } else if (action === 'scrap') {
+    extraFields = `<div class="ing-form-group">
+      <label class="ing-form-label">報廢來源</label>
+      <select class="ing-form-select" id="_act-from">
+        <option value="refrigerated">冷藏可販售</option>
+        <option value="frozen">冷凍庫存</option>
+        <option value="thawing">解凍中</option>
+      </select>
+    </div><div class="ing-form-group">
+      <label class="ing-form-label">報廢原因</label>
+      <input type="text" class="ing-form-input" id="_act-reason" placeholder="例：過期、損壞">
+    </div>`;
+  }
+
+  const overlay = document.createElement('div');
+  overlay.className = 'ing-modal-overlay';
+  overlay.innerHTML = `<div class="ing-action-modal">
+    <div class="ing-modal-header">
+      <div class="ing-modal-title" style="color:${colors[action]}">${labels[action]}｜${escHtml(ing.name)}</div>
+      <button class="ing-modal-close" onclick="this.closest('.ing-modal-overlay').remove()">✕</button>
+    </div>
+    <div class="ing-action-info">
+      ${infos.map(r=>`<div class="ing-action-info-row"><span class="ing-action-info-label">${r.label}</span><span class="ing-action-info-value">${r.value}</span></div>`).join('')}
+    </div>
+    <div class="ing-form-group">
+      <label class="ing-form-label">數量（${ing.unit}） *</label>
+      <input type="number" class="ing-form-input" id="_act-amount" placeholder="0" min="0.1" step="0.1">
+    </div>
+    ${extraFields}
+    <div class="ing-modal-footer">
+      <button class="ing-modal-cancel" onclick="this.closest('.ing-modal-overlay').remove()">取消</button>
+      <button class="ing-modal-submit" style="background:${colors[action]}" onclick="submitIngAction(${id},'${action}',this)">確認執行</button>
+    </div>
+  </div>`;
+  overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+  document.body.appendChild(overlay);
+  requestAnimationFrame(() => overlay.classList.add('open'));
+  overlay.querySelector('#_act-amount').focus();
+}
+
+async function submitIngAction(id, action, btn) {
+  const amt = parseFloat(document.getElementById('_act-amount')?.value);
+  if (isNaN(amt)||amt<=0) { showToast('請輸入有效數量', 'error'); return; }
+  let body = { amount: amt };
+  if (action === 'purchase') {
+    body.batch_no = document.getElementById('_act-batchno')?.value||'';
+  } else if (action === 'freeze-to-thaw') {
+    body.thaw_complete_time = document.getElementById('_act-thawtime')?.value||'';
+  } else if (action === 'scrap') {
+    body.from = document.getElementById('_act-from')?.value||'refrigerated';
+    body.reason = document.getElementById('_act-reason')?.value||'報廢';
+  }
+  btn.disabled=true; btn.textContent='執行中…';
+  try {
+    const res = await fetch(`/api/ingredients/${id}/${action}`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    const j = await res.json();
+    const labels = { purchase:'進貨入庫', 'freeze-to-thaw':'轉解凍中', 'thaw-complete':'完成解凍', scrap:'報廢' };
+    if (j.success) { showToast(`✅ ${labels[action]}完成`, 'success'); btn.closest('.ing-modal-overlay').remove(); loadIngredientsPage(); notifyInventoryChanged(); }
+    else { showToast(j.message||'操作失敗', 'error'); btn.disabled=false; btn.textContent='確認執行'; }
+  } catch(e) { showToast('網路錯誤','error'); btn.disabled=false; btn.textContent='確認執行'; }
+}
+
+function openBatchPurchaseModal() {
+  const ingOpts = _ingredients.map(i=>`<option value="${i.id}">${escHtml(i.name)}（${i.unit}）</option>`).join('');
+  const overlay = document.createElement('div');
+  overlay.className = 'ing-modal-overlay';
+  overlay.innerHTML = `<div class="ing-modal" style="max-width:520px">
+    <div class="ing-modal-header">
+      <div class="ing-modal-title">批次進貨</div>
+      <button class="ing-modal-close" onclick="this.closest('.ing-modal-overlay').remove()">✕</button>
+    </div>
+    <div id="_batch-rows" style="display:flex;flex-direction:column;gap:10px;max-height:50vh;overflow-y:auto;margin-bottom:12px">
+      <div class="_batch-row" style="display:flex;gap:8px;align-items:flex-end">
+        <div style="flex:2"><label class="ing-form-label">食材</label>
+          <select class="ing-form-select _batch-ing">${ingOpts}</select>
+        </div>
+        <div style="flex:1"><label class="ing-form-label">數量</label>
+          <input type="number" class="ing-form-input _batch-amt" placeholder="0" min="0.1" step="0.1">
+        </div>
+        <button style="background:var(--bg-hover);border:1px solid var(--border);color:var(--danger);border-radius:6px;padding:9px 10px;cursor:pointer;font-size:16px" onclick="this.closest('._batch-row').remove()">✕</button>
+      </div>
+    </div>
+    <button onclick="addBatchRow()" style="display:flex;align-items:center;gap:6px;background:transparent;border:1px dashed var(--border);color:var(--text-muted);border-radius:8px;padding:8px 14px;cursor:pointer;width:100%;justify-content:center;font-size:13px;transition:border-color .15s"
+      onmouseover="this.style.borderColor=getComputedStyle(document.documentElement).getPropertyValue('--accent')"
+      onmouseout="this.style.borderColor=getComputedStyle(document.documentElement).getPropertyValue('--border')">
+      ＋ 再新增一筆
+    </button>
+    <div class="ing-modal-footer">
+      <button class="ing-modal-cancel" onclick="this.closest('.ing-modal-overlay').remove()">取消</button>
+      <button class="ing-modal-submit" onclick="submitBatchPurchase(this)">批次入庫</button>
+    </div>
+  </div>`;
+  overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+  document.body.appendChild(overlay);
+  requestAnimationFrame(() => overlay.classList.add('open'));
+}
+
+function addBatchRow() {
+  const ingOpts = _ingredients.map(i=>`<option value="${i.id}">${escHtml(i.name)}（${i.unit}）</option>`).join('');
+  const row = document.createElement('div');
+  row.className = '_batch-row';
+  row.style.cssText = 'display:flex;gap:8px;align-items:flex-end';
+  row.innerHTML = `<div style="flex:2"><label class="ing-form-label">食材</label>
+    <select class="ing-form-select _batch-ing">${ingOpts}</select></div>
+    <div style="flex:1"><label class="ing-form-label">數量</label>
+      <input type="number" class="ing-form-input _batch-amt" placeholder="0" min="0.1" step="0.1"></div>
+    <button style="background:var(--bg-hover);border:1px solid var(--border);color:var(--danger);border-radius:6px;padding:9px 10px;cursor:pointer;font-size:16px" onclick="this.closest('._batch-row').remove()">✕</button>`;
+  document.getElementById('_batch-rows').appendChild(row);
+}
+
+async function submitBatchPurchase(btn) {
+  const rows = document.querySelectorAll('._batch-row');
+  const items = [];
+  let valid = true;
+  rows.forEach(r => {
+    const id = r.querySelector('._batch-ing')?.value;
+    const amt = parseFloat(r.querySelector('._batch-amt')?.value);
+    if (!id || isNaN(amt)||amt<=0) { valid=false; return; }
+    items.push({ id, amount: amt });
+  });
+  if (!valid || !items.length) { showToast('請填寫所有欄位', 'error'); return; }
+  btn.disabled=true; btn.textContent='入庫中…';
+  let ok=0, fail=0;
+  for (const item of items) {
+    try {
+      const res = await fetch(`/api/ingredients/${item.id}/purchase`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ amount: item.amount }) });
+      const j = await res.json();
+      if (j.success) ok++; else fail++;
+    } catch(e) { fail++; }
+  }
+  if (ok>0) showToast(`✅ 批次入庫完成（${ok} 筆）${fail?`，${fail} 筆失敗`:''}`, ok>0?'success':'error');
+  else showToast('批次入庫失敗', 'error');
+  btn.closest('.ing-modal-overlay').remove();
+  loadIngredientsPage();
+}
+
+async function openIngredientLogsModal() {
+  const overlay = document.createElement('div');
+  overlay.className = 'ing-modal-overlay';
+  overlay.innerHTML = `<div class="ing-log-modal">
+    <div class="ing-log-header">
+      <div class="ing-modal-title">食材異動紀錄</div>
+      <button class="ing-modal-close" onclick="this.closest('.ing-modal-overlay').remove()">✕</button>
+    </div>
+    <div class="ing-log-body"><div class="ing-loading">載入中…</div></div>
+  </div>`;
+  overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+  document.body.appendChild(overlay);
+  requestAnimationFrame(() => overlay.classList.add('open'));
+
+  try {
+    const res  = await fetch('/api/ingredients/logs/all?limit=200');
+    const json = await res.json();
+    const rows = (json.data||[]);
+    const typeMap = {
+      purchase:{ label:'進貨', cls:'log-type-purchase' },
+      freeze_to_thaw:{ label:'轉解凍中', cls:'log-type-freeze' },
+      thaw_complete:{ label:'完成解凍', cls:'log-type-thaw' },
+      sale_deduct:{ label:'銷售扣料', cls:'log-type-sale' },
+      scrap:{ label:'報廢', cls:'log-type-scrap' },
+      manual_adjust:{ label:'手動調整', cls:'log-type-manual' }
+    };
+    overlay.querySelector('.ing-log-body').innerHTML = `<table class="ing-log-table">
+      <thead><tr>
+        <th>時間</th><th>食材</th><th>操作類型</th>
+        <th>數量</th><th>操作者</th><th>備註</th>
+      </tr></thead>
+      <tbody>${rows.length ? rows.map((r,i) => {
+        const t = typeMap[r.log_type]||{ label:r.log_type, cls:'log-type-manual' };
+        return `<tr>
+          <td style="white-space:nowrap;color:var(--text-muted);font-size:12px">${twTime(r.created_at,'datetime')}</td>
+          <td style="font-weight:700;color:var(--text-primary)">${escHtml(r.ingredient_name||'—')}</td>
+          <td><span class="ing-log-type ${t.cls}">${t.label}</span></td>
+          <td style="text-align:right;font-weight:700;color:var(--accent);font-family:var(--font-mono)">${Number(r.amount||0).toFixed(1)}</td>
+          <td style="color:var(--text-muted);font-size:12px">${escHtml(r.operator||'—')}</td>
+          <td style="color:var(--text-secondary);font-size:12px">${escHtml(r.reason||r.note||'')}</td>
+        </tr>`;
+      }).join('') : '<tr><td colspan="6" style="text-align:center;padding:40px;color:var(--text-muted)">尚無異動紀錄</td></tr>'}</tbody>
+    </table>`;
+  } catch(e) { showToast('載入失敗','error'); }
+}
+
+async function openFormulaManagerModal() {
+  const overlay = document.createElement('div');
+  overlay.className = 'ing-modal-overlay';
+  overlay.innerHTML = `<div class="ing-formula-modal">
+    <div class="ing-log-header">
+      <div class="ing-modal-title">商品扣料公式</div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="ing-btn-ghost" style="font-size:12px;padding:6px 10px" onclick="openImportModal('ingredient-formulas')">📥 匯入</button>
+        <button class="ing-btn-ghost" style="font-size:12px;padding:6px 10px" onclick="exportCsv('ingredient-formulas')">📤 匯出</button>
+        <button class="ing-modal-close" onclick="this.closest('.ing-modal-overlay').remove();window._formulaModal=null">✕</button>
+      </div>
+    </div>
+    <div style="padding:0 20px;margin-top:16px"><div class="ing-formula-add">
+      <div class="ing-formula-add-title">新增扣料公式</div>
+      <div class="ing-formula-fields" id="_fml-fields">載入中…</div>
+    </div></div>
+    <div class="ing-formula-table-wrap" style="margin-top:12px">
+      <table class="ing-formula-table">
+        <thead><tr><th>商品</th><th>食材</th><th>每份扣除量</th><th>操作</th></tr></thead>
+        <tbody id="fml-tbody"><tr><td colspan="4" style="text-align:center;padding:30px;color:var(--text-muted)">載入中…</td></tr></tbody>
+      </table>
+    </div>
+  </div>`;
+  overlay.onclick = e => { if (e.target === overlay) { overlay.remove(); window._formulaModal=null; } };
+  document.body.appendChild(overlay);
+  requestAnimationFrame(() => overlay.classList.add('open'));
+  window._formulaModal = overlay;
+
+  try {
+    const [ingRes, fmRes, prodRes] = await Promise.all([
+      fetch('/api/ingredients').then(r=>r.json()),
+      fetch('/api/ingredients/formulas/all').then(r=>r.json()),
+      fetch('/api/products').then(r=>r.json())
+    ]);
+    const ings = ingRes.data || [];
+    const fms  = fmRes.data  || [];
+    const prods = (prodRes.data||prodRes||[]);
+
+    const ingOpts = ings.map(i=>`<option value="${i.id}">${escHtml(i.name)}（${i.unit}）</option>`).join('');
+    const prodOpts = prods.map(p=>`<option value="${p.id}">${escHtml(p.name)}</option>`).join('');
+
+    document.getElementById('_fml-fields').innerHTML = `
+      <div class="ing-formula-field">
+        <label>商品</label>
+        <select id="fml-pid"><option value="">選擇商品</option>${prodOpts}</select>
+      </div>
+      <div class="ing-formula-field">
+        <label>食材</label>
+        <select id="fml-ingid"><option value="">選擇食材</option>${ingOpts}</select>
+      </div>
+      <div class="ing-formula-field">
+        <label>每份扣除量</label>
+        <input type="number" id="fml-amt" placeholder="200" step="0.1" min="0.1">
+      </div>
+      <div class="ing-formula-field">
+        <label>單位</label>
+        <div style="padding:8px 12px;background:var(--bg-card);border:1px solid var(--accent);border-radius:6px;color:var(--accent);font-size:13px;font-weight:700;min-width:40px">g</div>
+      </div>
+      <button class="ing-btn-primary" onclick="addFormula()" style="margin-top:auto">新增</button>`;
+
+    document.getElementById('fml-tbody').innerHTML = fms.length ? fms.map(f=>`<tr>
+      <td style="font-weight:600;color:var(--text-primary)">${escHtml(f.product_name||'—')}</td>
+      <td style="color:var(--text-secondary)">${escHtml(f.ingredient_name||'—')}</td>
+      <td style="text-align:center;font-weight:700;color:var(--accent);font-family:var(--font-mono)">${f.amount_per_unit} g</td>
+      <td style="text-align:center">
+        <button onclick="deleteFormula(${f.id},this)" style="background:rgba(248,113,113,.12);border:1px solid rgba(248,113,113,.3);color:#f87171;cursor:pointer;padding:4px 10px;border-radius:5px;font-size:12px;font-weight:600;transition:background .12s"
+          onmouseover="this.style.background='rgba(248,113,113,.25)'" onmouseout="this.style.background='rgba(248,113,113,.12)'">刪除</button>
+      </td>
+    </tr>`).join('') : '<tr><td colspan="4" style="text-align:center;padding:30px;color:var(--text-muted)">尚無公式</td></tr>';
+
+  } catch(e) { showToast('載入失敗','error'); }
+}
+
+async function addFormula() {
+  const pid = document.getElementById('fml-pid')?.value;
+  const iid = document.getElementById('fml-ingid')?.value;
+  const amt = document.getElementById('fml-amt')?.value;
+  if (!pid||!iid||!amt) { showToast('請填寫所有欄位', 'error'); return; }
+  const res  = await fetch('/api/ingredients/formulas/add', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ product_id:Number(pid), ingredient_id:Number(iid), amount_per_unit:Number(amt) }) });
+  const json = await res.json();
+  if (json.success) {
+    showToast('✅ 公式已新增', 'success');
+    if (window._formulaModal) { window._formulaModal.remove(); window._formulaModal=null; openFormulaManagerModal(); }
+  } else showToast(json.message||'新增失敗', 'error');
+}
+
+async function deleteFormula(id, btn) {
+  if (!confirm('確定刪除此扣料公式？')) return;
+  const res = await fetch(`/api/ingredients/formulas/${id}`, { method:'DELETE' });
+  const json = await res.json();
+  if (json.success) { btn.closest('tr').remove(); showToast('✅ 已刪除', 'success'); }
+}
+
+
+// ════════════════════════════════════════════════════════
+// ===== 匯入 / 匯出功能 =====
+// ════════════════════════════════════════════════════════
+
+const IMPORT_CONFIG = {
+  'products':            { title:'匯入商品',     template:'products',            fields:['商品名稱','分類','售價'] },
+  'product-inventory':   { title:'匯入商品庫存', template:'product-inventory',   fields:['商品名稱','每份克數','補充庫存(g)'] },
+  'ingredients':         { title:'匯入食材',     template:'ingredients',          fields:['食材名稱','單位(g/斤/kg)','冷凍庫存'] },
+  'ingredient-formulas': { title:'匯入扣料公式', template:'ingredient-formulas',  fields:['商品名稱','食材名稱','每份扣除量(g)'] },
+};
+
+function downloadTemplate(type) {
+  window.open(`/api/template/${type}`, '_blank');
+}
+
+function exportCsv(type) {
+  window.open(`/api/export/${type}`, '_blank');
+}
+
+function parseCsvText(text) {
+  const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n').filter(l => l.trim());
+  if (!lines.length) return [];
+  function parseLine(line) {
+    const result = []; let cur = '', inQ = false;
+    // remove BOM
+    if (line.charCodeAt(0) === 0xFEFF) line = line.slice(1);
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (c === '"') { if (inQ && line[i+1]==='"') { cur += '"'; i++; } else inQ = !inQ; }
+      else if (c === ',' && !inQ) { result.push(cur); cur = ''; }
+      else cur += c;
+    }
+    result.push(cur);
+    return result;
+  }
+  let headers = parseLine(lines[0]);
+  // strip BOM from first header
+  if (headers[0] && headers[0].charCodeAt(0) === 0xFEFF) headers[0] = headers[0].slice(1);
+  return lines.slice(1).map(l => {
+    const vals = parseLine(l);
+    const obj = {};
+    headers.forEach((h, i) => { obj[h.trim()] = (vals[i] || '').trim(); });
+    return obj;
+  });
+}
+
+function openImportModal(type) {
+  const cfg = IMPORT_CONFIG[type];
+  if (!cfg) return;
+  const overlay = document.createElement('div');
+  overlay.className = 'ing-modal-overlay';
+  overlay.innerHTML = `<div class="ing-modal" style="max-width:600px">
+    <div class="ing-modal-header">
+      <div class="ing-modal-title">${cfg.title}</div>
+      <button class="ing-modal-close" onclick="this.closest('.ing-modal-overlay').remove()">✕</button>
+    </div>
+    <div class="ing-form-group">
+      <div style="display:flex;gap:8px;margin-bottom:10px">
+        <label class="ing-btn-secondary" style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;font-size:13px;font-weight:600">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          選擇 CSV 檔案
+          <input type="file" accept=".csv,.txt" style="display:none" onchange="previewImportCsv(this,'${type}')">
+        </label>
+        <button class="ing-btn-ghost" onclick="downloadTemplate('${type}')">📋 下載範本</button>
+      </div>
+      <div class="ing-form-hint">支援 CSV 格式。必填欄位：${cfg.fields.join('、')}</div>
+    </div>
+    <div id="_import-preview-${type}" style="display:none">
+      <div style="font-size:12px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">預覽（前5筆）</div>
+      <div id="_import-preview-table-${type}" style="overflow-x:auto;max-height:200px;border:1px solid var(--border);border-radius:8px"></div>
+      <div id="_import-count-${type}" style="font-size:12px;color:var(--text-muted);margin-top:6px"></div>
+    </div>
+    <div id="_import-result-${type}" style="display:none;padding:12px;border-radius:8px;font-size:13px;margin-top:10px"></div>
+    <div class="ing-modal-footer">
+      <button class="ing-modal-cancel" onclick="this.closest('.ing-modal-overlay').remove()">取消</button>
+      <button class="ing-modal-submit" id="_import-submit-${type}" style="display:none" onclick="submitImport('${type}',this)">開始匯入</button>
+    </div>
+  </div>`;
+  overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+  document.body.appendChild(overlay);
+  requestAnimationFrame(() => overlay.classList.add('open'));
+}
+
+let _importData = {};
+
+function previewImportCsv(input, type) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const rows = parseCsvText(e.target.result);
+    _importData[type] = rows;
+    const preview = rows.slice(0, 5);
+    const keys = Object.keys(preview[0] || {});
+    const table = `<table style="width:100%;border-collapse:collapse;font-size:11px">
+      <thead><tr>${keys.map(k=>`<th style="padding:6px 8px;background:var(--bg-card);color:var(--accent);font-size:10px;white-space:nowrap;border-bottom:1px solid var(--border)">${escHtml(k)}</th>`).join('')}</tr></thead>
+      <tbody>${preview.map(r=>`<tr>${keys.map(k=>`<td style="padding:5px 8px;border-bottom:1px solid rgba(255,255,255,.05);color:var(--text-secondary);white-space:nowrap">${escHtml(r[k]||'')}</td>`).join('')}</tr>`).join('')}</tbody>
+    </table>`;
+    const previewDiv = document.getElementById(`_import-preview-${type}`);
+    document.getElementById(`_import-preview-table-${type}`).innerHTML = table;
+    document.getElementById(`_import-count-${type}`).textContent = `共 ${rows.length} 筆資料`;
+    previewDiv.style.display = '';
+    document.getElementById(`_import-submit-${type}`).style.display = '';
+    document.getElementById(`_import-result-${type}`).style.display = 'none';
+  };
+  reader.readAsText(file, 'UTF-8');
+}
+
+async function submitImport(type, btn) {
+  const rows = _importData[type];
+  if (!rows || !rows.length) { showToast('請先選擇 CSV 檔案', 'error'); return; }
+  btn.disabled = true; btn.textContent = '匯入中…';
+  try {
+    const res  = await fetch(`/api/import/${type}`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ rows }) });
+    const json = await res.json();
+    const resultDiv = document.getElementById(`_import-result-${type}`);
+    if (json.success) {
+      const parts = [];
+      if (json.added)   parts.push(`新增 ${json.added} 筆`);
+      if (json.updated) parts.push(`更新 ${json.updated} 筆`);
+      if (json.failed)  parts.push(`失敗 ${json.failed} 筆`);
+      let html = `<div style="color:var(--success);font-weight:700;margin-bottom:6px">✅ 匯入完成：${parts.join('、')}</div>`;
+      if (json.errors?.length) {
+        html += `<div style="color:#f87171;font-size:12px;max-height:80px;overflow-y:auto">${json.errors.map(e=>`<div>⚠️ ${escHtml(e)}</div>`).join('')}</div>`;
+      }
+      resultDiv.innerHTML = html;
+      resultDiv.style.cssText = 'display:block;background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.3);border-radius:8px;padding:12px;margin-top:10px';
+      // reload relevant data
+      if (type === 'products' || type === 'product-inventory') { loadInventoryPage(); if (typeof loadProductsPage === 'function') loadProductsPage(); }
+      if (type === 'ingredients' || type === 'ingredient-formulas') loadIngredientsPage();
+      showToast('匯入完成', 'success');
+    } else {
+      resultDiv.innerHTML = `<div style="color:#f87171">❌ 匯入失敗：${escHtml(json.message)}</div>`;
+      resultDiv.style.cssText = 'display:block;background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.3);border-radius:8px;padding:12px;margin-top:10px';
+    }
+  } catch(e) { showToast('網路錯誤', 'error'); }
+  btn.disabled = false; btn.textContent = '開始匯入';
+}
+
+// 食材操作後通知點餐頁刷新（若目前在 POS 頁）
+function notifyInventoryChanged() {
+  const posPage = document.getElementById('page-pos');
+  if (posPage && posPage.classList.contains('active')) {
+    refreshInventoryForProducts();
+  }
+}
+
+
+// ── v18：訂單頁自動 polling（每 10 秒，確保 WSS 失效時也能同步）──────────────
+(function initOrderPolling() {
+  let _pollInterval = null;
+  // 原本 showPage 函數的包裝，切到訂單頁時啟動 polling
+  const _origShowPage = typeof showPage === 'function' ? showPage : null;
+  if (_origShowPage) {
+    window._orderPollingShowPage = function(name) {
+      _origShowPage(name);
+      if (name === 'orders') {
+        if (!_pollInterval) {
+          _pollInterval = setInterval(() => {
+            if (typeof loadOrders === 'function') {
+              loadOrders(window.currentOrderTab === 'pos' ? 'pos' : null);
+            }
+          }, 10000); // 每 10 秒
+        }
+      } else {
+        if (_pollInterval) { clearInterval(_pollInterval); _pollInterval = null; }
+      }
+    };
+    // 替換全域 showPage（只在 DOMContentLoaded 後）
+    document.addEventListener('DOMContentLoaded', () => {
+      window.showPage = window._orderPollingShowPage;
+    });
+  }
+})();
+
+// ── v18：WSS Client — 接收後端 order_status_changed 後自動刷新訂單頁 ──────────
+(function initWebPosWss() {
+  let _wssRetry = 0;
+  function connectWss() {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const url   = proto + '//' + location.host + '/orders';
+    let ws;
+    try { ws = new WebSocket(url); } catch(e) { return; }
+
+    ws.onopen = () => {
+      _wssRetry = 0;
+      console.log('[WSS] Web POS 已連線:', url);
+    };
+
+    ws.onmessage = (evt) => {
+      let msg;
+      try { msg = JSON.parse(evt.data); } catch { return; }
+
+      // order_status_changed → 無條件刷新訂單（不管在哪個頁面都要保持資料最新）
+      if (msg.type === 'order_status_changed') {
+        const updatedOrder = msg.order;
+        console.log('[WSS] 收到 order_status_changed:', updatedOrder?.order_number, '→', updatedOrder?.order_status);
+
+        // v18修正：Web POS 用 page-orders class.active 控制顯示，不是 style.display
+        // 無論訂單頁是否顯示，都更新資料；若在訂單頁則立即重新渲染
+        if (typeof loadOrders === 'function') {
+          loadOrders(window.currentOrderTab === 'pos' ? 'pos' : null);
+        }
+
+        // 若目前在訂單頁，更新狀態 badge（不需等 loadOrders 完成）
+        const ordersPage = document.getElementById('page-orders');
+        if (ordersPage?.classList.contains('active') && typeof showToast === 'function') {
+          showToast('🔄 訂單狀態更新：' + (updatedOrder?.order_number || '') + ' → ' + (updatedOrder?.order_status || ''));
+        }
+      }
+
+      // new_line_order → 通知 + 刷新
+      if (msg.type === 'new_line_order') {
+        const o = msg.order;
+        if (typeof showToast === 'function') {
+          showToast('🔔 LINE 新訂單：' + (o?.order_number || '') + ' / ' + (o?.customer_name || ''));
+        }
+        if (typeof loadOrders === 'function') {
+          loadOrders(window.currentOrderTab === 'pos' ? 'pos' : null);
+        }
+      }
+    };
+
+    ws.onclose = () => {
+      const delay = Math.min(1000 * Math.pow(2, _wssRetry++), 30000);
+      console.log('[WSS] 斷線，', delay, 'ms 後重連');
+      setTimeout(connectWss, delay);
+    };
+
+    ws.onerror = () => ws.close();
+  }
+
+  // DOMContentLoaded 後連線
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', connectWss);
+  } else {
+    connectWss();
+  }
+})();
