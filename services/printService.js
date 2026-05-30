@@ -47,11 +47,15 @@ const CHARSET_CMD = Buffer.from([
 ]);
 
 // ── 讀取設定 ──────────────────────────────────────────────
-function getPrinterConfig() {
+// ★ fix4：getPrinterConfig(storeId) — 依 store_id 讀取設定
+// storeId 預設 'store_001'，向後相容無 storeId 的呼叫
+function getPrinterConfig(storeId) {
+  const sid = storeId || 'store_001';
   try {
     const db  = getDb();
+    // ★ fix4：所有 settings 查詢加 AND store_id=?
     const get = (k, d) => {
-      const r = db.get('SELECT value FROM settings WHERE key=?', [k]);
+      const r = db.get('SELECT value FROM settings WHERE store_id=? AND key=?', [sid, k]);
       return r ? r.value : d;
     };
     return {
@@ -153,8 +157,8 @@ async function sendWindowsSpooler(printerShareName, data) {
 }
 
 // ── 主傳送入口 ────────────────────────────────────────────
-async function send(data) {
-  const cfg = getPrinterConfig();
+async function send(data, storeId) {
+  const cfg = getPrinterConfig(storeId);
 
   if (!cfg.enabled) {
     return { success: false, message: '印表機未啟用（請至設定 → 出單機 啟用）' };
@@ -194,8 +198,8 @@ async function getWindowsPrinters() {
 }
 
 // ── 狀態檢查 ──────────────────────────────────────────────
-async function checkPrinterStatus() {
-  const cfg = getPrinterConfig();
+async function checkPrinterStatus(storeId) {
+  const cfg = getPrinterConfig(storeId);
 
   if (!cfg.enabled) {
     return { connected: false, mode: cfg.type, message: '印表機未啟用' };
@@ -436,27 +440,29 @@ function buildTestBuffer(cfg) {
 
 // ── 公開 API ──────────────────────────────────────────────
 
-async function printTest() {
-  const cfg = getPrinterConfig();
-  return send(buildTestBuffer(cfg));
+async function printTest(storeId) {
+  const cfg = getPrinterConfig(storeId);
+  return send(buildTestBuffer(cfg), storeId);
 }
 
-async function printOrder(order) {
-  const cfg = getPrinterConfig();
-  return send(buildReceiptBuffer(order, cfg));
+async function printOrder(order, storeId) {
+  const sid = storeId || order.store_id || 'store_001';
+  const cfg = getPrinterConfig(sid);
+  return send(buildReceiptBuffer(order, cfg), sid);
 }
 
-async function printKitchenTicket(order) {
-  const cfg = getPrinterConfig();
-  return send(buildKitchenBuffer(order, cfg));
+async function printKitchenTicket(order, storeId) {
+  const sid = storeId || order.store_id || 'store_001';
+  const cfg = getPrinterConfig(sid);
+  return send(buildKitchenBuffer(order, cfg), sid);
 }
 
 async function printKitchenTest() {
   return send(buildKitchenTestBuffer());
 }
 
-async function openCashDrawer() {
-  const cfg = getPrinterConfig();
+async function openCashDrawer(storeId) {
+  const cfg = getPrinterConfig(storeId);
   if (!cfg.enabled) {
     return { success: false, message: '印表機未啟用，無法開錢櫃' };
   }
@@ -480,18 +486,19 @@ async function openCashDrawer() {
   }
 }
 
-async function autoCheckoutPrint(order) {
-  const cfg    = getPrinterConfig();
+async function autoCheckoutPrint(order, storeId) {
+  const sid = storeId || order.store_id || 'store_001';
+  const cfg = getPrinterConfig(sid);
   const result = { printResult: null, drawerResult: null };
 
   if (!cfg.enabled || !cfg.auto_print) return result;
 
-  result.printResult = await printOrder(order);
+  result.printResult = await printOrder(order, sid);
   console.log('[AutoPrint]', result.printResult.message);
 
   const isCash = ['cash', '現金'].includes(order.payment_method);
   if (cfg.auto_drawer && isCash) {
-    result.drawerResult = await openCashDrawer();
+    result.drawerResult = await openCashDrawer(sid);
     console.log('[AutoDrawer]', result.drawerResult.message);
   }
 

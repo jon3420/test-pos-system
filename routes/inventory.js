@@ -1,42 +1,39 @@
-// routes/inventory.js
+// routes/inventory.js — SaaS R1 fix1（多店隔離版）
 const express = require('express');
 const router = express.Router();
 const { getDb } = require('../utils/db');
 const { toGrams, fromGrams } = require('../utils/unitConvert');
 const { getAllInventoryStatuses, getProductInventoryStatus } = require('../utils/inventoryHelper');
 
-// ── helper ────────────────────────────────────────────────
 function calcUnits(grams, allocatedGrams) {
   if (!allocatedGrams || allocatedGrams <= 0) return 0;
   return Math.floor(grams / allocatedGrams);
 }
 
-function writeInventoryLog(db, productId, productName, action, before, change, after, reason, orderId='', operator='staff') {
-  const prod = db.get('SELECT allocated_grams FROM products WHERE id=?', [productId]);
+function writeInventoryLog(db, productId, productName, action, before, change, after, reason, orderId='', operator='staff', storeId='store_001') {
+  const prod = db.get('SELECT allocated_grams FROM products WHERE id=? AND store_id=?', [productId, storeId]);
   const alloc = prod ? prod.allocated_grams : 0;
   db.run(
     `INSERT INTO inventory_logs
-      (product_id,product_name,action,before_grams,change_grams,after_grams,before_units,after_units,reason,operator,order_id)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-    [productId, productName, action,
+      (store_id,product_id,product_name,action,before_grams,change_grams,after_grams,before_units,after_units,reason,operator,order_id)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+    [storeId, productId, productName, action,
      before, change, after,
      calcUnits(before, alloc), calcUnits(after, alloc),
      reason, operator, orderId]
   );
 }
 
-// ── GET /api/inventory ───────────────────────────────────
+// GET /api/inventory
 router.get('/', (req, res) => {
   try {
     const db = getDb();
-    // 使用統一 inventoryHelper，確保與結帳/警示等完全一致
-    const statuses = getAllInventoryStatuses(db);
-    // 補上商品完整欄位供前端使用
+    const storeId = req.storeId || 'store_001';
+    const statuses = getAllInventoryStatuses(db, storeId);
     const enriched = statuses.map(s => {
-      const prod = db.get('SELECT * FROM products WHERE id=?', [s.product_id]);
+      const prod = db.get('SELECT * FROM products WHERE id=? AND store_id=?', [s.product_id, storeId]);
       return {
         ...(prod || {}),
-        // 覆蓋庫存相關欄位為統一計算值
         current_stock_grams: s.available_grams,
         available_units:     s.available_units,
         available_grams:     s.available_grams,
@@ -51,61 +48,64 @@ router.get('/', (req, res) => {
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
 
-// ── POST /api/inventory/restock ──────────────────────────
+// POST /api/inventory/restock
 router.post('/restock', (req, res) => {
   try {
     const db = getDb();
+    const storeId = req.storeId || 'store_001';
     const { product_id, add_grams, reason='補貨', operator='staff' } = req.body;
     if (!product_id || !add_grams || Number(add_grams) <= 0)
       return res.status(400).json({ success: false, message: 'product_id 與 add_grams 必填且需大於0' });
 
-    const prod = db.get('SELECT * FROM products WHERE id=?', [product_id]);
+    const prod = db.get('SELECT * FROM products WHERE id=? AND store_id=?', [product_id, storeId]);
     if (!prod) return res.status(404).json({ success: false, message: '商品不存在' });
 
     const before = Number(prod.current_stock_grams || 0);
     const addG   = Number(add_grams);
     const after  = before + addG;
 
-    db.run("UPDATE products SET current_stock_grams=?,total_stock_grams=total_stock_grams+?,updated_at=datetime('now','localtime') WHERE id=?",
-      [after, addG, product_id]);
-    writeInventoryLog(db, product_id, prod.name, 'restock', before, addG, after, reason, '', operator);
+    db.run("UPDATE products SET current_stock_grams=?,total_stock_grams=total_stock_grams+?,updated_at=datetime('now','localtime') WHERE id=? AND store_id=?",
+      [after, addG, product_id, storeId]);
+    writeInventoryLog(db, product_id, prod.name, 'restock', before, addG, after, reason, '', operator, storeId);
 
-    const updated = db.get('SELECT * FROM products WHERE id=?', [product_id]);
+    const updated = db.get('SELECT * FROM products WHERE id=? AND store_id=?', [product_id, storeId]);
     res.json({ success: true, data: { ...updated, available_units: calcUnits(updated.current_stock_grams, updated.allocated_grams) } });
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
 
-// ── POST /api/inventory/adjust ───────────────────────────
+// POST /api/inventory/adjust
 router.post('/adjust', (req, res) => {
   try {
     const db = getDb();
+    const storeId = req.storeId || 'store_001';
     const { product_id, change_grams, reason='手動調整', operator='staff' } = req.body;
     if (!product_id || change_grams === undefined)
       return res.status(400).json({ success: false, message: 'product_id 與 change_grams 必填' });
 
-    const prod = db.get('SELECT * FROM products WHERE id=?', [product_id]);
+    const prod = db.get('SELECT * FROM products WHERE id=? AND store_id=?', [product_id, storeId]);
     if (!prod) return res.status(404).json({ success: false, message: '商品不存在' });
 
     const before  = Number(prod.current_stock_grams || 0);
     const changeG = Number(change_grams);
     const after   = Math.max(0, before + changeG);
 
-    db.run("UPDATE products SET current_stock_grams=?,updated_at=datetime('now','localtime') WHERE id=?",
-      [after, product_id]);
-    writeInventoryLog(db, product_id, prod.name, 'manual_adjust', before, changeG, after, reason, '', operator);
+    db.run("UPDATE products SET current_stock_grams=?,updated_at=datetime('now','localtime') WHERE id=? AND store_id=?",
+      [after, product_id, storeId]);
+    writeInventoryLog(db, product_id, prod.name, 'manual_adjust', before, changeG, after, reason, '', operator, storeId);
 
-    const updated = db.get('SELECT * FROM products WHERE id=?', [product_id]);
+    const updated = db.get('SELECT * FROM products WHERE id=? AND store_id=?', [product_id, storeId]);
     res.json({ success: true, data: { ...updated, available_units: calcUnits(updated.current_stock_grams, updated.allocated_grams) } });
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
 
-// ── GET /api/inventory/logs ──────────────────────────────
+// GET /api/inventory/logs
 router.get('/logs', (req, res) => {
   try {
     const db = getDb();
+    const storeId = req.storeId || 'store_001';
     const { product_id, limit=100, offset=0 } = req.query;
-    let sql = 'SELECT * FROM inventory_logs WHERE 1=1';
-    const p = [];
+    let sql = 'SELECT * FROM inventory_logs WHERE store_id=?';
+    const p = [storeId];
     if (product_id) { sql += ' AND product_id=?'; p.push(Number(product_id)); }
     sql += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
     p.push(Number(limit), Number(offset));

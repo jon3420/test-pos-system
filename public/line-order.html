@@ -231,6 +231,24 @@ img{max-width:100%;display:block}
 <div class="toast" id="toast"></div>
 
 <script>
+
+  // ═══════════════════════════════════════════════════
+  // SaaS R1 fix4 — LINE 點餐 store_id 綁定
+  // 支援網址：/line-order.html?store_id=store_001
+  // ═══════════════════════════════════════════════════
+
+  // 1. 從 URL 取得 store_id（預設 store_001）
+  const LINE_STORE_ID = new URLSearchParams(window.location.search).get('store_id') || 'store_001';
+
+  // 2. apiFetch — 自動附加 ?store_id=xxx 到所有 LINE API
+  function apiFetch(url, options = {}) {
+    // 附加 store_id 到 URL
+    const sep = url.includes('?') ? '&' : '?';
+    const fullUrl = url + sep + 'store_id=' + encodeURIComponent(LINE_STORE_ID);
+    const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
+    return fetch(fullUrl, { ...options, headers });
+  }
+
 'use strict';
 let allProducts=[], categories=[];
 let cart={};
@@ -254,8 +272,8 @@ const SCLASS={pending:'s-pending',accepted:'s-accepted',preparing:'s-preparing',
 async function init(){
   try{
     const[sr,mr]=await Promise.all([
-      fetch('/api/line-shop').then(r=>r.json()),
-      fetch('/api/line-menu').then(r=>r.json())
+      apiFetch('/api/line-shop').then(r=>r.json()),
+      apiFetch('/api/line-menu').then(r=>r.json())
     ]);
     if(sr.success){
       const d=sr.data;
@@ -488,7 +506,7 @@ async function submitOrder(){
   const subtotal=items.reduce((s,i)=>s+i.subtotal,0);
   const btn=document.getElementById('subBtn');btn.disabled=true;btn.textContent='送出中…';
   try{
-    const res=await fetch('/api/line-orders',{method:'POST',headers:{'Content-Type':'application/json'},
+    const res=await apiFetch('/api/line-orders',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({customer_name:name,customer_phone:phone,order_type:type,pickup_date:pickupDate,pickup_time:time,payment_method:selectedPay,note,items,subtotal,total:subtotal})
     }).then(r=>r.json());
     if(res.success){
@@ -522,7 +540,7 @@ async function renderLastOrderCard(){
   const card=document.getElementById('lastOrderCard');
   if(!no||!ph){card.style.display='none';return;}
   try{
-    const res=await fetch('/api/line-orders/status/'+encodeURIComponent(no)).then(r=>r.json());
+    const res=await apiFetch('/api/line-orders/status/'+encodeURIComponent(no)).then(r=>r.json());
     if(!res.success){card.style.display='none';return;}
     const d=res.data;
     const si=SICON[d.order_status]||'📦',sl=SLABEL[d.order_status]||d.order_status;
@@ -542,12 +560,12 @@ async function fetchAndShowDetail(no,ph){
   try{
     // v18修正：phone 可能未定義，此時僅用 order_number 查詢
     const body = ph ? {order_number:no,phone:ph} : {order_number:no};
-    const res=await fetch('/api/line-orders/query',{method:'POST',headers:{'Content-Type':'application/json'},
+    const res=await apiFetch('/api/line-orders/query',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify(body)}).then(r=>r.json());
     if(res.success&&res.orders?.length)openOrderDetail(res.orders[0]);
     else{
       // fallback：直接用 /status/:orderNo 取得基本資料
-      const sr=await fetch('/api/line-orders/status/'+encodeURIComponent(no)).then(r=>r.json());
+      const sr=await apiFetch('/api/line-orders/status/'+encodeURIComponent(no)).then(r=>r.json());
       if(sr.success&&sr.data)openOrderDetail({...sr.data,order_number:no,status:sr.data.order_status});
       else toast('無法取得訂單詳情');
     }
@@ -580,7 +598,7 @@ async function doQuery(){
     const body={phone};
     if(orderNo)body.order_number=orderNo;
     if(name)body.customer_name=name;
-    const res=await fetch('/api/line-orders/query',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>r.json());
+    const res=await apiFetch('/api/line-orders/query',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>r.json());
     if(!res.success){resultEl.innerHTML=`<p style="color:#e53935;text-align:center;padding:16px">${esc(res.message||'查無訂單')}</p>`;return;}
     if(res.mode==='single'||res.orders.length===1){
       resultEl.innerHTML='';
@@ -622,7 +640,7 @@ async function loadMyOrders(phone,name,save=false){
   body.innerHTML='<div style="text-align:center;padding:40px;color:#888"><div class="spinner" style="margin:0 auto 8px"></div>載入中…</div>';
   try{
     const b={phone};if(name)b.customer_name=name;
-    const res=await fetch('/api/line-orders/history',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}).then(r=>r.json());
+    const res=await apiFetch('/api/line-orders/history',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}).then(r=>r.json());
     if(!res.success){
       body.innerHTML=`<div class="empty-hint"><div class="ei">📭</div><p>${esc(res.message||'查無訂單')}</p><button class="sub-btn" style="margin-top:16px;max-width:240px" onclick="clearMyOrdersLogin()">重新輸入</button></div>`;return;
     }
@@ -729,7 +747,7 @@ async function refreshInventory(){
   if(document.getElementById('cartSheet').classList.contains('show'))return;
   if(document.getElementById('successScreen').classList.contains('show'))return;
   try{
-    const res=await fetch('/api/inventory').then(r=>r.json());if(!res.success)return;
+    const res=await apiFetch('/api/inventory').then(r=>r.json());if(!res.success)return;
     const imap={};(res.data||[]).forEach(iv=>{imap[iv.id]=iv;});
     let changed=false;
     allProducts=allProducts.map(p=>{
@@ -765,7 +783,7 @@ init();
     _pollTimer = setInterval(async () => {
       if (!orderNo) return;
       try {
-        const r = await fetch('/api/line-orders/status/' + encodeURIComponent(orderNo)).then(x=>x.json());
+        const r = await apiFetch('/api/line-orders/status/' + encodeURIComponent(orderNo)).then(x=>x.json());
         if (!r.success || !r.data) return;
         const d = r.data;
         const newStatus = d.order_status || '';

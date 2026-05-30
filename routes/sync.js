@@ -1,25 +1,25 @@
-// routes/sync.js  — Android POS 離線同步端點 (v13)
+// routes/sync.js — SaaS R1 fix1（多店隔離版）
 const express = require('express');
 const router  = express.Router();
 const { getDb } = require('../utils/db');
 
-// ── GET /api/sync/config ──────────────────────────────────────────────────
-// Android 啟動時下載最新設定（商品 / 分類 / 付款方式 / 外送平台 / 設定）
+// GET /api/sync/config  — Android 啟動時下載最新設定
 router.get('/config', (req, res) => {
   try {
     const db = getDb();
-    const products       = db.all('SELECT * FROM products WHERE enabled=1 ORDER BY sort_order, id');
-    const categories     = db.all('SELECT * FROM categories WHERE is_active=1 ORDER BY sort_order, id');
-    const paymentMethods = db.all('SELECT * FROM payment_methods WHERE is_active=1 ORDER BY sort_order, id');
-    // 正確使用資料表名稱 delivery_platforms
-    const platforms      = db.all('SELECT * FROM delivery_platforms WHERE is_active=1 ORDER BY id');
-    const settingsRows   = db.all('SELECT key, value FROM settings');
+    const storeId = req.storeId || 'store_001';
+    const products       = db.all('SELECT * FROM products WHERE store_id=? AND enabled=1 ORDER BY sort_order, id', [storeId]);
+    const categories     = db.all('SELECT * FROM categories WHERE store_id=? AND is_active=1 ORDER BY sort_order, id', [storeId]);
+    const paymentMethods = db.all('SELECT * FROM payment_methods WHERE store_id=? AND is_active=1 ORDER BY sort_order, id', [storeId]);
+    const platforms      = db.all('SELECT * FROM delivery_platforms WHERE store_id=? AND is_active=1 ORDER BY id', [storeId]);
+    const settingsRows   = db.all('SELECT key, value FROM settings WHERE store_id=?', [storeId]);
     const settings = {};
     settingsRows.forEach(s => { settings[s.key] = s.value; });
 
     res.json({
       success: true,
       data: { products, categories, paymentMethods, platforms, settings },
+      store_id: storeId,
       synced_at: new Date().toISOString()
     });
   } catch (e) {
@@ -27,26 +27,24 @@ router.get('/config', (req, res) => {
   }
 });
 
-// ── POST /api/sync/orders ─────────────────────────────────────────────────
-// Android 批次上傳離線訂單
-// Body: { device_id: string, orders: Order[] }
+// POST /api/sync/orders  — Android 批次上傳離線訂單
 router.post('/orders', (req, res) => {
   try {
     const db = getDb();
+    const storeId = req.storeId || 'store_001';
     const { device_id, orders } = req.body;
 
-    if (!Array.isArray(orders) || orders.length === 0) {
+    if (!Array.isArray(orders) || orders.length === 0)
       return res.json({ success: true, synced: 0, failed: 0, duplicate: 0, results: [] });
-    }
 
-    // 登記或更新裝置最後上線時間
+    // 登記裝置
     if (device_id) {
       const now = new Date().toISOString();
-      const existing = db.get('SELECT id FROM devices WHERE device_id=?', [device_id]);
+      const existing = db.get('SELECT id FROM devices WHERE device_id=? AND store_id=?', [device_id, storeId]);
       if (existing) {
-        db.run('UPDATE devices SET last_seen_at=? WHERE device_id=?', [now, device_id]);
+        db.run('UPDATE devices SET last_seen_at=? WHERE device_id=? AND store_id=?', [now, device_id, storeId]);
       } else {
-        db.run('INSERT INTO devices (device_id, last_seen_at) VALUES (?,?)', [device_id, now]);
+        db.run('INSERT INTO devices (store_id,device_id,last_seen_at) VALUES (?,?,?)', [storeId, device_id, now]);
       }
     }
 
@@ -55,9 +53,9 @@ router.post('/orders', (req, res) => {
     for (const order of orders) {
       const uuid = order.uuid || null;
 
-      // 防重複：uuid 已存在就跳過
+      // 防重複（限 store_id 範圍）
       if (uuid) {
-        const existing = db.get('SELECT id FROM orders WHERE uuid=?', [uuid]);
+        const existing = db.get('SELECT id FROM orders WHERE store_id=? AND uuid=?', [storeId, uuid]);
         if (existing) {
           results.push({ uuid, status: 'duplicate', message: '已存在，跳過' });
           continue;
@@ -85,18 +83,17 @@ router.post('/orders', (req, res) => {
 
         db.run(
           `INSERT INTO orders (
-            uuid, order_number, order_mode, order_status,
-            table_number, guest_count,
-            pickup_name, pickup_time,
+            store_id, uuid, order_number, order_mode, order_status,
+            table_number, guest_count, pickup_name, pickup_time,
             customer_name, customer_phone,
             delivery_platform, platform_order_no, delivery_address, estimated_delivery,
             items, subtotal, discount_type, discount_amount, delivery_fee, total,
             platform_commission_rate, platform_commission_amount, store_actual_income,
             payment_method, payment_status, received_amount, change_amount,
             note, sync_status, device_id, created_at, updated_at
-          ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
           [
-            uuid, orderNo, orderMode, ordStatus,
+            storeId, uuid, orderNo, orderMode, ordStatus,
             order.table_no || order.tableNumber || order.table_number || '',
             Number(order.people_count || order.guestCount) || 0,
             order.pickup_name || order.pickupName || '',
@@ -116,10 +113,9 @@ router.post('/orders', (req, res) => {
             createdAt, now
           ]
         );
-
         results.push({ uuid, status: 'synced' });
       } catch (insertErr) {
-        console.error('[sync] insert error:', insertErr.message, 'order uuid:', uuid);
+        console.error('[sync] insert error:', insertErr.message, 'uuid:', uuid);
         results.push({ uuid, status: 'failed', message: insertErr.message });
       }
     }
@@ -128,20 +124,17 @@ router.post('/orders', (req, res) => {
     const failed    = results.filter(r => r.status === 'failed').length;
     const duplicate = results.filter(r => r.status === 'duplicate').length;
 
-    console.log(`[sync] device=${device_id} total=${orders.length} synced=${synced} failed=${failed} duplicate=${duplicate}`);
-
     res.json({ success: true, synced, failed, duplicate, results });
   } catch (e) {
-    console.error('[sync] error:', e.message);
     res.status(500).json({ success: false, message: e.message });
   }
 });
 
-// ── GET /api/sync/status ──────────────────────────────────────────────────
-// 查詢各裝置同步狀態（管理後台用）
+// GET /api/sync/status
 router.get('/status', (req, res) => {
   try {
     const db = getDb();
+    const storeId = req.storeId || 'store_001';
     const deviceStats = db.all(
       `SELECT device_id,
               COUNT(*) as total_orders,
@@ -150,10 +143,11 @@ router.get('/status', (req, res) => {
               SUM(CASE WHEN sync_status='failed'  THEN 1 ELSE 0 END) as failed,
               MAX(created_at) as last_order_at
        FROM orders
-       WHERE device_id != ''
-       GROUP BY device_id`
+       WHERE store_id=? AND device_id != ''
+       GROUP BY device_id`,
+      [storeId]
     );
-    const devices = db.all('SELECT * FROM devices ORDER BY last_seen_at DESC');
+    const devices = db.all('SELECT * FROM devices WHERE store_id=? ORDER BY last_seen_at DESC', [storeId]);
     res.json({ success: true, data: { deviceStats, devices } });
   } catch (e) {
     res.status(500).json({ success: false, message: e.message });

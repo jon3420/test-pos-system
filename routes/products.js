@@ -1,14 +1,12 @@
-// routes/products.js  v16 — 加入 LINE 商品設定 API
+// routes/products.js — SaaS R1（多店隔離版）
 'use strict';
 const express = require('express');
 const router  = express.Router();
 const { getDb } = require('../utils/db');
 const { calcUnits } = require('./inventory');
 
-/* ── 台灣時間工具 ── */
 function nowIso() { return new Date().toISOString(); }
 
-/* ── 價格 fallback ── */
 function resolvePrice(p, mode) {
   const dine     = Number(p.dine_in_price)  || Number(p.price) || 0;
   const takeaway = Number(p.takeaway_price) || dine;
@@ -18,7 +16,6 @@ function resolvePrice(p, mode) {
   return dine;
 }
 
-/* ── 商品資料補全 ── */
 function enrichProduct(p) {
   if (!p) return null;
   const hasFormula = !!p._has_formula;
@@ -27,7 +24,6 @@ function enrichProduct(p) {
   const dip = Number(p.dine_in_price)  || Number(p.price) || 0;
   const tap = Number(p.takeaway_price) || dip;
   const dep = Number(p.delivery_price) || tap;
-  // LINE 欄位補全
   const linePrice = Number(p.line_price) || 0;
   const effectiveLinePrice = linePrice > 0 ? linePrice : Number(p.price) || 0;
   const effectiveLineName  = (p.line_name && p.line_name.trim()) ? p.line_name : p.name;
@@ -40,29 +36,20 @@ function enrichProduct(p) {
     available_units: units,
     is_low_stock:    units !== null && units <= Number(p.low_stock_alert || 5) && units > 0,
     is_out_of_stock: units !== null && units <= 0,
-    // LINE 欄位
-    show_on_line:           showOnLine,
-    line_name:              p.line_name       || '',
-    line_price:             linePrice,
-    line_description:       p.line_description|| '',
-    line_image_url:         p.line_image_url  || '',
-    // LINE 顯示分類（客人端）：line_category_id（優先）→ category_id（fallback）
-    line_category:          p.line_category   || '',
-    line_category_id:       Number(p.line_category_id) || 0,
-    // 若 line_category_id 未設定，前端可 fallback 到 category_id
-    effective_line_cat_id:  Number(p.line_category_id) || Number(p.category_id) || 0,
-    product_barcode:        p.product_barcode || '',
-    line_hot:               Number(p.line_hot)   || 0,
-    line_promo:             Number(p.line_promo) || 0,
-    line_sold_out:          Number(p.line_sold_out) || 0,
-    sale_status:            saleStatus,
-    sale_status_label:      saleStatusLabel,
-    sold_out_until:         p.sold_out_until  || '',
-    auto_restore_next_day:  Number(p.auto_restore_next_day) ?? 1,
-    effective_line_price:   effectiveLinePrice,
-    effective_line_name:    effectiveLineName,
-    is_line_orderable:      showOnLine === 1 && !p.line_sold_out && saleStatus === 'available',
-    has_formula:            !!p._has_formula,
+    show_on_line: showOnLine, line_name: p.line_name||'',
+    line_price: linePrice, line_description: p.line_description||'',
+    line_image_url: p.line_image_url||'', line_category: p.line_category||'',
+    line_category_id: Number(p.line_category_id)||0,
+    effective_line_cat_id: Number(p.line_category_id)||Number(p.category_id)||0,
+    product_barcode: p.product_barcode||'',
+    line_hot: Number(p.line_hot)||0, line_promo: Number(p.line_promo)||0,
+    line_sold_out: Number(p.line_sold_out)||0,
+    sale_status: saleStatus, sale_status_label: saleStatusLabel,
+    sold_out_until: p.sold_out_until||'',
+    auto_restore_next_day: Number(p.auto_restore_next_day)??1,
+    effective_line_price: effectiveLinePrice, effective_line_name: effectiveLineName,
+    is_line_orderable: showOnLine===1 && !p.line_sold_out && saleStatus==='available',
+    has_formula: !!p._has_formula,
   };
 }
 
@@ -70,9 +57,10 @@ function enrichProduct(p) {
 router.get('/', (req, res) => {
   try {
     const db = getDb();
+    const storeId = req.storeId || 'store_001';
     const { category, enabled } = req.query;
-    let sql = 'SELECT * FROM products WHERE 1=1';
-    const p = [];
+    let sql = 'SELECT * FROM products WHERE store_id=?';
+    const p = [storeId];
     if (category) { sql += ' AND category=?'; p.push(category); }
     if (enabled !== undefined) { sql += ' AND enabled=?'; p.push(Number(enabled)); }
     sql += ' ORDER BY sort_order ASC, id ASC';
@@ -90,7 +78,8 @@ router.get('/', (req, res) => {
 router.get('/:id', (req, res) => {
   try {
     const db = getDb();
-    const product = db.get('SELECT * FROM products WHERE id=?', [req.params.id]);
+    const storeId = req.storeId || 'store_001';
+    const product = db.get('SELECT * FROM products WHERE id=? AND store_id=?', [req.params.id, storeId]);
     if (!product) return res.status(404).json({ success: false, message: '商品不存在' });
     const fc = db.get('SELECT COUNT(*) as c FROM product_ingredient_formulas WHERE product_id=?', [product.id]);
     product._has_formula = fc && Number(fc.c) > 0;
@@ -102,6 +91,7 @@ router.get('/:id', (req, res) => {
 router.post('/', (req, res) => {
   try {
     const db = getDb();
+    const storeId = req.storeId || 'store_001';
     const { name, category='主食', price, sort_order=0, image='',
       dine_in_price, takeaway_price, delivery_price,
       inventory_enabled=0, total_stock_grams=0,
@@ -113,11 +103,11 @@ router.post('/', (req, res) => {
     const tap = takeaway_price != null ? parseFloat(takeaway_price) : dip;
     const dep = delivery_price != null ? parseFloat(delivery_price) : tap;
     const r = db.run(
-      `INSERT INTO products (name,category,price,sort_order,image,
+      `INSERT INTO products (store_id,name,category,price,sort_order,image,
         dine_in_price,takeaway_price,delivery_price,
         inventory_enabled,total_stock_grams,allocated_grams,current_stock_grams,low_stock_alert)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [name, category, bp, sort_order, image||'', dip, tap, dep,
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [storeId, name, category, bp, sort_order, image||'', dip, tap, dep,
        inventory_enabled?1:0, Number(total_stock_grams),
        Number(allocated_grams), Number(current_stock_grams), Number(low_stock_alert)]
     );
@@ -129,15 +119,16 @@ router.post('/', (req, res) => {
 router.put('/:id', (req, res) => {
   try {
     const db = getDb();
-    const ex = db.get('SELECT * FROM products WHERE id=?', [req.params.id]);
+    const storeId = req.storeId || 'store_001';
+    const ex = db.get('SELECT * FROM products WHERE id=? AND store_id=?', [req.params.id, storeId]);
     if (!ex) return res.status(404).json({ success: false, message: '商品不存在' });
     const { name, category, price, enabled, sort_order, image,
       dine_in_price, takeaway_price, delivery_price,
       inventory_enabled, total_stock_grams, allocated_grams, current_stock_grams, low_stock_alert } = req.body;
     const newPrice = price !== undefined ? parseFloat(price) : ex.price;
-    const newDip   = dine_in_price  !== undefined ? parseFloat(dine_in_price)  : (ex.dine_in_price  || newPrice);
-    const newTap   = takeaway_price !== undefined ? parseFloat(takeaway_price) : (ex.takeaway_price || newDip);
-    const newDep   = delivery_price !== undefined ? parseFloat(delivery_price) : (ex.delivery_price || newTap);
+    const newDip   = dine_in_price  !== undefined ? parseFloat(dine_in_price)  : (ex.dine_in_price||newPrice);
+    const newTap   = takeaway_price !== undefined ? parseFloat(takeaway_price) : (ex.takeaway_price||newDip);
+    const newDep   = delivery_price !== undefined ? parseFloat(delivery_price) : (ex.delivery_price||newTap);
     db.run(
       `UPDATE products SET
         name=?,category=?,price=?,enabled=?,sort_order=?,image=?,
@@ -145,7 +136,7 @@ router.put('/:id', (req, res) => {
         inventory_enabled=?,total_stock_grams=?,allocated_grams=?,
         current_stock_grams=?,low_stock_alert=?,
         updated_at=datetime('now','localtime')
-       WHERE id=?`,
+       WHERE id=? AND store_id=?`,
       [name??ex.name, category??ex.category, newPrice,
        enabled!==undefined?Number(enabled):ex.enabled,
        sort_order!==undefined?sort_order:ex.sort_order,
@@ -156,7 +147,7 @@ router.put('/:id', (req, res) => {
        allocated_grams!==undefined?Number(allocated_grams):ex.allocated_grams,
        current_stock_grams!==undefined?Number(current_stock_grams):ex.current_stock_grams,
        low_stock_alert!==undefined?Number(low_stock_alert):ex.low_stock_alert,
-       req.params.id]
+       req.params.id, storeId]
     );
     res.json({ success: true, data: enrichProduct(db.get('SELECT * FROM products WHERE id=?', [req.params.id])) });
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
@@ -166,38 +157,29 @@ router.put('/:id', (req, res) => {
 router.delete('/:id', (req, res) => {
   try {
     const db = getDb();
-    if (!db.get('SELECT id FROM products WHERE id=?', [req.params.id]))
+    const storeId = req.storeId || 'store_001';
+    if (!db.get('SELECT id FROM products WHERE id=? AND store_id=?', [req.params.id, storeId]))
       return res.status(404).json({ success: false, message: '商品不存在' });
-    db.run('DELETE FROM products WHERE id=?', [req.params.id]);
+    db.run('DELETE FROM products WHERE id=? AND store_id=?', [req.params.id, storeId]);
     res.json({ success: true, message: '商品已刪除' });
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
 
-/* ══════════════════════════════════════════════════════════════
-   v16 新增：LINE 商品設定 API
-   ═══════════════════════════════════════════════════════════ */
-
-/**
- * PATCH /api/products/:id/line-settings
- * Web 後台完整更新 LINE 商品設定（所有 LINE 欄位）
- */
+/* PATCH /api/products/:id/line-settings */
 router.patch('/:id/line-settings', (req, res) => {
   try {
     const db = getDb();
+    const storeId = req.storeId || 'store_001';
     const id = req.params.id;
-    const ex = db.get('SELECT id FROM products WHERE id=?', [id]);
+    const ex = db.get('SELECT id FROM products WHERE id=? AND store_id=?', [id, storeId]);
     if (!ex) return res.status(404).json({ success: false, message: '商品不存在' });
-
     const {
       show_on_line, line_name, line_price, line_description,
       line_image_url, line_category, line_category_id, line_hot, line_promo,
-      line_sold_out, sale_status, sold_out_until, auto_restore_next_day,
-      product_barcode
+      line_sold_out, sale_status, sold_out_until, auto_restore_next_day, product_barcode
     } = req.body;
-
     const sets = []; const vals = [];
     const add = (col, val) => { if (val !== undefined) { sets.push(`${col}=?`); vals.push(val); } };
-
     add('show_on_line',          show_on_line          != null ? Number(show_on_line) : undefined);
     add('line_name',             line_name);
     add('line_price',            line_price             != null ? Number(line_price)   : undefined);
@@ -210,88 +192,72 @@ router.patch('/:id/line-settings', (req, res) => {
     add('sold_out_until',        sold_out_until);
     add('auto_restore_next_day', auto_restore_next_day  != null ? Number(auto_restore_next_day) : undefined);
     add('product_barcode',       product_barcode);
-
-    // line_category_id 與 line_category 聯動
     if (line_category_id !== undefined) {
       const catId = Number(line_category_id);
       add('line_category_id', catId);
       if (catId > 0) {
-        const catRow = db.get('SELECT name FROM categories WHERE id=?', [catId]);
+        const catRow = db.get('SELECT name FROM categories WHERE id=? AND store_id=?', [catId, storeId]);
         if (catRow) add('line_category', catRow.name);
-      } else if (line_category !== undefined) {
-        add('line_category', line_category);
-      }
+      } else if (line_category !== undefined) { add('line_category', line_category); }
     } else if (line_category !== undefined) {
       add('line_category', line_category);
-      // 嘗試反查 category_id
-      const catRow = db.get('SELECT id FROM categories WHERE name=?', [line_category]);
+      const catRow = db.get('SELECT id FROM categories WHERE name=? AND store_id=?', [line_category, storeId]);
       if (catRow) add('line_category_id', catRow.id);
     }
-
     if (!sets.length) return res.status(400).json({ success: false, message: '沒有要更新的欄位' });
     sets.push("updated_at=datetime('now','localtime')");
-    vals.push(id);
-    db.run(`UPDATE products SET ${sets.join(',')} WHERE id=?`, vals);
+    vals.push(id); vals.push(storeId);
+    db.run(`UPDATE products SET ${sets.join(',')} WHERE id=? AND store_id=?`, vals);
     res.json({ success: true, data: enrichProduct(db.get('SELECT * FROM products WHERE id=?', [id])) });
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
 
-/**
- * PATCH /api/products/:id/line-status
- * Android 快速更新販售狀態（sale_status + show_on_line）
- */
+/* PATCH /api/products/:id/line-status */
 router.patch('/:id/line-status', (req, res) => {
   try {
     const db = getDb();
+    const storeId = req.storeId || 'store_001';
     const id = req.params.id;
-    const ex = db.get('SELECT id FROM products WHERE id=?', [id]);
+    const ex = db.get('SELECT id FROM products WHERE id=? AND store_id=?', [id, storeId]);
     if (!ex) return res.status(404).json({ success: false, message: '商品不存在' });
-
     const { sale_status, show_on_line } = req.body;
     const sets = []; const vals = [];
     const validStatuses = ['available','sold_out_today','paused','sold_out_indefinitely'];
-
     if (sale_status !== undefined) {
       if (!validStatuses.includes(sale_status))
         return res.status(400).json({ success: false, message: '無效的 sale_status' });
       sets.push('sale_status=?'); vals.push(sale_status);
     }
-    if (show_on_line !== undefined) {
-      sets.push('show_on_line=?'); vals.push(Number(show_on_line));
-    }
+    if (show_on_line !== undefined) { sets.push('show_on_line=?'); vals.push(Number(show_on_line)); }
     if (!sets.length) return res.status(400).json({ success: false, message: '沒有要更新的欄位' });
     sets.push("updated_at=datetime('now','localtime')");
-    vals.push(id);
-    db.run(`UPDATE products SET ${sets.join(',')} WHERE id=?`, vals);
+    vals.push(id); vals.push(storeId);
+    db.run(`UPDATE products SET ${sets.join(',')} WHERE id=? AND store_id=?`, vals);
     res.json({ success: true, data: enrichProduct(db.get('SELECT * FROM products WHERE id=?', [id])) });
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
 
-/**
- * GET /api/line-products
- * LINE 點餐頁商品清單（僅 show_on_line=1）
- */
+/* GET /api/products/line-products/list */
 router.get('/line-products/list', (req, res) => {
   try {
     const db = getDb();
+    const storeId = req.storeId || 'store_001';
     const products = db.all(
-      `SELECT * FROM products WHERE enabled=1 AND show_on_line=1 ORDER BY sort_order, id`
+      `SELECT * FROM products WHERE store_id=? AND enabled=1 AND show_on_line=1 ORDER BY sort_order, id`,
+      [storeId]
     ).map(enrichProduct);
     res.json({ success: true, data: products });
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
 
-/**
- * POST /api/products/reset-sold-out-today
- * 將今日完售商品恢復為正常（隔日自動恢復用）
- */
+/* POST /api/products/reset-sold-out-today */
 router.post('/reset-sold-out-today', (req, res) => {
   try {
     const db = getDb();
+    const storeId = req.storeId || 'store_001';
     db.run(`UPDATE products SET sale_status='available', updated_at=datetime('now','localtime')
-            WHERE sale_status='sold_out_today' AND auto_restore_next_day=1`);
-    const count = db.get('SELECT changes() as n');
-    res.json({ success: true, message: `已重置 ${count?.n || 0} 項今日完售商品` });
+            WHERE store_id=? AND sale_status='sold_out_today' AND auto_restore_next_day=1`, [storeId]);
+    res.json({ success: true, message: '已重置今日完售商品' });
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
 

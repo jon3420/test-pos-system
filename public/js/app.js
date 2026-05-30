@@ -1,3 +1,147 @@
+// ═══════════════════════════════════════════════════
+// SaaS R1 fix4 — 店家 JWT 綁定層
+// ═══════════════════════════════════════════════════
+
+// ── 讀寫 token ─────────────────────────────────────
+const TOKEN_KEY = 'pos_store_token';
+function getToken()           { return localStorage.getItem(TOKEN_KEY); }
+function setToken(t)          { localStorage.setItem(TOKEN_KEY, t); }
+function clearToken()         { localStorage.removeItem(TOKEN_KEY); localStorage.removeItem('pos_store_info'); }
+
+// ── 解析 JWT payload（不驗簽，僅用於 UI 顯示）────────
+function parseJwtPayload(token) {
+  try {
+    const base64 = token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/');
+    return JSON.parse(atob(base64));
+  } catch { return null; }
+}
+
+// ── apiFetch — 統一包裝 fetch，自動帶 Authorization ─
+// 所有 POS API 透過此函式呼叫，不再直接用 apiFetch('/api/...')
+async function apiFetch(url, options = {}) {
+  const token = getToken();
+  const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
+  if (token) headers['Authorization'] = 'Bearer ' + token;
+  const res = await fetch(url, { ...options, headers });
+  // token 過期或店家停用 → 強制重新登入
+  if (res.status === 401 || res.status === 403) {
+    const body = await res.json().catch(() => ({}));
+    // 非登入 API 的 403 → 導回登入
+    if (!url.includes('/store-login')) {
+      console.warn('[apiFetch] 403/401 — 清除 token，重新登入', body.message);
+      clearToken();
+      showLoginOverlay();
+    }
+    return { ok: false, status: res.status, body };
+  }
+  return res;
+}
+
+// ── 登入 Overlay UI ────────────────────────────────
+let _loginResolve = null;
+
+function showLoginOverlay() {
+  let overlay = document.getElementById('store-login-overlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'store-login-overlay';
+    overlay.innerHTML = `
+      <div style="position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:9999;display:flex;align-items:center;justify-content:center;">
+        <div style="background:#1a1d27;border:1px solid #2a2d3e;border-radius:16px;padding:36px;width:340px;text-align:center;font-family:-apple-system,sans-serif;">
+          <div style="font-size:1.4rem;font-weight:700;color:#818cf8;margin-bottom:6px;">🔐 店家登入</div>
+          <div style="color:#64748b;font-size:.85rem;margin-bottom:24px;">POS SaaS R1</div>
+          <div style="text-align:left;margin-bottom:12px;">
+            <label style="font-size:.8rem;color:#94a3b8;display:block;margin-bottom:4px;">Store ID</label>
+            <input id="login-store-id" type="text" placeholder="store_001"
+              style="width:100%;padding:9px 12px;border-radius:8px;border:1px solid #2a2d3e;background:#0f1117;color:#e2e8f0;font-size:.95rem;outline:none;box-sizing:border-box;">
+          </div>
+          <div style="text-align:left;margin-bottom:18px;">
+            <label style="font-size:.8rem;color:#94a3b8;display:block;margin-bottom:4px;">密碼</label>
+            <input id="login-password" type="password" placeholder="預設：與 Store ID 相同"
+              style="width:100%;padding:9px 12px;border-radius:8px;border:1px solid #2a2d3e;background:#0f1117;color:#e2e8f0;font-size:.95rem;outline:none;box-sizing:border-box;"
+              onkeydown="if(event.key==='Enter')doStoreLogin()">
+          </div>
+          <button onclick="doStoreLogin()"
+            style="width:100%;padding:11px;border-radius:8px;border:none;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;font-size:1rem;font-weight:600;cursor:pointer;">
+            登入
+          </button>
+          <div id="login-err" style="color:#ef4444;font-size:.8rem;margin-top:10px;min-height:18px;"></div>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+  }
+  overlay.style.display = '';
+}
+
+function hideLoginOverlay() {
+  const el = document.getElementById('store-login-overlay');
+  if (el) el.style.display = 'none';
+}
+
+async function doStoreLogin() {
+  const storeId  = (document.getElementById('login-store-id')?.value || '').trim();
+  const password = document.getElementById('login-password')?.value || '';
+  const errEl    = document.getElementById('login-err');
+  if (errEl) errEl.textContent = '';
+  if (!storeId || !password) {
+    if (errEl) errEl.textContent = '請填寫 Store ID 與密碼';
+    return;
+  }
+  try {
+    const res  = await apiFetch('/api/store-login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ store_id: storeId, password }),
+    });
+    const data = await res.json();
+    if (data.success) {
+      setToken(data.token);
+      localStorage.setItem('pos_store_info', JSON.stringify({
+        store_id:   data.store_id,
+        store_name: data.store_name,
+        plan:       data.plan,
+      }));
+      hideLoginOverlay();
+      // 重新載入頁面資料
+      if (typeof loadSettings === 'function')   await loadSettings().catch(()=>{});
+      if (typeof loadCategories === 'function') await loadCategories().catch(()=>{});
+      if (typeof loadPlatforms === 'function')  await loadPlatforms().catch(()=>{});
+      if (typeof loadPaymentMethods === 'function') await loadPaymentMethods().catch(()=>{});
+      if (typeof loadProducts === 'function')   await loadProducts().catch(()=>{});
+      if (_loginResolve) { _loginResolve(); _loginResolve = null; }
+    } else {
+      if (errEl) errEl.textContent = data.message || '登入失敗';
+    }
+  } catch(e) {
+    if (errEl) errEl.textContent = '連線失敗：' + e.message;
+  }
+}
+
+// ── 頁面啟動時檢查 token ────────────────────────────
+async function ensureLogin() {
+  const token = getToken();
+  if (!token) { showLoginOverlay(); return; }
+  // 快速驗證：用 token 打 health API 確認 store 仍有效
+  try {
+    const res = await apiFetch('/api/health', {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    // health 不需 store_id，只是確認 server 在線
+    if (!res.ok) { clearToken(); showLoginOverlay(); }
+  } catch { /* server 暫時無回應，繼續使用快取 token */ }
+}
+
+// ── 登出 ────────────────────────────────────────────
+function posLogout() {
+  clearToken();
+  showLoginOverlay();
+}
+
+// ═══════════════════════════════════════════════════
+// 以下為原始 app.js 內容（已保留完整）
+// 所有 apiFetch('/api/...') 已替換為 apiFetch('/api/...')
+// ═══════════════════════════════════════════════════
+
 // ── 單位換算工具（前端版）────────────────────────────────
 const UNIT_TO_G = { '斤': 600, 'kg': 1000, 'g': 1 };
 function toGrams(amount, unit) { return Number(amount) * (UNIT_TO_G[unit] || 1); }
@@ -28,12 +172,17 @@ let editOrderId = null;
 // ===== 初始化 =====
 document.addEventListener('DOMContentLoaded', async () => {
   startClock();
-  await loadSettings();
-  await loadCategories();
-  await loadPlatforms();
-  await loadPaymentMethods();   // 載入付款方式
-  await loadProducts();
   initDateRange();
+  // ★ fix4：先確認登入狀態，再載入資料
+  await ensureLogin();
+  // 若已登入（有 token），繼續正常初始化
+  if (getToken()) {
+    await loadSettings();
+    await loadCategories();
+    await loadPlatforms();
+    await loadPaymentMethods();
+    await loadProducts();
+  }
 });
 
 function startClock() {
@@ -91,7 +240,7 @@ function showPage(name) {
  */
 async function refreshInventoryForProducts() {
   try {
-    const invRes  = await fetch('/api/inventory');
+    const invRes  = await apiFetch('/api/inventory');
     const invJson = await invRes.json();
     if (!invJson.success) return;
 
@@ -159,7 +308,7 @@ function switchSettingsTab(tab) {
 // ===== 設定 =====
 async function loadSettings() {
   try {
-    const res = await fetch('/api/settings');
+    const res = await apiFetch('/api/settings');
     const json = await res.json();
     if (json.success) {
       settings = json.data;
@@ -184,7 +333,7 @@ async function saveSettings() {
     if (el) body[k] = el.value;
   });
   try {
-    const res = await fetch('/api/settings', {
+    const res = await apiFetch('/api/settings', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
@@ -205,8 +354,8 @@ async function loadProducts() {
   try {
     // 並行取商品列表 + 庫存資料（統一來源）
     const [prodRes, invRes] = await Promise.all([
-      fetch('/api/products?enabled=1&_t=' + Date.now()),
-      fetch('/api/inventory')
+      apiFetch('/api/products?enabled=1&_t=' + Date.now()),
+      apiFetch('/api/inventory')
     ]);
     const prodJson = await prodRes.json();
     const invJson  = await invRes.json();
@@ -265,7 +414,7 @@ let allCategories = [];
 
 async function loadCategories() {
   try {
-    const res = await fetch('/api/categories?active=1');
+    const res = await apiFetch('/api/categories?active=1');
     const json = await res.json();
     if (json.success) {
       allCategories = json.data;
@@ -518,7 +667,7 @@ function selectPayment(method) {
 // ===== 動態付款方式 =====
 async function loadPaymentMethods() {
   try {
-    const res  = await fetch('/api/payment-methods?active=1');
+    const res  = await apiFetch('/api/payment-methods?active=1');
     const json = await res.json();
     if (json.success) {
       allPaymentMethods = json.data;
@@ -639,7 +788,7 @@ async function checkout() {
   };
 
   try {
-    const res = await fetch('/api/orders', {
+    const res = await apiFetch('/api/orders', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
@@ -753,7 +902,7 @@ function printReceipt() {
   openPrintWindow(currentOrderForPrint);
   // 同時呼叫後端 ESC/POS 列印
   if (currentOrderForPrint.id) {
-    fetch(`/api/orders/${currentOrderForPrint.id}/reprint`, {
+    apiFetch(`/api/orders/${currentOrderForPrint.id}/reprint`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'receipt' })
     }).then(r => r.json()).then(j => {
       if (j?.printResult?.success === false) showToast('ESC/POS: ' + (j.printResult.message || '列印失敗'), 'error');
@@ -930,7 +1079,7 @@ async function loadOrders(modeFilter) {
   const today = new Date().toISOString().slice(0, 10);
   const dateFrom = from || today, dateTo = to || today;
   try {
-    const res = await fetch(`/api/orders?date_from=${dateFrom}&date_to=${dateTo}`);
+    const res = await apiFetch(`/api/orders?date_from=${dateFrom}&date_to=${dateTo}`);
     const json = await res.json();
     let orders = json.success ? json.data : [];
 
@@ -953,7 +1102,7 @@ async function loadDeliveryReport() {
   const from = document.getElementById('dateFrom')?.value || new Date().toISOString().slice(0,10);
   const to   = document.getElementById('dateTo')?.value   || new Date().toISOString().slice(0,10);
   try {
-    const res  = await fetch(`/api/orders/delivery-report?date_from=${from}&date_to=${to}`);
+    const res  = await apiFetch(`/api/orders/delivery-report?date_from=${from}&date_to=${to}`);
     const json = await res.json();
     if (!json.success) return;
 
@@ -1087,7 +1236,7 @@ function renderDeliveryTable(orders) {
 
 async function changeDeliveryStatus(orderId, newStatus) {
   try {
-    const res = await fetch(`/api/orders/${orderId}/delivery-status`, {
+    const res = await apiFetch(`/api/orders/${orderId}/delivery-status`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ delivery_status: newStatus })
@@ -1107,8 +1256,8 @@ async function changeDeliveryStatus(orderId, newStatus) {
 async function showOrderDetail(orderId) {
   try {
     const [orderRes, logsRes] = await Promise.all([
-      fetch('/api/orders/' + orderId),
-      fetch('/api/orders/' + orderId + '/logs')
+      apiFetch('/api/orders/' + orderId),
+      apiFetch('/api/orders/' + orderId + '/logs')
     ]);
     const orderJson = await orderRes.json();
     const logsJson  = await logsRes.json();
@@ -1194,7 +1343,7 @@ function closeOrderDetail() {
 // ===== 商品管理頁 =====
 async function loadProductsPage() {
   try {
-    const res = await fetch('/api/products');
+    const res = await apiFetch('/api/products');
     const json = await res.json();
     if (json.success) renderProductsTable(json.data);
   } catch {
@@ -1283,7 +1432,7 @@ function openProductModal(id) {
   }
 
   if (id) {
-    fetch('/api/products/' + id).then(r => r.json()).then(json => {
+    apiFetch('/api/products/' + id).then(r => r.json()).then(json => {
       if (json.success) {
         const p = json.data;
         document.getElementById('editProductName').value = p.name;
@@ -1368,7 +1517,7 @@ async function saveProduct() {
   const method = id ? 'PUT' : 'POST';
 
   try {
-    const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const res = await apiFetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const json = await res.json();
     if (json.success) {
       const productId = json.data?.id;
@@ -1405,7 +1554,7 @@ async function saveProduct() {
 async function deleteProduct(id) {
   if (!confirm('確定要刪除此商品？')) return;
   try {
-    const res = await fetch('/api/products/' + id, { method: 'DELETE' });
+    const res = await apiFetch('/api/products/' + id, { method: 'DELETE' });
     const json = await res.json();
     if (json.success) {
       removeLocalImage(id);  // 清除 localStorage 圖片快取
@@ -1427,7 +1576,7 @@ async function openLineSettingsModal(id) {
     // 載入分類選項（LINE 唯一來源）
     await loadLineCategoryOptions();
 
-    const res = await fetch('/api/products/' + id);
+    const res = await apiFetch('/api/products/' + id);
     const json = await res.json();
     if (!json.success) { showToast('載入失敗', 'error'); return; }
     const p = json.data;
@@ -1500,7 +1649,7 @@ async function openLineSettingsModal(id) {
 // 載入 LINE 顯示分類下拉選項（資料來源：分類管理，與 POS 內部分類共用同一張表）
 async function loadLineCategoryOptions() {
   try {
-    const res  = await fetch('/api/categories/line-options');
+    const res  = await apiFetch('/api/categories/line-options');
     const json = await res.json();
     const sel  = document.getElementById('lineCategory');
     if (!sel) return;
@@ -1536,7 +1685,7 @@ async function saveLineSettings() {
   const auto_restore_next_day = document.getElementById('lineAutoRestore').checked ? 1 : 0;
 
   try {
-    const res = await fetch(`/api/products/${id}/line-settings`, {
+    const res = await apiFetch(`/api/products/${id}/line-settings`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1561,12 +1710,12 @@ async function saveLineSettings() {
 // ===== 重新列印 =====
 async function reprintOrder(orderId) {
   try {
-    const res = await fetch('/api/orders/' + orderId);
+    const res = await apiFetch('/api/orders/' + orderId);
     const json = await res.json();
     if (json.success) {
       openPrintWindow(json.data, 'receipt');
       // 非同步通知後端（預留熱感列表機接口）
-      fetch('/api/orders/' + orderId + '/reprint', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({type:'receipt'}) }).catch(()=>{});
+      apiFetch('/api/orders/' + orderId + '/reprint', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({type:'receipt'}) }).catch(()=>{});
     }
   } catch { showToast('列印失敗', 'error'); }
 }
@@ -1587,7 +1736,7 @@ async function confirmVoid() {
   const reason = document.getElementById('voidReason').value;
   if (!reason) { showToast('請選擇作廢原因', 'error'); return; }
   try {
-    const res = await fetch('/api/orders/' + id + '/void', {
+    const res = await apiFetch('/api/orders/' + id + '/void', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ reason })
@@ -1609,7 +1758,7 @@ async function confirmVoid() {
 // ===== 訂單編輯 =====
 async function openEditOrder(orderId) {
   try {
-    const res = await fetch('/api/orders/' + orderId);
+    const res = await apiFetch('/api/orders/' + orderId);
     const json = await res.json();
     if (!json.success) { showToast('載入訂單失敗', 'error'); return; }
     const o = json.data;
@@ -1728,7 +1877,7 @@ async function updateEditAmountDiff(newTotal) {
   // 取出原始金額
   if (!editOrderId) return;
   if (!_editOriginalTotal) {
-    const r = await fetch('/api/orders/' + editOrderId);
+    const r = await apiFetch('/api/orders/' + editOrderId);
     const j = await r.json();
     if (j.success) _editOriginalTotal = j.data.total;
   }
@@ -1771,7 +1920,7 @@ async function saveEditOrder() {
   };
 
   try {
-    const res = await fetch('/api/orders/' + editOrderId, {
+    const res = await apiFetch('/api/orders/' + editOrderId, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
@@ -2021,7 +2170,7 @@ let allCatsAdmin = [];
 
 async function loadCategoriesPage() {
   try {
-    const res = await fetch('/api/categories');
+    const res = await apiFetch('/api/categories');
     const json = await res.json();
     if (json.success) {
       allCatsAdmin = json.data;
@@ -2083,7 +2232,7 @@ async function saveCat() {
   const url    = id ? '/api/categories/' + id : '/api/categories';
   const method = id ? 'PUT' : 'POST';
   try {
-    const res  = await fetch(url, { method, headers:{'Content-Type':'application/json'}, body: JSON.stringify({name,icon,sort_order,is_active}) });
+    const res  = await apiFetch(url, { method, headers:{'Content-Type':'application/json'}, body: JSON.stringify({name,icon,sort_order,is_active}) });
     const json = await res.json();
     if (json.success) {
       showToast(id ? '分類已更新' : '分類已新增', 'success');
@@ -2096,7 +2245,7 @@ async function saveCat() {
 
 async function toggleCatActive(id, currentActive) {
   try {
-    const res  = await fetch('/api/categories/' + id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ is_active: currentActive ? 0 : 1 }) });
+    const res  = await apiFetch('/api/categories/' + id, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ is_active: currentActive ? 0 : 1 }) });
     const json = await res.json();
     if (json.success) { loadCategoriesPage(); loadCategories(); showToast('已更新分類狀態', 'success'); }
   } catch { showToast('操作失敗', 'error'); }
@@ -2105,7 +2254,7 @@ async function toggleCatActive(id, currentActive) {
 async function deleteCat(id) {
   if (!confirm('確認刪除此分類？')) return;
   try {
-    const res  = await fetch('/api/categories/' + id, { method:'DELETE' });
+    const res  = await apiFetch('/api/categories/' + id, { method:'DELETE' });
     const json = await res.json();
     if (json.success) { showToast('分類已刪除', 'success'); loadCategoriesPage(); loadCategories(); }
     else { showToast(json.message || '刪除失敗', 'error'); }
@@ -2119,8 +2268,8 @@ async function deleteCat(id) {
 async function loadInventoryPage() {
   try {
     const [invRes, statsRes] = await Promise.all([
-      fetch('/api/inventory'),
-      fetch('/api/stats/today')
+      apiFetch('/api/inventory'),
+      apiFetch('/api/stats/today')
     ]);
     const invJson   = await invRes.json();
     const statsJson = await statsRes.json();
@@ -2207,7 +2356,7 @@ function renderInventoryTable(products) {
 let _invProducts = [];
 async function _ensureInvProducts() {
   if (!_invProducts.length) {
-    const r = await fetch('/api/inventory');
+    const r = await apiFetch('/api/inventory');
     const j = await r.json();
     if (j.success) _invProducts = j.data;
   }
@@ -2234,7 +2383,7 @@ async function confirmRestock() {
   const reason = document.getElementById('restockReason').value || '補貨';
   if (!grams || grams <= 0) { showToast('請輸入有效補貨克數', 'error'); return; }
   try {
-    const res  = await fetch('/api/inventory/restock', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ product_id:pid, add_grams:grams, reason }) });
+    const res  = await apiFetch('/api/inventory/restock', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ product_id:pid, add_grams:grams, reason }) });
     const json = await res.json();
     if (json.success) {
       const units = json.data.available_units;
@@ -2268,7 +2417,7 @@ async function confirmAdjust() {
   const reason = document.getElementById('adjustReason').value || '手動調整';
   if (grams === undefined || isNaN(grams)) { showToast('請輸入調整克數', 'error'); return; }
   try {
-    const res  = await fetch('/api/inventory/adjust', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ product_id:pid, change_grams:grams, reason }) });
+    const res  = await apiFetch('/api/inventory/adjust', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ product_id:pid, change_grams:grams, reason }) });
     const json = await res.json();
     if (json.success) {
       showToast(`調整成功！現在可售 ${json.data.available_units} 份`, 'success');
@@ -2284,7 +2433,7 @@ async function confirmAdjust() {
 async function showInventoryLogs(productId) {
   const url = productId ? `/api/inventory/logs?product_id=${productId}&limit=100` : '/api/inventory/logs?limit=100';
   try {
-    const res  = await fetch(url);
+    const res  = await apiFetch(url);
     const json = await res.json();
     if (!json.success) return;
     const logs = json.data;
@@ -2317,7 +2466,7 @@ function closeInvLogs() { document.getElementById('invLogsModal').classList.remo
 
 async function loadPlatforms() {
   try {
-    const res  = await fetch('/api/platforms?active=1');
+    const res  = await apiFetch('/api/platforms?active=1');
     const json = await res.json();
     if (json.success) {
       allPlatforms = json.data;
@@ -2416,7 +2565,7 @@ async function loadPlatformsPage() {
   const tbody = document.getElementById('platformsBody');
   if (tbody) tbody.innerHTML = '<tr><td colspan="4" class="table-empty">載入中…</td></tr>';
   try {
-    const res  = await fetch('/api/platforms');
+    const res  = await apiFetch('/api/platforms');
     const json = await res.json();
     if (json.success) {
       allPlatformsAdmin = json.data;
@@ -2476,7 +2625,7 @@ async function savePlatform() {
   const url = id ? '/api/platforms/' + id : '/api/platforms';
   const method = id ? 'PUT' : 'POST';
   try {
-    const res  = await fetch(url, { method, headers:{'Content-Type':'application/json'}, body: JSON.stringify({name, commission_rate:rate, is_active}) });
+    const res  = await apiFetch(url, { method, headers:{'Content-Type':'application/json'}, body: JSON.stringify({name, commission_rate:rate, is_active}) });
     const json = await res.json();
     if (json.success) {
       showToast(id ? '已更新' : '已新增', 'success');
@@ -2490,7 +2639,7 @@ async function savePlatform() {
 async function deletePlatform(id) {
   if (!confirm('確認刪除此平台？')) return;
   try {
-    const res  = await fetch('/api/platforms/' + id, { method:'DELETE' });
+    const res  = await apiFetch('/api/platforms/' + id, { method:'DELETE' });
     const json = await res.json();
     if (json.success) { showToast('已刪除', 'success'); loadPlatformsPage(); loadPlatforms(); }
     else { showToast(json.message || '刪除失敗', 'error'); }
@@ -2538,7 +2687,7 @@ async function loadPaymentMethodsPage() {
   const tbody = document.getElementById('paymentMethodsBody');
   if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="table-empty">載入中…</td></tr>';
   try {
-    const res  = await fetch('/api/payment-methods');
+    const res  = await apiFetch('/api/payment-methods');
     const json = await res.json();
     if (json.success) {
       if (!json.data || json.data.length === 0) {
@@ -2596,7 +2745,7 @@ function renderPaymentMethodsTable(methods) {
 
 async function updatePM(id, fields) {
   try {
-    const res  = await fetch('/api/payment-methods/' + id, {
+    const res  = await apiFetch('/api/payment-methods/' + id, {
       method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(fields)
     });
     const json = await res.json();
@@ -2616,7 +2765,7 @@ async function loadGatewayPage() {
   const container = document.getElementById('gatewayCards');
   if (container) container.innerHTML = '<p style="color:#888;padding:20px">載入中…</p>';
   try {
-    const res  = await fetch('/api/payment-gateways');
+    const res  = await apiFetch('/api/payment-gateways');
     const json = await res.json();
     if (json.success) {
       if (!json.data || json.data.length === 0) {
@@ -2680,7 +2829,7 @@ function renderGatewayCards(gateways) {
 
 async function toggleGateway(id, active) {
   try {
-    const res  = await fetch('/api/payment-gateways/' + id, {
+    const res  = await apiFetch('/api/payment-gateways/' + id, {
       method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ is_active: active?1:0 })
     });
     const json = await res.json();
@@ -2696,7 +2845,7 @@ async function toggleGateway(id, active) {
 function setGwMode(id, mode, el) {
   el.closest('.gateway-mode-toggle').querySelectorAll('.mode-chip').forEach(c => c.classList.remove('selected'));
   el.classList.add('selected');
-  fetch('/api/payment-gateways/' + id, {
+  apiFetch('/api/payment-gateways/' + id, {
     method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ mode })
   }).catch(() => {});
 }
@@ -2710,7 +2859,7 @@ async function saveGateway(id) {
     callback_url:document.getElementById('gw-callback-'+id)?.value|| '',
   };
   try {
-    const res  = await fetch('/api/payment-gateways/' + id, {
+    const res  = await apiFetch('/api/payment-gateways/' + id, {
       method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
     });
     const json = await res.json();
@@ -2721,7 +2870,7 @@ async function saveGateway(id) {
 
 async function testGateway(id) {
   try {
-    const res  = await fetch('/api/payment-gateways/' + id + '/test', { method: 'POST' });
+    const res  = await apiFetch('/api/payment-gateways/' + id + '/test', { method: 'POST' });
     const json = await res.json();
     showToast(json.message || '連線測試完成', json.success ? 'info' : 'error');
   } catch { showToast('測試失敗', 'error'); }
@@ -2789,8 +2938,8 @@ function _updatePrinterBadgeFromConfig(cfg) {
 async function loadPrinterSettings() {
   try {
     const [settingsRes, statusRes] = await Promise.all([
-      fetch('/api/settings'),
-      fetch('/api/print/status')
+      apiFetch('/api/settings'),
+      apiFetch('/api/print/status')
     ]);
     const sJson = await settingsRes.json();
     const pJson = await statusRes.json();
@@ -2839,7 +2988,7 @@ async function refreshPrinterList() {
   if (!sel) return;
   sel.innerHTML = '<option value="">載入中...</option>';
   try {
-    const res  = await fetch('/api/printers/list');
+    const res  = await apiFetch('/api/printers/list');
     const json = await res.json();
     const list = json.data || [];
     if (!list.length) {
@@ -2870,7 +3019,7 @@ async function savePrinterSettings() {
     auto_drawer:     getCheck('set-auto_drawer'),
   };
   try {
-    const res  = await fetch('/api/settings', {
+    const res  = await apiFetch('/api/settings', {
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
     });
     const json = await res.json();
@@ -2889,7 +3038,7 @@ async function testPrint() {
   const msgEl = document.getElementById('printerTestResult');
   if (msgEl) { msgEl.textContent = '⏳ 列印中...'; msgEl.style.color = 'var(--text-muted)'; }
   try {
-    const res  = await fetch('/api/print/test', { method: 'POST' });
+    const res  = await apiFetch('/api/print/test', { method: 'POST' });
     const json = await res.json();
     if (msgEl) {
       msgEl.textContent = json.success ? `✅ ${json.message}` : `❌ ${json.message}`;
@@ -2907,7 +3056,7 @@ async function testKitchenPrint() {
   if (msgEl) { msgEl.textContent = '⏳ 廚房單列印中...'; msgEl.style.color = 'var(--text-muted)'; }
   try {
     // 使用固定測試內容，不依賴訂單資料
-    const res  = await fetch('/api/print/kitchen-test', { method: 'POST' });
+    const res  = await apiFetch('/api/print/kitchen-test', { method: 'POST' });
     const json = await res.json();
     if (msgEl) {
       msgEl.textContent = json.success ? `✅ 廚房單：${json.message}` : `❌ ${json.message}`;
@@ -2923,7 +3072,7 @@ async function testCashDrawer() {
   const msgEl = document.getElementById('printerTestResult');
   if (msgEl) { msgEl.textContent = '⏳ 開錢櫃中...'; msgEl.style.color = 'var(--text-muted)'; }
   try {
-    const res  = await fetch('/api/print/cashdrawer', { method: 'POST' });
+    const res  = await apiFetch('/api/print/cashdrawer', { method: 'POST' });
     const json = await res.json();
     if (msgEl) {
       msgEl.textContent = json.success ? `✅ ${json.message}` : `❌ ${json.message}`;
@@ -2939,7 +3088,7 @@ async function testCashDrawer() {
 // 訂單紀錄 — 現金訂單手動開錢櫃
 async function openDrawerFromOrder(orderId) {
   try {
-    const res  = await fetch('/api/print/cashdrawer', { method: 'POST' });
+    const res  = await apiFetch('/api/print/cashdrawer', { method: 'POST' });
     const json = await res.json();
     showToast(json.success ? '💰 錢櫃已開啟' : ('開錢櫃失敗：' + json.message), json.success ? 'success' : 'error');
   } catch(e) {
@@ -2951,7 +3100,7 @@ async function checkPrinterStatus() {
   const badge = document.getElementById('printerStatusBadge');
   if (badge) badge.innerHTML = '<span class="order-status status-modified">檢查中...</span>';
   try {
-    const res  = await fetch('/api/print/status');
+    const res  = await apiFetch('/api/print/status');
     const json = await res.json();
     _updatePrinterBadge(json?.data || {});
     return json?.data;
@@ -2968,7 +3117,7 @@ async function checkPrinterStatus() {
 // ── LINE 總開關 ──────────────────────────────────────────
 async function loadLineBizStatus() {
   try {
-    const res  = await fetch('/api/settings');
+    const res  = await apiFetch('/api/settings');
     const json = await res.json();
     const d    = json.data || {};
     const el   = document.getElementById('lineOrderingStatus');
@@ -3023,7 +3172,7 @@ async function saveAdvancedLineSettings() {
   const cdRaw = (document.getElementById('set-line_closed_dates_text')?.value || '').split('\n')
     .map(d => d.trim()).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d));
   try {
-    await fetch('/api/settings', { method:'PUT', headers:{'Content-Type':'application/json'},
+    await apiFetch('/api/settings', { method:'PUT', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({
         same_day_preorder_minutes: String(sdm),
         next_day_preorder_hours:   String(ndh),
@@ -3041,7 +3190,7 @@ async function setLineOrdering(enable) {
     : '確定要關閉 LINE 點餐營業嗎？\n關閉後客人將無法透過 LINE 下單，但現場 POS 不受影響。';
   if (!confirm(msg)) return;
   try {
-    await fetch('/api/settings', { method:'PUT', headers:{'Content-Type':'application/json'},
+    await apiFetch('/api/settings', { method:'PUT', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ line_ordering_enabled: enable ? '1' : '0' }) });
     showToast(enable ? '✅ LINE 點餐已開啟' : '🔴 LINE 點餐已關閉', 'success');
     loadLineBizStatus();
@@ -3055,7 +3204,7 @@ async function setTodayClosed(closed) {
   if (!confirm(msg)) return;
   const todayStr = new Date().toISOString().slice(0,10);
   try {
-    await fetch('/api/settings', { method:'PUT', headers:{'Content-Type':'application/json'},
+    await apiFetch('/api/settings', { method:'PUT', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ line_today_closed: closed ? '1' : '0', line_today_closed_date: todayStr }) });
     showToast(closed ? '🌙 今日已設定臨時休息' : '✅ 已取消今日休息', 'success');
     loadLineBizStatus();
@@ -3063,14 +3212,14 @@ async function setTodayClosed(closed) {
 }
 
 async function setPickup(enable) {
-  await fetch('/api/settings', { method:'PUT', headers:{'Content-Type':'application/json'},
+  await apiFetch('/api/settings', { method:'PUT', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({ pickup_enabled: enable ? '1' : '0' }) });
   showToast(enable ? '✅ 自取已開啟' : '❌ 自取已關閉', 'success');
   loadLineBizStatus();
 }
 
 async function setDelivery(enable) {
-  await fetch('/api/settings', { method:'PUT', headers:{'Content-Type':'application/json'},
+  await apiFetch('/api/settings', { method:'PUT', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({ delivery_enabled: enable ? '1' : '0' }) });
   showToast(enable ? '✅ 外送已開啟' : '❌ 外送已關閉', 'success');
   loadLineBizStatus();
@@ -3088,7 +3237,7 @@ async function saveLinePaymentSettings() {
     if (el) body[key] = el.checked ? '1' : '0';
   });
   try {
-    await fetch('/api/settings', { method:'PUT', headers:{'Content-Type':'application/json'},
+    await apiFetch('/api/settings', { method:'PUT', headers:{'Content-Type':'application/json'},
       body: JSON.stringify(body) });
     const enabled = Object.entries(lpMap)
       .filter(([code]) => document.getElementById(`lp-${code}`)?.checked)
@@ -3134,7 +3283,7 @@ async function saveLineBizSettings() {
   });
   const bhe = document.getElementById('set-line_business_hours_enabled');
   try {
-    await fetch('/api/settings', { method:'PUT', headers:{'Content-Type':'application/json'},
+    await apiFetch('/api/settings', { method:'PUT', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({
         line_business_hours_enabled: bhe?.checked ? '1' : '0',
         line_business_hours: JSON.stringify(hours)
@@ -3155,7 +3304,7 @@ async function loadIngredientsPage() {
   if (!el) return;
   el.innerHTML = '<div class="ing-loading"><span>載入中…</span></div>';
   try {
-    const res  = await fetch('/api/ingredients');
+    const res  = await apiFetch('/api/ingredients');
     const json = await res.json();
     _ingredients = json.data || [];
     renderIngredientsList(_ingredients);
@@ -3312,7 +3461,7 @@ async function submitNewIngredient(btn) {
   if (!name) { showToast('請輸入食材名稱', 'error'); return; }
   btn.disabled = true; btn.textContent = '建立中…';
   try {
-    const res = await fetch('/api/ingredients', { method:'POST', headers:{'Content-Type':'application/json'},
+    const res = await apiFetch('/api/ingredients', { method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ name, unit, initial_stock: stock, low_stock_threshold: threshold, default_thaw_hours: thawHours }) });
     const j = await res.json();
     if (j.success) {
@@ -3375,7 +3524,7 @@ async function submitEditIngredient(id, btn) {
   if (!name) { showToast('請輸入食材名稱', 'error'); return; }
   btn.disabled=true; btn.textContent='儲存中…';
   try {
-    const res = await fetch(`/api/ingredients/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'},
+    const res = await apiFetch(`/api/ingredients/${id}`, { method:'PUT', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ name, unit, low_stock_threshold: threshold, default_thaw_hours: thawHours }) });
     const j = await res.json();
     if (j.success) { showToast('✅ 已更新', 'success'); btn.closest('.ing-modal-overlay').remove(); loadIngredientsPage(); }
@@ -3386,7 +3535,7 @@ async function submitEditIngredient(id, btn) {
 async function deleteIngredient(id, name) {
   if (!confirm(`確定刪除「${name}」？此操作無法復原。`)) return;
   try {
-    const res = await fetch(`/api/ingredients/${id}`, { method:'DELETE' });
+    const res = await apiFetch(`/api/ingredients/${id}`, { method:'DELETE' });
     const j = await res.json();
     if (j.success) { showToast(`✅ 已刪除「${name}」`, 'success'); loadIngredientsPage(); }
     else showToast(j.message||'刪除失敗', 'error');
@@ -3478,7 +3627,7 @@ async function submitIngAction(id, action, btn) {
   }
   btn.disabled=true; btn.textContent='執行中…';
   try {
-    const res = await fetch(`/api/ingredients/${id}/${action}`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    const res = await apiFetch(`/api/ingredients/${id}/${action}`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
     const j = await res.json();
     const labels = { purchase:'進貨入庫', 'freeze-to-thaw':'轉解凍中', 'thaw-complete':'完成解凍', scrap:'報廢' };
     if (j.success) { showToast(`✅ ${labels[action]}完成`, 'success'); btn.closest('.ing-modal-overlay').remove(); loadIngredientsPage(); notifyInventoryChanged(); }
@@ -3549,7 +3698,7 @@ async function submitBatchPurchase(btn) {
   let ok=0, fail=0;
   for (const item of items) {
     try {
-      const res = await fetch(`/api/ingredients/${item.id}/purchase`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ amount: item.amount }) });
+      const res = await apiFetch(`/api/ingredients/${item.id}/purchase`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ amount: item.amount }) });
       const j = await res.json();
       if (j.success) ok++; else fail++;
     } catch(e) { fail++; }
@@ -3575,7 +3724,7 @@ async function openIngredientLogsModal() {
   requestAnimationFrame(() => overlay.classList.add('open'));
 
   try {
-    const res  = await fetch('/api/ingredients/logs/all?limit=200');
+    const res  = await apiFetch('/api/ingredients/logs/all?limit=200');
     const json = await res.json();
     const rows = (json.data||[]);
     const typeMap = {
@@ -3636,9 +3785,9 @@ async function openFormulaManagerModal() {
 
   try {
     const [ingRes, fmRes, prodRes] = await Promise.all([
-      fetch('/api/ingredients').then(r=>r.json()),
-      fetch('/api/ingredients/formulas/all').then(r=>r.json()),
-      fetch('/api/products').then(r=>r.json())
+      apiFetch('/api/ingredients').then(r=>r.json()),
+      apiFetch('/api/ingredients/formulas/all').then(r=>r.json()),
+      apiFetch('/api/products').then(r=>r.json())
     ]);
     const ings = ingRes.data || [];
     const fms  = fmRes.data  || [];
@@ -3684,7 +3833,7 @@ async function addFormula() {
   const iid = document.getElementById('fml-ingid')?.value;
   const amt = document.getElementById('fml-amt')?.value;
   if (!pid||!iid||!amt) { showToast('請填寫所有欄位', 'error'); return; }
-  const res  = await fetch('/api/ingredients/formulas/add', { method:'POST', headers:{'Content-Type':'application/json'},
+  const res  = await apiFetch('/api/ingredients/formulas/add', { method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({ product_id:Number(pid), ingredient_id:Number(iid), amount_per_unit:Number(amt) }) });
   const json = await res.json();
   if (json.success) {
@@ -3695,7 +3844,7 @@ async function addFormula() {
 
 async function deleteFormula(id, btn) {
   if (!confirm('確定刪除此扣料公式？')) return;
-  const res = await fetch(`/api/ingredients/formulas/${id}`, { method:'DELETE' });
+  const res = await apiFetch(`/api/ingredients/formulas/${id}`, { method:'DELETE' });
   const json = await res.json();
   if (json.success) { btn.closest('tr').remove(); showToast('✅ 已刪除', 'success'); }
 }
@@ -3814,7 +3963,7 @@ async function submitImport(type, btn) {
   if (!rows || !rows.length) { showToast('請先選擇 CSV 檔案', 'error'); return; }
   btn.disabled = true; btn.textContent = '匯入中…';
   try {
-    const res  = await fetch(`/api/import/${type}`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ rows }) });
+    const res  = await apiFetch(`/api/import/${type}`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ rows }) });
     const resultDiv = document.getElementById(`_import-result-${type}`);
 
     // ── v18-r1-fix1：先檢查 HTTP 狀態，處理 403 授權擋住的情況 ──
@@ -3892,12 +4041,16 @@ function notifyInventoryChanged() {
   }
 })();
 
-// ── v18：WSS Client — 接收後端 order_status_changed 後自動刷新訂單頁 ──────────
+// ── v18 fix6：WSS Client — 帶 token 連線，確保 store_id 綁定 ──────────────
 (function initWebPosWss() {
   let _wssRetry = 0;
   function connectWss() {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const url   = proto + '//' + location.host + '/orders';
+    // ★ fix6：帶 JWT token，讓 server 綁定 store_id
+    // 若尚未登入（無 token），沿用預設 store_001（向後相容）
+    const token = getToken();
+    const url   = proto + '//' + location.host + '/orders'
+      + (token ? '?token=' + encodeURIComponent(token) : '');
     let ws;
     try { ws = new WebSocket(url); } catch(e) { return; }
 
