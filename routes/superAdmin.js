@@ -274,11 +274,11 @@ router.put('/stores/:storeId/password', requireSuperAdmin, (req, res) => {
 
     const crypto = require('crypto');
     const hash   = crypto.createHash('sha256').update(new_password).digest('hex');
-    const ex     = db.get("SELECT id FROM settings WHERE store_id=? AND key='pos_password'", [storeId]);
-    if (ex)
-      db.run("UPDATE settings SET value=? WHERE store_id=? AND key='pos_password'", [hash, storeId]);
-    else
-      db.run("INSERT INTO settings (store_id,key,value) VALUES (?,?,?)", [storeId, 'pos_password', hash]);
+    // fix7：不依賴 id 欄位，改用 UPDATE + INSERT OR IGNORE
+    const upd = db.run("UPDATE settings SET value=? WHERE store_id=? AND key='pos_password'", [hash, storeId]);
+    if (!upd.changes) {
+      db.run("INSERT OR IGNORE INTO settings (store_id,key,value) VALUES (?,?,?)", [storeId, 'pos_password', hash]);
+    }
 
     res.json({ success: true, message: `店家 ${storeId} 的 POS 密碼已更新` });
   } catch(e) {

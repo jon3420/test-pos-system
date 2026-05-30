@@ -41,9 +41,11 @@ router.put('/', (req, res) => {
     ];
     allowed.forEach(k => {
       if (req.body[k] !== undefined) {
-        const ex = db.get('SELECT id FROM settings WHERE store_id=? AND key=?', [storeId, k]);
-        if (ex) db.run('UPDATE settings SET value=? WHERE store_id=? AND key=?', [String(req.body[k]), storeId, k]);
-        else    db.run('INSERT INTO settings (store_id,key,value) VALUES (?,?,?)', [storeId, k, String(req.body[k])]);
+        // fix7：不依賴 id 欄位，改用 UPDATE + INSERT OR IGNORE 模式
+        const updated = db.run('UPDATE settings SET value=? WHERE store_id=? AND key=?', [String(req.body[k]), storeId, k]);
+        if (!updated.changes) {
+          db.run('INSERT OR IGNORE INTO settings (store_id,key,value) VALUES (?,?,?)', [storeId, k, String(req.body[k])]);
+        }
       }
     });
     try {

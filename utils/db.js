@@ -425,27 +425,143 @@ function initTables(w) {
   try { w._db.run('ALTER TABLE customers ADD COLUMN store_id TEXT NOT NULL DEFAULT \'store_001\''); w._save(); } catch {}
   try { w._db.run(`UPDATE customers SET store_id='store_001' WHERE store_id IS NULL OR store_id=''`); w._save(); } catch {}
 
-  // ── settings ──────────────────────────────────────────
-  w._db.run(`CREATE TABLE IF NOT EXISTS settings (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    store_id TEXT NOT NULL DEFAULT 'store_001',
-    key TEXT NOT NULL,
-    value TEXT NOT NULL,
-    UNIQUE(store_id, key)
-  )`);
-  // 嘗試從舊格式 migrate
-  try {
-    const oldSettings = w.all('SELECT key, value FROM settings WHERE store_id IS NULL');
-    oldSettings.forEach(row => {
+  // ── settings ─────────────────────────────────────────────────────────────────
+  // fix8：徹底解決舊版 key PRIMARY KEY 問題
+  //
+  // 舊版 settings 可能有兩種問題 schema：
+  //   (A) key TEXT PRIMARY KEY, value TEXT           ← 最老版本
+  //   (B) id INTEGER PK, store_id, key, value        ← R1 初版
+  //   (C) store_id, key, value (正確，但 key 可能仍是 PK) ← fix7 狀態
+  //
+  // 問題：只要 key 是 PRIMARY KEY，不同 store 就無法有同名 key（跨店衝突）。
+  // ALTER TABLE 無法改變 PRIMARY KEY，唯一解法是重建表。
+  //
+  // 最終目標 schema：
+  //   store_id TEXT NOT NULL DEFAULT 'store_001'
+  //   key      TEXT NOT NULL
+  //   value    TEXT NOT NULL DEFAULT ''
+  //   PRIMARY KEY (store_id, key)        ← 複合 PK，允許不同 store 有同名 key
+  //
+  // 重建條件：key 欄位的 PRAGMA pk 值 > 0（表示 key 是 PRIMARY KEY 的一部分）
+  //           且 store_id 欄位的 pk 值 = 0（表示複合 PK 尚未建立）
+  // 可重複執行：CREATE TABLE settings_new → INSERT OR IGNORE → DROP → RENAME
+  //             若 settings_new 已存在（上次重建未完成），先 DROP 再建
+
+  (() => {
+    // ── settings 表重建 Migration（fix8）─────────────────────
+    //
+    // 處理三種舊版 schema：
+    //   A) key TEXT PRIMARY KEY, value TEXT                 ← 最老版，key 全域唯一
+    //   B) id INTEGER PK, store_id, key, value             ← R1 初版，UNIQUE(store_id,key)
+    //   C) key TEXT PK + store_id（ALTER TABLE 後加）       ← fix7 狀態
+    //
+    // 目標：PRIMARY KEY (store_id, key)，允許不同 store 有同名 key。
+    //
+    // 執行順序：
+    //   1. PRAGMA 讀取現有欄位與 PK 資訊
+    //   2. 表不存在 → 直接建立正確版本，結束
+    //   3. 已是正確複合 PK → 補資料，結束
+    //   4. 需重建：
+    //      4a. 若缺少 store_id 欄位 → 先 ALTER TABLE ADD（確保搬移時有值）
+    //      4b. 補填 store_id = 'store_001'
+    //      4c. CREATE settings_new → INSERT OR IGNORE → DROP → RENAME
+
+    // 步驟 1：取得現有 schema
+    let pragmaRows = [];
+    try {
+      const r = w._db.exec('PRAGMA table_info(settings)');
+      pragmaRows = r.length > 0 ? r[0].values : [];
+    } catch {}
+
+    const colMeta = {};
+    pragmaRows.forEach(r => { colMeta[String(r[1]).toLowerCase()] = { pk: Number(r[5]) }; });
+
+    const hasStoreId    = 'store_id' in colMeta;
+    const hasKey        = 'key'      in colMeta;
+    const hasValue      = 'value'    in colMeta;
+    const tableNotExist = pragmaRows.length === 0;
+    const alreadyCorrect = hasStoreId && hasKey &&
+      colMeta['store_id'].pk > 0 && colMeta['key'].pk > 0;
+
+    // 步驟 2：表不存在 → 建立正確版本
+    if (tableNotExist) {
+      console.log('[DB] settings: 建立新表（複合 PK）');
+      w._db.run(`CREATE TABLE settings (
+        store_id TEXT NOT NULL DEFAULT 'store_001',
+        key      TEXT NOT NULL,
+        value    TEXT NOT NULL DEFAULT '',
+        PRIMARY KEY (store_id, key)
+      )`);
+      w._save();
+      return;
+    }
+
+    // 步驟 3：已是正確複合 PK → 只補資料，跳過重建
+    if (alreadyCorrect) {
+      console.log('[DB] settings: schema 正確（複合 PK），跳過重建');
       try {
-        w._db.run('INSERT OR IGNORE INTO settings (store_id, key, value) VALUES (?,?,?)',
-          ['store_001', row.key, row.value]);
+        w._db.run("UPDATE settings SET store_id='store_001' WHERE store_id IS NULL OR store_id=''");
+        w._save();
       } catch {}
-    });
+      return;
+    }
+
+    // 步驟 4：需要重建
+    console.log('[DB] settings: 偵測到舊版 schema，開始重建...', JSON.stringify(colMeta));
+
+    // 步驟 4a：若缺少 store_id 欄位，先 ALTER TABLE ADD
+    // 目的：確保後面 INSERT ... SELECT store_id FROM settings 不會崩潰
+    if (!hasStoreId) {
+      try {
+        w._db.run("ALTER TABLE settings ADD COLUMN store_id TEXT NOT NULL DEFAULT 'store_001'");
+        w._save();
+        console.log('[DB] settings: 暫時新增 store_id 欄位（待重建完成）');
+      } catch(e) {
+        // 若 ALTER 失敗（極少情況），繼續嘗試重建
+        console.warn('[DB] settings ALTER store_id 失敗，繼續重建:', e.message);
+      }
+    }
+
+    // 步驟 4b：補填 store_id 空值
+    try {
+      w._db.run("UPDATE settings SET store_id='store_001' WHERE store_id IS NULL OR store_id=''");
+      w._save();
+    } catch {}
+
+    // 步驟 4c：重建表
+    try { w._db.run('DROP TABLE IF EXISTS settings_new'); } catch {}
+
+    w._db.run(`CREATE TABLE settings_new (
+      store_id TEXT NOT NULL DEFAULT 'store_001',
+      key      TEXT NOT NULL,
+      value    TEXT NOT NULL DEFAULT '',
+      PRIMARY KEY (store_id, key)
+    )`);
+
+    // 搬移資料（store_id 現在必定存在）
+    if (hasValue) {
+      w._db.run(`INSERT OR IGNORE INTO settings_new (store_id, key, value)
+        SELECT COALESCE(NULLIF(TRIM(store_id), ''), 'store_001'),
+               key,
+               COALESCE(value, '')
+        FROM settings`);
+    } else if (hasKey) {
+      w._db.run(`INSERT OR IGNORE INTO settings_new (store_id, key, value)
+        SELECT 'store_001', key, '' FROM settings`);
+    }
+
+    w._db.run('DROP TABLE settings');
+    w._db.run('ALTER TABLE settings_new RENAME TO settings');
     w._save();
-  } catch {}
-  try { w._db.run('ALTER TABLE settings ADD COLUMN store_id TEXT NOT NULL DEFAULT \'store_001\''); w._save(); } catch {}
-  try { w._db.run(`UPDATE settings SET store_id='store_001' WHERE store_id IS NULL OR store_id=''`); w._save(); } catch {}
+
+    // 驗證
+    const verify = w._db.exec('PRAGMA table_info(settings)');
+    const verPk  = (verify[0]?.values || []).filter(r => Number(r[5]) > 0).map(r => r[1]);
+    console.log('[DB] settings 重建完成，PRIMARY KEY:', verPk.join('+'));
+    if (!verPk.includes('store_id') || !verPk.includes('key')) {
+      console.error('[DB] settings 重建驗證失敗：複合 PK 未正確建立！');
+    }
+  })();
 
   // ── payment_methods ───────────────────────────────────
   w._db.run(`CREATE TABLE IF NOT EXISTS payment_methods (
@@ -573,9 +689,11 @@ function initTables(w) {
   }
 
   // ── Settings defaults（per-store）────────────────────
+  // fix7：改用 SELECT key（不依賴 id 欄位），並改用 INSERT OR IGNORE
   const sd = (storeId, k, v) => {
-    if (!w.get('SELECT id FROM settings WHERE store_id=? AND key=?', [storeId, k]))
-      w._db.run('INSERT INTO settings (store_id,key,value) VALUES (?,?,?)', [storeId, k, v]);
+    try {
+      w._db.run('INSERT OR IGNORE INTO settings (store_id,key,value) VALUES (?,?,?)', [storeId, k, v]);
+    } catch(e) { console.error('[DB] sd() error:', e.message); }
   };
   const sid = 'store_001';
   sd(sid,'shop_name','脆豬腰'); sd(sid,'n8n_webhook_url',''); sd(sid,'line_channel_token','');
