@@ -223,7 +223,7 @@ function loadReportsPage() {
 
 function _dashboardSkeleton() {
   return `
-  <div id="dashboard-wrap" style="font-family:-apple-system,sans-serif">
+  <div id="dashboard-wrap" style="font-family:-apple-system,sans-serif;width:100%;box-sizing:border-box">
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap">
       <h2 style="margin:0;font-size:1.2rem">📊 老闆儀表板</h2>
       <input type="date" id="db-date" style="padding:6px 10px;border-radius:8px;border:1px solid var(--border,#2a2d3e);background:var(--bg-card,#1a1d27);color:var(--text-primary,#e2e8f0);font-size:.85rem"
@@ -273,7 +273,7 @@ function _card(label, value, sub, color) {
 }
 
 function _section(title, html) {
-  return `<div style="background:var(--bg-card,#1a1d27);border:1px solid var(--border,#2a2d3e);border-radius:12px;padding:20px;margin-bottom:16px">
+  return `<div style="background:var(--bg-card,#1a1d27);border:1px solid var(--border,#2a2d3e);border-radius:12px;padding:20px;margin-bottom:20px;width:100%;box-sizing:border-box">
     <h3 style="margin:0 0 14px;font-size:.95rem;color:var(--text-primary,#e2e8f0)">${title}</h3>
     ${html}
   </div>`;
@@ -284,7 +284,7 @@ function _renderDashboard(d, date) {
   let html = '';
 
   // ── 第一區：今日總覽 ───────────────────────────────
-  html += `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-bottom:16px">
+  html += `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-bottom:20px;width:100%">
     ${_card('今日營收', _nt(d.todayRevenue), date, '#10b981')}
     ${_card('今日訂單', d.todayOrders + ' 筆', '', '')}
     ${_card('平均客單', _nt(d.avgOrderValue), '', '')}
@@ -480,7 +480,11 @@ function applyFeatureGateUI() {
   const platformBtn = document.querySelector('button[data-stab="platform"]');
   if (platformBtn) platformBtn.style.display = f.delivery ? '' : 'none';
 
-  // fix16: 金流 API（設定 Tab，payment_api gate）
+  // fix16c-hotfix: 付款方式 Tab 永遠顯示（Basic 基本功能）
+  const paymentTabBtn = document.querySelector('button[data-stab="payment"]');
+  if (paymentTabBtn) paymentTabBtn.style.display = '';
+
+  // 金流 API Tab — payment_api gate（Pro/Premium 才可見）
   const gatewayBtn = document.getElementById('tab-btn-gateway');
   if (gatewayBtn) gatewayBtn.style.display = f.payment_api ? '' : 'none';
 
@@ -756,17 +760,26 @@ let editOrderId = null;
 document.addEventListener('DOMContentLoaded', async () => {
   startClock();
   initDateRange();
-  // ★ fix4：先確認登入狀態，再載入資料
+
+  // fix16c-hotfix: 正確初始化順序，避免 inventory 403 中斷商品載入
   await ensureLogin();
-  // 若已登入（有 token），繼續正常初始化
-  if (getToken()) {
-    // fix10: 先載入店家資訊與授權，再載入其他資料
-    await loadCurrentStore();
-    await loadSettings();
-    await loadCategories();
-    await loadPlatforms();
-    await loadPaymentMethods();
-    await loadProducts();
+
+  if (!getToken()) return; // 未登入停止
+
+  // 1. 先取店家授權（必須先於一切 feature gate 判斷）
+  await loadCurrentStore();
+
+  // 2. 核心設定（不受 feature gate 限制）
+  await loadSettings().catch(() => {});
+  await loadCategories().catch(() => {});
+  await loadPaymentMethods().catch(() => {});
+
+  // 3. 商品載入（不依賴 inventory，不受 inventory feature gate 影響）
+  await loadProducts().catch(() => {});
+
+  // 4. 非必要功能（依 feature gate，各自容錯，不可阻斷前述流程）
+  if (hasFeature('delivery')) {
+    await loadPlatforms().catch(() => {});
   }
 });
 
@@ -825,8 +838,13 @@ function showPage(name) {
  * 每 10 秒由 setInterval 呼叫，也可手動觸發（結帳後）
  */
 async function refreshInventoryForProducts() {
+  // fix16c-hotfix: inventory=false 時不呼叫 /api/inventory，避免 403 toast
+  if (!hasFeature('inventory')) return;
   try {
-    const invRes  = await apiFetch('/api/inventory');
+    const invRes  = await fetch('/api/inventory', {
+      headers: { 'Authorization': 'Bearer ' + getToken(), 'Content-Type': 'application/json' }
+    });
+    if (!invRes.ok) return;
     const invJson = await invRes.json();
     if (!invJson.success) return;
 
@@ -884,7 +902,7 @@ function switchSettingsTab(tab) {
 
   // 各 Tab 的資料載入
   if (tab === 'payment')     loadPaymentMethodsPage();
-  if (tab === 'gateway')     loadGatewayPage();
+  if (tab === 'gateway')     loadGatewayCards();    // fix16e: only provider-based
   if (tab === 'platform')    loadPlatformsPage();
   if (tab === 'printer')     loadPrinterSettings();
   if (tab === 'line_biz')    loadLineBizStatus();
@@ -939,18 +957,24 @@ async function saveSettings() {
 // ===== 商品載入（永遠從 server 取最新庫存，不使用舊快取） =====
 async function loadProducts() {
   try {
-    // 並行取商品列表 + 庫存資料（統一來源）
-    const [prodRes, invRes] = await Promise.all([
-      apiFetch('/api/products?enabled=1&_t=' + Date.now()),
-      apiFetch('/api/inventory')
-    ]);
+    // fix16c-hotfix: 商品載入不依賴 inventory，inventory=false 時只跳過庫存 map
+    const prodRes = await apiFetch('/api/products?enabled=1&_t=' + Date.now());
     const prodJson = await prodRes.json();
-    const invJson  = await invRes.json();
 
-    // 建立 inventory map: productId -> inventory record
+    // 僅在 inventory 有授權時才呼叫 /api/inventory（inventory=false 跳過，避免 403 toast）
     const invMap = {};
-    if (invJson.success) {
-      (invJson.data || []).forEach(iv => { invMap[iv.id] = iv; });
+    if (hasFeature('inventory')) {
+      try {
+        const invRes  = await fetch('/api/inventory', {
+          headers: { 'Authorization': 'Bearer ' + getToken(), 'Content-Type': 'application/json' }
+        });
+        if (invRes.ok) {
+          const invJson = await invRes.json();
+          if (invJson.success) {
+            (invJson.data || []).forEach(iv => { invMap[iv.id] = iv; });
+          }
+        }
+      } catch {} // 庫存不可用時靜默忽略
     }
 
     if (prodJson.success) {
@@ -3345,123 +3369,24 @@ async function updatePM(id, fields) {
 }
 
 // =============================================
-// ===== 金流設定頁 =====
+// ===== 金流設定頁 (fix16e: 已完全清理舊版 id-based 函式) =====
 // =============================================
-
-async function loadGatewayPage() {
-  const container = document.getElementById('gatewayCards');
-  if (container) container.innerHTML = '<p style="color:#888;padding:20px">載入中…</p>';
-  try {
-    const res  = await apiFetch('/api/payment-gateways');
-    const json = await res.json();
-    if (json.success) {
-      if (!json.data || json.data.length === 0) {
-        if (container) container.innerHTML = '<p style="color:#888;padding:20px">目前尚無資料</p>';
-      } else {
-        renderGatewayCards(json.data);
-      }
-    } else {
-      if (container) container.innerHTML = `<p style="color:#e53935;padding:20px">載入失敗：${json.message||'API 錯誤'}</p>`;
-    }
-  } catch(e) {
-    if (container) container.innerHTML = '<p style="color:#e53935;padding:20px">載入失敗，請檢查後端 API</p>';
-    showToast('金流載入失敗：' + e.message, 'error');
-  }
-}
-
-function renderGatewayCards(gateways) {
-  const container = document.getElementById('gatewayCards');
-  if (!container) return;
-
-  container.innerHTML = gateways.map(gw => `
-    <div class="gateway-card ${gw.is_active ? 'active-gw' : ''}" id="gw-card-${gw.id}">
-      <div class="gateway-card-header">
-        <h4>${escHtml(gw.name)}</h4>
-        <div style="display:flex;align-items:center;gap:8px">
-          <span class="gateway-status ${gw.is_active?'gw-on':'gw-off'}">${gw.is_active?'已啟用':'未啟用'}</span>
-          <label class="pm-toggle" style="margin:0">
-            <input type="checkbox" ${gw.is_active?'checked':''} onchange="toggleGateway(${gw.id},this.checked)">
-            <span class="pm-toggle-slider"></span>
-          </label>
-        </div>
-      </div>
-
-      <div class="gateway-mode-toggle">
-        <div class="mode-chip ${gw.mode==='test'?'selected':''}" onclick="setGwMode(${gw.id},'test',this)">🧪 測試模式</div>
-        <div class="mode-chip ${gw.mode==='live'?'selected':''}" onclick="setGwMode(${gw.id},'live',this)">🚀 正式模式</div>
-      </div>
-
-      <label>Merchant ID / Channel ID
-        <input type="text" id="gw-mid-${gw.id}" value="${escHtml(gw.merchant_id||'')}" placeholder="商家 ID">
-      </label>
-      <label>API Key
-        <input type="text" id="gw-apikey-${gw.id}" value="${escHtml(gw.api_key||'')}" placeholder="API Key">
-      </label>
-      <label>Secret Key
-        <input type="password" id="gw-secret-${gw.id}" value="${escHtml(gw.secret_key||'')}" placeholder="Secret Key">
-      </label>
-      <label>Webhook URL
-        <input type="url" id="gw-webhook-${gw.id}" value="${escHtml(gw.webhook_url||'')}" placeholder="https://yoursite.com/webhook/${gw.code}">
-      </label>
-      <label>Callback URL
-        <input type="url" id="gw-callback-${gw.id}" value="${escHtml(gw.callback_url||'')}" placeholder="https://yoursite.com/callback/${gw.code}">
-      </label>
-
-      <div class="gateway-card-actions">
-        <button class="btn-secondary" style="flex:1;font-size:13px" onclick="testGateway(${gw.id})">🔌 測試連線</button>
-        <button class="btn-primary" style="flex:1;font-size:13px" onclick="saveGateway(${gw.id})">💾 儲存</button>
-      </div>
-    </div>`).join('');
-}
-
-async function toggleGateway(id, active) {
-  try {
-    const res  = await apiFetch('/api/payment-gateways/' + id, {
-      method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ is_active: active?1:0 })
-    });
-    const json = await res.json();
-    if (json.success) {
-      showToast(active ? '金流已啟用' : '金流已停用（相關付款方式已同步停用）', active ? 'success' : 'info');
-      loadGatewayPage();
-      loadPaymentMethods();      // 同步前台
-      loadPaymentMethodsPage();  // 同步設定頁
-    }
-  } catch { showToast('網路錯誤', 'error'); }
-}
-
-function setGwMode(id, mode, el) {
-  el.closest('.gateway-mode-toggle').querySelectorAll('.mode-chip').forEach(c => c.classList.remove('selected'));
-  el.classList.add('selected');
-  apiFetch('/api/payment-gateways/' + id, {
-    method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ mode })
-  }).catch(() => {});
-}
-
-async function saveGateway(id) {
-  const body = {
-    merchant_id: document.getElementById('gw-mid-'+id)?.value    || '',
-    api_key:     document.getElementById('gw-apikey-'+id)?.value  || '',
-    secret_key:  document.getElementById('gw-secret-'+id)?.value  || '',
-    webhook_url: document.getElementById('gw-webhook-'+id)?.value || '',
-    callback_url:document.getElementById('gw-callback-'+id)?.value|| '',
-  };
-  try {
-    const res  = await apiFetch('/api/payment-gateways/' + id, {
-      method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
-    });
-    const json = await res.json();
-    if (json.success) showToast('金流設定已儲存', 'success');
-    else showToast(json.message || '儲存失敗', 'error');
-  } catch { showToast('網路錯誤', 'error'); }
-}
-
-async function testGateway(id) {
-  try {
-    const res  = await apiFetch('/api/payment-gateways/' + id + '/test', { method: 'POST' });
-    const json = await res.json();
-    showToast(json.message || '連線測試完成', json.success ? 'info' : 'error');
-  } catch { showToast('測試失敗', 'error'); }
-}
+//
+// fix16e 清理說明：
+//   移除的舊版函式（id-based，使用 /api/payment-gateways/:id）：
+//     loadGatewayPage()       — 已移除
+//     renderGatewayCards(data)— 已移除
+//     toggleGateway(id, ...)  — 已移除
+//     setGwMode(id, ...)      — 已移除
+//     saveGateway(id)         — 已移除
+//     testGateway(id)         — 已移除
+//
+//   現有函式（provider code-based，使用 /api/payment-gateways/:provider）：
+//     loadGatewayCards()      — 載入 8 個 provider 卡片
+//     saveGateway(code)       — PUT /api/payment-gateways/{code}
+//     testGateway(code)       — POST /api/payment-gateways/{code}/test
+//
+//   switchSettingsTab('gateway') 只呼叫 loadGatewayCards()，見 tab switch 區塊
 
 // =============================================
 // ===== 出單機設定頁 =====
@@ -4696,3 +4621,156 @@ function notifyInventoryChanged() {
     connectWss();
   }
 })();
+
+// ═══════════════════════════════════════════════════════
+// fix16c-hotfix: 金流 API 設定頁（8個 provider）
+// ═══════════════════════════════════════════════════════
+
+const GATEWAY_PROVIDERS = [
+  { code: 'linepay',             name: 'LINE Pay',        icon: '💚' },
+  { code: 'ecpay',               name: '綠界 ECPay',      icon: '🟢' },
+  { code: 'newebpay',            name: '藍新 NewebPay',   icon: '🔵' },
+  { code: 'jkopay',              name: '街口支付',         icon: '🟠' },
+  { code: 'pxpay',               name: '全支付',           icon: '🔴' },
+  { code: 'applepay',            name: 'Apple Pay',       icon: '🍎' },
+  { code: 'googlepay',           name: 'Google Pay',      icon: '🎨' },
+  { code: 'creditcard_terminal', name: '信用卡刷卡機',     icon: '💳' },
+];
+
+async function loadGatewayCards() {
+  const container = document.getElementById('gatewayCards');
+  if (!container) return;
+
+  if (!hasFeature('payment_api')) {
+    container.innerHTML =
+      '<div style="grid-column:1/-1;text-align:center;padding:40px;color:#ef4444">' +
+      '🔒 金流 API 功能尚未授權，請聯絡系統管理員升級方案。</div>';
+    return;
+  }
+
+  container.innerHTML = '<div style="grid-column:1/-1;color:var(--text-secondary,#64748b);padding:20px">載入中...</div>';
+
+  let gwMap = {};
+  try {
+    const res  = await apiFetch('/api/payment-gateways');
+    if (res && res.ok) {
+      const json = await res.json();
+      if (json.success) {
+        (json.data || []).forEach(g => { gwMap[g.code] = g; });
+      }
+    }
+  } catch {}
+
+  const origin = window.location.origin;
+  container.innerHTML = GATEWAY_PROVIDERS.map(p => {
+    const gw = gwMap[p.code] || {};
+    // fix16e: gwId 已移除，只使用 provider code
+    return `
+    <div class="settings-card" style="border:1px solid var(--border,#2a2d3e)">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+        <span style="font-size:1.4rem">${p.icon}</span>
+        <div>
+          <div style="font-weight:700;font-size:.95rem">${escHtml(p.name)}</div>
+          <div style="font-size:.75rem;color:var(--text-secondary,#64748b)">${p.code}</div>
+        </div>
+        <label class="pm-toggle" style="margin-left:auto">
+          <input type="checkbox" id="gw-enabled-${p.code}" ${gw.is_active ? 'checked' : ''}>
+          <span class="pm-toggle-slider"></span>
+        </label>
+      </div>
+
+      <div style="display:grid;gap:10px">
+        <div>
+          <label style="font-size:.78rem;color:var(--text-secondary,#64748b)">模式</label>
+          <select id="gw-mode-${p.code}" style="width:100%;padding:6px 8px;border-radius:6px;border:1px solid var(--border,#2a2d3e);background:var(--bg,#0f1117);color:var(--text-primary,#e2e8f0);font-size:.85rem">
+            <option value="test"  ${(gw.mode||'test')==='test'?'selected':''}>🧪 測試模式</option>
+            <option value="live"  ${(gw.mode||'')==='live'?'selected':''}>🟢 正式模式</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:.78rem;color:var(--text-secondary,#64748b)">Merchant ID / Channel ID</label>
+          <input id="gw-mid-${p.code}" type="text" value="${escHtml(gw.merchant_id||'')}" placeholder="輸入商店代號"
+            style="width:100%;padding:6px 8px;border-radius:6px;border:1px solid var(--border,#2a2d3e);background:var(--bg,#0f1117);color:var(--text-primary,#e2e8f0);font-size:.85rem;box-sizing:border-box">
+        </div>
+        <div>
+          <label style="font-size:.78rem;color:var(--text-secondary,#64748b)">API Key${gw.api_key?'（●●●●'+gw.api_key.slice(-4)+'）':''}</label>
+          <input id="gw-apikey-${p.code}" type="password" value="" placeholder="留空表示不更新"
+            style="width:100%;padding:6px 8px;border-radius:6px;border:1px solid var(--border,#2a2d3e);background:var(--bg,#0f1117);color:var(--text-primary,#e2e8f0);font-size:.85rem;box-sizing:border-box">
+        </div>
+        <div>
+          <label style="font-size:.78rem;color:var(--text-secondary,#64748b)">Secret Key${gw.secret_key?'（●●●●'+gw.secret_key.slice(-4)+'）':''}</label>
+          <input id="gw-secret-${p.code}" type="password" value="" placeholder="留空表示不更新"
+            style="width:100%;padding:6px 8px;border-radius:6px;border:1px solid var(--border,#2a2d3e);background:var(--bg,#0f1117);color:var(--text-primary,#e2e8f0);font-size:.85rem;box-sizing:border-box">
+        </div>
+        <div>
+          <label style="font-size:.78rem;color:var(--text-secondary,#64748b)">Webhook URL</label>
+          <input id="gw-webhook-${p.code}" type="text"
+            value="${escHtml(gw.webhook_url || origin + '/webhook/' + p.code)}"
+            style="width:100%;padding:6px 8px;border-radius:6px;border:1px solid var(--border,#2a2d3e);background:var(--bg,#0f1117);color:var(--text-primary,#e2e8f0);font-size:.85rem;box-sizing:border-box">
+        </div>
+        <div>
+          <label style="font-size:.78rem;color:var(--text-secondary,#64748b)">Callback URL</label>
+          <input id="gw-callback-${p.code}" type="text"
+            value="${escHtml(gw.callback_url || origin + '/callback/' + p.code)}"
+            style="width:100%;padding:6px 8px;border-radius:6px;border:1px solid var(--border,#2a2d3e);background:var(--bg,#0f1117);color:var(--text-primary,#e2e8f0);font-size:.85rem;box-sizing:border-box">
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">
+          <button class="btn-primary" style="flex:1;min-width:80px;font-size:.82rem"
+            onclick="saveGateway('${p.code}')">💾 儲存</button>
+          <button class="btn-secondary" style="font-size:.82rem"
+            onclick="testGateway('${p.code}')">🔗 測試連線</button>
+        </div>
+        <div id="gw-result-${p.code}" style="font-size:.78rem;color:var(--text-secondary,#64748b)"></div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// fix16d: saveGateway/testGateway 改用 provider code（不用 id）
+// PUT /api/payment-gateways/:provider（upsert，後端 INSERT OR IGNORE）
+async function saveGateway(code) {
+  const g = (k) => document.getElementById('gw-' + k + '-' + code);
+  const resEl = document.getElementById('gw-result-' + code);
+  if (!g('enabled')) { console.warn('saveGateway: element not found for', code); return; }
+
+  const body = {
+    is_active:    g('enabled').checked ? 1 : 0,
+    mode:         g('mode')?.value     || 'test',
+    merchant_id:  (g('mid')?.value     || '').trim(),
+    webhook_url:  (g('webhook')?.value || '').trim(),
+    callback_url: (g('callback')?.value|| '').trim(),
+  };
+  const apiKey = g('apikey')?.value || '';
+  const secret = g('secret')?.value || '';
+  if (apiKey && !apiKey.startsWith('••••')) body.api_key    = apiKey;
+  if (secret && !secret.startsWith('••••')) body.secret_key = secret;
+
+  if (resEl) resEl.textContent = '儲存中...';
+  try {
+    // fix16d: 使用 provider code 路徑（不用 id）
+    const res  = await apiFetch('/api/payment-gateways/' + code, { method: 'PUT', body: JSON.stringify(body) });
+    if (!res || !res.ok) {
+      if (resEl) resEl.textContent = '❌ 儲存失敗（HTTP ' + (res?.status || '?') + '）';
+      return;
+    }
+    const json = await res.json();
+    if (resEl) resEl.textContent = json.success ? '✅ 已儲存' : '❌ ' + json.message;
+    if (json.success) setTimeout(() => loadGatewayCards(), 800);
+  } catch(e) {
+    if (resEl) resEl.textContent = '❌ ' + e.message;
+  }
+}
+
+// fix16d: testGateway 改用 provider code 路徑
+async function testGateway(code) {
+  const resEl = document.getElementById('gw-result-' + code);
+  if (resEl) resEl.textContent = '測試中...';
+  try {
+    const res  = await apiFetch('/api/payment-gateways/' + code + '/test', { method: 'POST' });
+    if (!res || !res.ok) { if (resEl) resEl.textContent = '❌ 測試失敗（HTTP ' + (res?.status || '?') + '）'; return; }
+    const json = await res.json();
+    if (resEl) resEl.textContent = json.success ? '✅ ' + (json.message || '連線正常') : '❌ ' + json.message;
+  } catch(e) {
+    if (resEl) resEl.textContent = '❌ ' + e.message;
+  }
+}
