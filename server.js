@@ -8,6 +8,7 @@ const { WebSocketServer } = require('ws');
 const { initDb, getDb } = require('./utils/db');
 const { getAllInventoryStatuses } = require('./utils/inventoryHelper');
 const { requireStore } = require('./middleware/storeGuard');
+const { requireFeature, invalidateFeatureCache } = require('./middleware/featureGate');
 
 const app  = express();
 const PORT = process.env.PORT || 5000;
@@ -188,36 +189,54 @@ initDb().then((db) => {
 
   // ── v18+ 授權系統（保持原有相容）────────────────────────
   const { router: licenseRouter } = require('./routes/license');
-  const { requireAdminMode }      = require('./middleware/adminGuard');
+  // fix14: /api/admin/status removed (was using ADMIN_MODE env var)
+  // License admin operations now protected by requireSuperAdmin in routes/license.js
   app.use('/api/license', licenseRouter);
-
-  app.get('/api/admin/status', (req, res) => {
-    const adminMode = process.env.ADMIN_MODE === 'true';
-    res.json({ admin_mode: adminMode });
-  });
 
   // ── 所有 POS API 套用 storeGuard ─────────────────────
   // requireStore 從 Bearer JWT / x-store-id header / query.store_id 解析 store_id
   // 向後相容：若無任何 store_id，預設 store_001
+  // ── GET /api/store-me — 目前登入店家資訊 + features ─────────────
+  app.get('/api/store-me', requireStore, (req, res) => {
+    try {
+      const db = require('./utils/db').getDb();
+      const { getStoreFeatures } = require('./middleware/featureGate');
+      const storeId = req.storeId || 'store_001';
+      const store = db.get('SELECT store_id,store_name,plan,active FROM stores WHERE store_id=?', [storeId]);
+      if (!store) return res.status(404).json({ success: false, message: '店家不存在' });
+      const features = getStoreFeatures(storeId);
+      res.json({
+        success: true,
+        data: {
+          store_id:   store.store_id,
+          store_name: store.store_name,
+          plan:       store.plan,
+          active:     !!store.active,
+          features,
+        }
+      });
+    } catch(e) { res.status(500).json({ success: false, message: e.message }); }
+  });
+
   app.use('/api/products',         requireStore, require('./routes/products'));
   app.use('/api/orders',           requireStore, require('./routes/orders'));
   app.use('/api/customers',        requireStore, require('./routes/customers'));
   app.use('/api/settings',         requireStore, require('./routes/settings'));
   app.use('/api/categories',       requireStore, require('./routes/categories'));
-  app.use('/api/platforms',        requireStore, require('./routes/platforms'));
+  app.use('/api/platforms',        requireStore, requireFeature('delivery'), require('./routes/platforms'));
   app.use('/api/payment-methods',  requireStore, require('./routes/payment-methods'));
-  app.use('/api/payment-gateways', requireStore, require('./routes/payment-gateways'));
+  app.use('/api/payment-gateways', requireStore, requireFeature('payment_api'), require('./routes/payment-gateways'));
   app.use('/api/print',            requireStore, require('./routes/print'));
   app.use('/api/print-jobs',       requireStore, require('./routes/printJobs'));
   app.use('/api/sync',             requireStore, require('./routes/sync'));
   app.use('/api/kitchen',          requireStore, require('./routes/kitchen'));
-  app.use('/api/ingredients',      requireStore, require('./routes/ingredients'));
+  app.use('/api/ingredients',      requireStore, requireFeature('inventory'), require('./routes/ingredients'));
 
   const lineOrderRouter = require('./routes/line-orders');
-  app.use('/api/line-shop',    requireStore, (req, res, next) => { req.url = '/shop'; lineOrderRouter(req, res, next); });
-  app.use('/api/line-menu',    requireStore, (req, res, next) => { req.url = '/menu'; lineOrderRouter(req, res, next); });
-  app.use('/api/line-orders',  requireStore, lineOrderRouter);
-  app.use('/api/online-orders', requireStore, require('./routes/online-orders'));
+  app.use('/api/line-shop',    requireStore, requireFeature('line_order'), (req, res, next) => { req.url = '/shop'; lineOrderRouter(req, res, next); });
+  app.use('/api/line-menu',    requireStore, requireFeature('line_order'), (req, res, next) => { req.url = '/menu'; lineOrderRouter(req, res, next); });
+  app.use('/api/line-orders',  requireStore, requireFeature('line_order'), lineOrderRouter);
+  app.use('/api/online-orders', requireStore, requireFeature('line_order'), require('./routes/online-orders'));
 
   app.get('/api/printers/list', async (req, res) => {
     try {
@@ -230,8 +249,10 @@ initDb().then((db) => {
   });
 
   const { router: invRouter } = require('./routes/inventory');
-  app.use('/api/inventory', requireStore, invRouter);
+  app.use('/api/inventory', requireStore, requireFeature('inventory'), invRouter);
 
+  // importExport — inventory endpoints wrapped with featureGate inside the router
+  // (full route handled inside importExport.js with inline checks)
   app.use('/api', requireStore, require('./routes/importExport'));
 
   // ── Super Admin 前端入口（/system-admin 獨立路由）────

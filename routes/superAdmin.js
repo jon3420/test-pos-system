@@ -6,6 +6,7 @@ const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const { getDb } = require('../utils/db');
 const { requireSuperAdmin, invalidateStoreCache, JWT_SECRET } = require('../middleware/storeGuard');
+const { invalidateFeatureCache } = require('../middleware/featureGate');
 
 function sha256(str) {
   return crypto.createHash('sha256').update(str).digest('hex');
@@ -231,6 +232,7 @@ router.put('/stores/:storeId/license', requireSuperAdmin, (req, res) => {
       `UPDATE licenses SET plan=?,active=?,features=?,updated_at=datetime('now','localtime') WHERE store_id=?`,
       [plan ?? lic.plan, active !== undefined ? (active ? 1 : 0) : lic.active, JSON.stringify(finalFeatures), storeId]
     );
+    invalidateFeatureCache(storeId);
     res.json({ success: true });
   } catch(e) {
     res.status(500).json({ success: false, message: e.message });

@@ -103,6 +103,7 @@ async function doStoreLogin() {
       }));
       hideLoginOverlay();
       // 重新載入頁面資料
+      if (typeof loadCurrentStore === 'function') await loadCurrentStore().catch(()=>{});
       if (typeof loadSettings === 'function')   await loadSettings().catch(()=>{});
       if (typeof loadCategories === 'function') await loadCategories().catch(()=>{});
       if (typeof loadPlatforms === 'function')  await loadPlatforms().catch(()=>{});
@@ -142,6 +143,296 @@ function posLogout() {
 // 所有 apiFetch('/api/...') 已替換為 apiFetch('/api/...')
 // ═══════════════════════════════════════════════════
 
+// ═══════════════════════════════════════════════════
+// fix13 — 前端 Feature Gate + 店家資訊 + LINE 點餐入口
+// ═══════════════════════════════════════════════════
+
+// 目前登入店家資訊（loadCurrentStore 後可用）
+window.currentStore    = null;
+window.currentFeatures = {};
+
+/** 判斷 feature 是否啟用 */
+function hasFeature(key) {
+  return window.currentFeatures[key] === true;
+}
+
+/** 載入目前店家資訊 + 授權，呼叫 /api/store-me */
+async function loadCurrentStore() {
+  try {
+    const res  = await apiFetch('/api/store-me');
+    if (!res || typeof res.json !== 'function') return;
+    const data = await res.json();
+    if (data && data.success && data.data) {
+      window.currentStore    = data.data;
+      window.currentFeatures = data.data.features || {};
+      applyFeatureGateUI();
+    }
+  } catch(e) { console.error('[FeatureGate] loadCurrentStore:', e.message); }
+}
+
+/** 依授權隱藏 / 顯示 UI 元素 */
+function applyFeatureGateUI() {
+  const f = window.currentFeatures || {};
+
+  // 導覽列：庫存
+  const invNav = document.querySelector('button[data-page="inventory"]');
+  if (invNav) invNav.style.display = f.inventory ? '' : 'none';
+
+  // 設定 Tab：LINE 營業
+  const lineBizBtn = document.getElementById('tab-btn-line_biz');
+  if (lineBizBtn) lineBizBtn.style.display = f.line_order ? '' : 'none';
+
+  // 設定 Tab：LINE 點餐入口（永遠顯示，內容依授權不同）
+  const lineEntryBtn = document.getElementById('tab-btn-line_entry');
+  if (lineEntryBtn) lineEntryBtn.style.display = '';
+
+  // 設定 Tab：外送平台
+  const platformBtn = document.querySelector('button[data-stab="platform"]');
+  if (platformBtn) platformBtn.style.display = f.delivery ? '' : 'none';
+
+  // 設定 Tab：金流設定
+  const gatewayBtn = document.querySelector('button[data-stab="gateway"]');
+  if (gatewayBtn) gatewayBtn.style.display = f.payment_api ? '' : 'none';
+
+  // 訂單頁：外送報表 Tab
+  const delivTab = document.querySelector('button[data-tab="delivery"]');
+  if (delivTab) delivTab.style.display = f.delivery ? '' : 'none';
+
+  // 點餐頁：外送模式按鈕
+  const delivMode = document.querySelector('.mode-btn[data-mode="delivery"]');
+  if (delivMode) delivMode.style.display = f.delivery ? '' : 'none';
+}
+
+// ── LINE 點餐入口 Tab 渲染 ─────────────────────────────────
+function loadLineEntryPage() {
+  renderLineOrderEntry();
+}
+
+function renderLineOrderEntry() {
+  const container = document.getElementById('lineEntryContent');
+  if (!container) return;
+
+  const store   = window.currentStore;
+  const hasLine = hasFeature('line_order');
+
+  if (!store) {
+    container.innerHTML = '<p style="color:var(--text-secondary,#64748b)">載入中...</p>';
+    return;
+  }
+
+  const storeId  = store.store_id || '';
+  const lineUrl  = window.location.origin + '/line-order.html?store_id=' + encodeURIComponent(storeId);
+  const planName = (store.plan || 'basic').toUpperCase();
+
+  // 店家基本資訊（永遠顯示）
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  const infoHtml = `
+    <div style="margin-bottom:20px;padding:16px;background:rgba(0,0,0,.2);border-radius:10px;border:1px solid rgba(255,255,255,.08)">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:.875rem">
+        <div>
+          <div style="color:var(--text-secondary,#64748b);font-size:.75rem;margin-bottom:4px">店家名稱</div>
+          <strong>${esc(store.store_name)}</strong>
+        </div>
+        <div>
+          <div style="color:var(--text-secondary,#64748b);font-size:.75rem;margin-bottom:4px">Store ID</div>
+          <code style="background:rgba(0,0,0,.3);padding:2px 8px;border-radius:4px;font-size:.8rem">${esc(storeId)}</code>
+        </div>
+        <div>
+          <div style="color:var(--text-secondary,#64748b);font-size:.75rem;margin-bottom:4px">目前方案</div>
+          <strong style="color:#818cf8">${esc(planName)}</strong>
+        </div>
+        <div>
+          <div style="color:var(--text-secondary,#64748b);font-size:.75rem;margin-bottom:4px">LINE 點餐</div>
+          <strong style="color:${hasLine?'#10b981':'#ef4444'}">${hasLine ? '✅ 已啟用' : '❌ 未啟用'}</strong>
+        </div>
+      </div>
+    </div>`;
+
+  if (!hasLine) {
+    container.innerHTML = infoHtml + `
+      <div style="text-align:center;padding:36px 20px;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.25);border-radius:10px">
+        <div style="font-size:2.5rem;margin-bottom:12px">🔒</div>
+        <div style="font-size:1rem;font-weight:600;color:#ef4444;margin-bottom:8px">LINE 點餐功能尚未啟用</div>
+        <div style="font-size:.875rem;color:var(--text-secondary,#64748b)">請聯絡系統管理員升級方案以使用 LINE 點餐功能。</div>
+      </div>`;
+    return;
+  }
+
+  container.innerHTML = infoHtml + `
+    <div style="margin-bottom:20px">
+      <div style="font-size:.8rem;color:var(--text-secondary,#64748b);margin-bottom:8px;font-weight:600;letter-spacing:.04em;text-transform:uppercase">LINE 點餐網址</div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <code id="lineOrderUrlDisplay" style="flex:1;min-width:200px;padding:10px 14px;background:rgba(0,0,0,.25);border-radius:8px;font-size:.8rem;word-break:break-all;border:1px solid rgba(255,255,255,.1)">${esc(lineUrl)}</code>
+        <button class="btn-secondary" onclick="copyLineOrderUrl()" style="white-space:nowrap">📋 複製網址</button>
+        <button class="btn-secondary" onclick="openLineOrderUrl()" style="white-space:nowrap">🔗 開啟點餐頁</button>
+        <button class="btn-secondary" onclick="downloadLineOrderQR()" style="white-space:nowrap">⬇️ 下載 QR Code</button>
+      </div>
+    </div>
+    <div style="text-align:center">
+      <div style="font-size:.8rem;color:var(--text-secondary,#64748b);margin-bottom:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase">QR Code（掃描後開啟 LINE 點餐頁）</div>
+      <div id="lineQrContainer" style="display:inline-block;background:#fff;padding:12px;border-radius:12px">
+        <canvas id="lineQrCanvas" width="220" height="220"></canvas>
+      </div>
+    </div>`;
+
+  // 產生 QR Code
+  _loadAndRenderQr(lineUrl);
+}
+
+// QR Code 產生 — fix14：本地 vendor 優先，多重 API fallback
+// 載入順序：1. /js/qrcode.min.js（本地 vendor，已預載）
+//           2. CDN qrcodejs fallback
+//           3. 若都失敗，顯示網址連結（LINE 點餐網址仍可用）
+
+function _loadAndRenderQr(url) {
+  // 本地 vendor 已在 index.html 預載，通常直接可用
+  if (typeof QRCode !== 'undefined') {
+    _doRenderQr(url);
+    return;
+  }
+  // fallback：動態載入 CDN
+  const s = document.createElement('script');
+  s.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js';
+  s.onload  = () => _doRenderQr(url);
+  s.onerror = () => _doRenderQrFallback(url);  // CDN 也失敗
+  document.head.appendChild(s);
+}
+
+function _doRenderQr(url) {
+  // 使用我們的 qrcode.min.js（本地 vendor 版本使用 img API 方式）
+  const container = document.getElementById('lineQrContainer');
+  if (!container) return;
+  try {
+    const size = 220;
+    const tmp  = document.createElement('div');
+    container.innerHTML = '';
+    container.appendChild(tmp);
+    new QRCode(tmp, { text: url, width: size, height: size, correctLevel: QRCode.CorrectLevel.M });
+    // QRCode 可能產生 img（API 模式）或 canvas（純 JS 模式）
+    // 等待渲染後，把 canvas 複製進去供下載
+    setTimeout(() => {
+      const srcCanvas = tmp.querySelector('canvas');
+      const srcImg    = tmp.querySelector('img') || (tmp._qrImg);
+      // 建立可下載的 canvas
+      let dlCanvas = document.getElementById('lineQrCanvas');
+      if (!dlCanvas) {
+        dlCanvas = document.createElement('canvas');
+        dlCanvas.id = 'lineQrCanvas';
+        dlCanvas.style.display = 'none';
+        container.appendChild(dlCanvas);
+      }
+      dlCanvas.width = size; dlCanvas.height = size;
+      const ctx = dlCanvas.getContext('2d');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, size, size);
+      if (srcCanvas) {
+        ctx.drawImage(srcCanvas, 0, 0, size, size);
+      } else if (srcImg && srcImg.complete && srcImg.naturalWidth > 0) {
+        ctx.drawImage(srcImg, 0, 0, size, size);
+      } else if (srcImg) {
+        srcImg.onload = () => ctx.drawImage(srcImg, 0, 0, size, size);
+      }
+    }, 300);
+  } catch(e) {
+    _doRenderQrFallback(url);
+  }
+}
+
+// 最終 fallback：不依賴任何第三方，顯示可複製的連結
+function _doRenderQrFallback(url) {
+  const container = document.getElementById('lineQrContainer');
+  if (!container) return;
+  container.innerHTML =
+    '<div style="text-align:center;padding:20px;background:#fff;border-radius:8px;max-width:260px">' +
+    '<div style="font-size:2rem;margin-bottom:8px">📲</div>' +
+    '<div style="font-size:.75rem;color:#333;word-break:break-all;margin-bottom:10px">' +
+    '<a href="' + url + '" target="_blank" style="color:#06C755">' + url + '</a></div>' +
+    '<div style="font-size:.7rem;color:#888">QR Code 產生失敗<br>請複製上方網址使用</div>' +
+    '</div>';
+  // 確保下載按鈕仍有 canvas（空白）
+  let dlCanvas = document.getElementById('lineQrCanvas');
+  if (!dlCanvas) {
+    dlCanvas = document.createElement('canvas');
+    dlCanvas.id = 'lineQrCanvas';
+    dlCanvas.width = 220; dlCanvas.height = 220;
+    dlCanvas.style.display = 'none';
+    container.appendChild(dlCanvas);
+  }
+}
+
+/** 複製 LINE 點餐網址 */
+function copyLineOrderUrl() {
+  const store = window.currentStore;
+  if (!store) return;
+  const url = window.location.origin + '/line-order.html?store_id=' + encodeURIComponent(store.store_id);
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(url)
+      .then(() => { if (typeof showToast === 'function') showToast('LINE 點餐網址已複製', 'success'); })
+      .catch(() => _fallbackCopy(url));
+  } else { _fallbackCopy(url); }
+}
+
+function _fallbackCopy(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text; ta.style.cssText = 'position:fixed;left:-9999px';
+  document.body.appendChild(ta); ta.select();
+  try { document.execCommand('copy'); if (typeof showToast==='function') showToast('已複製','success'); } catch {}
+  document.body.removeChild(ta);
+}
+
+/** 開啟 LINE 點餐頁（新分頁） */
+function openLineOrderUrl() {
+  const store = window.currentStore;
+  if (!store) return;
+  const url = window.location.origin + '/line-order.html?store_id=' + encodeURIComponent(store.store_id);
+  window.open(url, '_blank');
+}
+
+/** 下載 QR Code PNG — fix14：支援 img 和 canvas 兩種來源 */
+function downloadLineOrderQR() {
+  const store = window.currentStore;
+  if (!store) return;
+
+  const filename = 'line-order-' + store.store_id + '.png';
+
+  // 優先用 canvas
+  const canvas = document.getElementById('lineQrCanvas');
+  if (canvas && canvas.width > 0) {
+    try {
+      const link = document.createElement('a');
+      link.download = filename;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+      return;
+    } catch {}
+  }
+
+  // fallback：找 img 元素（API QR 模式）
+  const container = document.getElementById('lineQrContainer');
+  const img = container ? container.querySelector('img') : null;
+  if (img && img.src && img.complete) {
+    try {
+      const c = document.createElement('canvas');
+      c.width = 220; c.height = 220;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, 220, 220);
+      ctx.drawImage(img, 0, 0, 220, 220);
+      const link = document.createElement('a');
+      link.download = filename;
+      link.href = c.toDataURL('image/png');
+      link.click();
+      return;
+    } catch {}
+  }
+
+  if (typeof showToast === 'function') showToast('QR Code 尚未產生，請稍後再試', 'error');
+}
+
+
 // ── 單位換算工具（前端版）────────────────────────────────
 const UNIT_TO_G = { '斤': 600, 'kg': 1000, 'g': 1 };
 function toGrams(amount, unit) { return Number(amount) * (UNIT_TO_G[unit] || 1); }
@@ -177,6 +468,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   await ensureLogin();
   // 若已登入（有 token），繼續正常初始化
   if (getToken()) {
+    // fix10: 先載入店家資訊與授權，再載入其他資料
+    await loadCurrentStore();
     await loadSettings();
     await loadCategories();
     await loadPlatforms();
@@ -303,6 +596,7 @@ function switchSettingsTab(tab) {
   if (tab === 'printer')     loadPrinterSettings();
   if (tab === 'line_biz')    loadLineBizStatus();
   if (tab === 'ingredients') loadIngredientsPage();
+  if (tab === 'line_entry')  loadLineEntryPage();
 }
 
 // ===== 設定 =====
@@ -1393,7 +1687,7 @@ function renderProductsTable(products) {
         <td><span class="status-badge ${p.enabled ? 'status-on' : 'status-off'}">${p.enabled ? '販售中' : '已停用'}</span></td>
         <td>
           <button class="btn-icon" onclick="openProductModal(${p.id})" style="margin-right:4px">✏️ 編輯</button>
-          <button class="btn-icon" onclick="openLineSettingsModal(${p.id})" style="margin-right:4px;background:#06C755;color:#fff;border:none">📲 LINE設定</button>
+          ${hasFeature('line_order') ? `<button class="btn-icon" onclick="openLineSettingsModal(${p.id})" style="margin-right:4px;background:#06C755;color:#fff;border:none">📲 LINE設定</button>` : ''}
           <button class="btn-icon danger" onclick="deleteProduct(${p.id})">🗑️ 刪除</button>
         </td>
       </tr>`;

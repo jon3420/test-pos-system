@@ -4,6 +4,7 @@ const express = require('express');
 const router  = express.Router();
 const { getDb } = require('../utils/db');
 const { toGrams, fromGrams } = require('../utils/unitConvert');
+const { requireFeature } = require('../middleware/featureGate');
 
 // ── CSV helpers ──────────────────────────────────────────
 function parseCsvLine(line) {
@@ -83,7 +84,7 @@ router.get('/export/products', (req, res) => {
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
 
-router.get('/export/product-inventory', (req, res) => {
+router.get('/export/product-inventory', requireFeature('inventory'), (req, res) => {
   try {
     const db = getDb();
     const storeId = req.storeId || 'store_001';
@@ -106,7 +107,7 @@ router.get('/export/product-inventory', (req, res) => {
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
 
-router.get('/export/ingredients', (req, res) => {
+router.get('/export/ingredients', requireFeature('inventory'), (req, res) => {
   try {
     const db = getDb();
     const storeId = req.storeId || 'store_001';
@@ -125,7 +126,7 @@ router.get('/export/ingredients', (req, res) => {
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
 
-router.get('/export/ingredient-formulas', (req, res) => {
+router.get('/export/ingredient-formulas', requireFeature('inventory'), (req, res) => {
   try {
     const db = getDb();
     const storeId = req.storeId || 'store_001';
@@ -182,7 +183,7 @@ router.post('/import/products', (req, res) => {
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
 
-router.post('/import/product-inventory', (req, res) => {
+router.post('/import/product-inventory', requireFeature('inventory'), (req, res) => {
   try {
     const db = getDb();
     const storeId = req.storeId || 'store_001';
@@ -209,7 +210,7 @@ router.post('/import/product-inventory', (req, res) => {
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
 
-router.post('/import/ingredients', (req, res) => {
+router.post('/import/ingredients', requireFeature('inventory'), (req, res) => {
   try {
     const db = getDb();
     const storeId = req.storeId || 'store_001';
@@ -242,7 +243,7 @@ router.post('/import/ingredients', (req, res) => {
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
 
-router.post('/import/ingredient-formulas', (req, res) => {
+router.post('/import/ingredient-formulas', requireFeature('inventory'), (req, res) => {
   try {
     const db = getDb();
     const storeId = req.storeId || 'store_001';
