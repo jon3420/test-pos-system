@@ -32,6 +32,9 @@
     <button class="nav-btn" data-page="categories" onclick="showPage('categories')">
       <span class="nav-icon">🏷️</span><span>分類</span>
     </button>
+    <button class="nav-btn" id="nav-btn-reports" data-page="reports" onclick="showPage('reports')">
+      <span class="nav-icon">📊</span><span>報表分析</span>
+    </button>
     <button class="nav-btn" data-page="settings" onclick="showPage('settings')">
       <span class="nav-icon">⚙️</span><span>設定</span>
     </button>
@@ -267,6 +270,14 @@
   </div>
 </div>
 
+<!-- 報表分析頁（fix16：移至主選單）-->
+<div id="page-reports" class="page">
+  <div style="padding:20px">
+    <h2 style="margin-bottom:20px;font-size:1.2rem">📊 報表分析</h2>
+    <div id="reports-container"></div>
+  </div>
+</div>
+
 <!-- 設定頁 -->
 <div id="page-settings" class="page">
   <div class="page-inner">
@@ -276,7 +287,7 @@
     <div class="settings-tabs">
       <button class="settings-tab-btn active" data-stab="basic"    onclick="switchSettingsTab('basic')">🏪 基本設定</button>
       <button class="settings-tab-btn"        data-stab="payment"  onclick="switchSettingsTab('payment')">💳 付款方式</button>
-      <button class="settings-tab-btn"        data-stab="gateway"  onclick="switchSettingsTab('gateway')">🔌 金流設定</button>
+      <button class="settings-tab-btn"        data-stab="gateway"  onclick="switchSettingsTab('gateway')" id="tab-btn-gateway">💳 金流 API</button>
       <button class="settings-tab-btn"        data-stab="platform" onclick="switchSettingsTab('platform')">🛵 外送平台</button>
       <button class="settings-tab-btn"        data-stab="printer"  onclick="switchSettingsTab('printer')">🖨️ 出單機</button>
       <button class="settings-tab-btn"        data-stab="line_biz" onclick="switchSettingsTab('line_biz')" id="tab-btn-line_biz">📡 LINE 營業</button>

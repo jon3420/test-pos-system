@@ -579,24 +579,41 @@ function initTables(w) {
   try { w._db.run('ALTER TABLE payment_methods ADD COLUMN store_id TEXT NOT NULL DEFAULT \'store_001\''); w._save(); } catch {}
   try { w._db.run(`UPDATE payment_methods SET store_id='store_001' WHERE store_id IS NULL OR store_id=''`); w._save(); } catch {}
 
-  const pmCount = w.get("SELECT COUNT(*) as c FROM payment_methods WHERE store_id='store_001'");
-  if (!pmCount || Number(pmCount.c) === 0) {
-    const methods = [
-      ['現金','cash','💵',1,1,1,1,1,1,1,''],
-      ['刷卡','card','💳',1,2,0,1,1,0,1,''],
-      ['LINE Pay','linepay','💚',1,3,0,1,1,1,1,'linepay'],
-      ['街口支付','jkopay','🟠',0,4,0,1,1,1,1,'jkopay'],
-      ['轉帳','transfer','🏦',1,5,0,0,1,1,1,''],
-      ['平台付款','platform','📱',1,6,0,0,0,1,1,''],
-    ];
-    methods.forEach(([name,code,icon,active,sort,isdef,dine,take,deliv,allow,gw]) =>
+  // fix16a：seedPaymentMethods — 供 initTables 和新增店家呼叫
+  // 欄位順序：[name, code, icon, is_active, sort_order, is_default, dine, take, deliv, allow, gateway_code]
+  // fix16a 修正：只有現金 is_active=1 is_default=1，其他全部 is_active=0 is_default=0（建立但不啟用）
+  const DEFAULT_PAYMENT_METHODS = [
+    ['現金',    'cash',     '💵', 1, 1, 1, 1, 1, 1, 1, ''],   // ← 預設啟用
+    ['刷卡',    'card',     '💳', 0, 2, 0, 1, 1, 0, 1, ''],   // ← 停用
+    ['LINE Pay','linepay',  '💚', 0, 3, 0, 1, 1, 1, 1, 'linepay'], // ← 停用
+    ['街口支付','jkopay',   '🟠', 0, 4, 0, 1, 1, 1, 1, 'jkopay'], // ← 停用
+    ['轉帳',    'transfer', '🏦', 0, 5, 0, 0, 1, 1, 1, ''],   // ← 停用
+    ['平台付款','platform', '📱', 0, 6, 0, 0, 0, 1, 1, ''],   // ← 停用
+  ];
+
+  function seedPaymentMethods(storeId) {
+    const c = w.get('SELECT COUNT(*) as c FROM payment_methods WHERE store_id=?', [storeId]);
+    if (c && Number(c.c) > 0) return; // 已有資料，不覆蓋
+    DEFAULT_PAYMENT_METHODS.forEach(([name,code,icon,active,sort,isdef,dine,take,deliv,allow,gw]) =>
       w._db.run(
         'INSERT INTO payment_methods (store_id,name,code,icon,is_active,sort_order,is_default,enable_for_dine_in,enable_for_takeout,enable_for_delivery,allow_edit_when_platform_order,gateway_code) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
-        ['store_001',name,code,icon,active,sort,isdef,dine,take,deliv,allow,gw]
+        [storeId,name,code,icon,active,sort,isdef,dine,take,deliv,allow,gw]
       )
     );
     w._save();
   }
+
+  // seed store_001
+  seedPaymentMethods('store_001');
+
+  // fix16 backfill：掃描所有 stores，補齊沒有付款方式的店家
+  try {
+    const allStores = w.all('SELECT store_id FROM stores WHERE active=1');
+    allStores.forEach(({ store_id }) => {
+      seedPaymentMethods(store_id);
+    });
+    console.log('[DB] fix16: 付款方式 backfill 完成，共掃描', allStores.length, '家店');
+  } catch(e) { console.error('[DB] fix16: backfill error:', e.message); }
 
   // ── payment_gateways ──────────────────────────────────
   w._db.run(`CREATE TABLE IF NOT EXISTS payment_gateways (

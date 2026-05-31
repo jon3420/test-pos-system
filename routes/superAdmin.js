@@ -43,9 +43,14 @@ router.get('/dashboard', requireSuperAdmin, (req, res) => {
     const totalStores  = db.get('SELECT COUNT(*) as c FROM stores') || {c:0};
     const activeStores = db.get("SELECT COUNT(*) as c FROM stores WHERE active=1") || {c:0};
     const inactiveStores = db.get("SELECT COUNT(*) as c FROM stores WHERE active=0") || {c:0};
-    const basicPlans   = db.get("SELECT COUNT(*) as c FROM stores WHERE plan='basic'") || {c:0};
-    const proPlans     = db.get("SELECT COUNT(*) as c FROM stores WHERE plan='pro'") || {c:0};
-    const recentStores = db.all('SELECT store_id,store_name,plan,active,created_at FROM stores ORDER BY created_at DESC LIMIT 5');
+    // fix16: plan 唯一來源 = licenses.plan
+    const basicPlans   = db.get("SELECT COUNT(*) as c FROM licenses WHERE plan='basic' AND active=1") || {c:0};
+    const proPlans     = db.get("SELECT COUNT(*) as c FROM licenses WHERE plan='pro'   AND active=1") || {c:0};
+    const recentStores = db.all(`SELECT s.store_id, s.store_name,
+        COALESCE(l.plan, s.plan, 'basic') as plan,
+        s.active, s.created_at
+        FROM stores s LEFT JOIN licenses l ON l.store_id=s.store_id
+        ORDER BY s.created_at DESC LIMIT 5`);
     res.json({
       success: true,
       data: {
@@ -70,8 +75,11 @@ router.get('/stores', requireSuperAdmin, (req, res) => {
     // 附加授權資訊
     const storesWithLicense = stores.map(s => {
       const license = db.get('SELECT plan,active,features FROM licenses WHERE store_id=?', [s.store_id]);
+      // fix16: plan 唯一來源 = licenses.plan（licenses 優先，stores.plan 僅備用）
+      const effectivePlan = license ? license.plan : (s.plan || 'basic');
       return {
         ...s,
+        plan: effectivePlan,   // 覆蓋 stores.plan，確保前端顯示 licenses.plan
         active: !!s.active,
         license: license ? {
           plan: license.plan,
@@ -132,6 +140,30 @@ router.post('/stores', requireSuperAdmin, (req, res) => {
     sd('line_today_closed', '0'); sd('line_today_closed_date', '');
 
     invalidateStoreCache(store_id);
+    // fix16：新增店家時自動補齊付款方式
+    try {
+      const { getDb } = require('../utils/db');
+      const dbInst = getDb();
+      // fix16a: 只有現金預設啟用，其他 is_active=0
+      const DEFAULT_PM = [
+        ['現金',    'cash',     '💵', 1, 1, 1, 1, 1, 1, 1, ''],
+        ['刷卡',    'card',     '💳', 0, 2, 0, 1, 1, 0, 1, ''],
+        ['LINE Pay','linepay',  '💚', 0, 3, 0, 1, 1, 1, 1, 'linepay'],
+        ['街口支付','jkopay',   '🟠', 0, 4, 0, 1, 1, 1, 1, 'jkopay'],
+        ['轉帳',    'transfer', '🏦', 0, 5, 0, 0, 1, 1, 1, ''],
+        ['平台付款','platform', '📱', 0, 6, 0, 0, 0, 1, 1, ''],
+      ];
+      const existing = dbInst.get('SELECT COUNT(*) as c FROM payment_methods WHERE store_id=?', [store_id]);
+      if (!existing || Number(existing.c) === 0) {
+        DEFAULT_PM.forEach(([name,code,icon,act,sort,isdef,dine,take,deliv,allow,gw]) =>
+          dbInst.run(
+            'INSERT INTO payment_methods (store_id,name,code,icon,is_active,sort_order,is_default,enable_for_dine_in,enable_for_takeout,enable_for_delivery,allow_edit_when_platform_order,gateway_code) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+            [store_id,name,code,icon,act,sort,isdef,dine,take,deliv,allow,gw]
+          )
+        );
+      }
+    } catch(pmErr) { console.error('[superAdmin] 付款方式初始化失敗:', pmErr.message); }
+
     res.status(201).json({ success: true, store_id });
   } catch(e) {
     res.status(500).json({ success: false, message: e.message });
@@ -147,27 +179,30 @@ router.put('/stores/:storeId', requireSuperAdmin, (req, res) => {
     if (!store) return res.status(404).json({ success: false, message: '店家不存在' });
 
     const { store_name, contact_name, phone, plan, active } = req.body;
+
+    // fix16a: 不寫 stores.plan，licenses.plan 為唯一方案來源
     db.run(
       `UPDATE stores SET
-        store_name=?, contact_name=?, phone=?, plan=?, active=?,
+        store_name=?, contact_name=?, phone=?, active=?,
         updated_at=datetime('now','localtime')
        WHERE store_id=?`,
       [
-        store_name ?? store.store_name,
+        store_name   ?? store.store_name,
         contact_name ?? store.contact_name,
-        phone ?? store.phone,
-        plan ?? store.plan,
+        phone        ?? store.phone,
         active !== undefined ? (active ? 1 : 0) : store.active,
         storeId
       ]
     );
 
-    // 同步更新 license
+    // 方案與 active 只寫 licenses
     if (plan !== undefined || active !== undefined) {
+      const curLic = db.get('SELECT plan FROM licenses WHERE store_id=?', [storeId]);
+      const newPlan = plan ?? (curLic ? curLic.plan : 'basic');
       try {
         db.run(
           `UPDATE licenses SET plan=?, active=?, updated_at=datetime('now','localtime') WHERE store_id=?`,
-          [plan ?? store.plan, active !== undefined ? (active ? 1 : 0) : store.active, storeId]
+          [newPlan, active !== undefined ? (active ? 1 : 0) : store.active, storeId]
         );
       } catch {}
     }
@@ -228,10 +263,12 @@ router.put('/stores/:storeId/license', requireSuperAdmin, (req, res) => {
     else if (plan && PLAN_DEFAULTS[plan]) finalFeatures = PLAN_DEFAULTS[plan];
     else { try { finalFeatures = JSON.parse(lic.features||'{}'); } catch { finalFeatures = {}; } }
 
+    const newLicPlan = plan ?? lic.plan;
     db.run(
       `UPDATE licenses SET plan=?,active=?,features=?,updated_at=datetime('now','localtime') WHERE store_id=?`,
-      [plan ?? lic.plan, active !== undefined ? (active ? 1 : 0) : lic.active, JSON.stringify(finalFeatures), storeId]
+      [newLicPlan, active !== undefined ? (active ? 1 : 0) : lic.active, JSON.stringify(finalFeatures), storeId]
     );
+    // fix16a: licenses.plan 為唯一來源，不再同步回 stores.plan
     invalidateFeatureCache(storeId);
     res.json({ success: true });
   } catch(e) {

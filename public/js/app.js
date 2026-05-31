@@ -23,17 +23,42 @@ async function apiFetch(url, options = {}) {
   const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
   if (token) headers['Authorization'] = 'Bearer ' + token;
   const res = await fetch(url, { ...options, headers });
-  // token 過期或店家停用 → 強制重新登入
-  if (res.status === 401 || res.status === 403) {
-    const body = await res.json().catch(() => ({}));
-    // 非登入 API 的 403 → 導回登入
+
+  // fix16：正確的 401 / 403 處理
+  //   401 → token 過期或無效 → 登出，跳回登入頁
+  //   403 FEATURE_DISABLED  → 保持登入，顯示「功能未授權」提示
+  //   403 LICENSE_INACTIVE  → 保持登入，顯示「授權已停用」提示
+  //   403 其他              → 保持登入，顯示錯誤訊息
+  if (res.status === 401) {
     if (!url.includes('/store-login')) {
-      console.warn('[apiFetch] 403/401 — 清除 token，重新登入', body.message);
+      console.warn('[apiFetch] 401 — token 過期，重新登入');
       clearToken();
       showLoginOverlay();
     }
-    return { ok: false, status: res.status, body };
+    const body = await res.json().catch(() => ({}));
+    return { ok: false, status: 401, body };
   }
+
+  if (res.status === 403) {
+    const body = await res.json().catch(() => ({}));
+    const err  = body.error || '';
+    // 不登出，只顯示提示
+    if (err === 'FEATURE_DISABLED') {
+      const feat = body.feature ? `（${body.feature}）` : '';
+      if (typeof showToast === 'function')
+        showToast(`此功能未授權${feat}，請聯絡系統管理員升級方案`, 'error');
+    } else if (err === 'LICENSE_INACTIVE') {
+      if (typeof showToast === 'function')
+        showToast('店家授權已停用，請聯絡系統管理員', 'error');
+    } else {
+      // 其他 403（如 storeGuard 拒絕）
+      console.warn('[apiFetch] 403:', body.message || err);
+      if (typeof showToast === 'function' && !url.includes('/store-login'))
+        showToast(body.message || '存取被拒絕（403）', 'error');
+    }
+    return { ok: false, status: 403, body };
+  }
+
   return res;
 }
 
@@ -156,6 +181,21 @@ function hasFeature(key) {
   return window.currentFeatures[key] === true;
 }
 
+/** 載入報表分析頁（fix16）*/
+function loadReportsPage() {
+  const container = document.getElementById('reports-container');
+  if (!container) return;
+  if (!hasFeature('reports')) {
+    container.innerHTML = '<div style="text-align:center;padding:40px;color:#ef4444">📊 報表分析功能尚未授權，請聯絡系統管理員升級方案。</div>';
+    return;
+  }
+  // 報表頁直接顯示現有 reports section（與舊版一致）
+  // 若有獨立報表 router，在此呼叫；目前引用舊版報表 HTML 邏輯
+  container.innerHTML = '<div id="reports-page-inner"></div>';
+  if (typeof renderReportsTab === 'function') renderReportsTab();
+  else if (typeof loadTodayStats === 'function') loadTodayStats();
+}
+
 /** 載入目前店家資訊 + 授權，呼叫 /api/store-me */
 async function loadCurrentStore() {
   try {
@@ -170,35 +210,43 @@ async function loadCurrentStore() {
   } catch(e) { console.error('[FeatureGate] loadCurrentStore:', e.message); }
 }
 
-/** 依授權隱藏 / 顯示 UI 元素 */
+/** 依授權隱藏 / 顯示 UI 元素（fix16 更新）*/
 function applyFeatureGateUI() {
   const f = window.currentFeatures || {};
 
-  // 導覽列：庫存
+  // ── 主選單 ──────────────────────────────────────────────
+  // 庫存
   const invNav = document.querySelector('button[data-page="inventory"]');
   if (invNav) invNav.style.display = f.inventory ? '' : 'none';
 
-  // 設定 Tab：LINE 營業
+  // fix16: 報表分析（主選單）
+  const reportsNav = document.getElementById('nav-btn-reports');
+  if (reportsNav) reportsNav.style.display = f.reports !== false ? '' : 'none';
+
+  // ── 設定 Tab ────────────────────────────────────────────
+  // LINE 營業
   const lineBizBtn = document.getElementById('tab-btn-line_biz');
   if (lineBizBtn) lineBizBtn.style.display = f.line_order ? '' : 'none';
 
-  // 設定 Tab：LINE 點餐入口（永遠顯示，內容依授權不同）
+  // LINE 點餐入口（永遠顯示）
   const lineEntryBtn = document.getElementById('tab-btn-line_entry');
   if (lineEntryBtn) lineEntryBtn.style.display = '';
 
-  // 設定 Tab：外送平台
+  // 外送平台
   const platformBtn = document.querySelector('button[data-stab="platform"]');
   if (platformBtn) platformBtn.style.display = f.delivery ? '' : 'none';
 
-  // 設定 Tab：金流設定
-  const gatewayBtn = document.querySelector('button[data-stab="gateway"]');
+  // fix16: 金流 API（設定 Tab，payment_api gate）
+  const gatewayBtn = document.getElementById('tab-btn-gateway');
   if (gatewayBtn) gatewayBtn.style.display = f.payment_api ? '' : 'none';
 
-  // 訂單頁：外送報表 Tab
+  // ── 訂單頁 ──────────────────────────────────────────────
+  // 外送報表 Tab
   const delivTab = document.querySelector('button[data-tab="delivery"]');
   if (delivTab) delivTab.style.display = f.delivery ? '' : 'none';
 
-  // 點餐頁：外送模式按鈕
+  // ── 點餐頁 ──────────────────────────────────────────────
+  // 外送模式按鈕
   const delivMode = document.querySelector('.mode-btn[data-mode="delivery"]');
   if (delivMode) delivMode.style.display = f.delivery ? '' : 'none';
 }
@@ -525,6 +573,7 @@ function showPage(name) {
   if (name === 'settings')   { loadSettingsPage(); switchSettingsTab('basic'); }
   if (name === 'categories') loadCategoriesPage();
   if (name === 'inventory')  { loadInventoryPage(); }
+  if (name === 'reports')    { loadReportsPage(); }   // fix16: 報表分析主選單
 }
 
 /**
