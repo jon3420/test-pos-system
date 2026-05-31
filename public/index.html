@@ -39,7 +39,15 @@
       <span class="nav-icon">⚙️</span><span>設定</span>
     </button>
   </nav>
-  <div class="topbar-right">
+  <div class="topbar-right" style="display:flex;align-items:center;gap:10px">
+    <div id="topbar-store-info" style="display:flex;align-items:center;gap:6px;font-size:.8rem;color:var(--text-secondary,#94a3b8)">
+      <!-- 登入後由 updateTopbarStoreInfo() 填入 -->
+    </div>
+    <button onclick="posLogout()" style="padding:4px 10px;border-radius:6px;border:1px solid rgba(255,255,255,.15);background:transparent;color:var(--text-secondary,#94a3b8);cursor:pointer;font-size:.78rem;transition:all .2s"
+      onmouseover="this.style.borderColor='#ef4444';this.style.color='#ef4444'"
+      onmouseout="this.style.borderColor='rgba(255,255,255,.15)';this.style.color='var(--text-secondary,#94a3b8)'">
+      🚪 登出
+    </button>
     <span class="clock" id="clock">--:--</span>
   </div>
 </header>

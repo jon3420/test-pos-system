@@ -202,16 +202,24 @@ initDb().then((db) => {
       const db = require('./utils/db').getDb();
       const { getStoreFeatures } = require('./middleware/featureGate');
       const storeId = req.storeId || 'store_001';
-      const store = db.get('SELECT store_id,store_name,plan,active FROM stores WHERE store_id=?', [storeId]);
-      if (!store) return res.status(404).json({ success: false, message: '店家不存在' });
+      // fix16c: JOIN licenses 取得 plan — licenses.plan 為唯一方案來源
+      const row = db.get(
+        `SELECT s.store_id, s.store_name, s.active,
+                COALESCE(l.plan, 'basic') AS plan
+         FROM stores s
+         LEFT JOIN licenses l ON l.store_id = s.store_id
+         WHERE s.store_id = ?`,
+        [storeId]
+      );
+      if (!row) return res.status(404).json({ success: false, message: '店家不存在' });
       const features = getStoreFeatures(storeId);
       res.json({
         success: true,
         data: {
-          store_id:   store.store_id,
-          store_name: store.store_name,
-          plan:       store.plan,
-          active:     !!store.active,
+          store_id:   row.store_id,
+          store_name: row.store_name,
+          plan:       row.plan,   // 來自 licenses.plan，stores.plan 不再使用
+          active:     !!row.active,
           features,
         }
       });
@@ -237,6 +245,9 @@ initDb().then((db) => {
   app.use('/api/line-menu',    requireStore, requireFeature('line_order'), (req, res, next) => { req.url = '/menu'; lineOrderRouter(req, res, next); });
   app.use('/api/line-orders',  requireStore, requireFeature('line_order'), lineOrderRouter);
   app.use('/api/online-orders', requireStore, requireFeature('line_order'), require('./routes/online-orders'));
+
+  // ── 老闆儀表板 Dashboard API（reports feature gate）─────
+  app.use('/api/dashboard', requireStore, requireFeature('reports'), require('./routes/dashboard'));
 
   app.get('/api/printers/list', async (req, res) => {
     try {
