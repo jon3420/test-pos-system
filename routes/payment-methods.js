@@ -294,9 +294,11 @@ router.get('/', (req, res) => {
     }
 
     // Step 4: 仍為 0 筆 → 回傳詳細 debug，不 crash
+    // fix16k-03b: db.all() 是同步函式，不是 Promise，不可用 .catch()
     if (methods.length === 0) {
-      const allRows    = db.all('SELECT store_id, code FROM payment_methods LIMIT 100').catch(()=>[]);
-      const storeCnts  = db.all('SELECT store_id, COUNT(*) as cnt FROM payment_methods GROUP BY store_id');
+      let allRows = [], storeCnts = [];
+      try { allRows   = db.all('SELECT store_id, code FROM payment_methods LIMIT 100'); } catch {}
+      try { storeCnts = db.all('SELECT store_id, COUNT(*) as cnt FROM payment_methods GROUP BY store_id'); } catch {}
       console.error('[PM] SEED_FAILED after ensure', { storeId, storeCnts });
       return res.status(500).json({
         success: false,
