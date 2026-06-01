@@ -179,7 +179,13 @@ function ensureDefaultPaymentMethods(storeId, db) {
 router.get('/', (req, res) => {
   try {
     const db      = getDb();
-    const storeId = req.storeId || 'store_001';
+    // fix16j-2: 移除 fallback，requireStore 已保證 req.storeId 有值
+    const storeId = req.storeId;
+    if (!storeId || storeId === 'default' || storeId.trim() === '') {
+      console.error('[payment-methods] GET missing storeId:', storeId);
+      return res.status(401).json({ success:false, error:'NO_STORE_TOKEN',
+        message:'缺少店家登入 token，請重新登入' });
+    }
 
     // fix16i: Step 1 — 確保 schema（含欄位補齊 + UNIQUE INDEX）
     ensurePaymentMethodsSchema(db);
@@ -202,10 +208,10 @@ router.get('/', (req, res) => {
     // fix16i: Step 4 — 若仍 0 筆，回傳 500 而非假裝成功
     if (methods.length === 0) {
       console.error(`[payment-methods] PAYMENT_METHOD_SEED_FAILED: store=${storeId}`);
+      console.error(`[payment-methods] PAYMENT_METHOD_SEED_FAILED: store=${storeId}`);
       return res.status(500).json({
-        success: false,
-        error:   'PAYMENT_METHOD_SEED_FAILED',
-        message: `付款方式初始化失敗（store: ${storeId}），請聯絡系統管理員`,
+        success: false, error: 'PAYMENT_METHOD_SEED_FAILED',
+        message: '付款方式初始化失敗，請重新登入或聯絡系統管理員',
       });
     }
 
@@ -235,7 +241,12 @@ router.get('/', (req, res) => {
 router.put('/:id', (req, res) => {
   try {
     const db      = getDb();
-    const storeId = req.storeId || 'store_001';
+    // fix16j-2: 移除 fallback
+    const storeId = req.storeId;
+    if (!storeId || storeId === 'default' || storeId.trim() === '') {
+      return res.status(401).json({ success:false, error:'NO_STORE_TOKEN',
+        message:'缺少店家登入 token，請重新登入' });
+    }
     const ex = db.get('SELECT * FROM payment_methods WHERE id=? AND store_id=?',
       [req.params.id, storeId]);
     if (!ex) return res.status(404).json({ success: false, message: '付款方式不存在' });

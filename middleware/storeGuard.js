@@ -1,30 +1,21 @@
-// middleware/storeGuard.js — SaaS R1 fix4
+// middleware/storeGuard.js — SaaS R1 fix16j
 //
-// fix4 / fix5 變更：
-//   Bearer JWT 路徑不再無條件信任。
-//   store_id 解析後（無論來源），統一經 validateStore() 查 stores 表：
-//     存在 + active=1 → 放行
-//     不存在 / active=0 → HTTP 403
-//
-//   停用生效時機：
-//     Super Admin 停用店家時會呼叫 invalidateStoreCache()，清除快取，
-//     使下一個 API 請求立即查 DB 並收到 403。
-//     一般情況下快取 TTL 為 30 秒，最多 30 秒內生效。
+// fix16j 變更：移除所有 fallback 預設值
+//   store_id 解析失敗 → 401 NO_STORE_TOKEN
+//   store 不存在/停用 → 403
+//   不再 fallback 成 store_001 或 default
 //
 // store_id 解析優先順序：
-//   1. Bearer JWT payload.store_id
-//   2. x-store-id header（Android POS 相容）
+//   1. Bearer JWT payload.store_id（主要）
+//   2. x-store-id header（Android POS 相容，必須真實 store_id）
 //   3. query.store_id（LINE 點餐相容）
-//   4. 預設 store_001（向後相容）
-//
-// Super Admin API（/api/super-admin/*）由 requireSuperAdmin 保護，
-// 完全不套用 requireStore。
+//   -- 沒有任何 fallback --
 
 const jwt = require('jsonwebtoken');
 const JWT_SECRET = process.env.JWT_SECRET || 'pos-saas-secret-2024';
 
 // ── 快取（TTL 30 秒）──────────────────────────────────────
-const storeCache = new Map();  // store_id → { valid, expiresAt }
+const storeCache = new Map();
 const CACHE_TTL_MS = 30 * 1000;
 
 function getCached(storeId) {
@@ -37,20 +28,14 @@ function setCache(storeId, valid) {
   storeCache.set(storeId, { valid, expiresAt: Date.now() + CACHE_TTL_MS });
 }
 
-/**
- * validateStore — 查 stores 表確認存在且 active=1
- * 結果快取 30 秒，停用後最多延遲 30 秒生效。
- */
 function validateStore(storeId) {
   const cached = getCached(storeId);
   if (cached === true)  return { ok: true };
   if (cached === false) return { ok: false, reason: '店家不存在或已停用' };
-
   try {
     const { getDb } = require('../utils/db');
     const db    = getDb();
     const store = db.get('SELECT store_id, active FROM stores WHERE store_id=?', [storeId]);
-
     if (!store) {
       setCache(storeId, false);
       return { ok: false, reason: `店家 ${storeId} 不存在` };
@@ -62,66 +47,85 @@ function validateStore(storeId) {
     setCache(storeId, true);
     return { ok: true };
   } catch(e) {
-    // DB 尚未初始化（極早期請求）→ 放行
     console.warn('[storeGuard] validateStore DB error, allowing through:', e.message);
     return { ok: true };
   }
 }
 
 /**
- * requireStore
+ * requireStore — fix16j
  *
- * fix4：所有路徑（含 JWT）取得 store_id 後統一驗證，
- * 確保停用店家的舊 JWT 不能繼續使用。
+ * 解析順序：JWT → x-store-id → query.store_id
+ * 無任何 fallback，缺少 store_id 時回傳 401。
  */
 function requireStore(req, res, next) {
   let candidateId = null;
+  let source = '';
 
-  // ── 1. Bearer JWT ────────────────────────────────────────
+  // ── 1. Bearer JWT（最高信任）─────────────────────────────
   const auth = req.headers['authorization'];
   if (auth && auth.startsWith('Bearer ')) {
     try {
       const payload = jwt.verify(auth.slice(7), JWT_SECRET);
-
-      // Super Admin token 誤用於店家 API → 拒絕
       if (payload.role === 'super_admin') {
         return res.status(403).json({
           success: false,
           message: 'Super Admin token 不可用於店家 API，請使用 /api/super-admin'
         });
       }
-
-      if (payload.store_id) candidateId = payload.store_id;
+      if (payload.store_id) {
+        candidateId = payload.store_id;
+        source = 'jwt';
+      }
     } catch(e) {
-      // token 無效 → 繼續往下解析
+      // JWT 無效或過期
+      console.warn('[storeGuard] JWT invalid:', e.message);
+      // 繼續嘗試其他來源
     }
   }
 
   // ── 2. x-store-id header（Android POS 相容）──────────────
-  if (!candidateId && req.headers['x-store-id'])
-    candidateId = String(req.headers['x-store-id']).trim();
+  if (!candidateId) {
+    const xStoreId = req.headers['x-store-id'];
+    if (xStoreId && xStoreId.trim() && xStoreId.trim() !== 'default') {
+      candidateId = xStoreId.trim();
+      source = 'x-store-id';
+    }
+  }
 
   // ── 3. query.store_id（LINE 點餐相容）────────────────────
-  if (!candidateId && req.query?.store_id)
-    candidateId = String(req.query.store_id).trim();
+  if (!candidateId) {
+    const qStoreId = req.query?.store_id;
+    if (qStoreId && qStoreId.trim() && qStoreId.trim() !== 'default') {
+      candidateId = qStoreId.trim();
+      source = 'query';
+    }
+  }
 
-  // ── 4. 預設 store_001（向後相容）─────────────────────────
-  if (!candidateId) candidateId = 'store_001';
+  // ── 4. 無 store_id → 401（fix16j: 不再 fallback）──────────
+  if (!candidateId) {
+    console.warn(`[storeGuard] 401 NO_STORE_TOKEN: ${req.method} ${req.path}`);
+    return res.status(401).json({
+      success: false,
+      error:   'NO_STORE_TOKEN',
+      message: '缺少店家登入 token，請重新登入',
+    });
+  }
 
-  // ── 統一驗證（fix4：JWT 路徑也走這裡）────────────────────
+  // ── 驗證 stores 表 ────────────────────────────────────────
   const result = validateStore(candidateId);
   if (!result.ok) {
-    console.warn(`[storeGuard] 403 store_id="${candidateId}": ${result.reason}`);
+    console.warn(`[storeGuard] 403 store_id="${candidateId}" (from ${source}): ${result.reason}`);
     return res.status(403).json({ success: false, message: result.reason });
   }
 
+  console.log(`[storeGuard] OK store_id="${candidateId}" (from ${source}) ${req.method} ${req.path}`);
   req.storeId = candidateId;
   return next();
 }
 
 /**
- * requireSuperAdmin — Super Admin 總控台專用
- * 與 requireStore 完全獨立，不做 store_id 解析。
+ * requireSuperAdmin
  */
 function requireSuperAdmin(req, res, next) {
   const auth = req.headers['authorization'];
@@ -138,15 +142,6 @@ function requireSuperAdmin(req, res, next) {
   }
 }
 
-/**
- * invalidateStoreCache — Super Admin 新增 / 更新 / 停用店家後呼叫。
- * 清除該 store_id 的 validateStore 快取，使下一次 API 請求重新查詢 DB。
- *
- * 生效時機：
- *   - Super Admin 主動停用店家 → 呼叫此函式 → 快取立即清除
- *     → 下一個帶舊 JWT 的 API 請求查 DB → active=0 → 403
- *   - 一般情況（未呼叫此函式）→ 快取 TTL 30 秒 → 最多 30 秒後生效
- */
 function invalidateStoreCache(storeId) {
   if (storeId) storeCache.delete(storeId);
 }

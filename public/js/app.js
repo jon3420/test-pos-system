@@ -30,19 +30,24 @@ async function apiFetch(url, options = {}) {
   //   403 LICENSE_INACTIVE  → 保持登入，顯示「授權已停用」提示
   //   403 其他              → 保持登入，顯示錯誤訊息
   if (res.status === 401) {
+    const body = await res.json().catch(() => ({}));
     if (!url.includes('/store-login')) {
-      console.warn('[apiFetch] 401 — token 過期，重新登入');
+      const errCode = body.error || '';
+      if (errCode === 'NO_STORE_TOKEN') {
+        console.warn('[apiFetch] 401 NO_STORE_TOKEN — 缺少登入 token，重新登入');
+      } else {
+        console.warn('[apiFetch] 401 — token 過期，重新登入');
+      }
       clearToken();
       showLoginOverlay();
     }
-    const body = await res.json().catch(() => ({}));
     return { ok: false, status: 401, body };
   }
 
   if (res.status === 403) {
     const body = await res.json().catch(() => ({}));
     const err  = body.error || '';
-    // 不登出，只顯示提示
+    // fix16j: 403 不登出，依錯誤類型顯示對應訊息
     if (err === 'FEATURE_DISABLED') {
       const feat = body.feature ? `（${body.feature}）` : '';
       if (typeof showToast === 'function')
@@ -50,8 +55,15 @@ async function apiFetch(url, options = {}) {
     } else if (err === 'LICENSE_INACTIVE') {
       if (typeof showToast === 'function')
         showToast('店家授權已停用，請聯絡系統管理員', 'error');
+    } else if (err === 'PAYMENT_METHOD_SEED_FAILED') {
+      // 付款方式初始化失敗 — 建議重新登入
+      if (typeof showToast === 'function')
+        showToast('店家授權異常，請重新登入', 'error');
+    } else if (body.message && (body.message.includes('不存在') || body.message.includes('停用'))) {
+      // store 不存在或停用
+      if (typeof showToast === 'function')
+        showToast('店家授權異常，請重新登入', 'error');
     } else {
-      // 其他 403（如 storeGuard 拒絕）
       console.warn('[apiFetch] 403:', body.message || err);
       if (typeof showToast === 'function' && !url.includes('/store-login'))
         showToast(body.message || '存取被拒絕（403）', 'error');
