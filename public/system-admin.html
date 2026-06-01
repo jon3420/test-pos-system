@@ -341,14 +341,15 @@ let currentLicStore = null;
 let currentFeatures = {};
 
 const PLAN_DEFAULTS = {
-  basic: { order:true,orders:true,products:true,reports:true,print:true,inventory:false,line_order:false,delivery:false,marketing:false,member:false,coupon:false,label_print:false },
-  pro:   { order:true,orders:true,products:true,reports:true,print:true,inventory:true,line_order:true,delivery:true,marketing:false,member:false,coupon:false,label_print:true },
+  basic: { order:true,orders:true,products:true,reports:true,print:true,inventory:false,line_order:false,delivery:false,marketing:false,member:false,coupon:false,label_print:false,payment_api:false },
+  pro:   { order:true,orders:true,products:true,reports:true,print:true,inventory:true,line_order:true,delivery:true,marketing:false,member:false,coupon:false,label_print:true,payment_api:true },
 };
 
 const FEATURE_LABELS = {
   order:'收銀點餐', orders:'訂單管理', products:'商品管理', reports:'報表分析',
   print:'列印功能', inventory:'庫存管理', line_order:'LINE 點餐', delivery:'外送功能',
   marketing:'行銷活動', member:'會員系統', coupon:'優惠券', label_print:'標籤列印',
+  payment_api:'💳 金流 API',
 };
 
 async function api(path, opt={}) {
