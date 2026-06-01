@@ -9,6 +9,26 @@ router.get('/', (req, res) => {
     const db = getDb();
     const storeId = req.storeId || 'store_001';
     const { mode, active } = req.query;
+
+    // fix16f-final: 每次 GET 都用 INSERT OR IGNORE 補齊缺少的付款方式
+    // UNIQUE INDEX (store_id, code) 確保不重複、不覆蓋既有設定
+    const DEFAULT_PM = [
+      ['現金',    'cash',     '💵', 1, 1, 1, 1, 1, 1, 1, ''],
+      ['刷卡',    'card',     '💳', 0, 2, 0, 1, 1, 0, 1, ''],
+      ['LINE Pay','linepay',  '💚', 0, 3, 0, 1, 1, 1, 1, 'linepay'],
+      ['街口支付','jkopay',   '🟠', 0, 4, 0, 1, 1, 1, 1, 'jkopay'],
+      ['轉帳',    'transfer', '🏦', 0, 5, 0, 0, 1, 1, 1, ''],
+      ['平台付款','platform', '📱', 0, 6, 0, 0, 0, 1, 1, ''],
+    ];
+    DEFAULT_PM.forEach(([name,code,icon,act,sort,isdef,dine,take,deliv,allow,gw]) => {
+      try {
+        db.run(
+          'INSERT OR IGNORE INTO payment_methods (store_id,name,code,icon,is_active,sort_order,is_default,enable_for_dine_in,enable_for_takeout,enable_for_delivery,allow_edit_when_platform_order,gateway_code) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+          [storeId,name,code,icon,act,sort,isdef,dine,take,deliv,allow,gw]
+        );
+      } catch {}
+    });
+
     let sql = 'SELECT pm.* FROM payment_methods pm WHERE pm.store_id=?';
     const p = [storeId];
     if (active !== undefined) { sql += ' AND pm.is_active=?'; p.push(Number(active)); }
@@ -18,13 +38,10 @@ router.get('/', (req, res) => {
     sql += ' ORDER BY pm.sort_order ASC, pm.id ASC';
     const methods = db.all(sql, p);
 
-    // ★ fix2：gateway 過濾也加 store_id
     const filtered = methods.filter(m => {
       if (!m.gateway_code) return true;
-      const gw = db.get(
-        'SELECT is_active FROM payment_gateways WHERE store_id=? AND code=?',
-        [storeId, m.gateway_code]
-      );
+      const gw = db.get('SELECT is_active FROM payment_gateways WHERE store_id=? AND code=?',
+        [storeId, m.gateway_code]);
       return gw && gw.is_active;
     });
 

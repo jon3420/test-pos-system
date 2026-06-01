@@ -100,7 +100,12 @@ function showLoginOverlay() {
 
 function hideLoginOverlay() {
   const el = document.getElementById('store-login-overlay');
-  if (el) el.style.display = 'none';
+  if (el) {
+    el.style.display       = 'none';
+    el.style.visibility    = 'hidden';
+    el.style.pointerEvents = 'none';  // fix16f: 確保不攔截點擊
+    el.style.zIndex        = '-1';
+  }
 }
 
 async function doStoreLogin() {
@@ -809,28 +814,61 @@ function initDateRange() {
 let _invRefreshInterval = null;
 
 function showPage(name) {
-  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
-  document.getElementById('page-' + name)?.classList.add('active');
-  document.querySelector(`[data-page="${name}"]`)?.classList.add('active');
+  // fix16f: 強制用 style 切換，確保只有一個 page 顯示
+  // classList 操作不夠——某些 page 有獨立 CSS 規則（如 #page-reports）需 style 覆蓋
 
-  // 點餐頁：啟動庫存自動刷新（10秒）
+  // 1. 隱藏所有 page
+  document.querySelectorAll('.page').forEach(p => {
+    p.classList.remove('active');
+    p.style.display      = 'none';
+    p.style.visibility   = 'hidden';
+    p.style.pointerEvents = 'none';
+  });
+
+  // 2. 特別確保 reports 完全隱藏（防止殘留覆蓋）
+  if (name !== 'reports') {
+    const rp = document.getElementById('page-reports');
+    const rc = document.getElementById('reports-container');
+    if (rp) { rp.style.display = 'none'; rp.style.visibility = 'hidden'; rp.style.pointerEvents = 'none'; }
+    if (rc) { rc.style.display = 'none'; rc.style.visibility = 'hidden'; rc.style.pointerEvents = 'none'; }
+  }
+
+  // 3. 清除所有 nav active 狀態
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+
+  // 4. 顯示目標頁
+  const target = document.getElementById('page-' + name);
+  if (target) {
+    target.classList.add('active');
+    target.style.display       = '';       // 讓 CSS .page.active 的 display:flex 生效
+    target.style.visibility    = 'visible';
+    target.style.pointerEvents = 'auto';
+  }
+  const navBtn = document.querySelector(`[data-page="${name}"]`);
+  if (navBtn) navBtn.classList.add('active');
+
+  // 5. reports 恢復容器顯示
+  if (name === 'reports') {
+    const rc = document.getElementById('reports-container');
+    if (rc) { rc.style.display = ''; rc.style.visibility = 'visible'; rc.style.pointerEvents = 'auto'; }
+  }
+
+  // 6. 點餐頁庫存自動刷新
   if (name === 'pos') {
-    if (!_invRefreshInterval) {
+    if (!_invRefreshInterval)
       _invRefreshInterval = setInterval(refreshInventoryForProducts, 10000);
-    }
-    refreshInventoryForProducts(); // 切換到點餐頁立即刷新一次
+    refreshInventoryForProducts();
   } else {
-    // 離開點餐頁時停止刷新
     if (_invRefreshInterval) { clearInterval(_invRefreshInterval); _invRefreshInterval = null; }
   }
 
-  if (name === 'orders')     { loadCurrentOrderTab(); }
+  // 7. 各頁資料載入
+  if (name === 'orders')     loadCurrentOrderTab();
   if (name === 'products')   loadProductsPage();
   if (name === 'settings')   { loadSettingsPage(); switchSettingsTab('basic'); }
   if (name === 'categories') loadCategoriesPage();
-  if (name === 'inventory')  { loadInventoryPage(); }
-  if (name === 'reports')    { loadReportsPage(); }   // fix16: 報表分析主選單
+  if (name === 'inventory')  loadInventoryPage();
+  if (name === 'reports')    loadReportsPage();
 }
 
 /**
@@ -896,9 +934,18 @@ let currentSettingsTab = 'basic';
 function switchSettingsTab(tab) {
   currentSettingsTab = tab;
   document.querySelectorAll('.settings-tab-btn').forEach(b => b.classList.toggle('active', b.dataset.stab === tab));
-  document.querySelectorAll('.settings-tab-panel').forEach(p => { p.style.display = 'none'; });
+  // fix16f: 強制用 style 確保只有一個 panel 顯示
+  document.querySelectorAll('.settings-tab-panel').forEach(p => {
+    p.style.display       = 'none';
+    p.style.visibility    = 'hidden';
+    p.style.pointerEvents = 'none';
+  });
   const panel = document.getElementById('stab-' + tab);
-  if (panel) panel.style.display = 'block';
+  if (panel) {
+    panel.style.display       = 'block';
+    panel.style.visibility    = 'visible';
+    panel.style.pointerEvents = 'auto';
+  }
 
   // 各 Tab 的資料載入
   if (tab === 'payment')     loadPaymentMethodsPage();

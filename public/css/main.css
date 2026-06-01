@@ -133,19 +133,35 @@ body {
   padding: 24px;
 }
 
-/* fix16c-hotfix: 報表分析頁全寬可滾動 */
+/* fix16f: 報表分析頁 — 不可浮蓋全站，嚴格控制顯示狀態 */
 #page-reports {
-  overflow-y: auto;
   overflow-x: hidden;
-  display: flex;
-  flex-direction: column;
 }
+
+/* 非 active 時強制隱藏（最高優先級），防止殘留覆蓋 */
+#page-reports:not(.active) {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+/* active 時允許滾動 */
+#page-reports.active {
+  overflow-y: auto !important;
+  visibility: visible !important;
+  pointer-events: auto !important;
+}
+
 #reports-container {
   width: 100%;
-  flex: 1;
   padding: 24px;
   box-sizing: border-box;
 }
+
+/* fix16f: dashboard CSS 只作用在報表頁內，不影響全站 */
+#page-reports .dashboard-grid { display: grid; }
+#page-reports .dashboard-card { box-sizing: border-box; }
+#page-reports .dashboard-section { width: 100%; margin-bottom: 20px; }
 
 /* ===== POS LAYOUT ===== */
 .pos-layout {

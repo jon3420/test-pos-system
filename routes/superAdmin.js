@@ -154,15 +154,15 @@ router.post('/stores', requireSuperAdmin, (req, res) => {
         ['轉帳',    'transfer', '🏦', 0, 5, 0, 0, 1, 1, 1, ''],
         ['平台付款','platform', '📱', 0, 6, 0, 0, 0, 1, 1, ''],
       ];
-      const existing = dbInst.get('SELECT COUNT(*) as c FROM payment_methods WHERE store_id=?', [store_id]);
-      if (!existing || Number(existing.c) === 0) {
-        DEFAULT_PM.forEach(([name,code,icon,act,sort,isdef,dine,take,deliv,allow,gw]) =>
+      // fix16f: INSERT OR IGNORE + UNIQUE INDEX 確保不重複
+      DEFAULT_PM.forEach(([name,code,icon,act,sort,isdef,dine,take,deliv,allow,gw]) => {
+        try {
           dbInst.run(
-            'INSERT INTO payment_methods (store_id,name,code,icon,is_active,sort_order,is_default,enable_for_dine_in,enable_for_takeout,enable_for_delivery,allow_edit_when_platform_order,gateway_code) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+            'INSERT OR IGNORE INTO payment_methods (store_id,name,code,icon,is_active,sort_order,is_default,enable_for_dine_in,enable_for_takeout,enable_for_delivery,allow_edit_when_platform_order,gateway_code) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
             [store_id,name,code,icon,act,sort,isdef,dine,take,deliv,allow,gw]
-          )
-        );
-      }
+          );
+        } catch {}
+      });
     } catch(pmErr) { console.error('[superAdmin] 付款方式初始化失敗:', pmErr.message); }
 
     // fix16d: 新增店家時自動建立 8 個 payment_gateways
