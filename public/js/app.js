@@ -497,9 +497,9 @@ function applyFeatureGateUI() {
   const platformBtn = document.querySelector('button[data-stab="platform"]');
   if (platformBtn) platformBtn.style.display = f.delivery ? '' : 'none';
 
-  // fix16c-hotfix: 付款方式 Tab 永遠顯示（Basic 基本功能）
+  // fix16k: 付款方式 Tab 由 payment_methods feature 控制（預設 true，所有方案均開啟）
   const paymentTabBtn = document.querySelector('button[data-stab="payment"]');
-  if (paymentTabBtn) paymentTabBtn.style.display = '';
+  if (paymentTabBtn) paymentTabBtn.style.display = f.payment_methods !== false ? '' : 'none';
 
   // 金流 API Tab — payment_api gate（Pro/Premium 才可見）
   const gatewayBtn = document.getElementById('tab-btn-gateway');
@@ -1336,6 +1336,12 @@ function selectPayment(method) {
 
 // ===== 動態付款方式 =====
 async function loadPaymentMethods() {
+  // fix16k: payment_methods feature gate
+  if (!hasFeature('payment_methods')) {
+    allPaymentMethods = [];
+    renderPaymentMethods(); // will show feature disabled message
+    return;
+  }
   try {
     const res  = await apiFetch('/api/payment-methods?active=1');
     const json = await res.json();
@@ -1360,6 +1366,15 @@ function renderPaymentMethods() {
 
   const available = allPaymentMethods.filter(m => m.is_active && m[modeKey]);
 
+  // fix16k: payment_methods feature gate
+  if (!hasFeature('payment_methods')) {
+    container.innerHTML = '';
+    if (warnEl) {
+      warnEl.textContent = '⚠️ 付款方式功能未啟用，請聯絡系統管理員';
+      warnEl.style.display = 'block';
+    }
+    return;
+  }
   if (!available.length) {
     container.innerHTML = '';
     if (warnEl) warnEl.style.display = 'block';

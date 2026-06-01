@@ -37,7 +37,7 @@ function getStoreLicense(storeId) {
         active: true,
         features: { pos:true, orders:true, products:true, reports:true, print:true,
           inventory:false, line_order:false, delivery:false,
-          marketing:false, member:false, coupon:false, label_print:false, payment_api:false }
+          marketing:false, member:false, coupon:false, label_print:false, payment_api:false, payment_methods:true }
       };
       setCache(storeId, defaults);
       return defaults;

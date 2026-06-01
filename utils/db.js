@@ -800,7 +800,8 @@ function initTables(w) {
       order: true, orders: true, products: true, reports: true, print: true,
       inventory: true, line_order: true, delivery: true,
       marketing: false, member: false, coupon: false, label_print: true,
-      payment_api: true
+      payment_api: true,
+      payment_methods: true
     });
     w._db.run(
       `INSERT INTO licenses (store_id, store_name, plan, active, features) VALUES (?,?,?,?,?)`,

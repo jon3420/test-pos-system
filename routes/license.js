@@ -14,17 +14,17 @@ const PLAN_DEFAULTS = {
   basic: {
     order: true, orders: true, products: true, reports: true, print: true,
     inventory: false, line_order: false, delivery: false,
-    marketing: false, member: false, coupon: false, label_print: false, payment_api: false
+    marketing: false, member: false, coupon: false, label_print: false, payment_api: false, payment_methods: true
   },
   pro: {
     order: true, orders: true, products: true, reports: true, print: true,
     inventory: true, line_order: true, delivery: true,
-    marketing: false, member: false, coupon: false, label_print: true, payment_api: true
+    marketing: false, member: false, coupon: false, label_print: true, payment_api: true, payment_methods: true
   },
   enterprise: {
     order: true, orders: true, products: true, reports: true, print: true,
     inventory: true, line_order: true, delivery: true,
-    marketing: true, member: true, coupon: true, label_print: true, payment_api: true
+    marketing: true, member: true, coupon: true, label_print: true, payment_api: true, payment_methods: true
   }
 };
 
