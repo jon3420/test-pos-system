@@ -141,10 +141,12 @@ router.post('/stores', requireSuperAdmin, (req, res) => {
     sd('line_today_closed', '0'); sd('line_today_closed_date', '');
 
     invalidateStoreCache(store_id);
-    // fix16h: 新增店家後補齊付款方式（統一函式，含 PRAGMA 欄位相容 + UNIQUE INDEX）
+    // fix16k-02: 新增店家後補齊付款方式（先 schema 補欄位，再 seed）
     try {
-      const { ensureDefaultPaymentMethods } = require('./payment-methods');
+      const { ensurePaymentMethodsSchema, ensureDefaultPaymentMethods } = require('./payment-methods');
+      ensurePaymentMethodsSchema(db);
       ensureDefaultPaymentMethods(store_id, db);
+      console.log('[superAdmin] 付款方式初始化完成:', store_id);
     } catch(pmErr) { console.error('[superAdmin] 付款方式初始化失敗:', pmErr.message); }
 
     // fix16d: 新增店家時自動建立 8 個 payment_gateways

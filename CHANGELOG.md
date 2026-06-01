@@ -37,3 +37,20 @@
 ---
 
 版本：**pos-v18-web-online-r1**
+
+## fix16k-02 (2025-06) — 付款方式 seed 根本修正
+
+### 問題
+新建店家（如 store_02）的付款方式頁面顯示「初始化失敗」，結帳頁無付款選項。
+
+### 根本原因（兩處）
+1. `payment-methods.js` 的 `ensureDefaultPaymentMethods()` 使用 `db._db.exec(sql, params)` 查詢，
+   此呼叫在部分環境下不正確，改用 `db.get(sql, params)` wrapper 介面
+2. `utils/db.js` 的 `pmDb.run()` 未呼叫 `_save()`，導致 INSERT 在某些路徑不持久化
+3. `superAdmin.js` 新建店家時未先呼叫 `ensurePaymentMethodsSchema()`
+
+### 修正
+- `routes/payment-methods.js`: checkSql 改用 `db.get()`, INSERT 改用 `db.run()`
+- `utils/db.js`: pmDb.run() 加上 `w._save()`
+- `routes/superAdmin.js`: 新建店家時先 `ensurePaymentMethodsSchema()` 再 seed
+- 啟動時 fix16k-02 backfill 掃描所有 stores（含 store_002 等後建店家）

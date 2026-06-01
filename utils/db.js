@@ -589,13 +589,13 @@ function initTables(w) {
     w._save();
   } catch(e) { console.warn('[DB] payment_methods unique index:', e.message); }
 
-  // fix16i: 付款方式 schema 遷移 + backfill
-  // 先執行 ensurePaymentMethodsSchema（補欄位 + code backfill + UNIQUE INDEX）
-  // 再逐店執行 ensureDefaultPaymentMethods
+  // fix16k-02: 付款方式 schema 遷移 + 全店 backfill（啟動時執行）
+  // 修正：pmDb.run() 加上 _save()，確保每次 INSERT 都持久化
+  // 使用 db.get()/db.run() wrapper 介面，不直接呼叫 db._db.exec(sql, params)
   try {
     const { ensurePaymentMethodsSchema, ensureDefaultPaymentMethods } = require('../routes/payment-methods');
 
-    // 建立 db wrapper（相容 fix7 wrapper 結構）
+    // 建立完整 db wrapper（fix16k-02: run 加上 _save）
     const pmDb = {
       _db:   w._db,
       _save: () => w._save(),
@@ -603,19 +603,20 @@ function initTables(w) {
         const stmt = w._db.prepare(sql);
         stmt.run(Array.isArray(params) ? params : [params]);
         stmt.free();
+        w._save(); // fix16k-02: 每次 INSERT/UPDATE 立即持久化
       },
       get:   (sql, params=[]) => w.get(sql, params),
       all:   (sql, params=[]) => w.all(sql, params),
     };
 
-    // Step 1: schema 遷移（ALTER TABLE ADD COLUMN + code backfill + UNIQUE INDEX）
+    // Step 1: schema 遷移（ALTER TABLE ADD COLUMN + code backfill）
     ensurePaymentMethodsSchema(pmDb);
 
-    // Step 2: 逐店補齊 6 筆
+    // Step 2: 逐店補齊 6 筆（包含啟動時已存在的所有 stores）
     const allStores = w.all('SELECT store_id FROM stores');
     allStores.forEach(({ store_id }) => ensureDefaultPaymentMethods(store_id, pmDb));
-    console.log('[DB] fix16i: 付款方式 backfill 完成，共掃描', allStores.length, '家店');
-  } catch(e) { console.error('[DB] fix16i: backfill error:', e.message); }
+    console.log('[DB] fix16k-02: 付款方式 backfill 完成，共掃描', allStores.length, '家店');
+  } catch(e) { console.error('[DB] fix16k-02: backfill error:', e.message); }
 
   // ── payment_gateways ──────────────────────────────────
   w._db.run(`CREATE TABLE IF NOT EXISTS payment_gateways (
