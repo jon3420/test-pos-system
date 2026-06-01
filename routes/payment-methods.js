@@ -1,6 +1,6 @@
-// routes/payment-methods.js — SaaS R1 fix16k-2-final
-// 根本修正：INSERT OR IGNORE 失效原因 = UNIQUE INDEX 不存在
-// 改用 SELECT + INSERT 的 upsert 邏輯，完全不依賴 UNIQUE INDEX
+// routes/payment-methods.js — SaaS R1 fix16k-2-final-02
+// 根本修正 v2：db._db.exec(sql, params) 在 sql.js 中不支援帶參數呼叫
+// → checkSql 改用 db.get()；INSERT 改用 db.run()（統一 wrapper 介面）
 'use strict';
 const express = require('express');
 const router  = express.Router();
@@ -125,26 +125,27 @@ function ensureDefaultPaymentMethods(storeId, db) {
   if (cols.has('allow_edit_when_platform_order')) insertCols.push('allow_edit_when_platform_order');
   if (cols.has('gateway_code'))                   insertCols.push('gateway_code');
 
-  // fix16k-2-final: SELECT 先確認是否存在，不存在才 INSERT
-  // 完全不依賴 UNIQUE INDEX，不使用 INSERT OR IGNORE
+  // fix16k-2-final-02: SELECT 先確認是否存在，不存在才 INSERT
+  // 修正：db._db.exec(sql, params) 在 sql.js 不支援帶參數呼叫
+  //       改用 db.get()（wrapper 介面，正確 prepare+bind）
+  //       INSERT 改用 db.run()（wrapper 介面，正確 prepare+bind）
   const insertSql = `INSERT INTO payment_methods (${insertCols.join(',')}) VALUES (${insertCols.map(()=>'?').join(',')})`;
   const checkSql  = `SELECT id FROM payment_methods WHERE store_id=? AND code=? LIMIT 1`;
-  console.log('[payment-methods] seed strategy: SELECT-then-INSERT (no UNIQUE INDEX dependency)');
+  console.log('[payment-methods] seed strategy: SELECT-then-INSERT via db.get/db.run (fix16k-2-final-02)');
   console.log('[payment-methods] INSERT sql:', insertSql);
 
   let inserted = 0, skipped = 0;
   for (const [name, code, icon, is_active, sort_order, is_default,
     dine, takeout, delivery, allow_edit, gateway_code] of DEFAULT_PM) {
     try {
-      // 先查：已存在就跳過
-      const existing = db._db.exec(checkSql, [storeId, code]);
-      const exists   = existing && existing[0] && existing[0].values && existing[0].values.length > 0;
-      if (exists) {
+      // 先查：用 db.get()，正確 prepare+bind，不使用 db._db.exec
+      const existing = db.get(checkSql, [storeId, code]);
+      if (existing && existing.id) {
         skipped++;
         continue;
       }
 
-      // 不存在 → INSERT
+      // 不存在 → INSERT，用 db.run()（wrapper 介面）
       const vals = [storeId, name, code];
       if (cols.has('icon'))                           vals.push(icon);
       if (cols.has('is_active'))                      vals.push(is_active);
@@ -157,7 +158,7 @@ function ensureDefaultPaymentMethods(storeId, db) {
       if (cols.has('allow_edit_when_platform_order')) vals.push(allow_edit);
       if (cols.has('gateway_code'))                   vals.push(gateway_code);
 
-      db._db.run(insertSql, vals);
+      db.run(insertSql, vals);
       inserted++;
     } catch(e) {
       console.error('[payment-methods] ERROR', {
