@@ -589,38 +589,33 @@ function initTables(w) {
     w._save();
   } catch(e) { console.warn('[DB] payment_methods unique index:', e.message); }
 
-  // fix16f: seedPaymentMethods — INSERT OR IGNORE，不覆蓋既有設定
-  const DEFAULT_PAYMENT_METHODS = [
-    ['現金',    'cash',     '💵', 1, 1, 1, 1, 1, 1, 1, ''],   // ← 預設啟用
-    ['刷卡',    'card',     '💳', 0, 2, 0, 1, 1, 0, 1, ''],   // ← 停用
-    ['LINE Pay','linepay',  '💚', 0, 3, 0, 1, 1, 1, 1, 'linepay'], // ← 停用
-    ['街口支付','jkopay',   '🟠', 0, 4, 0, 1, 1, 1, 1, 'jkopay'], // ← 停用
-    ['轉帳',    'transfer', '🏦', 0, 5, 0, 0, 1, 1, 1, ''],   // ← 停用
-    ['平台付款','platform', '📱', 0, 6, 0, 0, 0, 1, 1, ''],   // ← 停用
-  ];
-
-  function seedPaymentMethods(storeId) {
-    // fix16f: INSERT OR IGNORE 搭配 UNIQUE INDEX，可重複呼叫，不覆蓋既有設定
-    DEFAULT_PAYMENT_METHODS.forEach(([name,code,icon,active,sort,isdef,dine,take,deliv,allow,gw]) => {
-      try {
-        w._db.run(
-          'INSERT OR IGNORE INTO payment_methods (store_id,name,code,icon,is_active,sort_order,is_default,enable_for_dine_in,enable_for_takeout,enable_for_delivery,allow_edit_when_platform_order,gateway_code) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
-          [storeId,name,code,icon,active,sort,isdef,dine,take,deliv,allow,gw]
-        );
-      } catch {}
-    });
-    w._save();
-  }
-
-  // seed store_001
-  seedPaymentMethods('store_001');
-
-  // fix16f backfill：掃描所有 stores（不限 active）補齊付款方式
+  // fix16i: 付款方式 schema 遷移 + backfill
+  // 先執行 ensurePaymentMethodsSchema（補欄位 + code backfill + UNIQUE INDEX）
+  // 再逐店執行 ensureDefaultPaymentMethods
   try {
+    const { ensurePaymentMethodsSchema, ensureDefaultPaymentMethods } = require('../routes/payment-methods');
+
+    // 建立 db wrapper（相容 fix7 wrapper 結構）
+    const pmDb = {
+      _db:   w._db,
+      _save: () => w._save(),
+      run:   (sql, params=[]) => {
+        const stmt = w._db.prepare(sql);
+        stmt.run(Array.isArray(params) ? params : [params]);
+        stmt.free();
+      },
+      get:   (sql, params=[]) => w.get(sql, params),
+      all:   (sql, params=[]) => w.all(sql, params),
+    };
+
+    // Step 1: schema 遷移（ALTER TABLE ADD COLUMN + code backfill + UNIQUE INDEX）
+    ensurePaymentMethodsSchema(pmDb);
+
+    // Step 2: 逐店補齊 6 筆
     const allStores = w.all('SELECT store_id FROM stores');
-    allStores.forEach(({ store_id }) => seedPaymentMethods(store_id));
-    console.log('[DB] fix16f: 付款方式 backfill 完成，共掃描', allStores.length, '家店');
-  } catch(e) { console.error('[DB] fix16f: backfill error:', e.message); }
+    allStores.forEach(({ store_id }) => ensureDefaultPaymentMethods(store_id, pmDb));
+    console.log('[DB] fix16i: 付款方式 backfill 完成，共掃描', allStores.length, '家店');
+  } catch(e) { console.error('[DB] fix16i: backfill error:', e.message); }
 
   // ── payment_gateways ──────────────────────────────────
   w._db.run(`CREATE TABLE IF NOT EXISTS payment_gateways (

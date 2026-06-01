@@ -141,28 +141,10 @@ router.post('/stores', requireSuperAdmin, (req, res) => {
     sd('line_today_closed', '0'); sd('line_today_closed_date', '');
 
     invalidateStoreCache(store_id);
-    // fix16d：新增店家時自動補齊付款方式和金流設定
+    // fix16h: 新增店家後補齊付款方式（統一函式，含 PRAGMA 欄位相容 + UNIQUE INDEX）
     try {
-      const { getDb } = require('../utils/db');
-      const dbInst = getDb();
-      // fix16a: 只有現金預設啟用，其他 is_active=0
-      const DEFAULT_PM = [
-        ['現金',    'cash',     '💵', 1, 1, 1, 1, 1, 1, 1, ''],
-        ['刷卡',    'card',     '💳', 0, 2, 0, 1, 1, 0, 1, ''],
-        ['LINE Pay','linepay',  '💚', 0, 3, 0, 1, 1, 1, 1, 'linepay'],
-        ['街口支付','jkopay',   '🟠', 0, 4, 0, 1, 1, 1, 1, 'jkopay'],
-        ['轉帳',    'transfer', '🏦', 0, 5, 0, 0, 1, 1, 1, ''],
-        ['平台付款','platform', '📱', 0, 6, 0, 0, 0, 1, 1, ''],
-      ];
-      // fix16f: INSERT OR IGNORE + UNIQUE INDEX 確保不重複
-      DEFAULT_PM.forEach(([name,code,icon,act,sort,isdef,dine,take,deliv,allow,gw]) => {
-        try {
-          dbInst.run(
-            'INSERT OR IGNORE INTO payment_methods (store_id,name,code,icon,is_active,sort_order,is_default,enable_for_dine_in,enable_for_takeout,enable_for_delivery,allow_edit_when_platform_order,gateway_code) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
-            [store_id,name,code,icon,act,sort,isdef,dine,take,deliv,allow,gw]
-          );
-        } catch {}
-      });
+      const { ensureDefaultPaymentMethods } = require('./payment-methods');
+      ensureDefaultPaymentMethods(store_id, db);
     } catch(pmErr) { console.error('[superAdmin] 付款方式初始化失敗:', pmErr.message); }
 
     // fix16d: 新增店家時自動建立 8 個 payment_gateways
