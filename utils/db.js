@@ -579,23 +579,12 @@ function initTables(w) {
   try { w._db.run('ALTER TABLE payment_methods ADD COLUMN store_id TEXT NOT NULL DEFAULT \'store_001\''); w._save(); } catch {}
   try { w._db.run(`UPDATE payment_methods SET store_id='store_001' WHERE store_id IS NULL OR store_id=''`); w._save(); } catch {}
 
-  // fix16f: UNIQUE INDEX (store_id, code) — 確保 INSERT OR IGNORE 正確去重
-  try {
-    // 先清理重複資料（若有）
-    w._db.run(`DELETE FROM payment_methods WHERE id NOT IN (
-      SELECT MIN(id) FROM payment_methods GROUP BY store_id, code
-    )`);
-    w._db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_methods_store_code ON payment_methods(store_id, code)');
-    w._save();
-  } catch(e) { console.warn('[DB] payment_methods unique index:', e.message); }
-
-  // fix16k-02: 付款方式 schema 遷移 + 全店 backfill（啟動時執行）
-  // 修正：pmDb.run() 加上 _save()，確保每次 INSERT 都持久化
-  // 使用 db.get()/db.run() wrapper 介面，不直接呼叫 db._db.exec(sql, params)
+  // fix16k-04: 付款方式 schema 遷移 + 全店 backfill（啟動時執行）
+  // 新增：偵測並重建含錯誤 UNIQUE(code) 的舊表，修正多店 SaaS 架構衝突
   try {
     const { ensurePaymentMethodsSchema, ensureDefaultPaymentMethods } = require('../routes/payment-methods');
 
-    // 建立完整 db wrapper（fix16k-02: run 加上 _save）
+    // 建立完整 db wrapper（run 包含 _save）
     const pmDb = {
       _db:   w._db,
       _save: () => w._save(),
@@ -603,20 +592,20 @@ function initTables(w) {
         const stmt = w._db.prepare(sql);
         stmt.run(Array.isArray(params) ? params : [params]);
         stmt.free();
-        w._save(); // fix16k-02: 每次 INSERT/UPDATE 立即持久化
+        w._save();
       },
       get:   (sql, params=[]) => w.get(sql, params),
       all:   (sql, params=[]) => w.all(sql, params),
     };
 
-    // Step 1: schema 遷移（ALTER TABLE ADD COLUMN + code backfill）
+    // Step 1: schema 修復（含偵測 UNIQUE(code) → 重建表 + 補欄位 + 建正確 index）
     ensurePaymentMethodsSchema(pmDb);
 
-    // Step 2: 逐店補齊 6 筆（包含啟動時已存在的所有 stores）
+    // Step 2: 逐店補齊 6 筆（含啟動時已存在的所有 stores）
     const allStores = w.all('SELECT store_id FROM stores');
     allStores.forEach(({ store_id }) => ensureDefaultPaymentMethods(store_id, pmDb));
-    console.log('[DB] fix16k-02: 付款方式 backfill 完成，共掃描', allStores.length, '家店');
-  } catch(e) { console.error('[DB] fix16k-02: backfill error:', e.message); }
+    console.log('[DB] fix16k-04: 付款方式 backfill 完成，共掃描', allStores.length, '家店');
+  } catch(e) { console.error('[DB] fix16k-04: backfill error:', e.message); }
 
   // ── payment_gateways ──────────────────────────────────
   w._db.run(`CREATE TABLE IF NOT EXISTS payment_gateways (
