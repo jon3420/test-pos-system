@@ -148,7 +148,8 @@ async function doStoreLogin() {
       if (typeof loadCurrentStore === 'function') await loadCurrentStore().catch(()=>{});
       if (typeof loadSettings === 'function')   await loadSettings().catch(()=>{});
       if (typeof loadCategories === 'function') await loadCategories().catch(()=>{});
-      if (typeof loadPlatforms === 'function')  await loadPlatforms().catch(()=>{});
+      // fix16k-02: 只有 delivery 功能授權才呼叫 loadPlatforms，避免 BASIC 方案觸發 403
+      if (typeof loadPlatforms === 'function' && hasFeature('delivery')) await loadPlatforms().catch(()=>{});
       if (typeof loadPaymentMethods === 'function') await loadPaymentMethods().catch(()=>{});
       if (typeof loadProducts === 'function')   await loadProducts().catch(()=>{});
       if (_loginResolve) { _loginResolve(); _loginResolve = null; }
