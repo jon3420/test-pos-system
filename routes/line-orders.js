@@ -1,4 +1,11 @@
-// routes/line-orders.js — SaaS R1 fix1（多店隔離版）
+// routes/line-orders.js — SaaS R1 + LINE 接單與可售管理中心 v1
+// 修改重點：
+//   1. 外帶/外送完全獨立判斷（各自 enabled/cutoff/prep/business_hours）
+//   2. LINE 專屬可售份數（line_quota_*），不動主庫存
+//   3. 動態取餐時間：max(現在+prep, 營業開始)
+//   4. 公休日/店休日攔截（line_closed_weekdays / line_closed_dates）
+//   5. 行銷型售完：real_sold_out vs cutoff_sold_out，均不扣主庫存
+//   6. 結帳雙重驗證（加入購物車 + 送單前）
 'use strict';
 
 const express = require('express');
@@ -15,10 +22,99 @@ function orderNumber() {
   return `LINE-${n.getFullYear()}${p(n.getMonth()+1)}${p(n.getDate())}-${p(n.getHours())}${p(n.getMinutes())}${p(n.getSeconds())}`;
 }
 
-// ★ 重要：所有 settings 查詢都必須帶 store_id
 function getSetting(db, storeId, key, def='') {
   const row = db.get('SELECT value FROM settings WHERE store_id=? AND key=?', [storeId, key]);
   return row ? row.value : def;
+}
+
+// ── 台灣時間工具 ──────────────────────────────────────────
+function twNow() {
+  return new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
+}
+function twDateStr(d) {
+  const dt = d || twNow();
+  return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
+}
+function timeToMins(hhmm) {
+  const [h, m] = String(hhmm||'').split(':').map(Number);
+  return (h||0)*60 + (m||0);
+}
+function minsToTime(mins) {
+  return `${String(Math.floor(mins/60)).padStart(2,'0')}:${String(mins%60).padStart(2,'0')}`;
+}
+const WD_KEYS = ['sun','mon','tue','wed','thu','fri','sat'];
+
+// ── 公休/店休日判斷 ───────────────────────────────────────
+function isClosedDate(db, storeId, dateStr) {
+  const dow = WD_KEYS[new Date(dateStr + 'T00:00:00+08:00').getDay()];
+  const closedWds = (() => { try { return JSON.parse(getSetting(db, storeId, 'line_closed_weekdays', '[]')); } catch { return []; } })();
+  const closedDts = (() => { try { return JSON.parse(getSetting(db, storeId, 'line_closed_dates', '[]')); } catch { return []; } })();
+  return { closed: closedWds.includes(dow) || closedDts.includes(dateStr), isWeekly: closedWds.includes(dow) };
+}
+
+// ── 模式（外帶 takeout / 外送 delivery）設定讀取 ─────────
+function getModeSettings(db, storeId, mode) {
+  // mode: 'takeout' | 'delivery'
+  if (mode === 'takeout') {
+    return {
+      enabled:      getSetting(db, storeId, 'takeout_enabled', '1') === '1',
+      cutoffTime:   getSetting(db, storeId, 'takeout_cutoff_time', ''),
+      prepMins:     Number(getSetting(db, storeId, 'takeout_prep_minutes', '15')),
+      allowNextDay: getSetting(db, storeId, 'takeout_allow_next_day', '1') === '1',
+      bizHours:     (() => { try { return JSON.parse(getSetting(db, storeId, 'takeout_business_hours', '{}')); } catch { return {}; } })(),
+    };
+  } else {
+    return {
+      enabled:      getSetting(db, storeId, 'delivery_enabled', '1') === '1',
+      cutoffTime:   getSetting(db, storeId, 'delivery_cutoff_time', ''),
+      prepMins:     Number(getSetting(db, storeId, 'delivery_prep_minutes', '30')),
+      allowNextDay: getSetting(db, storeId, 'delivery_allow_next_day', '1') === '1',
+      bizHours:     (() => { try { return JSON.parse(getSetting(db, storeId, 'delivery_business_hours', '{}')); } catch { return {}; } })(),
+    };
+  }
+}
+
+// ── 模式今日是否已截止（cutoff_sold_out 判斷）─────────────
+function isCutoffPassed(cutoffTime, nowMins) {
+  if (!cutoffTime) return false;
+  return nowMins > timeToMins(cutoffTime);
+}
+
+// ── 取得某模式某日的最早可選時間（分鐘）────────────────────
+// 若今日超過結束 → 回傳 null（今日無時段）
+function getEarliestMins(modeSettings, dateStr, nowMins) {
+  const todayStr = twDateStr();
+  const isToday = dateStr === todayStr;
+  const wdKey = WD_KEYS[new Date(dateStr + 'T00:00:00+08:00').getDay()];
+  const dh = modeSettings.bizHours[wdKey];
+  if (!dh || !dh.enabled) return null; // 非營業日
+  const openMins  = timeToMins(dh.open  || '09:00');
+  const closeMins = timeToMins(dh.close || '21:00');
+  if (isToday) {
+    // 最早 = max(現在+prep, 開店時間)，進位至30分鐘格
+    const earliest = Math.max(Math.ceil((nowMins + modeSettings.prepMins) / 30) * 30, openMins);
+    if (earliest >= closeMins) return null; // 今日已無時段
+    return earliest;
+  } else {
+    return openMins;
+  }
+}
+
+// ── LINE 商品可售份數檢查 ──────────────────────────────────
+function getLineQuotaStatus(product) {
+  if (!Number(product.line_quota_enabled)) {
+    return { hasQuota: false, remaining: null, reason: null };
+  }
+  const daily    = Number(product.line_quota_daily  || 0);
+  const sold     = Number(product.line_quota_sold   || 0);
+  const low      = Number(product.line_quota_low_threshold  || 2);
+  const high     = Number(product.line_quota_high_threshold || 10);
+  const remaining = Math.max(0, daily - sold);
+  let displayLabel = 'available';
+  if (remaining <= 0)    displayLabel = 'sold_out';
+  else if (remaining <= low)  displayLabel = 'low';
+  else if (remaining >= high) displayLabel = 'plenty';
+  return { hasQuota: true, daily, sold, remaining, low, high, displayLabel };
 }
 
 async function triggerN8nWebhook(db, storeId, event, payload) {
@@ -34,7 +130,6 @@ async function triggerN8nWebhook(db, storeId, event, payload) {
 }
 
 function broadcastNewOrder(app, order) {
-  // ★ fix6：只廣播給同 store_id 的 WebSocket client
   try {
     const wss     = app?.get ? app.get('wss') : null;
     const storeId = order?.store_id || 'store_001';
@@ -42,49 +137,7 @@ function broadcastNewOrder(app, order) {
   } catch {}
 }
 
-// ── LINE 點餐資格檢查（依 store_id 讀取設定）──────────────
-function checkLineEligibility(db, storeId, orderType, pickupTime, pickupDate) {
-  if (getSetting(db, storeId, 'line_ordering_enabled', '1') !== '1')
-    return { ok: false, message: 'LINE 點餐目前暫停營業' };
-
-  const twNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
-  const twDateStr = `${twNow.getFullYear()}-${String(twNow.getMonth()+1).padStart(2,'0')}-${String(twNow.getDate()).padStart(2,'0')}`;
-  const dayKeys = ['sun','mon','tue','wed','thu','fri','sat'];
-  const orderDate = pickupDate || twDateStr;
-
-  const todayClosed = getSetting(db, storeId, 'line_today_closed', '0');
-  const closedDate  = getSetting(db, storeId, 'line_today_closed_date', '');
-  if (todayClosed === '1' && closedDate === twDateStr && orderDate === twDateStr)
-    return { ok: false, message: '今日 LINE 點餐休息，感謝您的理解' };
-
-  if (orderType === 'pickup' && getSetting(db, storeId, 'pickup_enabled', '1') !== '1')
-    return { ok: false, message: '目前暫停自取服務' };
-  if (orderType === 'delivery' && getSetting(db, storeId, 'delivery_enabled', '1') !== '1')
-    return { ok: false, message: '目前暫停外送服務' };
-
-  if (getSetting(db, storeId, 'line_business_hours_enabled', '0') === '1') {
-    try {
-      const hours = JSON.parse(getSetting(db, storeId, 'line_business_hours', '{}'));
-      const targetDate = new Date(orderDate + 'T00:00:00+08:00');
-      const pickupWdKey = dayKeys[targetDate.getDay()];
-      const dh = hours[pickupWdKey];
-      const weekNames = ['週日','週一','週二','週三','週四','週五','週六'];
-      if (!dh || !dh.enabled)
-        return { ok: false, message: `${orderDate}（${weekNames[targetDate.getDay()]}）非 LINE 點餐營業日` };
-      if (pickupTime && pickupTime !== '盡快') {
-        const tMatch = String(pickupTime).match(/(\d{1,2}):(\d{2})/);
-        if (tMatch) {
-          const pHHMM = `${String(tMatch[1]).padStart(2,'0')}:${tMatch[2]}`;
-          if (pHHMM < dh.open || pHHMM >= dh.close)
-            return { ok: false, message: `選擇的取餐時間（${pHHMM}）不在營業時間內（${dh.open}～${dh.close}）` };
-        }
-      }
-    } catch {}
-  }
-  return { ok: true };
-}
-
-// ── 扣食材冷藏可販售（限 store_id 食材）──────────────────
+// ── 扣食材冷藏可販售 ──────────────────────────────────────
 function deductIngredients(db, storeId, items, orderId) {
   (items || []).forEach(item => {
     const pid = item.product_id || item.id;
@@ -116,6 +169,10 @@ router.get('/shop', (req, res) => {
   try {
     const db = getDb();
     const storeId = req.storeId || 'store_001';
+    const now = twNow();
+    const todayStr = twDateStr(now);
+    const nowMins = now.getHours()*60 + now.getMinutes();
+
     const keys = [
       'shop_name','shop_logo','shop_cover','shop_address','shop_google_map','shop_hours','shop_announcement',
       'line_order_enabled','line_order_min_amount','line_ordering_enabled',
@@ -124,13 +181,62 @@ router.get('/shop', (req, res) => {
       'line_closed_weekdays','line_closed_dates',
       'line_payment_cash_enabled','line_payment_linepay_enabled','line_payment_transfer_enabled',
       'line_payment_platform_enabled','line_payment_credit_card_enabled',
+      // v1 新增
+      'takeout_enabled','takeout_cutoff_time','takeout_prep_minutes','takeout_allow_next_day','takeout_business_hours',
+      'delivery_cutoff_time','delivery_prep_minutes','delivery_allow_next_day','delivery_business_hours',
+      'next_day_min_hours',
     ];
     const settings = {};
     keys.forEach(k => { settings[k] = getSetting(db, storeId, k, ''); });
-    const twShopNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
-    const twShopDate = `${twShopNow.getFullYear()}-${String(twShopNow.getMonth()+1).padStart(2,'0')}-${String(twShopNow.getDate()).padStart(2,'0')}`;
-    const todayClosed = settings.line_today_closed === '1' && settings.line_today_closed_date === twShopDate;
-    settings.is_open = settings.line_ordering_enabled === '1' && !todayClosed;
+
+    const isClosed = settings.line_today_closed === '1' && settings.line_today_closed_date === todayStr;
+    settings.is_open = settings.line_ordering_enabled === '1' && !isClosed;
+
+    // 外帶/外送獨立狀態
+    const takeoutMode   = getModeSettings(db, storeId, 'takeout');
+    const deliveryMode  = getModeSettings(db, storeId, 'delivery');
+    const closedInfo    = isClosedDate(db, storeId, todayStr);
+
+    settings.takeout_status = {
+      enabled:        takeoutMode.enabled,
+      cutoff_passed:  takeoutMode.enabled && isCutoffPassed(takeoutMode.cutoffTime, nowMins),
+      is_closed_day:  closedInfo.closed,
+      earliest_today: takeoutMode.enabled && !closedInfo.closed
+        ? getEarliestMins(takeoutMode, todayStr, nowMins)
+        : null,
+    };
+    settings.delivery_status = {
+      enabled:        deliveryMode.enabled,
+      cutoff_passed:  deliveryMode.enabled && isCutoffPassed(deliveryMode.cutoffTime, nowMins),
+      is_closed_day:  closedInfo.closed,
+      earliest_today: deliveryMode.enabled && !closedInfo.closed
+        ? getEarliestMins(deliveryMode, todayStr, nowMins)
+        : null,
+    };
+
+    // 找下一個可訂日（最多往後查 7 天）
+    function nextAvailableDates(modeSettings, count=3) {
+      const dates = [];
+      const d = new Date(now);
+      d.setDate(d.getDate() + 1); // 從明天開始
+      for (let i=0; i<14 && dates.length<count; i++) {
+        const ds = twDateStr(d);
+        const cInfo = isClosedDate(db, storeId, ds);
+        if (!cInfo.closed) {
+          const wk = WD_KEYS[d.getDay()];
+          const dh = modeSettings.bizHours[wk];
+          if (dh && dh.enabled) dates.push(ds);
+        }
+        d.setDate(d.getDate() + 1);
+      }
+      return dates;
+    }
+    settings.takeout_next_dates  = nextAvailableDates(takeoutMode, 3);
+    settings.delivery_next_dates = nextAvailableDates(deliveryMode, 3);
+    settings.today_closed_info   = closedInfo;
+    settings.today = todayStr;
+    settings.now_mins = nowMins;
+
     res.json({ success: true, data: settings });
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
@@ -140,6 +246,14 @@ router.get('/menu', (req, res) => {
   try {
     const db = getDb();
     const storeId = req.storeId || 'store_001';
+    const now = twNow();
+    const nowMins = now.getHours()*60 + now.getMinutes();
+
+    // 模式截止狀態（外帶/外送獨立）
+    const takeoutMode  = getModeSettings(db, storeId, 'takeout');
+    const deliveryMode = getModeSettings(db, storeId, 'delivery');
+    const toCutoff = isCutoffPassed(takeoutMode.cutoffTime, nowMins);
+    const dlCutoff = isCutoffPassed(deliveryMode.cutoffTime, nowMins);
 
     const categories = db.all(
       'SELECT * FROM categories WHERE store_id=? AND is_active=1 ORDER BY sort_order ASC, id ASC',
@@ -179,7 +293,6 @@ router.get('/menu', (req, res) => {
     const usedCatIds = new Set(filteredProducts.map(p => p.displayCatId).filter(id => id > 0));
     const lineCategories = categories.filter(c => usedCatIds.has(c.id));
 
-    // 熱銷（限本店訂單）
     const topRows = db.all(
       `SELECT json_each.value as item_json FROM orders, json_each(orders.items)
        WHERE orders.store_id=? AND orders.created_at >= datetime('now','-30 days') AND orders.status != 'void'`,
@@ -199,8 +312,11 @@ router.get('/menu', (req, res) => {
       const linePrice  = Number(p.line_price) > 0 ? Number(p.line_price) : basePrice;
       const lineName   = (p.line_name||'').trim() || p.name;
       const saleStatus = p.sale_status || 'available';
-      const saleLabel  = { available:'正常', sold_out_today:'今日完售', paused:'暫停販售', sold_out_indefinitely:'暫不供應' }[saleStatus] || '正常';
 
+      // ── LINE 專屬可售份數 ──────────────────────────────
+      const quota = getLineQuotaStatus(p);
+
+      // ── 食材/庫存 ──────────────────────────────────────
       const formulas = db.all(
         'SELECT f.*,i.refrigerated_stock,i.unit as ing_unit FROM product_ingredient_formulas f LEFT JOIN ingredients i ON i.id=f.ingredient_id AND i.store_id=? WHERE f.product_id=?',
         [storeId, p.id]
@@ -210,6 +326,7 @@ router.get('/menu', (req, res) => {
       if (hasFormula) {
         let minUnits = Infinity, bottleneckG = Infinity;
         formulas.forEach(f => {
+          const { toGrams } = require('../utils/unitConvert');
           const refrigG  = toGrams(Number(f.refrigerated_stock||0), f.ing_unit||'g');
           const perUnitG = Number(f.amount_per_unit||0);
           const units    = perUnitG > 0 ? Math.floor(refrigG / perUnitG) : 0;
@@ -224,25 +341,150 @@ router.get('/menu', (req, res) => {
         availableGrams = stockG;
         ingredientOk   = availableUnits > 0;
       }
-      const isOrderable = !p.line_sold_out && saleStatus === 'available' && ingredientOk;
+
+      // ── 售完判斷（外帶/外送獨立）─────────────────────
+      // real_sold_out：LINE 份數歸零
+      const realSoldOut = quota.hasQuota && quota.remaining <= 0;
+      // cutoff_sold_out：依模式獨立判斷
+      // 前台需要知道外帶/外送各自的狀態
+      const takeoutSoldOutReason = !takeoutMode.enabled ? 'mode_closed'
+        : (toCutoff ? 'cutoff_sold_out' : (realSoldOut ? 'real_sold_out' : null));
+      const deliverySoldOutReason = !deliveryMode.enabled ? 'mode_closed'
+        : (dlCutoff ? 'cutoff_sold_out' : (realSoldOut ? 'real_sold_out' : null));
+
+      const isOrderable = !p.line_sold_out && saleStatus === 'available' && ingredientOk && !realSoldOut;
+
       return {
         ...p,
         display_cat_id: p.displayCatId, display_cat_name: p.displayCatName,
         display_cat_icon: p.displayCatIcon, display_cat_sort: p.displayCatSort,
         effective_price: basePrice, effective_line_price: linePrice, effective_line_name: lineName,
-        sale_status: saleStatus, sale_status_label: saleLabel,
+        sale_status: saleStatus,
         ingredient_available: ingredientOk, is_orderable: isOrderable,
         available_units: availableUnits, available_grams: availableGrams,
         has_formula: hasFormula, low_stock_alert: Number(p.low_stock_alert||5),
         is_hot: hotNames.has(p.name),
         line_description: p.line_description||'', line_image_url: p.line_image_url||'',
         line_hot: Number(p.line_hot)||0, line_promo: Number(p.line_promo)||0,
+        // LINE 可售份數
+        line_quota: quota,
+        takeout_sold_out_reason:  takeoutSoldOutReason,
+        delivery_sold_out_reason: deliverySoldOutReason,
       };
     });
 
     res.json({ success: true, data: { categories: lineCategories, products: enriched } });
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
+
+// ── GET /timeslots — 取得可選時段 API ────────────────────
+// ?mode=takeout|delivery&date=YYYY-MM-DD
+router.get('/timeslots', (req, res) => {
+  try {
+    const db = getDb();
+    const storeId = req.storeId || 'store_001';
+    const mode = req.query.mode === 'delivery' ? 'delivery' : 'takeout';
+    const dateStr = req.query.date || twDateStr();
+    const now = twNow();
+    const nowMins = now.getHours()*60 + now.getMinutes();
+    const todayStr = twDateStr(now);
+
+    const modeSettings = getModeSettings(db, storeId, mode);
+    if (!modeSettings.enabled) return res.json({ success: true, slots: [], reason: 'mode_closed' });
+
+    const closedInfo = isClosedDate(db, storeId, dateStr);
+    if (closedInfo.closed) return res.json({ success: true, slots: [], reason: 'closed_day' });
+
+    // 截止判斷（今日才判斷 cutoff）
+    if (dateStr === todayStr && isCutoffPassed(modeSettings.cutoffTime, nowMins)) {
+      return res.json({ success: true, slots: [], reason: 'cutoff_passed' });
+    }
+
+    const earliestMins = getEarliestMins(modeSettings, dateStr, nowMins);
+    if (earliestMins === null) return res.json({ success: true, slots: [], reason: 'no_slots_today' });
+
+    const wdKey = WD_KEYS[new Date(dateStr + 'T00:00:00+08:00').getDay()];
+    const dh = modeSettings.bizHours[wdKey];
+    const closeMins = timeToMins(dh?.close || '21:00');
+
+    const slots = [];
+    for (let t = earliestMins; t < closeMins; t += 30) {
+      slots.push(minsToTime(t));
+    }
+    res.json({ success: true, slots, earliest: minsToTime(earliestMins), mode, date: dateStr });
+  } catch(e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+// ── GET /validate-cart — 加入購物車時驗證 ────────────────
+// ?mode=takeout|delivery&product_ids=1,2,3
+router.get('/validate-cart', (req, res) => {
+  try {
+    const db = getDb();
+    const storeId = req.storeId || 'store_001';
+    const mode = req.query.mode === 'delivery' ? 'delivery' : 'takeout';
+    const productIds = String(req.query.product_ids||'').split(',').map(Number).filter(Boolean);
+    const now = twNow();
+    const todayStr = twDateStr(now);
+    const nowMins = now.getHours()*60 + now.getMinutes();
+
+    const checks = validateOrderConditions(db, storeId, mode, todayStr, null, nowMins);
+    const productResults = productIds.map(pid => {
+      const p = db.get('SELECT * FROM products WHERE id=? AND store_id=?', [pid, storeId]);
+      if (!p) return { product_id: pid, ok: false, reason: 'not_found' };
+      const quota = getLineQuotaStatus(p);
+      if (quota.hasQuota && quota.remaining <= 0)
+        return { product_id: pid, ok: false, reason: 'real_sold_out', name: p.name };
+      return { product_id: pid, ok: true, name: p.name };
+    });
+
+    res.json({ success: true, mode_ok: checks.ok, mode_reason: checks.reason, products: productResults });
+  } catch(e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+// ── 結帳前驗證邏輯（共用）────────────────────────────────
+function validateOrderConditions(db, storeId, mode, dateStr, pickupTime, nowMins) {
+  const now = twNow();
+  if (nowMins === undefined) nowMins = now.getHours()*60 + now.getMinutes();
+  const todayStr = twDateStr(now);
+
+  // 1. 全域 LINE 點餐開關
+  if (getSetting(db, storeId, 'line_ordering_enabled', '1') !== '1')
+    return { ok: false, reason: 'line_disabled', message: 'LINE 點餐目前暫停營業' };
+
+  // 2. 店休日判斷
+  const orderDate = dateStr || todayStr;
+  const closedInfo = isClosedDate(db, storeId, orderDate);
+  if (closedInfo.closed)
+    return { ok: false, reason: 'closed_day', message: `${orderDate} 為店休日，請選擇其他日期` };
+
+  // 3. 今日臨時休息
+  const todayClosed = getSetting(db, storeId, 'line_today_closed', '0');
+  const closedDate  = getSetting(db, storeId, 'line_today_closed_date', '');
+  if (todayClosed === '1' && closedDate === todayStr && orderDate === todayStr)
+    return { ok: false, reason: 'today_closed', message: '今日 LINE 點餐休息' };
+
+  // 4. 模式開關（外帶/外送獨立）
+  const modeSettings = getModeSettings(db, storeId, mode);
+  if (!modeSettings.enabled)
+    return { ok: false, reason: 'mode_closed', message: `目前${mode==='takeout'?'外帶':'外送'}服務已關閉` };
+
+  // 5. 今日截止時間（只針對今天）
+  if (orderDate === todayStr && isCutoffPassed(modeSettings.cutoffTime, nowMins)) {
+    return { ok: false, reason: 'cutoff_sold_out',
+      message: `${mode==='takeout'?'外帶':'外送'}已超過今日最後接單時間（${modeSettings.cutoffTime}）` };
+  }
+
+  // 6. 取餐時間有效性
+  if (pickupTime && pickupTime !== '盡快' && orderDate === todayStr) {
+    const [ph, pm] = pickupTime.split(':').map(Number);
+    const pTotal = ph * 60 + pm;
+    if (pTotal < nowMins + modeSettings.prepMins)
+      return { ok: false, reason: 'time_too_early',
+        message: `此時段距離現在太近，最短備餐時間 ${modeSettings.prepMins} 分鐘` };
+  }
+
+  return { ok: true };
+}
 
 // ── POST /（新 LINE 訂單）──────────────────────────────────
 router.post('/', (req, res) => {
@@ -251,7 +493,7 @@ router.post('/', (req, res) => {
     const storeId = req.storeId || 'store_001';
     const {
       customer_name, customer_phone, customer_line_id,
-      order_type, pickup_time, delivery_address,
+      order_type, pickup_time, pickup_date, delivery_address,
       note, payment_method, items, subtotal, discount_amount, total
     } = req.body;
 
@@ -260,33 +502,18 @@ router.post('/', (req, res) => {
     if (!customer_name || !customer_phone)
       return res.status(400).json({ success: false, message: '請填寫姓名與電話' });
 
-    const pickup_date = req.body.pickup_date || '';
-    const eligible = checkLineEligibility(db, storeId, order_type, pickup_time, pickup_date);
-    if (!eligible.ok) return res.status(403).json({ success: false, message: eligible.message });
+    const now = twNow();
+    const nowMins = now.getHours()*60 + now.getMinutes();
+    const todayStr = twDateStr(now);
+    const orderDate = pickup_date || todayStr;
 
-    // 店休日 + 預訂時間限制
-    const WD_MAP2 = ['sun','mon','tue','wed','thu','fri','sat'];
-    const twNowV = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
-    const twDateStrV = `${twNowV.getFullYear()}-${String(twNowV.getMonth()+1).padStart(2,'0')}-${String(twNowV.getDate()).padStart(2,'0')}`;
-    const validateDate = pickup_date || twDateStrV;
-    const targetDayObj = new Date(validateDate + 'T00:00:00+08:00');
-    const validateWdKey = WD_MAP2[targetDayObj.getDay()];
-    const closedWds2 = (() => { try { return JSON.parse(getSetting(db, storeId, 'line_closed_weekdays', '[]')); } catch { return []; } })();
-    const closedDts2 = (() => { try { return JSON.parse(getSetting(db, storeId, 'line_closed_dates', '[]')); } catch { return []; } })();
-    if (closedWds2.includes(validateWdKey))
-      return res.status(400).json({ success: false, message: `${validateDate} 為固定公休日，請選擇其他日期` });
-    if (closedDts2.includes(validateDate))
-      return res.status(400).json({ success: false, message: `${validateDate} 為店休日，請選擇其他日期` });
-    if (pickup_time && pickup_time !== '盡快' && validateDate === twDateStrV) {
-      const [ph, pm] = pickup_time.split(':').map(Number);
-      const pTotal   = ph * 60 + pm;
-      const nowTotal = twNowV.getHours() * 60 + twNowV.getMinutes();
-      const sdMins   = Number(getSetting(db, storeId, 'same_day_preorder_minutes', '30'));
-      if (pTotal < nowTotal + sdMins)
-        return res.status(400).json({ success: false, message: `此時段距離現在太近，請選擇 ${sdMins} 分鐘後的時段` });
-    }
+    // ── 結帳前雙重驗證 ─────────────────────────────────
+    const mode = order_type === 'delivery' ? 'delivery' : 'takeout';
+    const validation = validateOrderConditions(db, storeId, mode, orderDate, pickup_time, nowMins);
+    if (!validation.ok)
+      return res.status(403).json({ success: false, message: validation.message, reason: validation.reason });
 
-    // 商品驗證（限本店商品）
+    // ── 商品驗證（含 LINE 份數）──────────────────────────
     for (const item of items) {
       const pid  = item.product_id || item.id;
       const prod = pid ? db.get('SELECT * FROM products WHERE id=? AND store_id=?', [pid, storeId]) : null;
@@ -297,6 +524,31 @@ router.post('/', (req, res) => {
       if (prod.sale_status !== 'available')
         return res.status(400).json({ success: false, message: `「${prod.name}」目前無法購買` });
 
+      // LINE 專屬份數驗證（重要：不動主庫存）
+      const quota = getLineQuotaStatus(prod);
+      if (quota.hasQuota) {
+        if (quota.remaining <= 0)
+          return res.status(400).json({
+            success: false, message: `「${prod.name}」LINE 今日份數已售完`,
+            reason: 'real_sold_out'
+          });
+        if (quota.remaining < Number(item.qty||1))
+          return res.status(400).json({
+            success: false, message: `「${prod.name}」LINE 剩餘份數不足（剩 ${quota.remaining} 份）`,
+            reason: 'quota_insufficient'
+          });
+      }
+
+      // LINE 可販售時段
+      if (prod.line_sell_start || prod.line_sell_end) {
+        const nowHHMM = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+        if (prod.line_sell_start && nowHHMM < prod.line_sell_start)
+          return res.status(400).json({ success: false, message: `「${prod.name}」尚未開始販售（${prod.line_sell_start} 開賣）` });
+        if (prod.line_sell_end && nowHHMM >= prod.line_sell_end)
+          return res.status(400).json({ success: false, message: `「${prod.name}」今日販售時段已結束` });
+      }
+
+      // 食材庫存驗證
       const formulas = db.all(
         'SELECT f.*,i.refrigerated_stock,i.unit as ing_unit,i.name as ing_name FROM product_ingredient_formulas f LEFT JOIN ingredients i ON i.id=f.ingredient_id AND i.store_id=? WHERE f.product_id=?',
         [storeId, prod.id]
@@ -309,7 +561,7 @@ router.post('/', (req, res) => {
       }
     }
 
-    // 付款方式驗證
+    // ── 付款方式驗證 ──────────────────────────────────
     const PAYMENT_SETTINGS = {
       cash:'line_payment_cash_enabled', linepay:'line_payment_linepay_enabled',
       transfer:'line_payment_transfer_enabled', platform:'line_payment_platform_enabled',
@@ -320,10 +572,10 @@ router.post('/', (req, res) => {
       return res.status(400).json({ success: false, message: `付款方式「${payment_method}」目前未開放` });
     const payment_category = payment_method === 'cash' ? 'cash' : 'non_cash';
 
+    // ── 建立訂單 ──────────────────────────────────────
     const uuid = uuidv4(), orderNo = orderNumber();
-    const twNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
     const pad = (n,l=2) => String(n).padStart(l,'0');
-    const now = `${twNow.getFullYear()}-${pad(twNow.getMonth()+1)}-${pad(twNow.getDate())} ${pad(twNow.getHours())}:${pad(twNow.getMinutes())}:${pad(twNow.getSeconds())}`;
+    const nowStr = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
     const itemsJson = JSON.stringify(items);
     const finalTotal = Number(total)||Number(subtotal)||0;
     const discAmt    = Number(discount_amount)||0;
@@ -346,9 +598,23 @@ router.post('/', (req, res) => {
         pickupTimeVal, delivery_address||'', 'LINE', '',
         itemsJson, payment_method||'cash', payment_category, 'pending',
         sub, 'none', discAmt, finalTotal,
-        note||'', 'synced', 'LINE', 'line', now, now
+        note||'', 'synced', 'LINE', 'line', nowStr, nowStr
       ]
     );
+
+    // ── 扣 LINE 專屬份數（不動主庫存）───────────────
+    // 重要：這裡只更新 line_quota_sold，不修改任何主庫存欄位
+    items.forEach(item => {
+      const pid = item.product_id || item.id;
+      if (!pid) return;
+      const prod = db.get('SELECT * FROM products WHERE id=? AND store_id=?', [pid, storeId]);
+      if (!prod || !Number(prod.line_quota_enabled)) return;
+      db.run(
+        `UPDATE products SET line_quota_sold = line_quota_sold + ?, updated_at=datetime('now','localtime')
+         WHERE id=? AND store_id=?`,
+        [Number(item.qty||1), pid, storeId]
+      );
+    });
 
     deductIngredients(db, storeId, items, orderNo);
 
@@ -409,10 +675,10 @@ router.patch('/online/:id/status', (req, res) => {
       return res.status(404).json({ success: false, error: 'ORDER_NOT_FOUND', message: '找不到訂單：' + rawId });
 
     const orderNo = order.order_number;
-    const now = new Date().toLocaleString('sv', { timeZone: 'Asia/Taipei' }).replace('T', ' ');
+    const now2 = new Date().toLocaleString('sv', { timeZone: 'Asia/Taipei' }).replace('T', ' ');
     db.run(
       `UPDATE orders SET status=?, order_status=?, kitchen_status=?, updated_at=? WHERE order_number=? AND store_id=?`,
-      [newStatus, newStatus, newStatus, now, orderNo, storeId]
+      [newStatus, newStatus, newStatus, now2, orderNo, storeId]
     );
 
     const verified = db.get(
@@ -436,7 +702,6 @@ router.patch('/online/:id/status', (req, res) => {
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
 
-// ── 共用常數 ────────────────────────────────────────────────
 const STATUS_LABELS = { pending:'待確認', accepted:'已接單', preparing:'製作中', ready:'可取餐', completed:'已完成', cancelled:'已取消' };
 const ORDER_TYPE_LABELS = { delivery:'外送', takeout:'自取', pickup:'自取' };
 const PAYMENT_LABELS = { cash:'現金', linepay:'LINE Pay', transfer:'轉帳', platform:'平台付款', credit_card:'信用卡' };
@@ -459,7 +724,6 @@ function safeOrder(order) {
 
 function isFullPhone(input) { return /^\d{6,}$/.test(String(input||'').replace(/[-\s]/g,'')); }
 
-// ── GET /status/:orderNo ──────────────────────────────────
 router.get('/status/:orderNo', (req, res) => {
   try {
     const db = getDb();
@@ -473,7 +737,6 @@ router.get('/status/:orderNo', (req, res) => {
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
 
-// ── POST /query ───────────────────────────────────────────
 router.post('/query', (req, res) => {
   try {
     const db = getDb();
@@ -489,9 +752,9 @@ router.post('/query', (req, res) => {
     }
     if (!rawPhone) return res.status(400).json({ success: false, message: '請輸入電話或電話後三碼' });
 
-    const twNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
-    const todayStr = `${twNow.getFullYear()}-${String(twNow.getMonth()+1).padStart(2,'0')}-${String(twNow.getDate()).padStart(2,'0')}`;
-    const threeDaysAgo = (() => { const d=new Date(twNow); d.setDate(d.getDate()-3); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; })();
+    const now3 = twNow();
+    const todayStr2 = twDateStr(now3);
+    const threeDaysAgo = (() => { const d=new Date(now3); d.setDate(d.getDate()-3); return twDateStr(d); })();
     const fullPhone = isFullPhone(rawPhone);
 
     if (rawOrderNo) {
@@ -521,7 +784,7 @@ router.post('/query', (req, res) => {
     } else {
       const orders = db.all(
         `SELECT * FROM orders WHERE store_id=? AND source='line' AND substr(customer_phone,-3)=? AND date(created_at)=? ORDER BY created_at DESC LIMIT 10`,
-        [storeId, last3, todayStr]
+        [storeId, last3, todayStr2]
       );
       if (!orders.length) return res.status(404).json({ success: false, message: '查無今日訂單，請確認電話後三碼或詢問店員' });
       return res.json({ success: true, mode: 'list', orders: orders.map(safeOrder) });
@@ -529,7 +792,6 @@ router.post('/query', (req, res) => {
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
 
-// ── POST /history ─────────────────────────────────────────
 router.post('/history', (req, res) => {
   try {
     const db = getDb();
@@ -537,8 +799,8 @@ router.post('/history', (req, res) => {
     const rawPhone = String(req.body.phone||'').trim();
     const rawName  = String(req.body.customer_name||'').trim();
     if (!rawPhone) return res.status(400).json({ success: false, message: '請輸入電話' });
-    const twNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
-    const threeDaysAgo = (() => { const d=new Date(twNow); d.setDate(d.getDate()-3); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; })();
+    const now4 = twNow();
+    const threeDaysAgo2 = (() => { const d=new Date(now4); d.setDate(d.getDate()-3); return twDateStr(d); })();
     const fullPhone = isFullPhone(rawPhone);
     if (fullPhone) {
       const cleaned = rawPhone.replace(/[-\s]/g,'');
@@ -551,10 +813,25 @@ router.post('/history', (req, res) => {
     if (!/^\d{3}$/.test(last3)) return res.status(400).json({ success: false, message: '電話後三碼請輸入3位數字' });
     const orders = db.all(
       `SELECT * FROM orders WHERE store_id=? AND source='line' AND substr(customer_phone,-3)=? AND customer_name LIKE ? AND date(created_at) >= ? ORDER BY created_at DESC LIMIT 30`,
-      [storeId, last3, `%${rawName}%`, threeDaysAgo]
+      [storeId, last3, `%${rawName}%`, threeDaysAgo2]
     );
     if (!orders.length) return res.status(404).json({ success: false, message: '查無最近3天訂單，請確認資料或詢問店員' });
     return res.json({ success: true, orders: orders.map(safeOrder) });
+  } catch(e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+// ── PUT /quota-reset — 每日重置 LINE 已售份數（排程用）──
+// POST /api/line-orders/quota-reset
+router.post('/quota-reset', (req, res) => {
+  try {
+    const db = getDb();
+    const storeId = req.storeId || 'store_001';
+    db.run(
+      `UPDATE products SET line_quota_sold=0, updated_at=datetime('now','localtime')
+       WHERE store_id=? AND line_quota_enabled=1`,
+      [storeId]
+    );
+    res.json({ success: true, message: 'LINE 今日已售份數已重置' });
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
 

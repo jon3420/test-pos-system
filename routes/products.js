@@ -54,6 +54,17 @@ function enrichProduct(p) {
     effective_line_price: effectiveLinePrice, effective_line_name: effectiveLineName,
     is_line_orderable: showOnLine === 1 && !p.line_sold_out && saleStatus === 'available',
     has_formula: !!p._has_formula,
+    // LINE 可售份數（v1）
+    line_quota_enabled:        Number(p.line_quota_enabled)        || 0,
+    line_quota_daily:          Number(p.line_quota_daily)          || 0,
+    line_quota_sold:           Number(p.line_quota_sold)           || 0,
+    line_quota_low_threshold:  Number(p.line_quota_low_threshold)  || 2,
+    line_quota_high_threshold: Number(p.line_quota_high_threshold) || 10,
+    line_sell_start:           p.line_sell_start || '',
+    line_sell_end:             p.line_sell_end   || '',
+    line_quota_remaining: Number(p.line_quota_enabled)
+      ? Math.max(0, Number(p.line_quota_daily||0) - Number(p.line_quota_sold||0))
+      : null,
   };
 }
 
@@ -220,7 +231,11 @@ router.patch('/:id/line-settings', requireFeature('line_order'), (req, res) => {
     const {
       show_on_line, line_name, line_price, line_description,
       line_image_url, line_category, line_category_id, line_hot, line_promo,
-      line_sold_out, sale_status, sold_out_until, auto_restore_next_day, product_barcode
+      line_sold_out, sale_status, sold_out_until, auto_restore_next_day, product_barcode,
+      // LINE 接單與可售管理中心 v1 新增欄位
+      line_quota_enabled, line_quota_daily, line_quota_sold,
+      line_quota_low_threshold, line_quota_high_threshold,
+      line_sell_start, line_sell_end,
     } = req.body;
     const sets = []; const vals = [];
     const add = (col, val) => { if (val !== undefined) { sets.push(`${col}=?`); vals.push(val); } };
@@ -236,6 +251,15 @@ router.patch('/:id/line-settings', requireFeature('line_order'), (req, res) => {
     add('sold_out_until',        sold_out_until);
     add('auto_restore_next_day', auto_restore_next_day  != null ? Number(auto_restore_next_day) : undefined);
     add('product_barcode',       product_barcode);
+    // v1：LINE 可售份數欄位（僅影響 LINE，不動主庫存）
+    add('line_quota_enabled',        line_quota_enabled        != null ? Number(line_quota_enabled)        : undefined);
+    add('line_quota_daily',          line_quota_daily          != null ? Number(line_quota_daily)          : undefined);
+    // line_quota_sold 允許手動重置（設為 0）
+    add('line_quota_sold',           line_quota_sold           != null ? Number(line_quota_sold)           : undefined);
+    add('line_quota_low_threshold',  line_quota_low_threshold  != null ? Number(line_quota_low_threshold)  : undefined);
+    add('line_quota_high_threshold', line_quota_high_threshold != null ? Number(line_quota_high_threshold) : undefined);
+    add('line_sell_start',           line_sell_start);
+    add('line_sell_end',             line_sell_end);
     if (line_category_id !== undefined) {
       const catId = Number(line_category_id);
       add('line_category_id', catId);
@@ -252,7 +276,12 @@ router.patch('/:id/line-settings', requireFeature('line_order'), (req, res) => {
     sets.push("updated_at=datetime('now','localtime')");
     vals.push(id); vals.push(storeId);
     db.run(`UPDATE products SET ${sets.join(',')} WHERE id=? AND store_id=?`, vals);
-    res.json({ success: true, data: enrichProduct(db.get('SELECT * FROM products WHERE id=?', [id])) });
+    const updated = db.get('SELECT * FROM products WHERE id=?', [id]);
+    // 計算 LINE 剩餘份數供前端顯示
+    const quotaRemaining = Number(updated.line_quota_enabled)
+      ? Math.max(0, Number(updated.line_quota_daily||0) - Number(updated.line_quota_sold||0))
+      : null;
+    res.json({ success: true, data: { ...enrichProduct(updated), line_quota_remaining: quotaRemaining } });
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
 

@@ -498,18 +498,90 @@
           </div>
           <p style="font-size:12px;color:#888;margin-top:8px">隔日自動恢復</p>
         </div>
+        <!-- 外帶/外送當前狀態一覽 -->
         <div class="settings-card">
-          <h3>🚴 自取 / 外送開關</h3>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
-            <button class="btn-secondary" onclick="setPickup(true)">✅ 開啟自取</button>
-            <button class="btn-secondary" onclick="setPickup(false)">❌ 關閉自取</button>
+          <h3>🚦 當前接單狀態</h3>
+          <div id="pickupDeliveryStatus" style="font-size:13px;color:#333;font-weight:600;margin-bottom:10px">載入中…</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <div style="background:#f8f9fa;border-radius:8px;padding:10px 12px;text-align:center">
+              <div style="font-size:12px;color:#888;margin-bottom:4px">🛍️ 外帶</div>
+              <div id="takeout-live-status" style="font-size:13px;font-weight:700">—</div>
+            </div>
+            <div style="background:#f8f9fa;border-radius:8px;padding:10px 12px;text-align:center">
+              <div style="font-size:12px;color:#888;margin-bottom:4px">🛵 外送</div>
+              <div id="delivery-live-status" style="font-size:13px;font-weight:700">—</div>
+            </div>
           </div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <button class="btn-secondary" onclick="setDelivery(true)">✅ 開啟外送</button>
-            <button class="btn-secondary" onclick="setDelivery(false)">❌ 關閉外送</button>
-          </div>
-          <div id="pickupDeliveryStatus" style="margin-top:12px;font-size:13px;color:#333;font-weight:600">載入中…</div>
         </div>
+        <!-- ── 外帶接單規則（v1）────────────────── -->
+        <div class="settings-card" style="grid-column:1/-1">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+            <h3 style="margin:0">🛍️ 外帶接單規則</h3>
+            <label class="checkbox-label" style="margin:0;gap:8px">
+              <input type="checkbox" id="set-takeout_enabled" onchange="saveTakeoutDeliveryRule('takeout')">
+              <span style="font-size:13px;font-weight:600">外帶開放接單</span>
+            </label>
+          </div>
+          <p style="font-size:12px;color:#e65100;background:#fff3e0;border-radius:6px;padding:8px 10px;margin-bottom:12px">
+            ⚠️ 外帶與外送完全獨立判斷，關閉其中一種不影響另一種
+          </p>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:14px">
+            <label>
+              <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:6px">今日最後接單時間</div>
+              <input type="time" id="set-takeout_cutoff_time" class="form-input" style="width:100%">
+              <div style="font-size:11px;color:var(--text-muted);margin-top:4px">超過此時間前台顯示今日售完（不扣庫存）</div>
+            </label>
+            <label>
+              <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:6px">最短備餐時間（分鐘）</div>
+              <input type="number" id="set-takeout_prep_minutes" min="0" step="5" placeholder="15" class="form-input" style="width:100%">
+              <div style="font-size:11px;color:var(--text-muted);margin-top:4px">客人最早可選「現在 ＋ N 分鐘」的時段</div>
+            </label>
+            <label class="checkbox-label" style="align-items:flex-start;padding-top:20px">
+              <input type="checkbox" id="set-takeout_allow_next_day">
+              <div>
+                <span>允許明日預購</span>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:2px">開啟後客人可選明天 / 後天外帶時間</div>
+              </div>
+            </label>
+          </div>
+          <h4 style="font-size:13px;font-weight:700;margin-bottom:10px;color:var(--text-secondary)">外帶每週營業時間</h4>
+          <div id="takeoutBizHoursGrid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px;width:100%;box-sizing:border-box"></div>
+          <button class="btn-primary" style="margin-top:12px;background:#06C755;border-color:#06C755" onclick="saveTakeoutDeliveryRule('takeout')">💾 儲存外帶設定</button>
+        </div>
+
+        <!-- ── 外送接單規則（v1）────────────────── -->
+        <div class="settings-card" style="grid-column:1/-1">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+            <h3 style="margin:0">🛵 外送接單規則</h3>
+            <label class="checkbox-label" style="margin:0;gap:8px">
+              <input type="checkbox" id="set-delivery_enabled" onchange="saveTakeoutDeliveryRule('delivery')">
+              <span style="font-size:13px;font-weight:600">外送開放接單</span>
+            </label>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:14px">
+            <label>
+              <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:6px">今日最後接單時間</div>
+              <input type="time" id="set-delivery_cutoff_time" class="form-input" style="width:100%">
+              <div style="font-size:11px;color:var(--text-muted);margin-top:4px">超過此時間前台顯示今日售完（不扣庫存）</div>
+            </label>
+            <label>
+              <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:6px">最短備餐時間（分鐘）</div>
+              <input type="number" id="set-delivery_prep_minutes" min="0" step="5" placeholder="30" class="form-input" style="width:100%">
+              <div style="font-size:11px;color:var(--text-muted);margin-top:4px">客人最早可選「現在 ＋ N 分鐘」的時段</div>
+            </label>
+            <label class="checkbox-label" style="align-items:flex-start;padding-top:20px">
+              <input type="checkbox" id="set-delivery_allow_next_day">
+              <div>
+                <span>允許明日預購</span>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:2px">開啟後客人可選明天 / 後天外送時間</div>
+              </div>
+            </label>
+          </div>
+          <h4 style="font-size:13px;font-weight:700;margin-bottom:10px;color:var(--text-secondary)">外送每週營業時間</h4>
+          <div id="deliveryBizHoursGrid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px;width:100%;box-sizing:border-box"></div>
+          <button class="btn-primary" style="margin-top:12px;background:#06C755;border-color:#06C755" onclick="saveTakeoutDeliveryRule('delivery')">💾 儲存外送設定</button>
+        </div>
+
         <div class="settings-card">
           <h3>💳 LINE 點餐付款方式</h3>
           <p style="font-size:12px;color:#888;margin-bottom:12px">控制 LINE 點餐頁顯示的付款方式</p>
@@ -538,10 +610,11 @@
           <div id="linePaymentStatus" style="margin-top:10px;font-size:12px;color:#888"></div>
         </div>
         <div class="settings-card" style="grid-column:1/-1;overflow:hidden">
-          <h3>🕐 LINE 點餐營業時間</h3>
+          <h3>🕐 LINE 整體營業時間（舊版相容）</h3>
+          <p style="font-size:12px;color:#888;margin-bottom:10px">此為舊版整體時間設定，若已設定上方「外帶/外送」獨立規則，以獨立規則優先。</p>
           <label class="checkbox-label" style="margin-bottom:14px">
             <input type="checkbox" id="set-line_business_hours_enabled" onchange="saveLineBizSettings()">
-            <span>啟用營業時間限制（未啟用則全天可點）</span>
+            <span>啟用整體營業時間限制</span>
           </label>
           <div id="bizHoursGrid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;width:100%;box-sizing:border-box">
             <!-- 由 JS 動態產生 -->
@@ -1203,7 +1276,67 @@
         <input type="checkbox" id="lineAutoRestore" checked>
         <span>🔄 今日完售隔日自動恢復為正常販售</span>
       </label>
-    </div>
+
+      <!-- ── LINE 可售份數管理（v1）────────────────────── -->
+      <div style="border-top:1px solid #eee;margin-top:16px;padding-top:16px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+          <h4 style="font-size:14px;font-weight:700;color:#222;margin:0">📦 LINE 今日可售份數</h4>
+          <label class="checkbox-label" style="margin:0">
+            <input type="checkbox" id="lineQuotaEnabled" onchange="toggleLineQuotaFields()">
+            <span style="font-size:13px">啟用份數管理</span>
+          </label>
+        </div>
+        <p style="font-size:11px;color:#888;margin-bottom:12px">
+          ⚠️ LINE 份數獨立管理，不影響 Web / Android 現場庫存與販售
+        </p>
+        <div id="lineQuotaFields" style="display:none">
+          <!-- 份數狀態顯示 -->
+          <div id="lineQuotaStatusBar" style="background:#f8f9fa;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:13px;display:none">
+            <div style="display:flex;gap:16px;flex-wrap:wrap">
+              <span>今日開放：<strong id="qs-daily">—</strong> 份</span>
+              <span>已售：<strong id="qs-sold" style="color:#e53935">—</strong> 份</span>
+              <span>剩餘：<strong id="qs-remaining">—</strong> 份</span>
+              <span id="qs-status-badge"></span>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+            <label style="font-size:13px;color:#555">
+              今日開放份數
+              <input type="number" id="lineQuotaDaily" min="0" step="1" placeholder="0 = 不限" style="width:100%;margin-top:4px;padding:8px;border:1px solid #ddd;border-radius:6px;font-size:14px">
+            </label>
+            <label style="font-size:13px;color:#555">
+              LINE 已售份數
+              <div style="display:flex;gap:6px;margin-top:4px">
+                <input type="number" id="lineQuotaSold" min="0" step="1" placeholder="0" style="flex:1;padding:8px;border:1px solid #ddd;border-radius:6px;font-size:14px" readonly>
+                <button type="button" onclick="resetLineQuotaSold()" style="padding:8px 10px;background:#fff3e0;color:#e65100;border:1px solid #ffcc80;border-radius:6px;font-size:12px;cursor:pointer;white-space:nowrap">重置</button>
+              </div>
+            </label>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+            <label style="font-size:13px;color:#555">
+              低庫存提醒門檻（份）
+              <input type="number" id="lineQuotaLowThreshold" min="0" step="1" placeholder="2" style="width:100%;margin-top:4px;padding:8px;border:1px solid #ddd;border-radius:6px;font-size:14px">
+              <span style="font-size:11px;color:#aaa">剩餘 ≤ 此數顯示「快售完」</span>
+            </label>
+            <label style="font-size:13px;color:#555">
+              充足顯示門檻（份）
+              <input type="number" id="lineQuotaHighThreshold" min="0" step="1" placeholder="10" style="width:100%;margin-top:4px;padding:8px;border:1px solid #ddd;border-radius:6px;font-size:14px">
+              <span style="font-size:11px;color:#aaa">剩餘 ≥ 此數顯示「供應充足」</span>
+            </label>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            <label style="font-size:13px;color:#555">
+              LINE 販售開始時間
+              <input type="time" id="lineSellStart" style="width:100%;margin-top:4px;padding:8px;border:1px solid #ddd;border-radius:6px;font-size:14px">
+            </label>
+            <label style="font-size:13px;color:#555">
+              LINE 販售結束時間
+              <input type="time" id="lineSellEnd" style="width:100%;margin-top:4px;padding:8px;border:1px solid #ddd;border-radius:6px;font-size:14px">
+            </label>
+          </div>
+          <p style="font-size:11px;color:#aaa;margin-top:6px">販售時段留空 = 不限時段</p>
+        </div>
+      </div>
     <div class="modal-footer">
       <button class="btn-secondary" onclick="closeLineSettingsModal()">取消</button>
       <button class="btn-primary" style="background:#06C755;border-color:#06C755" onclick="saveLineSettings()">💾 儲存 LINE 設定</button>

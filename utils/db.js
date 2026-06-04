@@ -174,6 +174,14 @@ function initTables(w) {
     'ALTER TABLE products ADD COLUMN auto_restore_next_day INTEGER DEFAULT 1',
     'ALTER TABLE products ADD COLUMN line_category_id INTEGER DEFAULT 0',
     'ALTER TABLE products ADD COLUMN product_barcode TEXT DEFAULT ""',
+    // LINE 接單與可售管理中心 v1
+    'ALTER TABLE products ADD COLUMN line_quota_enabled INTEGER DEFAULT 0',
+    'ALTER TABLE products ADD COLUMN line_quota_daily INTEGER DEFAULT 0',
+    'ALTER TABLE products ADD COLUMN line_quota_sold INTEGER DEFAULT 0',
+    'ALTER TABLE products ADD COLUMN line_quota_low_threshold INTEGER DEFAULT 2',
+    'ALTER TABLE products ADD COLUMN line_quota_high_threshold INTEGER DEFAULT 10',
+    'ALTER TABLE products ADD COLUMN line_sell_start TEXT DEFAULT ""',
+    'ALTER TABLE products ADD COLUMN line_sell_end TEXT DEFAULT ""',
   ];
   prodMig.forEach(sql => { try { w._db.run(sql); w._save(); } catch {} });
 
@@ -768,6 +776,39 @@ function initTables(w) {
   sd(sid,'line_payment_cash_enabled','1'); sd(sid,'line_payment_linepay_enabled','1');
   sd(sid,'line_payment_transfer_enabled','1'); sd(sid,'line_payment_platform_enabled','0');
   sd(sid,'line_payment_credit_card_enabled','0');
+
+  // ── LINE 接單與可售管理中心 v1 ─────────────────────────
+  // 外帶規則
+  sd(sid,'takeout_enabled','1');
+  sd(sid,'takeout_cutoff_time','');
+  sd(sid,'takeout_prep_minutes','15');
+  sd(sid,'takeout_allow_next_day','1');
+  sd(sid,'takeout_business_hours', JSON.stringify({
+    mon:{open:'11:00',close:'20:00',enabled:true},
+    tue:{open:'11:00',close:'20:00',enabled:true},
+    wed:{open:'11:00',close:'20:00',enabled:true},
+    thu:{open:'11:00',close:'20:00',enabled:true},
+    fri:{open:'11:00',close:'20:00',enabled:true},
+    sat:{open:'11:00',close:'20:00',enabled:true},
+    sun:{open:'11:00',close:'20:00',enabled:false},
+  }));
+  // 外送規則
+  sd(sid,'delivery_cutoff_time','');
+  sd(sid,'delivery_prep_minutes','30');
+  sd(sid,'delivery_allow_next_day','1');
+  sd(sid,'delivery_business_hours', JSON.stringify({
+    mon:{open:'11:00',close:'21:00',enabled:true},
+    tue:{open:'11:00',close:'21:00',enabled:true},
+    wed:{open:'11:00',close:'21:00',enabled:true},
+    thu:{open:'11:00',close:'21:00',enabled:true},
+    fri:{open:'11:00',close:'21:00',enabled:true},
+    sat:{open:'11:00',close:'21:00',enabled:true},
+    sun:{open:'11:00',close:'21:00',enabled:false},
+  }));
+  // 公休日 / 店休日（已有 line_closed_weekdays / line_closed_dates，沿用）
+  // 跨日最短預訂時間（小時）
+  sd(sid,'next_day_min_hours','2');
+
   w._save();
 
   // ── licenses ─────────────────────────────────────────

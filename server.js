@@ -174,10 +174,43 @@ function autoResetTodayClosed() {
     });
   } catch(e) { console.error('[AUTO] 重置失敗:', e.message); }
 }
+
+// ── LINE 今日可售份數每日重置（每天 00:05 台灣時間）──────
+function autoResetLineQuota() {
+  try {
+    const db = getDb();
+    const stores = db.all('SELECT store_id FROM stores WHERE active=1');
+    stores.forEach(({ store_id }) => {
+      db.run(
+        `UPDATE products SET line_quota_sold=0, updated_at=datetime('now','localtime')
+         WHERE store_id=? AND line_quota_enabled=1`,
+        [store_id]
+      );
+    });
+    console.log('[AUTO] LINE 今日可售份數已重置，共', stores.length, '家店');
+  } catch(e) { console.error('[AUTO] LINE quota 重置失敗:', e.message); }
+}
+
+// 每小時執行（臨時店休重置）
 setInterval(autoResetTodayClosed, 60 * 60 * 1000);
+
+// 每天 00:05 台灣時間重置 LINE 份數
+function scheduleDailyQuotaReset() {
+  const twNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
+  const nextMidnight = new Date(twNow);
+  nextMidnight.setDate(nextMidnight.getDate() + 1);
+  nextMidnight.setHours(0, 5, 0, 0); // 00:05
+  const msUntil = nextMidnight - twNow;
+  setTimeout(() => {
+    autoResetLineQuota();
+    setInterval(autoResetLineQuota, 24 * 60 * 60 * 1000);
+  }, msUntil);
+  console.log(`[AUTO] LINE 份數重置排程已設定，下次重置：${nextMidnight.toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })}`);
+}
 
 initDb().then((db) => {
   autoResetTodayClosed();
+  scheduleDailyQuotaReset();
 
   // ── Super Admin 總控台（獨立，不需 storeGuard）────────
   app.use('/api/super-admin', require('./routes/superAdmin'));
@@ -243,6 +276,9 @@ initDb().then((db) => {
   const lineOrderRouter = require('./routes/line-orders');
   app.use('/api/line-shop',    requireStore, requireFeature('line_order'), (req, res, next) => { req.url = '/shop'; lineOrderRouter(req, res, next); });
   app.use('/api/line-menu',    requireStore, requireFeature('line_order'), (req, res, next) => { req.url = '/menu'; lineOrderRouter(req, res, next); });
+  // v1 新增：時段查詢 & 加入購物車驗證
+  app.use('/api/line-timeslots',    requireStore, requireFeature('line_order'), (req, res, next) => { req.url = '/timeslots'; lineOrderRouter(req, res, next); });
+  app.use('/api/line-validate-cart', requireStore, requireFeature('line_order'), (req, res, next) => { req.url = '/validate-cart'; lineOrderRouter(req, res, next); });
   app.use('/api/line-orders',  requireStore, requireFeature('line_order'), lineOrderRouter);
   app.use('/api/online-orders', requireStore, requireFeature('line_order'), require('./routes/online-orders'));
 

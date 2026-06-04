@@ -19,6 +19,12 @@ const LINE_KEYS = new Set([
   'line_payment_cash_enabled', 'line_payment_linepay_enabled',
   'line_payment_transfer_enabled', 'line_payment_platform_enabled',
   'line_payment_credit_card_enabled',
+  // LINE 接單與可售管理中心 v1
+  'takeout_enabled', 'takeout_cutoff_time', 'takeout_prep_minutes',
+  'takeout_allow_next_day', 'takeout_business_hours',
+  'delivery_cutoff_time', 'delivery_prep_minutes',
+  'delivery_allow_next_day', 'delivery_business_hours',
+  'next_day_min_hours',
 ]);
 
 // 所有允許修改的 key（包含 LINE key）

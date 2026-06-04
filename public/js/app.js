@@ -2280,6 +2280,26 @@ async function openLineSettingsModal(id) {
     document.getElementById('lineSoldOut').checked     = !!Number(p.line_sold_out);
     document.getElementById('lineAutoRestore').checked = p.auto_restore_next_day != null ? !!Number(p.auto_restore_next_day) : true;
 
+    // ── LINE 可售份數（v1）────────────────────────────
+    const qEnabled = !!Number(p.line_quota_enabled);
+    const qEnEl = document.getElementById('lineQuotaEnabled');
+    if (qEnEl) { qEnEl.checked = qEnabled; }
+    toggleLineQuotaFields();
+    const qDaily   = Number(p.line_quota_daily   || 0);
+    const qSold    = Number(p.line_quota_sold     || 0);
+    const qLow     = Number(p.line_quota_low_threshold  || 2);
+    const qHigh    = Number(p.line_quota_high_threshold || 10);
+    const qStart   = p.line_sell_start || '';
+    const qEnd     = p.line_sell_end   || '';
+    const setQV = (id, v) => { const el=document.getElementById(id); if(el) el.value=v; };
+    setQV('lineQuotaDaily',          qDaily);
+    setQV('lineQuotaSold',           qSold);
+    setQV('lineQuotaLowThreshold',   qLow);
+    setQV('lineQuotaHighThreshold',  qHigh);
+    setQV('lineSellStart',           qStart);
+    setQV('lineSellEnd',             qEnd);
+    if (qEnabled) updateLineQuotaStatusBar(qDaily, qSold, qLow, qHigh);
+
     // ── LINE 顯示分類（客人端）設定 ──
     // 邏輯：優先用 line_category_id；若未設定，預設帶入 category_id（第一次設定時自動帶）
     const lineCatId = Number(p.line_category_id) || 0;
@@ -2369,6 +2389,7 @@ async function saveLineSettings() {
   const line_promo         = document.getElementById('linePromo').checked ? 1 : 0;
   const line_sold_out      = document.getElementById('lineSoldOut').checked ? 1 : 0;
   const auto_restore_next_day = document.getElementById('lineAutoRestore').checked ? 1 : 0;
+  // LINE 可售份數欄位不在這裡宣告，直接在 body 裡讀取
 
   try {
     const res = await apiFetch(`/api/products/${id}/line-settings`, {
@@ -2377,7 +2398,14 @@ async function saveLineSettings() {
       body: JSON.stringify({
         show_on_line, sale_status, line_name, line_price,
         line_description, line_image_url, line_category_id,
-        line_hot, line_promo, line_sold_out, auto_restore_next_day
+        line_hot, line_promo, line_sold_out, auto_restore_next_day,
+        // LINE 可售份數（v1）
+        line_quota_enabled:        document.getElementById('lineQuotaEnabled')?.checked ? 1 : 0,
+        line_quota_daily:          Number(document.getElementById('lineQuotaDaily')?.value   || 0),
+        line_quota_low_threshold:  Number(document.getElementById('lineQuotaLowThreshold')?.value  || 2),
+        line_quota_high_threshold: Number(document.getElementById('lineQuotaHighThreshold')?.value || 10),
+        line_sell_start:           document.getElementById('lineSellStart')?.value || '',
+        line_sell_end:             document.getElementById('lineSellEnd')?.value   || '',
       })
     });
     const json = await res.json();
@@ -3721,7 +3749,28 @@ async function loadLineBizStatus() {
         : '<span style="color:#06C755">● 今日正常營業</span>';
       const pdEl = document.getElementById('pickupDeliveryStatus');
       if (pdEl) pdEl.innerHTML =
-        `自取：${d.pickup_enabled !== '0' ? '✅ 開啟' : '❌ 關閉'}　外送：${d.delivery_enabled !== '0' ? '✅ 開啟' : '❌ 關閉'}`;
+        `外帶：${d.takeout_enabled !== '0' ? '✅ 開啟' : '❌ 關閉'}　外送：${d.delivery_enabled !== '0' ? '✅ 開啟' : '❌ 關閉'}`;
+      // 即時狀態小卡
+      const now = new Date(new Date().toLocaleString('en-US',{timeZone:'Asia/Taipei'}));
+      const nowMins = now.getHours()*60+now.getMinutes();
+      const toCard = document.getElementById('takeout-live-status');
+      const dlCard = document.getElementById('delivery-live-status');
+      if(toCard){
+        const enabled = d.takeout_enabled !== '0';
+        const cutoff = d.takeout_cutoff_time;
+        const cutoffPassed = cutoff && nowMins > cutoff.split(':').reduce((h,m,i)=>i?h*60+Number(m):Number(m)*60,0)/60;
+        toCard.innerHTML = !enabled ? '<span style="color:#e53935">已關閉</span>'
+          : cutoffPassed ? '<span style="color:#ff6d00">截止售完</span>'
+          : '<span style="color:#06C755">接單中</span>';
+      }
+      if(dlCard){
+        const enabled = d.delivery_enabled !== '0';
+        const cutoff = d.delivery_cutoff_time;
+        const cutoffPassed = cutoff && nowMins > cutoff.split(':').reduce((h,m,i)=>i?h*60+Number(m):Number(m)*60,0)/60;
+        dlCard.innerHTML = !enabled ? '<span style="color:#e53935">已關閉</span>'
+          : cutoffPassed ? '<span style="color:#ff6d00">截止售完</span>'
+          : '<span style="color:#06C755">接單中</span>';
+      }
       // 填入 LINE 付款方式設定
       const lpMap = {
         cash: 'line_payment_cash_enabled', linepay: 'line_payment_linepay_enabled',
@@ -3733,7 +3782,20 @@ async function loadLineBizStatus() {
         if (el) el.checked = d[key] === '1';
       });
     }
-    // 填入營業時間設定
+    // ── 外帶規則填入（v1）──────────────────────────────
+    const setV = (id, val) => { const el = document.getElementById(id); if(el) el.value = val||''; };
+    const setC = (id, val) => { const el = document.getElementById(id); if(el) el.checked = !!val; };
+    setC('set-takeout_enabled',        d.takeout_enabled !== '0');
+    setV('set-takeout_cutoff_time',    d.takeout_cutoff_time);
+    setV('set-takeout_prep_minutes',   d.takeout_prep_minutes || 15);
+    setC('set-takeout_allow_next_day', d.takeout_allow_next_day !== '0');
+    setC('set-delivery_enabled',       d.delivery_enabled !== '0');
+    setV('set-delivery_cutoff_time',   d.delivery_cutoff_time);
+    setV('set-delivery_prep_minutes',  d.delivery_prep_minutes || 30);
+    setC('set-delivery_allow_next_day',d.delivery_allow_next_day !== '0');
+    renderModeHoursGrid('takeoutBizHoursGrid', d.takeout_business_hours);
+    renderModeHoursGrid('deliveryBizHoursGrid', d.delivery_business_hours);
+    // ── 整體營業時間（舊版相容）──────────────────────────
     const bhe = document.getElementById('set-line_business_hours_enabled');
     if (bhe) bhe.checked = d.line_business_hours_enabled === '1';
     renderBizHoursGrid(d.line_business_hours);
@@ -3881,6 +3943,114 @@ async function saveLineBizSettings() {
 }
 
 async function saveBizHoursFromGrid() { /* 即時儲存，不需 Toast */ saveLineBizSettings().catch(()=>{}); }
+
+// ═══════════════════════════════════════════════════════════
+// LINE 接單與可售管理中心 v1 — Web 後台 JS
+// ═══════════════════════════════════════════════════════════
+
+// ── 外帶/外送每週營業時間 Grid ──────────────────────────
+function renderModeHoursGrid(gridId, hoursJsonStr) {
+  const grid = document.getElementById(gridId);
+  if (!grid) return;
+  let hours = {};
+  try { hours = JSON.parse(hoursJsonStr || '{}'); } catch {}
+  const mode = gridId.startsWith('takeout') ? 'takeout' : 'delivery';
+  grid.innerHTML = DAY_KEYS.map(d => {
+    const dh = hours[d] || { open:'11:00', close:'20:00', enabled: d !== 'sun' };
+    return `<div style="background:#fff;padding:10px 12px;border-radius:8px;border:1px solid #ddd;box-sizing:border-box;min-width:0">
+      <label style="display:flex;align-items:center;gap:6px;margin-bottom:8px;font-weight:700;color:#222;cursor:pointer">
+        <input type="checkbox" id="${mode}-bh-${d}-en" ${dh.enabled?'checked':''} onchange="saveModeHoursFromGrid('${mode}')">
+        <span>${DAY_NAMES[d]}</span>
+      </label>
+      <div style="display:flex;gap:4px;align-items:center;font-size:13px;flex-wrap:wrap">
+        <input type="time" id="${mode}-bh-${d}-open" value="${dh.open||'11:00'}" onchange="saveModeHoursFromGrid('${mode}')" style="flex:1;min-width:80px;padding:4px 6px;border:1px solid #ccc;border-radius:4px;font-size:13px;color:#222;background:#fff;box-sizing:border-box">
+        <span style="color:#555;flex-shrink:0">～</span>
+        <input type="time" id="${mode}-bh-${d}-close" value="${dh.close||'20:00'}" onchange="saveModeHoursFromGrid('${mode}')" style="flex:1;min-width:80px;padding:4px 6px;border:1px solid #ccc;border-radius:4px;font-size:13px;color:#222;background:#fff;box-sizing:border-box">
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ── 外帶/外送接單規則儲存 ─────────────────────────────
+async function saveTakeoutDeliveryRule(mode) {
+  const m = mode === 'delivery' ? 'delivery' : 'takeout';
+  const hours = {};
+  DAY_KEYS.forEach(d => {
+    const en    = document.getElementById(`${m}-bh-${d}-en`);
+    const open  = document.getElementById(`${m}-bh-${d}-open`);
+    const close = document.getElementById(`${m}-bh-${d}-close`);
+    if (en) hours[d] = { enabled: en.checked, open: open?.value||'11:00', close: close?.value||'20:00' };
+  });
+  const enabled    = document.getElementById(`set-${m}_enabled`)?.checked ? '1' : '0';
+  const cutoff     = document.getElementById(`set-${m}_cutoff_time`)?.value || '';
+  const prep       = document.getElementById(`set-${m}_prep_minutes`)?.value || (m==='takeout'?'15':'30');
+  const allowNext  = document.getElementById(`set-${m}_allow_next_day`)?.checked ? '1' : '0';
+  const body = {
+    [`${m}_enabled`]:           enabled,
+    [`${m}_cutoff_time`]:       cutoff,
+    [`${m}_prep_minutes`]:      String(prep),
+    [`${m}_allow_next_day`]:    allowNext,
+    [`${m}_business_hours`]:    JSON.stringify(hours),
+  };
+  // 同步舊版 pickup_enabled / delivery_enabled
+  if (m === 'takeout')   body.pickup_enabled   = enabled;
+  if (m === 'delivery')  body.delivery_enabled = enabled;
+  try {
+    await apiFetch('/api/settings', { method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(body) });
+    showToast(`✅ ${m==='takeout'?'外帶':'外送'}設定已儲存`, 'success');
+    loadLineBizStatus();
+  } catch(e) { showToast('儲存失敗', 'error'); }
+}
+
+async function saveModeHoursFromGrid(mode) {
+  await saveTakeoutDeliveryRule(mode);
+}
+
+// ── LINE 商品設定 Modal：份數 UI ──────────────────────────
+function toggleLineQuotaFields() {
+  const enabled = document.getElementById('lineQuotaEnabled')?.checked;
+  const fields  = document.getElementById('lineQuotaFields');
+  if (fields) fields.style.display = enabled ? 'block' : 'none';
+}
+
+function updateLineQuotaStatusBar(daily, sold, low, high) {
+  const bar = document.getElementById('lineQuotaStatusBar');
+  if (!bar) return;
+  const remaining = Math.max(0, daily - sold);
+  document.getElementById('qs-daily').textContent     = daily;
+  document.getElementById('qs-sold').textContent      = sold;
+  document.getElementById('qs-remaining').textContent = remaining;
+  const badge = document.getElementById('qs-status-badge');
+  if (badge) {
+    if (remaining <= 0)        badge.innerHTML = '<span style="background:#fce8e8;color:#c62828;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:700">今日售完</span>';
+    else if (remaining <= low) badge.innerHTML = '<span style="background:#fff3e0;color:#e65100;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:700">快售完</span>';
+    else if (remaining >= high)badge.innerHTML = '<span style="background:#e8f5e9;color:#2e7d32;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:700">供應充足</span>';
+    else                        badge.innerHTML = '<span style="background:#e3f2fd;color:#1565c0;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:700">販售中</span>';
+  }
+  bar.style.display = 'block';
+}
+
+async function resetLineQuotaSold() {
+  const id = document.getElementById('lineSettingsProductId')?.value;
+  if (!id) return;
+  if (!confirm('確定要重置此商品今日 LINE 已售份數為 0？')) return;
+  try {
+    const res = await apiFetch(`/api/products/${id}/line-settings`, {
+      method: 'PATCH', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ line_quota_sold: 0 })
+    });
+    const json = await res.json();
+    if (json.success) {
+      document.getElementById('lineQuotaSold').value = 0;
+      const daily = Number(document.getElementById('lineQuotaDaily')?.value || 0);
+      const low   = Number(document.getElementById('lineQuotaLowThreshold')?.value || 2);
+      const high  = Number(document.getElementById('lineQuotaHighThreshold')?.value || 10);
+      updateLineQuotaStatusBar(daily, 0, low, high);
+      showToast('✅ LINE 已售份數已重置', 'success');
+    }
+  } catch { showToast('重置失敗', 'error'); }
+}
 
 // ── 食材庫存管理 ──────────────────────────────────────────
 let _ingredients = [];
