@@ -4277,8 +4277,7 @@ async function lpmToggleOnline(id, checked) {
 async function lpmResetSold(id) {
   const p = _lpmProducts.find(x => x.id === id);
   if (!p) return;
-  if (!confirm(`確定要重置「${p.name}」的 LINE 已售份數為 0 嗎？
-此操作不影響主庫存。`)) return;
+  if (!confirm(`確定要重置「${p.name}」的 LINE 已售份數為 0 嗎？此操作不影響主庫存。`)) return;
   try {
     const res  = await apiFetch(`/api/products/${id}/line-settings`, {
       method:'PATCH', headers:{'Content-Type':'application/json'},
@@ -4295,8 +4294,7 @@ async function lpmResetSold(id) {
 
 // ── 重置全部已售 ──────────────────────────────────────────
 async function resetAllLineQuota() {
-  if (!confirm('確定要重置【全部商品】的 LINE 今日已售份數為 0 嗎？
-此操作不影響主庫存。')) return;
+  if (!confirm('確定要重置【全部商品】的 LINE 今日已售份數為 0 嗎？此操作不影響主庫存。')) return;
   try {
     const res  = await apiFetch('/api/line-orders/quota-reset', {
       method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'
@@ -4328,8 +4326,7 @@ async function lpmBatch(type) {
   if (type === 'daily') {
     val = Number(document.getElementById('lpm-batch-daily')?.value);
     if (isNaN(val) || val < 0) { showToast('請輸入有效的開放份數', 'error'); return; }
-    if (!confirm(`確定要將已選 ${ids.length} 個商品的「${names[type]}」設定為 ${val} 嗎？
-今日開放份數 > 0 會自動啟用 LINE 份額管理。`)) return;
+    if (!confirm(`確定要將已選 ${ids.length} 個商品的「${names[type]}」設定為 ${val} 嗎？（今日開放份數 > 0 會自動啟用 LINE 份額管理）`)) return;
     body = { line_quota_daily: val, line_quota_enabled: val > 0 ? 1 : 0 };
   } else if (type === 'low') {
     val = Number(document.getElementById('lpm-batch-low')?.value);
@@ -4342,8 +4339,7 @@ async function lpmBatch(type) {
     if (!confirm(`確定要將已選 ${ids.length} 個商品的「${names[type]}」設定為 ${val} 嗎？`)) return;
     body = { line_quota_high_threshold: val };
   } else if (type === 'reset_sold') {
-    if (!confirm(`確定要重置已選 ${ids.length} 個商品的 LINE 已售份數為 0 嗎？
-此操作不影響主庫存。`)) return;
+    if (!confirm(`確定要重置已選 ${ids.length} 個商品的 LINE 已售份數為 0 嗎？此操作不影響主庫存。`)) return;
     body = { line_quota_sold: 0 };
   } else if (type === 'enable') {
     if (!confirm(`確定要開啟已選 ${ids.length} 個商品的 LINE 販售嗎？`)) return;
