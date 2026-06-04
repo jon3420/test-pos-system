@@ -92,15 +92,21 @@ router.get('/', (req, res) => {
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
 
-/* GET /api/products/line-products/list — ★ 固定路徑，在 /:id 之前 */
+/* GET /api/products/line-products/list — ★ 固定路徑，在 /:id 之前
+   v1 擴充：回傳全部 enabled 商品（含未上架），方便 Web 後台總表管理 */
 router.get('/line-products/list', requireFeature('line_order'), (req, res) => {
   try {
     const db = getDb();
     const storeId = req.storeId || 'store_001';
+    // 回傳全部 enabled 商品，show_on_line 不限（管理頁需看到未上架）
     const products = db.all(
-      'SELECT * FROM products WHERE store_id=? AND enabled=1 AND show_on_line=1 ORDER BY sort_order, id',
+      'SELECT * FROM products WHERE store_id=? AND enabled=1 ORDER BY sort_order, id',
       [storeId]
-    ).map(enrichProduct);
+    ).map(p => {
+      const fc = db.get('SELECT COUNT(*) as c FROM product_ingredient_formulas WHERE product_id=?', [p.id]);
+      p._has_formula = fc && Number(fc.c) > 0;
+      return enrichProduct(p);
+    });
     res.json({ success: true, data: products });
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });

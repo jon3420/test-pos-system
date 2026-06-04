@@ -35,6 +35,9 @@
     <button class="nav-btn" id="nav-btn-reports" data-page="reports" onclick="showPage('reports')">
       <span class="nav-icon">📊</span><span>報表分析</span>
     </button>
+    <button class="nav-btn" data-page="line_products" id="nav-btn-line_products" onclick="showPage('line_products')" style="display:none">
+      <span class="nav-icon">📲</span><span>LINE商品</span>
+    </button>
     <button class="nav-btn" data-page="settings" onclick="showPage('settings')">
       <span class="nav-icon">⚙️</span><span>設定</span>
     </button>
@@ -258,6 +261,7 @@
       <h1 class="page-title">📦 商品管理</h1>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <button class="btn-primary" onclick="openProductModal()">＋ 新增商品</button>
+        <button class="btn-secondary" id="btnLineProductsMgr" onclick="showPage('line_products')" style="background:#06C755;color:#fff;border-color:#06C755;display:none">📲 LINE 商品管理</button>
         <button class="btn-secondary" onclick="openImportModal('products')">📥 匯入商品</button>
         <button class="btn-secondary" onclick="exportCsv('products')">📤 匯出商品</button>
         <button class="ing-btn-ghost" onclick="downloadTemplate('products')">📋 下載範本</button>
@@ -272,6 +276,84 @@
         </thead>
         <tbody id="productsBody">
           <tr><td colspan="5" class="table-empty">載入中...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- LINE 商品管理頁 (v1) -->
+<div id="page-line_products" class="page">
+  <div class="page-inner" style="max-width:100%;padding:16px 20px">
+    <div class="page-toolbar" style="margin-bottom:16px">
+      <h1 class="page-title">📲 LINE 商品管理</h1>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <button class="btn-secondary" onclick="showPage('products')">← 返回商品管理</button>
+        <button class="btn-secondary" onclick="loadLineProductsPage()">🔄 重新整理</button>
+        <button class="btn-primary" style="background:#ff6d00;border-color:#ff6d00" onclick="resetAllLineQuota()">⟳ 全部重置已售</button>
+      </div>
+    </div>
+
+    <!-- 批量操作區 -->
+    <div id="lpm-batch-panel" style="background:var(--bg-card,#1e293b);border:1px solid var(--border,#334155);border-radius:10px;padding:14px 16px;margin-bottom:14px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap">
+        <span style="font-size:13px;font-weight:700;color:var(--text-secondary,#94a3b8)">批量操作</span>
+        <span id="lpm-selected-count" style="font-size:12px;color:#06C755;font-weight:600">（未選取商品）</span>
+        <button class="btn-secondary" onclick="lpmSelectAll()" style="font-size:12px;padding:4px 10px">全選</button>
+        <button class="btn-secondary" onclick="lpmDeselectAll()" style="font-size:12px;padding:4px 10px">取消全選</button>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+        <!-- 批量開放份數 -->
+        <div style="display:flex;gap:4px;align-items:center">
+          <input type="number" id="lpm-batch-daily" min="0" placeholder="開放份數" style="width:90px;padding:6px 8px;border:1px solid var(--border,#334155);border-radius:6px;font-size:13px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
+          <button class="btn-secondary" onclick="lpmBatch('daily')" style="font-size:12px;padding:6px 10px;white-space:nowrap">設定份數</button>
+        </div>
+        <!-- 批量低庫存門檻 -->
+        <div style="display:flex;gap:4px;align-items:center">
+          <input type="number" id="lpm-batch-low" min="0" placeholder="快售完門檻" style="width:100px;padding:6px 8px;border:1px solid var(--border,#334155);border-radius:6px;font-size:13px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
+          <button class="btn-secondary" onclick="lpmBatch('low')" style="font-size:12px;padding:6px 10px;white-space:nowrap">快售完門檻</button>
+        </div>
+        <!-- 批量充足門檻 -->
+        <div style="display:flex;gap:4px;align-items:center">
+          <input type="number" id="lpm-batch-high" min="0" placeholder="充足門檻" style="width:100px;padding:6px 8px;border:1px solid var(--border,#334155);border-radius:6px;font-size:13px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
+          <button class="btn-secondary" onclick="lpmBatch('high')" style="font-size:12px;padding:6px 10px;white-space:nowrap">充足門檻</button>
+        </div>
+        <!-- 批量販售時段 -->
+        <div style="display:flex;gap:4px;align-items:center">
+          <input type="time" id="lpm-batch-start" style="width:110px;padding:6px 8px;border:1px solid var(--border,#334155);border-radius:6px;font-size:13px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
+          <span style="font-size:12px;color:var(--text-muted,#64748b)">~</span>
+          <input type="time" id="lpm-batch-end" style="width:110px;padding:6px 8px;border:1px solid var(--border,#334155);border-radius:6px;font-size:13px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
+          <button class="btn-secondary" onclick="lpmBatch('sell_time')" style="font-size:12px;padding:6px 10px;white-space:nowrap">販售時段</button>
+        </div>
+        <!-- 批量其他 -->
+        <button class="btn-secondary" onclick="lpmBatch('reset_sold')" style="font-size:12px;padding:6px 10px;background:#ff6d00;border-color:#ff6d00;color:#fff;white-space:nowrap">⟳ 重置已售</button>
+        <button class="btn-secondary" onclick="lpmBatch('enable')" style="font-size:12px;padding:6px 10px;background:#06C755;border-color:#06C755;color:#fff;white-space:nowrap">✅ 開啟 LINE 販售</button>
+        <button class="btn-secondary" onclick="lpmBatch('disable')" style="font-size:12px;padding:6px 10px;background:#e53935;border-color:#e53935;color:#fff;white-space:nowrap">❌ 關閉 LINE 販售</button>
+      </div>
+    </div>
+
+    <!-- 商品總表 -->
+    <div style="overflow-x:auto;border:1px solid var(--border,#334155);border-radius:10px">
+      <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:900px">
+        <thead>
+          <tr style="background:var(--bg-card,#1e293b);border-bottom:1px solid var(--border,#334155)">
+            <th style="padding:10px 8px;text-align:center;width:36px"><input type="checkbox" id="lpm-check-all" onchange="lpmToggleAll(this.checked)"></th>
+            <th style="padding:10px 8px;text-align:center;width:52px">圖片</th>
+            <th style="padding:10px 12px;text-align:left">商品名稱</th>
+            <th style="padding:10px 8px;text-align:center;width:72px">LINE上架</th>
+            <th style="padding:10px 8px;text-align:center;width:80px">今日份數</th>
+            <th style="padding:10px 8px;text-align:center;width:70px">已售</th>
+            <th style="padding:10px 8px;text-align:center;width:70px">剩餘</th>
+            <th style="padding:10px 8px;text-align:center;width:72px">快售完</th>
+            <th style="padding:10px 8px;text-align:center;width:72px">充足門檻</th>
+            <th style="padding:10px 8px;text-align:center;width:90px">販售開始</th>
+            <th style="padding:10px 8px;text-align:center;width:90px">販售結束</th>
+            <th style="padding:10px 8px;text-align:center;width:90px">目前狀態</th>
+            <th style="padding:10px 8px;text-align:center;width:130px">操作</th>
+          </tr>
+        </thead>
+        <tbody id="lpm-tbody">
+          <tr><td colspan="13" style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">載入中…</td></tr>
         </tbody>
       </table>
     </div>

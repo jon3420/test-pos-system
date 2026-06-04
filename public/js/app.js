@@ -494,6 +494,9 @@ function applyFeatureGateUI() {
   const lineEntryBtn = document.getElementById('tab-btn-line_entry');
   if (lineEntryBtn) lineEntryBtn.style.display = '';
 
+  // LINE 商品管理 nav（v1）
+  initLineProductsNav();
+
   // 外送平台
   const platformBtn = document.querySelector('button[data-stab="platform"]');
   if (platformBtn) platformBtn.style.display = f.delivery ? '' : 'none';
@@ -876,8 +879,9 @@ function showPage(name) {
   }
 
   // 7. 各頁資料載入
-  if (name === 'orders')     loadCurrentOrderTab();
-  if (name === 'products')   loadProductsPage();
+  if (name === 'orders')        loadCurrentOrderTab();
+  if (name === 'products')      loadProductsPage();
+  if (name === 'line_products') loadLineProductsPage();
   if (name === 'settings')   { loadSettingsPage(); switchSettingsTab('basic'); }
   if (name === 'categories') loadCategoriesPage();
   if (name === 'inventory')  loadInventoryPage();
@@ -4052,6 +4056,336 @@ async function resetLineQuotaSold() {
   } catch { showToast('重置失敗', 'error'); }
 }
 
+
+// ═══════════════════════════════════════════════════════════
+// LINE 商品管理總表 (v1)
+// ═══════════════════════════════════════════════════════════
+
+let _lpmProducts = [];    // 全部商品快取
+let _lpmEditing  = {};    // 正在編輯的列 { [id]: {daily,sold,low,high,start,end} }
+
+// ── 顯示/隱藏 LINE 商品管理入口 ──────────────────────────
+function initLineProductsNav() {
+  const hasLine = hasFeature && hasFeature('line_order');
+  const navBtn  = document.getElementById('nav-btn-line_products');
+  const toolBtn = document.getElementById('btnLineProductsMgr');
+  if (navBtn)  navBtn.style.display  = hasLine ? '' : 'none';
+  if (toolBtn) toolBtn.style.display = hasLine ? '' : 'none';
+}
+
+// ── 載入 LINE 商品管理頁 ──────────────────────────────────
+async function loadLineProductsPage() {
+  const tbody = document.getElementById('lpm-tbody');
+  if (!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="13" style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">載入中…</td></tr>';
+  _lpmEditing = {};
+  try {
+    const res  = await apiFetch('/api/products/line-products/list');
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || '載入失敗');
+    _lpmProducts = json.data || [];
+    renderLpmTable(_lpmProducts);
+  } catch(e) {
+    if (tbody) tbody.innerHTML = `<tr><td colspan="13" style="text-align:center;padding:40px;color:#ef4444">載入失敗：${escHtml(e.message)}</td></tr>`;
+  }
+}
+
+// ── LINE 商品狀態計算 ──────────────────────────────────────
+function calcLpmStatus(p) {
+  if (!p.show_on_line) return { label:'未上架', cls:'#94a3b8', bg:'rgba(148,163,184,.12)' };
+  if (!Number(p.line_quota_enabled)) return { label:'販售中', cls:'#06C755', bg:'rgba(6,199,85,.12)' };
+  const remaining = Number(p.line_quota_remaining ?? Math.max(0, p.line_quota_daily - p.line_quota_sold));
+  const low  = Number(p.line_quota_low_threshold  || 2);
+  const high = Number(p.line_quota_high_threshold || 10);
+  if (remaining <= 0)    return { label:'今日售完', cls:'#ef4444', bg:'rgba(239,68,68,.12)' };
+  if (remaining <= low)  return { label:'即將售完', cls:'#ff6d00', bg:'rgba(255,109,0,.12)' };
+  if (remaining >= high) return { label:'供應充足', cls:'#06C755', bg:'rgba(6,199,85,.12)' };
+  return { label:'販售中', cls:'#3b82f6', bg:'rgba(59,130,246,.12)' };
+}
+
+// ── 渲染總表 ──────────────────────────────────────────────
+function renderLpmTable(products) {
+  const tbody = document.getElementById('lpm-tbody');
+  if (!tbody) return;
+  document.getElementById('lpm-check-all').checked = false;
+  document.getElementById('lpm-selected-count').textContent = '（未選取商品）';
+  if (!products.length) {
+    tbody.innerHTML = '<tr><td colspan="13" style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">尚無商品</td></tr>';
+    return;
+  }
+  tbody.innerHTML = products.map(p => {
+    const qEnabled  = Number(p.line_quota_enabled) || 0;
+    const daily     = Number(p.line_quota_daily)   || 0;
+    const sold      = Number(p.line_quota_sold)    || 0;
+    const remaining = qEnabled ? Math.max(0, daily - sold) : '—';
+    const low       = Number(p.line_quota_low_threshold  || 2);
+    const high      = Number(p.line_quota_high_threshold || 10);
+    const start     = p.line_sell_start || '';
+    const end       = p.line_sell_end   || '';
+    const imgSrc    = p.image || '';
+    const thumbHtml = imgSrc
+      ? `<img src="${escAttr(imgSrc)}" style="width:38px;height:38px;border-radius:6px;object-fit:cover" onerror="this.style.display='none'">`
+      : `<div style="width:38px;height:38px;border-radius:6px;background:var(--bg-base,#0f172a);display:flex;align-items:center;justify-content:center;font-size:18px">🍽️</div>`;
+    const st = calcLpmStatus(p);
+    const rowCls = 'background:var(--bg-card,#1e293b)';
+    // 是否正在編輯
+    const ed = _lpmEditing[p.id];
+    const tdStyle = 'padding:8px 6px;border-bottom:1px solid var(--border,#334155);vertical-align:middle;text-align:center';
+    return `<tr id="lpm-row-${p.id}" style="${rowCls}">
+      <td style="${tdStyle}"><input type="checkbox" class="lpm-chk" data-id="${p.id}" onchange="lpmUpdateCount()"></td>
+      <td style="${tdStyle}">${thumbHtml}</td>
+      <td style="${tdStyle};text-align:left;padding-left:10px">
+        <div style="font-weight:600;font-size:13px">${escHtml(p.name)}</div>
+        <div style="font-size:11px;color:var(--text-muted,#64748b)">${escHtml(p.category||'')}</div>
+      </td>
+      <td style="${tdStyle}">
+        <label style="display:flex;align-items:center;justify-content:center;gap:4px;cursor:pointer">
+          <input type="checkbox" ${p.show_on_line?'checked':''} onchange="lpmToggleOnline(${p.id},this.checked)">
+        </label>
+      </td>
+      <td style="${tdStyle}">
+        ${ed ? `<input type="number" id="lpm-ed-daily-${p.id}" value="${daily}" min="0" style="width:64px;padding:4px 6px;border:1px solid var(--border,#334155);border-radius:4px;font-size:13px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9);text-align:center">` : `<span style="font-weight:600">${qEnabled?daily:'—'}</span>`}
+        ${ed?`<div style="font-size:10px;color:var(--text-muted,#64748b);margin-top:2px">開放份數</div>`:''}
+      </td>
+      <td style="${tdStyle}">
+        <span style="color:#ef4444;font-weight:600">${qEnabled?sold:'—'}</span>
+      </td>
+      <td style="${tdStyle}">
+        <span style="color:${qEnabled&&typeof remaining==='number'&&remaining<=0?'#ef4444':'inherit'};font-weight:600">${qEnabled?remaining:'—'}</span>
+      </td>
+      <td style="${tdStyle}">
+        ${ed ? `<input type="number" id="lpm-ed-low-${p.id}" value="${low}" min="0" style="width:56px;padding:4px 6px;border:1px solid var(--border,#334155);border-radius:4px;font-size:13px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9);text-align:center">` : `<span>${low}</span>`}
+      </td>
+      <td style="${tdStyle}">
+        ${ed ? `<input type="number" id="lpm-ed-high-${p.id}" value="${high}" min="0" style="width:56px;padding:4px 6px;border:1px solid var(--border,#334155);border-radius:4px;font-size:13px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9);text-align:center">` : `<span>${high}</span>`}
+      </td>
+      <td style="${tdStyle}">
+        ${ed ? `<input type="time" id="lpm-ed-start-${p.id}" value="${start}" style="width:88px;padding:4px 6px;border:1px solid var(--border,#334155);border-radius:4px;font-size:12px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">` : `<span style="font-size:12px">${start||'不限'}</span>`}
+      </td>
+      <td style="${tdStyle}">
+        ${ed ? `<input type="time" id="lpm-ed-end-${p.id}" value="${end}" style="width:88px;padding:4px 6px;border:1px solid var(--border,#334155);border-radius:4px;font-size:12px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">` : `<span style="font-size:12px">${end||'不限'}</span>`}
+      </td>
+      <td style="${tdStyle}">
+        <span style="display:inline-block;padding:3px 8px;border-radius:12px;font-size:11px;font-weight:700;color:${st.cls};background:${st.bg}">${st.label}</span>
+        ${qEnabled?`<div style="font-size:10px;color:var(--text-muted,#64748b);margin-top:2px">份額管理開啟</div>`:''}
+      </td>
+      <td style="${tdStyle}">
+        <div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:center">
+          ${ed
+            ? `<button onclick="lpmSaveRow(${p.id})" style="padding:4px 8px;background:#06C755;color:#fff;border:none;border-radius:5px;font-size:12px;cursor:pointer">💾儲存</button>
+               <button onclick="lpmCancelRow(${p.id})" style="padding:4px 8px;background:var(--bg-base,#0f172a);color:var(--text-secondary,#94a3b8);border:1px solid var(--border,#334155);border-radius:5px;font-size:12px;cursor:pointer">取消</button>`
+            : `<button onclick="lpmEditRow(${p.id})" style="padding:4px 8px;background:var(--bg-base,#0f172a);color:var(--text-secondary,#94a3b8);border:1px solid var(--border,#334155);border-radius:5px;font-size:12px;cursor:pointer">✏️編輯</button>`
+          }
+          <button onclick="lpmResetSold(${p.id})" style="padding:4px 8px;background:var(--bg-base,#0f172a);color:#ff6d00;border:1px solid #ff6d00;border-radius:5px;font-size:12px;cursor:pointer" title="重置已售份數">⟳重置</button>
+          <button onclick="openLineSettingsModal(${p.id})" style="padding:4px 8px;background:#06C755;color:#fff;border:none;border-radius:5px;font-size:12px;cursor:pointer">⚙️LINE設定</button>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+// ── 全選 / 取消全選 ──────────────────────────────────────
+function lpmToggleAll(checked) {
+  document.querySelectorAll('.lpm-chk').forEach(cb => { cb.checked = checked; });
+  lpmUpdateCount();
+}
+function lpmSelectAll()   { document.getElementById('lpm-check-all').checked = true;  lpmToggleAll(true);  }
+function lpmDeselectAll() { document.getElementById('lpm-check-all').checked = false; lpmToggleAll(false); }
+
+function lpmUpdateCount() {
+  const sel = document.querySelectorAll('.lpm-chk:checked').length;
+  const el  = document.getElementById('lpm-selected-count');
+  if (el) el.textContent = sel ? `（已選取 ${sel} 個商品）` : '（未選取商品）';
+}
+
+function lpmGetSelected() {
+  return Array.from(document.querySelectorAll('.lpm-chk:checked')).map(cb => Number(cb.dataset.id));
+}
+
+// ── 行內編輯 ──────────────────────────────────────────────
+function lpmEditRow(id) {
+  const p = _lpmProducts.find(x => x.id === id);
+  if (!p) return;
+  _lpmEditing[id] = true;
+  renderLpmTable(_lpmProducts);
+  // 捲動到目標行
+  const row = document.getElementById(`lpm-row-${id}`);
+  if (row) row.scrollIntoView({ behavior:'smooth', block:'center' });
+}
+
+function lpmCancelRow(id) {
+  delete _lpmEditing[id];
+  renderLpmTable(_lpmProducts);
+}
+
+async function lpmSaveRow(id) {
+  const daily  = Number(document.getElementById(`lpm-ed-daily-${id}`)?.value  || 0);
+  const low    = Number(document.getElementById(`lpm-ed-low-${id}`)?.value    || 0);
+  const high   = Number(document.getElementById(`lpm-ed-high-${id}`)?.value   || 0);
+  const start  = document.getElementById(`lpm-ed-start-${id}`)?.value || '';
+  const end    = document.getElementById(`lpm-ed-end-${id}`)?.value   || '';
+  // 確認 line_quota_enabled（若 daily>0 則自動啟用）
+  const qEnabled = daily > 0 ? 1 : 0;
+  try {
+    const res  = await apiFetch(`/api/products/${id}/line-settings`, {
+      method:'PATCH', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        line_quota_enabled:        qEnabled,
+        line_quota_daily:          daily,
+        line_quota_low_threshold:  low,
+        line_quota_high_threshold: high,
+        line_sell_start:           start,
+        line_sell_end:             end,
+      })
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || '儲存失敗');
+    // 更新本地快取
+    const idx = _lpmProducts.findIndex(x => x.id === id);
+    if (idx !== -1) {
+      _lpmProducts[idx] = { ..._lpmProducts[idx], ...json.data };
+    }
+    delete _lpmEditing[id];
+    renderLpmTable(_lpmProducts);
+    showToast(`✅ ${json.data?.name || '商品'} LINE 設定已儲存`, 'success');
+  } catch(e) { showToast(e.message || '儲存失敗', 'error'); }
+}
+
+// ── 上架/下架切換 ─────────────────────────────────────────
+async function lpmToggleOnline(id, checked) {
+  try {
+    const res  = await apiFetch(`/api/products/${id}/line-settings`, {
+      method:'PATCH', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ show_on_line: checked ? 1 : 0 })
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message);
+    const idx = _lpmProducts.findIndex(x => x.id === id);
+    if (idx !== -1) _lpmProducts[idx] = { ..._lpmProducts[idx], ...json.data };
+    // 只更新狀態徽章，不重渲染整張表
+    const st = calcLpmStatus(_lpmProducts[idx]);
+    const row = document.getElementById(`lpm-row-${id}`);
+    if (row) {
+      const badge = row.querySelectorAll('td')[11]?.querySelector('span');
+      if (badge) { badge.textContent = st.label; badge.style.color = st.cls; badge.style.background = st.bg; }
+    }
+    showToast(checked ? '✅ 已開啟 LINE 上架' : '❌ 已關閉 LINE 上架', 'success');
+  } catch(e) { showToast(e.message || '操作失敗', 'error'); }
+}
+
+// ── 重置單商品已售 ────────────────────────────────────────
+async function lpmResetSold(id) {
+  const p = _lpmProducts.find(x => x.id === id);
+  if (!p) return;
+  if (!confirm(`確定要重置「${p.name}」的 LINE 已售份數為 0 嗎？
+此操作不影響主庫存。`)) return;
+  try {
+    const res  = await apiFetch(`/api/products/${id}/line-settings`, {
+      method:'PATCH', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ line_quota_sold: 0 })
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message);
+    const idx = _lpmProducts.findIndex(x => x.id === id);
+    if (idx !== -1) _lpmProducts[idx] = { ..._lpmProducts[idx], ...json.data };
+    renderLpmTable(_lpmProducts);
+    showToast(`✅ 「${p.name}」已售份數已重置`, 'success');
+  } catch(e) { showToast(e.message || '重置失敗', 'error'); }
+}
+
+// ── 重置全部已售 ──────────────────────────────────────────
+async function resetAllLineQuota() {
+  if (!confirm('確定要重置【全部商品】的 LINE 今日已售份數為 0 嗎？
+此操作不影響主庫存。')) return;
+  try {
+    const res  = await apiFetch('/api/line-orders/quota-reset', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message);
+    showToast('✅ 全部 LINE 已售份數已重置', 'success');
+    loadLineProductsPage();
+  } catch(e) { showToast(e.message || '重置失敗', 'error'); }
+}
+
+// ── 批量操作 ──────────────────────────────────────────────
+async function lpmBatch(type) {
+  const ids = lpmGetSelected();
+  if (!ids.length) { showToast('請先勾選商品', 'error'); return; }
+
+  const names = {
+    daily:      '今日 LINE 開放份數',
+    low:        '快售完門檻',
+    high:       '供應充足門檻',
+    reset_sold: 'LINE 已售份數重置為 0',
+    enable:     'LINE 販售開啟',
+    disable:    'LINE 販售關閉',
+    sell_time:  'LINE 販售時段',
+  };
+
+  let body = {};
+  let val, startVal, endVal;
+  if (type === 'daily') {
+    val = Number(document.getElementById('lpm-batch-daily')?.value);
+    if (isNaN(val) || val < 0) { showToast('請輸入有效的開放份數', 'error'); return; }
+    if (!confirm(`確定要將已選 ${ids.length} 個商品的「${names[type]}」設定為 ${val} 嗎？
+今日開放份數 > 0 會自動啟用 LINE 份額管理。`)) return;
+    body = { line_quota_daily: val, line_quota_enabled: val > 0 ? 1 : 0 };
+  } else if (type === 'low') {
+    val = Number(document.getElementById('lpm-batch-low')?.value);
+    if (isNaN(val) || val < 0) { showToast('請輸入有效的門檻值', 'error'); return; }
+    if (!confirm(`確定要將已選 ${ids.length} 個商品的「${names[type]}」設定為 ${val} 嗎？`)) return;
+    body = { line_quota_low_threshold: val };
+  } else if (type === 'high') {
+    val = Number(document.getElementById('lpm-batch-high')?.value);
+    if (isNaN(val) || val < 0) { showToast('請輸入有效的門檻值', 'error'); return; }
+    if (!confirm(`確定要將已選 ${ids.length} 個商品的「${names[type]}」設定為 ${val} 嗎？`)) return;
+    body = { line_quota_high_threshold: val };
+  } else if (type === 'reset_sold') {
+    if (!confirm(`確定要重置已選 ${ids.length} 個商品的 LINE 已售份數為 0 嗎？
+此操作不影響主庫存。`)) return;
+    body = { line_quota_sold: 0 };
+  } else if (type === 'enable') {
+    if (!confirm(`確定要開啟已選 ${ids.length} 個商品的 LINE 販售嗎？`)) return;
+    body = { show_on_line: 1 };
+  } else if (type === 'disable') {
+    if (!confirm(`確定要關閉已選 ${ids.length} 個商品的 LINE 販售嗎？`)) return;
+    body = { show_on_line: 0 };
+  } else if (type === 'sell_time') {
+    startVal = document.getElementById('lpm-batch-start')?.value || '';
+    endVal   = document.getElementById('lpm-batch-end')?.value   || '';
+    if (!confirm(`確定要將已選 ${ids.length} 個商品的 LINE 販售時段設定為 ${startVal||'不限'}～${endVal||'不限'} 嗎？`)) return;
+    body = { line_sell_start: startVal, line_sell_end: endVal };
+  }
+
+  let successCount = 0, failCount = 0;
+  // 批量並發執行（最多 5 個同時）
+  const chunks = [];
+  for (let i = 0; i < ids.length; i += 5) chunks.push(ids.slice(i, i+5));
+  for (const chunk of chunks) {
+    await Promise.all(chunk.map(async id => {
+      try {
+        const res  = await apiFetch(`/api/products/${id}/line-settings`, {
+          method:'PATCH', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify(body)
+        });
+        const json = await res.json();
+        if (json.success) {
+          const idx = _lpmProducts.findIndex(x => x.id === id);
+          if (idx !== -1) _lpmProducts[idx] = { ..._lpmProducts[idx], ...json.data };
+          successCount++;
+        } else { failCount++; }
+      } catch { failCount++; }
+    }));
+  }
+  renderLpmTable(_lpmProducts);
+  const msg = failCount
+    ? `✅ ${successCount} 個成功，⚠️ ${failCount} 個失敗`
+    : `✅ ${successCount} 個商品批量更新完成`;
+  showToast(msg, failCount ? 'error' : 'success');
+}
+
+// ── 初始化 LINE 商品管理（showPage 觸發）────────────────
 // ── 食材庫存管理 ──────────────────────────────────────────
 let _ingredients = [];
 let _ingSearchQuery = '';

@@ -200,6 +200,7 @@ router.get('/shop', (req, res) => {
     settings.takeout_status = {
       enabled:        takeoutMode.enabled,
       cutoff_passed:  takeoutMode.enabled && isCutoffPassed(takeoutMode.cutoffTime, nowMins),
+      allow_next_day: takeoutMode.allowNextDay,
       is_closed_day:  closedInfo.closed,
       earliest_today: takeoutMode.enabled && !closedInfo.closed
         ? getEarliestMins(takeoutMode, todayStr, nowMins)
@@ -208,6 +209,7 @@ router.get('/shop', (req, res) => {
     settings.delivery_status = {
       enabled:        deliveryMode.enabled,
       cutoff_passed:  deliveryMode.enabled && isCutoffPassed(deliveryMode.cutoffTime, nowMins),
+      allow_next_day: deliveryMode.allowNextDay,
       is_closed_day:  closedInfo.closed,
       earliest_today: deliveryMode.enabled && !closedInfo.closed
         ? getEarliestMins(deliveryMode, todayStr, nowMins)
@@ -351,6 +353,9 @@ router.get('/menu', (req, res) => {
         : (toCutoff ? 'cutoff_sold_out' : (realSoldOut ? 'real_sold_out' : null));
       const deliverySoldOutReason = !deliveryMode.enabled ? 'mode_closed'
         : (dlCutoff ? 'cutoff_sold_out' : (realSoldOut ? 'real_sold_out' : null));
+      // 可預約明日（截止但允許次日預購）
+      const takeoutCanNextDay  = toCutoff  && takeoutMode.allowNextDay;
+      const deliveryCanNextDay = dlCutoff  && deliveryMode.allowNextDay;
 
       const isOrderable = !p.line_sold_out && saleStatus === 'available' && ingredientOk && !realSoldOut;
 
@@ -370,6 +375,8 @@ router.get('/menu', (req, res) => {
         line_quota: quota,
         takeout_sold_out_reason:  takeoutSoldOutReason,
         delivery_sold_out_reason: deliverySoldOutReason,
+        takeout_can_next_day:  takeoutCanNextDay,
+        delivery_can_next_day: deliveryCanNextDay,
       };
     });
 

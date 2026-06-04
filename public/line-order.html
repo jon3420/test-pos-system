@@ -411,12 +411,15 @@ function onModeChange(){
 // ── 截止售完橫幅 ──────────────────────────────────────
 function updateCutoffBanner(){
   const banner=document.getElementById('cutoffBanner');
-  const modeData=shopData[(currentMode==='takeout'?'takeout':'delivery')+'_status']||{};
   const cutoff=currentMode==='takeout'?takeoutCutoffPassed:deliveryCutoffPassed;
+  const allowNext = currentMode==='takeout'
+    ? (shopData.takeout_status?.allow_next_day)
+    : (shopData.delivery_status?.allow_next_day);
   if(cutoff){
     banner.style.display='block';
     const ct=shopData[currentMode==='takeout'?'takeout_cutoff_time':'delivery_cutoff_time']||'';
-    banner.textContent=`⏰ ${currentMode==='takeout'?'外帶':'外送'}今日接單已截止（${ct||'今日'}），商品顯示今日售完。`;
+    banner.innerHTML=`⏰ ${currentMode==='takeout'?'外帶':'外送'}今日接單已截止（${ct||'今日'}），商品顯示今日售完。`
+      + (allowNext ? `<br>💡 <strong>允許預約明日</strong>，請在購物車選擇明日取餐時間。` : '');
   }else{
     banner.style.display='none';
   }
@@ -519,9 +522,11 @@ function buildCard(p, mode){
   const ingOk=p.ingredient_available!==false;
   const unavail=isSoldOut||!ingOk;
 
+  // 可預約明日（截止售完且 allow_next_day）
+  const canNextDay = mode==='delivery'?p.delivery_can_next_day:p.takeout_can_next_day;
   let soldLbl='今日售完';
   if(soldOutReason==='mode_closed') soldLbl='未開放';
-  else if(soldOutReason==='cutoff_sold_out') soldLbl='今日售完';
+  else if(soldOutReason==='cutoff_sold_out') soldLbl = canNextDay ? '今日售完，可預約明日' : '今日售完';
   else if(soldOutReason==='real_sold_out') soldLbl='今日售完';
   else if(ss==='sold_out_today') soldLbl='今日完售';
   else if(ss==='paused') soldLbl='暫停販售';
@@ -531,11 +536,11 @@ function buildCard(p, mode){
   const quota=p.line_quota||{hasQuota:false};
   let stockBadge='';
   if(!unavail && quota.hasQuota){
-    const r=quota.remaining||0;
-    if(r<=0) stockBadge='<div class="prod-stock-badge stock-zero">🔴 今日售完</div>';
-    else if(r<=quota.low) stockBadge=`<div class="prod-stock-badge stock-low">🟠 快售完（剩${r}份）</div>`;
-    else if(r>=quota.high) stockBadge='<div class="prod-stock-badge stock-ok">🟢 供應充足</div>';
-    else stockBadge=`<div class="prod-stock-badge stock-ok">🟢 剩 ${r} 份</div>`;
+    const r=Number(quota.remaining??0);
+    if(r<=0)             stockBadge='<div class="prod-stock-badge stock-zero">🔴 今日售完</div>';
+    else if(r<=quota.low) stockBadge=`<div class="prod-stock-badge stock-low">🟠 即將售完（剩${r}份）</div>`;
+    else if(r>=quota.high)stockBadge='<div class="prod-stock-badge stock-ok">🟢 供應充足</div>';
+    else                  stockBadge=`<div class="prod-stock-badge stock-ok">🟢 剩 ${r} 份</div>`;
   }
 
   const qty=cart[p.id]?.qty||0;
@@ -554,9 +559,24 @@ function addCart(id,evt){
   // 加入購物車時驗證
   const mode=currentMode;
   const soldOutReason=mode==='delivery'?p.delivery_sold_out_reason:p.takeout_sold_out_reason;
+  const canNextDay=mode==='delivery'?p.delivery_can_next_day:p.takeout_can_next_day;
   if(soldOutReason==='mode_closed'){alert('此模式已關閉');return;}
-  if(soldOutReason==='cutoff_sold_out'){alert('已超過今日接單截止時間，無法加入購物車');return;}
-  if(soldOutReason==='real_sold_out'||(p.line_quota?.hasQuota&&p.line_quota?.remaining<=0)){alert((p.effective_line_name||p.name)+' LINE 今日份數已售完');return;}
+  if(soldOutReason==='cutoff_sold_out'){
+    if(canNextDay){
+      // 截止但可預約明日：切換日期到明日繼續
+      toast('今日接單已截止，請選擇明日取餐時間');
+      // 強制打開購物車並將日期切換到明日
+      const now=twNow(),todayStr=fmtD(now);
+      const pDate=document.getElementById('pDate');
+      if(pDate){
+        const tomorrowOpt=Array.from(pDate.options).find(o=>!o.disabled&&o.value>todayStr);
+        if(tomorrowOpt){pDate.value=tomorrowOpt.value;buildTimeSelector();}
+      }
+    } else {
+      alert('已超過今日接單截止時間，無法加入購物車');return;
+    }
+  }
+  if(soldOutReason==='real_sold_out'||(p.line_quota?.hasQuota&&Number(p.line_quota?.remaining)<=0)){alert((p.effective_line_name||p.name)+' LINE 今日份數已售完');return;}
   if(p.line_quota?.hasQuota){
     const inCart=cart[id]?.qty||0;
     if(inCart>=(p.line_quota.remaining||0)){alert((p.effective_line_name||p.name)+` LINE 剩餘份數不足（剩 ${p.line_quota.remaining} 份）`);return;}
