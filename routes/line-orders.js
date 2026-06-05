@@ -344,15 +344,31 @@ router.get('/menu', (req, res) => {
         ingredientOk   = availableUnits > 0;
       }
 
+      // ── 商品自身販售時段判斷（商品級限制，優先於份數）──
+      // 格式 HH:MM，台灣時間
+      const nowHHMM = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+      let productTimeReason = null; // 'not_started' | 'time_ended'
+      if (p.line_sell_end && nowHHMM >= p.line_sell_end) {
+        productTimeReason = 'time_ended';
+      } else if (p.line_sell_start && nowHHMM < p.line_sell_start) {
+        productTimeReason = 'not_started';
+      }
+
       // ── 售完判斷（外帶/外送獨立）─────────────────────
       // real_sold_out：LINE 份數歸零
       const realSoldOut = quota.hasQuota && quota.remaining <= 0;
       // cutoff_sold_out：依模式獨立判斷
       // 前台需要知道外帶/外送各自的狀態
       const takeoutSoldOutReason = !takeoutMode.enabled ? 'mode_closed'
-        : (toCutoff ? 'cutoff_sold_out' : (realSoldOut ? 'real_sold_out' : null));
+        : (toCutoff ? 'cutoff_sold_out'
+          : (productTimeReason === 'time_ended' ? 'product_time_ended'
+            : (productTimeReason === 'not_started' ? 'product_not_started'
+              : (realSoldOut ? 'real_sold_out' : null))));
       const deliverySoldOutReason = !deliveryMode.enabled ? 'mode_closed'
-        : (dlCutoff ? 'cutoff_sold_out' : (realSoldOut ? 'real_sold_out' : null));
+        : (dlCutoff ? 'cutoff_sold_out'
+          : (productTimeReason === 'time_ended' ? 'product_time_ended'
+            : (productTimeReason === 'not_started' ? 'product_not_started'
+              : (realSoldOut ? 'real_sold_out' : null))));
       // 可預約明日（截止但允許次日預購）
       const takeoutCanNextDay  = toCutoff  && takeoutMode.allowNextDay;
       const deliveryCanNextDay = dlCutoff  && deliveryMode.allowNextDay;

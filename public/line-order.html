@@ -521,13 +521,14 @@ function buildCard(p, mode){
   const isSoldOut=!!soldOutReason || Number(p.line_sold_out)===1 || ss!=='available';
   const ingOk=p.ingredient_available!==false;
   const unavail=isSoldOut||!ingOk;
+  const canNextDay=mode==='delivery'?p.delivery_can_next_day:p.takeout_can_next_day;
 
-  // 可預約明日（截止售完且 allow_next_day）
-  const canNextDay = mode==='delivery'?p.delivery_can_next_day:p.takeout_can_next_day;
   let soldLbl='今日售完';
   if(soldOutReason==='mode_closed') soldLbl='未開放';
   else if(soldOutReason==='cutoff_sold_out') soldLbl = canNextDay ? '今日售完，可預約明日' : '今日售完';
   else if(soldOutReason==='real_sold_out') soldLbl='今日售完';
+  else if(soldOutReason==='product_time_ended') soldLbl='今日售完';
+  else if(soldOutReason==='product_not_started') soldLbl='尚未開賣';
   else if(ss==='sold_out_today') soldLbl='今日完售';
   else if(ss==='paused') soldLbl='暫停販售';
   else if(!ingOk) soldLbl='備料不足';
@@ -577,6 +578,12 @@ function addCart(id,evt){
     }
   }
   if(soldOutReason==='real_sold_out'||(p.line_quota?.hasQuota&&Number(p.line_quota?.remaining)<=0)){alert((p.effective_line_name||p.name)+' LINE 今日份數已售完');return;}
+  // 商品自身販售時段驗證
+  if(soldOutReason==='product_time_ended'){alert((p.effective_line_name||p.name)+' 今日販售時段已結束');return;}
+  if(soldOutReason==='product_not_started'){
+    const startT=p.line_sell_start||'';
+    alert((p.effective_line_name||p.name)+`尚未開始販售（${startT} 開賣）`);return;
+  }
   if(p.line_quota?.hasQuota){
     const inCart=cart[id]?.qty||0;
     if(inCart>=(p.line_quota.remaining||0)){alert((p.effective_line_name||p.name)+` LINE 剩餘份數不足（剩 ${p.line_quota.remaining} 份）`);return;}

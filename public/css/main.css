@@ -2279,3 +2279,133 @@ body {
   color: var(--accent);
   border-bottom-color: var(--accent);
 }
+
+/* ===================================================
+   BUG-001 FIX: 全站 input[type="time"] 統一樣式
+   深色模式下清楚可見，不黑底黑字
+   =================================================== */
+
+/* 全域 time input 基礎 */
+input[type="time"] {
+  color: var(--text-primary, #f1f5f9) !important;
+  background: var(--bg-card, #1e293b) !important;
+  border: 1px solid var(--border, #334155) !important;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 13px;
+  box-sizing: border-box;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+/* calendar-picker icon（深色模式）*/
+input[type="time"]::-webkit-calendar-picker-indicator {
+  filter: invert(1) opacity(0.7);
+  cursor: pointer;
+  padding: 0 2px;
+}
+input[type="time"]::-webkit-calendar-picker-indicator:hover {
+  filter: invert(1) opacity(1);
+}
+
+/* focus 高亮 */
+input[type="time"]:focus {
+  outline: none;
+  border-color: var(--accent, #3b82f6) !important;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
+/* 確保選取文字可讀 */
+input[type="time"]::selection {
+  background: var(--accent, #3b82f6);
+  color: #fff;
+}
+
+/* ── .time-input 共用 wrapper class ── */
+.time-input-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 100%;
+}
+.time-input-wrapper input[type="time"] {
+  width: 100%;
+  padding-right: 32px;
+}
+.time-input-wrapper::after {
+  content: '🕒';
+  position: absolute;
+  right: 8px;
+  font-size: 14px;
+  pointer-events: none;
+  opacity: 0.6;
+}
+.time-input-wrapper:focus-within::after {
+  opacity: 1;
+}
+
+/* ── LINE 商品管理總表內的 time input ── */
+#lpm-batch-start,
+#lpm-batch-end,
+[id^="lpm-ed-start-"],
+[id^="lpm-ed-end-"] {
+  color: var(--text-primary, #f1f5f9) !important;
+  background: var(--bg-base, #0f172a) !important;
+  border: 1px solid var(--border, #334155) !important;
+}
+
+/* ── LINE 商品設定 Modal 內的 time input ── */
+#lineSellStart,
+#lineSellEnd {
+  color: #222 !important;
+  background: #fff !important;
+  border: 1px solid #ccc !important;
+}
+#lineSellStart::-webkit-calendar-picker-indicator,
+#lineSellEnd::-webkit-calendar-picker-indicator {
+  filter: none;
+  opacity: 0.6;
+  cursor: pointer;
+}
+
+/* ── 外帶/外送接單規則 time input ── */
+#set-takeout_cutoff_time,
+#set-delivery_cutoff_time,
+[id^="takeout-bh-"][id$="-open"],
+[id^="takeout-bh-"][id$="-close"],
+[id^="delivery-bh-"][id$="-open"],
+[id^="delivery-bh-"][id$="-close"] {
+  color: #222 !important;
+  background: #fff !important;
+  border: 1px solid #ccc !important;
+}
+#set-takeout_cutoff_time::-webkit-calendar-picker-indicator,
+#set-delivery_cutoff_time::-webkit-calendar-picker-indicator {
+  filter: none;
+}
+
+/* ── bizHoursGrid（整體營業時間）time input 加強 ── */
+#bizHoursGrid input[type="time"],
+#takeoutBizHoursGrid input[type="time"],
+#deliveryBizHoursGrid input[type="time"] {
+  color: #222 !important;
+  background: #fff !important;
+  border: 1px solid #ccc !important;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+#bizHoursGrid input[type="time"]::-webkit-calendar-picker-indicator,
+#takeoutBizHoursGrid input[type="time"]::-webkit-calendar-picker-indicator,
+#deliveryBizHoursGrid input[type="time"]::-webkit-calendar-picker-indicator {
+  filter: none;
+  opacity: 0.6;
+}
+
+/* ── POS 點餐頁 time input（pickupTime / estimatedDelivery）── */
+#pickupTime,
+#estimatedDelivery {
+  color: #222 !important;
+  background: #fff !important;
+}
