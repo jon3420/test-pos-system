@@ -4356,6 +4356,85 @@ async function resetAllLineQuota() {
 }
 
 // ── 批量操作 ──────────────────────────────────────────────
+// ── 套用設定（主按鈕：同時更新全部欄位）──────────────────
+async function lpmApplyAll() {
+  const ids = lpmGetSelected();
+  // A-5 防呆
+  if (!ids.length) { showToast('請先選擇商品', 'error'); return; }
+
+  const daily    = document.getElementById('lpm-batch-daily')?.value?.trim();
+  const low      = document.getElementById('lpm-batch-low')?.value?.trim();
+  const high     = document.getElementById('lpm-batch-high')?.value?.trim();
+  const startVal = document.getElementById('lpm-batch-start')?.value || '';
+  const endVal   = document.getElementById('lpm-batch-end')?.value   || '';
+
+  if (!daily && daily !== '0') { showToast('請輸入今日開放份數', 'error'); return; }
+
+  const dailyNum = Number(daily);
+  const lowNum   = low   !== '' ? Number(low)   : null;
+  const highNum  = high  !== '' ? Number(high)  : null;
+
+  if (lowNum !== null && highNum !== null && lowNum > highNum) {
+    showToast('快售完門檻不可大於供應充足門檻', 'error'); return;
+  }
+  if (startVal && endVal && startVal >= endVal) {
+    showToast('販售開始時間不可晚於販售結束時間', 'error'); return;
+  }
+
+  // A-2 確認提示
+  const confirmLines = [
+    `即將套用 LINE 商品設定：`,
+    ``,
+    `已選商品：${ids.length} 個`,
+    `今日開放份數：${dailyNum}`,
+    lowNum  !== null ? `快售完門檻：${lowNum}`   : null,
+    highNum !== null ? `供應充足門檻：${highNum}` : null,
+    startVal || endVal ? `販售時間：${startVal||'不限'} ~ ${endVal||'不限'}` : null,
+    `啟用份數管理：是`,
+    ``,
+    `確定套用？`,
+  ].filter(l => l !== null).join('\n');
+
+  if (!confirm(confirmLines)) return;
+
+  const body = {
+    line_quota_enabled: 1,
+    line_quota_daily:   dailyNum,
+  };
+  if (lowNum  !== null) body.line_quota_low_threshold  = lowNum;
+  if (highNum !== null) body.line_quota_high_threshold = highNum;
+  if (startVal !== '') body.line_sell_start = startVal;
+  if (endVal   !== '') body.line_sell_end   = endVal;
+
+  let successCount = 0, failCount = 0;
+  const chunks = [];
+  for (let i = 0; i < ids.length; i += 5) chunks.push(ids.slice(i, i+5));
+  for (const chunk of chunks) {
+    await Promise.all(chunk.map(async id => {
+      try {
+        const res  = await apiFetch(`/api/products/${id}/line-settings`, {
+          method:'PATCH', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify(body)
+        });
+        const json = await res.json();
+        if (json.success) {
+          const idx = _lpmProducts.findIndex(x => x.id === id);
+          if (idx !== -1) _lpmProducts[idx] = { ..._lpmProducts[idx], ...json.data };
+          successCount++;
+        } else { failCount++; }
+      } catch { failCount++; }
+    }));
+  }
+
+  // A-3 成功提示
+  if (!failCount) {
+    showToast(`✅ 已更新 ${successCount} 個商品的 LINE 設定`, 'success');
+  } else {
+    showToast(`✅ ${successCount} 個成功，⚠️ ${failCount} 個失敗`, 'error');
+  }
+  renderLpmTable(_lpmProducts);
+}
+
 async function lpmBatch(type) {
   const ids = lpmGetSelected();
   if (!ids.length) { showToast('請先勾選商品', 'error'); return; }

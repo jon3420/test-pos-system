@@ -296,41 +296,53 @@
 
     <!-- 批量操作區 -->
     <div id="lpm-batch-panel" style="background:var(--bg-card,#1e293b);border:1px solid var(--border,#334155);border-radius:10px;padding:14px 16px;margin-bottom:14px">
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap">
+      <!-- 第一列：選取控制 -->
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">
         <span style="font-size:13px;font-weight:700;color:var(--text-secondary,#94a3b8)">批量操作</span>
         <span id="lpm-selected-count" style="font-size:12px;color:#06C755;font-weight:600">（未選取商品）</span>
         <button class="btn-secondary" onclick="lpmSelectAll()" style="font-size:12px;padding:4px 10px">全選</button>
         <button class="btn-secondary" onclick="lpmDeselectAll()" style="font-size:12px;padding:4px 10px">取消全選</button>
       </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
-        <!-- 批量開放份數 -->
-        <div style="display:flex;gap:4px;align-items:center">
-          <input type="number" id="lpm-batch-daily" min="0" placeholder="開放份數" style="width:90px;padding:6px 8px;border:1px solid var(--border,#334155);border-radius:6px;font-size:13px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
-          <button class="btn-secondary" onclick="lpmBatch('daily')" style="font-size:12px;padding:6px 10px;white-space:nowrap">設定份數</button>
+      <!-- 第二列：輸入區 + 主按鈕 -->
+      <div style="display:flex;gap:10px;align-items:flex-end;margin-bottom:10px;flex-wrap:wrap">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;flex:1">
+          <div>
+            <div style="font-size:10px;color:var(--text-muted,#64748b);margin-bottom:3px">今日開放份數</div>
+            <input type="number" id="lpm-batch-daily" min="0" placeholder="0" style="width:80px;padding:6px 8px;border:1px solid var(--border,#334155);border-radius:6px;font-size:13px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
+          </div>
+          <div>
+            <div style="font-size:10px;color:var(--text-muted,#64748b);margin-bottom:3px">快售完門檻</div>
+            <input type="number" id="lpm-batch-low" min="0" placeholder="0" style="width:80px;padding:6px 8px;border:1px solid var(--border,#334155);border-radius:6px;font-size:13px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
+          </div>
+          <div>
+            <div style="font-size:10px;color:var(--text-muted,#64748b);margin-bottom:3px">供應充足門檻</div>
+            <input type="number" id="lpm-batch-high" min="0" placeholder="0" style="width:80px;padding:6px 8px;border:1px solid var(--border,#334155);border-radius:6px;font-size:13px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
+          </div>
+          <div>
+            <div style="font-size:10px;color:var(--text-muted,#64748b);margin-bottom:3px">販售時段</div>
+            <div style="display:flex;gap:4px;align-items:center">
+              <input type="time" id="lpm-batch-start" style="width:100px;padding:6px 8px;border:1px solid var(--border,#334155);border-radius:6px;font-size:13px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
+              <span style="font-size:11px;color:var(--text-muted,#64748b)">~</span>
+              <input type="time" id="lpm-batch-end" style="width:100px;padding:6px 8px;border:1px solid var(--border,#334155);border-radius:6px;font-size:13px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
+            </div>
+          </div>
         </div>
-        <!-- 批量低庫存門檻 -->
-        <div style="display:flex;gap:4px;align-items:center">
-          <input type="number" id="lpm-batch-low" min="0" placeholder="快售完門檻" style="width:100px;padding:6px 8px;border:1px solid var(--border,#334155);border-radius:6px;font-size:13px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
-          <button class="btn-secondary" onclick="lpmBatch('low')" style="font-size:12px;padding:6px 10px;white-space:nowrap">快售完門檻</button>
-        </div>
-        <!-- 批量充足門檻 -->
-        <div style="display:flex;gap:4px;align-items:center">
-          <input type="number" id="lpm-batch-high" min="0" placeholder="充足門檻" style="width:100px;padding:6px 8px;border:1px solid var(--border,#334155);border-radius:6px;font-size:13px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
-          <button class="btn-secondary" onclick="lpmBatch('high')" style="font-size:12px;padding:6px 10px;white-space:nowrap">充足門檻</button>
-        </div>
-        <!-- 批量販售時段 -->
-        <div style="display:flex;gap:4px;align-items:center">
-          <input type="time" id="lpm-batch-start" style="width:110px;padding:6px 8px;border:1px solid var(--border,#334155);border-radius:6px;font-size:13px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
-          <span style="font-size:12px;color:var(--text-muted,#64748b)">~</span>
-          <input type="time" id="lpm-batch-end" style="width:110px;padding:6px 8px;border:1px solid var(--border,#334155);border-radius:6px;font-size:13px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
-          <button class="btn-secondary" onclick="lpmBatch('sell_time')" style="font-size:12px;padding:6px 10px;white-space:nowrap">販售時段</button>
-        </div>
-        <!-- 批量其他 -->
-        <button class="btn-secondary" onclick="lpmBatch('reset_sold')" style="font-size:12px;padding:6px 10px;background:#ff6d00;border-color:#ff6d00;color:#fff;white-space:nowrap">⟳ 重置已售</button>
-        <button class="btn-secondary" onclick="lpmBatch('enable')" style="font-size:12px;padding:6px 10px;background:#06C755;border-color:#06C755;color:#fff;white-space:nowrap">✅ 開啟 LINE 販售</button>
-        <button class="btn-secondary" onclick="lpmBatch('disable')" style="font-size:12px;padding:6px 10px;background:#e53935;border-color:#e53935;color:#fff;white-space:nowrap">❌ 關閉 LINE 販售</button>
-        <button class="btn-secondary" onclick="lpmBatch('quota_on')" style="font-size:12px;padding:6px 10px;background:#7c3aed;border-color:#7c3aed;color:#fff;white-space:nowrap">📦 啟用份數管理</button>
-        <button class="btn-secondary" onclick="lpmBatch('quota_off')" style="font-size:12px;padding:6px 10px;background:var(--bg-base,#0f172a);border:1px solid var(--border,#334155);color:var(--text-secondary,#94a3b8);white-space:nowrap">📦 停用份數管理</button>
+        <button onclick="lpmApplyAll()" style="padding:10px 20px;background:#06C755;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;white-space:nowrap;box-shadow:0 2px 8px rgba(6,199,85,.35);flex-shrink:0">
+          💾 套用設定
+        </button>
+      </div>
+      <!-- 第三列：單一操作按鈕 -->
+      <div style="display:flex;gap:6px;flex-wrap:wrap;padding-top:10px;border-top:1px solid var(--border,#334155)">
+        <span style="font-size:11px;color:var(--text-muted,#64748b);align-self:center">單項操作：</span>
+        <button class="btn-secondary" onclick="lpmBatch('daily')" style="font-size:11px;padding:4px 8px;white-space:nowrap">只更新份數</button>
+        <button class="btn-secondary" onclick="lpmBatch('low')" style="font-size:11px;padding:4px 8px;white-space:nowrap">只更新快售完門檻</button>
+        <button class="btn-secondary" onclick="lpmBatch('high')" style="font-size:11px;padding:4px 8px;white-space:nowrap">只更新充足門檻</button>
+        <button class="btn-secondary" onclick="lpmBatch('sell_time')" style="font-size:11px;padding:4px 8px;white-space:nowrap">只更新販售時段</button>
+        <button class="btn-secondary" onclick="lpmBatch('reset_sold')" style="font-size:11px;padding:4px 8px;background:#ff6d00;border-color:#ff6d00;color:#fff;white-space:nowrap">⟳ 重置已售</button>
+        <button class="btn-secondary" onclick="lpmBatch('enable')" style="font-size:11px;padding:4px 8px;background:#06C755;border-color:#06C755;color:#fff;white-space:nowrap">✅ 開啟 LINE 販售</button>
+        <button class="btn-secondary" onclick="lpmBatch('disable')" style="font-size:11px;padding:4px 8px;background:#e53935;border-color:#e53935;color:#fff;white-space:nowrap">❌ 關閉 LINE 販售</button>
+        <button class="btn-secondary" onclick="lpmBatch('quota_on')" style="font-size:11px;padding:4px 8px;background:#7c3aed;border-color:#7c3aed;color:#fff;white-space:nowrap">只啟用份數管理</button>
+        <button class="btn-secondary" onclick="lpmBatch('quota_off')" style="font-size:11px;padding:4px 8px;white-space:nowrap">只停用份數管理</button>
       </div>
     </div>
 

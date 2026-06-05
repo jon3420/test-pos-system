@@ -438,7 +438,7 @@ function buildPaymentButtons(settings){
 function selectPay(btn){selectedPay=btn.dataset.code;document.querySelectorAll('.pay-btn').forEach(b=>b.classList.toggle('active',b===btn));}
 
 // ── 日期選擇器（依模式篩選公休日）──────────────────────
-function buildDateSelector(){
+function buildDateSelector(forceNextDay=false){
   const sel=document.getElementById('pDate');if(!sel)return;
   sel.innerHTML='';
   const now=twNow();
@@ -448,10 +448,14 @@ function buildDateSelector(){
   const bizHoursKey=mode==='takeout'?'takeout_business_hours':'delivery_business_hours';
   const bizHours=(() => { try { return JSON.parse(shopData[bizHoursKey]||'{}'); } catch { return {}; } })();
   let first=null;
-  ['今天','明天','後天'].forEach((lbl,offset)=>{
+  // 正常模式顯示 今天/明天/後天；forceNextDay 模式從明天開始顯示未來 7 天供預約
+  const maxDays=forceNextDay?7:3;
+  const startOffset=forceNextDay?1:0;
+  for(let offset=startOffset;offset<startOffset+maxDays;offset++){
     const d=new Date(now);d.setDate(d.getDate()+offset);
     const ds=fmtD(d),wk=WD_KEYS[d.getDay()];
     const mm=String(d.getMonth()+1).padStart(2,'0'),dd2=String(d.getDate()).padStart(2,'0');
+    const lbl=offset===0?'今天':offset===1?'明天':offset===2?'後天':`${offset}天後`;
     const isClosed=closedWds.includes(wk)||closedDts.includes(ds);
     const dh=bizHours[wk];
     const notBizDay=!isClosed&&dh&&!dh.enabled;
@@ -460,9 +464,9 @@ function buildDateSelector(){
     opt.textContent=`${lbl}（${mm}/${dd2} 週${WD_NAMES[d.getDay()]}）${isClosed?' — 店休':notBizDay?' — 非營業':''}`;
     if(!disabled&&!first)first=ds;
     sel.appendChild(opt);
-  });
+  }
   if(first)sel.value=first;
-  buildTimeSelector();
+  if(!forceNextDay) buildTimeSelector();
 }
 function onDateChange(){buildTimeSelector();}
 
@@ -604,29 +608,117 @@ function addCart(id,evt){
   updateBar();updateProductCard(id);
 }
 
-// ── BUG-003: 預約明日按鈕處理 ──────────────────────────
-function preorderNextDay(id,evt){
+// ── B: 預約明日 — 完整流程 ────────────────────────────────
+// 1. 找下一個可訂日 2. 加商品進購物車 3. 載入明日時段 4. 打開購物車
+async function preorderNextDay(id,evt){
   if(evt){evt.stopPropagation();}
   const p=allProducts.find(x=>x.id==id);if(!p)return;
   const mode=currentMode;
   const canNextDay=mode==='delivery'?p.delivery_can_next_day:p.takeout_can_next_day;
   if(!canNextDay){toast('此商品不支援明日預約');return;}
-  // 切換購物車內的日期到明日
-  openCartSheet();
-  // 等 DOM 更新後切換日期
-  setTimeout(()=>{
-    const pDate=document.getElementById('pDate');
-    if(!pDate)return;
-    const now=twNow(),todayStr=fmtD(now);
-    const nextOpt=Array.from(pDate.options).find(o=>!o.disabled&&o.value>todayStr);
-    if(nextOpt){
-      pDate.value=nextOpt.value;
-      buildTimeSelector();
-      toast('已切換至明日取餐時間，請選擇時段後加入購物車');
-    } else {
-      toast('目前沒有可預約的明日時段，請確認外帶/外送設定');
+
+  // 找下一個可訂日（排除今日、公休日、非營業日）
+  const now=twNow(), todayStr=fmtD(now);
+  const closedWds=(() => { try { return JSON.parse(shopData.line_closed_weekdays||'[]'); } catch { return []; } })();
+  const closedDts=(() => { try { return JSON.parse(shopData.line_closed_dates||'[]'); } catch { return []; } })();
+  const bizHoursKey=mode==='takeout'?'takeout_business_hours':'delivery_business_hours';
+  const bizHours=(() => { try { return JSON.parse(shopData[bizHoursKey]||'{}'); } catch { return {}; } })();
+  const WD_KEYS_LOCAL=['sun','mon','tue','wed','thu','fri','sat'];
+
+  let nextDate=null;
+  for(let offset=1;offset<=14;offset++){
+    const d=new Date(now); d.setDate(d.getDate()+offset);
+    const ds=fmtD(d),wk=WD_KEYS_LOCAL[d.getDay()];
+    if(closedWds.includes(wk)||closedDts.includes(ds)) continue;
+    const dh=bizHours[wk];
+    if(dh&&!dh.enabled) continue;
+    nextDate=ds; break;
+  }
+  if(!nextDate){ toast('目前找不到可預約的明日時段，請確認外帶/外送設定'); return; }
+
+  // 加商品進購物車（繞過今日售完，預約訂單不扣今日份數）
+  if(!cart[id]) cart[id]={product:p,qty:0};
+  cart[id].qty++;
+  updateBar();
+
+  // 載入次日時段
+  let slots=[], firstSlot='';
+  try{
+    const res=await apiFetch(`/api/line-orders/timeslots?mode=${mode}&date=${nextDate}`).then(r=>r.json());
+    if(res.success&&res.slots&&res.slots.length>0){
+      slots=res.slots; firstSlot=res.slots[0];
     }
-  },200);
+  }catch(e){ console.warn('timeslots error',e); }
+
+  // 打開購物車並設定日期、時段、模式
+  openCartSheetWithDate(nextDate, firstSlot, slots, mode);
+  toast('✅ 已加入明日預約，請確認取餐時間');
+}
+
+// ── 帶日期資訊打開購物車 ─────────────────────────────────
+function openCartSheetWithDate(dateStr, firstSlot, slots, mode){
+  if(!Object.keys(cart).length)return;
+  // 同步模式
+  const oType=document.getElementById('oType');
+  if(oType){
+    oType.innerHTML='';
+    if(takeoutEnabled){const o=document.createElement('option');o.value='takeout';o.textContent='🛍️ 外帶';oType.appendChild(o);}
+    if(deliveryEnabled){const o=document.createElement('option');o.value='delivery';o.textContent='🛵 外送';oType.appendChild(o);}
+    oType.value=mode;
+  }
+  renderCartItems();
+  openSheet('cartSheet');
+
+  // 延遲設定日期、時段，確保 DOM 已渲染
+  setTimeout(()=>{
+    // 設定日期
+    const pDate=document.getElementById('pDate');
+    if(pDate){
+      // 先重建選項（包含次日）
+      buildDateSelector(true);  // true = 強制包含 nextDate
+      setTimeout(()=>{
+        const pDate2=document.getElementById('pDate');
+        if(pDate2){
+          // 找對應選項或新增
+          const opt=Array.from(pDate2.options).find(o=>o.value===dateStr);
+          if(opt){ pDate2.value=dateStr; }
+          else {
+            // 如果找不到則直接添加
+            const newOpt=document.createElement('option');
+            newOpt.value=dateStr; newOpt.textContent=dateStr+' (明日預約)';
+            pDate2.appendChild(newOpt); pDate2.value=dateStr;
+          }
+        }
+        // 設定時段選單
+        const pTime=document.getElementById('pTime');
+        if(pTime&&slots.length>0){
+          pTime.innerHTML='';
+          slots.forEach((t,i)=>{
+            const h=Number(t.split(':')[0]);
+            const lbl=h<12?`上午 ${t}`:h===12?`中午 ${t}`:`下午 ${t}`;
+            const o=document.createElement('option');o.value=t;o.textContent=lbl;
+            pTime.appendChild(o);
+          });
+          if(firstSlot) pTime.value=firstSlot;
+        } else if(pTime){
+          pTime.innerHTML='<option value="" disabled>明日暫無可選時段</option>';
+        }
+        // 顯示預約提示
+        const pDateLabel=document.querySelector('label[for="pDate"],.fl');
+        const preorderHint=document.getElementById('preorder-hint');
+        if(!preorderHint){
+          const hint=document.createElement('div');
+          hint.id='preorder-hint';
+          hint.style.cssText='background:#e8f5e9;border-left:3px solid #06C755;padding:8px 12px;border-radius:6px;font-size:12px;color:#1b5e20;margin-top:6px';
+          hint.textContent='📅 預約日期：'+dateStr+'（明日預約單，不扣今日份數）';
+          const pDateEl=document.getElementById('pDate');
+          if(pDateEl&&pDateEl.parentNode) pDateEl.parentNode.appendChild(hint);
+        } else {
+          preorderHint.textContent='📅 預約日期：'+dateStr+'（明日預約單，不扣今日份數）';
+        }
+      }, 80);
+    }
+  }, 50);
 }
 function chgQty(id,d){
   if(!cart[id])return;
@@ -660,6 +752,9 @@ function updateBar(){
 }
 function openCartSheet(){
   if(!Object.keys(cart).length)return;
+  // 移除舊的預約提示
+  const hint=document.getElementById('preorder-hint');
+  if(hint) hint.remove();
   // 同步購物車 sheet 模式
   const oType=document.getElementById('oType');
   if(oType){
