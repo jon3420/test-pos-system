@@ -2286,9 +2286,8 @@ async function openLineSettingsModal(id) {
 
     // ── LINE 可售份數（v1）────────────────────────────
     const qEnabled = !!Number(p.line_quota_enabled);
-    const qEnEl = document.getElementById('lineQuotaEnabled');
-    if (qEnEl) { qEnEl.checked = qEnabled; }
-    toggleLineQuotaFields();
+    // 使用新的醒目開關 API
+    setQuotaEnabled(qEnabled);
     const qDaily   = Number(p.line_quota_daily   || 0);
     const qSold    = Number(p.line_quota_sold     || 0);
     const qLow     = Number(p.line_quota_low_threshold  || 2);
@@ -2404,7 +2403,7 @@ async function saveLineSettings() {
         line_description, line_image_url, line_category_id,
         line_hot, line_promo, line_sold_out, auto_restore_next_day,
         // LINE 可售份數（v1）
-        line_quota_enabled:        document.getElementById('lineQuotaEnabled')?.checked ? 1 : 0,
+        line_quota_enabled:        document.getElementById('lineQuotaEnabled')?.value === '1' ? 1 : 0,
         line_quota_daily:          Number(document.getElementById('lineQuotaDaily')?.value   || 0),
         line_quota_low_threshold:  Number(document.getElementById('lineQuotaLowThreshold')?.value  || 2),
         line_quota_high_threshold: Number(document.getElementById('lineQuotaHighThreshold')?.value || 10),
@@ -4012,25 +4011,52 @@ async function saveModeHoursFromGrid(mode) {
 }
 
 // ── LINE 商品設定 Modal：份數 UI ──────────────────────────
-function toggleLineQuotaFields() {
-  const enabled = document.getElementById('lineQuotaEnabled')?.checked;
-  const fields  = document.getElementById('lineQuotaFields');
+// BUG-001 FIX: 醒目開關取代 checkbox
+function setQuotaEnabled(enabled) {
+  const hiddenInput = document.getElementById('lineQuotaEnabled');
+  if (hiddenInput) hiddenInput.value = enabled ? '1' : '0';
+  const btnOn  = document.getElementById('btnQuotaEnable');
+  const btnOff = document.getElementById('btnQuotaDisable');
+  if (btnOn) {
+    if (enabled) {
+      btnOn.style.background  = '#06C755'; btnOn.style.color = '#fff'; btnOn.style.borderColor = '#06C755';
+    } else {
+      btnOn.style.background  = '#f5f5f5'; btnOn.style.color = '#888'; btnOn.style.borderColor = '#ddd';
+    }
+  }
+  if (btnOff) {
+    if (!enabled) {
+      btnOff.style.background  = '#374151'; btnOff.style.color = '#f9fafb'; btnOff.style.borderColor = '#6b7280';
+    } else {
+      btnOff.style.background  = '#f5f5f5'; btnOff.style.color = '#888'; btnOff.style.borderColor = '#ddd';
+    }
+  }
+  const fields = document.getElementById('lineQuotaFields');
   if (fields) fields.style.display = enabled ? 'block' : 'none';
+}
+
+// 相容舊呼叫
+function toggleLineQuotaFields() {
+  const v = document.getElementById('lineQuotaEnabled')?.value;
+  setQuotaEnabled(v === '1');
 }
 
 function updateLineQuotaStatusBar(daily, sold, low, high) {
   const bar = document.getElementById('lineQuotaStatusBar');
   if (!bar) return;
   const remaining = Math.max(0, daily - sold);
-  document.getElementById('qs-daily').textContent     = daily;
-  document.getElementById('qs-sold').textContent      = sold;
-  document.getElementById('qs-remaining').textContent = remaining;
+  const dEl = document.getElementById('qs-daily');
+  const sEl = document.getElementById('qs-sold');
+  const rEl = document.getElementById('qs-remaining');
+  if (dEl) dEl.textContent = daily;
+  if (sEl) sEl.textContent = sold;
+  if (rEl) { rEl.textContent = remaining; rEl.style.color = remaining <= 0 ? '#ff6b6b' : remaining <= low ? '#fbbf24' : '#4ade80'; }
   const badge = document.getElementById('qs-status-badge');
   if (badge) {
-    if (remaining <= 0)        badge.innerHTML = '<span style="background:#fce8e8;color:#c62828;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:700">今日售完</span>';
-    else if (remaining <= low) badge.innerHTML = '<span style="background:#fff3e0;color:#e65100;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:700">快售完</span>';
-    else if (remaining >= high)badge.innerHTML = '<span style="background:#e8f5e9;color:#2e7d32;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:700">供應充足</span>';
-    else                        badge.innerHTML = '<span style="background:#e3f2fd;color:#1565c0;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:700">販售中</span>';
+    if (remaining <= 0)        badge.innerHTML = '<span style="background:#7f1d1d;color:#fca5a5;padding:4px 10px;border-radius:10px;font-size:12px;font-weight:700">今日售完</span>';
+    else if (remaining <= low) badge.innerHTML = '<span style="background:#7c2d12;color:#fdba74;padding:4px 10px;border-radius:10px;font-size:12px;font-weight:700">即將售完</span>';
+    else if (remaining >= high)badge.innerHTML = '<span style="background:#14532d;color:#86efac;padding:4px 10px;border-radius:10px;font-size:12px;font-weight:700">供應充足</span>';
+    else                        badge.innerHTML = '<span style="background:#1e3a5f;color:#93c5fd;padding:4px 10px;border-radius:10px;font-size:12px;font-weight:700">販售中</span>';
   }
   bar.style.display = 'block';
 }
@@ -4116,7 +4142,7 @@ function renderLpmTable(products) {
   document.getElementById('lpm-check-all').checked = false;
   document.getElementById('lpm-selected-count').textContent = '（未選取商品）';
   if (!products.length) {
-    tbody.innerHTML = '<tr><td colspan="13" style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">尚無商品</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="14" style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">尚無商品</td></tr>';
     return;
   }
   tbody.innerHTML = products.map(p => {
@@ -4147,6 +4173,12 @@ function renderLpmTable(products) {
       <td style="${tdStyle}">
         <label style="display:flex;align-items:center;justify-content:center;gap:4px;cursor:pointer">
           <input type="checkbox" ${p.show_on_line?'checked':''} onchange="lpmToggleOnline(${p.id},this.checked)">
+        </label>
+      </td>
+      <td style="${tdStyle}">
+        <label style="display:flex;align-items:center;justify-content:center;gap:4px;cursor:pointer" title="啟用後前台依份數顯示狀態">
+          <input type="checkbox" ${qEnabled?'checked':''} onchange="lpmToggleQuota(${p.id},this.checked)">
+          <span style="font-size:10px;color:${qEnabled?'#06C755':'#94a3b8'}">${qEnabled?'✅':'⬜'}</span>
         </label>
       </td>
       <td style="${tdStyle}">
@@ -4269,14 +4301,24 @@ async function lpmToggleOnline(id, checked) {
     if (!json.success) throw new Error(json.message);
     const idx = _lpmProducts.findIndex(x => x.id === id);
     if (idx !== -1) _lpmProducts[idx] = { ..._lpmProducts[idx], ...json.data };
-    // 只更新狀態徽章，不重渲染整張表
-    const st = calcLpmStatus(_lpmProducts[idx]);
-    const row = document.getElementById(`lpm-row-${id}`);
-    if (row) {
-      const badge = row.querySelectorAll('td')[11]?.querySelector('span');
-      if (badge) { badge.textContent = st.label; badge.style.color = st.cls; badge.style.background = st.bg; }
-    }
+    renderLpmTable(_lpmProducts);
     showToast(checked ? '✅ 已開啟 LINE 上架' : '❌ 已關閉 LINE 上架', 'success');
+  } catch(e) { showToast(e.message || '操作失敗', 'error'); }
+}
+
+// ── 份數管理開關（直接從表格 checkbox 切換）──────────────
+async function lpmToggleQuota(id, checked) {
+  try {
+    const res  = await apiFetch(`/api/products/${id}/line-settings`, {
+      method:'PATCH', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ line_quota_enabled: checked ? 1 : 0 })
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message);
+    const idx = _lpmProducts.findIndex(x => x.id === id);
+    if (idx !== -1) _lpmProducts[idx] = { ..._lpmProducts[idx], ...json.data };
+    renderLpmTable(_lpmProducts);
+    showToast(checked ? '📦 份數管理已啟用' : '⬜ 份數管理已停用', 'success');
   } catch(e) { showToast(e.message || '操作失敗', 'error'); }
 }
 
@@ -4333,9 +4375,11 @@ async function lpmBatch(type) {
   if (type === 'daily') {
     val = Number(document.getElementById('lpm-batch-daily')?.value);
     if (isNaN(val) || val < 0) { showToast('請輸入有效的開放份數', 'error'); return; }
-    if (!confirm(`確定要將已選 ${ids.length} 個商品的「${names[type]}」設定為 ${val} 嗎？（今日開放份數 > 0 會自動啟用 LINE 份額管理）`)) return;
-    // 設定份數同時自動啟用 line_quota_enabled
-    body = { line_quota_daily: val, line_quota_enabled: 1 };
+    if (!confirm(`確定要將已選 ${ids.length} 個商品的「${names[type]}」設定為 ${val} 嗎？`)) return;
+    // 詢問是否同時啟用份數管理
+    const alsoEnable = val > 0 && confirm(`是否同時啟用已選 ${ids.length} 個商品的 LINE 份數管理？\n確認 → 啟用份數管理（前台開始限額）\n取消 → 只改數字`);
+    body = { line_quota_daily: val };
+    if (alsoEnable) body.line_quota_enabled = 1;
   } else if (type === 'low') {
     val = Number(document.getElementById('lpm-batch-low')?.value);
     if (isNaN(val) || val < 0) { showToast('請輸入有效的門檻值', 'error'); return; }
@@ -4362,6 +4406,12 @@ async function lpmBatch(type) {
     endVal   = document.getElementById('lpm-batch-end')?.value   || '';
     if (!confirm(`確定要將已選 ${ids.length} 個商品的 LINE 販售時段設定為 ${startVal||'不限'}～${endVal||'不限'} 嗎？`)) return;
     body = { line_sell_start: startVal, line_sell_end: endVal };
+  } else if (type === 'quota_on') {
+    if (!confirm(`確定要啟用已選 ${ids.length} 個商品的 LINE 份數管理嗎？`)) return;
+    body = { line_quota_enabled: 1 };
+  } else if (type === 'quota_off') {
+    if (!confirm(`確定要停用已選 ${ids.length} 個商品的 LINE 份數管理嗎？停用後前台不限制份數。`)) return;
+    body = { line_quota_enabled: 0 };
   }
 
   let successCount = 0, failCount = 0;

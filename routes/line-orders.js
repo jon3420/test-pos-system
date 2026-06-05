@@ -370,8 +370,10 @@ router.get('/menu', (req, res) => {
             : (productTimeReason === 'not_started' ? 'product_not_started'
               : (realSoldOut ? 'real_sold_out' : null))));
       // 可預約明日（截止但允許次日預購）
-      const takeoutCanNextDay  = toCutoff  && takeoutMode.allowNextDay;
-      const deliveryCanNextDay = dlCutoff  && deliveryMode.allowNextDay;
+      // 可預約明日：只要任何售完原因 + 該模式允許次日預購就可以
+      // （不限於 cutoff，real_sold_out / product_time_ended 也可預約）
+      const takeoutCanNextDay  = !!takeoutSoldOutReason  && takeoutSoldOutReason  !== 'mode_closed' && takeoutMode.allowNextDay;
+      const deliveryCanNextDay = !!deliverySoldOutReason && deliverySoldOutReason !== 'mode_closed' && deliveryMode.allowNextDay;
 
       const isOrderable = !p.line_sold_out && saleStatus === 'available' && ingredientOk && !realSoldOut;
 
@@ -491,7 +493,7 @@ function validateOrderConditions(db, storeId, mode, dateStr, pickupTime, nowMins
   if (!modeSettings.enabled)
     return { ok: false, reason: 'mode_closed', message: `目前${mode==='takeout'?'外帶':'外送'}服務已關閉` };
 
-  // 5. 今日截止時間（只針對今天）
+  // 5. 今日截止時間（只針對今天的訂單，明日以後不受此限制）
   if (orderDate === todayStr && isCutoffPassed(modeSettings.cutoffTime, nowMins)) {
     return { ok: false, reason: 'cutoff_sold_out',
       message: `${mode==='takeout'?'外帶':'外送'}已超過今日最後接單時間（${modeSettings.cutoffTime}）` };
@@ -626,18 +628,22 @@ router.post('/', (req, res) => {
     );
 
     // ── 扣 LINE 專屬份數（不動主庫存）───────────────
-    // 重要：這裡只更新 line_quota_sold，不修改任何主庫存欄位
-    items.forEach(item => {
-      const pid = item.product_id || item.id;
-      if (!pid) return;
-      const prod = db.get('SELECT * FROM products WHERE id=? AND store_id=?', [pid, storeId]);
-      if (!prod || !Number(prod.line_quota_enabled)) return;
-      db.run(
-        `UPDATE products SET line_quota_sold = line_quota_sold + ?, updated_at=datetime('now','localtime')
-         WHERE id=? AND store_id=?`,
-        [Number(item.qty||1), pid, storeId]
-      );
-    });
+    // 重要：只有今日訂單才扣今日份數；明日預約訂單不扣今日份數
+    const orderDateStr = pickup_date || todayStr;
+    const isNextDayOrder = orderDateStr > todayStr;
+    if (!isNextDayOrder) {
+      items.forEach(item => {
+        const pid = item.product_id || item.id;
+        if (!pid) return;
+        const prod = db.get('SELECT * FROM products WHERE id=? AND store_id=?', [pid, storeId]);
+        if (!prod || !Number(prod.line_quota_enabled)) return;
+        db.run(
+          `UPDATE products SET line_quota_sold = line_quota_sold + ?, updated_at=datetime('now','localtime')
+           WHERE id=? AND store_id=?`,
+          [Number(item.qty||1), pid, storeId]
+        );
+      });
+    }
 
     deductIngredients(db, storeId, items, orderNo);
 

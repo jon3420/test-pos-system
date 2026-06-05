@@ -43,7 +43,7 @@ img{max-width:100%;display:block}
 .prod-body{padding:10px;flex:1;display:flex;flex-direction:column}
 .badges{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:5px}
 .badge{font-size:10px;font-weight:700;padding:2px 6px;border-radius:10px;color:#fff}
-.badge-hot{background:#e53935}.badge-promo{background:#9c27b0}.badge-sold{background:#9e9e9e}.badge-cutoff{background:#757575}
+.badge-hot{background:#e53935}.badge-promo{background:#9c27b0}.badge-sold{background:#9e9e9e}.badge-cutoff{background:#757575}.badge-amber{background:#e65100}
 .prod-name{font-size:14px;font-weight:700;line-height:1.3;margin-bottom:3px}
 .prod-desc{font-size:11px;color:var(--sub);margin-bottom:6px;line-height:1.4;flex:1}
 .prod-price{font-size:16px;font-weight:700;color:var(--g)}
@@ -144,6 +144,8 @@ img{max-width:100%;display:block}
 .loc-hint{font-size:11px;color:var(--sub)}
 .last-order-card{background:#fff;border-radius:var(--r);margin:10px 12px 0;padding:14px 16px;box-shadow:var(--shadow);cursor:pointer;-webkit-tap-highlight-color:transparent}
 .last-order-card:active{opacity:.88}
+.btn-preorder{display:flex;align-items:center;justify-content:center;gap:4px;padding:6px 10px;background:#fff3e0;color:#e65100;border:1.5px solid #ff8f00;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;width:100%;margin-top:6px;-webkit-tap-highlight-color:transparent}
+.btn-preorder:active{opacity:.85}
 </style>
 </head>
 <body>
@@ -516,73 +518,81 @@ function buildCard(p, mode){
   const desc=p.line_description||'';
   const isHot=Number(p.line_hot)===1, isPromo=Number(p.line_promo)===1;
   const ss=p.sale_status||'available';
-  // 依目前模式判斷售完原因
   const soldOutReason=mode==='delivery'?p.delivery_sold_out_reason:p.takeout_sold_out_reason;
+  // canNextDay：任何售完原因 + 允許次日預購
+  const canNextDay=mode==='delivery'?p.delivery_can_next_day:p.takeout_can_next_day;
   const isSoldOut=!!soldOutReason || Number(p.line_sold_out)===1 || ss!=='available';
   const ingOk=p.ingredient_available!==false;
-  const unavail=isSoldOut||!ingOk;
-  const canNextDay=mode==='delivery'?p.delivery_can_next_day:p.takeout_can_next_day;
+  // canPreorderNextDay：售完但允許預約（顯示「預約明日」按鈕）
+  const canPreorderNextDay = isSoldOut && !!canNextDay && soldOutReason !== 'mode_closed';
+  // unavail：完全不可互動
+  const unavailFully = (isSoldOut && !canPreorderNextDay) || (!ingOk && !canPreorderNextDay);
 
   let soldLbl='今日售完';
   if(soldOutReason==='mode_closed') soldLbl='未開放';
-  else if(soldOutReason==='cutoff_sold_out') soldLbl = canNextDay ? '今日售完，可預約明日' : '今日售完';
-  else if(soldOutReason==='real_sold_out') soldLbl='今日售完';
-  else if(soldOutReason==='product_time_ended') soldLbl='今日售完';
   else if(soldOutReason==='product_not_started') soldLbl='尚未開賣';
   else if(ss==='sold_out_today') soldLbl='今日完售';
   else if(ss==='paused') soldLbl='暫停販售';
-  else if(!ingOk) soldLbl='備料不足';
+  else if(!ingOk && !canPreorderNextDay) soldLbl='備料不足';
 
-  // LINE 份數狀態標籤
   const quota=p.line_quota||{hasQuota:false};
   let stockBadge='';
-  if(!unavail && quota.hasQuota){
+  if(!isSoldOut && quota.hasQuota){
     const r=Number(quota.remaining??0);
-    if(r<=0)             stockBadge='<div class="prod-stock-badge stock-zero">🔴 今日售完</div>';
+    if(r<=0)              stockBadge='<div class="prod-stock-badge stock-zero">🔴 今日售完</div>';
     else if(r<=quota.low) stockBadge=`<div class="prod-stock-badge stock-low">🟠 即將售完（剩${r}份）</div>`;
     else if(r>=quota.high)stockBadge='<div class="prod-stock-badge stock-ok">🟢 供應充足</div>';
     else                  stockBadge=`<div class="prod-stock-badge stock-ok">🟢 剩 ${r} 份</div>`;
   }
 
   const qty=cart[p.id]?.qty||0;
-  const footer=unavail?'':(qty>0
-    ?`<div class="qty-ctrl"><button class="minus" onclick="chgQty(${p.id},-1)">−</button><span class="qnum">${qty}</span><button class="plus" onclick="chgQty(${p.id},1)">+</button></div>`
-    :`<button class="add-btn" id="ab-${p.id}" onclick="addCart(${p.id},event)">+</button>`);
-  const mask=unavail?`<div class="sold-mask"><span>${soldLbl}</span></div>`:'';
-  const imgHtml=img?`<img class="prod-img" src="${img}" alt="${esc(name)}" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`:''
-  const badgesSoldOut=isSoldOut?`<span class="badge ${soldOutReason==='cutoff_sold_out'?'badge-cutoff':'badge-sold'}">${soldLbl}</span>`:'';
+  let footer='';
+  if(!isSoldOut && ingOk){
+    footer=qty>0
+      ?`<div class="qty-ctrl"><button class="minus" onclick="chgQty(${p.id},-1)">−</button><span class="qnum">${qty}</span><button class="plus" onclick="chgQty(${p.id},1)">+</button></div>`
+      :`<button class="add-btn" id="ab-${p.id}" onclick="addCart(${p.id},event)">+</button>`;
+  }
+
+  let mask='';
+  if(canPreorderNextDay){
+    mask=`<div class="sold-mask" style="flex-direction:column;gap:8px;padding:10px"><span style="background:#fff;color:#555;font-size:12px;font-weight:700;padding:4px 12px;border-radius:20px">${soldLbl}</span><button class="btn-preorder" onclick="preorderNextDay(${p.id},event)">📅 預約明日</button></div>`;
+  } else if(unavailFully){
+    mask=`<div class="sold-mask"><span>${soldLbl}</span></div>`;
+  }
+
+  const imgHtml=img?`<img class="prod-img" src="${img}" alt="${esc(name)}" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`:'';
+  const soldBadgeTxt=canPreorderNextDay?'可預約明日':soldLbl;
+  const soldBadgeCls=canPreorderNextDay?'badge-amber':(soldOutReason==='cutoff_sold_out'?'badge-cutoff':'badge-sold');
+  const badgesSoldOut=isSoldOut?`<span class="badge ${soldBadgeCls}">${soldBadgeTxt}</span>`:'';
   return `<div class="prod-card" id="pc-${p.id}">${mask}${imgHtml}<div class="prod-ph" ${img?'style="display:none"':''}>🍽️</div><div class="prod-body"><div class="badges">${isHot?'<span class="badge badge-hot">🔥 熱銷</span>':''}${isPromo?'<span class="badge badge-promo">🎁 優惠</span>':''}${badgesSoldOut}</div><div class="prod-name">${esc(name)}</div>${stockBadge}<div class="prod-desc">${esc(desc)}</div><div class="prod-footer"><span class="prod-price">$${price}</span>${footer}</div></div></div>`;
 }
 
 // ── 購物車操作 ─────────────────────────────────────────
 function addCart(id,evt){
   const p=allProducts.find(x=>x.id==id);if(!p)return;
-  // 加入購物車時驗證
   const mode=currentMode;
   const soldOutReason=mode==='delivery'?p.delivery_sold_out_reason:p.takeout_sold_out_reason;
   const canNextDay=mode==='delivery'?p.delivery_can_next_day:p.takeout_can_next_day;
+  // 完全關閉
   if(soldOutReason==='mode_closed'){alert('此模式已關閉');return;}
-  if(soldOutReason==='cutoff_sold_out'){
-    if(canNextDay){
-      // 截止但可預約明日：切換日期到明日繼續
-      toast('今日接單已截止，請選擇明日取餐時間');
-      // 強制打開購物車並將日期切換到明日
-      const now=twNow(),todayStr=fmtD(now);
-      const pDate=document.getElementById('pDate');
-      if(pDate){
-        const tomorrowOpt=Array.from(pDate.options).find(o=>!o.disabled&&o.value>todayStr);
-        if(tomorrowOpt){pDate.value=tomorrowOpt.value;buildTimeSelector();}
-      }
-    } else {
-      alert('已超過今日接單截止時間，無法加入購物車');return;
-    }
+  // 任何售完原因：若允許預約則導向預約；否則拒絕
+  if(soldOutReason){
+    if(canNextDay){ preorderNextDay(id,evt); return; }
+    const msgs={
+      cutoff_sold_out:'已超過今日接單截止時間，無法加入購物車',
+      real_sold_out:(p.effective_line_name||p.name)+' LINE 今日份數已售完',
+      product_time_ended:(p.effective_line_name||p.name)+' 今日販售時段已結束',
+      product_not_started:(p.effective_line_name||p.name)+`尚未開始販售（${p.line_sell_start||''} 開賣）`,
+    };
+    alert(msgs[soldOutReason]||'此商品目前無法加入購物車');return;
   }
-  if(soldOutReason==='real_sold_out'||(p.line_quota?.hasQuota&&Number(p.line_quota?.remaining)<=0)){alert((p.effective_line_name||p.name)+' LINE 今日份數已售完');return;}
-  // 商品自身販售時段驗證
-  if(soldOutReason==='product_time_ended'){alert((p.effective_line_name||p.name)+' 今日販售時段已結束');return;}
-  if(soldOutReason==='product_not_started'){
-    const startT=p.line_sell_start||'';
-    alert((p.effective_line_name||p.name)+`尚未開始販售（${startT} 開賣）`);return;
+  if(Number(p.line_sold_out)===1){
+    if(canNextDay){ preorderNextDay(id,evt); return; }
+    alert((p.effective_line_name||p.name)+' 今日已售完');return;
+  }
+  if(p.line_quota?.hasQuota&&Number(p.line_quota?.remaining)<=0){
+    if(canNextDay){ preorderNextDay(id,evt); return; }
+    alert((p.effective_line_name||p.name)+' LINE 今日份數已售完');return;
   }
   if(p.line_quota?.hasQuota){
     const inCart=cart[id]?.qty||0;
@@ -592,6 +602,31 @@ function addCart(id,evt){
   cart[id].qty++;
   if(evt){const fly=document.createElement('div');fly.className='fly-item';fly.textContent='🛒';fly.style.cssText=`left:${evt.clientX}px;top:${evt.clientY}px`;document.body.appendChild(fly);setTimeout(()=>fly.remove(),700);}
   updateBar();updateProductCard(id);
+}
+
+// ── BUG-003: 預約明日按鈕處理 ──────────────────────────
+function preorderNextDay(id,evt){
+  if(evt){evt.stopPropagation();}
+  const p=allProducts.find(x=>x.id==id);if(!p)return;
+  const mode=currentMode;
+  const canNextDay=mode==='delivery'?p.delivery_can_next_day:p.takeout_can_next_day;
+  if(!canNextDay){toast('此商品不支援明日預約');return;}
+  // 切換購物車內的日期到明日
+  openCartSheet();
+  // 等 DOM 更新後切換日期
+  setTimeout(()=>{
+    const pDate=document.getElementById('pDate');
+    if(!pDate)return;
+    const now=twNow(),todayStr=fmtD(now);
+    const nextOpt=Array.from(pDate.options).find(o=>!o.disabled&&o.value>todayStr);
+    if(nextOpt){
+      pDate.value=nextOpt.value;
+      buildTimeSelector();
+      toast('已切換至明日取餐時間，請選擇時段後加入購物車');
+    } else {
+      toast('目前沒有可預約的明日時段，請確認外帶/外送設定');
+    }
+  },200);
 }
 function chgQty(id,d){
   if(!cart[id])return;
@@ -662,8 +697,12 @@ async function submitOrder(){
   // 送單前雙重驗證：呼叫後端重新確認
   const now=twNow(),nowStr=fmtD(now);
   // 前端預驗證
-  if(type==='takeout'&&takeoutCutoffPassed&&pickupDate===nowStr){toast('外帶今日接單已截止');return;}
-  if(type==='delivery'&&deliveryCutoffPassed&&pickupDate===nowStr){toast('外送今日接單已截止');return;}
+  // 前端預驗證：今日訂單截止，但明日訂單可以送出
+  const isNextDayOrder = pickupDate > nowStr;
+  if(!isNextDayOrder){
+    if(type==='takeout'&&takeoutCutoffPassed){toast('外帶今日接單已截止');return;}
+    if(type==='delivery'&&deliveryCutoffPassed){toast('外送今日接單已截止');return;}
+  }
 
   const items=Object.values(cart).map(({product:p,qty})=>({
     product_id:p.id, name:p.effective_line_name||p.name, qty,

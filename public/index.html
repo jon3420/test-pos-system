@@ -329,6 +329,8 @@
         <button class="btn-secondary" onclick="lpmBatch('reset_sold')" style="font-size:12px;padding:6px 10px;background:#ff6d00;border-color:#ff6d00;color:#fff;white-space:nowrap">⟳ 重置已售</button>
         <button class="btn-secondary" onclick="lpmBatch('enable')" style="font-size:12px;padding:6px 10px;background:#06C755;border-color:#06C755;color:#fff;white-space:nowrap">✅ 開啟 LINE 販售</button>
         <button class="btn-secondary" onclick="lpmBatch('disable')" style="font-size:12px;padding:6px 10px;background:#e53935;border-color:#e53935;color:#fff;white-space:nowrap">❌ 關閉 LINE 販售</button>
+        <button class="btn-secondary" onclick="lpmBatch('quota_on')" style="font-size:12px;padding:6px 10px;background:#7c3aed;border-color:#7c3aed;color:#fff;white-space:nowrap">📦 啟用份數管理</button>
+        <button class="btn-secondary" onclick="lpmBatch('quota_off')" style="font-size:12px;padding:6px 10px;background:var(--bg-base,#0f172a);border:1px solid var(--border,#334155);color:var(--text-secondary,#94a3b8);white-space:nowrap">📦 停用份數管理</button>
       </div>
     </div>
 
@@ -341,6 +343,7 @@
             <th style="padding:10px 8px;text-align:center;width:52px">圖片</th>
             <th style="padding:10px 12px;text-align:left">商品名稱</th>
             <th style="padding:10px 8px;text-align:center;width:72px">LINE上架</th>
+            <th style="padding:10px 8px;text-align:center;width:72px">份數管理</th>
             <th style="padding:10px 8px;text-align:center;width:80px">今日份數</th>
             <th style="padding:10px 8px;text-align:center;width:70px">已售</th>
             <th style="padding:10px 8px;text-align:center;width:70px">剩餘</th>
@@ -353,7 +356,7 @@
           </tr>
         </thead>
         <tbody id="lpm-tbody">
-          <tr><td colspan="13" style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">載入中…</td></tr>
+          <tr><td colspan="14" style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">載入中…</td></tr>
         </tbody>
       </table>
     </div>
@@ -1363,22 +1366,46 @@
       <div style="border-top:1px solid #eee;margin-top:16px;padding-top:16px">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
           <h4 style="font-size:14px;font-weight:700;color:#222;margin:0">📦 LINE 今日可售份數</h4>
-          <label class="checkbox-label" style="margin:0">
-            <input type="checkbox" id="lineQuotaEnabled" onchange="toggleLineQuotaFields()">
-            <span style="font-size:13px">啟用份數管理</span>
-          </label>
         </div>
         <p style="font-size:11px;color:#888;margin-bottom:12px">
           ⚠️ LINE 份數獨立管理，不影響 Web / Android 現場庫存與販售
         </p>
+        <!-- 醒目開關 -->
+        <div id="quotaToggleArea" style="display:flex;gap:10px;margin-bottom:14px">
+          <button type="button" id="btnQuotaEnable"
+            onclick="setQuotaEnabled(true)"
+            style="flex:1;padding:10px 8px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;
+                   border:2px solid #06C755;background:#06C755;color:#fff;transition:.15s">
+            ✅ 啟用 LINE 份數管理
+          </button>
+          <button type="button" id="btnQuotaDisable"
+            onclick="setQuotaEnabled(false)"
+            style="flex:1;padding:10px 8px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;
+                   border:2px solid #ddd;background:#f5f5f5;color:#888;transition:.15s">
+            ⬜ 停用份數管理
+          </button>
+        </div>
+        <input type="hidden" id="lineQuotaEnabled" value="0">
         <div id="lineQuotaFields" style="display:none">
           <!-- 份數狀態顯示 -->
-          <div id="lineQuotaStatusBar" style="background:#f8f9fa;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:13px;display:none">
-            <div style="display:flex;gap:16px;flex-wrap:wrap">
-              <span>今日開放：<strong id="qs-daily">—</strong> 份</span>
-              <span>已售：<strong id="qs-sold" style="color:#e53935">—</strong> 份</span>
-              <span>剩餘：<strong id="qs-remaining">—</strong> 份</span>
-              <span id="qs-status-badge"></span>
+          <div id="lineQuotaStatusBar" style="background:linear-gradient(135deg,#1a2e1a,#1e3a2e);border:1px solid #2d5a2d;border-radius:8px;padding:12px 16px;margin-bottom:12px;display:none">
+            <div style="font-size:11px;color:#7ed87e;font-weight:600;letter-spacing:.05em;margin-bottom:8px">📊 今日 LINE 可售狀態</div>
+            <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:center">
+              <div style="text-align:center">
+                <div style="font-size:10px;color:#9ca3af;margin-bottom:2px">今日開放</div>
+                <div style="font-size:18px;font-weight:700;color:#f1f5f9" id="qs-daily">—</div>
+              </div>
+              <div style="color:#4b5563;font-size:16px">−</div>
+              <div style="text-align:center">
+                <div style="font-size:10px;color:#9ca3af;margin-bottom:2px">已售</div>
+                <div style="font-size:18px;font-weight:700;color:#ff6b6b" id="qs-sold">—</div>
+              </div>
+              <div style="color:#4b5563;font-size:16px">=</div>
+              <div style="text-align:center">
+                <div style="font-size:10px;color:#9ca3af;margin-bottom:2px">剩餘</div>
+                <div style="font-size:18px;font-weight:700;color:#4ade80" id="qs-remaining">—</div>
+              </div>
+              <div style="margin-left:auto" id="qs-status-badge"></div>
             </div>
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
