@@ -218,18 +218,25 @@ router.get('/shop', (req, res) => {
         : null,
     };
 
-    // 找下一個可訂日（最多往後查 7 天）
+    // 找下一個可訂日（最多往後查 14 天）
+    // bizHours 為空物件時視為全天可訂（不限制）
     function nextAvailableDates(modeSettings, count=3) {
       const dates = [];
       const d = new Date(now);
       d.setDate(d.getDate() + 1); // 從明天開始
+      const bizEmpty = !modeSettings.bizHours || Object.keys(modeSettings.bizHours).length === 0;
       for (let i=0; i<14 && dates.length<count; i++) {
         const ds = twDateStr(d);
         const cInfo = isClosedDate(db, storeId, ds);
         if (!cInfo.closed) {
-          const wk = WD_KEYS[d.getDay()];
-          const dh = modeSettings.bizHours[wk];
-          if (dh && dh.enabled) dates.push(ds);
+          if (bizEmpty) {
+            // bizHours 未設定：所有非店休日都可訂
+            dates.push(ds);
+          } else {
+            const wk = WD_KEYS[d.getDay()];
+            const dh = modeSettings.bizHours[wk];
+            if (dh && dh.enabled) dates.push(ds);
+          }
         }
         d.setDate(d.getDate() + 1);
       }
@@ -351,34 +358,47 @@ router.get('/menu', (req, res) => {
       const lineQuotaOverridesIngredient = quota.hasQuota && Number(quota.remaining) > 0;
       const effectiveIngredientOk = lineQuotaOverridesIngredient ? true : ingredientOk;
 
-      // ── 商品自身販售時段判斷（商品級限制，優先於份數）──
-      // 格式 HH:MM，台灣時間
+      // ══════════════════════════════════════════════════════
+      // LINE 接單規則優先順序：
+      //   第一位階：每週營業時間（日期/時段基礎）
+      //   第二位階：今日最後接單時間（臨時提前結束今日接單）
+      //   第三位階：商品販售時段（商品級行銷設定，只限今日）
+      //   第四位階：LINE 可售份數（今日額度）
+      //
+      // 重要原則：位階 2/3/4 都只限制「今日下單」
+      // 只要允許明日預購，任何今日限制都不阻擋未來預約
+      // ══════════════════════════════════════════════════════
+
       const nowHHMM = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
-      let productTimeReason = null; // 'not_started' | 'time_ended'
+
+      // ── 第三位階：商品自身販售時段（只影響今日）──────────
+      let productTimeReason = null; // 'not_started' | 'time_ended'（均僅限今日）
       if (p.line_sell_end && nowHHMM >= p.line_sell_end) {
-        productTimeReason = 'time_ended';
+        productTimeReason = 'time_ended';   // 今日販售已結束，不影響明日
       } else if (p.line_sell_start && nowHHMM < p.line_sell_start) {
-        productTimeReason = 'not_started';
+        productTimeReason = 'not_started';  // 今日尚未開賣，不影響明日
       }
 
-      // ── 售完判斷（外帶/外送獨立）─────────────────────
-      // real_sold_out：LINE 份數歸零
+      // ── 第四位階：LINE 可售份數（只影響今日額度）─────────
       const realSoldOut = quota.hasQuota && quota.remaining <= 0;
-      // cutoff_sold_out：依模式獨立判斷
-      // 前台需要知道外帶/外送各自的狀態
+
+      // ── 外帶/外送各自的今日售完原因（僅描述今日狀態）─────
+      // 優先順序：模式關閉 > 第二位階截止 > 第三位階商品時段 > 第四位階份數
       const takeoutSoldOutReason = !takeoutMode.enabled ? 'mode_closed'
         : (toCutoff ? 'cutoff_sold_out'
-          : (productTimeReason === 'time_ended' ? 'product_time_ended'
+          : (productTimeReason === 'time_ended'   ? 'product_time_ended'
             : (productTimeReason === 'not_started' ? 'product_not_started'
               : (realSoldOut ? 'real_sold_out' : null))));
+
       const deliverySoldOutReason = !deliveryMode.enabled ? 'mode_closed'
         : (dlCutoff ? 'cutoff_sold_out'
-          : (productTimeReason === 'time_ended' ? 'product_time_ended'
+          : (productTimeReason === 'time_ended'   ? 'product_time_ended'
             : (productTimeReason === 'not_started' ? 'product_not_started'
               : (realSoldOut ? 'real_sold_out' : null))));
-      // 可預約明日（截止但允許次日預購）
-      // 可預約明日：只要任何售完原因 + 該模式允許次日預購就可以
-      // （不限於 cutoff，real_sold_out / product_time_ended 也可預約）
+
+      // ── 可預約明日旗標 ────────────────────────────────────
+      // 條件：今日有售完原因（非模式關閉） + 該模式允許次日預購
+      // 今日位階 2/3/4 的限制都不阻擋明日預約
       const takeoutCanNextDay  = !!takeoutSoldOutReason  && takeoutSoldOutReason  !== 'mode_closed' && takeoutMode.allowNextDay;
       const deliveryCanNextDay = !!deliverySoldOutReason && deliverySoldOutReason !== 'mode_closed' && deliveryMode.allowNextDay;
 
@@ -559,8 +579,9 @@ router.post('/', (req, res) => {
         return res.status(400).json({ success: false, message: `「${prod.name}」目前無法購買` });
 
       // LINE 專屬份數驗證（重要：不動主庫存）
+      // 預購訂單不受今日份數限制（今日份數只管今天）
       const quota = getLineQuotaStatus(prod);
-      if (quota.hasQuota) {
+      if (quota.hasQuota && !isPreorderOrder) {
         if (quota.remaining <= 0)
           return res.status(400).json({
             success: false, message: `「${prod.name}」LINE 今日份數已售完`,
@@ -573,8 +594,9 @@ router.post('/', (req, res) => {
           });
       }
 
-      // LINE 可販售時段
-      if (prod.line_sell_start || prod.line_sell_end) {
+      // LINE 可販售時段（只限今日訂單，預購訂單不受此限制）
+      // 原則：商品販售時段是「今日」的行銷設定，不阻擋未來預約
+      if ((prod.line_sell_start || prod.line_sell_end) && !isPreorderOrder) {
         const nowHHMM = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
         if (prod.line_sell_start && nowHHMM < prod.line_sell_start)
           return res.status(400).json({ success: false, message: `「${prod.name}」尚未開始販售（${prod.line_sell_start} 開賣）` });

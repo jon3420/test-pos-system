@@ -522,45 +522,51 @@ function buildCard(p, mode){
   const desc=p.line_description||'';
   const isHot=Number(p.line_hot)===1, isPromo=Number(p.line_promo)===1;
   const ss=p.sale_status||'available';
+
+  // ══════════════════════════════════════════════════════
+  // LINE 接單規則優先順序（前台顯示層）
+  //   第二位階：今日截止時間 → cutoff_sold_out（只限今日）
+  //   第三位階：商品販售時段 → product_time_ended / product_not_started（只限今日）
+  //   第四位階：LINE 份數     → real_sold_out（只限今日）
+  //   canNextDay=true 時，任何今日限制都顯示「預約明日」按鈕
+  // ══════════════════════════════════════════════════════
+
   const soldOutReason=mode==='delivery'?p.delivery_sold_out_reason:p.takeout_sold_out_reason;
-  // canNextDay：任何售完原因 + 允許次日預購
   const canNextDay=mode==='delivery'?p.delivery_can_next_day:p.takeout_can_next_day;
   const isSoldOut=!!soldOutReason || Number(p.line_sold_out)===1 || ss!=='available';
-  // BUG-002: LINE 份數啟用且有剩餘時，食材庫存不阻擋顯示（前台以 quota 優先）
+
+  // LINE quota 優先於食材庫存（第四位階 quota 有剩餘時忽略食材限制）
   const rawIngOk=p.ingredient_available!==false;
   const quota=p.line_quota||{hasQuota:false};
   const quotaHasRemaining = quota.hasQuota && Number(quota.remaining??0) > 0;
-  // 若 quota 啟用且有餘量，忽略食材庫存限制
   const ingOk = quotaHasRemaining ? true : rawIngOk;
-  // canPreorderNextDay：售完但允許預約（顯示「預約明日」按鈕）
+
+  // canPreorderNextDay：今日售完（任何位階）且允許預約明日
   const canPreorderNextDay = isSoldOut && !!canNextDay && soldOutReason !== 'mode_closed';
-  // unavail：完全不可互動（售完且不可預約，且非備料不足情況）
   const quotaRealSoldOut = quota.hasQuota && Number(quota.remaining??0) <= 0;
-  const unavailFully = (isSoldOut && !canPreorderNextDay) || (quotaRealSoldOut && !canPreorderNextDay) || (!ingOk && !quotaHasRemaining && !canPreorderNextDay);
+  const unavailFully = (isSoldOut && !canPreorderNextDay) || (quotaRealSoldOut && !canPreorderNextDay);
 
+  // 今日狀態標籤（只描述今日，不影響明日）
   let soldLbl='今日售完';
-  if(soldOutReason==='mode_closed') soldLbl='未開放';
+  if(soldOutReason==='mode_closed')          soldLbl='未開放';
   else if(soldOutReason==='product_not_started') soldLbl='尚未開賣';
-  else if(ss==='sold_out_today') soldLbl='今日完售';
-  else if(ss==='paused') soldLbl='暫停販售';
-  // 備料不足只在 quota 未啟用或 quota 無剩餘時顯示
-  else if(!rawIngOk && !quotaHasRemaining && !canPreorderNextDay) soldLbl='備料不足';
+  else if(soldOutReason==='product_time_ended')  soldLbl='今日售完';
+  else if(ss==='sold_out_today')             soldLbl='今日完售';
+  else if(ss==='paused')                     soldLbl='暫停販售';
+  else if(!rawIngOk&&!quotaHasRemaining&&!canPreorderNextDay) soldLbl='備料不足';
 
+  // 份數狀態標籤（第四位階，有 quota 時才顯示）
   let stockBadge='';
-  if(!isSoldOut){
-    if(quota.hasQuota){
-      const r=Number(quota.remaining??0);
-      if(r<=0)              stockBadge='<div class="prod-stock-badge stock-zero">🔴 今日售完</div>';
-      else if(r<=quota.low) stockBadge=`<div class="prod-stock-badge stock-low">🟠 即將售完（剩${r}份）</div>`;
-      else if(r>=quota.high)stockBadge='<div class="prod-stock-badge stock-ok">🟢 供應充足</div>';
-      else                  stockBadge=`<div class="prod-stock-badge stock-ok">🟢 剩 ${r} 份</div>`;
-    }
-    // quota 未啟用：不顯示備料不足，顯示販售中（rawIngOk=false 時也不顯示錯誤標籤）
+  if(!isSoldOut && quota.hasQuota){
+    const r=Number(quota.remaining??0);
+    if(r<=0)               stockBadge='<div class="prod-stock-badge stock-zero">🔴 今日售完</div>';
+    else if(r<=quota.low)  stockBadge=`<div class="prod-stock-badge stock-low">🟠 即將售完（剩${r}份）</div>`;
+    else if(r>=quota.high) stockBadge='<div class="prod-stock-badge stock-ok">🟢 供應充足</div>';
+    else                   stockBadge=`<div class="prod-stock-badge stock-ok">🟢 剩 ${r} 份</div>`;
   }
 
   const qty=cart[p.id]?.qty||0;
   let footer='';
-  // 可以加購：未售完 + (ingOk 或 quota 有剩餘)
   if(!isSoldOut && (ingOk || quotaHasRemaining)){
     footer=qty>0
       ?`<div class="qty-ctrl"><button class="minus" onclick="chgQty(${p.id},-1)">−</button><span class="qnum">${qty}</span><button class="plus" onclick="chgQty(${p.id},1)">+</button></div>`
