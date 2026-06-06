@@ -317,10 +317,12 @@ router.get('/menu', (req, res) => {
       const lineName   = (p.line_name||'').trim() || p.name;
       const saleStatus = p.sale_status || 'available';
 
-      // ── LINE 專屬可售份數 ──────────────────────────────
+      // ── LINE 專屬可售份數（優先判斷）──────────────────────
       const quota = getLineQuotaStatus(p);
 
       // ── 食材/庫存 ──────────────────────────────────────
+      // BUG-002 修正：LINE 份數啟用且有剩餘時，食材庫存不阻擋 LINE 販售
+      // ingredientOk 僅在 LINE 份數未啟用時才影響前台顯示
       const formulas = db.all(
         'SELECT f.*,i.refrigerated_stock,i.unit as ing_unit FROM product_ingredient_formulas f LEFT JOIN ingredients i ON i.id=f.ingredient_id AND i.store_id=? WHERE f.product_id=?',
         [storeId, p.id]
@@ -345,6 +347,9 @@ router.get('/menu', (req, res) => {
         availableGrams = stockG;
         ingredientOk   = availableUnits > 0;
       }
+      // LINE 份數啟用且有剩餘 → 忽略食材庫存限制（前台以 quota 狀態優先）
+      const lineQuotaOverridesIngredient = quota.hasQuota && Number(quota.remaining) > 0;
+      const effectiveIngredientOk = lineQuotaOverridesIngredient ? true : ingredientOk;
 
       // ── 商品自身販售時段判斷（商品級限制，優先於份數）──
       // 格式 HH:MM，台灣時間
@@ -377,7 +382,7 @@ router.get('/menu', (req, res) => {
       const takeoutCanNextDay  = !!takeoutSoldOutReason  && takeoutSoldOutReason  !== 'mode_closed' && takeoutMode.allowNextDay;
       const deliveryCanNextDay = !!deliverySoldOutReason && deliverySoldOutReason !== 'mode_closed' && deliveryMode.allowNextDay;
 
-      const isOrderable = !p.line_sold_out && saleStatus === 'available' && ingredientOk && !realSoldOut;
+      const isOrderable = !p.line_sold_out && saleStatus === 'available' && effectiveIngredientOk && !realSoldOut;
 
       return {
         ...p,
@@ -385,7 +390,7 @@ router.get('/menu', (req, res) => {
         display_cat_icon: p.displayCatIcon, display_cat_sort: p.displayCatSort,
         effective_price: basePrice, effective_line_price: linePrice, effective_line_name: lineName,
         sale_status: saleStatus,
-        ingredient_available: ingredientOk, is_orderable: isOrderable,
+        ingredient_available: effectiveIngredientOk, is_orderable: isOrderable,
         available_units: availableUnits, available_grams: availableGrams,
         has_formula: hasFormula, low_stock_alert: Number(p.low_stock_alert||5),
         is_hot: hotNames.has(p.name),

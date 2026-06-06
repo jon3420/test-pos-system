@@ -526,32 +526,42 @@ function buildCard(p, mode){
   // canNextDay：任何售完原因 + 允許次日預購
   const canNextDay=mode==='delivery'?p.delivery_can_next_day:p.takeout_can_next_day;
   const isSoldOut=!!soldOutReason || Number(p.line_sold_out)===1 || ss!=='available';
-  const ingOk=p.ingredient_available!==false;
+  // BUG-002: LINE 份數啟用且有剩餘時，食材庫存不阻擋顯示（前台以 quota 優先）
+  const rawIngOk=p.ingredient_available!==false;
+  const quota=p.line_quota||{hasQuota:false};
+  const quotaHasRemaining = quota.hasQuota && Number(quota.remaining??0) > 0;
+  // 若 quota 啟用且有餘量，忽略食材庫存限制
+  const ingOk = quotaHasRemaining ? true : rawIngOk;
   // canPreorderNextDay：售完但允許預約（顯示「預約明日」按鈕）
   const canPreorderNextDay = isSoldOut && !!canNextDay && soldOutReason !== 'mode_closed';
-  // unavail：完全不可互動
-  const unavailFully = (isSoldOut && !canPreorderNextDay) || (!ingOk && !canPreorderNextDay);
+  // unavail：完全不可互動（售完且不可預約，且非備料不足情況）
+  const quotaRealSoldOut = quota.hasQuota && Number(quota.remaining??0) <= 0;
+  const unavailFully = (isSoldOut && !canPreorderNextDay) || (quotaRealSoldOut && !canPreorderNextDay) || (!ingOk && !quotaHasRemaining && !canPreorderNextDay);
 
   let soldLbl='今日售完';
   if(soldOutReason==='mode_closed') soldLbl='未開放';
   else if(soldOutReason==='product_not_started') soldLbl='尚未開賣';
   else if(ss==='sold_out_today') soldLbl='今日完售';
   else if(ss==='paused') soldLbl='暫停販售';
-  else if(!ingOk && !canPreorderNextDay) soldLbl='備料不足';
+  // 備料不足只在 quota 未啟用或 quota 無剩餘時顯示
+  else if(!rawIngOk && !quotaHasRemaining && !canPreorderNextDay) soldLbl='備料不足';
 
-  const quota=p.line_quota||{hasQuota:false};
   let stockBadge='';
-  if(!isSoldOut && quota.hasQuota){
-    const r=Number(quota.remaining??0);
-    if(r<=0)              stockBadge='<div class="prod-stock-badge stock-zero">🔴 今日售完</div>';
-    else if(r<=quota.low) stockBadge=`<div class="prod-stock-badge stock-low">🟠 即將售完（剩${r}份）</div>`;
-    else if(r>=quota.high)stockBadge='<div class="prod-stock-badge stock-ok">🟢 供應充足</div>';
-    else                  stockBadge=`<div class="prod-stock-badge stock-ok">🟢 剩 ${r} 份</div>`;
+  if(!isSoldOut){
+    if(quota.hasQuota){
+      const r=Number(quota.remaining??0);
+      if(r<=0)              stockBadge='<div class="prod-stock-badge stock-zero">🔴 今日售完</div>';
+      else if(r<=quota.low) stockBadge=`<div class="prod-stock-badge stock-low">🟠 即將售完（剩${r}份）</div>`;
+      else if(r>=quota.high)stockBadge='<div class="prod-stock-badge stock-ok">🟢 供應充足</div>';
+      else                  stockBadge=`<div class="prod-stock-badge stock-ok">🟢 剩 ${r} 份</div>`;
+    }
+    // quota 未啟用：不顯示備料不足，顯示販售中（rawIngOk=false 時也不顯示錯誤標籤）
   }
 
   const qty=cart[p.id]?.qty||0;
   let footer='';
-  if(!isSoldOut && ingOk){
+  // 可以加購：未售完 + (ingOk 或 quota 有剩餘)
+  if(!isSoldOut && (ingOk || quotaHasRemaining)){
     footer=qty>0
       ?`<div class="qty-ctrl"><button class="minus" onclick="chgQty(${p.id},-1)">−</button><span class="qnum">${qty}</span><button class="plus" onclick="chgQty(${p.id},1)">+</button></div>`
       :`<button class="add-btn" id="ab-${p.id}" onclick="addCart(${p.id},event)">+</button>`;
@@ -661,9 +671,11 @@ async function preorderNextDay(id,evt){
 }
 
 // ── 帶日期資訊打開購物車 ─────────────────────────────────
+// ── BUG-001 FIX: 帶日期資訊打開購物車（同步設定，不用雙層 setTimeout）──
 function openCartSheetWithDate(dateStr, firstSlot, slots, mode){
   if(!Object.keys(cart).length)return;
-  // 同步模式
+
+  // 1. 同步模式選單
   const oType=document.getElementById('oType');
   if(oType){
     oType.innerHTML='';
@@ -671,59 +683,85 @@ function openCartSheetWithDate(dateStr, firstSlot, slots, mode){
     if(deliveryEnabled){const o=document.createElement('option');o.value='delivery';o.textContent='🛵 外送';oType.appendChild(o);}
     oType.value=mode;
   }
+
   renderCartItems();
   openSheet('cartSheet');
 
-  // 延遲設定日期、時段，確保 DOM 已渲染
-  setTimeout(()=>{
-    // 設定日期
-    const pDate=document.getElementById('pDate');
-    if(pDate){
-      // 先重建選項（包含次日）
-      buildDateSelector(true);  // true = 強制包含 nextDate
-      setTimeout(()=>{
-        const pDate2=document.getElementById('pDate');
-        if(pDate2){
-          // 找對應選項或新增
-          const opt=Array.from(pDate2.options).find(o=>o.value===dateStr);
-          if(opt){ pDate2.value=dateStr; }
-          else {
-            // 如果找不到則直接添加
-            const newOpt=document.createElement('option');
-            newOpt.value=dateStr; newOpt.textContent=dateStr+' (明日預約)';
-            pDate2.appendChild(newOpt); pDate2.value=dateStr;
-          }
-        }
-        // 設定時段選單
-        const pTime=document.getElementById('pTime');
-        if(pTime&&slots.length>0){
+  // 2. 同步設定日期（直接操作 pDate，不依賴 buildDateSelector）
+  const pDate=document.getElementById('pDate');
+  if(pDate){
+    // 先重建預約專用日期選項（從明天起 7 天，標記店休）
+    const now=twNow(), todayStr=fmtD(now);
+    const closedWds=(() => { try { return JSON.parse(shopData.line_closed_weekdays||'[]'); } catch { return []; } })();
+    const closedDts=(() => { try { return JSON.parse(shopData.line_closed_dates||'[]'); } catch { return []; } })();
+    const bizHoursKey=mode==='takeout'?'takeout_business_hours':'delivery_business_hours';
+    const bizHours=(() => { try { return JSON.parse(shopData[bizHoursKey]||'{}'); } catch { return {}; } })();
+    const bizEmpty=Object.keys(bizHours).length===0;
+    pDate.innerHTML='';
+    for(let offset=1;offset<=14;offset++){
+      const d=new Date(now); d.setDate(d.getDate()+offset);
+      const ds=fmtD(d), wk=WD_KEYS[d.getDay()];
+      const mm=String(d.getMonth()+1).padStart(2,'0'), dd2=String(d.getDate()).padStart(2,'0');
+      const lbl=offset===1?'明天':offset===2?'後天':`${offset}天後`;
+      const isClosed=closedWds.includes(wk)||closedDts.includes(ds);
+      const dh=bizHours[wk];
+      const notBizDay=!isClosed&&!bizEmpty&&dh&&!dh.enabled;
+      const disabled=isClosed||notBizDay;
+      const opt=document.createElement('option');
+      opt.value=ds; opt.disabled=disabled;
+      opt.textContent=`${lbl}（${mm}/${dd2} 週${WD_NAMES[d.getDay()]}）${isClosed?' — 店休':notBizDay?' — 非營業':''}`;
+      pDate.appendChild(opt);
+    }
+    // 強制選中目標日期 dateStr
+    const targetOpt=Array.from(pDate.options).find(o=>o.value===dateStr&&!o.disabled);
+    if(targetOpt){ pDate.value=dateStr; }
+    else { pDate.value=pDate.querySelector('option:not([disabled])')?.value||dateStr; }
+  }
+
+  // 3. 設定時段（直接用傳入的 slots，不重新呼叫 API）
+  const pTime=document.getElementById('pTime');
+  if(pTime){
+    if(slots&&slots.length>0){
+      pTime.innerHTML='';
+      slots.forEach(t=>{
+        const h=Number(t.split(':')[0]);
+        const lbl=h<12?`上午 ${t}`:h===12?`中午 ${t}`:`下午 ${t}`;
+        const o=document.createElement('option');o.value=t;o.textContent=lbl;
+        pTime.appendChild(o);
+      });
+      if(firstSlot) pTime.value=firstSlot;
+    } else {
+      // slots 為空：顯示提示，並再次嘗試 API（用目前選中的日期）
+      pTime.innerHTML='<option value="" disabled>載入時段中…</option>';
+      const selDate=pDate?.value||dateStr;
+      apiFetch(`/api/line-orders/timeslots?mode=${mode}&date=${selDate}`).then(r=>r.json()).then(res=>{
+        if(res.success&&res.slots&&res.slots.length>0){
           pTime.innerHTML='';
-          slots.forEach((t,i)=>{
+          res.slots.forEach(t=>{
             const h=Number(t.split(':')[0]);
             const lbl=h<12?`上午 ${t}`:h===12?`中午 ${t}`:`下午 ${t}`;
             const o=document.createElement('option');o.value=t;o.textContent=lbl;
             pTime.appendChild(o);
           });
-          if(firstSlot) pTime.value=firstSlot;
-        } else if(pTime){
-          pTime.innerHTML='<option value="" disabled>明日暫無可選時段</option>';
-        }
-        // 顯示預約提示
-        const pDateLabel=document.querySelector('label[for="pDate"],.fl');
-        const preorderHint=document.getElementById('preorder-hint');
-        if(!preorderHint){
-          const hint=document.createElement('div');
-          hint.id='preorder-hint';
-          hint.style.cssText='background:#e8f5e9;border-left:3px solid #06C755;padding:8px 12px;border-radius:6px;font-size:12px;color:#1b5e20;margin-top:6px';
-          hint.textContent='📅 預約日期：'+dateStr+'，請依選擇時段取餐 / 收餐';
-          const pDateEl=document.getElementById('pDate');
-          if(pDateEl&&pDateEl.parentNode) pDateEl.parentNode.appendChild(hint);
+          if(res.slots[0]) pTime.value=res.slots[0];
         } else {
-          preorderHint.textContent='📅 預約日期：'+dateStr+'，請依選擇時段取餐 / 收餐';
+          pTime.innerHTML='<option value="" disabled>此日無可選時段，請選其他日期</option>';
         }
-      }, 80);
+      }).catch(()=>{
+        pTime.innerHTML='<option value="" disabled>時段載入失敗，請重試</option>';
+      });
     }
-  }, 50);
+  }
+
+  // 4. 預約提示（移除舊的後重建）
+  const oldHint=document.getElementById('preorder-hint');
+  if(oldHint) oldHint.remove();
+  const hint=document.createElement('div');
+  hint.id='preorder-hint';
+  hint.style.cssText='background:#e8f5e9;border-left:3px solid #06C755;padding:8px 12px;border-radius:6px;font-size:12px;color:#1b5e20;margin-top:6px';
+  hint.textContent='📅 預約日期：'+dateStr+'，請依選擇時段取餐 / 收餐';
+  const pDateEl=document.getElementById('pDate');
+  if(pDateEl&&pDateEl.parentNode) pDateEl.parentNode.appendChild(hint);
 }
 function chgQty(id,d){
   if(!cart[id])return;
