@@ -87,9 +87,11 @@ function getEarliestMins(modeSettings, dateStr, nowMins) {
   const isToday = dateStr === todayStr;
   const wdKey = WD_KEYS[new Date(dateStr + 'T00:00:00+08:00').getDay()];
   const dh = modeSettings.bizHours[wdKey];
-  if (!dh || !dh.enabled) return null; // 非營業日
-  const openMins  = timeToMins(dh.open  || '09:00');
-  const closeMins = timeToMins(dh.close || '21:00');
+  // 若 bizHours 完全未設定（空物件），視為全天營業（不限制）
+  const bizHoursEmpty = !modeSettings.bizHours || Object.keys(modeSettings.bizHours).length === 0;
+  if (!bizHoursEmpty && (!dh || !dh.enabled)) return null; // 非營業日
+  const openMins  = dh ? timeToMins(dh.open  || '09:00') : timeToMins('09:00');
+  const closeMins = dh ? timeToMins(dh.close || '21:00') : timeToMins('21:00');
   if (isToday) {
     // 最早 = max(現在+prep, 開店時間)，進位至30分鐘格
     const earliest = Math.max(Math.ceil((nowMins + modeSettings.prepMins) / 30) * 30, openMins);
@@ -430,7 +432,9 @@ router.get('/timeslots', (req, res) => {
 
     const wdKey = WD_KEYS[new Date(dateStr + 'T00:00:00+08:00').getDay()];
     const dh = modeSettings.bizHours[wdKey];
-    const closeMins = timeToMins(dh?.close || '21:00');
+    // fallback：若無 bizHours 設定，使用預設 09:00~21:00
+    const closeMins = dh ? timeToMins(dh.close || '21:00') : timeToMins('21:00');
+    const openMins  = dh ? timeToMins(dh.open  || '09:00') : timeToMins('09:00');
 
     const slots = [];
     for (let t = earliestMins; t < closeMins; t += 30) {
@@ -606,7 +610,13 @@ router.post('/', (req, res) => {
     const discAmt    = Number(discount_amount)||0;
     const sub        = Number(subtotal)||0;
     const orderMode  = order_type === 'delivery' ? 'delivery' : 'takeout';
-    const pickupTimeVal = (pickup_time && pickup_time.trim()) ? pickup_time.trim() : '';
+    // 預購訂單：將日期合入 pickup_time，格式 "YYYY-MM-DD HH:MM"，方便後台辨識
+    const isPreorderOrder = orderDate > todayStr;
+    let pickupTimeVal = (pickup_time && pickup_time.trim()) ? pickup_time.trim() : '';
+    if (isPreorderOrder && pickupTimeVal && !pickupTimeVal.includes('-')) {
+      // 預購且只有時間（HH:MM），補上日期
+      pickupTimeVal = `${orderDate} ${pickupTimeVal}`;
+    }
 
     db.run(
       `INSERT INTO orders (

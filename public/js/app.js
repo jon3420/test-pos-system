@@ -882,6 +882,7 @@ function showPage(name) {
   if (name === 'orders')        loadCurrentOrderTab();
   if (name === 'products')      loadProductsPage();
   if (name === 'line_products') loadLineProductsPage();
+  if (name === 'line_preorders') loadLinePreorders();
   if (name === 'settings')   { loadSettingsPage(); switchSettingsTab('basic'); }
   if (name === 'categories') loadCategoriesPage();
   if (name === 'inventory')  loadInventoryPage();
@@ -1845,8 +1846,19 @@ function renderOrdersTable(orders) {
                   o.order_mode === 'takeout'  ? (o.pickup_name||o.customer_name||'—') :
                   (o.delivery_platform||o.customer_name||'—');
     // pickup_time 顯示（LINE 訂單取餐時間）
-    const pickupTag = (o.source === 'line' || o.customer_line_id) && o.pickup_time && o.pickup_time !== '盡快'
-      ? `<br><span style="font-size:11px;color:#06C755">⏰${o.pickup_time}</span>` : '';
+    // 預購單：pickup_time 格式 "YYYY-MM-DD HH:MM"
+    let pickupTag = '';
+    if ((o.source === 'line' || o.customer_line_id) && o.pickup_time && o.pickup_time !== '盡快') {
+      const pt = o.pickup_time;
+      const isPreorderFmt = pt.length > 10 && pt.includes('-') && pt.includes(' ');
+      if (isPreorderFmt) {
+        // 預購格式：顯示 📅 預購：MM-DD HH:MM
+        const dispDate = pt.slice(5, 10), dispTime = pt.slice(11);
+        pickupTag = `<br><span style="font-size:11px;color:#a78bfa;font-weight:600">📅 預購：${dispDate} ${dispTime}</span>`;
+      } else {
+        pickupTag = `<br><span style="font-size:11px;color:#06C755">⏰${pt}</span>`;
+      }
+    }
     return `
       <tr style="${isVoid?'opacity:0.5':''}">
         <td><span class="order-num">${escHtml(o.order_number)}</span></td>
@@ -4084,6 +4096,192 @@ async function resetLineQuotaSold() {
 
 
 // ═══════════════════════════════════════════════════════════
+// LINE 預購管理 (FEATURE-001)
+// ═══════════════════════════════════════════════════════════
+
+let _lpAllOrders = [];  // 全部預購訂單快取
+let _lpFilter = 'all';  // today | tomorrow | week | all | custom
+
+// ── 日期工具 ──────────────────────────────────────────────
+function twTodayStr() {
+  const d = new Date(new Date().toLocaleString('en-US', {timeZone:'Asia/Taipei'}));
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function twDateAdd(base, n) {
+  const d = new Date(base + 'T00:00:00+08:00'); d.setDate(d.getDate()+n);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+// ── 篩選條件切換 ──────────────────────────────────────────
+function lpSetFilter(type) {
+  _lpFilter = type;
+  document.querySelectorAll('[id^="lpf-"]').forEach(b => {
+    b.style.background = ''; b.style.color = '';
+  });
+  const activeBtn = document.getElementById('lpf-' + type);
+  if (activeBtn) { activeBtn.style.background = 'var(--accent,#3b82f6)'; activeBtn.style.color = '#fff'; }
+  loadLinePreorders();
+}
+
+// ── 載入預購訂單 ──────────────────────────────────────────
+async function loadLinePreorders() {
+  const tbody = document.getElementById('lp-tbody');
+  if (!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;padding:30px;color:var(--text-muted,#64748b)">載入中…</td></tr>';
+
+  const today = twTodayStr();
+  let dateFrom, dateTo;
+  if (_lpFilter === 'today') {
+    dateFrom = dateTo = today;
+  } else if (_lpFilter === 'tomorrow') {
+    dateFrom = dateTo = twDateAdd(today, 1);
+  } else if (_lpFilter === 'week') {
+    dateFrom = today; dateTo = twDateAdd(today, 7);
+  } else if (_lpFilter === 'custom') {
+    dateFrom = document.getElementById('lp-date-from')?.value || today;
+    dateTo   = document.getElementById('lp-date-to')?.value   || today;
+  } else {
+    // all: 今天起往後 30 天，加上今天以前 7 天（含今日預購）
+    dateFrom = twDateAdd(today, -7);
+    dateTo   = twDateAdd(today, 30);
+  }
+
+  try {
+    // 用 LINE 訂單 API，依建立日期抓取
+    const res  = await apiFetch(`/api/orders?date_from=${dateFrom}&date_to=${dateTo}&source=line`);
+    const json = await res.json();
+    let orders = (json.success ? json.data : []).filter(o => o.source === 'line');
+
+    // 判斷是否為預購單：pickup_time 包含日期（格式 YYYY-MM-DD HH:MM）或日期 > 建立日期
+    orders = orders.map(o => {
+      const pt = o.pickup_time || '';
+      let preorderDate = null, preorderTime = pt;
+      if (/^\d{4}-\d{2}-\d{2}\s/.test(pt)) {
+        // 新格式：YYYY-MM-DD HH:MM
+        preorderDate = pt.slice(0, 10);
+        preorderTime = pt.slice(11);
+      } else if (o.created_at) {
+        // 舊格式：只有時間，用建立日期
+        preorderDate = o.created_at.slice(0, 10);
+      }
+      const isPreorder = preorderDate && preorderDate > (o.created_at || '').slice(0, 10);
+      return { ...o, preorderDate, preorderTime, isPreorder };
+    });
+
+    _lpAllOrders = orders;
+    renderLinePreordersTable();
+  } catch(e) {
+    if (tbody) tbody.innerHTML = `<tr><td colspan="11" style="text-align:center;padding:30px;color:#ef4444">載入失敗：${escHtml(e.message)}</td></tr>`;
+  }
+}
+
+// ── 渲染預購表格 ──────────────────────────────────────────
+function renderLinePreordersTable() {
+  const tbody = document.getElementById('lp-tbody');
+  if (!tbody) return;
+
+  const modeFilter   = document.getElementById('lp-filter-mode')?.value   || '';
+  const statusFilter = document.getElementById('lp-filter-status')?.value || '';
+
+  let orders = _lpAllOrders;
+  if (modeFilter)   orders = orders.filter(o => o.order_mode === modeFilter);
+  if (statusFilter) orders = orders.filter(o => (o.order_status || o.status) === statusFilter);
+
+  // 統計
+  const pending = orders.filter(o => ['pending','accepted','preparing'].includes(o.order_status || o.status)).length;
+  const revenue = orders.reduce((s, o) => s + Number(o.total||0), 0);
+  const setStat = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  setStat('lp-stat-total',   orders.length);
+  setStat('lp-stat-pending', pending);
+  setStat('lp-stat-revenue', 'NT$' + revenue.toLocaleString());
+  const badge = document.getElementById('lp-count-badge');
+  if (badge) badge.textContent = `共 ${orders.length} 筆`;
+
+  if (!orders.length) {
+    tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">此條件下無預購訂單</td></tr>';
+    return;
+  }
+
+  const STATUS_CLS   = {pending:'status-new',accepted:'status-preparing',preparing:'status-preparing',ready:'status-ready',completed:'status-completed',cancelled:'status-void'};
+  const STATUS_LABEL = {pending:'待接單',accepted:'已接單',preparing:'製作中',ready:'可取餐',completed:'已完成',cancelled:'已取消'};
+  const MODE_LABEL   = {takeout:'🛍️ 外帶', delivery:'🛵 外送', dine_in:'🍽️ 內用'};
+  const PAY_LABEL    = {cash:'現金',linepay:'LINE Pay',transfer:'轉帳',platform:'平台',credit_card:'信用卡'};
+  const tdS = 'padding:8px 8px;border-bottom:1px solid var(--border,#334155);vertical-align:middle';
+
+  // 依預購日期排序
+  orders = [...orders].sort((a, b) => {
+    const da = (a.preorderDate || a.created_at || '').slice(0, 10);
+    const db2 = (b.preorderDate || b.created_at || '').slice(0, 10);
+    return da < db2 ? -1 : da > db2 ? 1 : (a.preorderTime||'') < (b.preorderTime||'') ? -1 : 1;
+  });
+
+  tbody.innerHTML = orders.map(o => {
+    const st = o.order_status || o.status || 'pending';
+    const stCls   = STATUS_CLS[st]   || 'status-completed';
+    const stLabel = STATUS_LABEL[st] || st;
+    const items   = (typeof o.items==='string') ? JSON.parse(o.items||'[]') : (o.items||[]);
+    const itemStr = items.map(i => `${i.name}×${i.qty}`).join('、');
+    const phone   = String(o.customer_phone||'');
+    const phoneMasked = phone.length > 4 ? phone.slice(0,3)+'****'+phone.slice(-3) : phone;
+    const today = twTodayStr();
+    const isToday = o.preorderDate === today;
+    const preorderBadge = isToday
+      ? '<span style="background:#3b82f6;color:#fff;font-size:10px;padding:2px 6px;border-radius:8px;font-weight:700">今日單</span>'
+      : '<span style="background:#7c3aed;color:#fff;font-size:10px;padding:2px 6px;border-radius:8px;font-weight:700">預購單</span>';
+    const dateDisplay = o.preorderDate
+      ? `${o.preorderDate.slice(5)} ${o.preorderTime||''}`
+      : (o.pickup_time||'—');
+
+    return `<tr style="background:var(--bg-card,#1e293b)">
+      <td style="${tdS}">
+        <div style="font-size:12px;font-weight:600;color:var(--text-primary,#f1f5f9)">${escHtml(o.order_number)}</div>
+        <div style="margin-top:3px">${preorderBadge}</div>
+        <div style="font-size:10px;color:var(--text-muted,#64748b);margin-top:2px">建立：${(o.created_at||'').slice(5,16)}</div>
+      </td>
+      <td style="${tdS};text-align:center">
+        <div style="font-size:13px;font-weight:700;color:${isToday?'#3b82f6':'#a78bfa'}">${dateDisplay}</div>
+      </td>
+      <td style="${tdS}">${escHtml(o.customer_name||'—')}</td>
+      <td style="${tdS};text-align:center;font-size:12px">${escHtml(phoneMasked)}</td>
+      <td style="${tdS};text-align:center">${MODE_LABEL[o.order_mode]||o.order_mode||'—'}</td>
+      <td style="${tdS};max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(itemStr)}">${escHtml(itemStr||'—')}</td>
+      <td style="${tdS};text-align:center;font-weight:700;color:#f5a623">$${o.total||0}</td>
+      <td style="${tdS};text-align:center;font-size:11px">${PAY_LABEL[o.payment_method]||o.payment_method||'—'}</td>
+      <td style="${tdS};font-size:11px;color:var(--text-muted,#64748b)">${escHtml(o.note||'')}</td>
+      <td style="${tdS};text-align:center">
+        <span class="order-status ${stCls}" style="font-size:11px">${stLabel}</span>
+      </td>
+      <td style="${tdS};text-align:center">
+        <div style="display:flex;gap:4px;justify-content:center;flex-wrap:wrap">
+          <button style="padding:4px 8px;font-size:11px;background:var(--bg-base,#0f172a);border:1px solid var(--border,#334155);border-radius:5px;color:var(--text-secondary,#94a3b8);cursor:pointer" onclick="showOrderDetail('${o.id}')">📋 詳情</button>
+          ${st==='pending'?`<button style="padding:4px 8px;font-size:11px;background:#06C755;border:none;border-radius:5px;color:#fff;cursor:pointer" onclick="lpUpdateStatus('${o.id||o.uuid}','${o.order_number}','accepted')">✅ 接單</button>`:''}
+          ${['pending','accepted','preparing'].includes(st)?`<button style="padding:4px 8px;font-size:11px;background:#e53935;border:none;border-radius:5px;color:#fff;cursor:pointer" onclick="lpUpdateStatus('${o.id||o.uuid}','${o.order_number}','cancelled')">❌ 取消</button>`:''}
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+// ── 快速更新預購訂單狀態 ──────────────────────────────────
+async function lpUpdateStatus(id, orderNo, newStatus) {
+  const label = {accepted:'接受',cancelled:'取消'}[newStatus]||newStatus;
+  if (!confirm(`確定要${label}訂單 ${orderNo} 嗎？`)) return;
+  try {
+    const res  = await apiFetch(`/api/line-orders/online/${encodeURIComponent(orderNo)}/status`, {
+      method: 'PATCH', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ status: newStatus })
+    });
+    const json = await res.json();
+    if (json.success) {
+      showToast(`✅ 訂單狀態已更新為：${newStatus}`, 'success');
+      loadLinePreorders();
+    } else {
+      showToast(json.message || '更新失敗', 'error');
+    }
+  } catch(e) { showToast('網路錯誤', 'error'); }
+}
+
+// ═══════════════════════════════════════════════════════════
 // LINE 商品管理總表 (v1)
 // ═══════════════════════════════════════════════════════════
 
@@ -4093,10 +4291,12 @@ let _lpmEditing  = {};    // 正在編輯的列 { [id]: {daily,sold,low,high,sta
 // ── 顯示/隱藏 LINE 商品管理入口 ──────────────────────────
 function initLineProductsNav() {
   const hasLine = hasFeature && hasFeature('line_order');
-  const navBtn  = document.getElementById('nav-btn-line_products');
-  const toolBtn = document.getElementById('btnLineProductsMgr');
-  if (navBtn)  navBtn.style.display  = hasLine ? '' : 'none';
-  if (toolBtn) toolBtn.style.display = hasLine ? '' : 'none';
+  const navBtn     = document.getElementById('nav-btn-line_products');
+  const preNavBtn  = document.getElementById('nav-btn-line_preorders');
+  const toolBtn    = document.getElementById('btnLineProductsMgr');
+  if (navBtn)     navBtn.style.display     = hasLine ? '' : 'none';
+  if (preNavBtn)  preNavBtn.style.display  = hasLine ? '' : 'none';
+  if (toolBtn)    toolBtn.style.display    = hasLine ? '' : 'none';
 }
 
 // ── 載入 LINE 商品管理頁 ──────────────────────────────────

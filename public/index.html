@@ -38,6 +38,9 @@
     <button class="nav-btn" data-page="line_products" id="nav-btn-line_products" onclick="showPage('line_products')" style="display:none">
       <span class="nav-icon">📲</span><span>LINE商品</span>
     </button>
+    <button class="nav-btn" data-page="line_preorders" id="nav-btn-line_preorders" onclick="showPage('line_preorders')" style="display:none">
+      <span class="nav-icon">📅</span><span>LINE預購</span>
+    </button>
     <button class="nav-btn" data-page="settings" onclick="showPage('settings')">
       <span class="nav-icon">⚙️</span><span>設定</span>
     </button>
@@ -369,6 +372,93 @@
         </thead>
         <tbody id="lpm-tbody">
           <tr><td colspan="14" style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">載入中…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- LINE 預購管理頁 (FEATURE-001) -->
+<div id="page-line_preorders" class="page">
+  <div class="page-inner" style="max-width:100%;padding:16px 20px">
+    <div class="page-toolbar" style="margin-bottom:16px">
+      <h1 class="page-title">📅 LINE 預購管理</h1>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <button class="btn-secondary" onclick="loadLinePreorders()">🔄 重新整理</button>
+      </div>
+    </div>
+
+    <!-- 篩選列 -->
+    <div style="background:var(--bg-card,#1e293b);border:1px solid var(--border,#334155);border-radius:10px;padding:12px 16px;margin-bottom:14px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+      <!-- 快選日期 -->
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button class="btn-secondary" id="lpf-today" onclick="lpSetFilter('today')" style="font-size:12px;padding:5px 10px">今天</button>
+        <button class="btn-secondary" id="lpf-tomorrow" onclick="lpSetFilter('tomorrow')" style="font-size:12px;padding:5px 10px">明天</button>
+        <button class="btn-secondary" id="lpf-week" onclick="lpSetFilter('week')" style="font-size:12px;padding:5px 10px">本週</button>
+        <button class="btn-secondary" id="lpf-all" onclick="lpSetFilter('all')" style="font-size:12px;padding:5px 10px;background:var(--accent);color:#fff">全部預購</button>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <label style="font-size:12px;color:var(--text-secondary,#94a3b8)">自訂日期</label>
+        <input type="date" id="lp-date-from" style="padding:5px 8px;border:1px solid var(--border,#334155);border-radius:6px;font-size:12px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
+        <span style="font-size:12px;color:var(--text-muted,#64748b)">~</span>
+        <input type="date" id="lp-date-to" style="padding:5px 8px;border:1px solid var(--border,#334155);border-radius:6px;font-size:12px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
+        <button class="btn-secondary" onclick="lpSetFilter('custom')" style="font-size:12px;padding:5px 10px">查詢</button>
+      </div>
+      <div style="display:flex;gap:6px">
+        <select id="lp-filter-mode" onchange="renderLinePreordersTable()" style="padding:5px 8px;border:1px solid var(--border,#334155);border-radius:6px;font-size:12px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
+          <option value="">全部模式</option>
+          <option value="takeout">外帶</option>
+          <option value="delivery">外送</option>
+        </select>
+        <select id="lp-filter-status" onchange="renderLinePreordersTable()" style="padding:5px 8px;border:1px solid var(--border,#334155);border-radius:6px;font-size:12px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
+          <option value="">全部狀態</option>
+          <option value="pending">待接單</option>
+          <option value="accepted">已接單</option>
+          <option value="preparing">製作中</option>
+          <option value="ready">可取餐</option>
+          <option value="completed">已完成</option>
+          <option value="cancelled">已取消</option>
+        </select>
+      </div>
+      <span id="lp-count-badge" style="font-size:12px;color:#06C755;font-weight:600;margin-left:auto"></span>
+    </div>
+
+    <!-- 統計卡 -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:14px" id="lp-stats-row">
+      <div style="background:var(--bg-card,#1e293b);border:1px solid var(--border,#334155);border-radius:8px;padding:12px;text-align:center">
+        <div style="font-size:11px;color:var(--text-muted,#64748b)">預購筆數</div>
+        <div style="font-size:22px;font-weight:700" id="lp-stat-total">—</div>
+      </div>
+      <div style="background:var(--bg-card,#1e293b);border:1px solid var(--border,#334155);border-radius:8px;padding:12px;text-align:center">
+        <div style="font-size:11px;color:var(--text-muted,#64748b)">待處理</div>
+        <div style="font-size:22px;font-weight:700;color:#fbbf24" id="lp-stat-pending">—</div>
+      </div>
+      <div style="background:var(--bg-card,#1e293b);border:1px solid var(--border,#334155);border-radius:8px;padding:12px;text-align:center">
+        <div style="font-size:11px;color:var(--text-muted,#64748b)">預購金額</div>
+        <div style="font-size:22px;font-weight:700;color:#06C755" id="lp-stat-revenue">—</div>
+      </div>
+    </div>
+
+    <!-- 預購訂單表 -->
+    <div style="overflow-x:auto;border:1px solid var(--border,#334155);border-radius:10px">
+      <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:960px">
+        <thead>
+          <tr style="background:var(--bg-card,#1e293b);border-bottom:1px solid var(--border,#334155)">
+            <th style="padding:10px 10px;text-align:left;width:140px">訂單編號</th>
+            <th style="padding:10px 8px;text-align:center;width:130px">預購日期時段</th>
+            <th style="padding:10px 8px;text-align:left;width:90px">顧客</th>
+            <th style="padding:10px 8px;text-align:center;width:70px">電話</th>
+            <th style="padding:10px 8px;text-align:center;width:60px">方式</th>
+            <th style="padding:10px 8px;text-align:left">商品明細</th>
+            <th style="padding:10px 8px;text-align:center;width:70px">金額</th>
+            <th style="padding:10px 8px;text-align:center;width:60px">付款</th>
+            <th style="padding:10px 8px;text-align:left;width:80px">備註</th>
+            <th style="padding:10px 8px;text-align:center;width:90px">狀態</th>
+            <th style="padding:10px 8px;text-align:center;width:110px">操作</th>
+          </tr>
+        </thead>
+        <tbody id="lp-tbody">
+          <tr><td colspan="11" style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">載入中…</td></tr>
         </tbody>
       </table>
     </div>
