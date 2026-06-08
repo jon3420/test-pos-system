@@ -2409,3 +2409,43 @@ input[type="time"]::selection {
   color: #222 !important;
   background: #fff !important;
 }
+
+/* ===================================================
+   BUG-002 FIX: 外帶/外送每週營業時間 time input 寬度
+   確保「下午 03:00」等格式可完整顯示
+   =================================================== */
+#takeoutBizHoursGrid input[type="time"],
+#deliveryBizHoursGrid input[type="time"],
+#bizHoursGrid input[type="time"] {
+  width: 130px !important;
+  min-width: 120px !important;
+  max-width: 100%;
+  padding: 5px 8px !important;
+  font-size: 13px !important;
+  color: #222 !important;
+  background: #fff !important;
+  border: 1px solid #ccc !important;
+  border-radius: 4px;
+  box-sizing: border-box;
+  flex-shrink: 0 !important;
+}
+#takeoutBizHoursGrid > div,
+#deliveryBizHoursGrid > div,
+#bizHoursGrid > div {
+  min-width: 180px;
+  box-sizing: border-box;
+}
+/* 手機版：時間欄位上下排列 */
+@media (max-width: 480px) {
+  #takeoutBizHoursGrid,
+  #deliveryBizHoursGrid,
+  #bizHoursGrid {
+    grid-template-columns: 1fr 1fr !important;
+  }
+  #takeoutBizHoursGrid input[type="time"],
+  #deliveryBizHoursGrid input[type="time"],
+  #bizHoursGrid input[type="time"] {
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+}

@@ -3977,10 +3977,12 @@ function renderModeHoursGrid(gridId, hoursJsonStr) {
         <input type="checkbox" id="${mode}-bh-${d}-en" ${dh.enabled?'checked':''} onchange="saveModeHoursFromGrid('${mode}')">
         <span>${DAY_NAMES[d]}</span>
       </label>
-      <div style="display:flex;gap:4px;align-items:center;font-size:13px;flex-wrap:wrap">
-        <input type="time" id="${mode}-bh-${d}-open" value="${dh.open||'11:00'}" onchange="saveModeHoursFromGrid('${mode}')" style="flex:1;min-width:80px;padding:4px 6px;border:1px solid #ccc;border-radius:4px;font-size:13px;color:#222;background:#fff;box-sizing:border-box">
-        <span style="color:#555;flex-shrink:0">～</span>
-        <input type="time" id="${mode}-bh-${d}-close" value="${dh.close||'20:00'}" onchange="saveModeHoursFromGrid('${mode}')" style="flex:1;min-width:80px;padding:4px 6px;border:1px solid #ccc;border-radius:4px;font-size:13px;color:#222;background:#fff;box-sizing:border-box">
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <input type="time" id="${mode}-bh-${d}-open" value="${dh.open||'11:00'}" onchange="saveModeHoursFromGrid('${mode}')"
+          style="width:130px;min-width:120px;padding:5px 8px;border:1px solid #ccc;border-radius:4px;font-size:13px;color:#222;background:#fff;box-sizing:border-box;flex-shrink:0">
+        <span style="color:#555;flex-shrink:0;font-size:13px">～</span>
+        <input type="time" id="${mode}-bh-${d}-close" value="${dh.close||'20:00'}" onchange="saveModeHoursFromGrid('${mode}')"
+          style="width:130px;min-width:120px;padding:5px 8px;border:1px solid #ccc;border-radius:4px;font-size:13px;color:#222;background:#fff;box-sizing:border-box;flex-shrink:0">
       </div>
     </div>`;
   }).join('');

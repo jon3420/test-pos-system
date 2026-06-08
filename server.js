@@ -267,6 +267,8 @@ initDb().then((db) => {
   app.use('/api/platforms',        requireStore, requireFeature('delivery'), require('./routes/platforms'));
   app.use('/api/payment-methods',  requireStore, requireFeature('payment_methods'), require('./routes/payment-methods'));
   app.use('/api/payment-gateways', requireStore, requireFeature('payment_api'), require('./routes/payment-gateways'));
+  // LINE Pay v3 — 不需要 payment_api feature gate，/confirm 由 LINE 直接呼叫
+  app.use('/api/linepay', requireStore, require('./routes/linepay'));
   app.use('/api/print',            requireStore, require('./routes/print'));
   app.use('/api/print-jobs',       requireStore, require('./routes/printJobs'));
   app.use('/api/sync',             requireStore, require('./routes/sync'));

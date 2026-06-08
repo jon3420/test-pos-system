@@ -560,6 +560,8 @@ router.post('/', (req, res) => {
     const nowMins = now.getHours()*60 + now.getMinutes();
     const todayStr = twDateStr(now);
     const orderDate = pickup_date || todayStr;
+    // ── BUG-001 修正：isPreorderOrder 必須在商品驗證迴圈之前宣告 ──
+    const isPreorderOrder = orderDate > todayStr;
 
     // ── 結帳前雙重驗證 ─────────────────────────────────
     const mode = order_type === 'delivery' ? 'delivery' : 'takeout';
@@ -638,7 +640,6 @@ router.post('/', (req, res) => {
     const sub        = Number(subtotal)||0;
     const orderMode  = order_type === 'delivery' ? 'delivery' : 'takeout';
     // 預購訂單：將日期合入 pickup_time，格式 "YYYY-MM-DD HH:MM"，方便後台辨識
-    const isPreorderOrder = orderDate > todayStr;
     let pickupTimeVal = (pickup_time && pickup_time.trim()) ? pickup_time.trim() : '';
     if (isPreorderOrder && pickupTimeVal && !pickupTimeVal.includes('-')) {
       // 預購且只有時間（HH:MM），補上日期

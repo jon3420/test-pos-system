@@ -297,6 +297,19 @@ function timeToMins(hhmm){const[h,m]=String(hhmm||'00:00').split(':').map(Number
 
 // ── 初始化 ──────────────────────────────────────────────
 async function init(){
+  // ── LINE Pay redirect 結果處理 ──────────────────────
+  const _lpP=new URLSearchParams(window.location.search);
+  if(_lpP.get('linepay')==='success'){
+    document.getElementById('loading').style.display='none';
+    document.getElementById('sucNo').textContent='訂單編號：'+(_lpP.get('order')||'');
+    document.getElementById('sucDetail').innerHTML='<div style="color:#06C755;font-weight:700;font-size:16px;text-align:center;padding:20px">💚 LINE Pay 付款成功！訂單已建立。</div>';
+    document.getElementById('successScreen').classList.add('show');
+    return;
+  }
+  if(_lpP.get('linepay')==='cancel'){
+    // 繼續正常初始化，但提示取消
+    setTimeout(()=>toast('LINE Pay 付款已取消，請重新選擇付款方式'),600);
+  }
   try{
     const[sr,mr]=await Promise.all([
       apiFetch('/api/line-shop').then(r=>r.json()),
@@ -482,8 +495,17 @@ async function buildTimeSelector(){
   try{
     const res=await apiFetch(`/api/line-orders/timeslots?mode=${mode}&date=${sd}`).then(r=>r.json());
     if(!res.success||!res.slots||res.slots.length===0){
-      const reasons={cutoff_passed:'今日接單已截止',no_slots_today:'今日已無可預約時段',closed_day:'此日為店休日',mode_closed:'此模式已關閉'};
-      sel.innerHTML=`<option value="" disabled>${reasons[res.reason]||'此日無可預約時段'}</option>`;
+      const reasons={
+        cutoff_passed:'今日接單已截止',
+        no_slots_today:'今日已無可預約時段',
+        closed_day:'此日為店休日',
+        mode_closed:'此模式已關閉',
+      };
+      // 若是 no_slots_today 且是今天，提示選明天
+      let msg = reasons[res.reason]||'此日無可預約時段';
+      const nowDate = fmtD(twNow());
+      if(res.reason==='no_slots_today'&&sd===nowDate) msg='今日時段已過，請選擇其他日期';
+      sel.innerHTML=`<option value="" disabled>${msg}</option>`;
       return;
     }
     sel.innerHTML='';
@@ -854,9 +876,10 @@ async function submitOrder(){
   }));
   const subtotal=items.reduce((s,i)=>s+i.subtotal,0);
 
+
   const btn=document.getElementById('subBtn');btn.disabled=true;btn.textContent='送出中…';
   try{
-    const res=await apiFetch('/api/line-orders',{
+    const orderRes=await apiFetch('/api/line-orders',{
       method:'POST',
       body:JSON.stringify({
         customer_name:name, customer_phone:phone, order_type:type,
@@ -864,24 +887,55 @@ async function submitOrder(){
         payment_method:selectedPay, note, items, subtotal, total:subtotal
       })
     }).then(r=>r.json());
-    if(res.success){
-      localStorage.setItem('last_line_order_number',res.data.order_number);
-      localStorage.setItem('last_line_order_phone',phone);
-      closeSheet('cartSheet');cart={};updateBar();renderMenu();
-      document.getElementById('sucNo').textContent=`訂單編號：${res.data.order_number}`;
-      document.getElementById('sucDetail').innerHTML=buildDetailRows({
-        status:'pending',status_label:'待確認',
-        customer_name:name, phone_last3:phone.slice(-3),
-        order_type_label:type==='delivery'?'🛵 外送':'🛍️ 外帶',
-        pickup_time:`${pickupDate} ${time}`, items, subtotal, total:res.data.total,
-        payment_label:PLABELS[selectedPay]||selectedPay, note
-      });
-      document.getElementById('successScreen').classList.add('show');
-    }else{
-      toast(res.message||'送出失敗');
-      // 若是截止或售完，刷新狀態
-      if(res.reason==='cutoff_sold_out'||res.reason==='real_sold_out') setTimeout(()=>location.reload(),2000);
+    if(!orderRes.success){
+      toast(orderRes.message||'送出失敗');
+      if(orderRes.reason==='cutoff_sold_out'||orderRes.reason==='real_sold_out') setTimeout(()=>location.reload(),2000);
+      return;
     }
+    const orderData=orderRes.data;
+    localStorage.setItem('last_line_order_number',orderData.order_number);
+    localStorage.setItem('last_line_order_phone',phone);
+
+    // ── LINE Pay 付款流程 ──────────────────────────────
+    if(selectedPay==='linepay'){
+      btn.textContent='前往 LINE Pay…';
+      try{
+        const baseUrl=`${location.protocol}//${location.host}`;
+        const lpRes=await apiFetch('/api/linepay/request',{
+          method:'POST',
+          body:JSON.stringify({
+            order_uuid:orderData.uuid||orderData.order_number,
+            order_number:orderData.order_number,
+            total:orderData.total||subtotal,
+            items, customer_name:name,
+            redirect_url:`${baseUrl}/api/linepay/confirm?store_id=${LINE_STORE_ID}`,
+            cancel_url:`${baseUrl}/line-order.html?store_id=${LINE_STORE_ID}&linepay=cancel`,
+          })
+        }).then(r=>r.json());
+        if(lpRes.success&&lpRes.payment_url){
+          closeSheet('cartSheet');cart={};updateBar();renderMenu();
+          window.location.href=lpRes.payment_url;
+          return;
+        }else{
+          toast((lpRes.message)||'LINE Pay 建立付款失敗，請改選其他付款方式');
+        }
+      }catch(lpErr){
+        toast('LINE Pay 連線失敗：'+lpErr.message);
+      }
+      return;
+    }
+
+    // ── 現金 / 其他付款 → 直接顯示成功頁 ─────────────
+    closeSheet('cartSheet');cart={};updateBar();renderMenu();
+    document.getElementById('sucNo').textContent=`訂單編號：${orderData.order_number}`;
+    document.getElementById('sucDetail').innerHTML=buildDetailRows({
+      status:'pending',status_label:'待確認',
+      customer_name:name, phone_last3:phone.slice(-3),
+      order_type_label:type==='delivery'?'🛵 外送':'🛍️ 外帶',
+      pickup_time:`${pickupDate} ${time}`, items, subtotal, total:orderData.total,
+      payment_label:PLABELS[selectedPay]||selectedPay, note
+    });
+    document.getElementById('successScreen').classList.add('show');
   }catch{toast('網路錯誤，請重試');}
   finally{btn.disabled=false;btn.textContent='確認送出訂單';}
 }

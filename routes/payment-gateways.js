@@ -110,7 +110,7 @@ router.put('/:provider', (req, res) => {
 });
 
 // POST /api/payment-gateways/:provider/test — 測試連線
-router.post('/:provider/test', (req, res) => {
+router.post('/:provider/test', async (req, res) => {
   try {
     const db       = getDb();
     const storeId  = req.storeId || 'store_001';
@@ -119,12 +119,32 @@ router.post('/:provider/test', (req, res) => {
       return res.status(400).json({ success: false, message: '不支援的 provider: ' + provider });
     const gw = db.get('SELECT * FROM payment_gateways WHERE store_id=? AND code=?', [storeId, provider]);
     if (!gw) return res.status(404).json({ success: false, message: 'provider 尚未設定' });
-    // 實際串接預留——目前回傳成功訊息
+
+    if (provider === 'linepay') {
+      // 轉發到 LINE Pay 真實測試 API
+      const fetch2 = require('node-fetch');
+      const channelId     = gw.merchant_id || gw.api_key || '';
+      const channelSecret = gw.secret_key  || '';
+      try {
+        const lpRes = await fetch2(`http://localhost:${process.env.PORT || 3000}/api/linepay/test`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json', 'x-store-id': storeId },
+          body:    JSON.stringify({ channel_id: channelId, channel_secret: channelSecret }),
+          timeout: 12000,
+        });
+        const lpData = await lpRes.json();
+        return res.status(lpRes.status).json(lpData);
+      } catch(fetchErr) {
+        return res.status(503).json({ success: false, message: '內部 LINE Pay 測試請求失敗：' + fetchErr.message });
+      }
+    }
+
+    // 其他 provider 回傳通用訊息
     res.json({
       success: true,
-      message: `${PROVIDER_NAMES[provider] || provider} 連線測試預留（尚未串接 SDK）`,
+      message: `${PROVIDER_NAMES[provider] || provider} 設定已存在（尚未實作直接驗證）`,
       provider,
-      mode: gw.mode,
+      mode:      gw.mode,
       is_active: !!gw.is_active,
     });
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
