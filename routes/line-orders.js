@@ -42,11 +42,20 @@ function timeToMins(hhmm) {
 function minsToTime(mins) {
   return `${String(Math.floor(mins/60)).padStart(2,'0')}:${String(mins%60).padStart(2,'0')}`;
 }
+
+// ── parseLocalDate：安全解析 YYYY-MM-DD，不受伺服器時區影響 ──
+// 重要：不要用 new Date('YYYY-MM-DD') → UTC midnight → 在 UTC 伺服器 getDay() 正確
+// 但不要用 new Date('YYYY-MM-DT00:00:00+08:00') → 轉成 UTC 前一天 → getDay() 錯位
+function parseLocalDate(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return new Date(y, m - 1, d);  // 本地 Date，getDay() 永遠正確
+}
+
 const WD_KEYS = ['sun','mon','tue','wed','thu','fri','sat'];
 
 // ── 公休/店休日判斷 ───────────────────────────────────────
 function isClosedDate(db, storeId, dateStr) {
-  const dow = WD_KEYS[new Date(dateStr + 'T00:00:00+08:00').getDay()];
+  const dow = WD_KEYS[parseLocalDate(dateStr).getDay()];  // 安全解析
   const closedWds = (() => { try { return JSON.parse(getSetting(db, storeId, 'line_closed_weekdays', '[]')); } catch { return []; } })();
   const closedDts = (() => { try { return JSON.parse(getSetting(db, storeId, 'line_closed_dates', '[]')); } catch { return []; } })();
   return { closed: closedWds.includes(dow) || closedDts.includes(dateStr), isWeekly: closedWds.includes(dow) };
@@ -85,7 +94,7 @@ function isCutoffPassed(cutoffTime, nowMins) {
 function getEarliestMins(modeSettings, dateStr, nowMins) {
   const todayStr = twDateStr();
   const isToday = dateStr === todayStr;
-  const wdKey = WD_KEYS[new Date(dateStr + 'T00:00:00+08:00').getDay()];
+  const wdKey = WD_KEYS[parseLocalDate(dateStr).getDay()];  // 修正：安全解析，不受伺服器 UTC 時區影響
   const dh = modeSettings.bizHours[wdKey];
   // 若 bizHours 完全未設定（空物件），視為全天營業（不限制）
   const bizHoursEmpty = !modeSettings.bizHours || Object.keys(modeSettings.bizHours).length === 0;
@@ -102,7 +111,7 @@ function getEarliestMins(modeSettings, dateStr, nowMins) {
   }
 }
 
-// ── LINE 商品可售份數檢查 ──────────────────────────────────
+// ── LINE 今日可售份數（現貨）──────────────────────────────
 function getLineQuotaStatus(product) {
   if (!Number(product.line_quota_enabled)) {
     return { hasQuota: false, remaining: null, reason: null };
@@ -117,6 +126,23 @@ function getLineQuotaStatus(product) {
   else if (remaining <= low)  displayLabel = 'low';
   else if (remaining >= high) displayLabel = 'plenty';
   return { hasQuota: true, daily, sold, remaining, low, high, displayLabel };
+}
+
+// ── LINE 預購數量（明日/未來預購，獨立於今日份數）──────────
+function getLinePreorderStatus(product) {
+  if (!Number(product.line_preorder_enabled)) {
+    return { hasPreorder: false, remaining: null };
+  }
+  const daily     = Number(product.line_preorder_daily  || 0);
+  const sold      = Number(product.line_preorder_sold   || 0);
+  const low       = Number(product.line_preorder_low_threshold  || 2);
+  const high      = Number(product.line_preorder_high_threshold || 10);
+  const remaining = Math.max(0, daily - sold);
+  let displayLabel = 'available';
+  if (remaining <= 0)         displayLabel = 'preorder_full';
+  else if (remaining <= low)  displayLabel = 'preorder_low';
+  else if (remaining >= high) displayLabel = 'preorder_ok';
+  return { hasPreorder: true, daily, sold, remaining, low, high, displayLabel };
 }
 
 async function triggerN8nWebhook(db, storeId, event, payload) {
@@ -233,7 +259,7 @@ router.get('/shop', (req, res) => {
             // bizHours 未設定：所有非店休日都可訂
             dates.push(ds);
           } else {
-            const wk = WD_KEYS[d.getDay()];
+            const wk = WD_KEYS[parseLocalDate(twDateStr(d)).getDay()];  // 安全解析
             const dh = modeSettings.bizHours[wk];
             if (dh && dh.enabled) dates.push(ds);
           }
@@ -416,8 +442,10 @@ router.get('/menu', (req, res) => {
         is_hot: hotNames.has(p.name),
         line_description: p.line_description||'', line_image_url: p.line_image_url||'',
         line_hot: Number(p.line_hot)||0, line_promo: Number(p.line_promo)||0,
-        // LINE 可售份數
+        // LINE 可售份數（今日）
         line_quota: quota,
+        // LINE 預購數量（明日/未來）
+        line_preorder: getLinePreorderStatus(p),
         takeout_sold_out_reason:  takeoutSoldOutReason,
         delivery_sold_out_reason: deliverySoldOutReason,
         takeout_can_next_day:  takeoutCanNextDay,
@@ -455,7 +483,7 @@ router.get('/timeslots', (req, res) => {
     const earliestMins = getEarliestMins(modeSettings, dateStr, nowMins);
     if (earliestMins === null) return res.json({ success: true, slots: [], reason: 'no_slots_today' });
 
-    const wdKey = WD_KEYS[new Date(dateStr + 'T00:00:00+08:00').getDay()];
+    const wdKey = WD_KEYS[parseLocalDate(dateStr).getDay()];  // 安全解析
     const dh = modeSettings.bizHours[wdKey];
     // fallback：若無 bizHours 設定，使用預設 09:00~21:00
     const closeMins = dh ? timeToMins(dh.close || '21:00') : timeToMins('21:00');
@@ -580,30 +608,46 @@ router.post('/', (req, res) => {
       if (prod.sale_status !== 'available')
         return res.status(400).json({ success: false, message: `「${prod.name}」目前無法購買` });
 
-      // LINE 專屬份數驗證（重要：不動主庫存）
-      // 預購訂單不受今日份數限制（今日份數只管今天）
+      // ── 今日訂單：LINE 份數 + 商品販售時段驗證 ──────────
+      // 預購訂單不受今日限制（位階 2/3/4 只限今日）
       const quota = getLineQuotaStatus(prod);
-      if (quota.hasQuota && !isPreorderOrder) {
-        if (quota.remaining <= 0)
-          return res.status(400).json({
-            success: false, message: `「${prod.name}」LINE 今日份數已售完`,
-            reason: 'real_sold_out'
-          });
-        if (quota.remaining < Number(item.qty||1))
-          return res.status(400).json({
-            success: false, message: `「${prod.name}」LINE 剩餘份數不足（剩 ${quota.remaining} 份）`,
-            reason: 'quota_insufficient'
-          });
-      }
-
-      // LINE 可販售時段（只限今日訂單，預購訂單不受此限制）
-      // 原則：商品販售時段是「今日」的行銷設定，不阻擋未來預約
-      if ((prod.line_sell_start || prod.line_sell_end) && !isPreorderOrder) {
-        const nowHHMM = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
-        if (prod.line_sell_start && nowHHMM < prod.line_sell_start)
-          return res.status(400).json({ success: false, message: `「${prod.name}」尚未開始販售（${prod.line_sell_start} 開賣）` });
-        if (prod.line_sell_end && nowHHMM >= prod.line_sell_end)
-          return res.status(400).json({ success: false, message: `「${prod.name}」今日販售時段已結束` });
+      if (!isPreorderOrder) {
+        // 今日 LINE 份數驗證
+        if (quota.hasQuota) {
+          if (quota.remaining <= 0)
+            return res.status(400).json({
+              success: false, message: `「${prod.name}」LINE 今日份數已售完，可選擇預購`,
+              reason: 'real_sold_out'
+            });
+          if (quota.remaining < Number(item.qty||1))
+            return res.status(400).json({
+              success: false, message: `「${prod.name}」LINE 剩餘份數不足（剩 ${quota.remaining} 份）`,
+              reason: 'quota_insufficient'
+            });
+        }
+        // 今日商品販售時段驗證（只限今日）
+        if (prod.line_sell_start || prod.line_sell_end) {
+          const nowHHMM = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+          if (prod.line_sell_start && nowHHMM < prod.line_sell_start)
+            return res.status(400).json({ success: false, message: `「${prod.name}」尚未開始販售（${prod.line_sell_start} 開賣）` });
+          if (prod.line_sell_end && nowHHMM >= prod.line_sell_end)
+            return res.status(400).json({ success: false, message: `「${prod.name}」今日販售時段已結束，可選擇預購` });
+        }
+      } else {
+        // ── 預購訂單：使用 line_preorder_* 驗證 ────────────
+        const preorder = getLinePreorderStatus(prod);
+        if (preorder.hasPreorder) {
+          if (preorder.remaining <= 0)
+            return res.status(400).json({
+              success: false, message: `「${prod.name}」預購已滿，請選擇其他日期`,
+              reason: 'preorder_full'
+            });
+          if (preorder.remaining < Number(item.qty||1))
+            return res.status(400).json({
+              success: false, message: `「${prod.name}」預購剩餘份數不足（剩 ${preorder.remaining} 份）`,
+              reason: 'preorder_insufficient'
+            });
+        }
       }
 
       // 食材庫存驗證
@@ -665,23 +709,34 @@ router.post('/', (req, res) => {
       ]
     );
 
-    // ── 扣 LINE 專屬份數（不動主庫存）───────────────
-    // 重要：只有今日訂單才扣今日份數；明日預約訂單不扣今日份數
-    const orderDateStr = pickup_date || todayStr;
-    const isNextDayOrder = orderDateStr > todayStr;
-    if (!isNextDayOrder) {
-      items.forEach(item => {
-        const pid = item.product_id || item.id;
-        if (!pid) return;
-        const prod = db.get('SELECT * FROM products WHERE id=? AND store_id=?', [pid, storeId]);
-        if (!prod || !Number(prod.line_quota_enabled)) return;
-        db.run(
-          `UPDATE products SET line_quota_sold = line_quota_sold + ?, updated_at=datetime('now','localtime')
-           WHERE id=? AND store_id=?`,
-          [Number(item.qty||1), pid, storeId]
-        );
-      });
-    }
+    // ── 扣 LINE 份數（不動主庫存）────────────────────
+    // 今日訂單：扣 line_quota_sold
+    // 預購訂單：扣 line_preorder_sold（不扣今日 quota）
+    items.forEach(item => {
+      const pid = item.product_id || item.id;
+      if (!pid) return;
+      const prod = db.get('SELECT * FROM products WHERE id=? AND store_id=?', [pid, storeId]);
+      if (!prod) return;
+      if (isPreorderOrder) {
+        // 預購：扣預購份數
+        if (Number(prod.line_preorder_enabled)) {
+          db.run(
+            `UPDATE products SET line_preorder_sold = line_preorder_sold + ?,
+             updated_at=datetime('now','localtime') WHERE id=? AND store_id=?`,
+            [Number(item.qty||1), pid, storeId]
+          );
+        }
+      } else {
+        // 今日：扣今日份數
+        if (Number(prod.line_quota_enabled)) {
+          db.run(
+            `UPDATE products SET line_quota_sold = line_quota_sold + ?,
+             updated_at=datetime('now','localtime') WHERE id=? AND store_id=?`,
+            [Number(item.qty||1), pid, storeId]
+          );
+        }
+      }
+    });
 
     deductIngredients(db, storeId, items, orderNo);
 
@@ -898,6 +953,14 @@ router.post('/quota-reset', (req, res) => {
        WHERE store_id=? AND line_quota_enabled=1`,
       [storeId]
     );
+    // 同時重置預購已售數（若有指定參數 reset_preorder=1 才重置）
+    if (req.body && req.body.reset_preorder) {
+      db.run(
+        `UPDATE products SET line_preorder_sold=0, updated_at=datetime('now','localtime')
+         WHERE store_id=? AND line_preorder_enabled=1`,
+        [storeId]
+      );
+    }
     res.json({ success: true, message: 'LINE 今日已售份數已重置' });
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });

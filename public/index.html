@@ -299,6 +299,12 @@
 
     <!-- 批量操作區 -->
     <div id="lpm-batch-panel" style="background:var(--bg-card,#1e293b);border:1px solid var(--border,#334155);border-radius:10px;padding:14px 16px;margin-bottom:14px">
+      <!-- Tab 切換：今日販售 / 預購管理 -->
+      <div style="display:flex;gap:0;margin-bottom:14px;border-bottom:2px solid var(--border,#334155)">
+        <button id="lpm-tab-today" onclick="lpmSwitchTab('today')" style="padding:8px 18px;font-size:13px;font-weight:700;border:none;background:none;color:var(--accent,#3b82f6);border-bottom:2px solid var(--accent,#3b82f6);margin-bottom:-2px;cursor:pointer">📦 今日販售管理</button>
+        <button id="lpm-tab-preorder" onclick="lpmSwitchTab('preorder')" style="padding:8px 18px;font-size:13px;font-weight:700;border:none;background:none;color:var(--text-muted,#64748b);border-bottom:2px solid transparent;margin-bottom:-2px;cursor:pointer">📅 預購數量管理</button>
+      </div>
+
       <!-- 第一列：選取控制 -->
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">
         <span style="font-size:13px;font-weight:700;color:var(--text-secondary,#94a3b8)">批量操作</span>
@@ -346,6 +352,20 @@
         <button class="btn-secondary" onclick="lpmBatch('disable')" style="font-size:11px;padding:4px 8px;background:#e53935;border-color:#e53935;color:#fff;white-space:nowrap">❌ 關閉 LINE 販售</button>
         <button class="btn-secondary" onclick="lpmBatch('quota_on')" style="font-size:11px;padding:4px 8px;background:#7c3aed;border-color:#7c3aed;color:#fff;white-space:nowrap">只啟用份數管理</button>
         <button class="btn-secondary" onclick="lpmBatch('quota_off')" style="font-size:11px;padding:4px 8px;white-space:nowrap">只停用份數管理</button>
+      </div>
+
+      <!-- 預購數量管理批量操作（lpm-tab=preorder 時顯示）-->
+      <div id="lpm-preorder-batch" style="display:none;flex-direction:column;gap:10px;padding-top:10px;border-top:1px solid var(--border,#334155)">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+          <div>
+            <div style="font-size:10px;color:var(--text-muted,#64748b);margin-bottom:3px">每日預購數量</div>
+            <input type="number" id="lpm-batch-preorder-daily" min="0" placeholder="0" style="width:90px;padding:6px 8px;border:1px solid var(--border,#334155);border-radius:6px;font-size:13px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
+          </div>
+          <button onclick="lpmBatch('preorder_daily')" style="padding:8px 14px;background:#7c3aed;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer">套用預購數量</button>
+          <button onclick="lpmBatch('preorder_reset')" style="padding:8px 14px;background:#ff6d00;color:#fff;border:none;border-radius:6px;font-size:13px;cursor:pointer">⟳ 重置已預購</button>
+          <button onclick="lpmBatch('preorder_on')" style="padding:8px 14px;background:#06C755;color:#fff;border:none;border-radius:6px;font-size:13px;cursor:pointer">✅ 啟用預購管理</button>
+          <button onclick="lpmBatch('preorder_off')" style="padding:8px 14px;background:var(--bg-base,#0f172a);color:var(--text-secondary,#94a3b8);border:1px solid var(--border,#334155);border-radius:6px;font-size:13px;cursor:pointer">停用預購管理</button>
+        </div>
       </div>
     </div>
 

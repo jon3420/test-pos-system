@@ -4318,15 +4318,43 @@ async function loadLineProductsPage() {
   }
 }
 
+// ── Tab 切換：今日販售 / 預購管理 ──────────────────────────
+let _lpmTab = 'today'; // 'today' | 'preorder'
+function lpmSwitchTab(tab) {
+  _lpmTab = tab;
+  const todayBtn    = document.getElementById('lpm-tab-today');
+  const preorderBtn = document.getElementById('lpm-tab-preorder');
+  const preorderBatch = document.getElementById('lpm-preorder-batch');
+  const accentStyle = 'color:var(--accent,#3b82f6);border-bottom:2px solid var(--accent,#3b82f6)';
+  const mutedStyle  = 'color:var(--text-muted,#64748b);border-bottom:2px solid transparent';
+  if (todayBtn)    todayBtn.style.cssText    += tab==='today'    ? accentStyle : mutedStyle;
+  if (preorderBtn) preorderBtn.style.cssText += tab==='preorder' ? accentStyle : mutedStyle;
+  if (preorderBatch) preorderBatch.style.display = tab==='preorder' ? 'flex' : 'none';
+  renderLpmTable(_lpmProducts);
+}
+
 // ── LINE 商品狀態計算 ──────────────────────────────────────
 function calcLpmStatus(p) {
   if (!p.show_on_line) return { label:'未上架', cls:'#94a3b8', bg:'rgba(148,163,184,.12)' };
   // 商品販售時段判斷
   const now = new Date(new Date().toLocaleString('en-US',{timeZone:'Asia/Taipei'}));
   const hhmm = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+
+  if (_lpmTab === 'preorder') {
+    // 預購管理 Tab：用 line_preorder_*
+    if (!Number(p.line_preorder_enabled)) return { label:'未啟用預購管理', cls:'#94a3b8', bg:'rgba(148,163,184,.12)' };
+    const remaining = Math.max(0, Number(p.line_preorder_daily||0) - Number(p.line_preorder_sold||0));
+    const low  = Number(p.line_preorder_low_threshold  || 2);
+    const high = Number(p.line_preorder_high_threshold || 10);
+    if (remaining <= 0)    return { label:'預購已滿', cls:'#ef4444', bg:'rgba(239,68,68,.12)' };
+    if (remaining <= low)  return { label:'預購快滿', cls:'#ff6d00', bg:'rgba(255,109,0,.12)' };
+    if (remaining >= high) return { label:'可預購', cls:'#06C755', bg:'rgba(6,199,85,.12)' };
+    return { label:`可預購(剩${remaining})`, cls:'#3b82f6', bg:'rgba(59,130,246,.12)' };
+  }
+
+  // 今日販售 Tab：原本邏輯
   if (p.line_sell_end   && hhmm >= p.line_sell_end)   return { label:'今日售完', cls:'#ef4444', bg:'rgba(239,68,68,.12)' };
   if (p.line_sell_start && hhmm <  p.line_sell_start) return { label:'尚未開賣', cls:'#ff6d00', bg:'rgba(255,109,0,.12)' };
-  // 未啟用份數管理 → 不誤判為供應充足，改顯示「販售中」
   if (!Number(p.line_quota_enabled)) return { label:'販售中（未限額）', cls:'#06C755', bg:'rgba(6,199,85,.12)' };
   const remaining = Number(p.line_quota_remaining ?? Math.max(0, p.line_quota_daily - p.line_quota_sold));
   const low  = Number(p.line_quota_low_threshold  || 2);
@@ -4348,12 +4376,18 @@ function renderLpmTable(products) {
     return;
   }
   tbody.innerHTML = products.map(p => {
-    const qEnabled  = Number(p.line_quota_enabled) || 0;
-    const daily     = Number(p.line_quota_daily)   || 0;
-    const sold      = Number(p.line_quota_sold)    || 0;
+    // Tab 切換：今日販售 vs 預購管理
+    const isPreorderTab = _lpmTab === 'preorder';
+    const qEnabled  = isPreorderTab ? (Number(p.line_preorder_enabled) || 0) : (Number(p.line_quota_enabled) || 0);
+    const daily     = isPreorderTab ? (Number(p.line_preorder_daily)   || 0) : (Number(p.line_quota_daily)   || 0);
+    const sold      = isPreorderTab ? (Number(p.line_preorder_sold)    || 0) : (Number(p.line_quota_sold)    || 0);
     const remaining = qEnabled ? Math.max(0, daily - sold) : '—';
-    const low       = Number(p.line_quota_low_threshold  || 2);
-    const high      = Number(p.line_quota_high_threshold || 10);
+    const low       = isPreorderTab
+      ? Number(p.line_preorder_low_threshold  || 2)
+      : Number(p.line_quota_low_threshold     || 2);
+    const high      = isPreorderTab
+      ? Number(p.line_preorder_high_threshold || 10)
+      : Number(p.line_quota_high_threshold    || 10);
     const start     = p.line_sell_start || '';
     const end       = p.line_sell_end   || '';
     const imgSrc    = p.image || '';
@@ -4467,17 +4501,24 @@ async function lpmSaveRow(id) {
   // 讀取「限額管理」勾選框；若份數 > 0 則強制啟用
   const qEnCb  = document.getElementById(`lpm-ed-qen-${id}`);
   const qEnabled = daily > 0 ? 1 : (qEnCb?.checked ? 1 : 0);
+  const isPreorderTab = _lpmTab === 'preorder';
   try {
+    const saveBody = isPreorderTab ? {
+      line_preorder_enabled:        qEnabled,
+      line_preorder_daily:          daily,
+      line_preorder_low_threshold:  low,
+      line_preorder_high_threshold: high,
+    } : {
+      line_quota_enabled:        qEnabled,
+      line_quota_daily:          daily,
+      line_quota_low_threshold:  low,
+      line_quota_high_threshold: high,
+      line_sell_start:           start,
+      line_sell_end:             end,
+    };
     const res  = await apiFetch(`/api/products/${id}/line-settings`, {
       method:'PATCH', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({
-        line_quota_enabled:        qEnabled,
-        line_quota_daily:          daily,
-        line_quota_low_threshold:  low,
-        line_quota_high_threshold: high,
-        line_sell_start:           start,
-        line_sell_end:             end,
-      })
+      body: JSON.stringify(saveBody)
     });
     const json = await res.json();
     if (!json.success) throw new Error(json.message || '儲存失敗');
@@ -4693,6 +4734,20 @@ async function lpmBatch(type) {
   } else if (type === 'quota_off') {
     if (!confirm(`確定要停用已選 ${ids.length} 個商品的 LINE 份數管理嗎？停用後前台不限制份數。`)) return;
     body = { line_quota_enabled: 0 };
+  } else if (type === 'preorder_daily') {
+    val = Number(document.getElementById('lpm-batch-preorder-daily')?.value);
+    if (isNaN(val) || val < 0) { showToast('請輸入有效的預購份數', 'error'); return; }
+    if (!confirm(`確定要將已選 ${ids.length} 個商品的每日預購數量設定為 ${val} 嗎？（> 0 自動啟用預購管理）`)) return;
+    body = { line_preorder_daily: val, line_preorder_enabled: 1 };
+  } else if (type === 'preorder_reset') {
+    if (!confirm(`確定要重置已選 ${ids.length} 個商品的 LINE 已預購數量為 0 嗎？此操作不影響主庫存。`)) return;
+    body = { line_preorder_sold: 0 };
+  } else if (type === 'preorder_on') {
+    if (!confirm(`確定要啟用已選 ${ids.length} 個商品的 LINE 預購管理嗎？`)) return;
+    body = { line_preorder_enabled: 1 };
+  } else if (type === 'preorder_off') {
+    if (!confirm(`確定要停用已選 ${ids.length} 個商品的 LINE 預購管理嗎？`)) return;
+    body = { line_preorder_enabled: 0 };
   }
 
   let successCount = 0, failCount = 0;

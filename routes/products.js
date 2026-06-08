@@ -54,7 +54,7 @@ function enrichProduct(p) {
     effective_line_price: effectiveLinePrice, effective_line_name: effectiveLineName,
     is_line_orderable: showOnLine === 1 && !p.line_sold_out && saleStatus === 'available',
     has_formula: !!p._has_formula,
-    // LINE 可售份數（v1）
+    // LINE 可售份數（今日現貨）
     line_quota_enabled:        Number(p.line_quota_enabled)        || 0,
     line_quota_daily:          Number(p.line_quota_daily)          || 0,
     line_quota_sold:           Number(p.line_quota_sold)           || 0,
@@ -64,6 +64,15 @@ function enrichProduct(p) {
     line_sell_end:             p.line_sell_end   || '',
     line_quota_remaining: Number(p.line_quota_enabled)
       ? Math.max(0, Number(p.line_quota_daily||0) - Number(p.line_quota_sold||0))
+      : null,
+    // LINE 預購數量（明日/未來預購，獨立於今日 line_quota_*）
+    line_preorder_enabled:        Number(p.line_preorder_enabled)        || 0,
+    line_preorder_daily:          Number(p.line_preorder_daily)          || 0,
+    line_preorder_sold:           Number(p.line_preorder_sold)           || 0,
+    line_preorder_low_threshold:  Number(p.line_preorder_low_threshold)  || 2,
+    line_preorder_high_threshold: Number(p.line_preorder_high_threshold) || 10,
+    line_preorder_remaining: Number(p.line_preorder_enabled)
+      ? Math.max(0, Number(p.line_preorder_daily||0) - Number(p.line_preorder_sold||0))
       : null,
   };
 }
@@ -266,6 +275,14 @@ router.patch('/:id/line-settings', requireFeature('line_order'), (req, res) => {
     add('line_quota_high_threshold', line_quota_high_threshold != null ? Number(line_quota_high_threshold) : undefined);
     add('line_sell_start',           line_sell_start);
     add('line_sell_end',             line_sell_end);
+    // LINE 預購數量欄位
+    const { line_preorder_enabled, line_preorder_daily, line_preorder_sold,
+            line_preorder_low_threshold, line_preorder_high_threshold } = req.body;
+    add('line_preorder_enabled',        line_preorder_enabled        != null ? Number(line_preorder_enabled)        : undefined);
+    add('line_preorder_daily',          line_preorder_daily          != null ? Number(line_preorder_daily)          : undefined);
+    add('line_preorder_sold',           line_preorder_sold           != null ? Number(line_preorder_sold)           : undefined);
+    add('line_preorder_low_threshold',  line_preorder_low_threshold  != null ? Number(line_preorder_low_threshold)  : undefined);
+    add('line_preorder_high_threshold', line_preorder_high_threshold != null ? Number(line_preorder_high_threshold) : undefined);
     if (line_category_id !== undefined) {
       const catId = Number(line_category_id);
       add('line_category_id', catId);
