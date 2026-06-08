@@ -401,12 +401,15 @@ router.get('/confirm', async (req, res) => {
       );
     }
 
-    // 付款成功：更新訂單
+    // 付款成功：更新訂單狀態（設為 pending 等店家接單，不直接 accepted）
     const now = new Date().toLocaleString('sv', { timeZone: 'Asia/Taipei' }).replace('T', ' ');
     db.run(
       `UPDATE orders SET
-        payment_status='paid', status='accepted', order_status='accepted',
-        kitchen_status='pending', updated_at=?
+        payment_status='paid',
+        status='pending',
+        order_status='pending',
+        kitchen_status='pending',
+        updated_at=?
        WHERE uuid=? AND store_id=?`,
       [now, order.uuid, storeId]
     );
@@ -419,7 +422,43 @@ router.get('/confirm', async (req, res) => {
         [`linepay_paid:${transactionId}`, order.uuid, storeId]);
     }
 
-    broadcastOrderPaid(req.app, db, storeId, order.uuid);
+    // ── LINE Pay 付款成功後扣份數 ──────────────────────────
+    // 訂單的商品在建立時（POST /api/line-orders）已存入 DB，現在從 DB 讀取並扣份數
+    const paidItems = (() => {
+      try { return typeof order.items === 'string' ? JSON.parse(order.items||'[]') : (order.items||[]); }
+      catch { return []; }
+    })();
+    const paidPickupDate = (order.pickup_time||'').slice(0, 10);
+    const todayStrPay    = (() => {
+      const t = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
+      return `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')}`;
+    })();
+    const isPreorderPaid = paidPickupDate && paidPickupDate > todayStrPay;
+    paidItems.forEach(item => {
+      const pid = item.product_id || item.id;
+      if (!pid) return;
+      const prod = db.get('SELECT * FROM products WHERE id=? AND store_id=?', [pid, storeId]);
+      if (!prod) return;
+      const qty = Number(item.qty || 1);
+      if (isPreorderPaid) {
+        if (Number(prod.line_preorder_daily) > 0 || Number(prod.line_preorder_enabled)) {
+          db.run(`UPDATE products SET line_preorder_sold = MAX(0, line_preorder_sold + ?),
+            updated_at=datetime('now','localtime') WHERE id=? AND store_id=?`, [qty, pid, storeId]);
+        }
+      } else {
+        if (Number(prod.line_quota_daily) > 0 || Number(prod.line_quota_enabled)) {
+          db.run(`UPDATE products SET line_quota_sold = MAX(0, line_quota_sold + ?),
+            updated_at=datetime('now','localtime') WHERE id=? AND store_id=?`, [qty, pid, storeId]);
+        }
+      }
+    });
+
+    // 廣播付款成功通知（後台列表刷新），不送 new_line_order（接單後才出單）
+    try {
+      const paidOrder = db.get('SELECT * FROM orders WHERE uuid=? AND store_id=?', [order.uuid, storeId]);
+      const wss = app?.get ? app.get('wss') : null;
+      broadcastToStore(wss, storeId, { type: 'linepay_paid', order: paidOrder });
+    } catch(e) { console.error('[linepay] paid broadcast error:', e.message); }
     res.redirect(`/line-order.html?store_id=${storeId}&linepay=success&order=${order.order_number}`);
   } catch(e) {
     console.error('[linepay/confirm] exception:', e.message);

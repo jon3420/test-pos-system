@@ -710,29 +710,31 @@ router.post('/', (req, res) => {
     );
 
     // ── 扣 LINE 份數（不動主庫存）────────────────────
-    // 今日訂單：扣 line_quota_sold
-    // 預購訂單：扣 line_preorder_sold（不扣今日 quota）
+    // 規則：
+    //   今日訂單 → 扣 line_quota_sold（只要 line_quota_daily > 0 即扣，不需 enabled=1）
+    //   預購訂單 → 扣 line_preorder_sold（只要 line_preorder_daily > 0 即扣）
     items.forEach(item => {
       const pid = item.product_id || item.id;
       if (!pid) return;
       const prod = db.get('SELECT * FROM products WHERE id=? AND store_id=?', [pid, storeId]);
       if (!prod) return;
+      const qty = Number(item.qty || 1);
       if (isPreorderOrder) {
-        // 預購：扣預購份數
-        if (Number(prod.line_preorder_enabled)) {
+        // 預購：扣 line_preorder_sold（不扣今日 quota）
+        if (Number(prod.line_preorder_daily) > 0 || Number(prod.line_preorder_enabled)) {
           db.run(
-            `UPDATE products SET line_preorder_sold = line_preorder_sold + ?,
+            `UPDATE products SET line_preorder_sold = MAX(0, line_preorder_sold + ?),
              updated_at=datetime('now','localtime') WHERE id=? AND store_id=?`,
-            [Number(item.qty||1), pid, storeId]
+            [qty, pid, storeId]
           );
         }
       } else {
-        // 今日：扣今日份數
-        if (Number(prod.line_quota_enabled)) {
+        // 今日：扣 line_quota_sold（只要有設定今日份數即扣）
+        if (Number(prod.line_quota_daily) > 0 || Number(prod.line_quota_enabled)) {
           db.run(
-            `UPDATE products SET line_quota_sold = line_quota_sold + ?,
+            `UPDATE products SET line_quota_sold = MAX(0, line_quota_sold + ?),
              updated_at=datetime('now','localtime') WHERE id=? AND store_id=?`,
-            [Number(item.qty||1), pid, storeId]
+            [qty, pid, storeId]
           );
         }
       }
@@ -741,7 +743,13 @@ router.post('/', (req, res) => {
     deductIngredients(db, storeId, items, orderNo);
 
     const newOrder = db.get('SELECT * FROM orders WHERE uuid=? AND store_id=?', [uuid, storeId]);
-    broadcastNewOrder(req.app, { ...newOrder, items });
+    // ── 訂單建立通知 ─────────────────────────────────
+    // 只廣播 order_created（讓後台列表刷新），不送 new_line_order（避免 Android 提前出單）
+    // Android 出單事件只在店家按【接單】（PATCH status=accepted）後才廣播
+    try {
+      const wss = req.app?.get ? req.app.get('wss') : null;
+      broadcastToStore(wss, storeId, { type: 'line_order_created', order: { ...newOrder, items } });
+    } catch {}
     triggerN8nWebhook(db, storeId, 'line_new_order', {
       order_number: orderNo, customer_name, customer_phone,
       customer_line_id: customer_line_id||'', order_type, total: finalTotal,
@@ -813,8 +821,39 @@ router.patch('/online/:id/status', (req, res) => {
     const fullOrder = db.get('SELECT * FROM orders WHERE order_number=? AND store_id=?', [orderNo, storeId]);
     try {
       const wss = req.app.get('wss');
+      // 基本狀態變更廣播（後台刷新用）
       broadcastToStore(wss, storeId, { type: 'order_status_changed', order: fullOrder });
+
+      // 接單時才觸發 Android POS 出單（new_line_order）
+      if (newStatus === 'accepted') {
+        broadcastToStore(wss, storeId, { type: 'new_line_order', order: fullOrder });
+      }
     } catch {}
+
+    // 取消訂單時回補份數
+    if (newStatus === 'cancelled') {
+      const prevStatus = order.order_status;
+      // 只在尚未完成的訂單取消時才回補（避免已完成訂單取消重複回補）
+      if (!['completed', 'cancelled'].includes(prevStatus)) {
+        const cancelItems = (() => { try { return typeof order.items === 'string' ? JSON.parse(order.items||'[]') : (order.items||[]); } catch { return []; } })();
+        const cancelDateStr = (order.pickup_time||'').slice(0, 10);
+        const todayForCancel = twDateStr();
+        const cancelIsPreorder = cancelDateStr && cancelDateStr > todayForCancel;
+        cancelItems.forEach(item => {
+          const pid = item.product_id || item.id;
+          if (!pid) return;
+          const qty = Number(item.qty || 1);
+          if (cancelIsPreorder) {
+            db.run(`UPDATE products SET line_preorder_sold = MAX(0, line_preorder_sold - ?),
+              updated_at=datetime('now','localtime') WHERE id=? AND store_id=?`, [qty, pid, storeId]);
+          } else {
+            db.run(`UPDATE products SET line_quota_sold = MAX(0, line_quota_sold - ?),
+              updated_at=datetime('now','localtime') WHERE id=? AND store_id=?`, [qty, pid, storeId]);
+          }
+        });
+      }
+    }
+
     triggerN8nWebhook(db, storeId, 'line_order_status_changed', {
       order_number: order.order_number, customer_line_id: order.customer_line_id,
       old_status: order.order_status, new_status: newStatus,

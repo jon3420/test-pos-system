@@ -4322,14 +4322,20 @@ async function loadLineProductsPage() {
 let _lpmTab = 'today'; // 'today' | 'preorder'
 function lpmSwitchTab(tab) {
   _lpmTab = tab;
-  const todayBtn    = document.getElementById('lpm-tab-today');
-  const preorderBtn = document.getElementById('lpm-tab-preorder');
-  const preorderBatch = document.getElementById('lpm-preorder-batch');
-  const accentStyle = 'color:var(--accent,#3b82f6);border-bottom:2px solid var(--accent,#3b82f6)';
-  const mutedStyle  = 'color:var(--text-muted,#64748b);border-bottom:2px solid transparent';
-  if (todayBtn)    todayBtn.style.cssText    += tab==='today'    ? accentStyle : mutedStyle;
-  if (preorderBtn) preorderBtn.style.cssText += tab==='preorder' ? accentStyle : mutedStyle;
-  if (preorderBatch) preorderBatch.style.display = tab==='preorder' ? 'flex' : 'none';
+  const todayBtn       = document.getElementById('lpm-tab-today');
+  const preorderBtn    = document.getElementById('lpm-tab-preorder');
+  const todayControls  = document.getElementById('lpm-today-controls');
+  const preorderCtrls  = document.getElementById('lpm-preorder-controls');
+
+  const activeStyle = 'color:var(--accent,#3b82f6);border-bottom-color:var(--accent,#3b82f6)';
+  const inactiveStyle = 'color:var(--text-muted,#64748b);border-bottom-color:transparent';
+
+  if (todayBtn)    { todayBtn.style.color    = tab==='today'    ? 'var(--accent,#3b82f6)' : 'var(--text-muted,#64748b)'; todayBtn.style.borderBottomColor    = tab==='today'    ? 'var(--accent,#3b82f6)' : 'transparent'; }
+  if (preorderBtn) { preorderBtn.style.color = tab==='preorder' ? '#a78bfa'                : 'var(--text-muted,#64748b)'; preorderBtn.style.borderBottomColor = tab==='preorder' ? '#7c3aed' : 'transparent'; }
+
+  if (todayControls)  todayControls.style.display  = tab==='today'    ? 'block' : 'none';
+  if (preorderCtrls)  preorderCtrls.style.display  = tab==='preorder' ? 'block' : 'none';
+
   renderLpmTable(_lpmProducts);
 }
 
@@ -4599,17 +4605,17 @@ async function resetAllLineQuota() {
 }
 
 // ── 批量操作 ──────────────────────────────────────────────
-// ── 套用設定（主按鈕：同時更新全部欄位）──────────────────
+// ── 今日販售：套用設定（主按鈕）──────────────────────────
 async function lpmApplyAll() {
   const ids = lpmGetSelected();
-  // A-5 防呆
   if (!ids.length) { showToast('請先選擇商品', 'error'); return; }
 
-  const daily    = document.getElementById('lpm-batch-daily')?.value?.trim();
-  const low      = document.getElementById('lpm-batch-low')?.value?.trim();
-  const high     = document.getElementById('lpm-batch-high')?.value?.trim();
-  const startVal = document.getElementById('lpm-batch-start')?.value || '';
-  const endVal   = document.getElementById('lpm-batch-end')?.value   || '';
+  // 讀今日販售專屬 input（id: lpm-today-*）
+  const daily    = document.getElementById('lpm-today-daily')?.value?.trim();
+  const low      = document.getElementById('lpm-today-low')?.value?.trim();
+  const high     = document.getElementById('lpm-today-high')?.value?.trim();
+  const startVal = document.getElementById('lpm-today-start')?.value || '';
+  const endVal   = document.getElementById('lpm-today-end')?.value   || '';
 
   if (!daily && daily !== '0') { showToast('請輸入今日開放份數', 'error'); return; }
 
@@ -4624,31 +4630,71 @@ async function lpmApplyAll() {
     showToast('販售開始時間不可晚於販售結束時間', 'error'); return;
   }
 
-  // A-2 確認提示
   const confirmLines = [
-    `即將套用 LINE 商品設定：`,
-    ``,
+    `即將套用「今日販售」LINE 商品設定：`,
     `已選商品：${ids.length} 個`,
     `今日開放份數：${dailyNum}`,
     lowNum  !== null ? `快售完門檻：${lowNum}`   : null,
     highNum !== null ? `供應充足門檻：${highNum}` : null,
     startVal || endVal ? `販售時間：${startVal||'不限'} ~ ${endVal||'不限'}` : null,
     `啟用份數管理：是`,
-    ``,
     `確定套用？`,
   ].filter(l => l !== null).join('\n');
 
   if (!confirm(confirmLines)) return;
 
-  const body = {
-    line_quota_enabled: 1,
-    line_quota_daily:   dailyNum,
-  };
+  const body = { line_quota_enabled: 1, line_quota_daily: dailyNum };
   if (lowNum  !== null) body.line_quota_low_threshold  = lowNum;
   if (highNum !== null) body.line_quota_high_threshold = highNum;
   if (startVal !== '') body.line_sell_start = startVal;
   if (endVal   !== '') body.line_sell_end   = endVal;
 
+  await _lpmBatchSend(ids, body, '今日販售');
+}
+
+// ── 預購數量：套用設定（主按鈕）──────────────────────────
+async function lpmApplyPreorder() {
+  const ids = lpmGetSelected();
+  if (!ids.length) { showToast('請先選擇商品', 'error'); return; }
+
+  // 讀預購專屬 input（id: lpm-preorder-*）—— 完全獨立於今日販售
+  const daily = document.getElementById('lpm-preorder-daily')?.value?.trim();
+  const low   = document.getElementById('lpm-preorder-low')?.value?.trim();
+  const high  = document.getElementById('lpm-preorder-high')?.value?.trim();
+
+  if (!daily && daily !== '0') { showToast('請輸入每日預購數量', 'error'); return; }
+
+  const dailyNum = Number(daily);
+  const lowNum   = low   !== '' ? Number(low)   : null;
+  const highNum  = high  !== '' ? Number(high)  : null;
+
+  if (lowNum !== null && highNum !== null && lowNum > highNum) {
+    showToast('預購快滿門檻不可大於預購充足門檻', 'error'); return;
+  }
+
+  const confirmLines = [
+    `即將套用「預購數量管理」LINE 商品設定：`,
+    `已選商品：${ids.length} 個`,
+    `每日預購數量：${dailyNum}`,
+    lowNum  !== null ? `預購快滿門檻：${lowNum}`  : null,
+    highNum !== null ? `預購充足門檻：${highNum}` : null,
+    `自動啟用預購管理：是`,
+    `注意：不影響今日販售份數（line_quota_daily）`,
+    `確定套用？`,
+  ].filter(l => l !== null).join('\n');
+
+  if (!confirm(confirmLines)) return;
+
+  // 只更新 line_preorder_*，完全不碰 line_quota_*
+  const body = { line_preorder_enabled: 1, line_preorder_daily: dailyNum };
+  if (lowNum  !== null) body.line_preorder_low_threshold  = lowNum;
+  if (highNum !== null) body.line_preorder_high_threshold = highNum;
+
+  await _lpmBatchSend(ids, body, '預購數量');
+}
+
+// ── 共用批量發送邏輯 ──────────────────────────────────────
+async function _lpmBatchSend(ids, body, label) {
   let successCount = 0, failCount = 0;
   const chunks = [];
   for (let i = 0; i < ids.length; i += 5) chunks.push(ids.slice(i, i+5));
@@ -4668,14 +4714,11 @@ async function lpmApplyAll() {
       } catch { failCount++; }
     }));
   }
-
-  // A-3 成功提示
-  if (!failCount) {
-    showToast(`✅ 已更新 ${successCount} 個商品的 LINE 設定`, 'success');
-  } else {
-    showToast(`✅ ${successCount} 個成功，⚠️ ${failCount} 個失敗`, 'error');
-  }
   renderLpmTable(_lpmProducts);
+  const msg = !failCount
+    ? `✅ 已更新 ${successCount} 個商品的 LINE ${label}設定`
+    : `✅ ${successCount} 個成功，⚠️ ${failCount} 個失敗`;
+  showToast(msg, failCount ? 'error' : 'success');
 }
 
 async function lpmBatch(type) {
@@ -4695,25 +4738,27 @@ async function lpmBatch(type) {
   let body = {};
   let val, startVal, endVal;
   if (type === 'daily') {
-    val = Number(document.getElementById('lpm-batch-daily')?.value);
-    if (isNaN(val) || val < 0) { showToast('請輸入有效的開放份數', 'error'); return; }
-    if (!confirm(`確定要將已選 ${ids.length} 個商品的「${names[type]}」設定為 ${val} 嗎？`)) return;
-    // 詢問是否同時啟用份數管理
-    const alsoEnable = val > 0 && confirm(`是否同時啟用已選 ${ids.length} 個商品的 LINE 份數管理？\n確認 → 啟用份數管理（前台開始限額）\n取消 → 只改數字`);
+    val = Number(document.getElementById('lpm-today-daily')?.value);
+    if (isNaN(val) || val < 0) { showToast('請輸入有效的開放份數（今日販售區塊）', 'error'); return; }
+    if (!confirm(`確定要將已選 ${ids.length} 個商品的「今日開放份數」設定為 ${val} 嗎？`)) return;
+    const alsoEnable = val > 0 && confirm(`是否同時啟用已選 ${ids.length} 個商品的 LINE 份數管理？\n確認 → 啟用份數管理\n取消 → 只改數字`);
     body = { line_quota_daily: val };
     if (alsoEnable) body.line_quota_enabled = 1;
   } else if (type === 'low') {
-    val = Number(document.getElementById('lpm-batch-low')?.value);
-    if (isNaN(val) || val < 0) { showToast('請輸入有效的門檻值', 'error'); return; }
-    if (!confirm(`確定要將已選 ${ids.length} 個商品的「${names[type]}」設定為 ${val} 嗎？`)) return;
-    // 設定門檻同時啟用 line_quota_enabled（讓門檻生效）
+    val = Number(document.getElementById('lpm-today-low')?.value);
+    if (isNaN(val) || val < 0) { showToast('請輸入有效的門檻值（今日販售區塊）', 'error'); return; }
+    if (!confirm(`確定要將已選 ${ids.length} 個商品的「快售完門檻」設定為 ${val} 嗎？`)) return;
     body = { line_quota_low_threshold: val, line_quota_enabled: 1 };
   } else if (type === 'high') {
-    val = Number(document.getElementById('lpm-batch-high')?.value);
-    if (isNaN(val) || val < 0) { showToast('請輸入有效的門檻值', 'error'); return; }
-    if (!confirm(`確定要將已選 ${ids.length} 個商品的「${names[type]}」設定為 ${val} 嗎？`)) return;
-    // 設定門檻同時啟用 line_quota_enabled
+    val = Number(document.getElementById('lpm-today-high')?.value);
+    if (isNaN(val) || val < 0) { showToast('請輸入有效的門檻值（今日販售區塊）', 'error'); return; }
+    if (!confirm(`確定要將已選 ${ids.length} 個商品的「供應充足門檻」設定為 ${val} 嗎？`)) return;
     body = { line_quota_high_threshold: val, line_quota_enabled: 1 };
+  } else if (type === 'sell_time') {
+    startVal = document.getElementById('lpm-today-start')?.value || '';
+    endVal   = document.getElementById('lpm-today-end')?.value   || '';
+    if (!confirm(`確定要將已選 ${ids.length} 個商品的 LINE 販售時段設定為 ${startVal||'不限'}～${endVal||'不限'} 嗎？`)) return;
+    body = { line_sell_start: startVal, line_sell_end: endVal };
   } else if (type === 'reset_sold') {
     if (!confirm(`確定要重置已選 ${ids.length} 個商品的 LINE 已售份數為 0 嗎？此操作不影響主庫存。`)) return;
     body = { line_quota_sold: 0 };
@@ -4723,27 +4768,32 @@ async function lpmBatch(type) {
   } else if (type === 'disable') {
     if (!confirm(`確定要關閉已選 ${ids.length} 個商品的 LINE 販售嗎？`)) return;
     body = { show_on_line: 0 };
-  } else if (type === 'sell_time') {
-    startVal = document.getElementById('lpm-batch-start')?.value || '';
-    endVal   = document.getElementById('lpm-batch-end')?.value   || '';
-    if (!confirm(`確定要將已選 ${ids.length} 個商品的 LINE 販售時段設定為 ${startVal||'不限'}～${endVal||'不限'} 嗎？`)) return;
-    body = { line_sell_start: startVal, line_sell_end: endVal };
   } else if (type === 'quota_on') {
-    if (!confirm(`確定要啟用已選 ${ids.length} 個商品的 LINE 份數管理嗎？`)) return;
+    if (!confirm(`確定要啟用已選 ${ids.length} 個商品的 LINE 份數管理嗎？（只更新 line_quota_enabled，不影響預購管理）`)) return;
     body = { line_quota_enabled: 1 };
   } else if (type === 'quota_off') {
-    if (!confirm(`確定要停用已選 ${ids.length} 個商品的 LINE 份數管理嗎？停用後前台不限制份數。`)) return;
+    if (!confirm(`確定要停用已選 ${ids.length} 個商品的 LINE 份數管理嗎？`)) return;
     body = { line_quota_enabled: 0 };
   } else if (type === 'preorder_daily') {
-    val = Number(document.getElementById('lpm-batch-preorder-daily')?.value);
-    if (isNaN(val) || val < 0) { showToast('請輸入有效的預購份數', 'error'); return; }
-    if (!confirm(`確定要將已選 ${ids.length} 個商品的每日預購數量設定為 ${val} 嗎？（> 0 自動啟用預購管理）`)) return;
+    val = Number(document.getElementById('lpm-preorder-daily')?.value);
+    if (isNaN(val) || val < 0) { showToast('請輸入有效的預購份數（預購管理區塊）', 'error'); return; }
+    if (!confirm(`確定要將已選 ${ids.length} 個商品的「每日預購數量」設定為 ${val} 嗎？\n（自動啟用預購管理，完全不影響今日販售份數）`)) return;
     body = { line_preorder_daily: val, line_preorder_enabled: 1 };
+  } else if (type === 'preorder_low') {
+    val = Number(document.getElementById('lpm-preorder-low')?.value);
+    if (isNaN(val) || val < 0) { showToast('請輸入有效的門檻值', 'error'); return; }
+    if (!confirm(`確定要將已選 ${ids.length} 個商品的「預購快滿門檻」設定為 ${val} 嗎？`)) return;
+    body = { line_preorder_low_threshold: val, line_preorder_enabled: 1 };
+  } else if (type === 'preorder_high') {
+    val = Number(document.getElementById('lpm-preorder-high')?.value);
+    if (isNaN(val) || val < 0) { showToast('請輸入有效的門檻值', 'error'); return; }
+    if (!confirm(`確定要將已選 ${ids.length} 個商品的「預購充足門檻」設定為 ${val} 嗎？`)) return;
+    body = { line_preorder_high_threshold: val, line_preorder_enabled: 1 };
   } else if (type === 'preorder_reset') {
     if (!confirm(`確定要重置已選 ${ids.length} 個商品的 LINE 已預購數量為 0 嗎？此操作不影響主庫存。`)) return;
     body = { line_preorder_sold: 0 };
   } else if (type === 'preorder_on') {
-    if (!confirm(`確定要啟用已選 ${ids.length} 個商品的 LINE 預購管理嗎？`)) return;
+    if (!confirm(`確定要啟用已選 ${ids.length} 個商品的 LINE 預購管理嗎？（只更新 line_preorder_enabled，不影響今日販售）`)) return;
     body = { line_preorder_enabled: 1 };
   } else if (type === 'preorder_off') {
     if (!confirm(`確定要停用已選 ${ids.length} 個商品的 LINE 預購管理嗎？`)) return;
