@@ -5621,13 +5621,13 @@ async function loadGatewayCards() {
         <div>
           <label style="font-size:.78rem;color:var(--text-secondary,#64748b)">Webhook URL</label>
           <input id="gw-webhook-${p.code}" type="text"
-            value="${escHtml(gw.webhook_url || origin + '/webhook/' + p.code)}"
+            value="${escHtml(gw.webhook_url || origin + '/api/' + p.code + '/webhook')}"
             style="width:100%;padding:6px 8px;border-radius:6px;border:1px solid var(--border,#2a2d3e);background:var(--bg,#0f1117);color:var(--text-primary,#e2e8f0);font-size:.85rem;box-sizing:border-box">
         </div>
         <div>
-          <label style="font-size:.78rem;color:var(--text-secondary,#64748b)">Callback URL</label>
+          <label style="font-size:.78rem;color:var(--text-secondary,#64748b)">Callback URL（LINE Pay 付款成功 redirect）</label>
           <input id="gw-callback-${p.code}" type="text"
-            value="${escHtml(gw.callback_url || origin + '/callback/' + p.code)}"
+            value="${escHtml(gw.callback_url || origin + '/api/' + p.code + '/confirm')}"
             style="width:100%;padding:6px 8px;border-radius:6px;border:1px solid var(--border,#2a2d3e);background:var(--bg,#0f1117);color:var(--text-primary,#e2e8f0);font-size:.85rem;box-sizing:border-box">
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">
@@ -5680,13 +5680,34 @@ async function saveGateway(code) {
 // fix16d: testGateway 改用 provider code 路徑
 async function testGateway(code) {
   const resEl = document.getElementById('gw-result-' + code);
-  if (resEl) resEl.textContent = '測試中...';
+  if (resEl) resEl.innerHTML = '<span style="color:#94a3b8">測試中…</span>';
   try {
-    const res  = await apiFetch('/api/payment-gateways/' + code + '/test', { method: 'POST' });
-    if (!res || !res.ok) { if (resEl) resEl.textContent = '❌ 測試失敗（HTTP ' + (res?.status || '?') + '）'; return; }
+    // 對 linepay 直接呼叫真實測試 API，並傳入目前表單的 mode
+    let body = {};
+    if (code === 'linepay') {
+      const modeEl   = document.getElementById(`gw-mode-${code}`);
+      const midEl    = document.getElementById(`gw-mid-${code}`);
+      const secretEl = document.getElementById(`gw-secret-${code}`);
+      if (modeEl)   body.mode           = modeEl.value;
+      if (midEl)    body.channel_id     = midEl.value;
+      if (secretEl && secretEl.value) body.channel_secret = secretEl.value;
+      // 若 secret 欄位空白，後端會從 DB 讀取
+    }
+    const res  = await apiFetch('/api/payment-gateways/' + code + '/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
     const json = await res.json();
-    if (resEl) resEl.textContent = json.success ? '✅ ' + (json.message || '連線正常') : '❌ ' + json.message;
+    if (resEl) {
+      const color = json.success ? '#06C755' : '#ef4444';
+      const icon  = json.success ? '✅' : '❌';
+      resEl.innerHTML = `<span style="color:${color};font-weight:600">${icon} ${json.message || ''}</span>`;
+      if (json.return_code && !json.success) {
+        resEl.innerHTML += `<br><span style="font-size:11px;color:#94a3b8">LINE Pay returnCode: ${json.return_code} | ${json.apiBase || ''}</span>`;
+      }
+    }
   } catch(e) {
-    if (resEl) resEl.textContent = '❌ ' + e.message;
+    if (resEl) resEl.innerHTML = `<span style="color:#ef4444">❌ ${e.message}</span>`;
   }
 }

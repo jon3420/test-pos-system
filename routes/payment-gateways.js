@@ -121,31 +121,73 @@ router.post('/:provider/test', async (req, res) => {
     if (!gw) return res.status(404).json({ success: false, message: 'provider 尚未設定' });
 
     if (provider === 'linepay') {
-      // 轉發到 LINE Pay 真實測試 API
+      // 直接使用 linepay 測試邏輯（避免 HTTP 自呼叫的複雜性）
+      const crypto = require('crypto');
       const fetch2 = require('node-fetch');
-      const channelId     = gw.merchant_id || gw.api_key || '';
-      const channelSecret = gw.secret_key  || '';
+      const { v4: uuidv4 } = require('uuid');
+
+      const channelId     = (req.body?.channel_id     || gw.merchant_id || '').trim();
+      const channelSecret = (req.body?.channel_secret  || gw.secret_key  || '').trim();
+      const mode          = (req.body?.mode            || gw.mode        || 'test').trim();
+      const apiBase       = (mode === 'live' || mode === 'prod')
+        ? 'https://api-pay.line.me'
+        : 'https://sandbox-api-pay.line.me';
+
+      if (!channelId)     return res.status(400).json({ success: false, message: 'Channel ID 未填寫' });
+      if (!channelSecret) return res.status(400).json({ success: false, message: 'Channel Secret 未填寫' });
+
+      const nonce    = uuidv4().replace(/-/g, '').slice(0, 32);
+      const testUri  = '/v3/payments/request';
+      const testBody = {
+        amount: 1, currency: 'TWD',
+        orderId: `TEST_${Date.now()}_AUTH`,
+        packages: [{ id: 'test', amount: 1, products: [{ name: 'Auth Test', quantity: 1, price: 1 }] }],
+        redirectUrls: { confirmUrl: 'https://example.com/confirm', cancelUrl: 'https://example.com/cancel' },
+      };
+      const bodyStr  = JSON.stringify(testBody);
+      const message  = channelSecret + testUri + bodyStr + nonce;
+      const signature = crypto.createHmac('sha256', channelSecret).update(message, 'utf8').digest('base64');
+
+      console.log('[LINEPAY TEST via gateway]', {
+        mode, apiBase, channelIdLen: channelId.length, secretLen: channelSecret.length,
+        nonce, sigPreview: signature.slice(0, 20),
+      });
+
       try {
-        const lpRes = await fetch2(`http://localhost:${process.env.PORT || 3000}/api/linepay/test`, {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/json', 'x-store-id': storeId },
-          body:    JSON.stringify({ channel_id: channelId, channel_secret: channelSecret }),
-          timeout: 12000,
+        const testRes  = await fetch2(apiBase + testUri, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-LINE-ChannelId': String(channelId),
+            'X-LINE-Authorization-Nonce': String(nonce),
+            'X-LINE-Authorization': signature,
+          },
+          body: bodyStr,
+          timeout: 10000,
         });
-        const lpData = await lpRes.json();
-        return res.status(lpRes.status).json(lpData);
-      } catch(fetchErr) {
-        return res.status(503).json({ success: false, message: '內部 LINE Pay 測試請求失敗：' + fetchErr.message });
+        const data = await testRes.json();
+        console.log('[LINEPAY TEST] result:', { code: data.returnCode, msg: data.returnMessage });
+        const code = data.returnCode;
+        const authOk = ['0000','1104','2101','2102','1160'].includes(code);
+        if (authOk) {
+          return res.json({ success: true, message: `✅ LINE Pay 認證成功（${mode==='live'?'正式':'沙箱'}）`, return_code: code, mode, apiBase });
+        } else if (code === '1150') {
+          return res.status(400).json({ success: false, message: `❌ 認證失敗（1150）：Channel ID/Secret 不正確，或環境不符\n目前使用：${apiBase}\n若您的 Channel 是沙箱帳號，請將「模式」改為「測試模式」`, return_code: code, apiBase });
+        } else if (code === '1101') {
+          return res.status(400).json({ success: false, message: '❌ Channel ID 不存在（1101）', return_code: code });
+        } else {
+          return res.json({ success: true, message: `✅ LINE Pay 認證通過（${code}：${data.returnMessage}）`, return_code: code, mode, apiBase });
+        }
+      } catch(netErr) {
+        return res.status(503).json({ success: false, message: `無法連線 LINE Pay API：${netErr.message}`, apiBase });
       }
     }
 
-    // 其他 provider 回傳通用訊息
+    // 其他 provider
     res.json({
       success: true,
-      message: `${PROVIDER_NAMES[provider] || provider} 設定已存在（尚未實作直接驗證）`,
-      provider,
-      mode:      gw.mode,
-      is_active: !!gw.is_active,
+      message: `${PROVIDER_NAMES[provider] || provider} 設定已存在（此 provider 尚未實作直接驗證）`,
+      provider, mode: gw.mode, is_active: !!gw.is_active,
     });
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });

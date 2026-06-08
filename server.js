@@ -269,6 +269,17 @@ initDb().then((db) => {
   app.use('/api/payment-gateways', requireStore, requireFeature('payment_api'), require('./routes/payment-gateways'));
   // LINE Pay v3 — 不需要 payment_api feature gate，/confirm 由 LINE 直接呼叫
   app.use('/api/linepay', requireStore, require('./routes/linepay'));
+  // LINE Pay 相容路由別名（後台 webhook_url 預設為 /webhook/linepay）
+  app.post('/webhook/linepay', (req, res, next) => {
+    console.log('[linepay/webhook alias]', JSON.stringify(req.body).slice(0, 200));
+    res.json({ returnCode: '0000', returnMessage: 'OK' });
+  });
+  app.get('/callback/linepay', (req, res) => {
+    // LINE Pay confirm callback 別名
+    const storeId = req.query.store_id || 'store_001';
+    const { transactionId, orderId } = req.query;
+    res.redirect(`/api/linepay/confirm?store_id=${storeId}&transactionId=${transactionId || ''}&orderId=${orderId || ''}`);
+  });
   app.use('/api/print',            requireStore, require('./routes/print'));
   app.use('/api/print-jobs',       requireStore, require('./routes/printJobs'));
   app.use('/api/sync',             requireStore, require('./routes/sync'));
