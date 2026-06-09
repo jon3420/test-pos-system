@@ -235,10 +235,61 @@ router.delete('/:id', (req, res) => {
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
 
+/* ── ensureProductPreorderColumns ────────────────────────────────────────
+   每次 PATCH /line-settings 執行前呼叫。
+   用同一個 db wrapper 的 PRAGMA 確認欄位，缺少就 ALTER TABLE ADD COLUMN。
+   - 不依賴 utils/db.js 的 initTables，因為 Zeabur 舊 DB 可能在 initTables
+     之前就已經建立，且 sql.js 的 forEach run() 在特定狀態下可能靜默略過。
+   - 相容 db.all / db.exec 兩種 sql.js 介面。
+   - 每次 ALTER 後呼叫 db.save()（若存在）確保寫回磁碟。
+   ─────────────────────────────────────────────────────────────────────── */
+function ensureProductPreorderColumns(db) {
+  const COLS = [
+    ['line_preorder_enabled',        'INTEGER DEFAULT 0'],
+    ['line_preorder_daily',          'INTEGER DEFAULT 0'],
+    ['line_preorder_sold',           'INTEGER DEFAULT 0'],
+    ['line_preorder_low_threshold',  'INTEGER DEFAULT 2'],
+    ['line_preorder_high_threshold', 'INTEGER DEFAULT 10'],
+  ];
+  try {
+    // 取得現有欄位清單：優先用 db.all，若不存在改用 db.exec（sql.js 原生 API）
+    let existCols;
+    if (typeof db.all === 'function') {
+      existCols = db.all('PRAGMA table_info(products)').map(r => r.name);
+    } else if (typeof db.exec === 'function') {
+      const result = db.exec('PRAGMA table_info(products)');
+      existCols = (result && result[0] && result[0].values)
+        ? result[0].values.map(row => row[1])   // column index 1 = name
+        : [];
+    } else {
+      console.error('[products] ensureProductPreorderColumns: db 不支援 all/exec');
+      return;
+    }
+    for (const [col, def] of COLS) {
+      if (existCols.includes(col)) continue;
+      try {
+        db.run(`ALTER TABLE products ADD COLUMN ${col} ${def}`);
+        if (typeof db.save === 'function') db.save();
+        console.log(`[products] ✅ ALTER TABLE products ADD COLUMN ${col}`);
+      } catch (e2) {
+        // 若已存在（race condition）則忽略，其他錯誤印出
+        if (!/already exists/i.test(e2.message)) {
+          console.error(`[products] ❌ ALTER TABLE 失敗 ${col}:`, e2.message);
+        }
+      }
+    }
+  } catch (e) {
+    console.error('[products] ensureProductPreorderColumns 失敗:', e.message);
+  }
+}
+
 /* PATCH /api/products/:id/line-settings */
 router.patch('/:id/line-settings', requireFeature('line_order'), (req, res) => {
   try {
     const db = getDb();
+    // BUG-001 修正：確保 line_preorder_* 欄位存在，防止 Zeabur 舊 DB 出現
+    //   "no such column: line_preorder_enabled"
+    ensureProductPreorderColumns(db);
     const storeId = req.storeId || 'store_001';
     const id = req.params.id;
     const ex = db.get('SELECT id FROM products WHERE id=? AND store_id=?', [id, storeId]);
