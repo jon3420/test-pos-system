@@ -649,13 +649,30 @@ function addCart(id,evt){
     if(canNextDay){ preorderNextDay(id,evt); return; }
     alert((p.effective_line_name||p.name)+' 今日已售完');return;
   }
-  if(p.line_quota?.hasQuota&&Number(p.line_quota?.remaining)<=0){
-    if(canNextDay){ preorderNextDay(id,evt); return; }
-    alert((p.effective_line_name||p.name)+' LINE 今日份數已售完');return;
-  }
-  if(p.line_quota?.hasQuota){
+  // BUG-002 修正：依目前購物車選擇的日期，決定用今日 quota 還是預購 preorder 判斷
+  const _selectedDate = document.getElementById('pDate')?.value || '';
+  const _todayStr = fmtD(twNow());
+  const _isPreorderCart = _selectedDate && _selectedDate > _todayStr;
+  if(_isPreorderCart){
+    // 預購日期：只用 line_preorder_* 判斷，完全不看 line_quota_*
+    const preorderInfo=p.line_preorder||{hasPreorder:false};
+    if(preorderInfo.hasPreorder && Number(preorderInfo.remaining??0)<=0){
+      alert((p.effective_line_name||p.name)+' 預購已滿');return;
+    }
     const inCart=cart[id]?.qty||0;
-    if(inCart>=(p.line_quota.remaining||0)){alert((p.effective_line_name||p.name)+` LINE 剩餘份數不足（剩 ${p.line_quota.remaining} 份）`);return;}
+    if(preorderInfo.hasPreorder && inCart>=(Number(preorderInfo.remaining??0))){
+      alert((p.effective_line_name||p.name)+` 預購剩餘份數不足（剩 ${preorderInfo.remaining} 份）`);return;
+    }
+  } else {
+    // 今日訂單：用 line_quota_*
+    if(p.line_quota?.hasQuota&&Number(p.line_quota?.remaining)<=0){
+      if(canNextDay){ preorderNextDay(id,evt); return; }
+      alert((p.effective_line_name||p.name)+' LINE 今日份數已售完');return;
+    }
+    if(p.line_quota?.hasQuota){
+      const inCart=cart[id]?.qty||0;
+      if(inCart>=(p.line_quota.remaining||0)){alert((p.effective_line_name||p.name)+` LINE 剩餘份數不足（剩 ${p.line_quota.remaining} 份）`);return;}
+    }
   }
   if(!cart[id])cart[id]={product:p,qty:0};
   cart[id].qty++;
@@ -812,7 +829,20 @@ function chgQty(id,d){
   if(!cart[id])return;
   if(d>0){
     const p=allProducts.find(x=>x.id==id);
-    if(p&&p.line_quota?.hasQuota&&cart[id].qty>=(p.line_quota.remaining||0)){alert('LINE 份數不足');return;}
+    // BUG-002 修正：依目前購物車選擇的日期，決定用今日 quota 還是預購 preorder 判斷
+    const _selectedDate = document.getElementById('pDate')?.value || '';
+    const _todayStr = fmtD(twNow());
+    const _isPreorderCart = _selectedDate && _selectedDate > _todayStr;
+    if(_isPreorderCart){
+      // 預購日期：只用 line_preorder_*，完全不看 line_quota_*
+      const preorderInfo=p?.line_preorder||{hasPreorder:false};
+      if(preorderInfo.hasPreorder && cart[id].qty>=(Number(preorderInfo.remaining??0))){
+        alert('預購剩餘份數不足');return;
+      }
+    } else {
+      // 今日訂單：用 line_quota_*
+      if(p&&p.line_quota?.hasQuota&&cart[id].qty>=(p.line_quota.remaining||0)){alert('LINE 份數不足');return;}
+    }
   }
   cart[id].qty+=d;if(cart[id].qty<=0)delete cart[id];
   updateBar();updateProductCard(id);

@@ -4695,7 +4695,7 @@ async function lpmApplyPreorder() {
 
 // ── 共用批量發送邏輯 ──────────────────────────────────────
 async function _lpmBatchSend(ids, body, label) {
-  let successCount = 0, failCount = 0;
+  let successCount = 0, failCount = 0, firstFailReason = '';
   const chunks = [];
   for (let i = 0; i < ids.length; i += 5) chunks.push(ids.slice(i, i+5));
   for (const chunk of chunks) {
@@ -4710,7 +4710,6 @@ async function _lpmBatchSend(ids, body, label) {
         if (res && typeof res.json === 'function') {
           json = await res.json();
         } else if (res && res.body) {
-          // apiFetch 已解析並回傳 { ok:false, status, body }，body 即 JSON
           json = res.body;
         } else {
           throw new Error(`HTTP error (status=${res?.status ?? 'unknown'})`);
@@ -4720,20 +4719,27 @@ async function _lpmBatchSend(ids, body, label) {
           if (idx !== -1) _lpmProducts[idx] = { ..._lpmProducts[idx], ...json.data };
           successCount++;
         } else {
-          console.warn(`[lpmBatchSend] id=${id} 失敗：`, json?.message || '伺服器回傳 success:false');
+          const reason = json?.message || '伺服器回傳 success:false';
+          console.warn(`[lpmBatchSend] id=${id} 失敗：`, reason);
+          if (!firstFailReason) firstFailReason = reason;
           failCount++;
         }
       } catch(e) {
-        console.error(`[lpmBatchSend] id=${id} 例外：`, e?.message || e);
+        const reason = e?.message || String(e);
+        console.error(`[lpmBatchSend] id=${id} 例外：`, reason);
+        if (!firstFailReason) firstFailReason = reason;
         failCount++;
       }
     }));
   }
   renderLpmTable(_lpmProducts);
-  const msg = !failCount
-    ? `✅ 已更新 ${successCount} 個商品的 LINE ${label}設定`
-    : `✅ ${successCount} 個成功，⚠️ ${failCount} 個失敗`;
-  showToast(msg, failCount ? 'error' : 'success');
+  if (!failCount) {
+    showToast(`✅ 已更新 ${successCount} 個商品的 LINE ${label}設定`, 'success');
+  } else if (!successCount) {
+    showToast(`⚠️ 全部 ${failCount} 個失敗。原因：${firstFailReason || '未知'}`, 'error');
+  } else {
+    showToast(`✅ ${successCount} 個成功，⚠️ ${failCount} 個失敗（${firstFailReason}）`, 'error');
+  }
 }
 
 async function lpmBatch(type) {
