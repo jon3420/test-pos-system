@@ -183,7 +183,43 @@ function initTables(w) {
     'ALTER TABLE products ADD COLUMN line_sell_start TEXT DEFAULT ""',
     'ALTER TABLE products ADD COLUMN line_sell_end TEXT DEFAULT ""',
   ];
+  // ── orders migration 獨立執行，不混入 prodMig
+  // 原因：sql.js 若某條 run() 失敗後 db 進入 error state，
+  //       後續同 loop 的 run() 可能靜默略過，
+  //       導致 line_preorder_* 從未寫入。
+  try { w._db.run('ALTER TABLE orders ADD COLUMN linepay_transaction_id TEXT DEFAULT ""'); w._save(); } catch {}
   prodMig.forEach(sql => { try { w._db.run(sql); w._save(); } catch {} });
+
+  // ── line_preorder_* 欄位：PRAGMA 確認後逐欄位執行，確保 Zeabur 舊 DB 也能補建
+  // 每次啟動都執行此區塊，缺欄位就立即 ALTER TABLE
+  const _preorderColDefs = [
+    ['line_preorder_enabled',        'INTEGER DEFAULT 0'],
+    ['line_preorder_daily',          'INTEGER DEFAULT 0'],
+    ['line_preorder_sold',           'INTEGER DEFAULT 0'],
+    ['line_preorder_low_threshold',  'INTEGER DEFAULT 2'],
+    ['line_preorder_high_threshold', 'INTEGER DEFAULT 10'],
+  ];
+  try {
+    const _existCols = w._db.all('PRAGMA table_info(products)').map(r => r.name);
+    let _added = 0;
+    for (const [col, def] of _preorderColDefs) {
+      if (!_existCols.includes(col)) {
+        try {
+          w._db.run(`ALTER TABLE products ADD COLUMN ${col} ${def}`);
+          w._save();
+          _added++;
+          console.log(`[DB] ✅ 補建欄位: ${col}`);
+        } catch (e2) {
+          console.error(`[DB] ❌ 補建失敗 ${col}:`, e2.message);
+        }
+      }
+    }
+    if (_added === 0) {
+      console.log('[DB] ✅ line_preorder_* 欄位均已存在');
+    }
+  } catch (e) {
+    console.error('[DB] ❌ PRAGMA table_info(products) 失敗:', e.message);
+  }
 
   // Migration: 補上所有現有商品的 store_id
   try {
