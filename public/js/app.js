@@ -4701,17 +4701,32 @@ async function _lpmBatchSend(ids, body, label) {
   for (const chunk of chunks) {
     await Promise.all(chunk.map(async id => {
       try {
-        const res  = await apiFetch(`/api/products/${id}/line-settings`, {
+        const res = await apiFetch(`/api/products/${id}/line-settings`, {
           method:'PATCH', headers:{'Content-Type':'application/json'},
           body: JSON.stringify(body)
         });
-        const json = await res.json();
-        if (json.success) {
+        // BUG-001 修正：apiFetch 在 401/403 時回傳純物件（無 .json()），需先判斷型態
+        let json;
+        if (res && typeof res.json === 'function') {
+          json = await res.json();
+        } else if (res && res.body) {
+          // apiFetch 已解析並回傳 { ok:false, status, body }，body 即 JSON
+          json = res.body;
+        } else {
+          throw new Error(`HTTP error (status=${res?.status ?? 'unknown'})`);
+        }
+        if (json && json.success) {
           const idx = _lpmProducts.findIndex(x => x.id === id);
           if (idx !== -1) _lpmProducts[idx] = { ..._lpmProducts[idx], ...json.data };
           successCount++;
-        } else { failCount++; }
-      } catch { failCount++; }
+        } else {
+          console.warn(`[lpmBatchSend] id=${id} 失敗：`, json?.message || '伺服器回傳 success:false');
+          failCount++;
+        }
+      } catch(e) {
+        console.error(`[lpmBatchSend] id=${id} 例外：`, e?.message || e);
+        failCount++;
+      }
     }));
   }
   renderLpmTable(_lpmProducts);
@@ -4807,17 +4822,31 @@ async function lpmBatch(type) {
   for (const chunk of chunks) {
     await Promise.all(chunk.map(async id => {
       try {
-        const res  = await apiFetch(`/api/products/${id}/line-settings`, {
+        const res = await apiFetch(`/api/products/${id}/line-settings`, {
           method:'PATCH', headers:{'Content-Type':'application/json'},
           body: JSON.stringify(body)
         });
-        const json = await res.json();
-        if (json.success) {
+        // BUG-001 修正：apiFetch 在 401/403 時回傳純物件（無 .json()）
+        let json;
+        if (res && typeof res.json === 'function') {
+          json = await res.json();
+        } else if (res && res.body) {
+          json = res.body;
+        } else {
+          throw new Error(`HTTP error (status=${res?.status ?? 'unknown'})`);
+        }
+        if (json && json.success) {
           const idx = _lpmProducts.findIndex(x => x.id === id);
           if (idx !== -1) _lpmProducts[idx] = { ..._lpmProducts[idx], ...json.data };
           successCount++;
-        } else { failCount++; }
-      } catch { failCount++; }
+        } else {
+          console.warn(`[lpmBatch] id=${id} 失敗：`, json?.message || 'success:false');
+          failCount++;
+        }
+      } catch(e) {
+        console.error(`[lpmBatch] id=${id} 例外：`, e?.message || e);
+        failCount++;
+      }
     }));
   }
   renderLpmTable(_lpmProducts);

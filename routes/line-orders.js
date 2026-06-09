@@ -423,10 +423,18 @@ router.get('/menu', (req, res) => {
               : (realSoldOut ? 'real_sold_out' : null))));
 
       // ── 可預約明日旗標 ────────────────────────────────────
-      // 條件：今日有售完原因（非模式關閉） + 該模式允許次日預購
-      // 今日位階 2/3/4 的限制都不阻擋明日預約
-      const takeoutCanNextDay  = !!takeoutSoldOutReason  && takeoutSoldOutReason  !== 'mode_closed' && takeoutMode.allowNextDay;
-      const deliveryCanNextDay = !!deliverySoldOutReason && deliverySoldOutReason !== 'mode_closed' && deliveryMode.allowNextDay;
+      // 條件：今日有售完原因（非模式關閉，非尚未開賣） + 該模式允許次日預購
+      // BUG-003 修正：product_not_started 不應觸發「預約明日」
+      //   今日尚未開賣 ≠ 今日售完；商品只是還沒到販售時間，稍後仍可購買
+      //   只有真正的售完/截止/販售結束才允許預約明日
+      const todayTrulySoldOutForTakeout = !!takeoutSoldOutReason
+        && takeoutSoldOutReason !== 'mode_closed'
+        && takeoutSoldOutReason !== 'product_not_started';
+      const todayTrulySoldOutForDelivery = !!deliverySoldOutReason
+        && deliverySoldOutReason !== 'mode_closed'
+        && deliverySoldOutReason !== 'product_not_started';
+      const takeoutCanNextDay  = todayTrulySoldOutForTakeout  && takeoutMode.allowNextDay;
+      const deliveryCanNextDay = todayTrulySoldOutForDelivery && deliveryMode.allowNextDay;
 
       const isOrderable = !p.line_sold_out && saleStatus === 'available' && effectiveIngredientOk && !realSoldOut;
 
@@ -498,7 +506,7 @@ router.get('/timeslots', (req, res) => {
 });
 
 // ── GET /validate-cart — 加入購物車時驗證 ────────────────
-// ?mode=takeout|delivery&product_ids=1,2,3
+// ?mode=takeout|delivery&product_ids=1,2,3&date=YYYY-MM-DD
 router.get('/validate-cart', (req, res) => {
   try {
     const db = getDb();
@@ -508,14 +516,25 @@ router.get('/validate-cart', (req, res) => {
     const now = twNow();
     const todayStr = twDateStr(now);
     const nowMins = now.getHours()*60 + now.getMinutes();
+    // BUG-002 修正：接受 date 參數，以便判斷是今日訂單還是預購訂單
+    const orderDate = req.query.date || todayStr;
+    const isPreorder = orderDate > todayStr;
 
-    const checks = validateOrderConditions(db, storeId, mode, todayStr, null, nowMins);
+    const checks = validateOrderConditions(db, storeId, mode, orderDate, null, nowMins);
     const productResults = productIds.map(pid => {
       const p = db.get('SELECT * FROM products WHERE id=? AND store_id=?', [pid, storeId]);
       if (!p) return { product_id: pid, ok: false, reason: 'not_found' };
-      const quota = getLineQuotaStatus(p);
-      if (quota.hasQuota && quota.remaining <= 0)
-        return { product_id: pid, ok: false, reason: 'real_sold_out', name: p.name };
+      if (isPreorder) {
+        // BUG-002 修正：預購訂單用 line_preorder_*，不用 line_quota_*
+        const preorder = getLinePreorderStatus(p);
+        if (preorder.hasPreorder && preorder.remaining <= 0)
+          return { product_id: pid, ok: false, reason: 'preorder_full', name: p.name };
+      } else {
+        // 今日訂單用 line_quota_*
+        const quota = getLineQuotaStatus(p);
+        if (quota.hasQuota && quota.remaining <= 0)
+          return { product_id: pid, ok: false, reason: 'real_sold_out', name: p.name };
+      }
       return { product_id: pid, ok: true, name: p.name };
     });
 
