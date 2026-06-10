@@ -331,6 +331,11 @@ router.post('/', async (req, res) => {
       if (!pid) continue;
       const invStatus = getProductInventoryStatus(db, pid, storeId);
       if (!invStatus || invStatus.available_units === null) continue;
+      if (invStatus.available_units <= 0)
+        return res.status(400).json({
+          success: false,
+          message: `${invStatus.product_name} 商品庫存不足，無法點餐`
+        });
       if (item.qty > invStatus.available_units)
         return res.status(400).json({
           success: false,

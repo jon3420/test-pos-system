@@ -38,11 +38,19 @@ function getProductInventoryStatus(db, pid, storeId) {
     });
     availableUnits = minUnits === Infinity ? 0 : minUnits;
     availableGrams = bottleneckG === Infinity ? 0 : bottleneckG;
-  } else if (prod.inventory_enabled && Number(prod.allocated_grams) > 0) {
-    const stockG   = Number(prod.current_stock_grams || 0);
-    const perUnitG = Number(prod.allocated_grams);
-    availableGrams = stockG;
-    availableUnits = Math.floor(stockG / perUnitG);
+  } else if (prod.inventory_enabled) {
+    // inventory_enabled=1 但 allocated_grams 未設定或為 0 時：
+    // 視為「已啟用但尚未設定克數」→ available_units=0（阻止點餐），不回傳 null
+    if (Number(prod.allocated_grams) > 0) {
+      const stockG   = Number(prod.current_stock_grams || 0);
+      const perUnitG = Number(prod.allocated_grams);
+      availableGrams = stockG;
+      availableUnits = Math.floor(stockG / perUnitG);
+    } else {
+      // 尚未設定每份克數：阻止點餐直到設定完成
+      availableGrams = 0;
+      availableUnits = 0;
+    }
   } else {
     return {
       product_id: prod.id, product_name: prod.name,

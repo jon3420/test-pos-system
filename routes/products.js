@@ -422,4 +422,48 @@ router.patch('/batch-inventory-control', (req, res) => {
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
 
+/* PATCH /api/products/batch-inventory-settings
+ * 批量設定食材控管細節（inventory_enabled、allocated_grams、low_stock_alert）
+ * 不清空任何庫存、不刪除配方、不影響 LINE 設定
+ * body: { ids:[1,2,3], inventory_enabled:1, allocated_grams:250, low_stock_alert:5 }
+ */
+router.patch('/batch-inventory-settings', (req, res) => {
+  try {
+    const db = getDb();
+    const storeId = req.storeId || 'store_001';
+    const { ids, inventory_enabled, allocated_grams, low_stock_alert } = req.body;
+
+    if (!Array.isArray(ids) || ids.length === 0)
+      return res.status(400).json({ success: false, message: 'ids 必須為非空陣列' });
+    if (inventory_enabled !== 0 && inventory_enabled !== 1)
+      return res.status(400).json({ success: false, message: 'inventory_enabled 只能是 0 或 1' });
+    if (allocated_grams === undefined || Number(allocated_grams) <= 0)
+      return res.status(400).json({ success: false, message: 'allocated_grams 必須 > 0' });
+    if (low_stock_alert === undefined || Number(low_stock_alert) < 0)
+      return res.status(400).json({ success: false, message: 'low_stock_alert 必須 >= 0' });
+
+    const safeIds = ids.map(Number).filter(n => Number.isInteger(n) && n > 0);
+    if (safeIds.length === 0)
+      return res.status(400).json({ success: false, message: 'ids 內無有效數字' });
+
+    const placeholders = safeIds.map(() => '?').join(',');
+    const result = db.run(
+      `UPDATE products
+       SET inventory_enabled=?, allocated_grams=?, low_stock_alert=?,
+           updated_at=datetime('now','localtime')
+       WHERE id IN (${placeholders}) AND store_id=?`,
+      [inventory_enabled ? 1 : 0, Number(allocated_grams), Number(low_stock_alert), ...safeIds, storeId]
+    );
+
+    const updated = result.changes ?? 0;
+    const skipped = safeIds.length - updated;
+    res.json({
+      success: true,
+      updated,
+      skipped,
+      message: `食材控管設定已套用：${updated} 筆更新，${skipped} 筆略過（不屬於本店）`
+    });
+  } catch(e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
 module.exports = router;

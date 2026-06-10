@@ -271,15 +271,32 @@
       </div>
     </div>
     <!-- 批量食材控管區（現場 POS / Web POS 專用）-->
-    <div id="products-batch-panel" style="background:var(--bg-card,#1e293b);border:1px solid var(--border,#334155);border-radius:8px;padding:10px 14px;margin-bottom:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-      <span style="font-size:12px;font-weight:700;color:var(--text-secondary,#94a3b8)">批量操作</span>
-      <span id="products-selected-count" style="font-size:12px;color:#a78bfa;font-weight:600">（未選取商品）</span>
-      <button onclick="productsSelectAll()" style="font-size:12px;padding:4px 10px;background:var(--bg-base,#0f172a);color:var(--text-secondary,#94a3b8);border:1px solid var(--border,#334155);border-radius:5px;cursor:pointer">全選</button>
-      <button onclick="productsDeselectAll()" style="font-size:12px;padding:4px 10px;background:var(--bg-base,#0f172a);color:var(--text-secondary,#94a3b8);border:1px solid var(--border,#334155);border-radius:5px;cursor:pointer">取消全選</button>
-      <span style="font-size:11px;color:var(--text-muted,#64748b)">│</span>
-      <span style="font-size:11px;color:#a78bfa">食材控管（POS）：</span>
-      <button onclick="batchInventoryControl(true)" style="font-size:12px;padding:4px 12px;background:rgba(167,139,250,.15);color:#a78bfa;border:1px solid rgba(167,139,250,.5);border-radius:5px;cursor:pointer;white-space:nowrap">🔬 開啟食材控管</button>
-      <button onclick="batchInventoryControl(false)" style="font-size:12px;padding:4px 12px;background:var(--bg-base,#0f172a);color:var(--text-muted,#64748b);border:1px solid var(--border,#334155);border-radius:5px;cursor:pointer;white-space:nowrap">🔬 關閉食材控管</button>
+    <div id="products-batch-panel" style="background:var(--bg-card,#1e293b);border:1px solid var(--border,#334155);border-radius:8px;padding:10px 14px;margin-bottom:12px">
+      <!-- 第一列：選取控制 -->
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+        <span style="font-size:12px;font-weight:700;color:var(--text-secondary,#94a3b8)">批量操作</span>
+        <span id="products-selected-count" style="font-size:12px;color:#a78bfa;font-weight:600">（未選取商品）</span>
+        <button onclick="productsSelectAll()" style="font-size:12px;padding:4px 10px;background:var(--bg-base,#0f172a);color:var(--text-secondary,#94a3b8);border:1px solid var(--border,#334155);border-radius:5px;cursor:pointer">全選</button>
+        <button onclick="productsDeselectAll()" style="font-size:12px;padding:4px 10px;background:var(--bg-base,#0f172a);color:var(--text-secondary,#94a3b8);border:1px solid var(--border,#334155);border-radius:5px;cursor:pointer">取消全選</button>
+      </div>
+      <!-- 第二列：食材控管細節設定 -->
+      <div style="display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;padding-top:8px;border-top:1px solid var(--border,#334155)">
+        <span style="font-size:11px;color:#a78bfa;align-self:center;white-space:nowrap">🔬 食材控管（POS）：</span>
+        <div>
+          <div style="font-size:10px;color:var(--text-muted,#64748b);margin-bottom:3px">每份分配克數(g)</div>
+          <input type="number" id="inv-allocated-grams" min="1" step="1" placeholder="250"
+            style="width:90px;padding:5px 8px;border:1px solid rgba(167,139,250,.5);border-radius:5px;font-size:13px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
+        </div>
+        <div>
+          <div style="font-size:10px;color:var(--text-muted,#64748b);margin-bottom:3px">低庫存警戒(份)</div>
+          <input type="number" id="inv-low-stock-alert" min="0" step="1" placeholder="5"
+            style="width:80px;padding:5px 8px;border:1px solid rgba(167,139,250,.5);border-radius:5px;font-size:13px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
+        </div>
+        <button onclick="applyInventorySettings()" style="padding:5px 14px;background:#a78bfa;color:#fff;border:none;border-radius:5px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap">💾 套用設定</button>
+        <span style="font-size:11px;color:var(--text-muted,#64748b);align-self:center">│</span>
+        <button onclick="batchInventoryControl(true)" style="font-size:12px;padding:4px 12px;background:rgba(167,139,250,.15);color:#a78bfa;border:1px solid rgba(167,139,250,.5);border-radius:5px;cursor:pointer;white-space:nowrap">✅ 開啟食材控管</button>
+        <button onclick="batchInventoryControl(false)" style="font-size:12px;padding:4px 12px;background:var(--bg-base,#0f172a);color:var(--text-muted,#64748b);border:1px solid var(--border,#334155);border-radius:5px;cursor:pointer;white-space:nowrap">❌ 關閉食材控管</button>
+      </div>
     </div>
     <div class="table-wrap">
       <table class="data-table">

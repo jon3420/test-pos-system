@@ -4896,6 +4896,37 @@ function productsToggleAll(checked) {
 function productsSelectAll()   { productsToggleAll(true);  }
 function productsDeselectAll() { productsToggleAll(false); }
 
+// 批量套用食材控管細節設定（inventory_enabled=1 + allocated_grams + low_stock_alert）
+async function applyInventorySettings() {
+  const ids = productsGetSelected();
+  if (!ids.length) { showToast('請先勾選商品', 'error'); return; }
+  const gramsVal = document.getElementById('inv-allocated-grams')?.value?.trim();
+  const alertVal = document.getElementById('inv-low-stock-alert')?.value?.trim();
+  const grams = Number(gramsVal);
+  const alertN = Number(alertVal);
+  if (!gramsVal || grams <= 0) { showToast('每份分配克數必須 > 0', 'error'); return; }
+  if (alertVal === '' || alertN < 0) { showToast('低庫存警戒份數必須 >= 0', 'error'); return; }
+  if (!confirm(
+    `即將套用食材控管設定：\n已選商品：${ids.length} 個\n每份分配克數：${grams}g\n低庫存警戒：${alertN} 份\n並啟用食材控管\n\n確定套用？`
+  )) return;
+  try {
+    const res = await apiFetch('/api/products/batch-inventory-settings', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids, inventory_enabled: 1, allocated_grams: grams, low_stock_alert: alertN })
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast(`✅ 食材控管設定已套用：${data.updated} 筆更新成功`, 'success');
+      loadProductsPage();
+    } else {
+      showToast(`❌ 套用失敗：${data.message}`, 'error');
+    }
+  } catch(e) {
+    showToast(`❌ 套用失敗：${e.message}`, 'error');
+  }
+}
+
 async function batchInventoryControl(enableFlag) {
   const ids = productsGetSelected();
   if (!ids.length) { showToast('請先勾選商品', 'error'); return; }
