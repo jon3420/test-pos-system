@@ -2056,7 +2056,8 @@ async function loadProductsPage() {
 function renderProductsTable(products) {
   const tbody = document.getElementById('productsBody');
   if (!products.length) {
-    tbody.innerHTML = '<tr><td colspan="6" class="table-empty">尚無商品</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" class="table-empty">尚無商品</td></tr>';
+    updateProductsSelectedCount();
     return;
   }
   const catEmoji = {};
@@ -2088,6 +2089,7 @@ function renderProductsTable(products) {
         sold_out_indefinitely:'<span class="order-status status-void" style="margin-left:4px;display:inline-block;font-size:11px">長期下架</span>' }[saleStatus] || '';
     return `
       <tr>
+        <td style="text-align:center"><input type="checkbox" class="product-row-check" data-product-id="${p.id}" onchange="updateProductsSelectedCount()"></td>
         <td>${thumbHtml}</td>
         <td style="font-weight:600">${escHtml(p.name)}${invBadge}${lineBadge}${saleBadge}</td>
         <td>${catEmoji[p.category] || ''} ${p.category}</td>
@@ -2100,6 +2102,7 @@ function renderProductsTable(products) {
         </td>
       </tr>`;
   }).join('');
+  updateProductsSelectedCount();
 }
 
 function openProductModal(id) {
@@ -4865,8 +4868,36 @@ async function lpmBatch(type) {
 // ── 批量食材控管（開啟 / 關閉 inventory_enabled）────────────
 // 供商品管理頁「全選 → 開啟食材控管 / 關閉食材控管」按鈕使用
 // 只影響現場 POS / Web POS，不影響 LINE 點餐
+
+// 取得商品管理頁已勾選的商品 id 陣列
+function productsGetSelected() {
+  return Array.from(document.querySelectorAll('.product-row-check:checked'))
+    .map(cb => Number(cb.dataset.productId))
+    .filter(Boolean);
+}
+
+// 更新選取數量顯示
+function updateProductsSelectedCount() {
+  const count = productsGetSelected().length;
+  const el = document.getElementById('products-selected-count');
+  if (el) el.textContent = count > 0 ? `（已選 ${count} 個商品）` : '（未選取商品）';
+  // 同步全選 checkbox 狀態
+  const all = document.querySelectorAll('.product-row-check');
+  const chkAll = document.getElementById('products-check-all');
+  if (chkAll && all.length > 0) chkAll.indeterminate = count > 0 && count < all.length;
+  if (chkAll && all.length > 0) chkAll.checked = count === all.length;
+}
+
+function productsToggleAll(checked) {
+  document.querySelectorAll('.product-row-check').forEach(cb => { cb.checked = checked; });
+  updateProductsSelectedCount();
+}
+
+function productsSelectAll()   { productsToggleAll(true);  }
+function productsDeselectAll() { productsToggleAll(false); }
+
 async function batchInventoryControl(enableFlag) {
-  const ids = lpmGetSelected();
+  const ids = productsGetSelected();
   if (!ids.length) { showToast('請先勾選商品', 'error'); return; }
   const label = enableFlag ? '開啟食材控管' : '關閉食材控管';
   if (!confirm(`即將對 ${ids.length} 個商品「${label}」。\n此操作只影響現場 POS / Web POS，不影響 LINE 今日份數與預購數量。\n確定繼續？`)) return;
@@ -4879,9 +4910,7 @@ async function batchInventoryControl(enableFlag) {
     const data = await res.json();
     if (data.success) {
       showToast(`✅ ${label}：${data.updated} 筆更新成功`, 'success');
-      // 重新載入商品列表以反映最新狀態
-      if (typeof loadProductsPage === 'function') loadProductsPage();
-      else if (typeof renderProductList === 'function') renderProductList();
+      loadProductsPage();
     } else {
       showToast(`❌ ${label} 失敗：${data.message}`, 'error');
     }
