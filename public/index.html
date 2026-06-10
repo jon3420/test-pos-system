@@ -317,6 +317,10 @@
         <span id="lpm-selected-count" style="font-size:12px;color:#06C755;font-weight:600">（未選取商品）</span>
         <button class="btn-secondary" onclick="lpmSelectAll()" style="font-size:12px;padding:4px 10px">全選</button>
         <button class="btn-secondary" onclick="lpmDeselectAll()" style="font-size:12px;padding:4px 10px">取消全選</button>
+        <span style="font-size:11px;color:var(--text-muted,#64748b);margin-left:6px">│</span>
+        <span style="font-size:11px;color:#a78bfa;align-self:center;margin-left:4px">食材控管（POS）：</span>
+        <button onclick="batchInventoryControl(true)" style="font-size:12px;padding:4px 12px;background:rgba(167,139,250,.15);color:#a78bfa;border:1px solid rgba(167,139,250,.5);border-radius:5px;cursor:pointer;white-space:nowrap">🔬 開啟食材控管</button>
+        <button onclick="batchInventoryControl(false)" style="font-size:12px;padding:4px 12px;background:var(--bg-base,#0f172a);color:var(--text-muted,#64748b);border:1px solid var(--border,#334155);border-radius:5px;cursor:pointer;white-space:nowrap">🔬 關閉食材控管</button>
       </div>
 
       <!-- ══ 今日販售管理：批量操作（Tab=today 時顯示）══ -->

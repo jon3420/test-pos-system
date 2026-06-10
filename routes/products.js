@@ -384,4 +384,42 @@ router.patch('/:id/line-status', requireFeature('line_order'), (req, res) => {
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
 
+/* PATCH /api/products/batch-inventory-control
+ * 批量開啟／關閉食材控管（只影響現場 POS / Web POS，不影響 LINE 點餐）
+ * body: { ids: [1,2,3], inventory_enabled: 0|1 }
+ */
+router.patch('/batch-inventory-control', (req, res) => {
+  try {
+    const db = getDb();
+    const storeId = req.storeId || 'store_001';
+    const { ids, inventory_enabled } = req.body;
+
+    // 驗證
+    if (!Array.isArray(ids) || ids.length === 0)
+      return res.status(400).json({ success: false, message: 'ids 必須為非空陣列' });
+    if (inventory_enabled !== 0 && inventory_enabled !== 1)
+      return res.status(400).json({ success: false, message: 'inventory_enabled 只能是 0 或 1' });
+
+    const safeIds = ids.map(Number).filter(n => Number.isInteger(n) && n > 0);
+    if (safeIds.length === 0)
+      return res.status(400).json({ success: false, message: 'ids 內無有效數字' });
+
+    const placeholders = safeIds.map(() => '?').join(',');
+    const result = db.run(
+      `UPDATE products SET inventory_enabled=?, updated_at=datetime('now','localtime')
+       WHERE id IN (${placeholders}) AND store_id=?`,
+      [inventory_enabled, ...safeIds, storeId]
+    );
+
+    const updated = result.changes ?? 0;
+    const skipped = safeIds.length - updated;
+    res.json({
+      success: true,
+      updated,
+      skipped,
+      message: `已${inventory_enabled ? '開啟' : '關閉'}食材控管：${updated} 筆更新，${skipped} 筆略過（不屬於本店）`
+    });
+  } catch(e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
 module.exports = router;

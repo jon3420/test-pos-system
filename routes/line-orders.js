@@ -354,35 +354,13 @@ router.get('/menu', (req, res) => {
       const quota = getLineQuotaStatus(p);
 
       // ── 食材/庫存 ──────────────────────────────────────
-      // BUG-002 修正：LINE 份數啟用且有剩餘時，食材庫存不阻擋 LINE 販售
-      // ingredientOk 僅在 LINE 份數未啟用時才影響前台顯示
-      const formulas = db.all(
-        'SELECT f.*,i.refrigerated_stock,i.unit as ing_unit FROM product_ingredient_formulas f LEFT JOIN ingredients i ON i.id=f.ingredient_id AND i.store_id=? WHERE f.product_id=?',
-        [storeId, p.id]
-      );
-      let ingredientOk = true, availableUnits = null, availableGrams = null;
-      const hasFormula = formulas.length > 0;
-      if (hasFormula) {
-        let minUnits = Infinity, bottleneckG = Infinity;
-        formulas.forEach(f => {
-          const { toGrams } = require('../utils/unitConvert');
-          const refrigG  = toGrams(Number(f.refrigerated_stock||0), f.ing_unit||'g');
-          const perUnitG = Number(f.amount_per_unit||0);
-          const units    = perUnitG > 0 ? Math.floor(refrigG / perUnitG) : 0;
-          if (units < minUnits) { minUnits = units; bottleneckG = refrigG; }
-        });
-        availableUnits = minUnits === Infinity ? 0 : minUnits;
-        availableGrams = bottleneckG === Infinity ? 0 : bottleneckG;
-        ingredientOk   = availableUnits > 0;
-      } else if (p.inventory_enabled && Number(p.allocated_grams) > 0) {
-        const stockG = Number(p.current_stock_grams || 0);
-        availableUnits = Math.floor(stockG / Number(p.allocated_grams));
-        availableGrams = stockG;
-        ingredientOk   = availableUnits > 0;
-      }
-      // LINE 份數啟用且有剩餘 → 忽略食材庫存限制（前台以 quota 狀態優先）
-      const lineQuotaOverridesIngredient = quota.hasQuota && Number(quota.remaining) > 0;
-      const effectiveIngredientOk = lineQuotaOverridesIngredient ? true : ingredientOk;
+      // LINE 點餐不檢查食材庫存 / inventory_enabled。
+      // 食材控管只適用於現場 POS / Web POS。
+      // ingredient_available 固定回傳 true，前台不顯示「備料不足」。
+      const availableUnits = null;
+      const availableGrams = null;
+      const hasFormula = false;
+      const effectiveIngredientOk = true;
 
       // ══════════════════════════════════════════════════════
       // LINE 接單規則優先順序：
@@ -669,17 +647,7 @@ router.post('/', (req, res) => {
         }
       }
 
-      // 食材庫存驗證
-      const formulas = db.all(
-        'SELECT f.*,i.refrigerated_stock,i.unit as ing_unit,i.name as ing_name FROM product_ingredient_formulas f LEFT JOIN ingredients i ON i.id=f.ingredient_id AND i.store_id=? WHERE f.product_id=?',
-        [storeId, prod.id]
-      );
-      for (const f of formulas) {
-        const neededG = Number(f.amount_per_unit) * Number(item.qty||1);
-        const refrigG = toGrams(Number(f.refrigerated_stock||0), f.ing_unit||'g');
-        if (refrigG < neededG)
-          return res.status(400).json({ success: false, message: `「${prod.name}」食材（${f.ing_name}）冷藏可販售庫存不足` });
-      }
+      // 食材庫存驗證：LINE 點餐不檢查食材庫存（只適用現場 POS / Web POS）
     }
 
     // ── 付款方式驗證 ──────────────────────────────────

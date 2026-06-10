@@ -4862,6 +4862,34 @@ async function lpmBatch(type) {
   showToast(msg, failCount ? 'error' : 'success');
 }
 
+// ── 批量食材控管（開啟 / 關閉 inventory_enabled）────────────
+// 供商品管理頁「全選 → 開啟食材控管 / 關閉食材控管」按鈕使用
+// 只影響現場 POS / Web POS，不影響 LINE 點餐
+async function batchInventoryControl(enableFlag) {
+  const ids = lpmGetSelected();
+  if (!ids.length) { showToast('請先勾選商品', 'error'); return; }
+  const label = enableFlag ? '開啟食材控管' : '關閉食材控管';
+  if (!confirm(`即將對 ${ids.length} 個商品「${label}」。\n此操作只影響現場 POS / Web POS，不影響 LINE 今日份數與預購數量。\n確定繼續？`)) return;
+  try {
+    const res = await apiFetch('/api/products/batch-inventory-control', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids, inventory_enabled: enableFlag ? 1 : 0 })
+    });
+    const data = await res.json();
+    if (data.success) {
+      showToast(`✅ ${label}：${data.updated} 筆更新成功`, 'success');
+      // 重新載入商品列表以反映最新狀態
+      if (typeof loadProductsPage === 'function') loadProductsPage();
+      else if (typeof renderProductList === 'function') renderProductList();
+    } else {
+      showToast(`❌ ${label} 失敗：${data.message}`, 'error');
+    }
+  } catch(e) {
+    showToast(`❌ 批量更新失敗：${e.message}`, 'error');
+  }
+}
+
 // ── 初始化 LINE 商品管理（showPage 觸發）────────────────
 // ── 食材庫存管理 ──────────────────────────────────────────
 let _ingredients = [];

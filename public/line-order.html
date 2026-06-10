@@ -559,11 +559,9 @@ function buildCard(p, mode){
   const canNextDay=mode==='delivery'?p.delivery_can_next_day:p.takeout_can_next_day;
   const isSoldOut=!!soldOutReason || Number(p.line_sold_out)===1 || ss!=='available';
 
-  // LINE quota 優先於食材庫存（第四位階 quota 有剩餘時忽略食材限制）
-  const rawIngOk=p.ingredient_available!==false;
+  // LINE quota 優先（食材控管不適用 LINE 點餐，ingredient_available 不影響前台顯示）
   const quota=p.line_quota||{hasQuota:false};
   const quotaHasRemaining = quota.hasQuota && Number(quota.remaining??0) > 0;
-  const ingOk = quotaHasRemaining ? true : rawIngOk;
 
   // canPreorderNextDay：今日售完（任何位階）且允許預約明日
   const canPreorderNextDay = isSoldOut && !!canNextDay && soldOutReason !== 'mode_closed';
@@ -577,7 +575,6 @@ function buildCard(p, mode){
   else if(soldOutReason==='product_time_ended')  soldLbl='今日售完';
   else if(ss==='sold_out_today')             soldLbl='今日完售';
   else if(ss==='paused')                     soldLbl='暫停販售';
-  else if(!rawIngOk&&!quotaHasRemaining&&!canPreorderNextDay) soldLbl='備料不足';
 
   // 份數狀態標籤（第四位階）
   // 今日：用 line_quota；預購（hasNextDayMode=true 或購物車選的是明日）：用 line_preorder
@@ -605,7 +602,7 @@ function buildCard(p, mode){
 
   const qty=cart[p.id]?.qty||0;
   let footer='';
-  if(!isSoldOut && (ingOk || quotaHasRemaining)){
+  if(!isSoldOut){
     footer=qty>0
       ?`<div class="qty-ctrl"><button class="minus" onclick="chgQty(${p.id},-1)">−</button><span class="qnum">${qty}</span><button class="plus" onclick="chgQty(${p.id},1)">+</button></div>`
       :`<button class="add-btn" id="ab-${p.id}" onclick="addCart(${p.id},event)">+</button>`;
