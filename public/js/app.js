@@ -966,13 +966,14 @@ function switchSettingsTab(tab) {
   }
 
   // 各 Tab 的資料載入
-  if (tab === 'payment')     loadPaymentMethodsPage();
-  if (tab === 'gateway')     loadGatewayCards();    // fix16e: only provider-based
-  if (tab === 'platform')    loadPlatformsPage();
-  if (tab === 'printer')     loadPrinterSettings();
-  if (tab === 'line_biz')    loadLineBizStatus();
-  if (tab === 'ingredients') loadIngredientsPage();
-  if (tab === 'line_entry')  loadLineEntryPage();
+  if (tab === 'payment')          loadPaymentMethodsPage();
+  if (tab === 'gateway')          loadGatewayCards();    // fix16e: only provider-based
+  if (tab === 'platform')         loadPlatformsPage();
+  if (tab === 'printer')          loadPrinterSettings();
+  if (tab === 'line_biz')         loadLineBizStatus();
+  if (tab === 'ingredients')      loadIngredientsPage();
+  if (tab === 'line_entry')       loadLineEntryPage();
+  if (tab === 'android_features') loadAndroidFeaturesTab(); // v18-features
 }
 
 // ===== 設定 =====
@@ -5937,5 +5938,85 @@ async function testGateway(code) {
     }
   } catch(e) {
     if (resEl) resEl.innerHTML = `<span style="color:#ef4444">❌ ${e.message}</span>`;
+  }
+}
+
+// ===== v18-features: Android 平板功能權限 =====
+
+const ANDROID_FEATURES_DEFAULT_WEB = {
+  pos: true, orders: true, reports: false, products: false,
+  inventory: false, payment_methods: false, delivery_settings: false,
+  line_orders: true, line_products: false, settings: true,
+  sync: true, print_settings: true
+};
+
+const ANDROID_FEATURE_KEYS = [
+  'pos', 'orders', 'reports', 'products', 'inventory',
+  'payment_methods', 'delivery_settings', 'line_orders',
+  'line_products', 'settings', 'sync', 'print_settings'
+];
+
+async function loadAndroidFeaturesTab() {
+  const loadingEl = document.getElementById('android-features-loading');
+  const formEl    = document.getElementById('android-features-form');
+  if (!loadingEl || !formEl) return;
+
+  loadingEl.style.display = 'block';
+  formEl.style.display    = 'none';
+
+  try {
+    const res  = await apiFetch('/api/settings');
+    const json = await res.json();
+    if (!json.success) throw new Error('無法載入設定');
+
+    let features = { ...ANDROID_FEATURES_DEFAULT_WEB };
+    const raw = json.data && json.data.android_features;
+    if (raw) {
+      try { features = { ...features, ...JSON.parse(raw) }; } catch {}
+    }
+
+    ANDROID_FEATURE_KEYS.forEach(key => {
+      const el = document.getElementById('af-' + key);
+      if (el) el.checked = features[key] !== false;
+    });
+
+    loadingEl.style.display = 'none';
+    formEl.style.display    = 'block';
+  } catch (e) {
+    loadingEl.textContent = '載入失敗：' + e.message;
+  }
+}
+
+async function saveAndroidFeatures() {
+  const statusEl = document.getElementById('android-features-status');
+  const features = {};
+  ANDROID_FEATURE_KEYS.forEach(key => {
+    const el = document.getElementById('af-' + key);
+    features[key] = el ? el.checked : true;
+  });
+
+  try {
+    const res  = await apiFetch('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ android_features: JSON.stringify(features) })
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || '儲存失敗');
+
+    if (statusEl) {
+      statusEl.textContent = '✅ 已儲存，平板同步後生效';
+      statusEl.style.color = '#27ae60';
+      statusEl.style.display = 'inline';
+      setTimeout(() => { statusEl.style.display = 'none'; }, 3000);
+    }
+    showToast('Android 平板權限已儲存', 'success');
+  } catch (e) {
+    if (statusEl) {
+      statusEl.textContent = '❌ ' + e.message;
+      statusEl.style.color = '#e53935';
+      statusEl.style.display = 'inline';
+    }
+    showToast('儲存失敗：' + e.message, 'error');
   }
 }

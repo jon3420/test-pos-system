@@ -571,6 +571,7 @@
       <button class="settings-tab-btn"        data-stab="printer"  onclick="switchSettingsTab('printer')">🖨️ 出單機</button>
       <button class="settings-tab-btn"        data-stab="line_biz" onclick="switchSettingsTab('line_biz')" id="tab-btn-line_biz">📡 LINE 營業</button>
       <button class="settings-tab-btn"        data-stab="line_entry" onclick="switchSettingsTab('line_entry')" id="tab-btn-line_entry">📲 LINE 點餐入口</button>
+      <button class="settings-tab-btn"        data-stab="android_features" onclick="switchSettingsTab('android_features')">📱 Android 平板</button>
       <!-- fix10: 店家授權 Tab 已移至 /system-admin，一般店家不可存取 -->
     </div>
 
@@ -930,6 +931,76 @@
 
 
     <!-- fix10: 店家授權管理已移至 /system-admin，此處不顯示 -->
+
+    <!-- v18-features: Android 平板功能權限 -->
+    <div class="settings-tab-panel" id="stab-android_features" style="display:none">
+      <div class="settings-grid">
+        <div class="settings-card" style="grid-column:1/-1">
+          <h3>📱 Android 平板功能權限</h3>
+          <p style="font-size:13px;color:#666;margin-bottom:16px">
+            控制 Android 平板顯示哪些功能入口。平板同步後立即生效。
+          </p>
+          <div id="android-features-loading" style="color:#888;font-size:13px">載入中...</div>
+          <div id="android-features-form" style="display:none">
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:20px">
+              <!-- 每個功能開關 -->
+              <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#f8f9fa;border-radius:8px;cursor:pointer">
+                <input type="checkbox" id="af-pos" style="width:18px;height:18px">
+                <span>🛒 POS 點餐</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#f8f9fa;border-radius:8px;cursor:pointer">
+                <input type="checkbox" id="af-orders" style="width:18px;height:18px">
+                <span>📋 訂單紀錄</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#f8f9fa;border-radius:8px;cursor:pointer">
+                <input type="checkbox" id="af-reports" style="width:18px;height:18px">
+                <span>📊 報表查看</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#f8f9fa;border-radius:8px;cursor:pointer">
+                <input type="checkbox" id="af-products" style="width:18px;height:18px">
+                <span>🍽️ 商品管理</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#f8f9fa;border-radius:8px;cursor:pointer">
+                <input type="checkbox" id="af-inventory" style="width:18px;height:18px">
+                <span>📦 庫存管理</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#f8f9fa;border-radius:8px;cursor:pointer">
+                <input type="checkbox" id="af-payment_methods" style="width:18px;height:18px">
+                <span>💳 付款方式管理</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#f8f9fa;border-radius:8px;cursor:pointer">
+                <input type="checkbox" id="af-delivery_settings" style="width:18px;height:18px">
+                <span>🛵 外送／自取設定</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#f8f9fa;border-radius:8px;cursor:pointer">
+                <input type="checkbox" id="af-line_orders" style="width:18px;height:18px">
+                <span>📲 LINE 訂單管理</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#f8f9fa;border-radius:8px;cursor:pointer">
+                <input type="checkbox" id="af-line_products" style="width:18px;height:18px">
+                <span>🛍️ LINE 商品管理</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#f8f9fa;border-radius:8px;cursor:pointer">
+                <input type="checkbox" id="af-settings" style="width:18px;height:18px">
+                <span>⚙️ 設定頁</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#f8f9fa;border-radius:8px;cursor:pointer">
+                <input type="checkbox" id="af-sync" style="width:18px;height:18px">
+                <span>☁️ 雲端同步</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#f8f9fa;border-radius:8px;cursor:pointer">
+                <input type="checkbox" id="af-print_settings" style="width:18px;height:18px">
+                <span>🖨️ 出單設定</span>
+              </label>
+            </div>
+            <div style="display:flex;gap:10px;align-items:center">
+              <button class="btn-primary" onclick="saveAndroidFeatures()">💾 儲存權限</button>
+              <span id="android-features-status" style="font-size:13px;color:#27ae60;display:none"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
 
   </div>
 </div>

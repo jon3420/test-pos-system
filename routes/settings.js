@@ -35,6 +35,8 @@ const ALL_ALLOWED = [
   'shop_logo', 'shop_cover', 'shop_address',
   'shop_google_map', 'shop_hours', 'shop_announcement',
   'n8n_new_order_webhook', 'n8n_status_change_webhook',
+  // v18-features: Android 平板功能權限（JSON 字串）
+  'android_features',
   ...LINE_KEYS,
 ];
 
