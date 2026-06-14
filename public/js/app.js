@@ -4221,11 +4221,16 @@ function renderLinePreordersTable() {
   if (modeFilter)   orders = orders.filter(o => o.order_mode === modeFilter);
   if (statusFilter) orders = orders.filter(o => (o.order_status || o.status) === statusFilter);
 
-  // 統計
-  const pending = orders.filter(o => ['pending','accepted','preparing'].includes(o.order_status || o.status)).length;
-  const revenue = orders.reduce((s, o) => s + Number(o.total||0), 0);
+  // fix18-03：排除取消 / 作廢 / 失效狀態再計算統計
+  const INVALID_STATUSES = new Set([
+    'cancelled', 'canceled', 'void', 'voided',
+    'invalid', 'expired', 'failed', 'payment_failed'
+  ]);
+  const validOrders = orders.filter(o => !INVALID_STATUSES.has(o.order_status || o.status || ''));
+  const pending = validOrders.filter(o => ['pending','pending_accept','accepted'].includes(o.order_status || o.status)).length;
+  const revenue = validOrders.reduce((s, o) => s + Number(o.total||0), 0);
   const setStat = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
-  setStat('lp-stat-total',   orders.length);
+  setStat('lp-stat-total',   validOrders.length);
   setStat('lp-stat-pending', pending);
   setStat('lp-stat-revenue', 'NT$' + revenue.toLocaleString());
   const badge = document.getElementById('lp-count-badge');
