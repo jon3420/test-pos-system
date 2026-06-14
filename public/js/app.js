@@ -1867,7 +1867,13 @@ function renderOrdersTable(orders) {
         <td style="font-size:12px;color:#999">${twTime(o.created_at,'time')}</td>
         <td style="font-size:13px">${escHtml(ident)}${pickupTag}</td>
         <td style="font-size:12px">${o.items.map(i=>`${i.name}×${i.qty}`).join('、')}</td>
-        <td style="font-size:12px">${payLabel[o.payment_method]||o.payment_method}</td>
+        <td style="font-size:12px">${payLabel[o.payment_method]||o.payment_method}${o.payment_method==='linepay'?
+            (o.payment_status==='paid'&&o.payment_confirm_source==='manual'?'<br><span style="font-size:10px;background:#27AE60;color:#fff;padding:1px 5px;border-radius:4px">現場確認已收</span>':
+             o.payment_status==='paid'?'<br><span style="font-size:10px;background:#27AE60;color:#fff;padding:1px 5px;border-radius:4px">已付款</span>':
+             o.payment_status==='failed'?'<br><span style="font-size:10px;background:#E74C3C;color:#fff;padding:1px 5px;border-radius:4px">付款失敗</span>':
+             o.payment_status==='expired'?'<br><span style="font-size:10px;background:#E74C3C;color:#fff;padding:1px 5px;border-radius:4px">付款逾時</span>':
+             '<br><span style="font-size:10px;background:#2980B9;color:#fff;padding:1px 5px;border-radius:4px">待付款</span>')
+          :''}</td>
         <td style="font-family:monospace;font-weight:700;color:#f5a623">NT$${o.total}</td>
         <td>
           <span class="order-status ${sCls}">${sLabel}</span>
@@ -1880,6 +1886,7 @@ function renderOrdersTable(orders) {
             ${!isVoid?`<button class="btn-icon void-btn" onclick="openVoidModal('${o.id}','${escHtml(o.order_number)}','${o.total}')">🚫</button>`:''}
             <button class="btn-icon print-btn" onclick="reprintOrder('${o.id}')">🖨️</button>
             ${o.payment_method==='cash'?`<button class="btn-icon" style="background:var(--success);color:#fff" title="開錢櫃" onclick="openDrawerFromOrder('${o.id}')">💰</button>`:''}
+            ${o.payment_method==='linepay'&&o.payment_status!=='paid'&&!isVoid?`<button class="btn-icon" style="background:#06C755;color:#fff;font-size:11px" title="確認收款" onclick="confirmLinePayPayment('${o.uuid||o.id}','${escHtml(o.order_number)}')">💚 確認收款</button>`:''}
           </div>
         </td>
       </tr>`;
@@ -2441,6 +2448,27 @@ async function saveLineSettings() {
 
 
 // ===== 重新列印 =====
+// fix18-02：LINE Pay 現場確認收款
+async function confirmLinePayPayment(orderId, orderNo) {
+  if (!confirm(`確認已收到「${orderNo}」的 LINE Pay 款項？\n\n確認後 payment_status 將更新為 paid。`)) return;
+  try {
+    const res  = await apiFetch(`/api/online-orders/${encodeURIComponent(orderId)}/confirm-payment`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    });
+    const json = await res.json();
+    if (json.success) {
+      showToast('💚 已確認收款：' + orderNo);
+      if (typeof loadOrders === 'function') loadOrders(window.currentOrderTab === 'pos' ? 'pos' : null);
+    } else {
+      showToast('❌ 確認收款失敗：' + (json.error || json.message || ''), 'error');
+    }
+  } catch(e) {
+    showToast('❌ 確認收款失敗：' + e.message, 'error');
+  }
+}
+
 async function reprintOrder(orderId) {
   try {
     const res = await apiFetch('/api/orders/' + orderId);
@@ -5746,6 +5774,25 @@ function notifyInventoryChanged() {
         }
         if (typeof loadOrders === 'function') {
           loadOrders(window.currentOrderTab === 'pos' ? 'pos' : null);
+        }
+      }
+
+      // linepay_paid → LINE Pay 付款成功通知 + 刷新（fix18-02）
+      if (msg.type === 'linepay_paid') {
+        const orderNo = msg.order_number || '';
+        const source  = msg.confirm_source || '';
+        const label   = source === 'manual' ? 'LINE Pay 現場確認已收款' : 'LINE Pay 付款成功';
+        if (typeof showToast === 'function') {
+          showToast('💚 ' + label + (orderNo ? '：' + orderNo : ''));
+        }
+        // 刷新訂單列表（無論目前在哪個頁面）
+        if (typeof loadOrders === 'function') {
+          loadOrders(window.currentOrderTab === 'pos' ? 'pos' : null);
+        }
+        // 刷新儀表板統計
+        if (typeof loadDashboard === 'function') {
+          const dash = document.getElementById('page-dashboard');
+          if (dash?.classList.contains('active')) loadDashboard();
         }
       }
     };

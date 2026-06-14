@@ -81,11 +81,10 @@ function makeGetHeaders(channelId, signature, nonce) {
 }
 
 // ── 廣播付款成功 ──────────────────────────────────────────
-function broadcastOrderPaid(app, db, storeId, orderUuid) {
+function broadcastOrderPaid(wss, db, storeId, orderUuid) {
   try {
     const order = db.get('SELECT * FROM orders WHERE uuid=? AND store_id=?', [orderUuid, storeId]);
     if (!order) return;
-    const wss = app?.get ? app.get('wss') : null;
     broadcastToStore(wss, storeId, { type: 'order_paid', order });
     broadcastToStore(wss, storeId, { type: 'new_line_order', order });
   } catch(e) { console.error('[linepay] broadcast error:', e.message); }
@@ -453,11 +452,19 @@ router.get('/confirm', async (req, res) => {
       }
     });
 
-    // 廣播付款成功通知（後台列表刷新），不送 new_line_order（接單後才出單）
+    // 廣播付款成功通知（後台列表刷新）
     try {
       const paidOrder = db.get('SELECT * FROM orders WHERE uuid=? AND store_id=?', [order.uuid, storeId]);
-      const wss = app?.get ? app.get('wss') : null;
-      broadcastToStore(wss, storeId, { type: 'linepay_paid', order: paidOrder });
+      const wss = req.app.get('wss');
+      broadcastToStore(wss, storeId, {
+        type:            'linepay_paid',
+        order_uuid:      order.uuid,
+        order_number:    order.order_number,
+        transactionId:   transactionId,
+        payment_status:  'paid'
+      });
+      // 也廣播 order_status_changed 讓列表刷新
+      broadcastToStore(wss, storeId, { type: 'order_status_changed', order: paidOrder });
     } catch(e) { console.error('[linepay] paid broadcast error:', e.message); }
     res.redirect(`/line-order.html?store_id=${storeId}&linepay=success&order=${order.order_number}`);
   } catch(e) {

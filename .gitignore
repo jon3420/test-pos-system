@@ -1,0 +1,39 @@
+# Database — never commit
+data/pos.db
+data/*.db
+data/*.db-shm
+data/*.db-wal
+data/*.sqlite
+data/*.sqlite3
+*.db
+*.db-shm
+*.db-wal
+
+# Uploads
+uploads/
+public/uploads/
+data/uploads/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# Runtime
+pids/
+*.pid
+*.seed
