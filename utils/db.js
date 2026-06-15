@@ -847,6 +847,53 @@ function initTables(w) {
 
   w._save();
 
+  // ── fix18-05：orders 補欄位（safe migration）──────────
+  // coupon_code / original_total — 優惠券折扣相關
+  // discount_amount 已存在（orderMigrations 中），不重複新增
+  try { w._db.run('ALTER TABLE orders ADD COLUMN coupon_code TEXT DEFAULT ""'); w._save(); } catch {}
+  try { w._db.run('ALTER TABLE orders ADD COLUMN original_total REAL DEFAULT 0'); w._save(); } catch {}
+
+  // ── fix18-05：coupons（優惠券主表）────────────────────
+  w._db.run(`CREATE TABLE IF NOT EXISTS coupons (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    store_id           TEXT NOT NULL DEFAULT 'store_001',
+    code               TEXT NOT NULL,
+    name               TEXT NOT NULL DEFAULT '',
+    discount_type      TEXT NOT NULL DEFAULT 'fixed',
+    discount_value     REAL NOT NULL DEFAULT 0,
+    min_amount         REAL NOT NULL DEFAULT 0,
+    start_at           TEXT DEFAULT '',
+    end_at             TEXT DEFAULT '',
+    max_usage          INTEGER DEFAULT 0,
+    max_usage_per_phone INTEGER DEFAULT 0,
+    enabled            INTEGER NOT NULL DEFAULT 1,
+    created_at         TEXT DEFAULT (datetime('now','localtime')),
+    updated_at         TEXT DEFAULT (datetime('now','localtime')),
+    UNIQUE(store_id, code)
+  )`);
+  w._save();
+
+  // ── fix18-05：coupon_redemptions（使用紀錄）────────────
+  w._db.run(`CREATE TABLE IF NOT EXISTS coupon_redemptions (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    store_id        TEXT NOT NULL DEFAULT 'store_001',
+    coupon_id       INTEGER NOT NULL,
+    coupon_code     TEXT NOT NULL,
+    order_id        TEXT NOT NULL,
+    order_number    TEXT NOT NULL,
+    customer_phone  TEXT NOT NULL DEFAULT '',
+    discount_amount REAL NOT NULL DEFAULT 0,
+    original_total  REAL NOT NULL DEFAULT 0,
+    final_total     REAL NOT NULL DEFAULT 0,
+    created_at      TEXT DEFAULT (datetime('now','localtime'))
+  )`);
+  // 防止同一訂單重複寫入 redemption
+  try {
+    w._db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_coupon_redemptions_order ON coupon_redemptions(store_id, order_id)');
+    w._save();
+  } catch(e) { console.warn('[DB] coupon_redemptions unique index:', e.message); }
+  w._save();
+
   // ── licenses ─────────────────────────────────────────
   w._db.run(`CREATE TABLE IF NOT EXISTS licenses (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -189,7 +189,27 @@ img{max-width:100%;display:block}
   <div class="sheet-hd"><h3>🛒 購物車</h3><button class="close-btn" onclick="closeSheet('cartSheet')">✕</button></div>
   <div id="cartItems"></div>
   <div class="cf">
-    <div class="ot"><span>合計</span><span id="orderTotal">$0</span></div>
+    <!-- fix18-05：優惠券輸入 -->
+    <div class="fg" id="couponArea">
+      <label class="fl">🎟️ 優惠券代碼</label>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input class="fi" id="couponInput" placeholder="輸入優惠券代碼（如 WELCOME30）" style="flex:1;text-transform:uppercase" oninput="this.value=this.value.toUpperCase()" onkeydown="if(event.key==='Enter'){event.preventDefault();applyCoupon();}">
+        <button id="couponApplyBtn" onclick="applyCoupon()" style="padding:10px 14px;background:var(--g);color:#fff;border-radius:8px;font-size:14px;font-weight:600;white-space:nowrap;flex-shrink:0">套用</button>
+      </div>
+      <div id="couponMsg" style="font-size:12px;margin-top:4px;min-height:18px"></div>
+    </div>
+    <!-- fix18-05：金額明細 -->
+    <div class="ot" style="border-top:1px solid var(--bd);margin-top:4px;padding-top:10px">
+      <span style="color:#777;font-size:14px;font-weight:500">小計</span>
+      <span id="subtotalDisplay" style="color:#777;font-size:14px;font-weight:500">$0</span>
+    </div>
+    <div id="discountRow" class="ot" style="display:none;border-top:none;padding-top:2px;padding-bottom:2px">
+      <span style="color:#06C755;font-size:14px;font-weight:600">🎟️ 優惠折扣</span>
+      <span id="discountDisplay" style="color:#06C755;font-size:14px;font-weight:600">-$0</span>
+    </div>
+    <div class="ot" style="border-top:1px solid var(--bd)">
+      <span>應付金額</span><span id="orderTotal">$0</span>
+    </div>
     <div class="fg"><label class="fl">姓名 <span class="req">*</span></label><input class="fi" id="cName" placeholder="您的姓名" type="text"></div>
     <div class="fr">
       <div class="fg"><label class="fl">電話 <span class="req">*</span></label><input class="fi" id="cPhone" placeholder="聯絡電話" type="tel"></div>
@@ -264,6 +284,7 @@ function apiFetch(url, options={}) {
 // ── 全域狀態 ──
 let allProducts=[], categories=[];
 let cart={};
+let appliedCoupon=null; // fix18-05: { code, discount_amount, final_total, coupon: {...} }
 let selectedPay='';
 let currentCat='all';
 let _topSheet=null;
@@ -858,13 +879,65 @@ function updateProductCard(id){
   else last.outerHTML=`<button class="add-btn" id="ab-${id}" onclick="addCart(${id},event)">+</button>`;
 }
 function updateBar(){
-  const total=Object.values(cart).reduce((s,{product:p,qty})=>s+(p.effective_line_price||p.price)*qty,0);
+  const subtotal=Object.values(cart).reduce((s,{product:p,qty})=>s+(p.effective_line_price||p.price)*qty,0);
   const cnt=Object.values(cart).reduce((s,{qty})=>s+qty,0);
   document.getElementById('cartCnt').textContent=cnt;
-  document.getElementById('cartBarTotal').textContent=`$${total}`;
+  // fix18-05: 套用優惠折扣
+  const discAmt=appliedCoupon?appliedCoupon.discount_amount:0;
+  const payable=subtotal-discAmt;
+  document.getElementById('cartBarTotal').textContent=`$${payable}`;
   document.getElementById('cartBar').classList.toggle('hidden',cnt===0);
-  document.getElementById('orderTotal').textContent=`$${total}`;
+  // 金額明細
+  const subtotalEl=document.getElementById('subtotalDisplay');
+  const orderTotalEl=document.getElementById('orderTotal');
+  const discRowEl=document.getElementById('discountRow');
+  const discEl=document.getElementById('discountDisplay');
+  if(subtotalEl) subtotalEl.textContent=`$${subtotal}`;
+  if(orderTotalEl) orderTotalEl.textContent=`$${payable}`;
+  if(discRowEl) discRowEl.style.display=discAmt>0?'flex':'none';
+  if(discEl) discEl.textContent=`-$${discAmt}`;
+  // 若購物車清空，清除優惠券
+  if(cnt===0&&appliedCoupon){ clearCoupon(); }
 }
+// ── fix18-05：優惠券相關函式 ──────────────────────────────
+async function applyCoupon(){
+  const code=(document.getElementById('couponInput')?.value||'').trim().toUpperCase();
+  const msgEl=document.getElementById('couponMsg');
+  if(!code){if(msgEl)msgEl.innerHTML='<span style="color:#e53935">請輸入優惠券代碼</span>';return;}
+  // 計算目前小計
+  const subtotal=Object.values(cart).reduce((s,{product:p,qty})=>s+(p.effective_line_price||p.price)*qty,0);
+  if(!subtotal){if(msgEl)msgEl.innerHTML='<span style="color:#e53935">購物車是空的，無法套用優惠券</span>';return;}
+  // 取得目前電話（可能尚未填寫，validate 後端允許空值但受 max_usage_per_phone 限制）
+  const phone=(document.getElementById('cPhone')?.value||'').trim();
+  const btn=document.getElementById('couponApplyBtn');
+  if(btn){btn.disabled=true;btn.textContent='驗證中…';}
+  try{
+    const res=await apiFetch('/api/coupons/validate',{
+      method:'POST',
+      body:JSON.stringify({code,subtotal,customer_phone:phone})
+    }).then(r=>r.json());
+    if(res.success){
+      appliedCoupon={code:res.coupon.code,discount_amount:res.discount_amount,final_total:res.final_total,coupon:res.coupon};
+      if(msgEl)msgEl.innerHTML=`<span style="color:#06C755">✅ ${res.coupon.name}：折扣 -$${res.discount_amount}</span>`;
+      updateBar();
+    }else{
+      appliedCoupon=null;
+      if(msgEl)msgEl.innerHTML=`<span style="color:#e53935">❌ ${res.message||'優惠券無效'}</span>`;
+      updateBar();
+    }
+  }catch(e){
+    if(msgEl)msgEl.innerHTML='<span style="color:#e53935">❌ 網路錯誤，請稍後再試</span>';
+  }finally{
+    if(btn){btn.disabled=false;btn.textContent='套用';}
+  }
+}
+function clearCoupon(){
+  appliedCoupon=null;
+  const inp=document.getElementById('couponInput');if(inp)inp.value='';
+  const msg=document.getElementById('couponMsg');if(msg)msg.innerHTML='';
+  const dr=document.getElementById('discountRow');if(dr)dr.style.display='none';
+}
+
 function openCartSheet(){
   if(!Object.keys(cart).length)return;
   // 移除舊的預約提示
@@ -919,7 +992,8 @@ async function submitOrder(){
     price:p.effective_line_price||p.price, subtotal:(p.effective_line_price||p.price)*qty
   }));
   const subtotal=items.reduce((s,i)=>s+i.subtotal,0);
-
+  // fix18-05: 優惠券代碼（後端會重新驗證，不信任前端金額）
+  const couponCode=appliedCoupon?appliedCoupon.code:'';
 
   const btn=document.getElementById('subBtn');btn.disabled=true;btn.textContent='送出中…';
   try{
@@ -928,7 +1002,9 @@ async function submitOrder(){
       body:JSON.stringify({
         customer_name:name, customer_phone:phone, order_type:type,
         pickup_date:pickupDate, pickup_time:time,
-        payment_method:selectedPay, note, items, subtotal, total:subtotal
+        payment_method:selectedPay, note, items, subtotal,
+        coupon_code:couponCode,   // fix18-05: 優惠券代碼
+        total:subtotal            // 後端以 coupon_code 重新計算 total，此值僅備用
       })
     }).then(r=>r.json());
     if(!orderRes.success){
@@ -957,7 +1033,8 @@ async function submitOrder(){
           })
         }).then(r=>r.json());
         if(lpRes.success&&lpRes.payment_url){
-          closeSheet('cartSheet');cart={};updateBar();renderMenu();
+          clearCoupon();
+        closeSheet('cartSheet');cart={};updateBar();renderMenu();
           window.location.href=lpRes.payment_url;
           return;
         }else{
@@ -970,13 +1047,17 @@ async function submitOrder(){
     }
 
     // ── 現金 / 其他付款 → 直接顯示成功頁 ─────────────
+    const finalDiscAmt=appliedCoupon?appliedCoupon.discount_amount:0;
+    clearCoupon();
     closeSheet('cartSheet');cart={};updateBar();renderMenu();
     document.getElementById('sucNo').textContent=`訂單編號：${orderData.order_number}`;
     document.getElementById('sucDetail').innerHTML=buildDetailRows({
       status:'pending',status_label:'待確認',
       customer_name:name, phone_last3:phone.slice(-3),
       order_type_label:type==='delivery'?'🛵 外送':'🛍️ 外帶',
-      pickup_time:`${pickupDate} ${time}`, items, subtotal, total:orderData.total,
+      pickup_time:`${pickupDate} ${time}`, items, subtotal,
+      discount_amount:finalDiscAmt,
+      total:orderData.total,
       payment_label:PLABELS[selectedPay]||selectedPay, note
     });
     document.getElementById('successScreen').classList.add('show');
@@ -1185,8 +1266,13 @@ function buildDetailRows(d){
   ];
   if(d.note)rows.push(['備註',esc(d.note)]);
   const ir=(d.items||[]).map(i=>`<div class="od-row"><span class="od-label">${esc(i.name)}×${i.qty}</span><span class="od-val">$${i.subtotal}</span></div>`).join('');
+  // fix18-05: 顯示折扣明細
+  const discAmt=Number(d.discount_amount||0);
+  const discRow=discAmt>0
+    ? `<div class="od-row"><span class="od-label" style="color:#06C755">🎟️ 優惠折扣</span><span class="od-val" style="color:#06C755">-$${discAmt}</span></div>`
+    : '';
   return rows.map(([l,v])=>`<div class="od-row"><span class="od-label">${l}</span><span class="od-val">${v}</span></div>`).join('')
-    +ir+`<div class="od-row"><span class="od-label" style="font-weight:700">合計金額</span><span class="od-val" style="color:var(--g);font-size:15px;font-weight:700">$${d.total}</span></div>`;
+    +ir+discRow+`<div class="od-row"><span class="od-label" style="font-weight:700">應付金額</span><span class="od-val" style="color:var(--g);font-size:15px;font-weight:700">$${d.total}</span></div>`;
 }
 
 function reorder(o){

@@ -16,6 +16,7 @@ const { getProductInventoryStatus } = require('../utils/inventoryHelper');
 const { broadcastToStore } = require('../utils/wssBroadcast');
 const { v4: uuidv4 } = require('uuid');
 const fetch = require('node-fetch');
+const { validateCoupon } = require('./coupons'); // fix18-05
 
 function orderNumber() {
   const n = new Date(), p = (v,l=2) => String(v).padStart(l,'0');
@@ -573,7 +574,8 @@ router.post('/', (req, res) => {
     const {
       customer_name, customer_phone, customer_line_id,
       order_type, pickup_time, pickup_date, delivery_address,
-      note, payment_method, items, subtotal, discount_amount, total
+      note, payment_method, items, subtotal, discount_amount, total,
+      coupon_code
     } = req.body;
 
     if (!items || !Array.isArray(items) || items.length === 0)
@@ -661,14 +663,31 @@ router.post('/', (req, res) => {
       return res.status(400).json({ success: false, message: `付款方式「${payment_method}」目前未開放` });
     const payment_category = payment_method === 'cash' ? 'cash' : 'non_cash';
 
+    // ── fix18-05：優惠券後端重新驗證（不信任前端金額）──────
+    const sub = Number(subtotal) || 0;
+    let discAmt    = 0;
+    let finalTotal = sub;
+    let appliedCouponId   = null;
+    let appliedCouponCode = '';
+    const normalCouponCode = coupon_code ? String(coupon_code).trim().toUpperCase() : '';
+
+    if (normalCouponCode) {
+      const phone = String(customer_phone || '').trim();
+      const cvResult = validateCoupon(db, storeId, normalCouponCode, sub, phone);
+      if (!cvResult.ok) {
+        return res.status(400).json({ success: false, message: cvResult.message, reason: 'coupon_invalid' });
+      }
+      discAmt            = cvResult.discount_amount;
+      finalTotal         = cvResult.final_total;
+      appliedCouponId    = cvResult.coupon.id;
+      appliedCouponCode  = cvResult.coupon.code;
+    }
+
     // ── 建立訂單 ──────────────────────────────────────
     const uuid = uuidv4(), orderNo = orderNumber();
     const pad = (n,l=2) => String(n).padStart(l,'0');
     const nowStr = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
     const itemsJson = JSON.stringify(items);
-    const finalTotal = Number(total)||Number(subtotal)||0;
-    const discAmt    = Number(discount_amount)||0;
-    const sub        = Number(subtotal)||0;
     const orderMode  = order_type === 'delivery' ? 'delivery' : 'takeout';
     // 預購訂單：將日期合入 pickup_time，格式 "YYYY-MM-DD HH:MM"，方便後台辨識
     let pickupTimeVal = (pickup_time && pickup_time.trim()) ? pickup_time.trim() : '';
@@ -683,18 +702,39 @@ router.post('/', (req, res) => {
         customer_name, customer_phone, customer_line_id,
         pickup_time, delivery_address, delivery_platform, platform_order_no,
         items, payment_method, payment_category, payment_status,
-        subtotal, discount_type, discount_amount, total,
+        subtotal, discount_type, discount_amount, original_total, coupon_code, total,
         note, sync_status, device_id, source, created_at, updated_at
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         uuid, uuid, orderNo, storeId, orderMode, 'pending', 'pending',
         customer_name, customer_phone, customer_line_id||'',
         pickupTimeVal, delivery_address||'', 'LINE', '',
         itemsJson, payment_method||'cash', payment_category, 'pending',
-        sub, 'none', discAmt, finalTotal,
+        sub, 'none', discAmt, sub, appliedCouponCode, finalTotal,
         note||'', 'synced', 'LINE', 'line', nowStr, nowStr
       ]
     );
+
+    // ── fix18-05：寫入 coupon_redemptions（訂單建立成功後）
+    if (appliedCouponId) {
+      try {
+        db.run(
+          `INSERT OR IGNORE INTO coupon_redemptions
+             (store_id, coupon_id, coupon_code, order_id, order_number,
+              customer_phone, discount_amount, original_total, final_total, created_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?)`,
+          [
+            storeId, appliedCouponId, appliedCouponCode,
+            uuid, orderNo,
+            String(customer_phone || '').trim(),
+            discAmt, sub, finalTotal, nowStr
+          ]
+        );
+      } catch (rErr) {
+        console.error('[line-orders] coupon_redemptions 寫入失敗:', rErr.message);
+        // redemption 寫入失敗不中斷訂單，但記錄錯誤
+      }
+    }
 
     // ── 扣 LINE 份數（不動主庫存）────────────────────
     // 規則：

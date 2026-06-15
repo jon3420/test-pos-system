@@ -497,6 +497,10 @@ function applyFeatureGateUI() {
   // LINE 商品管理 nav（v1）
   initLineProductsNav();
 
+  // fix18-05: 優惠券管理（line_order feature 啟用時顯示）
+  const couponNavBtn = document.getElementById('nav-btn-coupons');
+  if (couponNavBtn) couponNavBtn.style.display = f.line_order ? '' : 'none';
+
   // 外送平台
   const platformBtn = document.querySelector('button[data-stab="platform"]');
   if (platformBtn) platformBtn.style.display = f.delivery ? '' : 'none';
@@ -884,6 +888,7 @@ function showPage(name) {
   if (name === 'products')      loadProductsPage();
   if (name === 'line_products') loadLineProductsPage();
   if (name === 'line_preorders') loadLinePreorders();
+  if (name === 'coupons')      loadCouponsPage();   // fix18-05
   if (name === 'settings')   { loadSettingsPage(); switchSettingsTab('basic'); }
   if (name === 'categories') loadCategoriesPage();
   if (name === 'inventory')  loadInventoryPage();
@@ -1877,7 +1882,13 @@ function renderOrdersTable(orders) {
              o.payment_status==='expired'?'<br><span style="font-size:10px;background:#E74C3C;color:#fff;padding:1px 5px;border-radius:4px">付款逾時</span>':
              '<br><span style="font-size:10px;background:#2980B9;color:#fff;padding:1px 5px;border-radius:4px">待付款</span>')
           :''}</td>
-        <td style="font-family:monospace;font-weight:700;color:#f5a623">NT$${o.total}</td>
+        <td style="font-family:monospace;white-space:nowrap">
+          ${Number(o.discount_amount)>0 ? `
+            <div style="font-size:11px;color:var(--text-muted,#94a3b8);text-decoration:line-through">NT$${o.original_total||Number(o.total)+Number(o.discount_amount)}</div>
+            <div style="font-size:10px;color:#06C755">🎟️ -NT$${o.discount_amount}${o.coupon_code?` (${escHtml(o.coupon_code)})`:''}</div>
+            <div style="font-weight:700;color:#f5a623">NT$${o.total}</div>
+          ` : `<span style="font-weight:700;color:#f5a623">NT$${o.total}</span>`}
+        </td>
         <td>
           <span class="order-status ${sCls}">${sLabel}</span>
           ${o.order_status&&o.order_status!=='completed'?`<br><span class="ostatus-badge ${ostatusCls[o.order_status]||''}">${ostatusLabel[o.order_status]||o.order_status}</span>`:''}
@@ -2029,8 +2040,23 @@ async function showOrderDetail(orderId) {
         <div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:6px;color:#999">
           <span>備註</span><span>${escHtml(o.note)}</span>
         </div>` : ''}
-        <div style="display:flex;justify-content:space-between;font-size:20px;font-weight:900;margin-top:12px;border-top:1px solid #333;padding-top:12px">
-          <span>應收</span><span style="color:#f5a623;font-family:monospace">NT$${o.total}</span>
+        <div style="border-top:1px solid #333;margin-top:12px;padding-top:12px">
+          ${Number(o.discount_amount)>0 ? `
+            ${o.coupon_code ? `
+            <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;color:#999">
+              <span>🎟️ 優惠券</span><span style="font-family:monospace">${escHtml(o.coupon_code)}</span>
+            </div>` : ''}
+            <div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:4px;color:#999">
+              <span>原價</span><span style="font-family:monospace">NT$${o.original_total||Number(o.total)+Number(o.discount_amount)}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:6px;color:#06C755">
+              <span>折扣</span><span style="font-family:monospace">-NT$${o.discount_amount}</span>
+            </div>
+          ` : ''}
+          <div style="display:flex;justify-content:space-between;font-size:20px;font-weight:900">
+            <span>${Number(o.discount_amount)>0?'實收':'應收'}</span>
+            <span style="color:#f5a623;font-family:monospace">NT$${o.total}</span>
+          </div>
         </div>
         ${isCash ? `
         <div style="display:flex;justify-content:space-between;font-size:14px;padding-top:6px;color:#999">
