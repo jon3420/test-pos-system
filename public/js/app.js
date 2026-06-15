@@ -6103,3 +6103,15 @@ async function saveAndroidFeatures() {
     showToast('儲存失敗：' + e.message, 'error');
   }
 }
+
+// ── fix18-05: window 全域函式匯出 ─────────────────────────────────────────
+// 確保 onclick 屬性與外部 JS（coupons.js 等）可直接呼叫這些函式
+// 不包在 DOMContentLoaded 內，讓函式在 HTML 解析到 onclick 時就已存在
+(function exportGlobals() {
+  window.showPage         = window.showPage         || showPage;
+  window.escHtml          = window.escHtml          || escHtml;
+  window.apiFetch         = window.apiFetch         || apiFetch;
+  window.showToast        = window.showToast        || showToast;
+  window.switchSettingsTab = window.switchSettingsTab || switchSettingsTab;
+  window.hasFeature       = window.hasFeature       || hasFeature;
+})();
