@@ -2049,15 +2049,15 @@ async function showOrderDetail(orderId) {
             const disc=Number(o.discount_amount||0);
             const origTotal=o.original_total||Number(o.total)+disc;
             const codeRow=o.coupon_code
-              ? '<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;color:#999"><span>🎟️ 優惠券</span><span style=\"font-family:monospace\">'+escHtml(o.coupon_code)+'</span></div>'
+              ? '<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;color:#999"><span>🎟️ 優惠券</span><span style="font-family:monospace">'+escHtml(o.coupon_code)+'</span></div>'
               : '';
             const discRows=disc>0
               ? codeRow
-                +'<div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:4px;color:#999"><span>原價</span><span style=\"font-family:monospace\">NT$'+origTotal+'</span></div>'
-                +'<div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:6px;color:#06C755"><span>折扣</span><span style=\"font-family:monospace\">-NT$'+disc+'</span></div>'
+                +'<div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:4px;color:#999"><span>原價</span><span style="font-family:monospace">NT$'+origTotal+'</span></div>'
+                +'<div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:6px;color:#06C755"><span>折扣</span><span style="font-family:monospace">-NT$'+disc+'</span></div>'
               : '';
             const label=disc>0?'實收':'應收';
-            return discRows+'<div style="display:flex;justify-content:space-between;font-size:20px;font-weight:900"><span>'+label+'</span><span style=\"color:#f5a623;font-family:monospace\">NT$'+o.total+'</span></div>';
+            return discRows+'<div style="display:flex;justify-content:space-between;font-size:20px;font-weight:900"><span>'+label+'</span><span style="color:#f5a623;font-family:monospace">NT$'+o.total+'</span></div>';
           })()}
         </div>
         ${isCash ? `
