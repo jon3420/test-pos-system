@@ -505,9 +505,9 @@ function applyFeatureGateUI() {
   // LINE 商品管理 nav（v1）
   initLineProductsNav();
 
-  // fix18-05: 優惠券管理（line_order feature 啟用時顯示）
+  // fix18-05: 優惠券管理（coupon feature gate）
   const couponNavBtn = document.getElementById('nav-btn-coupons');
-  if (couponNavBtn) couponNavBtn.style.display = f.line_order ? '' : 'none';
+  if (couponNavBtn) couponNavBtn.style.display = f.coupon ? '' : 'none';
 
   // 外送平台
   const platformBtn = document.querySelector('button[data-stab="platform"]');
@@ -843,6 +843,15 @@ function initDateRange() {
 let _invRefreshInterval = null;
 
 function showPage(name) {
+  // fix18-05: coupon feature gate — 攔截未授權的 coupons 頁面切換
+  if (name === 'coupons') {
+    const f = window.currentFeatures || {};
+    if (!f.coupon) {
+      showToast('此功能未授權，請聯絡系統管理員', 'error');
+      name = 'pos'; // 導回點餐頁
+    }
+  }
+
   // fix16f: 強制用 style 切換，確保只有一個 page 顯示
   // classList 操作不夠——某些 page 有獨立 CSS 規則（如 #page-reports）需 style 覆蓋
 

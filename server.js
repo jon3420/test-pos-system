@@ -270,7 +270,7 @@ initDb().then((db) => {
   // LINE Pay v3 — 不需要 payment_api feature gate，/confirm 由 LINE 直接呼叫
   app.use('/api/linepay', requireStore, require('./routes/linepay'));
   // fix18-05: 優惠券管理（Web 後台 CRUD + LINE validate）
-  app.use('/api/coupons', requireStore, require('./routes/coupons'));
+  app.use('/api/coupons', requireStore, requireFeature('coupon'), require('./routes/coupons'));
   // LINE Pay 相容路由別名（後台 webhook_url 預設為 /webhook/linepay）
   app.post('/webhook/linepay', (req, res, next) => {
     console.log('[linepay/webhook alias]', JSON.stringify(req.body).slice(0, 200));

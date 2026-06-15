@@ -292,6 +292,7 @@ let _topSheet=null;
 let currentMode='takeout';
 // 後台回傳的 shop 設定
 let shopData={};
+let couponFeatureEnabled=false; // fix18-05: set from /api/line-shop or /api/coupons/validate response
 let takeoutEnabled=false, deliveryEnabled=false;
 let takeoutCutoffPassed=false, deliveryCutoffPassed=false;
 let todayClosed=false;
@@ -340,6 +341,10 @@ async function init(){
     ]);
     if(sr.success){
       shopData=sr.data;
+      // fix18-05: 依 coupon_feature_enabled 顯示/隱藏優惠券區塊
+      couponFeatureEnabled = shopData.coupon_feature_enabled === true;
+      const couponAreaEl = document.getElementById('couponArea');
+      if(couponAreaEl) couponAreaEl.style.display = couponFeatureEnabled ? '' : 'none';
       const d=sr.data;
       document.getElementById('shopName').textContent=d.shop_name||'點餐';
       document.getElementById('shopName2').textContent=d.shop_name||'點餐';
@@ -922,6 +927,11 @@ async function applyCoupon(){
       updateBar();
     }else{
       appliedCoupon=null;
+      // fix18-05: 若優惠券功能被停用，隱藏整個輸入區
+      if(res.error==='COUPON_FEATURE_DISABLED'){
+        const area=document.getElementById('couponArea');
+        if(area) area.style.display='none';
+      }
       if(msgEl)msgEl.innerHTML=`<span style="color:#e53935">❌ ${res.message||'優惠券無效'}</span>`;
       updateBar();
     }

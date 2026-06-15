@@ -17,6 +17,7 @@ const { broadcastToStore } = require('../utils/wssBroadcast');
 const { v4: uuidv4 } = require('uuid');
 const fetch = require('node-fetch');
 const { validateCoupon } = require('./coupons'); // fix18-05
+const { getStoreFeatures } = require('../middleware/featureGate'); // fix18-05 coupon gate
 
 function orderNumber() {
   const n = new Date(), p = (v,l=2) => String(v).padStart(l,'0');
@@ -274,6 +275,10 @@ router.get('/shop', (req, res) => {
     settings.today_closed_info   = closedInfo;
     settings.today = todayStr;
     settings.now_mins = nowMins;
+
+    // fix18-05: 加入 coupon feature 旗標，讓 LINE 前台決定是否顯示優惠券輸入框
+    const lineFeatures = getStoreFeatures(storeId);
+    settings.coupon_feature_enabled = lineFeatures.coupon === true;
 
     res.json({ success: true, data: settings });
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
@@ -672,6 +677,15 @@ router.post('/', (req, res) => {
     const normalCouponCode = coupon_code ? String(coupon_code).trim().toUpperCase() : '';
 
     if (normalCouponCode) {
+      // coupon feature gate 檢查（LINE 前台也必須受授權控制）
+      const storeFeatures = getStoreFeatures(storeId);
+      if (storeFeatures.coupon !== true) {
+        return res.status(403).json({
+          success: false,
+          error:   'COUPON_FEATURE_DISABLED',
+          message: '優惠券功能未啟用'
+        });
+      }
       const phone = String(customer_phone || '').trim();
       const cvResult = validateCoupon(db, storeId, normalCouponCode, sub, phone);
       if (!cvResult.ok) {

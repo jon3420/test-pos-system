@@ -10,6 +10,7 @@
 const express = require('express');
 const router  = express.Router();
 const { getDb } = require('../utils/db');
+const { getStoreFeatures } = require('../middleware/featureGate');
 
 // ── 工具：台灣時間字串 ──────────────────────────────────
 function twNowStr() {
@@ -131,6 +132,16 @@ router.post('/validate', (req, res) => {
     const db = getDb();
     const storeId = req.storeId || 'store_001';
     const { code, subtotal, customer_phone } = req.body;
+
+    // fix18-05: 檢查 coupon feature 是否啟用
+    const features = getStoreFeatures(storeId);
+    if (features.coupon !== true) {
+      return res.status(403).json({
+        success: false,
+        error:   'COUPON_FEATURE_DISABLED',
+        message: '優惠券功能未啟用，請聯絡店家'
+      });
+    }
 
     const result = validateCoupon(db, storeId, code, subtotal, customer_phone);
     if (!result.ok) return res.status(400).json({ success: false, message: result.message });
