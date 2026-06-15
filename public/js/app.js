@@ -3850,9 +3850,18 @@ async function loadLineBizStatus() {
       const nowMins = now.getHours()*60+now.getMinutes();
       const toCard = document.getElementById('takeout-live-status');
       const dlCard = document.getElementById('delivery-live-status');
+      // fix18-06: 即時狀態判斷用今日臨時截止（若有且今天）
+      function _effectiveCutoff(prefix, d) {
+        const twN = new Date(new Date().toLocaleString('en-US',{timeZone:'Asia/Taipei'}));
+        const todayS = twN.getFullYear()+'-'+String(twN.getMonth()+1).padStart(2,'0')+'-'+String(twN.getDate()).padStart(2,'0');
+        const todayCT = d[prefix+'_today_cutoff_time'];
+        const todayCDate = d[prefix+'_today_cutoff_date'];
+        if(todayCT && todayCDate === todayS) return todayCT;
+        return d[prefix+'_cutoff_time'] || '';
+      }
       if(toCard){
         const enabled = d.takeout_enabled !== '0';
-        const cutoff = d.takeout_cutoff_time;
+        const cutoff = _effectiveCutoff('takeout', d);
         const cutoffPassed = cutoff && nowMins > cutoff.split(':').reduce((h,m,i)=>i?h*60+Number(m):Number(m)*60,0)/60;
         toCard.innerHTML = !enabled ? '<span style="color:#e53935">已關閉</span>'
           : cutoffPassed ? '<span style="color:#ff6d00">截止售完</span>'
@@ -3860,7 +3869,7 @@ async function loadLineBizStatus() {
       }
       if(dlCard){
         const enabled = d.delivery_enabled !== '0';
-        const cutoff = d.delivery_cutoff_time;
+        const cutoff = _effectiveCutoff('delivery', d);
         const cutoffPassed = cutoff && nowMins > cutoff.split(':').reduce((h,m,i)=>i?h*60+Number(m):Number(m)*60,0)/60;
         dlCard.innerHTML = !enabled ? '<span style="color:#e53935">已關閉</span>'
           : cutoffPassed ? '<span style="color:#ff6d00">截止售完</span>'
@@ -3881,13 +3890,14 @@ async function loadLineBizStatus() {
     const setV = (id, val) => { const el = document.getElementById(id); if(el) el.value = val||''; };
     const setC = (id, val) => { const el = document.getElementById(id); if(el) el.checked = !!val; };
     setC('set-takeout_enabled',        d.takeout_enabled !== '0');
-    setV('set-takeout_cutoff_time',    d.takeout_cutoff_time);
     setV('set-takeout_prep_minutes',   d.takeout_prep_minutes || 15);
     setC('set-takeout_allow_next_day', d.takeout_allow_next_day !== '0');
     setC('set-delivery_enabled',       d.delivery_enabled !== '0');
-    setV('set-delivery_cutoff_time',   d.delivery_cutoff_time);
     setV('set-delivery_prep_minutes',  d.delivery_prep_minutes || 30);
     setC('set-delivery_allow_next_day',d.delivery_allow_next_day !== '0');
+    // fix18-06: 今日臨時截止時間顯示（只顯示今天的設定，舊的忽略）
+    _renderTodayCutoffStatus('takeout',   d.takeout_today_cutoff_time,   d.takeout_today_cutoff_date);
+    _renderTodayCutoffStatus('delivery',  d.delivery_today_cutoff_time,  d.delivery_today_cutoff_date);
     renderModeHoursGrid('takeoutBizHoursGrid', d.takeout_business_hours);
     renderModeHoursGrid('deliveryBizHoursGrid', d.delivery_business_hours);
     // ── 整體營業時間（舊版相容）──────────────────────────
@@ -4069,6 +4079,52 @@ function renderModeHoursGrid(gridId, hoursJsonStr) {
 }
 
 // ── 外帶/外送接單規則儲存 ─────────────────────────────
+// ── fix18-06: 今日臨時截止時間輔助函式 ──────────────────────
+function _renderTodayCutoffStatus(mode, cutoffTime, cutoffDate) {
+  const statusEl = document.getElementById(mode + '-today-cutoff-status');
+  const inputEl  = document.getElementById('set-' + mode + '_today_cutoff_time');
+  if (!statusEl) return;
+
+  const twNow = new Date(new Date().toLocaleString('en-US', {timeZone:'Asia/Taipei'}));
+  const todayStr = twNow.getFullYear() + '-'
+    + String(twNow.getMonth()+1).padStart(2,'0') + '-'
+    + String(twNow.getDate()).padStart(2,'0');
+
+  const isToday = cutoffTime && cutoffDate === todayStr;
+
+  if (inputEl) inputEl.value = isToday ? cutoffTime : '';
+
+  if (isToday) {
+    statusEl.innerHTML = '<span style="color:#e65100;font-weight:600">⏰ 今日臨時截止：' + cutoffTime
+      + '</span>（儲存時可修改，或點「✕ 取消今日限制」清除）';
+  } else {
+    statusEl.textContent = '尚未設定今日限制（每週固定營業時間生效）';
+  }
+}
+
+async function cancelTodayCutoff(mode) {
+  const m = mode === 'delivery' ? 'delivery' : 'takeout';
+  // 清空輸入框
+  const inputEl = document.getElementById('set-' + m + '_today_cutoff_time');
+  if (inputEl) inputEl.value = '';
+  // 儲存清空值
+  try {
+    await apiFetch('/api/settings', {
+      method: 'PUT',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        [m + '_today_cutoff_time']: '',
+        [m + '_today_cutoff_date']: '',
+      })
+    });
+    showToast('✅ 今日' + (m==='takeout'?'外帶':'外送') + '限制已取消，恢復固定營業時間', 'success');
+    // 重新整理顯示
+    if (typeof loadLineBizStatus === 'function') loadLineBizStatus();
+  } catch(e) {
+    showToast('取消失敗：' + e.message, 'error');
+  }
+}
+
 async function saveTakeoutDeliveryRule(mode) {
   const m = mode === 'delivery' ? 'delivery' : 'takeout';
   const hours = {};
@@ -4082,12 +4138,23 @@ async function saveTakeoutDeliveryRule(mode) {
   const cutoff     = document.getElementById(`set-${m}_cutoff_time`)?.value || '';
   const prep       = document.getElementById(`set-${m}_prep_minutes`)?.value || (m==='takeout'?'15':'30');
   const allowNext  = document.getElementById(`set-${m}_allow_next_day`)?.checked ? '1' : '0';
+  // fix18-06: 讀取今日臨時截止時間
+  const todayCutoffEl = document.getElementById(`set-${m}_today_cutoff_time`);
+  const todayCutoffVal = todayCutoffEl ? todayCutoffEl.value.trim() : '';
+  // 今天的台灣日期
+  const _twToday = (() => {
+    const _n = new Date(new Date().toLocaleString('en-US', {timeZone:'Asia/Taipei'}));
+    return `${_n.getFullYear()}-${String(_n.getMonth()+1).padStart(2,'0')}-${String(_n.getDate()).padStart(2,'0')}`;
+  })();
+
   const body = {
-    [`${m}_enabled`]:           enabled,
-    [`${m}_cutoff_time`]:       cutoff,
-    [`${m}_prep_minutes`]:      String(prep),
-    [`${m}_allow_next_day`]:    allowNext,
-    [`${m}_business_hours`]:    JSON.stringify(hours),
+    [`${m}_enabled`]:              enabled,
+    [`${m}_prep_minutes`]:         String(prep),
+    [`${m}_allow_next_day`]:       allowNext,
+    [`${m}_business_hours`]:       JSON.stringify(hours),
+    // fix18-06: today cutoff — 有值時寫入今天日期，無值時清空
+    [`${m}_today_cutoff_time`]:    todayCutoffVal,
+    [`${m}_today_cutoff_date`]:    todayCutoffVal ? _twToday : '',
   };
   // 同步舊版 pickup_enabled / delivery_enabled
   if (m === 'takeout')   body.pickup_enabled   = enabled;
@@ -6125,10 +6192,11 @@ async function saveAndroidFeatures() {
 // 確保 onclick 屬性與外部 JS（coupons.js 等）可直接呼叫這些函式
 // 不包在 DOMContentLoaded 內，讓函式在 HTML 解析到 onclick 時就已存在
 (function exportGlobals() {
-  window.showPage         = window.showPage         || showPage;
-  window.escHtml          = window.escHtml          || escHtml;
-  window.apiFetch         = window.apiFetch         || apiFetch;
-  window.showToast        = window.showToast        || showToast;
-  window.switchSettingsTab = window.switchSettingsTab || switchSettingsTab;
-  window.hasFeature       = window.hasFeature       || hasFeature;
+  window.showPage              = window.showPage              || showPage;
+  window.escHtml               = window.escHtml               || escHtml;
+  window.apiFetch              = window.apiFetch              || apiFetch;
+  window.showToast             = window.showToast             || showToast;
+  window.switchSettingsTab     = window.switchSettingsTab     || switchSettingsTab;
+  window.hasFeature            = window.hasFeature            || hasFeature;
+  window.cancelTodayCutoff     = window.cancelTodayCutoff     || cancelTodayCutoff;     // fix18-06
 })();

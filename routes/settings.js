@@ -25,6 +25,9 @@ const LINE_KEYS = new Set([
   'delivery_cutoff_time', 'delivery_prep_minutes',
   'delivery_allow_next_day', 'delivery_business_hours',
   'next_day_min_hours',
+  // fix18-06: 今日臨時最後接單時間（有日期綁定，隔天自動失效）
+  'takeout_today_cutoff_time', 'takeout_today_cutoff_date',
+  'delivery_today_cutoff_time', 'delivery_today_cutoff_date',
 ]);
 
 // 所有允許修改的 key（包含 LINE key）

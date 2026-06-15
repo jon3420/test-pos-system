@@ -66,18 +66,33 @@ function isClosedDate(db, storeId, dateStr) {
 // ── 模式（外帶 takeout / 外送 delivery）設定讀取 ─────────
 function getModeSettings(db, storeId, mode) {
   // mode: 'takeout' | 'delivery'
+  // fix18-06: 今日臨時截止時間判斷
+  // today_cutoff 只在 today_cutoff_date == 今天時生效，否則回傳空字串
+  function getTodayCutoff(prefix) {
+    const todayDate = twDateStr();
+    const todayTime = getSetting(db, storeId, prefix + '_today_cutoff_time', '');
+    const todayDateKey = getSetting(db, storeId, prefix + '_today_cutoff_date', '');
+    if (todayTime && todayDateKey === todayDate) return todayTime;
+    return '';  // 日期不符或未設定 → 不套用今日限制
+  }
+
   if (mode === 'takeout') {
+    const todayCutoff = getTodayCutoff('takeout');
     return {
       enabled:      getSetting(db, storeId, 'takeout_enabled', '1') === '1',
-      cutoffTime:   getSetting(db, storeId, 'takeout_cutoff_time', ''),
+      // fix18-06: 優先使用今日臨時截止；若無則沿用舊版固定 cutoff（向後相容）
+      cutoffTime:   todayCutoff || getSetting(db, storeId, 'takeout_cutoff_time', ''),
+      todayCutoff:  todayCutoff,  // 單獨保留，讓前端知道是否為今日臨時設定
       prepMins:     Number(getSetting(db, storeId, 'takeout_prep_minutes', '15')),
       allowNextDay: getSetting(db, storeId, 'takeout_allow_next_day', '1') === '1',
       bizHours:     (() => { try { return JSON.parse(getSetting(db, storeId, 'takeout_business_hours', '{}')); } catch { return {}; } })(),
     };
   } else {
+    const todayCutoff = getTodayCutoff('delivery');
     return {
       enabled:      getSetting(db, storeId, 'delivery_enabled', '1') === '1',
-      cutoffTime:   getSetting(db, storeId, 'delivery_cutoff_time', ''),
+      cutoffTime:   todayCutoff || getSetting(db, storeId, 'delivery_cutoff_time', ''),
+      todayCutoff:  todayCutoff,
       prepMins:     Number(getSetting(db, storeId, 'delivery_prep_minutes', '30')),
       allowNextDay: getSetting(db, storeId, 'delivery_allow_next_day', '1') === '1',
       bizHours:     (() => { try { return JSON.parse(getSetting(db, storeId, 'delivery_business_hours', '{}')); } catch { return {}; } })(),
@@ -215,6 +230,9 @@ router.get('/shop', (req, res) => {
       'takeout_enabled','takeout_cutoff_time','takeout_prep_minutes','takeout_allow_next_day','takeout_business_hours',
       'delivery_cutoff_time','delivery_prep_minutes','delivery_allow_next_day','delivery_business_hours',
       'next_day_min_hours',
+      // fix18-06: 今日臨時截止設定
+      'takeout_today_cutoff_time','takeout_today_cutoff_date',
+      'delivery_today_cutoff_time','delivery_today_cutoff_date',
     ];
     const settings = {};
     keys.forEach(k => { settings[k] = getSetting(db, storeId, k, ''); });
@@ -235,6 +253,8 @@ router.get('/shop', (req, res) => {
       earliest_today: takeoutMode.enabled && !closedInfo.closed
         ? getEarliestMins(takeoutMode, todayStr, nowMins)
         : null,
+      // fix18-06: 今日臨時截止資訊（供前台顯示用）
+      today_cutoff:   takeoutMode.todayCutoff || '',
     };
     settings.delivery_status = {
       enabled:        deliveryMode.enabled,
@@ -244,6 +264,7 @@ router.get('/shop', (req, res) => {
       earliest_today: deliveryMode.enabled && !closedInfo.closed
         ? getEarliestMins(deliveryMode, todayStr, nowMins)
         : null,
+      today_cutoff:   deliveryMode.todayCutoff || '',
     };
 
     // 找下一個可訂日（最多往後查 14 天）
