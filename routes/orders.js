@@ -139,9 +139,11 @@ async function sendWebhook(order) {
 function buildDateWhere(query, storeId) {
   const { date, date_from, date_to } = query;
   const sid = storeId || 'store_001';
+  // fix18-04：統一用台北時間（Asia/Taipei UTC+8）避免跨日時差導致 LINE 訂單消失
+  const taipeiToday = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
   if (date) return { clause: "store_id=? AND DATE(created_at)=?", params: [sid, date] };
   if (date_from && date_to) return { clause: "store_id=? AND DATE(created_at)>=? AND DATE(created_at)<=?", params: [sid, date_from, date_to] };
-  return { clause: "store_id=? AND DATE(created_at)=?", params: [sid, new Date().toISOString().slice(0,10)] };
+  return { clause: "store_id=? AND DATE(created_at)=?", params: [sid, taipeiToday] };
 }
 
 // ── 列印模式 ─────────────────────────────────────────────

@@ -819,7 +819,8 @@ function startClock() {
 }
 
 function initDateRange() {
-  const today = new Date().toISOString().slice(0, 10);
+  // fix18-04：用台北時間，避免 UTC 時差導致初始日期錯誤
+  const today = twTodayStr();
   const fromEl = document.getElementById('dateFrom');
   const toEl   = document.getElementById('dateTo');
   if (fromEl) fromEl.value = today;
@@ -1707,8 +1708,9 @@ function setDateRange(range) {
   document.querySelectorAll('.shortcut-btn').forEach(b => b.classList.toggle('active', b.dataset.range === range));
   const customDiv = document.getElementById('customDateRange');
   if (customDiv) customDiv.style.display = range === 'custom' ? 'flex' : 'none';
-  const today = new Date();
-  const fmt = d => d.toISOString().slice(0, 10);
+  // fix18-04：用台北時間避免 UTC 時差
+  const today = new Date(new Date().toLocaleString('en-US', {timeZone:'Asia/Taipei'}));
+  const fmt = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   let from = fmt(today), to = fmt(today);
   if (range === 'yesterday') { const y = new Date(today); y.setDate(y.getDate()-1); from = to = fmt(y); }
   else if (range === 'week') { const mon = new Date(today); mon.setDate(today.getDate()-today.getDay()+(today.getDay()===0?-6:1)); from = fmt(mon); to = fmt(today); }
@@ -1768,7 +1770,8 @@ function calcStatsFromOrders(orders) {
 async function loadOrders(modeFilter) {
   const from = document.getElementById('dateFrom')?.value;
   const to   = document.getElementById('dateTo')?.value;
-  const today = new Date().toISOString().slice(0, 10);
+  // fix18-04：用台北時間 today，避免 UTC 時差導致 LINE 訂單消失
+  const today = twTodayStr();
   const dateFrom = from || today, dateTo = to || today;
   try {
     const res = await apiFetch(`/api/orders?date_from=${dateFrom}&date_to=${dateTo}`);
@@ -1791,8 +1794,8 @@ async function loadOrders(modeFilter) {
 }
 
 async function loadDeliveryReport() {
-  const from = document.getElementById('dateFrom')?.value || new Date().toISOString().slice(0,10);
-  const to   = document.getElementById('dateTo')?.value   || new Date().toISOString().slice(0,10);
+  const from = document.getElementById('dateFrom')?.value || twTodayStr();
+  const to   = document.getElementById('dateTo')?.value   || twTodayStr();
   try {
     const res  = await apiFetch(`/api/orders/delivery-report?date_from=${from}&date_to=${to}`);
     const json = await res.json();
