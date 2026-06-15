@@ -14,12 +14,37 @@ var safeEscHtml = function(s) {
 };
 
 function _apiFetch(url, options) {
+  // 優先使用 app.js 匯出的 apiFetch（會自動帶 Authorization: Bearer token）
   if (typeof window.apiFetch === 'function') return window.apiFetch(url, options);
+  // fallback：app.js 尚未載入時，自行組裝 request
+  // 依照 requireStore 優先順序：Bearer JWT > x-store-id > query.store_id
+  var storeId = 'store_001';
+  // 從 window.currentStore 取（登入後設定）
+  if (window.currentStore && window.currentStore.store_id) {
+    storeId = window.currentStore.store_id;
+  } else {
+    // 從 localStorage pos_store_info 取
+    try {
+      var info = JSON.parse(localStorage.getItem('pos_store_info') || '{}');
+      if (info.store_id) storeId = info.store_id;
+    } catch(e) {}
+  }
+  // 從 URL query 取（LINE 點餐頁 fallback）
+  try {
+    var qsId = new URLSearchParams(window.location.search).get('store_id');
+    if (qsId) storeId = qsId;
+  } catch(e) {}
+
+  var token = '';
+  try { token = localStorage.getItem('pos_store_token') || ''; } catch(e) {}
+
+  var headers = { 'Content-Type': 'application/json', 'x-store-id': storeId };
+  if (token) headers['Authorization'] = 'Bearer ' + token;
+
+  // 也在 query 帶 store_id（供 requireStore 第3順位解析）
   var sep = url.includes('?') ? '&' : '?';
-  var storeId = new URLSearchParams(window.location.search).get('store_id') || 'store_001';
-  return fetch(url + sep + 'store_id=' + encodeURIComponent(storeId), Object.assign({
-    headers: { 'Content-Type': 'application/json' }
-  }, options || {}));
+  var fullUrl = url + sep + 'store_id=' + encodeURIComponent(storeId);
+  return fetch(fullUrl, Object.assign({}, options || {}, { headers: headers }));
 }
 
 function _showToast(msg, type) {

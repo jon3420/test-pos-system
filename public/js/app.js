@@ -22,6 +22,14 @@ async function apiFetch(url, options = {}) {
   const token = getToken();
   const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
   if (token) headers['Authorization'] = 'Bearer ' + token;
+  // fix18-05: 補 x-store-id header，讓 requireStore 有第二條解析路徑
+  // 當 JWT 失效時仍可透過 x-store-id 識別店家
+  const storeInfo = (() => {
+    try { return JSON.parse(localStorage.getItem('pos_store_info') || '{}'); } catch { return {}; }
+  })();
+  const storeId = (window.currentStore && window.currentStore.store_id)
+    || storeInfo.store_id || '';
+  if (storeId && !headers['x-store-id']) headers['x-store-id'] = storeId;
   const res = await fetch(url, { ...options, headers });
 
   // fix16：正確的 401 / 403 處理
