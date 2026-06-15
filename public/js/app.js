@@ -1883,11 +1883,15 @@ function renderOrdersTable(orders) {
              '<br><span style="font-size:10px;background:#2980B9;color:#fff;padding:1px 5px;border-radius:4px">待付款</span>')
           :''}</td>
         <td style="font-family:monospace;white-space:nowrap">
-          ${Number(o.discount_amount)>0 ? `
-            <div style="font-size:11px;color:var(--text-muted,#94a3b8);text-decoration:line-through">NT$${o.original_total||Number(o.total)+Number(o.discount_amount)}</div>
-            <div style="font-size:10px;color:#06C755">🎟️ -NT$${o.discount_amount}${o.coupon_code?` (${escHtml(o.coupon_code)})`:''}</div>
-            <div style="font-weight:700;color:#f5a623">NT$${o.total}</div>
-          ` : `<span style="font-weight:700;color:#f5a623">NT$${o.total}</span>`}
+          ${(function(){
+            const disc=Number(o.discount_amount||0);
+            if(disc<=0) return '<span style="font-weight:700;color:#f5a623">NT$'+o.total+'</span>';
+            const origTotal=o.original_total||Number(o.total)+disc;
+            const codeTag=o.coupon_code?' ('+escHtml(o.coupon_code)+')':'';
+            return '<div style="font-size:11px;color:var(--text-muted,#94a3b8);text-decoration:line-through">NT$'+origTotal+'</div>'
+              +'<div style="font-size:10px;color:#06C755">🎟️ -NT$'+disc+codeTag+'</div>'
+              +'<div style="font-weight:700;color:#f5a623">NT$'+o.total+'</div>';
+          })()}
         </td>
         <td>
           <span class="order-status ${sCls}">${sLabel}</span>
@@ -2041,22 +2045,20 @@ async function showOrderDetail(orderId) {
           <span>備註</span><span>${escHtml(o.note)}</span>
         </div>` : ''}
         <div style="border-top:1px solid #333;margin-top:12px;padding-top:12px">
-          ${Number(o.discount_amount)>0 ? `
-            ${o.coupon_code ? `
-            <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;color:#999">
-              <span>🎟️ 優惠券</span><span style="font-family:monospace">${escHtml(o.coupon_code)}</span>
-            </div>` : ''}
-            <div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:4px;color:#999">
-              <span>原價</span><span style="font-family:monospace">NT$${o.original_total||Number(o.total)+Number(o.discount_amount)}</span>
-            </div>
-            <div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:6px;color:#06C755">
-              <span>折扣</span><span style="font-family:monospace">-NT$${o.discount_amount}</span>
-            </div>
-          ` : ''}
-          <div style="display:flex;justify-content:space-between;font-size:20px;font-weight:900">
-            <span>${Number(o.discount_amount)>0?'實收':'應收'}</span>
-            <span style="color:#f5a623;font-family:monospace">NT$${o.total}</span>
-          </div>
+          ${(function(){
+            const disc=Number(o.discount_amount||0);
+            const origTotal=o.original_total||Number(o.total)+disc;
+            const codeRow=o.coupon_code
+              ? '<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;color:#999"><span>🎟️ 優惠券</span><span style=\"font-family:monospace\">'+escHtml(o.coupon_code)+'</span></div>'
+              : '';
+            const discRows=disc>0
+              ? codeRow
+                +'<div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:4px;color:#999"><span>原價</span><span style=\"font-family:monospace\">NT$'+origTotal+'</span></div>'
+                +'<div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:6px;color:#06C755"><span>折扣</span><span style=\"font-family:monospace\">-NT$'+disc+'</span></div>'
+              : '';
+            const label=disc>0?'實收':'應收';
+            return discRows+'<div style="display:flex;justify-content:space-between;font-size:20px;font-weight:900"><span>'+label+'</span><span style=\"color:#f5a623;font-family:monospace\">NT$'+o.total+'</span></div>';
+          })()}
         </div>
         ${isCash ? `
         <div style="display:flex;justify-content:space-between;font-size:14px;padding-top:6px;color:#999">
