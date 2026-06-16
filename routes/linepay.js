@@ -273,26 +273,66 @@ router.post('/request', async (req, res) => {
     const order = db.get('SELECT * FROM orders WHERE uuid=? AND store_id=?', [order_uuid, storeId]);
     if (!order) return res.status(404).json({ success: false, message: '訂單不存在' });
 
-    const linePayProducts = (items || []).map(i => ({
-      name:     String(i.name || '商品').slice(0, 4000),
-      quantity: Number(i.qty || 1),
-      price:    Number(i.price || 0),
-    }));
-    if (!linePayProducts.length) {
-      linePayProducts.push({ name: '訂單費用', quantity: 1, price: Number(total) });
+    // fix18-06: LINE Pay products 金額必須與 packages[0].amount 完全一致
+    // 若有優惠券折扣，改用「方案 C」— 單一總品項，避免 2101 Parameter error
+    const finalTotal = Number(total);
+    const discountAmt = Number(order.discount_amount || 0);
+    const couponCode  = order.coupon_code ? String(order.coupon_code) : '';
+    let linePayProducts;
+    if (discountAmt > 0) {
+      // 有折扣：用單一品項（折扣後總金額），確保 products 加總 == packages.amount
+      const productName = couponCode
+        ? '訂單費用（已套用優惠券 ' + couponCode + '）'
+        : '訂單費用（含優惠折扣）';
+      linePayProducts = [{ name: productName.slice(0, 4000), quantity: 1, price: finalTotal }];
+    } else {
+      // 無折扣：沿用原始商品明細
+      linePayProducts = (items || []).map(i => ({
+        name:     String(i.name || '商品').slice(0, 4000),
+        quantity: Number(i.qty || 1),
+        price:    Number(i.price || 0),
+      }));
+      if (!linePayProducts.length) {
+        linePayProducts.push({ name: '訂單費用', quantity: 1, price: finalTotal });
+      }
     }
 
     const host = `${req.protocol}://${req.get('host')}`;
     const confirmUrl   = redirect_url || `${host}/api/linepay/confirm?store_id=${storeId}`;
     const cancelUrlFinal = cancel_url || `${host}/line-order.html?store_id=${storeId}&linepay=cancel`;
 
+    const lpAmount        = Number(total);
+    const lpPackageAmount = Number(total);
+    const lpProductsTotal = linePayProducts.reduce((s, p) => s + Number(p.quantity) * Number(p.price), 0);
+
+    // ── fix18-06: 送出前三值一致性驗證 ───────────────────
+    console.log(
+      `[LINEPAY] amount=${lpAmount}` +
+      ` packageAmount=${lpPackageAmount}` +
+      ` productsTotal=${lpProductsTotal}` +
+      ` orderId=${order_number || order_uuid}` +
+      ` discount=${discountAmt}` +
+      ` coupon=${couponCode || '(none)'}`
+    );
+    if (lpAmount !== lpProductsTotal) {
+      console.error(
+        `[LINEPAY] MISMATCH — amount(${lpAmount}) !== productsTotal(${lpProductsTotal})` +
+        ` orderId=${order_number || order_uuid}`
+      );
+      return res.status(400).json({
+        success: false,
+        message: `LINE Pay 金額驗證失敗：amount(${lpAmount}) ≠ products加總(${lpProductsTotal})，訂單未送出`,
+        debug: { amount: lpAmount, packageAmount: lpPackageAmount, productsTotal: lpProductsTotal },
+      });
+    }
+
     const requestBody = {
-      amount:   Number(total),
+      amount:   lpAmount,
       currency: 'TWD',
       orderId:  order_number || order_uuid,
       packages: [{
         id:       order_number || order_uuid,
-        amount:   Number(total),
+        amount:   lpPackageAmount,
         name:     String(customer_name || '訂單').slice(0, 100),
         products: linePayProducts,
       }],
