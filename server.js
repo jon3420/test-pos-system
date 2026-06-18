@@ -269,6 +269,15 @@ initDb().then((db) => {
   app.use('/api/payment-gateways', requireStore, requireFeature('payment_api'), require('./routes/payment-gateways'));
   // LINE Pay v3 — 不需要 payment_api feature gate，/confirm 由 LINE 直接呼叫
   app.use('/api/linepay', requireStore, require('./routes/linepay'));
+  // fix18-06: Google Maps proxy & delivery fee calculation
+  app.use('/api/maps',     requireStore, require('./routes/maps'));
+  app.use('/api/delivery', requireStore, require('./routes/delivery'));
+  // fix18-06: 前端取得 Browser Key（只回傳 BROWSER KEY，絕不回傳 SERVER KEY）
+  app.get('/api/config/maps-browser-key', requireStore, (req, res) => {
+    const browserKey = process.env.GOOGLE_MAPS_BROWSER_KEY || '';
+    if (!browserKey) return res.status(503).json({ success: false, message: 'Google Maps Browser Key 未設定' });
+    return res.json({ success: true, key: browserKey });
+  });
   // fix18-05: 優惠券管理（Web 後台 CRUD + LINE validate）
   app.use('/api/coupons', requireStore, requireFeature('coupon'), require('./routes/coupons'));
   // LINE Pay 相容路由別名（後台 webhook_url 預設為 /webhook/linepay）

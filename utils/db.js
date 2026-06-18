@@ -894,6 +894,41 @@ function initTables(w) {
   } catch(e) { console.warn('[DB] coupon_redemptions unique index:', e.message); }
   w._save();
 
+  // ── fix18-06：orders 補欄位（Google Maps 外送距離計費）──
+  try { w._db.run('ALTER TABLE orders ADD COLUMN delivery_address_note TEXT DEFAULT ""'); w._save(); } catch {}
+  try { w._db.run('ALTER TABLE orders ADD COLUMN delivery_lat TEXT DEFAULT ""'); w._save(); } catch {}
+  try { w._db.run('ALTER TABLE orders ADD COLUMN delivery_lng TEXT DEFAULT ""'); w._save(); } catch {}
+  try { w._db.run('ALTER TABLE orders ADD COLUMN delivery_distance_km REAL DEFAULT 0'); w._save(); } catch {}
+  try { w._db.run('ALTER TABLE orders ADD COLUMN delivery_maps_url TEXT DEFAULT ""'); w._save(); } catch {}
+  // delivery_address & delivery_fee 已在 orderMigrations 中，不重複新增
+
+  // ── fix18-06：settings seed（外送距離費率設定）──────────
+  const deliveryFeeRulesDefault = JSON.stringify([
+    { max_km: 3, fee: 50 },
+    { max_km: 5, fee: 80 },
+    { max_km: 7, fee: 120 },
+  ]);
+  const deliverySeeds = [
+    ['store_address',                 ''],
+    ['store_lat',                     ''],
+    ['store_lng',                     ''],
+    ['delivery_distance_fee_enabled', '1'],
+    ['delivery_distance_fee_rules',   deliveryFeeRulesDefault],
+    ['delivery_max_distance_km',      '7'],
+    ['delivery_basic_fee',            '50'],
+    ['delivery_free_threshold',       '1000'],
+    ['coupon_apply_to_delivery_fee',  '0'],
+  ];
+  deliverySeeds.forEach(([k, v]) => {
+    try {
+      const existing = w.get('SELECT value FROM settings WHERE store_id=? AND key=?', ['store_001', k]);
+      if (!existing) {
+        w._db.run('INSERT OR IGNORE INTO settings (store_id,key,value) VALUES (?,?,?)', ['store_001', k, v]);
+        w._save();
+      }
+    } catch(e) { console.warn('[DB] delivery seed:', k, e.message); }
+  });
+
   // ── licenses ─────────────────────────────────────────
   w._db.run(`CREATE TABLE IF NOT EXISTS licenses (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

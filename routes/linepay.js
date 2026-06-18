@@ -273,20 +273,21 @@ router.post('/request', async (req, res) => {
     const order = db.get('SELECT * FROM orders WHERE uuid=? AND store_id=?', [order_uuid, storeId]);
     if (!order) return res.status(404).json({ success: false, message: '訂單不存在' });
 
-    // fix18-06: LINE Pay products 金額必須與 packages[0].amount 完全一致
-    // 若有優惠券折扣，改用「方案 C」— 單一總品項，避免 2101 Parameter error
-    const finalTotal = Number(total);
+    // fix18-06: LINE Pay amount 使用 DB order.total（含外送費、折扣後的最終金額）
+    // 不信任前端傳來的 total。
+    const finalTotal  = Number(order.total || 0);
     const discountAmt = Number(order.discount_amount || 0);
     const couponCode  = order.coupon_code ? String(order.coupon_code) : '';
+    const delivFee    = Number(order.delivery_fee || 0);
     let linePayProducts;
     if (discountAmt > 0) {
-      // 有折扣：用單一品項（折扣後總金額），確保 products 加總 == packages.amount
+      // 有折扣：方案 C — 單一總品項（避免 2101 Parameter error）
       const productName = couponCode
         ? '訂單費用（已套用優惠券 ' + couponCode + '）'
         : '訂單費用（含優惠折扣）';
       linePayProducts = [{ name: productName.slice(0, 4000), quantity: 1, price: finalTotal }];
     } else {
-      // 無折扣：沿用原始商品明細
+      // 無折扣：商品明細 + 外送費（若有）
       linePayProducts = (items || []).map(i => ({
         name:     String(i.name || '商品').slice(0, 4000),
         quantity: Number(i.qty || 1),
@@ -294,6 +295,10 @@ router.post('/request', async (req, res) => {
       }));
       if (!linePayProducts.length) {
         linePayProducts.push({ name: '訂單費用', quantity: 1, price: finalTotal });
+      }
+      // fix18-06：外送費加一筆（若有）
+      if (delivFee > 0) {
+        linePayProducts.push({ name: '外送費', quantity: 1, price: delivFee });
       }
     }
 

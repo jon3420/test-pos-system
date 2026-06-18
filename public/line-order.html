@@ -146,6 +146,14 @@ img{max-width:100%;display:block}
 .last-order-card:active{opacity:.88}
 .btn-preorder{display:flex;align-items:center;justify-content:center;gap:4px;padding:6px 10px;background:#fff3e0;color:#e65100;border:1.5px solid #ff8f00;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;width:100%;margin-top:6px;-webkit-tap-highlight-color:transparent}
 .btn-preorder:active{opacity:.85}
+/* fix18-06: 外送地址區塊 */
+.delivery-addr-wrap{display:none;margin-top:0}
+.delivery-addr-wrap.visible{display:block}
+.delivery-gps-btn{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;padding:9px;background:#e8f5e9;color:#2e7d32;border:1.5px solid #66bb6a;border-radius:8px;font-size:13px;font-weight:600;margin-top:6px;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.delivery-gps-btn:active{opacity:.82}
+.delivery-fee-row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;font-size:14px;font-weight:500;color:#e65100;border-top:1px dashed #ffe0b2;margin-top:6px}
+.delivery-fee-label{color:#888;font-size:13px}
+.delivery-distance-badge{background:#fff3e0;color:#e65100;border-radius:6px;padding:2px 8px;font-size:12px;font-weight:700;margin-left:6px}
 </style>
 </head>
 <body>
@@ -207,6 +215,11 @@ img{max-width:100%;display:block}
       <span style="color:#06C755;font-size:14px;font-weight:600">🎟️ 優惠折扣</span>
       <span id="discountDisplay" style="color:#06C755;font-size:14px;font-weight:600">-$0</span>
     </div>
+    <!-- fix18-06：外送費明細行 -->
+    <div id="cartDelivFeeRow" class="ot" style="display:none;border-top:none;padding-top:2px;padding-bottom:2px">
+      <span style="color:#e65100;font-size:14px;font-weight:500">🛵 外送費</span>
+      <span id="cartDelivFeeDisplay" style="color:#e65100;font-size:14px;font-weight:600">$0</span>
+    </div>
     <div class="ot" style="border-top:1px solid var(--bd)">
       <span>應付金額</span><span id="orderTotal">$0</span>
     </div>
@@ -222,6 +235,22 @@ img{max-width:100%;display:block}
     </div>
     <div class="fg"><label class="fl">取餐日期 <span class="req">*</span></label><select class="fi" id="pDate" onchange="onDateChange()"></select></div>
     <div class="fg"><label class="fl" id="timeLabel">取餐時間 <span class="req">*</span></label><select class="fi" id="pTime"><option value="">請先選擇日期</option></select></div>
+    <!-- fix18-06：外送地址（外送模式才顯示）-->
+    <div class="delivery-addr-wrap" id="deliveryAddrWrap">
+      <div class="fg"><label class="fl">外送地址 <span class="req">*</span></label>
+        <input class="fi" id="deliveryAddress" placeholder="輸入地址或點選下方定位…" type="text" autocomplete="off">
+      </div>
+      <button class="delivery-gps-btn" type="button" onclick="useCurrentLocation()">📍 使用目前位置</button>
+      <div class="fg" style="margin-top:8px"><label class="fl">地址備註</label>
+        <input class="fi" id="deliveryAddressNote" placeholder="樓層、管理室、門口按鈴…" type="text">
+      </div>
+      <div id="deliveryFeeRow" class="delivery-fee-row" style="display:none">
+        <span class="delivery-fee-label">外送費 <span id="deliveryDistBadge" class="delivery-distance-badge"></span></span>
+        <span id="deliveryFeeDisplay" style="font-weight:700">NT$0</span>
+      </div>
+      <div id="deliveryFeeMsg" style="font-size:12px;color:#888;margin-top:2px;min-height:16px"></div>
+    </div>
+    <!-- end delivery -->
     <div class="fg"><label class="fl">付款方式</label><div class="pay-btns" id="payBtns"></div></div>
     <div class="fg"><label class="fl">備註</label><input class="fi" id="oNote" placeholder="特殊需求…"></div>
     <button class="sub-btn" id="subBtn" onclick="submitOrder()">確認送出訂單</button>
@@ -296,6 +325,12 @@ let couponFeatureEnabled=false; // fix18-05: set from /api/line-shop or /api/cou
 let takeoutEnabled=false, deliveryEnabled=false;
 let takeoutCutoffPassed=false, deliveryCutoffPassed=false;
 let todayClosed=false;
+
+// fix18-06: 外送地址與費用狀態
+let mapsAutocomplete = null;
+let deliveryLatLng = { lat: null, lng: null };
+let calcDeliveryFee = 0;  // 後端核准的外送費
+let deliveryFeeCalculated = false;  // 是否已成功取得外送費
 
 const PAYMENT_OPTIONS=[
   {code:'cash',label:'💵 現金',key:'line_payment_cash_enabled'},
@@ -449,6 +484,17 @@ function onModeChange(){
   renderMenu();
   updateCutoffBanner();
   buildDateSelector();
+  // fix18-06: 顯示/隱藏外送地址區塊，切換時重置費用
+  const addrWrap=document.getElementById('deliveryAddrWrap');
+  if(addrWrap){
+    if(currentMode==='delivery'){
+      addrWrap.classList.add('visible');
+    } else {
+      addrWrap.classList.remove('visible');
+      resetDeliveryFee();
+    }
+  }
+  updateCartTotals();
 }
 
 // ── 截止售完橫幅 ──────────────────────────────────────
@@ -898,12 +944,23 @@ function updateBar(){
   const discRowEl=document.getElementById('discountRow');
   const discEl=document.getElementById('discountDisplay');
   if(subtotalEl) subtotalEl.textContent=`$${subtotal}`;
-  if(orderTotalEl) orderTotalEl.textContent=`$${payable}`;
   if(discRowEl) discRowEl.style.display=discAmt>0?'flex':'none';
   if(discEl) discEl.textContent=`-$${discAmt}`;
+  // fix18-06: 外送費納入應付金額
+  const cartDelivRow=document.getElementById('cartDelivFeeRow');
+  const cartDelivEl=document.getElementById('cartDelivFeeDisplay');
+  const isDelivMode=document.getElementById('oType')?.value==='delivery';
+  const shownDelivFee=isDelivMode&&deliveryFeeCalculated?calcDeliveryFee:0;
+  if(cartDelivRow) cartDelivRow.style.display=shownDelivFee>0?'flex':'none';
+  if(cartDelivEl) cartDelivEl.textContent=`$${shownDelivFee}`;
+  const payable=subtotal-discAmt+shownDelivFee;
+  if(orderTotalEl) orderTotalEl.textContent=`$${payable}`;
+  document.getElementById('cartBarTotal').textContent=`$${subtotal-discAmt}`; // bar 只顯示商品合計（外送費確認後才納入）
   // 若購物車清空，清除優惠券
   if(cnt===0&&appliedCoupon){ clearCoupon(); }
 }
+// fix18-06: 共用 updateCartTotals（供外送費確認後刷新）
+function updateCartTotals(){ updateBar(); }
 // ── fix18-05：優惠券相關函式 ──────────────────────────────
 async function applyCoupon(){
   const code=(document.getElementById('couponInput')?.value||'').trim().toUpperCase();
@@ -987,10 +1044,17 @@ async function submitOrder(){
   if(!pickupDate){toast('請選擇日期');return;}
   if(!time){toast('請選擇時間');return;}
 
+  // fix18-06: 外送模式驗證地址與費用
+  const isDelivery = type === 'delivery';
+  if(isDelivery){
+    const addrVal=(document.getElementById('deliveryAddress')?.value||'').trim();
+    if(!addrVal){toast('外送訂單請填寫外送地址');return;}
+    if(!deliveryLatLng.lat||!deliveryLatLng.lng){toast('請重新選擇外送地址（需取得座標）');return;}
+    if(!deliveryFeeCalculated){toast('請稍候，外送費計算中…');return;}
+  }
+
   // 送單前雙重驗證：呼叫後端重新確認
   const now=twNow(),nowStr=fmtD(now);
-  // 前端預驗證
-  // 前端預驗證：今日訂單截止，但明日訂單可以送出
   const isNextDayOrder = pickupDate > nowStr;
   if(!isNextDayOrder){
     if(type==='takeout'&&takeoutCutoffPassed){toast('外帶今日接單已截止');return;}
@@ -1002,8 +1066,17 @@ async function submitOrder(){
     price:p.effective_line_price||p.price, subtotal:(p.effective_line_price||p.price)*qty
   }));
   const subtotal=items.reduce((s,i)=>s+i.subtotal,0);
-  // fix18-05: 優惠券代碼（後端會重新驗證，不信任前端金額）
   const couponCode=appliedCoupon?appliedCoupon.code:'';
+
+  // fix18-06: 組裝外送欄位（後端不信任 delivery_fee，但 preview 值供後端 log 比對）
+  const delivPayload = isDelivery ? {
+    delivery_address:      (document.getElementById('deliveryAddress')?.value||'').trim(),
+    delivery_address_note: (document.getElementById('deliveryAddressNote')?.value||'').trim(),
+    delivery_lat:          deliveryLatLng.lat,
+    delivery_lng:          deliveryLatLng.lng,
+    delivery_fee_preview:      calcDeliveryFee,       // 前端預估，後端重算為準
+    delivery_distance_km_preview: deliveryDistKm,     // 前端預估，後端重算為準
+  } : {};
 
   const btn=document.getElementById('subBtn');btn.disabled=true;btn.textContent='送出中…';
   try{
@@ -1013,13 +1086,17 @@ async function submitOrder(){
         customer_name:name, customer_phone:phone, order_type:type,
         pickup_date:pickupDate, pickup_time:time,
         payment_method:selectedPay, note, items, subtotal,
-        coupon_code:couponCode,   // fix18-05: 優惠券代碼
-        total:subtotal            // 後端以 coupon_code 重新計算 total，此值僅備用
+        coupon_code:couponCode,
+        total:subtotal,
+        ...delivPayload,
       })
     }).then(r=>r.json());
     if(!orderRes.success){
       toast(orderRes.message||'送出失敗');
       if(orderRes.reason==='cutoff_sold_out'||orderRes.reason==='real_sold_out') setTimeout(()=>location.reload(),2000);
+      if(orderRes.reason==='maps_unavailable'||orderRes.reason==='out_of_range'){
+        resetDeliveryFee();
+      }
       return;
     }
     const orderData=orderRes.data;
@@ -1044,7 +1121,7 @@ async function submitOrder(){
         }).then(r=>r.json());
         if(lpRes.success&&lpRes.payment_url){
           clearCoupon();
-        closeSheet('cartSheet');cart={};updateBar();renderMenu();
+          closeSheet('cartSheet');cart={};updateBar();renderMenu();
           window.location.href=lpRes.payment_url;
           return;
         }else{
@@ -1058,7 +1135,9 @@ async function submitOrder(){
 
     // ── 現金 / 其他付款 → 直接顯示成功頁 ─────────────
     const finalDiscAmt=appliedCoupon?appliedCoupon.discount_amount:0;
+    const finalDelivFee=orderData.delivery_fee||0;
     clearCoupon();
+    resetDeliveryFee();
     closeSheet('cartSheet');cart={};updateBar();renderMenu();
     document.getElementById('sucNo').textContent=`訂單編號：${orderData.order_number}`;
     document.getElementById('sucDetail').innerHTML=buildDetailRows({
@@ -1067,6 +1146,9 @@ async function submitOrder(){
       order_type_label:type==='delivery'?'🛵 外送':'🛍️ 外帶',
       pickup_time:`${pickupDate} ${time}`, items, subtotal,
       discount_amount:finalDiscAmt,
+      delivery_fee:finalDelivFee,
+      delivery_address:delivPayload.delivery_address||'',
+      distance_km:orderData.distance_km||0,
       total:orderData.total,
       payment_label:PLABELS[selectedPay]||selectedPay, note
     });
@@ -1274,6 +1356,7 @@ function buildDetailRows(d){
     ['電話',`***${esc(d.phone_last3)}`],
     ['付款方式',esc(d.payment_label)],
   ];
+  if(d.delivery_address)rows.push(['外送地址',esc(d.delivery_address)]);
   if(d.note)rows.push(['備註',esc(d.note)]);
   const ir=(d.items||[]).map(i=>`<div class="od-row"><span class="od-label">${esc(i.name)}×${i.qty}</span><span class="od-val">$${i.subtotal}</span></div>`).join('');
   // fix18-05: 顯示折扣明細
@@ -1281,8 +1364,13 @@ function buildDetailRows(d){
   const discRow=discAmt>0
     ? `<div class="od-row"><span class="od-label" style="color:#06C755">🎟️ 優惠折扣</span><span class="od-val" style="color:#06C755">-$${discAmt}</span></div>`
     : '';
+  // fix18-06: 外送費明細
+  const delivFee=Number(d.delivery_fee||0);
+  const delivRow=delivFee>0
+    ? `<div class="od-row"><span class="od-label" style="color:#e65100">🛵 外送費${d.distance_km?` (${d.distance_km}km)`:''}</span><span class="od-val" style="color:#e65100">$${delivFee}</span></div>`
+    : '';
   return rows.map(([l,v])=>`<div class="od-row"><span class="od-label">${l}</span><span class="od-val">${v}</span></div>`).join('')
-    +ir+discRow+`<div class="od-row"><span class="od-label" style="font-weight:700">應付金額</span><span class="od-val" style="color:var(--g);font-size:15px;font-weight:700">$${d.total}</span></div>`;
+    +ir+discRow+delivRow+`<div class="od-row"><span class="od-label" style="font-weight:700">應付金額</span><span class="od-val" style="color:var(--g);font-size:15px;font-weight:700">$${d.total}</span></div>`;
 }
 
 function reorder(o){
@@ -1302,7 +1390,167 @@ function reorder(o){
   setTimeout(()=>openCartSheet(),400);
 }
 
+// ═══════════════════════════════════════════════════════
+// fix18-06: Google Maps + 外送費計算
+// ═══════════════════════════════════════════════════════
+
+let deliveryDistKm = 0;  // 最近一次計算距離（供 submitOrder 帶出）
+let _calcFeeTimer = null;
+
+// 重置外送費狀態（模式切換或清空地址時）
+function resetDeliveryFee(){
+  calcDeliveryFee = 0;
+  deliveryDistKm  = 0;
+  deliveryFeeCalculated = false;
+  deliveryLatLng = { lat: null, lng: null };
+  const addrEl = document.getElementById('deliveryAddress');
+  if(addrEl) addrEl.value = '';
+  const feeRow = document.getElementById('deliveryFeeRow');
+  if(feeRow) feeRow.style.display='none';
+  const feeMsg = document.getElementById('deliveryFeeMsg');
+  if(feeMsg) feeMsg.textContent='';
+  updateCartTotals();
+}
+
+// 呼叫後端計算外送費
+async function fetchDeliveryFee(){
+  if(!deliveryLatLng.lat||!deliveryLatLng.lng) return;
+  const subtotal=Object.values(cart).reduce((s,{product:p,qty})=>s+(p.effective_line_price||p.price)*qty,0);
+  const feeMsg=document.getElementById('deliveryFeeMsg');
+  const feeRow=document.getElementById('deliveryFeeRow');
+  const distBadge=document.getElementById('deliveryDistBadge');
+  const feeDisplay=document.getElementById('deliveryFeeDisplay');
+  if(feeMsg) feeMsg.textContent='計算外送費中…';
+  deliveryFeeCalculated=false;
+  try{
+    const res=await apiFetch('/api/delivery/calculate-fee',{
+      method:'POST',
+      body:JSON.stringify({
+        order_mode:'delivery',
+        subtotal,
+        delivery_lat: deliveryLatLng.lat,
+        delivery_lng: deliveryLatLng.lng,
+      })
+    }).then(r=>r.json());
+    if(res.success){
+      calcDeliveryFee = res.delivery_fee||0;
+      deliveryDistKm  = res.distance_km||0;
+      deliveryFeeCalculated = true;
+      if(feeRow) feeRow.style.display='flex';
+      if(distBadge) distBadge.textContent=`${res.distance_km}km`;
+      if(feeDisplay) feeDisplay.textContent= res.is_free_delivery ? '免運 🎉' : `NT$${res.delivery_fee}`;
+      if(feeMsg) feeMsg.textContent=res.message||'';
+    } else {
+      calcDeliveryFee=0;
+      deliveryFeeCalculated=false;
+      if(feeRow) feeRow.style.display='none';
+      if(feeMsg) feeMsg.innerHTML=`<span style="color:#e53935">⚠️ ${res.message||'無法計算外送費'}</span>`;
+    }
+  } catch(e){
+    calcDeliveryFee=0;
+    deliveryFeeCalculated=false;
+    if(feeRow) feeRow.style.display='none';
+    if(feeMsg) feeMsg.innerHTML=`<span style="color:#e53935">⚠️ 外送費計算失敗，請重試</span>`;
+  }
+  updateCartTotals();
+}
+
+// 使用目前位置（GPS → reverse-geocode）
+async function useCurrentLocation(){
+  if(!navigator.geolocation){
+    toast('您的瀏覽器不支援定位功能');
+    return;
+  }
+  const btn=document.querySelector('.delivery-gps-btn');
+  if(btn){btn.disabled=true;btn.textContent='定位中…';}
+  navigator.geolocation.getCurrentPosition(
+    async (pos)=>{
+      const lat=pos.coords.latitude, lng=pos.coords.longitude;
+      try{
+        const res=await apiFetch('/api/maps/reverse-geocode',{
+          method:'POST',
+          body:JSON.stringify({lat,lng})
+        }).then(r=>r.json());
+        if(res.success){
+          const addrEl=document.getElementById('deliveryAddress');
+          if(addrEl){ addrEl.value=res.formatted_address; }
+          deliveryLatLng={lat,lng};
+          await fetchDeliveryFee();
+        } else {
+          toast(res.message||'無法取得地址，請手動輸入');
+        }
+      } catch(e){
+        toast('定位失敗，請手動輸入地址');
+      } finally {
+        if(btn){btn.disabled=false;btn.textContent='📍 使用目前位置';}
+      }
+    },
+    (err)=>{
+      if(btn){btn.disabled=false;btn.textContent='📍 使用目前位置';}
+      toast('無法取得定位：'+( err.code===1?'請允許定位權限':err.message));
+    },
+    {timeout:10000, maximumAge:60000}
+  );
+}
+
+// 初始化 Google Places Autocomplete
+function initGoogleMaps(){
+  const addrEl=document.getElementById('deliveryAddress');
+  if(!addrEl||!window.google?.maps?.places) return;
+  const ac = new google.maps.places.Autocomplete(addrEl, {
+    componentRestrictions: { country: 'tw' },
+    fields: ['formatted_address','geometry'],
+    types: ['address'],
+  });
+  ac.addListener('place_changed', ()=>{
+    const place=ac.getPlace();
+    if(!place.geometry){
+      toast('請從下拉選單選擇地址');
+      deliveryLatLng={lat:null,lng:null};
+      deliveryFeeCalculated=false;
+      return;
+    }
+    deliveryLatLng={
+      lat: place.geometry.location.lat(),
+      lng: place.geometry.location.lng(),
+    };
+    if(place.formatted_address) addrEl.value=place.formatted_address;
+    // 節流：地址確認後才呼叫
+    if(_calcFeeTimer) clearTimeout(_calcFeeTimer);
+    _calcFeeTimer=setTimeout(fetchDeliveryFee, 300);
+  });
+  // 手動輸入時，若已失去座標則清除計算結果
+  addrEl.addEventListener('input', ()=>{
+    deliveryLatLng={lat:null,lng:null};
+    deliveryFeeCalculated=false;
+    calcDeliveryFee=0;
+    const feeRow=document.getElementById('deliveryFeeRow');
+    if(feeRow) feeRow.style.display='none';
+    updateCartTotals();
+  });
+  mapsAutocomplete=ac;
+}
+
+// 動態載入 Google Maps JS API（從後端拿 browser key）
+async function loadGoogleMapsScript(){
+  try{
+    const res=await apiFetch('/api/config/maps-browser-key').then(r=>r.json());
+    if(!res.success||!res.key) return; // 沒有 key 就跳過，不影響自取流程
+    // 避免重複載入
+    if(window.google?.maps) { initGoogleMaps(); return; }
+    window._initGoogleMapsCallback=initGoogleMaps;
+    const s=document.createElement('script');
+    s.src=`https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(res.key)}&libraries=places&language=zh-TW&callback=_initGoogleMapsCallback`;
+    s.async=true; s.defer=true;
+    s.onerror=()=>console.warn('[Maps] Google Maps 載入失敗，外送仍可輸入地址但無自動完成');
+    document.head.appendChild(s);
+  } catch(e){
+    console.warn('[Maps] 無法取得 Maps browser key:', e.message);
+  }
+}
+
 init();
+loadGoogleMapsScript();
 </script>
 
 <script>

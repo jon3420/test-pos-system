@@ -30,6 +30,17 @@ const LINE_KEYS = new Set([
   'delivery_today_cutoff_time', 'delivery_today_cutoff_date',
 ]);
 
+// fix18-06：外送距離費率相關 key
+const DELIVERY_FEE_KEYS = [
+  'store_address', 'store_lat', 'store_lng',
+  'delivery_distance_fee_enabled',
+  'delivery_distance_fee_rules',   // JSON string
+  'delivery_max_distance_km',
+  'delivery_basic_fee',
+  'delivery_free_threshold',
+  'coupon_apply_to_delivery_fee',
+];
+
 // 所有允許修改的 key（包含 LINE key）
 const ALL_ALLOWED = [
   'shop_name', 'n8n_webhook_url', 'line_channel_token', 'tax_rate', 'receipt_footer',
@@ -40,6 +51,7 @@ const ALL_ALLOWED = [
   'n8n_new_order_webhook', 'n8n_status_change_webhook',
   // v18-features: Android 平板功能權限（JSON 字串）
   'android_features',
+  ...DELIVERY_FEE_KEYS,
   ...LINE_KEYS,
 ];
 

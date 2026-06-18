@@ -571,6 +571,7 @@
       <button class="settings-tab-btn"        data-stab="payment"  onclick="switchSettingsTab('payment')">💳 付款方式</button>
       <button class="settings-tab-btn"        data-stab="gateway"  onclick="switchSettingsTab('gateway')" id="tab-btn-gateway">💳 金流 API</button>
       <button class="settings-tab-btn"        data-stab="platform" onclick="switchSettingsTab('platform')">🛵 外送平台</button>
+      <button class="settings-tab-btn"        data-stab="delivery_fee" onclick="switchSettingsTab('delivery_fee')">📍 外送費設定</button>
       <button class="settings-tab-btn"        data-stab="printer"  onclick="switchSettingsTab('printer')">🖨️ 出單機</button>
       <button class="settings-tab-btn"        data-stab="line_biz" onclick="switchSettingsTab('line_biz')" id="tab-btn-line_biz">📡 LINE 營業</button>
       <button class="settings-tab-btn"        data-stab="line_entry" onclick="switchSettingsTab('line_entry')" id="tab-btn-line_entry">📲 LINE 點餐入口</button>
@@ -669,6 +670,65 @@
     </div>
 
     <!-- 出單機設定 -->
+    <!-- fix18-06: 外送費設定 -->
+    <div class="settings-tab-panel" id="stab-delivery_fee" style="display:none">
+      <div class="settings-grid">
+        <div class="settings-card">
+          <h3>📍 店家座標設定</h3>
+          <p style="color:#888;font-size:13px;margin-bottom:12px">計算外送距離的起點，需設定正確座標。</p>
+          <div class="settings-row">
+            <label>店家地址</label>
+            <input type="text" id="set-store_address" placeholder="例：桃園市中壢區○○路○號" style="flex:1">
+          </div>
+          <div class="settings-row" style="gap:8px;flex-wrap:wrap">
+            <label style="min-width:80px">緯度 (lat)</label>
+            <input type="text" id="set-store_lat" placeholder="例：24.9639" style="flex:1;min-width:120px">
+            <label style="min-width:80px">經度 (lng)</label>
+            <input type="text" id="set-store_lng" placeholder="例：121.2248" style="flex:1;min-width:120px">
+          </div>
+          <button class="btn-secondary" onclick="geocodeStoreAddress()" style="margin-top:8px;width:100%">📍 從店家地址取得座標</button>
+          <div id="geocode-status" style="font-size:12px;color:#888;margin-top:6px;min-height:18px"></div>
+        </div>
+
+        <div class="settings-card">
+          <h3>🛵 外送費規則</h3>
+          <div class="settings-row">
+            <label>啟用距離外送費</label>
+            <label class="toggle"><input type="checkbox" id="set-delivery_distance_fee_enabled"><span class="slider"></span></label>
+          </div>
+          <div class="settings-row">
+            <label>最大外送距離 (km)</label>
+            <input type="number" id="set-delivery_max_distance_km" min="1" max="50" step="0.5" style="width:100px">
+          </div>
+          <div class="settings-row">
+            <label>基本外送費 (NT$)</label>
+            <input type="number" id="set-delivery_basic_fee" min="0" step="10" style="width:100px">
+          </div>
+          <div class="settings-row">
+            <label>滿額免基本外送費 (NT$)</label>
+            <input type="number" id="set-delivery_free_threshold" min="0" step="50"
+              placeholder="0=停用" style="width:100px">
+          </div>
+          <div class="settings-row">
+            <label>優惠券可折抵外送費</label>
+            <label class="toggle"><input type="checkbox" id="set-coupon_apply_to_delivery_fee"><span class="slider"></span></label>
+          </div>
+        </div>
+
+        <div class="settings-card" style="grid-column:1/-1">
+          <h3>📏 距離級距外送費</h3>
+          <p style="color:#888;font-size:13px;margin-bottom:12px">
+            依實際駕車距離（Google Routes API）計算，各級距費用為「達到該距離的費用」。<br>
+            範例：0-3km = NT$50，3-5km = NT$80，5-7km = NT$120
+          </p>
+          <div id="delivery-rules-editor" style="margin-bottom:12px"></div>
+          <button class="btn-secondary" onclick="addDeliveryRule()" style="margin-right:8px">➕ 新增級距</button>
+          <button class="btn-primary"   onclick="saveDeliveryFeeSettings()" style="float:right">💾 儲存外送費設定</button>
+        </div>
+      </div>
+    </div>
+    <!-- end stab-delivery_fee -->
+
     <div class="settings-tab-panel" id="stab-printer" style="display:none">
       <div class="settings-grid">
         <!-- 狀態與測試 -->

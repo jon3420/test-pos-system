@@ -19,6 +19,93 @@ const fetch = require('node-fetch');
 const { validateCoupon } = require('./coupons'); // fix18-05
 const { getStoreFeatures } = require('../middleware/featureGate'); // fix18-05 coupon gate
 
+// ── fix18-06：外送費後端重算 helper ──────────────────
+const SERVER_KEY = () => process.env.GOOGLE_MAPS_SERVER_KEY || '';
+
+function getSettingVal(db, storeId, key, def = '') {
+  const row = db.get('SELECT value FROM settings WHERE store_id=? AND key=?', [storeId, key]);
+  return row ? row.value : def;
+}
+
+async function recalcDeliveryFee(db, storeId, destLat, destLng, subtotal) {
+  const key = SERVER_KEY();
+  if (!key) throw Object.assign(new Error('GOOGLE_MAPS_SERVER_KEY 未設定'), { reason: 'maps_unavailable' });
+
+  const storeLat = parseFloat(getSettingVal(db, storeId, 'store_lat', ''));
+  const storeLng = parseFloat(getSettingVal(db, storeId, 'store_lng', ''));
+  if (isNaN(storeLat) || isNaN(storeLng) || !storeLat || !storeLng) {
+    throw Object.assign(new Error('店家座標尚未設定，無法計算外送費'), { reason: 'maps_unavailable' });
+  }
+
+  const maxDistKm = parseFloat(getSettingVal(db, storeId, 'delivery_max_distance_km', '7'));
+  const basicFee  = parseFloat(getSettingVal(db, storeId, 'delivery_basic_fee', '50'));
+  const freeThr   = parseFloat(getSettingVal(db, storeId, 'delivery_free_threshold', '1000'));
+  const sub       = parseFloat(subtotal) || 0;
+
+  let rules = [];
+  try {
+    const raw = getSettingVal(db, storeId, 'delivery_distance_fee_rules', '');
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) { rules = parsed; rules.sort((a, b) => a.max_km - b.max_km); }
+  } catch {}
+
+  // Google Routes API
+  const routesBody = {
+    origin:      { location: { latLng: { latitude: storeLat,  longitude: storeLng  } } },
+    destination: { location: { latLng: { latitude: destLat,   longitude: destLng   } } },
+    travelMode: 'DRIVE',
+    routingPreference: 'TRAFFIC_UNAWARE',
+    computeAlternativeRoutes: false,
+    languageCode: 'zh-TW',
+  };
+
+  let distKm;
+  try {
+    const gResp = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
+      method: 'POST',
+      headers: {
+        'Content-Type':     'application/json',
+        'X-Goog-Api-Key':   key,
+        'X-Goog-FieldMask': 'routes.distanceMeters',
+      },
+      body: JSON.stringify(routesBody),
+      timeout: 10000,
+    });
+    if (!gResp.ok) throw new Error(`Routes API HTTP ${gResp.status}`);
+    const gData = await gResp.json();
+    if (!gData.routes || !gData.routes.length) throw new Error('Routes API 無路線');
+    distKm = Math.round(gData.routes[0].distanceMeters / 10) / 100;
+  } catch (gErr) {
+    console.error('[line-orders] Routes API 失敗:', gErr.message);
+    throw Object.assign(new Error('外送距離計算暫時無法使用，請稍後再試或改選外帶取餐'), { reason: 'maps_unavailable' });
+  }
+
+  if (distKm > maxDistKm) {
+    throw Object.assign(
+      new Error(`距離 ${distKm} 公里，超過本店外送範圍（最遠 ${maxDistKm} 公里）`),
+      { reason: 'out_of_range', distance_km: distKm }
+    );
+  }
+
+  const matched = rules.find(r => distKm <= r.max_km);
+  if (!matched) {
+    throw Object.assign(
+      new Error(`距離 ${distKm} 公里，超過外送費級距設定範圍`),
+      { reason: 'out_of_range', distance_km: distKm }
+    );
+  }
+
+  const rawFee = matched.fee;
+  let deliveryFee = rawFee;
+  if (freeThr > 0 && sub >= freeThr) {
+    const reduced = rawFee - basicFee;
+    deliveryFee = reduced > 0 ? reduced : 0;
+  }
+
+  const mapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${storeLat},${storeLng}&destination=${destLat},${destLng}&travelmode=driving`;
+  return { distKm, deliveryFee, rawFee, mapsUrl };
+}
+
 function orderNumber() {
   const n = new Date(), p = (v,l=2) => String(v).padStart(l,'0');
   return `LINE-${n.getFullYear()}${p(n.getMonth()+1)}${p(n.getDate())}-${p(n.getHours())}${p(n.getMinutes())}${p(n.getSeconds())}`;
@@ -593,13 +680,14 @@ function validateOrderConditions(db, storeId, mode, dateStr, pickupTime, nowMins
 }
 
 // ── POST /（新 LINE 訂單）──────────────────────────────────
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   try {
     const db = getDb();
     const storeId = req.storeId || 'store_001';
     const {
       customer_name, customer_phone, customer_line_id,
       order_type, pickup_time, pickup_date, delivery_address,
+      delivery_address_note, delivery_lat, delivery_lng,
       note, payment_method, items, subtotal, discount_amount, total,
       coupon_code
     } = req.body;
@@ -608,6 +696,17 @@ router.post('/', (req, res) => {
       return res.status(400).json({ success: false, message: '購物車不能為空' });
     if (!customer_name || !customer_phone)
       return res.status(400).json({ success: false, message: '請填寫姓名與電話' });
+
+    // ── fix18-06：外送模式必填地址與座標 ────────────────
+    const isDelivery = order_type === 'delivery';
+    if (isDelivery) {
+      if (!delivery_address || !String(delivery_address).trim())
+        return res.status(400).json({ success: false, message: '外送訂單請填寫外送地址' });
+      const dLat = parseFloat(delivery_lat);
+      const dLng = parseFloat(delivery_lng);
+      if (isNaN(dLat) || isNaN(dLng))
+        return res.status(400).json({ success: false, message: '外送地址座標無效，請重新選擇地址' });
+    }
 
     const now = twNow();
     const nowMins = now.getHours()*60 + now.getMinutes();
@@ -718,6 +817,52 @@ router.post('/', (req, res) => {
       appliedCouponCode  = cvResult.coupon.code;
     }
 
+    // ── fix18-06：外送費後端重算（不信任前端）────────────
+    let calcDelivFee    = 0;
+    let calcDistKm      = 0;
+    let calcMapsUrl     = '';
+    const couponApplyToDelivery = getSettingVal(db, storeId, 'coupon_apply_to_delivery_fee', '0') === '1';
+
+    if (isDelivery) {
+      const destLat = parseFloat(delivery_lat);
+      const destLng = parseFloat(delivery_lng);
+      try {
+        const feeResult = await recalcDeliveryFee(db, storeId, destLat, destLng, sub);
+        calcDelivFee = feeResult.deliveryFee;
+        calcDistKm   = feeResult.distKm;
+        calcMapsUrl  = feeResult.mapsUrl;
+      } catch (delivErr) {
+        return res.status(delivErr.reason === 'out_of_range' ? 400 : 503).json({
+          success: false,
+          message: delivErr.message,
+          reason:  delivErr.reason || 'delivery_error',
+          distance_km: delivErr.distance_km,
+        });
+      }
+
+      // 根據 coupon_apply_to_delivery_fee 計算 finalTotal
+      if (couponApplyToDelivery) {
+        // 折扣適用於 subtotal + delivery_fee
+        const couponBase = sub + calcDelivFee;
+        if (normalCouponCode && appliedCouponId) {
+          // 重新以含運費金額計算折扣（需 re-validate）
+          const phone = String(customer_phone || '').trim();
+          const cvResult2 = validateCoupon(db, storeId, normalCouponCode, couponBase, phone);
+          if (cvResult2.ok) {
+            discAmt    = cvResult2.discount_amount;
+            finalTotal = cvResult2.final_total; // = couponBase - discount
+          } else {
+            finalTotal = couponBase - discAmt;
+          }
+        } else {
+          finalTotal = sub - discAmt + calcDelivFee;
+        }
+      } else {
+        // 折扣只適用於 subtotal（預設）
+        finalTotal = sub - discAmt + calcDelivFee;
+      }
+    }
+
     // ── 建立訂單 ──────────────────────────────────────
     const uuid = uuidv4(), orderNo = orderNumber();
     const pad = (n,l=2) => String(n).padStart(l,'0');
@@ -735,15 +880,23 @@ router.post('/', (req, res) => {
       `INSERT INTO orders (
         id, uuid, order_number, store_id, order_mode, order_status, kitchen_status,
         customer_name, customer_phone, customer_line_id,
-        pickup_time, delivery_address, delivery_platform, platform_order_no,
+        pickup_time, delivery_address, delivery_address_note,
+        delivery_platform, platform_order_no,
+        delivery_lat, delivery_lng, delivery_distance_km, delivery_maps_url,
+        delivery_fee,
         items, payment_method, payment_category, payment_status,
         subtotal, discount_type, discount_amount, original_total, coupon_code, total,
         note, sync_status, device_id, source, created_at, updated_at
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         uuid, uuid, orderNo, storeId, orderMode, 'pending', 'pending',
         customer_name, customer_phone, customer_line_id||'',
-        pickupTimeVal, delivery_address||'', 'LINE', '',
+        pickupTimeVal, delivery_address||'', delivery_address_note||'',
+        'LINE', '',
+        isDelivery ? String(parseFloat(delivery_lat)||'') : '',
+        isDelivery ? String(parseFloat(delivery_lng)||'') : '',
+        calcDistKm, calcMapsUrl,
+        calcDelivFee,
         itemsJson, payment_method||'cash', payment_category, 'pending',
         sub, 'none', discAmt, sub, appliedCouponCode, finalTotal,
         note||'', 'synced', 'LINE', 'line', nowStr, nowStr
@@ -818,7 +971,10 @@ router.post('/', (req, res) => {
       payment_method: payment_method||'cash', items
     });
 
-    res.json({ success: true, data: { order_number: orderNo, uuid, total: finalTotal } });
+    res.json({ success: true, data: {
+      order_number: orderNo, uuid, total: finalTotal,
+      delivery_fee: calcDelivFee, distance_km: calcDistKm,
+    } });
   } catch(e) {
     console.error('[line-orders] POST error:', e.message);
     res.status(500).json({ success: false, message: e.message });

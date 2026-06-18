@@ -997,6 +997,7 @@ function switchSettingsTab(tab) {
   if (tab === 'ingredients')      loadIngredientsPage();
   if (tab === 'line_entry')       loadLineEntryPage();
   if (tab === 'android_features') loadAndroidFeaturesTab(); // v18-features
+  if (tab === 'delivery_fee')     loadDeliveryFeeTab();     // fix18-06
 }
 
 // ===== 設定 =====
@@ -6188,6 +6189,122 @@ async function saveAndroidFeatures() {
   }
 }
 
+// ═══════════════════════════════════════════════════════
+// fix18-06: 外送費設定 Tab
+// ═══════════════════════════════════════════════════════
+
+let _deliveryRules = [];
+
+async function loadDeliveryFeeTab() {
+  await loadSettings();
+  // 填入基本欄位
+  const setVal = (id, key, fallback = '') => {
+    const el = document.getElementById(id);
+    if (el) el.value = settings[key] ?? fallback;
+  };
+  const setChk = (id, key, fallback = false) => {
+    const el = document.getElementById(id);
+    if (el) el.checked = (settings[key] ?? (fallback ? '1' : '0')) === '1';
+  };
+  setVal('set-store_address',               'store_address');
+  setVal('set-store_lat',                   'store_lat');
+  setVal('set-store_lng',                   'store_lng');
+  setVal('set-delivery_max_distance_km',    'delivery_max_distance_km',  '7');
+  setVal('set-delivery_basic_fee',          'delivery_basic_fee',        '50');
+  setVal('set-delivery_free_threshold',     'delivery_free_threshold',   '1000');
+  setChk('set-delivery_distance_fee_enabled', 'delivery_distance_fee_enabled', true);
+  setChk('set-coupon_apply_to_delivery_fee',  'coupon_apply_to_delivery_fee',  false);
+
+  // 級距規則
+  try {
+    const raw = settings['delivery_distance_fee_rules'] || '';
+    _deliveryRules = raw ? JSON.parse(raw) : [
+      { max_km: 3, fee: 50 }, { max_km: 5, fee: 80 }, { max_km: 7, fee: 120 }
+    ];
+  } catch { _deliveryRules = [{ max_km: 3, fee: 50 }, { max_km: 5, fee: 80 }, { max_km: 7, fee: 120 }]; }
+  renderDeliveryRules();
+}
+
+function renderDeliveryRules() {
+  const cont = document.getElementById('delivery-rules-editor');
+  if (!cont) return;
+  cont.innerHTML = _deliveryRules.map((r, i) => `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+      <span style="color:#888;font-size:13px;min-width:32px">${i + 1}.</span>
+      <span style="font-size:13px;color:#555">距離 ≤</span>
+      <input type="number" value="${r.max_km}" min="0.1" step="0.5"
+        style="width:80px;padding:6px;border:1px solid #ddd;border-radius:6px"
+        onchange="_deliveryRules[${i}].max_km=parseFloat(this.value)||0">
+      <span style="font-size:13px;color:#555">km，外送費</span>
+      <input type="number" value="${r.fee}" min="0" step="10"
+        style="width:80px;padding:6px;border:1px solid #ddd;border-radius:6px"
+        onchange="_deliveryRules[${i}].fee=parseInt(this.value)||0">
+      <span style="font-size:13px;color:#555">NT$</span>
+      <button onclick="_deliveryRules.splice(${i},1);renderDeliveryRules()"
+        style="background:#ffebee;color:#e53935;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:13px">✕</button>
+    </div>
+  `).join('');
+}
+
+function addDeliveryRule() {
+  const last = _deliveryRules[_deliveryRules.length - 1];
+  _deliveryRules.push({ max_km: (last ? last.max_km + 2 : 3), fee: (last ? last.fee + 30 : 50) });
+  renderDeliveryRules();
+}
+
+async function geocodeStoreAddress() {
+  const addr = (document.getElementById('set-store_address')?.value || '').trim();
+  const statusEl = document.getElementById('geocode-status');
+  if (!addr) { if (statusEl) statusEl.textContent = '請先填寫店家地址'; return; }
+  if (statusEl) statusEl.textContent = '座標取得中…';
+  try {
+    const res  = await apiFetch('/api/maps/geocode', { method: 'POST', body: JSON.stringify({ address: addr }) });
+    const json = await res.json();
+    if (json.success) {
+      const latEl = document.getElementById('set-store_lat');
+      const lngEl = document.getElementById('set-store_lng');
+      if (latEl) latEl.value = json.lat;
+      if (lngEl) lngEl.value = json.lng;
+      if (statusEl) {
+        statusEl.textContent = `✅ ${json.formatted_address}（${json.lat}, ${json.lng}）`;
+        statusEl.style.color = '#2e7d32';
+      }
+    } else {
+      if (statusEl) { statusEl.textContent = '❌ ' + (json.message || '無法取得座標'); statusEl.style.color = '#e53935'; }
+    }
+  } catch (e) {
+    if (statusEl) { statusEl.textContent = '❌ ' + e.message; statusEl.style.color = '#e53935'; }
+  }
+}
+
+async function saveDeliveryFeeSettings() {
+  // 讀取規則並排序
+  _deliveryRules.sort((a, b) => a.max_km - b.max_km);
+  const body = {
+    store_address:                 document.getElementById('set-store_address')?.value || '',
+    store_lat:                     document.getElementById('set-store_lat')?.value     || '',
+    store_lng:                     document.getElementById('set-store_lng')?.value     || '',
+    delivery_distance_fee_enabled: document.getElementById('set-delivery_distance_fee_enabled')?.checked ? '1' : '0',
+    delivery_max_distance_km:      document.getElementById('set-delivery_max_distance_km')?.value  || '7',
+    delivery_basic_fee:            document.getElementById('set-delivery_basic_fee')?.value         || '50',
+    delivery_free_threshold:       document.getElementById('set-delivery_free_threshold')?.value    || '1000',
+    coupon_apply_to_delivery_fee:  document.getElementById('set-coupon_apply_to_delivery_fee')?.checked ? '1' : '0',
+    delivery_distance_fee_rules:   JSON.stringify(_deliveryRules),
+  };
+  try {
+    const res  = await apiFetch('/api/settings', { method: 'PUT', body: JSON.stringify(body) });
+    const json = await res.json();
+    if (json.success) {
+      settings = { ...settings, ...json.data };
+      showToast('✅ 外送費設定已儲存', 'success');
+    } else {
+      showToast('❌ 儲存失敗：' + (json.message || ''), 'error');
+    }
+  } catch (e) {
+    showToast('❌ ' + e.message, 'error');
+  }
+}
+
 // ── fix18-05: window 全域函式匯出 ─────────────────────────────────────────
 // 確保 onclick 屬性與外部 JS（coupons.js 等）可直接呼叫這些函式
 // 不包在 DOMContentLoaded 內，讓函式在 HTML 解析到 onclick 時就已存在
@@ -6199,4 +6316,9 @@ async function saveAndroidFeatures() {
   window.switchSettingsTab     = window.switchSettingsTab     || switchSettingsTab;
   window.hasFeature            = window.hasFeature            || hasFeature;
   window.cancelTodayCutoff     = window.cancelTodayCutoff     || cancelTodayCutoff;     // fix18-06
+  // fix18-06: 外送費設定
+  window.geocodeStoreAddress   = geocodeStoreAddress;
+  window.addDeliveryRule       = addDeliveryRule;
+  window.saveDeliveryFeeSettings = saveDeliveryFeeSettings;
+  window.renderDeliveryRules   = renderDeliveryRules;
 })();
