@@ -6255,11 +6255,36 @@ function addDeliveryRule() {
 async function geocodeStoreAddress() {
   const addr = (document.getElementById('set-store_address')?.value || '').trim();
   const statusEl = document.getElementById('geocode-status');
-  if (!addr) { if (statusEl) statusEl.textContent = '請先填寫店家地址'; return; }
-  if (statusEl) statusEl.textContent = '座標取得中…';
+  if (!addr) {
+    if (statusEl) statusEl.textContent = '請先填寫店家地址';
+    return;
+  }
+  if (statusEl) { statusEl.textContent = '座標取得中…'; statusEl.style.color = '#888'; }
+
+  const payload = { address: addr };
+  console.log('[geocodeStoreAddress] sending payload:', payload);
+
   try {
-    const res  = await apiFetch('/api/maps/geocode', { method: 'POST', body: JSON.stringify({ address: addr }) });
-    const json = await res.json();
+    // apiFetch 對 401/403 回傳 plain object { ok:false, status, body }，沒有 .json()
+    // 需要先判斷是否為真實 Response 物件
+    const fetchResult = await apiFetch('/api/maps/geocode', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+
+    console.log('[geocodeStoreAddress] fetchResult type:', typeof fetchResult, 'ok:', fetchResult?.ok, 'status:', fetchResult?.status);
+
+    // apiFetch 攔截 401/403 後回傳 plain object
+    if (fetchResult && fetchResult.ok === false && typeof fetchResult.json !== 'function') {
+      const errMsg = fetchResult.body?.message || '登入已過期，請重新登入後再試';
+      console.warn('[geocodeStoreAddress] apiFetch intercepted, status:', fetchResult.status, errMsg);
+      if (statusEl) { statusEl.textContent = '❌ ' + errMsg; statusEl.style.color = '#e53935'; }
+      return;
+    }
+
+    const json = await fetchResult.json();
+    console.log('[geocodeStoreAddress] response json:', json);
+
     if (json.success) {
       const latEl = document.getElementById('set-store_lat');
       const lngEl = document.getElementById('set-store_lng');
@@ -6270,10 +6295,12 @@ async function geocodeStoreAddress() {
         statusEl.style.color = '#2e7d32';
       }
     } else {
+      console.warn('[geocodeStoreAddress] API returned failure:', json);
       if (statusEl) { statusEl.textContent = '❌ ' + (json.message || '無法取得座標'); statusEl.style.color = '#e53935'; }
     }
   } catch (e) {
-    if (statusEl) { statusEl.textContent = '❌ ' + e.message; statusEl.style.color = '#e53935'; }
+    console.error('[geocodeStoreAddress] exception:', e.message, e);
+    if (statusEl) { statusEl.textContent = '❌ 呼叫失敗：' + e.message; statusEl.style.color = '#e53935'; }
   }
 }
 
