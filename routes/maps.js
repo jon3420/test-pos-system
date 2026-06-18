@@ -14,7 +14,7 @@ const SERVER_KEY = () => process.env.GOOGLE_MAPS_SERVER_KEY || '';
 router.post('/geocode', async (req, res) => {
   try {
     const key = SERVER_KEY();
-    if (!key) return res.status(503).json({ success: false, message: 'Google Maps API 未設定（GOOGLE_MAPS_SERVER_KEY）' });
+    if (!key) return res.status(503).json({ success: false, code: 'MAPS_KEY_MISSING', message: 'Google Maps API 未設定（GOOGLE_MAPS_SERVER_KEY）' });
 
     const address = String(req.body.address || '').trim();
     if (!address) return res.status(400).json({ success: false, message: '請提供地址' });
@@ -47,7 +47,7 @@ router.post('/geocode', async (req, res) => {
 router.post('/reverse-geocode', async (req, res) => {
   try {
     const key = SERVER_KEY();
-    if (!key) return res.status(503).json({ success: false, message: 'Google Maps API 未設定（GOOGLE_MAPS_SERVER_KEY）' });
+    if (!key) return res.status(503).json({ success: false, code: 'MAPS_KEY_MISSING', message: 'Google Maps API 未設定（GOOGLE_MAPS_SERVER_KEY）' });
 
     const lat = parseFloat(req.body.lat);
     const lng = parseFloat(req.body.lng);

@@ -133,7 +133,11 @@ router.post('/calculate-fee', async (req, res) => {
 
     // 必須有店家座標才能計算
     if (isNaN(storeLat) || isNaN(storeLng) || !storeLat || !storeLng) {
-      return res.status(503).json({ success: false, message: '店家座標尚未設定，無法計算外送費，請聯絡店家' });
+      return res.status(503).json({
+        success: false,
+        code: 'STORE_COORDS_MISSING',
+        message: '店家座標尚未設定，無法計算外送費，請聯絡店家',
+      });
     }
 
     // 呼叫 Google Routes API
@@ -144,6 +148,7 @@ router.post('/calculate-fee', async (req, res) => {
       console.error('[delivery/calculate-fee] Routes API 失敗:', gErr.message);
       return res.status(503).json({
         success: false,
+        code: 'MAPS_KEY_MISSING',
         message: '外送距離計算暫時無法使用，請稍後再試或改選外帶取餐',
         reason: 'maps_unavailable',
       });
