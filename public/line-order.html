@@ -476,20 +476,6 @@ function switchMode(mode){
   if(oType) oType.value=mode;
   buildDateSelector();
 }
-// fix18-06: 共用函式 — 依目前 currentMode 同步外送地址區塊顯示
-// 可被 onModeChange() 和 openCartSheet() 共同呼叫
-function syncDeliverySectionVisibility(){
-  const addrWrap=document.getElementById('deliveryAddrWrap');
-  if(!addrWrap) return;
-  if(currentMode==='delivery'){
-    addrWrap.classList.add('visible');
-  } else {
-    addrWrap.classList.remove('visible');
-    resetDeliveryFee();
-  }
-  updateCartTotals();
-}
-
 function onModeChange(){
   const oType=document.getElementById('oType');
   if(!oType) return;
@@ -498,8 +484,17 @@ function onModeChange(){
   renderMenu();
   updateCutoffBanner();
   buildDateSelector();
-  // fix18-06: 同步外送地址區塊（改呼叫共用函式）
-  syncDeliverySectionVisibility();
+  // fix18-06: 顯示/隱藏外送地址區塊，切換時重置費用
+  const addrWrap=document.getElementById('deliveryAddrWrap');
+  if(addrWrap){
+    if(currentMode==='delivery'){
+      addrWrap.classList.add('visible');
+    } else {
+      addrWrap.classList.remove('visible');
+      resetDeliveryFee();
+    }
+  }
+  updateCartTotals();
 }
 
 // ── 截止售完橫幅 ──────────────────────────────────────
@@ -940,6 +935,9 @@ function updateBar(){
   document.getElementById('cartCnt').textContent=cnt;
   // fix18-05: 套用優惠折扣
   const discAmt=appliedCoupon?appliedCoupon.discount_amount:0;
+  const payable=subtotal-discAmt;
+  document.getElementById('cartBarTotal').textContent=`$${payable}`;
+  document.getElementById('cartBar').classList.toggle('hidden',cnt===0);
   // 金額明細
   const subtotalEl=document.getElementById('subtotalDisplay');
   const orderTotalEl=document.getElementById('orderTotal');
@@ -948,7 +946,7 @@ function updateBar(){
   if(subtotalEl) subtotalEl.textContent=`$${subtotal}`;
   if(discRowEl) discRowEl.style.display=discAmt>0?'flex':'none';
   if(discEl) discEl.textContent=`-$${discAmt}`;
-  // fix18-06: 外送費納入應付金額（單一 payable 宣告）
+  // fix18-06: 外送費納入應付金額
   const cartDelivRow=document.getElementById('cartDelivFeeRow');
   const cartDelivEl=document.getElementById('cartDelivFeeDisplay');
   const isDelivMode=document.getElementById('oType')?.value==='delivery';
@@ -957,8 +955,7 @@ function updateBar(){
   if(cartDelivEl) cartDelivEl.textContent=`$${shownDelivFee}`;
   const payable=subtotal-discAmt+shownDelivFee;
   if(orderTotalEl) orderTotalEl.textContent=`$${payable}`;
-  document.getElementById('cartBarTotal').textContent=`$${subtotal-discAmt}`; // bar 只顯示商品小計（不含外送費）
-  document.getElementById('cartBar').classList.toggle('hidden',cnt===0);
+  document.getElementById('cartBarTotal').textContent=`$${subtotal-discAmt}`; // bar 只顯示商品合計（外送費確認後才納入）
   // 若購物車清空，清除優惠券
   if(cnt===0&&appliedCoupon){ clearCoupon(); }
 }
@@ -1021,9 +1018,6 @@ function openCartSheet(){
     if(deliveryEnabled){const o=document.createElement('option');o.value='delivery';o.textContent='🛵 外送';if(deliveryCutoffPassed)o.textContent+=' (已截止)';oType.appendChild(o);}
     oType.value=currentMode;
   }
-  // fix18-06: 購物車開啟時主動同步外送地址區塊顯示狀態
-  // 不依賴 select onchange，因為第一次開啟不會觸發 change 事件
-  syncDeliverySectionVisibility();
   renderCartItems();openSheet('cartSheet');
 }
 function renderCartItems(){
@@ -1419,43 +1413,6 @@ function resetDeliveryFee(){
 }
 
 // 呼叫後端計算外送費
-// fix18-06: 將後端技術錯誤訊息轉換為前台友善文字
-// 前台絕不顯示 key 名稱、API 名稱、技術原因
-function toFriendlyDelivErrMsg(res){
-  const code = res.code || res.reason || '';
-  const rawMsg = res.message || '';
-  // 店家座標未設定
-  if(code==='STORE_COORDS_MISSING' || rawMsg.includes('店家座標')){
-    return '店家尚未完成外送設定，請改選外帶。';
-  }
-  // Google Maps Key 未設定 / API 失敗
-  if(
-    code==='MAPS_KEY_MISSING' ||
-    code==='maps_unavailable' ||
-    rawMsg.includes('GOOGLE_MAPS_SERVER_KEY') ||
-    rawMsg.includes('GOOGLE_MAPS_BROWSER_KEY') ||
-    rawMsg.includes('Google Maps API 未設定') ||
-    rawMsg.includes('MAPS_KEY') ||
-    rawMsg.includes('Routes API') ||
-    rawMsg.includes('Geocoding')
-  ){
-    return '目前暫時無法計算外送費，請稍後再試或改選外帶。';
-  }
-  // 超出外送範圍
-  if(code==='out_of_range'){
-    return res.message || '超過本店外送範圍，請改選外帶取餐。';
-  }
-  // 其他錯誤：若 message 含技術字眼就替換
-  const techPatterns = ['GOOGLE_MAPS','_KEY','API key','server key','browser key','routes.googleapis'];
-  for(const p of techPatterns){
-    if(rawMsg.toLowerCase().includes(p.toLowerCase())){
-      return '目前暫時無法計算外送費，請稍後再試或改選外帶。';
-    }
-  }
-  // 安全的 message 可以直接顯示（例如超距離說明）
-  return rawMsg || '無法計算外送費，請改選外帶。';
-}
-
 async function fetchDeliveryFee(){
   if(!deliveryLatLng.lat||!deliveryLatLng.lng) return;
   const subtotal=Object.values(cart).reduce((s,{product:p,qty})=>s+(p.effective_line_price||p.price)*qty,0);
@@ -1482,20 +1439,18 @@ async function fetchDeliveryFee(){
       if(feeRow) feeRow.style.display='flex';
       if(distBadge) distBadge.textContent=`${res.distance_km}km`;
       if(feeDisplay) feeDisplay.textContent= res.is_free_delivery ? '免運 🎉' : `NT$${res.delivery_fee}`;
-      // fix18-06: 成功時只顯示距離/費用描述，不顯示技術訊息
-      if(feeMsg) feeMsg.textContent='';
+      if(feeMsg) feeMsg.textContent=res.message||'';
     } else {
       calcDeliveryFee=0;
       deliveryFeeCalculated=false;
       if(feeRow) feeRow.style.display='none';
-      // fix18-06: 轉換後端技術訊息為前台友善文字，絕不顯示 key 名稱
-      if(feeMsg) feeMsg.innerHTML=`<span style="color:#e53935">⚠️ ${toFriendlyDelivErrMsg(res)}</span>`;
+      if(feeMsg) feeMsg.innerHTML=`<span style="color:#e53935">⚠️ ${res.message||'無法計算外送費'}</span>`;
     }
   } catch(e){
     calcDeliveryFee=0;
     deliveryFeeCalculated=false;
     if(feeRow) feeRow.style.display='none';
-    if(feeMsg) feeMsg.innerHTML=`<span style="color:#e53935">⚠️ 目前暫時無法計算外送費，請稍後再試或改選外帶。</span>`;
+    if(feeMsg) feeMsg.innerHTML=`<span style="color:#e53935">⚠️ 外送費計算失敗，請重試</span>`;
   }
   updateCartTotals();
 }

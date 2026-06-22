@@ -782,6 +782,7 @@ let allPlatforms = [];       // 外送平台列表
 let currentOrderMode = 'dine_in';  // 點餐模式：dine_in | takeout | delivery
 let selectedPlatform = null;       // 選中的外送平台物件
 let currentOrderTab = 'all';       // 訂單分頁
+let currentOrderView = 'all';     // fix18-07：追蹤目前顯示的訂單視圖 ('all'|'takeout'|'delivery')
 let orderInfoExpanded = true;      // 訂單資訊區展開狀態
 let allPaymentMethods = [];        // 付款方式快取
 
@@ -1747,15 +1748,32 @@ function setDateRange(range) {
 // ===== 訂單分頁切換 =====
 function switchOrderTab(tab) {
   currentOrderTab = tab;
+  // fix18-07：切換分頁時同步更新 currentOrderView
+  if (tab === 'delivery') currentOrderView = 'delivery';
+  else if (tab === 'pos') currentOrderView = 'takeout';
+  else currentOrderView = 'all';
   document.querySelectorAll('.order-tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
   document.getElementById('order-tab-all').style.display      = tab === 'delivery' ? 'none' : 'block';
   document.getElementById('order-tab-delivery').style.display = tab === 'delivery' ? 'block' : 'none';
-  loadCurrentOrderTab();
+  refreshCurrentOrderView();
+}
+
+// fix18-07：統一刷新函式，依 currentOrderView 決定呼叫哪個載入函式
+function refreshCurrentOrderView() {
+  switch (currentOrderView) {
+    case 'delivery':
+      loadDeliveryReport();
+      break;
+    case 'takeout':
+      loadOrders('pos');
+      break;
+    default:
+      loadOrders(null);
+  }
 }
 
 function loadCurrentOrderTab() {
-  if (currentOrderTab === 'delivery') loadDeliveryReport();
-  else loadOrders(currentOrderTab === 'pos' ? 'pos' : null);
+  refreshCurrentOrderView();
 }
 
 // ===== 訂單頁 =====
@@ -2509,7 +2527,7 @@ async function confirmLinePayPayment(orderId, orderNo) {
     const json = await res.json();
     if (json.success) {
       showToast('💚 已確認收款：' + orderNo);
-      if (typeof loadOrders === 'function') loadOrders(window.currentOrderTab === 'pos' ? 'pos' : null);
+      if (typeof refreshCurrentOrderView === 'function') refreshCurrentOrderView(); // fix18-07：維持目前分頁
     } else {
       showToast('❌ 確認收款失敗：' + (json.error || json.message || ''), 'error');
     }
@@ -2555,7 +2573,7 @@ async function confirmVoid() {
     if (json.success) {
       showToast('訂單已作廢，庫存已回補', 'success');
       closeVoidModal();
-      loadOrders();
+      refreshCurrentOrderView(); // fix18-07：維持目前分頁
       // 作廢後後端回補庫存，立即重載點餐頁商品
       _invProducts = [];
       loadProducts();
@@ -2743,7 +2761,7 @@ async function saveEditOrder() {
       else showToast('訂單已修改', 'success');
       _editOriginalTotal = 0;
       closeEditOrder();
-      loadOrders();
+      refreshCurrentOrderView(); // fix18-07：維持目前分頁
       // 訂單修改後後端已同步庫存，重載點餐頁
       _invProducts = [];
       loadProducts();
@@ -5831,8 +5849,8 @@ function notifyInventoryChanged() {
       if (name === 'orders') {
         if (!_pollInterval) {
           _pollInterval = setInterval(() => {
-            if (typeof loadOrders === 'function') {
-              loadOrders(window.currentOrderTab === 'pos' ? 'pos' : null);
+            if (typeof refreshCurrentOrderView === 'function') {
+              refreshCurrentOrderView(); // fix18-07：維持目前分頁
             }
           }, 10000); // 每 10 秒
         }
@@ -5876,8 +5894,8 @@ function notifyInventoryChanged() {
 
         // v18修正：Web POS 用 page-orders class.active 控制顯示，不是 style.display
         // 無論訂單頁是否顯示，都更新資料；若在訂單頁則立即重新渲染
-        if (typeof loadOrders === 'function') {
-          loadOrders(window.currentOrderTab === 'pos' ? 'pos' : null);
+        if (typeof refreshCurrentOrderView === 'function') {
+          refreshCurrentOrderView(); // fix18-07：維持目前分頁
         }
 
         // 若目前在訂單頁，更新狀態 badge（不需等 loadOrders 完成）
@@ -5893,8 +5911,8 @@ function notifyInventoryChanged() {
         if (typeof showToast === 'function') {
           showToast('🔔 LINE 新訂單：' + (o?.order_number || '') + ' / ' + (o?.customer_name || ''));
         }
-        if (typeof loadOrders === 'function') {
-          loadOrders(window.currentOrderTab === 'pos' ? 'pos' : null);
+        if (typeof refreshCurrentOrderView === 'function') {
+          refreshCurrentOrderView(); // fix18-07：維持目前分頁
         }
       }
 
@@ -5907,8 +5925,8 @@ function notifyInventoryChanged() {
           showToast('💚 ' + label + (orderNo ? '：' + orderNo : ''));
         }
         // 刷新訂單列表（無論目前在哪個頁面）
-        if (typeof loadOrders === 'function') {
-          loadOrders(window.currentOrderTab === 'pos' ? 'pos' : null);
+        if (typeof refreshCurrentOrderView === 'function') {
+          refreshCurrentOrderView(); // fix18-07：維持目前分頁
         }
         // 刷新儀表板統計
         if (typeof loadDashboard === 'function') {
@@ -6255,36 +6273,11 @@ function addDeliveryRule() {
 async function geocodeStoreAddress() {
   const addr = (document.getElementById('set-store_address')?.value || '').trim();
   const statusEl = document.getElementById('geocode-status');
-  if (!addr) {
-    if (statusEl) statusEl.textContent = '請先填寫店家地址';
-    return;
-  }
-  if (statusEl) { statusEl.textContent = '座標取得中…'; statusEl.style.color = '#888'; }
-
-  const payload = { address: addr };
-  console.log('[geocodeStoreAddress] sending payload:', payload);
-
+  if (!addr) { if (statusEl) statusEl.textContent = '請先填寫店家地址'; return; }
+  if (statusEl) statusEl.textContent = '座標取得中…';
   try {
-    // apiFetch 對 401/403 回傳 plain object { ok:false, status, body }，沒有 .json()
-    // 需要先判斷是否為真實 Response 物件
-    const fetchResult = await apiFetch('/api/maps/geocode', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
-
-    console.log('[geocodeStoreAddress] fetchResult type:', typeof fetchResult, 'ok:', fetchResult?.ok, 'status:', fetchResult?.status);
-
-    // apiFetch 攔截 401/403 後回傳 plain object
-    if (fetchResult && fetchResult.ok === false && typeof fetchResult.json !== 'function') {
-      const errMsg = fetchResult.body?.message || '登入已過期，請重新登入後再試';
-      console.warn('[geocodeStoreAddress] apiFetch intercepted, status:', fetchResult.status, errMsg);
-      if (statusEl) { statusEl.textContent = '❌ ' + errMsg; statusEl.style.color = '#e53935'; }
-      return;
-    }
-
-    const json = await fetchResult.json();
-    console.log('[geocodeStoreAddress] response json:', json);
-
+    const res  = await apiFetch('/api/maps/geocode', { method: 'POST', body: JSON.stringify({ address: addr }) });
+    const json = await res.json();
     if (json.success) {
       const latEl = document.getElementById('set-store_lat');
       const lngEl = document.getElementById('set-store_lng');
@@ -6295,12 +6288,10 @@ async function geocodeStoreAddress() {
         statusEl.style.color = '#2e7d32';
       }
     } else {
-      console.warn('[geocodeStoreAddress] API returned failure:', json);
       if (statusEl) { statusEl.textContent = '❌ ' + (json.message || '無法取得座標'); statusEl.style.color = '#e53935'; }
     }
   } catch (e) {
-    console.error('[geocodeStoreAddress] exception:', e.message, e);
-    if (statusEl) { statusEl.textContent = '❌ 呼叫失敗：' + e.message; statusEl.style.color = '#e53935'; }
+    if (statusEl) { statusEl.textContent = '❌ ' + e.message; statusEl.style.color = '#e53935'; }
   }
 }
 
