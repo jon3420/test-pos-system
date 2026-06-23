@@ -2233,6 +2233,32 @@
           <div style="color:var(--text-muted);font-size:13px;padding:8px">載入中...</div>
         </div>
       </div>
+
+      <!-- fix18-09F-hotfix4：歷史品名別名 -->
+      <div style="margin-top:16px;border-top:1px solid var(--border,#334155);padding-top:14px">
+        <div style="font-size:13px;font-weight:600;margin-bottom:8px;color:var(--text-primary)">
+          ⏪ 歷史品名別名
+          <span style="font-weight:400;color:var(--text-muted);font-size:12px;margin-left:6px">
+            （歷史訂單中已改名的舊品名，統計時一併歸入此群組）
+          </span>
+        </div>
+        <div id="analysisGroupAliasList" style="min-height:28px;margin-bottom:8px;display:flex;flex-direction:column;gap:2px">
+          <div style="color:var(--text-muted,#64748b);font-size:12px;padding:4px 0">尚無別名</div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <input type="text" id="analysisGroupAliasInput"
+            placeholder="輸入歷史品名，例如：冷拌麻油腰子"
+            style="flex:1;padding:6px 10px;border-radius:6px;border:1px solid var(--border,#334155);background:var(--bg-base,#0f172a);color:var(--text-primary);font-size:13px"
+            onkeydown="if(event.key==='Enter'){event.preventDefault();addAnalysisGroupAlias();}">
+          <button onclick="addAnalysisGroupAlias()"
+            style="padding:6px 14px;border-radius:6px;background:#6366f1;border:none;color:#fff;font-size:13px;cursor:pointer;white-space:nowrap">
+            ＋ 新增
+          </button>
+        </div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:4px">
+          提示：輸入後按 Enter 或點「＋ 新增」。別名僅用於報表統計歸類，不修改訂單原始品名。
+        </div>
+      </div>
     </div>
     <div class="modal-footer">
       <button class="btn-secondary" onclick="closeAnalysisGroupModal()">取消</button>

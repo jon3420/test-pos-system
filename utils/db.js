@@ -996,6 +996,23 @@ function initTables(w) {
     w._db.run('CREATE INDEX IF NOT EXISTS idx_pagi_store ON product_analysis_group_items(store_id)');
     w._save();
   } catch(e) { console.warn('[DB] product_analysis index:', e.message); }
+
+  // ── fix18-09F-hotfix4：歷史品名別名表 ────────────────────
+  w._db.run(`CREATE TABLE IF NOT EXISTS product_analysis_group_aliases (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    store_id   TEXT NOT NULL DEFAULT 'store_001',
+    group_id   INTEGER NOT NULL,
+    alias_name TEXT NOT NULL DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now','localtime')),
+    FOREIGN KEY (group_id) REFERENCES product_analysis_groups(id) ON DELETE CASCADE
+  )`);
+  w._save();
+
+  try {
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_paga_group ON product_analysis_group_aliases(group_id)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_paga_store ON product_analysis_group_aliases(store_id)');
+    w._save();
+  } catch(e) { console.warn('[DB] product_analysis_aliases index:', e.message); }
 }
 
 module.exports = { getDb, initDb };

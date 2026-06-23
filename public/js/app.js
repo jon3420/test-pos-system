@@ -7544,11 +7544,17 @@ async function loadProductAnalysisGroups() {
 
 // ── 核心：商品名稱 → 群組名稱 mapping ───────────────────────
 // 若商品在某個啟用群組中，回傳群組名稱；否則回傳原始商品名稱
+// fix18-09F-hotfix4：比對順序 product_name → alias_name
 function getAnalysisGroupName(productName) {
   if (!allProductAnalysisGroups || !allProductAnalysisGroups.length) return null;
   for (const g of allProductAnalysisGroups) {
     if (!g.enabled) continue;
+    // 1. 先比對現有商品名稱（items）
     if (g.items && g.items.some(item => item.product_name === productName)) {
+      return g.group_name;
+    }
+    // 2. 再比對歷史品名別名（aliases）
+    if (g.aliases && g.aliases.some(a => a.alias_name === productName)) {
       return g.group_name;
     }
   }
@@ -7739,22 +7745,28 @@ function renderAnalysisGroupList() {
         <tr style="border-bottom:2px solid var(--border,#334155)">
           <th style="text-align:left;padding:8px 10px;color:var(--text-muted)">群組名稱</th>
           <th style="text-align:left;padding:8px 10px;color:var(--text-muted)">說明</th>
-          <th style="text-align:left;padding:8px 10px;color:var(--text-muted)">成員商品</th>
+          <th style="text-align:left;padding:8px 10px;color:var(--text-muted)">成員 / 歷史別名</th>
           <th style="text-align:center;padding:8px 10px;color:var(--text-muted)">狀態</th>
           <th style="text-align:center;padding:8px 10px;color:var(--text-muted)">排序</th>
           <th style="text-align:right;padding:8px 10px;color:var(--text-muted)">操作</th>
         </tr>
       </thead>
       <tbody>
-        ${allProductAnalysisGroups.map(g => `
+        ${allProductAnalysisGroups.map(g => {
+          const itemTags = (g.items || []).map(i =>
+            '<span style="display:inline-block;background:var(--bg-base,#0f172a);border:1px solid var(--border,#334155);border-radius:4px;padding:1px 6px;margin:1px;font-size:11px">' + escHtml(i.product_name) + '</span>'
+          ).join('');
+          const aliasTags = (g.aliases || []).map(a =>
+            '<span style="display:inline-block;background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.3);border-radius:4px;padding:1px 6px;margin:1px;font-size:11px;color:#fbbf24">⏪ ' + escHtml(a.alias_name) + '</span>'
+          ).join('');
+          const memberHtml = (itemTags || aliasTags)
+            ? itemTags + (aliasTags ? '<br>' + aliasTags : '')
+            : '<span style="color:var(--text-muted)">（空群組）</span>';
+          return `
           <tr style="border-bottom:1px solid var(--border,#334155)">
             <td style="padding:10px;font-weight:600;color:${g.enabled?'var(--text-primary,#f1f5f9)':'var(--text-muted,#64748b)'}">${escHtml(g.group_name)}</td>
             <td style="padding:10px;color:var(--text-muted,#64748b);font-size:12px">${escHtml(g.description||'—')}</td>
-            <td style="padding:10px;font-size:12px;color:var(--text-secondary)">
-              ${g.items && g.items.length
-                ? g.items.map(i => `<span style="display:inline-block;background:var(--bg-base,#0f172a);border:1px solid var(--border,#334155);border-radius:4px;padding:1px 6px;margin:1px;font-size:11px">${escHtml(i.product_name)}</span>`).join('')
-                : '<span style="color:var(--text-muted)">（空群組）</span>'}
-            </td>
+            <td style="padding:10px;font-size:12px">${memberHtml}</td>
             <td style="padding:10px;text-align:center">
               <span style="display:inline-block;padding:2px 8px;border-radius:99px;font-size:11px;background:${g.enabled?'#10b98120':'#ef444420'};color:${g.enabled?'#10b981':'#ef4444'}">${g.enabled?'啟用':'停用'}</span>
             </td>
@@ -7764,11 +7776,12 @@ function renderAnalysisGroupList() {
               <button onclick="toggleAnalysisGroup(${g.id})" style="padding:4px 10px;border-radius:6px;border:1px solid var(--border,#334155);background:transparent;color:var(--text-secondary);cursor:pointer;font-size:12px;margin-left:4px">${g.enabled?'停用':'啟用'}</button>
               <button onclick="deleteAnalysisGroup(${g.id},'${escHtml(g.group_name)}')" style="padding:4px 10px;border-radius:6px;border:1px solid #ef4444;background:transparent;color:#ef4444;cursor:pointer;font-size:12px;margin-left:4px">🗑️ 刪除</button>
             </td>
-          </tr>
-        `).join('')}
+          </tr>`;
+        }).join('')}
       </tbody>
     </table>`;
 }
+
 
 // ── 商品分析群組 Modal 開啟 / 關閉 ─────────────────────────
 async function openAnalysisGroupModal(id) {
@@ -7784,30 +7797,32 @@ async function openAnalysisGroupModal(id) {
   const titleEl = document.getElementById('analysisGroupModalTitle');
   if (titleEl) titleEl.textContent = id ? '編輯商品分析群組' : '新增商品分析群組';
 
-  // ── 先開啟 Modal，強制 inline style 確保可見 ─────────────
+  // ── 先開啟 Modal ─────────────────────────────────────────
   const modal = document.getElementById('analysisGroupModal');
   if (modal) {
     modal.classList.add('open');
-    // fix18-09F-hotfix2：用 setProperty 強制覆蓋任何殘留 inline style
-    modal.style.setProperty('display',         'flex',              'important');
-    modal.style.setProperty('visibility',      'visible',           'important');
-    modal.style.setProperty('opacity',         '1',                 'important');
-    modal.style.setProperty('pointer-events',  'auto',              'important');
-    modal.style.setProperty('position',        'fixed',             'important');
-    modal.style.setProperty('inset',           '0',                 'important');
-    modal.style.setProperty('z-index',         '99999',             'important');
-    modal.style.setProperty('background',      'rgba(0,0,0,0.75)',  'important');
-    modal.style.setProperty('align-items',     'center',            'important');
-    modal.style.setProperty('justify-content', 'center',            'important');
+    modal.style.setProperty('display',         'flex',             'important');
+    modal.style.setProperty('visibility',      'visible',          'important');
+    modal.style.setProperty('opacity',         '1',                'important');
+    modal.style.setProperty('pointer-events',  'auto',             'important');
+    modal.style.setProperty('position',        'fixed',            'important');
+    modal.style.setProperty('inset',           '0',                'important');
+    modal.style.setProperty('z-index',         '99999',            'important');
+    modal.style.setProperty('background',      'rgba(0,0,0,0.75)', 'important');
+    modal.style.setProperty('align-items',     'center',           'important');
+    modal.style.setProperty('justify-content', 'center',           'important');
   }
 
   // ── 顯示載入中 ──────────────────────────────────────────
   const listEl = document.getElementById('analysisGroupProductList');
   if (listEl) listEl.innerHTML = '<div style="color:var(--text-muted,#64748b);font-size:13px;padding:12px">載入商品中...</div>';
 
+  // ── 清空別名列表 ─────────────────────────────────────────
+  _renderAliasList([]);
+
   let selectedNames = [];
 
-  // ── 若為編輯模式，先取群組現有成員 ──────────────────────
+  // ── 編輯模式：載入群組資料（含 aliases）────────────────
   if (id) {
     try {
       const res  = await apiFetch('/api/product-analysis-groups/' + id);
@@ -7819,6 +7834,8 @@ async function openAnalysisGroupModal(id) {
         setVal('editAnalysisGroupSort', g.sort_order || 0);
         setChk('editAnalysisGroupEnabled', g.enabled);
         selectedNames = (g.items || []).map(i => i.product_name);
+        // 渲染別名列表
+        _renderAliasList((g.aliases || []).map(a => a.alias_name));
       }
     } catch(e) { console.warn('[AG] fetch group:', e.message); }
   }
@@ -7888,15 +7905,20 @@ async function saveAnalysisGroup() {
   const name = (document.getElementById('editAnalysisGroupName').value || '').trim();
   if (!name) { showToast('請輸入群組名稱', 'error'); return; }
 
+  // 現有商品成員（勾選框）
   const checkedBoxes = document.querySelectorAll('#analysisGroupProductList .ag-product-cb:checked');
   const items = Array.from(checkedBoxes).map(cb => ({ product_name: cb.value }));
+
+  // 歷史品名別名（alias 列表）
+  const aliases = _getAliasListValues();
 
   const body = {
     group_name:  name,
     description: document.getElementById('editAnalysisGroupDesc').value || '',
     sort_order:  Number(document.getElementById('editAnalysisGroupSort').value) || 0,
     enabled:     document.getElementById('editAnalysisGroupEnabled').checked ? 1 : 0,
-    items
+    items,
+    aliases
   };
 
   try {
@@ -7975,3 +7997,53 @@ window.debugAnalysisGroupModal = function () {
   }
   console.log('html=', m.innerHTML.substring(0, 1000));
 };
+
+// ── fix18-09F-hotfix4：歷史品名別名 UI helpers ─────────────
+
+// 渲染別名列表到 #analysisGroupAliasList
+function _renderAliasList(aliases) {
+  const el = document.getElementById('analysisGroupAliasList');
+  if (!el) return;
+  if (!aliases || !aliases.length) {
+    el.innerHTML = '<div style="color:var(--text-muted,#64748b);font-size:12px;padding:4px 0">尚無別名</div>';
+    return;
+  }
+  el.innerHTML = aliases.map((a, i) =>
+    `<div style="display:flex;align-items:center;gap:6px;padding:3px 0" data-alias-idx="${i}">
+      <span style="font-size:12px;flex:1;color:#fbbf24">⏪ ${escHtml(a)}</span>
+      <button onclick="_removeAlias(${i})" style="background:transparent;border:1px solid #ef4444;color:#ef4444;border-radius:4px;padding:1px 6px;font-size:11px;cursor:pointer">✕</button>
+    </div>`
+  ).join('');
+}
+
+// 取得目前別名列表（讀 DOM）
+function _getAliasListValues() {
+  const el = document.getElementById('analysisGroupAliasList');
+  if (!el) return [];
+  const spans = el.querySelectorAll('[data-alias-idx] span');
+  return Array.from(spans).map(s => s.textContent.replace(/^⏪\s*/, '').trim()).filter(Boolean);
+}
+
+// 新增別名
+function addAnalysisGroupAlias() {
+  const inp = document.getElementById('analysisGroupAliasInput');
+  if (!inp) return;
+  const val = (inp.value || '').trim();
+  if (!val) { showToast('請輸入別名', 'error'); return; }
+  const current = _getAliasListValues();
+  if (current.includes(val)) { showToast('此別名已存在', 'error'); return; }
+  _renderAliasList([...current, val]);
+  inp.value = '';
+  inp.focus();
+}
+
+// 移除別名（by index）
+function _removeAlias(idx) {
+  const current = _getAliasListValues();
+  current.splice(idx, 1);
+  _renderAliasList(current);
+}
+
+// 更新 window exports
+window.addAnalysisGroupAlias = addAnalysisGroupAlias;
+window._removeAlias           = _removeAlias;
