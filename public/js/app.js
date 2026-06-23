@@ -876,6 +876,16 @@ function showPage(name) {
     if (rc) { rc.style.display = 'none'; rc.style.visibility = 'hidden'; rc.style.pointerEvents = 'none'; }
   }
 
+  // fix18-09D-hotfix: 離開 settings 頁時強制隱藏所有 settings-tab-panel
+  // 避免折扣活動等 panel 殘留覆蓋其他頁面
+  if (name !== 'settings') {
+    document.querySelectorAll('.settings-tab-panel').forEach(p => {
+      p.style.display       = 'none';
+      p.style.visibility    = 'hidden';
+      p.style.pointerEvents = 'none';
+    });
+  }
+
   // 3. 清除所有 nav active 狀態
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
 

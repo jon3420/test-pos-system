@@ -1128,22 +1128,21 @@
       </div>
     </div>
 
-  </div>
-</div>
-
-<!-- 折扣活動設定 Tab Panel (fix18-09D) -->
-<div class="settings-tab-panel" id="stab-discount_campaigns" style="display:none">
-  <div class="settings-grid">
-    <div class="settings-card" style="grid-column:1/-1">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-        <div>
-          <h3 style="margin:0">💸 折扣活動設定</h3>
-          <p style="font-size:13px;color:#666;margin:4px 0 0">設定可套用在訂單折扣的活動名稱，修改訂單時可指定折扣活動。</p>
+    <!-- fix18-09D：折扣活動設定 Tab Panel（正確位置：page-settings 內） -->
+    <div class="settings-tab-panel" id="stab-discount_campaigns" style="display:none">
+      <div class="settings-grid">
+        <div class="settings-card" style="grid-column:1/-1">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+            <div>
+              <h3 style="margin:0">💸 折扣活動設定</h3>
+              <p style="font-size:13px;color:#666;margin:4px 0 0">設定可套用在訂單折扣的活動名稱，修改訂單時可指定折扣活動。</p>
+            </div>
+            <button class="btn-primary" onclick="openCampaignModal()" style="white-space:nowrap">＋ 新增活動</button>
+          </div>
+          <div id="discountCampaignList" style="display:flex;flex-direction:column;gap:8px">
+            <div style="color:var(--text-muted);font-size:13px">載入中...</div>
+          </div>
         </div>
-        <button class="btn-primary" onclick="openCampaignModal()" style="white-space:nowrap">＋ 新增活動</button>
-      </div>
-      <div id="discountCampaignList" style="display:flex;flex-direction:column;gap:8px">
-        <div style="color:var(--text-muted);font-size:13px">載入中...</div>
       </div>
     </div>
   </div>
