@@ -854,11 +854,40 @@ body {
   position: fixed;
   inset: 0;
   background: rgba(0,0,0,0.75);
-  z-index: 200;
+  z-index: 99999;
   align-items: center;
   justify-content: center;
 }
-.modal-overlay.open { display: flex; }
+.modal-overlay.open {
+  display: flex !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+}
+
+/* fix18-09F-hotfix2: analysisGroupModal wider box */
+#analysisGroupModal.open {
+  display: flex !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 99999 !important;
+  background: rgba(0,0,0,0.75) !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+#analysisGroupModal > .modal {
+  width: min(720px, 94vw);
+  max-width: none;
+  max-height: 90vh;
+  overflow-y: auto;
+  background: var(--bg-panel, #1a1d27);
+  border: 1px solid #444;
+  border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.8);
+}
 
 .modal {
   background: var(--bg-panel);

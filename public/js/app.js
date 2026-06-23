@@ -7784,13 +7784,26 @@ async function openAnalysisGroupModal(id) {
   const titleEl = document.getElementById('analysisGroupModalTitle');
   if (titleEl) titleEl.textContent = id ? '編輯商品分析群組' : '新增商品分析群組';
 
-  // ── 先開啟 Modal，避免 await 期間無反應 ─────────────────
+  // ── 先開啟 Modal，強制 inline style 確保可見 ─────────────
   const modal = document.getElementById('analysisGroupModal');
-  if (modal) modal.classList.add('open');
+  if (modal) {
+    modal.classList.add('open');
+    // fix18-09F-hotfix2：用 setProperty 強制覆蓋任何殘留 inline style
+    modal.style.setProperty('display',         'flex',              'important');
+    modal.style.setProperty('visibility',      'visible',           'important');
+    modal.style.setProperty('opacity',         '1',                 'important');
+    modal.style.setProperty('pointer-events',  'auto',              'important');
+    modal.style.setProperty('position',        'fixed',             'important');
+    modal.style.setProperty('inset',           '0',                 'important');
+    modal.style.setProperty('z-index',         '99999',             'important');
+    modal.style.setProperty('background',      'rgba(0,0,0,0.75)',  'important');
+    modal.style.setProperty('align-items',     'center',            'important');
+    modal.style.setProperty('justify-content', 'center',            'important');
+  }
 
   // ── 顯示載入中 ──────────────────────────────────────────
   const listEl = document.getElementById('analysisGroupProductList');
-  if (listEl) listEl.innerHTML = '<div style="color:var(--text-muted);font-size:13px;padding:12px">載入商品中...</div>';
+  if (listEl) listEl.innerHTML = '<div style="color:var(--text-muted,#64748b);font-size:13px;padding:12px">載入商品中...</div>';
 
   let selectedNames = [];
 
@@ -7815,7 +7828,13 @@ async function openAnalysisGroupModal(id) {
 }
 
 function closeAnalysisGroupModal() {
-  document.getElementById('analysisGroupModal').classList.remove('open');
+  const modal = document.getElementById('analysisGroupModal');
+  if (!modal) return;
+  modal.classList.remove('open');
+  // 清除 hotfix2 setProperty 強制值
+  ['display','visibility','opacity','pointer-events','position','inset','z-index','background','align-items','justify-content'].forEach(prop => {
+    modal.style.removeProperty(prop);
+  });
 }
 
 async function _renderAnalysisGroupProductCheckboxes(selectedNames) {
@@ -7930,3 +7949,29 @@ async function deleteAnalysisGroup(id, name) {
   window.setProductStatMode           = setProductStatMode;
   window.openDiscTop10WithGroups      = openDiscTop10WithGroups;
 })();
+
+// ── fix18-09F-hotfix3：Modal 診斷工具 ───────────────────────
+window.debugAnalysisGroupModal = function () {
+  const m = document.getElementById('analysisGroupModal');
+  console.log('Modal=', m);
+  if (!m) { console.error('analysisGroupModal NOT FOUND'); return; }
+  const cs = getComputedStyle(m);
+  console.log('display=',       cs.display);
+  console.log('visibility=',    cs.visibility);
+  console.log('opacity=',       cs.opacity);
+  console.log('zIndex=',        cs.zIndex);
+  console.log('offsetWidth=',   m.offsetWidth);
+  console.log('offsetHeight=',  m.offsetHeight);
+  console.log('rect=',          m.getBoundingClientRect());
+  console.log('modal-content=', m.querySelector('.modal-content'));
+  console.log('modal-box=',     m.querySelector('.modal-box'));
+  console.log('modal=',         m.querySelector('.modal'));
+  const parent = m.parentElement;
+  console.log('parentElement=', parent ? parent.tagName + (parent.id ? '#'+parent.id : '') + (parent.className ? '.'+parent.className.split(' ').join('.') : '') : null);
+  if (parent) {
+    const pcs = getComputedStyle(parent);
+    console.log('parent display=',    pcs.display);
+    console.log('parent visibility=', pcs.visibility);
+  }
+  console.log('html=', m.innerHTML.substring(0, 1000));
+};

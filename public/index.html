@@ -6,7 +6,7 @@
   <title>餐車 POS</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/main.css">
+  <link rel="stylesheet" href="/css/main.css?v=fix18-09F-h2">
 </head>
 <body>
 
@@ -2014,9 +2014,9 @@
 <!-- Toast 通知 -->
 <div class="toast-container" id="toastContainer"></div>
 
-<script src="/js/app.js?v=fix18-06"></script>
+<script src="/js/app.js?v=fix18-09F-h2"></script>
 <script src="/js/coupons.js?v=fix18-06"></script>
-<script src="/js/qrcode.min.js?v=fix18-06"></script>
+<script src="/js/qrcode.min.js?v=fix18-09F-h2"></script>
 <script src="/license.js?v=fix18-06"></script>
 
 <!-- LINE 商品設定 Modal (v16) -->
@@ -2193,6 +2193,9 @@
   </div>
 </div>
 
+
+</div>
+<!-- fix18-09F：商品分析群組 Modal (moved to body-end by hotfix2) -->
 <!-- fix18-09F：商品分析群組 新增/編輯 Modal -->
 <div class="modal-overlay" id="analysisGroupModal" onclick="if(event.target===this)closeAnalysisGroupModal()">
   <div class="modal" style="max-width:680px;width:95%">
