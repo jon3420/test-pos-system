@@ -787,6 +787,7 @@ let currentDiscountFilter = 'all'; // fix18-09B：折扣篩選 ('all'|'has_disco
 let _allOrdersCache = [];          // fix18-09B：目前分頁全部訂單快取（供折扣篩選使用）
 let orderInfoExpanded = true;      // 訂單資訊區展開狀態
 let allPaymentMethods = [];        // 付款方式快取
+let allDiscountCampaigns = [];     // fix18-09C：折扣活動快取
 
 // 訂單編輯狀態
 let editOrderItems = [];
@@ -809,6 +810,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   await loadSettings().catch(() => {});
   await loadCategories().catch(() => {});
   await loadPaymentMethods().catch(() => {});
+  await loadDiscountCampaigns().catch(() => {});  // fix18-09C
 
   // 3. 商品載入（不依賴 inventory，不受 inventory feature gate 影響）
   await loadProducts().catch(() => {});
@@ -1000,6 +1002,7 @@ function switchSettingsTab(tab) {
   if (tab === 'ingredients')      loadIngredientsPage();
   if (tab === 'line_entry')       loadLineEntryPage();
   if (tab === 'android_features') loadAndroidFeaturesTab(); // v18-features
+  if (tab === 'discount_campaigns') loadDiscountCampaignsTab(); // fix18-09C
   if (tab === 'delivery_fee')     loadDeliveryFeeTab();     // fix18-06
 }
 
@@ -1774,6 +1777,12 @@ function setDateRange(range) {
   if (range === 'yesterday') { const y = new Date(today); y.setDate(y.getDate()-1); from = to = fmt(y); }
   else if (range === 'week') { const mon = new Date(today); mon.setDate(today.getDate()-today.getDay()+(today.getDay()===0?-6:1)); from = fmt(mon); to = fmt(today); }
   else if (range === 'month') { from = fmt(new Date(today.getFullYear(),today.getMonth(),1)); to = fmt(today); }
+  else if (range === 'lastmonth') {
+    const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    const lastMonthFirst = new Date(firstOfMonth); lastMonthFirst.setMonth(lastMonthFirst.getMonth()-1);
+    const lastMonthLast  = new Date(firstOfMonth); lastMonthLast.setDate(0);
+    from = fmt(lastMonthFirst); to = fmt(lastMonthLast);
+  }
   const fromEl = document.getElementById('dateFrom'); const toEl = document.getElementById('dateTo');
   if (fromEl && range !== 'custom') fromEl.value = from;
   if (toEl   && range !== 'custom') toEl.value   = to;
@@ -1874,17 +1883,19 @@ function openDiscountDetail() {
   document.getElementById('discDetailBody').innerHTML = orders.length
     ? orders.map(o => {
         const disc = Number(o.discount_amount || 0);
-        const origTotal = o.original_total || Number(o.total) + disc;
         const cat = normalizeDiscountCategory(o.discount_category);
         const catLabel = DISCOUNT_CATEGORY_DISPLAY[cat] || '—';
-        const isHighDisc = origTotal > 0 && disc / origTotal >= 0.5;
         const dateStr = o.created_at ? o.created_at.slice(0, 10) : '—';
+        // fix18-09C：顯示折扣活動、折扣商品
+        const campaignName = o.discount_campaign_name || '—';
+        const productName  = o.discount_target_type === 'product' && o.discount_product_name
+          ? o.discount_product_name : '整張訂單';
         return `<tr>
           <td style="font-size:12px;color:#999;white-space:nowrap">${dateStr}</td>
           <td><span class="order-num" style="font-size:12px">${escHtml(o.order_number)}</span></td>
-          <td style="font-family:monospace;color:var(--text-secondary)">NT$${origTotal}</td>
-          <td style="font-family:monospace;color:var(--danger);font-weight:700">-NT$${disc}${isHighDisc ? ' <span style="color:#ef4444;font-size:10px">⚠</span>' : ''}</td>
-          <td style="font-family:monospace;color:#f5a623;font-weight:700">NT$${o.total}</td>
+          <td style="font-size:12px;color:var(--text-secondary)">${escHtml(campaignName)}</td>
+          <td style="font-size:12px;color:var(--text-secondary)">${escHtml(productName)}</td>
+          <td style="font-family:monospace;color:var(--danger);font-weight:700">-NT$${disc}</td>
           <td>${cat && cat !== 'none' ? `<span class="disc-badge disc-badge-${cat}">${catLabel}</span>` : '<span style="color:var(--text-muted);font-size:12px">—</span>'}</td>
           <td style="font-size:12px;color:var(--text-secondary);max-width:120px">${escHtml(o.discount_note || '—')}</td>
         </tr>`;
@@ -2067,7 +2078,32 @@ function renderStatCards(stats, allOrders) {
       <div class="stat-card-value" style="color:var(--danger);font-size:18px;margin-bottom:8px" onclick="setDiscountFilter('has_discount')" style="cursor:pointer">NT$${Math.round(totalDiscount)}<small style="font-size:12px;color:var(--text-muted);font-weight:400;margin-left:6px">${totalDiscOrders}筆</small></div>
       ${discCatRows}
     </div>
-    ${renderDiscountTopProducts(orders)}`;
+    ${renderDiscountTopProducts(orders)}
+    ${renderDiscountCampaignRanking(orders)}`;
+}
+
+// fix18-09C：折扣活動排行卡（TOP3 preview）
+function renderDiscountCampaignRanking(orders) {
+  const ranked = buildDiscountCampaignMap(orders);
+  if (!ranked.length) return '';
+  const preview = ranked.slice(0, 3);
+  const previewRows = preview.map((c, i) =>
+    `<div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;padding:4px 0;border-bottom:1px solid var(--border,#334155)">
+      <span style="color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:120px">${i+1}. ${escHtml(c.name)}</span>
+      <span style="text-align:right;white-space:nowrap;margin-left:6px">
+        <span style="color:var(--danger);font-family:monospace;font-weight:700">NT$${Math.round(c.total)}</span>
+        <span style="color:var(--text-muted);font-size:11px;margin-left:4px">${c.count}筆</span>
+      </span>
+    </div>`
+  ).join('');
+  return `<div class="stat-card" style="min-width:200px;max-width:260px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <div class="stat-card-label" style="margin:0">🏆 折扣活動排行</div>
+      <button onclick="openDiscCampaignTop10()" style="font-size:11px;padding:2px 8px;border-radius:99px;border:1px solid var(--border,#334155);background:transparent;color:var(--text-secondary,#94a3b8);cursor:pointer;white-space:nowrap">查看 TOP10</button>
+    </div>
+    ${previewRows}
+    ${ranked.length > 3 ? `<div style="font-size:11px;color:var(--text-muted);text-align:center;margin-top:6px;cursor:pointer" onclick="openDiscCampaignTop10()">還有 ${ranked.length - 3} 項 →</div>` : ''}
+  </div>`;
 }
 
 // fix18-09B：折扣商品排行（TOP 10）
@@ -2093,9 +2129,9 @@ function buildDiscountProdMap(orders) {
   return Object.values(prodMap).sort((a, b) => b.total - a.total);
 }
 
-// 統計卡只顯示 TOP3，右上角附「查看 TOP10」按鈕
+// 統計卡只顯示 TOP3，右上角附「查看 TOP10」按鈕（fix18-09C：使用 V2 版本）
 function renderDiscountTopProducts(orders) {
-  const ranked = buildDiscountProdMap(orders);
+  const ranked = buildDiscountProdMapV2(orders);
   if (!ranked.length) return '';
   const preview = ranked.slice(0, 3);
   const previewRows = preview.map((p, i) =>
@@ -2117,9 +2153,9 @@ function renderDiscountTopProducts(orders) {
   </div>`;
 }
 
-// 開啟 TOP10 Modal
+// 開啟 TOP10 Modal（fix18-09C：使用 V2）
 function openDiscTop10() {
-  const ranked = buildDiscountProdMap(_allOrdersCache || []);
+  const ranked = buildDiscountProdMapV2(_allOrdersCache || []);
   const top10  = ranked.slice(0, 10);
   document.getElementById('discTop10Body').innerHTML = top10.length
     ? top10.map((p, i) => {
@@ -2139,6 +2175,245 @@ function openDiscTop10() {
 function closeDiscTop10() {
   document.getElementById('discTop10Modal').classList.remove('open');
 }
+
+// ═══════════════════════════════════════════════════════════
+// fix18-09C：折扣活動 Campaign 相關功能
+// ═══════════════════════════════════════════════════════════
+
+// 載入折扣活動列表（全域快取，供 modal 下拉使用）
+async function loadDiscountCampaigns() {
+  try {
+    const res = await apiFetch('/api/discount-campaigns');
+    const json = await res.json();
+    if (json.success) {
+      allDiscountCampaigns = json.data || [];
+    }
+  } catch (e) {
+    console.warn('[DiscountCampaigns] 載入失敗', e.message);
+  }
+}
+
+// 設定中心：折扣活動 Tab
+async function loadDiscountCampaignsTab() {
+  await loadDiscountCampaigns();
+  renderDiscountCampaignList();
+}
+
+function renderDiscountCampaignList() {
+  const el = document.getElementById('discountCampaignList');
+  if (!el) return;
+  if (!allDiscountCampaigns.length) {
+    el.innerHTML = '<div style="color:var(--text-muted);font-size:13px">尚無折扣活動</div>';
+    return;
+  }
+  el.innerHTML = allDiscountCampaigns.map(c => `
+    <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--bg-base,#0f172a);border:1px solid var(--border,#334155);border-radius:8px">
+      <div style="flex:1">
+        <div style="font-weight:600;color:${c.enabled?'var(--text-primary,#f1f5f9)':'var(--text-muted,#64748b)'}">${escHtml(c.name)}</div>
+        ${c.description?`<div style="font-size:12px;color:var(--text-muted,#64748b)">${escHtml(c.description)}</div>`:''}
+      </div>
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:var(--text-secondary)">
+        <input type="checkbox" ${c.enabled?'checked':''} onchange="toggleDiscountCampaign(${c.id},this.checked)" style="width:14px;height:14px">
+        啟用
+      </label>
+      <button onclick="editDiscountCampaign(${c.id})" style="padding:4px 10px;font-size:12px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);cursor:pointer">編輯</button>
+      <button onclick="deleteDiscountCampaign(${c.id},'${escHtml(c.name)}')" style="padding:4px 10px;font-size:12px;border-radius:6px;border:1px solid var(--danger,#ef4444);background:transparent;color:var(--danger,#ef4444);cursor:pointer">刪除</button>
+    </div>`).join('');
+}
+
+async function addDiscountCampaign() {
+  const nameEl = document.getElementById('newCampaignName');
+  const descEl = document.getElementById('newCampaignDesc');
+  const name = nameEl?.value?.trim();
+  if (!name) { showToast('請輸入活動名稱', 'error'); return; }
+  try {
+    const res = await apiFetch('/api/discount-campaigns', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, description: descEl?.value?.trim() || '' })
+    });
+    const json = await res.json();
+    if (json.success) {
+      if (nameEl) nameEl.value = '';
+      if (descEl) descEl.value = '';
+      await loadDiscountCampaigns();
+      renderDiscountCampaignList();
+      showToast('✅ 折扣活動已新增', 'success');
+    } else {
+      showToast(json.message || '新增失敗', 'error');
+    }
+  } catch (e) { showToast('網路錯誤', 'error'); }
+}
+
+async function toggleDiscountCampaign(id, enabled) {
+  try {
+    await apiFetch('/api/discount-campaigns/' + id, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled })
+    });
+    await loadDiscountCampaigns();
+    renderDiscountCampaignList();
+  } catch (e) { showToast('更新失敗', 'error'); }
+}
+
+async function editDiscountCampaign(id) {
+  const c = allDiscountCampaigns.find(x => x.id === id);
+  if (!c) return;
+  const name = prompt('修改活動名稱：', c.name);
+  if (!name?.trim()) return;
+  const desc = prompt('修改說明（選填）：', c.description || '');
+  try {
+    const res = await apiFetch('/api/discount-campaigns/' + id, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: name.trim(), description: (desc || '').trim() })
+    });
+    const json = await res.json();
+    if (json.success) {
+      await loadDiscountCampaigns();
+      renderDiscountCampaignList();
+      showToast('✅ 已更新', 'success');
+    } else { showToast(json.message || '更新失敗', 'error'); }
+  } catch (e) { showToast('網路錯誤', 'error'); }
+}
+
+async function deleteDiscountCampaign(id, name) {
+  if (!confirm(`確定要刪除「${name}」活動嗎？`)) return;
+  try {
+    const res = await apiFetch('/api/discount-campaigns/' + id, { method: 'DELETE' });
+    const json = await res.json();
+    if (json.success) {
+      await loadDiscountCampaigns();
+      renderDiscountCampaignList();
+      showToast('已刪除', 'success');
+    } else { showToast(json.message || '刪除失敗', 'error'); }
+  } catch (e) { showToast('網路錯誤', 'error'); }
+}
+
+// ─── 修改訂單 Modal：折扣活動下拉刷新 ────────────────────
+function refreshEditOrderCampaignDropdown(selectedId) {
+  const sel = document.getElementById('editDiscountCampaign');
+  if (!sel) return;
+  const active = allDiscountCampaigns.filter(c => c.enabled);
+  sel.innerHTML = '<option value="">— 不指定 —</option>' +
+    active.map(c => `<option value="${c.id}" data-name="${escHtml(c.name)}">${escHtml(c.name)}</option>`).join('');
+  if (selectedId) sel.value = selectedId;
+}
+
+// 折扣活動變更時自動帶活動名稱
+function onDiscountCampaignChange() {
+  // 名稱由 saveEditOrder 時從 option text 讀取，這裡不需額外處理
+}
+
+// 折扣套用商品切換
+function onDiscountTargetTypeChange() {
+  const type = document.getElementById('editDiscountTargetType')?.value;
+  const panel = document.getElementById('editDiscountProductPanel');
+  if (!panel) return;
+  if (type === 'product') {
+    panel.style.display = 'block';
+    // 填入訂單商品到下拉
+    refreshEditDiscountProductDropdown();
+  } else {
+    panel.style.display = 'none';
+  }
+}
+
+function refreshEditDiscountProductDropdown(selectedId, selectedName) {
+  const sel = document.getElementById('editDiscountProduct');
+  if (!sel) return;
+  // 以目前編輯訂單的商品清單為選項
+  sel.innerHTML = '<option value="">— 選擇商品 —</option>' +
+    editOrderItems.map(i =>
+      `<option value="${escHtml(i.productId||i.product_id||i.name)}" data-name="${escHtml(i.name)}">${escHtml(i.name)}</option>`
+    ).join('');
+  if (selectedId) {
+    // 嘗試依 id 選
+    sel.value = selectedId;
+    // fallback：依 name 選
+    if (!sel.value && selectedName) {
+      for (const opt of sel.options) {
+        if (opt.dataset.name === selectedName) { sel.value = opt.value; break; }
+      }
+    }
+  }
+}
+
+// ─── 折扣活動排行榜 TOP10 ────────────────────────────────
+function buildDiscountCampaignMap(orders) {
+  const valid = (orders || []).filter(o => {
+    if (o.status === 'void' || o.order_status === 'cancelled') return false;
+    if (o.order_mode === 'delivery' && o.delivery_status === 'cancelled') return false;
+    return Number(o.discount_amount || 0) > 0;
+  });
+  const map = {};
+  valid.forEach(o => {
+    const disc = Number(o.discount_amount || 0);
+    // fix18-09C：用 discount_campaign_name；舊資料無活動視為「其他」
+    const name = o.discount_campaign_name || '其他';
+    if (!map[name]) map[name] = { name, total: 0, count: 0 };
+    map[name].total += disc;
+    map[name].count += 1;
+  });
+  return Object.values(map).sort((a, b) => b.total - a.total);
+}
+
+// 折扣商品 TOP10（fix18-09C 升級版：優先使用 discount_product_name）
+function buildDiscountProdMapV2(orders) {
+  const valid = (orders || []).filter(o => {
+    if (o.status === 'void' || o.order_status === 'cancelled') return false;
+    if (o.order_mode === 'delivery' && o.delivery_status === 'cancelled') return false;
+    return Number(o.discount_amount || 0) > 0;
+  });
+  const prodMap = {};
+  valid.forEach(o => {
+    const disc = Number(o.discount_amount || 0);
+    // fix18-09C：若有指定折扣商品，直接歸屬；否則平攤到全部商品
+    if (o.discount_target_type === 'product' && o.discount_product_name) {
+      const pname = o.discount_product_name;
+      if (!prodMap[pname]) prodMap[pname] = { name: pname, total: 0, count: 0 };
+      prodMap[pname].total += disc;
+      prodMap[pname].count += 1;
+    } else {
+      // 整張訂單：平攤到各商品（舊邏輯）
+      const items = typeof o.items === 'string' ? JSON.parse(o.items) : (o.items || []);
+      const totalQty = items.reduce((s, i) => s + Number(i.qty || 0), 0);
+      items.forEach(item => {
+        const share = totalQty > 0 ? disc * Number(item.qty || 0) / totalQty : 0;
+        if (!prodMap[item.name]) prodMap[item.name] = { name: item.name, total: 0, count: 0 };
+        prodMap[item.name].total += share;
+        prodMap[item.name].count += 1;
+      });
+    }
+  });
+  return Object.values(prodMap).sort((a, b) => b.total - a.total);
+}
+
+function openDiscCampaignTop10() {
+  const ranked = buildDiscountCampaignMap(_allOrdersCache || []);
+  const top10  = ranked.slice(0, 10);
+  const tbody  = document.getElementById('discCampaignTop10Body');
+  if (!tbody) return;
+  tbody.innerHTML = top10.length
+    ? top10.map((c, i) => {
+        const avg = c.count > 0 ? Math.round(c.total / c.count) : 0;
+        return `<tr>
+          <td style="font-size:13px;color:var(--text-muted);text-align:center">${i + 1}</td>
+          <td style="font-size:13px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(c.name)}</td>
+          <td style="text-align:right;font-family:monospace;color:var(--danger);font-weight:700">NT$${Math.round(c.total)}</td>
+          <td style="text-align:right;color:var(--text-secondary)">${c.count}筆</td>
+          <td style="text-align:right;font-family:monospace;color:var(--text-secondary)">NT$${avg}</td>
+        </tr>`;
+      }).join('')
+    : '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:16px">無資料</td></tr>';
+  document.getElementById('discCampaignTop10Modal').classList.add('open');
+}
+
+function closeDiscCampaignTop10() {
+  document.getElementById('discCampaignTop10Modal').classList.remove('open');
+}
+
 
 function renderOrdersTable(orders) {
   const tbody = document.getElementById('ordersBody');
@@ -2194,10 +2469,13 @@ function renderOrdersTable(orders) {
             const catLabel = DISCOUNT_CATEGORY_DISPLAY[cat] || '';
             const catBadge = cat && cat!=='none' ? '<br><span class="disc-badge disc-badge-'+cat+'">'+(catLabel||cat)+'</span>' : '';
             const highWarn = isHighDisc ? '<br><span class="high-discount-warn">⚠ 高折扣</span>' : '';
+            // fix18-09C：顯示折扣活動與折扣商品
+            const campDisp = o.discount_campaign_name ? '<div style="font-size:11px;color:#fbbf24">🎯 '+escHtml(o.discount_campaign_name)+'</div>' : '';
+            const prodDisp = (o.discount_target_type==='product'&&o.discount_product_name) ? '<div style="font-size:11px;color:#a78bfa">📦 '+escHtml(o.discount_product_name)+'</div>' : '';
             return '<div style="font-size:11px;color:var(--text-muted,#94a3b8)">原價 NT$'+origTotal+'</div>'
               +'<div style="font-size:12px;color:#ef4444">💸 -NT$'+disc+'</div>'
               +'<div style="font-weight:700;color:#f5a623;font-size:15px">NT$'+o.total+'</div>'
-              +catBadge+highWarn;
+              +catBadge+campDisp+prodDisp+highWarn;
           })()}
         </td>
         <td>
@@ -2262,10 +2540,13 @@ function renderDeliveryTable(orders) {
             const catLabel = DISCOUNT_CATEGORY_DISPLAY[cat] || '';
             const catBadge = cat && cat!=='none' ? '<br><span class="disc-badge disc-badge-'+cat+'">'+(catLabel||cat)+'</span>' : '';
             const highWarn = isHighDisc ? '<br><span class="high-discount-warn">⚠ 高折扣</span>' : '';
+            // fix18-09C：顯示折扣活動與折扣商品
+            const campDisp2 = o.discount_campaign_name ? '<div style="font-size:11px;color:#fbbf24">🎯 '+escHtml(o.discount_campaign_name)+'</div>' : '';
+            const prodDisp2 = (o.discount_target_type==='product'&&o.discount_product_name) ? '<div style="font-size:11px;color:#a78bfa">📦 '+escHtml(o.discount_product_name)+'</div>' : '';
             return '<div style="font-size:11px;color:var(--text-muted,#94a3b8)">原價 NT$'+origTotal+'</div>'
               +'<div style="font-size:12px;color:#ef4444">💸 -NT$'+disc+'</div>'
               +'<div style="font-weight:700;color:#f5a623;font-size:15px">NT$'+o.total+'</div>'
-              +catBadge+highWarn;
+              +catBadge+campDisp2+prodDisp2+highWarn;
           })()}
         </td>
         <td style="font-family:monospace;color:${isCancelled?'var(--text-muted)':'var(--danger)'};white-space:nowrap;${isCancelled?'text-decoration:line-through':''}">${commText}</td>
@@ -2340,6 +2621,13 @@ async function showOrderDetail(orderId) {
               if (pd.discount_note_before !== undefined && pd.discount_note_before !== pd.discount_note_after) {
                 diffHtml += `<div class="log-diff" style="color:#fbbf24">折扣備註：${escHtml(pd.discount_note_before||'空白')} → ${escHtml(pd.discount_note_after||'空白')}</div>`;
               }
+              // fix18-09C
+              if (pd.discount_campaign_before !== undefined && pd.discount_campaign_before !== pd.discount_campaign_after) {
+                diffHtml += `<div class="log-diff" style="color:#fbbf24">折扣活動：${escHtml(pd.discount_campaign_before||'無')} → ${escHtml(pd.discount_campaign_after||'無')}</div>`;
+              }
+              if (pd.discount_product_before !== undefined && pd.discount_product_before !== pd.discount_product_after) {
+                diffHtml += `<div class="log-diff" style="color:#a78bfa">折扣商品：${escHtml(pd.discount_product_before||'無')} → ${escHtml(pd.discount_product_after||'無')}</div>`;
+              }
               if (pd.platform_before && pd.platform_after && pd.platform_before !== pd.platform_after) {
                 diffHtml += `<div class="log-diff" style="color:#ce93d8">平台來源：${escHtml(pd.platform_before)} → ${escHtml(pd.platform_after)}｜抽成率：${pd.commission_rate_before}% → ${pd.commission_rate_after}%</div>`;
               }
@@ -2401,6 +2689,8 @@ async function showOrderDetail(orderId) {
                 +'<div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:4px;color:#999"><span>原價</span><span style="font-family:monospace">NT$'+origTotal+'</span></div>'
                 +'<div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:4px;color:#06C755"><span>折扣</span><span style="font-family:monospace">-NT$'+disc+'</span></div>'
                 +(o.discount_category&&o.discount_category!=='none'?'<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;color:#fbbf24"><span>折扣分類</span><span>'+(DISCOUNT_CATEGORY_DISPLAY[o.discount_category]||o.discount_category)+'</span></div>':'')
+                +(o.discount_campaign_name?'<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;color:#fbbf24"><span>折扣活動</span><span>'+escHtml(o.discount_campaign_name)+'</span></div>':'')
+                +((o.discount_target_type==='product'&&o.discount_product_name)?'<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;color:#a78bfa"><span>折扣商品</span><span>'+escHtml(o.discount_product_name)+'</span></div>':'')
                 +(o.discount_note?'<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px;color:#94a3b8"><span>折扣備註</span><span>'+escHtml(o.discount_note)+'</span></div>':'')
               : '';
             const label=disc>0?'實收':'應收';
@@ -2957,6 +3247,16 @@ async function openEditOrder(orderId) {
     const discNoteEl = document.getElementById('editDiscountNote');
     if (discNoteEl) discNoteEl.value = o.discount_note || '';
 
+    // fix18-09C：折扣活動下拉
+    await loadDiscountCampaigns();
+    refreshEditOrderCampaignDropdown(o.discount_campaign_id || '');
+
+    // fix18-09C：折扣套用商品
+    const targetTypeEl = document.getElementById('editDiscountTargetType');
+    if (targetTypeEl) targetTypeEl.value = o.discount_target_type || 'order';
+    const prodPanel = document.getElementById('editDiscountProductPanel');
+    if (prodPanel) prodPanel.style.display = (o.discount_target_type === 'product') ? 'block' : 'none';
+
     // 填入可選商品清單
     const sel = document.getElementById('addItemSelect');
     sel.innerHTML = '<option value="">選擇商品...</option>' +
@@ -2965,6 +3265,10 @@ async function openEditOrder(orderId) {
     document.getElementById('addItemPanel').style.display = 'none';
     onEditPaymentChange();
     renderEditOrderItems();
+    // fix18-09C：填入折扣商品下拉（需在 editOrderItems 設定後執行）
+    if (o.discount_target_type === 'product') {
+      refreshEditDiscountProductDropdown(o.discount_product_id || '', o.discount_product_name || '');
+    }
     document.getElementById('editOrderModal').classList.add('open');
   } catch(e) { showToast('載入失敗：' + e.message, 'error'); }
 }
@@ -3098,6 +3402,17 @@ async function saveEditOrder() {
   // 這裡以原始訂單 discount_amount 為基礎，讓後端重算
   const discNote = document.getElementById('editDiscountNote')?.value?.trim() || '';
 
+  // fix18-09C：折扣活動
+  const campSel = document.getElementById('editDiscountCampaign');
+  const campId   = campSel?.value ? Number(campSel.value) : null;
+  const campName = campSel?.value ? (campSel.options[campSel.selectedIndex]?.dataset?.name || campSel.options[campSel.selectedIndex]?.text || '') : '';
+
+  // fix18-09C：折扣套用商品
+  const targetType = document.getElementById('editDiscountTargetType')?.value || 'order';
+  const prodSel    = document.getElementById('editDiscountProduct');
+  const prodId     = (targetType === 'product' && prodSel?.value) ? prodSel.value : '';
+  const prodName   = (targetType === 'product' && prodSel?.value) ? (prodSel.options[prodSel.selectedIndex]?.dataset?.name || '') : '';
+
   // fix18-09：訂單日期時間
   const createdAtEl = document.getElementById('editOrderCreatedAt');
   let createdAt = null;
@@ -3120,6 +3435,12 @@ async function saveEditOrder() {
     discount_category: discCat,
     discount_note: discNote,
     ...(createdAt ? { created_at: createdAt } : {}),
+    // fix18-09C：折扣活動與商品
+    discount_campaign_id:   campId,
+    discount_campaign_name: campName,
+    discount_target_type:   targetType,
+    discount_product_id:    prodId,
+    discount_product_name:  prodName,
   };
 
   try {

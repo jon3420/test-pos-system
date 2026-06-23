@@ -201,6 +201,7 @@
           <button class="shortcut-btn"        data-range="yesterday" onclick="setDateRange('yesterday')">昨日</button>
           <button class="shortcut-btn"        data-range="week"      onclick="setDateRange('week')">本週</button>
           <button class="shortcut-btn"        data-range="month"     onclick="setDateRange('month')">本月</button>
+          <button class="shortcut-btn"        data-range="lastmonth" onclick="setDateRange('lastmonth')">上月</button>
           <button class="shortcut-btn"        data-range="custom"    onclick="setDateRange('custom')">自訂</button>
         </div>
         <div id="customDateRange" style="display:none;gap:4px;align-items:center;display:flex">
@@ -590,6 +591,7 @@
       <button class="settings-tab-btn"        data-stab="line_biz" onclick="switchSettingsTab('line_biz')" id="tab-btn-line_biz">📡 LINE 營業</button>
       <button class="settings-tab-btn"        data-stab="line_entry" onclick="switchSettingsTab('line_entry')" id="tab-btn-line_entry">📲 LINE 點餐入口</button>
       <button class="settings-tab-btn"        data-stab="android_features" onclick="switchSettingsTab('android_features')">📱 Android 平板</button>
+      <button class="settings-tab-btn"        data-stab="discount_campaigns" onclick="switchSettingsTab('discount_campaigns')">💸 折扣活動</button>
       <!-- fix10: 店家授權 Tab 已移至 /system-admin，一般店家不可存取 -->
     </div>
 
@@ -1129,7 +1131,25 @@
   </div>
 </div>
 
-<!-- 商品編輯 Modal -->
+<!-- 折扣活動設定 Tab Panel (fix18-09C) -->
+<div class="settings-tab-panel" id="stab-discount_campaigns" style="display:none">
+  <div class="settings-grid">
+    <div class="settings-card" style="grid-column:1/-1">
+      <h3>💸 折扣活動設定</h3>
+      <p style="font-size:13px;color:#666;margin-bottom:16px">設定可套用在訂單折扣的活動名稱，修改訂單時可指定折扣活動。</p>
+      <div style="margin-bottom:16px;display:flex;gap:8px">
+        <input type="text" id="newCampaignName" placeholder="新增活動名稱（如：買一送一）" style="flex:1;padding:8px 12px;border:1px solid var(--border,#334155);border-radius:6px;background:var(--bg-card,#1e293b);color:var(--text-primary,#f1f5f9)">
+        <input type="text" id="newCampaignDesc" placeholder="說明（選填）" style="flex:1;padding:8px 12px;border:1px solid var(--border,#334155);border-radius:6px;background:var(--bg-card,#1e293b);color:var(--text-primary,#f1f5f9)">
+        <button class="btn-primary" onclick="addDiscountCampaign()">＋ 新增</button>
+      </div>
+      <div id="discountCampaignList" style="display:flex;flex-direction:column;gap:8px">
+        <div style="color:var(--text-muted);font-size:13px">載入中...</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
 <div class="modal-overlay" id="productModal" onclick="if(event.target===this)closeProductModal()">
   <div class="modal">
     <div class="modal-header">
@@ -1308,6 +1328,31 @@
   </div>
 </div>
 
+<!-- fix18-09C：折扣活動排行榜 TOP10 Modal -->
+<div class="modal-overlay" id="discCampaignTop10Modal" onclick="if(event.target===this)closeDiscCampaignTop10()">
+  <div class="modal" style="max-width:560px;max-height:92vh;overflow-y:auto">
+    <div class="modal-header">
+      <h3>🏆 折扣活動排行榜 TOP10</h3>
+      <button class="modal-close" onclick="closeDiscCampaignTop10()">✕</button>
+    </div>
+    <div class="modal-body" style="padding:0">
+      <table class="data-table" style="font-size:13px">
+        <thead><tr>
+          <th style="width:36px">#</th>
+          <th>活動名稱</th>
+          <th style="text-align:right">折扣總額</th>
+          <th style="text-align:right">筆數</th>
+          <th style="text-align:right">平均折扣</th>
+        </tr></thead>
+        <tbody id="discCampaignTop10Body"></tbody>
+      </table>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeDiscCampaignTop10()">關閉</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="discountDetailModal" onclick="if(event.target===this)closeDiscountDetail()">
   <div class="modal" style="max-width:720px;max-height:92vh;overflow-y:auto">
     <div class="modal-header">
@@ -1319,7 +1364,7 @@
       <div class="table-wrap" style="max-height:60vh;overflow-y:auto">
         <table class="data-table" style="font-size:13px">
           <thead><tr>
-            <th>日期</th><th>訂單編號</th><th>原價</th><th>折扣</th><th>實收</th><th>分類</th><th>備註</th>
+            <th>日期</th><th>訂單編號</th><th>折扣活動</th><th>折扣商品</th><th>折扣金額</th><th>分類</th><th>備註</th>
           </tr></thead>
           <tbody id="discDetailBody"></tbody>
         </table>
@@ -1393,6 +1438,28 @@
           <option value="other">其他</option>
         </select>
       </label>
+
+      <!-- fix18-09C：折扣活動 -->
+      <label>折扣活動
+        <select id="editDiscountCampaign" onchange="onDiscountCampaignChange()">
+          <option value="">— 不指定 —</option>
+        </select>
+      </label>
+
+      <!-- fix18-09C：折扣套用商品 -->
+      <label>折扣套用商品
+        <select id="editDiscountTargetType" onchange="onDiscountTargetTypeChange()">
+          <option value="order">整張訂單</option>
+          <option value="product">指定商品</option>
+        </select>
+      </label>
+      <div id="editDiscountProductPanel" style="display:none">
+        <label>指定商品
+          <select id="editDiscountProduct">
+            <option value="">— 選擇商品 —</option>
+          </select>
+        </label>
+      </div>
 
       <!-- fix18-09：折扣備註 -->
       <label>折扣備註<input type="text" id="editDiscountNote" placeholder="選填，說明折扣原因"></label>

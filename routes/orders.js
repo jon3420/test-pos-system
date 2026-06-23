@@ -17,10 +17,15 @@ function ensureFix1809Columns(db) {
       if (!e.message.includes('duplicate column')) console.error(`[migration] ${col}:`, e.message);
     }
   };
-  safeAdd('orders', 'original_total',      'REAL DEFAULT 0');
-  safeAdd('orders', 'discount_category',   'TEXT DEFAULT \'none\'');
-  safeAdd('orders', 'discount_note',       'TEXT DEFAULT \'\'');
-  // created_at 已存在，不需新增
+  safeAdd('orders', 'original_total',           'REAL DEFAULT 0');
+  safeAdd('orders', 'discount_category',         'TEXT DEFAULT \'none\'');
+  safeAdd('orders', 'discount_note',             'TEXT DEFAULT \'\'');
+  // fix18-09C 新增欄位
+  safeAdd('orders', 'discount_campaign_id',      'INTEGER DEFAULT NULL');
+  safeAdd('orders', 'discount_campaign_name',    'TEXT DEFAULT \'\'');
+  safeAdd('orders', 'discount_target_type',      'TEXT DEFAULT \'order\'');
+  safeAdd('orders', 'discount_product_id',       'TEXT DEFAULT \'\'');
+  safeAdd('orders', 'discount_product_name',     'TEXT DEFAULT \'\'');
 }
 
 // ── fix18-09：折扣分類標準化 ──────────────────────────────
@@ -68,6 +73,12 @@ function parseOrder(o) {
     discount_amount:          discountAmt,
     discount_category:        normalizeDiscountCategory(o.discount_category),
     discount_note:            o.discount_note || '',
+    // fix18-09C
+    discount_campaign_id:     o.discount_campaign_id || null,
+    discount_campaign_name:   o.discount_campaign_name || '',
+    discount_target_type:     o.discount_target_type || 'order',
+    discount_product_id:      o.discount_product_id || '',
+    discount_product_name:    o.discount_product_name || '',
     guest_count:              Number(o.guest_count              || 0),
     platform_order_no:        o.platform_order_no || '',
     delivery_status:          o.delivery_status   || '',
@@ -382,6 +393,9 @@ router.post('/', async (req, res) => {
       delivery_fee=0, discount_amount=0,
       platform_order_no='', delivery_status='',
       discount_category='none', discount_note='',
+      // fix18-09C 新增
+      discount_campaign_id=null, discount_campaign_name='',
+      discount_target_type='order', discount_product_id='', discount_product_name='',
     } = req.body;
 
     if (!items || !Array.isArray(items) || !items.length)
@@ -434,15 +448,20 @@ router.post('/', async (req, res) => {
          pickup_name,pickup_time,
          delivery_platform,delivery_address,estimated_delivery,
          platform_commission_rate,platform_commission_amount,store_actual_income,
-         delivery_fee,discount_amount,discount_category,discount_note,platform_order_no,delivery_status)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'completed',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+         delivery_fee,discount_amount,discount_category,discount_note,
+         discount_campaign_id,discount_campaign_name,discount_target_type,discount_product_id,discount_product_name,
+         platform_order_no,delivery_status)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'completed',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [id, order_number, storeId, customer_name, customer_phone, customer_line_id,
        JSON.stringify(items), payment_method, subtotal, total, originalTotal, note, recv, chng,
        order_mode, order_status || 'completed', table_number, Number(guest_count) || 0,
        pickup_name, pickup_time,
        delivery_platform, delivery_address, estimated_delivery,
        commRate, commAmount, storeIncome,
-       delivFee, discountAmt, normCat, discount_note || '', platform_order_no || '', effDelivStatus]
+       delivFee, discountAmt, normCat, discount_note || '',
+       discount_campaign_id || null, discount_campaign_name || '', discount_target_type || 'order',
+       discount_product_id || '', discount_product_name || '',
+       platform_order_no || '', effDelivStatus]
     );
 
     deductInventory(db, items, id, 'sale', storeId);
@@ -493,6 +512,12 @@ router.put('/:id', (req, res) => {
       created_at,
       discount_category,
       discount_note,
+      // fix18-09C 新增
+      discount_campaign_id,
+      discount_campaign_name,
+      discount_target_type,
+      discount_product_id,
+      discount_product_name,
     } = req.body;
 
     if (!reason?.trim()) return res.status(400).json({ success: false, message: '修改原因為必填' });
@@ -548,6 +573,15 @@ router.put('/:id', (req, res) => {
     const oldDiscCat    = normalizeDiscountCategory(order.discount_category);
     const oldDiscNote   = order.discount_note || '';
     const oldCreatedAt  = order.created_at || '';
+    // fix18-09C
+    const oldCampaignName  = order.discount_campaign_name || '';
+    const newCampaignName  = discount_campaign_name !== undefined ? (discount_campaign_name || '') : oldCampaignName;
+    const oldProdName      = order.discount_product_name || '';
+    const newProdName      = discount_product_name !== undefined ? (discount_product_name || '') : oldProdName;
+    const oldTargetType    = order.discount_target_type || 'order';
+    const newTargetType    = discount_target_type !== undefined ? (discount_target_type || 'order') : oldTargetType;
+    const newCampaignId    = discount_campaign_id !== undefined ? (discount_campaign_id || null) : (order.discount_campaign_id || null);
+    const newProdId        = discount_product_id  !== undefined ? (discount_product_id  || '') : (order.discount_product_id || '');
 
     const platformChanged  = newPlatformCode !== oldPlatformCode;
     const dateChanged      = created_at && newCreatedAt !== oldCreatedAt;
@@ -558,6 +592,9 @@ router.put('/:id', (req, res) => {
     if (dateChanged) diffLines.push(`訂單日期：${oldCreatedAt} → ${newCreatedAt}`);
     if (catChanged)  diffLines.push(`折扣分類：${DISCOUNT_CATEGORY_LABEL[oldDiscCat]||oldDiscCat} → ${DISCOUNT_CATEGORY_LABEL[normCat]||normCat}`);
     if (noteChanged) diffLines.push(`折扣備註：${oldDiscNote||'空白'} → ${normNote||'空白'}`);
+    // fix18-09C
+    if (newCampaignName !== oldCampaignName) diffLines.push(`折扣活動：${oldCampaignName||'無'} → ${newCampaignName||'無'}`);
+    if (newProdName !== oldProdName) diffLines.push(`折扣商品：${oldProdName||'無'} → ${newProdName||'無'}`);
     if (platformChanged) {
       diffLines.push(`平台來源：${PLATFORM_LABEL[oldPlatformCode]||'未知'} → ${newPlatformLabel}`);
       diffLines.push(`抽成率：${oldCommRate}% → ${newCommRate}%`);
@@ -587,6 +624,11 @@ router.put('/:id', (req, res) => {
       discount_note_after: normNote,
       discount_amount_before: Number(order.discount_amount || 0),
       discount_amount_after: discAmt,
+      // fix18-09C
+      discount_campaign_before: oldCampaignName,
+      discount_campaign_after: newCampaignName,
+      discount_product_before: oldProdName,
+      discount_product_after: newProdName,
     };
 
     db.run(
@@ -613,6 +655,7 @@ router.put('/:id', (req, res) => {
          order_status=?,table_number=?,guest_count=?,pickup_name=?,pickup_time=?,
          delivery_address=?,estimated_delivery=?,
          discount_category=?,discount_note=?,
+         discount_campaign_id=?,discount_campaign_name=?,discount_target_type=?,discount_product_id=?,discount_product_name=?,
          created_at=?,
          status='modified',updated_at=datetime('now','localtime') WHERE id=? AND store_id=?`,
       [JSON.stringify(items), newPayment, subtotal, newTotal, newOriginalTotal, discAmt, delivFee,
@@ -626,6 +669,7 @@ router.put('/:id', (req, res) => {
        pickup_name ?? order.pickup_name, pickup_time ?? order.pickup_time,
        delivery_address ?? order.delivery_address, estimated_delivery ?? order.estimated_delivery,
        normCat, normNote,
+       newCampaignId, newCampaignName, newTargetType, newProdId, newProdName,
        newCreatedAt,
        order.id, storeId]
     );
