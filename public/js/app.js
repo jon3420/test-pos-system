@@ -1809,6 +1809,23 @@ function loadCurrentOrderTab() {
   refreshCurrentOrderView();
 }
 
+// fix18-09：折扣分類顯示標籤
+const DISCOUNT_CATEGORY_DISPLAY = {
+  none: '無折扣', marketing: '廣告行銷', product_promo: '商品活動',
+  complaint: '客訴補償', loyalty: '老客優惠', staff_family: '員工親友',
+  platform_promo: '平台活動', other: '其他'
+};
+
+function normalizeDiscountCategory(value) {
+  if (!value || value === '' || value === 'undefined') return 'none';
+  const map = {
+    none:'none', marketing:'marketing', product_promo:'product_promo',
+    complaint:'complaint', loyalty:'loyalty', staff_family:'staff_family',
+    platform_promo:'platform_promo', other:'other'
+  };
+  return map[String(value).trim().toLowerCase()] || 'none';
+}
+
 // ===== 訂單頁 =====
 // 計算統計（從前端已篩選 orders 陣列計算，確保列表與統計一致）
 function calcStatsFromOrders(orders) {
@@ -1820,10 +1837,16 @@ function calcStatsFromOrders(orders) {
     if (o.order_mode === 'delivery' && o.delivery_status === 'cancelled') return false;
     return true;
   });
-  const order_count   = valid.length;
-  const total_revenue = valid.reduce((s, o) => s + Number(o.total || 0), 0);
-  const avg_order     = order_count > 0 ? total_revenue / order_count : 0;
-  const total_commission  = valid.reduce((s, o) => s + Number(o.platform_commission_amount || 0), 0);
+  const order_count        = valid.length;
+  const total_revenue      = valid.reduce((s, o) => s + Number(o.total || 0), 0);
+  const total_discount     = valid.reduce((s, o) => s + Number(o.discount_amount || 0), 0);
+  const total_original     = valid.reduce((s, o) => {
+    const disc = Number(o.discount_amount || 0);
+    const tot  = Number(o.total || 0);
+    return s + (o.original_total ? Number(o.original_total) : tot + disc);
+  }, 0);
+  const avg_order          = order_count > 0 ? total_revenue / order_count : 0;
+  const total_commission   = valid.reduce((s, o) => s + Number(o.platform_commission_amount || 0), 0);
   const total_store_income = valid.reduce((s, o) => s + Number(o.store_actual_income || o.total || 0), 0);
 
   // 熱賣商品
@@ -1838,7 +1861,18 @@ function calcStatsFromOrders(orders) {
   });
   const top_products = Object.values(productMap).sort((a, b) => b.qty - a.qty).slice(0, 5);
 
-  return { order_count, total_revenue, avg_order, total_commission, total_store_income, top_products };
+  // fix18-09：折扣分類統計
+  const discount_by_category = {};
+  valid.forEach(o => {
+    const disc = Number(o.discount_amount || 0);
+    if (disc <= 0) return;
+    const cat = normalizeDiscountCategory(o.discount_category);
+    if (!discount_by_category[cat]) discount_by_category[cat] = 0;
+    discount_by_category[cat] += disc;
+  });
+
+  return { order_count, total_revenue, total_discount, total_original, avg_order,
+           total_commission, total_store_income, top_products, discount_by_category };
 }
 
 async function loadOrders(modeFilter) {
@@ -1898,13 +1932,37 @@ function renderStatCards(stats) {
   const container = document.getElementById('statCards');
   if (!container) return;
   // _hasDelivery: 明確傳入時才顯示抽成卡片（外送報表分頁）
-  const showDelivery = stats._hasDelivery && stats.total_commission > 0;
+  const showDelivery = stats._hasDelivery;
+
+  // fix18-09：折扣分類明細
+  const discByCat = stats.discount_by_category || {};
+  const discCatEntries = Object.entries(discByCat).filter(([,v]) => v > 0);
+  const discCatHtml = discCatEntries.length
+    ? discCatEntries.map(([cat, amt]) =>
+        `<div style="display:flex;justify-content:space-between;font-size:12px;padding:2px 0;border-bottom:1px solid var(--border,#334155)">
+           <span style="color:var(--text-secondary,#94a3b8)">${DISCOUNT_CATEGORY_DISPLAY[cat]||cat}</span>
+           <span style="color:var(--danger,#ef4444);font-weight:600">-NT$${Math.round(amt)}</span>
+         </div>`
+      ).join('')
+    : '<div style="color:var(--text-muted,#64748b);font-size:12px">無折扣支出</div>';
+
+  const totalDiscount  = Number(stats.total_discount || 0);
+  const totalOriginal  = Number(stats.total_original || 0);
+  const totalRevenue   = Number(stats.total_revenue || 0);
+
   container.innerHTML = `
     <div class="stat-card"><div class="stat-card-label">訂單數</div><div class="stat-card-value">${stats.order_count||0}</div><div class="stat-card-sub">筆訂單</div></div>
-    <div class="stat-card"><div class="stat-card-label">總營業額</div><div class="stat-card-value">$${Math.round(stats.total_revenue||0)}</div><div class="stat-card-sub">新台幣</div></div>
+    <div class="stat-card"><div class="stat-card-label">原價營業額</div><div class="stat-card-value" style="font-size:18px">$${Math.round(totalOriginal)}</div><div class="stat-card-sub">未扣折扣</div></div>
+    ${totalDiscount > 0 ? `<div class="stat-card"><div class="stat-card-label">折扣總額</div><div class="stat-card-value" style="color:var(--danger)">-$${Math.round(totalDiscount)}</div><div class="stat-card-sub">已折抵</div></div>` : ''}
+    <div class="stat-card"><div class="stat-card-label">實收營業額</div><div class="stat-card-value" style="color:var(--success)">$${Math.round(totalRevenue)}</div><div class="stat-card-sub">新台幣</div></div>
     <div class="stat-card"><div class="stat-card-label">平均客單價</div><div class="stat-card-value">$${Math.round(stats.avg_order||0)}</div><div class="stat-card-sub">每筆訂單</div></div>
-    ${showDelivery ? `<div class="stat-card"><div class="stat-card-label">平台抽成</div><div class="stat-card-value" style="color:var(--danger)">$${Math.round(stats.total_commission)}</div></div><div class="stat-card"><div class="stat-card-label">店家實收</div><div class="stat-card-value" style="color:var(--success)">$${Math.round(stats.total_store_income)}</div></div>` : ''}
-    ${stats.top_products?.length ? `<div class="stat-card"><div class="stat-card-label">🏆 熱賣</div><div class="stat-card-value" style="font-size:14px;line-height:1.6">${stats.top_products.slice(0,3).map(p=>`${escHtml(p.name)} <small style="color:#999">×${p.qty}</small>`).join('<br>')}</div></div>` : ''}`;
+    ${showDelivery ? `<div class="stat-card"><div class="stat-card-label">平台抽成</div><div class="stat-card-value" style="color:var(--danger)">$${Math.round(stats.total_commission||0)}</div></div><div class="stat-card"><div class="stat-card-label">店家實收</div><div class="stat-card-value" style="color:var(--success)">$${Math.round(stats.total_store_income||0)}</div></div>` : ''}
+    ${stats.top_products?.length ? `<div class="stat-card"><div class="stat-card-label">🏆 熱賣</div><div class="stat-card-value" style="font-size:14px;line-height:1.6">${stats.top_products.slice(0,3).map(p=>`${escHtml(p.name)} <small style="color:#999">×${p.qty}</small>`).join('<br>')}</div></div>` : ''}
+    <div class="stat-card" style="min-width:200px">
+      <div class="stat-card-label">💸 折扣支出</div>
+      <div class="stat-card-value" style="color:var(--danger);font-size:18px">NT$${Math.round(totalDiscount)}</div>
+      <div style="margin-top:8px">${discCatHtml}</div>
+    </div>`;
 }
 
 function renderOrdersTable(orders) {
@@ -2072,21 +2130,26 @@ async function showOrderDetail(orderId) {
       <div class="order-log-section">
         <h4>📝 修改 / 作廢記錄（共 ${logs.length} 筆）</h4>
         ${logs.map(l => {
-          // fix18-08：解析 after_data 的 platform_diff
-          let platformDiffHtml = '';
+          // fix18-09：解析 after_data 的所有 diff
+          let diffHtml = '';
           try {
             const afterData = typeof l.after_data === 'string' ? JSON.parse(l.after_data) : (l.after_data || {});
             const pd = afterData.platform_diff;
-            if (pd && pd.platform_before !== pd.platform_after) {
-              platformDiffHtml = `<div class="log-diff" style="color:#ce93d8">
-                平台來源：${escHtml(pd.platform_before)} → ${escHtml(pd.platform_after)}｜
-                抽成率：${pd.commission_rate_before}% → ${pd.commission_rate_after}%｜
-                平台抽成：NT$${pd.commission_amount_before} → NT$${pd.commission_amount_after}｜
-                店家實收：NT$${pd.store_income_before} → NT$${pd.store_income_after}
-              </div>`;
+            if (pd) {
+              if (pd.created_at_before && pd.created_at_after && pd.created_at_before !== pd.created_at_after) {
+                diffHtml += `<div class="log-diff" style="color:#a78bfa">訂單日期：${escHtml(pd.created_at_before)} → ${escHtml(pd.created_at_after)}</div>`;
+              }
+              if (pd.discount_category_before && pd.discount_category_after && pd.discount_category_before !== pd.discount_category_after) {
+                diffHtml += `<div class="log-diff" style="color:#fbbf24">折扣分類：${escHtml(pd.discount_category_before)} → ${escHtml(pd.discount_category_after)}</div>`;
+              }
+              if (pd.discount_note_before !== undefined && pd.discount_note_before !== pd.discount_note_after) {
+                diffHtml += `<div class="log-diff" style="color:#fbbf24">折扣備註：${escHtml(pd.discount_note_before||'空白')} → ${escHtml(pd.discount_note_after||'空白')}</div>`;
+              }
+              if (pd.platform_before && pd.platform_after && pd.platform_before !== pd.platform_after) {
+                diffHtml += `<div class="log-diff" style="color:#ce93d8">平台來源：${escHtml(pd.platform_before)} → ${escHtml(pd.platform_after)}｜抽成率：${pd.commission_rate_before}% → ${pd.commission_rate_after}%</div>`;
+              }
             }
           } catch {}
-          // 原因可能包含 platform diff 說明（fix18-08 寫入格式）
           const reasonDisplay = (l.reason||'—').split('｜')[0];
           return `
           <div class="log-item">
@@ -2100,7 +2163,7 @@ async function showOrderDetail(orderId) {
               ${l.amount_diff !== 0 ? `（${l.amount_diff > 0 ? '＋' : ''}${l.amount_diff}）` : ''}
               ｜付款：${l.before_payment} → ${l.after_payment}
             </div>
-            ${platformDiffHtml}
+            ${diffHtml}
           </div>`;}).join('')}
       </div>` : '';
 
@@ -2141,7 +2204,9 @@ async function showOrderDetail(orderId) {
             const discRows=disc>0
               ? codeRow
                 +'<div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:4px;color:#999"><span>原價</span><span style="font-family:monospace">NT$'+origTotal+'</span></div>'
-                +'<div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:6px;color:#06C755"><span>折扣</span><span style="font-family:monospace">-NT$'+disc+'</span></div>'
+                +'<div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:4px;color:#06C755"><span>折扣</span><span style="font-family:monospace">-NT$'+disc+'</span></div>'
+                +(o.discount_category&&o.discount_category!=='none'?'<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;color:#fbbf24"><span>折扣分類</span><span>'+(DISCOUNT_CATEGORY_DISPLAY[o.discount_category]||o.discount_category)+'</span></div>':'')
+                +(o.discount_note?'<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px;color:#94a3b8"><span>折扣備註</span><span>'+escHtml(o.discount_note)+'</span></div>':'')
               : '';
             const label=disc>0?'實收':'應收';
             return discRows+'<div style="display:flex;justify-content:space-between;font-size:20px;font-weight:900"><span>'+label+'</span><span style="color:#f5a623;font-family:monospace">NT$'+o.total+'</span></div>';
@@ -2681,6 +2746,22 @@ async function openEditOrder(orderId) {
       platformEl.value = normalizePlatform(o.delivery_platform || o.platform || '');
     }
 
+    // fix18-09：訂單日期時間
+    const createdAtEl = document.getElementById('editOrderCreatedAt');
+    if (createdAtEl && o.created_at) {
+      // 轉換為 datetime-local 格式 YYYY-MM-DDTHH:MM
+      const dt = o.created_at.replace(' ', 'T').slice(0, 16);
+      createdAtEl.value = dt;
+    }
+
+    // fix18-09：折扣分類
+    const discCatEl = document.getElementById('editDiscountCategory');
+    if (discCatEl) discCatEl.value = o.discount_category || 'none';
+
+    // fix18-09：折扣備註
+    const discNoteEl = document.getElementById('editDiscountNote');
+    if (discNoteEl) discNoteEl.value = o.discount_note || '';
+
     // 填入可選商品清單
     const sel = document.getElementById('addItemSelect');
     sel.innerHTML = '<option value="">選擇商品...</option>' +
@@ -2816,6 +2897,20 @@ async function saveEditOrder() {
 
   if (isCash && received < newTotal) { showToast('實收金額不足', 'error'); return; }
 
+  // fix18-09：取得折扣分類，若有折扣金額則必須選分類
+  const discCat = document.getElementById('editDiscountCategory')?.value || 'none';
+  // 計算折扣（商品小計 vs 新總金額差異，或直接取原始折扣）
+  // 這裡以原始訂單 discount_amount 為基礎，讓後端重算
+  const discNote = document.getElementById('editDiscountNote')?.value?.trim() || '';
+
+  // fix18-09：訂單日期時間
+  const createdAtEl = document.getElementById('editOrderCreatedAt');
+  let createdAt = null;
+  if (createdAtEl && createdAtEl.value) {
+    // datetime-local 格式轉換為 "YYYY-MM-DD HH:MM:SS"
+    createdAt = createdAtEl.value.replace('T', ' ') + ':00';
+  }
+
   const payload = {
     items: editOrderItems.map(i => ({ ...i, subtotal: i.price * i.qty })),
     payment_method: payment,
@@ -2825,7 +2920,11 @@ async function saveEditOrder() {
     received_amount: received,
     reason,
     // fix18-08：平台來源
-    platform: document.getElementById('editOrderPlatform')?.value || 'unknown'
+    platform: document.getElementById('editOrderPlatform')?.value || 'unknown',
+    // fix18-09：新增欄位
+    discount_category: discCat,
+    discount_note: discNote,
+    ...(createdAt ? { created_at: createdAt } : {}),
   };
 
   try {

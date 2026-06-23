@@ -1277,6 +1277,12 @@
     <div class="modal-body" id="editOrderBody">
       <input type="hidden" id="editOrderId">
 
+      <!-- fix18-09：訂單日期時間（負責人可修改） -->
+      <label id="editCreatedAtLabel">訂單日期時間
+        <input type="datetime-local" id="editOrderCreatedAt" style="font-family:monospace">
+        <small style="color:var(--text-muted);font-size:11px">修改後報表將依新日期重新統計</small>
+      </label>
+
       <!-- 商品列表 -->
       <label>商品明細</label>
       <div id="editOrderItems" class="edit-items-list"></div>
@@ -1310,6 +1316,23 @@
           <option value="transfer">🏦 轉帳</option>
         </select>
       </label>
+
+      <!-- fix18-09：折扣分類 -->
+      <label>折扣分類
+        <select id="editDiscountCategory">
+          <option value="none">無折扣</option>
+          <option value="marketing">廣告行銷支出</option>
+          <option value="product_promo">商品活動支出</option>
+          <option value="complaint">客訴補償</option>
+          <option value="loyalty">老客戶優惠</option>
+          <option value="staff_family">員工/親友優惠</option>
+          <option value="platform_promo">平台活動</option>
+          <option value="other">其他</option>
+        </select>
+      </label>
+
+      <!-- fix18-09：折扣備註 -->
+      <label>折扣備註<input type="text" id="editDiscountNote" placeholder="選填，說明折扣原因"></label>
 
       <!-- fix18-08：平台來源 -->
       <label>平台來源
