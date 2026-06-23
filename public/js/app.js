@@ -7772,35 +7772,46 @@ function renderAnalysisGroupList() {
 
 // ── 商品分析群組 Modal 開啟 / 關閉 ─────────────────────────
 async function openAnalysisGroupModal(id) {
-  document.getElementById('editAnalysisGroupId').value = id || '';
-  document.getElementById('editAnalysisGroupName').value = '';
-  document.getElementById('editAnalysisGroupDesc').value = '';
-  document.getElementById('editAnalysisGroupSort').value = '0';
-  document.getElementById('editAnalysisGroupEnabled').checked = true;
+  // ── 立即重設表單 ─────────────────────────────────────────
+  const setVal = (elId, v) => { const el = document.getElementById(elId); if (el) el.value = v; };
+  const setChk = (elId, v) => { const el = document.getElementById(elId); if (el) el.checked = !!v; };
+  setVal('editAnalysisGroupId', id || '');
+  setVal('editAnalysisGroupName', '');
+  setVal('editAnalysisGroupDesc', '');
+  setVal('editAnalysisGroupSort', '0');
+  setChk('editAnalysisGroupEnabled', true);
 
   const titleEl = document.getElementById('analysisGroupModalTitle');
   if (titleEl) titleEl.textContent = id ? '編輯商品分析群組' : '新增商品分析群組';
 
-  // 取得所有商品供勾選
+  // ── 先開啟 Modal，避免 await 期間無反應 ─────────────────
+  const modal = document.getElementById('analysisGroupModal');
+  if (modal) modal.classList.add('open');
+
+  // ── 顯示載入中 ──────────────────────────────────────────
+  const listEl = document.getElementById('analysisGroupProductList');
+  if (listEl) listEl.innerHTML = '<div style="color:var(--text-muted);font-size:13px;padding:12px">載入商品中...</div>';
+
   let selectedNames = [];
+
+  // ── 若為編輯模式，先取群組現有成員 ──────────────────────
   if (id) {
     try {
-      const res  = await apiFetch(`/api/product-analysis-groups/${id}`);
+      const res  = await apiFetch('/api/product-analysis-groups/' + id);
       const json = await res.json();
       if (json.success && json.data) {
         const g = json.data;
-        document.getElementById('editAnalysisGroupName').value = g.group_name || '';
-        document.getElementById('editAnalysisGroupDesc').value = g.description || '';
-        document.getElementById('editAnalysisGroupSort').value = g.sort_order || 0;
-        document.getElementById('editAnalysisGroupEnabled').checked = !!g.enabled;
+        setVal('editAnalysisGroupName', g.group_name || '');
+        setVal('editAnalysisGroupDesc', g.description || '');
+        setVal('editAnalysisGroupSort', g.sort_order || 0);
+        setChk('editAnalysisGroupEnabled', g.enabled);
         selectedNames = (g.items || []).map(i => i.product_name);
       }
-    } catch(e) { console.warn('openAnalysisGroupModal fetch:', e.message); }
+    } catch(e) { console.warn('[AG] fetch group:', e.message); }
   }
 
+  // ── 渲染商品勾選清單 ────────────────────────────────────
   await _renderAnalysisGroupProductCheckboxes(selectedNames);
-
-  document.getElementById('analysisGroupModal').classList.add('open');
 }
 
 function closeAnalysisGroupModal() {
@@ -7905,3 +7916,17 @@ async function deleteAnalysisGroup(id, name) {
   } catch(e) { showToast('❌ ' + e.message, 'error'); }
 }
 
+// ── fix18-09F-hotfix1：確保所有群組函式掛載到 window ─────────
+// (function declarations 已 hoist，但顯式掛載更保險)
+(function exportAnalysisGroupGlobals() {
+  window.openAnalysisGroupModal       = openAnalysisGroupModal;
+  window.closeAnalysisGroupModal      = closeAnalysisGroupModal;
+  window.saveAnalysisGroup            = saveAnalysisGroup;
+  window.toggleAnalysisGroup          = toggleAnalysisGroup;
+  window.deleteAnalysisGroup          = deleteAnalysisGroup;
+  window.filterAnalysisGroupProducts  = filterAnalysisGroupProducts;
+  window.selectAllAnalysisGroupProducts = selectAllAnalysisGroupProducts;
+  window.loadProductAnalysisGroupsTab = loadProductAnalysisGroupsTab;
+  window.setProductStatMode           = setProductStatMode;
+  window.openDiscTop10WithGroups      = openDiscTop10WithGroups;
+})();
