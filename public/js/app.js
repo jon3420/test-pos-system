@@ -2071,13 +2071,13 @@ function renderStatCards(stats, allOrders) {
 }
 
 // fix18-09B：折扣商品排行（TOP 10）
-function renderDiscountTopProducts(orders) {
+// fix18-09B rev：計算折扣商品排行（共用）
+function buildDiscountProdMap(orders) {
   const valid = (orders || []).filter(o => {
     if (o.status === 'void' || o.order_status === 'cancelled') return false;
     if (o.order_mode === 'delivery' && o.delivery_status === 'cancelled') return false;
     return Number(o.discount_amount || 0) > 0;
   });
-  if (!valid.length) return '';
   const prodMap = {};
   valid.forEach(o => {
     const disc = Number(o.discount_amount || 0);
@@ -2090,17 +2090,54 @@ function renderDiscountTopProducts(orders) {
       prodMap[item.name].count += 1;
     });
   });
-  const top10 = Object.values(prodMap).sort((a, b) => b.total - a.total).slice(0, 10);
-  if (!top10.length) return '';
-  return `<div class="stat-card" style="min-width:220px">
-    <div class="stat-card-label">📉 折扣最多商品 TOP10</div>
-    <div style="margin-top:8px">
-      ${top10.map((p, i) => `<div style="display:flex;justify-content:space-between;font-size:12px;padding:4px 0;border-bottom:1px solid var(--border,#334155)">
-        <span style="color:var(--text-secondary)">${i+1}. ${escHtml(p.name)}</span>
-        <span style="text-align:right"><span style="color:var(--danger);font-family:monospace">NT$${Math.round(p.total)}</span><br><span style="color:var(--text-muted);font-size:11px">${p.count}筆</span></span>
-      </div>`).join('')}
+  return Object.values(prodMap).sort((a, b) => b.total - a.total);
+}
+
+// 統計卡只顯示 TOP3，右上角附「查看 TOP10」按鈕
+function renderDiscountTopProducts(orders) {
+  const ranked = buildDiscountProdMap(orders);
+  if (!ranked.length) return '';
+  const preview = ranked.slice(0, 3);
+  const previewRows = preview.map((p, i) =>
+    `<div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;padding:4px 0;border-bottom:1px solid var(--border,#334155)">
+      <span style="color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:120px">${i+1}. ${escHtml(p.name)}</span>
+      <span style="text-align:right;white-space:nowrap;margin-left:6px">
+        <span style="color:var(--danger);font-family:monospace;font-weight:700">NT$${Math.round(p.total)}</span>
+        <span style="color:var(--text-muted);font-size:11px;margin-left:4px">${p.count}筆</span>
+      </span>
+    </div>`
+  ).join('');
+  return `<div class="stat-card" style="min-width:200px;max-width:260px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <div class="stat-card-label" style="margin:0">📉 折扣商品排行</div>
+      <button onclick="openDiscTop10()" style="font-size:11px;padding:2px 8px;border-radius:99px;border:1px solid var(--border,#334155);background:transparent;color:var(--text-secondary,#94a3b8);cursor:pointer;white-space:nowrap">查看 TOP10</button>
     </div>
+    ${previewRows}
+    ${ranked.length > 3 ? `<div style="font-size:11px;color:var(--text-muted);text-align:center;margin-top:6px;cursor:pointer" onclick="openDiscTop10()">還有 ${ranked.length - 3} 項 →</div>` : ''}
   </div>`;
+}
+
+// 開啟 TOP10 Modal
+function openDiscTop10() {
+  const ranked = buildDiscountProdMap(_allOrdersCache || []);
+  const top10  = ranked.slice(0, 10);
+  document.getElementById('discTop10Body').innerHTML = top10.length
+    ? top10.map((p, i) => {
+        const avg = p.count > 0 ? Math.round(p.total / p.count) : 0;
+        return `<tr>
+          <td style="font-size:13px;color:var(--text-muted);text-align:center">${i + 1}</td>
+          <td style="font-size:13px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(p.name)}</td>
+          <td style="text-align:right;font-family:monospace;color:var(--danger);font-weight:700">NT$${Math.round(p.total)}</td>
+          <td style="text-align:right;color:var(--text-secondary)">${p.count}筆</td>
+          <td style="text-align:right;font-family:monospace;color:var(--text-secondary)">NT$${avg}</td>
+        </tr>`;
+      }).join('')
+    : '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:16px">無資料</td></tr>';
+  document.getElementById('discTop10Modal').classList.add('open');
+}
+
+function closeDiscTop10() {
+  document.getElementById('discTop10Modal').classList.remove('open');
 }
 
 function renderOrdersTable(orders) {

@@ -1283,6 +1283,31 @@
 
 <!-- 訂單編輯 Modal -->
 <!-- fix18-09B：折扣明細 Modal -->
+<!-- fix18-09B rev：折扣商品 TOP10 Modal -->
+<div class="modal-overlay" id="discTop10Modal" onclick="if(event.target===this)closeDiscTop10()">
+  <div class="modal" style="max-width:560px;max-height:92vh;overflow-y:auto">
+    <div class="modal-header">
+      <h3>📉 折扣最多商品 TOP10</h3>
+      <button class="modal-close" onclick="closeDiscTop10()">✕</button>
+    </div>
+    <div class="modal-body" style="padding:0">
+      <table class="data-table" style="font-size:13px">
+        <thead><tr>
+          <th style="width:36px">#</th>
+          <th>商品名稱</th>
+          <th style="text-align:right">折扣總額</th>
+          <th style="text-align:right">筆數</th>
+          <th style="text-align:right">平均折扣</th>
+        </tr></thead>
+        <tbody id="discTop10Body"></tbody>
+      </table>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeDiscTop10()">關閉</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="discountDetailModal" onclick="if(event.target===this)closeDiscountDetail()">
   <div class="modal" style="max-width:720px;max-height:92vh;overflow-y:auto">
     <div class="modal-header">
