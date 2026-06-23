@@ -2449,3 +2449,60 @@ input[type="time"]::selection {
     min-width: 0 !important;
   }
 }
+
+/* ── fix18-09B：折扣篩選列 ─────────────────────────────── */
+.disc-filter-btn {
+  padding: 4px 10px;
+  border-radius: 99px;
+  border: 1px solid var(--border, #334155);
+  background: transparent;
+  color: var(--text-secondary, #94a3b8);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.disc-filter-btn:hover { border-color: var(--accent, #f5a623); color: var(--accent, #f5a623); }
+.disc-filter-btn.active {
+  background: var(--accent, #f5a623);
+  color: #000;
+  border-color: var(--accent, #f5a623);
+  font-weight: 700;
+}
+
+/* ── fix18-09B：折扣標籤 ───────────────────────────────── */
+.disc-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 99px;
+  font-size: 10px;
+  font-weight: 700;
+  margin-top: 3px;
+  line-height: 1.5;
+}
+.disc-badge-product_promo  { background: #064e3b; color: #6ee7b7; }
+.disc-badge-marketing      { background: #1e3a5f; color: #93c5fd; }
+.disc-badge-complaint      { background: #451a03; color: #fdba74; }
+.disc-badge-loyalty        { background: #2e1065; color: #d8b4fe; }
+.disc-badge-staff_family   { background: #1c1c1c; color: #d1d5db; }
+.disc-badge-platform_promo { background: #422006; color: #fde68a; }
+.disc-badge-other          { background: #1e293b; color: #94a3b8; }
+
+/* ── fix18-09B：高折扣警示 ─────────────────────────────── */
+.high-discount-warn {
+  display: inline-block;
+  font-size: 10px;
+  color: #ef4444;
+  font-weight: 700;
+  margin-top: 2px;
+}
+
+/* ── fix18-09B：折扣支出卡可點擊樣式 ──────────────────── */
+.stat-card-clickable {
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.stat-card-clickable:hover {
+  border-color: var(--accent, #f5a623) !important;
+  box-shadow: 0 0 0 2px rgba(245,166,35,0.2);
+}

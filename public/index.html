@@ -219,6 +219,20 @@
       <button class="order-tab-btn"        data-tab="delivery" onclick="switchOrderTab('delivery')">🛵 外送報表</button>
     </div>
 
+    <!-- fix18-09B：折扣快速篩選列 -->
+    <div id="discountFilterBar" style="display:flex;flex-wrap:wrap;gap:6px;padding:10px 0 4px 0;border-bottom:1px solid var(--border,#334155);margin-bottom:8px">
+      <button class="disc-filter-btn active" data-filter="all"            onclick="setDiscountFilter('all')">全部</button>
+      <button class="disc-filter-btn"        data-filter="has_discount"   onclick="setDiscountFilter('has_discount')">💸 有折扣</button>
+      <button class="disc-filter-btn"        data-filter="no_discount"    onclick="setDiscountFilter('no_discount')">無折扣</button>
+      <button class="disc-filter-btn"        data-filter="product_promo"  onclick="setDiscountFilter('product_promo')">🟢 商品活動</button>
+      <button class="disc-filter-btn"        data-filter="marketing"      onclick="setDiscountFilter('marketing')">🔵 廣告行銷</button>
+      <button class="disc-filter-btn"        data-filter="complaint"      onclick="setDiscountFilter('complaint')">🟠 客訴補償</button>
+      <button class="disc-filter-btn"        data-filter="loyalty"        onclick="setDiscountFilter('loyalty')">🟣 老客優惠</button>
+      <button class="disc-filter-btn"        data-filter="staff_family"   onclick="setDiscountFilter('staff_family')">⚫ 員工親友</button>
+      <button class="disc-filter-btn"        data-filter="platform_promo" onclick="setDiscountFilter('platform_promo')">🟡 平台活動</button>
+      <button class="disc-filter-btn"        data-filter="other"          onclick="setDiscountFilter('other')">⚪ 其他</button>
+    </div>
+
     <!-- 統計卡片 -->
     <div class="stat-cards" id="statCards"></div>
 
@@ -1268,6 +1282,30 @@
 </div>
 
 <!-- 訂單編輯 Modal -->
+<!-- fix18-09B：折扣明細 Modal -->
+<div class="modal-overlay" id="discountDetailModal" onclick="if(event.target===this)closeDiscountDetail()">
+  <div class="modal" style="max-width:720px;max-height:92vh;overflow-y:auto">
+    <div class="modal-header">
+      <h3>💸 折扣明細 <span id="discDetailTitle" style="font-size:13px;color:var(--accent)"></span></h3>
+      <button class="modal-close" onclick="closeDiscountDetail()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="discDetailSummary" style="margin-bottom:12px;padding:10px;background:var(--bg-base);border-radius:6px;font-size:13px"></div>
+      <div class="table-wrap" style="max-height:60vh;overflow-y:auto">
+        <table class="data-table" style="font-size:13px">
+          <thead><tr>
+            <th>日期</th><th>訂單編號</th><th>原價</th><th>折扣</th><th>實收</th><th>分類</th><th>備註</th>
+          </tr></thead>
+          <tbody id="discDetailBody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeDiscountDetail()">關閉</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="editOrderModal" onclick="if(event.target===this)closeEditOrder()">
   <div class="modal" style="max-width:600px;max-height:92vh;overflow-y:auto">
     <div class="modal-header">

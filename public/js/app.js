@@ -783,6 +783,8 @@ let currentOrderMode = 'dine_in';  // 點餐模式：dine_in | takeout | deliver
 let selectedPlatform = null;       // 選中的外送平台物件
 let currentOrderTab = 'all';       // 訂單分頁
 let currentOrderView = 'all';     // fix18-07：追蹤目前顯示的訂單視圖 ('all'|'takeout'|'delivery')
+let currentDiscountFilter = 'all'; // fix18-09B：折扣篩選 ('all'|'has_discount'|'no_discount'|category)
+let _allOrdersCache = [];          // fix18-09B：目前分頁全部訂單快取（供折扣篩選使用）
 let orderInfoExpanded = true;      // 訂單資訊區展開狀態
 let allPaymentMethods = [];        // 付款方式快取
 
@@ -1788,6 +1790,9 @@ function switchOrderTab(tab) {
   document.querySelectorAll('.order-tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
   document.getElementById('order-tab-all').style.display      = tab === 'delivery' ? 'none' : 'block';
   document.getElementById('order-tab-delivery').style.display = tab === 'delivery' ? 'block' : 'none';
+  // fix18-09B：切換分頁時重置折扣篩選
+  currentDiscountFilter = 'all';
+  document.querySelectorAll('.disc-filter-btn').forEach(b => b.classList.toggle('active', b.dataset.filter === 'all'));
   refreshCurrentOrderView();
 }
 
@@ -1825,6 +1830,74 @@ function normalizeDiscountCategory(value) {
   };
   return map[String(value).trim().toLowerCase()] || 'none';
 }
+// fix18-09B：折扣篩選邏輯
+function applyDiscountFilter(orders, filter) {
+  if (!filter || filter === 'all') return orders;
+  if (filter === 'has_discount') return orders.filter(o => Number(o.discount_amount || 0) > 0);
+  if (filter === 'no_discount')  return orders.filter(o => Number(o.discount_amount || 0) <= 0);
+  // 分類篩選
+  return orders.filter(o => {
+    if (Number(o.discount_amount || 0) <= 0) return false;
+    return normalizeDiscountCategory(o.discount_category) === filter;
+  });
+}
+
+// fix18-09B：設定折扣篩選並刷新列表
+function setDiscountFilter(filter) {
+  currentDiscountFilter = filter;
+  // 更新 button active 狀態
+  document.querySelectorAll('.disc-filter-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.filter === filter);
+  });
+  // 用快取重新 render（不重新請求 API）
+  const filtered = applyDiscountFilter(_allOrdersCache, filter);
+  if (currentOrderView === 'delivery') {
+    renderDeliveryTable(filtered);
+  } else {
+    renderOrdersTable(filtered);
+  }
+}
+
+// fix18-09B：開啟折扣明細彈窗
+function openDiscountDetail() {
+  const orders = (_allOrdersCache || []).filter(o => {
+    if (o.status === 'void' || o.order_status === 'cancelled') return false;
+    if (o.order_mode === 'delivery' && o.delivery_status === 'cancelled') return false;
+    return Number(o.discount_amount || 0) > 0;
+  }).sort((a, b) => Number(b.discount_amount) - Number(a.discount_amount));
+
+  const totalDisc = orders.reduce((s, o) => s + Number(o.discount_amount || 0), 0);
+  document.getElementById('discDetailTitle').textContent = `共 ${orders.length} 筆，折扣總額 NT$${Math.round(totalDisc)}`;
+  document.getElementById('discDetailSummary').innerHTML =
+    `<span style="color:var(--text-secondary)">篩選範圍：</span> 目前分頁所有有折扣訂單（${orders.length} 筆）｜折扣合計：<span style="color:var(--danger);font-weight:700">NT$${Math.round(totalDisc)}</span>`;
+
+  document.getElementById('discDetailBody').innerHTML = orders.length
+    ? orders.map(o => {
+        const disc = Number(o.discount_amount || 0);
+        const origTotal = o.original_total || Number(o.total) + disc;
+        const cat = normalizeDiscountCategory(o.discount_category);
+        const catLabel = DISCOUNT_CATEGORY_DISPLAY[cat] || '—';
+        const isHighDisc = origTotal > 0 && disc / origTotal >= 0.5;
+        const dateStr = o.created_at ? o.created_at.slice(0, 10) : '—';
+        return `<tr>
+          <td style="font-size:12px;color:#999;white-space:nowrap">${dateStr}</td>
+          <td><span class="order-num" style="font-size:12px">${escHtml(o.order_number)}</span></td>
+          <td style="font-family:monospace;color:var(--text-secondary)">NT$${origTotal}</td>
+          <td style="font-family:monospace;color:var(--danger);font-weight:700">-NT$${disc}${isHighDisc ? ' <span style="color:#ef4444;font-size:10px">⚠</span>' : ''}</td>
+          <td style="font-family:monospace;color:#f5a623;font-weight:700">NT$${o.total}</td>
+          <td>${cat && cat !== 'none' ? `<span class="disc-badge disc-badge-${cat}">${catLabel}</span>` : '<span style="color:var(--text-muted);font-size:12px">—</span>'}</td>
+          <td style="font-size:12px;color:var(--text-secondary);max-width:120px">${escHtml(o.discount_note || '—')}</td>
+        </tr>`;
+      }).join('')
+    : '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:16px">無折扣訂單</td></tr>';
+
+  document.getElementById('discountDetailModal').classList.add('open');
+}
+
+function closeDiscountDetail() {
+  document.getElementById('discountDetailModal').classList.remove('open');
+}
+
 
 // ===== 訂單頁 =====
 // 計算統計（從前端已篩選 orders 陣列計算，確保列表與統計一致）
@@ -1893,11 +1966,16 @@ async function loadOrders(modeFilter) {
     }
     // 全部訂單：不過濾
 
+    // fix18-09B：儲存全部訂單快取（供折扣篩選 & 明細彈窗使用）
+    _allOrdersCache = orders;
+
     // 從篩選後的 orders 計算統計（確保列表與統計一致）
     const stats = calcStatsFromOrders(orders);
 
-    renderOrdersTable(orders);
-    renderStatCards(stats);
+    // fix18-09B：套用折扣篩選後再 render 列表
+    const filteredOrders = applyDiscountFilter(orders, currentDiscountFilter);
+    renderOrdersTable(filteredOrders);
+    renderStatCards(stats, orders);
   } catch { showToast('訂單載入失敗', 'error'); }
 }
 
@@ -1911,9 +1989,11 @@ async function loadDeliveryReport() {
 
     // 從回傳的外送訂單陣列重新計算統計（確保一致）
     const delivOrders = json.data || [];
+    // fix18-09B：儲存快取
+    _allOrdersCache = delivOrders;
     const stats = calcStatsFromOrders(delivOrders);
     // 外送報表額外加平台分組
-    renderStatCards({ ...stats, _hasDelivery: true });
+    renderStatCards({ ...stats, _hasDelivery: true }, delivOrders);
 
     const byPlat = json.by_platform || [];
     const platStats = document.getElementById('platformStats');
@@ -1924,26 +2004,47 @@ async function loadDeliveryReport() {
          <div class="psc-detail">訂單${p.count}筆 ｜ 抽成NT$${Math.round(p.commission)} ｜ 實收NT$${Math.round(p.store_income)}</div>
          </div>`).join('')}</div>` : '';
     }
-    renderDeliveryTable(delivOrders);
+    // fix18-09B：套用折扣篩選
+    const filteredDelivOrders = applyDiscountFilter(delivOrders, currentDiscountFilter);
+    renderDeliveryTable(filteredDelivOrders);
   } catch { showToast('外送報表載入失敗', 'error'); }
 }
 
-function renderStatCards(stats) {
+function renderStatCards(stats, allOrders) {
   const container = document.getElementById('statCards');
   if (!container) return;
   // _hasDelivery: 明確傳入時才顯示抽成卡片（外送報表分頁）
   const showDelivery = stats._hasDelivery;
+  const orders = allOrders || _allOrdersCache || [];
 
-  // fix18-09：折扣分類明細
+  // fix18-09B：折扣分類明細（含筆數）
   const discByCat = stats.discount_by_category || {};
   const discCatEntries = Object.entries(discByCat).filter(([,v]) => v > 0);
-  const discCatHtml = discCatEntries.length
-    ? discCatEntries.map(([cat, amt]) =>
-        `<div style="display:flex;justify-content:space-between;font-size:12px;padding:2px 0;border-bottom:1px solid var(--border,#334155)">
-           <span style="color:var(--text-secondary,#94a3b8)">${DISCOUNT_CATEGORY_DISPLAY[cat]||cat}</span>
-           <span style="color:var(--danger,#ef4444);font-weight:600">-NT$${Math.round(amt)}</span>
-         </div>`
-      ).join('')
+
+  // 計算各分類筆數
+  const catCount = {};
+  orders.forEach(o => {
+    if (o.status === 'void' || o.order_status === 'cancelled') return;
+    if (o.order_mode === 'delivery' && o.delivery_status === 'cancelled') return;
+    const disc = Number(o.discount_amount || 0);
+    if (disc <= 0) return;
+    const cat = normalizeDiscountCategory(o.discount_category);
+    catCount[cat] = (catCount[cat] || 0) + 1;
+  });
+  const totalDiscOrders = Object.values(catCount).reduce((a,b) => a+b, 0);
+
+  const discCatRows = discCatEntries.length
+    ? discCatEntries.map(([cat, amt]) => {
+        const cnt = catCount[cat] || 0;
+        return `<div class="stat-card-clickable" onclick="setDiscountFilter('${cat}')"
+          style="display:flex;justify-content:space-between;align-items:center;font-size:12px;padding:5px 6px;border-radius:5px;margin-bottom:4px;background:var(--bg-base,#0f172a);border:1px solid var(--border,#334155)">
+          <span style="color:var(--text-secondary,#94a3b8)">${DISCOUNT_CATEGORY_DISPLAY[cat]||cat}</span>
+          <span style="text-align:right">
+            <span style="color:var(--danger,#ef4444);font-weight:700;font-family:monospace">-NT$${Math.round(amt)}</span>
+            <br><span style="color:var(--text-muted,#64748b);font-size:11px">${cnt}筆</span>
+          </span>
+        </div>`;
+      }).join('')
     : '<div style="color:var(--text-muted,#64748b);font-size:12px">無折扣支出</div>';
 
   const totalDiscount  = Number(stats.total_discount || 0);
@@ -1958,11 +2059,48 @@ function renderStatCards(stats) {
     <div class="stat-card"><div class="stat-card-label">平均客單價</div><div class="stat-card-value">$${Math.round(stats.avg_order||0)}</div><div class="stat-card-sub">每筆訂單</div></div>
     ${showDelivery ? `<div class="stat-card"><div class="stat-card-label">平台抽成</div><div class="stat-card-value" style="color:var(--danger)">$${Math.round(stats.total_commission||0)}</div></div><div class="stat-card"><div class="stat-card-label">店家實收</div><div class="stat-card-value" style="color:var(--success)">$${Math.round(stats.total_store_income||0)}</div></div>` : ''}
     ${stats.top_products?.length ? `<div class="stat-card"><div class="stat-card-label">🏆 熱賣</div><div class="stat-card-value" style="font-size:14px;line-height:1.6">${stats.top_products.slice(0,3).map(p=>`${escHtml(p.name)} <small style="color:#999">×${p.qty}</small>`).join('<br>')}</div></div>` : ''}
-    <div class="stat-card" style="min-width:200px">
-      <div class="stat-card-label">💸 折扣支出</div>
-      <div class="stat-card-value" style="color:var(--danger);font-size:18px">NT$${Math.round(totalDiscount)}</div>
-      <div style="margin-top:8px">${discCatHtml}</div>
-    </div>`;
+    <div class="stat-card" style="min-width:220px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <div class="stat-card-label" style="margin:0">💸 折扣支出</div>
+        <button onclick="openDiscountDetail()" style="font-size:11px;padding:2px 8px;border-radius:99px;border:1px solid var(--border,#334155);background:transparent;color:var(--text-secondary,#94a3b8);cursor:pointer">📄 查看明細</button>
+      </div>
+      <div class="stat-card-value" style="color:var(--danger);font-size:18px;margin-bottom:8px" onclick="setDiscountFilter('has_discount')" style="cursor:pointer">NT$${Math.round(totalDiscount)}<small style="font-size:12px;color:var(--text-muted);font-weight:400;margin-left:6px">${totalDiscOrders}筆</small></div>
+      ${discCatRows}
+    </div>
+    ${renderDiscountTopProducts(orders)}`;
+}
+
+// fix18-09B：折扣商品排行（TOP 10）
+function renderDiscountTopProducts(orders) {
+  const valid = (orders || []).filter(o => {
+    if (o.status === 'void' || o.order_status === 'cancelled') return false;
+    if (o.order_mode === 'delivery' && o.delivery_status === 'cancelled') return false;
+    return Number(o.discount_amount || 0) > 0;
+  });
+  if (!valid.length) return '';
+  const prodMap = {};
+  valid.forEach(o => {
+    const disc = Number(o.discount_amount || 0);
+    const items = typeof o.items === 'string' ? JSON.parse(o.items) : (o.items || []);
+    const totalQty = items.reduce((s, i) => s + Number(i.qty || 0), 0);
+    items.forEach(item => {
+      const share = totalQty > 0 ? disc * Number(item.qty || 0) / totalQty : 0;
+      if (!prodMap[item.name]) prodMap[item.name] = { name: item.name, total: 0, count: 0 };
+      prodMap[item.name].total += share;
+      prodMap[item.name].count += 1;
+    });
+  });
+  const top10 = Object.values(prodMap).sort((a, b) => b.total - a.total).slice(0, 10);
+  if (!top10.length) return '';
+  return `<div class="stat-card" style="min-width:220px">
+    <div class="stat-card-label">📉 折扣最多商品 TOP10</div>
+    <div style="margin-top:8px">
+      ${top10.map((p, i) => `<div style="display:flex;justify-content:space-between;font-size:12px;padding:4px 0;border-bottom:1px solid var(--border,#334155)">
+        <span style="color:var(--text-secondary)">${i+1}. ${escHtml(p.name)}</span>
+        <span style="text-align:right"><span style="color:var(--danger);font-family:monospace">NT$${Math.round(p.total)}</span><br><span style="color:var(--text-muted);font-size:11px">${p.count}筆</span></span>
+      </div>`).join('')}
+    </div>
+  </div>`;
 }
 
 function renderOrdersTable(orders) {
@@ -2014,10 +2152,15 @@ function renderOrdersTable(orders) {
             const disc=Number(o.discount_amount||0);
             if(disc<=0) return '<span style="font-weight:700;color:#f5a623">NT$'+o.total+'</span>';
             const origTotal=o.original_total||Number(o.total)+disc;
-            const codeTag=o.coupon_code?' ('+escHtml(o.coupon_code)+')':'';
-            return '<div style="font-size:11px;color:var(--text-muted,#94a3b8);text-decoration:line-through">NT$'+origTotal+'</div>'
-              +'<div style="font-size:10px;color:#06C755">🎟️ -NT$'+disc+codeTag+'</div>'
-              +'<div style="font-weight:700;color:#f5a623">NT$'+o.total+'</div>';
+            const isHighDisc = origTotal > 0 && disc/origTotal >= 0.5;
+            const cat = normalizeDiscountCategory(o.discount_category);
+            const catLabel = DISCOUNT_CATEGORY_DISPLAY[cat] || '';
+            const catBadge = cat && cat!=='none' ? '<br><span class="disc-badge disc-badge-'+cat+'">'+(catLabel||cat)+'</span>' : '';
+            const highWarn = isHighDisc ? '<br><span class="high-discount-warn">⚠ 高折扣</span>' : '';
+            return '<div style="font-size:11px;color:var(--text-muted,#94a3b8)">原價 NT$'+origTotal+'</div>'
+              +'<div style="font-size:12px;color:#ef4444">💸 -NT$'+disc+'</div>'
+              +'<div style="font-weight:700;color:#f5a623;font-size:15px">NT$'+o.total+'</div>'
+              +catBadge+highWarn;
           })()}
         </td>
         <td>
@@ -2072,7 +2215,22 @@ function renderDeliveryTable(orders) {
         <td style="font-size:12px;color:var(--text-muted);font-family:monospace">${escHtml(o.platform_order_no||'—')}</td>
         <td style="font-size:13px">${escHtml(o.customer_name||o.pickup_name||'—')}</td>
         <td style="font-size:12px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${itemsText}">${itemsText||'—'}</td>
-        <td style="font-family:monospace;font-weight:700;color:${isCancelled?'var(--text-muted)':'#f5a623'};white-space:nowrap;${isCancelled?'text-decoration:line-through':''}">NT$${o.total}</td>
+        <td style="font-family:monospace;white-space:nowrap;${isCancelled?'opacity:0.5':''}">
+          ${(function(){
+            const disc=Number(o.discount_amount||0);
+            if(disc<=0) return '<span style="font-weight:700;color:#f5a623">NT$'+o.total+'</span>';
+            const origTotal=o.original_total||Number(o.total)+disc;
+            const isHighDisc = origTotal > 0 && disc/origTotal >= 0.5;
+            const cat = normalizeDiscountCategory(o.discount_category);
+            const catLabel = DISCOUNT_CATEGORY_DISPLAY[cat] || '';
+            const catBadge = cat && cat!=='none' ? '<br><span class="disc-badge disc-badge-'+cat+'">'+(catLabel||cat)+'</span>' : '';
+            const highWarn = isHighDisc ? '<br><span class="high-discount-warn">⚠ 高折扣</span>' : '';
+            return '<div style="font-size:11px;color:var(--text-muted,#94a3b8)">原價 NT$'+origTotal+'</div>'
+              +'<div style="font-size:12px;color:#ef4444">💸 -NT$'+disc+'</div>'
+              +'<div style="font-weight:700;color:#f5a623;font-size:15px">NT$'+o.total+'</div>'
+              +catBadge+highWarn;
+          })()}
+        </td>
         <td style="font-family:monospace;color:${isCancelled?'var(--text-muted)':'var(--danger)'};white-space:nowrap;${isCancelled?'text-decoration:line-through':''}">${commText}</td>
         <td style="font-family:monospace;color:${isCancelled?'var(--text-muted)':'var(--success)'};white-space:nowrap;${isCancelled?'text-decoration:line-through':''}">NT$${o.store_actual_income||o.total}</td>
         <td style="font-size:12px">${payLabel[o.payment_method]||o.payment_method||'—'}</td>
