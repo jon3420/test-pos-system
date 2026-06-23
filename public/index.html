@@ -588,6 +588,7 @@
       <button class="settings-tab-btn"        data-stab="line_entry" onclick="switchSettingsTab('line_entry')" id="tab-btn-line_entry">📲 LINE 點餐入口</button>
       <button class="settings-tab-btn"        data-stab="android_features" onclick="switchSettingsTab('android_features')">📱 Android 平板</button>
       <button class="settings-tab-btn"        data-stab="discount_campaigns" onclick="switchSettingsTab('discount_campaigns')">💸 折扣活動</button>
+      <button class="settings-tab-btn"        data-stab="product_analysis_groups" onclick="switchSettingsTab('product_analysis_groups')">📊 商品分析群組</button>
       <!-- fix10: 店家授權 Tab 已移至 /system-admin，一般店家不可存取 -->
     </div>
 
@@ -1150,6 +1151,24 @@
             <button class="btn-primary" onclick="openCampaignModal()" style="white-space:nowrap">＋ 新增活動</button>
           </div>
           <div id="discountCampaignList" style="display:flex;flex-direction:column;gap:8px">
+            <div style="color:var(--text-muted);font-size:13px">載入中...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- fix18-09F：商品分析群組 Tab Panel -->
+    <div class="settings-tab-panel" id="stab-product_analysis_groups" style="display:none">
+      <div class="settings-grid">
+        <div class="settings-card" style="grid-column:1/-1">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+            <div>
+              <h3 style="margin:0">📊 商品分析群組</h3>
+              <p style="font-size:13px;color:#666;margin:4px 0 0">將多個商品歸入同一群組，報表統計時合併計算。訂單原始商品名稱不受影響。</p>
+            </div>
+            <button class="btn-primary" onclick="openAnalysisGroupModal()" style="white-space:nowrap">＋ 新增群組</button>
+          </div>
+          <div id="analysisGroupList" style="display:flex;flex-direction:column;gap:8px">
             <div style="color:var(--text-muted);font-size:13px">載入中...</div>
           </div>
         </div>
@@ -2170,6 +2189,51 @@
     <div class="modal-footer">
       <button class="btn-secondary" onclick="closeLineSettingsModal()">取消</button>
       <button class="btn-primary" style="background:#06C755;border-color:#06C755" onclick="saveLineSettings()">💾 儲存 LINE 設定</button>
+    </div>
+  </div>
+</div>
+
+<!-- fix18-09F：商品分析群組 新增/編輯 Modal -->
+<div class="modal-overlay" id="analysisGroupModal" onclick="if(event.target===this)closeAnalysisGroupModal()">
+  <div class="modal" style="max-width:680px;width:95%">
+    <div class="modal-header">
+      <h3 id="analysisGroupModalTitle">新增商品分析群組</h3>
+      <button class="modal-close" onclick="closeAnalysisGroupModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="editAnalysisGroupId">
+      <label>群組名稱 *
+        <input type="text" id="editAnalysisGroupName" placeholder="例：冷拌麻油腰子">
+      </label>
+      <label>說明
+        <input type="text" id="editAnalysisGroupDesc" placeholder="選填">
+      </label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <label>排序
+          <input type="number" id="editAnalysisGroupSort" value="0" min="0" step="1">
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;padding-top:22px">
+          <input type="checkbox" id="editAnalysisGroupEnabled" checked style="width:16px;height:16px">
+          <span>啟用</span>
+        </label>
+      </div>
+      <div style="margin-top:12px">
+        <div style="font-size:13px;font-weight:600;margin-bottom:8px;color:var(--text-primary)">
+          📦 群組成員商品 <span style="font-weight:400;color:var(--text-muted);font-size:12px">（勾選要加入此群組的商品）</span>
+        </div>
+        <div style="margin-bottom:8px;display:flex;gap:8px;flex-wrap:wrap">
+          <input type="text" id="analysisGroupSearch" placeholder="搜尋商品名稱..." style="flex:1;min-width:160px;padding:6px 10px;border-radius:6px;border:1px solid var(--border,#334155);background:var(--bg-base,#0f172a);color:var(--text-primary);font-size:13px" oninput="filterAnalysisGroupProducts()">
+          <button onclick="selectAllAnalysisGroupProducts(true)" style="padding:5px 10px;border-radius:6px;border:1px solid var(--border,#334155);background:transparent;color:var(--text-secondary);cursor:pointer;font-size:12px">全選</button>
+          <button onclick="selectAllAnalysisGroupProducts(false)" style="padding:5px 10px;border-radius:6px;border:1px solid var(--border,#334155);background:transparent;color:var(--text-secondary);cursor:pointer;font-size:12px">取消全選</button>
+        </div>
+        <div id="analysisGroupProductList" style="max-height:260px;overflow-y:auto;border:1px solid var(--border,#334155);border-radius:8px;padding:8px;display:flex;flex-direction:column;gap:4px">
+          <div style="color:var(--text-muted);font-size:13px;padding:8px">載入中...</div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeAnalysisGroupModal()">取消</button>
+      <button class="btn-primary" onclick="saveAnalysisGroup()">💾 儲存群組</button>
     </div>
   </div>
 </div>

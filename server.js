@@ -282,6 +282,7 @@ initDb().then((db) => {
   app.use('/api/coupons', requireStore, requireFeature('coupon'), require('./routes/coupons'));
   app.use('/api/discount-campaigns', requireStore, require('./routes/discount-campaigns'));
   app.use('/api/discount-categories', requireStore, require('./routes/discount-categories')); // fix18-09E
+  app.use('/api/product-analysis-groups', requireStore, require('./routes/product-analysis-groups')); // fix18-09F
   // LINE Pay 相容路由別名（後台 webhook_url 預設為 /webhook/linepay）
   app.post('/webhook/linepay', (req, res, next) => {
     console.log('[linepay/webhook alias]', JSON.stringify(req.body).slice(0, 200));

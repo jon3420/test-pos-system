@@ -360,20 +360,78 @@ function _renderDashboard(d, date) {
       <tbody>${srcRows}</tbody></table>` : '<div style="color:var(--text-secondary,#64748b);font-size:.875rem">今日無資料</div>'
   );
 
-  // ── 第五區：熱銷商品 TOP10 ──────────────────────────
-  const topRows = (d.topProducts||[]).map((p,i) =>
+  // ── 第五區：熱銷商品 TOP10（fix18-09F：支援群組統計）────────
+  const _dbMode = getProductStatMode();
+  // 從 topProducts（API 返回的原始商品排行）重新用群組合併
+  const _rawTopMap = {};
+  (d.topProducts||[]).forEach(p => {
+    const dname = resolveProductDisplayName(p.name, _dbMode);
+    if (!_rawTopMap[dname]) _rawTopMap[dname] = { name: dname, qty: 0, revenue: 0 };
+    _rawTopMap[dname].qty     += Number(p.qty     || 0);
+    _rawTopMap[dname].revenue += Number(p.revenue || 0);
+  });
+  const _mergedTop = Object.values(_rawTopMap).sort((a,b) => b.qty - a.qty).slice(0, 10);
+  const _modeToggle = `<div style="display:flex;gap:6px;align-items:center;margin-bottom:12px">
+    <span style="font-size:12px;color:var(--text-secondary,#64748b)">統計模式：</span>
+    <button onclick="setProductStatMode('group');_loadDashboard()" style="font-size:12px;padding:3px 10px;border-radius:99px;border:1px solid var(--border,#2a2d3e);background:${_dbMode==='group'?'#6366f1':'transparent'};color:${_dbMode==='group'?'#fff':'var(--text-secondary,#64748b)'};cursor:pointer">商品群組</button>
+    <button onclick="setProductStatMode('raw');_loadDashboard()" style="font-size:12px;padding:3px 10px;border-radius:99px;border:1px solid var(--border,#2a2d3e);background:${_dbMode==='raw'?'#6366f1':'transparent'};color:${_dbMode==='raw'?'#fff':'var(--text-secondary,#64748b)'};cursor:pointer">原始商品</button>
+  </div>`;
+  const topRows = _mergedTop.map((p,i) =>
     `<tr><td style="padding:5px 0;color:${i<3?'#f59e0b':'inherit'}">${i+1}. ${escHtml(p.name)}</td>
       <td style="padding:5px 0;text-align:right">${p.qty} 份</td>
       <td style="padding:5px 0;text-align:right;color:#10b981">${_nt(p.revenue)}</td></tr>`
   ).join('');
   html += _section('🏆 熱銷商品排行 TOP10',
-    topRows ? `<table style="width:100%;border-collapse:collapse;font-size:.875rem">
+    _modeToggle + (topRows ? `<table style="width:100%;border-collapse:collapse;font-size:.875rem">
       <thead><tr style="color:var(--text-secondary,#64748b);font-size:.75rem">
         <th style="text-align:left;padding-bottom:8px">商品</th>
         <th style="text-align:right;padding-bottom:8px">數量</th>
         <th style="text-align:right;padding-bottom:8px">營收</th></tr></thead>
-      <tbody>${topRows}</tbody></table>` : '<div style="color:var(--text-secondary,#64748b);font-size:.875rem">今日無資料</div>'
+      <tbody>${topRows}</tbody></table>` : '<div style="color:var(--text-secondary,#64748b);font-size:.875rem">今日無資料</div>')
   );
+
+  // ── fix18-09F：商品群組排行 TOP10 ────────────────────
+  // 只在群組模式且有群組時顯示
+  if (_dbMode === 'group' && allProductAnalysisGroups && allProductAnalysisGroups.length) {
+    const _enabledGroups = allProductAnalysisGroups.filter(g => g.enabled);
+    // 從 topProducts 聚合群組統計（包含折扣）
+    const _grpMap = {};
+    _enabledGroups.forEach(g => {
+      _grpMap[g.group_name] = { name: g.group_name, qty: 0, revenue: 0, discount: 0, actual: 0 };
+    });
+    // 掃原始 topProducts
+    (d.topProducts||[]).forEach(p => {
+      const gname = getAnalysisGroupName(p.name);
+      if (gname && _grpMap[gname]) {
+        _grpMap[gname].qty     += Number(p.qty     || 0);
+        _grpMap[gname].revenue += Number(p.revenue || 0);
+      }
+    });
+    // 折扣資料（從 allOrdersCache 若有）
+    const _grpRowsArr = Object.values(_grpMap)
+      .filter(g => g.qty > 0 || g.revenue > 0)
+      .sort((a,b) => b.qty - a.qty)
+      .slice(0, 10);
+    if (_grpRowsArr.length) {
+      const _grpRows = _grpRowsArr.map((g, i) =>
+        `<tr>
+          <td style="padding:6px 0;color:${i<3?'#f59e0b':'inherit'}">${i+1}. ${escHtml(g.name)}</td>
+          <td style="padding:6px 0;text-align:right">${g.qty} 份</td>
+          <td style="padding:6px 0;text-align:right;color:#10b981">${_nt(g.revenue)}</td>
+        </tr>`
+      ).join('');
+      html += _section('📊 商品群組排行 TOP10',
+        `<table style="width:100%;border-collapse:collapse;font-size:.875rem">
+          <thead><tr style="color:var(--text-secondary,#64748b);font-size:.75rem">
+            <th style="text-align:left;padding-bottom:8px">群組</th>
+            <th style="text-align:right;padding-bottom:8px">銷量</th>
+            <th style="text-align:right;padding-bottom:8px">營收</th>
+          </tr></thead>
+          <tbody>${_grpRows}</tbody>
+        </table>`
+      );
+    }
+  }
 
   // ── 第六區：外送平台 ────────────────────────────────
   if (f.delivery !== false) {
@@ -789,6 +847,7 @@ let orderInfoExpanded = true;      // 訂單資訊區展開狀態
 let allPaymentMethods = [];        // 付款方式快取
 let allDiscountCampaigns = [];     // fix18-09C：折扣活動快取
 let allDiscountCategories = [];    // fix18-09E：折扣分類快取
+let allProductAnalysisGroups = []; // fix18-09F：商品分析群組快取
 
 // fix18-09E：報表卡片顯示設定
 const REPORT_CARDS_STORAGE_KEY = 'orders_report_visible_cards';
@@ -831,6 +890,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   await loadPaymentMethods().catch(() => {});
   await loadDiscountCampaigns().catch(() => {});  // fix18-09C
   await loadDiscountCategories().catch(() => {}); // fix18-09E
+  await loadProductAnalysisGroups().catch(() => {}); // fix18-09F
 
   // 3. 商品載入（不依賴 inventory，不受 inventory feature gate 影響）
   await loadProducts().catch(() => {});
@@ -1034,6 +1094,7 @@ function switchSettingsTab(tab) {
   if (tab === 'android_features') loadAndroidFeaturesTab(); // v18-features
   if (tab === 'discount_campaigns') loadDiscountCampaignsTab(); // fix18-09C
   if (tab === 'delivery_fee')     loadDeliveryFeeTab();     // fix18-06
+  if (tab === 'product_analysis_groups') loadProductAnalysisGroupsTab(); // fix18-09F
 }
 
 // ===== 設定 =====
@@ -2081,6 +2142,8 @@ async function loadDeliveryReport() {
 function renderStatCards(stats, allOrders) {
   const container = document.getElementById('statCards');
   if (!container) return;
+  // fix18-09F：快取最近 stats 供模式切換重繪
+  window._lastOrderStats = stats;
   // _hasDelivery: 明確傳入時才顯示抽成卡片（外送報表分頁）
   const showDelivery = stats._hasDelivery;
   const orders = allOrders || _allOrdersCache || [];
@@ -2127,7 +2190,7 @@ function renderStatCards(stats, allOrders) {
     ${isCardVisible('平均客單價') ? `<div class="stat-card"><div class="stat-card-label">平均客單價</div><div class="stat-card-value">$${Math.round(stats.avg_order||0)}</div><div class="stat-card-sub">每筆訂單</div></div>` : ''}
     ${isCardVisible('平台抽成') && showDelivery ? `<div class="stat-card"><div class="stat-card-label">平台抽成</div><div class="stat-card-value" style="color:var(--danger)">$${Math.round(stats.total_commission||0)}</div></div>` : ''}
     ${isCardVisible('店家實收') && showDelivery ? `<div class="stat-card"><div class="stat-card-label">店家實收</div><div class="stat-card-value" style="color:var(--success)">$${Math.round(stats.total_store_income||0)}</div></div>` : ''}
-    ${isCardVisible('熱賣商品') && stats.top_products?.length ? `<div class="stat-card"><div class="stat-card-label">🏆 熱賣</div><div class="stat-card-value" style="font-size:14px;line-height:1.6">${stats.top_products.slice(0,3).map(p=>`${escHtml(p.name)} <small style="color:#999">×${p.qty}</small>`).join('<br>')}</div></div>` : ''}
+    ${isCardVisible('熱賣商品') ? renderHotProductsCard(orders) : ''}
     ${isCardVisible('折扣支出') ? `<div class="stat-card" style="min-width:220px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
         <div class="stat-card-label" style="margin:0">💸 折扣支出</div>
@@ -2136,7 +2199,7 @@ function renderStatCards(stats, allOrders) {
       <div class="stat-card-value" style="color:var(--danger);font-size:18px;margin-bottom:8px" onclick="setDiscountFilter('has_discount')" style="cursor:pointer">NT$${Math.round(totalDiscount)}<small style="font-size:12px;color:var(--text-muted);font-weight:400;margin-left:6px">${totalDiscOrders}筆</small></div>
       ${discCatRows}
     </div>` : ''}
-    ${isCardVisible('折扣商品排行') ? renderDiscountTopProducts(orders) : ''}
+    ${isCardVisible('折扣商品排行') ? renderDiscountTopProductsWithGroups(orders) : ''}
     ${isCardVisible('折扣活動排行') ? renderDiscountCampaignRanking(orders) : ''}`;
   // fix18-09E：外送平台卡片顯示控制
   const platEl = document.getElementById('platformStats');
@@ -2214,23 +2277,9 @@ function renderDiscountTopProducts(orders) {
   </div>`;
 }
 
-// 開啟 TOP10 Modal（fix18-09C：使用 V2）
+// 開啟 TOP10 Modal（fix18-09C：使用 V2；fix18-09F：支援群組）
 function openDiscTop10() {
-  const ranked = buildDiscountProdMapV2(_allOrdersCache || []);
-  const top10  = ranked.slice(0, 10);
-  document.getElementById('discTop10Body').innerHTML = top10.length
-    ? top10.map((p, i) => {
-        const avg = p.count > 0 ? Math.round(p.total / p.count) : 0;
-        return `<tr>
-          <td style="font-size:13px;color:var(--text-muted);text-align:center">${i + 1}</td>
-          <td style="font-size:13px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(p.name)}</td>
-          <td style="text-align:right;font-family:monospace;color:var(--danger);font-weight:700">NT$${Math.round(p.total)}</td>
-          <td style="text-align:right;color:var(--text-secondary)">${p.count}筆</td>
-          <td style="text-align:right;font-family:monospace;color:var(--text-secondary)">NT$${avg}</td>
-        </tr>`;
-      }).join('')
-    : '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:16px">無資料</td></tr>';
-  document.getElementById('discTop10Modal').classList.add('open');
+  openDiscTop10WithGroups();
 }
 
 function closeDiscTop10() {
@@ -2447,7 +2496,16 @@ function openCardVisibilityModal() {
       <label style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:6px 0;border-bottom:1px solid var(--border,#334155)">
         <input type="checkbox" class="cv-checkbox" data-card="${label}" ${visible.includes(label)?'checked':''} style="width:16px;height:16px">
         <span style="font-size:14px">${label}</span>
-      </label>`).join('');
+      </label>`).join('') +
+    // fix18-09F：商品分析群組標籤
+    `<div style="border-top:2px solid var(--border,#334155);margin-top:10px;padding-top:10px">
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px">📊 訂單列表顯示</div>
+      <label style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:6px 0">
+        <input type="checkbox" id="cvGroupLabelToggle" ${isGroupLabelEnabled()?'checked':''} style="width:16px;height:16px">
+        <span style="font-size:14px">商品分析群組標籤</span>
+        <span style="font-size:11px;color:var(--text-muted)">在訂單商品下方顯示 📊 群組：xxx</span>
+      </label>
+    </div>`;
   }
   _updateCardModeButtons(visible);
   modal.classList.add('open');
@@ -2464,6 +2522,9 @@ function saveCardVisibility() {
   const checked = [];
   modal.querySelectorAll('.cv-checkbox:checked').forEach(cb => checked.push(cb.dataset.card));
   saveVisibleCards(checked);
+  // fix18-09F：儲存群組標籤開關
+  const glToggle = document.getElementById('cvGroupLabelToggle');
+  if (glToggle) setGroupLabelEnabled(glToggle.checked);
   closeCardVisibilityModal();
   // Re-render stats
   if (_allOrdersCache.length) {
@@ -2846,7 +2907,10 @@ function renderOrdersTable(orders) {
         <td><span class="mode-badge mode-${modeKey}">${modeLabel[modeKey]||modeKey}</span></td>
         <td style="font-size:12px;color:#999">${twTime(o.created_at,'time')}</td>
         <td style="font-size:13px">${escHtml(ident)}${pickupTag}</td>
-        <td style="font-size:12px">${o.items.map(i=>`${i.name}×${i.qty}`).join('、')}</td>
+        <td style="font-size:12px">${o.items.map(i => {
+          const groupName = isGroupLabelEnabled() ? getAnalysisGroupName(i.name) : null;
+          return `${i.name}×${i.qty}` + (groupName ? `<br><span style="font-size:10px;color:#818cf8;background:rgba(99,102,241,0.12);border-radius:3px;padding:0 4px">📊 ${escHtml(groupName)}</span>` : '');
+        }).join('<br><span style="color:var(--border,#334155)">─</span><br>')}</td>
         <td style="font-size:12px">${payLabel[o.payment_method]||o.payment_method}${o.payment_method==='linepay'?
             (o.payment_status==='paid'&&o.payment_confirm_source==='manual'?'<br><span style="font-size:10px;background:#27AE60;color:#fff;padding:1px 5px;border-radius:4px">現場確認已收</span>':
              o.payment_status==='paid'?'<br><span style="font-size:10px;background:#27AE60;color:#fff;padding:1px 5px;border-radius:4px">已付款</span>':
@@ -7460,3 +7524,384 @@ async function saveDeliveryFeeSettings() {
   window.saveDeliveryFeeSettings = saveDeliveryFeeSettings;
   window.renderDeliveryRules   = renderDeliveryRules;
 })();
+
+// ═══════════════════════════════════════════════════════════
+// fix18-09F：商品分析群組
+// ═══════════════════════════════════════════════════════════
+
+// ── 載入群組資料 ────────────────────────────────────────────
+async function loadProductAnalysisGroups() {
+  try {
+    const res  = await apiFetch('/api/product-analysis-groups');
+    const json = await res.json();
+    if (json.success) {
+      allProductAnalysisGroups = json.data || [];
+    }
+  } catch(e) {
+    console.warn('[fix18-09F] loadProductAnalysisGroups error:', e.message);
+  }
+}
+
+// ── 核心：商品名稱 → 群組名稱 mapping ───────────────────────
+// 若商品在某個啟用群組中，回傳群組名稱；否則回傳原始商品名稱
+function getAnalysisGroupName(productName) {
+  if (!allProductAnalysisGroups || !allProductAnalysisGroups.length) return null;
+  for (const g of allProductAnalysisGroups) {
+    if (!g.enabled) continue;
+    if (g.items && g.items.some(item => item.product_name === productName)) {
+      return g.group_name;
+    }
+  }
+  return null;
+}
+
+// 根據統計模式回傳顯示名稱（'group'模式 or 'raw'模式）
+function resolveProductDisplayName(productName, mode) {
+  if (mode === 'raw') return productName;
+  const groupName = getAnalysisGroupName(productName);
+  return groupName || productName;
+}
+
+// ── 統計模式 localStorage key ────────────────────────────────
+const PRODUCT_STAT_MODE_KEY = 'product_stat_mode_09f'; // 'group' | 'raw'
+function getProductStatMode() {
+  try { return localStorage.getItem(PRODUCT_STAT_MODE_KEY) || 'group'; } catch { return 'group'; }
+}
+function setProductStatMode(m) {
+  try { localStorage.setItem(PRODUCT_STAT_MODE_KEY, m); } catch {}
+}
+
+// ── 訂單列表：商品分析群組標籤顯示控制 ──────────────────────
+const GROUP_LABEL_DISPLAY_KEY = 'show_group_label_09f';
+function isGroupLabelEnabled() {
+  try {
+    const v = localStorage.getItem(GROUP_LABEL_DISPLAY_KEY);
+    return v === null ? true : v === '1'; // 預設開啟
+  } catch { return true; }
+}
+function setGroupLabelEnabled(v) {
+  try { localStorage.setItem(GROUP_LABEL_DISPLAY_KEY, v ? '1' : '0'); } catch {}
+}
+
+// ── 建立統計 Map（支援群組合併）─────────────────────────────
+function buildProductStatMap(orders, mode) {
+  const map = {};
+  (orders || []).forEach(o => {
+    if (o.status === 'void' || o.order_status === 'cancelled') return;
+    if (o.order_mode === 'delivery' && o.delivery_status === 'cancelled') return;
+    const items = typeof o.items === 'string' ? JSON.parse(o.items || '[]') : (o.items || []);
+    items.forEach(item => {
+      const displayName = resolveProductDisplayName(item.name, mode);
+      if (!map[displayName]) map[displayName] = { name: displayName, qty: 0, revenue: 0 };
+      map[displayName].qty     += Number(item.qty || 1);
+      map[displayName].revenue += Number(item.subtotal || 0);
+    });
+  });
+  return Object.values(map).sort((a, b) => b.qty - a.qty);
+}
+
+// ── 折扣商品排行：支援群組合併 ──────────────────────────────
+function buildDiscountProdMapWithGroups(orders, mode) {
+  const valid = (orders || []).filter(o => {
+    if (o.status === 'void' || o.order_status === 'cancelled') return false;
+    if (o.order_mode === 'delivery' && o.delivery_status === 'cancelled') return false;
+    return Number(o.discount_amount || 0) > 0;
+  });
+  const prodMap = {};
+  valid.forEach(o => {
+    const disc = Number(o.discount_amount || 0);
+    const targetIsProduct = (o.discount_target_type === 'products' || o.discount_target_type === 'product');
+    const names = Array.isArray(o.discount_product_names) && o.discount_product_names.length
+      ? o.discount_product_names
+      : (o.discount_product_name
+          ? o.discount_product_name.split('、').map(s => s.trim()).filter(Boolean)
+          : []);
+    if (targetIsProduct && names.length) {
+      const share = disc / names.length;
+      names.forEach(pname => {
+        const dname = resolveProductDisplayName(pname, mode);
+        if (!prodMap[dname]) prodMap[dname] = { name: dname, total: 0, count: 0 };
+        prodMap[dname].total += share;
+        prodMap[dname].count += 1;
+      });
+    } else {
+      const items = typeof o.items === 'string' ? JSON.parse(o.items) : (o.items || []);
+      const totalQty = items.reduce((s, i) => s + Number(i.qty || 0), 0);
+      items.forEach(item => {
+        const share = totalQty > 0 ? disc * Number(item.qty || 0) / totalQty : 0;
+        const dname = resolveProductDisplayName(item.name, mode);
+        if (!prodMap[dname]) prodMap[dname] = { name: dname, total: 0, count: 0 };
+        prodMap[dname].total += share;
+        prodMap[dname].count += 1;
+      });
+    }
+  });
+  return Object.values(prodMap).sort((a, b) => b.total - a.total);
+}
+
+// ── 熱賣商品：帶模式切換按鈕的渲染函式 ─────────────────────
+function renderHotProductsCard(orders) {
+  const mode = getProductStatMode();
+  const ranked = buildProductStatMap(orders, mode).slice(0, 3);
+  const modeBtn = `<div style="display:flex;gap:4px;align-items:center;margin-bottom:8px">
+    <span style="font-size:11px;color:var(--text-muted)">統計：</span>
+    <button onclick="setProductStatMode('group');window._rerenderStatCards&&_rerenderStatCards()" style="font-size:11px;padding:2px 7px;border-radius:99px;border:1px solid var(--border,#334155);background:${mode==='group'?'#6366f1':'transparent'};color:${mode==='group'?'#fff':'var(--text-secondary)'};cursor:pointer">商品群組</button>
+    <button onclick="setProductStatMode('raw');window._rerenderStatCards&&_rerenderStatCards()" style="font-size:11px;padding:2px 7px;border-radius:99px;border:1px solid var(--border,#334155);background:${mode==='raw'?'#6366f1':'transparent'};color:${mode==='raw'?'#fff':'var(--text-secondary)'};cursor:pointer">原始商品</button>
+  </div>`;
+  if (!ranked.length) return '';
+  const rows = ranked.map(p => `<div style="font-size:13px;line-height:1.8">${escHtml(p.name)} <small style="color:#999">×${p.qty}</small></div>`).join('');
+  return `<div class="stat-card">
+    <div class="stat-card-label">🏆 熱賣</div>
+    ${modeBtn}
+    <div class="stat-card-value" style="font-size:14px">${rows}</div>
+  </div>`;
+}
+
+// ── 折扣商品排行卡（帶群組模式）────────────────────────────
+function renderDiscountTopProductsWithGroups(orders) {
+  const mode = getProductStatMode();
+  const ranked = buildDiscountProdMapWithGroups(orders, mode);
+  if (!ranked.length) return '';
+  const preview = ranked.slice(0, 3);
+  const modeBtn = `<div style="display:flex;gap:4px;align-items:center;margin-bottom:6px">
+    <button onclick="setProductStatMode('group');window._rerenderStatCards&&_rerenderStatCards()" style="font-size:11px;padding:2px 7px;border-radius:99px;border:1px solid var(--border,#334155);background:${mode==='group'?'#6366f1':'transparent'};color:${mode==='group'?'#fff':'var(--text-secondary)'};cursor:pointer">商品群組</button>
+    <button onclick="setProductStatMode('raw');window._rerenderStatCards&&_rerenderStatCards()" style="font-size:11px;padding:2px 7px;border-radius:99px;border:1px solid var(--border,#334155);background:${mode==='raw'?'#6366f1':'transparent'};color:${mode==='raw'?'#fff':'var(--text-secondary)'};cursor:pointer">原始商品</button>
+  </div>`;
+  const previewRows = preview.map((p, i) =>
+    `<div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;padding:4px 0;border-bottom:1px solid var(--border,#334155)">
+      <span style="color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:120px">${i+1}. ${escHtml(p.name)}</span>
+      <span style="text-align:right;white-space:nowrap;margin-left:6px">
+        <span style="color:var(--danger);font-family:monospace;font-weight:700">NT$${Math.round(p.total)}</span>
+        <span style="color:var(--text-muted);font-size:11px;margin-left:4px">${p.count}筆</span>
+      </span>
+    </div>`
+  ).join('');
+  return `<div class="stat-card" style="min-width:200px;max-width:280px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+      <div class="stat-card-label" style="margin:0">📉 折扣商品排行</div>
+      <button onclick="openDiscTop10WithGroups()" style="font-size:11px;padding:2px 8px;border-radius:99px;border:1px solid var(--border,#334155);background:transparent;color:var(--text-secondary,#94a3b8);cursor:pointer;white-space:nowrap">查看 TOP10</button>
+    </div>
+    ${modeBtn}
+    ${previewRows}
+    ${ranked.length > 3 ? `<div style="font-size:11px;color:var(--text-muted);text-align:center;margin-top:6px;cursor:pointer" onclick="openDiscTop10WithGroups()">還有 ${ranked.length - 3} 項 →</div>` : ''}
+  </div>`;
+}
+
+function openDiscTop10WithGroups() {
+  const mode = getProductStatMode();
+  const ranked = buildDiscountProdMapWithGroups(_allOrdersCache || [], mode);
+  const top10  = ranked.slice(0, 10);
+  document.getElementById('discTop10Body').innerHTML = top10.length
+    ? top10.map((p, i) => {
+        const avg = p.count > 0 ? Math.round(p.total / p.count) : 0;
+        return `<tr>
+          <td style="font-size:13px;color:var(--text-muted);text-align:center">${i + 1}</td>
+          <td style="font-size:13px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(p.name)}</td>
+          <td style="text-align:right;font-family:monospace;color:var(--danger);font-weight:700">NT$${Math.round(p.total)}</td>
+          <td style="text-align:right;color:var(--text-secondary)">${p.count}筆</td>
+          <td style="text-align:right;font-family:monospace;color:var(--text-secondary)">NT$${avg}</td>
+        </tr>`;
+      }).join('')
+    : '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:16px">無資料</td></tr>';
+  document.getElementById('discTop10Modal').classList.add('open');
+}
+
+// ── 重新渲染統計卡（供模式切換按鈕呼叫）────────────────────
+window._rerenderStatCards = function() {
+  if (_allOrdersCache && typeof renderStatCards === 'function') {
+    // 重新觸發渲染
+    const statsEl = document.getElementById('orderStats');
+    if (statsEl) {
+      // 讀取最近快取的 stats
+      if (window._lastOrderStats) {
+        renderStatCards(window._lastOrderStats, _allOrdersCache);
+      }
+    }
+  }
+};
+
+// ── 設定中心：商品分析群組 Tab ──────────────────────────────
+async function loadProductAnalysisGroupsTab() {
+  await loadProductAnalysisGroups();
+  renderAnalysisGroupList();
+}
+
+function renderAnalysisGroupList() {
+  const el = document.getElementById('analysisGroupList');
+  if (!el) return;
+  if (!allProductAnalysisGroups.length) {
+    el.innerHTML = '<div style="color:var(--text-muted);font-size:13px;padding:16px 0">尚無群組，點擊「＋ 新增群組」開始設定</div>';
+    return;
+  }
+  el.innerHTML = `
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead>
+        <tr style="border-bottom:2px solid var(--border,#334155)">
+          <th style="text-align:left;padding:8px 10px;color:var(--text-muted)">群組名稱</th>
+          <th style="text-align:left;padding:8px 10px;color:var(--text-muted)">說明</th>
+          <th style="text-align:left;padding:8px 10px;color:var(--text-muted)">成員商品</th>
+          <th style="text-align:center;padding:8px 10px;color:var(--text-muted)">狀態</th>
+          <th style="text-align:center;padding:8px 10px;color:var(--text-muted)">排序</th>
+          <th style="text-align:right;padding:8px 10px;color:var(--text-muted)">操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${allProductAnalysisGroups.map(g => `
+          <tr style="border-bottom:1px solid var(--border,#334155)">
+            <td style="padding:10px;font-weight:600;color:${g.enabled?'var(--text-primary,#f1f5f9)':'var(--text-muted,#64748b)'}">${escHtml(g.group_name)}</td>
+            <td style="padding:10px;color:var(--text-muted,#64748b);font-size:12px">${escHtml(g.description||'—')}</td>
+            <td style="padding:10px;font-size:12px;color:var(--text-secondary)">
+              ${g.items && g.items.length
+                ? g.items.map(i => `<span style="display:inline-block;background:var(--bg-base,#0f172a);border:1px solid var(--border,#334155);border-radius:4px;padding:1px 6px;margin:1px;font-size:11px">${escHtml(i.product_name)}</span>`).join('')
+                : '<span style="color:var(--text-muted)">（空群組）</span>'}
+            </td>
+            <td style="padding:10px;text-align:center">
+              <span style="display:inline-block;padding:2px 8px;border-radius:99px;font-size:11px;background:${g.enabled?'#10b98120':'#ef444420'};color:${g.enabled?'#10b981':'#ef4444'}">${g.enabled?'啟用':'停用'}</span>
+            </td>
+            <td style="padding:10px;text-align:center;color:var(--text-muted)">${g.sort_order||0}</td>
+            <td style="padding:10px;text-align:right;white-space:nowrap">
+              <button onclick="openAnalysisGroupModal(${g.id})" style="padding:4px 10px;border-radius:6px;border:1px solid var(--border,#334155);background:transparent;color:var(--text-secondary);cursor:pointer;font-size:12px;margin-left:4px">✏️ 編輯</button>
+              <button onclick="toggleAnalysisGroup(${g.id})" style="padding:4px 10px;border-radius:6px;border:1px solid var(--border,#334155);background:transparent;color:var(--text-secondary);cursor:pointer;font-size:12px;margin-left:4px">${g.enabled?'停用':'啟用'}</button>
+              <button onclick="deleteAnalysisGroup(${g.id},'${escHtml(g.group_name)}')" style="padding:4px 10px;border-radius:6px;border:1px solid #ef4444;background:transparent;color:#ef4444;cursor:pointer;font-size:12px;margin-left:4px">🗑️ 刪除</button>
+            </td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>`;
+}
+
+// ── 商品分析群組 Modal 開啟 / 關閉 ─────────────────────────
+async function openAnalysisGroupModal(id) {
+  document.getElementById('editAnalysisGroupId').value = id || '';
+  document.getElementById('editAnalysisGroupName').value = '';
+  document.getElementById('editAnalysisGroupDesc').value = '';
+  document.getElementById('editAnalysisGroupSort').value = '0';
+  document.getElementById('editAnalysisGroupEnabled').checked = true;
+
+  const titleEl = document.getElementById('analysisGroupModalTitle');
+  if (titleEl) titleEl.textContent = id ? '編輯商品分析群組' : '新增商品分析群組';
+
+  // 取得所有商品供勾選
+  let selectedNames = [];
+  if (id) {
+    try {
+      const res  = await apiFetch(`/api/product-analysis-groups/${id}`);
+      const json = await res.json();
+      if (json.success && json.data) {
+        const g = json.data;
+        document.getElementById('editAnalysisGroupName').value = g.group_name || '';
+        document.getElementById('editAnalysisGroupDesc').value = g.description || '';
+        document.getElementById('editAnalysisGroupSort').value = g.sort_order || 0;
+        document.getElementById('editAnalysisGroupEnabled').checked = !!g.enabled;
+        selectedNames = (g.items || []).map(i => i.product_name);
+      }
+    } catch(e) { console.warn('openAnalysisGroupModal fetch:', e.message); }
+  }
+
+  await _renderAnalysisGroupProductCheckboxes(selectedNames);
+
+  document.getElementById('analysisGroupModal').classList.add('open');
+}
+
+function closeAnalysisGroupModal() {
+  document.getElementById('analysisGroupModal').classList.remove('open');
+}
+
+async function _renderAnalysisGroupProductCheckboxes(selectedNames) {
+  const listEl = document.getElementById('analysisGroupProductList');
+  if (!listEl) return;
+  // 使用全域 allProducts，若沒有就從 API 取
+  let products = allProducts || [];
+  if (!products.length) {
+    try {
+      const res  = await apiFetch('/api/products');
+      const json = await res.json();
+      products = json.success ? (json.data || []) : [];
+    } catch {}
+  }
+  if (!products.length) {
+    listEl.innerHTML = '<div style="color:var(--text-muted);font-size:13px;padding:8px">無商品資料</div>';
+    return;
+  }
+
+  // 依分類排序
+  const sorted = [...products].sort((a, b) => (a.category || '').localeCompare(b.category || '') || a.name.localeCompare(b.name));
+  listEl.innerHTML = sorted.map(p => {
+    const checked = selectedNames.includes(p.name);
+    return `<label style="display:flex;align-items:center;gap:8px;padding:5px 6px;border-radius:6px;cursor:pointer;transition:background .15s" onmouseover="this.style.background='var(--bg-card,#1a1d27)'" onmouseout="this.style.background=''"
+      data-pname="${escHtml(p.name)}" class="ag-product-item">
+      <input type="checkbox" value="${escHtml(p.name)}" ${checked ? 'checked' : ''} style="width:14px;height:14px;cursor:pointer" class="ag-product-cb">
+      <span style="font-size:13px;flex:1">${escHtml(p.name)}</span>
+      <span style="font-size:11px;color:var(--text-muted)">${escHtml(p.category||'')}</span>
+    </label>`;
+  }).join('');
+}
+
+function filterAnalysisGroupProducts() {
+  const q = (document.getElementById('analysisGroupSearch')?.value || '').toLowerCase();
+  document.querySelectorAll('#analysisGroupProductList .ag-product-item').forEach(el => {
+    const name = (el.dataset.pname || '').toLowerCase();
+    el.style.display = name.includes(q) ? '' : 'none';
+  });
+}
+
+function selectAllAnalysisGroupProducts(checked) {
+  document.querySelectorAll('#analysisGroupProductList .ag-product-cb').forEach(cb => {
+    const item = cb.closest('.ag-product-item');
+    if (!item || item.style.display === 'none') return;
+    cb.checked = checked;
+  });
+}
+
+async function saveAnalysisGroup() {
+  const id   = document.getElementById('editAnalysisGroupId').value;
+  const name = (document.getElementById('editAnalysisGroupName').value || '').trim();
+  if (!name) { showToast('請輸入群組名稱', 'error'); return; }
+
+  const checkedBoxes = document.querySelectorAll('#analysisGroupProductList .ag-product-cb:checked');
+  const items = Array.from(checkedBoxes).map(cb => ({ product_name: cb.value }));
+
+  const body = {
+    group_name:  name,
+    description: document.getElementById('editAnalysisGroupDesc').value || '',
+    sort_order:  Number(document.getElementById('editAnalysisGroupSort').value) || 0,
+    enabled:     document.getElementById('editAnalysisGroupEnabled').checked ? 1 : 0,
+    items
+  };
+
+  try {
+    const url    = id ? `/api/product-analysis-groups/${id}` : '/api/product-analysis-groups';
+    const method = id ? 'PUT' : 'POST';
+    const res    = await apiFetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const json   = await res.json();
+    if (!json.success) { showToast('❌ ' + (json.message || '儲存失敗'), 'error'); return; }
+    showToast(id ? '✅ 群組已更新' : '✅ 群組已建立', 'success');
+    closeAnalysisGroupModal();
+    await loadProductAnalysisGroups();
+    renderAnalysisGroupList();
+  } catch(e) { showToast('❌ ' + e.message, 'error'); }
+}
+
+async function toggleAnalysisGroup(id) {
+  try {
+    const res  = await apiFetch(`/api/product-analysis-groups/${id}/toggle`, { method: 'PATCH' });
+    const json = await res.json();
+    if (!json.success) { showToast('❌ ' + (json.message || '操作失敗'), 'error'); return; }
+    showToast('✅ 狀態已更新', 'success');
+    await loadProductAnalysisGroups();
+    renderAnalysisGroupList();
+  } catch(e) { showToast('❌ ' + e.message, 'error'); }
+}
+
+async function deleteAnalysisGroup(id, name) {
+  if (!confirm(`確定要刪除群組「${name}」？此操作不可還原。`)) return;
+  try {
+    const res  = await apiFetch(`/api/product-analysis-groups/${id}`, { method: 'DELETE' });
+    const json = await res.json();
+    if (!json.success) { showToast('❌ ' + (json.message || '刪除失敗'), 'error'); return; }
+    showToast('✅ 群組已刪除', 'success');
+    await loadProductAnalysisGroups();
+    renderAnalysisGroupList();
+  } catch(e) { showToast('❌ ' + e.message, 'error'); }
+}
+
