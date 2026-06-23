@@ -1888,8 +1888,12 @@ function openDiscountDetail() {
         const dateStr = o.created_at ? o.created_at.slice(0, 10) : '—';
         // fix18-09C：顯示折扣活動、折扣商品
         const campaignName = o.discount_campaign_name || '—';
-        const productName  = o.discount_target_type === 'product' && o.discount_product_name
-          ? o.discount_product_name : '整張訂單';
+        // fix18-09D：多商品
+        const _pnms = Array.isArray(o.discount_product_names)&&o.discount_product_names.length
+          ? o.discount_product_names
+          : (o.discount_product_name ? o.discount_product_name.split('、').map(s=>s.trim()).filter(Boolean) : []);
+        const _isProd = (o.discount_target_type==='products'||o.discount_target_type==='product');
+        const productName  = (_isProd && _pnms.length) ? _pnms.join('、') : '整張訂單';
         return `<tr>
           <td style="font-size:12px;color:#999;white-space:nowrap">${dateStr}</td>
           <td><span class="order-num" style="font-size:12px">${escHtml(o.order_number)}</span></td>
@@ -2193,7 +2197,7 @@ async function loadDiscountCampaigns() {
   }
 }
 
-// 設定中心：折扣活動 Tab
+// 設定中心：折扣活動 Tab（fix18-09D 升級：Modal CRUD）
 async function loadDiscountCampaignsTab() {
   await loadDiscountCampaigns();
   renderDiscountCampaignList();
@@ -2203,47 +2207,101 @@ function renderDiscountCampaignList() {
   const el = document.getElementById('discountCampaignList');
   if (!el) return;
   if (!allDiscountCampaigns.length) {
-    el.innerHTML = '<div style="color:var(--text-muted);font-size:13px">尚無折扣活動</div>';
+    el.innerHTML = '<div style="color:var(--text-muted);font-size:13px;padding:16px 0">尚無折扣活動，點擊「＋ 新增活動」開始設定</div>';
     return;
   }
-  el.innerHTML = allDiscountCampaigns.map(c => `
-    <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--bg-base,#0f172a);border:1px solid var(--border,#334155);border-radius:8px">
-      <div style="flex:1">
-        <div style="font-weight:600;color:${c.enabled?'var(--text-primary,#f1f5f9)':'var(--text-muted,#64748b)'}">${escHtml(c.name)}</div>
-        ${c.description?`<div style="font-size:12px;color:var(--text-muted,#64748b)">${escHtml(c.description)}</div>`:''}
-      </div>
-      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:var(--text-secondary)">
-        <input type="checkbox" ${c.enabled?'checked':''} onchange="toggleDiscountCampaign(${c.id},this.checked)" style="width:14px;height:14px">
-        啟用
-      </label>
-      <button onclick="editDiscountCampaign(${c.id})" style="padding:4px 10px;font-size:12px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);cursor:pointer">編輯</button>
-      <button onclick="deleteDiscountCampaign(${c.id},'${escHtml(c.name)}')" style="padding:4px 10px;font-size:12px;border-radius:6px;border:1px solid var(--danger,#ef4444);background:transparent;color:var(--danger,#ef4444);cursor:pointer">刪除</button>
-    </div>`).join('');
+  el.innerHTML = `
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead>
+        <tr style="border-bottom:2px solid var(--border,#334155)">
+          <th style="text-align:left;padding:8px 10px;color:var(--text-muted)">活動名稱</th>
+          <th style="text-align:left;padding:8px 10px;color:var(--text-muted)">說明</th>
+          <th style="text-align:center;padding:8px 10px;color:var(--text-muted)">狀態</th>
+          <th style="text-align:center;padding:8px 10px;color:var(--text-muted)">排序</th>
+          <th style="text-align:right;padding:8px 10px;color:var(--text-muted)">操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${allDiscountCampaigns.map(c => `
+          <tr style="border-bottom:1px solid var(--border,#334155)">
+            <td style="padding:10px;font-weight:600;color:${c.enabled?'var(--text-primary,#f1f5f9)':'var(--text-muted,#64748b)'}">${escHtml(c.name)}</td>
+            <td style="padding:10px;color:var(--text-muted,#64748b);font-size:12px">${escHtml(c.description||'—')}</td>
+            <td style="padding:10px;text-align:center">
+              <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer">
+                <input type="checkbox" ${c.enabled?'checked':''} onchange="toggleDiscountCampaign(${c.id},this.checked)" style="width:14px;height:14px">
+                <span style="font-size:12px;color:${c.enabled?'#10b981':'var(--text-muted)'}">${c.enabled?'啟用':'停用'}</span>
+              </label>
+            </td>
+            <td style="padding:10px;text-align:center;color:var(--text-muted);font-size:12px">${c.sort_order}</td>
+            <td style="padding:10px;text-align:right;white-space:nowrap">
+              <button onclick="openCampaignModal(${c.id})" style="padding:4px 12px;font-size:12px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);cursor:pointer;margin-right:6px">✏️ 編輯</button>
+              <button onclick="deleteDiscountCampaign(${c.id},'${escHtml(c.name)}')" style="padding:4px 12px;font-size:12px;border-radius:6px;border:1px solid var(--danger,#ef4444);background:transparent;color:var(--danger,#ef4444);cursor:pointer">🗑 刪除</button>
+            </td>
+          </tr>`).join('')}
+      </tbody>
+    </table>`;
 }
 
-async function addDiscountCampaign() {
-  const nameEl = document.getElementById('newCampaignName');
-  const descEl = document.getElementById('newCampaignDesc');
-  const name = nameEl?.value?.trim();
+// fix18-09D：Modal 新增/編輯
+function openCampaignModal(id) {
+  const modal = document.getElementById('campaignEditModal');
+  if (!modal) return;
+  const titleEl = document.getElementById('campaignModalTitle');
+  const idEl    = document.getElementById('campaignEditId');
+  const nameEl  = document.getElementById('campaignEditName');
+  const descEl  = document.getElementById('campaignEditDesc');
+  const enaEl   = document.getElementById('campaignEditEnabled');
+  const sortEl  = document.getElementById('campaignEditSortOrder');
+  if (id) {
+    const c = allDiscountCampaigns.find(x => x.id === id);
+    if (!c) return;
+    if (titleEl) titleEl.textContent = '編輯折扣活動';
+    if (idEl)    idEl.value     = c.id;
+    if (nameEl)  nameEl.value   = c.name;
+    if (descEl)  descEl.value   = c.description || '';
+    if (enaEl)   enaEl.checked  = !!c.enabled;
+    if (sortEl)  sortEl.value   = c.sort_order || 0;
+  } else {
+    if (titleEl) titleEl.textContent = '新增折扣活動';
+    if (idEl)    idEl.value     = '';
+    if (nameEl)  nameEl.value   = '';
+    if (descEl)  descEl.value   = '';
+    if (enaEl)   enaEl.checked  = true;
+    if (sortEl)  sortEl.value   = allDiscountCampaigns.length;
+  }
+  modal.classList.add('open');
+  if (nameEl) setTimeout(() => nameEl.focus(), 100);
+}
+
+function closeCampaignModal() {
+  const modal = document.getElementById('campaignEditModal');
+  if (modal) modal.classList.remove('open');
+}
+
+async function saveCampaignModal() {
+  const id      = document.getElementById('campaignEditId')?.value;
+  const name    = document.getElementById('campaignEditName')?.value?.trim();
+  const desc    = document.getElementById('campaignEditDesc')?.value?.trim() || '';
+  const enabled = document.getElementById('campaignEditEnabled')?.checked ?? true;
+  const sort    = parseInt(document.getElementById('campaignEditSortOrder')?.value || '0', 10);
   if (!name) { showToast('請輸入活動名稱', 'error'); return; }
   try {
-    const res = await apiFetch('/api/discount-campaigns', {
-      method: 'POST',
+    const res = await apiFetch(id ? `/api/discount-campaigns/${id}` : '/api/discount-campaigns', {
+      method: id ? 'PUT' : 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, description: descEl?.value?.trim() || '' })
+      body: JSON.stringify({ name, description: desc, enabled, sort_order: sort })
     });
     const json = await res.json();
     if (json.success) {
-      if (nameEl) nameEl.value = '';
-      if (descEl) descEl.value = '';
+      closeCampaignModal();
       await loadDiscountCampaigns();
       renderDiscountCampaignList();
-      showToast('✅ 折扣活動已新增', 'success');
-    } else {
-      showToast(json.message || '新增失敗', 'error');
-    }
+      showToast(id ? '✅ 已更新' : '✅ 折扣活動已新增', 'success');
+    } else { showToast(json.message || '儲存失敗', 'error'); }
   } catch (e) { showToast('網路錯誤', 'error'); }
 }
+
+async function addDiscountCampaign() { openCampaignModal(); } // 相容舊呼叫
 
 async function toggleDiscountCampaign(id, enabled) {
   try {
@@ -2257,26 +2315,7 @@ async function toggleDiscountCampaign(id, enabled) {
   } catch (e) { showToast('更新失敗', 'error'); }
 }
 
-async function editDiscountCampaign(id) {
-  const c = allDiscountCampaigns.find(x => x.id === id);
-  if (!c) return;
-  const name = prompt('修改活動名稱：', c.name);
-  if (!name?.trim()) return;
-  const desc = prompt('修改說明（選填）：', c.description || '');
-  try {
-    const res = await apiFetch('/api/discount-campaigns/' + id, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: name.trim(), description: (desc || '').trim() })
-    });
-    const json = await res.json();
-    if (json.success) {
-      await loadDiscountCampaigns();
-      renderDiscountCampaignList();
-      showToast('✅ 已更新', 'success');
-    } else { showToast(json.message || '更新失敗', 'error'); }
-  } catch (e) { showToast('網路錯誤', 'error'); }
-}
+async function editDiscountCampaign(id) { openCampaignModal(id); } // 相容舊呼叫
 
 async function deleteDiscountCampaign(id, name) {
   if (!confirm(`確定要刪除「${name}」活動嗎？`)) return;
@@ -2306,38 +2345,55 @@ function onDiscountCampaignChange() {
   // 名稱由 saveEditOrder 時從 option text 讀取，這裡不需額外處理
 }
 
-// 折扣套用商品切換
+// 折扣套用商品切換（fix18-09D：多選 checkbox）
 function onDiscountTargetTypeChange() {
   const type = document.getElementById('editDiscountTargetType')?.value;
   const panel = document.getElementById('editDiscountProductPanel');
   if (!panel) return;
-  if (type === 'product') {
+  if (type === 'products') {
     panel.style.display = 'block';
-    // 填入訂單商品到下拉
-    refreshEditDiscountProductDropdown();
+    refreshEditDiscountProductCheckboxes();
   } else {
     panel.style.display = 'none';
   }
 }
 
-function refreshEditDiscountProductDropdown(selectedId, selectedName) {
-  const sel = document.getElementById('editDiscountProduct');
-  if (!sel) return;
-  // 以目前編輯訂單的商品清單為選項
-  sel.innerHTML = '<option value="">— 選擇商品 —</option>' +
-    editOrderItems.map(i =>
-      `<option value="${escHtml(i.productId||i.product_id||i.name)}" data-name="${escHtml(i.name)}">${escHtml(i.name)}</option>`
-    ).join('');
-  if (selectedId) {
-    // 嘗試依 id 選
-    sel.value = selectedId;
-    // fallback：依 name 選
-    if (!sel.value && selectedName) {
-      for (const opt of sel.options) {
-        if (opt.dataset.name === selectedName) { sel.value = opt.value; break; }
-      }
-    }
+// fix18-09D：checkbox 多選
+function refreshEditDiscountProductCheckboxes(selectedNames) {
+  const container = document.getElementById('editDiscountProductCheckboxes');
+  if (!container) return;
+  if (!editOrderItems.length) {
+    container.innerHTML = '<div style="color:var(--text-muted);font-size:12px">無商品</div>';
+    return;
   }
+  // 去重（同名商品只顯示一次）
+  const seen = new Set();
+  const unique = editOrderItems.filter(i => {
+    if (seen.has(i.name)) return false;
+    seen.add(i.name); return true;
+  });
+  const selSet = new Set(selectedNames || []);
+  container.innerHTML = unique.map(i => {
+    const checked = selSet.has(i.name) ? 'checked' : '';
+    const totalQty = editOrderItems.filter(x => x.name === i.name).reduce((s, x) => s + (x.qty||0), 0);
+    return `<label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:4px 0">
+      <input type="checkbox" value="${escHtml(i.name)}" ${checked} style="width:15px;height:15px;flex-shrink:0">
+      <span style="font-size:13px">${escHtml(i.name)} <span style="color:var(--text-muted);font-size:12px">×${totalQty}</span></span>
+    </label>`;
+  }).join('');
+}
+
+// 取得 checkbox 勾選結果
+function getCheckedDiscountProducts() {
+  const container = document.getElementById('editDiscountProductCheckboxes');
+  if (!container) return [];
+  return Array.from(container.querySelectorAll('input[type=checkbox]:checked'))
+    .map(cb => cb.value).filter(Boolean);
+}
+
+// 相容舊呼叫（不再使用，保留空函式避免 ReferenceError）
+function refreshEditDiscountProductDropdown(selectedId, selectedName) {
+  // 已被 refreshEditDiscountProductCheckboxes 取代
 }
 
 // ─── 折扣活動排行榜 TOP10 ────────────────────────────────
@@ -2359,7 +2415,7 @@ function buildDiscountCampaignMap(orders) {
   return Object.values(map).sort((a, b) => b.total - a.total);
 }
 
-// 折扣商品 TOP10（fix18-09C 升級版：優先使用 discount_product_name）
+// 折扣商品 TOP10（fix18-09D 升級版：支援多商品陣列平攤）
 function buildDiscountProdMapV2(orders) {
   const valid = (orders || []).filter(o => {
     if (o.status === 'void' || o.order_status === 'cancelled') return false;
@@ -2369,14 +2425,23 @@ function buildDiscountProdMapV2(orders) {
   const prodMap = {};
   valid.forEach(o => {
     const disc = Number(o.discount_amount || 0);
-    // fix18-09C：若有指定折扣商品，直接歸屬；否則平攤到全部商品
-    if (o.discount_target_type === 'product' && o.discount_product_name) {
-      const pname = o.discount_product_name;
-      if (!prodMap[pname]) prodMap[pname] = { name: pname, total: 0, count: 0 };
-      prodMap[pname].total += disc;
-      prodMap[pname].count += 1;
+    // fix18-09D：優先使用 discount_product_names 陣列
+    const targetIsProduct = (o.discount_target_type === 'products' || o.discount_target_type === 'product');
+    const names = Array.isArray(o.discount_product_names) && o.discount_product_names.length
+      ? o.discount_product_names
+      : (o.discount_product_name
+          ? o.discount_product_name.split('、').map(s => s.trim()).filter(Boolean)
+          : []);
+    if (targetIsProduct && names.length) {
+      // 多商品：平均分攤
+      const share = disc / names.length;
+      names.forEach(pname => {
+        if (!prodMap[pname]) prodMap[pname] = { name: pname, total: 0, count: 0 };
+        prodMap[pname].total += share;
+        prodMap[pname].count += 1;
+      });
     } else {
-      // 整張訂單：平攤到各商品（舊邏輯）
+      // 整張訂單：平攤到各商品項目
       const items = typeof o.items === 'string' ? JSON.parse(o.items) : (o.items || []);
       const totalQty = items.reduce((s, i) => s + Number(i.qty || 0), 0);
       items.forEach(item => {
@@ -2469,9 +2534,11 @@ function renderOrdersTable(orders) {
             const catLabel = DISCOUNT_CATEGORY_DISPLAY[cat] || '';
             const catBadge = cat && cat!=='none' ? '<br><span class="disc-badge disc-badge-'+cat+'">'+(catLabel||cat)+'</span>' : '';
             const highWarn = isHighDisc ? '<br><span class="high-discount-warn">⚠ 高折扣</span>' : '';
-            // fix18-09C：顯示折扣活動與折扣商品
+            // fix18-09D：顯示折扣活動與多商品名稱
             const campDisp = o.discount_campaign_name ? '<div style="font-size:11px;color:#fbbf24">🎯 '+escHtml(o.discount_campaign_name)+'</div>' : '';
-            const prodDisp = (o.discount_target_type==='product'&&o.discount_product_name) ? '<div style="font-size:11px;color:#a78bfa">📦 '+escHtml(o.discount_product_name)+'</div>' : '';
+            const _pnames09d = Array.isArray(o.discount_product_names)&&o.discount_product_names.length ? o.discount_product_names : (o.discount_product_name?o.discount_product_name.split('、').map(s=>s.trim()).filter(Boolean):[]);
+            const _isProd09d = (o.discount_target_type==='products'||o.discount_target_type==='product');
+            const prodDisp = (_isProd09d&&_pnames09d.length) ? '<div style="font-size:11px;color:#a78bfa">📦 '+escHtml(_pnames09d.join('、'))+'</div>' : '';
             return '<div style="font-size:11px;color:var(--text-muted,#94a3b8)">原價 NT$'+origTotal+'</div>'
               +'<div style="font-size:12px;color:#ef4444">💸 -NT$'+disc+'</div>'
               +'<div style="font-weight:700;color:#f5a623;font-size:15px">NT$'+o.total+'</div>'
@@ -2540,9 +2607,11 @@ function renderDeliveryTable(orders) {
             const catLabel = DISCOUNT_CATEGORY_DISPLAY[cat] || '';
             const catBadge = cat && cat!=='none' ? '<br><span class="disc-badge disc-badge-'+cat+'">'+(catLabel||cat)+'</span>' : '';
             const highWarn = isHighDisc ? '<br><span class="high-discount-warn">⚠ 高折扣</span>' : '';
-            // fix18-09C：顯示折扣活動與折扣商品
+            // fix18-09D：顯示折扣活動與多商品名稱
             const campDisp2 = o.discount_campaign_name ? '<div style="font-size:11px;color:#fbbf24">🎯 '+escHtml(o.discount_campaign_name)+'</div>' : '';
-            const prodDisp2 = (o.discount_target_type==='product'&&o.discount_product_name) ? '<div style="font-size:11px;color:#a78bfa">📦 '+escHtml(o.discount_product_name)+'</div>' : '';
+            const _pnames09d2 = Array.isArray(o.discount_product_names)&&o.discount_product_names.length ? o.discount_product_names : (o.discount_product_name?o.discount_product_name.split('、').map(s=>s.trim()).filter(Boolean):[]);
+            const _isProd09d2 = (o.discount_target_type==='products'||o.discount_target_type==='product');
+            const prodDisp2 = (_isProd09d2&&_pnames09d2.length) ? '<div style="font-size:11px;color:#a78bfa">📦 '+escHtml(_pnames09d2.join('、'))+'</div>' : '';
             return '<div style="font-size:11px;color:var(--text-muted,#94a3b8)">原價 NT$'+origTotal+'</div>'
               +'<div style="font-size:12px;color:#ef4444">💸 -NT$'+disc+'</div>'
               +'<div style="font-weight:700;color:#f5a623;font-size:15px">NT$'+o.total+'</div>'
@@ -2690,7 +2759,11 @@ async function showOrderDetail(orderId) {
                 +'<div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:4px;color:#06C755"><span>折扣</span><span style="font-family:monospace">-NT$'+disc+'</span></div>'
                 +(o.discount_category&&o.discount_category!=='none'?'<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;color:#fbbf24"><span>折扣分類</span><span>'+(DISCOUNT_CATEGORY_DISPLAY[o.discount_category]||o.discount_category)+'</span></div>':'')
                 +(o.discount_campaign_name?'<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;color:#fbbf24"><span>折扣活動</span><span>'+escHtml(o.discount_campaign_name)+'</span></div>':'')
-                +((o.discount_target_type==='product'&&o.discount_product_name)?'<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;color:#a78bfa"><span>折扣商品</span><span>'+escHtml(o.discount_product_name)+'</span></div>':'')
+                +(function(){
+                  const _pnms2=Array.isArray(o.discount_product_names)&&o.discount_product_names.length?o.discount_product_names:(o.discount_product_name?o.discount_product_name.split('、').map(s=>s.trim()).filter(Boolean):[]);
+                  const _isProd2=(o.discount_target_type==='products'||o.discount_target_type==='product');
+                  return(_isProd2&&_pnms2.length)?'<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;color:#a78bfa"><span>折扣商品</span><span>'+escHtml(_pnms2.join('、'))+'</span></div>':'';
+                })()
                 +(o.discount_note?'<div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px;color:#94a3b8"><span>折扣備註</span><span>'+escHtml(o.discount_note)+'</span></div>':'')
               : '';
             const label=disc>0?'實收':'應收';
@@ -3251,11 +3324,13 @@ async function openEditOrder(orderId) {
     await loadDiscountCampaigns();
     refreshEditOrderCampaignDropdown(o.discount_campaign_id || '');
 
-    // fix18-09C：折扣套用商品
+    // fix18-09D：折扣套用商品（多選）
     const targetTypeEl = document.getElementById('editDiscountTargetType');
-    if (targetTypeEl) targetTypeEl.value = o.discount_target_type || 'order';
+    // 向下相容：舊資料 'product' → 'products'
+    const ttype = (o.discount_target_type === 'product' || o.discount_target_type === 'products') ? 'products' : 'order';
+    if (targetTypeEl) targetTypeEl.value = ttype;
     const prodPanel = document.getElementById('editDiscountProductPanel');
-    if (prodPanel) prodPanel.style.display = (o.discount_target_type === 'product') ? 'block' : 'none';
+    if (prodPanel) prodPanel.style.display = (ttype === 'products') ? 'block' : 'none';
 
     // 填入可選商品清單
     const sel = document.getElementById('addItemSelect');
@@ -3265,9 +3340,13 @@ async function openEditOrder(orderId) {
     document.getElementById('addItemPanel').style.display = 'none';
     onEditPaymentChange();
     renderEditOrderItems();
-    // fix18-09C：填入折扣商品下拉（需在 editOrderItems 設定後執行）
-    if (o.discount_target_type === 'product') {
-      refreshEditDiscountProductDropdown(o.discount_product_id || '', o.discount_product_name || '');
+    // fix18-09D：填入折扣商品 checkbox（需在 editOrderItems 設定後執行）
+    if (ttype === 'products') {
+      // 優先使用 discount_product_names 陣列，否則 fallback 到 discount_product_name 字串
+      const initNames = Array.isArray(o.discount_product_names) && o.discount_product_names.length
+        ? o.discount_product_names
+        : (o.discount_product_name ? o.discount_product_name.split('、').map(s=>s.trim()).filter(Boolean) : []);
+      refreshEditDiscountProductCheckboxes(initNames);
     }
     document.getElementById('editOrderModal').classList.add('open');
   } catch(e) { showToast('載入失敗：' + e.message, 'error'); }
@@ -3281,6 +3360,12 @@ function closeEditOrder() {
 
 function renderEditOrderItems() {
   const total = editOrderItems.reduce((s,i) => s + i.price * i.qty, 0);
+  // fix18-09D：商品變動時同步刷新 checkbox（保持勾選狀態）
+  const ttype09d = document.getElementById('editDiscountTargetType')?.value;
+  if (ttype09d === 'products') {
+    const checked09d = getCheckedDiscountProducts();
+    setTimeout(() => refreshEditDiscountProductCheckboxes(checked09d), 0);
+  }
   document.getElementById('editOrderItems').innerHTML = editOrderItems.length
     ? editOrderItems.map((item, idx) => `
         <div class="edit-item-row">
@@ -3407,11 +3492,18 @@ async function saveEditOrder() {
   const campId   = campSel?.value ? Number(campSel.value) : null;
   const campName = campSel?.value ? (campSel.options[campSel.selectedIndex]?.dataset?.name || campSel.options[campSel.selectedIndex]?.text || '') : '';
 
-  // fix18-09C：折扣套用商品
+  // fix18-09D：折扣套用商品（多選 checkbox）
   const targetType = document.getElementById('editDiscountTargetType')?.value || 'order';
-  const prodSel    = document.getElementById('editDiscountProduct');
-  const prodId     = (targetType === 'product' && prodSel?.value) ? prodSel.value : '';
-  const prodName   = (targetType === 'product' && prodSel?.value) ? (prodSel.options[prodSel.selectedIndex]?.dataset?.name || '') : '';
+  const isMultiProd = (targetType === 'products');
+  const checkedNames = isMultiProd ? getCheckedDiscountProducts() : [];
+  // 向下相容欄位（prodId 留空；prodName 存多商品逗號串）
+  const prodId    = '';
+  const prodName  = checkedNames.join('、');
+  // fix18-09D 新欄位（JSON 陣列）
+  const prodIds   = [];  // 不存 id，只存 name
+  const prodNames = checkedNames;
+  // target_type 統一用 products / order
+  const effectiveTargetType = isMultiProd ? 'products' : 'order';
 
   // fix18-09：訂單日期時間
   const createdAtEl = document.getElementById('editOrderCreatedAt');
@@ -3435,12 +3527,14 @@ async function saveEditOrder() {
     discount_category: discCat,
     discount_note: discNote,
     ...(createdAt ? { created_at: createdAt } : {}),
-    // fix18-09C：折扣活動與商品
+    // fix18-09D：折扣活動與多商品
     discount_campaign_id:   campId,
     discount_campaign_name: campName,
-    discount_target_type:   targetType,
+    discount_target_type:   effectiveTargetType,
     discount_product_id:    prodId,
     discount_product_name:  prodName,
+    discount_product_ids:   prodIds,
+    discount_product_names: prodNames,
   };
 
   try {

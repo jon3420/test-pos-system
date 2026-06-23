@@ -26,6 +26,9 @@ function ensureFix1809Columns(db) {
   safeAdd('orders', 'discount_target_type',      'TEXT DEFAULT \'order\'');
   safeAdd('orders', 'discount_product_id',       'TEXT DEFAULT \'\'');
   safeAdd('orders', 'discount_product_name',     'TEXT DEFAULT \'\'');
+  // fix18-09D：多商品折扣
+  safeAdd('orders', 'discount_product_ids',      'TEXT DEFAULT \'\''  );
+  safeAdd('orders', 'discount_product_names',    'TEXT DEFAULT \'\''  );
 }
 
 // ── fix18-09：折扣分類標準化 ──────────────────────────────
@@ -79,6 +82,9 @@ function parseOrder(o) {
     discount_target_type:     o.discount_target_type || 'order',
     discount_product_id:      o.discount_product_id || '',
     discount_product_name:    o.discount_product_name || '',
+    // fix18-09D：多商品
+    discount_product_ids:     o.discount_product_ids   ? (typeof o.discount_product_ids   === 'string' ? JSON.parse(o.discount_product_ids)   : o.discount_product_ids)   : [],
+    discount_product_names:   o.discount_product_names ? (typeof o.discount_product_names === 'string' ? JSON.parse(o.discount_product_names) : o.discount_product_names) : [],
     guest_count:              Number(o.guest_count              || 0),
     platform_order_no:        o.platform_order_no || '',
     delivery_status:          o.delivery_status   || '',
@@ -396,6 +402,7 @@ router.post('/', async (req, res) => {
       // fix18-09C 新增
       discount_campaign_id=null, discount_campaign_name='',
       discount_target_type='order', discount_product_id='', discount_product_name='',
+      discount_product_ids=null, discount_product_names=null,
     } = req.body;
 
     if (!items || !Array.isArray(items) || !items.length)
@@ -450,8 +457,9 @@ router.post('/', async (req, res) => {
          platform_commission_rate,platform_commission_amount,store_actual_income,
          delivery_fee,discount_amount,discount_category,discount_note,
          discount_campaign_id,discount_campaign_name,discount_target_type,discount_product_id,discount_product_name,
+         discount_product_ids,discount_product_names,
          platform_order_no,delivery_status)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'completed',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'completed',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [id, order_number, storeId, customer_name, customer_phone, customer_line_id,
        JSON.stringify(items), payment_method, subtotal, total, originalTotal, note, recv, chng,
        order_mode, order_status || 'completed', table_number, Number(guest_count) || 0,
@@ -461,6 +469,8 @@ router.post('/', async (req, res) => {
        delivFee, discountAmt, normCat, discount_note || '',
        discount_campaign_id || null, discount_campaign_name || '', discount_target_type || 'order',
        discount_product_id || '', discount_product_name || '',
+       discount_product_ids  ? JSON.stringify(discount_product_ids)  : '[]',
+       discount_product_names ? JSON.stringify(discount_product_names) : '[]',
        platform_order_no || '', effDelivStatus]
     );
 
@@ -518,6 +528,8 @@ router.put('/:id', (req, res) => {
       discount_target_type,
       discount_product_id,
       discount_product_name,
+      discount_product_ids,
+      discount_product_names,
     } = req.body;
 
     if (!reason?.trim()) return res.status(400).json({ success: false, message: '修改原因為必填' });
@@ -582,6 +594,14 @@ router.put('/:id', (req, res) => {
     const newTargetType    = discount_target_type !== undefined ? (discount_target_type || 'order') : oldTargetType;
     const newCampaignId    = discount_campaign_id !== undefined ? (discount_campaign_id || null) : (order.discount_campaign_id || null);
     const newProdId        = discount_product_id  !== undefined ? (discount_product_id  || '') : (order.discount_product_id || '');
+    // fix18-09D：多商品
+    const parseJsonArr = (v) => { try { return v ? (typeof v === 'string' ? JSON.parse(v) : v) : []; } catch { return []; } };
+    const oldProdIds   = parseJsonArr(order.discount_product_ids);
+    const oldProdNms   = parseJsonArr(order.discount_product_names);
+    const newProdIds   = discount_product_ids   !== undefined ? (discount_product_ids   || []) : oldProdIds;
+    const newProdNms   = discount_product_names !== undefined ? (discount_product_names || []) : oldProdNms;
+    // 若有多商品 names，覆蓋 newProdName（向下相容，讓 display 用 names 陣列）
+    const effectiveProdName = newProdNms.length ? newProdNms.join('、') : newProdName;
 
     const platformChanged  = newPlatformCode !== oldPlatformCode;
     const dateChanged      = created_at && newCreatedAt !== oldCreatedAt;
@@ -594,7 +614,7 @@ router.put('/:id', (req, res) => {
     if (noteChanged) diffLines.push(`折扣備註：${oldDiscNote||'空白'} → ${normNote||'空白'}`);
     // fix18-09C
     if (newCampaignName !== oldCampaignName) diffLines.push(`折扣活動：${oldCampaignName||'無'} → ${newCampaignName||'無'}`);
-    if (newProdName !== oldProdName) diffLines.push(`折扣商品：${oldProdName||'無'} → ${newProdName||'無'}`);
+    if (effectiveProdName !== (oldProdNms.length ? oldProdNms.join('、') : oldProdName)) diffLines.push(`折扣商品：${(oldProdNms.length?oldProdNms.join('、'):oldProdName)||'無'} → ${effectiveProdName||'無'}`);
     if (platformChanged) {
       diffLines.push(`平台來源：${PLATFORM_LABEL[oldPlatformCode]||'未知'} → ${newPlatformLabel}`);
       diffLines.push(`抽成率：${oldCommRate}% → ${newCommRate}%`);
@@ -627,8 +647,13 @@ router.put('/:id', (req, res) => {
       // fix18-09C
       discount_campaign_before: oldCampaignName,
       discount_campaign_after: newCampaignName,
-      discount_product_before: oldProdName,
-      discount_product_after: newProdName,
+      discount_product_before: oldProdNms.length ? oldProdNms.join('、') : oldProdName,
+      discount_product_after:  effectiveProdName,
+      // fix18-09D
+      discount_product_ids_before:   oldProdIds,
+      discount_product_ids_after:    newProdIds,
+      discount_product_names_before: oldProdNms,
+      discount_product_names_after:  newProdNms,
     };
 
     db.run(
@@ -656,6 +681,7 @@ router.put('/:id', (req, res) => {
          delivery_address=?,estimated_delivery=?,
          discount_category=?,discount_note=?,
          discount_campaign_id=?,discount_campaign_name=?,discount_target_type=?,discount_product_id=?,discount_product_name=?,
+         discount_product_ids=?,discount_product_names=?,
          created_at=?,
          status='modified',updated_at=datetime('now','localtime') WHERE id=? AND store_id=?`,
       [JSON.stringify(items), newPayment, subtotal, newTotal, newOriginalTotal, discAmt, delivFee,
@@ -669,7 +695,8 @@ router.put('/:id', (req, res) => {
        pickup_name ?? order.pickup_name, pickup_time ?? order.pickup_time,
        delivery_address ?? order.delivery_address, estimated_delivery ?? order.estimated_delivery,
        normCat, normNote,
-       newCampaignId, newCampaignName, newTargetType, newProdId, newProdName,
+       newCampaignId, newCampaignName, newTargetType, newProdId, effectiveProdName,
+       JSON.stringify(newProdIds), JSON.stringify(newProdNms),
        newCreatedAt,
        order.id, storeId]
     );
