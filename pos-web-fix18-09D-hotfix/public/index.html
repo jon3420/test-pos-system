@@ -220,17 +220,21 @@
       <button class="order-tab-btn"        data-tab="delivery" onclick="switchOrderTab('delivery')">🛵 外送報表</button>
     </div>
 
-    <!-- fix18-09B：折扣快速篩選列 (fix18-09E: dynamic from API) -->
+    <!-- fix18-09B：折扣快速篩選列 -->
     <div id="discountFilterBar" style="display:flex;flex-wrap:wrap;gap:6px;padding:10px 0 4px 0;border-bottom:1px solid var(--border,#334155);margin-bottom:8px">
-      <button class="disc-filter-btn active" data-filter="all"          onclick="setDiscountFilter('all')">全部</button>
-      <button class="disc-filter-btn"        data-filter="has_discount" onclick="setDiscountFilter('has_discount')">💸 有折扣</button>
-      <button class="disc-filter-btn"        data-filter="no_discount"  onclick="setDiscountFilter('no_discount')">無折扣</button>
+      <button class="disc-filter-btn active" data-filter="all"            onclick="setDiscountFilter('all')">全部</button>
+      <button class="disc-filter-btn"        data-filter="has_discount"   onclick="setDiscountFilter('has_discount')">💸 有折扣</button>
+      <button class="disc-filter-btn"        data-filter="no_discount"    onclick="setDiscountFilter('no_discount')">無折扣</button>
+      <button class="disc-filter-btn"        data-filter="product_promo"  onclick="setDiscountFilter('product_promo')">🟢 商品活動</button>
+      <button class="disc-filter-btn"        data-filter="marketing"      onclick="setDiscountFilter('marketing')">🔵 廣告行銷</button>
+      <button class="disc-filter-btn"        data-filter="complaint"      onclick="setDiscountFilter('complaint')">🟠 客訴補償</button>
+      <button class="disc-filter-btn"        data-filter="loyalty"        onclick="setDiscountFilter('loyalty')">🟣 老客優惠</button>
+      <button class="disc-filter-btn"        data-filter="staff_family"   onclick="setDiscountFilter('staff_family')">⚫ 員工親友</button>
+      <button class="disc-filter-btn"        data-filter="platform_promo" onclick="setDiscountFilter('platform_promo')">🟡 平台活動</button>
+      <button class="disc-filter-btn"        data-filter="other"          onclick="setDiscountFilter('other')">⚪ 其他</button>
     </div>
 
     <!-- 統計卡片 -->
-    <div style="display:flex;justify-content:flex-end;margin-bottom:4px">
-      <button onclick="openCardVisibilityModal()" style="font-size:12px;padding:4px 12px;border-radius:99px;border:1px solid var(--border,#334155);background:transparent;color:var(--text-secondary,#94a3b8);cursor:pointer">👁 顯示設定</button>
-    </div>
     <div class="stat-cards" id="statCards"></div>
 
     <!-- 全部訂單 / 內用外帶 -->
@@ -1127,21 +1131,7 @@
     <!-- fix18-09D：折扣活動設定 Tab Panel（正確位置：page-settings 內） -->
     <div class="settings-tab-panel" id="stab-discount_campaigns" style="display:none">
       <div class="settings-grid">
-        <!-- fix18-09E：上半部 — 折扣分類設定 -->
         <div class="settings-card" style="grid-column:1/-1">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-            <div>
-              <h3 style="margin:0">🏷️ 折扣分類設定</h3>
-              <p style="font-size:13px;color:#666;margin:4px 0 0">設定折扣的成本分類，用於統計報表。</p>
-            </div>
-            <button class="btn-primary" onclick="openCategoryModal()" style="white-space:nowrap">＋ 新增分類</button>
-          </div>
-          <div id="discountCategoryList" style="display:flex;flex-direction:column;gap:8px">
-            <div style="color:var(--text-muted);font-size:13px">載入中...</div>
-          </div>
-        </div>
-        <!-- 下半部 — 折扣活動設定 -->
-        <div class="settings-card" style="grid-column:1/-1;margin-top:8px">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
             <div>
               <h3 style="margin:0">💸 折扣活動設定</h3>
@@ -1338,60 +1328,6 @@
 </div>
 
 
-<!-- fix18-09E：折扣分類新增/編輯 Modal -->
-<div class="modal-overlay" id="categoryEditModal" onclick="if(event.target===this)closeCategoryModal()">
-  <div class="modal" style="max-width:440px">
-    <div class="modal-header">
-      <h3 id="categoryModalTitle">新增折扣分類</h3>
-      <button class="modal-close" onclick="closeCategoryModal()">✕</button>
-    </div>
-    <div class="modal-body">
-      <input type="hidden" id="categoryEditId">
-      <label>分類名稱 <span style="color:var(--danger)">*</span>
-        <input type="text" id="categoryEditName" placeholder="例如：試吃推廣" style="width:100%;box-sizing:border-box">
-      </label>
-      <label style="margin-top:12px;display:block">圖示（Emoji）
-        <input type="text" id="categoryEditIcon" placeholder="🟢" style="width:80px">
-      </label>
-      <label style="margin-top:12px;display:block">顏色
-        <input type="color" id="categoryEditColor" value="#94a3b8" style="width:60px;height:34px;cursor:pointer">
-      </label>
-      <label style="margin-top:12px;display:flex;align-items:center;gap:10px;cursor:pointer">
-        <input type="checkbox" id="categoryEditEnabled" checked style="width:16px;height:16px">
-        <span>啟用此分類</span>
-      </label>
-      <label style="margin-top:12px;display:block">排序
-        <input type="number" id="categoryEditSortOrder" value="0" min="0" style="width:100px">
-        <small style="color:var(--text-muted);font-size:11px;margin-left:8px">數字小的排在前面</small>
-      </label>
-    </div>
-    <div class="modal-footer" style="display:flex;gap:8px;justify-content:flex-end">
-      <button class="btn-secondary" onclick="closeCategoryModal()">取消</button>
-      <button class="btn-primary" onclick="saveCategoryModal()">💾 儲存</button>
-    </div>
-  </div>
-</div>
-
-<!-- fix18-09E：報表卡片顯示設定 Modal -->
-<div class="modal-overlay" id="cardVisibilityModal" onclick="if(event.target===this)closeCardVisibilityModal()">
-  <div class="modal" style="max-width:400px">
-    <div class="modal-header">
-      <h3>👁 顯示設定</h3>
-      <button class="modal-close" onclick="closeCardVisibilityModal()">✕</button>
-    </div>
-    <div class="modal-body">
-      <div style="display:flex;gap:8px;margin-bottom:16px">
-        <button onclick="setCardVisibilityMode('all')" id="cvModeAll" class="btn-secondary" style="flex:1">全部顯示</button>
-        <button onclick="setCardVisibilityMode('simple')" id="cvModeSimple" class="btn-secondary" style="flex:1">精簡模式</button>
-      </div>
-      <div style="display:flex;flex-direction:column;gap:10px" id="cardVisibilityCheckboxes"></div>
-    </div>
-    <div class="modal-footer" style="display:flex;justify-content:flex-end">
-      <button class="btn-primary" onclick="saveCardVisibility()">✅ 套用</button>
-    </div>
-  </div>
-</div>
-
 <!-- fix18-09D：折扣活動新增/編輯 Modal -->
 <div class="modal-overlay" id="campaignEditModal" onclick="if(event.target===this)closeCampaignModal()">
   <div class="modal" style="max-width:440px">
@@ -1524,6 +1460,13 @@
       <label>折扣分類
         <select id="editDiscountCategory">
           <option value="none">無折扣</option>
+          <option value="marketing">廣告行銷支出</option>
+          <option value="product_promo">商品活動支出</option>
+          <option value="complaint">客訴補償</option>
+          <option value="loyalty">老客戶優惠</option>
+          <option value="staff_family">員工/親友優惠</option>
+          <option value="platform_promo">平台活動</option>
+          <option value="other">其他</option>
         </select>
       </label>
 

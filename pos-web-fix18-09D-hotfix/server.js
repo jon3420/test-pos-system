@@ -281,7 +281,6 @@ initDb().then((db) => {
   // fix18-05: 優惠券管理（Web 後台 CRUD + LINE validate）
   app.use('/api/coupons', requireStore, requireFeature('coupon'), require('./routes/coupons'));
   app.use('/api/discount-campaigns', requireStore, require('./routes/discount-campaigns'));
-  app.use('/api/discount-categories', requireStore, require('./routes/discount-categories')); // fix18-09E
   // LINE Pay 相容路由別名（後台 webhook_url 預設為 /webhook/linepay）
   app.post('/webhook/linepay', (req, res, next) => {
     console.log('[linepay/webhook alias]', JSON.stringify(req.body).slice(0, 200));

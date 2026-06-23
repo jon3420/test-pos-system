@@ -788,25 +788,6 @@ let _allOrdersCache = [];          // fix18-09B：目前分頁全部訂單快取
 let orderInfoExpanded = true;      // 訂單資訊區展開狀態
 let allPaymentMethods = [];        // 付款方式快取
 let allDiscountCampaigns = [];     // fix18-09C：折扣活動快取
-let allDiscountCategories = [];    // fix18-09E：折扣分類快取
-
-// fix18-09E：報表卡片顯示設定
-const REPORT_CARDS_STORAGE_KEY = 'orders_report_visible_cards';
-const REPORT_ALL_CARDS = ['訂單數','原價營業額','折扣總額','實收營業額','平均客單價','平台抽成','店家實收','熱賣商品','折扣支出','折扣商品排行','折扣活動排行','外送平台卡片'];
-const REPORT_SLIM_CARDS = ['訂單數','實收營業額','平均客單價','折扣總額','平台抽成','店家實收'];
-function getVisibleCards() {
-  try {
-    const saved = localStorage.getItem(REPORT_CARDS_STORAGE_KEY);
-    if (saved) return JSON.parse(saved);
-  } catch {}
-  return [...REPORT_ALL_CARDS]; // default all visible
-}
-function saveVisibleCards(arr) {
-  try { localStorage.setItem(REPORT_CARDS_STORAGE_KEY, JSON.stringify(arr)); } catch {}
-}
-function isCardVisible(label) {
-  return getVisibleCards().includes(label);
-}
 
 // 訂單編輯狀態
 let editOrderItems = [];
@@ -830,7 +811,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   await loadCategories().catch(() => {});
   await loadPaymentMethods().catch(() => {});
   await loadDiscountCampaigns().catch(() => {});  // fix18-09C
-  await loadDiscountCategories().catch(() => {}); // fix18-09E
 
   // 3. 商品載入（不依賴 inventory，不受 inventory feature gate 影響）
   await loadProducts().catch(() => {});
@@ -1853,44 +1833,21 @@ function loadCurrentOrderTab() {
   refreshCurrentOrderView();
 }
 
-// fix18-09E：折扣分類動態版（從 allDiscountCategories 讀取，fallback 預設）
-const DISCOUNT_CATEGORY_DISPLAY_FALLBACK = {
+// fix18-09：折扣分類顯示標籤
+const DISCOUNT_CATEGORY_DISPLAY = {
   none: '無折扣', marketing: '廣告行銷', product_promo: '商品活動',
   complaint: '客訴補償', loyalty: '老客優惠', staff_family: '員工親友',
   platform_promo: '平台活動', other: '其他'
 };
-// 動態取得分類顯示名稱（優先 DB，fallback 預設）
-function getDiscountCategoryDisplay(code) {
-  if (!code || code === 'none') return '無折扣';
-  if (allDiscountCategories.length) {
-    const found = allDiscountCategories.find(c => c.code === code);
-    if (found) return found.name;
-  }
-  return DISCOUNT_CATEGORY_DISPLAY_FALLBACK[code] || code;
-}
-// 相容舊呼叫：DISCOUNT_CATEGORY_DISPLAY[cat] 改成 proxy
-const DISCOUNT_CATEGORY_DISPLAY = new Proxy(DISCOUNT_CATEGORY_DISPLAY_FALLBACK, {
-  get(target, key) {
-    if (allDiscountCategories.length) {
-      const found = allDiscountCategories.find(c => c.code === key);
-      if (found) return found.name;
-    }
-    return target[key];
-  }
-});
 
 function normalizeDiscountCategory(value) {
   if (!value || value === '' || value === 'undefined') return 'none';
-  const v = String(value).trim().toLowerCase();
-  if (v === 'none') return 'none';
-  // fix18-09E：動態分類支援
-  if (allDiscountCategories.length) {
-    const found = allDiscountCategories.find(c => c.code === v);
-    if (found) return found.code;
-  }
-  // fallback 預設 code 列表
-  const defaults = ['marketing','product_promo','complaint','loyalty','staff_family','platform_promo','other'];
-  return defaults.includes(v) ? v : v; // 保留原始值，讓歷史資料顯示
+  const map = {
+    none:'none', marketing:'marketing', product_promo:'product_promo',
+    complaint:'complaint', loyalty:'loyalty', staff_family:'staff_family',
+    platform_promo:'platform_promo', other:'other'
+  };
+  return map[String(value).trim().toLowerCase()] || 'none';
 }
 // fix18-09B：折扣篩選邏輯
 function applyDiscountFilter(orders, filter) {
@@ -2120,27 +2077,23 @@ function renderStatCards(stats, allOrders) {
   const totalRevenue   = Number(stats.total_revenue || 0);
 
   container.innerHTML = `
-    ${isCardVisible('訂單數') ? `<div class="stat-card"><div class="stat-card-label">訂單數</div><div class="stat-card-value">${stats.order_count||0}</div><div class="stat-card-sub">筆訂單</div></div>` : ''}
-    ${isCardVisible('原價營業額') ? `<div class="stat-card"><div class="stat-card-label">原價營業額</div><div class="stat-card-value" style="font-size:18px">$${Math.round(totalOriginal)}</div><div class="stat-card-sub">未扣折扣</div></div>` : ''}
-    ${isCardVisible('折扣總額') && totalDiscount > 0 ? `<div class="stat-card"><div class="stat-card-label">折扣總額</div><div class="stat-card-value" style="color:var(--danger)">-$${Math.round(totalDiscount)}</div><div class="stat-card-sub">已折抵</div></div>` : ''}
-    ${isCardVisible('實收營業額') ? `<div class="stat-card"><div class="stat-card-label">實收營業額</div><div class="stat-card-value" style="color:var(--success)">$${Math.round(totalRevenue)}</div><div class="stat-card-sub">新台幣</div></div>` : ''}
-    ${isCardVisible('平均客單價') ? `<div class="stat-card"><div class="stat-card-label">平均客單價</div><div class="stat-card-value">$${Math.round(stats.avg_order||0)}</div><div class="stat-card-sub">每筆訂單</div></div>` : ''}
-    ${isCardVisible('平台抽成') && showDelivery ? `<div class="stat-card"><div class="stat-card-label">平台抽成</div><div class="stat-card-value" style="color:var(--danger)">$${Math.round(stats.total_commission||0)}</div></div>` : ''}
-    ${isCardVisible('店家實收') && showDelivery ? `<div class="stat-card"><div class="stat-card-label">店家實收</div><div class="stat-card-value" style="color:var(--success)">$${Math.round(stats.total_store_income||0)}</div></div>` : ''}
-    ${isCardVisible('熱賣商品') && stats.top_products?.length ? `<div class="stat-card"><div class="stat-card-label">🏆 熱賣</div><div class="stat-card-value" style="font-size:14px;line-height:1.6">${stats.top_products.slice(0,3).map(p=>`${escHtml(p.name)} <small style="color:#999">×${p.qty}</small>`).join('<br>')}</div></div>` : ''}
-    ${isCardVisible('折扣支出') ? `<div class="stat-card" style="min-width:220px">
+    <div class="stat-card"><div class="stat-card-label">訂單數</div><div class="stat-card-value">${stats.order_count||0}</div><div class="stat-card-sub">筆訂單</div></div>
+    <div class="stat-card"><div class="stat-card-label">原價營業額</div><div class="stat-card-value" style="font-size:18px">$${Math.round(totalOriginal)}</div><div class="stat-card-sub">未扣折扣</div></div>
+    ${totalDiscount > 0 ? `<div class="stat-card"><div class="stat-card-label">折扣總額</div><div class="stat-card-value" style="color:var(--danger)">-$${Math.round(totalDiscount)}</div><div class="stat-card-sub">已折抵</div></div>` : ''}
+    <div class="stat-card"><div class="stat-card-label">實收營業額</div><div class="stat-card-value" style="color:var(--success)">$${Math.round(totalRevenue)}</div><div class="stat-card-sub">新台幣</div></div>
+    <div class="stat-card"><div class="stat-card-label">平均客單價</div><div class="stat-card-value">$${Math.round(stats.avg_order||0)}</div><div class="stat-card-sub">每筆訂單</div></div>
+    ${showDelivery ? `<div class="stat-card"><div class="stat-card-label">平台抽成</div><div class="stat-card-value" style="color:var(--danger)">$${Math.round(stats.total_commission||0)}</div></div><div class="stat-card"><div class="stat-card-label">店家實收</div><div class="stat-card-value" style="color:var(--success)">$${Math.round(stats.total_store_income||0)}</div></div>` : ''}
+    ${stats.top_products?.length ? `<div class="stat-card"><div class="stat-card-label">🏆 熱賣</div><div class="stat-card-value" style="font-size:14px;line-height:1.6">${stats.top_products.slice(0,3).map(p=>`${escHtml(p.name)} <small style="color:#999">×${p.qty}</small>`).join('<br>')}</div></div>` : ''}
+    <div class="stat-card" style="min-width:220px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
         <div class="stat-card-label" style="margin:0">💸 折扣支出</div>
         <button onclick="openDiscountDetail()" style="font-size:11px;padding:2px 8px;border-radius:99px;border:1px solid var(--border,#334155);background:transparent;color:var(--text-secondary,#94a3b8);cursor:pointer">📄 查看明細</button>
       </div>
       <div class="stat-card-value" style="color:var(--danger);font-size:18px;margin-bottom:8px" onclick="setDiscountFilter('has_discount')" style="cursor:pointer">NT$${Math.round(totalDiscount)}<small style="font-size:12px;color:var(--text-muted);font-weight:400;margin-left:6px">${totalDiscOrders}筆</small></div>
       ${discCatRows}
-    </div>` : ''}
-    ${isCardVisible('折扣商品排行') ? renderDiscountTopProducts(orders) : ''}
-    ${isCardVisible('折扣活動排行') ? renderDiscountCampaignRanking(orders) : ''}`;
-  // fix18-09E：外送平台卡片顯示控制
-  const platEl = document.getElementById('platformStats');
-  if (platEl) platEl.style.display = isCardVisible('外送平台卡片') ? '' : 'none';
+    </div>
+    ${renderDiscountTopProducts(orders)}
+    ${renderDiscountCampaignRanking(orders)}`;
 }
 
 // fix18-09C：折扣活動排行卡（TOP3 preview）
@@ -2238,277 +2191,8 @@ function closeDiscTop10() {
 }
 
 // ═══════════════════════════════════════════════════════════
-// fix18-09E：折扣分類功能
-// ═══════════════════════════════════════════════════════════
-
-// 載入折扣分類（全域快取）
-async function loadDiscountCategories() {
-  try {
-    const res = await apiFetch('/api/discount-categories');
-    const json = await res.json();
-    if (json.success) {
-      allDiscountCategories = json.data || [];
-      renderDiscountFilterBar(); // 同步更新快速篩選列
-    }
-  } catch (e) {
-    console.warn('[DiscountCategories] 載入失敗', e.message);
-  }
-}
-
-// 設定中心：折扣分類 Tab
-async function loadDiscountCategoriesSection() {
-  await loadDiscountCategories();
-  renderDiscountCategoryList();
-}
-
-function renderDiscountCategoryList() {
-  const el = document.getElementById('discountCategoryList');
-  if (!el) return;
-  const cats = allDiscountCategories;
-  if (!cats.length) {
-    el.innerHTML = '<div style="color:var(--text-muted);font-size:13px;padding:16px 0">尚無分類，點擊「＋ 新增分類」開始設定</div>';
-    return;
-  }
-  el.innerHTML = `
-    <table style="width:100%;border-collapse:collapse;font-size:13px">
-      <thead>
-        <tr style="border-bottom:2px solid var(--border,#334155)">
-          <th style="text-align:left;padding:8px 10px;color:var(--text-muted)">圖示</th>
-          <th style="text-align:left;padding:8px 10px;color:var(--text-muted)">分類名稱</th>
-          <th style="text-align:left;padding:8px 10px;color:var(--text-muted)">代碼</th>
-          <th style="text-align:center;padding:8px 10px;color:var(--text-muted)">狀態</th>
-          <th style="text-align:center;padding:8px 10px;color:var(--text-muted)">排序</th>
-          <th style="text-align:right;padding:8px 10px;color:var(--text-muted)">操作</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${cats.map(c => `
-          <tr style="border-bottom:1px solid var(--border,#334155)">
-            <td style="padding:10px;font-size:18px">${escHtml(c.icon||'⚪')}</td>
-            <td style="padding:10px;font-weight:600;color:${c.enabled?'var(--text-primary,#f1f5f9)':'var(--text-muted,#64748b)'}">${escHtml(c.name)}</td>
-            <td style="padding:10px;color:var(--text-muted,#64748b);font-size:11px;font-family:monospace">${escHtml(c.code)}</td>
-            <td style="padding:10px;text-align:center">
-              <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer">
-                <input type="checkbox" ${c.enabled?'checked':''} onchange="toggleDiscountCategory(${c.id},this.checked)" style="width:14px;height:14px">
-                <span style="font-size:12px;color:${c.enabled?'#10b981':'var(--text-muted)'}">${c.enabled?'啟用':'停用'}</span>
-              </label>
-            </td>
-            <td style="padding:10px;text-align:center;color:var(--text-muted);font-size:12px">${c.sort_order}</td>
-            <td style="padding:10px;text-align:right;white-space:nowrap">
-              <button onclick="openCategoryModal(${c.id})" style="padding:4px 12px;font-size:12px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);cursor:pointer;margin-right:6px">✏️ 編輯</button>
-              <button onclick="deleteDiscountCategory(${c.id},'${escHtml(c.name)}')" style="padding:4px 12px;font-size:12px;border-radius:6px;border:1px solid var(--danger,#ef4444);background:transparent;color:var(--danger,#ef4444);cursor:pointer">🗑 刪除</button>
-            </td>
-          </tr>`).join('')}
-      </tbody>
-    </table>`;
-}
-
-function openCategoryModal(id) {
-  const modal = document.getElementById('categoryEditModal');
-  if (!modal) return;
-  const titleEl = document.getElementById('categoryModalTitle');
-  const idEl    = document.getElementById('categoryEditId');
-  const nameEl  = document.getElementById('categoryEditName');
-  const iconEl  = document.getElementById('categoryEditIcon');
-  const colorEl = document.getElementById('categoryEditColor');
-  const enaEl   = document.getElementById('categoryEditEnabled');
-  const sortEl  = document.getElementById('categoryEditSortOrder');
-  if (id) {
-    const c = allDiscountCategories.find(x => x.id === id);
-    if (!c) return;
-    if (titleEl) titleEl.textContent = '編輯折扣分類';
-    if (idEl)    idEl.value     = c.id;
-    if (nameEl)  nameEl.value   = c.name;
-    if (iconEl)  iconEl.value   = c.icon || '⚪';
-    if (colorEl) colorEl.value  = c.color || '#94a3b8';
-    if (enaEl)   enaEl.checked  = !!c.enabled;
-    if (sortEl)  sortEl.value   = c.sort_order || 0;
-  } else {
-    if (titleEl) titleEl.textContent = '新增折扣分類';
-    if (idEl)    idEl.value     = '';
-    if (nameEl)  nameEl.value   = '';
-    if (iconEl)  iconEl.value   = '⚪';
-    if (colorEl) colorEl.value  = '#94a3b8';
-    if (enaEl)   enaEl.checked  = true;
-    if (sortEl)  sortEl.value   = allDiscountCategories.length;
-  }
-  modal.classList.add('open');
-  if (nameEl) setTimeout(() => nameEl.focus(), 100);
-}
-
-function closeCategoryModal() {
-  const modal = document.getElementById('categoryEditModal');
-  if (modal) modal.classList.remove('open');
-}
-
-async function saveCategoryModal() {
-  const id      = document.getElementById('categoryEditId')?.value;
-  const name    = document.getElementById('categoryEditName')?.value?.trim();
-  const icon    = document.getElementById('categoryEditIcon')?.value?.trim() || '⚪';
-  const color   = document.getElementById('categoryEditColor')?.value || '#94a3b8';
-  const enabled = document.getElementById('categoryEditEnabled')?.checked ?? true;
-  const sort    = parseInt(document.getElementById('categoryEditSortOrder')?.value || '0', 10);
-  if (!name) { showToast('請輸入分類名稱', 'error'); return; }
-  try {
-    const res = await apiFetch(id ? `/api/discount-categories/${id}` : '/api/discount-categories', {
-      method: id ? 'PUT' : 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, icon, color, enabled, sort_order: sort })
-    });
-    const json = await res.json();
-    if (json.success) {
-      closeCategoryModal();
-      await loadDiscountCategories();
-      renderDiscountCategoryList();
-      showToast(id ? '✅ 已更新' : '✅ 折扣分類已新增', 'success');
-    } else { showToast(json.message || '儲存失敗', 'error'); }
-  } catch (e) { showToast('網路錯誤', 'error'); }
-}
-
-async function toggleDiscountCategory(id, enabled) {
-  try {
-    await apiFetch('/api/discount-categories/' + id, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ enabled })
-    });
-    await loadDiscountCategories();
-    renderDiscountCategoryList();
-  } catch (e) { showToast('更新失敗', 'error'); }
-}
-
-async function deleteDiscountCategory(id, name) {
-  if (!confirm(`確定要刪除「${name}」分類嗎？`)) return;
-  try {
-    const res = await apiFetch('/api/discount-categories/' + id, { method: 'DELETE' });
-    const json = await res.json();
-    if (json.success) {
-      await loadDiscountCategories();
-      renderDiscountCategoryList();
-      showToast('已刪除', 'success');
-    } else { showToast(json.message || '刪除失敗', 'error'); }
-  } catch (e) { showToast('網路錯誤', 'error'); }
-}
-
-// fix18-09E：動態渲染快速篩選列（折扣分類按鈕）
-function renderDiscountFilterBar() {
-  const bar = document.getElementById('discountFilterBar');
-  if (!bar) return;
-  const cats = allDiscountCategories.filter(c => c.enabled);
-  const current = currentDiscountFilter;
-  let html = `
-    <button class="disc-filter-btn ${current==='all'?'active':''}" data-filter="all" onclick="setDiscountFilter('all')">全部</button>
-    <button class="disc-filter-btn ${current==='has_discount'?'active':''}" data-filter="has_discount" onclick="setDiscountFilter('has_discount')">💸 有折扣</button>
-    <button class="disc-filter-btn ${current==='no_discount'?'active':''}" data-filter="no_discount" onclick="setDiscountFilter('no_discount')">無折扣</button>`;
-  if (cats.length) {
-    cats.forEach(c => {
-      html += `<button class="disc-filter-btn ${current===c.code?'active':''}" data-filter="${escHtml(c.code)}" onclick="setDiscountFilter('${escHtml(c.code)}')">${escHtml(c.icon||'')} ${escHtml(c.name)}</button>`;
-    });
-  } else {
-    // fallback 預設分類
-    const defaults = [
-      {code:'product_promo',label:'🟢 商品活動'},{code:'marketing',label:'🔵 廣告行銷'},
-      {code:'complaint',label:'🟠 客訴補償'},{code:'loyalty',label:'🟣 老客優惠'},
-      {code:'staff_family',label:'⚫ 員工親友'},{code:'platform_promo',label:'🟡 平台活動'},
-      {code:'other',label:'⚪ 其他'}
-    ];
-    defaults.forEach(d => {
-      html += `<button class="disc-filter-btn ${current===d.code?'active':''}" data-filter="${d.code}" onclick="setDiscountFilter('${d.code}')">${d.label}</button>`;
-    });
-  }
-  bar.innerHTML = html;
-}
-
-// fix18-09E：動態渲染訂單修改 Modal 折扣分類下拉
-function refreshEditOrderCategoryDropdown(selectedCode) {
-  const sel = document.getElementById('editDiscountCategory');
-  if (!sel) return;
-  const cats = allDiscountCategories.length
-    ? allDiscountCategories.filter(c => c.enabled)
-    : Object.entries(DISCOUNT_CATEGORY_DISPLAY_FALLBACK).filter(([k]) => k !== 'none').map(([code,name]) => ({code,name}));
-  sel.innerHTML = '<option value="none">無折扣</option>' +
-    cats.map(c => `<option value="${escHtml(c.code)}">${escHtml(c.name)}</option>`).join('');
-  if (selectedCode) sel.value = selectedCode;
-}
-
-// ═══════════════════════════════════════════════════════════
-// fix18-09E：報表卡片顯示設定 Modal
-// ═══════════════════════════════════════════════════════════
-
-// fix18-09E：報表卡片顯示 Modal — 對應 HTML id="cardVisibilityModal"
-function openCardVisibilityModal() {
-  const modal = document.getElementById('cardVisibilityModal');
-  if (!modal) return;
-  const visible = getVisibleCards();
-  // 動態渲染 checkboxes
-  const container = document.getElementById('cardVisibilityCheckboxes');
-  if (container) {
-    container.innerHTML = REPORT_ALL_CARDS.map(label => `
-      <label style="display:flex;align-items:center;gap:10px;cursor:pointer;padding:6px 0;border-bottom:1px solid var(--border,#334155)">
-        <input type="checkbox" class="cv-checkbox" data-card="${label}" ${visible.includes(label)?'checked':''} style="width:16px;height:16px">
-        <span style="font-size:14px">${label}</span>
-      </label>`).join('');
-  }
-  _updateCardModeButtons(visible);
-  modal.classList.add('open');
-}
-
-function closeCardVisibilityModal() {
-  const modal = document.getElementById('cardVisibilityModal');
-  if (modal) modal.classList.remove('open');
-}
-
-function saveCardVisibility() {
-  const modal = document.getElementById('cardVisibilityModal');
-  if (!modal) return;
-  const checked = [];
-  modal.querySelectorAll('.cv-checkbox:checked').forEach(cb => checked.push(cb.dataset.card));
-  saveVisibleCards(checked);
-  closeCardVisibilityModal();
-  // Re-render stats
-  if (_allOrdersCache.length) {
-    const stats = calcStatsFromOrders(_allOrdersCache);
-    renderStatCards(stats, _allOrdersCache);
-  }
-  showToast('✅ 顯示設定已儲存', 'success');
-}
-
-function setCardVisibilityMode(mode) {
-  if (mode === 'all') {
-    saveVisibleCards([...REPORT_ALL_CARDS]);
-  } else if (mode === 'simple') {
-    saveVisibleCards([...REPORT_SLIM_CARDS]);
-  }
-  // Update checkboxes in modal
-  const visible = getVisibleCards();
-  document.querySelectorAll('.cv-checkbox').forEach(cb => {
-    cb.checked = visible.includes(cb.dataset.card);
-  });
-  _updateCardModeButtons(visible);
-}
-
-function _updateCardModeButtons(visible) {
-  const allBtn    = document.getElementById('cvModeAll');
-  const slimBtn   = document.getElementById('cvModeSimple');
-  if (!allBtn || !slimBtn) return;
-  const isAll  = REPORT_ALL_CARDS.every(c => visible.includes(c));
-  const isSlim = REPORT_SLIM_CARDS.length === visible.length && REPORT_SLIM_CARDS.every(c => visible.includes(c));
-  allBtn.style.background  = isAll  ? 'var(--accent,#3b82f6)' : '';
-  allBtn.style.color       = isAll  ? '#fff' : '';
-  slimBtn.style.background = isSlim ? 'var(--accent,#3b82f6)' : '';
-  slimBtn.style.color      = isSlim ? '#fff' : '';
-}
-
-// alias — for code inside saveCardVisibility that calls renderOrderStats
-function renderOrderStats(stats, orders) { renderStatCards(stats, orders); }
-// legacy compat
-function openReportCardSettings() { openCardVisibilityModal(); }
-function closeReportCardSettings() { closeCardVisibilityModal(); }
-function saveReportCardSettings() { saveCardVisibility(); }
-function setReportCardMode(mode) { setCardVisibilityMode(mode === 'slim' ? 'simple' : mode); }
-
-// ═══════════════════════════════════════════════════════════
 // fix18-09C：折扣活動 Campaign 相關功能
+// ═══════════════════════════════════════════════════════════
 
 // 載入折扣活動列表（全域快取，供 modal 下拉使用）
 async function loadDiscountCampaigns() {
@@ -2523,13 +2207,9 @@ async function loadDiscountCampaigns() {
   }
 }
 
-// 設定中心：折扣活動 Tab（fix18-09E：同時渲染折扣分類＋折扣活動）
+// 設定中心：折扣活動 Tab（fix18-09D 升級：Modal CRUD）
 async function loadDiscountCampaignsTab() {
-  await Promise.all([
-    loadDiscountCampaigns(),
-    loadDiscountCategories()
-  ]);
-  renderDiscountCategoryList();
+  await loadDiscountCampaigns();
   renderDiscountCampaignList();
 }
 
@@ -3642,9 +3322,9 @@ async function openEditOrder(orderId) {
       createdAtEl.value = dt;
     }
 
-    // fix18-09：折扣分類（fix18-09E：動態分類）
+    // fix18-09：折扣分類
     const discCatEl = document.getElementById('editDiscountCategory');
-    refreshEditOrderCategoryDropdown(o.discount_category || 'none');
+    if (discCatEl) discCatEl.value = o.discount_category || 'none';
 
     // fix18-09：折扣備註
     const discNoteEl = document.getElementById('editDiscountNote');

@@ -1,0 +1,1616 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<meta name="theme-color" content="#06C755">
+<title>LINE 點餐</title>
+<style>
+:root{--g:#06C755;--gd:#00A344;--bg:#f5f5f5;--card:#fff;--text:#222;--sub:#888;--bd:#eee;--shadow:0 2px 10px rgba(0,0,0,.10);--r:12px}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--bg);font-family:-apple-system,'Noto Sans TC',sans-serif;color:var(--text);min-height:100vh}
+button{border:none;cursor:pointer;font-family:inherit}
+img{max-width:100%;display:block}
+.hdr{background:linear-gradient(135deg,var(--g),var(--gd));color:#fff;padding:20px 16px 64px}
+.hdr h1{font-size:22px;font-weight:700}
+.hdr-btns{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.hdr-btn{background:rgba(255,255,255,.22);color:#fff;border:1.5px solid rgba(255,255,255,.5);padding:7px 14px;border-radius:20px;font-size:13px;font-weight:600;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.hdr-btn:active{background:rgba(255,255,255,.35)}
+.shop-card{background:#fff;border-radius:var(--r);margin:0 12px;margin-top:-52px;padding:16px;box-shadow:var(--shadow);display:flex;gap:14px;align-items:center}
+.shop-logo{width:56px;height:56px;border-radius:50%;background:var(--g);display:flex;align-items:center;justify-content:center;font-size:26px;color:#fff;flex-shrink:0;overflow:hidden}
+.shop-logo img{width:100%;height:100%;object-fit:cover}
+.shop-info h2{font-size:17px;font-weight:700}
+.shop-info p{font-size:12px;color:var(--sub);margin-top:3px}
+.announce{background:#fff9e6;border-left:3px solid #f5a623;padding:8px 12px;font-size:13px;color:#7a5c00;border-radius:4px;margin:10px 12px 0;white-space:pre-line;display:none}
+/* 模式標籤列 */
+.mode-tabs{display:flex;gap:8px;padding:12px 12px 0;margin-bottom:4px}
+.mode-tab{flex:1;padding:10px 4px;border-radius:var(--r);border:2px solid var(--bd);background:#fff;font-size:14px;font-weight:600;color:var(--sub);text-align:center;cursor:pointer;transition:.15s;position:relative}
+.mode-tab.active{border-color:var(--g);color:var(--g);background:#f0faf4}
+.mode-tab.disabled{opacity:.45;pointer-events:none}
+.mode-tab .mode-badge{position:absolute;top:-6px;right:8px;background:#e53935;color:#fff;font-size:10px;padding:1px 6px;border-radius:10px}
+/* 售完警告橫幅 */
+.cutoff-banner{background:#fff3cd;border:1px solid #ffc107;border-radius:8px;padding:10px 14px;margin:0 12px;font-size:13px;color:#856404;display:none}
+.cat-bar{display:flex;overflow-x:auto;padding:10px 8px 4px;gap:8px;scrollbar-width:none;position:sticky;top:0;background:#fff;z-index:10;border-bottom:1px solid var(--bd)}
+.cat-bar::-webkit-scrollbar{display:none}
+.cat-btn{padding:6px 14px;border-radius:20px;font-size:13px;font-weight:500;white-space:nowrap;background:var(--bg);color:var(--sub);border:1px solid var(--bd);transition:.15s}
+.cat-btn.active{background:var(--g);color:#fff;border-color:var(--g)}
+.sec-title{font-size:15px;font-weight:700;padding:14px 12px 6px}
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;padding:0 12px}
+@media(min-width:480px){.grid{grid-template-columns:repeat(3,1fr)}}
+.prod-card{background:var(--card);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden;position:relative;display:flex;flex-direction:column}
+.prod-img{width:100%;height:110px;object-fit:cover;display:block;background:#f0f0f0}
+.prod-ph{width:100%;height:110px;display:flex;align-items:center;justify-content:center;font-size:40px;background:linear-gradient(135deg,#f0faf4,#dff0e7)}
+.prod-body{padding:10px;flex:1;display:flex;flex-direction:column}
+.badges{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:5px}
+.badge{font-size:10px;font-weight:700;padding:2px 6px;border-radius:10px;color:#fff}
+.badge-hot{background:#e53935}.badge-promo{background:#9c27b0}.badge-sold{background:#9e9e9e}.badge-cutoff{background:#757575}.badge-amber{background:#e65100}
+.prod-name{font-size:14px;font-weight:700;line-height:1.3;margin-bottom:3px}
+.prod-desc{font-size:11px;color:var(--sub);margin-bottom:6px;line-height:1.4;flex:1}
+.prod-price{font-size:16px;font-weight:700;color:var(--g)}
+.prod-footer{display:flex;align-items:center;justify-content:space-between;margin-top:8px}
+.add-btn{width:30px;height:30px;border-radius:50%;background:var(--g);color:#fff;font-size:20px;display:flex;align-items:center;justify-content:center;transition:.1s;-webkit-tap-highlight-color:transparent}
+.add-btn:active{transform:scale(.9)}
+.qty-ctrl{display:flex;align-items:center;gap:6px}
+.qty-ctrl button{width:26px;height:26px;border-radius:50%;font-size:16px;display:flex;align-items:center;justify-content:center}
+.qty-ctrl .minus{background:#f5f5f5;color:#333}
+.qty-ctrl .plus{background:var(--g);color:#fff}
+.qty-ctrl .qnum{font-size:14px;font-weight:700;min-width:20px;text-align:center}
+.sold-mask{position:absolute;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;border-radius:var(--r);z-index:2}
+.sold-mask span{background:#fff;color:#555;font-size:12px;font-weight:700;padding:4px 12px;border-radius:20px}
+.prod-stock-badge{font-size:10px;font-weight:600;padding:2px 7px;border-radius:10px;display:inline-block;margin-bottom:4px}
+.stock-zero{background:#fce8e8;color:#c62828}.stock-low{background:#fff3e0;color:#e65100}.stock-ok{background:#e8f5e9;color:#2e7d32}
+.cart-bar{position:fixed;bottom:0;left:0;right:0;background:var(--g);color:#fff;padding:12px 16px;display:flex;align-items:center;gap:12px;z-index:100;cursor:pointer;box-shadow:0 -2px 12px rgba(0,0,0,.18);-webkit-tap-highlight-color:transparent}
+.cart-bar.hidden{display:none}
+.cart-cnt{background:rgba(255,255,255,.25);border-radius:20px;padding:3px 10px;font-size:13px;font-weight:700;min-width:28px;text-align:center}
+.cart-lbl{flex:1;font-size:15px;font-weight:700}
+.cart-ttl{font-size:15px;font-weight:700}
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:200;display:none}
+.overlay.show{display:block}
+.sheet{position:fixed;bottom:0;left:0;right:0;background:#fff;border-radius:16px 16px 0 0;max-height:90vh;overflow-y:auto;z-index:201;transform:translateY(100%);transition:transform .28s cubic-bezier(.4,0,.2,1)}
+.sheet.show{transform:translateY(0)}
+.sheet-hd{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--bd);position:sticky;top:0;background:#fff;z-index:1}
+.sheet-hd h3{font-size:17px;font-weight:700}
+.close-btn{width:30px;height:30px;border-radius:50%;background:#f5f5f5;display:flex;align-items:center;justify-content:center;font-size:18px;color:#555;flex-shrink:0}
+.ci{display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--bd)}
+.ci-name{flex:1;font-size:14px;font-weight:500}
+.ci-price{font-size:13px;color:var(--sub);min-width:50px;text-align:right}
+.cart-empty{text-align:center;padding:40px;color:var(--sub);font-size:15px}
+.cf{padding:16px;border-top:1px solid var(--bd)}
+.fg{margin-bottom:14px}
+.fl{font-size:13px;font-weight:600;color:#555;margin-bottom:5px;display:block}
+.fl .req{color:#e53935}
+.fi{width:100%;border:1px solid var(--bd);border-radius:8px;padding:10px 12px;font-size:15px;outline:none;-webkit-appearance:none}
+.fi:focus{border-color:var(--g)}
+.fr{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.pay-btns{display:flex;gap:8px;flex-wrap:wrap}
+.pay-btn{padding:8px 16px;border-radius:20px;font-size:13px;border:1.5px solid var(--bd);background:#fff;color:#555;transition:.15s;cursor:pointer}
+.pay-btn.active{border-color:var(--g);background:#f0faf4;color:var(--g);font-weight:600}
+.ot{display:flex;justify-content:space-between;padding:12px 0;font-size:17px;font-weight:700;border-top:1px solid var(--bd);margin-top:8px}
+.sub-btn{width:100%;padding:14px;background:var(--g);color:#fff;border-radius:var(--r);font-size:16px;font-weight:700;margin-top:12px;transition:.1s;cursor:pointer}
+.sub-btn:active{opacity:.88}
+.sub-btn:disabled{background:#ccc;cursor:not-allowed}
+.pb{padding-bottom:80px}
+@keyframes fly{0%{opacity:1;transform:scale(1)}100%{opacity:0;transform:scale(.4) translate(100px,200px)}}
+.fly-item{position:fixed;pointer-events:none;z-index:999;font-size:22px;animation:fly .6s ease forwards}
+.loading{text-align:center;padding:60px 20px;color:var(--sub)}
+.spinner{width:36px;height:36px;border:3px solid #eee;border-top-color:var(--g);border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 12px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:10px 20px;border-radius:20px;font-size:13px;z-index:999;opacity:0;transition:.3s;pointer-events:none;white-space:nowrap}
+.toast.show{opacity:1}
+.success-screen{position:fixed;inset:0;background:#fff;z-index:300;display:none;flex-direction:column;align-items:center;overflow-y:auto;padding:24px 20px 40px;text-align:center}
+.success-screen.show{display:flex}
+.suc-icon{font-size:72px;margin-top:24px}
+.suc-title{font-size:24px;font-weight:700;color:var(--g);margin-top:8px}
+.suc-no{font-size:20px;font-weight:700;margin-top:4px;color:#333}
+.suc-btns{display:flex;flex-direction:column;gap:10px;width:100%;max-width:380px;margin-top:20px}
+.suc-btn{padding:14px;background:var(--g);color:#fff;border-radius:var(--r);font-size:16px;font-weight:700;cursor:pointer}
+.suc-btn-outline{padding:12px;background:#fff;color:var(--g);border:2px solid var(--g);border-radius:var(--r);font-size:15px;font-weight:700;cursor:pointer}
+.status-badge{display:inline-flex;align-items:center;gap:3px;padding:4px 10px;border-radius:12px;font-size:12px;font-weight:700}
+.s-pending{background:#fff9c4;color:#f57f17}.s-accepted{background:#e3f2fd;color:#1565c0}
+.s-preparing{background:#f3e5f5;color:#6a1b9a}.s-ready{background:#e8f5e9;color:#1b5e20}
+.s-completed{background:#f5f5f5;color:#555}.s-cancelled{background:#fce8e8;color:#b71c1c}
+.order-card{background:#fff;border-radius:var(--r);margin:10px 12px 0;padding:14px 16px;box-shadow:var(--shadow)}
+.oc-head{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px}
+.oc-no{font-size:13px;font-weight:700;color:#333}
+.oc-time{font-size:12px;color:var(--sub);margin-top:2px}
+.oc-summary{font-size:13px;color:#555;margin-bottom:10px;line-height:1.5}
+.oc-bottom{display:flex;align-items:center;justify-content:space-between}
+.oc-amount{font-size:14px;font-weight:700;color:var(--g)}
+.oc-btns{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.btn-detail{padding:6px 14px;border-radius:20px;background:var(--g);color:#fff;font-size:12px;font-weight:600;cursor:pointer}
+.btn-reorder{padding:6px 12px;border-radius:20px;background:#fff;color:var(--g);border:1.5px solid var(--g);font-size:12px;font-weight:600;cursor:pointer}
+.order-detail{padding:16px}
+.od-section{background:#f8f8f8;border-radius:var(--r);padding:14px;margin-bottom:14px}
+.od-row{display:flex;justify-content:space-between;align-items:flex-start;padding:5px 0;border-bottom:1px solid var(--bd)}
+.od-row:last-child{border-bottom:none}
+.od-label{font-size:13px;color:var(--sub);flex-shrink:0;margin-right:8px}
+.od-val{font-size:13px;font-weight:600;text-align:right;word-break:break-all}
+.od-total{font-size:16px;color:var(--g);font-weight:700}
+.od-pickup-hint{background:#fff9e6;border-left:3px solid #f5a623;padding:10px 14px;border-radius:8px;font-size:12px;color:#7a5c00;margin-top:14px;text-align:center}
+.qf-hint{font-size:12px;color:var(--sub);margin-bottom:14px;line-height:1.6;background:#f0faf4;padding:10px 12px;border-radius:8px}
+.empty-hint{text-align:center;padding:50px 20px;color:var(--sub)}
+.empty-hint .ei{font-size:48px;margin-bottom:12px}
+.empty-hint p{font-size:14px;line-height:1.7}
+.back-btn{display:flex;align-items:center;gap:4px;padding:4px 0;font-size:14px;color:var(--g);font-weight:600;cursor:pointer;background:none;border:none}
+.closed-screen{text-align:center;padding:60px 24px;color:#888;min-height:60vh;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.closed-screen .ei{font-size:64px;margin-bottom:16px}
+.closed-screen h2{font-size:20px;color:#444;margin-bottom:12px}
+.closed-screen p{font-size:15px;line-height:1.6;max-width:280px}
+.loc-row{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:4px}
+.loc-no{font-size:13px;font-weight:700;color:#333}
+.loc-time{font-size:12px;color:var(--sub)}
+.loc-bottom{display:flex;align-items:center;justify-content:space-between;margin-top:6px}
+.loc-amount{font-size:13px;font-weight:700;color:var(--g)}
+.loc-hint{font-size:11px;color:var(--sub)}
+.last-order-card{background:#fff;border-radius:var(--r);margin:10px 12px 0;padding:14px 16px;box-shadow:var(--shadow);cursor:pointer;-webkit-tap-highlight-color:transparent}
+.last-order-card:active{opacity:.88}
+.btn-preorder{display:flex;align-items:center;justify-content:center;gap:4px;padding:6px 10px;background:#fff3e0;color:#e65100;border:1.5px solid #ff8f00;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;width:100%;margin-top:6px;-webkit-tap-highlight-color:transparent}
+.btn-preorder:active{opacity:.85}
+/* fix18-06: 外送地址區塊 */
+.delivery-addr-wrap{display:none;margin-top:0}
+.delivery-addr-wrap.visible{display:block}
+.delivery-gps-btn{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;padding:9px;background:#e8f5e9;color:#2e7d32;border:1.5px solid #66bb6a;border-radius:8px;font-size:13px;font-weight:600;margin-top:6px;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.delivery-gps-btn:active{opacity:.82}
+.delivery-fee-row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;font-size:14px;font-weight:500;color:#e65100;border-top:1px dashed #ffe0b2;margin-top:6px}
+.delivery-fee-label{color:#888;font-size:13px}
+.delivery-distance-badge{background:#fff3e0;color:#e65100;border-radius:6px;padding:2px 8px;font-size:12px;font-weight:700;margin-left:6px}
+</style>
+</head>
+<body>
+
+<div id="loading" class="loading"><div class="spinner"></div><p>載入中…</p></div>
+<div id="content" style="display:none">
+  <div class="hdr">
+    <h1 id="shopName">點餐中</h1>
+    <p id="shopHours"></p>
+    <div class="hdr-btns">
+      <button class="hdr-btn" onclick="openQuerySheet()">🔍 查詢訂單</button>
+      <button class="hdr-btn" onclick="openMyOrders()">📜 我的訂單</button>
+    </div>
+  </div>
+  <div class="shop-card">
+    <div class="shop-logo" id="logoWrap">🍱</div>
+    <div class="shop-info"><h2 id="shopName2"></h2><p id="shopAddr"></p></div>
+  </div>
+  <div class="announce" id="announce"></div>
+  <div id="lastOrderCard" style="display:none"></div>
+  <!-- 外帶/外送模式分頁 -->
+  <div class="mode-tabs" id="modeTabs" style="display:none">
+    <button class="mode-tab active" id="tabTakeout" onclick="switchMode('takeout')">🛍️ 外帶</button>
+    <button class="mode-tab" id="tabDelivery" onclick="switchMode('delivery')">🛵 外送</button>
+  </div>
+  <div class="cutoff-banner" id="cutoffBanner"></div>
+  <div class="cat-bar" id="catBar"></div>
+  <div id="menuArea" class="pb"></div>
+</div>
+
+<div class="cart-bar hidden" id="cartBar" onclick="openCartSheet()">
+  <div class="cart-cnt" id="cartCnt">0</div>
+  <div class="cart-lbl">查看購物車</div>
+  <div class="cart-ttl" id="cartBarTotal">$0</div>
+</div>
+
+<div class="overlay" id="overlay" onclick="closeTopSheet()"></div>
+
+<!-- 購物車 Sheet -->
+<div class="sheet" id="cartSheet">
+  <div class="sheet-hd"><h3>🛒 購物車</h3><button class="close-btn" onclick="closeSheet('cartSheet')">✕</button></div>
+  <div id="cartItems"></div>
+  <div class="cf">
+    <!-- fix18-05：優惠券輸入 -->
+    <div class="fg" id="couponArea">
+      <label class="fl">🎟️ 優惠券代碼</label>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input class="fi" id="couponInput" placeholder="輸入優惠券代碼（如 WELCOME30）" style="flex:1;text-transform:uppercase" oninput="this.value=this.value.toUpperCase()" onkeydown="if(event.key==='Enter'){event.preventDefault();applyCoupon();}">
+        <button id="couponApplyBtn" onclick="applyCoupon()" style="padding:10px 14px;background:var(--g);color:#fff;border-radius:8px;font-size:14px;font-weight:600;white-space:nowrap;flex-shrink:0">套用</button>
+      </div>
+      <div id="couponMsg" style="font-size:12px;margin-top:4px;min-height:18px"></div>
+    </div>
+    <!-- fix18-05：金額明細 -->
+    <div class="ot" style="border-top:1px solid var(--bd);margin-top:4px;padding-top:10px">
+      <span style="color:#777;font-size:14px;font-weight:500">小計</span>
+      <span id="subtotalDisplay" style="color:#777;font-size:14px;font-weight:500">$0</span>
+    </div>
+    <div id="discountRow" class="ot" style="display:none;border-top:none;padding-top:2px;padding-bottom:2px">
+      <span style="color:#06C755;font-size:14px;font-weight:600">🎟️ 優惠折扣</span>
+      <span id="discountDisplay" style="color:#06C755;font-size:14px;font-weight:600">-$0</span>
+    </div>
+    <!-- fix18-06：外送費明細行 -->
+    <div id="cartDelivFeeRow" class="ot" style="display:none;border-top:none;padding-top:2px;padding-bottom:2px">
+      <span style="color:#e65100;font-size:14px;font-weight:500">🛵 外送費</span>
+      <span id="cartDelivFeeDisplay" style="color:#e65100;font-size:14px;font-weight:600">$0</span>
+    </div>
+    <div class="ot" style="border-top:1px solid var(--bd)">
+      <span>應付金額</span><span id="orderTotal">$0</span>
+    </div>
+    <div class="fg"><label class="fl">姓名 <span class="req">*</span></label><input class="fi" id="cName" placeholder="您的姓名" type="text"></div>
+    <div class="fr">
+      <div class="fg"><label class="fl">電話 <span class="req">*</span></label><input class="fi" id="cPhone" placeholder="聯絡電話" type="tel"></div>
+      <div class="fg"><label class="fl">取餐方式</label>
+        <select class="fi" id="oType" onchange="onModeChange()">
+          <option value="takeout">🛍️ 外帶</option>
+          <option value="delivery">🛵 外送</option>
+        </select>
+      </div>
+    </div>
+    <div class="fg"><label class="fl">取餐日期 <span class="req">*</span></label><select class="fi" id="pDate" onchange="onDateChange()"></select></div>
+    <div class="fg"><label class="fl" id="timeLabel">取餐時間 <span class="req">*</span></label><select class="fi" id="pTime"><option value="">請先選擇日期</option></select></div>
+    <!-- fix18-06：外送地址（外送模式才顯示）-->
+    <div class="delivery-addr-wrap" id="deliveryAddrWrap">
+      <div class="fg"><label class="fl">外送地址 <span class="req">*</span></label>
+        <input class="fi" id="deliveryAddress" placeholder="輸入地址或點選下方定位…" type="text" autocomplete="off">
+      </div>
+      <button class="delivery-gps-btn" type="button" onclick="useCurrentLocation()">📍 使用目前位置</button>
+      <div class="fg" style="margin-top:8px"><label class="fl">地址備註</label>
+        <input class="fi" id="deliveryAddressNote" placeholder="樓層、管理室、門口按鈴…" type="text">
+      </div>
+      <div id="deliveryFeeRow" class="delivery-fee-row" style="display:none">
+        <span class="delivery-fee-label">外送費 <span id="deliveryDistBadge" class="delivery-distance-badge"></span></span>
+        <span id="deliveryFeeDisplay" style="font-weight:700">NT$0</span>
+      </div>
+      <div id="deliveryFeeMsg" style="font-size:12px;color:#888;margin-top:2px;min-height:16px"></div>
+    </div>
+    <!-- end delivery -->
+    <div class="fg"><label class="fl">付款方式</label><div class="pay-btns" id="payBtns"></div></div>
+    <div class="fg"><label class="fl">備註</label><input class="fi" id="oNote" placeholder="特殊需求…"></div>
+    <button class="sub-btn" id="subBtn" onclick="submitOrder()">確認送出訂單</button>
+  </div>
+</div>
+
+<!-- 查詢 Sheet -->
+<div class="sheet" id="querySheet">
+  <div class="sheet-hd"><h3>🔍 查詢訂單</h3><button class="close-btn" onclick="closeSheet('querySheet')">✕</button></div>
+  <div style="padding:16px">
+    <div class="qf-hint">💡 忘記訂單編號也沒關係！只輸入<b>電話後三碼</b>可查今日訂單；後三碼＋姓名查最近3天；輸入<b>完整電話</b>可查全部歷史紀錄。</div>
+    <div class="fg"><label class="fl">訂單編號（選填）</label><input class="fi" id="qOrderNo" placeholder="LINE-20260601-135854" type="text"></div>
+    <div class="fg"><label class="fl">電話 / 後三碼 <span class="req">*</span></label><input class="fi" id="qPhone" placeholder="輸入完整電話或後三碼" type="tel"></div>
+    <div class="fg"><label class="fl">姓名（選填）</label><input class="fi" id="qName" placeholder="您的姓名" type="text"></div>
+    <button class="sub-btn" id="qSubmitBtn" onclick="doQuery()">查詢</button>
+    <div id="queryResult" style="margin-top:16px"></div>
+  </div>
+</div>
+
+<!-- 我的訂單 Sheet -->
+<div class="sheet" id="myOrdersSheet">
+  <div class="sheet-hd"><h3>📜 我的訂單</h3><button class="close-btn" onclick="closeSheet('myOrdersSheet')">✕</button></div>
+  <div id="myOrdersBody" style="padding-bottom:20px"></div>
+</div>
+
+<!-- 訂單詳情 Sheet -->
+<div class="sheet" id="detailSheet">
+  <div class="sheet-hd">
+    <button class="back-btn" onclick="closeSheet('detailSheet')">← 返回</button>
+    <button class="close-btn" onclick="closeSheet('detailSheet')">✕</button>
+  </div>
+  <div id="detailBody"></div>
+</div>
+
+<!-- 成功頁 -->
+<div class="success-screen" id="successScreen">
+  <div class="suc-icon">🎉</div>
+  <div class="suc-title">訂單已送出！</div>
+  <div class="suc-no" id="sucNo"></div>
+  <div id="sucDetail" style="width:100%;max-width:380px;background:#f8f8f8;border-radius:var(--r);padding:16px;margin-top:16px;font-size:14px;line-height:1.8;text-align:left"></div>
+  <div class="suc-btns">
+    <button class="suc-btn" onclick="location.reload()">繼續點餐</button>
+    <button class="suc-btn-outline" onclick="openSuccessQuery()">🔍 查看訂單詳情</button>
+    <button class="suc-btn-outline" onclick="openSuccessMyOrders()">📜 我的訂單</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+'use strict';
+// ── SaaS store_id 綁定 ──
+const LINE_STORE_ID = new URLSearchParams(window.location.search).get('store_id') || 'store_001';
+function apiFetch(url, options={}) {
+  const sep = url.includes('?') ? '&' : '?';
+  const fullUrl = url + sep + 'store_id=' + encodeURIComponent(LINE_STORE_ID);
+  return fetch(fullUrl, { ...options, headers: { 'Content-Type':'application/json', ...(options.headers||{}) } });
+}
+
+// ── 全域狀態 ──
+let allProducts=[], categories=[];
+let cart={};
+let appliedCoupon=null; // fix18-05: { code, discount_amount, final_total, coupon: {...} }
+let selectedPay='';
+let currentCat='all';
+let _topSheet=null;
+// 目前選擇的模式（外帶/外送）
+let currentMode='takeout';
+// 後台回傳的 shop 設定
+let shopData={};
+let couponFeatureEnabled=false; // fix18-05: set from /api/line-shop or /api/coupons/validate response
+let takeoutEnabled=false, deliveryEnabled=false;
+let takeoutCutoffPassed=false, deliveryCutoffPassed=false;
+let todayClosed=false;
+
+// fix18-06: 外送地址與費用狀態
+let mapsAutocomplete = null;
+let deliveryLatLng = { lat: null, lng: null };
+let calcDeliveryFee = 0;  // 後端核准的外送費
+let deliveryFeeCalculated = false;  // 是否已成功取得外送費
+
+const PAYMENT_OPTIONS=[
+  {code:'cash',label:'💵 現金',key:'line_payment_cash_enabled'},
+  {code:'linepay',label:'💚 LINE Pay',key:'line_payment_linepay_enabled'},
+  {code:'transfer',label:'🏦 轉帳',key:'line_payment_transfer_enabled'},
+  {code:'platform',label:'📱 平台付款',key:'line_payment_platform_enabled'},
+  {code:'credit_card',label:'💳 信用卡',key:'line_payment_credit_card_enabled'},
+];
+const PLABELS={cash:'現金',linepay:'LINE Pay',transfer:'轉帳',platform:'平台付款',credit_card:'信用卡'};
+const SICON={pending:'🟡',accepted:'🔵',preparing:'🟠',ready:'🟢',completed:'✅',cancelled:'❌'};
+const SLABEL={pending:'待確認',accepted:'已接單',preparing:'製作中',ready:'可取餐',completed:'已完成',cancelled:'已取消'};
+const SCLASS={pending:'s-pending',accepted:'s-accepted',preparing:'s-preparing',ready:'s-ready',completed:'s-completed',cancelled:'s-cancelled'};
+const WD_KEYS=['sun','mon','tue','wed','thu','fri','sat'];
+const WD_NAMES=['日','一','二','三','四','五','六'];
+// 安全解析日期：避免 JS UTC midnight 時區偏移導致 getDay() 算出前一天
+function parseLocalDate(ds){ const[y,m,d]=ds.split('-').map(Number); return new Date(y,m-1,d); }
+
+function fmtD(d){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
+function twNow(){return new Date(new Date().toLocaleString('en-US',{timeZone:'Asia/Taipei'}));}
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2800);}
+function timeToMins(hhmm){const[h,m]=String(hhmm||'00:00').split(':').map(Number);return (h||0)*60+(m||0);}
+
+// ── 初始化 ──────────────────────────────────────────────
+async function init(){
+  // ── LINE Pay redirect 結果處理 ──────────────────────
+  const _lpP=new URLSearchParams(window.location.search);
+  if(_lpP.get('linepay')==='success'){
+    document.getElementById('loading').style.display='none';
+    document.getElementById('sucNo').textContent='訂單編號：'+(_lpP.get('order')||'');
+    document.getElementById('sucDetail').innerHTML='<div style="color:#06C755;font-weight:700;font-size:16px;text-align:center;padding:20px">💚 LINE Pay 付款成功！訂單已建立。</div>';
+    document.getElementById('successScreen').classList.add('show');
+    return;
+  }
+  if(_lpP.get('linepay')==='cancel'){
+    // 繼續正常初始化，但提示取消
+    setTimeout(()=>toast('LINE Pay 付款已取消，請重新選擇付款方式'),600);
+  }
+  try{
+    const[sr,mr]=await Promise.all([
+      apiFetch('/api/line-shop').then(r=>r.json()),
+      apiFetch('/api/line-menu').then(r=>r.json())
+    ]);
+    if(sr.success){
+      shopData=sr.data;
+      // fix18-05: 依 coupon_feature_enabled 顯示/隱藏優惠券區塊
+      couponFeatureEnabled = shopData.coupon_feature_enabled === true;
+      const couponAreaEl = document.getElementById('couponArea');
+      if(couponAreaEl) couponAreaEl.style.display = couponFeatureEnabled ? '' : 'none';
+      const d=sr.data;
+      document.getElementById('shopName').textContent=d.shop_name||'點餐';
+      document.getElementById('shopName2').textContent=d.shop_name||'點餐';
+      document.getElementById('shopAddr').textContent=d.shop_address||'';
+      document.getElementById('shopHours').textContent=d.shop_hours||'';
+      if(d.shop_logo)document.getElementById('logoWrap').innerHTML=`<img src="${d.shop_logo}" alt="logo">`;
+      const ann=document.getElementById('announce');
+      if(d.shop_announcement){ann.textContent=d.shop_announcement;ann.style.display='block';}
+
+      // 全域 LINE 開關
+      if(d.line_ordering_enabled==='0'||d.line_ordering_enabled===0){
+        showClosed('🔴 LINE 點餐暫停','目前 LINE 點餐暫停營業，請稍後再試。');return;
+      }
+
+      // 今日店休
+      const now=twNow(), todayStr=fmtD(now);
+      const isTodayClosed=d.line_today_closed==='1'&&d.line_today_closed_date===todayStr;
+      // 公休日
+      const closedInfo=d.today_closed_info||{};
+      if(isTodayClosed||closedInfo.closed){
+        todayClosed=true;
+        showClosed('🌙 今日店休','今日暫停 LINE 點餐服務，感謝您的理解。\n請選擇其他日期預訂，或明天再來！');
+        return;
+      }
+
+      // 外帶/外送狀態
+      const ts=d.takeout_status||{};
+      const ds2=d.delivery_status||{};
+      takeoutEnabled  = !!ts.enabled;
+      deliveryEnabled = !!ds2.enabled;
+      takeoutCutoffPassed  = !!ts.cutoff_passed;
+      deliveryCutoffPassed = !!ds2.cutoff_passed;
+
+      // 兩者都關閉
+      if(!takeoutEnabled && !deliveryEnabled){
+        showClosed('⏰ 今日暫停接單','外帶與外送目前皆已關閉，請稍後再試。');return;
+      }
+
+      // 決定預設模式
+      if(takeoutEnabled && !takeoutCutoffPassed) currentMode='takeout';
+      else if(deliveryEnabled && !deliveryCutoffPassed) currentMode='delivery';
+      else currentMode=takeoutEnabled?'takeout':'delivery';
+
+      buildModeTabsUI();
+      buildPaymentButtons(d);
+      buildDateSelector();
+    }
+    if(mr.success){categories=mr.data.categories||[];allProducts=mr.data.products||[];}
+    buildCats();renderMenu();
+    document.getElementById('loading').style.display='none';
+    document.getElementById('content').style.display='block';
+    renderLastOrderCard();
+    updateCutoffBanner();
+    // 定時重新整理（每60秒）
+    setInterval(refreshShopStatus, 60000);
+  }catch(e){
+    document.getElementById('loading').innerHTML=`<p style="color:#e53935">載入失敗：${esc(e.message)}</p>`;
+  }
+}
+
+// ── 店休頁面 ──────────────────────────────────────────
+function showClosed(title,msg){
+  document.getElementById('loading').style.display='none';
+  const el=document.getElementById('content');el.style.display='block';
+  el.innerHTML=`<div class="closed-screen"><div class="ei">${title.split(' ')[0]}</div><h2>${title.split(' ').slice(1).join(' ')}</h2><p>${msg.replace(/\n/g,'<br>')}</p></div>`;
+}
+
+// ── 模式切換 UI ────────────────────────────────────────
+function buildModeTabsUI(){
+  const tabs=document.getElementById('modeTabs');
+  const btnTo=document.getElementById('tabTakeout');
+  const btnDl=document.getElementById('tabDelivery');
+  if(!takeoutEnabled && !deliveryEnabled){tabs.style.display='none';return;}
+  // 只有一種模式：隱藏頁籤列
+  if(takeoutEnabled && !deliveryEnabled){tabs.style.display='none';currentMode='takeout';return;}
+  if(!takeoutEnabled && deliveryEnabled){tabs.style.display='none';currentMode='delivery';return;}
+  tabs.style.display='flex';
+  // 截止但仍顯示
+  if(takeoutCutoffPassed) btnTo.innerHTML='🛍️ 外帶<span class="mode-badge">售完</span>';
+  if(deliveryCutoffPassed) btnDl.innerHTML='🛵 外送<span class="mode-badge">售完</span>';
+  updateModeTabActive();
+}
+function updateModeTabActive(){
+  document.getElementById('tabTakeout')?.classList.toggle('active',currentMode==='takeout');
+  document.getElementById('tabDelivery')?.classList.toggle('active',currentMode==='delivery');
+}
+function switchMode(mode){
+  currentMode=mode;
+  updateModeTabActive();
+  renderMenu();
+  updateCutoffBanner();
+  // 同步購物車 sheet 的模式選擇
+  const oType=document.getElementById('oType');
+  if(oType) oType.value=mode;
+  buildDateSelector();
+}
+function onModeChange(){
+  const oType=document.getElementById('oType');
+  if(!oType) return;
+  currentMode=oType.value;
+  updateModeTabActive();
+  renderMenu();
+  updateCutoffBanner();
+  buildDateSelector();
+  // fix18-06: 顯示/隱藏外送地址區塊，切換時重置費用
+  const addrWrap=document.getElementById('deliveryAddrWrap');
+  if(addrWrap){
+    if(currentMode==='delivery'){
+      addrWrap.classList.add('visible');
+    } else {
+      addrWrap.classList.remove('visible');
+      resetDeliveryFee();
+    }
+  }
+  updateCartTotals();
+}
+
+// ── 截止售完橫幅 ──────────────────────────────────────
+function updateCutoffBanner(){
+  const banner=document.getElementById('cutoffBanner');
+  const cutoff=currentMode==='takeout'?takeoutCutoffPassed:deliveryCutoffPassed;
+  const allowNext = currentMode==='takeout'
+    ? (shopData.takeout_status?.allow_next_day)
+    : (shopData.delivery_status?.allow_next_day);
+  if(cutoff){
+    banner.style.display='block';
+    const ct=shopData[currentMode==='takeout'?'takeout_cutoff_time':'delivery_cutoff_time']||'';
+    banner.innerHTML=`⏰ ${currentMode==='takeout'?'外帶':'外送'}今日接單已截止（${ct||'今日'}），商品顯示今日售完。`
+      + (allowNext ? `<br>💡 <strong>允許預約明日</strong>，請在購物車選擇明日取餐時間。` : '');
+  }else{
+    banner.style.display='none';
+  }
+}
+
+// ── 付款方式 ──────────────────────────────────────────
+function buildPaymentButtons(settings){
+  const c=document.getElementById('payBtns');c.innerHTML='';
+  const en=PAYMENT_OPTIONS.filter(p=>settings[p.key]==='1');
+  if(!en.length){c.innerHTML='<p style="color:#e53935;font-size:13px">目前未開放付款方式</p>';selectedPay='';return;}
+  en.forEach((p,i)=>{const b=document.createElement('button');b.className='pay-btn'+(i===0?' active':'');b.dataset.code=p.code;b.textContent=p.label;b.onclick=function(){selectPay(this);};c.appendChild(b);});
+  selectedPay=en[0].code;
+}
+function selectPay(btn){selectedPay=btn.dataset.code;document.querySelectorAll('.pay-btn').forEach(b=>b.classList.toggle('active',b===btn));}
+
+// ── 日期選擇器（依模式篩選公休日）──────────────────────
+function buildDateSelector(forceNextDay=false){
+  const sel=document.getElementById('pDate');if(!sel)return;
+  sel.innerHTML='';
+  const now=twNow();
+  const mode=document.getElementById('oType')?.value||currentMode;
+  const closedWds=(() => { try { return JSON.parse(shopData.line_closed_weekdays||'[]'); } catch { return []; } })();
+  const closedDts=(() => { try { return JSON.parse(shopData.line_closed_dates||'[]'); } catch { return []; } })();
+  const bizHoursKey=mode==='takeout'?'takeout_business_hours':'delivery_business_hours';
+  const bizHours=(() => { try { return JSON.parse(shopData[bizHoursKey]||'{}'); } catch { return {}; } })();
+  let first=null;
+  // 正常模式顯示 今天/明天/後天；forceNextDay 模式從明天開始顯示未來 7 天供預約
+  const maxDays=forceNextDay?7:3;
+  const startOffset=forceNextDay?1:0;
+  for(let offset=startOffset;offset<startOffset+maxDays;offset++){
+    const d=new Date(now);d.setDate(d.getDate()+offset);
+    const ds=fmtD(d),wk=WD_KEYS[parseLocalDate(ds).getDay()];
+    const mm=String(d.getMonth()+1).padStart(2,'0'),dd2=String(d.getDate()).padStart(2,'0');
+    const lbl=offset===0?'今天':offset===1?'明天':offset===2?'後天':`${offset}天後`;
+    const isClosed=closedWds.includes(wk)||closedDts.includes(ds);
+    const dh=bizHours[wk];
+    const notBizDay=!isClosed&&dh&&!dh.enabled;
+    const disabled=isClosed||notBizDay;
+    const opt=document.createElement('option');opt.value=ds;opt.disabled=disabled;
+    opt.textContent=`${lbl}（${mm}/${dd2} 週${WD_NAMES[d.getDay()]}）${isClosed?' — 店休':notBizDay?' — 非營業':''}`;
+    if(!disabled&&!first)first=ds;
+    sel.appendChild(opt);
+  }
+  if(first)sel.value=first;
+  if(!forceNextDay) buildTimeSelector();
+}
+function onDateChange(){buildTimeSelector();}
+
+// ── 時間選擇器（呼叫後端 API，依模式計算）────────────────
+async function buildTimeSelector(){
+  const dateSel=document.getElementById('pDate'),sel=document.getElementById('pTime');
+  if(!sel)return;
+  sel.innerHTML='<option value="">載入中…</option>';
+  const sd=dateSel?.value;if(!sd){sel.innerHTML='<option value="">請先選擇日期</option>';return;}
+  const mode=document.getElementById('oType')?.value||currentMode;
+  const lbl=document.getElementById('timeLabel');
+  if(lbl) lbl.childNodes[0].textContent=mode==='delivery'?'外送時間 ':'取餐時間 ';
+  try{
+    const res=await apiFetch(`/api/line-orders/timeslots?mode=${mode}&date=${sd}`).then(r=>r.json());
+    if(!res.success||!res.slots||res.slots.length===0){
+      const reasons={
+        cutoff_passed:'今日接單已截止',
+        no_slots_today:'今日已無可預約時段',
+        closed_day:'此日為店休日',
+        mode_closed:'此模式已關閉',
+      };
+      // 若是 no_slots_today 且是今天，提示選明天
+      let msg = reasons[res.reason]||'此日無可預約時段';
+      const nowDate = fmtD(twNow());
+      if(res.reason==='no_slots_today'&&sd===nowDate) msg='今日時段已過，請選擇其他日期';
+      sel.innerHTML=`<option value="" disabled>${msg}</option>`;
+      return;
+    }
+    sel.innerHTML='';
+    res.slots.forEach((t,i)=>{
+      const h=Number(t.split(':')[0]);
+      const lbl2=h<12?`上午 ${t}`:h===12?`中午 ${t}`:`下午 ${t}`;
+      const o=document.createElement('option');o.value=t;o.textContent=lbl2;sel.appendChild(o);
+    });
+    // 提示最早時間
+    if(res.earliest) toast(`最早可選 ${res.earliest}`);
+  }catch{
+    sel.innerHTML='<option value="" disabled>載入失敗，請重試</option>';
+  }
+}
+
+// ── 分類 / 菜單 ────────────────────────────────────────
+function buildCats(){
+  const bar=document.getElementById('catBar');
+  const cats=[{id:'all',name:'全部',icon:'🍽️'},...categories];
+  bar.innerHTML=cats.map(c=>`<button class="cat-btn${c.id==='all'?' active':''}" data-cat="${c.id}" onclick="selectCat('${c.id}')">${c.icon||''} ${c.name}</button>`).join('');
+}
+function selectCat(id){currentCat=id;document.querySelectorAll('.cat-btn').forEach(b=>b.classList.toggle('active',b.dataset.cat==id));renderMenu();}
+
+function renderMenu(){
+  const area=document.getElementById('menuArea');
+  const prods=currentCat==='all'?allProducts:allProducts.filter(p=>String(p.display_cat_id||0)===String(currentCat));
+  if(!prods.length){area.innerHTML='<p style="text-align:center;padding:40px;color:#888">此分類目前沒有商品</p>';return;}
+  area.innerHTML=`<div class="grid">${prods.map(p=>buildCard(p,currentMode)).join('')}</div>`;
+}
+
+// ── 商品卡片（外帶/外送獨立售完判斷）──────────────────
+function buildCard(p, mode){
+  const name=p.effective_line_name||p.line_name||p.name;
+  const price=p.effective_line_price||p.price;
+  const img=p.line_image_url||p.image||'';
+  const desc=p.line_description||'';
+  const isHot=Number(p.line_hot)===1, isPromo=Number(p.line_promo)===1;
+  const ss=p.sale_status||'available';
+
+  // ══════════════════════════════════════════════════════
+  // LINE 接單規則優先順序（前台顯示層）
+  //   第二位階：今日截止時間 → cutoff_sold_out（只限今日）
+  //   第三位階：商品販售時段 → product_time_ended / product_not_started（只限今日）
+  //   第四位階：LINE 份數     → real_sold_out（只限今日）
+  //   canNextDay=true 時，任何今日限制都顯示「預約明日」按鈕
+  // ══════════════════════════════════════════════════════
+
+  const soldOutReason=mode==='delivery'?p.delivery_sold_out_reason:p.takeout_sold_out_reason;
+  const canNextDay=mode==='delivery'?p.delivery_can_next_day:p.takeout_can_next_day;
+  const isSoldOut=!!soldOutReason || Number(p.line_sold_out)===1 || ss!=='available';
+
+  // LINE quota 優先（食材控管不適用 LINE 點餐，ingredient_available 不影響前台顯示）
+  const quota=p.line_quota||{hasQuota:false};
+  const quotaHasRemaining = quota.hasQuota && Number(quota.remaining??0) > 0;
+
+  // canPreorderNextDay：今日售完（任何位階）且允許預約明日
+  const canPreorderNextDay = isSoldOut && !!canNextDay && soldOutReason !== 'mode_closed';
+  const quotaRealSoldOut = quota.hasQuota && Number(quota.remaining??0) <= 0;
+  const unavailFully = (isSoldOut && !canPreorderNextDay) || (quotaRealSoldOut && !canPreorderNextDay);
+
+  // 今日狀態標籤（只描述今日，不影響明日）
+  let soldLbl='今日售完';
+  if(soldOutReason==='mode_closed')          soldLbl='未開放';
+  else if(soldOutReason==='product_not_started') soldLbl='尚未開賣';
+  else if(soldOutReason==='product_time_ended')  soldLbl='今日售完';
+  else if(ss==='sold_out_today')             soldLbl='今日完售';
+  else if(ss==='paused')                     soldLbl='暫停販售';
+
+  // 份數狀態標籤（第四位階）
+  // 今日：用 line_quota；預購（hasNextDayMode=true 或購物車選的是明日）：用 line_preorder
+  const preorderInfo=p.line_preorder||{hasPreorder:false};
+  const isInPreorderMode=!!preorderInfo.hasPreorder;  // 後端已判斷
+  let stockBadge='';
+  if(!isSoldOut){
+    if(quota.hasQuota && !isInPreorderMode){
+      const r=Number(quota.remaining??0);
+      if(r<=0)               stockBadge='<div class="prod-stock-badge stock-zero">🔴 今日售完</div>';
+      else if(r<=quota.low)  stockBadge=`<div class="prod-stock-badge stock-low">🟠 即將售完（剩${r}份）</div>`;
+      else if(r>=quota.high) stockBadge='<div class="prod-stock-badge stock-ok">🟢 供應充足</div>';
+      else                   stockBadge=`<div class="prod-stock-badge stock-ok">🟢 剩 ${r} 份</div>`;
+    }
+  }
+  // 預購數量標籤（顯示在「預約明日」按鈕旁，canPreorderNextDay 時才顯示）
+  let preorderBadge='';
+  if(canPreorderNextDay && preorderInfo.hasPreorder){
+    const pr=Number(preorderInfo.remaining??0);
+    if(pr<=0)                  preorderBadge='<div class="prod-stock-badge stock-zero">預購已滿</div>';
+    else if(pr<=preorderInfo.low) preorderBadge=`<div class="prod-stock-badge stock-low">預購快滿（剩${pr}）</div>`;
+    else if(pr>=preorderInfo.high)preorderBadge='<div class="prod-stock-badge stock-ok">可預購</div>';
+    else                          preorderBadge=`<div class="prod-stock-badge stock-ok">可預購（剩${pr}）</div>`;
+  }
+
+  const qty=cart[p.id]?.qty||0;
+  let footer='';
+  if(!isSoldOut){
+    footer=qty>0
+      ?`<div class="qty-ctrl"><button class="minus" onclick="chgQty(${p.id},-1)">−</button><span class="qnum">${qty}</span><button class="plus" onclick="chgQty(${p.id},1)">+</button></div>`
+      :`<button class="add-btn" id="ab-${p.id}" onclick="addCart(${p.id},event)">+</button>`;
+  }
+
+  let mask='';
+  if(canPreorderNextDay){
+    const preorderFullBlocked = preorderInfo.hasPreorder && Number(preorderInfo.remaining??0)<=0;
+    mask=`<div class="sold-mask" style="flex-direction:column;gap:8px;padding:10px"><span style="background:#fff;color:#555;font-size:12px;font-weight:700;padding:4px 12px;border-radius:20px">${soldLbl}</span>${preorderBadge}${preorderFullBlocked?'<span style="background:#9e9e9e;color:#fff;font-size:11px;padding:2px 10px;border-radius:10px">預購已滿</span>':`<button class="btn-preorder" onclick="preorderNextDay(${p.id},event)">📅 預約明日</button>`}</div>`;
+  } else if(unavailFully){
+    mask=`<div class="sold-mask"><span>${soldLbl}</span></div>`;
+  }
+
+  const imgHtml=img?`<img class="prod-img" src="${img}" alt="${esc(name)}" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`:'';
+  const soldBadgeTxt=canPreorderNextDay?'可預約明日':soldLbl;
+  const soldBadgeCls=canPreorderNextDay?'badge-amber':(soldOutReason==='cutoff_sold_out'?'badge-cutoff':'badge-sold');
+  const badgesSoldOut=isSoldOut?`<span class="badge ${soldBadgeCls}">${soldBadgeTxt}</span>`:'';
+  return `<div class="prod-card" id="pc-${p.id}">${mask}${imgHtml}<div class="prod-ph" ${img?'style="display:none"':''}>🍽️</div><div class="prod-body"><div class="badges">${isHot?'<span class="badge badge-hot">🔥 熱銷</span>':''}${isPromo?'<span class="badge badge-promo">🎁 優惠</span>':''}${badgesSoldOut}</div><div class="prod-name">${esc(name)}</div>${stockBadge}<div class="prod-desc">${esc(desc)}</div><div class="prod-footer"><span class="prod-price">$${price}</span>${footer}</div></div></div>`;
+}
+
+// ── 購物車操作 ─────────────────────────────────────────
+function addCart(id,evt){
+  const p=allProducts.find(x=>x.id==id);if(!p)return;
+  const mode=currentMode;
+  const soldOutReason=mode==='delivery'?p.delivery_sold_out_reason:p.takeout_sold_out_reason;
+  const canNextDay=mode==='delivery'?p.delivery_can_next_day:p.takeout_can_next_day;
+  // 完全關閉
+  if(soldOutReason==='mode_closed'){alert('此模式已關閉');return;}
+  // 任何售完原因：若允許預約則導向預約；否則拒絕
+  if(soldOutReason){
+    if(canNextDay){ preorderNextDay(id,evt); return; }
+    const msgs={
+      cutoff_sold_out:'已超過今日接單截止時間，無法加入購物車',
+      real_sold_out:(p.effective_line_name||p.name)+' LINE 今日份數已售完',
+      product_time_ended:(p.effective_line_name||p.name)+' 今日販售時段已結束',
+      product_not_started:(p.effective_line_name||p.name)+`尚未開始販售（${p.line_sell_start||''} 開賣）`,
+    };
+    alert(msgs[soldOutReason]||'此商品目前無法加入購物車');return;
+  }
+  if(Number(p.line_sold_out)===1){
+    if(canNextDay){ preorderNextDay(id,evt); return; }
+    alert((p.effective_line_name||p.name)+' 今日已售完');return;
+  }
+  // BUG-002 修正：依目前購物車選擇的日期，決定用今日 quota 還是預購 preorder 判斷
+  const _selectedDate = document.getElementById('pDate')?.value || '';
+  const _todayStr = fmtD(twNow());
+  const _isPreorderCart = _selectedDate && _selectedDate > _todayStr;
+  if(_isPreorderCart){
+    // 預購日期：只用 line_preorder_* 判斷，完全不看 line_quota_*
+    const preorderInfo=p.line_preorder||{hasPreorder:false};
+    if(preorderInfo.hasPreorder && Number(preorderInfo.remaining??0)<=0){
+      alert((p.effective_line_name||p.name)+' 預購已滿');return;
+    }
+    const inCart=cart[id]?.qty||0;
+    if(preorderInfo.hasPreorder && inCart>=(Number(preorderInfo.remaining??0))){
+      alert((p.effective_line_name||p.name)+` 預購剩餘份數不足（剩 ${preorderInfo.remaining} 份）`);return;
+    }
+  } else {
+    // 今日訂單：用 line_quota_*
+    if(p.line_quota?.hasQuota&&Number(p.line_quota?.remaining)<=0){
+      if(canNextDay){ preorderNextDay(id,evt); return; }
+      alert((p.effective_line_name||p.name)+' LINE 今日份數已售完');return;
+    }
+    if(p.line_quota?.hasQuota){
+      const inCart=cart[id]?.qty||0;
+      if(inCart>=(p.line_quota.remaining||0)){alert((p.effective_line_name||p.name)+` LINE 剩餘份數不足（剩 ${p.line_quota.remaining} 份）`);return;}
+    }
+  }
+  if(!cart[id])cart[id]={product:p,qty:0};
+  cart[id].qty++;
+  if(evt){const fly=document.createElement('div');fly.className='fly-item';fly.textContent='🛒';fly.style.cssText=`left:${evt.clientX}px;top:${evt.clientY}px`;document.body.appendChild(fly);setTimeout(()=>fly.remove(),700);}
+  updateBar();updateProductCard(id);
+}
+
+// ── B: 預約明日 — 完整流程 ────────────────────────────────
+// 1. 找下一個可訂日 2. 加商品進購物車 3. 載入明日時段 4. 打開購物車
+async function preorderNextDay(id,evt){
+  if(evt){evt.stopPropagation();}
+  const p=allProducts.find(x=>x.id==id);if(!p)return;
+  const mode=currentMode;
+  const canNextDay=mode==='delivery'?p.delivery_can_next_day:p.takeout_can_next_day;
+  if(!canNextDay){toast('此商品不支援明日預約');return;}
+
+  // 找下一個可訂日（排除今日、公休日、非營業日）
+  const now=twNow(), todayStr=fmtD(now);
+  const closedWds=(() => { try { return JSON.parse(shopData.line_closed_weekdays||'[]'); } catch { return []; } })();
+  const closedDts=(() => { try { return JSON.parse(shopData.line_closed_dates||'[]'); } catch { return []; } })();
+  const bizHoursKey=mode==='takeout'?'takeout_business_hours':'delivery_business_hours';
+  const bizHours=(() => { try { return JSON.parse(shopData[bizHoursKey]||'{}'); } catch { return {}; } })();
+  const bizHoursEmpty=Object.keys(bizHours).length===0;
+  const WD_KEYS_LOCAL=['sun','mon','tue','wed','thu','fri','sat'];
+
+  let nextDate=null;
+  for(let offset=1;offset<=14;offset++){
+    const d=new Date(now); d.setDate(d.getDate()+offset);
+    const ds=fmtD(d),wk=WD_KEYS_LOCAL[parseLocalDate(ds).getDay()];
+    // 跳過公休日 / 指定店休
+    if(closedWds.includes(wk)||closedDts.includes(ds)) continue;
+    // bizHours 未設定時視為全天可訂；有設定時需 enabled=true
+    if(!bizHoursEmpty){ const dh=bizHours[wk]; if(dh&&!dh.enabled) continue; }
+    nextDate=ds; break;
+  }
+  if(!nextDate){ toast('目前找不到可預約的未來時段，請確認外帶/外送營業設定'); return; }
+
+  // 加商品進購物車（繞過今日售完，預約訂單不扣今日份數）
+  if(!cart[id]) cart[id]={product:p,qty:0};
+  cart[id].qty++;
+  updateBar();
+
+  // 載入次日時段（加重試）
+  let slots=[], firstSlot='';
+  try{
+    const res=await apiFetch(`/api/line-orders/timeslots?mode=${mode}&date=${nextDate}`).then(r=>r.json());
+    if(res.success&&res.slots&&res.slots.length>0){
+      slots=res.slots; firstSlot=res.slots[0];
+    } else {
+      // 如果指定日無時段，嘗試再往後一天
+      console.warn('[preorderNextDay] no slots for',nextDate,'reason:',res.reason);
+    }
+  }catch(e){ console.warn('timeslots error',e); }
+
+  // 打開購物車並設定日期、時段、模式
+  openCartSheetWithDate(nextDate, firstSlot, slots, mode);
+  toast('✅ 已加入預約，請確認取餐時間');
+}
+
+// ── 帶日期資訊打開購物車 ─────────────────────────────────
+// ── BUG-001 FIX: 帶日期資訊打開購物車（同步設定，不用雙層 setTimeout）──
+function openCartSheetWithDate(dateStr, firstSlot, slots, mode){
+  if(!Object.keys(cart).length)return;
+
+  // 1. 同步模式選單
+  const oType=document.getElementById('oType');
+  if(oType){
+    oType.innerHTML='';
+    if(takeoutEnabled){const o=document.createElement('option');o.value='takeout';o.textContent='🛍️ 外帶';oType.appendChild(o);}
+    if(deliveryEnabled){const o=document.createElement('option');o.value='delivery';o.textContent='🛵 外送';oType.appendChild(o);}
+    oType.value=mode;
+  }
+
+  renderCartItems();
+  openSheet('cartSheet');
+
+  // 2. 同步設定日期（直接操作 pDate，不依賴 buildDateSelector）
+  const pDate=document.getElementById('pDate');
+  if(pDate){
+    // 先重建預約專用日期選項（從明天起 7 天，標記店休）
+    const now=twNow(), todayStr=fmtD(now);
+    const closedWds=(() => { try { return JSON.parse(shopData.line_closed_weekdays||'[]'); } catch { return []; } })();
+    const closedDts=(() => { try { return JSON.parse(shopData.line_closed_dates||'[]'); } catch { return []; } })();
+    const bizHoursKey=mode==='takeout'?'takeout_business_hours':'delivery_business_hours';
+    const bizHours=(() => { try { return JSON.parse(shopData[bizHoursKey]||'{}'); } catch { return {}; } })();
+    const bizEmpty=Object.keys(bizHours).length===0;
+    pDate.innerHTML='';
+    for(let offset=1;offset<=14;offset++){
+      const d=new Date(now); d.setDate(d.getDate()+offset);
+      const ds=fmtD(d), wk=WD_KEYS[parseLocalDate(ds).getDay()];
+      const mm=String(d.getMonth()+1).padStart(2,'0'), dd2=String(d.getDate()).padStart(2,'0');
+      const lbl=offset===1?'明天':offset===2?'後天':`${offset}天後`;
+      const isClosed=closedWds.includes(wk)||closedDts.includes(ds);
+      const dh=bizHours[wk];
+      const notBizDay=!isClosed&&!bizEmpty&&dh&&!dh.enabled;
+      const disabled=isClosed||notBizDay;
+      const opt=document.createElement('option');
+      opt.value=ds; opt.disabled=disabled;
+      opt.textContent=`${lbl}（${mm}/${dd2} 週${WD_NAMES[d.getDay()]}）${isClosed?' — 店休':notBizDay?' — 非營業':''}`;
+      pDate.appendChild(opt);
+    }
+    // 強制選中目標日期 dateStr
+    const targetOpt=Array.from(pDate.options).find(o=>o.value===dateStr&&!o.disabled);
+    if(targetOpt){ pDate.value=dateStr; }
+    else { pDate.value=pDate.querySelector('option:not([disabled])')?.value||dateStr; }
+  }
+
+  // 3. 設定時段（直接用傳入的 slots，不重新呼叫 API）
+  const pTime=document.getElementById('pTime');
+  if(pTime){
+    if(slots&&slots.length>0){
+      pTime.innerHTML='';
+      slots.forEach(t=>{
+        const h=Number(t.split(':')[0]);
+        const lbl=h<12?`上午 ${t}`:h===12?`中午 ${t}`:`下午 ${t}`;
+        const o=document.createElement('option');o.value=t;o.textContent=lbl;
+        pTime.appendChild(o);
+      });
+      if(firstSlot) pTime.value=firstSlot;
+    } else {
+      // slots 為空：顯示提示，並再次嘗試 API（用目前選中的日期）
+      pTime.innerHTML='<option value="" disabled>載入時段中…</option>';
+      const selDate=pDate?.value||dateStr;
+      apiFetch(`/api/line-orders/timeslots?mode=${mode}&date=${selDate}`).then(r=>r.json()).then(res=>{
+        if(res.success&&res.slots&&res.slots.length>0){
+          pTime.innerHTML='';
+          res.slots.forEach(t=>{
+            const h=Number(t.split(':')[0]);
+            const lbl=h<12?`上午 ${t}`:h===12?`中午 ${t}`:`下午 ${t}`;
+            const o=document.createElement('option');o.value=t;o.textContent=lbl;
+            pTime.appendChild(o);
+          });
+          if(res.slots[0]) pTime.value=res.slots[0];
+        } else {
+          pTime.innerHTML='<option value="" disabled>此日無可選時段，請選其他日期</option>';
+        }
+      }).catch(()=>{
+        pTime.innerHTML='<option value="" disabled>時段載入失敗，請重試</option>';
+      });
+    }
+  }
+
+  // 4. 預約提示（移除舊的後重建）
+  const oldHint=document.getElementById('preorder-hint');
+  if(oldHint) oldHint.remove();
+  const hint=document.createElement('div');
+  hint.id='preorder-hint';
+  hint.style.cssText='background:#e8f5e9;border-left:3px solid #06C755;padding:8px 12px;border-radius:6px;font-size:12px;color:#1b5e20;margin-top:6px';
+  hint.textContent='📅 預約日期：'+dateStr+'，請依選擇時段取餐 / 收餐';
+  const pDateEl=document.getElementById('pDate');
+  if(pDateEl&&pDateEl.parentNode) pDateEl.parentNode.appendChild(hint);
+}
+function chgQty(id,d){
+  if(!cart[id])return;
+  if(d>0){
+    const p=allProducts.find(x=>x.id==id);
+    // BUG-002 修正：依目前購物車選擇的日期，決定用今日 quota 還是預購 preorder 判斷
+    const _selectedDate = document.getElementById('pDate')?.value || '';
+    const _todayStr = fmtD(twNow());
+    const _isPreorderCart = _selectedDate && _selectedDate > _todayStr;
+    if(_isPreorderCart){
+      // 預購日期：只用 line_preorder_*，完全不看 line_quota_*
+      const preorderInfo=p?.line_preorder||{hasPreorder:false};
+      if(preorderInfo.hasPreorder && cart[id].qty>=(Number(preorderInfo.remaining??0))){
+        alert('預購剩餘份數不足');return;
+      }
+    } else {
+      // 今日訂單：用 line_quota_*
+      if(p&&p.line_quota?.hasQuota&&cart[id].qty>=(p.line_quota.remaining||0)){alert('LINE 份數不足');return;}
+    }
+  }
+  cart[id].qty+=d;if(cart[id].qty<=0)delete cart[id];
+  updateBar();updateProductCard(id);
+  if(document.getElementById('cartSheet').classList.contains('show'))renderCartItems();
+}
+function updateProductCard(id){
+  const p=allProducts.find(x=>x.id==id);if(!p)return;
+  const card=document.getElementById(`pc-${id}`);if(!card)return;
+  const mode=currentMode;
+  const soldOutReason=mode==='delivery'?p.delivery_sold_out_reason:p.takeout_sold_out_reason;
+  if(soldOutReason||Number(p.line_sold_out)===1||(p.sale_status||'available')!=='available')return;
+  const qty=cart[id]?.qty||0;
+  const footer=card.querySelector('.prod-footer');if(!footer)return;
+  const last=footer.lastElementChild;if(!last)return;
+  if(qty>0) last.outerHTML=`<div class="qty-ctrl"><button class="minus" onclick="chgQty(${id},-1)">−</button><span class="qnum">${qty}</span><button class="plus" onclick="chgQty(${id},1)">+</button></div>`;
+  else last.outerHTML=`<button class="add-btn" id="ab-${id}" onclick="addCart(${id},event)">+</button>`;
+}
+function updateBar(){
+  const subtotal=Object.values(cart).reduce((s,{product:p,qty})=>s+(p.effective_line_price||p.price)*qty,0);
+  const cnt=Object.values(cart).reduce((s,{qty})=>s+qty,0);
+  document.getElementById('cartCnt').textContent=cnt;
+  // fix18-05: 套用優惠折扣
+  const discAmt=appliedCoupon?appliedCoupon.discount_amount:0;
+  const payable=subtotal-discAmt;
+  document.getElementById('cartBarTotal').textContent=`$${payable}`;
+  document.getElementById('cartBar').classList.toggle('hidden',cnt===0);
+  // 金額明細
+  const subtotalEl=document.getElementById('subtotalDisplay');
+  const orderTotalEl=document.getElementById('orderTotal');
+  const discRowEl=document.getElementById('discountRow');
+  const discEl=document.getElementById('discountDisplay');
+  if(subtotalEl) subtotalEl.textContent=`$${subtotal}`;
+  if(discRowEl) discRowEl.style.display=discAmt>0?'flex':'none';
+  if(discEl) discEl.textContent=`-$${discAmt}`;
+  // fix18-06: 外送費納入應付金額
+  const cartDelivRow=document.getElementById('cartDelivFeeRow');
+  const cartDelivEl=document.getElementById('cartDelivFeeDisplay');
+  const isDelivMode=document.getElementById('oType')?.value==='delivery';
+  const shownDelivFee=isDelivMode&&deliveryFeeCalculated?calcDeliveryFee:0;
+  if(cartDelivRow) cartDelivRow.style.display=shownDelivFee>0?'flex':'none';
+  if(cartDelivEl) cartDelivEl.textContent=`$${shownDelivFee}`;
+  const payable=subtotal-discAmt+shownDelivFee;
+  if(orderTotalEl) orderTotalEl.textContent=`$${payable}`;
+  document.getElementById('cartBarTotal').textContent=`$${subtotal-discAmt}`; // bar 只顯示商品合計（外送費確認後才納入）
+  // 若購物車清空，清除優惠券
+  if(cnt===0&&appliedCoupon){ clearCoupon(); }
+}
+// fix18-06: 共用 updateCartTotals（供外送費確認後刷新）
+function updateCartTotals(){ updateBar(); }
+// ── fix18-05：優惠券相關函式 ──────────────────────────────
+async function applyCoupon(){
+  const code=(document.getElementById('couponInput')?.value||'').trim().toUpperCase();
+  const msgEl=document.getElementById('couponMsg');
+  if(!code){if(msgEl)msgEl.innerHTML='<span style="color:#e53935">請輸入優惠券代碼</span>';return;}
+  // 計算目前小計
+  const subtotal=Object.values(cart).reduce((s,{product:p,qty})=>s+(p.effective_line_price||p.price)*qty,0);
+  if(!subtotal){if(msgEl)msgEl.innerHTML='<span style="color:#e53935">購物車是空的，無法套用優惠券</span>';return;}
+  // 取得目前電話（可能尚未填寫，validate 後端允許空值但受 max_usage_per_phone 限制）
+  const phone=(document.getElementById('cPhone')?.value||'').trim();
+  const btn=document.getElementById('couponApplyBtn');
+  if(btn){btn.disabled=true;btn.textContent='驗證中…';}
+  try{
+    const res=await apiFetch('/api/coupons/validate',{
+      method:'POST',
+      body:JSON.stringify({code,subtotal,customer_phone:phone})
+    }).then(r=>r.json());
+    if(res.success){
+      appliedCoupon={code:res.coupon.code,discount_amount:res.discount_amount,final_total:res.final_total,coupon:res.coupon};
+      if(msgEl)msgEl.innerHTML=`<span style="color:#06C755">✅ ${res.coupon.name}：折扣 -$${res.discount_amount}</span>`;
+      updateBar();
+    }else{
+      appliedCoupon=null;
+      // fix18-05: 若優惠券功能被停用，隱藏整個輸入區
+      if(res.error==='COUPON_FEATURE_DISABLED'){
+        const area=document.getElementById('couponArea');
+        if(area) area.style.display='none';
+      }
+      if(msgEl)msgEl.innerHTML=`<span style="color:#e53935">❌ ${res.message||'優惠券無效'}</span>`;
+      updateBar();
+    }
+  }catch(e){
+    if(msgEl)msgEl.innerHTML='<span style="color:#e53935">❌ 網路錯誤，請稍後再試</span>';
+  }finally{
+    if(btn){btn.disabled=false;btn.textContent='套用';}
+  }
+}
+function clearCoupon(){
+  appliedCoupon=null;
+  const inp=document.getElementById('couponInput');if(inp)inp.value='';
+  const msg=document.getElementById('couponMsg');if(msg)msg.innerHTML='';
+  const dr=document.getElementById('discountRow');if(dr)dr.style.display='none';
+}
+
+function openCartSheet(){
+  if(!Object.keys(cart).length)return;
+  // 移除舊的預約提示
+  const hint=document.getElementById('preorder-hint');
+  if(hint) hint.remove();
+  // 同步購物車 sheet 模式
+  const oType=document.getElementById('oType');
+  if(oType){
+    oType.innerHTML='';
+    if(takeoutEnabled){const o=document.createElement('option');o.value='takeout';o.textContent='🛍️ 外帶';if(takeoutCutoffPassed)o.textContent+=' (已截止)';oType.appendChild(o);}
+    if(deliveryEnabled){const o=document.createElement('option');o.value='delivery';o.textContent='🛵 外送';if(deliveryCutoffPassed)o.textContent+=' (已截止)';oType.appendChild(o);}
+    oType.value=currentMode;
+  }
+  renderCartItems();openSheet('cartSheet');
+}
+function renderCartItems(){
+  const el=document.getElementById('cartItems');
+  const items=Object.values(cart);
+  if(!items.length){el.innerHTML='<div class="cart-empty">購物車是空的</div>';return;}
+  el.innerHTML=items.map(({product:p,qty})=>{const pr=p.effective_line_price||p.price;return`<div class="ci"><div class="ci-name">${esc(p.effective_line_name||p.name)} × ${qty}</div><div class="ci-price">$${pr*qty}</div><div class="qty-ctrl" style="margin-left:8px"><button class="minus" onclick="chgQty(${p.id},-1)">−</button><span class="qnum">${qty}</span><button class="plus" onclick="chgQty(${p.id},1)">+</button></div></div>`;}).join('');
+}
+
+// ── 送單（結帳前再次驗證）────────────────────────────────
+async function submitOrder(){
+  const name=document.getElementById('cName').value.trim();
+  const phone=document.getElementById('cPhone').value.trim();
+  const note=document.getElementById('oNote').value.trim();
+  const time=document.getElementById('pTime').value.trim();
+  const type=document.getElementById('oType').value;
+  const pickupDate=document.getElementById('pDate')?.value;
+
+  if(!name){toast('請填寫姓名');return;}
+  if(!phone){toast('請填寫電話');return;}
+  if(!Object.keys(cart).length){toast('購物車是空的');return;}
+  if(!type){toast('請選擇取餐方式');return;}
+  if(!selectedPay){toast('請選擇付款方式');return;}
+  if(!pickupDate){toast('請選擇日期');return;}
+  if(!time){toast('請選擇時間');return;}
+
+  // fix18-06: 外送模式驗證地址與費用
+  const isDelivery = type === 'delivery';
+  if(isDelivery){
+    const addrVal=(document.getElementById('deliveryAddress')?.value||'').trim();
+    if(!addrVal){toast('外送訂單請填寫外送地址');return;}
+    if(!deliveryLatLng.lat||!deliveryLatLng.lng){toast('請重新選擇外送地址（需取得座標）');return;}
+    if(!deliveryFeeCalculated){toast('請稍候，外送費計算中…');return;}
+  }
+
+  // 送單前雙重驗證：呼叫後端重新確認
+  const now=twNow(),nowStr=fmtD(now);
+  const isNextDayOrder = pickupDate > nowStr;
+  if(!isNextDayOrder){
+    if(type==='takeout'&&takeoutCutoffPassed){toast('外帶今日接單已截止');return;}
+    if(type==='delivery'&&deliveryCutoffPassed){toast('外送今日接單已截止');return;}
+  }
+
+  const items=Object.values(cart).map(({product:p,qty})=>({
+    product_id:p.id, name:p.effective_line_name||p.name, qty,
+    price:p.effective_line_price||p.price, subtotal:(p.effective_line_price||p.price)*qty
+  }));
+  const subtotal=items.reduce((s,i)=>s+i.subtotal,0);
+  const couponCode=appliedCoupon?appliedCoupon.code:'';
+
+  // fix18-06: 組裝外送欄位（後端不信任 delivery_fee，但 preview 值供後端 log 比對）
+  const delivPayload = isDelivery ? {
+    delivery_address:      (document.getElementById('deliveryAddress')?.value||'').trim(),
+    delivery_address_note: (document.getElementById('deliveryAddressNote')?.value||'').trim(),
+    delivery_lat:          deliveryLatLng.lat,
+    delivery_lng:          deliveryLatLng.lng,
+    delivery_fee_preview:      calcDeliveryFee,       // 前端預估，後端重算為準
+    delivery_distance_km_preview: deliveryDistKm,     // 前端預估，後端重算為準
+  } : {};
+
+  const btn=document.getElementById('subBtn');btn.disabled=true;btn.textContent='送出中…';
+  try{
+    const orderRes=await apiFetch('/api/line-orders',{
+      method:'POST',
+      body:JSON.stringify({
+        customer_name:name, customer_phone:phone, order_type:type,
+        pickup_date:pickupDate, pickup_time:time,
+        payment_method:selectedPay, note, items, subtotal,
+        coupon_code:couponCode,
+        total:subtotal,
+        ...delivPayload,
+      })
+    }).then(r=>r.json());
+    if(!orderRes.success){
+      toast(orderRes.message||'送出失敗');
+      if(orderRes.reason==='cutoff_sold_out'||orderRes.reason==='real_sold_out') setTimeout(()=>location.reload(),2000);
+      if(orderRes.reason==='maps_unavailable'||orderRes.reason==='out_of_range'){
+        resetDeliveryFee();
+      }
+      return;
+    }
+    const orderData=orderRes.data;
+    localStorage.setItem('last_line_order_number',orderData.order_number);
+    localStorage.setItem('last_line_order_phone',phone);
+
+    // ── LINE Pay 付款流程 ──────────────────────────────
+    if(selectedPay==='linepay'){
+      btn.textContent='前往 LINE Pay…';
+      try{
+        const baseUrl=`${location.protocol}//${location.host}`;
+        const lpRes=await apiFetch('/api/linepay/request',{
+          method:'POST',
+          body:JSON.stringify({
+            order_uuid:orderData.uuid||orderData.order_number,
+            order_number:orderData.order_number,
+            total:orderData.total||subtotal,
+            items, customer_name:name,
+            redirect_url:`${baseUrl}/api/linepay/confirm?store_id=${LINE_STORE_ID}`,
+            cancel_url:`${baseUrl}/line-order.html?store_id=${LINE_STORE_ID}&linepay=cancel`,
+          })
+        }).then(r=>r.json());
+        if(lpRes.success&&lpRes.payment_url){
+          clearCoupon();
+          closeSheet('cartSheet');cart={};updateBar();renderMenu();
+          window.location.href=lpRes.payment_url;
+          return;
+        }else{
+          toast((lpRes.message)||'LINE Pay 建立付款失敗，請改選其他付款方式');
+        }
+      }catch(lpErr){
+        toast('LINE Pay 連線失敗：'+lpErr.message);
+      }
+      return;
+    }
+
+    // ── 現金 / 其他付款 → 直接顯示成功頁 ─────────────
+    const finalDiscAmt=appliedCoupon?appliedCoupon.discount_amount:0;
+    const finalDelivFee=orderData.delivery_fee||0;
+    clearCoupon();
+    resetDeliveryFee();
+    closeSheet('cartSheet');cart={};updateBar();renderMenu();
+    document.getElementById('sucNo').textContent=`訂單編號：${orderData.order_number}`;
+    document.getElementById('sucDetail').innerHTML=buildDetailRows({
+      status:'pending',status_label:'待確認',
+      customer_name:name, phone_last3:phone.slice(-3),
+      order_type_label:type==='delivery'?'🛵 外送':'🛍️ 外帶',
+      pickup_time:`${pickupDate} ${time}`, items, subtotal,
+      discount_amount:finalDiscAmt,
+      delivery_fee:finalDelivFee,
+      delivery_address:delivPayload.delivery_address||'',
+      distance_km:orderData.distance_km||0,
+      total:orderData.total,
+      payment_label:PLABELS[selectedPay]||selectedPay, note
+    });
+    document.getElementById('successScreen').classList.add('show');
+  }catch{toast('網路錯誤，請重試');}
+  finally{btn.disabled=false;btn.textContent='確認送出訂單';}
+}
+
+// ── 定時刷新店家狀態 ──────────────────────────────────
+async function refreshShopStatus(){
+  try{
+    const res=await apiFetch('/api/line-shop').then(r=>r.json());
+    if(!res.success)return;
+    shopData=res.data;
+    const ts=res.data.takeout_status||{};
+    const ds2=res.data.delivery_status||{};
+    const prevToCP=takeoutCutoffPassed, prevDlCP=deliveryCutoffPassed;
+    takeoutCutoffPassed=!!ts.cutoff_passed;
+    deliveryCutoffPassed=!!ds2.cutoff_passed;
+    if(prevToCP!==takeoutCutoffPassed||prevDlCP!==deliveryCutoffPassed){
+      renderMenu();updateCutoffBanner();
+    }
+  }catch{}
+}
+
+// ── 成功/查詢/訂單詳情 ─────────────────────────────────
+function openSuccessQuery(){document.getElementById('successScreen').classList.remove('show');openQuerySheet();}
+function openSuccessMyOrders(){document.getElementById('successScreen').classList.remove('show');openMyOrders();}
+
+async function renderLastOrderCard(){
+  const no=localStorage.getItem('last_line_order_number');
+  const ph=localStorage.getItem('last_line_order_phone');
+  const card=document.getElementById('lastOrderCard');
+  if(!no||!ph){card.style.display='none';return;}
+  try{
+    const res=await apiFetch('/api/line-orders/status/'+encodeURIComponent(no)).then(r=>r.json());
+    if(!res.success){card.style.display='none';return;}
+    const d=res.data;
+    const si=SICON[d.order_status]||'📦',sl=SLABEL[d.order_status]||d.order_status;
+    const sc=SCLASS[d.order_status]||'';
+    card.className='last-order-card';
+    card.setAttribute('data-order-no',no);
+    card.innerHTML=`<div class="loc-row"><span class="loc-no">📦 ${esc(no)}</span><span class="status-badge ${sc}">${si} ${esc(sl)}</span></div><div class="loc-time">🕒 ${esc(d.pickup_time||d.created_at||'')}</div><div class="loc-bottom"><span class="loc-amount">$${d.total||0}</span><span class="loc-hint">點此查看詳情 →</span></div>`;
+    card.style.display='block';
+    card.onclick=()=>fetchAndShowDetail(no,ph);
+  }catch{card.style.display='none';}
+}
+
+async function fetchAndShowDetail(no,ph){
+  try{
+    const body=ph?{order_number:no,phone:ph}:{order_number:no};
+    const res=await apiFetch('/api/line-orders/query',{method:'POST',body:JSON.stringify(body)}).then(r=>r.json());
+    if(res.success&&res.orders?.length)openOrderDetail(res.orders[0]);
+    else{
+      const sr=await apiFetch('/api/line-orders/status/'+encodeURIComponent(no)).then(r=>r.json());
+      if(sr.success&&sr.data)openOrderDetail({...sr.data,order_number:no,status:sr.data.order_status});
+      else toast('無法取得訂單詳情');
+    }
+  }catch{toast('查詢失敗，請重試');}
+}
+
+function openSheet(id){
+  if(_topSheet&&_topSheet!==id){document.getElementById(_topSheet)?.classList.remove('show');}
+  _topSheet=id;
+  document.getElementById('overlay').classList.add('show');
+  document.getElementById(id).classList.add('show');
+}
+function closeSheet(id){
+  if(id==='detailSheet'&&typeof window._stopStatusPolling==='function') window._stopStatusPolling();
+  document.getElementById(id)?.classList.remove('show');
+  if(_topSheet===id){_topSheet=null;document.getElementById('overlay').classList.remove('show');}
+}
+function closeTopSheet(){
+  if(_topSheet){document.getElementById(_topSheet)?.classList.remove('show');_topSheet=null;}
+  document.getElementById('overlay').classList.remove('show');
+}
+
+function openQuerySheet(){
+  const lastNo=localStorage.getItem('last_line_order_number');
+  const lastPh=localStorage.getItem('last_line_order_phone');
+  if(lastNo)document.getElementById('qOrderNo').value=lastNo;
+  if(lastPh)document.getElementById('qPhone').value=lastPh;
+  document.getElementById('queryResult').innerHTML='';
+  openSheet('querySheet');
+}
+
+async function doQuery(){
+  const orderNo=document.getElementById('qOrderNo').value.trim();
+  const phone=document.getElementById('qPhone').value.trim();
+  const name=document.getElementById('qName').value.trim();
+  const resultEl=document.getElementById('queryResult');
+  if(!phone){toast('請輸入電話或後三碼');return;}
+  const btn=document.getElementById('qSubmitBtn');
+  btn.disabled=true;btn.textContent='查詢中…';
+  resultEl.innerHTML='<div style="text-align:center;padding:20px;color:#888">查詢中…</div>';
+  try{
+    const body={phone};
+    if(orderNo)body.order_number=orderNo;
+    if(name)body.customer_name=name;
+    const res=await apiFetch('/api/line-orders/query',{method:'POST',body:JSON.stringify(body)}).then(r=>r.json());
+    if(!res.success){resultEl.innerHTML=`<p style="color:#e53935;text-align:center;padding:16px">${esc(res.message||'查無訂單')}</p>`;return;}
+    if(res.mode==='single'||res.orders.length===1){
+      resultEl.innerHTML='';closeSheet('querySheet');openOrderDetail(res.orders[0]);
+    }else{
+      resultEl.innerHTML=`<p style="font-size:13px;color:#555;margin-bottom:2px">找到 ${res.orders.length} 筆訂單：</p>`
+        +res.orders.map(o=>buildOrderCardHTML(o,'query')).join('');
+    }
+  }catch{resultEl.innerHTML='<p style="color:#e53935;text-align:center;padding:16px">查詢失敗，請重試</p>';}
+  finally{btn.disabled=false;btn.textContent='查詢';}
+}
+
+function openMyOrders(){
+  const phone=localStorage.getItem('line_customer_phone');
+  const name=localStorage.getItem('line_customer_name');
+  if(phone)loadMyOrders(phone,name);
+  else showMyOrdersLogin();
+  openSheet('myOrdersSheet');
+}
+function showMyOrdersLogin(){
+  document.getElementById('myOrdersBody').innerHTML=`
+    <div style="padding:20px">
+      <div class="qf-hint">📱 請輸入您的電話查看歷史訂單</div>
+      <div class="fg" style="margin-top:14px"><label class="fl">電話 / 後三碼</label><input class="fi" id="moPhone" placeholder="完整電話或後三碼" type="tel"></div>
+      <div class="fg"><label class="fl">姓名（後三碼查詢需填）</label><input class="fi" id="moName" placeholder="您的姓名" type="text"></div>
+      <button class="sub-btn" onclick="loginMyOrders()">查詢我的訂單</button>
+    </div>`;
+}
+async function loginMyOrders(){
+  const phone=document.getElementById('moPhone')?.value.trim();
+  const name=document.getElementById('moName')?.value.trim();
+  if(!phone){toast('請輸入電話');return;}
+  await loadMyOrders(phone,name,true);
+}
+async function loadMyOrders(phone,name,save=false){
+  const body=document.getElementById('myOrdersBody');
+  body.innerHTML='<div style="text-align:center;padding:40px;color:#888"><div class="spinner" style="margin:0 auto 8px"></div>載入中…</div>';
+  try{
+    const b={phone};if(name)b.customer_name=name;
+    const res=await apiFetch('/api/line-orders/history',{method:'POST',body:JSON.stringify(b)}).then(r=>r.json());
+    if(!res.success){body.innerHTML=`<div class="empty-hint"><div class="ei">📭</div><p>${esc(res.message||'查無訂單')}</p><button class="sub-btn" style="margin-top:16px;max-width:240px" onclick="clearMyOrdersLogin()">重新輸入</button></div>`;return;}
+    if(save){localStorage.setItem('line_customer_phone',phone);if(name)localStorage.setItem('line_customer_name',name);}
+    body.innerHTML=`<div style="padding:10px 16px;display:flex;justify-content:space-between;align-items:center"><span style="font-size:13px;color:#888">共 ${res.orders.length} 筆訂單</span><button onclick="clearMyOrdersLogin()" style="font-size:12px;color:var(--sub);background:none;border:none;cursor:pointer">切換帳號</button></div>`
+      +res.orders.map(o=>buildOrderCardHTML(o,'history')).join('')+'<div style="height:20px"></div>';
+  }catch{body.innerHTML='<p style="color:#e53935;text-align:center;padding:40px">載入失敗，請重試</p>';}
+}
+function clearMyOrdersLogin(){localStorage.removeItem('line_customer_phone');localStorage.removeItem('line_customer_name');showMyOrdersLogin();}
+
+function buildOrderCardHTML(o,mode){
+  const si=SICON[o.status]||'📦',sl=SLABEL[o.status]||o.status,sc=SCLASS[o.status]||'';
+  const summary=(o.items||[]).slice(0,2).map(i=>`${esc(i.name||'')}×${i.qty||1}`).join('、')+((o.items||[]).length>2?`…等${o.items.length}項`:'');
+  const pt=o.pickup_time?`🕒 ${esc(o.pickup_time)}`:`🕒 ${esc((o.created_at||'').slice(0,16))}`;
+  const oJson=JSON.stringify(o).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;');
+  return `<div class="order-card">
+    <div class="oc-head"><div><div class="oc-no">📦 ${esc(o.order_number)}</div><div class="oc-time">${pt}</div></div><span class="status-badge ${sc}">${si} ${esc(sl)}</span></div>
+    <div class="oc-summary">${summary||'（無商品摘要）'}</div>
+    <div class="oc-bottom">
+      <span class="oc-amount">💰 $${o.total||0}</span>
+      <div class="oc-btns">
+        ${mode==='history'?`<button class="btn-reorder" data-order="${oJson}" onclick="reorder(JSON.parse(decodeURIComponent(this.dataset.order)))">🔄 再購</button>`:''}
+        <button class="btn-detail" data-order="${oJson}" onclick="openOrderDetail(JSON.parse(decodeURIComponent(this.dataset.order)))">查看詳情</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function openOrderDetail(o){
+  const sucDetail=document.getElementById('sucDetail');
+  if(sucDetail) sucDetail.setAttribute('data-order-no',o.order_number||'');
+  if(typeof window._startStatusPolling==='function') window._startStatusPolling(o.order_number||'');
+  const si=SICON[o.status]||'📦',sl=SLABEL[o.status]||o.status,sc=SCLASS[o.status]||'';
+  const isReady=o.status==='ready';
+  const itemRows=(o.items||[]).map(i=>`<div class="od-row"><span class="od-label">${esc(i.name||'')} × ${i.qty||1}</span><span class="od-val">$${i.subtotal||0}</span></div>`).join('');
+  const oStr=encodeURIComponent(JSON.stringify(o));
+  document.getElementById('detailBody').innerHTML=`<div class="order-detail">
+    ${isReady?'<div style="background:#e8f5e9;border-left:3px solid var(--g);padding:10px 14px;border-radius:8px;margin-bottom:14px;font-size:13px;font-weight:600;color:#1b5e20">🎉 餐點已備妥，請至現場出示訂單編號取餐</div>':''}
+    <div class="od-section">
+      <div class="od-row"><span class="od-label">訂單狀態</span><span class="od-val"><span class="status-badge ${sc}" data-status="${o.status||''}">${si} ${esc(sl)}</span></span></div>
+      <div class="od-row"><span class="od-label">訂單編號</span><span class="od-val" style="font-size:11px">${esc(o.order_number)}</span></div>
+      <div class="od-row"><span class="od-label">顧客姓名</span><span class="od-val">${esc(o.customer_name||'')}</span></div>
+      <div class="od-row"><span class="od-label">電話</span><span class="od-val">***${esc(o.phone_last3||'')}</span></div>
+      <div class="od-row"><span class="od-label">取餐方式</span><span class="od-val">${esc(o.order_type_label||o.order_type||'')}</span></div>
+      <div class="od-row"><span class="od-label">取餐時間</span><span class="od-val">${esc(o.pickup_time||'—')}</span></div>
+      <div class="od-row"><span class="od-label">付款方式</span><span class="od-val">${esc(o.payment_label||o.payment_method||'')}</span></div>
+    </div>
+    <div class="od-section">
+      <p style="font-size:13px;font-weight:700;margin-bottom:8px;color:#555">商品明細</p>
+      ${itemRows}
+      <div class="od-row" style="margin-top:4px"><span class="od-label" style="font-weight:700">合計金額</span><span class="od-val od-total">$${o.total||0}</span></div>
+    </div>
+    ${o.note?`<div class="od-section"><div class="od-row"><span class="od-label">備註</span><span class="od-val">${esc(o.note)}</span></div></div>`:''}
+    <div class="od-pickup-hint">📋 取餐時請出示此畫面，供店員核對訂單</div>
+    <div style="padding:16px 0 8px">
+      <button class="sub-btn" style="background:#fff;color:var(--g);border:2px solid var(--g)" onclick="reorder(JSON.parse(decodeURIComponent('${oStr}')))">🔄 再次購買</button>
+    </div>
+  </div>`;
+  openSheet('detailSheet');
+}
+
+function buildDetailRows(d){
+  const rows=[
+    ['訂單狀態',`<span class="status-badge s-pending">🟡 待確認</span>`],
+    ['取餐方式',esc(d.order_type_label)],
+    ['取餐時間',esc(d.pickup_time)],
+    ['顧客姓名',esc(d.customer_name)],
+    ['電話',`***${esc(d.phone_last3)}`],
+    ['付款方式',esc(d.payment_label)],
+  ];
+  if(d.delivery_address)rows.push(['外送地址',esc(d.delivery_address)]);
+  if(d.note)rows.push(['備註',esc(d.note)]);
+  const ir=(d.items||[]).map(i=>`<div class="od-row"><span class="od-label">${esc(i.name)}×${i.qty}</span><span class="od-val">$${i.subtotal}</span></div>`).join('');
+  // fix18-05: 顯示折扣明細
+  const discAmt=Number(d.discount_amount||0);
+  const discRow=discAmt>0
+    ? `<div class="od-row"><span class="od-label" style="color:#06C755">🎟️ 優惠折扣</span><span class="od-val" style="color:#06C755">-$${discAmt}</span></div>`
+    : '';
+  // fix18-06: 外送費明細
+  const delivFee=Number(d.delivery_fee||0);
+  const delivRow=delivFee>0
+    ? `<div class="od-row"><span class="od-label" style="color:#e65100">🛵 外送費${d.distance_km?` (${d.distance_km}km)`:''}</span><span class="od-val" style="color:#e65100">$${delivFee}</span></div>`
+    : '';
+  return rows.map(([l,v])=>`<div class="od-row"><span class="od-label">${l}</span><span class="od-val">${v}</span></div>`).join('')
+    +ir+discRow+delivRow+`<div class="od-row"><span class="od-label" style="font-weight:700">應付金額</span><span class="od-val" style="color:var(--g);font-size:15px;font-weight:700">$${d.total}</span></div>`;
+}
+
+function reorder(o){
+  const items=o.items||[];
+  if(!items.length){toast('此訂單沒有商品紀錄');return;}
+  let added=0,skipped=0;
+  items.forEach(item=>{
+    const pid=item.product_id||item.id;
+    const p=allProducts.find(x=>x.id==pid||(x.name===(item.name||'')&&!pid));
+    if(!p||!p.show_on_line||(p.sale_status||'available')!=='available'||Number(p.line_sold_out)===1){skipped++;return;}
+    if(!cart[p.id])cart[p.id]={product:p,qty:0};
+    cart[p.id].qty+=(item.qty||1);added++;
+  });
+  if(added===0){toast('此訂單商品目前皆無法再次購買');return;}
+  updateBar();renderMenu();closeTopSheet();
+  toast(skipped>0?`已加入購物車，${skipped} 項停售商品已略過`:`${added} 項商品已加入購物車`);
+  setTimeout(()=>openCartSheet(),400);
+}
+
+// ═══════════════════════════════════════════════════════
+// fix18-06: Google Maps + 外送費計算
+// ═══════════════════════════════════════════════════════
+
+let deliveryDistKm = 0;  // 最近一次計算距離（供 submitOrder 帶出）
+let _calcFeeTimer = null;
+
+// 重置外送費狀態（模式切換或清空地址時）
+function resetDeliveryFee(){
+  calcDeliveryFee = 0;
+  deliveryDistKm  = 0;
+  deliveryFeeCalculated = false;
+  deliveryLatLng = { lat: null, lng: null };
+  const addrEl = document.getElementById('deliveryAddress');
+  if(addrEl) addrEl.value = '';
+  const feeRow = document.getElementById('deliveryFeeRow');
+  if(feeRow) feeRow.style.display='none';
+  const feeMsg = document.getElementById('deliveryFeeMsg');
+  if(feeMsg) feeMsg.textContent='';
+  updateCartTotals();
+}
+
+// 呼叫後端計算外送費
+async function fetchDeliveryFee(){
+  if(!deliveryLatLng.lat||!deliveryLatLng.lng) return;
+  const subtotal=Object.values(cart).reduce((s,{product:p,qty})=>s+(p.effective_line_price||p.price)*qty,0);
+  const feeMsg=document.getElementById('deliveryFeeMsg');
+  const feeRow=document.getElementById('deliveryFeeRow');
+  const distBadge=document.getElementById('deliveryDistBadge');
+  const feeDisplay=document.getElementById('deliveryFeeDisplay');
+  if(feeMsg) feeMsg.textContent='計算外送費中…';
+  deliveryFeeCalculated=false;
+  try{
+    const res=await apiFetch('/api/delivery/calculate-fee',{
+      method:'POST',
+      body:JSON.stringify({
+        order_mode:'delivery',
+        subtotal,
+        delivery_lat: deliveryLatLng.lat,
+        delivery_lng: deliveryLatLng.lng,
+      })
+    }).then(r=>r.json());
+    if(res.success){
+      calcDeliveryFee = res.delivery_fee||0;
+      deliveryDistKm  = res.distance_km||0;
+      deliveryFeeCalculated = true;
+      if(feeRow) feeRow.style.display='flex';
+      if(distBadge) distBadge.textContent=`${res.distance_km}km`;
+      if(feeDisplay) feeDisplay.textContent= res.is_free_delivery ? '免運 🎉' : `NT$${res.delivery_fee}`;
+      if(feeMsg) feeMsg.textContent=res.message||'';
+    } else {
+      calcDeliveryFee=0;
+      deliveryFeeCalculated=false;
+      if(feeRow) feeRow.style.display='none';
+      if(feeMsg) feeMsg.innerHTML=`<span style="color:#e53935">⚠️ ${res.message||'無法計算外送費'}</span>`;
+    }
+  } catch(e){
+    calcDeliveryFee=0;
+    deliveryFeeCalculated=false;
+    if(feeRow) feeRow.style.display='none';
+    if(feeMsg) feeMsg.innerHTML=`<span style="color:#e53935">⚠️ 外送費計算失敗，請重試</span>`;
+  }
+  updateCartTotals();
+}
+
+// 使用目前位置（GPS → reverse-geocode）
+async function useCurrentLocation(){
+  if(!navigator.geolocation){
+    toast('您的瀏覽器不支援定位功能');
+    return;
+  }
+  const btn=document.querySelector('.delivery-gps-btn');
+  if(btn){btn.disabled=true;btn.textContent='定位中…';}
+  navigator.geolocation.getCurrentPosition(
+    async (pos)=>{
+      const lat=pos.coords.latitude, lng=pos.coords.longitude;
+      try{
+        const res=await apiFetch('/api/maps/reverse-geocode',{
+          method:'POST',
+          body:JSON.stringify({lat,lng})
+        }).then(r=>r.json());
+        if(res.success){
+          const addrEl=document.getElementById('deliveryAddress');
+          if(addrEl){ addrEl.value=res.formatted_address; }
+          deliveryLatLng={lat,lng};
+          await fetchDeliveryFee();
+        } else {
+          toast(res.message||'無法取得地址，請手動輸入');
+        }
+      } catch(e){
+        toast('定位失敗，請手動輸入地址');
+      } finally {
+        if(btn){btn.disabled=false;btn.textContent='📍 使用目前位置';}
+      }
+    },
+    (err)=>{
+      if(btn){btn.disabled=false;btn.textContent='📍 使用目前位置';}
+      toast('無法取得定位：'+( err.code===1?'請允許定位權限':err.message));
+    },
+    {timeout:10000, maximumAge:60000}
+  );
+}
+
+// 初始化 Google Places Autocomplete
+function initGoogleMaps(){
+  const addrEl=document.getElementById('deliveryAddress');
+  if(!addrEl||!window.google?.maps?.places) return;
+  const ac = new google.maps.places.Autocomplete(addrEl, {
+    componentRestrictions: { country: 'tw' },
+    fields: ['formatted_address','geometry'],
+    types: ['address'],
+  });
+  ac.addListener('place_changed', ()=>{
+    const place=ac.getPlace();
+    if(!place.geometry){
+      toast('請從下拉選單選擇地址');
+      deliveryLatLng={lat:null,lng:null};
+      deliveryFeeCalculated=false;
+      return;
+    }
+    deliveryLatLng={
+      lat: place.geometry.location.lat(),
+      lng: place.geometry.location.lng(),
+    };
+    if(place.formatted_address) addrEl.value=place.formatted_address;
+    // 節流：地址確認後才呼叫
+    if(_calcFeeTimer) clearTimeout(_calcFeeTimer);
+    _calcFeeTimer=setTimeout(fetchDeliveryFee, 300);
+  });
+  // 手動輸入時，若已失去座標則清除計算結果
+  addrEl.addEventListener('input', ()=>{
+    deliveryLatLng={lat:null,lng:null};
+    deliveryFeeCalculated=false;
+    calcDeliveryFee=0;
+    const feeRow=document.getElementById('deliveryFeeRow');
+    if(feeRow) feeRow.style.display='none';
+    updateCartTotals();
+  });
+  mapsAutocomplete=ac;
+}
+
+// 動態載入 Google Maps JS API（從後端拿 browser key）
+async function loadGoogleMapsScript(){
+  try{
+    const res=await apiFetch('/api/config/maps-browser-key').then(r=>r.json());
+    if(!res.success||!res.key) return; // 沒有 key 就跳過，不影響自取流程
+    // 避免重複載入
+    if(window.google?.maps) { initGoogleMaps(); return; }
+    window._initGoogleMapsCallback=initGoogleMaps;
+    const s=document.createElement('script');
+    s.src=`https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(res.key)}&libraries=places&language=zh-TW&callback=_initGoogleMapsCallback`;
+    s.async=true; s.defer=true;
+    s.onerror=()=>console.warn('[Maps] Google Maps 載入失敗，外送仍可輸入地址但無自動完成');
+    document.head.appendChild(s);
+  } catch(e){
+    console.warn('[Maps] 無法取得 Maps browser key:', e.message);
+  }
+}
+
+init();
+loadGoogleMapsScript();
+</script>
+
+<script>
+// WSS + Polling
+(function initLineOrderPolling(){
+  let _pollTimer=null;
+  window._startStatusPolling=function(orderNo){
+    if(_pollTimer)clearInterval(_pollTimer);
+    _pollTimer=setInterval(async()=>{
+      if(!orderNo)return;
+      try{
+        const r=await apiFetch('/api/line-orders/status/'+encodeURIComponent(orderNo)).then(x=>x.json());
+        if(!r.success||!r.data)return;
+        const newStatus=r.data.order_status||'';
+        const si=(window.SICON||{})[newStatus]||'📦';
+        const sl=(window.SLABEL||{})[newStatus]||newStatus;
+        const sc=(window.SCLASS||{})[newStatus]||'';
+        const sucDetail=document.getElementById('sucDetail');
+        if(sucDetail&&sucDetail.getAttribute('data-order-no')===orderNo){
+          const badge=sucDetail.querySelector('.status-badge[data-status]');
+          if(badge){badge.className='status-badge '+sc;badge.textContent=si+' '+sl;badge.setAttribute('data-status',newStatus);}
+        }
+        const card=document.querySelector('[data-order-no="'+orderNo+'"]');
+        if(card){const b=card.querySelector('.status-badge');if(b){b.className='status-badge '+sc;b.textContent=si+' '+sl;}}
+      }catch{}
+    },10000);
+  };
+  window._stopStatusPolling=function(){if(_pollTimer){clearInterval(_pollTimer);_pollTimer=null;}};
+})();
+
+(function initLineOrderWss(){
+  let _retry=0;
+  function connect(){
+    const proto=location.protocol==='https:'?'wss:':'ws:';
+    let ws;
+    try{ws=new WebSocket(proto+'//'+location.host+'/orders');}catch{return;}
+    ws.onopen=()=>{_retry=0;};
+    ws.onmessage=(evt)=>{
+      let msg;try{msg=JSON.parse(evt.data);}catch{return;}
+      if(msg.type!=='order_status_changed')return;
+      const o=msg.order;if(!o)return;
+      const newStatus=o.order_status||'';
+      const si=(window.SICON||{})[newStatus]||'📦';
+      const sl=(window.SLABEL||{})[newStatus]||newStatus;
+      const sc=(window.SCLASS||{})[newStatus]||'';
+      const sucDetail=document.getElementById('sucDetail');
+      const shownOrderNo=sucDetail?sucDetail.getAttribute('data-order-no'):'';
+      if(shownOrderNo&&shownOrderNo===o.order_number){
+        const badge=sucDetail.querySelector('.status-badge[data-status]');
+        if(badge){badge.className='status-badge '+sc;badge.textContent=si+' '+sl;badge.setAttribute('data-status',newStatus);}
+      }
+      const card=document.querySelector('[data-order-no="'+o.order_number+'"]');
+      if(card){const b=card.querySelector('.status-badge');if(b){b.className='status-badge '+sc;b.textContent=si+' '+sl;}}
+    };
+    ws.onclose=()=>{const d=Math.min(1000*Math.pow(2,_retry++),30000);setTimeout(connect,d);};
+    ws.onerror=()=>ws.close();
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',connect);
+  else connect();
+})();
+</script>
+</body>
+</html>
