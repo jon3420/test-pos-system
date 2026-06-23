@@ -41,6 +41,17 @@ const DELIVERY_FEE_KEYS = [
   'coupon_apply_to_delivery_fee',
 ];
 
+// fix18-08：外送平台抽成率 key
+const COMMISSION_KEYS = [
+  'ubereats_commission_rate',
+  'foodpanda_commission_rate',
+  'line_commission_rate',
+  'pos_commission_rate',
+  'phone_commission_rate',
+  'other_commission_rate',
+  'unknown_commission_rate',
+];
+
 // 所有允許修改的 key（包含 LINE key）
 const ALL_ALLOWED = [
   'shop_name', 'n8n_webhook_url', 'line_channel_token', 'tax_rate', 'receipt_footer',
@@ -53,6 +64,7 @@ const ALL_ALLOWED = [
   'android_features',
   ...DELIVERY_FEE_KEYS,
   ...LINE_KEYS,
+  ...COMMISSION_KEYS,
 ];
 
 // GET /api/settings

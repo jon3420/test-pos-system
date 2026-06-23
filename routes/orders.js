@@ -433,7 +433,8 @@ router.put('/:id', (req, res) => {
     const { items, payment_method, customer_name, customer_phone, customer_line_id,
       note, received_amount, reason='', operator='staff',
       order_status, table_number, guest_count, pickup_name, pickup_time,
-      delivery_address, estimated_delivery, delivery_fee, discount_amount } = req.body;
+      delivery_address, estimated_delivery, delivery_fee, discount_amount,
+      platform } = req.body;
 
     if (!reason?.trim()) return res.status(400).json({ success: false, message: '修改原因為必填' });
     if (!items || !Array.isArray(items) || !items.length) return res.status(400).json({ success: false, message: '商品不能為空' });
@@ -448,20 +449,87 @@ router.put('/:id', (req, res) => {
     const newChng   = isCash ? Math.max(0, newRecv - newTotal) : 0;
     if (isCash && newRecv < newTotal) return res.status(400).json({ success: false, message: '實收金額不足' });
 
-    const commRate    = Number(order.platform_commission_rate || 0);
-    const commAmount  = Math.round(subtotal * commRate / 100 * 100) / 100;
-    const storeIncome = subtotal - commAmount;
+    // fix18-08：平台來源更新邏輯
+    const normalizePlatform = (v) => {
+      if (!v || v === 'unknown' || v === 'undefined') return 'unknown';
+      const s = String(v).toLowerCase().replace(/\s/g, '');
+      if (['pos', 'pos現場'].includes(s)) return 'pos';
+      if (['ubereats', 'uber eats', 'uber'].includes(s)) return 'ubereats';
+      if (['foodpanda', 'panda'].includes(s)) return 'foodpanda';
+      if (['line', 'line點餐', 'line_order'].includes(s)) return 'line';
+      if (['phone', '電話訂購'].includes(s)) return 'phone';
+      if (['other', '其他'].includes(s)) return 'other';
+      return 'unknown';
+    };
+
+    const PLATFORM_LABEL = {
+      unknown: '未知', pos: 'POS現場', ubereats: 'Uber Eats',
+      foodpanda: 'foodpanda', line: 'LINE點餐', phone: '電話訂購', other: '其他'
+    };
+
+    const COMMISSION_KEY = {
+      ubereats: 'ubereats_commission_rate', foodpanda: 'foodpanda_commission_rate',
+      line: 'line_commission_rate', pos: 'pos_commission_rate',
+      phone: 'phone_commission_rate', other: 'other_commission_rate',
+      unknown: 'unknown_commission_rate'
+    };
+
+    const DEFAULT_RATE = { ubereats: 31, foodpanda: 35 };
+
+    // 決定新平台代碼
+    const oldPlatformRaw = order.delivery_platform || order.platform || '';
+    const oldPlatformCode = normalizePlatform(oldPlatformRaw);
+    let newPlatformCode = platform !== undefined ? normalizePlatform(platform) : oldPlatformCode;
+    const newPlatformLabel = PLATFORM_LABEL[newPlatformCode] || '未知';
+
+    // 從 store_settings 讀取抽成率
+    const getRate = (code) => {
+      const key = COMMISSION_KEY[code] || 'unknown_commission_rate';
+      const row = db.get('SELECT value FROM settings WHERE store_id=? AND key=?', [storeId, key]);
+      if (row && row.value !== undefined && row.value !== '') return Number(row.value);
+      return DEFAULT_RATE[code] || 0;
+    };
+
+    const oldCommRate   = Number(order.platform_commission_rate || 0);
+    const newCommRate   = getRate(newPlatformCode);
+    const commAmount    = Math.round(subtotal * newCommRate / 100 * 100) / 100;
+    const storeIncome   = Math.round((subtotal - commAmount) * 100) / 100;
+
     const oldItems    = typeof order.items === 'string' ? JSON.parse(order.items) : order.items;
     const amountDiff  = newTotal - Number(order.total);
 
-    // ★ fix2：order_logs INSERT 加 store_id
+    // fix18-08：組合 diff JSON 含平台修改紀錄
+    const platformChanged = newPlatformCode !== oldPlatformCode;
+    const platformDiffNote = platformChanged
+      ? `平台來源：${PLATFORM_LABEL[oldPlatformCode] || '未知'} → ${newPlatformLabel}；` +
+        `抽成率：${oldCommRate}% → ${newCommRate}%；` +
+        `平台抽成：NT$${order.platform_commission_amount || 0} → NT$${commAmount}；` +
+        `店家實收：NT$${order.store_actual_income || order.total} → NT$${storeIncome}`
+      : '';
+
+    const afterDiff = {
+      platform_before: PLATFORM_LABEL[oldPlatformCode] || '未知',
+      platform_after: newPlatformLabel,
+      commission_rate_before: oldCommRate,
+      commission_rate_after: newCommRate,
+      commission_amount_before: Number(order.platform_commission_amount || 0),
+      commission_amount_after: commAmount,
+      store_income_before: Number(order.store_actual_income || order.total),
+      store_income_after: storeIncome,
+    };
+
+    // ★ fix2：order_logs INSERT 加 store_id（fix18-08：補 platform diff 至 reason/after_data）
+    const logReason = platformChanged
+      ? `${reason.trim()}｜${platformDiffNote}`
+      : reason.trim();
+
     db.run(
       `INSERT INTO order_logs (store_id,order_id,order_number,action,reason,operator,before_data,after_data,
          before_total,after_total,amount_diff,before_payment,after_payment,
          before_received,after_received,before_change,after_change)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [storeId, order.id, order.order_number, 'modify', reason.trim(), operator,
-       order.items, JSON.stringify(items),
+      [storeId, order.id, order.order_number, 'modify', logReason, operator,
+       order.items, JSON.stringify({ items, platform_diff: afterDiff }),
        Number(order.total), newTotal, amountDiff,
        order.payment_method, newPayment,
        Number(order.received_amount || 0), newRecv,
@@ -472,16 +540,17 @@ router.put('/:id', (req, res) => {
     returnInventory(db, oldItems, order.id, 'order_modify_return', storeId);
     deductInventory(db, items, order.id, 'sale', storeId);
 
-    // ★ fix2：UPDATE 加 AND store_id=?
+    // ★ fix2：UPDATE 加 AND store_id=?（fix18-08：同步更新 platform, delivery_platform, commission）
     db.run(
       `UPDATE orders SET items=?,payment_method=?,subtotal=?,total=?,discount_amount=?,delivery_fee=?,
-         platform_commission_amount=?,store_actual_income=?,
+         delivery_platform=?,platform_commission_rate=?,platform_commission_amount=?,store_actual_income=?,
          customer_name=?,customer_phone=?,customer_line_id=?,note=?,received_amount=?,change_amount=?,
          order_status=?,table_number=?,guest_count=?,pickup_name=?,pickup_time=?,
          delivery_address=?,estimated_delivery=?,
          status='modified',updated_at=datetime('now','localtime') WHERE id=? AND store_id=?`,
       [JSON.stringify(items), newPayment, subtotal, newTotal, discAmt, delivFee,
-       commAmount, storeIncome,
+       newPlatformLabel,
+       newCommRate, commAmount, storeIncome,
        customer_name   ?? order.customer_name,   customer_phone    ?? order.customer_phone,
        customer_line_id ?? order.customer_line_id, note !== undefined ? note : order.note,
        newRecv, newChng,

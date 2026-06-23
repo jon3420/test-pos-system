@@ -667,6 +667,31 @@
         </div>
         <p class="settings-hint" style="margin-top:10px">💡 抽成比例建立訂單時寫入，修改後不影響歷史訂單</p>
       </div>
+
+      <!-- fix18-08：外送平台抽成率可設定 -->
+      <div class="settings-card full" style="margin-top:16px">
+        <h3 style="margin-bottom:14px">💰 訂單修改時平台抽成率設定</h3>
+        <p style="color:#888;font-size:13px;margin-bottom:14px">當修改訂單平台來源時，系統依此處設定重算抽成金額與店家實收。</p>
+        <div class="settings-grid" style="grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px">
+          <div class="settings-row"><label style="min-width:120px">Uber Eats 抽成率 (%)</label>
+            <input type="number" id="set-ubereats_commission_rate" min="0" max="100" step="0.1" style="width:90px" placeholder="31"></div>
+          <div class="settings-row"><label style="min-width:120px">foodpanda 抽成率 (%)</label>
+            <input type="number" id="set-foodpanda_commission_rate" min="0" max="100" step="0.1" style="width:90px" placeholder="35"></div>
+          <div class="settings-row"><label style="min-width:120px">LINE 點餐抽成率 (%)</label>
+            <input type="number" id="set-line_commission_rate" min="0" max="100" step="0.1" style="width:90px" placeholder="0"></div>
+          <div class="settings-row"><label style="min-width:120px">POS 現場抽成率 (%)</label>
+            <input type="number" id="set-pos_commission_rate" min="0" max="100" step="0.1" style="width:90px" placeholder="0"></div>
+          <div class="settings-row"><label style="min-width:120px">電話訂購抽成率 (%)</label>
+            <input type="number" id="set-phone_commission_rate" min="0" max="100" step="0.1" style="width:90px" placeholder="0"></div>
+          <div class="settings-row"><label style="min-width:120px">其他抽成率 (%)</label>
+            <input type="number" id="set-other_commission_rate" min="0" max="100" step="0.1" style="width:90px" placeholder="0"></div>
+          <div class="settings-row"><label style="min-width:120px">未知抽成率 (%)</label>
+            <input type="number" id="set-unknown_commission_rate" min="0" max="100" step="0.1" style="width:90px" placeholder="0"></div>
+        </div>
+        <div style="margin-top:14px;text-align:right">
+          <button class="btn-primary" onclick="saveCommissionRates()">💾 儲存抽成設定</button>
+        </div>
+      </div>
     </div>
 
     <!-- 出單機設定 -->
@@ -1283,6 +1308,19 @@
           <option value="linepay">💚 LINE Pay</option>
           <option value="card">💳 刷卡</option>
           <option value="transfer">🏦 轉帳</option>
+        </select>
+      </label>
+
+      <!-- fix18-08：平台來源 -->
+      <label>平台來源
+        <select id="editOrderPlatform">
+          <option value="unknown">未知</option>
+          <option value="pos">POS現場</option>
+          <option value="ubereats">Uber Eats</option>
+          <option value="foodpanda">foodpanda</option>
+          <option value="line">LINE點餐</option>
+          <option value="phone">電話訂購</option>
+          <option value="other">其他</option>
         </select>
       </label>
 

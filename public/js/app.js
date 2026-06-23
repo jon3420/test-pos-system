@@ -1020,6 +1020,17 @@ async function loadSettingsPage() {
     const el = document.getElementById('set-' + k);
     if (el) el.value = settings[k] || '';
   });
+
+  // fix18-08：載入平台抽成率設定
+  const commKeys = ['ubereats','foodpanda','line','pos','phone','other','unknown'];
+  const defaults = { ubereats: 31, foodpanda: 35 };
+  commKeys.forEach(code => {
+    const key = code + '_commission_rate';
+    const el = document.getElementById('set-' + key);
+    if (!el) return;
+    const val = settings[key];
+    el.value = (val !== undefined && val !== '') ? val : (defaults[code] || 0);
+  });
 }
 
 async function saveSettings() {
@@ -1046,6 +1057,28 @@ async function saveSettings() {
 }
 
 // ===== 商品載入（永遠從 server 取最新庫存，不使用舊快取） =====
+// fix18-08：平台抽成率設定儲存
+async function saveCommissionRates() {
+  const commKeys = ['ubereats','foodpanda','line','pos','phone','other','unknown'];
+  const body = {};
+  commKeys.forEach(code => {
+    const el = document.getElementById('set-' + code + '_commission_rate');
+    if (el) body[code + '_commission_rate'] = el.value;
+  });
+  try {
+    const res = await apiFetch('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const json = await res.json();
+    if (json.success) {
+      settings = json.data;
+      showToast('抽成率設定已儲存', 'success');
+    } else { showToast(json.message || '儲存失敗', 'error'); }
+  } catch { showToast('網路錯誤', 'error'); }
+}
+
 async function loadProducts() {
   try {
     // fix16c-hotfix: 商品載入不依賴 inventory，inventory=false 時只跳過庫存 map
@@ -2038,19 +2071,37 @@ async function showOrderDetail(orderId) {
     const logsHtml = logs.length ? `
       <div class="order-log-section">
         <h4>📝 修改 / 作廢記錄（共 ${logs.length} 筆）</h4>
-        ${logs.map(l => `
+        ${logs.map(l => {
+          // fix18-08：解析 after_data 的 platform_diff
+          let platformDiffHtml = '';
+          try {
+            const afterData = typeof l.after_data === 'string' ? JSON.parse(l.after_data) : (l.after_data || {});
+            const pd = afterData.platform_diff;
+            if (pd && pd.platform_before !== pd.platform_after) {
+              platformDiffHtml = `<div class="log-diff" style="color:#ce93d8">
+                平台來源：${escHtml(pd.platform_before)} → ${escHtml(pd.platform_after)}｜
+                抽成率：${pd.commission_rate_before}% → ${pd.commission_rate_after}%｜
+                平台抽成：NT$${pd.commission_amount_before} → NT$${pd.commission_amount_after}｜
+                店家實收：NT$${pd.store_income_before} → NT$${pd.store_income_after}
+              </div>`;
+            }
+          } catch {}
+          // 原因可能包含 platform diff 說明（fix18-08 寫入格式）
+          const reasonDisplay = (l.reason||'—').split('｜')[0];
+          return `
           <div class="log-item">
             <div class="log-item-header">
               <span class="log-action-${l.action}">${l.action === 'void' ? '🚫 作廢' : '✏️ 修改'}</span>
               <span class="log-time">${twTime(l.created_at,'datetime')}</span>
             </div>
-            <div class="log-reason">原因：${escHtml(l.reason||'—')}</div>
+            <div class="log-reason">原因：${escHtml(reasonDisplay)}</div>
             <div class="log-diff">
               金額：NT$${l.before_total} → NT$${l.after_total}
               ${l.amount_diff !== 0 ? `（${l.amount_diff > 0 ? '＋' : ''}${l.amount_diff}）` : ''}
               ｜付款：${l.before_payment} → ${l.after_payment}
             </div>
-          </div>`).join('')}
+            ${platformDiffHtml}
+          </div>`;}).join('')}
       </div>` : '';
 
     document.getElementById('orderDetailBody').innerHTML = `
@@ -2584,6 +2635,28 @@ async function confirmVoid() {
 }
 
 // ===== 訂單編輯 =====
+// ===== fix18-08：平台來源標準化 =====
+function normalizePlatform(v) {
+  if (!v || v === 'unknown' || v === 'undefined' || v === '未知' || v === '—' || v === '-') return 'unknown';
+  const s = String(v).toLowerCase().replace(/\s/g,'');
+  if (['pos','pos現場'].includes(s)) return 'pos';
+  if (['ubereats','ubereats','uber eats','uber'].some(k => s.includes(k.replace(/\s/g,'')))) return 'ubereats';
+  if (['foodpanda','panda'].includes(s)) return 'foodpanda';
+  if (['line','line點餐','line_order'].includes(s)) return 'line';
+  if (['phone','電話訂購'].includes(s)) return 'phone';
+  if (['other','其他'].includes(s)) return 'other';
+  return 'unknown';
+}
+
+const PLATFORM_LABEL_MAP = {
+  unknown:'未知', pos:'POS現場', ubereats:'Uber Eats',
+  foodpanda:'foodpanda', line:'LINE點餐', phone:'電話訂購', other:'其他'
+};
+
+function platformLabel(code) {
+  return PLATFORM_LABEL_MAP[normalizePlatform(code)] || '未知';
+}
+
 async function openEditOrder(orderId) {
   try {
     const res = await apiFetch('/api/orders/' + orderId);
@@ -2601,6 +2674,12 @@ async function openEditOrder(orderId) {
     document.getElementById('editOrderNote').value = o.note || '';
     document.getElementById('editOrderReason').value = '';
     document.getElementById('editReceivedAmount').value = o.payment_method === 'cash' ? (o.received_amount || '') : '';
+
+    // fix18-08：自動帶入平台來源
+    const platformEl = document.getElementById('editOrderPlatform');
+    if (platformEl) {
+      platformEl.value = normalizePlatform(o.delivery_platform || o.platform || '');
+    }
 
     // 填入可選商品清單
     const sel = document.getElementById('addItemSelect');
@@ -2744,7 +2823,9 @@ async function saveEditOrder() {
     customer_phone: document.getElementById('editCustomerPhone').value.trim(),
     note: document.getElementById('editOrderNote').value.trim(),
     received_amount: received,
-    reason
+    reason,
+    // fix18-08：平台來源
+    platform: document.getElementById('editOrderPlatform')?.value || 'unknown'
   };
 
   try {
