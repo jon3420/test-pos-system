@@ -1,23 +1,28 @@
-// routes/migration.js — fix18-10-hotfix4
+// routes/migration.js — fix18-10-hotfix5
 //
-// fix18-10-hotfix4 新增修正：
+// fix18-10-hotfix5 修正：
 //
-// BUG-1: 跨店匯入被誤判重複 → store_02 全部跳過
-//   根因：orders.id TEXT PRIMARY KEY 直接使用 order_number，
-//         store_001 與 store_02 有相同 order_number 時 INSERT OR IGNORE
-//         因 PK 衝突被靜默忽略，即使 store_id 不同。
-//   修正：匯入時不再依賴 INSERT OR IGNORE 做去重；
-//         改用 SELECT COUNT(*) WHERE store_id=? AND order_number=? 明確判斷。
-//         若不存在：INSERT（id 改為 storeId + '_' + order_number 防 PK 衝突）。
-//         skip 模式：只跳過「本店 store_id 已有相同 order_number」的資料。
-//         overwrite 模式：只 UPDATE 本店資料，不影響其他店。
-//         copy 模式：新 order_number 屬於本店。
+// BUG-3: delivery_platforms 硬寫 code 欄位，但 DB 無此欄位
+//   根因：migration/import 對 delivery_platforms（與其他多張表）硬寫欄位清單，
+//         備份檔欄位多於 DB 實際欄位時 INSERT 失敗，導致整批 failed。
+//   修正：所有資料表改用 PRAGMA table_info() 動態取得實際欄位，
+//         只 INSERT/UPDATE 目前 DB 實際存在的欄位，多餘欄位自動略過。
 //
-// BUG-2: order_logs 固定寫 old_value/new_value 欄位，但該表無此欄位
-//   修正：PRAGMA table_info(order_logs) 動態取得欄位，只 INSERT 實際存在的欄位。
+// 適用所有匯入資料表：
+//   categories / products / orders / order_logs /
+//   discount_categories / discount_campaigns /
+//   product_analysis_groups / product_analysis_group_items /
+//   product_analysis_group_aliases /
+//   settings / delivery_platforms / delivery_fees
 //
-// 沿用 fix18-10-hotfix3 的修正：
-// RC-1: 回傳 date_range，前端提示切換日期範圍
+// 錯誤計數與狀態顯示：
+//   failed > 0 → status = 'partial'，回傳 table_errors 分類清單
+//   replace 模式：any error → ROLLBACK（all-or-nothing）
+//
+// 沿用 fix18-10-hotfix4 的修正：
+// BUG-1: 跨店 id PK 衝突 → 用 storeId+'_'+order_number 作為 id
+// BUG-2: order_logs 固定欄位 → PRAGMA 動態過濾
+// RC-1: 回傳 date_range
 // RC-2: ensureTable 先建 discount 表
 // RC-3: rawRunCount 確認實際寫入
 // RC-4: PRAGMA 動態過濾欄位（orders）
@@ -28,7 +33,7 @@ const express = require('express');
 const router  = express.Router();
 const { getDb } = require('../utils/db');
 
-// ── CSV helpers ──────────────────────────────────────────────────────────────
+// ── CSV helpers ────────────────────────────────────────────────────────────
 function toCsvCell(v) {
   const s = v == null ? '' : String(v);
   return s.includes(',') || s.includes('"') || s.includes('\n')
@@ -42,14 +47,14 @@ function toCsv(headers, rows) {
 }
 const BOM = '\uFEFF';
 
-// ── Timestamp ────────────────────────────────────────────────────────────────
+// ── Timestamp ──────────────────────────────────────────────────────────────
 function tsFile() {
   const d = new Date(), p = (n, l=2) => String(n).padStart(l, '0');
   return `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
 }
 function isoNow() { return new Date().toISOString(); }
 
-// ── migration_logs ───────────────────────────────────────────────────────────
+// ── migration_logs ─────────────────────────────────────────────────────────
 function ensureMigrationLogs(db) {
   db.exec(`CREATE TABLE IF NOT EXISTS migration_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -71,7 +76,7 @@ function writeMigrationLog(db, storeId, action, fileName, mode, summary, status,
   } catch(e) { console.error('[migration_log]', e.message); }
 }
 
-// ── safe read wrappers ───────────────────────────────────────────────────────
+// ── safe read wrappers ─────────────────────────────────────────────────────
 function safeAll(db, sql, params) {
   try { return db.all(sql, params); } catch { return []; }
 }
@@ -79,7 +84,7 @@ function safeGet(db, sql, params) {
   try { return db.get(sql, params); } catch { return null; }
 }
 
-// ── ensure discount tables (on-demand, same as their respective routes) ──────
+// ── ensure discount tables ─────────────────────────────────────────────────
 function ensureDiscountCategoriesTable(db) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS discount_categories (
@@ -111,7 +116,7 @@ function ensureDiscountCampaignsTable(db) {
   `);
 }
 
-// ── PRAGMA: get actual column names for a table ──────────────────────────────
+// ── PRAGMA: 取實際欄位（回傳 Set<string>）────────────────────────────────
 function getTableCols(db, table) {
   try {
     const rows = db.all(`PRAGMA table_info(${table})`);
@@ -119,16 +124,29 @@ function getTableCols(db, table) {
   } catch { return new Set(); }
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-//  rawRun — 在 transaction 內執行，不呼叫 save()/export()
-// ════════════════════════════════════════════════════════════════════════════
+// ── 通用動態 INSERT helper ─────────────────────────────────────────────────
+// candidates: 候選欄位順序陣列（包含備份檔可能有的所有欄位名稱）
+// srcObj:     備份檔的單筆資料（含 alias mapping 後）
+// colSet:     DB 實際欄位 Set
+// orMode:     'OR IGNORE' | 'OR REPLACE' | 'OR IGNORE'
+// 回傳 { sql, vals } 或 null（若無有效欄位）
+function buildDynamicInsert(table, candidates, srcObj, colSet, orMode) {
+  const cols = candidates.filter(c => colSet.has(c));
+  if (!cols.length) return null;
+  const vals = cols.map(c => srcObj[c] ?? null);
+  const phs  = cols.map(()=>'?').join(',');
+  return {
+    sql: `INSERT ${orMode} INTO ${table} (${cols.join(',')}) VALUES (${phs})`,
+    vals
+  };
+}
+
+// ─── rawRun helpers ────────────────────────────────────────────────────────
 function rawRun(raw, sql, params) {
   const stmt = raw.prepare(sql);
   stmt.run(Array.isArray(params) ? params : []);
   stmt.free();
 }
-
-// rawRun 並回傳實際影響列數（用 getRowsModified）
 function rawRunCount(raw, sql, params) {
   const stmt = raw.prepare(sql);
   stmt.run(Array.isArray(params) ? params : []);
@@ -136,9 +154,7 @@ function rawRunCount(raw, sql, params) {
   return raw.getRowsModified ? raw.getRowsModified() : 1;
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-//  runInTransaction — BEGIN → fn(raw) → COMMIT → db._save()
-// ════════════════════════════════════════════════════════════════════════════
+// ── runInTransaction ───────────────────────────────────────────────────────
 function runInTransaction(db, fn) {
   const raw = db._db;
   raw.run('BEGIN');
@@ -152,9 +168,9 @@ function runInTransaction(db, fn) {
   }
 }
 
-// ════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════
 //  訂單匯出  GET /api/export/orders
-// ════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════
 router.get('/export/orders', (req, res) => {
   try {
     const db      = getDb();
@@ -174,7 +190,6 @@ router.get('/export/orders', (req, res) => {
 
     const orders = safeAll(db, sql, args);
 
-    // 展開 items JSON（本專案無獨立 order_items 表）
     const orderItemsExpanded = [];
     for (const o of orders) {
       try {
@@ -217,7 +232,7 @@ router.get('/export/orders', (req, res) => {
       return res.send(BOM + toCsv(headers, orders));
     }
 
-    const payload = { type:'orders_backup', version:'fix18-10-hotfix4',
+    const payload = { type:'orders_backup', version:'fix18-10-hotfix5',
       exported_at: isoNow(), store_id: storeId,
       data: { orders, order_items: orderItemsExpanded, order_logs: orderLogs } };
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
@@ -226,11 +241,9 @@ router.get('/export/orders', (req, res) => {
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
 
-// ════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════
 //  訂單匯入  POST /api/import/orders
-//  RC-1 修正：回傳 date_range 讓前端提示使用者切換日期
-//  RC-3 修正：用 rawRunCount 確認實際寫入，INSERT OR IGNORE 未寫則計 skipped
-// ════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════
 router.post('/import/orders', (req, res) => {
   try {
     const db      = getDb();
@@ -240,10 +253,7 @@ router.post('/import/orders', (req, res) => {
     const errors = [];
     let minDate = '', maxDate = '';
 
-    // PRAGMA 動態欄位過濾
     const validCols = getTableCols(db, 'orders');
-
-    // 只 INSERT 實際存在的欄位
     const importCols = [
       'id','order_number','store_id','customer_name','customer_phone','customer_line_id',
       'items','payment_method','payment_category','subtotal','total',
@@ -264,7 +274,6 @@ router.post('/import/orders', (req, res) => {
 
     function buildVals(o, sid) {
       const items_ = typeof o.items==='string' ? o.items : JSON.stringify(o.items||[]);
-      // BUG-1 修正：id 加入 storeId 前綴，避免跨店 PK 衝突
       const safeId = sid + '_' + (o.order_number||o.id||'');
       const map = {
         id: safeId, order_number: o.order_number, store_id: sid,
@@ -312,15 +321,14 @@ router.post('/import/orders', (req, res) => {
         try {
           const existing = safeGet(db,
             'SELECT id FROM orders WHERE store_id=? AND order_number=?', [storeId, orderNo]);
-
           if (existing) {
             if (mode === 'skip') { skipped++; continue; }
             if (mode === 'overwrite') {
-              // UPDATE 只更新存在的欄位
               const updCols = importCols.filter(c => !['id','order_number','store_id'].includes(c));
               const updSql = `UPDATE orders SET ${updCols.map(c=>`${c}=?`).join(',')},updated_at=datetime('now','localtime') WHERE store_id=? AND order_number=?`;
-              const updMap = { ...Object.fromEntries(importCols.map((c,i)=>[c, buildVals(o,storeId)[i]])) };
-              const updVals = [...updCols.map(c=>updMap[c]??null), storeId, orderNo];
+              const allVals = buildVals(o, storeId);
+              const colIdx  = Object.fromEntries(importCols.map((c,i)=>[c,i]));
+              const updVals = [...updCols.map(c => allVals[colIdx[c]] ?? null), storeId, orderNo];
               const n = rawRunCount(raw, updSql, updVals);
               if (n > 0) updated++; else skipped++;
             } else if (mode === 'copy') {
@@ -331,7 +339,6 @@ router.post('/import/orders', (req, res) => {
             }
           } else {
             const v = buildVals(o, storeId);
-            // BUG-1 修正：id 已含 storeId 前綴，用 OR REPLACE 確保寫入
             const n = rawRunCount(raw, `INSERT OR REPLACE INTO orders (${importCols.join(',')}) VALUES (${phs})`, v);
             if (n > 0) added++; else skipped++;
           }
@@ -346,9 +353,9 @@ router.post('/import/orders', (req, res) => {
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
 
-// ════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════
 //  LINE 預購匯出  GET /api/export/preorders
-// ════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════
 router.get('/export/preorders', (req, res) => {
   try {
     const db      = getDb();
@@ -378,7 +385,7 @@ router.get('/export/preorders', (req, res) => {
       res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
       return res.send(BOM + toCsv(headers, preorders));
     }
-    const payload = { type:'preorders_backup', version:'fix18-10-hotfix4',
+    const payload = { type:'preorders_backup', version:'fix18-10-hotfix5',
       exported_at: isoNow(), store_id: storeId, data: { preorders } };
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
@@ -386,9 +393,9 @@ router.get('/export/preorders', (req, res) => {
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
 
-// ════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════
 //  LINE 預購匯入  POST /api/import/preorders
-// ════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════
 router.post('/import/preorders', (req, res) => {
   try {
     const db      = getDb();
@@ -420,24 +427,25 @@ router.post('/import/preorders', (req, res) => {
               if (n > 0) updated++; else skipped++;
             } else if (mode === 'copy') {
               const newNo = orderNo + '_copy_' + Date.now();
+              const safeId = storeId + '_' + newNo;
               const n = rawRunCount(raw,
-                `INSERT OR IGNORE INTO orders
+                `INSERT OR REPLACE INTO orders
                    (id,order_number,store_id,customer_name,customer_phone,order_mode,source,
                     items,payment_method,subtotal,total,status,order_status,note,pickup_name,pickup_time,created_at)
                  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-                [newNo,newNo,storeId,o.customer_name||'',o.customer_phone||'',o.order_mode||'takeout','line',
+                [safeId,newNo,storeId,o.customer_name||'',o.customer_phone||'',o.order_mode||'takeout','line',
                  items_,o.payment_method||'line_pay',o.subtotal||o.total||0,o.total||0,
                  o.status||'pending',o.order_status||'pending',o.note||'',o.pickup_name||'',o.pickup_time||'',o.created_at||'']);
               if (n > 0) added++; else skipped++;
             }
           } else {
-            const id = o.id||o.order_number;
+            const safeId = storeId + '_' + orderNo;
             const n = rawRunCount(raw,
-              `INSERT OR IGNORE INTO orders
+              `INSERT OR REPLACE INTO orders
                  (id,order_number,store_id,customer_name,customer_phone,order_mode,source,
                   items,payment_method,subtotal,total,status,order_status,note,pickup_name,pickup_time,created_at)
                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-              [id,orderNo,storeId,o.customer_name||'',o.customer_phone||'',o.order_mode||'takeout','line',
+              [safeId,orderNo,storeId,o.customer_name||'',o.customer_phone||'',o.order_mode||'takeout','line',
                items_,o.payment_method||'line_pay',o.subtotal||o.total||0,o.total||0,
                o.status||'pending',o.order_status||'pending',o.note||'',o.pickup_name||'',o.pickup_time||'',o.created_at||'']);
             if (n > 0) added++; else skipped++;
@@ -453,16 +461,14 @@ router.post('/import/preorders', (req, res) => {
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
 
-// ════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════
 //  快速搬家檔匯出  GET /api/migration/export
-//  RC-2 修正：先 ensureTable 再查詢 discount 資料表
-// ════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════
 router.get('/migration/export', (req, res) => {
   try {
     const db      = getDb();
     const storeId = req.storeId || 'store_001';
 
-    // RC-2 修正：確保 discount 表存在後再查詢
     try { ensureDiscountCategoriesTable(db); } catch {}
     try { ensureDiscountCampaignsTable(db); } catch {}
 
@@ -496,32 +502,22 @@ router.get('/migration/export', (req, res) => {
 
     const inventory = safeAll(db, 'SELECT * FROM inventory WHERE store_id=?', [storeId]);
 
-    // RC-2 修正：精確欄位查詢（ensureTable 後表必定存在）
     const discountCategories = safeAll(db,
-      'SELECT id,store_id,code,name,icon,color,enabled,sort_order,created_at FROM discount_categories WHERE store_id=? ORDER BY sort_order ASC, id ASC',
-      [storeId]);
-
+      'SELECT * FROM discount_categories WHERE store_id=? ORDER BY sort_order ASC, id ASC', [storeId]);
     const discountCampaigns = safeAll(db,
-      'SELECT id,store_id,name,description,enabled,sort_order,created_at FROM discount_campaigns WHERE store_id=? ORDER BY sort_order ASC, id ASC',
-      [storeId]);
+      'SELECT * FROM discount_campaigns WHERE store_id=? ORDER BY sort_order ASC, id ASC', [storeId]);
 
-    // analysis 表在 db.js 建立（startup 時必定存在）
     const analysisGroups = safeAll(db,
-      'SELECT id,store_id,group_name,description,enabled,sort_order,created_at,updated_at FROM product_analysis_groups WHERE store_id=? ORDER BY sort_order ASC, id ASC',
-      [storeId]);
-
+      'SELECT * FROM product_analysis_groups WHERE store_id=? ORDER BY sort_order ASC, id ASC', [storeId]);
     const analysisItems = analysisGroups.length
       ? safeAll(db,
-          `SELECT i.id,i.store_id,i.group_id,i.product_id,i.product_name,i.created_at
-           FROM product_analysis_group_items i
+          `SELECT i.* FROM product_analysis_group_items i
            INNER JOIN product_analysis_groups g ON g.id=i.group_id
            WHERE g.store_id=? ORDER BY i.group_id ASC, i.id ASC`, [storeId])
       : [];
-
     const analysisAliases = analysisGroups.length
       ? safeAll(db,
-          `SELECT a.id,a.store_id,a.group_id,a.alias_name,a.created_at
-           FROM product_analysis_group_aliases a
+          `SELECT a.* FROM product_analysis_group_aliases a
            INNER JOIN product_analysis_groups g ON g.id=a.group_id
            WHERE g.store_id=? ORDER BY a.group_id ASC, a.id ASC`, [storeId])
       : [];
@@ -533,13 +529,13 @@ router.get('/migration/export', (req, res) => {
     const ts = tsFile(), fileName = `pos_migration_${storeId}_${ts}.json`;
 
     const payload = {
-      type: 'pos_migration_backup', version: 'fix18-10-hotfix4',
+      type: 'pos_migration_backup', version: 'fix18-10-hotfix5',
       exported_at: isoNow(), store_id: storeId,
       store_name: storeRow ? (storeRow.name||storeRow.store_id||storeId) : storeId,
       schema_version: 2,
       data: {
         products, categories, orders,
-        order_items: [],   // 無獨立表
+        order_items: [],
         order_logs: orderLogs,
         preorder_order_numbers: preorderNums,
         line_products: lineProducts,
@@ -564,11 +560,12 @@ router.get('/migration/export', (req, res) => {
       analysis_groups: analysisGroups.length,
       analysis_items: analysisItems.length,
       analysis_aliases: analysisAliases.length,
-      settings: settings.length
+      settings: settings.length,
+      delivery_platforms: deliveryPlatforms.length,
+      delivery_fees: deliveryFees.length
     };
 
     writeMigrationLog(db, storeId, '匯出快速搬家檔', fileName, 'export', summary, 'success', '');
-
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
     return res.send(JSON.stringify(payload, null, 2));
@@ -578,9 +575,9 @@ router.get('/migration/export', (req, res) => {
   }
 });
 
-// ════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════
 //  Preview  POST /api/migration/import/preview
-// ════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════
 router.post('/migration/import/preview', (req, res) => {
   try {
     const db      = getDb();
@@ -595,7 +592,6 @@ router.post('/migration/import/preview', (req, res) => {
     const crossStore  = !!(fileStoreId && fileStoreId !== storeId);
     const d = payload.data || {};
 
-    // 訂單日期範圍（讓前端提示）
     const allDates = (d.orders||[]).map(o => (o.created_at||'').slice(0,10)).filter(Boolean).sort();
     const dateRange = allDates.length
       ? { min: allDates[0], max: allDates[allDates.length-1] }
@@ -612,7 +608,9 @@ router.post('/migration/import/preview', (req, res) => {
       product_analysis_groups:       (d.product_analysis_groups      || []).length,
       product_analysis_group_items:  (d.product_analysis_group_items || []).length,
       product_analysis_group_aliases:(d.product_analysis_group_aliases||[]).length,
-      settings:                      (d.settings                     || []).length
+      settings:                      (d.settings                     || []).length,
+      delivery_platforms:            (d.delivery_platforms           || []).length,
+      delivery_fees:                 (d.delivery_fees                || []).length
     };
 
     res.json({
@@ -627,12 +625,13 @@ router.post('/migration/import/preview', (req, res) => {
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
 
-// ════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════
 //  快速搬家檔匯入  POST /api/migration/import
-//  RC-2 修正：先 ensureTable，再匯入 discount 資料
-//  RC-3 修正：用 rawRunCount 確認實際寫入
-//  RC-4 修正：PRAGMA 動態過濾欄位
-// ════════════════════════════════════════════════════════════════════════════
+//
+//  fix18-10-hotfix5 核心修正：
+//  全部資料表改用 PRAGMA table_info() 動態取得欄位，
+//  只 INSERT 目前 DB 實際存在的欄位，備份檔多餘欄位自動略過。
+// ══════════════════════════════════════════════════════════════════════════
 router.post('/migration/import', (req, res) => {
   try {
     const db      = getDb();
@@ -652,337 +651,516 @@ router.post('/migration/import', (req, res) => {
       });
     }
 
-    // RC-2：確保 discount 表存在
     try { ensureDiscountCategoriesTable(db); } catch {}
     try { ensureDiscountCampaignsTable(db); } catch {}
 
     const d = payload.data || {};
+
+    // 結果計數器（依資料表分開）
     const results = {
-      categories:0, products:0, orders:0, order_logs:0,
-      discount_categories:0, discount_campaigns:0,
-      analysis_groups:0, analysis_items:0, analysis_aliases:0,
-      settings:0, delivery_platforms:0, delivery_fees:0,
-      skipped:0, failed:0, errors:[]
+      categories:         { added:0, skipped:0, failed:0, errors:[] },
+      products:           { added:0, skipped:0, failed:0, errors:[] },
+      orders:             { added:0, updated:0, skipped:0, failed:0, errors:[] },
+      order_logs:         { added:0, skipped:0, failed:0, errors:[] },
+      discount_categories:{ added:0, skipped:0, failed:0, errors:[] },
+      discount_campaigns: { added:0, skipped:0, failed:0, errors:[] },
+      analysis_groups:    { added:0, skipped:0, failed:0, errors:[] },
+      analysis_items:     { added:0, skipped:0, failed:0, errors:[] },
+      analysis_aliases:   { added:0, skipped:0, failed:0, errors:[] },
+      settings:           { added:0, skipped:0, failed:0, errors:[] },
+      delivery_platforms: { added:0, skipped:0, failed:0, errors:[] },
+      delivery_fees:      { added:0, skipped:0, failed:0, errors:[] }
     };
 
+    // 預先讀取所有資料表的實際欄位（PRAGMA 在 transaction 外執行更穩定）
+    const schemas = {};
+    for (const t of Object.keys(results)) {
+      // 對應實際 DB 表名
+      const tbl = t === 'analysis_groups'   ? 'product_analysis_groups'        :
+                  t === 'analysis_items'    ? 'product_analysis_group_items'   :
+                  t === 'analysis_aliases'  ? 'product_analysis_group_aliases' : t;
+      schemas[t] = getTableCols(db, tbl);
+    }
+
+    // INSERT 模式
     const orMode = (mode === 'overwrite') ? 'OR REPLACE' : 'OR IGNORE';
 
-    // PRAGMA: 動態取 orders 欄位
-    const orderCols = getTableCols(db, 'orders');
+    // replace 模式需要 all-or-nothing；其他模式逐筆記錯不停止
+    const strictMode = (mode === 'replace');
 
-    runInTransaction(db, (raw) => {
+    try {
+      runInTransaction(db, (raw) => {
 
-      // ── replace：只清本店 ────────────────────────────────────────────────
-      if (mode === 'replace') {
-        const purge = ['orders','products','categories',
-          'discount_categories','discount_campaigns',
-          'product_analysis_group_items','product_analysis_group_aliases',
-          'product_analysis_groups','inventory'];
-        for (const t of purge) {
-          try { rawRun(raw, `DELETE FROM ${t} WHERE store_id=?`, [storeId]); } catch(e) {
-            console.warn(`[replace] DELETE ${t}:`, e.message);
+        // ── replace：只清本店 ──────────────────────────────────────────────
+        if (mode === 'replace') {
+          const purge = ['orders','products','categories',
+            'discount_categories','discount_campaigns',
+            'product_analysis_group_items','product_analysis_group_aliases',
+            'product_analysis_groups','inventory'];
+          for (const t of purge) {
+            rawRun(raw, `DELETE FROM ${t} WHERE store_id=?`, [storeId]);
+          }
+          try {
+            const ids = safeAll(db,'SELECT id FROM orders WHERE store_id=?',[storeId]).map(r=>r.id);
+            for (let i=0;i<ids.length;i+=200) {
+              const ch=ids.slice(i,i+200),ph=ch.map(()=>'?').join(',');
+              try { rawRun(raw,`DELETE FROM order_logs WHERE order_id IN (${ph})`,ch); } catch {}
+            }
+          } catch {}
+          try { rawRun(raw,`DELETE FROM settings WHERE store_id=?`,[storeId]); } catch {}
+          try { rawRun(raw,`DELETE FROM delivery_platforms WHERE store_id=?`,[storeId]); } catch {}
+          try { rawRun(raw,`DELETE FROM delivery_fees WHERE store_id=?`,[storeId]); } catch {}
+        }
+
+        // ── categories（動態欄位）────────────────────────────────────────
+        const catCols = schemas['categories'];
+        for (const c of (d.categories||[])) {
+          try {
+            const src = {
+              id: c.id, store_id: storeId,
+              name: c.name||'', icon: c.icon||'📌',
+              sort_order: c.sort_order||0, is_active: c.is_active??1,
+              created_at: c.created_at||''
+            };
+            const q = buildDynamicInsert('categories',
+              ['id','store_id','name','icon','sort_order','is_active','created_at'],
+              src, catCols, orMode);
+            if (!q) { results.categories.skipped++; continue; }
+            const n = rawRunCount(raw, q.sql, q.vals);
+            if (n > 0) results.categories.added++; else results.categories.skipped++;
+          } catch(e) {
+            results.categories.errors.push(`id=${c.id}: ${e.message}`);
+            results.categories.failed++;
+            if (strictMode) throw e;
           }
         }
-        try {
-          const ids = safeAll(db,'SELECT id FROM orders WHERE store_id=?',[storeId]).map(r=>r.id);
-          for (let i=0;i<ids.length;i+=200) {
-            const ch=ids.slice(i,i+200),ph=ch.map(()=>'?').join(',');
-            try { rawRun(raw,`DELETE FROM order_logs WHERE order_id IN (${ph})`,ch); } catch {}
+
+        // ── products（動態欄位）──────────────────────────────────────────
+        const prodCols = schemas['products'];
+        for (const p of (d.products||[])) {
+          try {
+            const src = {
+              id: p.id, store_id: storeId,
+              name: p.name||'', category: p.category||'', category_id: p.category_id||null,
+              price: p.price||0, allocated_grams: p.allocated_grams||0,
+              current_stock_grams: p.current_stock_grams||0, low_stock_alert: p.low_stock_alert||5,
+              show_on_line: p.show_on_line??1, line_price: p.line_price||0,
+              line_description: p.line_description||'', line_image_url: p.line_image_url||'',
+              line_category: p.line_category||'', line_hot: p.line_hot||0,
+              line_promo: p.line_promo||0, line_sold_out: p.line_sold_out||0,
+              image: p.image||'', sort_order: p.sort_order||0,
+              sale_status: p.sale_status||'available', inventory_enabled: p.inventory_enabled||0,
+              line_preorder_enabled: p.line_preorder_enabled||0,
+              line_preorder_daily: p.line_preorder_daily||0,
+              line_preorder_sold: p.line_preorder_sold||0,
+              line_preorder_low_threshold: p.line_preorder_low_threshold||2,
+              line_preorder_high_threshold: p.line_preorder_high_threshold||10,
+              created_at: p.created_at||'', updated_at: p.updated_at||''
+            };
+            const candidates = [
+              'id','store_id','name','category','category_id','price',
+              'allocated_grams','current_stock_grams','low_stock_alert',
+              'show_on_line','line_price','line_description','line_image_url','line_category',
+              'line_hot','line_promo','line_sold_out','image','sort_order','sale_status',
+              'inventory_enabled','line_preorder_enabled','line_preorder_daily','line_preorder_sold',
+              'line_preorder_low_threshold','line_preorder_high_threshold',
+              'created_at','updated_at'
+            ];
+            const q = buildDynamicInsert('products', candidates, src, prodCols, orMode);
+            if (!q) { results.products.skipped++; continue; }
+            const n = rawRunCount(raw, q.sql, q.vals);
+            if (n > 0) results.products.added++; else results.products.skipped++;
+          } catch(e) {
+            results.products.errors.push(`id=${p.id}: ${e.message}`);
+            results.products.failed++;
+            if (strictMode) throw e;
           }
-        } catch {}
-        try { rawRun(raw,`DELETE FROM settings WHERE store_id=?`,[storeId]); } catch {}
-        try { rawRun(raw,`DELETE FROM delivery_platforms WHERE store_id=?`,[storeId]); } catch {}
-        try { rawRun(raw,`DELETE FROM delivery_fees WHERE store_id=?`,[storeId]); } catch {}
-      }
+        }
 
-      // ── categories ────────────────────────────────────────────────────────
-      for (const c of (d.categories||[])) {
-        try {
-          const n = rawRunCount(raw,
-            `INSERT ${orMode} INTO categories (id,store_id,name,icon,sort_order,is_active,created_at)
-             VALUES (?,?,?,?,?,?,?)`,
-            [c.id,storeId,c.name||'',c.icon||'📌',c.sort_order||0,c.is_active??1,c.created_at||'']);
-          if (n > 0) results.categories++; else results.skipped++;
-        } catch(e) { results.errors.push(`[cat id=${c.id}] ${e.message}`); results.failed++; }
-      }
+        // ── orders（BUG-1：store_id+order_number 判重，id 加前綴）────────
+        const orderCols = schemas['orders'];
+        const importOrderCandidates = [
+          'id','order_number','store_id','customer_name','customer_phone','customer_line_id',
+          'items','payment_method','payment_category','subtotal','total',
+          'status','order_status','order_mode','source',
+          'received_amount','change_amount','note','void_reason','voided_at',
+          'table_number','guest_count','pickup_name','pickup_time',
+          'delivery_platform','delivery_address','estimated_delivery',
+          'delivery_status','delivery_fee',
+          'platform_commission_rate','platform_commission_amount','store_actual_income',
+          'platform_order_no',
+          'discount_amount','discount_type','discount_category','discount_note','original_total',
+          'discount_campaign_id','discount_campaign_name','discount_target_type',
+          'discount_product_id','discount_product_name',
+          'discount_product_ids','discount_product_names',
+          'kitchen_status','payment_status','uuid','sync_status','device_id',
+          'created_at','updated_at'
+        ].filter(c => orderCols.has(c));
+        const ordPhs = importOrderCandidates.map(()=>'?').join(',');
 
-      // ── products ──────────────────────────────────────────────────────────
-      for (const p of (d.products||[])) {
-        try {
-          const n = rawRunCount(raw,
-            `INSERT ${orMode} INTO products
-               (id,store_id,name,category,category_id,price,
-                allocated_grams,current_stock_grams,low_stock_alert,
-                show_on_line,line_price,line_description,line_image_url,line_category,
-                line_hot,line_promo,line_sold_out,image,sort_order,sale_status,
-                inventory_enabled,line_preorder_enabled,line_preorder_daily,
-                line_preorder_low_threshold,line_preorder_high_threshold,created_at)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-            [p.id,storeId,p.name||'',p.category||'',p.category_id||null,p.price||0,
-             p.allocated_grams||0,p.current_stock_grams||0,p.low_stock_alert||5,
-             p.show_on_line??1,p.line_price||0,p.line_description||'',
-             p.line_image_url||'',p.line_category||'',
-             p.line_hot||0,p.line_promo||0,p.line_sold_out||0,
-             p.image||'',p.sort_order||0,p.sale_status||'available',
-             p.inventory_enabled||0,
-             p.line_preorder_enabled||0,p.line_preorder_daily||0,
-             p.line_preorder_low_threshold||2,p.line_preorder_high_threshold||10,
-             p.created_at||'']);
-          if (n > 0) results.products++; else results.skipped++;
-        } catch(e) { results.errors.push(`[prod id=${p.id}] ${e.message}`); results.failed++; }
-      }
-
-      // ── orders（BUG-1 修正：依 store_id+order_number 明確判斷重複，不依賴 PK 衝突）──
-      // 根因：orders.id TEXT PRIMARY KEY 使用 order_number，跨店時 INSERT OR IGNORE 因 PK 衝突
-      //       被靜默跳過，即使 store_id 不同。修正：先 SELECT WHERE store_id=? AND order_number=?，
-      //       依結果決定 skip/insert/update/copy，id 改為 storeId+'_'+order_number 避免 PK 衝突。
-      const importOrderCols = [
-        'id','order_number','store_id','customer_name','customer_phone','customer_line_id',
-        'items','payment_method','payment_category','subtotal','total',
-        'status','order_status','order_mode','source',
-        'received_amount','change_amount','note','void_reason','voided_at',
-        'table_number','guest_count','pickup_name','pickup_time',
-        'delivery_platform','delivery_address','estimated_delivery',
-        'delivery_status','delivery_fee',
-        'platform_commission_rate','platform_commission_amount','store_actual_income',
-        'platform_order_no',
-        'discount_amount','discount_type','discount_category','discount_note','original_total',
-        'discount_campaign_id','discount_campaign_name','discount_target_type',
-        'discount_product_id','discount_product_name',
-        'discount_product_ids','discount_product_names',
-        'kitchen_status','payment_status','uuid','sync_status','device_id',
-        'created_at','updated_at'
-      ].filter(c => orderCols.has(c));
-
-      const ordPhs = importOrderCols.map(()=>'?').join(',');
-
-      function buildOrderMap(o, sid) {
-        const items_ = typeof o.items==='string' ? o.items : JSON.stringify(o.items||[]);
-        // id：本店 + order_number 組合，確保跨店不衝突
-        const safeId = sid + '_' + (o.order_number||o.id||'');
-        return {
-          id: safeId, order_number: o.order_number, store_id: sid,
-          customer_name: o.customer_name||'', customer_phone: o.customer_phone||'',
-          customer_line_id: o.customer_line_id||'',
-          items: items_, payment_method: o.payment_method||'cash',
-          payment_category: o.payment_category||'cash',
-          subtotal: o.subtotal||0, total: o.total||0,
-          status: o.status||'completed', order_status: o.order_status||'completed',
-          order_mode: o.order_mode||'dine_in', source: o.source||'pos',
-          received_amount: o.received_amount||0, change_amount: o.change_amount||0,
-          note: o.note||'', void_reason: o.void_reason||'', voided_at: o.voided_at||'',
-          table_number: o.table_number||'', guest_count: o.guest_count||0,
-          pickup_name: o.pickup_name||'', pickup_time: o.pickup_time||'',
-          delivery_platform: o.delivery_platform||'', delivery_address: o.delivery_address||'',
-          estimated_delivery: o.estimated_delivery||'',
-          delivery_status: o.delivery_status||'', delivery_fee: o.delivery_fee||0,
-          platform_commission_rate: o.platform_commission_rate||0,
-          platform_commission_amount: o.platform_commission_amount||0,
-          store_actual_income: o.store_actual_income||0,
-          platform_order_no: o.platform_order_no||'',
-          discount_amount: o.discount_amount||0, discount_type: o.discount_type||'none',
-          discount_category: o.discount_category||'none', discount_note: o.discount_note||'',
-          original_total: o.original_total||o.total||0,
-          discount_campaign_id: o.discount_campaign_id||null,
-          discount_campaign_name: o.discount_campaign_name||'',
-          discount_target_type: o.discount_target_type||'order',
-          discount_product_id: o.discount_product_id||'',
-          discount_product_name: o.discount_product_name||'',
-          discount_product_ids: o.discount_product_ids||'',
-          discount_product_names: o.discount_product_names||'',
-          kitchen_status: o.kitchen_status||'pending', payment_status: o.payment_status||'paid',
-          uuid: o.uuid||safeId, sync_status: o.sync_status||'synced', device_id: o.device_id||'',
-          created_at: o.created_at||'', updated_at: o.updated_at||''
-        };
-      }
-
-      for (const o of (d.orders||[])) {
-        try {
-          const orderNo = (o.order_number||'').trim();
-          if (!orderNo) { results.failed++; continue; }
-
-          // BUG-1 核心修正：用 store_id + order_number 判斷是否本店已有此訂單
-          const existingRow = safeGet(db,
-            'SELECT id FROM orders WHERE store_id=? AND order_number=?', [storeId, orderNo]);
-
-          if (existingRow) {
-            // 本店已有此 order_number
-            if (mode === 'skip' || mode === 'replace') {
-              results.skipped++; continue;
-            }
-            if (mode === 'overwrite') {
-              // 只更新本店資料，不碰其他店
-              const updCols = importOrderCols.filter(c => !['id','order_number','store_id'].includes(c));
-              const map = buildOrderMap(o, storeId);
-              const updVals = [...updCols.map(c => map[c] ?? null), storeId, orderNo];
-              const updSql = `UPDATE orders SET ${updCols.map(c=>`${c}=?`).join(',')},updated_at=datetime('now','localtime') WHERE store_id=? AND order_number=?`;
-              const n = rawRunCount(raw, updSql, updVals);
-              if (n > 0) results.orders++; else results.skipped++;
-            } else if (mode === 'copy') {
-              const newNo = orderNo + '_copy_' + Date.now();
-              const copyMap = buildOrderMap({ ...o, order_number: newNo }, storeId);
-              const copyVals = importOrderCols.map(c => copyMap[c] ?? null);
-              const n = rawRunCount(raw,
-                `INSERT OR IGNORE INTO orders (${importOrderCols.join(',')}) VALUES (${ordPhs})`, copyVals);
-              if (n > 0) results.orders++; else results.skipped++;
-            }
-          } else {
-            // 本店沒有此 order_number → 直接新增（id 用 storeId+'_'+orderNo 防跨店 PK 衝突）
-            const map = buildOrderMap(o, storeId);
-            const vals = importOrderCols.map(c => map[c] ?? null);
-            // 若 id 已被其他店占用，OR REPLACE 僅替換同 PK，不影響本店邏輯
-            // 但因 id 已含 storeId 前綴，正常情況不會衝突
-            const n = rawRunCount(raw,
-              `INSERT OR REPLACE INTO orders (${importOrderCols.join(',')}) VALUES (${ordPhs})`, vals);
-            if (n > 0) results.orders++; else results.skipped++;
-          }
-        } catch(e) { results.errors.push(`[order ${o.order_number}] ${e.message}`); results.failed++; }
-      }
-
-      // ── order_logs（BUG-2 修正：PRAGMA 動態過濾欄位，防止 old_value/new_value 不存在錯誤）──
-      const logCols = getTableCols(db, 'order_logs');
-      // 所有可能欄位（含舊版 old_value/new_value 與新版 before_data/after_data）
-      const logCandidates = [
-        'id','store_id','order_id','order_number','action','reason','operator',
-        'old_value','new_value','note',
-        'before_data','after_data','before_total','after_total','amount_diff',
-        'before_payment','after_payment','before_received','after_received',
-        'before_change','after_change','created_at'
-      ].filter(c => logCols.has(c));
-
-      for (const ol of (d.order_logs||[])) {
-        try {
-          const logMap = {
-            id: ol.id, store_id: storeId,
-            order_id: ol.order_id, order_number: ol.order_number||ol.order_id||'',
-            action: ol.action||'modify', reason: ol.reason||ol.note||'',
-            operator: ol.operator||'', note: ol.note||'',
-            old_value: ol.old_value||ol.before_data||'',
-            new_value: ol.new_value||ol.after_data||'',
-            before_data: ol.before_data||ol.old_value||'',
-            after_data: ol.after_data||ol.new_value||'',
-            before_total: ol.before_total||0, after_total: ol.after_total||0,
-            amount_diff: ol.amount_diff||0,
-            before_payment: ol.before_payment||'', after_payment: ol.after_payment||'',
-            before_received: ol.before_received||0, after_received: ol.after_received||0,
-            before_change: ol.before_change||0, after_change: ol.after_change||0,
-            created_at: ol.created_at||''
+        function buildOrderSrc(o, sid) {
+          const items_ = typeof o.items==='string' ? o.items : JSON.stringify(o.items||[]);
+          const safeId = sid + '_' + (o.order_number||o.id||'');
+          return {
+            id: safeId, order_number: o.order_number, store_id: sid,
+            customer_name: o.customer_name||'', customer_phone: o.customer_phone||'',
+            customer_line_id: o.customer_line_id||'',
+            items: items_, payment_method: o.payment_method||'cash',
+            payment_category: o.payment_category||'cash',
+            subtotal: o.subtotal||0, total: o.total||0,
+            status: o.status||'completed', order_status: o.order_status||'completed',
+            order_mode: o.order_mode||'dine_in', source: o.source||'pos',
+            received_amount: o.received_amount||0, change_amount: o.change_amount||0,
+            note: o.note||'', void_reason: o.void_reason||'', voided_at: o.voided_at||'',
+            table_number: o.table_number||'', guest_count: o.guest_count||0,
+            pickup_name: o.pickup_name||'', pickup_time: o.pickup_time||'',
+            delivery_platform: o.delivery_platform||'', delivery_address: o.delivery_address||'',
+            estimated_delivery: o.estimated_delivery||'',
+            delivery_status: o.delivery_status||'', delivery_fee: o.delivery_fee||0,
+            platform_commission_rate: o.platform_commission_rate||0,
+            platform_commission_amount: o.platform_commission_amount||0,
+            store_actual_income: o.store_actual_income||0,
+            platform_order_no: o.platform_order_no||'',
+            discount_amount: o.discount_amount||0, discount_type: o.discount_type||'none',
+            discount_category: o.discount_category||'none', discount_note: o.discount_note||'',
+            original_total: o.original_total||o.total||0,
+            discount_campaign_id: o.discount_campaign_id||null,
+            discount_campaign_name: o.discount_campaign_name||'',
+            discount_target_type: o.discount_target_type||'order',
+            discount_product_id: o.discount_product_id||'',
+            discount_product_name: o.discount_product_name||'',
+            discount_product_ids: o.discount_product_ids||'',
+            discount_product_names: o.discount_product_names||'',
+            kitchen_status: o.kitchen_status||'pending', payment_status: o.payment_status||'paid',
+            uuid: o.uuid||safeId, sync_status: o.sync_status||'synced', device_id: o.device_id||'',
+            created_at: o.created_at||'', updated_at: o.updated_at||''
           };
-          const logVals = logCandidates.map(c => logMap[c] ?? null);
-          const logPhs  = logCandidates.map(()=>'?').join(',');
-          const n = rawRunCount(raw,
-            `INSERT OR IGNORE INTO order_logs (${logCandidates.join(',')}) VALUES (${logPhs})`,
-            logVals);
-          if (n > 0) results.order_logs++; else results.skipped++;
-        } catch(e) { results.errors.push(`[order_log] ${e.message}`); results.failed++; }
+        }
+
+        for (const o of (d.orders||[])) {
+          try {
+            const orderNo = (o.order_number||'').trim();
+            if (!orderNo) { results.orders.failed++; continue; }
+            const existingRow = safeGet(db,
+              'SELECT id FROM orders WHERE store_id=? AND order_number=?', [storeId, orderNo]);
+            if (existingRow) {
+              if (mode === 'skip' || mode === 'replace') { results.orders.skipped++; continue; }
+              if (mode === 'overwrite') {
+                const src = buildOrderSrc(o, storeId);
+                const updCols = importOrderCandidates.filter(c => !['id','order_number','store_id'].includes(c));
+                const updVals = [...updCols.map(c => src[c] ?? null), storeId, orderNo];
+                const updSql = `UPDATE orders SET ${updCols.map(c=>`${c}=?`).join(',')},updated_at=datetime('now','localtime') WHERE store_id=? AND order_number=?`;
+                const n = rawRunCount(raw, updSql, updVals);
+                if (n > 0) results.orders.updated++; else results.orders.skipped++;
+              } else if (mode === 'copy') {
+                const newNo = orderNo + '_copy_' + Date.now();
+                const src = buildOrderSrc({ ...o, order_number: newNo }, storeId);
+                const vals = importOrderCandidates.map(c => src[c] ?? null);
+                const n = rawRunCount(raw,
+                  `INSERT OR REPLACE INTO orders (${importOrderCandidates.join(',')}) VALUES (${ordPhs})`, vals);
+                if (n > 0) results.orders.added++; else results.orders.skipped++;
+              }
+            } else {
+              const src = buildOrderSrc(o, storeId);
+              const vals = importOrderCandidates.map(c => src[c] ?? null);
+              const n = rawRunCount(raw,
+                `INSERT OR REPLACE INTO orders (${importOrderCandidates.join(',')}) VALUES (${ordPhs})`, vals);
+              if (n > 0) results.orders.added++; else results.orders.skipped++;
+            }
+          } catch(e) {
+            results.orders.errors.push(`order_number=${o.order_number}: ${e.message}`);
+            results.orders.failed++;
+            if (strictMode) throw e;
+          }
+        }
+
+        // ── order_logs（BUG-2：動態欄位）───────────────────────────────
+        const logCols = schemas['order_logs'];
+        const logCandidates = [
+          'id','store_id','order_id','order_number','action','reason','operator',
+          'old_value','new_value','note',
+          'before_data','after_data','before_total','after_total','amount_diff',
+          'before_payment','after_payment','before_received','after_received',
+          'before_change','after_change','created_at'
+        ].filter(c => logCols.has(c));
+
+        for (const ol of (d.order_logs||[])) {
+          try {
+            const logSrc = {
+              id: ol.id, store_id: storeId,
+              order_id: ol.order_id, order_number: ol.order_number||ol.order_id||'',
+              action: ol.action||'modify', reason: ol.reason||ol.note||'',
+              operator: ol.operator||'', note: ol.note||'',
+              old_value: ol.old_value||ol.before_data||'',
+              new_value: ol.new_value||ol.after_data||'',
+              before_data: ol.before_data||ol.old_value||'',
+              after_data: ol.after_data||ol.new_value||'',
+              before_total: ol.before_total||0, after_total: ol.after_total||0,
+              amount_diff: ol.amount_diff||0,
+              before_payment: ol.before_payment||'', after_payment: ol.after_payment||'',
+              before_received: ol.before_received||0, after_received: ol.after_received||0,
+              before_change: ol.before_change||0, after_change: ol.after_change||0,
+              created_at: ol.created_at||''
+            };
+            const logVals = logCandidates.map(c => logSrc[c] ?? null);
+            const logPhs  = logCandidates.map(()=>'?').join(',');
+            const n = rawRunCount(raw,
+              `INSERT OR IGNORE INTO order_logs (${logCandidates.join(',')}) VALUES (${logPhs})`,
+              logVals);
+            if (n > 0) results.order_logs.added++; else results.order_logs.skipped++;
+          } catch(e) {
+            results.order_logs.errors.push(e.message);
+            results.order_logs.failed++;
+            if (strictMode) throw e;
+          }
+        }
+
+        // ── discount_categories（動態欄位）──────────────────────────────
+        const discCatCols = schemas['discount_categories'];
+        for (const c of (d.discount_categories||[])) {
+          try {
+            const src = {
+              id: c.id, store_id: storeId,
+              code: c.code||'', name: c.name||c.label||'',
+              icon: c.icon||'💸', color: c.color||'#94a3b8',
+              enabled: c.enabled??c.is_active??1,
+              sort_order: c.sort_order||0, created_at: c.created_at||''
+            };
+            const q = buildDynamicInsert('discount_categories',
+              ['id','store_id','code','name','icon','color','enabled','sort_order','created_at'],
+              src, discCatCols, orMode);
+            if (!q) { results.discount_categories.skipped++; continue; }
+            const n = rawRunCount(raw, q.sql, q.vals);
+            if (n > 0) results.discount_categories.added++; else results.discount_categories.skipped++;
+          } catch(e) {
+            results.discount_categories.errors.push(`id=${c.id}: ${e.message}`);
+            results.discount_categories.failed++;
+            if (strictMode) throw e;
+          }
+        }
+
+        // ── discount_campaigns（動態欄位）───────────────────────────────
+        const discCampCols = schemas['discount_campaigns'];
+        for (const c of (d.discount_campaigns||[])) {
+          try {
+            const src = {
+              id: c.id, store_id: storeId,
+              name: c.name||'', description: c.description||'',
+              enabled: c.enabled??c.is_active??1,
+              sort_order: c.sort_order||0, created_at: c.created_at||''
+            };
+            const q = buildDynamicInsert('discount_campaigns',
+              ['id','store_id','name','description','enabled','sort_order','created_at'],
+              src, discCampCols, orMode);
+            if (!q) { results.discount_campaigns.skipped++; continue; }
+            const n = rawRunCount(raw, q.sql, q.vals);
+            if (n > 0) results.discount_campaigns.added++; else results.discount_campaigns.skipped++;
+          } catch(e) {
+            results.discount_campaigns.errors.push(`id=${c.id}: ${e.message}`);
+            results.discount_campaigns.failed++;
+            if (strictMode) throw e;
+          }
+        }
+
+        // ── product_analysis_groups（動態欄位）──────────────────────────
+        const grpCols = schemas['analysis_groups'];
+        for (const g of (d.product_analysis_groups||[])) {
+          try {
+            const src = {
+              id: g.id, store_id: storeId,
+              group_name: g.group_name||g.name||'', description: g.description||'',
+              enabled: g.enabled??g.is_active??1,
+              sort_order: g.sort_order||0,
+              created_at: g.created_at||'', updated_at: g.updated_at||g.created_at||''
+            };
+            const q = buildDynamicInsert('product_analysis_groups',
+              ['id','store_id','group_name','description','enabled','sort_order','created_at','updated_at'],
+              src, grpCols, orMode);
+            if (!q) { results.analysis_groups.skipped++; continue; }
+            const n = rawRunCount(raw, q.sql, q.vals);
+            if (n > 0) results.analysis_groups.added++; else results.analysis_groups.skipped++;
+          } catch(e) {
+            results.analysis_groups.errors.push(`id=${g.id}: ${e.message}`);
+            results.analysis_groups.failed++;
+            if (strictMode) throw e;
+          }
+        }
+
+        // ── product_analysis_group_items（動態欄位）─────────────────────
+        const giCols = schemas['analysis_items'];
+        for (const gi of (d.product_analysis_group_items||[])) {
+          try {
+            const pName = gi.product_name
+              || (safeGet(db,'SELECT name FROM products WHERE id=?',[gi.product_id])?.name)
+              || '';
+            const src = {
+              id: gi.id, store_id: storeId,
+              group_id: gi.group_id, product_id: gi.product_id,
+              product_name: pName, created_at: gi.created_at||''
+            };
+            const q = buildDynamicInsert('product_analysis_group_items',
+              ['id','store_id','group_id','product_id','product_name','created_at'],
+              src, giCols, orMode);
+            if (!q) { results.analysis_items.skipped++; continue; }
+            const n = rawRunCount(raw, q.sql, q.vals);
+            if (n > 0) results.analysis_items.added++; else results.analysis_items.skipped++;
+          } catch(e) {
+            results.analysis_items.errors.push(`id=${gi.id}: ${e.message}`);
+            results.analysis_items.failed++;
+            if (strictMode) throw e;
+          }
+        }
+
+        // ── product_analysis_group_aliases（動態欄位）───────────────────
+        const alsCols = schemas['analysis_aliases'];
+        for (const a of (d.product_analysis_group_aliases||[])) {
+          try {
+            const src = {
+              id: a.id, store_id: storeId,
+              group_id: a.group_id, alias_name: a.alias_name||'',
+              created_at: a.created_at||''
+            };
+            const q = buildDynamicInsert('product_analysis_group_aliases',
+              ['id','store_id','group_id','alias_name','created_at'],
+              src, alsCols, orMode);
+            if (!q) { results.analysis_aliases.skipped++; continue; }
+            const n = rawRunCount(raw, q.sql, q.vals);
+            if (n > 0) results.analysis_aliases.added++; else results.analysis_aliases.skipped++;
+          } catch(e) {
+            results.analysis_aliases.errors.push(`id=${a.id}: ${e.message}`);
+            results.analysis_aliases.failed++;
+            if (strictMode) throw e;
+          }
+        }
+
+        // ── settings（動態欄位）─────────────────────────────────────────
+        const settingsCols = schemas['settings'];
+        for (const s of (d.settings||[])) {
+          try {
+            const src = { store_id: storeId, key: s.key||'', value: s.value||'' };
+            const q = buildDynamicInsert('settings',
+              ['store_id','key','value'], src, settingsCols, orMode);
+            if (!q) { results.settings.skipped++; continue; }
+            const n = rawRunCount(raw, q.sql, q.vals);
+            if (n > 0) results.settings.added++; else results.settings.skipped++;
+          } catch(e) {
+            results.settings.errors.push(`key=${s.key}: ${e.message}`);
+            results.settings.failed++;
+            if (strictMode) throw e;
+          }
+        }
+
+        // ── delivery_platforms（BUG-3 修正：PRAGMA 動態欄位，不硬寫 code）
+        // duplicate check：用 store_id + name（若有 name 欄位），否則用 id
+        const platCols = schemas['delivery_platforms'];
+        for (const p of (d.delivery_platforms||[])) {
+          try {
+            // 建立 source 物件，涵蓋備份檔可能有的所有欄位名稱
+            const src = {
+              id: p.id, store_id: storeId,
+              // code：僅在 DB 有此欄位時才會寫入（buildDynamicInsert 自動過濾）
+              code: p.code||'',
+              // 相容各版本欄位命名
+              name: p.name||p.platform_name||'',
+              platform_name: p.platform_name||p.name||'',
+              commission_rate: p.commission_rate||0,
+              is_active: p.is_active??1,
+              created_at: p.created_at||'', updated_at: p.updated_at||''
+            };
+            // 候選欄位：依 DB 實際有的欄位篩選
+            const candidates = [
+              'id','store_id','code','name','platform_name',
+              'commission_rate','is_active','created_at','updated_at'
+            ];
+            const q = buildDynamicInsert('delivery_platforms', candidates, src, platCols, orMode);
+            if (!q) { results.delivery_platforms.skipped++; continue; }
+            const n = rawRunCount(raw, q.sql, q.vals);
+            if (n > 0) results.delivery_platforms.added++; else results.delivery_platforms.skipped++;
+          } catch(e) {
+            results.delivery_platforms.errors.push(`id=${p.id}: ${e.message}`);
+            results.delivery_platforms.failed++;
+            if (strictMode) throw e;
+          }
+        }
+
+        // ── delivery_fees（動態欄位）────────────────────────────────────
+        const feeCols = schemas['delivery_fees'];
+        for (const f of (d.delivery_fees||[])) {
+          try {
+            const src = {
+              id: f.id, store_id: storeId,
+              min_amount: f.min_amount||0, max_amount: f.max_amount||0,
+              fee: f.fee||0, created_at: f.created_at||''
+            };
+            const q = buildDynamicInsert('delivery_fees',
+              ['id','store_id','min_amount','max_amount','fee','created_at'],
+              src, feeCols, orMode);
+            if (!q) { results.delivery_fees.skipped++; continue; }
+            const n = rawRunCount(raw, q.sql, q.vals);
+            if (n > 0) results.delivery_fees.added++; else results.delivery_fees.skipped++;
+          } catch(e) {
+            results.delivery_fees.errors.push(`id=${f.id}: ${e.message}`);
+            results.delivery_fees.failed++;
+            if (strictMode) throw e;
+          }
+        }
+
+      }); // ── end runInTransaction ─────────────────────────────────────
+
+    } catch(txErr) {
+      // replace 模式 rollback 後直接回傳錯誤
+      if (strictMode) {
+        return res.status(500).json({
+          success: false,
+          mode,
+          message: `replace 模式發生錯誤，已全部回滾：${txErr.message}`,
+          results
+        });
       }
+      throw txErr;
+    }
 
-      // ── discount_categories: id,store_id,code,name,icon,color,enabled,sort_order,created_at ──
-      for (const c of (d.discount_categories||[])) {
-        try {
-          const n = rawRunCount(raw,
-            `INSERT ${orMode} INTO discount_categories
-               (id,store_id,code,name,icon,color,enabled,sort_order,created_at)
-             VALUES (?,?,?,?,?,?,?,?,?)`,
-            [c.id,storeId,c.code||'',c.name||c.label||'',c.icon||'💸',
-             c.color||'#94a3b8',c.enabled??c.is_active??1,c.sort_order||0,c.created_at||'']);
-          if (n > 0) results.discount_categories++; else results.skipped++;
-        } catch(e) { results.errors.push(`[disc_cat id=${c.id}] ${e.message}`); results.failed++; }
+    // ── 彙整總計與錯誤清單 ───────────────────────────────────────────────
+    let totalAdded = 0, totalUpdated = 0, totalSkipped = 0, totalFailed = 0;
+    const tableErrors = [];
+    for (const [tbl, r] of Object.entries(results)) {
+      totalAdded   += (r.added||0) + (r.updated||0);
+      totalUpdated += (r.updated||0);
+      totalSkipped += (r.skipped||0);
+      totalFailed  += (r.failed||0);
+      if (r.failed > 0) {
+        tableErrors.push({
+          table: tbl,
+          failed: r.failed,
+          sample_errors: r.errors.slice(0, 3)
+        });
       }
+    }
 
-      // ── discount_campaigns: id,store_id,name,description,enabled,sort_order,created_at ──
-      for (const c of (d.discount_campaigns||[])) {
-        try {
-          const n = rawRunCount(raw,
-            `INSERT ${orMode} INTO discount_campaigns
-               (id,store_id,name,description,enabled,sort_order,created_at)
-             VALUES (?,?,?,?,?,?,?)`,
-            [c.id,storeId,c.name||'',c.description||'',c.enabled??c.is_active??1,c.sort_order||0,c.created_at||'']);
-          if (n > 0) results.discount_campaigns++; else results.skipped++;
-        } catch(e) { results.errors.push(`[disc_camp id=${c.id}] ${e.message}`); results.failed++; }
-      }
+    const overallStatus = totalFailed > 0 ? 'partial' : 'success';
 
-      // ── product_analysis_groups: id,store_id,group_name,description,enabled,sort_order,created_at,updated_at ──
-      for (const g of (d.product_analysis_groups||[])) {
-        try {
-          const n = rawRunCount(raw,
-            `INSERT ${orMode} INTO product_analysis_groups
-               (id,store_id,group_name,description,enabled,sort_order,created_at,updated_at)
-             VALUES (?,?,?,?,?,?,?,?)`,
-            [g.id,storeId,g.group_name||g.name||'',g.description||'',
-             g.enabled??g.is_active??1,g.sort_order||0,g.created_at||'',g.updated_at||g.created_at||'']);
-          if (n > 0) results.analysis_groups++; else results.skipped++;
-        } catch(e) { results.errors.push(`[group id=${g.id}] ${e.message}`); results.failed++; }
-      }
+    writeMigrationLog(db, storeId, '匯入快速搬家檔', payload.store_id||'', mode,
+      { ...results, total_added: totalAdded, total_skipped: totalSkipped, total_failed: totalFailed },
+      overallStatus,
+      tableErrors.map(e => `${e.table}:${e.failed}筆`).join('; ').slice(0, 200));
 
-      // ── product_analysis_group_items: id,store_id,group_id,product_id,product_name,created_at ──
-      for (const gi of (d.product_analysis_group_items||[])) {
-        try {
-          const pName = gi.product_name
-            || (safeGet(db,'SELECT name FROM products WHERE id=?',[gi.product_id])?.name)
-            || '';
-          const n = rawRunCount(raw,
-            `INSERT ${orMode} INTO product_analysis_group_items
-               (id,store_id,group_id,product_id,product_name,created_at)
-             VALUES (?,?,?,?,?,?)`,
-            [gi.id,storeId,gi.group_id,gi.product_id,pName,gi.created_at||'']);
-          if (n > 0) results.analysis_items++; else results.skipped++;
-        } catch(e) { results.errors.push(`[group_item id=${gi.id}] ${e.message}`); results.failed++; }
-      }
+    res.json({
+      success: true,
+      mode,
+      status: overallStatus,                         // 'success' | 'partial'
+      status_label: overallStatus === 'partial'      // 給前端顯示用
+        ? '部分匯入完成，有錯誤'
+        : '匯入完成',
+      summary: {
+        total_added:   totalAdded,
+        total_updated: totalUpdated,
+        total_skipped: totalSkipped,
+        total_failed:  totalFailed
+      },
+      table_errors: tableErrors,                     // 失敗資料表清單
+      results                                        // 逐表明細
+    });
 
-      // ── product_analysis_group_aliases: id,store_id,group_id,alias_name,created_at ──
-      for (const a of (d.product_analysis_group_aliases||[])) {
-        try {
-          const n = rawRunCount(raw,
-            `INSERT ${orMode} INTO product_analysis_group_aliases
-               (id,store_id,group_id,alias_name,created_at)
-             VALUES (?,?,?,?,?)`,
-            [a.id,storeId,a.group_id,a.alias_name||'',a.created_at||'']);
-          if (n > 0) results.analysis_aliases++; else results.skipped++;
-        } catch(e) { results.errors.push(`[alias id=${a.id}] ${e.message}`); results.failed++; }
-      }
-
-      // ── settings ──────────────────────────────────────────────────────────
-      for (const s of (d.settings||[])) {
-        try {
-          const n = rawRunCount(raw,
-            `INSERT ${orMode} INTO settings (store_id,key,value) VALUES (?,?,?)`,
-            [storeId,s.key||'',s.value||'']);
-          if (n > 0) results.settings++; else results.skipped++;
-        } catch(e) { results.errors.push(`[setting key=${s.key}] ${e.message}`); results.failed++; }
-      }
-
-      // ── delivery_platforms ────────────────────────────────────────────────
-      for (const p of (d.delivery_platforms||[])) {
-        try {
-          const n = rawRunCount(raw,
-            `INSERT ${orMode} INTO delivery_platforms
-               (id,store_id,code,name,is_active,commission_rate,created_at)
-             VALUES (?,?,?,?,?,?,?)`,
-            [p.id,storeId,p.code||'',p.name||'',p.is_active??1,p.commission_rate||0,p.created_at||'']);
-          if (n > 0) results.delivery_platforms++; else results.skipped++;
-        } catch(e) { results.errors.push(`[platform id=${p.id}] ${e.message}`); results.failed++; }
-      }
-
-      // ── delivery_fees ─────────────────────────────────────────────────────
-      for (const f of (d.delivery_fees||[])) {
-        try {
-          const n = rawRunCount(raw,
-            `INSERT ${orMode} INTO delivery_fees
-               (id,store_id,min_amount,max_amount,fee,created_at)
-             VALUES (?,?,?,?,?,?)`,
-            [f.id,storeId,f.min_amount||0,f.max_amount||0,f.fee||0,f.created_at||'']);
-          if (n > 0) results.delivery_fees++; else results.skipped++;
-        } catch(e) { results.errors.push(`[fee id=${f.id}] ${e.message}`); results.failed++; }
-      }
-
-    }); // ── end runInTransaction ─────────────────────────────────────────────
-
-    writeMigrationLog(db, storeId, '匯入快速搬家檔', payload.store_id||'', mode, results,
-      results.errors.length > 0 ? 'partial' : 'success',
-      results.errors.slice(0,3).join('; '));
-
-    res.json({ success: true, mode, results });
   } catch(e) {
     console.error('[migration/import]', e.message);
     res.status(500).json({ success: false, message: e.message });
