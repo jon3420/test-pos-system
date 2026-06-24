@@ -935,6 +935,8 @@ function updateBar(){
   document.getElementById('cartCnt').textContent=cnt;
   // fix18-05: 套用優惠折扣
   const discAmt=appliedCoupon?appliedCoupon.discount_amount:0;
+  const payable=subtotal-discAmt;
+  document.getElementById('cartBarTotal').textContent=`$${payable}`;
   document.getElementById('cartBar').classList.toggle('hidden',cnt===0);
   // 金額明細
   const subtotalEl=document.getElementById('subtotalDisplay');
