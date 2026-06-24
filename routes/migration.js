@@ -1,4 +1,4 @@
-// routes/migration.js — fix18-10-hotfix6
+// routes/migration.js — fix18-10-hotfix7
 //
 // fix18-10-hotfix6 修正（含 hotfix5 全部修正）：
 //
@@ -237,7 +237,7 @@ router.get('/export/orders', (req, res) => {
       return res.send(BOM + toCsv(headers, orders));
     }
 
-    const payload = { type:'orders_backup', version:'fix18-10-hotfix6',
+    const payload = { type:'orders_backup', version:'fix18-10-hotfix7',
       exported_at: isoNow(), store_id: storeId,
       data: { orders, order_items: orderItemsExpanded, order_logs: orderLogs } };
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
@@ -390,7 +390,7 @@ router.get('/export/preorders', (req, res) => {
       res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
       return res.send(BOM + toCsv(headers, preorders));
     }
-    const payload = { type:'preorders_backup', version:'fix18-10-hotfix6',
+    const payload = { type:'preorders_backup', version:'fix18-10-hotfix7',
       exported_at: isoNow(), store_id: storeId, data: { preorders } };
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
@@ -534,7 +534,7 @@ router.get('/migration/export', (req, res) => {
     const ts = tsFile(), fileName = `pos_migration_${storeId}_${ts}.json`;
 
     const payload = {
-      type: 'pos_migration_backup', version: 'fix18-10-hotfix6',
+      type: 'pos_migration_backup', version: 'fix18-10-hotfix7',
       exported_at: isoNow(), store_id: storeId,
       store_name: storeRow ? (storeRow.name||storeRow.store_id||storeId) : storeId,
       schema_version: 2,
