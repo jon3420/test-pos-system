@@ -1,27 +1,26 @@
-// routes/migration.js — fix18-10-hotfix3
+// routes/migration.js — fix18-10-hotfix4
 //
-// 修正根因（逐一驗證）：
+// fix18-10-hotfix4 新增修正：
 //
-// RC-1: 訂單匯入成功但頁面空白
-//   原因：orders.created_at 保留備份原始舊日期，GET /api/orders 預設只查 today
-//   修正：匯入結果回傳 date_range（最早/最晚 created_at），前端顯示提示
-//         「訂單已匯入，請用自訂日期範圍查詢」並自動帶入範圍
+// BUG-1: 跨店匯入被誤判重複 → store_02 全部跳過
+//   根因：orders.id TEXT PRIMARY KEY 直接使用 order_number，
+//         store_001 與 store_02 有相同 order_number 時 INSERT OR IGNORE
+//         因 PK 衝突被靜默忽略，即使 store_id 不同。
+//   修正：匯入時不再依賴 INSERT OR IGNORE 做去重；
+//         改用 SELECT COUNT(*) WHERE store_id=? AND order_number=? 明確判斷。
+//         若不存在：INSERT（id 改為 storeId + '_' + order_number 防 PK 衝突）。
+//         skip 模式：只跳過「本店 store_id 已有相同 order_number」的資料。
+//         overwrite 模式：只 UPDATE 本店資料，不影響其他店。
+//         copy 模式：新 order_number 屬於本店。
 //
-// RC-2: discount_categories / discount_campaigns 匯出 0
-//   原因：這兩張表只在各自 route 的 ensureTable() 建立，migration/export 呼叫時
-//         可能尚未建立，safeAll() 靜默回傳 []
-//   修正：migration/export 先執行 CREATE TABLE IF NOT EXISTS，再查詢
+// BUG-2: order_logs 固定寫 old_value/new_value 欄位，但該表無此欄位
+//   修正：PRAGMA table_info(order_logs) 動態取得欄位，只 INSERT 實際存在的欄位。
 //
-// RC-3: 成功計數不準確
-//   原因：catch 區塊只記 errors 但 results.xxx++ 在 try 最後，
-//         若 rawRun 拋出例外，catch 只增 failed 不增計數 → 計數正確
-//         但「新增 162 筆」與實際不符 → 代表 rawRun 未拋出，但 INSERT OR IGNORE 被忽略
-//   修正：改用 rawRun 後取得 db.getRowsModified()，只在真正寫入時計數
-//
-// RC-4: PRAGMA table_info 動態過濾欄位（防未來欄位缺失）
-//   改用 PRAGMA 讀取實際欄位，只 INSERT 存在的欄位
-//
-// 架構不變：rawRun() + runInTransaction()（已驗證 export() 不在 tx 內）
+// 沿用 fix18-10-hotfix3 的修正：
+// RC-1: 回傳 date_range，前端提示切換日期範圍
+// RC-2: ensureTable 先建 discount 表
+// RC-3: rawRunCount 確認實際寫入
+// RC-4: PRAGMA 動態過濾欄位（orders）
 
 'use strict';
 
@@ -218,7 +217,7 @@ router.get('/export/orders', (req, res) => {
       return res.send(BOM + toCsv(headers, orders));
     }
 
-    const payload = { type:'orders_backup', version:'fix18-10-hotfix3',
+    const payload = { type:'orders_backup', version:'fix18-10-hotfix4',
       exported_at: isoNow(), store_id: storeId,
       data: { orders, order_items: orderItemsExpanded, order_logs: orderLogs } };
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
@@ -265,8 +264,10 @@ router.post('/import/orders', (req, res) => {
 
     function buildVals(o, sid) {
       const items_ = typeof o.items==='string' ? o.items : JSON.stringify(o.items||[]);
+      // BUG-1 修正：id 加入 storeId 前綴，避免跨店 PK 衝突
+      const safeId = sid + '_' + (o.order_number||o.id||'');
       const map = {
-        id: o.id||o.order_number, order_number: o.order_number, store_id: sid,
+        id: safeId, order_number: o.order_number, store_id: sid,
         customer_name: o.customer_name||'', customer_phone: o.customer_phone||'',
         customer_line_id: o.customer_line_id||'',
         items: items_, payment_method: o.payment_method||'cash',
@@ -295,7 +296,7 @@ router.post('/import/orders', (req, res) => {
         discount_product_ids: o.discount_product_ids||'',
         discount_product_names: o.discount_product_names||'',
         kitchen_status: o.kitchen_status||'pending', payment_status: o.payment_status||'paid',
-        uuid: o.uuid||o.id||o.order_number, sync_status: o.sync_status||'synced',
+        uuid: o.uuid||safeId, sync_status: o.sync_status||'synced',
         device_id: o.device_id||'',
         created_at: o.created_at||'', updated_at: o.updated_at||''
       };
@@ -324,13 +325,14 @@ router.post('/import/orders', (req, res) => {
               if (n > 0) updated++; else skipped++;
             } else if (mode === 'copy') {
               const newNo = orderNo + '_copy_' + Date.now();
-              const v = buildVals({ ...o, id: newNo, order_number: newNo }, storeId);
-              const n = rawRunCount(raw, `INSERT OR IGNORE INTO orders (${importCols.join(',')}) VALUES (${phs})`, v);
+              const v = buildVals({ ...o, order_number: newNo }, storeId);
+              const n = rawRunCount(raw, `INSERT OR REPLACE INTO orders (${importCols.join(',')}) VALUES (${phs})`, v);
               if (n > 0) added++; else skipped++;
             }
           } else {
             const v = buildVals(o, storeId);
-            const n = rawRunCount(raw, `INSERT OR IGNORE INTO orders (${importCols.join(',')}) VALUES (${phs})`, v);
+            // BUG-1 修正：id 已含 storeId 前綴，用 OR REPLACE 確保寫入
+            const n = rawRunCount(raw, `INSERT OR REPLACE INTO orders (${importCols.join(',')}) VALUES (${phs})`, v);
             if (n > 0) added++; else skipped++;
           }
         } catch(e2) { errors.push(`order ${orderNo}: ${e2.message}`); failed++; }
@@ -376,7 +378,7 @@ router.get('/export/preorders', (req, res) => {
       res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
       return res.send(BOM + toCsv(headers, preorders));
     }
-    const payload = { type:'preorders_backup', version:'fix18-10-hotfix3',
+    const payload = { type:'preorders_backup', version:'fix18-10-hotfix4',
       exported_at: isoNow(), store_id: storeId, data: { preorders } };
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
@@ -531,7 +533,7 @@ router.get('/migration/export', (req, res) => {
     const ts = tsFile(), fileName = `pos_migration_${storeId}_${ts}.json`;
 
     const payload = {
-      type: 'pos_migration_backup', version: 'fix18-10-hotfix3',
+      type: 'pos_migration_backup', version: 'fix18-10-hotfix4',
       exported_at: isoNow(), store_id: storeId,
       store_name: storeRow ? (storeRow.name||storeRow.store_id||storeId) : storeId,
       schema_version: 2,
@@ -730,7 +732,10 @@ router.post('/migration/import', (req, res) => {
         } catch(e) { results.errors.push(`[prod id=${p.id}] ${e.message}`); results.failed++; }
       }
 
-      // ── orders（PRAGMA 動態欄位）─────────────────────────────────────────
+      // ── orders（BUG-1 修正：依 store_id+order_number 明確判斷重複，不依賴 PK 衝突）──
+      // 根因：orders.id TEXT PRIMARY KEY 使用 order_number，跨店時 INSERT OR IGNORE 因 PK 衝突
+      //       被靜默跳過，即使 store_id 不同。修正：先 SELECT WHERE store_id=? AND order_number=?，
+      //       依結果決定 skip/insert/update/copy，id 改為 storeId+'_'+order_number 避免 PK 衝突。
       const importOrderCols = [
         'id','order_number','store_id','customer_name','customer_phone','customer_line_id',
         'items','payment_method','payment_category','subtotal','total',
@@ -751,58 +756,123 @@ router.post('/migration/import', (req, res) => {
 
       const ordPhs = importOrderCols.map(()=>'?').join(',');
 
+      function buildOrderMap(o, sid) {
+        const items_ = typeof o.items==='string' ? o.items : JSON.stringify(o.items||[]);
+        // id：本店 + order_number 組合，確保跨店不衝突
+        const safeId = sid + '_' + (o.order_number||o.id||'');
+        return {
+          id: safeId, order_number: o.order_number, store_id: sid,
+          customer_name: o.customer_name||'', customer_phone: o.customer_phone||'',
+          customer_line_id: o.customer_line_id||'',
+          items: items_, payment_method: o.payment_method||'cash',
+          payment_category: o.payment_category||'cash',
+          subtotal: o.subtotal||0, total: o.total||0,
+          status: o.status||'completed', order_status: o.order_status||'completed',
+          order_mode: o.order_mode||'dine_in', source: o.source||'pos',
+          received_amount: o.received_amount||0, change_amount: o.change_amount||0,
+          note: o.note||'', void_reason: o.void_reason||'', voided_at: o.voided_at||'',
+          table_number: o.table_number||'', guest_count: o.guest_count||0,
+          pickup_name: o.pickup_name||'', pickup_time: o.pickup_time||'',
+          delivery_platform: o.delivery_platform||'', delivery_address: o.delivery_address||'',
+          estimated_delivery: o.estimated_delivery||'',
+          delivery_status: o.delivery_status||'', delivery_fee: o.delivery_fee||0,
+          platform_commission_rate: o.platform_commission_rate||0,
+          platform_commission_amount: o.platform_commission_amount||0,
+          store_actual_income: o.store_actual_income||0,
+          platform_order_no: o.platform_order_no||'',
+          discount_amount: o.discount_amount||0, discount_type: o.discount_type||'none',
+          discount_category: o.discount_category||'none', discount_note: o.discount_note||'',
+          original_total: o.original_total||o.total||0,
+          discount_campaign_id: o.discount_campaign_id||null,
+          discount_campaign_name: o.discount_campaign_name||'',
+          discount_target_type: o.discount_target_type||'order',
+          discount_product_id: o.discount_product_id||'',
+          discount_product_name: o.discount_product_name||'',
+          discount_product_ids: o.discount_product_ids||'',
+          discount_product_names: o.discount_product_names||'',
+          kitchen_status: o.kitchen_status||'pending', payment_status: o.payment_status||'paid',
+          uuid: o.uuid||safeId, sync_status: o.sync_status||'synced', device_id: o.device_id||'',
+          created_at: o.created_at||'', updated_at: o.updated_at||''
+        };
+      }
+
       for (const o of (d.orders||[])) {
         try {
-          const id     = o.id||o.order_number;
-          const items_ = typeof o.items==='string' ? o.items : JSON.stringify(o.items||[]);
-          const map = {
-            id, order_number: o.order_number, store_id: storeId,
-            customer_name: o.customer_name||'', customer_phone: o.customer_phone||'',
-            customer_line_id: o.customer_line_id||'',
-            items: items_, payment_method: o.payment_method||'cash',
-            payment_category: o.payment_category||'cash',
-            subtotal: o.subtotal||0, total: o.total||0,
-            status: o.status||'completed', order_status: o.order_status||'completed',
-            order_mode: o.order_mode||'dine_in', source: o.source||'pos',
-            received_amount: o.received_amount||0, change_amount: o.change_amount||0,
-            note: o.note||'', void_reason: o.void_reason||'', voided_at: o.voided_at||'',
-            table_number: o.table_number||'', guest_count: o.guest_count||0,
-            pickup_name: o.pickup_name||'', pickup_time: o.pickup_time||'',
-            delivery_platform: o.delivery_platform||'', delivery_address: o.delivery_address||'',
-            estimated_delivery: o.estimated_delivery||'',
-            delivery_status: o.delivery_status||'', delivery_fee: o.delivery_fee||0,
-            platform_commission_rate: o.platform_commission_rate||0,
-            platform_commission_amount: o.platform_commission_amount||0,
-            store_actual_income: o.store_actual_income||0,
-            platform_order_no: o.platform_order_no||'',
-            discount_amount: o.discount_amount||0, discount_type: o.discount_type||'none',
-            discount_category: o.discount_category||'none', discount_note: o.discount_note||'',
-            original_total: o.original_total||o.total||0,
-            discount_campaign_id: o.discount_campaign_id||null,
-            discount_campaign_name: o.discount_campaign_name||'',
-            discount_target_type: o.discount_target_type||'order',
-            discount_product_id: o.discount_product_id||'',
-            discount_product_name: o.discount_product_name||'',
-            discount_product_ids: o.discount_product_ids||'',
-            discount_product_names: o.discount_product_names||'',
-            kitchen_status: o.kitchen_status||'pending', payment_status: o.payment_status||'paid',
-            uuid: o.uuid||id, sync_status: o.sync_status||'synced', device_id: o.device_id||'',
-            created_at: o.created_at||'', updated_at: o.updated_at||''
-          };
-          const vals = importOrderCols.map(c => map[c] ?? null);
-          const n = rawRunCount(raw,
-            `INSERT ${orMode} INTO orders (${importOrderCols.join(',')}) VALUES (${ordPhs})`, vals);
-          if (n > 0) results.orders++; else results.skipped++;
+          const orderNo = (o.order_number||'').trim();
+          if (!orderNo) { results.failed++; continue; }
+
+          // BUG-1 核心修正：用 store_id + order_number 判斷是否本店已有此訂單
+          const existingRow = safeGet(db,
+            'SELECT id FROM orders WHERE store_id=? AND order_number=?', [storeId, orderNo]);
+
+          if (existingRow) {
+            // 本店已有此 order_number
+            if (mode === 'skip' || mode === 'replace') {
+              results.skipped++; continue;
+            }
+            if (mode === 'overwrite') {
+              // 只更新本店資料，不碰其他店
+              const updCols = importOrderCols.filter(c => !['id','order_number','store_id'].includes(c));
+              const map = buildOrderMap(o, storeId);
+              const updVals = [...updCols.map(c => map[c] ?? null), storeId, orderNo];
+              const updSql = `UPDATE orders SET ${updCols.map(c=>`${c}=?`).join(',')},updated_at=datetime('now','localtime') WHERE store_id=? AND order_number=?`;
+              const n = rawRunCount(raw, updSql, updVals);
+              if (n > 0) results.orders++; else results.skipped++;
+            } else if (mode === 'copy') {
+              const newNo = orderNo + '_copy_' + Date.now();
+              const copyMap = buildOrderMap({ ...o, order_number: newNo }, storeId);
+              const copyVals = importOrderCols.map(c => copyMap[c] ?? null);
+              const n = rawRunCount(raw,
+                `INSERT OR IGNORE INTO orders (${importOrderCols.join(',')}) VALUES (${ordPhs})`, copyVals);
+              if (n > 0) results.orders++; else results.skipped++;
+            }
+          } else {
+            // 本店沒有此 order_number → 直接新增（id 用 storeId+'_'+orderNo 防跨店 PK 衝突）
+            const map = buildOrderMap(o, storeId);
+            const vals = importOrderCols.map(c => map[c] ?? null);
+            // 若 id 已被其他店占用，OR REPLACE 僅替換同 PK，不影響本店邏輯
+            // 但因 id 已含 storeId 前綴，正常情況不會衝突
+            const n = rawRunCount(raw,
+              `INSERT OR REPLACE INTO orders (${importOrderCols.join(',')}) VALUES (${ordPhs})`, vals);
+            if (n > 0) results.orders++; else results.skipped++;
+          }
         } catch(e) { results.errors.push(`[order ${o.order_number}] ${e.message}`); results.failed++; }
       }
 
-      // ── order_logs ────────────────────────────────────────────────────────
+      // ── order_logs（BUG-2 修正：PRAGMA 動態過濾欄位，防止 old_value/new_value 不存在錯誤）──
+      const logCols = getTableCols(db, 'order_logs');
+      // 所有可能欄位（含舊版 old_value/new_value 與新版 before_data/after_data）
+      const logCandidates = [
+        'id','store_id','order_id','order_number','action','reason','operator',
+        'old_value','new_value','note',
+        'before_data','after_data','before_total','after_total','amount_diff',
+        'before_payment','after_payment','before_received','after_received',
+        'before_change','after_change','created_at'
+      ].filter(c => logCols.has(c));
+
       for (const ol of (d.order_logs||[])) {
         try {
+          const logMap = {
+            id: ol.id, store_id: storeId,
+            order_id: ol.order_id, order_number: ol.order_number||ol.order_id||'',
+            action: ol.action||'modify', reason: ol.reason||ol.note||'',
+            operator: ol.operator||'', note: ol.note||'',
+            old_value: ol.old_value||ol.before_data||'',
+            new_value: ol.new_value||ol.after_data||'',
+            before_data: ol.before_data||ol.old_value||'',
+            after_data: ol.after_data||ol.new_value||'',
+            before_total: ol.before_total||0, after_total: ol.after_total||0,
+            amount_diff: ol.amount_diff||0,
+            before_payment: ol.before_payment||'', after_payment: ol.after_payment||'',
+            before_received: ol.before_received||0, after_received: ol.after_received||0,
+            before_change: ol.before_change||0, after_change: ol.after_change||0,
+            created_at: ol.created_at||''
+          };
+          const logVals = logCandidates.map(c => logMap[c] ?? null);
+          const logPhs  = logCandidates.map(()=>'?').join(',');
           const n = rawRunCount(raw,
-            `INSERT OR IGNORE INTO order_logs (id,order_id,action,old_value,new_value,note,operator,created_at)
-             VALUES (?,?,?,?,?,?,?,?)`,
-            [ol.id,ol.order_id,ol.action||'',ol.old_value||'',ol.new_value||'',ol.note||'',ol.operator||'',ol.created_at||'']);
+            `INSERT OR IGNORE INTO order_logs (${logCandidates.join(',')}) VALUES (${logPhs})`,
+            logVals);
           if (n > 0) results.order_logs++; else results.skipped++;
         } catch(e) { results.errors.push(`[order_log] ${e.message}`); results.failed++; }
       }
