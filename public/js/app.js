@@ -8372,15 +8372,17 @@ async function exportMigrationFile() {
   }
 }
 
-// ── E-2. 選擇搬家檔 ──────────────────────────────────────────────────────
-let _migrationPayload = null;
-let _migrationPreviewData = null;
+// ── E-2. 選擇搬家檔（fix18-10-hotfix1：修正跨店保護邏輯）─────────────────
+let _migrationPayload      = null;
+let _migrationPreviewData  = null;
+let _migrationCrossAllowed = false;   // 使用者明確勾選跨店才變 true
 
 async function onMigrationFileSelected(input) {
   const file = input.files[0];
   if (!file) return;
-  _migrationPayload  = null;
-  _migrationPreviewData = null;
+  _migrationPayload      = null;
+  _migrationPreviewData  = null;
+  _migrationCrossAllowed = false;
 
   const previewBox  = document.getElementById('migrationPreviewBox');
   const previewSum  = document.getElementById('migrationPreviewSummary');
@@ -8406,7 +8408,7 @@ async function onMigrationFileSelected(input) {
     }
     _migrationPayload = json;
 
-    // Call preview API to get summary
+    // 呼叫 preview API 取得筆數統計
     const res  = await apiFetch('/api/migration/import/preview', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -8422,7 +8424,6 @@ async function onMigrationFileSelected(input) {
         <div>商品：<strong>${s.products}</strong> 筆</div>
         <div>分類：<strong>${s.categories}</strong> 筆</div>
         <div>訂單：<strong>${s.orders}</strong> 筆</div>
-        <div>訂單明細：<strong>${s.order_items}</strong> 筆</div>
         <div>LINE預購：<strong>${s.preorders}</strong> 筆</div>
         <div>折扣分類：<strong>${s.discount_categories}</strong> 筆</div>
         <div>折扣活動：<strong>${s.discount_campaigns}</strong> 筆</div>
@@ -8432,20 +8433,36 @@ async function onMigrationFileSelected(input) {
         <div>設定：<strong>${s.settings}</strong> 筆</div>
       </div>
       <div style="margin-top:8px;font-size:12px;color:var(--text-muted,#64748b)">
-        備份店家：${escHtml(prev.store_name || prev.file_store_id || '—')} ／ 版本：${escHtml(prev.version||'—')} ／ 匯出時間：${escHtml((prev.exported_at||'').slice(0,19).replace('T',' '))}
+        備份店家：${escHtml(prev.store_name || prev.file_store_id || '—')} ／
+        版本：${escHtml(prev.version||'—')} ／
+        匯出時間：${escHtml((prev.exported_at||'').slice(0,19).replace('T',' '))}
       </div>`;
 
+    // 跨店警告：顯示勾選框，預設不允許
     if (prev.cross_store) {
       crossWarn.style.display = 'block';
-      crossWarn.innerHTML = `⚠️ 備份檔屬於店家 <strong>${escHtml(prev.file_store_id)}</strong>，目前店家是 <strong>${escHtml(prev.current_store_id)}</strong>。跨店匯入請謹慎確認！`;
+      crossWarn.innerHTML = `
+        <div style="margin-bottom:8px">⚠️ 備份檔屬於店家 <strong>${escHtml(prev.file_store_id)}</strong>，
+        目前店家是 <strong>${escHtml(prev.current_store_id)}</strong>。</div>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:#fca5a5">
+          <input type="checkbox" id="migrationCrossStoreCheck" onchange="onCrossStoreCheckChanged(this)">
+          我確認要跨店匯入（備份資料將寫入目前店家）
+        </label>`;
+      _migrationCrossAllowed = false;   // 重置，等使用者勾選
+      if (importBtn) importBtn.style.display = 'none';  // 跨店時先隱藏匯入鈕
     } else {
       crossWarn.style.display = 'none';
+      _migrationCrossAllowed = false;   // 同店，不需要特別旗標
     }
 
     previewBox.style.display = 'block';
     modeBox.style.display    = 'block';
-    if (previewBtn)  previewBtn.style.display  = '';
-    if (importBtn)   importBtn.style.display   = '';
+    if (previewBtn) previewBtn.style.display = '';
+
+    // 同店才直接顯示匯入鈕；跨店需等勾選
+    if (!prev.cross_store) {
+      if (importBtn) importBtn.style.display = '';
+    }
 
   } catch(e) {
     previewBox.style.display = 'block';
@@ -8454,9 +8471,17 @@ async function onMigrationFileSelected(input) {
   }
 }
 
-// ── E-3. 預覽（re-call）────────────────────────────────────────────────
+// 跨店勾選變更
+function onCrossStoreCheckChanged(checkbox) {
+  _migrationCrossAllowed = checkbox.checked;
+  const importBtn = document.getElementById('migrationImportBtn');
+  if (importBtn) {
+    importBtn.style.display = checkbox.checked ? '' : 'none';
+  }
+}
+
+// ── E-3. 預覽（scroll to）─────────────────────────────────────────────
 async function previewMigrationFile() {
-  // already done in onMigrationFileSelected; just scroll to preview
   const el = document.getElementById('migrationPreviewBox');
   if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
@@ -8464,9 +8489,15 @@ async function previewMigrationFile() {
 // ── E-4. 確認匯入入口 ─────────────────────────────────────────────────
 function confirmMigrationImport() {
   if (!_migrationPayload) { showToast('請先選擇備份檔', 'error'); return; }
+
+  // 跨店：必須勾選才能繼續
+  if (_migrationPreviewData && _migrationPreviewData.cross_store && !_migrationCrossAllowed) {
+    showToast('跨店匯入：請先勾選確認跨店', 'error');
+    return;
+  }
+
   const mode = document.querySelector('input[name="migrationMode"]:checked')?.value || 'skip';
   if (mode === 'purge') {
-    // 需二次確認
     const inp = document.getElementById('migrationPurgeConfirmInput');
     if (inp) inp.value = '';
     showModal18('migrationPurgeConfirmModal');
@@ -8478,11 +8509,11 @@ function confirmMigrationImport() {
 // ── E-5. 關閉二次確認 Modal ───────────────────────────────────────────
 function closeMigrationPurgeConfirm() { hideModal18('migrationPurgeConfirmModal'); }
 
-// ── E-6. 實際執行匯入 ─────────────────────────────────────────────────
+// ── E-6. 實際執行匯入（fix18-10-hotfix1：正確傳 allowCrossStoreImport）──
 async function executeMigrationImport() {
   const mode = document.querySelector('input[name="migrationMode"]:checked')?.value || 'skip';
 
-  // 清空模式：驗證確認輸入
+  // 清空模式二次確認
   if (mode === 'purge') {
     const val = (document.getElementById('migrationPurgeConfirmInput')?.value || '').trim();
     if (val !== '確認還原') {
@@ -8497,17 +8528,19 @@ async function executeMigrationImport() {
   if (statusEl)  { statusEl.style.color = 'var(--text-secondary,#94a3b8)'; statusEl.textContent = '匯入中，請勿關閉頁面…'; }
   if (importBtn) { importBtn.disabled = true; importBtn.textContent = '匯入中…'; }
 
-  // 跨店處理
-  const allowCross = _migrationPreviewData ? _migrationPreviewData.cross_store : false;
+  // 跨店：只有使用者明確勾選後 _migrationCrossAllowed 才是 true
+  // cross_store=true ≠ allowCrossStoreImport=true，不再混用
+  const isCrossStore    = _migrationPreviewData ? _migrationPreviewData.cross_store : false;
+  const allowCrossStore = isCrossStore ? _migrationCrossAllowed : false;
 
   try {
-    const res  = await apiFetch('/api/migration/import', {
+    const res = await apiFetch('/api/migration/import', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({
         payload:               _migrationPayload,
         mode:                  mode === 'purge' ? 'replace' : mode,
-        allowCrossStoreImport: allowCross
+        allowCrossStoreImport: allowCrossStore
       })
     });
     const json = await res.json();
@@ -8515,41 +8548,53 @@ async function executeMigrationImport() {
     if (json.success) {
       const r = json.results || {};
       const lines = [
-        `商品：${r.products||0} 筆`,
-        `分類：${r.categories||0} 筆`,
-        `訂單：${r.orders||0} 筆`,
-        `折扣活動：${r.discount_campaigns||0} 筆`,
-        `分析群組：${r.analysis_groups||0} 筆`,
-        `歷史別名：${r.analysis_aliases||0} 筆`,
-        `設定：${r.settings||0} 筆`
-      ].join('、');
+        `商品：${r.products||0}`,
+        `分類：${r.categories||0}`,
+        `訂單：${r.orders||0}`,
+        `折扣分類：${r.discount_categories||0}`,
+        `折扣活動：${r.discount_campaigns||0}`,
+        `分析群組：${r.analysis_groups||0}`,
+        `群組成員：${r.analysis_items||0}`,
+        `歷史別名：${r.analysis_aliases||0}`,
+        `設定：${r.settings||0}`
+      ].join('、') + ' 筆';
+      const skipFail = r.failed > 0 ? `｜失敗 ${r.failed} 筆` : '';
       if (statusEl) {
-        statusEl.style.color = '#4ade80';
-        statusEl.innerHTML = `✅ 匯入完成（模式：${mode}）<br><small style="color:var(--text-muted,#64748b)">${lines}</small>` +
-          (r.errors && r.errors.length ? `<br><small style="color:#f87171">部分錯誤：${r.errors.slice(0,3).map(e=>escHtml(e)).join(' / ')}</small>` : '');
+        statusEl.style.color = r.failed > 0 ? '#fbbf24' : '#4ade80';
+        statusEl.innerHTML =
+          `✅ 匯入完成（模式：${mode}）${skipFail}<br>` +
+          `<small style="color:var(--text-muted,#64748b)">${lines}</small>` +
+          (r.errors && r.errors.length
+            ? `<br><small style="color:#f87171">錯誤：${r.errors.slice(0,3).map(e=>escHtml(e)).join(' / ')}</small>`
+            : '');
       }
       showToast('搬家檔匯入完成', 'success');
-    } else {
-      if (json.cross_store) {
-        if (statusEl) {
-          statusEl.style.color = '#f87171';
-          statusEl.textContent = `❌ 跨店匯入被拒：${json.message}`;
-        }
-        showToast('跨店匯入被拒', 'error');
-      } else {
-        if (statusEl) { statusEl.style.color = '#f87171'; statusEl.textContent = `❌ 匯入失敗：${json.message}`; }
-        showToast('匯入失敗：' + json.message, 'error');
+
+    } else if (json.cross_store) {
+      // 後端拒絕跨店
+      if (statusEl) {
+        statusEl.style.color = '#f87171';
+        statusEl.textContent = `❌ 跨店匯入被拒：${json.message}`;
       }
+      showToast('跨店匯入被拒，請勾選確認跨店', 'error');
+
+    } else {
+      if (statusEl) {
+        statusEl.style.color = '#f87171';
+        statusEl.textContent = `❌ 匯入失敗：${json.message}`;
+      }
+      showToast('匯入失敗：' + json.message, 'error');
     }
+
   } catch(e) {
-    if (statusEl) { statusEl.style.color = '#f87171'; statusEl.textContent = `❌ 匯入失敗：${e.message}`; }
+    if (statusEl) { statusEl.style.color = '#f87171'; statusEl.textContent = `❌ ${e.message}`; }
     showToast('匯入失敗：' + e.message, 'error');
   }
 
   if (importBtn) { importBtn.disabled = false; importBtn.textContent = '✅ 確認匯入'; }
 }
 
-// ── 全域匯出（fix18-10）────────────────────────────────────────────────
+// ── 全域匯出（fix18-10-hotfix1）──────────────────────────────────────
 (function exportMigration18Globals() {
   const fns = {
     openOrderExportModal, closeOrderExportModal, doOrderExport,
@@ -8557,9 +8602,10 @@ async function executeMigrationImport() {
     openPreorderExportModal, closePreorderExportModal, doPreorderExport,
     openPreorderImportModal, closePreorderImportModal, onPreorderImportFileSelected, doPreorderImport,
     exportMigrationFile, onMigrationFileSelected, previewMigrationFile,
-    confirmMigrationImport, closeMigrationPurgeConfirm, executeMigrationImport
+    confirmMigrationImport, closeMigrationPurgeConfirm, executeMigrationImport,
+    onCrossStoreCheckChanged
   };
   Object.assign(window, fns);
 })();
 
-// fix18-10 end
+// fix18-10-hotfix1 end
