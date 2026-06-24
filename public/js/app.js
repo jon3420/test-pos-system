@@ -8204,9 +8204,18 @@ async function doOrderImport() {
       if (json.updated) parts.push(`更新 ${json.updated} 筆`);
       if (json.skipped) parts.push(`跳過 ${json.skipped} 筆`);
       if (json.failed)  parts.push(`失敗 ${json.failed} 筆`);
-      result.style.background = 'rgba(34,197,94,.1)';
-      result.style.color      = '#4ade80';
-      result.innerHTML = `✅ 匯入完成：${parts.join('、')}` +
+      // RC-1 修正：顯示日期範圍提示，備份訂單 created_at 為舊日期，預設 today 查不到
+      let dateHint = '';
+      if (json.date_range && json.date_range.min && json.added > 0) {
+        const dr = json.date_range;
+        dateHint = `<div style="margin-top:8px;padding:8px;background:rgba(59,130,246,.1);border:1px solid rgba(59,130,246,.3);border-radius:6px;font-size:12px;color:#93c5fd">
+          ℹ️ 匯入的訂單日期範圍：${escHtml(dr.min)} ～ ${escHtml(dr.max)}<br>
+          訂單紀錄頁預設只顯示今日，請切換至「自訂」日期範圍查看匯入的訂單。
+        </div>`;
+      }
+      result.style.background = json.failed > 0 ? 'rgba(251,191,36,.1)' : 'rgba(34,197,94,.1)';
+      result.style.color      = json.failed > 0 ? '#fbbf24' : '#4ade80';
+      result.innerHTML = `✅ 匯入完成：${parts.join('、')}` + dateHint +
         (json.errors && json.errors.length ? `<br><small style="color:#f87171">${json.errors.slice(0,3).map(e=>escHtml(e)).join('<br>')}</small>` : '');
       showToast('訂單匯入完成', 'success');
     } else {
