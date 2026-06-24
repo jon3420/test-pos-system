@@ -328,6 +328,7 @@ initDb().then((db) => {
   // importExport — inventory endpoints wrapped with featureGate inside the router
   // (full route handled inside importExport.js with inline checks)
   app.use('/api', requireStore, require('./routes/importExport'));
+  app.use('/api', requireStore, require('./routes/migration')); // fix18-10
 
   // ── Super Admin 前端入口（/system-admin 獨立路由）────
   app.get('/system-admin', (req, res) => res.sendFile(path.join(__dirname, 'public', 'system-admin.html')));

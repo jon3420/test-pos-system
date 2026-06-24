@@ -1016,3 +1016,6 @@ function initTables(w) {
 }
 
 module.exports = { getDb, initDb };
+
+// Note: migration_logs table is created on-demand in routes/migration.js
+// to keep backward compatibility with existing DB instances.

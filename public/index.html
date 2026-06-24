@@ -210,6 +210,8 @@
           <input type="date" id="dateTo">
         </div>
         <button class="btn-secondary" onclick="loadCurrentOrderTab()">🔄 查詢</button>
+        <button class="btn-secondary" onclick="openOrderExportModal()" style="white-space:nowrap">📤 匯出訂單</button>
+        <button class="btn-secondary" onclick="openOrderImportModal()" style="white-space:nowrap">📥 匯入訂單</button>
       </div>
     </div>
 
@@ -486,6 +488,8 @@
       <h1 class="page-title">📅 LINE 預購管理</h1>
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
         <button class="btn-secondary" onclick="loadLinePreorders()">🔄 重新整理</button>
+        <button class="btn-secondary" onclick="openPreorderExportModal()" style="white-space:nowrap">📤 匯出預購</button>
+        <button class="btn-secondary" onclick="openPreorderImportModal()" style="white-space:nowrap">📥 匯入預購</button>
       </div>
     </div>
 
@@ -589,6 +593,7 @@
       <button class="settings-tab-btn"        data-stab="android_features" onclick="switchSettingsTab('android_features')">📱 Android 平板</button>
       <button class="settings-tab-btn"        data-stab="discount_campaigns" onclick="switchSettingsTab('discount_campaigns')">💸 折扣活動</button>
       <button class="settings-tab-btn"        data-stab="product_analysis_groups" onclick="switchSettingsTab('product_analysis_groups')">📊 商品分析群組</button>
+      <button class="settings-tab-btn"        data-stab="migration" onclick="switchSettingsTab('migration')">📦 資料備份/搬家</button>
       <!-- fix10: 店家授權 Tab 已移至 /system-admin，一般店家不可存取 -->
     </div>
 
@@ -1158,6 +1163,66 @@
     </div>
 
     <!-- fix18-09F：商品分析群組 Tab Panel -->
+    <div class="settings-tab-panel" id="stab-migration" style="display:none">
+      <div class="settings-grid">
+        <!-- 匯出快速搬家檔 -->
+        <div class="settings-card">
+          <h3>📤 匯出快速搬家檔</h3>
+          <p style="font-size:13px;color:var(--text-secondary,#94a3b8);margin-bottom:16px">
+            下載目前店家的完整營運資料 JSON，可用於升級版本、搬主機、備份還原。
+          </p>
+          <div style="background:rgba(6,199,85,.08);border:1px solid rgba(6,199,85,.25);border-radius:8px;padding:12px;margin-bottom:16px;font-size:12px;color:#a3e0b8">
+            ℹ️ 匯出內容包含：商品、分類、訂單、LINE預購、折扣活動、商品分析群組、設定等完整資料。
+          </div>
+          <button class="btn-primary" onclick="exportMigrationFile()" style="width:100%">⬇️ 下載快速搬家檔</button>
+          <div id="migrationExportStatus" style="margin-top:10px;font-size:13px"></div>
+        </div>
+
+        <!-- 匯入快速搬家檔 -->
+        <div class="settings-card">
+          <h3>📥 匯入快速搬家檔</h3>
+          <p style="font-size:13px;color:var(--text-secondary,#94a3b8);margin-bottom:12px">
+            選擇先前匯出的搬家檔，還原到目前店家。
+          </p>
+
+          <div style="margin-bottom:12px">
+            <label style="font-size:13px;color:var(--text-secondary,#94a3b8);margin-bottom:6px;display:block">選擇 JSON 搬家檔</label>
+            <input type="file" id="migrationFileInput" accept=".json" onchange="onMigrationFileSelected(this)"
+              style="font-size:13px;padding:8px;border:1px dashed var(--border,#334155);border-radius:8px;width:100%;box-sizing:border-box;background:transparent;color:var(--text-primary,#f1f5f9);cursor:pointer">
+          </div>
+
+          <div id="migrationPreviewBox" style="display:none;background:var(--bg-base,#0f172a);border:1px solid var(--border,#334155);border-radius:8px;padding:12px;margin-bottom:12px;font-size:13px">
+            <div style="font-weight:700;margin-bottom:8px;color:var(--accent,#3b82f6)">📋 檔案預覽</div>
+            <div id="migrationPreviewSummary"></div>
+            <div id="migrationCrossStoreWarn" style="display:none;margin-top:8px;padding:8px;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:6px;font-size:12px;color:#f87171"></div>
+          </div>
+
+          <div id="migrationModeBox" style="display:none;margin-bottom:12px">
+            <label style="font-size:13px;color:var(--text-secondary,#94a3b8);margin-bottom:6px;display:block">匯入模式</label>
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:13px">
+                <input type="radio" name="migrationMode" value="skip" checked style="margin-top:2px"> 
+                <div><strong>跳過重複</strong> — 已存在的資料不覆蓋（補資料用）</div>
+              </label>
+              <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:13px">
+                <input type="radio" name="migrationMode" value="overwrite" style="margin-top:2px">
+                <div><strong>覆蓋更新</strong> — 已存在的資料以備份檔為準（搬家用）</div>
+              </label>
+              <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:13px">
+                <input type="radio" name="migrationMode" value="purge" style="margin-top:2px">
+                <div><strong>清空本店後還原</strong> — 先清空本店資料再匯入（完整還原用，不影響其他店家）</div>
+              </label>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:8px">
+            <button id="migrationPreviewBtn" class="btn-secondary" onclick="previewMigrationFile()" style="display:none;flex:1">🔍 預覽匯入</button>
+            <button id="migrationImportBtn" class="btn-primary" onclick="confirmMigrationImport()" style="display:none;flex:1">✅ 確認匯入</button>
+          </div>
+          <div id="migrationImportStatus" style="margin-top:10px;font-size:13px"></div>
+        </div>
+      </div>
+    </div>
     <div class="settings-tab-panel" id="stab-product_analysis_groups" style="display:none">
       <div class="settings-grid">
         <div class="settings-card" style="grid-column:1/-1">
@@ -1177,6 +1242,163 @@
   </div>
 </div>
 
+
+
+<!-- ═══════════════════════════════════════════════════════════
+     fix18-10 modals: 訂單匯出、訂單匯入、預購匯出、預購匯入、搬家確認
+═════════════════════════════════════════════════════════════ -->
+
+<!-- 訂單匯出 Modal -->
+<div class="modal-overlay" id="orderExportModal" style="display:none" onclick="if(event.target===this)closeOrderExportModal()">
+  <div class="modal" style="max-width:420px">
+    <div class="modal-header">
+      <h3>📤 匯出訂單</h3>
+      <button class="modal-close" onclick="closeOrderExportModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <label style="display:block;margin-bottom:12px">
+        <span style="font-size:13px;color:var(--text-secondary,#94a3b8)">匯出格式</span>
+        <select id="orderExportFormat" style="display:block;width:100%;margin-top:6px;padding:8px;border:1px solid var(--border,#334155);border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9);font-size:13px">
+          <option value="json">JSON（完整備份，含 order_items / order_logs）</option>
+          <option value="csv">CSV（Excel 用）</option>
+        </select>
+      </label>
+      <label style="display:block;margin-bottom:12px">
+        <span style="font-size:13px;color:var(--text-secondary,#94a3b8)">匯出範圍</span>
+        <select id="orderExportScope" style="display:block;width:100%;margin-top:6px;padding:8px;border:1px solid var(--border,#334155);border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9);font-size:13px">
+          <option value="all">全部訂單</option>
+          <option value="filtered">目前查詢日期範圍</option>
+        </select>
+      </label>
+    </div>
+    <div class="modal-footer" style="display:flex;gap:8px;justify-content:flex-end;padding:16px">
+      <button class="btn-secondary" onclick="closeOrderExportModal()">取消</button>
+      <button class="btn-primary" onclick="doOrderExport()">⬇️ 下載</button>
+    </div>
+  </div>
+</div>
+
+<!-- 訂單匯入 Modal -->
+<div class="modal-overlay" id="orderImportModal" style="display:none" onclick="if(event.target===this)closeOrderImportModal()">
+  <div class="modal" style="max-width:480px">
+    <div class="modal-header">
+      <h3>📥 匯入訂單</h3>
+      <button class="modal-close" onclick="closeOrderImportModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="margin-bottom:12px">
+        <span style="font-size:13px;color:var(--text-secondary,#94a3b8);display:block;margin-bottom:6px">選擇 JSON 備份檔</span>
+        <input type="file" id="orderImportFile" accept=".json,.csv"
+          style="width:100%;box-sizing:border-box;padding:8px;border:1px dashed var(--border,#334155);border-radius:6px;background:transparent;color:var(--text-primary,#f1f5f9);font-size:13px;cursor:pointer"
+          onchange="onOrderImportFileSelected(this)">
+      </div>
+      <div id="orderImportPreview" style="display:none;background:var(--bg-base,#0f172a);border:1px solid var(--border,#334155);border-radius:8px;padding:12px;margin-bottom:12px;font-size:13px"></div>
+      <div style="margin-bottom:12px">
+        <span style="font-size:13px;color:var(--text-secondary,#94a3b8);display:block;margin-bottom:6px">重複單號策略</span>
+        <select id="orderImportMode" style="width:100%;padding:8px;border:1px solid var(--border,#334155);border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9);font-size:13px">
+          <option value="skip">跳過重複（預設）</option>
+          <option value="overwrite">覆蓋更新</option>
+          <option value="copy">建立副本</option>
+        </select>
+      </div>
+      <div id="orderImportResult" style="display:none;font-size:13px;padding:10px;border-radius:6px;margin-top:8px"></div>
+    </div>
+    <div class="modal-footer" style="display:flex;gap:8px;justify-content:flex-end;padding:16px">
+      <button class="btn-secondary" onclick="closeOrderImportModal()">取消</button>
+      <button class="btn-primary" id="orderImportSubmitBtn" style="display:none" onclick="doOrderImport()">✅ 確認匯入</button>
+    </div>
+  </div>
+</div>
+
+<!-- LINE預購匯出 Modal -->
+<div class="modal-overlay" id="preorderExportModal" style="display:none" onclick="if(event.target===this)closePreorderExportModal()">
+  <div class="modal" style="max-width:420px">
+    <div class="modal-header">
+      <h3>📤 匯出預購</h3>
+      <button class="modal-close" onclick="closePreorderExportModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <label style="display:block;margin-bottom:12px">
+        <span style="font-size:13px;color:var(--text-secondary,#94a3b8)">匯出格式</span>
+        <select id="preorderExportFormat" style="display:block;width:100%;margin-top:6px;padding:8px;border:1px solid var(--border,#334155);border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9);font-size:13px">
+          <option value="json">JSON（完整備份）</option>
+          <option value="csv">CSV（Excel 用）</option>
+        </select>
+      </label>
+      <label style="display:block;margin-bottom:12px">
+        <span style="font-size:13px;color:var(--text-secondary,#94a3b8)">日期範圍（留空 = 全部）</span>
+        <div style="display:flex;gap:8px;margin-top:6px;align-items:center">
+          <input type="date" id="preorderExportFrom" style="flex:1;padding:8px;border:1px solid var(--border,#334155);border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9);font-size:13px">
+          <span style="color:var(--text-muted,#64748b)">～</span>
+          <input type="date" id="preorderExportTo" style="flex:1;padding:8px;border:1px solid var(--border,#334155);border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9);font-size:13px">
+        </div>
+      </label>
+    </div>
+    <div class="modal-footer" style="display:flex;gap:8px;justify-content:flex-end;padding:16px">
+      <button class="btn-secondary" onclick="closePreorderExportModal()">取消</button>
+      <button class="btn-primary" onclick="doPreorderExport()">⬇️ 下載</button>
+    </div>
+  </div>
+</div>
+
+<!-- LINE預購匯入 Modal -->
+<div class="modal-overlay" id="preorderImportModal" style="display:none" onclick="if(event.target===this)closePreorderImportModal()">
+  <div class="modal" style="max-width:480px">
+    <div class="modal-header">
+      <h3>📥 匯入預購</h3>
+      <button class="modal-close" onclick="closePreorderImportModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="margin-bottom:12px">
+        <span style="font-size:13px;color:var(--text-secondary,#94a3b8);display:block;margin-bottom:6px">選擇 JSON 備份檔</span>
+        <input type="file" id="preorderImportFile" accept=".json"
+          style="width:100%;box-sizing:border-box;padding:8px;border:1px dashed var(--border,#334155);border-radius:6px;background:transparent;color:var(--text-primary,#f1f5f9);font-size:13px;cursor:pointer"
+          onchange="onPreorderImportFileSelected(this)">
+      </div>
+      <div id="preorderImportPreview" style="display:none;background:var(--bg-base,#0f172a);border:1px solid var(--border,#334155);border-radius:8px;padding:12px;margin-bottom:12px;font-size:13px"></div>
+      <div style="margin-bottom:12px">
+        <span style="font-size:13px;color:var(--text-secondary,#94a3b8);display:block;margin-bottom:6px">重複單號策略</span>
+        <select id="preorderImportMode" style="width:100%;padding:8px;border:1px solid var(--border,#334155);border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9);font-size:13px">
+          <option value="skip">跳過重複（預設）</option>
+          <option value="overwrite">覆蓋更新</option>
+          <option value="copy">建立副本</option>
+        </select>
+      </div>
+      <div id="preorderImportResult" style="display:none;font-size:13px;padding:10px;border-radius:6px;margin-top:8px"></div>
+    </div>
+    <div class="modal-footer" style="display:flex;gap:8px;justify-content:flex-end;padding:16px">
+      <button class="btn-secondary" onclick="closePreorderImportModal()">取消</button>
+      <button class="btn-primary" id="preorderImportSubmitBtn" style="display:none" onclick="doPreorderImport()">✅ 確認匯入</button>
+    </div>
+  </div>
+</div>
+
+<!-- 搬家匯入：清空本店二次確認 Modal -->
+<div class="modal-overlay" id="migrationPurgeConfirmModal" style="display:none" onclick="">
+  <div class="modal" style="max-width:420px">
+    <div class="modal-header" style="border-bottom:2px solid rgba(239,68,68,.5)">
+      <h3 style="color:#f87171">⚠️ 清空本店後還原</h3>
+    </div>
+    <div class="modal-body">
+      <div style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.3);border-radius:8px;padding:14px;margin-bottom:16px;font-size:13px;line-height:1.7;color:#fca5a5">
+        此操作將清空目前店家的商品、分類、訂單、預購、折扣活動、商品分析群組與設定，再從備份檔還原。<br><br>
+        <strong>⚠️ 清空後無法復原，請確認已備份！</strong>
+      </div>
+      <div>
+        <label style="font-size:13px;color:var(--text-secondary,#94a3b8);display:block;margin-bottom:6px">
+          請輸入 <strong style="color:#f87171">確認還原</strong> 繼續
+        </label>
+        <input type="text" id="migrationPurgeConfirmInput"
+          placeholder="確認還原"
+          style="width:100%;box-sizing:border-box;padding:10px;border:1px solid rgba(239,68,68,.4);border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9);font-size:14px">
+      </div>
+    </div>
+    <div class="modal-footer" style="display:flex;gap:8px;justify-content:flex-end;padding:16px">
+      <button class="btn-secondary" onclick="closeMigrationPurgeConfirm()">取消</button>
+      <button style="padding:10px 20px;border-radius:8px;border:none;background:#ef4444;color:#fff;font-weight:700;cursor:pointer" onclick="executeMigrationImport()">清空並還原</button>
+    </div>
+  </div>
+</div>
 
 <div class="modal-overlay" id="productModal" onclick="if(event.target===this)closeProductModal()">
   <div class="modal">

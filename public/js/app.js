@@ -8047,3 +8047,519 @@ function _removeAlias(idx) {
 // 更新 window exports
 window.addAnalysisGroupAlias = addAnalysisGroupAlias;
 window._removeAlias           = _removeAlias;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// fix18-10 — 快速搬家檔 + 訂單/LINE預購 匯出匯入
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ── 共用：強制顯示 modal ─────────────────────────────────────────────────
+function showModal18(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.style.setProperty('display',         'flex',             'important');
+  el.style.setProperty('visibility',      'visible',          'important');
+  el.style.setProperty('opacity',         '1',                'important');
+  el.style.setProperty('pointer-events',  'auto',             'important');
+  el.style.setProperty('position',        'fixed',            'important');
+  el.style.setProperty('inset',           '0',                'important');
+  el.style.setProperty('z-index',         '99999',            'important');
+  el.style.setProperty('background',      'rgba(0,0,0,0.75)', 'important');
+  el.style.setProperty('align-items',     'center',           'important');
+  el.style.setProperty('justify-content', 'center',           'important');
+}
+function hideModal18(id) {
+  const el = document.getElementById(id);
+  if (el) el.style.setProperty('display', 'none', 'important');
+}
+
+// ── 共用：讀取 JSON 檔案 ─────────────────────────────────────────────────
+function readJsonFile(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload  = e => { try { resolve(JSON.parse(e.target.result)); } catch(err) { reject(new Error('JSON 解析失敗：' + err.message)); } };
+    r.onerror = () => reject(new Error('檔案讀取失敗'));
+    r.readAsText(file, 'utf-8');
+  });
+}
+
+// ── 共用：下載 blob ──────────────────────────────────────────────────────
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a   = document.createElement('a');
+  a.href    = url; a.download = filename;
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1000);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  A. 訂單匯出
+// ═══════════════════════════════════════════════════════════════════════════
+let _orderExportParsedDates = {};
+
+function openOrderExportModal() {
+  // 讀取目前查詢的日期範圍（若有）
+  const df = document.getElementById('dateFrom');
+  const dt = document.getElementById('dateTo');
+  _orderExportParsedDates = { from: df ? df.value : '', to: dt ? dt.value : '' };
+  showModal18('orderExportModal');
+}
+function closeOrderExportModal() { hideModal18('orderExportModal'); }
+
+async function doOrderExport() {
+  const format = document.getElementById('orderExportFormat').value;
+  const scope  = document.getElementById('orderExportScope').value;
+  let url = `/api/export/orders?format=${format}&scope=${scope}`;
+  if (scope === 'filtered' && _orderExportParsedDates.from && _orderExportParsedDates.to) {
+    url += `&date_from=${_orderExportParsedDates.from}&date_to=${_orderExportParsedDates.to}`;
+  }
+  try {
+    const res = await apiFetch(url);
+    if (!res.ok) { showToast('匯出失敗', 'error'); return; }
+    const blob = await res.blob();
+    const cd   = res.headers.get('content-disposition') || '';
+    const m    = cd.match(/filename="([^"]+)"/);
+    const name = m ? m[1] : `orders_export.${format}`;
+    downloadBlob(blob, name);
+    closeOrderExportModal();
+    showToast('訂單匯出成功', 'success');
+  } catch(e) { showToast('匯出失敗：' + e.message, 'error'); }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  B. 訂單匯入
+// ═══════════════════════════════════════════════════════════════════════════
+let _orderImportData = null;
+
+function openOrderImportModal() {
+  _orderImportData = null;
+  const fi = document.getElementById('orderImportFile');
+  if (fi) fi.value = '';
+  document.getElementById('orderImportPreview').style.display  = 'none';
+  document.getElementById('orderImportResult').style.display   = 'none';
+  document.getElementById('orderImportSubmitBtn').style.display = 'none';
+  showModal18('orderImportModal');
+}
+function closeOrderImportModal() { hideModal18('orderImportModal'); }
+
+async function onOrderImportFileSelected(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const preview = document.getElementById('orderImportPreview');
+  const submit  = document.getElementById('orderImportSubmitBtn');
+  preview.style.display = 'none';
+  submit.style.display  = 'none';
+  _orderImportData = null;
+
+  try {
+    const json = await readJsonFile(file);
+    // 支援兩種格式：直接 orders 陣列 或 { data: { orders, order_items, order_logs } }
+    let orders = [], orderItems = [], orderLogs = [];
+    if (Array.isArray(json)) {
+      orders = json;
+    } else if (json.data && Array.isArray(json.data.orders)) {
+      orders     = json.data.orders;
+      orderItems = json.data.order_items || [];
+      orderLogs  = json.data.order_logs  || [];
+    } else if (json.orders) {
+      orders     = json.orders;
+      orderItems = json.order_items || [];
+      orderLogs  = json.order_logs  || [];
+    } else {
+      preview.style.display = 'block';
+      preview.innerHTML = '<span style="color:#f87171">❌ 無法識別的 JSON 格式</span>';
+      return;
+    }
+    _orderImportData = { orders, order_items: orderItems, order_logs: orderLogs };
+    preview.style.display = 'block';
+    preview.innerHTML = `<div style="color:var(--accent,#3b82f6);font-weight:700;margin-bottom:6px">📋 檔案預覽</div>
+      <div>訂單：<strong>${orders.length}</strong> 筆</div>
+      <div>訂單明細：<strong>${orderItems.length}</strong> 筆</div>
+      <div>訂單紀錄：<strong>${orderLogs.length}</strong> 筆</div>`;
+    submit.style.display = '';
+  } catch(e) {
+    preview.style.display = 'block';
+    preview.innerHTML = `<span style="color:#f87171">❌ ${escHtml(e.message)}</span>`;
+  }
+}
+
+async function doOrderImport() {
+  if (!_orderImportData) return;
+  const mode   = document.getElementById('orderImportMode').value;
+  const btn    = document.getElementById('orderImportSubmitBtn');
+  const result = document.getElementById('orderImportResult');
+  btn.disabled = true; btn.textContent = '匯入中…';
+  result.style.display = 'none';
+
+  try {
+    const res  = await apiFetch('/api/import/orders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...(_orderImportData), mode })
+    });
+    const json = await res.json();
+    result.style.display = 'block';
+    if (json.success) {
+      const parts = [];
+      if (json.added)   parts.push(`新增 ${json.added} 筆`);
+      if (json.updated) parts.push(`更新 ${json.updated} 筆`);
+      if (json.skipped) parts.push(`跳過 ${json.skipped} 筆`);
+      if (json.failed)  parts.push(`失敗 ${json.failed} 筆`);
+      result.style.background = 'rgba(34,197,94,.1)';
+      result.style.color      = '#4ade80';
+      result.innerHTML = `✅ 匯入完成：${parts.join('、')}` +
+        (json.errors && json.errors.length ? `<br><small style="color:#f87171">${json.errors.slice(0,3).map(e=>escHtml(e)).join('<br>')}</small>` : '');
+      showToast('訂單匯入完成', 'success');
+    } else {
+      result.style.background = 'rgba(239,68,68,.1)';
+      result.style.color      = '#f87171';
+      result.innerHTML = `❌ 匯入失敗：${escHtml(json.message || '')}`;
+      showToast('匯入失敗', 'error');
+    }
+  } catch(e) {
+    result.style.display = 'block';
+    result.style.background = 'rgba(239,68,68,.1)';
+    result.style.color      = '#f87171';
+    result.innerHTML = `❌ ${escHtml(e.message)}`;
+    showToast('匯入失敗', 'error');
+  }
+  btn.disabled = false; btn.textContent = '✅ 確認匯入';
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  C. LINE預購匯出
+// ═══════════════════════════════════════════════════════════════════════════
+function openPreorderExportModal() {
+  showModal18('preorderExportModal');
+}
+function closePreorderExportModal() { hideModal18('preorderExportModal'); }
+
+async function doPreorderExport() {
+  const format = document.getElementById('preorderExportFormat').value;
+  const dFrom  = document.getElementById('preorderExportFrom').value;
+  const dTo    = document.getElementById('preorderExportTo').value;
+  let url      = `/api/export/preorders?format=${format}`;
+  if (dFrom && dTo) url += `&date_from=${dFrom}&date_to=${dTo}`;
+
+  try {
+    const res = await apiFetch(url);
+    if (!res.ok) { showToast('匯出失敗', 'error'); return; }
+    const blob = await res.blob();
+    const cd   = res.headers.get('content-disposition') || '';
+    const m    = cd.match(/filename="([^"]+)"/);
+    const name = m ? m[1] : `preorders_export.${format}`;
+    downloadBlob(blob, name);
+    closePreorderExportModal();
+    showToast('預購匯出成功', 'success');
+  } catch(e) { showToast('匯出失敗：' + e.message, 'error'); }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  D. LINE預購匯入
+// ═══════════════════════════════════════════════════════════════════════════
+let _preorderImportData = null;
+
+function openPreorderImportModal() {
+  _preorderImportData = null;
+  const fi = document.getElementById('preorderImportFile');
+  if (fi) fi.value = '';
+  document.getElementById('preorderImportPreview').style.display  = 'none';
+  document.getElementById('preorderImportResult').style.display   = 'none';
+  document.getElementById('preorderImportSubmitBtn').style.display = 'none';
+  showModal18('preorderImportModal');
+}
+function closePreorderImportModal() { hideModal18('preorderImportModal'); }
+
+async function onPreorderImportFileSelected(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const preview = document.getElementById('preorderImportPreview');
+  const submit  = document.getElementById('preorderImportSubmitBtn');
+  preview.style.display = 'none';
+  submit.style.display  = 'none';
+  _preorderImportData = null;
+
+  try {
+    const json = await readJsonFile(file);
+    let preorders = [];
+    if (Array.isArray(json)) {
+      preorders = json;
+    } else if (json.data && Array.isArray(json.data.preorders)) {
+      preorders = json.data.preorders;
+    } else if (Array.isArray(json.preorders)) {
+      preorders = json.preorders;
+    } else {
+      preview.style.display = 'block';
+      preview.innerHTML = '<span style="color:#f87171">❌ 無法識別的 JSON 格式</span>';
+      return;
+    }
+    _preorderImportData = { preorders };
+    preview.style.display = 'block';
+    preview.innerHTML = `<div style="color:var(--accent,#3b82f6);font-weight:700;margin-bottom:6px">📋 檔案預覽</div>
+      <div>LINE 預購：<strong>${preorders.length}</strong> 筆</div>`;
+    submit.style.display = '';
+  } catch(e) {
+    preview.style.display = 'block';
+    preview.innerHTML = `<span style="color:#f87171">❌ ${escHtml(e.message)}</span>`;
+  }
+}
+
+async function doPreorderImport() {
+  if (!_preorderImportData) return;
+  const mode   = document.getElementById('preorderImportMode').value;
+  const btn    = document.getElementById('preorderImportSubmitBtn');
+  const result = document.getElementById('preorderImportResult');
+  btn.disabled = true; btn.textContent = '匯入中…';
+  result.style.display = 'none';
+
+  try {
+    const res  = await apiFetch('/api/import/preorders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...(_preorderImportData), mode })
+    });
+    const json = await res.json();
+    result.style.display = 'block';
+    if (json.success) {
+      const parts = [];
+      if (json.added)   parts.push(`新增 ${json.added} 筆`);
+      if (json.updated) parts.push(`更新 ${json.updated} 筆`);
+      if (json.skipped) parts.push(`跳過 ${json.skipped} 筆`);
+      if (json.failed)  parts.push(`失敗 ${json.failed} 筆`);
+      result.style.background = 'rgba(34,197,94,.1)';
+      result.style.color      = '#4ade80';
+      result.innerHTML = `✅ 匯入完成：${parts.join('、')}`;
+      showToast('預購匯入完成', 'success');
+    } else {
+      result.style.background = 'rgba(239,68,68,.1)';
+      result.style.color      = '#f87171';
+      result.innerHTML = `❌ 匯入失敗：${escHtml(json.message || '')}`;
+      showToast('匯入失敗', 'error');
+    }
+  } catch(e) {
+    result.style.display = 'block';
+    result.style.background = 'rgba(239,68,68,.1)';
+    result.style.color      = '#f87171';
+    result.innerHTML = `❌ ${escHtml(e.message)}`;
+    showToast('匯入失敗', 'error');
+  }
+  btn.disabled = false; btn.textContent = '✅ 確認匯入';
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  E. 快速搬家檔 — 系統設定頁
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ── E-1. 匯出搬家檔 ──────────────────────────────────────────────────────
+async function exportMigrationFile() {
+  const statusEl = document.getElementById('migrationExportStatus');
+  if (statusEl) { statusEl.style.color = 'var(--text-secondary,#94a3b8)'; statusEl.textContent = '準備匯出…'; }
+  try {
+    const res = await apiFetch('/api/migration/export');
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      throw new Error(j.message || `HTTP ${res.status}`);
+    }
+    const blob = await res.blob();
+    const cd   = res.headers.get('content-disposition') || '';
+    const m    = cd.match(/filename="([^"]+)"/);
+    const name = m ? m[1] : 'pos_migration.json';
+    downloadBlob(blob, name);
+    if (statusEl) { statusEl.style.color = '#4ade80'; statusEl.textContent = `✅ 已下載：${name}`; }
+    showToast('搬家檔匯出成功', 'success');
+  } catch(e) {
+    if (statusEl) { statusEl.style.color = '#f87171'; statusEl.textContent = `❌ 匯出失敗：${e.message}`; }
+    showToast('匯出失敗：' + e.message, 'error');
+  }
+}
+
+// ── E-2. 選擇搬家檔 ──────────────────────────────────────────────────────
+let _migrationPayload = null;
+let _migrationPreviewData = null;
+
+async function onMigrationFileSelected(input) {
+  const file = input.files[0];
+  if (!file) return;
+  _migrationPayload  = null;
+  _migrationPreviewData = null;
+
+  const previewBox  = document.getElementById('migrationPreviewBox');
+  const previewSum  = document.getElementById('migrationPreviewSummary');
+  const crossWarn   = document.getElementById('migrationCrossStoreWarn');
+  const modeBox     = document.getElementById('migrationModeBox');
+  const previewBtn  = document.getElementById('migrationPreviewBtn');
+  const importBtn   = document.getElementById('migrationImportBtn');
+  const statusEl    = document.getElementById('migrationImportStatus');
+
+  previewBox.style.display = 'none';
+  modeBox.style.display    = 'none';
+  if (previewBtn)  previewBtn.style.display  = 'none';
+  if (importBtn)   importBtn.style.display   = 'none';
+  if (statusEl)    statusEl.textContent      = '';
+
+  try {
+    const json = await readJsonFile(file);
+    if (!json || json.type !== 'pos_migration_backup') {
+      previewBox.style.display = 'block';
+      previewSum.innerHTML     = '<span style="color:#f87171">❌ 不是有效的搬家檔（type 欄位不符）</span>';
+      crossWarn.style.display  = 'none';
+      return;
+    }
+    _migrationPayload = json;
+
+    // Call preview API to get summary
+    const res  = await apiFetch('/api/migration/import/preview', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(json)
+    });
+    const prev = await res.json();
+    if (!prev.success) throw new Error(prev.message || 'preview 失敗');
+    _migrationPreviewData = prev;
+
+    const s = prev.summary;
+    previewSum.innerHTML = `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;font-size:13px">
+        <div>商品：<strong>${s.products}</strong> 筆</div>
+        <div>分類：<strong>${s.categories}</strong> 筆</div>
+        <div>訂單：<strong>${s.orders}</strong> 筆</div>
+        <div>訂單明細：<strong>${s.order_items}</strong> 筆</div>
+        <div>LINE預購：<strong>${s.preorders}</strong> 筆</div>
+        <div>折扣分類：<strong>${s.discount_categories}</strong> 筆</div>
+        <div>折扣活動：<strong>${s.discount_campaigns}</strong> 筆</div>
+        <div>分析群組：<strong>${s.product_analysis_groups}</strong> 筆</div>
+        <div>群組成員：<strong>${s.product_analysis_group_items}</strong> 筆</div>
+        <div>歷史別名：<strong>${s.product_analysis_group_aliases}</strong> 筆</div>
+        <div>設定：<strong>${s.settings}</strong> 筆</div>
+      </div>
+      <div style="margin-top:8px;font-size:12px;color:var(--text-muted,#64748b)">
+        備份店家：${escHtml(prev.store_name || prev.file_store_id || '—')} ／ 版本：${escHtml(prev.version||'—')} ／ 匯出時間：${escHtml((prev.exported_at||'').slice(0,19).replace('T',' '))}
+      </div>`;
+
+    if (prev.cross_store) {
+      crossWarn.style.display = 'block';
+      crossWarn.innerHTML = `⚠️ 備份檔屬於店家 <strong>${escHtml(prev.file_store_id)}</strong>，目前店家是 <strong>${escHtml(prev.current_store_id)}</strong>。跨店匯入請謹慎確認！`;
+    } else {
+      crossWarn.style.display = 'none';
+    }
+
+    previewBox.style.display = 'block';
+    modeBox.style.display    = 'block';
+    if (previewBtn)  previewBtn.style.display  = '';
+    if (importBtn)   importBtn.style.display   = '';
+
+  } catch(e) {
+    previewBox.style.display = 'block';
+    previewSum.innerHTML     = `<span style="color:#f87171">❌ ${escHtml(e.message)}</span>`;
+    crossWarn.style.display  = 'none';
+  }
+}
+
+// ── E-3. 預覽（re-call）────────────────────────────────────────────────
+async function previewMigrationFile() {
+  // already done in onMigrationFileSelected; just scroll to preview
+  const el = document.getElementById('migrationPreviewBox');
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// ── E-4. 確認匯入入口 ─────────────────────────────────────────────────
+function confirmMigrationImport() {
+  if (!_migrationPayload) { showToast('請先選擇備份檔', 'error'); return; }
+  const mode = document.querySelector('input[name="migrationMode"]:checked')?.value || 'skip';
+  if (mode === 'purge') {
+    // 需二次確認
+    const inp = document.getElementById('migrationPurgeConfirmInput');
+    if (inp) inp.value = '';
+    showModal18('migrationPurgeConfirmModal');
+  } else {
+    executeMigrationImport();
+  }
+}
+
+// ── E-5. 關閉二次確認 Modal ───────────────────────────────────────────
+function closeMigrationPurgeConfirm() { hideModal18('migrationPurgeConfirmModal'); }
+
+// ── E-6. 實際執行匯入 ─────────────────────────────────────────────────
+async function executeMigrationImport() {
+  const mode = document.querySelector('input[name="migrationMode"]:checked')?.value || 'skip';
+
+  // 清空模式：驗證確認輸入
+  if (mode === 'purge') {
+    const val = (document.getElementById('migrationPurgeConfirmInput')?.value || '').trim();
+    if (val !== '確認還原') {
+      showToast('請輸入「確認還原」才能繼續', 'error');
+      return;
+    }
+    closeMigrationPurgeConfirm();
+  }
+
+  const statusEl  = document.getElementById('migrationImportStatus');
+  const importBtn = document.getElementById('migrationImportBtn');
+  if (statusEl)  { statusEl.style.color = 'var(--text-secondary,#94a3b8)'; statusEl.textContent = '匯入中，請勿關閉頁面…'; }
+  if (importBtn) { importBtn.disabled = true; importBtn.textContent = '匯入中…'; }
+
+  // 跨店處理
+  const allowCross = _migrationPreviewData ? _migrationPreviewData.cross_store : false;
+
+  try {
+    const res  = await apiFetch('/api/migration/import', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({
+        payload:               _migrationPayload,
+        mode:                  mode === 'purge' ? 'replace' : mode,
+        allowCrossStoreImport: allowCross
+      })
+    });
+    const json = await res.json();
+
+    if (json.success) {
+      const r = json.results || {};
+      const lines = [
+        `商品：${r.products||0} 筆`,
+        `分類：${r.categories||0} 筆`,
+        `訂單：${r.orders||0} 筆`,
+        `折扣活動：${r.discount_campaigns||0} 筆`,
+        `分析群組：${r.analysis_groups||0} 筆`,
+        `歷史別名：${r.analysis_aliases||0} 筆`,
+        `設定：${r.settings||0} 筆`
+      ].join('、');
+      if (statusEl) {
+        statusEl.style.color = '#4ade80';
+        statusEl.innerHTML = `✅ 匯入完成（模式：${mode}）<br><small style="color:var(--text-muted,#64748b)">${lines}</small>` +
+          (r.errors && r.errors.length ? `<br><small style="color:#f87171">部分錯誤：${r.errors.slice(0,3).map(e=>escHtml(e)).join(' / ')}</small>` : '');
+      }
+      showToast('搬家檔匯入完成', 'success');
+    } else {
+      if (json.cross_store) {
+        if (statusEl) {
+          statusEl.style.color = '#f87171';
+          statusEl.textContent = `❌ 跨店匯入被拒：${json.message}`;
+        }
+        showToast('跨店匯入被拒', 'error');
+      } else {
+        if (statusEl) { statusEl.style.color = '#f87171'; statusEl.textContent = `❌ 匯入失敗：${json.message}`; }
+        showToast('匯入失敗：' + json.message, 'error');
+      }
+    }
+  } catch(e) {
+    if (statusEl) { statusEl.style.color = '#f87171'; statusEl.textContent = `❌ 匯入失敗：${e.message}`; }
+    showToast('匯入失敗：' + e.message, 'error');
+  }
+
+  if (importBtn) { importBtn.disabled = false; importBtn.textContent = '✅ 確認匯入'; }
+}
+
+// ── 全域匯出（fix18-10）────────────────────────────────────────────────
+(function exportMigration18Globals() {
+  const fns = {
+    openOrderExportModal, closeOrderExportModal, doOrderExport,
+    openOrderImportModal, closeOrderImportModal, onOrderImportFileSelected, doOrderImport,
+    openPreorderExportModal, closePreorderExportModal, doPreorderExport,
+    openPreorderImportModal, closePreorderImportModal, onPreorderImportFileSelected, doPreorderImport,
+    exportMigrationFile, onMigrationFileSelected, previewMigrationFile,
+    confirmMigrationImport, closeMigrationPurgeConfirm, executeMigrationImport
+  };
+  Object.assign(window, fns);
+})();
+
+// fix18-10 end
