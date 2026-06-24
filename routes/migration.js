@@ -1,8 +1,13 @@
-// routes/migration.js — fix18-10-hotfix5
+// routes/migration.js — fix18-10-hotfix6
 //
-// fix18-10-hotfix5 修正：
+// fix18-10-hotfix6 修正（含 hotfix5 全部修正）：
 //
 // BUG-3: delivery_platforms 硬寫 code 欄位，但 DB 無此欄位
+//
+// BUG-4: categories/products/discount_categories/discount_campaigns/analysis_groups
+//   有 id INTEGER PK 跨店衝突，INSERT OR IGNORE 因 PK 已被其他店占用而靜默跳過
+//   修正：不寫入 id，以 (store_id, name) 判斷重複，讓 AUTOINCREMENT 自動指派新 id
+//         analysis_items/aliases 使用 groupIdRemap 對照舊→新 group_id/product_id
 //   根因：migration/import 對 delivery_platforms（與其他多張表）硬寫欄位清單，
 //         備份檔欄位多於 DB 實際欄位時 INSERT 失敗，導致整批 failed。
 //   修正：所有資料表改用 PRAGMA table_info() 動態取得實際欄位，
@@ -232,7 +237,7 @@ router.get('/export/orders', (req, res) => {
       return res.send(BOM + toCsv(headers, orders));
     }
 
-    const payload = { type:'orders_backup', version:'fix18-10-hotfix5',
+    const payload = { type:'orders_backup', version:'fix18-10-hotfix6',
       exported_at: isoNow(), store_id: storeId,
       data: { orders, order_items: orderItemsExpanded, order_logs: orderLogs } };
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
@@ -385,7 +390,7 @@ router.get('/export/preorders', (req, res) => {
       res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
       return res.send(BOM + toCsv(headers, preorders));
     }
-    const payload = { type:'preorders_backup', version:'fix18-10-hotfix5',
+    const payload = { type:'preorders_backup', version:'fix18-10-hotfix6',
       exported_at: isoNow(), store_id: storeId, data: { preorders } };
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
@@ -529,7 +534,7 @@ router.get('/migration/export', (req, res) => {
     const ts = tsFile(), fileName = `pos_migration_${storeId}_${ts}.json`;
 
     const payload = {
-      type: 'pos_migration_backup', version: 'fix18-10-hotfix5',
+      type: 'pos_migration_backup', version: 'fix18-10-hotfix6',
       exported_at: isoNow(), store_id: storeId,
       store_name: storeRow ? (storeRow.name||storeRow.store_id||storeId) : storeId,
       schema_version: 2,
@@ -628,7 +633,7 @@ router.post('/migration/import/preview', (req, res) => {
 // ══════════════════════════════════════════════════════════════════════════
 //  快速搬家檔匯入  POST /api/migration/import
 //
-//  fix18-10-hotfix5 核心修正：
+//  fix18-10-hotfix6 核心修正：
 //  全部資料表改用 PRAGMA table_info() 動態取得欄位，
 //  只 INSERT 目前 DB 實際存在的欄位，備份檔多餘欄位自動略過。
 // ══════════════════════════════════════════════════════════════════════════
@@ -713,35 +718,113 @@ router.post('/migration/import', (req, res) => {
         }
 
         // ── categories（動態欄位）────────────────────────────────────────
+        // ── categories（BUG-4 修正：id INTEGER PK 跨店衝突）──────────────
+        // 根因：categories.id INTEGER PRIMARY KEY AUTOINCREMENT，store_001 id=1
+        //       store_03 匯入時 INSERT OR IGNORE 因 PK 衝突被靜默跳過。
+        // 修正：不寫入 id，讓 AUTOINCREMENT 自動指派新 id；
+        //       以 (store_id, name) 判斷是否已存在。
         const catCols = schemas['categories'];
+        // 不含 id 的欄位清單（AUTOINCREMENT 自動指派）
+        const catInsertCandidates = ['store_id','name','icon','sort_order','is_active','created_at'];
         for (const c of (d.categories||[])) {
           try {
+            // 用 store_id + name 判斷本店是否已有此分類
+            const existCat = safeGet(db,
+              'SELECT id FROM categories WHERE store_id=? AND name=?', [storeId, c.name||'']);
+            if (existCat) {
+              if (mode === 'skip' || mode === 'replace') { results.categories.skipped++; continue; }
+              if (mode === 'overwrite') {
+                const n = rawRunCount(raw,
+                  `UPDATE categories SET icon=?,sort_order=?,is_active=? WHERE store_id=? AND name=?`,
+                  [c.icon||'📌', c.sort_order||0, c.is_active??1, storeId, c.name||'']);
+                if (n > 0) results.categories.added++; else results.categories.skipped++;
+              } else { results.categories.skipped++; }
+              continue;
+            }
             const src = {
-              id: c.id, store_id: storeId,
+              store_id: storeId,
               name: c.name||'', icon: c.icon||'📌',
               sort_order: c.sort_order||0, is_active: c.is_active??1,
               created_at: c.created_at||''
             };
-            const q = buildDynamicInsert('categories',
-              ['id','store_id','name','icon','sort_order','is_active','created_at'],
-              src, catCols, orMode);
+            const q = buildDynamicInsert('categories', catInsertCandidates, src, catCols, 'OR IGNORE');
             if (!q) { results.categories.skipped++; continue; }
             const n = rawRunCount(raw, q.sql, q.vals);
             if (n > 0) results.categories.added++; else results.categories.skipped++;
           } catch(e) {
-            results.categories.errors.push(`id=${c.id}: ${e.message}`);
+            results.categories.errors.push(`name=${c.name}: ${e.message}`);
             results.categories.failed++;
             if (strictMode) throw e;
           }
         }
 
-        // ── products（動態欄位）──────────────────────────────────────────
+        // 建立 category name → 新 id 的對照表（供 products 更新 category_id 用）
+        const catNameToId = {};
+        try {
+          const newCats = safeAll(db, 'SELECT id,name FROM categories WHERE store_id=?', [storeId]);
+          for (const nc of newCats) catNameToId[nc.name] = nc.id;
+        } catch {}
+
+        // ── products（BUG-4 修正：id INTEGER PK 跨店衝突）──────────────
+        // 根因：同 categories，products.id INTEGER PRIMARY KEY AUTOINCREMENT，
+        //       INSERT OR IGNORE 因 PK 衝突被靜默跳過。
+        // 修正：不寫入 id，讓 AUTOINCREMENT 自動指派；
+        //       以 (store_id, name) 判斷是否已存在；
+        //       category_id 使用上方建立的 catNameToId 對照表重新對應。
         const prodCols = schemas['products'];
+        // 不含 id 的欄位清單
+        const prodInsertCandidates = [
+          'store_id','name','category','category_id','price',
+          'allocated_grams','current_stock_grams','low_stock_alert',
+          'show_on_line','line_price','line_description','line_image_url','line_category',
+          'line_hot','line_promo','line_sold_out','image','sort_order','sale_status',
+          'inventory_enabled','line_preorder_enabled','line_preorder_daily','line_preorder_sold',
+          'line_preorder_low_threshold','line_preorder_high_threshold',
+          'created_at','updated_at'
+        ];
         for (const p of (d.products||[])) {
           try {
+            // 用 store_id + name 判斷本店是否已有此商品
+            const existProd = safeGet(db,
+              'SELECT id FROM products WHERE store_id=? AND name=?', [storeId, p.name||'']);
+            // category_id 重新對應本店的分類 id
+            const remappedCatId = catNameToId[p.category||''] || p.category_id || null;
+            if (existProd) {
+              if (mode === 'skip' || mode === 'replace') { results.products.skipped++; continue; }
+              if (mode === 'overwrite') {
+                // UPDATE 用 store_id + name，不用 id
+                const updSrc = {
+                  store_id: storeId, name: p.name||'',
+                  category: p.category||'', category_id: remappedCatId,
+                  price: p.price||0, allocated_grams: p.allocated_grams||0,
+                  current_stock_grams: p.current_stock_grams||0, low_stock_alert: p.low_stock_alert||5,
+                  show_on_line: p.show_on_line??1, line_price: p.line_price||0,
+                  line_description: p.line_description||'', line_image_url: p.line_image_url||'',
+                  line_category: p.line_category||'', line_hot: p.line_hot||0,
+                  line_promo: p.line_promo||0, line_sold_out: p.line_sold_out||0,
+                  image: p.image||'', sort_order: p.sort_order||0,
+                  sale_status: p.sale_status||'available', inventory_enabled: p.inventory_enabled||0,
+                  line_preorder_enabled: p.line_preorder_enabled||0,
+                  line_preorder_daily: p.line_preorder_daily||0,
+                  line_preorder_sold: p.line_preorder_sold||0,
+                  line_preorder_low_threshold: p.line_preorder_low_threshold||2,
+                  line_preorder_high_threshold: p.line_preorder_high_threshold||10,
+                  updated_at: ''
+                };
+                const updCandidates = prodInsertCandidates.filter(c => !['store_id','name','created_at'].includes(c));
+                const updCols = updCandidates.filter(c => prodCols.has(c));
+                if (updCols.length) {
+                  const updVals = [...updCols.map(c => updSrc[c] ?? null), storeId, p.name||''];
+                  const updSql = `UPDATE products SET ${updCols.map(c=>`${c}=?`).join(',')},updated_at=datetime('now','localtime') WHERE store_id=? AND name=?`;
+                  const n = rawRunCount(raw, updSql, updVals);
+                  if (n > 0) results.products.added++; else results.products.skipped++;
+                } else { results.products.skipped++; }
+              } else { results.products.skipped++; }
+              continue;
+            }
             const src = {
-              id: p.id, store_id: storeId,
-              name: p.name||'', category: p.category||'', category_id: p.category_id||null,
+              store_id: storeId,
+              name: p.name||'', category: p.category||'', category_id: remappedCatId,
               price: p.price||0, allocated_grams: p.allocated_grams||0,
               current_stock_grams: p.current_stock_grams||0, low_stock_alert: p.low_stock_alert||5,
               show_on_line: p.show_on_line??1, line_price: p.line_price||0,
@@ -757,21 +840,12 @@ router.post('/migration/import', (req, res) => {
               line_preorder_high_threshold: p.line_preorder_high_threshold||10,
               created_at: p.created_at||'', updated_at: p.updated_at||''
             };
-            const candidates = [
-              'id','store_id','name','category','category_id','price',
-              'allocated_grams','current_stock_grams','low_stock_alert',
-              'show_on_line','line_price','line_description','line_image_url','line_category',
-              'line_hot','line_promo','line_sold_out','image','sort_order','sale_status',
-              'inventory_enabled','line_preorder_enabled','line_preorder_daily','line_preorder_sold',
-              'line_preorder_low_threshold','line_preorder_high_threshold',
-              'created_at','updated_at'
-            ];
-            const q = buildDynamicInsert('products', candidates, src, prodCols, orMode);
+            const q = buildDynamicInsert('products', prodInsertCandidates, src, prodCols, 'OR IGNORE');
             if (!q) { results.products.skipped++; continue; }
             const n = rawRunCount(raw, q.sql, q.vals);
             if (n > 0) results.products.added++; else results.products.skipped++;
           } catch(e) {
-            results.products.errors.push(`id=${p.id}: ${e.message}`);
+            results.products.errors.push(`name=${p.name}: ${e.message}`);
             results.products.failed++;
             if (strictMode) throw e;
           }
@@ -915,92 +989,148 @@ router.post('/migration/import', (req, res) => {
           }
         }
 
-        // ── discount_categories（動態欄位）──────────────────────────────
+        // ── discount_categories（不寫 id，避免跨店 PK 衝突）────────────
         const discCatCols = schemas['discount_categories'];
         for (const c of (d.discount_categories||[])) {
           try {
+            const existDC = safeGet(db,
+              'SELECT id FROM discount_categories WHERE store_id=? AND name=?', [storeId, c.name||c.label||'']);
+            if (existDC) {
+              if (mode === 'skip' || mode === 'replace') { results.discount_categories.skipped++; continue; }
+              if (mode === 'overwrite') {
+                const n = rawRunCount(raw,
+                  `UPDATE discount_categories SET code=?,icon=?,color=?,enabled=?,sort_order=? WHERE store_id=? AND name=?`,
+                  [c.code||'', c.icon||'💸', c.color||'#94a3b8', c.enabled??c.is_active??1, c.sort_order||0, storeId, c.name||c.label||'']);
+                if (n > 0) results.discount_categories.added++; else results.discount_categories.skipped++;
+              } else { results.discount_categories.skipped++; }
+              continue;
+            }
             const src = {
-              id: c.id, store_id: storeId,
+              store_id: storeId,
               code: c.code||'', name: c.name||c.label||'',
               icon: c.icon||'💸', color: c.color||'#94a3b8',
               enabled: c.enabled??c.is_active??1,
               sort_order: c.sort_order||0, created_at: c.created_at||''
             };
             const q = buildDynamicInsert('discount_categories',
-              ['id','store_id','code','name','icon','color','enabled','sort_order','created_at'],
-              src, discCatCols, orMode);
+              ['store_id','code','name','icon','color','enabled','sort_order','created_at'],
+              src, discCatCols, 'OR IGNORE');
             if (!q) { results.discount_categories.skipped++; continue; }
             const n = rawRunCount(raw, q.sql, q.vals);
             if (n > 0) results.discount_categories.added++; else results.discount_categories.skipped++;
           } catch(e) {
-            results.discount_categories.errors.push(`id=${c.id}: ${e.message}`);
+            results.discount_categories.errors.push(`name=${c.name}: ${e.message}`);
             results.discount_categories.failed++;
             if (strictMode) throw e;
           }
         }
 
-        // ── discount_campaigns（動態欄位）───────────────────────────────
+        // ── discount_campaigns（不寫 id，避免跨店 PK 衝突）─────────────
         const discCampCols = schemas['discount_campaigns'];
         for (const c of (d.discount_campaigns||[])) {
           try {
+            const existDC2 = safeGet(db,
+              'SELECT id FROM discount_campaigns WHERE store_id=? AND name=?', [storeId, c.name||'']);
+            if (existDC2) {
+              if (mode === 'skip' || mode === 'replace') { results.discount_campaigns.skipped++; continue; }
+              if (mode === 'overwrite') {
+                const n = rawRunCount(raw,
+                  `UPDATE discount_campaigns SET description=?,enabled=?,sort_order=? WHERE store_id=? AND name=?`,
+                  [c.description||'', c.enabled??c.is_active??1, c.sort_order||0, storeId, c.name||'']);
+                if (n > 0) results.discount_campaigns.added++; else results.discount_campaigns.skipped++;
+              } else { results.discount_campaigns.skipped++; }
+              continue;
+            }
             const src = {
-              id: c.id, store_id: storeId,
+              store_id: storeId,
               name: c.name||'', description: c.description||'',
               enabled: c.enabled??c.is_active??1,
               sort_order: c.sort_order||0, created_at: c.created_at||''
             };
             const q = buildDynamicInsert('discount_campaigns',
-              ['id','store_id','name','description','enabled','sort_order','created_at'],
-              src, discCampCols, orMode);
+              ['store_id','name','description','enabled','sort_order','created_at'],
+              src, discCampCols, 'OR IGNORE');
             if (!q) { results.discount_campaigns.skipped++; continue; }
             const n = rawRunCount(raw, q.sql, q.vals);
             if (n > 0) results.discount_campaigns.added++; else results.discount_campaigns.skipped++;
           } catch(e) {
-            results.discount_campaigns.errors.push(`id=${c.id}: ${e.message}`);
+            results.discount_campaigns.errors.push(`name=${c.name}: ${e.message}`);
             results.discount_campaigns.failed++;
             if (strictMode) throw e;
           }
         }
 
-        // ── product_analysis_groups（動態欄位）──────────────────────────
+        // ── product_analysis_groups（不寫 id，避免跨店 PK 衝突）────────
+        // 建立 old group_id → new group_id 對照表（供 items/aliases 重新對應）
         const grpCols = schemas['analysis_groups'];
+        const groupIdRemap = {}; // backup file group_id → current DB group_id
         for (const g of (d.product_analysis_groups||[])) {
           try {
+            const gName = g.group_name||g.name||'';
+            const existGrp = safeGet(db,
+              'SELECT id FROM product_analysis_groups WHERE store_id=? AND group_name=?', [storeId, gName]);
+            if (existGrp) {
+              groupIdRemap[g.id] = existGrp.id;
+              if (mode === 'skip' || mode === 'replace') { results.analysis_groups.skipped++; continue; }
+              if (mode === 'overwrite') {
+                rawRunCount(raw,
+                  `UPDATE product_analysis_groups SET description=?,enabled=?,sort_order=?,updated_at=datetime('now','localtime') WHERE store_id=? AND group_name=?`,
+                  [g.description||'', g.enabled??1, g.sort_order||0, storeId, gName]);
+                results.analysis_groups.added++;
+              } else { results.analysis_groups.skipped++; }
+              continue;
+            }
             const src = {
-              id: g.id, store_id: storeId,
-              group_name: g.group_name||g.name||'', description: g.description||'',
+              store_id: storeId,
+              group_name: gName, description: g.description||'',
               enabled: g.enabled??g.is_active??1,
               sort_order: g.sort_order||0,
               created_at: g.created_at||'', updated_at: g.updated_at||g.created_at||''
             };
             const q = buildDynamicInsert('product_analysis_groups',
-              ['id','store_id','group_name','description','enabled','sort_order','created_at','updated_at'],
-              src, grpCols, orMode);
+              ['store_id','group_name','description','enabled','sort_order','created_at','updated_at'],
+              src, grpCols, 'OR IGNORE');
             if (!q) { results.analysis_groups.skipped++; continue; }
-            const n = rawRunCount(raw, q.sql, q.vals);
-            if (n > 0) results.analysis_groups.added++; else results.analysis_groups.skipped++;
+            rawRunCount(raw, q.sql, q.vals);
+            // 取剛插入的新 id
+            const newGrp = safeGet(db,
+              'SELECT id FROM product_analysis_groups WHERE store_id=? AND group_name=?', [storeId, gName]);
+            if (newGrp) {
+              groupIdRemap[g.id] = newGrp.id;
+              results.analysis_groups.added++;
+            } else { results.analysis_groups.skipped++; }
           } catch(e) {
-            results.analysis_groups.errors.push(`id=${g.id}: ${e.message}`);
+            results.analysis_groups.errors.push(`name=${g.group_name}: ${e.message}`);
             results.analysis_groups.failed++;
             if (strictMode) throw e;
           }
         }
 
-        // ── product_analysis_group_items（動態欄位）─────────────────────
+        // ── product_analysis_group_items（不寫 id，使用 remapped group_id）
         const giCols = schemas['analysis_items'];
         for (const gi of (d.product_analysis_group_items||[])) {
           try {
-            const pName = gi.product_name
-              || (safeGet(db,'SELECT name FROM products WHERE id=?',[gi.product_id])?.name)
-              || '';
+            // 使用 group_id 對照表重新對應
+            const newGroupId = groupIdRemap[gi.group_id] || gi.group_id;
+            // 用 product_name 查本店實際 product_id
+            const pName = gi.product_name || '';
+            let newProductId = gi.product_id;
+            if (pName) {
+              const prodRow = safeGet(db, 'SELECT id FROM products WHERE store_id=? AND name=?', [storeId, pName]);
+              if (prodRow) newProductId = prodRow.id;
+            }
+            const existGI = safeGet(db,
+              'SELECT id FROM product_analysis_group_items WHERE store_id=? AND group_id=? AND product_id=?',
+              [storeId, newGroupId, newProductId]);
+            if (existGI) { results.analysis_items.skipped++; continue; }
             const src = {
-              id: gi.id, store_id: storeId,
-              group_id: gi.group_id, product_id: gi.product_id,
+              store_id: storeId,
+              group_id: newGroupId, product_id: newProductId,
               product_name: pName, created_at: gi.created_at||''
             };
             const q = buildDynamicInsert('product_analysis_group_items',
-              ['id','store_id','group_id','product_id','product_name','created_at'],
-              src, giCols, orMode);
+              ['store_id','group_id','product_id','product_name','created_at'],
+              src, giCols, 'OR IGNORE');
             if (!q) { results.analysis_items.skipped++; continue; }
             const n = rawRunCount(raw, q.sql, q.vals);
             if (n > 0) results.analysis_items.added++; else results.analysis_items.skipped++;
@@ -1011,18 +1141,23 @@ router.post('/migration/import', (req, res) => {
           }
         }
 
-        // ── product_analysis_group_aliases（動態欄位）───────────────────
+        // ── product_analysis_group_aliases（不寫 id，使用 remapped group_id）
         const alsCols = schemas['analysis_aliases'];
         for (const a of (d.product_analysis_group_aliases||[])) {
           try {
+            const newGroupId = groupIdRemap[a.group_id] || a.group_id;
+            const existAl = safeGet(db,
+              'SELECT id FROM product_analysis_group_aliases WHERE store_id=? AND group_id=? AND alias_name=?',
+              [storeId, newGroupId, a.alias_name||'']);
+            if (existAl) { results.analysis_aliases.skipped++; continue; }
             const src = {
-              id: a.id, store_id: storeId,
-              group_id: a.group_id, alias_name: a.alias_name||'',
+              store_id: storeId,
+              group_id: newGroupId, alias_name: a.alias_name||'',
               created_at: a.created_at||''
             };
             const q = buildDynamicInsert('product_analysis_group_aliases',
-              ['id','store_id','group_id','alias_name','created_at'],
-              src, alsCols, orMode);
+              ['store_id','group_id','alias_name','created_at'],
+              src, alsCols, 'OR IGNORE');
             if (!q) { results.analysis_aliases.skipped++; continue; }
             const n = rawRunCount(raw, q.sql, q.vals);
             if (n > 0) results.analysis_aliases.added++; else results.analysis_aliases.skipped++;
