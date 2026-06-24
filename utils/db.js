@@ -257,56 +257,6 @@ function initTables(w) {
     w._save();
   } catch {}
 
-  // fix18-10-hotfix7：偵測 categories 是否有 UNIQUE(name)（舊版遺留），若有則重建表格
-  // 舊版 categories 可能帶有 UNIQUE(name) 導致跨店匯入衝突
-  // 修正：重建為 UNIQUE(store_id, name)
-  try {
-    const catSql = (w._db.exec("SELECT sql FROM sqlite_master WHERE type='table' AND name='categories'")[0]?.values?.[0]?.[0]) || '';
-    const hasNameUnique = /name\s+TEXT[^,)]*UNIQUE/i.test(catSql) ||
-      (w._db.exec("SELECT name,origin FROM pragma_index_list('categories') WHERE origin='u'")[0]?.values||[])
-        .some(([idxName]) => {
-          const cols = w._db.exec(`SELECT name FROM pragma_index_info('${idxName}')`)[0]?.values||[];
-          return cols.length === 1 && cols[0][0] === 'name';
-        });
-    if (hasNameUnique) {
-      console.log('[DB] fix18-10-hotfix7: categories 偵測到 UNIQUE(name)，重建為 UNIQUE(store_id, name)');
-      w._db.run('BEGIN');
-      try {
-        w._db.run(`CREATE TABLE categories_h7_tmp (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          store_id TEXT NOT NULL DEFAULT 'store_001',
-          name TEXT NOT NULL,
-          icon TEXT DEFAULT '📌',
-          sort_order INTEGER DEFAULT 0,
-          is_active INTEGER DEFAULT 1,
-          created_at TEXT DEFAULT (datetime('now','localtime')),
-          updated_at TEXT DEFAULT (datetime('now','localtime')),
-          UNIQUE(store_id, name)
-        )`);
-        w._db.run(`INSERT INTO categories_h7_tmp (id,store_id,name,icon,sort_order,is_active,created_at,updated_at)
-          SELECT id,store_id,name,icon,sort_order,is_active,created_at,updated_at FROM categories`);
-        w._db.run(`DROP TABLE categories`);
-        w._db.run(`ALTER TABLE categories_h7_tmp RENAME TO categories`);
-        w._db.run('COMMIT');
-        w._save();
-        console.log('[DB] fix18-10-hotfix7: categories 重建完成');
-      } catch(e2) {
-        try { w._db.run('ROLLBACK'); } catch {}
-        console.error('[DB] fix18-10-hotfix7: categories 重建失敗:', e2.message);
-      }
-    } else {
-      // 確保 UNIQUE(store_id, name) index 存在（新裝或已是新版 schema）
-      try {
-        w._db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_categories_store_name ON categories(store_id, name)`);
-        w._save();
-      } catch {}
-    }
-  } catch(e) {
-    console.error('[DB] fix18-10-hotfix7: categories schema 檢查失敗:', e.message);
-    // fallback：強制建立 UNIQUE INDEX（若表格結構允許）
-    try { w._db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_categories_store_name ON categories(store_id, name)`); w._save(); } catch {}
-  }
-
   // ── inventory_logs ────────────────────────────────────
   w._db.run(`CREATE TABLE IF NOT EXISTS inventory_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
