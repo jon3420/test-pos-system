@@ -1239,8 +1239,11 @@ router.post('/migration/import', (req, res) => {
           ];
           for (const ing of (d.ingredients||[])) {
             try {
-              const existIng = safeGet(db,
+              console.log(`[migration/restore] ingredient store_id target=${storeId} source=${ing.store_id} name=${ing.name}`);
+              // ★ 用 safeRawAll(raw) 在 transaction 內查，不用 safeGet(db)
+              const existIngRows = safeRawAll(raw,
                 'SELECT id FROM ingredients WHERE store_id=? AND name=?', [storeId, ing.name||'']);
+              const existIng = existIngRows.length ? existIngRows[0] : null;
               if (existIng) {
                 ingredientIdRemap[ing.id] = existIng.id;
                 if (mode === 'skip' || mode === 'replace') { results.ingredients.skipped++; continue; }
@@ -1776,6 +1779,24 @@ router.post('/migration/import', (req, res) => {
         const fmlCount = db.get('SELECT COUNT(*) as c FROM product_ingredient_formulas');
         console.log(`[migration/restore] POST-COMMIT COUNT ingredients WHERE store_id='${storeId}':`, ingCount ? ingCount.c : 'N/A');
         console.log(`[migration/restore] POST-COMMIT COUNT product_ingredient_formulas (all):`, fmlCount ? fmlCount.c : 'N/A');
+        // 顯示 ingredients 所有 store_id 分布，確認寫入哪個 store
+        try {
+          const allStores = db.all('SELECT store_id, COUNT(*) as c FROM ingredients GROUP BY store_id');
+          console.log('[migration/restore] ingredients GROUP BY store_id:', JSON.stringify(allStores));
+        } catch {}
+        // 結果計數 log
+        console.log('[migration/restore] results.ingredients:', JSON.stringify({
+          added: results.ingredients.added,
+          skipped: results.ingredients.skipped,
+          failed: results.ingredients.failed,
+          errors: results.ingredients.errors.slice(0,3)
+        }));
+        console.log('[migration/restore] results.product_ingredient_formulas:', JSON.stringify({
+          added: results.product_ingredient_formulas.added,
+          skipped: results.product_ingredient_formulas.skipped,
+          failed: results.product_ingredient_formulas.failed,
+          errors: results.product_ingredient_formulas.errors.slice(0,3)
+        }));
       } catch(e) { console.warn('[migration/restore] post-commit count error:', e.message); }
 
     } catch(txErr) {
