@@ -24,7 +24,7 @@ const ANDROID_FEATURES_DEFAULT = {
 router.get('/config', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const products       = db.all('SELECT * FROM products WHERE store_id=? AND enabled=1 ORDER BY sort_order, id', [storeId]);
     const categories     = db.all('SELECT * FROM categories WHERE store_id=? AND is_active=1 ORDER BY sort_order, id', [storeId]);
     const paymentMethods = db.all('SELECT * FROM payment_methods WHERE store_id=? AND is_active=1 ORDER BY sort_order, id', [storeId]);
@@ -63,7 +63,7 @@ router.get('/config', (req, res) => {
 router.post('/orders', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const { device_id, orders } = req.body;
 
     if (!Array.isArray(orders) || orders.length === 0)
@@ -166,7 +166,7 @@ router.post('/orders', (req, res) => {
 router.get('/status', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const deviceStats = db.all(
       `SELECT device_id,
               COUNT(*) as total_orders,

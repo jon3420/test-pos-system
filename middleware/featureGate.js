@@ -67,7 +67,7 @@ function getStoreFeatures(storeId) {
  */
 function requireFeature(featureKey) {
   return (req, res, next) => {
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     try {
       const lic = getStoreLicense(storeId);
 

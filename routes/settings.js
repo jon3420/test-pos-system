@@ -71,7 +71,7 @@ const ALL_ALLOWED = [
 router.get('/', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const rows = db.all('SELECT key, value FROM settings WHERE store_id=?', [storeId]);
     const settings = {};
     rows.forEach(r => { settings[r.key] = r.value; });
@@ -83,7 +83,7 @@ router.get('/', (req, res) => {
 router.put('/', (req, res) => {
   try {
     const db      = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
 
     // ── fix14：檢查是否修改 LINE key ───────────────────────
     const requestedKeys = Object.keys(req.body);

@@ -48,7 +48,7 @@ function seedDefaults(db, storeId) {
 router.get('/', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     ensureTable(db);
     seedDefaults(db, storeId);
     const rows = db.all(
@@ -63,7 +63,7 @@ router.get('/', (req, res) => {
 router.post('/', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     ensureTable(db);
     const { name, code, icon = '⚪', color = '#94a3b8', sort_order = 0 } = req.body;
     if (!name?.trim()) return res.status(400).json({ success: false, message: '分類名稱為必填' });
@@ -82,7 +82,7 @@ router.post('/', (req, res) => {
 router.put('/:id', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     ensureTable(db);
     const row = db.get('SELECT * FROM discount_categories WHERE id=? AND store_id=?', [req.params.id, storeId]);
     if (!row) return res.status(404).json({ success: false, message: '找不到此分類' });
@@ -107,7 +107,7 @@ router.put('/:id', (req, res) => {
 router.delete('/:id', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     ensureTable(db);
     const row = db.get('SELECT * FROM discount_categories WHERE id=? AND store_id=?', [req.params.id, storeId]);
     if (!row) return res.status(404).json({ success: false, message: '找不到此分類' });

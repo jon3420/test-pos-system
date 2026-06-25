@@ -7,7 +7,7 @@ const { getDb } = require('../utils/db');
 router.get('/', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const { active } = req.query;
     let sql = 'SELECT * FROM categories WHERE store_id=?';
     const p = [storeId];
@@ -20,7 +20,7 @@ router.get('/', (req, res) => {
 router.get('/line-options', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const cats = db.all(
       'SELECT id, name, icon, sort_order FROM categories WHERE store_id=? AND is_active=1 ORDER BY sort_order ASC, id ASC',
       [storeId]
@@ -32,7 +32,7 @@ router.get('/line-options', (req, res) => {
 router.get('/pos-options', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const cats = db.all(
       'SELECT id, name, icon, sort_order FROM categories WHERE store_id=? AND is_active=1 ORDER BY sort_order ASC, id ASC',
       [storeId]
@@ -44,7 +44,7 @@ router.get('/pos-options', (req, res) => {
 router.post('/', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const { name, icon='📌', sort_order=0 } = req.body;
     if (!name || !name.trim()) return res.status(400).json({ success: false, message: '分類名稱必填' });
     const exists = db.get('SELECT id FROM categories WHERE store_id=? AND name=?', [storeId, name.trim()]);
@@ -60,7 +60,7 @@ router.post('/', (req, res) => {
 router.put('/:id', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const cat = db.get('SELECT * FROM categories WHERE id=? AND store_id=?', [req.params.id, storeId]);
     if (!cat) return res.status(404).json({ success: false, message: '分類不存在' });
     const { name, icon, sort_order, is_active } = req.body;
@@ -85,7 +85,7 @@ router.put('/:id', (req, res) => {
 router.delete('/:id', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const cat = db.get('SELECT * FROM categories WHERE id=? AND store_id=?', [req.params.id, storeId]);
     if (!cat) return res.status(404).json({ success: false, message: '分類不存在' });
     const productCount = db.get('SELECT COUNT(*) as c FROM products WHERE store_id=? AND category=? AND enabled=1', [storeId, cat.name]);

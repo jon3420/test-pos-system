@@ -85,7 +85,7 @@ function enrichProduct(p) {
 router.get('/', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const { category, enabled } = req.query;
     let sql = 'SELECT * FROM products WHERE store_id=?';
     const p = [storeId];
@@ -106,7 +106,7 @@ router.get('/', (req, res) => {
 router.get('/line-products/list', requireFeature('line_order'), (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     // 回傳全部 enabled 商品，show_on_line 不限（管理頁需看到未上架）
     const products = db.all(
       'SELECT * FROM products WHERE store_id=? AND enabled=1 ORDER BY sort_order, id',
@@ -124,7 +124,7 @@ router.get('/line-products/list', requireFeature('line_order'), (req, res) => {
 router.post('/', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const { name, category='主食', price, sort_order=0, image='',
       dine_in_price, takeaway_price, delivery_price,
       inventory_enabled=0, total_stock_grams=0,
@@ -155,7 +155,7 @@ router.post('/', (req, res) => {
 router.post('/reset-sold-out-today', requireFeature('line_order'), (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     db.run(
       `UPDATE products SET sale_status='available', updated_at=datetime('now','localtime')
        WHERE store_id=? AND sale_status='sold_out_today' AND auto_restore_next_day=1`,
@@ -173,7 +173,7 @@ router.post('/reset-sold-out-today', requireFeature('line_order'), (req, res) =>
 router.get('/:id', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const product = db.get('SELECT * FROM products WHERE id=? AND store_id=?', [req.params.id, storeId]);
     if (!product) return res.status(404).json({ success: false, message: '商品不存在' });
     const fc = db.get('SELECT COUNT(*) as c FROM product_ingredient_formulas WHERE product_id=?', [product.id]);
@@ -186,7 +186,7 @@ router.get('/:id', (req, res) => {
 router.put('/:id', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const ex = db.get('SELECT * FROM products WHERE id=? AND store_id=?', [req.params.id, storeId]);
     if (!ex) return res.status(404).json({ success: false, message: '商品不存在' });
     const { name, category, price, enabled, sort_order, image,
@@ -227,7 +227,7 @@ router.put('/:id', (req, res) => {
 router.delete('/:id', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     if (!db.get('SELECT id FROM products WHERE id=? AND store_id=?', [req.params.id, storeId]))
       return res.status(404).json({ success: false, message: '商品不存在' });
     db.run('DELETE FROM products WHERE id=? AND store_id=?', [req.params.id, storeId]);
@@ -290,7 +290,7 @@ router.patch('/:id/line-settings', requireFeature('line_order'), (req, res) => {
     // BUG-001 修正：確保 line_preorder_* 欄位存在，防止 Zeabur 舊 DB 出現
     //   "no such column: line_preorder_enabled"
     ensureProductPreorderColumns(db);
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const id = req.params.id;
     const ex = db.get('SELECT id FROM products WHERE id=? AND store_id=?', [id, storeId]);
     if (!ex) return res.status(404).json({ success: false, message: '商品不存在' });
@@ -363,7 +363,7 @@ router.patch('/:id/line-settings', requireFeature('line_order'), (req, res) => {
 router.patch('/:id/line-status', requireFeature('line_order'), (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const id = req.params.id;
     const ex = db.get('SELECT id FROM products WHERE id=? AND store_id=?', [id, storeId]);
     if (!ex) return res.status(404).json({ success: false, message: '商品不存在' });
@@ -391,7 +391,7 @@ router.patch('/:id/line-status', requireFeature('line_order'), (req, res) => {
 router.patch('/batch-inventory-control', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const { ids, inventory_enabled } = req.body;
 
     // 驗證
@@ -430,7 +430,7 @@ router.patch('/batch-inventory-control', (req, res) => {
 router.patch('/batch-inventory-settings', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const { ids, inventory_enabled, allocated_grams, low_stock_alert } = req.body;
 
     if (!Array.isArray(ids) || ids.length === 0)

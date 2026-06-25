@@ -110,7 +110,7 @@ function validateCoupon(db, storeId, code, subtotal, customerPhone) {
 router.get('/', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const coupons = db.all(
       `SELECT c.*,
          (SELECT COUNT(*) FROM coupon_redemptions r WHERE r.coupon_id=c.id AND r.store_id=c.store_id) as usage_count
@@ -130,7 +130,7 @@ router.get('/', (req, res) => {
 router.post('/validate', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const { code, subtotal, customer_phone } = req.body;
 
     // fix18-05: 檢查 coupon feature 是否啟用
@@ -161,7 +161,7 @@ router.post('/validate', (req, res) => {
 router.post('/', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const {
       code, name, discount_type, discount_value,
       min_amount, start_at, end_at,
@@ -211,7 +211,7 @@ router.post('/', (req, res) => {
 router.patch('/:id', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const { id } = req.params;
 
     const existing = db.get('SELECT * FROM coupons WHERE id=? AND store_id=?', [id, storeId]);
@@ -277,7 +277,7 @@ router.patch('/:id', (req, res) => {
 router.delete('/:id', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const { id } = req.params;
     const existing = db.get('SELECT id FROM coupons WHERE id=? AND store_id=?', [id, storeId]);
     if (!existing) return res.status(404).json({ success: false, message: '優惠券不存在' });

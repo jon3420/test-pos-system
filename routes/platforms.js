@@ -7,7 +7,7 @@ const { getDb } = require('../utils/db');
 router.get('/', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const { active } = req.query;
     let sql = 'SELECT * FROM delivery_platforms WHERE store_id=?';
     const p = [storeId];
@@ -21,7 +21,7 @@ router.get('/', (req, res) => {
 router.post('/', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const { name, commission_rate = 0 } = req.body;
     if (!name?.trim()) return res.status(400).json({ success: false, message: '平台名稱必填' });
     // ★ fix2：UNIQUE 檢查限本店
@@ -39,7 +39,7 @@ router.post('/', (req, res) => {
 router.put('/:id', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     // ★ fix2：查詢加 AND store_id=?
     const plat = db.get('SELECT * FROM delivery_platforms WHERE id=? AND store_id=?', [req.params.id, storeId]);
     if (!plat) return res.status(404).json({ success: false, message: '平台不存在' });
@@ -63,7 +63,7 @@ router.put('/:id', (req, res) => {
 router.delete('/:id', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     // ★ fix2：查詢加 AND store_id=?
     if (!db.get('SELECT id FROM delivery_platforms WHERE id=? AND store_id=?', [req.params.id, storeId]))
       return res.status(404).json({ success: false, message: '平台不存在' });

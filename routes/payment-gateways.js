@@ -26,7 +26,7 @@ function safe(g) {
 router.get('/', (req, res) => {
   try {
     const db      = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const rows    = db.all('SELECT * FROM payment_gateways WHERE store_id=? ORDER BY id ASC', [storeId]);
     res.json({ success: true, data: rows.map(safe) });
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
@@ -36,7 +36,7 @@ router.get('/', (req, res) => {
 router.get('/:provider', (req, res) => {
   try {
     const db       = getDb();
-    const storeId  = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const provider = req.params.provider;
     if (!PROVIDERS.includes(provider))
       return res.status(400).json({ success: false, message: '不支援的 provider: ' + provider });
@@ -50,7 +50,7 @@ router.get('/:provider', (req, res) => {
 router.put('/:provider', (req, res) => {
   try {
     const db       = getDb();
-    const storeId  = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const provider = req.params.provider;
     if (!PROVIDERS.includes(provider))
       return res.status(400).json({ success: false, message: '不支援的 provider: ' + provider });
@@ -113,7 +113,7 @@ router.put('/:provider', (req, res) => {
 router.post('/:provider/test', async (req, res) => {
   try {
     const db       = getDb();
-    const storeId  = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const provider = req.params.provider;
     if (!PROVIDERS.includes(provider))
       return res.status(400).json({ success: false, message: '不支援的 provider: ' + provider });

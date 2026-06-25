@@ -96,7 +96,7 @@ function broadcastOrderPaid(wss, db, storeId, orderUuid) {
 router.post('/test', async (req, res) => {
   try {
     const db      = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
 
     // 允許從 body 傳入（儲存前即時測試），否則讀 DB（不需 is_active）
     let channelId     = (req.body?.channel_id     || '').trim();
@@ -260,7 +260,7 @@ router.post('/test', async (req, res) => {
 router.post('/request', async (req, res) => {
   try {
     const db      = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const cfg     = getLinePayConfig(db, storeId);
 
     if (!cfg) return res.status(400).json({ success: false, message: 'LINE Pay 未設定或未啟用' });
@@ -403,7 +403,7 @@ router.post('/request', async (req, res) => {
 // GET /api/linepay/confirm — LINE Pay 付款成功 callback
 // ══════════════════════════════════════════════════════════
 router.get('/confirm', async (req, res) => {
-  const storeId = req.query.store_id || req.storeId || 'store_001';
+  const storeId = req.query.store_id || req.storeId || null;
   try {
     const db  = getDb();
     const cfg = getLinePayConfig(db, storeId);
@@ -522,7 +522,7 @@ router.get('/confirm', async (req, res) => {
 // GET /api/linepay/cancel — 付款取消 callback
 // ══════════════════════════════════════════════════════════
 router.get('/cancel', (req, res) => {
-  const storeId = req.query.store_id || req.storeId || 'store_001';
+  const storeId = req.query.store_id || req.storeId || null;
   res.redirect(`/line-order.html?store_id=${storeId}&linepay=cancel&order=${req.query.orderId || ''}`);
 });
 

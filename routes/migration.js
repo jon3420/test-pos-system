@@ -230,7 +230,7 @@ function runInTransaction(db, fn) {
 router.get('/export/orders', (req, res) => {
   try {
     const db      = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const format  = String(req.query.format || 'json').toLowerCase();
     const scope   = req.query.scope || 'all';
     const dFrom   = req.query.date_from || '';
@@ -303,7 +303,7 @@ router.get('/export/orders', (req, res) => {
 router.post('/import/orders', (req, res) => {
   try {
     const db      = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const { orders = [], mode = 'skip' } = req.body;
     let added = 0, updated = 0, skipped = 0, failed = 0;
     const errors = [];
@@ -415,7 +415,7 @@ router.post('/import/orders', (req, res) => {
 router.get('/export/preorders', (req, res) => {
   try {
     const db      = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const format  = String(req.query.format || 'json').toLowerCase();
     const dFrom   = req.query.date_from || '';
     const dTo     = req.query.date_to   || '';
@@ -455,7 +455,7 @@ router.get('/export/preorders', (req, res) => {
 router.post('/import/preorders', (req, res) => {
   try {
     const db      = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const { preorders = [], mode = 'skip' } = req.body;
     let added = 0, updated = 0, skipped = 0, failed = 0;
     const errors = [];
@@ -526,7 +526,7 @@ router.post('/import/preorders', (req, res) => {
 router.get('/migration/export', (req, res) => {
   try {
     const db      = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
 
     try { ensureDiscountCategoriesTable(db); } catch {}
     try { ensureDiscountCampaignsTable(db); } catch {}
@@ -738,7 +738,7 @@ router.get('/migration/export', (req, res) => {
 router.post('/migration/import/preview', (req, res) => {
   try {
     const db      = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const payload = req.body;
 
     if (!payload || payload.type !== 'pos_migration_backup') {
@@ -796,7 +796,7 @@ router.post('/migration/import/preview', (req, res) => {
 router.post('/migration/import', (req, res) => {
   try {
     const db      = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     console.log('[migration/import] HOTFIX10 ACTIVE', new Date().toISOString(), 'storeId=', storeId);
     const { payload, mode = 'skip', allowCrossStoreImport = false } = req.body;
 

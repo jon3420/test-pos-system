@@ -88,7 +88,7 @@ function calcFee({ distKm, subtotal, rules, basicFee, freeThreshold }) {
 router.post('/calculate-fee', async (req, res) => {
   try {
     const db      = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
 
     const { order_mode, subtotal, delivery_lat, delivery_lng } = req.body;
 

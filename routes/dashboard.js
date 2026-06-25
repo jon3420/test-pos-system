@@ -32,7 +32,7 @@ function monthStart() {
 router.get('/', (req, res) => {
   try {
     const db      = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const today   = req.query.date || twToday();
     const wStart  = weekStart();
     const mStart  = monthStart();

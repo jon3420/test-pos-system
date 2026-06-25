@@ -6,7 +6,7 @@ const { getDb } = require('../utils/db');
 router.get('/', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const { phone, q } = req.query;
     let sql = 'SELECT * FROM customers WHERE store_id=?';
     const p = [storeId];
@@ -20,7 +20,7 @@ router.get('/', (req, res) => {
 router.get('/:id', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const c = db.get('SELECT * FROM customers WHERE store_id=? AND (id=? OR phone=?)', [storeId, req.params.id, req.params.id]);
     if (!c) return res.status(404).json({ success: false, message: '會員不存在' });
     const orders = db.all('SELECT * FROM orders WHERE store_id=? AND customer_phone=? ORDER BY created_at DESC LIMIT 20',
@@ -32,7 +32,7 @@ router.get('/:id', (req, res) => {
 router.post('/', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const { name='', phone, line_id='' } = req.body;
     if (!phone) return res.status(400).json({ success: false, message: '電話為必填' });
     try {

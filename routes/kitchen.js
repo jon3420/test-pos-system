@@ -7,7 +7,7 @@ const { getDb } = require('../utils/db');
 router.get('/orders', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const orders = db.all(
       `SELECT id, order_number, order_mode, order_status,
               kitchen_status, table_number, pickup_name,
@@ -36,7 +36,7 @@ router.get('/orders', (req, res) => {
 router.put('/orders/:id/status', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const { status } = req.body;
     const valid = ['pending', 'preparing', 'done'];
     if (!valid.includes(status))
@@ -57,7 +57,7 @@ router.put('/orders/:id/status', (req, res) => {
 router.get('/done', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const orders = db.all(
       `SELECT id, order_number, order_mode, kitchen_status, pickup_name, table_number, created_at
        FROM orders

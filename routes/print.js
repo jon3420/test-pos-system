@@ -22,7 +22,7 @@ router.get('/printers', async (req, res) => {
 // ★ fix4：傳入 storeId，讀取該店的 settings
 router.get('/status', async (req, res) => {
   try {
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const cfg     = ps.getPrinterConfig(storeId);
     const status  = await ps.checkPrinterStatus(storeId);
     res.json({ success: true, data: { ...status, ...cfg } });
@@ -33,7 +33,7 @@ router.get('/status', async (req, res) => {
 // ★ fix4：傳入 storeId
 router.post('/test', async (req, res) => {
   try {
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const result  = await ps.printTest(storeId);
     res.json({ success: result.success, message: result.message });
   } catch(e) { res.json({ success: false, message: e.message }); }
@@ -51,7 +51,7 @@ router.post('/kitchen-test', async (req, res) => {
 // ★ fix4：傳入 storeId
 router.post('/cashdrawer', async (req, res) => {
   try {
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const result  = await ps.openCashDrawer(storeId);
     res.json({ success: result.success, message: result.message });
   } catch(e) { res.json({ success: false, message: e.message }); }
@@ -62,7 +62,7 @@ router.post('/cashdrawer', async (req, res) => {
 router.post('/receipt', async (req, res) => {
   try {
     const db      = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const { order_id } = req.body;
     if (!order_id) return res.status(400).json({ success: false, message: 'order_id 必填' });
     const order = db.get(
@@ -81,7 +81,7 @@ router.post('/receipt', async (req, res) => {
 router.post('/kitchen', async (req, res) => {
   try {
     const db      = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const { order_id } = req.body;
     if (!order_id) return res.status(400).json({ success: false, message: 'order_id 必填' });
     const order = db.get(
@@ -100,7 +100,7 @@ router.post('/kitchen', async (req, res) => {
 router.post('/order', async (req, res) => {
   try {
     const db      = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const { order_id } = req.body;
     if (!order_id) return res.status(400).json({ success: false, message: 'order_id 必填' });
     const order = db.get(

@@ -30,7 +30,7 @@ router.get('/', (req, res) => {
   try {
     const db = getDb();
     ensureConfirmPaymentColumns(db);
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const { status, limit = 200, offset = 0, date } = req.query;
     let where = "WHERE store_id=? AND source='line'";
     const params = [storeId];
@@ -60,7 +60,7 @@ router.get('/', (req, res) => {
 router.patch('/:id/status', (req, res) => {
   try {
     const db    = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const rawId = req.params.id;
     const newStatus = req.body.status || req.body.order_status;
 
@@ -105,7 +105,7 @@ router.patch('/:id/status', (req, res) => {
 router.get('/:id/status', (req, res) => {
   try {
     const db    = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const order = findOrder(db, req.params.id, storeId);
     if (!order) return res.status(404).json({ success: false, error: 'ORDER_NOT_FOUND' });
     res.json({ success: true, data: { order_number: order.order_number, order_status: order.order_status, uuid: order.uuid } });
@@ -123,7 +123,7 @@ router.patch('/:id/confirm-payment', (req, res) => {
   try {
     const db      = getDb();
     ensureConfirmPaymentColumns(db);
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const rawId   = req.params.id;
     const deviceId = req.headers['x-device-id'] || req.body?.device_id || 'unknown';
 

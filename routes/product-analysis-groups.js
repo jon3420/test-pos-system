@@ -28,7 +28,7 @@ function fetchGroupFull(db, storeId, groupId) {
 router.get('/', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const groups = db.all(
       `SELECT * FROM product_analysis_groups WHERE store_id=? ORDER BY sort_order, id`,
       [storeId]
@@ -59,7 +59,7 @@ router.get('/', (req, res) => {
 router.get('/:id', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const full = fetchGroupFull(db, storeId, req.params.id);
     if (!full) return res.status(404).json({ success: false, message: '群組不存在' });
     res.json({ success: true, data: full });
@@ -94,7 +94,7 @@ function insertAliases(db, storeId, groupId, aliases) {
 router.post('/', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const { group_name, description = '', enabled = 1, sort_order = 0, items = [], aliases = [] } = req.body;
     if (!group_name || !group_name.trim()) return res.status(400).json({ success: false, message: '群組名稱不可空白' });
 
@@ -114,7 +114,7 @@ router.post('/', (req, res) => {
 router.put('/:id', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const id = req.params.id;
     const { group_name, description, enabled, sort_order, items, aliases } = req.body;
 
@@ -150,7 +150,7 @@ router.put('/:id', (req, res) => {
 router.patch('/:id/toggle', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const group = db.get(`SELECT * FROM product_analysis_groups WHERE id=? AND store_id=?`, [req.params.id, storeId]);
     if (!group) return res.status(404).json({ success: false, message: '群組不存在' });
     const newEnabled = group.enabled ? 0 : 1;
@@ -164,7 +164,7 @@ router.patch('/:id/toggle', (req, res) => {
 router.delete('/:id', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const group = db.get(`SELECT id FROM product_analysis_groups WHERE id=? AND store_id=?`, [req.params.id, storeId]);
     if (!group) return res.status(404).json({ success: false, message: '群組不存在' });
     db.run(`DELETE FROM product_analysis_group_items WHERE group_id=? AND store_id=?`, [group.id, storeId]);
@@ -178,7 +178,7 @@ router.delete('/:id', (req, res) => {
 router.post('/:id/items', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const groupId = req.params.id;
     const group = db.get(`SELECT id FROM product_analysis_groups WHERE id=? AND store_id=?`, [groupId, storeId]);
     if (!group) return res.status(404).json({ success: false, message: '群組不存在' });
@@ -205,7 +205,7 @@ router.post('/:id/items', (req, res) => {
 router.delete('/:id/items/:itemId', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     db.run(`DELETE FROM product_analysis_group_items WHERE id=? AND store_id=?`, [req.params.itemId, storeId]);
     res.json({ success: true, message: '成員已移除' });
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
@@ -215,7 +215,7 @@ router.delete('/:id/items/:itemId', (req, res) => {
 router.post('/:id/aliases', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const groupId = req.params.id;
     const group = db.get(`SELECT id FROM product_analysis_groups WHERE id=? AND store_id=?`, [groupId, storeId]);
     if (!group) return res.status(404).json({ success: false, message: '群組不存在' });
@@ -242,7 +242,7 @@ router.post('/:id/aliases', (req, res) => {
 router.delete('/:id/aliases/:aliasId', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     db.run(`DELETE FROM product_analysis_group_aliases WHERE id=? AND store_id=?`, [req.params.aliasId, storeId]);
     res.json({ success: true, message: '別名已移除' });
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }

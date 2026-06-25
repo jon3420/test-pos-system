@@ -45,7 +45,7 @@ router.post('/', (req, res) => {
     ensureTable();
     const db = getDb();
     // ★ fix2：一律使用 req.storeId，忽略 body.store_id
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const { order_id='', type='receipt', payload={} } = req.body;
 
     const validTypes = ['receipt', 'kitchen', 'test'];
@@ -72,7 +72,7 @@ router.get('/pending', (req, res) => {
     ensureTable();
     const db = getDb();
     // ★ fix2：一律使用 req.storeId，廢棄 req.query.store_id
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const limit   = Math.min(Number(req.query.limit) || 20, 50);
     const jobs = db.all(
       `SELECT * FROM print_jobs
@@ -92,7 +92,7 @@ router.get('/', (req, res) => {
     ensureTable();
     const db = getDb();
     // ★ fix2：一律使用 req.storeId
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const status  = req.query.status;
     const limit   = Math.min(Number(req.query.limit) || 100, 500);
     let sql = 'SELECT * FROM print_jobs WHERE store_id=?';
@@ -112,7 +112,7 @@ router.get('/:id', (req, res) => {
   try {
     ensureTable();
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     // ★ fix2：加 AND store_id=?
     const job = db.get('SELECT * FROM print_jobs WHERE id=? AND store_id=?', [req.params.id, storeId]);
     if (!job) return res.status(404).json({ success: false, message: '任務不存在' });
@@ -127,7 +127,7 @@ router.post('/:id/printed', (req, res) => {
   try {
     ensureTable();
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     // ★ fix2：加 AND store_id=?
     const job = db.get('SELECT * FROM print_jobs WHERE id=? AND store_id=?', [req.params.id, storeId]);
     if (!job) return res.status(404).json({ success: false, message: '任務不存在' });
@@ -148,7 +148,7 @@ router.post('/:id/error', (req, res) => {
   try {
     ensureTable();
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     // ★ fix2：加 AND store_id=?
     const job = db.get('SELECT * FROM print_jobs WHERE id=? AND store_id=?', [req.params.id, storeId]);
     if (!job) return res.status(404).json({ success: false, message: '任務不存在' });
@@ -170,7 +170,7 @@ router.post('/:id/retry', (req, res) => {
   try {
     ensureTable();
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     // ★ fix2：加 AND store_id=?
     const job = db.get('SELECT * FROM print_jobs WHERE id=? AND store_id=?', [req.params.id, storeId]);
     if (!job) return res.status(404).json({ success: false, message: '任務不存在' });
@@ -191,7 +191,7 @@ router.delete('/cleanup', (req, res) => {
   try {
     ensureTable();
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const days = Number(req.query.days) || 7;
     // ★ fix2：加 AND store_id=?
     db.run(

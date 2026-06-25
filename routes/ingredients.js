@@ -32,7 +32,7 @@ function broadcast(req, type, data) {
   // ★ fix6：只廣播給同 store_id 的 WebSocket client
   try {
     const wss     = req.app.get('wss');
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     broadcastToStore(wss, storeId, { type, data });
   } catch {}
 }
@@ -41,7 +41,7 @@ function broadcast(req, type, data) {
 router.get('/', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     res.json({ success: true, data: db.all('SELECT * FROM ingredients WHERE store_id=? ORDER BY id ASC', [storeId]) });
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
@@ -50,7 +50,7 @@ router.get('/', (req, res) => {
 router.get('/logs/all', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const { ingredient_id, log_type, limit=100, offset=0 } = req.query;
     // ingredient_logs join ingredients で store_id 確認
     let sql = `SELECT il.* FROM ingredient_logs il
@@ -69,7 +69,7 @@ router.get('/logs/all', (req, res) => {
 router.get('/batches/all', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const { ingredient_id } = req.query;
     let sql = `SELECT b.*, i.name as ingredient_name FROM ingredient_batches b
                INNER JOIN ingredients i ON i.id=b.ingredient_id AND i.store_id=?
@@ -85,7 +85,7 @@ router.get('/batches/all', (req, res) => {
 router.get('/formulas/all', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const { product_id } = req.query;
     let sql = `SELECT f.*, i.name as ingredient_name, i.unit, p.name as product_name
                FROM product_ingredient_formulas f
@@ -102,7 +102,7 @@ router.get('/formulas/all', (req, res) => {
 router.get('/thaw-batches/all', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const { ingredient_id, status } = req.query;
     let sql = `SELECT tb.* FROM ingredient_thaw_batches tb
                INNER JOIN ingredients i ON i.id=tb.ingredient_id AND i.store_id=?
@@ -119,7 +119,7 @@ router.get('/thaw-batches/all', (req, res) => {
 router.get('/:id', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const ing = db.get('SELECT * FROM ingredients WHERE id=? AND store_id=?', [req.params.id, storeId]);
     if (!ing) return res.status(404).json({ success: false, message: '食材不存在' });
     res.json({ success: true, data: ing });
@@ -130,7 +130,7 @@ router.get('/:id', (req, res) => {
 router.post('/', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const { name, unit='g', ingredient_barcode='', notes='', initial_stock=0, low_stock_threshold=0 } = req.body;
     if (!name?.trim()) return res.status(400).json({ success: false, message: '食材名稱必填' });
     const exists = db.get('SELECT id FROM ingredients WHERE store_id=? AND name=?', [storeId, name.trim()]);
@@ -146,7 +146,7 @@ router.post('/', (req, res) => {
 router.put('/:id', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const ing = db.get('SELECT * FROM ingredients WHERE id=? AND store_id=?', [req.params.id, storeId]);
     if (!ing) return res.status(404).json({ success: false, message: '食材不存在' });
     const { name, unit, ingredient_barcode, notes, low_stock_threshold, default_thaw_hours } = req.body;
@@ -162,7 +162,7 @@ router.put('/:id', (req, res) => {
 router.delete('/:id', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const ing = db.get('SELECT * FROM ingredients WHERE id=? AND store_id=?', [req.params.id, storeId]);
     if (!ing) return res.status(404).json({ success: false, message: '食材不存在' });
     db.run('DELETE FROM ingredients WHERE id=? AND store_id=?', [ing.id, storeId]);
@@ -174,7 +174,7 @@ router.delete('/:id', (req, res) => {
 router.post('/:id/purchase', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const ing = db.get('SELECT * FROM ingredients WHERE id=? AND store_id=?', [req.params.id, storeId]);
     if (!ing) return res.status(404).json({ success: false, message: '食材不存在' });
     const { amount, batch_no, batch_barcode='', purchase_date='', reason='進貨', operator='staff' } = req.body;
@@ -199,7 +199,7 @@ router.post('/:id/purchase', (req, res) => {
 router.post('/:id/freeze-to-thaw', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const ing = db.get('SELECT * FROM ingredients WHERE id=? AND store_id=?', [req.params.id, storeId]);
     if (!ing) return res.status(404).json({ success: false, message: '食材不存在' });
     const { amount, thaw_complete_time='', batch_no='', operator='staff' } = req.body;
@@ -222,7 +222,7 @@ router.post('/:id/freeze-to-thaw', (req, res) => {
 router.post('/:id/thaw-complete', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const ing = db.get('SELECT * FROM ingredients WHERE id=? AND store_id=?', [req.params.id, storeId]);
     if (!ing) return res.status(404).json({ success: false, message: '食材不存在' });
     const { amount, batch_no='', operator='staff' } = req.body;
@@ -243,7 +243,7 @@ router.post('/:id/thaw-complete', (req, res) => {
 router.post('/:id/scrap', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const ing = db.get('SELECT * FROM ingredients WHERE id=? AND store_id=?', [req.params.id, storeId]);
     if (!ing) return res.status(404).json({ success: false, message: '食材不存在' });
     const { amount, from='refrigerated', reason='報廢', operator='staff', batch_no='' } = req.body;
@@ -270,7 +270,7 @@ router.post('/:id/scrap', (req, res) => {
 router.post('/:id/manual-adjust', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const ing = db.get('SELECT * FROM ingredients WHERE id=? AND store_id=?', [req.params.id, storeId]);
     if (!ing) return res.status(404).json({ success: false, message: '食材不存在' });
     const { frozen_delta=0, thawing_delta=0, refrigerated_delta=0, reason='手動調整', operator='staff' } = req.body;
@@ -292,7 +292,7 @@ router.post('/:id/manual-adjust', (req, res) => {
 router.post('/formulas/add', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const { product_id, ingredient_id, amount_per_unit, product_barcode='', notes='' } = req.body;
     if (!product_id || !ingredient_id || !amount_per_unit)
       return res.status(400).json({ success: false, message: 'product_id/ingredient_id/amount_per_unit 必填' });
@@ -319,7 +319,7 @@ router.post('/formulas/add', (req, res) => {
 router.delete('/formulas/:id', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     // 透過 JOIN 確認該公式屬於此店的商品
     const formula = db.get(`SELECT f.id FROM product_ingredient_formulas f
       INNER JOIN products p ON p.id=f.product_id AND p.store_id=?
@@ -334,7 +334,7 @@ router.delete('/formulas/:id', (req, res) => {
 router.post('/thaw-batches/:batchId/complete', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const batch = db.get(`SELECT tb.* FROM ingredient_thaw_batches tb
       INNER JOIN ingredients i ON i.id=tb.ingredient_id AND i.store_id=?
       WHERE tb.id=?`, [storeId, req.params.batchId]);
@@ -359,7 +359,7 @@ router.post('/thaw-batches/:batchId/complete', (req, res) => {
 router.post('/thaw-batches/:batchId/extend', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const batch = db.get(`SELECT tb.* FROM ingredient_thaw_batches tb
       INNER JOIN ingredients i ON i.id=tb.ingredient_id AND i.store_id=?
       WHERE tb.id=?`, [storeId, req.params.batchId]);
@@ -376,7 +376,7 @@ router.post('/thaw-batches/:batchId/extend', (req, res) => {
 router.post('/thaw-batches/auto-complete', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const now = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Taipei' }).replace(' ', 'T').slice(0,16);
     const due = db.all(`SELECT tb.* FROM ingredient_thaw_batches tb
       INNER JOIN ingredients i ON i.id=tb.ingredient_id AND i.store_id=?

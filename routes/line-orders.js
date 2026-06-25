@@ -264,7 +264,7 @@ async function triggerN8nWebhook(db, storeId, event, payload) {
 function broadcastNewOrder(app, order) {
   try {
     const wss     = app?.get ? app.get('wss') : null;
-    const storeId = order?.store_id || 'store_001';
+    const storeId = order?.store_id;
     broadcastToStore(wss, storeId, { type: 'new_line_order', order });
   } catch {}
 }
@@ -300,7 +300,7 @@ function deductIngredients(db, storeId, items, orderId) {
 router.get('/shop', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const now = twNow();
     const todayStr = twDateStr(now);
     const nowMins = now.getHours()*60 + now.getMinutes();
@@ -396,7 +396,7 @@ router.get('/shop', (req, res) => {
 router.get('/menu', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const now = twNow();
     const nowMins = now.getHours()*60 + now.getMinutes();
 
@@ -562,7 +562,7 @@ router.get('/menu', (req, res) => {
 router.get('/timeslots', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const mode = req.query.mode === 'delivery' ? 'delivery' : 'takeout';
     const dateStr = req.query.date || twDateStr();
     const now = twNow();
@@ -602,7 +602,7 @@ router.get('/timeslots', (req, res) => {
 router.get('/validate-cart', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const mode = req.query.mode === 'delivery' ? 'delivery' : 'takeout';
     const productIds = String(req.query.product_ids||'').split(',').map(Number).filter(Boolean);
     const now = twNow();
@@ -683,7 +683,7 @@ function validateOrderConditions(db, storeId, mode, dateStr, pickupTime, nowMins
 router.post('/', async (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const {
       customer_name, customer_phone, customer_line_id,
       order_type, pickup_time, pickup_date, delivery_address,
@@ -985,7 +985,7 @@ router.post('/', async (req, res) => {
 router.get('/online', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const { status, limit=50, offset=0 } = req.query;
     let where = "WHERE store_id=? AND source='line'";
     const params = [storeId];
@@ -1008,7 +1008,7 @@ router.get('/online', (req, res) => {
 router.patch('/online/:id/status', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const rawId = req.params.id;
     const newStatus = req.body.status || req.body.order_status;
     const valid = ['pending','accepted','preparing','ready','completed','cancelled'];
@@ -1106,7 +1106,7 @@ function isFullPhone(input) { return /^\d{6,}$/.test(String(input||'').replace(/
 router.get('/status/:orderNo', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const order = db.get(
       'SELECT order_number, order_status, kitchen_status, created_at, total FROM orders WHERE store_id=? AND order_number=?',
       [storeId, req.params.orderNo]
@@ -1119,7 +1119,7 @@ router.get('/status/:orderNo', (req, res) => {
 router.post('/query', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const rawPhone = String(req.body.phone||req.body.customer_phone||'').trim();
     const rawName  = String(req.body.customer_name||'').trim();
     const rawOrderNo = String(req.body.order_number||'').trim();
@@ -1174,7 +1174,7 @@ router.post('/query', (req, res) => {
 router.post('/history', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const rawPhone = String(req.body.phone||'').trim();
     const rawName  = String(req.body.customer_name||'').trim();
     if (!rawPhone) return res.status(400).json({ success: false, message: '請輸入電話' });
@@ -1204,7 +1204,7 @@ router.post('/history', (req, res) => {
 router.post('/quota-reset', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     db.run(
       `UPDATE products SET line_quota_sold=0, updated_at=datetime('now','localtime')
        WHERE store_id=? AND line_quota_enabled=1`,

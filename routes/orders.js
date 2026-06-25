@@ -92,7 +92,7 @@ function parseOrder(o) {
 }
 
 function deductInventory(db, items, orderId, action, storeId) {
-  const sid = storeId || 'store_001';
+  const sid = storeId;
   items.forEach(item => {
     const pid = item.productId || item.product_id;
     if (!pid) return;
@@ -141,7 +141,7 @@ function deductInventory(db, items, orderId, action, storeId) {
 }
 
 function returnInventory(db, items, orderId, action, storeId) {
-  const sid = storeId || 'store_001';
+  const sid = storeId;
   items.forEach(item => {
     const pid = item.productId || item.product_id;
     if (!pid) return;
@@ -160,7 +160,7 @@ function returnInventory(db, items, orderId, action, storeId) {
 
 async function sendWebhook(order) {
   const db  = getDb();
-  const sid = order.store_id || 'store_001';
+  const sid = order.store_id || null;
   const s   = db.get("SELECT value FROM settings WHERE store_id=? AND key='n8n_webhook_url'", [sid]);
   if (!s?.value) return;
   const items = typeof order.items === 'string' ? JSON.parse(order.items) : order.items;
@@ -178,7 +178,7 @@ async function sendWebhook(order) {
 
 function buildDateWhere(query, storeId) {
   const { date, date_from, date_to } = query;
-  const sid = storeId || 'store_001';
+  const sid = storeId;
   const taipeiToday = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
   if (date) return { clause: "store_id=? AND DATE(created_at)=?", params: [sid, date] };
   if (date_from && date_to) return { clause: "store_id=? AND DATE(created_at)>=? AND DATE(created_at)<=?", params: [sid, date_from, date_to] };
@@ -213,7 +213,7 @@ function enqueueJob(order, type) {
   try {
     const db = getDb();
     ensurePrintJobsTable(db);
-    const storeId = order.store_id || 'store_001';
+    const storeId = order.store_id || null;
     const orderId = order.order_number || order.id || '';
     const result = db.run(
       `INSERT INTO print_jobs (store_id, order_id, type, payload, status, created_at)
@@ -232,7 +232,7 @@ async function autoPrintOrEnqueue(order) {
     enqueueJob(order, 'receipt');
     try {
       const db  = getDb();
-      const sid = order.store_id || 'store_001';
+      const sid = order.store_id || null;
       const kitchenRow = db.get("SELECT value FROM settings WHERE store_id=? AND key='print_kitchen'", [sid]);
       const needKitchen = kitchenRow ? kitchenRow.value !== '0' : true;
       if (needKitchen) enqueueJob(order, 'kitchen');
@@ -281,7 +281,7 @@ router.get('/', (req, res) => {
   try {
     const db = getDb();
     ensureFix1809Columns(db);
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const { limit=200, offset=0, status, order_mode } = req.query;
     const { clause, params } = buildDateWhere(req.query, storeId);
     let sql = `SELECT * FROM orders WHERE ${clause}`;
@@ -310,7 +310,7 @@ router.get('/delivery-report', (req, res) => {
   try {
     const db = getDb();
     ensureFix1809Columns(db);
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const { clause, params } = buildDateWhere(req.query, storeId);
     const orders = db.all(
       `SELECT * FROM orders WHERE ${clause} AND order_mode='delivery' ORDER BY created_at DESC`, params
@@ -353,7 +353,7 @@ router.get('/:id', (req, res) => {
   try {
     const db = getDb();
     ensureFix1809Columns(db);
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const order = db.get(
       'SELECT * FROM orders WHERE (id=? OR order_number=?) AND store_id=?',
       [req.params.id, req.params.id, storeId]
@@ -367,7 +367,7 @@ router.get('/:id', (req, res) => {
 router.get('/:id/logs', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const order = db.get(
       'SELECT id, order_number FROM orders WHERE (id=? OR order_number=?) AND store_id=?',
       [req.params.id, req.params.id, storeId]
@@ -387,7 +387,7 @@ router.post('/', async (req, res) => {
   try {
     const db = getDb();
     ensureFix1809Columns(db);
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const {
       items, payment_method='cash',
       customer_name='', customer_phone='', customer_line_id='',
@@ -504,7 +504,7 @@ router.put('/:id', (req, res) => {
   try {
     const db = getDb();
     ensureFix1809Columns(db);
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const order = db.get(
       'SELECT * FROM orders WHERE (id=? OR order_number=?) AND store_id=?',
       [req.params.id, req.params.id, storeId]
@@ -715,7 +715,7 @@ router.put('/:id', (req, res) => {
 router.patch('/:id/status', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const order = db.get(
       'SELECT id FROM orders WHERE (id=? OR order_number=?) AND store_id=?',
       [req.params.id, req.params.id, storeId]
@@ -736,7 +736,7 @@ router.patch('/:id/status', (req, res) => {
 router.patch('/:id/delivery-status', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const order = db.get(
       'SELECT * FROM orders WHERE (id=? OR order_number=?) AND store_id=?',
       [req.params.id, req.params.id, storeId]
@@ -758,7 +758,7 @@ router.patch('/:id/delivery-status', (req, res) => {
 router.post('/:id/void', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const order = db.get(
       'SELECT * FROM orders WHERE (id=? OR order_number=?) AND store_id=?',
       [req.params.id, req.params.id, storeId]
@@ -793,7 +793,7 @@ router.post('/:id/void', (req, res) => {
 router.post('/:id/reprint', async (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const order = db.get(
       'SELECT * FROM orders WHERE (id=? OR order_number=?) AND store_id=?',
       [req.params.id, req.params.id, storeId]
@@ -822,7 +822,7 @@ router.post('/:id/reprint', async (req, res) => {
 router.post('/webhook-test/:id', async (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const order = db.get(
       'SELECT * FROM orders WHERE (id=? OR order_number=?) AND store_id=?',
       [req.params.id, req.params.id, storeId]

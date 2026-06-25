@@ -63,7 +63,7 @@ router.get('/template/ingredient-formulas', (req, res) => {
 router.get('/export/products', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const products = db.all('SELECT * FROM products WHERE store_id=? ORDER BY sort_order ASC, id ASC', [storeId]);
     const headers = ['商品名稱','分類','售價','每份克數','目前庫存(g)','低庫存警戒(份)',
       '商品狀態','LINE是否上架','LINE售價','LINE描述','LINE圖片URL','LINE顯示分類',
@@ -87,7 +87,7 @@ router.get('/export/products', (req, res) => {
 router.get('/export/product-inventory', requireFeature('inventory'), (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const products = db.all('SELECT * FROM products WHERE store_id=? AND inventory_enabled=1 ORDER BY sort_order ASC, id ASC', [storeId]);
     const headers = ['商品名稱','每份克數','目前庫存(g)','可售數量','低庫存警戒(份)','食材控管'];
     const rows = products.map(p => {
@@ -110,7 +110,7 @@ router.get('/export/product-inventory', requireFeature('inventory'), (req, res) 
 router.get('/export/ingredients', requireFeature('inventory'), (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const ings = db.all('SELECT * FROM ingredients WHERE store_id=? ORDER BY id ASC', [storeId]);
     const headers = ['食材名稱','單位','冷凍庫存','解凍中','冷藏可販售','總庫存','低庫存警戒值','預設解凍時間(小時)','備註'];
     const rows = ings.map(i => ({
@@ -129,7 +129,7 @@ router.get('/export/ingredients', requireFeature('inventory'), (req, res) => {
 router.get('/export/ingredient-formulas', requireFeature('inventory'), (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const formulas = db.all(`SELECT f.*,p.name as product_name,i.name as ingredient_name
       FROM product_ingredient_formulas f
       INNER JOIN products p ON p.id=f.product_id AND p.store_id=?
@@ -148,7 +148,7 @@ router.get('/export/ingredient-formulas', requireFeature('inventory'), (req, res
 router.post('/import/products', (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const rows = req.body.rows;
     if (!Array.isArray(rows)||!rows.length) return res.status(400).json({ success: false, message: 'rows 必填' });
     let added=0, updated=0, failed=0; const errors=[];
@@ -186,7 +186,7 @@ router.post('/import/products', (req, res) => {
 router.post('/import/product-inventory', requireFeature('inventory'), (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const rows = req.body.rows;
     if (!Array.isArray(rows)||!rows.length) return res.status(400).json({ success: false, message: 'rows 必填' });
     let updated=0, failed=0; const errors=[];
@@ -213,7 +213,13 @@ router.post('/import/product-inventory', requireFeature('inventory'), (req, res)
 router.post('/import/ingredients', requireFeature('inventory'), (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    // ★ fix: 必須使用 storeGuard 解析出的 req.storeId，不可 fallback 成 store_001
+    const storeId = req.storeId;
+    if (!storeId) {
+      console.error('[ingredients/import] ERROR: req.storeId 未設定，拒絕匯入');
+      return res.status(401).json({ success: false, message: '缺少店家身分，請重新登入' });
+    }
+    console.log('[ingredients/import] START storeId=', storeId);
     const rows = req.body.rows;
     if (!Array.isArray(rows)||!rows.length) return res.status(400).json({ success: false, message: 'rows 必填' });
     let added=0, updated=0, failed=0; const errors=[];
@@ -229,16 +235,41 @@ router.post('/import/ingredients', requireFeature('inventory'), (req, res) => {
         if (frozen<0||threshold<0) { errors.push(`第${idx+2}行：數量不可為負數`); failed++; return; }
         const existing = db.get('SELECT id FROM ingredients WHERE store_id=? AND name=?', [storeId, name]);
         if (existing) {
-          db.run(`UPDATE ingredients SET unit=?,low_stock_threshold=?,default_thaw_hours=?,notes=?,updated_at=datetime('now','localtime') WHERE id=? AND store_id=?`,
+          const upd = db.run(`UPDATE ingredients SET unit=?,low_stock_threshold=?,default_thaw_hours=?,notes=?,updated_at=datetime('now','localtime') WHERE id=? AND store_id=?`,
             [unit,threshold,thawHours,notes,existing.id,storeId]);
+          console.log('[ingredients/import] target storeId=', storeId, {
+            name, sourceStoreId: r.store_id, insertedId: existing.id, changes: upd.changes, action: 'UPDATE'
+          });
           updated++;
         } else {
-          db.run(`INSERT OR IGNORE INTO ingredients (store_id,name,unit,frozen_stock,total_stock,low_stock_threshold,default_thaw_hours,notes) VALUES (?,?,?,?,?,?,?,?)`,
+          // ★ fix: 改用 INSERT（非 INSERT OR IGNORE），讓重複時拋出錯誤而非靜默跳過
+          // UNIQUE(store_id, name) 已由 hotfix10 確保，同店同名進 UPDATE 分支，不會衝突
+          const ins = db.run(`INSERT INTO ingredients (store_id,name,unit,frozen_stock,total_stock,low_stock_threshold,default_thaw_hours,notes) VALUES (?,?,?,?,?,?,?,?)`,
             [storeId,name,unit,frozen,frozen,threshold,thawHours,notes]);
-          added++;
+          const insertedId = ins.lastInsertRowid;
+          console.log('[ingredients/import] target storeId=', storeId, {
+            name, sourceStoreId: r.store_id, insertedId, changes: ins.changes, action: 'INSERT'
+          });
+          if (!insertedId || ins.changes === 0) {
+            errors.push(`第${idx+2}行：INSERT 靜默失敗（storeId=${storeId}, name=${name}）`);
+            failed++;
+          } else {
+            added++;
+          }
         }
       } catch(e) { errors.push(`第${idx+2}行：${e.message}`); failed++; }
     });
+
+    // ★ 匯入完成後立刻查驗：GROUP BY store_id 及目標店筆數
+    try {
+      const groupRows = db.all('SELECT store_id, COUNT(*) AS c FROM ingredients GROUP BY store_id');
+      console.log('[ingredients/import] GROUP BY store_id:', groupRows);
+      const targetRows = db.all('SELECT id, store_id, name FROM ingredients WHERE store_id=? ORDER BY id DESC LIMIT 20', [storeId]);
+      console.log('[ingredients/import] rows for target store:', targetRows);
+    } catch(qe) {
+      console.error('[ingredients/import] post-import query error:', qe.message);
+    }
+
     res.json({ success: true, added, updated, failed, errors });
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
@@ -246,7 +277,7 @@ router.post('/import/ingredients', requireFeature('inventory'), (req, res) => {
 router.post('/import/ingredient-formulas', requireFeature('inventory'), (req, res) => {
   try {
     const db = getDb();
-    const storeId = req.storeId || 'store_001';
+    const storeId = req.storeId;
     const rows = req.body.rows;
     if (!Array.isArray(rows)||!rows.length) return res.status(400).json({ success: false, message: 'rows 必填' });
     let added=0, updated=0, failed=0; const errors=[];
