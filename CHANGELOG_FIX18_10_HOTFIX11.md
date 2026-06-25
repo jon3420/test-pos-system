@@ -1,75 +1,75 @@
 # CHANGELOG — fix18-10-hotfix11
 
-## 問題根本原因（已實測驗證）
+## 版本
+package.json: 18.1.11
 
-### 1. INSERT OR IGNORE 靜默跳過仍 added++（假成功）
-- `routes/importExport.js` → `POST /import/ingredients`
-- 原本：`db.run("INSERT OR IGNORE ...")` 後直接 `added++`
-- 問題：UNIQUE 衝突時 `changes=0` 但 `added` 還是加 1
-- 修正：改用 `INSERT`（去掉 OR IGNORE），檢查 `ins.lastInsertRowid` 和 `ins.changes`
-  - changes=0 → `skipped++` 並記錯誤訊息，不假報成功
+## 根本原因（確認）
 
-### 2. req.storeId || 'store_001' fallback 全面移除
-- 影響範圍：routes/ 下所有檔案（ingredients, importExport, migration, products, orders, categories 等）
-- 問題：若 storeGuard 未設 req.storeId，資料靜默寫入 store_001
-- 修正：所有 `req.storeId || 'store_001'` 改為 `req.storeId`（無 fallback）
-- importExport.js 食材匯入加 guard：storeId 為 null 直接 401
+hotfix10 的 migration 使用 `BEGIN` transaction 包住 `CREATE TABLE ingredients_h10_tmp`。
+Zeabur 上次部署時 server 崩潰，`ingredients_h10_tmp` 遺留在 DB 中。
+下次啟動：
+  BEGIN
+  CREATE TABLE ingredients_h10_tmp  ← 失敗（table already exists）
+  ROLLBACK
+→ UNIQUE(name) 完全沒被移除。
 
-### 3. 加入驗證 log（必查）
-- 每筆 INSERT/UPDATE 後印 `[ingredients/import] { storeId, name, changes, insertedId, action }`
-- 匯入完成後立即查：
-  - `SELECT store_id, COUNT(*) FROM ingredients GROUP BY store_id`
-  - `SELECT id, store_id, name FROM ingredients WHERE store_id=? ORDER BY id DESC LIMIT 20`
+## 修正內容（utils/db.js）
 
-## 實測結果
+### hotfix11 migration 策略
+1. **先清所有遺留 tmp/new 表**（DROP TABLE IF EXISTS，不用 transaction，不會 ROLLBACK）
+   - `ingredients_h10_tmp`、`ingredients_h??_tmp`、`ingredients_h??_new`
+2. **PRAGMA 實際查每個 unique index 的欄位**（不用 regex）
+   - `PRAGMA index_list('ingredients')` → 逐一 `PRAGMA index_info(idxName)`
+   - 只要有 unique index 欄位只含 `name`（不含 `store_id`）→ 觸發重建
+3. **重建不用 transaction**（逐步執行，任一步失敗可重試）
+4. **DEFAULT 含括號的函數呼叫正確重建**
+   - PRAGMA table_info 回傳 `datetime('now','localtime')` 沒有外層括號
+   - 重建時補括號：`DEFAULT (datetime('now','localtime'))`
+5. **重建後再次 PRAGMA 驗證**，完整印出
+6. **跨店同名防彈測試**：插入兩店同名記錄確認不報 UNIQUE 錯誤
 
-### 食材 CSV 匯入（store_002, 11 筆）
+## 新增（server.js）
+
+### GET /api/debug/schema（無需登入）
+部署後立即可呼叫確認線上 schema：
+```json
+{
+  "success": true,
+  "version": "18.1.11",
+  "table_sql": "...",
+  "indexes": [{ "name": "...", "unique": true, "columns": ["store_id","name"] }],
+  "diagnosis": {
+    "has_unique_name_only": false,
+    "has_unique_store_id_name": true,
+    "status": "UNIQUE(store_id,name) OK"
+  }
+}
 ```
-POST /api/import/ingredients → { success: true, added: 11, updated: 0, failed: 0, errors: [] }
-[ingredients/import] GROUP BY store_id: [{ store_id: 'store_002', c: 11 }]
-SELECT COUNT(*) FROM ingredients WHERE store_id='store_002' → 11 ✅
-GET /api/ingredients → 11 rows ✅
+
+## 其他修正（繼承自 hotfix10 → hotfix11）
+- 全專案 `req.storeId || 'store_001'` 移除（routes/ + middleware/）
+- 食材匯入 `INSERT OR IGNORE` → `INSERT`，`changes===0` 時 `skipped++` 非 `added++`
+- 食材匯入加 storeId guard：storeId 為 null 直接 401
+
+## 實測驗證結果
+
+### Migration Cases（三種場景）
+| Case | 說明 | 結果 |
+|------|------|------|
+| Case1 | 全新 DB | schema OK ✅ |
+| Case2 | 舊版 UNIQUE(name) | 重建完成 ✅ |
+| Case3 | UNIQUE(name) + 遺留 h10_tmp（Zeabur 情境）| 清 tmp → 重建 ✅ |
+
+### /api/debug/schema 回傳
+```json
+{ "diagnosis": { "status": "UNIQUE(store_id,name) OK" } }
 ```
 
-### 扣料公式匯入（13 筆）
+### 功能測試
 ```
-POST /api/import/ingredient-formulas → { success: true, added: 13 }
-GET /api/ingredients/formulas/all → 13 rows ✅
+① CSV 食材匯入 11筆:    added=11, SQL=11, GET=11  ✅
+② CSV 扣料公式 13筆:    added=13, SQL=13, GET=13  ✅
+③ Restore:               ings=11, fmls=13           ✅
+④⑤ 商品庫存/扣料:       products=13, formulas=13   ✅
+⑥ 匯出一致:              CSV rows=11                ✅
 ```
-
-### Restore（store_001 → store_002, replace mode）
-```
-ingredients: { added: 11, skipped: 0, failed: 0 }
-formulas:    { added: 13, skipped: 0, failed: 0 }
-SELECT COUNT(*) FROM ingredients WHERE store_id='store_002' → 11 ✅
-SELECT COUNT(*) FROM product_ingredient_formulas → 13 ✅
-GET /api/ingredients = 11 ✅
-GET /formulas/all = 13 ✅
-```
-
-## 修改檔案清單
-- `routes/importExport.js` — 食材匯入邏輯修正 + 全路由移除 fallback
-- `routes/ingredients.js` — 全路由移除 fallback
-- `middleware/featureGate.js` — 移除 fallback
-- `routes/migration.js` — 移除 fallback
-- `routes/products.js` — 移除 fallback
-- `routes/categories.js` — 移除 fallback
-- `routes/orders.js` — order.store_id fallback 改為 null
-- `routes/line-orders.js` — 移除 fallback
-- `routes/discount-campaigns.js` — 移除 fallback
-- `routes/discount-categories.js` — 移除 fallback
-- `routes/kitchen.js` — 移除 fallback
-- `routes/dashboard.js` — 移除 fallback
-- `routes/inventory.js` — 移除 fallback
-- `routes/sync.js` — 移除 fallback
-- `routes/platforms.js` — 移除 fallback
-- `routes/customers.js` — 移除 fallback
-- `routes/print.js` — 移除 fallback
-- `routes/printJobs.js` — 移除 fallback
-- `routes/product-analysis-groups.js` — 移除 fallback
-- `routes/payment-gateways.js` — 移除 fallback
-- `routes/delivery.js` — 移除 fallback
-- `routes/settings.js` — 移除 fallback
-- `routes/coupons.js` — 移除 fallback
-- `routes/online-orders.js` — 移除 fallback
-- `routes/linepay.js` — webhook callback fallback 改為 null（原為 store_001）

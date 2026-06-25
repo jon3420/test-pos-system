@@ -1,6 +1,6 @@
 {
   "name": "foodtruck-pos",
-  "version": "18.1.10",
+  "version": "18.1.11",
   "description": "POS SaaS Foundation R1 — 多店隔離 + Super Admin",
   "main": "server.js",
   "scripts": {

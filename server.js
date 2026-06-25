@@ -215,9 +215,47 @@ initDb().then((db) => {
   // ── Super Admin 總控台（獨立，不需 storeGuard）────────
   app.use('/api/super-admin', require('./routes/superAdmin'));
 
-  // ── 店家登入（公開，不需 storeGuard）─────────────────
+  // ── hotfix11 診斷 API：GET /api/debug/schema ──────────
+  // 部署後呼叫此 API 可確認線上 SQLite schema 是否正確（無需登入）
+  app.get('/api/debug/schema', (req, res) => {
+    try {
+      const db = getDb();
+      const raw = db._db;
+      const tableSql = (raw.exec("SELECT sql FROM sqlite_master WHERE type='table' AND name='ingredients'")?.[0]?.values?.[0]?.[0]) || null;
+      const idxListRaw = (raw.exec("PRAGMA index_list('ingredients')")?.[0]?.values) || [];
+      const indexes = [];
+      for (const r of idxListRaw) {
+        const idxName = r[1];
+        const isUnique = r[2] === 1;
+        const cols = (raw.exec(`SELECT name FROM pragma_index_info('${idxName}')`)?.[0]?.values || []).map(v => v[0]);
+        indexes.push({ name: idxName, unique: isUnique, columns: cols });
+      }
+      const hasNameOnly    = indexes.some(i => i.unique && i.columns.length === 1 && i.columns[0] === 'name');
+      const hasStoreIdName = indexes.some(i => i.unique && i.columns.includes('store_id') && i.columns.includes('name'));
+      const statusText     = hasNameOnly
+        ? 'UNIQUE(name) 仍存在，跨店匯入會失敗'
+        : (hasStoreIdName ? 'UNIQUE(store_id,name) OK' : '無 unique index，請確認');
+
+      res.json({
+        success: true,
+        version: require('./package.json').version,
+        table_sql: tableSql,
+        indexes,
+        diagnosis: {
+          has_unique_name_only:     hasNameOnly,
+          has_unique_store_id_name: hasStoreIdName,
+          status: statusText
+        }
+      });
+    } catch(e) {
+      res.status(500).json({ success: false, message: e.message });
+    }
+  });
+
+    // ── 店家登入（公開，不需 storeGuard）─────────────────
   // POST /api/store-login        → 登入，取得 JWT
   // POST /api/store-login/set-password → Super Admin 設密碼（另需保護）
+
   app.use('/api/store-login', require('./routes/storeLogin'));
 
   // ── v18+ 授權系統（保持原有相容）────────────────────────
