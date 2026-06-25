@@ -8434,6 +8434,10 @@ async function onMigrationFileSelected(input) {
         <div>分類：<strong>${s.categories}</strong> 筆</div>
         <div>訂單：<strong>${s.orders}</strong> 筆</div>
         <div>LINE預購：<strong>${s.preorders}</strong> 筆</div>
+        <div>食材：<strong>${s.ingredients||0}</strong> 筆</div>
+        <div>商品扣料公式：<strong>${s.product_ingredient_formulas||0}</strong> 筆</div>
+        <div>食材異動紀錄：<strong>${s.ingredient_logs||0}</strong> 筆</div>
+        <div>庫存變動紀錄：<strong>${s.inventory_logs||0}</strong> 筆</div>
         <div>折扣分類：<strong>${s.discount_categories}</strong> 筆</div>
         <div>折扣活動：<strong>${s.discount_campaigns}</strong> 筆</div>
         <div>分析群組：<strong>${s.product_analysis_groups}</strong> 筆</div>
@@ -8557,15 +8561,17 @@ async function executeMigrationImport() {
     if (json.success) {
       const r = json.results || {};
       const lines = [
-        `商品：${r.products||0}`,
-        `分類：${r.categories||0}`,
-        `訂單：${r.orders||0}`,
-        `折扣分類：${r.discount_categories||0}`,
-        `折扣活動：${r.discount_campaigns||0}`,
-        `分析群組：${r.analysis_groups||0}`,
-        `群組成員：${r.analysis_items||0}`,
-        `歷史別名：${r.analysis_aliases||0}`,
-        `設定：${r.settings||0}`
+        `商品：${r.products?.added||0}`,
+        `分類：${r.categories?.added||0}`,
+        `訂單：${r.orders?.added||0}`,
+        `食材：${r.ingredients?.added||0}`,
+        `扣料公式：${r.product_ingredient_formulas?.added||0}`,
+        `折扣分類：${r.discount_categories?.added||0}`,
+        `折扣活動：${r.discount_campaigns?.added||0}`,
+        `分析群組：${r.analysis_groups?.added||0}`,
+        `群組成員：${r.analysis_items?.added||0}`,
+        `歷史別名：${r.analysis_aliases?.added||0}`,
+        `設定：${r.settings?.added||0}`
       ].join('、') + ' 筆';
       const skipFail = r.failed > 0 ? `｜失敗 ${r.failed} 筆` : '';
       if (statusEl) {

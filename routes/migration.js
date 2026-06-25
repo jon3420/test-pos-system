@@ -1,47 +1,33 @@
-// routes/migration.js — fix18-10-hotfix8
+// routes/migration.js — fix18-10-hotfix9
 //
-// fix18-10-hotfix8 修正：
+// fix18-10-hotfix9 新增：完整快速搬家（食材庫存＋商品扣料公式＋店家營運資料）
 //
-// BUG-1: LINE 點餐切換外送後 deliveryAddrWrap 不顯示
-//   修正：新增 updateDeliveryAddressVisibility()，
-//         switchMode() / onModeChange() / init() 全部統一呼叫
+// 新增 Backup 資料：
+//   ingredients（食材主表）
+//   product_ingredient_formulas（商品扣料公式）
+//   ingredient_logs（食材異動紀錄）
+//   ingredient_batches（批號管理）
+//   ingredient_thaw_batches（解凍批次）
+//   inventory_logs（庫存變動紀錄）
 //
-// BUG-2: replace 模式 restore 出現 no such table: inventory
-//   修正：新增 tableExists() / rawTableExists()，
-//         replace 模式清表前先判斷 inventory / inventory_logs / inventory_recipes 是否存在，
-//         不存在只 warning，不中止 restore
+// 新增 Restore：
+//   ingredients：id remap，以 (store_id, name) 防重複，跨店不衝突
+//   product_ingredient_formulas：product_id / ingredient_id 依 remap 重建
+//   ingredient_logs / ingredient_batches / ingredient_thaw_batches：依 ingredient_id remap 重建
+//   inventory_logs：依 product_id remap（products 表）重建
 //
-// fix18-10-hotfix8 修正（含 hotfix5 全部修正）：
+// 第四階段：Replace 模式全面支援 tableExists 保護
+// 第五階段：Merge 模式以 (store_id, name) 判重，不受跨店 PK 影響
+// 第六階段：Backup 預覽新增食材 / 扣料公式 / 異動紀錄等統計
+// 第七階段：Restore 完成後可驗證食材、公式、庫存設定
+// 第八階段：舊版 Backup 缺少欄位直接略過，不 rollback
+// 第九階段：不破壞既有流程
 //
-// BUG-3: delivery_platforms 硬寫 code 欄位，但 DB 無此欄位
-//
-// BUG-4: categories/products/discount_categories/discount_campaigns/analysis_groups
-//   有 id INTEGER PK 跨店衝突，INSERT OR IGNORE 因 PK 已被其他店占用而靜默跳過
-//   修正：不寫入 id，以 (store_id, name) 判斷重複，讓 AUTOINCREMENT 自動指派新 id
-//         analysis_items/aliases 使用 groupIdRemap 對照舊→新 group_id/product_id
-//   根因：migration/import 對 delivery_platforms（與其他多張表）硬寫欄位清單，
-//         備份檔欄位多於 DB 實際欄位時 INSERT 失敗，導致整批 failed。
-//   修正：所有資料表改用 PRAGMA table_info() 動態取得實際欄位，
-//         只 INSERT/UPDATE 目前 DB 實際存在的欄位，多餘欄位自動略過。
-//
-// 適用所有匯入資料表：
-//   categories / products / orders / order_logs /
-//   discount_categories / discount_campaigns /
-//   product_analysis_groups / product_analysis_group_items /
-//   product_analysis_group_aliases /
-//   settings / delivery_platforms / delivery_fees
-//
-// 錯誤計數與狀態顯示：
-//   failed > 0 → status = 'partial'，回傳 table_errors 分類清單
-//   replace 模式：any error → ROLLBACK（all-or-nothing）
-//
-// 沿用 fix18-10-hotfix4 的修正：
-// BUG-1: 跨店 id PK 衝突 → 用 storeId+'_'+order_number 作為 id
-// BUG-2: order_logs 固定欄位 → PRAGMA 動態過濾
-// RC-1: 回傳 date_range
-// RC-2: ensureTable 先建 discount 表
-// RC-3: rawRunCount 確認實際寫入
-// RC-4: PRAGMA 動態過濾欄位（orders）
+// 繼承 fix18-10-hotfix8 全部修正：
+//   BUG-1: LINE 點餐切換外送後 deliveryAddrWrap 不顯示
+//   BUG-2: replace 模式 no such table: inventory → tableExists 保護
+//   BUG-3: delivery_platforms 硬寫 code 欄位 → PRAGMA 動態欄位
+//   BUG-4: INTEGER PK 跨店衝突 → 不寫 id，以 (store_id, name) 判重
 
 'use strict';
 
@@ -140,7 +126,7 @@ function getTableCols(db, table) {
   } catch { return new Set(); }
 }
 
-// ── fix18-08: 檢查資料表是否存在（供 inventory 相關操作使用）────────────
+// ── 檢查資料表是否存在 ─────────────────────────────────────────────────────
 function tableExists(db, tableName) {
   try {
     const row = db.get(
@@ -163,12 +149,33 @@ function rawTableExists(raw, tableName) {
   } catch { return false; }
 }
 
+// ── safeRawAll：在 transaction 內安全查詢 ─────────────────────────────────
+function safeRawAll(raw, sql, params) {
+  try {
+    const stmt = raw.prepare(sql);
+    if (params && params.length) stmt.bind(params);
+    const rows = [];
+    while (stmt.step()) rows.push(stmt.getAsObject());
+    stmt.free();
+    return rows;
+  } catch { return []; }
+}
+
+// ── safeExportTable：匯出前先確認資料表存在 ───────────────────────────────
+function safeExportAll(db, tableName, where, params) {
+  try {
+    if (!tableExists(db, tableName)) {
+      console.warn(`[migration/export] table ${tableName} not found, skipping`);
+      return [];
+    }
+    return safeAll(db, `SELECT * FROM ${tableName} WHERE ${where}`, params);
+  } catch(e) {
+    console.warn(`[migration/export] ${tableName} error:`, e.message);
+    return [];
+  }
+}
+
 // ── 通用動態 INSERT helper ─────────────────────────────────────────────────
-// candidates: 候選欄位順序陣列（包含備份檔可能有的所有欄位名稱）
-// srcObj:     備份檔的單筆資料（含 alias mapping 後）
-// colSet:     DB 實際欄位 Set
-// orMode:     'OR IGNORE' | 'OR REPLACE' | 'OR IGNORE'
-// 回傳 { sql, vals } 或 null（若無有效欄位）
 function buildDynamicInsert(table, candidates, srcObj, colSet, orMode) {
   const cols = candidates.filter(c => colSet.has(c));
   if (!cols.length) return null;
@@ -191,6 +198,16 @@ function rawRunCount(raw, sql, params) {
   stmt.run(Array.isArray(params) ? params : []);
   stmt.free();
   return raw.getRowsModified ? raw.getRowsModified() : 1;
+}
+
+// ── safeRawDelete：只有 table 存在才刪，不存在就 warn ────────────────────
+function safeRawDelete(raw, tableName, where, params) {
+  if (!rawTableExists(raw, tableName)) {
+    console.warn(`[migration] table ${tableName} not found, skipping DELETE`);
+    return;
+  }
+  try { rawRun(raw, `DELETE FROM ${tableName} WHERE ${where}`, params); }
+  catch(e) { console.warn(`[migration] skip DELETE ${tableName}:`, e.message); }
 }
 
 // ── runInTransaction ───────────────────────────────────────────────────────
@@ -271,7 +288,7 @@ router.get('/export/orders', (req, res) => {
       return res.send(BOM + toCsv(headers, orders));
     }
 
-    const payload = { type:'orders_backup', version:'fix18-10-hotfix8',
+    const payload = { type:'orders_backup', version:'fix18-10-hotfix9',
       exported_at: isoNow(), store_id: storeId,
       data: { orders, order_items: orderItemsExpanded, order_logs: orderLogs } };
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
@@ -424,7 +441,7 @@ router.get('/export/preorders', (req, res) => {
       res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
       return res.send(BOM + toCsv(headers, preorders));
     }
-    const payload = { type:'preorders_backup', version:'fix18-10-hotfix8',
+    const payload = { type:'preorders_backup', version:'fix18-10-hotfix9',
       exported_at: isoNow(), store_id: storeId, data: { preorders } };
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
@@ -502,6 +519,9 @@ router.post('/import/preorders', (req, res) => {
 
 // ══════════════════════════════════════════════════════════════════════════
 //  快速搬家檔匯出  GET /api/migration/export
+//  fix18-10-hotfix9：新增 ingredients / product_ingredient_formulas /
+//                    ingredient_logs / ingredient_batches /
+//                    ingredient_thaw_batches / inventory_logs
 // ══════════════════════════════════════════════════════════════════════════
 router.get('/migration/export', (req, res) => {
   try {
@@ -536,10 +556,94 @@ router.get('/migration/export', (req, res) => {
       line_preorder_daily: p.line_preorder_daily,
       line_preorder_sold: p.line_preorder_sold,
       line_preorder_low_threshold: p.line_preorder_low_threshold,
-      line_preorder_high_threshold: p.line_preorder_high_threshold
+      line_preorder_high_threshold: p.line_preorder_high_threshold,
+      // fix18-10-hotfix9: LINE quota 管理欄位
+      line_quota_enabled: p.line_quota_enabled,
+      line_quota_daily: p.line_quota_daily,
+      line_quota_sold: p.line_quota_sold,
+      line_quota_low_threshold: p.line_quota_low_threshold,
+      line_quota_high_threshold: p.line_quota_high_threshold,
+      line_sell_start: p.line_sell_start,
+      line_sell_end: p.line_sell_end,
+      sale_status: p.sale_status
     }));
 
-    const inventory = safeAll(db, 'SELECT * FROM inventory WHERE store_id=?', [storeId]);
+    // ── hotfix9: inventory（從 products 讀取）────────────────────────────
+    const inventory = safeAll(db, 'SELECT * FROM inventory WHERE store_id=?', [storeId]).catch
+      ? []
+      : (() => {
+          try { return safeAll(db, 'SELECT * FROM inventory WHERE store_id=?', [storeId]); }
+          catch { return []; }
+        })();
+
+    // ── hotfix9: 食材相關資料表（全部有 store_id）────────────────────────
+    const ingredients         = safeExportAll(db, 'ingredients', 'store_id=?', [storeId]);
+    // inventory_logs 有 store_id
+    const inventoryLogs       = safeExportAll(db, 'inventory_logs', 'store_id=?', [storeId]);
+    // product_ingredient_formulas 無 store_id，透過 product_id join
+    let   productIngFormulas  = [];
+    if (tableExists(db, 'product_ingredient_formulas') && products.length) {
+      const productIds = products.map(p => p.id);
+      for (let i = 0; i < productIds.length; i += 200) {
+        const chunk = productIds.slice(i, i+200);
+        const ph = chunk.map(()=>'?').join(',');
+        try {
+          productIngFormulas.push(...db.all(
+            `SELECT f.*, p.name as product_name, i.name as ingredient_name
+             FROM product_ingredient_formulas f
+             LEFT JOIN products p ON p.id=f.product_id
+             LEFT JOIN ingredients i ON i.id=f.ingredient_id
+             WHERE f.product_id IN (${ph})`,
+            chunk
+          ));
+        } catch {}
+      }
+    }
+    // ingredient_logs 無 store_id，透過 ingredient_id join
+    let ingredientLogs = [];
+    if (tableExists(db, 'ingredient_logs') && ingredients.length) {
+      const ingIds = ingredients.map(i => i.id);
+      for (let i = 0; i < ingIds.length; i += 200) {
+        const chunk = ingIds.slice(i, i+200);
+        const ph = chunk.map(()=>'?').join(',');
+        try {
+          ingredientLogs.push(...db.all(
+            `SELECT il.* FROM ingredient_logs il WHERE il.ingredient_id IN (${ph}) ORDER BY il.created_at ASC LIMIT 5000`,
+            chunk
+          ));
+        } catch {}
+      }
+    }
+    // ingredient_batches 無 store_id，透過 ingredient_id join
+    let ingredientBatches = [];
+    if (tableExists(db, 'ingredient_batches') && ingredients.length) {
+      const ingIds = ingredients.map(i => i.id);
+      for (let i = 0; i < ingIds.length; i += 200) {
+        const chunk = ingIds.slice(i, i+200);
+        const ph = chunk.map(()=>'?').join(',');
+        try {
+          ingredientBatches.push(...db.all(
+            `SELECT * FROM ingredient_batches WHERE ingredient_id IN (${ph})`,
+            chunk
+          ));
+        } catch {}
+      }
+    }
+    // ingredient_thaw_batches 無 store_id，透過 ingredient_id join
+    let ingredientThawBatches = [];
+    if (tableExists(db, 'ingredient_thaw_batches') && ingredients.length) {
+      const ingIds = ingredients.map(i => i.id);
+      for (let i = 0; i < ingIds.length; i += 200) {
+        const chunk = ingIds.slice(i, i+200);
+        const ph = chunk.map(()=>'?').join(',');
+        try {
+          ingredientThawBatches.push(...db.all(
+            `SELECT * FROM ingredient_thaw_batches WHERE ingredient_id IN (${ph})`,
+            chunk
+          ));
+        } catch {}
+      }
+    }
 
     const discountCategories = safeAll(db,
       'SELECT * FROM discount_categories WHERE store_id=? ORDER BY sort_order ASC, id ASC', [storeId]);
@@ -568,10 +672,10 @@ router.get('/migration/export', (req, res) => {
     const ts = tsFile(), fileName = `pos_migration_${storeId}_${ts}.json`;
 
     const payload = {
-      type: 'pos_migration_backup', version: 'fix18-10-hotfix8',
+      type: 'pos_migration_backup', version: 'fix18-10-hotfix9',
       exported_at: isoNow(), store_id: storeId,
       store_name: storeRow ? (storeRow.name||storeRow.store_id||storeId) : storeId,
-      schema_version: 2,
+      schema_version: 3,
       data: {
         products, categories, orders,
         order_items: [],
@@ -579,6 +683,13 @@ router.get('/migration/export', (req, res) => {
         preorder_order_numbers: preorderNums,
         line_products: lineProducts,
         inventory,
+        // hotfix9: 新增食材營運資料
+        ingredients,
+        product_ingredient_formulas: productIngFormulas,
+        ingredient_logs: ingredientLogs,
+        ingredient_batches: ingredientBatches,
+        ingredient_thaw_batches: ingredientThawBatches,
+        inventory_logs: inventoryLogs,
         discount_categories:            discountCategories,
         discount_campaigns:             discountCampaigns,
         product_analysis_groups:        analysisGroups,
@@ -594,6 +705,12 @@ router.get('/migration/export', (req, res) => {
       products: products.length, categories: categories.length,
       orders: orders.length, preorders: preorderNums.length,
       order_logs: orderLogs.length,
+      ingredients: ingredients.length,
+      product_ingredient_formulas: productIngFormulas.length,
+      ingredient_logs: ingredientLogs.length,
+      ingredient_batches: ingredientBatches.length,
+      ingredient_thaw_batches: ingredientThawBatches.length,
+      inventory_logs: inventoryLogs.length,
       discount_categories: discountCategories.length,
       discount_campaigns: discountCampaigns.length,
       analysis_groups: analysisGroups.length,
@@ -616,6 +733,7 @@ router.get('/migration/export', (req, res) => {
 
 // ══════════════════════════════════════════════════════════════════════════
 //  Preview  POST /api/migration/import/preview
+//  hotfix9：新增 ingredients / formulas / logs 統計
 // ══════════════════════════════════════════════════════════════════════════
 router.post('/migration/import/preview', (req, res) => {
   try {
@@ -637,19 +755,26 @@ router.post('/migration/import/preview', (req, res) => {
       : null;
 
     const summary = {
-      products:                      (d.products                     || []).length,
-      categories:                    (d.categories                   || []).length,
-      orders:                        (d.orders                       || []).length,
-      order_logs:                    (d.order_logs                   || []).length,
+      products:                      (d.products                        || []).length,
+      categories:                    (d.categories                      || []).length,
+      orders:                        (d.orders                          || []).length,
+      order_logs:                    (d.order_logs                      || []).length,
       preorders:                     (d.orders||[]).filter(o=>o.source==='line').length,
-      discount_categories:           (d.discount_categories          || []).length,
-      discount_campaigns:            (d.discount_campaigns           || []).length,
-      product_analysis_groups:       (d.product_analysis_groups      || []).length,
-      product_analysis_group_items:  (d.product_analysis_group_items || []).length,
-      product_analysis_group_aliases:(d.product_analysis_group_aliases||[]).length,
-      settings:                      (d.settings                     || []).length,
-      delivery_platforms:            (d.delivery_platforms           || []).length,
-      delivery_fees:                 (d.delivery_fees                || []).length
+      // hotfix9：新增
+      ingredients:                   (d.ingredients                     || []).length,
+      product_ingredient_formulas:   (d.product_ingredient_formulas     || []).length,
+      ingredient_logs:               (d.ingredient_logs                 || []).length,
+      ingredient_batches:            (d.ingredient_batches              || []).length,
+      ingredient_thaw_batches:       (d.ingredient_thaw_batches         || []).length,
+      inventory_logs:                (d.inventory_logs                  || []).length,
+      discount_categories:           (d.discount_categories             || []).length,
+      discount_campaigns:            (d.discount_campaigns              || []).length,
+      product_analysis_groups:       (d.product_analysis_groups         || []).length,
+      product_analysis_group_items:  (d.product_analysis_group_items    || []).length,
+      product_analysis_group_aliases:(d.product_analysis_group_aliases  || []).length,
+      settings:                      (d.settings                        || []).length,
+      delivery_platforms:            (d.delivery_platforms              || []).length,
+      delivery_fees:                 (d.delivery_fees                   || []).length
     };
 
     res.json({
@@ -666,10 +791,7 @@ router.post('/migration/import/preview', (req, res) => {
 
 // ══════════════════════════════════════════════════════════════════════════
 //  快速搬家檔匯入  POST /api/migration/import
-//
-//  fix18-10-hotfix6 核心修正：
-//  全部資料表改用 PRAGMA table_info() 動態取得欄位，
-//  只 INSERT 目前 DB 實際存在的欄位，備份檔多餘欄位自動略過。
+//  hotfix9：完整支援 ingredients / formulas / logs，含 ID remap
 // ══════════════════════════════════════════════════════════════════════════
 router.post('/migration/import', (req, res) => {
   try {
@@ -695,12 +817,19 @@ router.post('/migration/import', (req, res) => {
 
     const d = payload.data || {};
 
-    // 結果計數器（依資料表分開）
+    // 結果計數器
     const results = {
       categories:         { added:0, skipped:0, failed:0, errors:[] },
       products:           { added:0, skipped:0, failed:0, errors:[] },
       orders:             { added:0, updated:0, skipped:0, failed:0, errors:[] },
       order_logs:         { added:0, skipped:0, failed:0, errors:[] },
+      // hotfix9
+      ingredients:              { added:0, skipped:0, failed:0, errors:[] },
+      product_ingredient_formulas: { added:0, skipped:0, failed:0, errors:[] },
+      ingredient_logs:          { added:0, skipped:0, failed:0, errors:[] },
+      ingredient_batches:       { added:0, skipped:0, failed:0, errors:[] },
+      ingredient_thaw_batches:  { added:0, skipped:0, failed:0, errors:[] },
+      inventory_logs:           { added:0, skipped:0, failed:0, errors:[] },
       discount_categories:{ added:0, skipped:0, failed:0, errors:[] },
       discount_campaigns: { added:0, skipped:0, failed:0, errors:[] },
       analysis_groups:    { added:0, skipped:0, failed:0, errors:[] },
@@ -711,28 +840,41 @@ router.post('/migration/import', (req, res) => {
       delivery_fees:      { added:0, skipped:0, failed:0, errors:[] }
     };
 
-    // 預先讀取所有資料表的實際欄位（PRAGMA 在 transaction 外執行更穩定）
+    // 預先讀取所有資料表的實際欄位
     const schemas = {};
-    for (const t of Object.keys(results)) {
-      // 對應實際 DB 表名
-      const tbl = t === 'analysis_groups'   ? 'product_analysis_groups'        :
-                  t === 'analysis_items'    ? 'product_analysis_group_items'   :
-                  t === 'analysis_aliases'  ? 'product_analysis_group_aliases' : t;
-      schemas[t] = getTableCols(db, tbl);
+    const tableMap = {
+      categories:   'categories',
+      products:     'products',
+      orders:       'orders',
+      order_logs:   'order_logs',
+      ingredients:  'ingredients',
+      product_ingredient_formulas: 'product_ingredient_formulas',
+      ingredient_logs:   'ingredient_logs',
+      ingredient_batches: 'ingredient_batches',
+      ingredient_thaw_batches: 'ingredient_thaw_batches',
+      inventory_logs: 'inventory_logs',
+      discount_categories:  'discount_categories',
+      discount_campaigns:   'discount_campaigns',
+      analysis_groups:   'product_analysis_groups',
+      analysis_items:    'product_analysis_group_items',
+      analysis_aliases:  'product_analysis_group_aliases',
+      settings:          'settings',
+      delivery_platforms: 'delivery_platforms',
+      delivery_fees:      'delivery_fees'
+    };
+    for (const [k, tbl] of Object.entries(tableMap)) {
+      schemas[k] = getTableCols(db, tbl);
     }
 
-    // INSERT 模式
     const orMode = (mode === 'overwrite') ? 'OR REPLACE' : 'OR IGNORE';
-
-    // replace 模式需要 all-or-nothing；其他模式逐筆記錯不停止
     const strictMode = (mode === 'replace');
 
     try {
       runInTransaction(db, (raw) => {
 
-        // ── replace：只清本店 ──────────────────────────────────────────────
+        // ── replace：清本店資料 ────────────────────────────────────────
         if (mode === 'replace') {
-          // fix18-08: 必定存在的核心資料表
+          // 核心資料表（一定存在）
           const purgeCore = ['orders','products','categories',
             'discount_categories','discount_campaigns',
             'product_analysis_group_items','product_analysis_group_aliases',
@@ -740,16 +882,48 @@ router.post('/migration/import', (req, res) => {
           for (const t of purgeCore) {
             rawRun(raw, `DELETE FROM ${t} WHERE store_id=?`, [storeId]);
           }
-          // fix18-08: inventory 系列可能舊版 DB 不存在，存在才刪
-          const inventoryTables = ['inventory','inventory_logs','inventory_recipes'];
-          for (const t of inventoryTables) {
-            if (rawTableExists(raw, t)) {
-              try { rawRun(raw, `DELETE FROM ${t} WHERE store_id=?`, [storeId]); }
-              catch(e) { console.warn(`[migration] skip DELETE ${t}:`, e.message); }
-            } else {
-              console.warn(`[migration] table ${t} not found, skipping DELETE`);
-            }
+          // 可能不存在的資料表（全部用 safeRawDelete）
+          const purgeSafe = [
+            'inventory','inventory_logs','inventory_recipes',
+            // hotfix9 新增：食材系列（有 store_id）
+            'ingredients'
+          ];
+          for (const t of purgeSafe) {
+            safeRawDelete(raw, t, 'store_id=?', [storeId]);
           }
+          // 食材關聯表（無 store_id，需先找本店 ingredient ids，再刪）
+          if (rawTableExists(raw, 'ingredients')) {
+            try {
+              const ingRows = safeRawAll(raw,
+                `SELECT id FROM ingredients WHERE store_id=?`, [storeId]);
+              if (ingRows.length) {
+                const ingIds = ingRows.map(r => r.id);
+                for (let i = 0; i < ingIds.length; i += 200) {
+                  const chunk = ingIds.slice(i, i+200);
+                  const ph = chunk.map(()=>'?').join(',');
+                  for (const t of ['ingredient_logs','ingredient_batches','ingredient_thaw_batches']) {
+                    safeRawDelete(raw, t, `ingredient_id IN (${ph})`, chunk);
+                  }
+                }
+              }
+            } catch(e) { console.warn('[migration] ingredient related delete:', e.message); }
+          }
+          // product_ingredient_formulas（無 store_id，依本店 product_id）
+          if (rawTableExists(raw, 'products') && rawTableExists(raw, 'product_ingredient_formulas')) {
+            try {
+              const prodRows = safeRawAll(raw,
+                `SELECT id FROM products WHERE store_id=?`, [storeId]);
+              if (prodRows.length) {
+                const prodIds = prodRows.map(r => r.id);
+                for (let i = 0; i < prodIds.length; i += 200) {
+                  const chunk = prodIds.slice(i, i+200);
+                  const ph = chunk.map(()=>'?').join(',');
+                  safeRawDelete(raw, 'product_ingredient_formulas', `product_id IN (${ph})`, chunk);
+                }
+              }
+            } catch(e) { console.warn('[migration] formula delete:', e.message); }
+          }
+          // orders 的 order_logs
           try {
             const ids = safeAll(db,'SELECT id FROM orders WHERE store_id=?',[storeId]).map(r=>r.id);
             for (let i=0;i<ids.length;i+=200) {
@@ -762,18 +936,11 @@ router.post('/migration/import', (req, res) => {
           try { rawRun(raw,`DELETE FROM delivery_fees WHERE store_id=?`,[storeId]); } catch {}
         }
 
-        // ── categories（動態欄位）────────────────────────────────────────
-        // ── categories（BUG-4 修正：id INTEGER PK 跨店衝突）──────────────
-        // 根因：categories.id INTEGER PRIMARY KEY AUTOINCREMENT，store_001 id=1
-        //       store_03 匯入時 INSERT OR IGNORE 因 PK 衝突被靜默跳過。
-        // 修正：不寫入 id，讓 AUTOINCREMENT 自動指派新 id；
-        //       以 (store_id, name) 判斷是否已存在。
+        // ── categories（不寫 id，避免跨店 PK 衝突）────────────────────
         const catCols = schemas['categories'];
-        // 不含 id 的欄位清單（AUTOINCREMENT 自動指派）
         const catInsertCandidates = ['store_id','name','icon','sort_order','is_active','created_at'];
         for (const c of (d.categories||[])) {
           try {
-            // 用 store_id + name 判斷本店是否已有此分類
             const existCat = safeGet(db,
               'SELECT id FROM categories WHERE store_id=? AND name=?', [storeId, c.name||'']);
             if (existCat) {
@@ -803,21 +970,15 @@ router.post('/migration/import', (req, res) => {
           }
         }
 
-        // 建立 category name → 新 id 的對照表（供 products 更新 category_id 用）
+        // category name → 新 id 對照（供 products 更新 category_id）
         const catNameToId = {};
         try {
           const newCats = safeAll(db, 'SELECT id,name FROM categories WHERE store_id=?', [storeId]);
           for (const nc of newCats) catNameToId[nc.name] = nc.id;
         } catch {}
 
-        // ── products（BUG-4 修正：id INTEGER PK 跨店衝突）──────────────
-        // 根因：同 categories，products.id INTEGER PRIMARY KEY AUTOINCREMENT，
-        //       INSERT OR IGNORE 因 PK 衝突被靜默跳過。
-        // 修正：不寫入 id，讓 AUTOINCREMENT 自動指派；
-        //       以 (store_id, name) 判斷是否已存在；
-        //       category_id 使用上方建立的 catNameToId 對照表重新對應。
+        // ── products（不寫 id，避免跨店 PK 衝突）──────────────────────
         const prodCols = schemas['products'];
-        // 不含 id 的欄位清單
         const prodInsertCandidates = [
           'store_id','name','category','category_id','price',
           'allocated_grams','current_stock_grams','low_stock_alert',
@@ -825,19 +986,20 @@ router.post('/migration/import', (req, res) => {
           'line_hot','line_promo','line_sold_out','image','sort_order','sale_status',
           'inventory_enabled','line_preorder_enabled','line_preorder_daily','line_preorder_sold',
           'line_preorder_low_threshold','line_preorder_high_threshold',
+          // hotfix9: LINE quota
+          'line_quota_enabled','line_quota_daily','line_quota_sold',
+          'line_quota_low_threshold','line_quota_high_threshold',
+          'line_sell_start','line_sell_end',
           'created_at','updated_at'
         ];
         for (const p of (d.products||[])) {
           try {
-            // 用 store_id + name 判斷本店是否已有此商品
             const existProd = safeGet(db,
               'SELECT id FROM products WHERE store_id=? AND name=?', [storeId, p.name||'']);
-            // category_id 重新對應本店的分類 id
             const remappedCatId = catNameToId[p.category||''] || p.category_id || null;
             if (existProd) {
               if (mode === 'skip' || mode === 'replace') { results.products.skipped++; continue; }
               if (mode === 'overwrite') {
-                // UPDATE 用 store_id + name，不用 id
                 const updSrc = {
                   store_id: storeId, name: p.name||'',
                   category: p.category||'', category_id: remappedCatId,
@@ -854,6 +1016,13 @@ router.post('/migration/import', (req, res) => {
                   line_preorder_sold: p.line_preorder_sold||0,
                   line_preorder_low_threshold: p.line_preorder_low_threshold||2,
                   line_preorder_high_threshold: p.line_preorder_high_threshold||10,
+                  line_quota_enabled: p.line_quota_enabled||0,
+                  line_quota_daily: p.line_quota_daily||0,
+                  line_quota_sold: p.line_quota_sold||0,
+                  line_quota_low_threshold: p.line_quota_low_threshold||2,
+                  line_quota_high_threshold: p.line_quota_high_threshold||10,
+                  line_sell_start: p.line_sell_start||'',
+                  line_sell_end: p.line_sell_end||'',
                   updated_at: ''
                 };
                 const updCandidates = prodInsertCandidates.filter(c => !['store_id','name','created_at'].includes(c));
@@ -883,6 +1052,13 @@ router.post('/migration/import', (req, res) => {
               line_preorder_sold: p.line_preorder_sold||0,
               line_preorder_low_threshold: p.line_preorder_low_threshold||2,
               line_preorder_high_threshold: p.line_preorder_high_threshold||10,
+              line_quota_enabled: p.line_quota_enabled||0,
+              line_quota_daily: p.line_quota_daily||0,
+              line_quota_sold: p.line_quota_sold||0,
+              line_quota_low_threshold: p.line_quota_low_threshold||2,
+              line_quota_high_threshold: p.line_quota_high_threshold||10,
+              line_sell_start: p.line_sell_start||'',
+              line_sell_end: p.line_sell_end||'',
               created_at: p.created_at||'', updated_at: p.updated_at||''
             };
             const q = buildDynamicInsert('products', prodInsertCandidates, src, prodCols, 'OR IGNORE');
@@ -896,7 +1072,14 @@ router.post('/migration/import', (req, res) => {
           }
         }
 
-        // ── orders（BUG-1：store_id+order_number 判重，id 加前綴）────────
+        // ── 建立 product name → 新 id 對照（供 formulas / inventory_logs remap）
+        const prodNameToId = {};
+        try {
+          const newProds = safeAll(db, 'SELECT id,name FROM products WHERE store_id=?', [storeId]);
+          for (const np of newProds) prodNameToId[np.name] = np.id;
+        } catch {}
+
+        // ── orders ────────────────────────────────────────────────────
         const orderCols = schemas['orders'];
         const importOrderCandidates = [
           'id','order_number','store_id','customer_name','customer_phone','customer_line_id',
@@ -993,7 +1176,7 @@ router.post('/migration/import', (req, res) => {
           }
         }
 
-        // ── order_logs（BUG-2：動態欄位）───────────────────────────────
+        // ── order_logs ────────────────────────────────────────────────
         const logCols = schemas['order_logs'];
         const logCandidates = [
           'id','store_id','order_id','order_number','action','reason','operator',
@@ -1034,7 +1217,301 @@ router.post('/migration/import', (req, res) => {
           }
         }
 
-        // ── discount_categories（不寫 id，避免跨店 PK 衝突）────────────
+        // ══════════════════════════════════════════════════════════════
+        // hotfix9: 食材相關資料恢復（含 ID remap）
+        // ══════════════════════════════════════════════════════════════
+
+        // ── ingredients（不寫 id，以 store_id+name 判重）─────────────
+        const ingSchema = schemas['ingredients'];
+        const ingredientIdRemap = {}; // old ingredient id → new ingredient id
+
+        if (ingSchema.size > 0) {
+          const ingCandidates = [
+            'store_id','name','unit','total_stock','frozen_stock','thawing_stock',
+            'refrigerated_stock','scrapped_total','ingredient_barcode','notes',
+            'low_stock_threshold','operator','default_thaw_hours',
+            'created_at','updated_at'
+          ];
+          for (const ing of (d.ingredients||[])) {
+            try {
+              const existIng = safeGet(db,
+                'SELECT id FROM ingredients WHERE store_id=? AND name=?', [storeId, ing.name||'']);
+              if (existIng) {
+                ingredientIdRemap[ing.id] = existIng.id;
+                if (mode === 'skip' || mode === 'replace') { results.ingredients.skipped++; continue; }
+                if (mode === 'overwrite') {
+                  const src = {
+                    store_id: storeId, name: ing.name||'', unit: ing.unit||'g',
+                    total_stock: ing.total_stock||0, frozen_stock: ing.frozen_stock||0,
+                    thawing_stock: ing.thawing_stock||0,
+                    refrigerated_stock: ing.refrigerated_stock||0,
+                    scrapped_total: ing.scrapped_total||0,
+                    ingredient_barcode: ing.ingredient_barcode||'',
+                    notes: ing.notes||'',
+                    low_stock_threshold: ing.low_stock_threshold||0,
+                    operator: ing.operator||'',
+                    default_thaw_hours: ing.default_thaw_hours||0,
+                    updated_at: ''
+                  };
+                  const updCols = ingCandidates.filter(c => ingSchema.has(c) && !['store_id','name','created_at'].includes(c));
+                  if (updCols.length) {
+                    const updVals = [...updCols.map(c => src[c] ?? null), storeId, ing.name||''];
+                    const updSql = `UPDATE ingredients SET ${updCols.map(c=>`${c}=?`).join(',')},updated_at=datetime('now','localtime') WHERE store_id=? AND name=?`;
+                    rawRunCount(raw, updSql, updVals);
+                    results.ingredients.added++;
+                  } else { results.ingredients.skipped++; }
+                } else { results.ingredients.skipped++; }
+                continue;
+              }
+              const src = {
+                store_id: storeId, name: ing.name||'', unit: ing.unit||'g',
+                total_stock: ing.total_stock||0, frozen_stock: ing.frozen_stock||0,
+                thawing_stock: ing.thawing_stock||0,
+                refrigerated_stock: ing.refrigerated_stock||0,
+                scrapped_total: ing.scrapped_total||0,
+                ingredient_barcode: ing.ingredient_barcode||'',
+                notes: ing.notes||'',
+                low_stock_threshold: ing.low_stock_threshold||0,
+                operator: ing.operator||'',
+                default_thaw_hours: ing.default_thaw_hours||0,
+                created_at: ing.created_at||'', updated_at: ing.updated_at||''
+              };
+              const q = buildDynamicInsert('ingredients', ingCandidates, src, ingSchema, 'OR IGNORE');
+              if (!q) { results.ingredients.skipped++; continue; }
+              rawRunCount(raw, q.sql, q.vals);
+              // 取剛插入的新 id 建立 remap
+              const newIng = safeGet(db,
+                'SELECT id FROM ingredients WHERE store_id=? AND name=?', [storeId, ing.name||'']);
+              if (newIng) {
+                ingredientIdRemap[ing.id] = newIng.id;
+                results.ingredients.added++;
+              } else { results.ingredients.skipped++; }
+            } catch(e) {
+              results.ingredients.errors.push(`name=${ing.name}: ${e.message}`);
+              results.ingredients.failed++;
+              if (strictMode) throw e;
+            }
+          }
+        } else {
+          console.warn('[migration] ingredients table not found, skipping');
+        }
+
+        // ── product_ingredient_formulas（依 product_id + ingredient_id remap）
+        const formulaSchema = schemas['product_ingredient_formulas'];
+        if (formulaSchema.size > 0) {
+          for (const f of (d.product_ingredient_formulas||[])) {
+            try {
+              // product_id remap：先用 product_name 查，再 fallback 到 remap
+              let newProductId = null;
+              if (f.product_name) {
+                const pr = safeGet(db,
+                  'SELECT id FROM products WHERE store_id=? AND name=?', [storeId, f.product_name]);
+                if (pr) newProductId = pr.id;
+              }
+              if (!newProductId) newProductId = prodNameToId[f.product_name] || null;
+              if (!newProductId) { results.product_ingredient_formulas.skipped++; continue; }
+
+              // ingredient_id remap
+              let newIngId = ingredientIdRemap[f.ingredient_id] || null;
+              if (!newIngId && f.ingredient_name) {
+                const ir = safeGet(db,
+                  'SELECT id FROM ingredients WHERE store_id=? AND name=?', [storeId, f.ingredient_name]);
+                if (ir) newIngId = ir.id;
+              }
+              if (!newIngId) { results.product_ingredient_formulas.skipped++; continue; }
+
+              // 判重：product_id + ingredient_id
+              const existF = safeGet(db,
+                'SELECT id FROM product_ingredient_formulas WHERE product_id=? AND ingredient_id=?',
+                [newProductId, newIngId]);
+              if (existF) {
+                if (mode === 'skip' || mode === 'replace') { results.product_ingredient_formulas.skipped++; continue; }
+                if (mode === 'overwrite') {
+                  rawRunCount(raw,
+                    `UPDATE product_ingredient_formulas SET amount_per_unit=?,notes=? WHERE product_id=? AND ingredient_id=?`,
+                    [f.amount_per_unit||0, f.notes||'', newProductId, newIngId]);
+                  results.product_ingredient_formulas.added++;
+                } else { results.product_ingredient_formulas.skipped++; }
+                continue;
+              }
+              const src = {
+                product_id: newProductId, product_barcode: f.product_barcode||'',
+                ingredient_id: newIngId,
+                amount_per_unit: f.amount_per_unit||0,
+                notes: f.notes||'', created_at: f.created_at||''
+              };
+              const q = buildDynamicInsert('product_ingredient_formulas',
+                ['product_id','product_barcode','ingredient_id','amount_per_unit','notes','created_at'],
+                src, formulaSchema, 'OR IGNORE');
+              if (!q) { results.product_ingredient_formulas.skipped++; continue; }
+              const n = rawRunCount(raw, q.sql, q.vals);
+              if (n > 0) results.product_ingredient_formulas.added++;
+              else results.product_ingredient_formulas.skipped++;
+            } catch(e) {
+              results.product_ingredient_formulas.errors.push(e.message);
+              results.product_ingredient_formulas.failed++;
+              if (strictMode) throw e;
+            }
+          }
+        } else {
+          console.warn('[migration] product_ingredient_formulas table not found, skipping');
+        }
+
+        // ── ingredient_logs（無 store_id，依 ingredient_id remap）──────
+        const ingLogSchema = schemas['ingredient_logs'];
+        if (ingLogSchema.size > 0) {
+          const ingLogCandidates = [
+            'ingredient_id','ingredient_name','batch_no','log_type',
+            'before_frozen','before_thawing','before_refrigerated','change_amount',
+            'after_frozen','after_thawing','after_refrigerated',
+            'reason','operator','related_order_id','thaw_complete_time','created_at'
+          ];
+          for (const il of (d.ingredient_logs||[])) {
+            try {
+              const newIngId = ingredientIdRemap[il.ingredient_id] || null;
+              if (!newIngId) { results.ingredient_logs.skipped++; continue; }
+              const src = {
+                ingredient_id: newIngId,
+                ingredient_name: il.ingredient_name||'',
+                batch_no: il.batch_no||'',
+                log_type: il.log_type||'adjust',
+                before_frozen: il.before_frozen||0,
+                before_thawing: il.before_thawing||0,
+                before_refrigerated: il.before_refrigerated||0,
+                change_amount: il.change_amount||0,
+                after_frozen: il.after_frozen||0,
+                after_thawing: il.after_thawing||0,
+                after_refrigerated: il.after_refrigerated||0,
+                reason: il.reason||'', operator: il.operator||'staff',
+                related_order_id: il.related_order_id||'',
+                thaw_complete_time: il.thaw_complete_time||'',
+                created_at: il.created_at||''
+              };
+              const q = buildDynamicInsert('ingredient_logs', ingLogCandidates, src, ingLogSchema, 'OR IGNORE');
+              if (!q) { results.ingredient_logs.skipped++; continue; }
+              const n = rawRunCount(raw, q.sql, q.vals);
+              if (n > 0) results.ingredient_logs.added++; else results.ingredient_logs.skipped++;
+            } catch(e) {
+              results.ingredient_logs.errors.push(e.message);
+              results.ingredient_logs.failed++;
+              if (strictMode) throw e;
+            }
+          }
+        }
+
+        // ── ingredient_batches（依 ingredient_id remap）──────────────
+        const batchSchema = schemas['ingredient_batches'];
+        if (batchSchema.size > 0) {
+          const batchCandidates = [
+            'ingredient_id','batch_no','batch_barcode','purchase_date',
+            'quantity','unit','notes','created_at'
+          ];
+          for (const b of (d.ingredient_batches||[])) {
+            try {
+              const newIngId = ingredientIdRemap[b.ingredient_id] || null;
+              if (!newIngId) { results.ingredient_batches.skipped++; continue; }
+              const src = {
+                ingredient_id: newIngId,
+                batch_no: b.batch_no||'',
+                batch_barcode: b.batch_barcode||'',
+                purchase_date: b.purchase_date||'',
+                quantity: b.quantity||0, unit: b.unit||'g',
+                notes: b.notes||'', created_at: b.created_at||''
+              };
+              const q = buildDynamicInsert('ingredient_batches', batchCandidates, src, batchSchema, 'OR IGNORE');
+              if (!q) { results.ingredient_batches.skipped++; continue; }
+              const n = rawRunCount(raw, q.sql, q.vals);
+              if (n > 0) results.ingredient_batches.added++; else results.ingredient_batches.skipped++;
+            } catch(e) {
+              results.ingredient_batches.errors.push(e.message);
+              results.ingredient_batches.failed++;
+              if (strictMode) throw e;
+            }
+          }
+        }
+
+        // ── ingredient_thaw_batches（依 ingredient_id remap）─────────
+        const thawSchema = schemas['ingredient_thaw_batches'];
+        if (thawSchema.size > 0) {
+          const thawCandidates = [
+            'ingredient_id','ingredient_name','amount','unit',
+            'started_at','expected_complete_at','completed_at',
+            'status','extended_count','notes','created_at','updated_at'
+          ];
+          for (const tb of (d.ingredient_thaw_batches||[])) {
+            try {
+              const newIngId = ingredientIdRemap[tb.ingredient_id] || null;
+              if (!newIngId) { results.ingredient_thaw_batches.skipped++; continue; }
+              const src = {
+                ingredient_id: newIngId,
+                ingredient_name: tb.ingredient_name||'',
+                amount: tb.amount||0, unit: tb.unit||'g',
+                started_at: tb.started_at||'',
+                expected_complete_at: tb.expected_complete_at||'',
+                completed_at: tb.completed_at||'',
+                status: tb.status||'thawing',
+                extended_count: tb.extended_count||0,
+                notes: tb.notes||'',
+                created_at: tb.created_at||'', updated_at: tb.updated_at||''
+              };
+              const q = buildDynamicInsert('ingredient_thaw_batches', thawCandidates, src, thawSchema, 'OR IGNORE');
+              if (!q) { results.ingredient_thaw_batches.skipped++; continue; }
+              const n = rawRunCount(raw, q.sql, q.vals);
+              if (n > 0) results.ingredient_thaw_batches.added++; else results.ingredient_thaw_batches.skipped++;
+            } catch(e) {
+              results.ingredient_thaw_batches.errors.push(e.message);
+              results.ingredient_thaw_batches.failed++;
+              if (strictMode) throw e;
+            }
+          }
+        }
+
+        // ── inventory_logs（有 store_id，product_id 依 remap）─────────
+        const invLogSchema = schemas['inventory_logs'];
+        if (invLogSchema.size > 0) {
+          const invLogCandidates = [
+            'store_id','product_id','product_name','action',
+            'before_grams','change_grams','after_grams',
+            'before_units','after_units','reason','operator','order_id','created_at'
+          ];
+          for (const il of (d.inventory_logs||[])) {
+            try {
+              // product_id remap
+              let newProdId = null;
+              if (il.product_name) {
+                const pr = safeGet(db,
+                  'SELECT id FROM products WHERE store_id=? AND name=?', [storeId, il.product_name]);
+                if (pr) newProdId = pr.id;
+              }
+              if (!newProdId) newProdId = prodNameToId[il.product_name] || il.product_id || null;
+
+              const src = {
+                store_id: storeId,
+                product_id: newProdId,
+                product_name: il.product_name||'',
+                action: il.action||'adjust',
+                before_grams: il.before_grams||0,
+                change_grams: il.change_grams||0,
+                after_grams: il.after_grams||0,
+                before_units: il.before_units||0,
+                after_units: il.after_units||0,
+                reason: il.reason||'', operator: il.operator||'staff',
+                order_id: il.order_id||'',
+                created_at: il.created_at||''
+              };
+              const q = buildDynamicInsert('inventory_logs', invLogCandidates, src, invLogSchema, 'OR IGNORE');
+              if (!q) { results.inventory_logs.skipped++; continue; }
+              const n = rawRunCount(raw, q.sql, q.vals);
+              if (n > 0) results.inventory_logs.added++; else results.inventory_logs.skipped++;
+            } catch(e) {
+              results.inventory_logs.errors.push(e.message);
+              results.inventory_logs.failed++;
+              if (strictMode) throw e;
+            }
+          }
+        }
+
+        // ── discount_categories ───────────────────────────────────────
         const discCatCols = schemas['discount_categories'];
         for (const c of (d.discount_categories||[])) {
           try {
@@ -1070,7 +1547,7 @@ router.post('/migration/import', (req, res) => {
           }
         }
 
-        // ── discount_campaigns（不寫 id，避免跨店 PK 衝突）─────────────
+        // ── discount_campaigns ────────────────────────────────────────
         const discCampCols = schemas['discount_campaigns'];
         for (const c of (d.discount_campaigns||[])) {
           try {
@@ -1105,10 +1582,9 @@ router.post('/migration/import', (req, res) => {
           }
         }
 
-        // ── product_analysis_groups（不寫 id，避免跨店 PK 衝突）────────
-        // 建立 old group_id → new group_id 對照表（供 items/aliases 重新對應）
+        // ── product_analysis_groups ───────────────────────────────────
         const grpCols = schemas['analysis_groups'];
-        const groupIdRemap = {}; // backup file group_id → current DB group_id
+        const groupIdRemap = {};
         for (const g of (d.product_analysis_groups||[])) {
           try {
             const gName = g.group_name||g.name||'';
@@ -1137,7 +1613,6 @@ router.post('/migration/import', (req, res) => {
               src, grpCols, 'OR IGNORE');
             if (!q) { results.analysis_groups.skipped++; continue; }
             rawRunCount(raw, q.sql, q.vals);
-            // 取剛插入的新 id
             const newGrp = safeGet(db,
               'SELECT id FROM product_analysis_groups WHERE store_id=? AND group_name=?', [storeId, gName]);
             if (newGrp) {
@@ -1151,13 +1626,11 @@ router.post('/migration/import', (req, res) => {
           }
         }
 
-        // ── product_analysis_group_items（不寫 id，使用 remapped group_id）
+        // ── product_analysis_group_items ──────────────────────────────
         const giCols = schemas['analysis_items'];
         for (const gi of (d.product_analysis_group_items||[])) {
           try {
-            // 使用 group_id 對照表重新對應
             const newGroupId = groupIdRemap[gi.group_id] || gi.group_id;
-            // 用 product_name 查本店實際 product_id
             const pName = gi.product_name || '';
             let newProductId = gi.product_id;
             if (pName) {
@@ -1186,7 +1659,7 @@ router.post('/migration/import', (req, res) => {
           }
         }
 
-        // ── product_analysis_group_aliases（不寫 id，使用 remapped group_id）
+        // ── product_analysis_group_aliases ────────────────────────────
         const alsCols = schemas['analysis_aliases'];
         for (const a of (d.product_analysis_group_aliases||[])) {
           try {
@@ -1213,7 +1686,7 @@ router.post('/migration/import', (req, res) => {
           }
         }
 
-        // ── settings（動態欄位）─────────────────────────────────────────
+        // ── settings ──────────────────────────────────────────────────
         const settingsCols = schemas['settings'];
         for (const s of (d.settings||[])) {
           try {
@@ -1230,24 +1703,19 @@ router.post('/migration/import', (req, res) => {
           }
         }
 
-        // ── delivery_platforms（BUG-3 修正：PRAGMA 動態欄位，不硬寫 code）
-        // duplicate check：用 store_id + name（若有 name 欄位），否則用 id
+        // ── delivery_platforms ────────────────────────────────────────
         const platCols = schemas['delivery_platforms'];
         for (const p of (d.delivery_platforms||[])) {
           try {
-            // 建立 source 物件，涵蓋備份檔可能有的所有欄位名稱
             const src = {
               id: p.id, store_id: storeId,
-              // code：僅在 DB 有此欄位時才會寫入（buildDynamicInsert 自動過濾）
               code: p.code||'',
-              // 相容各版本欄位命名
               name: p.name||p.platform_name||'',
               platform_name: p.platform_name||p.name||'',
               commission_rate: p.commission_rate||0,
               is_active: p.is_active??1,
               created_at: p.created_at||'', updated_at: p.updated_at||''
             };
-            // 候選欄位：依 DB 實際有的欄位篩選
             const candidates = [
               'id','store_id','code','name','platform_name',
               'commission_rate','is_active','created_at','updated_at'
@@ -1263,7 +1731,7 @@ router.post('/migration/import', (req, res) => {
           }
         }
 
-        // ── delivery_fees（動態欄位）────────────────────────────────────
+        // ── delivery_fees ─────────────────────────────────────────────
         const feeCols = schemas['delivery_fees'];
         for (const f of (d.delivery_fees||[])) {
           try {
@@ -1285,10 +1753,9 @@ router.post('/migration/import', (req, res) => {
           }
         }
 
-      }); // ── end runInTransaction ─────────────────────────────────────
+      }); // ── end runInTransaction ──────────────────────────────────────
 
     } catch(txErr) {
-      // replace 模式 rollback 後直接回傳錯誤
       if (strictMode) {
         return res.status(500).json({
           success: false,
@@ -1300,7 +1767,7 @@ router.post('/migration/import', (req, res) => {
       throw txErr;
     }
 
-    // ── 彙整總計與錯誤清單 ───────────────────────────────────────────────
+    // ── 彙整總計 ─────────────────────────────────────────────────────────
     let totalAdded = 0, totalUpdated = 0, totalSkipped = 0, totalFailed = 0;
     const tableErrors = [];
     for (const [tbl, r] of Object.entries(results)) {
@@ -1327,8 +1794,8 @@ router.post('/migration/import', (req, res) => {
     res.json({
       success: true,
       mode,
-      status: overallStatus,                         // 'success' | 'partial'
-      status_label: overallStatus === 'partial'      // 給前端顯示用
+      status: overallStatus,
+      status_label: overallStatus === 'partial'
         ? '部分匯入完成，有錯誤'
         : '匯入完成',
       summary: {
@@ -1337,8 +1804,8 @@ router.post('/migration/import', (req, res) => {
         total_skipped: totalSkipped,
         total_failed:  totalFailed
       },
-      table_errors: tableErrors,                     // 失敗資料表清單
-      results                                        // 逐表明細
+      table_errors: tableErrors,
+      results
     });
 
   } catch(e) {

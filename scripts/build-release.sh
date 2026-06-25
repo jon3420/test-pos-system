@@ -66,8 +66,8 @@ fi
 
 echo "  ✔ No database files found."
 
-# ── 2. 打包（排除 data/ node_modules/.cache .git *.db *.sqlite）────────────
-echo "[2/3] Creating ZIP (excluding data/, node_modules/.cache, .git, *.db, *.sqlite)..."
+# ── 2. 打包（排除 data/ node_modules/ .git *.db *.sqlite）────────────────
+echo "[2/3] Creating ZIP (excluding data/, node_modules/, .git, *.db, *.sqlite)..."
 
 cd "$(dirname "${ROOT_DIR}")"
 BASE="$(basename "${ROOT_DIR}")"
@@ -75,7 +75,7 @@ BASE="$(basename "${ROOT_DIR}")"
 zip -r "${ZIP_PATH}" "${BASE}" \
   --exclude "${BASE}/data/*" \
   --exclude "${BASE}/.git/*" \
-  --exclude "${BASE}/node_modules/.cache/*" \
+  --exclude "${BASE}/node_modules/*" \
   --exclude "*.db" \
   --exclude "*.sqlite" \
   --exclude "*.db-shm" \
@@ -96,6 +96,21 @@ if [ -n "$DB_IN_ZIP" ]; then
   echo ""
   echo "  ZIP 內仍包含以下資料庫："
   echo "$DB_IN_ZIP"
+  echo ""
+  rm -f "${ZIP_PATH}"
+  echo "  已刪除問題 ZIP。請修正後重新執行。"
+  exit 1
+fi
+
+NM_IN_ZIP=$(unzip -l "${ZIP_PATH}" 2>/dev/null | grep "node_modules/" | head -1 || true)
+if [ -n "$NM_IN_ZIP" ]; then
+  echo ""
+  echo "╔══════════════════════════════════════════════════╗"
+  echo "║  ERROR: Release package contains node_modules.  ║"
+  echo "╚══════════════════════════════════════════════════╝"
+  echo ""
+  echo "  ZIP 內仍包含 node_modules："
+  echo "$NM_IN_ZIP"
   echo ""
   rm -f "${ZIP_PATH}"
   echo "  已刪除問題 ZIP。請修正後重新執行。"
