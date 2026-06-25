@@ -233,7 +233,7 @@ router.post('/import/ingredients', requireFeature('inventory'), (req, res) => {
             [unit,threshold,thawHours,notes,existing.id,storeId]);
           updated++;
         } else {
-          db.run(`INSERT INTO ingredients (store_id,name,unit,frozen_stock,total_stock,low_stock_threshold,default_thaw_hours,notes) VALUES (?,?,?,?,?,?,?,?)`,
+          db.run(`INSERT OR IGNORE INTO ingredients (store_id,name,unit,frozen_stock,total_stock,low_stock_threshold,default_thaw_hours,notes) VALUES (?,?,?,?,?,?,?,?)`,
             [storeId,name,unit,frozen,frozen,threshold,thawHours,notes]);
           added++;
         }

@@ -797,7 +797,7 @@ router.post('/migration/import', (req, res) => {
   try {
     const db      = getDb();
     const storeId = req.storeId || 'store_001';
-    console.log('[migration/import] HOTFIX9 ACTIVE', new Date().toISOString(), 'storeId=', storeId);
+    console.log('[migration/import] HOTFIX10 ACTIVE', new Date().toISOString(), 'storeId=', storeId);
     const { payload, mode = 'skip', allowCrossStoreImport = false } = req.body;
 
     if (!payload || payload.type !== 'pos_migration_backup') {
