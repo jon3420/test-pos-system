@@ -426,6 +426,8 @@ async function init(){
       buildModeTabsUI();
       buildPaymentButtons(d);
       buildDateSelector();
+      // fix18-08: 初始化時同步外送地址顯示狀態
+      updateDeliveryAddressVisibility();
     }
     if(mr.success){categories=mr.data.categories||[];allProducts=mr.data.products||[];}
     buildCats();renderMenu();
@@ -466,6 +468,21 @@ function updateModeTabActive(){
   document.getElementById('tabTakeout')?.classList.toggle('active',currentMode==='takeout');
   document.getElementById('tabDelivery')?.classList.toggle('active',currentMode==='delivery');
 }
+// fix18-08: 統一控制外送地址區塊顯示/隱藏
+function updateDeliveryAddressVisibility(){
+  const wrap=document.getElementById('deliveryAddrWrap');
+  if(!wrap) return;
+  if(currentMode==='delivery'){
+    wrap.style.display='';
+    wrap.classList.remove('hidden');
+    wrap.classList.add('visible');
+  } else {
+    wrap.style.display='none';
+    wrap.classList.remove('visible');
+    wrap.classList.add('hidden');
+    if(typeof resetDeliveryFee==='function') resetDeliveryFee();
+  }
+}
 function switchMode(mode){
   currentMode=mode;
   updateModeTabActive();
@@ -475,6 +492,9 @@ function switchMode(mode){
   const oType=document.getElementById('oType');
   if(oType) oType.value=mode;
   buildDateSelector();
+  // fix18-08: 統一顯示/隱藏外送地址
+  updateDeliveryAddressVisibility();
+  updateCartTotals();
 }
 function onModeChange(){
   const oType=document.getElementById('oType');
@@ -484,16 +504,8 @@ function onModeChange(){
   renderMenu();
   updateCutoffBanner();
   buildDateSelector();
-  // fix18-06: 顯示/隱藏外送地址區塊，切換時重置費用
-  const addrWrap=document.getElementById('deliveryAddrWrap');
-  if(addrWrap){
-    if(currentMode==='delivery'){
-      addrWrap.classList.add('visible');
-    } else {
-      addrWrap.classList.remove('visible');
-      resetDeliveryFee();
-    }
-  }
+  // fix18-08: 統一顯示/隱藏外送地址
+  updateDeliveryAddressVisibility();
   updateCartTotals();
 }
 

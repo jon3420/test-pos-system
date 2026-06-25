@@ -1,6 +1,17 @@
-// routes/migration.js — fix18-10-hotfix7
+// routes/migration.js — fix18-10-hotfix8
 //
-// fix18-10-hotfix6 修正（含 hotfix5 全部修正）：
+// fix18-10-hotfix8 修正：
+//
+// BUG-1: LINE 點餐切換外送後 deliveryAddrWrap 不顯示
+//   修正：新增 updateDeliveryAddressVisibility()，
+//         switchMode() / onModeChange() / init() 全部統一呼叫
+//
+// BUG-2: replace 模式 restore 出現 no such table: inventory
+//   修正：新增 tableExists() / rawTableExists()，
+//         replace 模式清表前先判斷 inventory / inventory_logs / inventory_recipes 是否存在，
+//         不存在只 warning，不中止 restore
+//
+// fix18-10-hotfix8 修正（含 hotfix5 全部修正）：
 //
 // BUG-3: delivery_platforms 硬寫 code 欄位，但 DB 無此欄位
 //
@@ -129,6 +140,29 @@ function getTableCols(db, table) {
   } catch { return new Set(); }
 }
 
+// ── fix18-08: 檢查資料表是否存在（供 inventory 相關操作使用）────────────
+function tableExists(db, tableName) {
+  try {
+    const row = db.get(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name=?`,
+      [tableName]
+    );
+    return !!row;
+  } catch { return false; }
+}
+// rawTableExists：在 transaction 內用 raw sql.js db 檢查
+function rawTableExists(raw, tableName) {
+  try {
+    const stmt = raw.prepare(
+      `SELECT name FROM sqlite_master WHERE type='table' AND name=?`
+    );
+    stmt.bind([tableName]);
+    const exists = stmt.step();
+    stmt.free();
+    return exists;
+  } catch { return false; }
+}
+
 // ── 通用動態 INSERT helper ─────────────────────────────────────────────────
 // candidates: 候選欄位順序陣列（包含備份檔可能有的所有欄位名稱）
 // srcObj:     備份檔的單筆資料（含 alias mapping 後）
@@ -237,7 +271,7 @@ router.get('/export/orders', (req, res) => {
       return res.send(BOM + toCsv(headers, orders));
     }
 
-    const payload = { type:'orders_backup', version:'fix18-10-hotfix7',
+    const payload = { type:'orders_backup', version:'fix18-10-hotfix8',
       exported_at: isoNow(), store_id: storeId,
       data: { orders, order_items: orderItemsExpanded, order_logs: orderLogs } };
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
@@ -390,7 +424,7 @@ router.get('/export/preorders', (req, res) => {
       res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
       return res.send(BOM + toCsv(headers, preorders));
     }
-    const payload = { type:'preorders_backup', version:'fix18-10-hotfix7',
+    const payload = { type:'preorders_backup', version:'fix18-10-hotfix8',
       exported_at: isoNow(), store_id: storeId, data: { preorders } };
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
@@ -534,7 +568,7 @@ router.get('/migration/export', (req, res) => {
     const ts = tsFile(), fileName = `pos_migration_${storeId}_${ts}.json`;
 
     const payload = {
-      type: 'pos_migration_backup', version: 'fix18-10-hotfix7',
+      type: 'pos_migration_backup', version: 'fix18-10-hotfix8',
       exported_at: isoNow(), store_id: storeId,
       store_name: storeRow ? (storeRow.name||storeRow.store_id||storeId) : storeId,
       schema_version: 2,
@@ -698,12 +732,23 @@ router.post('/migration/import', (req, res) => {
 
         // ── replace：只清本店 ──────────────────────────────────────────────
         if (mode === 'replace') {
-          const purge = ['orders','products','categories',
+          // fix18-08: 必定存在的核心資料表
+          const purgeCore = ['orders','products','categories',
             'discount_categories','discount_campaigns',
             'product_analysis_group_items','product_analysis_group_aliases',
-            'product_analysis_groups','inventory'];
-          for (const t of purge) {
+            'product_analysis_groups'];
+          for (const t of purgeCore) {
             rawRun(raw, `DELETE FROM ${t} WHERE store_id=?`, [storeId]);
+          }
+          // fix18-08: inventory 系列可能舊版 DB 不存在，存在才刪
+          const inventoryTables = ['inventory','inventory_logs','inventory_recipes'];
+          for (const t of inventoryTables) {
+            if (rawTableExists(raw, t)) {
+              try { rawRun(raw, `DELETE FROM ${t} WHERE store_id=?`, [storeId]); }
+              catch(e) { console.warn(`[migration] skip DELETE ${t}:`, e.message); }
+            } else {
+              console.warn(`[migration] table ${t} not found, skipping DELETE`);
+            }
           }
           try {
             const ids = safeAll(db,'SELECT id FROM orders WHERE store_id=?',[storeId]).map(r=>r.id);
