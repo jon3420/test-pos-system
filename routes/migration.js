@@ -797,6 +797,7 @@ router.post('/migration/import', (req, res) => {
   try {
     const db      = getDb();
     const storeId = req.storeId || 'store_001';
+    console.log('[migration/import] HOTFIX9 ACTIVE', new Date().toISOString(), 'storeId=', storeId);
     const { payload, mode = 'skip', allowCrossStoreImport = false } = req.body;
 
     if (!payload || payload.type !== 'pos_migration_backup') {
@@ -1230,6 +1231,8 @@ router.post('/migration/import', (req, res) => {
         const ingSchema = schemas['ingredients'];
         const ingredientIdRemap = {}; // old ingredient id → new ingredient id
 
+        console.log(`[migration/restore] Restoring ingredients... ${(d.ingredients||[]).length} rows, mode=${mode}`);
+
         if (ingSchema.size > 0) {
           const ingCandidates = [
             'store_id','name','unit','total_stock','frozen_stock','thawing_stock',
@@ -1240,14 +1243,20 @@ router.post('/migration/import', (req, res) => {
           for (const ing of (d.ingredients||[])) {
             try {
               console.log(`[migration/restore] ingredient store_id target=${storeId} source=${ing.store_id} name=${ing.name}`);
-              // ★ 用 safeRawAll(raw) 在 transaction 內查，不用 safeGet(db)
+
+              // 查目前 transaction 內，目標 store 是否已有同名食材
               const existIngRows = safeRawAll(raw,
                 'SELECT id FROM ingredients WHERE store_id=? AND name=?', [storeId, ing.name||'']);
               const existIng = existIngRows.length ? existIngRows[0] : null;
+
               if (existIng) {
+                // 目標 store 已有同名食材
+                // ★ 無論何種模式，remap 都必須建立
                 ingredientIdRemap[ing.id] = existIng.id;
-                if (mode === 'skip' || mode === 'replace') { results.ingredients.skipped++; continue; }
-                if (mode === 'overwrite') {
+
+                if (mode === 'replace') {
+                  // replace 模式理論上已清空——但若 safeRawDelete 沒成功刪（例如 table 不存在判斷錯誤）
+                  // 強制 UPDATE 確保資料是備份內容
                   const src = {
                     store_id: storeId, name: ing.name||'', unit: ing.unit||'g',
                     total_stock: ing.total_stock||0, frozen_stock: ing.frozen_stock||0,
@@ -1266,13 +1275,46 @@ router.post('/migration/import', (req, res) => {
                     const updVals = [...updCols.map(c => src[c] ?? null), storeId, ing.name||''];
                     const updSql = `UPDATE ingredients SET ${updCols.map(c=>`${c}=?`).join(',')},updated_at=datetime('now','localtime') WHERE store_id=? AND name=?`;
                     rawRunCount(raw, updSql, updVals);
+                  }
+                  console.log(`[migration/restore]   ingredient remap (replace/update): ${ing.id}→${existIng.id} (${ing.name})`);
+                  results.ingredients.added++;
+                } else if (mode === 'overwrite') {
+                  const src = {
+                    store_id: storeId, name: ing.name||'', unit: ing.unit||'g',
+                    total_stock: ing.total_stock||0, frozen_stock: ing.frozen_stock||0,
+                    thawing_stock: ing.thawing_stock||0,
+                    refrigerated_stock: ing.refrigerated_stock||0,
+                    scrapped_total: ing.scrapped_total||0,
+                    ingredient_barcode: ing.ingredient_barcode||'',
+                    notes: ing.notes||'',
+                    low_stock_threshold: ing.low_stock_threshold||0,
+                    operator: ing.operator||'',
+                    default_thaw_hours: ing.default_thaw_hours||0,
+                    updated_at: ''
+                  };
+                  const updCols = ingCandidates.filter(c => ingSchema.has(c) && !['store_id','name','created_at'].includes(c));
+                  if (updCols.length) {
+                    const updVals = [...updCols.map(c => src[c] ?? null), storeId, ing.name||''];
+                    const updSql = `UPDATE ingredients SET ${updCols.map(c=>`${c}=?`).join(',')},updated_at=datetime('now','localtime') WHERE store_id=? AND name=?`;
+                    rawRunCount(raw, updSql, updVals);
+                    console.log(`[migration/restore]   ingredient remap (overwrite): ${ing.id}→${existIng.id} (${ing.name})`);
                     results.ingredients.added++;
-                  } else { results.ingredients.skipped++; }
-                } else { results.ingredients.skipped++; }
+                  } else {
+                    console.log(`[migration/restore]   ingredient remap (skip/no-cols): ${ing.id}→${existIng.id} (${ing.name})`);
+                    results.ingredients.skipped++;
+                  }
+                } else {
+                  // skip / merge：已存在，不修改，但 remap 已建立
+                  console.log(`[migration/restore]   ingredient remap (skip/exist): ${ing.id}→${existIng.id} (${ing.name})`);
+                  results.ingredients.skipped++;
+                }
                 continue;
               }
+
+              // 目標 store 沒有同名食材 → INSERT
               const src = {
-                store_id: storeId, name: ing.name||'', unit: ing.unit||'g',
+                store_id: storeId,   // ★ 強制用目標 storeId，不用 ing.store_id
+                name: ing.name||'', unit: ing.unit||'g',
                 total_stock: ing.total_stock||0, frozen_stock: ing.frozen_stock||0,
                 thawing_stock: ing.thawing_stock||0,
                 refrigerated_stock: ing.refrigerated_stock||0,
@@ -1285,25 +1327,32 @@ router.post('/migration/import', (req, res) => {
                 created_at: ing.created_at||'', updated_at: ing.updated_at||''
               };
               const q = buildDynamicInsert('ingredients', ingCandidates, src, ingSchema, 'OR IGNORE');
-              if (!q) { results.ingredients.skipped++; continue; }
+              if (!q) {
+                console.log(`[migration/restore]   ingredient SKIP (no cols): ${ing.name}`);
+                results.ingredients.skipped++;
+                continue;
+              }
               rawRunCount(raw, q.sql, q.vals);
-              // 取剛插入的新 id 建立 remap
-              // ★ 必須在 raw（transaction 內）查，不可用 safeGet(db)——
-              //   transaction 未 COMMIT 前 db 看不到剛寫入的資料
+              // ★ 在 raw（transaction 內）查新 id
               const newIngRows = safeRawAll(raw,
                 'SELECT id FROM ingredients WHERE store_id=? AND name=?', [storeId, ing.name||'']);
               const newIng = newIngRows.length ? newIngRows[0] : null;
               if (newIng) {
                 ingredientIdRemap[ing.id] = newIng.id;
-                console.log(`[migration/restore]   ingredient remap: ${ing.id}→${newIng.id} (${ing.name})`);
+                console.log(`[migration/restore]   ingredient remap (insert): ${ing.id}→${newIng.id} (${ing.name})`);
                 results.ingredients.added++;
-              } else { results.ingredients.skipped++; }
+              } else {
+                console.log(`[migration/restore]   ingredient INSERT failed (newIng null): ${ing.name}`);
+                results.ingredients.skipped++;
+              }
             } catch(e) {
+              console.error(`[migration/restore]   ingredient ERROR: ${ing.name}`, e.message);
               results.ingredients.errors.push(`name=${ing.name}: ${e.message}`);
               results.ingredients.failed++;
               if (strictMode) throw e;
             }
           }
+          console.log(`[migration/restore] ingredientIdRemap built: ${Object.keys(ingredientIdRemap).length} entries`);
         } else {
           console.warn('[migration] ingredients table not found, skipping');
         }

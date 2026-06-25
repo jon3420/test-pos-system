@@ -6874,7 +6874,35 @@ function downloadTemplate(type) {
 }
 
 function exportCsv(type) {
-  window.open(`/api/export/${type}`, '_blank');
+  // ★ 不用 window.open（不帶 token）→ 改用 apiFetch 帶 token 後 blob 下載
+  downloadWithAuth(`/api/export/${type}`, `${type}_export.csv`);
+}
+
+async function downloadWithAuth(url, defaultFilename) {
+  try {
+    const res = await apiFetch(url, { method: 'GET' });
+    if (!res.ok) {
+      let msg = '匯出失敗';
+      try { const err = await res.json(); msg = err.message || err.error || msg; } catch {}
+      showToast('❌ ' + msg, 'error');
+      return;
+    }
+    // 從 Content-Disposition 取檔名（若有的話）
+    const cd = res.headers.get('Content-Disposition') || '';
+    const match = cd.match(/filename="?([^";]+)"?/);
+    const filename = match ? match[1] : defaultFilename;
+    const blob = await res.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = objectUrl;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(objectUrl);
+  } catch(e) {
+    showToast('❌ 匯出失敗：' + e.message, 'error');
+  }
 }
 
 function parseCsvText(text) {
