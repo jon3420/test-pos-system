@@ -971,9 +971,10 @@ router.post('/migration/import', (req, res) => {
         }
 
         // category name → 新 id 對照（供 products 更新 category_id）
+        // ★ 在 raw（transaction 內）查，確保能看到剛插入的 categories
         const catNameToId = {};
         try {
-          const newCats = safeAll(db, 'SELECT id,name FROM categories WHERE store_id=?', [storeId]);
+          const newCats = safeRawAll(raw, 'SELECT id,name FROM categories WHERE store_id=?', [storeId]);
           for (const nc of newCats) catNameToId[nc.name] = nc.id;
         } catch {}
 
@@ -1073,9 +1074,10 @@ router.post('/migration/import', (req, res) => {
         }
 
         // ── 建立 product name → 新 id 對照（供 formulas / inventory_logs remap）
+        // ★ 在 raw（transaction 內）查，確保能看到剛插入的 products
         const prodNameToId = {};
         try {
-          const newProds = safeAll(db, 'SELECT id,name FROM products WHERE store_id=?', [storeId]);
+          const newProds = safeRawAll(raw, 'SELECT id,name FROM products WHERE store_id=?', [storeId]);
           for (const np of newProds) prodNameToId[np.name] = np.id;
         } catch {}
 
@@ -1219,6 +1221,9 @@ router.post('/migration/import', (req, res) => {
 
         // ══════════════════════════════════════════════════════════════
         // hotfix9: 食材相關資料恢復（含 ID remap）
+        // ── Restore Log ──────────────────────────────────────────────
+        console.log(`[migration/restore] Restoring ingredients... ${(d.ingredients||[]).length} rows`);
+        console.log(`[migration/restore] Restoring formulas...    ${(d.product_ingredient_formulas||[]).length} rows`);
         // ══════════════════════════════════════════════════════════════
 
         // ── ingredients（不寫 id，以 store_id+name 判重）─────────────
@@ -1280,10 +1285,14 @@ router.post('/migration/import', (req, res) => {
               if (!q) { results.ingredients.skipped++; continue; }
               rawRunCount(raw, q.sql, q.vals);
               // 取剛插入的新 id 建立 remap
-              const newIng = safeGet(db,
+              // ★ 必須在 raw（transaction 內）查，不可用 safeGet(db)——
+              //   transaction 未 COMMIT 前 db 看不到剛寫入的資料
+              const newIngRows = safeRawAll(raw,
                 'SELECT id FROM ingredients WHERE store_id=? AND name=?', [storeId, ing.name||'']);
+              const newIng = newIngRows.length ? newIngRows[0] : null;
               if (newIng) {
                 ingredientIdRemap[ing.id] = newIng.id;
+                console.log(`[migration/restore]   ingredient remap: ${ing.id}→${newIng.id} (${ing.name})`);
                 results.ingredients.added++;
               } else { results.ingredients.skipped++; }
             } catch(e) {
@@ -1301,29 +1310,31 @@ router.post('/migration/import', (req, res) => {
         if (formulaSchema.size > 0) {
           for (const f of (d.product_ingredient_formulas||[])) {
             try {
-              // product_id remap：先用 product_name 查，再 fallback 到 remap
+              // product_id remap：先用 product_name 在 raw（transaction 內）查
+              // ★ 不可用 safeGet(db) — transaction 未 COMMIT 前看不到剛寫入的 products
               let newProductId = null;
               if (f.product_name) {
-                const pr = safeGet(db,
+                const prRows = safeRawAll(raw,
                   'SELECT id FROM products WHERE store_id=? AND name=?', [storeId, f.product_name]);
-                if (pr) newProductId = pr.id;
+                if (prRows.length) newProductId = prRows[0].id;
               }
               if (!newProductId) newProductId = prodNameToId[f.product_name] || null;
               if (!newProductId) { results.product_ingredient_formulas.skipped++; continue; }
 
-              // ingredient_id remap
+              // ingredient_id remap：先查 ingredientIdRemap，再到 raw 查
               let newIngId = ingredientIdRemap[f.ingredient_id] || null;
               if (!newIngId && f.ingredient_name) {
-                const ir = safeGet(db,
+                const irRows = safeRawAll(raw,
                   'SELECT id FROM ingredients WHERE store_id=? AND name=?', [storeId, f.ingredient_name]);
-                if (ir) newIngId = ir.id;
+                if (irRows.length) newIngId = irRows[0].id;
               }
               if (!newIngId) { results.product_ingredient_formulas.skipped++; continue; }
 
-              // 判重：product_id + ingredient_id
-              const existF = safeGet(db,
+              // 判重：product_id + ingredient_id（在 raw 內查）
+              const existFRows = safeRawAll(raw,
                 'SELECT id FROM product_ingredient_formulas WHERE product_id=? AND ingredient_id=?',
                 [newProductId, newIngId]);
+              const existF = existFRows.length ? existFRows[0] : null;
               if (existF) {
                 if (mode === 'skip' || mode === 'replace') { results.product_ingredient_formulas.skipped++; continue; }
                 if (mode === 'overwrite') {
@@ -1479,9 +1490,10 @@ router.post('/migration/import', (req, res) => {
               // product_id remap
               let newProdId = null;
               if (il.product_name) {
-                const pr = safeGet(db,
+                // ★ 在 raw 內查，products 在同一 transaction 內寫入
+                const prRows = safeRawAll(raw,
                   'SELECT id FROM products WHERE store_id=? AND name=?', [storeId, il.product_name]);
-                if (pr) newProdId = pr.id;
+                if (prRows.length) newProdId = prRows[0].id;
               }
               if (!newProdId) newProdId = prodNameToId[il.product_name] || il.product_id || null;
 
@@ -1613,8 +1625,10 @@ router.post('/migration/import', (req, res) => {
               src, grpCols, 'OR IGNORE');
             if (!q) { results.analysis_groups.skipped++; continue; }
             rawRunCount(raw, q.sql, q.vals);
-            const newGrp = safeGet(db,
+            // ★ 在 raw（transaction 內）查，不可用 safeGet(db)
+            const newGrpRows = safeRawAll(raw,
               'SELECT id FROM product_analysis_groups WHERE store_id=? AND group_name=?', [storeId, gName]);
+            const newGrp = newGrpRows.length ? newGrpRows[0] : null;
             if (newGrp) {
               groupIdRemap[g.id] = newGrp.id;
               results.analysis_groups.added++;
@@ -1634,13 +1648,14 @@ router.post('/migration/import', (req, res) => {
             const pName = gi.product_name || '';
             let newProductId = gi.product_id;
             if (pName) {
-              const prodRow = safeGet(db, 'SELECT id FROM products WHERE store_id=? AND name=?', [storeId, pName]);
-              if (prodRow) newProductId = prodRow.id;
+              // ★ 在 raw 內查
+              const prodRows = safeRawAll(raw, 'SELECT id FROM products WHERE store_id=? AND name=?', [storeId, pName]);
+              if (prodRows.length) newProductId = prodRows[0].id;
             }
-            const existGI = safeGet(db,
+            const existGIRows = safeRawAll(raw,
               'SELECT id FROM product_analysis_group_items WHERE store_id=? AND group_id=? AND product_id=?',
               [storeId, newGroupId, newProductId]);
-            if (existGI) { results.analysis_items.skipped++; continue; }
+            if (existGIRows.length) { results.analysis_items.skipped++; continue; }
             const src = {
               store_id: storeId,
               group_id: newGroupId, product_id: newProductId,
@@ -1754,6 +1769,14 @@ router.post('/migration/import', (req, res) => {
         }
 
       }); // ── end runInTransaction ──────────────────────────────────────
+
+      // ★ Restore 完成後 SQL 驗證（COMMIT 後才能用 db 查）
+      try {
+        const ingCount = db.get('SELECT COUNT(*) as c FROM ingredients WHERE store_id=?', [storeId]);
+        const fmlCount = db.get('SELECT COUNT(*) as c FROM product_ingredient_formulas');
+        console.log(`[migration/restore] POST-COMMIT COUNT ingredients WHERE store_id='${storeId}':`, ingCount ? ingCount.c : 'N/A');
+        console.log(`[migration/restore] POST-COMMIT COUNT product_ingredient_formulas (all):`, fmlCount ? fmlCount.c : 'N/A');
+      } catch(e) { console.warn('[migration/restore] post-commit count error:', e.message); }
 
     } catch(txErr) {
       if (strictMode) {
