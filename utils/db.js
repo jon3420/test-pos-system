@@ -911,6 +911,102 @@ function initTables(w) {
     w._save();
   }
 
+  // ── fix18-10-hotfix12：delivery_platforms UNIQUE(store_id,name) ──────────
+  // 舊版 delivery_platforms 可能有 UNIQUE(name)，導致跨店新增同名平台失敗
+  // 修正方式同 hotfix11 ingredients：先清 tmp，再 PRAGMA 查，再重建
+  try {
+    // 步驟 0：清遺留 tmp/new 表
+    const _dpLeftover = (w._db.exec("SELECT name FROM sqlite_master WHERE type='table' AND (name LIKE 'delivery_platforms_%tmp' OR name LIKE 'delivery_platforms_%new')"))?.[0]?.values || [];
+    for (const [_tn] of _dpLeftover) {
+      try { w._db.run(`DROP TABLE IF EXISTS "${_tn}"`); console.log('[DB] hotfix12: 清除遺留表', _tn); }
+      catch(_et) { console.warn('[DB] hotfix12: 無法清除', _tn, _et.message); }
+    }
+
+    // 步驟 1：印出目前 schema
+    const _dpSql  = (w._db.exec("SELECT sql FROM sqlite_master WHERE type='table' AND name='delivery_platforms'")?.[0]?.values?.[0]?.[0]) || '';
+    const _dpIdxs = (w._db.exec("PRAGMA index_list('delivery_platforms')")?.[0]?.values) || [];
+    console.log('[DB] hotfix12: delivery_platforms TABLE SQL =>', _dpSql);
+    console.log('[DB] hotfix12: PRAGMA index_list =>', JSON.stringify(_dpIdxs));
+
+    // 步驟 2：偵測 UNIQUE(name) — 查每個 unique index 的欄位
+    let _dpNeedRebuild = false;
+    for (const _ir of _dpIdxs) {
+      const _isUniq = _ir[2] === 1;
+      const _iName  = _ir[1];
+      const _iCols  = (w._db.exec(`SELECT name FROM pragma_index_info('${_iName}')`)?.[0]?.values || []).map(r => r[0]);
+      console.log(`[DB] hotfix12:   index "${_iName}" cols=${JSON.stringify(_iCols)} unique=${_isUniq}`);
+      if (_isUniq && _iCols.length === 1 && _iCols[0] === 'name') {
+        _dpNeedRebuild = true;
+        console.log('[DB] hotfix12:   ⚠️  UNIQUE(name) 偵測到，需重建');
+      }
+    }
+
+    // 步驟 3：重建（不用 transaction）
+    if (_dpNeedRebuild) {
+      console.log('[DB] hotfix12: 開始重建 delivery_platforms → UNIQUE(store_id, name)...');
+      const _dpColRows = w._db.exec("PRAGMA table_info(delivery_platforms)")?.[0]?.values || [];
+      const _dpCols    = _dpColRows.map(r => r[1]);
+      const _dpSafeDefault = (_dflt) => {
+        if (_dflt === null || _dflt === undefined) return '';
+        const _s = String(_dflt);
+        return /\(/.test(_s) ? ` DEFAULT (${_s})` : ` DEFAULT ${_s}`;
+      };
+      const _dpColDefs = _dpColRows.map(r => {
+        const [, _cn, _ct, _nn, _dflt, _isPk] = r;
+        if (_isPk) return `${_cn} INTEGER PRIMARY KEY AUTOINCREMENT`;
+        let _def = `${_cn} ${_ct || 'TEXT'}`;
+        if (_nn) _def += ' NOT NULL';
+        _def += _dpSafeDefault(_dflt);
+        return _def;
+      }).join(',\n    ');
+
+      const _dpTmp = 'delivery_platforms_h12_new';
+      try { w._db.run(`DROP TABLE IF EXISTS "${_dpTmp}"`); } catch {}
+
+      try {
+        w._db.run(`CREATE TABLE "${_dpTmp}" (\n    ${_dpColDefs},\n    UNIQUE(store_id, name)\n  )`);
+        const _dpOld = w._db.exec('SELECT COUNT(*) FROM delivery_platforms')?.[0]?.values?.[0]?.[0] || 0;
+        w._db.run(`INSERT OR IGNORE INTO "${_dpTmp}" (${_dpCols.join(',')}) SELECT ${_dpCols.join(',')} FROM delivery_platforms`);
+        const _dpNew = w._db.exec(`SELECT COUNT(*) FROM "${_dpTmp}"`)?.[0]?.values?.[0]?.[0] || 0;
+        if (_dpOld !== _dpNew) console.warn(`[DB] hotfix12: 重建跳過 ${_dpOld - _dpNew} 筆重複（同 store_id+name）`);
+        w._db.run('DROP TABLE delivery_platforms');
+        w._db.run(`ALTER TABLE "${_dpTmp}" RENAME TO delivery_platforms`);
+        w._save();
+        console.log(`[DB] hotfix12: ✅ 重建完成，保留 ${_dpNew} 筆`);
+      } catch(_e2) {
+        console.error('[DB] hotfix12: ❌ 重建失敗:', _e2.message);
+        try { w._db.run(`DROP TABLE IF EXISTS "${_dpTmp}"`); } catch {}
+      }
+    } else {
+      console.log('[DB] hotfix12: delivery_platforms schema OK，確保 UNIQUE(store_id,name) index 存在');
+      try {
+        w._db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_delivery_platforms_store_name ON delivery_platforms(store_id, name)');
+        w._save();
+      } catch {}
+    }
+
+    // 步驟 4：驗證
+    const _dpFinalSql  = (w._db.exec("SELECT sql FROM sqlite_master WHERE type='table' AND name='delivery_platforms'")?.[0]?.values?.[0]?.[0]) || '';
+    const _dpFinalIdxs = (w._db.exec("PRAGMA index_list('delivery_platforms')")?.[0]?.values) || [];
+    console.log('[DB] hotfix12: [驗證] TABLE SQL =>', _dpFinalSql);
+    for (const _ir of _dpFinalIdxs) {
+      const _ic = (w._db.exec(`SELECT name FROM pragma_index_info('${_ir[1]}')`)?.[0]?.values || []).map(r => r[0]);
+      console.log(`[DB] hotfix12: [驗證]   index "${_ir[1]}" cols=${JSON.stringify(_ic)} unique=${_ir[2]===1}`);
+    }
+
+    // 步驟 5：跨店同名防彈測試
+    try {
+      w._db.run(`INSERT OR IGNORE INTO delivery_platforms (store_id,name,commission_rate,is_active) VALUES ('__h12_s1__','__h12_test__',0,1)`);
+      w._db.run(`INSERT OR IGNORE INTO delivery_platforms (store_id,name,commission_rate,is_active) VALUES ('__h12_s2__','__h12_test__',0,1)`);
+      const _tc = w._db.exec("SELECT COUNT(*) FROM delivery_platforms WHERE name='__h12_test__'")?.[0]?.values?.[0]?.[0] || 0;
+      w._db.run(`DELETE FROM delivery_platforms WHERE name='__h12_test__'`);
+      w._save();
+      if (_tc >= 2) console.log('[DB] hotfix12: ✅ 跨店同名測試通過');
+      else console.error('[DB] hotfix12: ❌ 跨店同名測試失敗，UNIQUE(name) 仍存在！count=', _tc);
+    } catch(_et) { console.error('[DB] hotfix12: ❌ 跨店同名測試例外:', _et.message); }
+  } catch(_e) { console.error('[DB] hotfix12: 頂層失敗:', _e.message); }
+
+
   // ── Seed categories ────────────────────────────────────
   const catCount = w.get("SELECT COUNT(*) as c FROM categories WHERE store_id='store_001'");
   if (!catCount || Number(catCount.c) === 0) {
