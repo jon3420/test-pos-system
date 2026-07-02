@@ -783,11 +783,11 @@ function openLineOrderUrl() {
   window.open(url, '_blank');
 }
 
-/** 開啟 AI Marketing Center（新分頁，Phase 1 MVP） */
+/** 開啟 AI Marketing Center（新分頁，V2 Workspace 架構） */
 function openAIMarketingCenter() {
   const store = window.currentStore;
   if (!store) return;
-  const url = window.location.origin + '/ai-marketing.html?store_id=' + encodeURIComponent(store.store_id);
+  const url = window.location.origin + '/ai-marketing/?store_id=' + encodeURIComponent(store.store_id);
   window.open(url, '_blank');
 }
 

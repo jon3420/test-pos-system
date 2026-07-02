@@ -26,10 +26,6 @@
     {
       items: [
         { route: 'coming-soon', param: 'automation', icon: '⚙️', label: 'Automation Center', soon: true },
-      ],
-    },
-    {
-      items: [
         { route: 'settings', icon: '⚙', label: 'AI設定' },
       ],
     },

@@ -3,22 +3,21 @@
 <head>
 <meta charset="UTF-8">
 <title>AI 行銷中心 — 已搬移</title>
-<meta http-equiv="refresh" content="0; url=./ai-marketing/index.html">
 <script>
   // 舊版單頁 ai-marketing.html 已重構為 ai-marketing/ 底下的 Workspace 架構（V2）。
-  // 這裡只做「保留 query string（含 store_id）並轉址」，不含任何業務邏輯，
-  // 純粹是為了讓舊書籤 / 舊連結不會失效。
-  location.replace('./ai-marketing/index.html' + location.search);
+  // 這裡只做「保留 query string（含 store_id）並轉址到 /ai-marketing/」，
+  // 不含任何業務邏輯、不再顯示任何舊版 UI。
+  location.replace('/ai-marketing/' + location.search);
 </script>
 </head>
 <body>
   <p style="font-family:sans-serif;color:#999;padding:24px">
     AI 行銷中心已更新為新版 Workspace 介面，正在為您轉址…
     如果沒有自動跳轉，請點此：
-    <a id="fallbackLink" href="./ai-marketing/index.html">前往 AI 行銷中心</a>
+    <a id="fallbackLink" href="/ai-marketing/">前往 AI 行銷中心</a>
   </p>
   <script>
-    document.getElementById('fallbackLink').href = './ai-marketing/index.html' + location.search;
+    document.getElementById('fallbackLink').href = '/ai-marketing/' + location.search;
   </script>
 </body>
 </html>
