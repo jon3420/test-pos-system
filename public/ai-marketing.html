@@ -660,6 +660,12 @@ async function loadReviewList() {
           <div><strong>${esc(item.platform)}</strong> <span class="muted">${fmtTime(item.created_at)}</span></div>
           <span class="badge ${item.status}">${item.status}</span>
         </div>
+        <p class="muted" style="margin:4px 0">
+          模型：${esc(item.model_provider || '-')}/${esc(item.model_name || '-')}
+          　Prompt 版本：v${esc(item.prompt_version ?? '-')}
+          　耗時：${item.duration_ms != null ? item.duration_ms + 'ms' : '-'}
+          　生成時間：${fmtTime(item.created_at)}
+        </p>
         <div class="gen-result">${esc(item.generated_text)}</div>
         ${item.reject_reason ? `<p class="muted">退回原因：${esc(item.reject_reason)}</p>` : ''}
         ${status === 'generated' ? `
