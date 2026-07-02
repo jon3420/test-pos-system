@@ -1,0 +1,48 @@
+<div class="section-note">Wizard：依序選擇商品 → 主題 → 平台 → 內容目的，最後產生內容並直接顯示 Preview（Phase 1 僅支援純文字）。</div>
+
+<div class="card">
+  <div class="wizard-steps" id="gSteps"></div>
+
+  <div class="wizard-panel active" id="gPanel1">
+    <h3>Step 1：選擇商品</h3>
+    <div class="pick-grid" id="gProductGrid"><div class="empty">載入中...</div></div>
+  </div>
+
+  <div class="wizard-panel" id="gPanel2">
+    <h3>Step 2：選擇主題</h3>
+    <div class="pick-grid" id="gTopicGrid"></div>
+    <div class="row-actions"><button class="btn secondary sm" data-back="1">← 上一步</button></div>
+  </div>
+
+  <div class="wizard-panel" id="gPanel3">
+    <h3>Step 3：選擇平台</h3>
+    <div class="pick-grid" id="gPlatformGrid"></div>
+    <div class="row-actions"><button class="btn secondary sm" data-back="2">← 上一步</button></div>
+  </div>
+
+  <div class="wizard-panel" id="gPanel4">
+    <h3>Step 4：選擇內容目的</h3>
+    <div class="pick-grid" id="gGoalGrid"></div>
+    <div class="row-actions">
+      <button class="btn secondary sm" data-back="3">← 上一步</button>
+      <button class="btn" id="gGenerateBtn">⚡ 產生內容</button>
+    </div>
+  </div>
+</div>
+
+<div class="card" id="gResultCard" style="display:none">
+  <h3><span class="icon">✨</span>生成結果 Preview</h3>
+  <div id="gResult"></div>
+  <div class="row-actions">
+    <button class="btn ghost sm" id="gAgainBtn">🔁 重新選擇</button>
+    <button class="btn success sm" onclick="location.hash='#/review'">✅ 前往審核</button>
+  </div>
+</div>
+
+<div class="card">
+  <div class="flex-between"><h3><span class="icon">🕒</span>最近生成紀錄</h3><button class="link-btn" id="gHistoryRefreshBtn">🔄</button></div>
+  <table>
+    <thead><tr><th>平台</th><th>目的</th><th>內容摘要</th><th>狀態</th><th>時間</th></tr></thead>
+    <tbody id="gHistoryBody"><tr><td colspan="5" class="empty">載入中...</td></tr></tbody>
+  </table>
+</div>

@@ -1,0 +1,59 @@
+<div class="stat-grid" id="dashStatGrid"></div>
+
+<div class="card" style="margin-top:16px">
+  <h3><span class="icon">📊</span>知識完成率</h3>
+  <div class="progress-bar-track"><div class="progress-bar-fill" id="dashCompletenessBar" style="width:0%"></div></div>
+  <p class="muted" id="dashCompletenessText">計算中...</p>
+</div>
+
+<div class="dash-cols">
+  <div class="card">
+    <div class="flex-between"><h3><span class="icon">✅</span>今日 AI 任務</h3><button class="link-btn" id="dashRefreshBtn">🔄 重新整理</button></div>
+    <div id="dashTaskList"></div>
+  </div>
+  <div class="card">
+    <h3><span class="icon">💡</span>今日 AI 建議</h3>
+    <div id="dashSuggestionList"></div>
+  </div>
+</div>
+
+<div class="dash-cols">
+  <div class="card">
+    <h3><span class="icon">🔥</span>熱門商品</h3>
+    <div id="dashHotProducts"></div>
+    <p class="muted" style="margin-top:8px">依累計生成內容數量排序（Phase 2 可改依實際成效數據排序）</p>
+  </div>
+  <div class="card">
+    <h3><span class="icon">🕒</span>最近活動</h3>
+    <div id="dashRecentActivity"></div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="flex-between"><h3><span class="icon">🚀</span>快速開始</h3></div>
+  <div class="grid cols-3" id="dashQuickStart"></div>
+</div>
+
+<div class="card">
+  <h3><span class="icon">🧠</span>智能化說明</h3>
+  <p class="muted">目前 AI 行銷中心採「人工確認型 AI」：每一步都由 AI 產生草稿或建議，最終仍由店家審核、確認後才會使用。未來可透過 <b style="color:var(--purple)">n8n</b> 串接，把整個流程接成全自動的智能行銷系統。詳見左側「Automation Center」。</p>
+  <div class="brain-flow">
+    <div class="brain-box aimc">
+      <div class="b-icon">🧠</div>
+      <div class="b-title aimc-t">AIMC</div>
+      <div class="b-desc">AI 大腦<br>知識 / 主題 / Prompt / 生成 / 審核</div>
+    </div>
+    <div class="brain-arrow">⋯▶</div>
+    <div class="brain-box n8n">
+      <div class="b-icon">🔗</div>
+      <div class="b-title n8n-t">n8n</div>
+      <div class="b-desc">自動化工作流引擎</div>
+    </div>
+    <div class="brain-arrow">⋯▶</div>
+    <div class="brain-box">
+      <div class="b-icon">🚀</div>
+      <div class="b-title">全自動智能行銷</div>
+      <div class="b-desc">Coming Soon</div>
+    </div>
+  </div>
+</div>

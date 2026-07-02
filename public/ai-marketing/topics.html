@@ -1,0 +1,36 @@
+<div class="section-note">Master-Detail：左側為主題清單，右側顯示所選主題的詳細資料與操作。</div>
+
+<div class="stat-grid" style="grid-template-columns:repeat(5,1fr)" id="tStatGrid"></div>
+
+<div class="card">
+  <div class="flex-between">
+    <h3><span class="icon">➕</span>建立主題</h3>
+  </div>
+  <div class="grid">
+    <div class="field">
+      <label>對應商品 *</label>
+      <select id="t_product_select"><option value="">請先建立商品知識</option></select>
+    </div>
+    <div class="field">
+      <label>分類 *</label>
+      <select id="t_category">
+        <option>營養</option><option>知識</option><option>文化</option><option>品牌</option>
+        <option>FAQ</option><option>迷思</option><option>工法</option><option>促銷</option>
+        <option>節日</option><option>SEO</option><option>教育</option><option>娛樂</option><option>短影音</option>
+      </select>
+    </div>
+    <div class="field"><label>主題標題 *</label><input type="text" id="t_title" placeholder="例如：豬腰補鐵知識"></div>
+    <div class="field"><label>優先度 priority</label><input type="number" id="t_priority" value="0"></div>
+  </div>
+  <div class="row-actions"><button class="btn" id="t_createBtn">➕ 建立主題</button></div>
+</div>
+
+<div class="master-detail">
+  <div class="card master-list">
+    <div class="flex-between"><h3 style="margin:0">主題清單</h3><button class="link-btn" id="t_refreshBtn">🔄</button></div>
+    <div id="t_listContainer"><div class="empty">載入中...</div></div>
+  </div>
+  <div class="card detail-pane" id="t_detailPane">
+    <div class="empty">請從左側選擇一個主題查看詳情</div>
+  </div>
+</div>

@@ -1,0 +1,26 @@
+<div class="section-note">Workspace：先看商品清單與知識完成度，點商品可在下方預覽內容，按「編輯」在右側 Drawer 修改；也可以用「🤖 AI 建立商品知識」快速產生草稿。</div>
+
+<div class="stat-grid" id="kStatGrid"></div>
+
+<div class="card">
+  <div class="flex-between">
+    <h3><span class="icon">📋</span>商品列表</h3>
+    <div class="row-actions" style="margin-top:0">
+      <button class="btn ai sm" id="kAiNewBtn">🤖 AI 建立商品知識</button>
+      <button class="btn sm" id="kNewBtn">➕ 新增商品知識</button>
+      <button class="link-btn" id="kRefreshBtn">🔄 重新整理</button>
+    </div>
+  </div>
+  <table>
+    <thead><tr>
+      <th>商品編號</th><th>商品名稱</th><th>完成度</th><th>Topic</th><th>Prompt</th>
+      <th>Generated</th><th>待審核</th><th>下一步建議</th><th></th>
+    </tr></thead>
+    <tbody id="kListBody"><tr><td colspan="9" class="empty">載入中...</td></tr></tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h3><span class="icon">📖</span>知識內容預覽</h3>
+  <div id="kPreview"><div class="empty">點擊上方任一商品，即可在此預覽完整知識內容</div></div>
+</div>

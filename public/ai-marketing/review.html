@@ -1,0 +1,21 @@
+<div class="section-note">雙欄設計：左側為內容清單（可依狀態篩選），右側顯示所選內容全文與審核操作，介面概念類似 Email 收件匣。</div>
+
+<div class="stat-grid" style="grid-template-columns:repeat(4,1fr)" id="rStatGrid"></div>
+
+<div class="card">
+  <div class="flex-between">
+    <h3><span class="icon">✅</span>內容審核</h3>
+    <div>
+      <select id="rStatusFilter">
+        <option value="generated">待審核（generated）</option>
+        <option value="approved">已核准（approved）</option>
+        <option value="rejected">已退回（rejected）</option>
+      </select>
+      <button class="link-btn" id="rRefreshBtn">🔄</button>
+    </div>
+  </div>
+  <div class="review-cols">
+    <div class="review-list-pane" id="rListPane"><div class="empty">載入中...</div></div>
+    <div class="review-detail-pane" id="rDetailPane"><div class="empty">請從左側選擇一筆內容查看詳情</div></div>
+  </div>
+</div>

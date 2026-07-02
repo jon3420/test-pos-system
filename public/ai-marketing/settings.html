@@ -1,0 +1,32 @@
+<div class="section-note">目前僅提供介面預覽：本次重構不新增 Database / API，此頁尚未串接儲存端點，變更暫不會保存（Phase 2 可補上 Settings API）。</div>
+
+<div class="card">
+  <h3><span class="icon">🏪</span>品牌資訊</h3>
+  <div class="grid">
+    <div class="field"><label>品牌名稱</label><input type="text" id="s_brand_name" placeholder="例如：老王小吃"></div>
+    <div class="field"><label>Slogan</label><input type="text" id="s_slogan" placeholder="例如：三十年的好味道"></div>
+    <div class="field">
+      <label>品牌語氣</label>
+      <select id="s_tone">
+        <option>親切自然</option><option>專業質感</option><option>活潑年輕</option><option>溫馨懷舊</option><option>幽默風趣</option>
+      </select>
+    </div>
+    <div class="field">
+      <label><span class="color-swatch" id="s_colorSwatch" style="background:#f5a623"></span>品牌主色</label>
+      <input type="text" id="s_color" value="#f5a623">
+    </div>
+  </div>
+  <div class="field"><label>LOGO 網址</label><input type="text" id="s_logo" placeholder="https://..."></div>
+</div>
+
+<div class="card">
+  <h3><span class="icon">🧠</span>AI Provider</h3>
+  <div class="provider-card"><span>🟢</span><span class="p-name">OpenAI</span><span class="badge active">使用中</span></div>
+  <div class="provider-card"><span>🔵</span><span class="p-name">Gemini</span><span class="badge soon">預留</span></div>
+  <div class="provider-card"><span>🟣</span><span class="p-name">Claude</span><span class="badge soon">預留</span></div>
+  <p class="muted">實際生成使用的 Provider 由 AIMC API／.env 設定決定（Phase 1 邏輯不變），此處僅為未來可視化切換介面預留位置。</p>
+</div>
+
+<div class="row-actions">
+  <button class="btn" id="s_saveBtn">💾 儲存設定</button>
+</div>

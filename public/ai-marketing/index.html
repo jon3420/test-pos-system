@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Marketing Center</title>
+<link rel="stylesheet" href="css/ai-marketing.css">
+</head>
+<body>
+
+<div id="app">
+  <aside id="sidebar"></aside>
+  <div id="main">
+    <header id="topbar">
+      <div class="topbar-title" id="topbarTitle">AI Marketing Center</div>
+      <div class="store-tag">店家：<b id="storeIdLabel">-</b></div>
+    </header>
+    <div id="workspace">
+      <div class="empty">載入中...</div>
+    </div>
+  </div>
+</div>
+
+<!-- 共用元件 / 各頁模組（先全部載入，由 router.js 依路由呼叫對應頁面的 load()） -->
+<script src="js/shared.js"></script>
+<script src="js/sidebar.js"></script>
+<script src="js/dashboard.js"></script>
+<script src="js/knowledge.js"></script>
+<script src="js/topics.js"></script>
+<script src="js/prompts.js"></script>
+<script src="js/generate.js"></script>
+<script src="js/review.js"></script>
+<script src="js/analytics.js"></script>
+<script src="js/settings.js"></script>
+<script src="js/comingsoon.js"></script>
+<script src="js/router.js"></script>
+
+<script>
+  document.getElementById('storeIdLabel').textContent = AIMC.storeId || '（未指定 store_id）';
+</script>
+
+</body>
+</html>
