@@ -373,9 +373,50 @@ initDb().then((db) => {
   //   1. 沿用既有 requireStore 解析/驗證 store_id
   //   2. 沿用既有 requireFeature('ai_marketing') 做功能開關（預設 false，不影響現有店家）
   //   3. 轉送請求給 AIMC_SERVICE_URL，帶上 x-store-id + 內部信任密鑰
+  //   4.（Phase 3 新增）帶上 x-store-context：從 POS 自己的 stores/settings 表
+  //      組出品牌資料（店名/電話/地址/社群連結/語氣/CTA），base64 編碼後放進 header，
+  //      讓 AIMC 服務能把「brand.name」換成真正的品牌名稱，而不是 store_id 裸字串。
+  //      這一步失敗（例如 DB 讀取異常）不可讓整個 proxy 掛掉，退回不帶這個 header 即可，
+  //      AIMC 端本來就有 fallback。
   // AIMC 服務離線時只影響 /api/ai-marketing/* ，不影響任何既有 POS API。
   const AIMC_SERVICE_URL = process.env.AIMC_SERVICE_URL || 'http://localhost:4100';
   const INTERNAL_PROXY_SECRET = process.env.INTERNAL_PROXY_SECRET || 'change-me-to-a-random-secret';
+
+  function buildStoreContextHeader(storeId) {
+    try {
+      const { getDb } = require('./utils/db');
+      const db = getDb();
+      const store = db.get('SELECT store_name, phone FROM stores WHERE store_id=?', [storeId]);
+      const rows = db.all(
+        `SELECT key, value FROM settings WHERE store_id=? AND key IN (
+           'shop_name','shop_address','shop_hours','shop_announcement',
+           'shop_slogan','shop_line_url','shop_facebook_url','shop_instagram_url',
+           'brand_tone','brand_cta_template'
+         )`,
+        [storeId]
+      );
+      const s = {};
+      rows.forEach(r => { s[r.key] = r.value; });
+
+      const ctx = {
+        store_name: s.shop_name || store?.store_name || null,
+        phone: store?.phone || null,
+        address: s.shop_address || null,
+        business_hours: s.shop_hours || null,
+        description: s.shop_announcement || null,
+        slogan: s.shop_slogan || null,
+        line_url: s.shop_line_url || null,
+        facebook_url: s.shop_facebook_url || null,
+        instagram_url: s.shop_instagram_url || null,
+        brand_tone: s.brand_tone || null,
+        cta_template: s.brand_cta_template || null,
+      };
+      return Buffer.from(JSON.stringify(ctx), 'utf8').toString('base64');
+    } catch (e) {
+      console.warn('[aimcProxy] buildStoreContextHeader 失敗，略過（不影響請求）:', e.message);
+      return null;
+    }
+  }
 
   async function aimcProxy(req, res) {
     try {
@@ -386,6 +427,8 @@ initDb().then((db) => {
         'x-internal-secret': INTERNAL_PROXY_SECRET,
         'x-store-id':        req.storeId,
       };
+      const storeContext = buildStoreContextHeader(req.storeId);
+      if (storeContext) headers['x-store-context'] = storeContext;
       const init = { method: req.method, headers };
       if (!['GET', 'HEAD'].includes(req.method)) {
         init.body = JSON.stringify(req.body || {});

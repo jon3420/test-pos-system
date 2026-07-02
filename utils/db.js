@@ -1051,6 +1051,9 @@ function initTables(w) {
   sd(sid,'auto_print','0'); sd(sid,'auto_drawer','0');
   sd(sid,'shop_logo',''); sd(sid,'shop_cover',''); sd(sid,'shop_address','');
   sd(sid,'shop_google_map',''); sd(sid,'shop_hours',''); sd(sid,'shop_announcement','');
+  // Phase 3：AI 行銷中心 Brand Context 用（新增，全部 INSERT OR IGNORE，不影響既有 key）
+  sd(sid,'shop_slogan',''); sd(sid,'shop_line_url',''); sd(sid,'shop_facebook_url','');
+  sd(sid,'shop_instagram_url',''); sd(sid,'brand_tone',''); sd(sid,'brand_cta_template','');
   sd(sid,'line_order_enabled','1'); sd(sid,'line_order_min_amount','0');
   sd(sid,'n8n_new_order_webhook',''); sd(sid,'n8n_status_change_webhook','');
   sd(sid,'line_ordering_enabled','1');

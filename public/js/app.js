@@ -1017,6 +1017,7 @@ function showPage(name) {
   if (name === 'categories') loadCategoriesPage();
   if (name === 'inventory')  loadInventoryPage();
   if (name === 'reports')    loadReportsPage();
+  if (name === 'ai_marketing') { if (typeof initAIMarketing === 'function') initAIMarketing(); }
 }
 
 /**

@@ -1,0 +1,87 @@
+/* public/css/ai-marketing.css — Phase 3
+ * AI 行銷中心內嵌頁樣式，全部加上 #page-ai_marketing 前綴，
+ * 避免跟 main.css 既有的 .btn-primary / .btn-icon 等既有樣式衝突。
+ * 不修改 main.css 任何一行。
+ */
+#page-ai_marketing {
+  --aimc-primary: #4f46e5;
+  --aimc-primary-dark: #4338ca;
+  --aimc-border: #2a2d3e;
+  --aimc-card-bg: #1a1d27;
+  --aimc-text-secondary: #94a3b8;
+  --aimc-success: #16a34a;
+  --aimc-danger: #dc2626;
+  color: #e2e8f0;
+  padding: 16px;
+  overflow-y: auto;
+}
+#page-ai_marketing .aimc-tabs {
+  display: flex; gap: 4px; margin-bottom: 16px; flex-wrap: wrap;
+  border-bottom: 1px solid var(--aimc-border);
+}
+#page-ai_marketing .aimc-tab-btn {
+  border: none; background: none; padding: 10px 14px; cursor: pointer; font-size: 14px;
+  color: var(--aimc-text-secondary); border-bottom: 3px solid transparent; white-space: nowrap;
+}
+#page-ai_marketing .aimc-tab-btn.active { color: var(--aimc-primary); border-bottom-color: var(--aimc-primary); font-weight: 600; }
+#page-ai_marketing .aimc-tab-btn.disabled { opacity: .45; cursor: default; }
+#page-ai_marketing .aimc-panel { display: none; }
+#page-ai_marketing .aimc-panel.active { display: block; }
+#page-ai_marketing .card {
+  background: var(--aimc-card-bg); border: 1px solid var(--aimc-border); border-radius: 10px;
+  padding: 18px; margin-bottom: 16px;
+}
+#page-ai_marketing .card h3 { margin: 0 0 12px; font-size: 15px; color: #fff; }
+#page-ai_marketing .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+#page-ai_marketing .grid.full { grid-template-columns: 1fr; }
+#page-ai_marketing label { display: block; font-size: 12px; color: var(--aimc-text-secondary); margin-bottom: 4px; }
+#page-ai_marketing input[type=text], #page-ai_marketing input[type=number],
+#page-ai_marketing select, #page-ai_marketing textarea {
+  width: 100%; padding: 8px 10px; border: 1px solid var(--aimc-border); border-radius: 6px;
+  font-size: 14px; font-family: inherit; background: #0f1117; color: #e2e8f0; box-sizing: border-box;
+}
+#page-ai_marketing textarea { resize: vertical; min-height: 60px; }
+#page-ai_marketing .field { margin-bottom: 10px; }
+#page-ai_marketing .row-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+#page-ai_marketing button.btn {
+  border: none; border-radius: 6px; padding: 9px 16px; font-size: 14px; cursor: pointer;
+  background: var(--aimc-primary); color: #fff;
+}
+#page-ai_marketing button.btn:hover { background: var(--aimc-primary-dark); }
+#page-ai_marketing button.btn.secondary { background: #2a2d3e; color: #e2e8f0; }
+#page-ai_marketing button.btn.danger { background: var(--aimc-danger); color: #fff; }
+#page-ai_marketing button.btn.success { background: var(--aimc-success); color: #fff; }
+#page-ai_marketing button.btn:disabled { opacity: .5; cursor: not-allowed; }
+#page-ai_marketing table { width: 100%; border-collapse: collapse; font-size: 13px; }
+#page-ai_marketing th, #page-ai_marketing td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--aimc-border); vertical-align: top; }
+#page-ai_marketing th { color: var(--aimc-text-secondary); font-weight: 600; }
+#page-ai_marketing .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+#page-ai_marketing .badge.generated { background: #312e81; color: #c7d2fe; }
+#page-ai_marketing .badge.approved  { background: #14532d; color: #bbf7d0; }
+#page-ai_marketing .badge.rejected  { background: #7f1d1d; color: #fecaca; }
+#page-ai_marketing .badge.active    { background: #14532d; color: #bbf7d0; }
+#page-ai_marketing .badge.paused    { background: #2a2d3e; color: #94a3b8; }
+#page-ai_marketing .muted { color: var(--aimc-text-secondary); font-size: 12px; }
+#page-ai_marketing .empty { color: var(--aimc-text-secondary); font-size: 13px; padding: 16px; text-align: center; }
+#page-ai_marketing .gen-result {
+  background: #0f1117; border: 1px dashed var(--aimc-border); border-radius: 8px; padding: 14px;
+  white-space: pre-wrap; font-size: 14px; line-height: 1.6; margin-top: 12px; color: #e2e8f0;
+}
+#page-ai_marketing .link-btn { background: none; border: none; color: var(--aimc-primary); cursor: pointer; padding: 0; font-size: 13px; }
+#page-ai_marketing .flex-between { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
+#page-ai_marketing .aimc-steps { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+#page-ai_marketing .aimc-step {
+  flex: 1; min-width: 140px; border: 1px solid var(--aimc-border); border-radius: 8px; padding: 10px 12px;
+  background: #0f1117; opacity: .5;
+}
+#page-ai_marketing .aimc-step.current { opacity: 1; border-color: var(--aimc-primary); }
+#page-ai_marketing .aimc-step.done { opacity: .85; border-color: var(--aimc-success); }
+#page-ai_marketing .aimc-step-title { font-size: 12px; color: var(--aimc-text-secondary); }
+#page-ai_marketing .aimc-step-value { font-size: 13px; font-weight: 600; margin-top: 2px; color: #fff; }
+#page-ai_marketing .aimc-product-thumb {
+  width: 36px; height: 36px; border-radius: 6px; object-fit: cover; vertical-align: middle; margin-right: 8px;
+  background: #0f1117; border: 1px solid var(--aimc-border);
+}
+#page-ai_marketing .aimc-coming-soon {
+  padding: 40px 20px; text-align: center; color: var(--aimc-text-secondary);
+}

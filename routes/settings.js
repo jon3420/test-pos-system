@@ -59,6 +59,9 @@ const ALL_ALLOWED = [
   'printer_name', 'printer_share_name', 'auto_print', 'auto_drawer',
   'shop_logo', 'shop_cover', 'shop_address',
   'shop_google_map', 'shop_hours', 'shop_announcement',
+  // Phase 3：AI 行銷中心 Brand Context
+  'shop_slogan', 'shop_line_url', 'shop_facebook_url', 'shop_instagram_url',
+  'brand_tone', 'brand_cta_template',
   'n8n_new_order_webhook', 'n8n_status_change_webhook',
   // v18-features: Android 平板功能權限（JSON 字串）
   'android_features',
