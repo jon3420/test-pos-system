@@ -567,6 +567,10 @@ function applyFeatureGateUI() {
   const couponNavBtn = document.getElementById('nav-btn-coupons');
   if (couponNavBtn) couponNavBtn.style.display = f.coupon ? '' : 'none';
 
+  // AI Marketing Center（Phase 1 MVP，feature gate，預設關閉）
+  const aiMarketingNavBtn = document.getElementById('nav-btn-ai-marketing');
+  if (aiMarketingNavBtn) aiMarketingNavBtn.style.display = f.ai_marketing ? '' : 'none';
+
   // 外送平台
   const platformBtn = document.querySelector('button[data-stab="platform"]');
   if (platformBtn) platformBtn.style.display = f.delivery ? '' : 'none';
@@ -776,6 +780,14 @@ function openLineOrderUrl() {
   const store = window.currentStore;
   if (!store) return;
   const url = window.location.origin + '/line-order.html?store_id=' + encodeURIComponent(store.store_id);
+  window.open(url, '_blank');
+}
+
+/** 開啟 AI Marketing Center（新分頁，Phase 1 MVP） */
+function openAIMarketingCenter() {
+  const store = window.currentStore;
+  if (!store) return;
+  const url = window.location.origin + '/ai-marketing.html?store_id=' + encodeURIComponent(store.store_id);
   window.open(url, '_blank');
 }
 

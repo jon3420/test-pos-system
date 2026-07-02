@@ -6,7 +6,8 @@ const { getDb } = require('../utils/db');
 const BASIC_FEATURES = {
   order: true, orders: true, products: true, reports: true, print: true,
   inventory: false, line_order: false, delivery: false,
-  marketing: false, member: false, coupon: false, label_print: false
+  marketing: false, member: false, coupon: false, label_print: false,
+  ai_marketing: false // AI Marketing Center（新增，預設關閉）
 };
 
 let _tableEnsured = false;

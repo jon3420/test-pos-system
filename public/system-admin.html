@@ -341,8 +341,8 @@ let currentLicStore = null;
 let currentFeatures = {};
 
 const PLAN_DEFAULTS = {
-  basic: { order:true,orders:true,products:true,reports:true,print:true,inventory:false,line_order:false,delivery:false,marketing:false,member:false,coupon:false,label_print:false,payment_api:false,payment_methods:true },
-  pro:   { order:true,orders:true,products:true,reports:true,print:true,inventory:true,line_order:true,delivery:true,marketing:false,member:false,coupon:false,label_print:true,payment_api:true,payment_methods:true },
+  basic: { order:true,orders:true,products:true,reports:true,print:true,inventory:false,line_order:false,delivery:false,marketing:false,member:false,coupon:false,label_print:false,payment_api:false,payment_methods:true,ai_marketing:false },
+  pro:   { order:true,orders:true,products:true,reports:true,print:true,inventory:true,line_order:true,delivery:true,marketing:false,member:false,coupon:false,label_print:true,payment_api:true,payment_methods:true,ai_marketing:false },
 };
 
 const FEATURE_LABELS = {
@@ -351,6 +351,7 @@ const FEATURE_LABELS = {
   marketing:'行銷活動', member:'會員系統', coupon:'優惠券', label_print:'標籤列印',
   payment_api:'💳 金流 API',
   payment_methods:'💳 付款方式',
+  ai_marketing:'🤖 AI 行銷中心（Phase 1 MVP）',
 };
 
 async function api(path, opt={}) {

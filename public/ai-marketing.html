@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI 行銷中心（Phase 1 MVP）</title>
+<style>
+  :root {
+    --primary: #4f46e5;
+    --primary-dark: #4338ca;
+    --bg: #f8fafc;
+    --card: #ffffff;
+    --border: #e2e8f0;
+    --text: #1e293b;
+    --text-secondary: #64748b;
+    --success: #16a34a;
+    --danger: #dc2626;
+    --warn: #d97706;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, "Segoe UI", "PingFang TC", "Microsoft JhengHei", sans-serif;
+    background: var(--bg); color: var(--text);
+  }
+  header {
+    background: var(--primary); color: #fff; padding: 16px 24px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  header h1 { font-size: 18px; margin: 0; }
+  header .store-tag { font-size: 13px; opacity: .85; }
+  nav.tabs {
+    display: flex; gap: 4px; padding: 0 16px; background: #fff; border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+  }
+  nav.tabs button {
+    border: none; background: none; padding: 12px 16px; cursor: pointer; font-size: 14px;
+    color: var(--text-secondary); border-bottom: 3px solid transparent; white-space: nowrap;
+  }
+  nav.tabs button.active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
+  main { max-width: 1080px; margin: 0 auto; padding: 20px 16px 60px; }
+  .panel { display: none; }
+  .panel.active { display: block; }
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 18px; margin-bottom: 16px;
+  }
+  .card h3 { margin: 0 0 12px; font-size: 15px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .grid.full { grid-template-columns: 1fr; }
+  label { display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; }
+  input[type=text], input[type=number], select, textarea {
+    width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px;
+    font-size: 14px; font-family: inherit; background: #fff; color: var(--text);
+  }
+  textarea { resize: vertical; min-height: 60px; }
+  .field { margin-bottom: 10px; }
+  .row-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  button.btn {
+    border: none; border-radius: 6px; padding: 9px 16px; font-size: 14px; cursor: pointer;
+    background: var(--primary); color: #fff;
+  }
+  button.btn:hover { background: var(--primary-dark); }
+  button.btn.secondary { background: #e2e8f0; color: var(--text); }
+  button.btn.danger { background: var(--danger); color: #fff; }
+  button.btn.success { background: var(--success); color: #fff; }
+  button.btn:disabled { opacity: .5; cursor: not-allowed; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; background: #f1f5f9; }
+  tr:hover { background: #f8fafc; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+  .badge.generated { background: #e0e7ff; color: #4338ca; }
+  .badge.approved  { background: #dcfce7; color: #15803d; }
+  .badge.rejected  { background: #fee2e2; color: #b91c1c; }
+  .badge.active    { background: #dcfce7; color: #15803d; }
+  .badge.paused    { background: #f1f5f9; color: #64748b; }
+  .muted { color: var(--text-secondary); font-size: 12px; }
+  .toast {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    background: #1e293b; color: #fff; padding: 10px 18px; border-radius: 8px; font-size: 13px;
+    opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 999;
+  }
+  .toast.show { opacity: 1; }
+  .toast.error { background: var(--danger); }
+  .empty { color: var(--text-secondary); font-size: 13px; padding: 16px; text-align: center; }
+  .gen-result {
+    background: #f8fafc; border: 1px dashed var(--border); border-radius: 8px; padding: 14px;
+    white-space: pre-wrap; font-size: 14px; line-height: 1.6; margin-top: 12px;
+  }
+  .link-btn { background: none; border: none; color: var(--primary); cursor: pointer; padding: 0; font-size: 13px; }
+  .flex-between { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🤖 AI 行銷中心 <span style="font-weight:400;font-size:13px;opacity:.85">Phase 1 MVP</span></h1>
+  <div class="store-tag">店家：<span id="storeIdLabel">-</span></div>
+</header>
+
+<nav class="tabs">
+  <button class="tab-btn active" data-tab="knowledge">📚 商品知識</button>
+  <button class="tab-btn" data-tab="topic">🏷️ 主題</button>
+  <button class="tab-btn" data-tab="prompt">✍️ Prompt</button>
+  <button class="tab-btn" data-tab="generate">⚡ 生成</button>
+  <button class="tab-btn" data-tab="review">✅ 審核</button>
+</nav>
+
+<main>
+
+  <!-- ============ Knowledge ============ -->
+  <section class="panel active" id="panel-knowledge">
+    <div class="card">
+      <h3 id="knowledgeFormTitle">建立商品知識</h3>
+      <div class="grid">
+        <div class="field">
+          <label>商品編號 external_product_id *（對應 POS 商品 ID）</label>
+          <input type="text" id="k_external_product_id" placeholder="例如 P0001">
+        </div>
+        <div class="field">
+          <label>商品名稱 *</label>
+          <input type="text" id="k_product_name" placeholder="例如 冷拌麻油豬腰">
+        </div>
+        <div class="field">
+          <label>分類名稱</label>
+          <input type="text" id="k_category_name" placeholder="例如 熱炒">
+        </div>
+        <div class="field">
+          <label>是否允許 AI 使用</label>
+          <select id="k_ai_usage_allowed">
+            <option value="true">允許</option>
+            <option value="false">不允許</option>
+          </select>
+        </div>
+      </div>
+      <div class="grid">
+        <div class="field"><label>商品介紹</label><textarea id="k_intro"></textarea></div>
+        <div class="field"><label>商品特色</label><textarea id="k_features"></textarea></div>
+        <div class="field"><label>商品故事</label><textarea id="k_story"></textarea></div>
+        <div class="field"><label>食材介紹</label><textarea id="k_ingredient_intro"></textarea></div>
+        <div class="field"><label>工法介紹</label><textarea id="k_technique"></textarea></div>
+        <div class="field"><label>保存方式</label><textarea id="k_storage_method"></textarea></div>
+        <div class="field"><label>營養知識</label><textarea id="k_nutrition"></textarea></div>
+        <div class="field"><label>品牌理念</label><textarea id="k_brand_philosophy"></textarea></div>
+      </div>
+      <div class="grid">
+        <div class="field"><label>關鍵字（逗號分隔）</label><input type="text" id="k_keywords" placeholder="鐵質, 蛋白質, 補鐵"></div>
+        <div class="field"><label>Hashtag（逗號分隔）</label><input type="text" id="k_hashtags" placeholder="#脆豬腰, #宜蘭美食"></div>
+      </div>
+      <div class="row-actions">
+        <button class="btn" onclick="saveKnowledge()">💾 儲存</button>
+        <button class="btn secondary" onclick="resetKnowledgeForm()">清空表單</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="flex-between"><h3>已建立的商品知識</h3><button class="link-btn" onclick="loadKnowledgeList()">🔄 重新整理</button></div>
+      <table>
+        <thead><tr><th>商品編號</th><th>商品名稱</th><th>版本</th><th>AI可用</th><th>更新時間</th><th></th></tr></thead>
+        <tbody id="knowledgeListBody"><tr><td colspan="6" class="empty">載入中...</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============ Topic ============ -->
+  <section class="panel" id="panel-topic">
+    <div class="card">
+      <h3>建立主題</h3>
+      <p class="muted">Phase 1 僅支援掛在「商品」上（object_type=product）；主題必須對應一個已建立知識的商品。</p>
+      <div class="grid">
+        <div class="field">
+          <label>對應商品 *</label>
+          <select id="t_product_select"><option value="">請先建立商品知識</option></select>
+        </div>
+        <div class="field">
+          <label>分類 *</label>
+          <select id="t_category">
+            <option>營養</option><option>知識</option><option>文化</option><option>品牌</option>
+            <option>FAQ</option><option>迷思</option><option>工法</option><option>促銷</option>
+            <option>節日</option><option>SEO</option><option>教育</option><option>娛樂</option><option>短影音</option>
+          </select>
+        </div>
+        <div class="field"><label>主題標題 *</label><input type="text" id="t_title" placeholder="例如：豬腰補鐵知識"></div>
+        <div class="field"><label>優先度 priority</label><input type="number" id="t_priority" value="0"></div>
+      </div>
+      <div class="row-actions"><button class="btn" onclick="createTopic()">➕ 建立主題</button></div>
+    </div>
+
+    <div class="card">
+      <div class="flex-between"><h3>主題列表</h3><button class="link-btn" onclick="loadTopicList()">🔄 重新整理</button></div>
+      <table>
+        <thead><tr><th>商品</th><th>標題</th><th>分類</th><th>優先度</th><th>狀態</th><th></th></tr></thead>
+        <tbody id="topicListBody"><tr><td colspan="6" class="empty">載入中...</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============ Prompt ============ -->
+  <section class="panel" id="panel-prompt">
+    <div class="card">
+      <h3>建立 Prompt</h3>
+      <div class="grid">
+        <div class="field">
+          <label>綁定主題（可留空 = 全店該平台/目的的通用 Prompt）</label>
+          <select id="p_topic_select"><option value="">（不綁定，通用 Prompt）</option></select>
+        </div>
+        <div class="field">
+          <label>平台 platform *</label>
+          <select id="p_platform">
+            <option value="fb">Facebook</option><option value="ig">Instagram</option>
+            <option value="threads">Threads</option><option value="tiktok">TikTok</option>
+            <option value="line">LINE OA</option><option value="google_business">Google 商家</option>
+            <option value="youtube_shorts">YouTube Shorts</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>內容目的 content_goal *</label>
+          <select id="p_content_goal">
+            <option value="教育">教育</option><option value="促銷">促銷</option><option value="FAQ">FAQ</option>
+            <option value="品牌故事">品牌故事</option><option value="顧客見證">顧客見證</option>
+            <option value="SEO">SEO</option><option value="短影音">短影音</option>
+            <option value="圖文">圖文</option><option value="Google商家">Google商家</option>
+            <option value="general">一般（general）</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>內容格式 content_format</label>
+          <select id="p_content_format">
+            <option value="text">純文字</option><option value="image">圖文（Phase1 僅生成文字）</option>
+            <option value="video">影片腳本（Phase1 僅生成文字）</option><option value="carousel">輪播</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>設為此 platform+目的 的預設 Prompt</label>
+          <select id="p_is_default"><option value="false">否</option><option value="true">是</option></select>
+        </div>
+      </div>
+      <div class="field">
+        <label>Prompt 模板 *（可用 {{store_name}} {{product.intro}} {{product.features}} {{product.story}} {{product.technique}} {{product.nutrition}} {{topic.title}} {{topic.category}} {{seo.keywords}} {{seo.hashtags}} 等變數）</label>
+        <textarea id="p_template" style="min-height:120px" placeholder="請依{{store_name}}的品牌語氣，為{{topic.title}}撰寫一篇{{topic.category}}主題的貼文，需自然融入：{{product.intro}}"></textarea>
+      </div>
+      <div class="row-actions"><button class="btn" onclick="createPrompt()">➕ 建立 Prompt</button></div>
+    </div>
+
+    <div class="card">
+      <div class="flex-between"><h3>Prompt 列表</h3><button class="link-btn" onclick="loadPromptList()">🔄 重新整理</button></div>
+      <table>
+        <thead><tr><th>平台</th><th>目的</th><th>格式</th><th>綁定主題</th><th>預設</th><th>版本</th><th></th></tr></thead>
+        <tbody id="promptListBody"><tr><td colspan="7" class="empty">載入中...</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============ Generate ============ -->
+  <section class="panel" id="panel-generate">
+    <div class="card">
+      <h3>生成內容（純文字，Phase 1）</h3>
+      <div class="grid">
+        <div class="field">
+          <label>主題 *</label>
+          <select id="g_topic_select"><option value="">請先建立主題</option></select>
+        </div>
+        <div class="field">
+          <label>平台 *</label>
+          <select id="g_platform">
+            <option value="fb">Facebook</option><option value="ig">Instagram</option>
+            <option value="threads">Threads</option><option value="tiktok">TikTok</option>
+            <option value="line">LINE OA</option><option value="google_business">Google 商家</option>
+            <option value="youtube_shorts">YouTube Shorts</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>內容目的（需與已建立的 Prompt 一致）</label>
+          <select id="g_content_goal">
+            <option value="教育">教育</option><option value="促銷">促銷</option><option value="FAQ">FAQ</option>
+            <option value="品牌故事">品牌故事</option><option value="顧客見證">顧客見證</option>
+            <option value="SEO">SEO</option><option value="短影音">短影音</option>
+            <option value="圖文">圖文</option><option value="Google商家">Google商家</option>
+            <option value="general">一般（general）</option>
+          </select>
+        </div>
+      </div>
+      <div class="row-actions">
+        <button class="btn" id="generateBtn" onclick="generateContent()">⚡ 產生內容</button>
+      </div>
+      <div id="generateResult"></div>
+    </div>
+
+    <div class="card">
+      <div class="flex-between"><h3>最近生成紀錄</h3><button class="link-btn" onclick="loadHistoryList()">🔄 重新整理</button></div>
+      <table>
+        <thead><tr><th>平台</th><th>目的</th><th>內容摘要</th><th>狀態</th><th>時間</th></tr></thead>
+        <tbody id="historyListBody"><tr><td colspan="5" class="empty">載入中...</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============ Review ============ -->
+  <section class="panel" id="panel-review">
+    <div class="card">
+      <div class="flex-between">
+        <h3>待審核內容</h3>
+        <div>
+          <select id="reviewStatusFilter" onchange="loadReviewList()">
+            <option value="generated">待審核（generated）</option>
+            <option value="approved">已核准（approved）</option>
+            <option value="rejected">已退回（rejected）</option>
+          </select>
+          <button class="link-btn" onclick="loadReviewList()">🔄</button>
+        </div>
+      </div>
+      <div id="reviewListContainer"><div class="empty">載入中...</div></div>
+    </div>
+  </section>
+
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const params  = new URLSearchParams(location.search);
+const storeId = params.get('store_id') || '';
+document.getElementById('storeIdLabel').textContent = storeId || '（未指定 store_id）';
+
+const API_BASE = '/api/ai-marketing';
+
+// ── 共用 API 呼叫（走 POS 既有 requireStore：query.store_id 相容模式）──
+async function api(path, { method = 'GET', body } = {}) {
+  const sep = path.includes('?') ? '&' : '?';
+  const url = API_BASE + path + sep + 'store_id=' + encodeURIComponent(storeId);
+  const res = await fetch(url, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined
+  });
+  let data;
+  try { data = await res.json(); } catch { data = {}; }
+  if (!res.ok || data.success === false) {
+    throw new Error(data.message || data.error || ('HTTP ' + res.status));
+  }
+  return data;
+}
+
+function showToast(msg, isError) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (isError ? ' error' : '');
+  setTimeout(() => { t.className = 'toast'; }, 2600);
+}
+function esc(s) { return (s ?? '').toString().replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function fmtTime(t) { return t ? new Date(t).toLocaleString('zh-TW', { hour12:false }) : ''; }
+
+// ── Tabs ──────────────────────────────────────────────
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('panel-' + btn.dataset.tab).classList.add('active');
+    if (btn.dataset.tab === 'topic') { loadKnowledgeOptionsForTopic(); loadTopicList(); }
+    if (btn.dataset.tab === 'prompt') { loadTopicOptionsForPrompt(); loadPromptList(); }
+    if (btn.dataset.tab === 'generate') { loadTopicOptionsForGenerate(); loadHistoryList(); }
+    if (btn.dataset.tab === 'review') { loadReviewList(); }
+  });
+});
+
+// ============ Knowledge ============
+let knowledgeEditingId = null;
+
+function resetKnowledgeForm() {
+  knowledgeEditingId = null;
+  document.getElementById('knowledgeFormTitle').textContent = '建立商品知識';
+  ['k_external_product_id','k_product_name','k_category_name','k_intro','k_features','k_story',
+   'k_ingredient_intro','k_technique','k_storage_method','k_nutrition','k_brand_philosophy',
+   'k_keywords','k_hashtags'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('k_ai_usage_allowed').value = 'true';
+  document.getElementById('k_external_product_id').disabled = false;
+}
+
+async function saveKnowledge() {
+  const external_product_id = document.getElementById('k_external_product_id').value.trim();
+  const product_name = document.getElementById('k_product_name').value.trim();
+  if (!external_product_id || !product_name) {
+    return showToast('商品編號與商品名稱為必填', true);
+  }
+  const payload = {
+    external_product_id, product_name,
+    category_name: document.getElementById('k_category_name').value.trim() || undefined,
+    intro: document.getElementById('k_intro').value,
+    features: document.getElementById('k_features').value,
+    story: document.getElementById('k_story').value,
+    ingredient_intro: document.getElementById('k_ingredient_intro').value,
+    technique: document.getElementById('k_technique').value,
+    storage_method: document.getElementById('k_storage_method').value,
+    nutrition: document.getElementById('k_nutrition').value,
+    brand_philosophy: document.getElementById('k_brand_philosophy').value,
+    keywords: document.getElementById('k_keywords').value.split(',').map(s => s.trim()).filter(Boolean),
+    hashtags: document.getElementById('k_hashtags').value.split(',').map(s => s.trim()).filter(Boolean),
+    ai_usage_allowed: document.getElementById('k_ai_usage_allowed').value === 'true'
+  };
+  try {
+    if (knowledgeEditingId) {
+      await api('/knowledge/' + knowledgeEditingId, { method: 'PUT', body: payload });
+      showToast('已更新知識');
+    } else {
+      await api('/knowledge', { method: 'POST', body: payload });
+      showToast('已建立知識');
+    }
+    resetKnowledgeForm();
+    loadKnowledgeList();
+  } catch (e) {
+    if (String(e.message).includes('ALREADY_EXISTS') || String(e.message).includes('已有知識')) {
+      showToast('此商品已有知識，請從下方列表點「編輯」', true);
+    } else {
+      showToast('儲存失敗：' + e.message, true);
+    }
+  }
+}
+
+async function editKnowledge(id) {
+  try {
+    const { data } = await api('/knowledge/' + id);
+    knowledgeEditingId = id;
+    document.getElementById('knowledgeFormTitle').textContent = '編輯商品知識（' + data.product_name + '）';
+    document.getElementById('k_external_product_id').value = data.external_product_id || '';
+    document.getElementById('k_external_product_id').disabled = true;
+    document.getElementById('k_product_name').value = data.product_name || '';
+    document.getElementById('k_category_name').value = data.category_name || '';
+    document.getElementById('k_intro').value = data.intro || '';
+    document.getElementById('k_features').value = data.features || '';
+    document.getElementById('k_story').value = data.story || '';
+    document.getElementById('k_ingredient_intro').value = data.ingredient_intro || '';
+    document.getElementById('k_technique').value = data.technique || '';
+    document.getElementById('k_storage_method').value = data.storage_method || '';
+    document.getElementById('k_nutrition').value = data.nutrition || '';
+    document.getElementById('k_brand_philosophy').value = data.brand_philosophy || '';
+    document.getElementById('k_keywords').value = (data.keywords || []).join(', ');
+    document.getElementById('k_hashtags').value = (data.hashtags || []).join(', ');
+    document.getElementById('k_ai_usage_allowed').value = String(data.ai_usage_allowed);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  } catch (e) { showToast('讀取失敗：' + e.message, true); }
+}
+
+async function deleteKnowledge(id) {
+  if (!confirm('確定刪除此商品知識？（關聯的主題不會一併刪除）')) return;
+  try {
+    await api('/knowledge/' + id, { method: 'DELETE' });
+    showToast('已刪除');
+    loadKnowledgeList();
+  } catch (e) { showToast('刪除失敗：' + e.message, true); }
+}
+
+let knowledgeCache = [];
+async function loadKnowledgeList() {
+  const tbody = document.getElementById('knowledgeListBody');
+  try {
+    const { data } = await api('/knowledge');
+    knowledgeCache = data;
+    if (!data.length) { tbody.innerHTML = '<tr><td colspan="6" class="empty">尚無資料，請於上方建立</td></tr>'; return; }
+    tbody.innerHTML = data.map(row => `
+      <tr>
+        <td>${esc(row.external_product_id)}</td>
+        <td>${esc(row.product_name)}</td>
+        <td>v${row.version}</td>
+        <td>${row.ai_usage_allowed ? '✅' : '🚫'}</td>
+        <td class="muted">${fmtTime(row.updated_at)}</td>
+        <td>
+          <button class="link-btn" onclick="editKnowledge('${row.id}')">編輯</button> ·
+          <button class="link-btn" style="color:var(--danger)" onclick="deleteKnowledge('${row.id}')">刪除</button>
+        </td>
+      </tr>`).join('');
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="6" class="empty">載入失敗：${esc(e.message)}</td></tr>`;
+  }
+}
+
+// ============ Topic ============
+async function loadKnowledgeOptionsForTopic() {
+  const sel = document.getElementById('t_product_select');
+  try {
+    const { data } = await api('/knowledge');
+    if (!data.length) { sel.innerHTML = '<option value="">請先建立商品知識</option>'; return; }
+    sel.innerHTML = data.map(k => `<option value="${esc(k.external_product_id)}">${esc(k.product_name)}（${esc(k.external_product_id)}）</option>`).join('');
+  } catch (e) { sel.innerHTML = '<option value="">載入失敗</option>'; }
+}
+
+async function createTopic() {
+  const external_product_id = document.getElementById('t_product_select').value;
+  const title = document.getElementById('t_title').value.trim();
+  const category = document.getElementById('t_category').value;
+  const priority = Number(document.getElementById('t_priority').value) || 0;
+  if (!external_product_id || !title) return showToast('請選擇商品並填寫標題', true);
+  try {
+    await api('/topics', { method: 'POST', body: { external_product_id, title, category, priority } });
+    showToast('已建立主題');
+    document.getElementById('t_title').value = '';
+    loadTopicList();
+  } catch (e) { showToast('建立失敗：' + e.message, true); }
+}
+
+async function toggleTopicStatus(id, current) {
+  const next = current === 'active' ? 'paused' : 'active';
+  try {
+    await api('/topics/' + id, { method: 'PATCH', body: { status: next } });
+    loadTopicList();
+  } catch (e) { showToast('更新失敗：' + e.message, true); }
+}
+
+async function deleteTopic(id) {
+  if (!confirm('確定刪除此主題？')) return;
+  try {
+    await api('/topics/' + id, { method: 'DELETE' });
+    showToast('已刪除');
+    loadTopicList();
+  } catch (e) { showToast('刪除失敗：' + e.message, true); }
+}
+
+let topicCache = [];
+async function loadTopicList() {
+  const tbody = document.getElementById('topicListBody');
+  try {
+    const { data } = await api('/topics');
+    topicCache = data;
+    if (!data.length) { tbody.innerHTML = '<tr><td colspan="6" class="empty">尚無主題</td></tr>'; return; }
+    tbody.innerHTML = data.map(t => `
+      <tr>
+        <td>${esc(t.product_name)}</td>
+        <td>${esc(t.title)}</td>
+        <td>${esc(t.category)}</td>
+        <td>${t.priority}</td>
+        <td><span class="badge ${t.status}">${t.status}</span></td>
+        <td>
+          <button class="link-btn" onclick="toggleTopicStatus('${t.id}','${t.status}')">${t.status === 'active' ? '暫停' : '啟用'}</button> ·
+          <button class="link-btn" style="color:var(--danger)" onclick="deleteTopic('${t.id}')">刪除</button>
+        </td>
+      </tr>`).join('');
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="6" class="empty">載入失敗：${esc(e.message)}</td></tr>`;
+  }
+}
+
+// ============ Prompt ============
+async function loadTopicOptionsForPrompt() {
+  const sel = document.getElementById('p_topic_select');
+  try {
+    const { data } = await api('/topics');
+    sel.innerHTML = '<option value="">（不綁定，通用 Prompt）</option>' +
+      data.map(t => `<option value="${t.id}">${esc(t.product_name)} - ${esc(t.title)}</option>`).join('');
+  } catch (e) { /* 保留預設 */ }
+}
+
+async function createPrompt() {
+  const topic_id = document.getElementById('p_topic_select').value || null;
+  const platform = document.getElementById('p_platform').value;
+  const content_goal = document.getElementById('p_content_goal').value;
+  const content_format = document.getElementById('p_content_format').value;
+  const is_default = document.getElementById('p_is_default').value === 'true';
+  const template = document.getElementById('p_template').value.trim();
+  if (!template) return showToast('請輸入 Prompt 模板內容', true);
+  try {
+    await api('/prompts', { method: 'POST', body: { topic_id, platform, content_goal, content_format, is_default, template } });
+    showToast('已建立 Prompt');
+    document.getElementById('p_template').value = '';
+    loadPromptList();
+  } catch (e) { showToast('建立失敗：' + e.message, true); }
+}
+
+async function deletePrompt(id) {
+  if (!confirm('確定刪除此 Prompt？')) return;
+  try {
+    await api('/prompts/' + id, { method: 'DELETE' });
+    showToast('已刪除');
+    loadPromptList();
+  } catch (e) { showToast('刪除失敗：' + e.message, true); }
+}
+
+async function loadPromptList() {
+  const tbody = document.getElementById('promptListBody');
+  try {
+    const { data } = await api('/prompts');
+    if (!data.length) { tbody.innerHTML = '<tr><td colspan="7" class="empty">尚無 Prompt</td></tr>'; return; }
+    const topicMap = Object.fromEntries(topicCache.map(t => [t.id, t.title]));
+    tbody.innerHTML = data.map(p => `
+      <tr>
+        <td>${esc(p.platform)}</td>
+        <td>${esc(p.content_goal)}</td>
+        <td>${esc(p.content_format)}</td>
+        <td>${p.topic_id ? esc(topicMap[p.topic_id] || p.topic_id) : '<span class="muted">通用</span>'}</td>
+        <td>${p.is_default ? '⭐' : ''}</td>
+        <td>v${p.version}</td>
+        <td><button class="link-btn" style="color:var(--danger)" onclick="deletePrompt('${p.id}')">刪除</button></td>
+      </tr>`).join('');
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="7" class="empty">載入失敗：${esc(e.message)}</td></tr>`;
+  }
+}
+
+// ============ Generate ============
+async function loadTopicOptionsForGenerate() {
+  const sel = document.getElementById('g_topic_select');
+  try {
+    const { data } = await api('/topics');
+    if (!data.length) { sel.innerHTML = '<option value="">請先建立主題</option>'; return; }
+    sel.innerHTML = data.map(t => `<option value="${t.id}">${esc(t.product_name)} - ${esc(t.title)}</option>`).join('');
+  } catch (e) { sel.innerHTML = '<option value="">載入失敗</option>'; }
+}
+
+async function generateContent() {
+  const topic_id = document.getElementById('g_topic_select').value;
+  const platform = document.getElementById('g_platform').value;
+  const content_goal = document.getElementById('g_content_goal').value;
+  const resultBox = document.getElementById('generateResult');
+  if (!topic_id) return showToast('請選擇主題', true);
+
+  const btn = document.getElementById('generateBtn');
+  btn.disabled = true; btn.textContent = '⏳ 生成中...';
+  resultBox.innerHTML = '';
+  try {
+    const { data } = await api('/generate', { method: 'POST', body: { topic_id, platform, content_goal, content_type: 'text' } });
+    resultBox.innerHTML = `
+      <div class="gen-result">${esc(data.generated_text)}</div>
+      <p class="muted" style="margin-top:8px">模型：${esc(data.model_provider)}/${esc(data.model_name)}　狀態：<span class="badge ${data.status}">${data.status}</span>　請至「審核」分頁核准後才能排程發布（Phase 2 以後功能）</p>
+    `;
+    loadHistoryList();
+  } catch (e) {
+    resultBox.innerHTML = `<p style="color:var(--danger)">生成失敗：${esc(e.message)}</p>`;
+  } finally {
+    btn.disabled = false; btn.textContent = '⚡ 產生內容';
+  }
+}
+
+async function loadHistoryList() {
+  const tbody = document.getElementById('historyListBody');
+  try {
+    const { data } = await api('/content-history');
+    if (!data.length) { tbody.innerHTML = '<tr><td colspan="5" class="empty">尚無生成紀錄</td></tr>'; return; }
+    tbody.innerHTML = data.map(h => `
+      <tr>
+        <td>${esc(h.platform)}</td>
+        <td>${esc((h.generation_params && h.generation_params.content_goal) || '-')}</td>
+        <td>${esc((h.generated_text || '').slice(0, 40))}...</td>
+        <td><span class="badge ${h.status}">${h.status}</span></td>
+        <td class="muted">${fmtTime(h.created_at)}</td>
+      </tr>`).join('');
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="5" class="empty">載入失敗：${esc(e.message)}</td></tr>`;
+  }
+}
+
+// ============ Review ============
+async function loadReviewList() {
+  const container = document.getElementById('reviewListContainer');
+  const status = document.getElementById('reviewStatusFilter').value;
+  try {
+    const { data } = await api('/review?status=' + encodeURIComponent(status));
+    if (!data.length) { container.innerHTML = '<div class="empty">目前沒有符合條件的內容</div>'; return; }
+    container.innerHTML = data.map(item => `
+      <div class="card" style="margin-bottom:12px">
+        <div class="flex-between">
+          <div><strong>${esc(item.platform)}</strong> <span class="muted">${fmtTime(item.created_at)}</span></div>
+          <span class="badge ${item.status}">${item.status}</span>
+        </div>
+        <div class="gen-result">${esc(item.generated_text)}</div>
+        ${item.reject_reason ? `<p class="muted">退回原因：${esc(item.reject_reason)}</p>` : ''}
+        ${status === 'generated' ? `
+          <div class="row-actions">
+            <button class="btn success" onclick="approveContent('${item.id}')">✅ 核准</button>
+            <button class="btn danger" onclick="rejectContent('${item.id}')">❌ 退回</button>
+          </div>` : ''}
+      </div>
+    `).join('');
+  } catch (e) {
+    container.innerHTML = `<div class="empty">載入失敗：${esc(e.message)}</div>`;
+  }
+}
+
+async function approveContent(id) {
+  try {
+    await api('/review/' + id + '/approve', { method: 'POST', body: {} });
+    showToast('已核准');
+    loadReviewList();
+  } catch (e) { showToast('操作失敗：' + e.message, true); }
+}
+
+async function rejectContent(id) {
+  const reason = prompt('請輸入退回原因（可留空）：') || '';
+  try {
+    await api('/review/' + id + '/reject', { method: 'POST', body: { reject_reason: reason } });
+    showToast('已退回');
+    loadReviewList();
+  } catch (e) { showToast('操作失敗：' + e.message, true); }
+}
+
+// ── 初始化 ──────────────────────────────────────────────
+if (!storeId) {
+  document.querySelector('main').innerHTML = '<div class="card"><p style="color:var(--danger)">網址缺少 store_id，請由 POS 後台「AI 行銷中心」按鈕進入。</p></div>';
+} else {
+  loadKnowledgeList();
+}
+</script>
+
+</body>
+</html>

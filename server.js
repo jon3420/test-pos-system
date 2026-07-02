@@ -9,6 +9,7 @@ const { initDb, getDb } = require('./utils/db');
 const { getAllInventoryStatuses } = require('./utils/inventoryHelper');
 const { requireStore } = require('./middleware/storeGuard');
 const { requireFeature, invalidateFeatureCache } = require('./middleware/featureGate');
+const fetch = require('node-fetch'); // AI Marketing Center reverse proxy 用（沿用既有依賴，不新增套件）
 
 const app  = express();
 const PORT = process.env.PORT || 5000;
@@ -366,6 +367,41 @@ initDb().then((db) => {
   // (full route handled inside importExport.js with inline checks)
   app.use('/api', requireStore, require('./routes/importExport'));
   app.use('/api', requireStore, require('./routes/migration')); // fix18-10
+
+  // ── AI Marketing Center（新增，獨立服務，反向代理）──────────
+  // AIMC 是完全獨立的 Node.js 服務 + 獨立 PostgreSQL，這裡只做：
+  //   1. 沿用既有 requireStore 解析/驗證 store_id
+  //   2. 沿用既有 requireFeature('ai_marketing') 做功能開關（預設 false，不影響現有店家）
+  //   3. 轉送請求給 AIMC_SERVICE_URL，帶上 x-store-id + 內部信任密鑰
+  // AIMC 服務離線時只影響 /api/ai-marketing/* ，不影響任何既有 POS API。
+  const AIMC_SERVICE_URL = process.env.AIMC_SERVICE_URL || 'http://localhost:4100';
+  const INTERNAL_PROXY_SECRET = process.env.INTERNAL_PROXY_SECRET || 'change-me-to-a-random-secret';
+
+  async function aimcProxy(req, res) {
+    try {
+      const targetPath = req.originalUrl.replace(/^\/api\/ai-marketing/, '') || '/';
+      const targetUrl  = AIMC_SERVICE_URL + targetPath;
+      const headers = {
+        'Content-Type':      'application/json',
+        'x-internal-secret': INTERNAL_PROXY_SECRET,
+        'x-store-id':        req.storeId,
+      };
+      const init = { method: req.method, headers };
+      if (!['GET', 'HEAD'].includes(req.method)) {
+        init.body = JSON.stringify(req.body || {});
+      }
+      const upstream = await fetch(targetUrl, init);
+      const text = await upstream.text();
+      let data;
+      try { data = text ? JSON.parse(text) : {}; } catch { data = { success:false, message:'AIMC 回傳格式錯誤' }; }
+      res.status(upstream.status).json(data);
+    } catch (e) {
+      console.error('[aimcProxy] 連線 AIMC 服務失敗:', e.message);
+      res.status(502).json({ success:false, error:'AIMC_UNAVAILABLE', message:'AI 行銷中心服務暫時無法連線，請稍後再試' });
+    }
+  }
+
+  app.use('/api/ai-marketing', requireStore, requireFeature('ai_marketing'), aimcProxy);
 
   // ── Super Admin 前端入口（/system-admin 獨立路由）────
   app.get('/system-admin', (req, res) => res.sendFile(path.join(__dirname, 'public', 'system-admin.html')));

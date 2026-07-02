@@ -37,7 +37,8 @@ function getStoreLicense(storeId) {
         active: true,
         features: { pos:true, orders:true, products:true, reports:true, print:true,
           inventory:false, line_order:false, delivery:false,
-          marketing:false, member:false, coupon:false, label_print:false, payment_api:false, payment_methods:true }
+          marketing:false, member:false, coupon:false, label_print:false, payment_api:false, payment_methods:true,
+          ai_marketing:false } // AI Marketing Center（新增，預設關閉，須由 Super Admin 個別開通）
       };
       setCache(storeId, defaults);
       return defaults;

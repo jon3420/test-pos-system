@@ -119,8 +119,8 @@ router.post('/stores', requireSuperAdmin, (req, res) => {
     // 同步新增 license
     // fix16d: 統一 PLAN_DEFAULTS，payment_api 在 pro 為 true
     const PLAN_DEFAULTS = {
-      basic: { order:true,orders:true,products:true,reports:true,print:true,inventory:false,line_order:false,delivery:false,marketing:false,member:false,coupon:false,label_print:false,payment_api:false,payment_methods:true },
-      pro:   { order:true,orders:true,products:true,reports:true,print:true,inventory:true,line_order:true,delivery:true,marketing:false,member:false,coupon:false,label_print:true,payment_api:true,payment_methods:true },
+      basic: { order:true,orders:true,products:true,reports:true,print:true,inventory:false,line_order:false,delivery:false,marketing:false,member:false,coupon:false,label_print:false,payment_api:false,payment_methods:true,ai_marketing:false },
+      pro:   { order:true,orders:true,products:true,reports:true,print:true,inventory:true,line_order:true,delivery:true,marketing:false,member:false,coupon:false,label_print:true,payment_api:true,payment_methods:true,ai_marketing:false },
     };
     const features = PLAN_DEFAULTS[plan] || PLAN_DEFAULTS.basic;
     try {
@@ -259,8 +259,8 @@ router.put('/stores/:storeId/license', requireSuperAdmin, (req, res) => {
 
     // fix16d: 統一 PLAN_DEFAULTS，payment_api 在 pro 為 true
     const PLAN_DEFAULTS = {
-      basic: { order:true,orders:true,products:true,reports:true,print:true,inventory:false,line_order:false,delivery:false,marketing:false,member:false,coupon:false,label_print:false,payment_api:false,payment_methods:true },
-      pro:   { order:true,orders:true,products:true,reports:true,print:true,inventory:true,line_order:true,delivery:true,marketing:false,member:false,coupon:false,label_print:true,payment_api:true,payment_methods:true },
+      basic: { order:true,orders:true,products:true,reports:true,print:true,inventory:false,line_order:false,delivery:false,marketing:false,member:false,coupon:false,label_print:false,payment_api:false,payment_methods:true,ai_marketing:false },
+      pro:   { order:true,orders:true,products:true,reports:true,print:true,inventory:true,line_order:true,delivery:true,marketing:false,member:false,coupon:false,label_print:true,payment_api:true,payment_methods:true,ai_marketing:false },
     };
     let finalFeatures;
     if (features) finalFeatures = features;
