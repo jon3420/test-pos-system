@@ -48,6 +48,14 @@
   async function renderRoute() {
     const { route, param } = parseHash();
     const workspace = document.getElementById('workspace');
+    const previousHtml = workspace.innerHTML; // Part 10：保留目前畫面，供錯誤時還原用
+
+    // Part 5：Router Cleanup —— 先徹底清理上一頁（移除 listener、呼叫 destroy()），
+    // 再 bump Page Token（Part 2）＋ abort 上一頁尚未完成的請求（Part 3）。
+    AIMC.destroyCurrentPage();
+    AIMC.bumpPageToken();
+    AIMC.setPageState('created', route);
+
     workspace.innerHTML = AIMC.loadingHtml('載入頁面中...');
     try {
       const html = await fetchFragment(route);
@@ -56,10 +64,26 @@
       setTopbarTitle(route, param);
       const page = AIMC.pages[route];
       if (page && typeof page.load === 'function') {
+        AIMC.setPageState('loading', route);
         await page.load(workspace, param);
+        AIMC.setPageState('active', route);
+      }
+      // Part 6/7：若頁面有提供 destroy()，記下來，下次切頁時（或本次流程開頭）會自動呼叫，
+      // 統一負責移除透過 AIMC.DOM 註冊的所有 listener，避免記憶體洩漏。
+      if (page && typeof page.destroy === 'function') {
+        AIMC.setCurrentPageDestroy(page.destroy);
+      } else {
+        AIMC.setCurrentPageDestroy(null);
       }
     } catch (e) {
-      workspace.innerHTML = `<div class="empty">頁面載入失敗：${AIMC.esc(e.message)}</div>`;
+      // Part 10：Workspace Error —— 頁面載入失敗時，不要用滿版錯誤蓋掉整個 Workspace，
+      // 只顯示 toast + console.error，並還原成切頁前的畫面，讓使用者不會看到嚇人的空白/錯誤頁。
+      // AbortError（使用者自己又切了下一頁）視為正常行為，不顯示任何錯誤。
+      if (!AIMC.isAbortError(e)) {
+        console.error('[AIMC router] 頁面載入失敗：', e);
+        AIMC.toast('頁面載入失敗：' + e.message, true);
+      }
+      workspace.innerHTML = previousHtml;
     }
   }
 

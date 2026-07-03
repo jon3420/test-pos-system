@@ -5,15 +5,24 @@
 // 支援路由參數：
 //   #/knowledge/new-ai   → 自動開啟「AI 建立商品知識」草稿表單
 //   #/knowledge/<id>     → 自動開啟該商品的編輯 Drawer（來自 Dashboard CTA）
+//
+// V3.1 Stability Pass：所有 DOM 讀寫改用 AIMC.DOM（Safe DOM Library），
+// refresh() 這種「有 await、之後才寫 DOM」的函式都用 AIMC.startLifecycle()
+// 做 Page Token 檢查，使用者若在 await 期間切走，直接安全跳過，不 render。
 // ============================================================
 (function () {
   const FORM_FIELDS = ['intro', 'features', 'story', 'ingredient_intro', 'technique', 'storage_method',
     'nutrition', 'brand_philosophy', 'faq', 'myths', 'pairing', 'seo_description'];
 
+  let currentDom = null; // 記錄最近一次 lifecycle 的 dom（含 listener registry），供 destroy() 使用
+
   async function load(root, param) {
-    root.querySelector('#kNewBtn').addEventListener('click', () => openForm(null));
-    root.querySelector('#kAiNewBtn').addEventListener('click', () => openForm(null, true));
-    root.querySelector('#kRefreshBtn').addEventListener('click', () => refresh(root));
+    const lc = AIMC.startLifecycle('Knowledge');
+    currentDom = lc.dom;
+    lc.dom.on(root, '#kNewBtn', 'click', () => openForm(null));
+    lc.dom.on(root, '#kAiNewBtn', 'click', () => openForm(null, true));
+    lc.dom.on(root, '#kRefreshBtn', 'click', () => refresh(root));
+    lc.done('event bindings ready');
     await refresh(root);
 
     if (param === 'new-ai') {
@@ -24,46 +33,49 @@
   }
 
   async function refresh(root) {
-    root.querySelector('#kHealthGrid').innerHTML = AIMC.loadingHtml();
+    const lc = AIMC.startLifecycle('Knowledge:refresh');
+    currentDom = lc.dom;
+    lc.dom.html(root, '#kHealthGrid', AIMC.loadingHtml());
     try {
       const { data } = await AIMC.api('/knowledge');
-      AIMC.store.knowledge = data;
       const [{ data: topics }, { data: prompts }, { data: history }] = await Promise.all([
         AIMC.api('/topics'), AIMC.api('/prompts'), AIMC.api('/content-history'),
       ]);
+      AIMC.store.knowledge = data;
       AIMC.store.topics = topics; AIMC.store.prompts = prompts; AIMC.store.history = history;
       await AIMC.loadKnowledgeDetails();
-      renderStats(root);
-      renderHealthGrid(root);
+      if (!lc.checkpoint('API 完成')) return;
+      renderStats(root, lc.dom);
+      renderHealthGrid(root, lc.dom);
+      lc.done();
     } catch (e) {
-      root.querySelector('#kHealthGrid').innerHTML = `<div class="empty">載入失敗：${AIMC.esc(e.message)}</div>`;
+      lc.fail(e, root, '#kHealthGrid');
     }
   }
 
-  function renderStats(root) {
+  function renderStats(root, dom) {
     const s = AIMC.store;
     const avg = s.knowledge.length
       ? Math.round(s.knowledge.reduce((sum, r) => sum + AIMC.calcCompleteness(s.knowledgeDetail[r.id]), 0) / s.knowledge.length)
       : 0;
     const pendingReview = s.history.filter((h) => h.status === 'generated').length;
-    root.querySelector('#kStatGrid').innerHTML = [
+    dom.html(root, '#kStatGrid', [
       AIMC.statCard('📦', s.knowledge.length, '商品數'),
       AIMC.statCard('📚', s.knowledge.length, '已建知識數'),
       AIMC.statCard('📊', avg + '%', '平均完成度'),
       AIMC.statCard('📝', s.topics.length, 'Topic 數'),
       AIMC.statCard('✨', s.history.length, 'Generated 數'),
       AIMC.statCard('⏳', pendingReview, '待審核', 'warn'),
-    ].join('');
+    ].join(''));
   }
 
-  function renderHealthGrid(root) {
-    const el = root.querySelector('#kHealthGrid');
+  function renderHealthGrid(root, dom) {
     const insights = AIMC.computeProductInsights();
     if (!insights.length) {
-      el.innerHTML = AIMC.emptyState('📦', '尚無資料，請按「新增商品知識」或「🤖 AI 建立商品知識」');
+      dom.html(root, '#kHealthGrid', AIMC.emptyState('📦', '尚無資料，請按「新增商品知識」或「🤖 AI 建立商品知識」'));
       return;
     }
-    el.innerHTML = insights.map((ins) => {
+    dom.html(root, '#kHealthGrid', insights.map((ins) => {
       const row = ins.row;
       return `
       <div class="health-card" data-open="${row.id}">
@@ -86,8 +98,10 @@
           <button class="btn danger sm" data-del="${row.id}">刪除</button>
         </div>
       </div>`;
-    }).join('');
+    }).join(''));
 
+    const el = dom.query(root, '#kHealthGrid');
+    if (!el) return;
     el.querySelectorAll('[data-open]').forEach((card) => {
       card.addEventListener('click', (e) => {
         if (e.target.closest('button')) return;
@@ -168,6 +182,7 @@
 
   // 🤖 AI 建立商品知識（草稿）— 純前端範本文字，不呼叫外部 AI/LLM API，
   // 需使用者確認後按「儲存」才會呼叫既有的 POST/PUT /knowledge。
+  // 此表單活在 Drawer 內，Drawer 沒有路由生命週期問題，維持原本直接操作即可。
   function fillAiDraft() {
     const name = document.getElementById('f_product_name').value.trim();
     const category = document.getElementById('f_category_name').value.trim();
@@ -222,5 +237,13 @@
     if (aiDraftMode) fillAiDraft();
   }
 
-  AIMC.pages.knowledge = { load };
+  // ── Part 6：Page API —— destroy / resume / pause（refresh 已定義於上方）──
+  function destroy() {
+    if (currentDom) currentDom.removeAllListeners();
+    currentDom = null;
+  }
+  function resume(root) { return refresh(root); }
+  function pause() { console.info('[AIMC] Knowledge paused（目前無長駐 timer，純狀態標記）'); }
+
+  AIMC.pages.knowledge = { load, destroy, refresh, resume, pause };
 })();

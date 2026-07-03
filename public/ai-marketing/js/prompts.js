@@ -1,57 +1,69 @@
 // ============================================================
-// prompts.js — Prompt Workspace（平台分頁 × 內容目的分組）
+// prompts.js — Prompt Workspace（平台分頁 × 內容目的分組 + Prompt Template）
 // CRUD 呼叫方式與欄位 100% 沿用 Phase 1 /prompts 端點，不做任何邏輯變更。
+//
+// V3.1 Stability Pass：所有 DOM 讀寫改用 AIMC.DOM，refresh() 這種
+// 「await 之後才寫 DOM」的函式用 AIMC.startLifecycle() 做 Page Token 檢查。
 // ============================================================
 (function () {
   let activePlatform = null;
+  let currentDom = null; // 記錄最近一次 lifecycle 的 dom（含 listener registry），供 destroy() 使用
 
   const PLATFORMS = ['fb', 'ig', 'threads', 'tiktok', 'line', 'google_business', 'youtube_shorts'];
   const CONTENT_GOALS = ['教育', '促銷', 'FAQ', '品牌故事', '顧客見證', 'SEO', '短影音', '圖文', 'Google商家', 'general'];
   const CONTENT_FORMATS = ['text', 'image', 'video', 'carousel'];
 
   async function load(root) {
-    root.querySelector('#pNewBtn').addEventListener('click', () => openForm(root));
-    root.querySelector('#pRefreshBtn').addEventListener('click', () => refresh(root));
+    const lc = AIMC.startLifecycle('Prompts');
+    currentDom = lc.dom;
+    lc.dom.on(root, '#pNewBtn', 'click', () => openForm(root));
+    lc.dom.on(root, '#pRefreshBtn', 'click', () => refresh(root));
+    lc.done('event bindings ready');
     await refresh(root);
   }
 
   async function refresh(root) {
-    root.querySelector('#pGoalGroups').innerHTML = AIMC.loadingHtml();
+    const lc = AIMC.startLifecycle('Prompts:refresh');
+    currentDom = lc.dom;
+    lc.dom.html(root, '#pGoalGroups', AIMC.loadingHtml());
     try {
       const [{ data: prompts }, { data: topics }] = await Promise.all([AIMC.api('/prompts'), AIMC.api('/topics')]);
+      if (!lc.checkpoint('API 完成')) return;
       AIMC.store.prompts = prompts;
       AIMC.store.topics = topics;
-      renderTabs(root);
-      renderGroups(root);
+      renderTabs(root, lc.dom);
+      renderGroups(root, lc.dom);
+      lc.done();
     } catch (e) {
-      root.querySelector('#pGoalGroups').innerHTML = `<div class="empty">載入失敗：${AIMC.esc(e.message)}</div>`;
+      lc.fail(e, root, '#pGoalGroups');
     }
   }
 
-  function renderTabs(root) {
+  function renderTabs(root, dom) {
     const s = AIMC.store;
     const inUse = [...new Set(s.prompts.map((p) => p.platform))];
     const all = [...new Set([...PLATFORMS, ...inUse])];
     if (!activePlatform || !all.includes(activePlatform)) activePlatform = all[0] || 'fb';
-    const el = root.querySelector('#pPlatformTabs');
-    el.innerHTML = all.map((p) => {
+    dom.html(root, '#pPlatformTabs', all.map((p) => {
       const count = s.prompts.filter((x) => x.platform === p).length;
       return `<div class="platform-tab ${p === activePlatform ? 'active' : ''}" data-p="${p}">${AIMC.esc(AIMC.platformLabel(p))}${count ? ` (${count})` : ''}</div>`;
-    }).join('');
-    el.querySelectorAll('[data-p]').forEach((t) => t.addEventListener('click', () => {
-      activePlatform = t.dataset.p; renderTabs(root); renderGroups(root);
-    }));
+    }).join(''));
+    const el = dom.query(root, '#pPlatformTabs');
+    if (el) {
+      el.querySelectorAll('[data-p]').forEach((t) => t.addEventListener('click', () => {
+        activePlatform = t.dataset.p; renderTabs(root, dom); renderGroups(root, dom);
+      }));
+    }
   }
 
-  function renderGroups(root) {
+  function renderGroups(root, dom) {
     const s = AIMC.store;
-    const el = root.querySelector('#pGoalGroups');
     const list = s.prompts.filter((p) => p.platform === activePlatform);
-    if (!list.length) { el.innerHTML = AIMC.emptyState('🤖', '此平台尚無 Prompt，按上方「建立 Prompt」新增'); return; }
+    if (!list.length) { dom.html(root, '#pGoalGroups', AIMC.emptyState('🤖', '此平台尚無 Prompt，按上方「建立 Prompt」新增')); return; }
     const topicMap = Object.fromEntries(s.topics.map((t) => [t.id, t.title]));
     const byGoal = {};
     list.forEach((p) => { (byGoal[p.content_goal] ||= []).push(p); });
-    el.innerHTML = Object.keys(byGoal).sort().map((goal) => `
+    dom.html(root, '#pGoalGroups', Object.keys(byGoal).sort().map((goal) => `
       <div class="prompt-goal-title">🎯 ${AIMC.esc(goal)}</div>
       <table><thead><tr><th>格式</th><th>綁定主題</th><th>預設</th><th>版本</th><th></th></tr></thead><tbody>
         ${byGoal[goal].map((p) => `
@@ -63,8 +75,9 @@
             <td><button class="link-btn" data-del="${p.id}" style="color:var(--danger)">刪除</button></td>
           </tr>`).join('')}
       </tbody></table>
-    `).join('');
-    el.querySelectorAll('[data-del]').forEach((b) => b.addEventListener('click', () => removePrompt(root, b.dataset.del)));
+    `).join(''));
+    const el = dom.query(root, '#pGoalGroups');
+    if (el) el.querySelectorAll('[data-del]').forEach((b) => b.addEventListener('click', () => removePrompt(root, b.dataset.del)));
   }
 
   async function removePrompt(root, id) {
@@ -94,16 +107,7 @@
     { platform: 'youtube_shorts', goal: '短影音', label: 'YouTube Shorts・短影音', template: '請為{{topic.title}}撰寫一支 60 秒內的 YouTube Shorts 腳本，含開場鉤子、主體內容與結尾 CTA。' },
   ];
 
-  function findTemplate(platform, goal) {
-    return TEMPLATES.find((t) => t.platform === platform && t.goal === goal);
-  }
-
-  // 找不到完全對應的範本時，依平台特性給一個合理的通用範本
-  function genericTemplate(platform, goal) {
-    return `請依{{store_name}}的品牌語氣，針對${AIMC.platformLabel(platform)}平台，為{{topic.title}}撰寫一篇「${goal}」目的的貼文，自然融入：{{product.intro}}`;
-  }
-
-  function renderTemplatePicker(body) {
+  function renderTemplatePicker() {
     const options = TEMPLATES.map((t, i) => `<option value="${i}">${AIMC.esc(t.label)}</option>`).join('');
     return `
       <div class="template-picker">
@@ -156,26 +160,27 @@
   }
 
   function openForm(root) {
+    const dom = AIMC.DOM.forPage('Prompts:drawer');
     const body = AIMC.openDrawer('④ 建立 Prompt', formHtml());
-    body.querySelector('#pf_useTemplateBtn').addEventListener('click', () => {
-      const idx = Number(body.querySelector('#pf_templatePicker').value);
+    dom.on(body, '#pf_useTemplateBtn', 'click', () => {
+      const idx = Number(dom.value(body, '#pf_templatePicker'));
       const tpl = TEMPLATES[idx];
       if (!tpl) return;
-      body.querySelector('#pf_platform').value = tpl.platform;
-      body.querySelector('#pf_goal').value = tpl.goal;
-      body.querySelector('#pf_template').value = tpl.template;
+      dom.value(body, '#pf_platform', tpl.platform);
+      dom.value(body, '#pf_goal', tpl.goal);
+      dom.value(body, '#pf_template', tpl.template);
       AIMC.toast('已套用範本「' + tpl.label + '」，可依需要調整文字');
     });
-    body.querySelector('#pf_cancelBtn').addEventListener('click', () => AIMC.closeDrawer());
-    body.querySelector('#pf_saveBtn').addEventListener('click', async () => {
-      const template = body.querySelector('#pf_template').value.trim();
+    dom.on(body, '#pf_cancelBtn', 'click', () => AIMC.closeDrawer());
+    dom.on(body, '#pf_saveBtn', 'click', async () => {
+      const template = (dom.value(body, '#pf_template') || '').trim();
       if (!template) return AIMC.toast('請輸入 Prompt 模板內容', true);
       const payload = {
-        topic_id: body.querySelector('#pf_topic').value || null,
-        platform: body.querySelector('#pf_platform').value,
-        content_goal: body.querySelector('#pf_goal').value,
-        content_format: body.querySelector('#pf_format').value,
-        is_default: body.querySelector('#pf_default').value === 'true',
+        topic_id: dom.value(body, '#pf_topic') || null,
+        platform: dom.value(body, '#pf_platform'),
+        content_goal: dom.value(body, '#pf_goal'),
+        content_format: dom.value(body, '#pf_format'),
+        is_default: dom.value(body, '#pf_default') === 'true',
         template,
       };
       try {
@@ -188,5 +193,13 @@
     });
   }
 
-  AIMC.pages.prompts = { load };
+  // ── Part 6：Page API —— destroy / resume / pause（refresh 已定義於上方）──
+  function destroy() {
+    if (currentDom) currentDom.removeAllListeners();
+    currentDom = null;
+  }
+  function resume(root) { return refresh(root); }
+  function pause() { console.info('[AIMC] Prompts paused（目前無長駐 timer，純狀態標記）'); }
+
+  AIMC.pages.prompts = { load, destroy, refresh, resume, pause };
 })();

@@ -2,6 +2,9 @@
 // comingsoon.js — 即將推出頁（AI圖片 / AI影片 / 排程發布 / 社群發布 /
 // Knowledge Marketplace）與 Automation Center（AIMC × n8n 說明）
 // 純靜態內容，不呼叫任何 API，也不實作真正的自動化。
+//
+// V3.1 Stability Pass：所有 DOM 讀寫改用 AIMC.DOM。這頁沒有任何 await，
+// 理論上不會遇到 Page Token 過期，但仍統一改用 Safe DOM 保持一致性。
 // ============================================================
 (function () {
   const ITEMS = {
@@ -34,10 +37,8 @@
     { icon: '💡', title: 'AI 建議' },
   ];
 
-  function renderRoadmap(root) {
-    const el = root.querySelector('#csRoadmap');
-    if (!el) return;
-    el.innerHTML = ROADMAP_NODES.map((n, i) => {
+  function renderRoadmap(root, dom) {
+    dom.html(root, '#csRoadmap', ROADMAP_NODES.map((n, i) => {
       const node = `
         <div class="roadmap-node ${n.now ? 'now' : ''}">
           <div class="rn-icon">${n.icon}</div>
@@ -46,42 +47,49 @@
         </div>`;
       const arrow = i < ROADMAP_NODES.length - 1 ? '<div class="roadmap-arrow">➜</div>' : '';
       return node + arrow;
-    }).join('');
+    }).join(''));
   }
 
   async function load(root, param) {
-    const auto = root.querySelector('#csAutomationSection');
-    const grid = root.querySelector('#csGrid');
-    const note = root.querySelector('#csNote');
+    const lc = AIMC.startLifecycle('ComingSoon');
+    const dom = lc.dom;
 
     if (param === 'automation') {
-      auto.style.display = 'block';
-      grid.style.display = 'none';
-      note.textContent = 'Automation Center：以下情境目前皆為人工在 AI 行銷中心手動操作，未來串接 n8n 後可自動觸發。';
-      renderRoadmap(root);
-      root.querySelector('#csAutomationList').innerHTML = AUTOMATION_ITEMS.map((a, i) => `
+      dom.show(root, '#csAutomationSection', 'block');
+      dom.hide(root, '#csGrid');
+      dom.text(root, '#csNote', 'Automation Center：以下情境目前皆為人工在 AI 行銷中心手動操作，未來串接 n8n 後可自動觸發。');
+      renderRoadmap(root, dom);
+      dom.html(root, '#csAutomationList', AUTOMATION_ITEMS.map((a, i) => `
         <div class="automation-item">
           <span class="a-num">${i + 1}</span>
           <span class="a-txt">${a.icon} ${AIMC.esc(a.title)}<br><span class="a-sub">${AIMC.esc(a.sub)}</span></span>
-        </div>`).join('');
+        </div>`).join(''));
+      lc.done();
       return;
     }
 
-    auto.style.display = 'none';
-    grid.style.display = 'grid';
-    note.textContent = '以下功能為未來規劃，目前尚未開放，僅供預覽用途。';
+    dom.hide(root, '#csAutomationSection');
+    dom.show(root, '#csGrid', 'grid');
+    dom.text(root, '#csNote', '以下功能為未來規劃，目前尚未開放，僅供預覽用途。');
     const keys = Object.keys(ITEMS);
-    grid.innerHTML = keys.map((k) => `
+    dom.html(root, '#csGrid', keys.map((k) => `
       <div class="cs-card" id="cs-${k}" style="${k === param ? 'outline:2px solid var(--accent)' : ''}">
         <div class="cs-icon">${ITEMS[k].icon}</div>
         <div class="cs-title">${AIMC.esc(ITEMS[k].title)}</div>
         <div class="cs-desc">${AIMC.esc(ITEMS[k].desc)}</div>
         <div class="cs-meta"><span class="cs-phase">${AIMC.esc(ITEMS[k].phase)}</span><span class="badge soon">Coming Soon</span></div>
-      </div>`).join('');
-    if (param && document.getElementById('cs-' + param)) {
-      document.getElementById('cs-' + param).scrollIntoView({ behavior: 'smooth', block: 'center' });
+      </div>`).join(''));
+    if (param) {
+      const target = dom.query(root, '#cs-' + param);
+      if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
+    lc.done();
   }
 
-  AIMC.pages['coming-soon'] = { load };
+  function destroy() { /* 無註冊任何 listener，無需清理 */ }
+  function refresh(root, param) { return load(root, param); }
+  function resume(root, param) { return load(root, param); }
+  function pause() { console.info('[AIMC] ComingSoon paused（純靜態頁，無長駐資源）'); }
+
+  AIMC.pages['coming-soon'] = { load, destroy, refresh, resume, pause };
 })();

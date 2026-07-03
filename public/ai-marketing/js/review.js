@@ -3,45 +3,60 @@
 // CRUD 呼叫方式與欄位 100% 沿用 Phase 1 /review 端點，不做任何邏輯變更。
 // 排序 / 敏感標示 / AI 建議文字 / 複製功能，全部是前端對既有資料的
 // 排序與展示處理，不新增、不修改任何 API。
+//
+// V3.1 Stability Pass：所有 DOM 讀寫改用 AIMC.DOM，refresh()（打了 3 支 API
+// ＋ N 支 /knowledge/:id 明細）用 AIMC.startLifecycle() 做 Page Token 檢查。
 // ============================================================
 (function () {
   let selectedId = null;
   let currentList = [];
+  let currentDom = null; // 記錄最近一次 lifecycle 的 dom（含 listener registry），供 destroy() 使用
   const PLATFORM_ORDER = ['fb', 'line', 'ig', 'tiktok', 'threads', 'google_business', 'youtube_shorts'];
 
   async function load(root) {
-    root.querySelector('#rStatusFilter').addEventListener('change', () => { selectedId = null; refresh(root); });
-    root.querySelector('#rSortBy').addEventListener('change', () => { renderList(root, root.querySelector('#rStatusFilter').value); });
-    root.querySelector('#rRefreshBtn').addEventListener('click', () => refresh(root));
+    const lc = AIMC.startLifecycle('Review');
+    currentDom = lc.dom;
+    lc.dom.on(root, '#rStatusFilter', 'change', () => { selectedId = null; refresh(root); });
+    lc.dom.on(root, '#rSortBy', 'change', () => { renderList(root, lc.dom, lc.dom.value(root, '#rStatusFilter')); });
+    lc.dom.on(root, '#rRefreshBtn', 'click', () => refresh(root));
+    lc.done('event bindings ready');
     await refresh(root);
   }
 
   async function refresh(root) {
-    const status = root.querySelector('#rStatusFilter').value;
-    root.querySelector('#rListPane').innerHTML = AIMC.loadingHtml();
+    const lc = AIMC.startLifecycle('Review:refresh');
+    currentDom = lc.dom;
+    const status = lc.dom.value(root, '#rStatusFilter') || 'generated';
+    lc.dom.html(root, '#rListPane', AIMC.loadingHtml());
     try {
       const rc = await AIMC.loadReviewCounts();
-      renderStats(root, rc);
-      // 排序需要主題（claim_sensitive）與商品完整度資料，一併補齊
+      if (!lc.checkpoint('review counts 完成')) return;
+      renderStats(root, lc.dom, rc);
+
       const [{ data: list }, { data: topics }, { data: knowledge }] = await Promise.all([
         AIMC.api('/review?status=' + encodeURIComponent(status)), AIMC.api('/topics'), AIMC.api('/knowledge'),
       ]);
+      if (!lc.checkpoint('review/topics/knowledge 完成')) return;
       AIMC.store.topics = topics;
       AIMC.store.knowledge = knowledge;
       currentList = list;
+
       await ensureCompletenessMap();
-      renderList(root, status);
+      if (!lc.checkpoint('completeness 明細完成')) return;
+
+      renderList(root, lc.dom, status);
       if (selectedId && list.some((d) => d.id === selectedId)) {
-        renderDetail(root, selectedId, status);
+        renderDetail(root, lc.dom, selectedId, status);
       } else if (list.length) {
         selectedId = list[0].id;
-        renderDetail(root, selectedId, status);
+        renderDetail(root, lc.dom, selectedId, status);
       } else {
         selectedId = null;
-        root.querySelector('#rDetailPane').innerHTML = '<div class="empty">請從左側選擇一筆內容查看詳情</div>';
+        lc.dom.html(root, '#rDetailPane', '<div class="empty">請從左側選擇一筆內容查看詳情</div>');
       }
+      lc.done();
     } catch (e) {
-      root.querySelector('#rListPane').innerHTML = `<div class="empty">載入失敗：${AIMC.esc(e.message)}</div>`;
+      lc.fail(e, root, '#rListPane');
     }
   }
 
@@ -81,14 +96,14 @@
     return arr;
   }
 
-  function renderStats(root, rc) {
+  function renderStats(root, dom, rc) {
     const todayCount = [...rc.a, ...rc.r].filter((h) => AIMC.isToday(h.updated_at)).length;
-    root.querySelector('#rStatGrid').innerHTML = [
+    dom.html(root, '#rStatGrid', [
       AIMC.statCard('⏳', AIMC.store.reviewCounts.generated, '待審核', 'warn'),
       AIMC.statCard('✅', AIMC.store.reviewCounts.approved, '已通過'),
       AIMC.statCard('❌', AIMC.store.reviewCounts.rejected, '已退回', 'danger'),
       AIMC.statCard('📅', todayCount, '今日審核數'),
-    ].join('');
+    ].join(''));
   }
 
   function reviewHint(item) {
@@ -99,12 +114,11 @@
     return '';
   }
 
-  function renderList(root, status) {
-    const el = root.querySelector('#rListPane');
-    if (!currentList.length) { el.innerHTML = AIMC.emptyState('✅', '目前沒有符合條件的內容'); return; }
-    const sortBy = root.querySelector('#rSortBy').value;
+  function renderList(root, dom, status) {
+    if (!currentList.length) { dom.html(root, '#rListPane', AIMC.emptyState('✅', '目前沒有符合條件的內容')); return; }
+    const sortBy = dom.value(root, '#rSortBy') || 'default';
     const sorted = sortList(currentList, sortBy);
-    el.innerHTML = sorted.map((item) => {
+    dom.html(root, '#rListPane', sorted.map((item) => {
       const goal = (item.generation_params && item.generation_params.content_goal) || '-';
       const topic = topicOf(item);
       const hint = reviewHint(item);
@@ -115,20 +129,22 @@
         <div class="rli-preview">${AIMC.esc((item.generated_text || '').slice(0, 60))}</div>
         ${hint ? `<div class="review-hint">${AIMC.esc(hint)}</div>` : ''}
       </div>`;
-    }).join('');
-    el.querySelectorAll('[data-id]').forEach((it) => it.addEventListener('click', () => {
-      selectedId = it.dataset.id; renderList(root, status); renderDetail(root, selectedId, status);
-    }));
+    }).join(''));
+    const el = dom.query(root, '#rListPane');
+    if (el) {
+      el.querySelectorAll('[data-id]').forEach((it) => it.addEventListener('click', () => {
+        selectedId = it.dataset.id; renderList(root, dom, status); renderDetail(root, dom, selectedId, status);
+      }));
+    }
   }
 
-  function renderDetail(root, id, status) {
+  function renderDetail(root, dom, id, status) {
     const item = currentList.find((x) => x.id === id);
-    const pane = root.querySelector('#rDetailPane');
-    if (!item) { pane.innerHTML = '<div class="empty">請從左側選擇一筆內容查看詳情</div>'; return; }
+    if (!item) { dom.html(root, '#rDetailPane', '<div class="empty">請從左側選擇一筆內容查看詳情</div>'); return; }
     const goal = (item.generation_params && item.generation_params.content_goal) || '-';
     const topic = topicOf(item);
     const hint = reviewHint(item);
-    pane.innerHTML = `
+    dom.html(root, '#rDetailPane', `
       <div class="flex-between">
         <div>
           <strong>${AIMC.platformLabel(item.platform)}</strong>
@@ -154,11 +170,11 @@
           <button class="btn success" id="r_approveBtn">✅ 核准</button>
           <button class="btn danger" id="r_rejectBtn">❌ 退回</button>` : ''}
       </div>
-    `;
-    pane.querySelector('#r_copyBtn').addEventListener('click', () => AIMC.copyToClipboard(item.generated_text));
+    `);
+    dom.on(root, '#r_copyBtn', 'click', () => AIMC.copyToClipboard(item.generated_text));
     if (status === 'generated') {
-      pane.querySelector('#r_approveBtn').addEventListener('click', () => approve(root, item.id));
-      pane.querySelector('#r_rejectBtn').addEventListener('click', () => reject(root, item.id));
+      dom.on(root, '#r_approveBtn', 'click', () => approve(root, item.id));
+      dom.on(root, '#r_rejectBtn', 'click', () => reject(root, item.id));
     }
   }
 
@@ -179,5 +195,13 @@
     } catch (e) { AIMC.toast('操作失敗：' + e.message, true); }
   }
 
-  AIMC.pages.review = { load };
+  // ── Part 6：Page API —— destroy / resume / pause（refresh 已定義於上方）──
+  function destroy() {
+    if (currentDom) currentDom.removeAllListeners();
+    currentDom = null;
+  }
+  function resume(root) { return refresh(root); }
+  function pause() { console.info('[AIMC] Review paused（目前無長駐 timer，純狀態標記）'); }
+
+  AIMC.pages.review = { load, destroy, refresh, resume, pause };
 })();

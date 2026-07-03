@@ -4,11 +4,14 @@
 // AI Topic Suggestions 為前端規則式建議（依商品名稱關鍵字比對），
 // 「一鍵建立」仍是呼叫既有的 POST /topics，不新增任何 API。
 // 支援路由參數 #/topics/<external_product_id>：自動預選對應商品並顯示建議。
+//
+// V3.1 Stability Pass：所有 DOM 讀寫改用 AIMC.DOM，refresh()/loadProductOptions()
+// 這類「await 之後才寫 DOM」的函式都用 AIMC.startLifecycle() 做 Page Token 檢查。
 // ============================================================
 (function () {
   let selectedId = null;
+  let currentDom = null; // 記錄最近一次 lifecycle 的 dom（含 listener registry），供 destroy() 使用
 
-  // 規則式主題建議字典：依商品名稱關鍵字比對；找不到比對時使用通用建議。
   const SUGGESTION_MAP = [
     { match: '豬腰', items: [
       { kw: '補鐵', cat: '營養' }, { kw: '先燙後冰', cat: '工法' }, { kw: '膽固醇迷思', cat: '迷思' },
@@ -32,104 +35,117 @@
   }
 
   async function load(root, param) {
-    root.querySelector('#t_createBtn').addEventListener('click', () => createTopic(root));
-    root.querySelector('#t_refreshBtn').addEventListener('click', () => refresh(root));
-    root.querySelector('#t_product_select').addEventListener('change', (e) => renderSuggestions(root, e.target.value));
+    const lc = AIMC.startLifecycle('Topics');
+    currentDom = lc.dom;
+    lc.dom.on(root, '#t_createBtn', 'click', () => createTopic(root));
+    lc.dom.on(root, '#t_refreshBtn', 'click', () => refresh(root));
+    lc.dom.on(root, '#t_product_select', 'change', (e) => renderSuggestions(root, lc.dom, e.target.value));
+    lc.done('event bindings ready');
+
     await loadProductOptions(root);
 
-    if (param) {
-      const sel = root.querySelector('#t_product_select');
-      if ([...sel.options].some((o) => o.value === param)) {
-        sel.value = param;
-        renderSuggestions(root, param);
-      }
+    const sel = lc.dom.query(root, '#t_product_select');
+    if (param && sel && [...sel.options].some((o) => o.value === param)) {
+      sel.value = param;
+      renderSuggestions(root, lc.dom, param);
     } else {
-      renderSuggestions(root, root.querySelector('#t_product_select').value);
+      renderSuggestions(root, lc.dom, sel ? sel.value : '');
     }
 
     await refresh(root);
   }
 
   async function loadProductOptions(root) {
-    const sel = root.querySelector('#t_product_select');
+    const lc = AIMC.startLifecycle('Topics:loadProductOptions');
     try {
       const { data } = await AIMC.api('/knowledge');
+      if (!lc.checkpoint('API 完成')) return;
       AIMC.store.knowledge = data;
-      sel.innerHTML = data.length
+      lc.dom.html(root, '#t_product_select', data.length
         ? data.map((k) => `<option value="${AIMC.esc(k.external_product_id)}" data-name="${AIMC.esc(k.product_name)}">${AIMC.esc(k.product_name)}（${AIMC.esc(k.external_product_id)}）</option>`).join('')
-        : '<option value="">請先建立商品知識</option>';
-    } catch (e) { sel.innerHTML = '<option value="">載入失敗</option>'; }
+        : '<option value="">請先建立商品知識</option>');
+      lc.done();
+    } catch (e) {
+      lc.fail(e, root, '#t_product_select');
+    }
   }
 
-  function renderSuggestions(root, externalProductId) {
-    const sel = root.querySelector('#t_product_select');
-    const label = root.querySelector('#t_suggestProductLabel');
-    const chipsEl = root.querySelector('#t_suggestionChips');
+  function renderSuggestions(root, dom, externalProductId) {
+    const sel = dom.query(root, '#t_product_select');
+    if (!sel) return;
     const opt = [...sel.options].find((o) => o.value === externalProductId);
     if (!opt || !externalProductId) {
-      label.textContent = '';
-      chipsEl.innerHTML = '<span class="muted">請先選擇對應商品</span>';
+      dom.text(root, '#t_suggestProductLabel', '');
+      dom.html(root, '#t_suggestionChips', '<span class="muted">請先選擇對應商品</span>');
       return;
     }
     const productName = opt.dataset.name || opt.textContent;
-    label.textContent = `依「${productName}」推導`;
+    dom.text(root, '#t_suggestProductLabel', `依「${productName}」推導`);
     const existingTitles = new Set(AIMC.store.topics.filter((t) => t.external_product_id === externalProductId).map((t) => t.title));
     const items = suggestionsForProduct(productName);
-    chipsEl.innerHTML = items.map((it) => {
+    dom.html(root, '#t_suggestionChips', items.map((it) => {
       const title = productName + it.kw;
       const already = existingTitles.has(title);
       return `<span class="suggestion-chip">🏷️ ${AIMC.esc(it.kw)}（${AIMC.esc(it.cat)}）
         <button class="btn ${already ? 'secondary' : 'ai'} sm" data-kw="${AIMC.esc(it.kw)}" data-cat="${AIMC.esc(it.cat)}" ${already ? 'disabled' : ''}>${already ? '已建立' : '一鍵建立'}</button>
       </span>`;
-    }).join('');
-    chipsEl.querySelectorAll('[data-kw]').forEach((btn) => {
-      btn.addEventListener('click', () => quickCreateTopic(root, externalProductId, productName, btn.dataset.kw, btn.dataset.cat));
-    });
+    }).join(''));
+    const chipsEl = dom.query(root, '#t_suggestionChips');
+    if (chipsEl) {
+      chipsEl.querySelectorAll('[data-kw]').forEach((btn) => {
+        btn.addEventListener('click', () => quickCreateTopic(root, dom, externalProductId, productName, btn.dataset.kw, btn.dataset.cat));
+      });
+    }
   }
 
-  async function quickCreateTopic(root, externalProductId, productName, kw, cat) {
+  async function quickCreateTopic(root, dom, externalProductId, productName, kw, cat) {
     const title = productName + kw;
     try {
       await AIMC.api('/topics', { method: 'POST', body: { external_product_id: externalProductId, title, category: cat, priority: 0 } });
       AIMC.toast(`已一鍵建立主題「${title}」`);
       await refresh(root);
-      renderSuggestions(root, externalProductId);
+      renderSuggestions(root, dom, externalProductId);
     } catch (e) { AIMC.toast('建立失敗：' + e.message, true); }
   }
 
   async function createTopic(root) {
-    const external_product_id = root.querySelector('#t_product_select').value;
-    const title = root.querySelector('#t_title').value.trim();
-    const category = root.querySelector('#t_category').value;
-    const priority = Number(root.querySelector('#t_priority').value) || 0;
+    const dom = AIMC.DOM.forPage('Topics');
+    const external_product_id = dom.value(root, '#t_product_select');
+    const title = (dom.value(root, '#t_title') || '').trim();
+    const category = dom.value(root, '#t_category');
+    const priority = Number(dom.value(root, '#t_priority')) || 0;
     if (!external_product_id || !title) return AIMC.toast('請選擇商品並填寫標題', true);
     try {
       await AIMC.api('/topics', { method: 'POST', body: { external_product_id, title, category, priority } });
       AIMC.toast('已建立主題');
-      root.querySelector('#t_title').value = '';
+      dom.value(root, '#t_title', '');
       await refresh(root);
-      renderSuggestions(root, external_product_id);
+      renderSuggestions(root, dom, external_product_id);
     } catch (e) { AIMC.toast('建立失敗：' + e.message, true); }
   }
 
   async function refresh(root) {
-    root.querySelector('#t_listContainer').innerHTML = AIMC.loadingHtml();
+    const lc = AIMC.startLifecycle('Topics:refresh');
+    currentDom = lc.dom;
+    lc.dom.html(root, '#t_listContainer', AIMC.loadingHtml());
     try {
       const [{ data }, { data: prompts }, { data: history }] = await Promise.all([
         AIMC.api('/topics'), AIMC.api('/prompts'), AIMC.api('/content-history'),
       ]);
+      if (!lc.checkpoint('API 完成')) return;
       AIMC.store.topics = data; AIMC.store.prompts = prompts; AIMC.store.history = history;
-      renderStats(root);
-      renderList(root);
-      if (selectedId && data.some((t) => t.id === selectedId)) renderDetail(root, selectedId);
-      else if (data.length) { selectedId = data[0].id; renderDetail(root, selectedId); }
-      else { selectedId = null; root.querySelector('#t_detailPane').innerHTML = '<div class="empty">請從左側選擇一個主題查看詳情</div>'; }
+      renderStats(root, lc.dom);
+      renderList(root, lc.dom);
+      if (selectedId && data.some((t) => t.id === selectedId)) renderDetail(root, lc.dom, selectedId);
+      else if (data.length) { selectedId = data[0].id; renderDetail(root, lc.dom, selectedId); }
+      else { selectedId = null; lc.dom.html(root, '#t_detailPane', '<div class="empty">請從左側選擇一個主題查看詳情</div>'); }
+      lc.done();
     } catch (e) {
-      root.querySelector('#t_listContainer').innerHTML = `<div class="empty">載入失敗：${AIMC.esc(e.message)}</div>`;
+      lc.fail(e, root, '#t_listContainer');
     }
   }
 
-  function renderStats(root) {
+  function renderStats(root, dom) {
     const s = AIMC.store;
     const genTopicIds = new Set(s.history.map((h) => h.topic_id).filter(Boolean));
     const approvedTopicIds = new Set(s.history.filter((h) => h.status === 'approved').map((h) => h.topic_id).filter(Boolean));
@@ -138,40 +154,41 @@
     const notGenerated = total - generated;
     const approved = s.topics.filter((t) => approvedTopicIds.has(t.id)).length;
     const completeness = total ? Math.round((approved / total) * 100) : 0;
-    root.querySelector('#tStatGrid').innerHTML = [
+    dom.html(root, '#tStatGrid', [
       AIMC.statCard('📝', total, '主題數'),
       AIMC.statCard('✅', generated, '已生成數'),
       AIMC.statCard('⬜', notGenerated, '未生成數'),
       AIMC.statCard('👍', approved, '已審核數'),
       AIMC.statCard('📈', completeness + '%', '完成度'),
-    ].join('');
+    ].join(''));
   }
 
-  function renderList(root) {
+  function renderList(root, dom) {
     const s = AIMC.store;
-    const el = root.querySelector('#t_listContainer');
-    if (!s.topics.length) { el.innerHTML = AIMC.emptyState('📝', '尚無主題，可用上方 AI Topic Suggestions 一鍵建立'); return; }
-    el.innerHTML = s.topics.map((t) => `
+    if (!s.topics.length) { dom.html(root, '#t_listContainer', AIMC.emptyState('📝', '尚無主題，可用上方 AI Topic Suggestions 一鍵建立')); return; }
+    dom.html(root, '#t_listContainer', s.topics.map((t) => `
       <div class="master-list-item ${t.id === selectedId ? 'active' : ''}" data-id="${t.id}">
         <div class="mli-title">${AIMC.esc(t.title)}</div>
         <div class="mli-sub">${AIMC.esc(t.product_name)} ・ ${AIMC.esc(t.category)} ${t.claim_sensitive ? ' ・ ⚠️敏感' : ''}</div>
-      </div>`).join('');
-    el.querySelectorAll('[data-id]').forEach((item) => {
-      item.addEventListener('click', () => { selectedId = item.dataset.id; renderList(root); renderDetail(root, selectedId); });
-    });
+      </div>`).join(''));
+    const el = dom.query(root, '#t_listContainer');
+    if (el) {
+      el.querySelectorAll('[data-id]').forEach((item) => {
+        item.addEventListener('click', () => { selectedId = item.dataset.id; renderList(root, dom); renderDetail(root, dom, selectedId); });
+      });
+    }
   }
 
-  function renderDetail(root, id) {
+  function renderDetail(root, dom, id) {
     const s = AIMC.store;
     const t = s.topics.find((x) => x.id === id);
-    const pane = root.querySelector('#t_detailPane');
-    if (!t) { pane.innerHTML = '<div class="empty">請從左側選擇一個主題查看詳情</div>'; return; }
+    if (!t) { dom.html(root, '#t_detailPane', '<div class="empty">請從左側選擇一個主題查看詳情</div>'); return; }
     const relatedPrompts = s.prompts.filter((p) => p.topic_id === t.id);
     const goals = [...new Set(relatedPrompts.map((p) => p.content_goal))];
     const relatedHistory = s.history.filter((h) => h.topic_id === t.id);
     const risk = t.risk_level || 'low';
 
-    pane.innerHTML = `
+    dom.html(root, '#t_detailPane', `
       <div class="flex-between">
         <h3 style="margin:0">${AIMC.esc(t.title)}</h3>
         <span class="badge ${t.status}">${t.status}</span>
@@ -202,9 +219,9 @@
         <button class="btn ghost sm" onclick="location.hash='#/generate/${encodeURIComponent(t.external_product_id)}'">✨ 去生成內容</button>
         <button class="btn danger sm" id="t_deleteBtn">刪除主題</button>
       </div>
-    `;
-    pane.querySelector('#t_toggleBtn').addEventListener('click', () => toggleStatus(root, t));
-    pane.querySelector('#t_deleteBtn').addEventListener('click', () => deleteTopic(root, t.id));
+    `);
+    dom.on(root, '#t_toggleBtn', 'click', () => toggleStatus(root, t));
+    dom.on(root, '#t_deleteBtn', 'click', () => deleteTopic(root, t.id));
   }
 
   async function toggleStatus(root, t) {
@@ -225,5 +242,13 @@
     } catch (e) { AIMC.toast('刪除失敗：' + e.message, true); }
   }
 
-  AIMC.pages.topics = { load };
+  // ── Part 6：Page API —— destroy / resume / pause（refresh 已定義於上方）──
+  function destroy() {
+    if (currentDom) currentDom.removeAllListeners();
+    currentDom = null;
+  }
+  function resume(root) { return refresh(root); }
+  function pause() { console.info('[AIMC] Topics paused（目前無長駐 timer，純狀態標記）'); }
+
+  AIMC.pages.topics = { load, destroy, refresh, resume, pause };
 })();

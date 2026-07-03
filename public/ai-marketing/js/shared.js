@@ -12,13 +12,16 @@ window.AIMC = window.AIMC || { pages: {} };
   AIMC.API_BASE = '/api/ai-marketing';
 
   // ── API 呼叫（沿用既有 requireStore：query.store_id 相容模式）──
-  AIMC.api = async function (path, { method = 'GET', body } = {}) {
+  // Part 3：新增可選的 signal 參數，供 Phase 2 直接啟用 AbortController 取消機制。
+  // 沒有傳入 signal 時（本次所有頁面都還是沒有傳），行為與過去完全相同、零改變。
+  AIMC.api = async function (path, { method = 'GET', body, signal } = {}) {
     const sep = path.includes('?') ? '&' : '?';
     const url = AIMC.API_BASE + path + sep + 'store_id=' + encodeURIComponent(AIMC.storeId);
     const res = await fetch(url, {
       method,
       headers: { 'Content-Type': 'application/json' },
       body: body ? JSON.stringify(body) : undefined,
+      ...(signal ? { signal } : {}),
     });
     let data;
     try { data = await res.json(); } catch { data = {}; }
@@ -222,5 +225,339 @@ window.AIMC = window.AIMC || { pages: {} };
     } catch (e) {
       AIMC.toast('複製失敗，請手動選取文字複製', true);
     }
+  };
+
+  // ============================================================
+  // V3.1 Stability Pass
+  // ============================================================
+
+  // ── Part 1：Shared Safe DOM Library ──────────────────────────
+  // 所有方法找不到元素時「不 throw、不 crash」，只 console.warn 並安全跳過，
+  // 用來取代各頁面原本各自手寫的 null guard（例如 Dashboard 舊版的 q()/setHTML()）。
+  AIMC.DOM = (function () {
+    function warn(label, selector, action) {
+      console.warn(`[AIMC] ${label || 'page'} missing ${selector} — skip ${action || 'render'}`);
+    }
+    function safeQuery(root, selector, label) {
+      if (!root) { warn(label, selector, 'query (root 不存在)'); return null; }
+      const el = root.querySelector(selector);
+      if (!el) warn(label, selector, 'query');
+      return el;
+    }
+    function safeHTML(root, selector, html, label) {
+      const el = safeQuery(root, selector, label);
+      if (el) el.innerHTML = html;
+      return el;
+    }
+    function safeText(root, selector, text, label) {
+      const el = safeQuery(root, selector, label);
+      if (el) el.textContent = text;
+      return el;
+    }
+    function safeAppend(root, selector, node, label) {
+      const el = safeQuery(root, selector, label);
+      if (el && node) el.appendChild(node);
+      return el;
+    }
+    function safeWidth(root, selector, width, label) {
+      const el = safeQuery(root, selector, label);
+      if (el) el.style.width = width;
+      return el;
+    }
+    function safeShow(root, selector, display, label) {
+      const el = safeQuery(root, selector, label);
+      if (el) el.style.display = display || '';
+      return el;
+    }
+    function safeHide(root, selector, label) {
+      const el = safeQuery(root, selector, label);
+      if (el) el.style.display = 'none';
+      return el;
+    }
+    function safeRemove(root, selector, label) {
+      const el = safeQuery(root, selector, label);
+      if (el && el.parentNode) el.parentNode.removeChild(el);
+      return el;
+    }
+    function safeClass(root, selector, className, force, label) {
+      const el = safeQuery(root, selector, label);
+      if (el) el.classList.toggle(className, force);
+      return el;
+    }
+    // 取值：safeValue(root, sel)         → 回傳 value（找不到回傳 ''）
+    // 設值：safeValue(root, sel, value)  → 設定 value
+    function safeValue(root, selector, value, label) {
+      const el = safeQuery(root, selector, label);
+      if (!el) return value === undefined ? '' : undefined;
+      if (value === undefined) return el.value;
+      el.value = value;
+      return el;
+    }
+    function safeOn(root, selector, event, handler, label) {
+      const el = safeQuery(root, selector, label);
+      if (el) el.addEventListener(event, handler);
+      return el;
+    }
+
+    // 頁面綁定版本：每個方法自動帶入 label（頁面名稱），減少重複打字，
+    // 同時讓 console.warn 訊息自動標示是哪一頁（例如 "[AIMC] Dashboard missing #dashStatGrid"）。
+    function forPage(label) {
+      return {
+        query: (root, selector) => safeQuery(root, selector, label),
+        html: (root, selector, html) => safeHTML(root, selector, html, label),
+        text: (root, selector, text) => safeText(root, selector, text, label),
+        append: (root, selector, node) => safeAppend(root, selector, node, label),
+        width: (root, selector, width) => safeWidth(root, selector, width, label),
+        show: (root, selector, display) => safeShow(root, selector, display, label),
+        hide: (root, selector) => safeHide(root, selector, label),
+        remove: (root, selector) => safeRemove(root, selector, label),
+        class: (root, selector, className, force) => safeClass(root, selector, className, force, label),
+        value: (root, selector, value) => safeValue(root, selector, value, label),
+        on: (root, selector, event, handler) => safeOn(root, selector, event, handler, label),
+      };
+    }
+
+    return {
+      safeQuery, safeHTML, safeText, safeAppend, safeWidth,
+      safeShow, safeHide, safeRemove, safeClass, safeValue, safeOn, forPage,
+    };
+  })();
+
+  // ============================================================
+  // Hotfix15 — Workspace Lifecycle & Stability Final
+  // 在 V3.1 的基礎上（AIMC.DOM / Page Token / startLifecycle）補齊：
+  //   Part 1 完整生命週期狀態機（Created→Loading→Active→Leaving→Destroyed）
+  //   Part 2 Page Token 新命名 API（getPageToken/isCurrentToken）
+  //   Part 3 AbortController 正式啟用（AIMC.api 預設帶入目前 signal）
+  //   Part 4 Safe DOM 補齊 replace/classAdd/classRemove
+  //   Part 7 Event Listener 集中管理（forPage 內建 registry，destroy() 一次清空）
+  //   Part 8 Memory Leak 追蹤（AIMC.Debug：listeners/pendingRequests/renderCount）
+  //   Part 9 Render Queue（同一個 label 連續呼叫，只有最後一次會真正 render）
+  // 全部只讀取/呼叫既有 API 端點，未新增、未修改任何伺服器邏輯。
+  // ============================================================
+
+  // ── Part 1：Workspace Page Lifecycle 狀態機 ───────────────────
+  // Created(頁面片段HTML剛插入) → Loading(load()執行中) → Active(load()完成，可互動)
+  // → Leaving(使用者切到別頁，開始清理) → Destroyed(destroy()執行完畢)
+  AIMC.PAGE_STATES = ['created', 'loading', 'active', 'leaving', 'destroyed'];
+  AIMC._pageState = 'destroyed';
+  AIMC._currentPageLabel = null;
+  AIMC.getPageState = function () { return AIMC._pageState; };
+  AIMC.setPageState = function (state, label) {
+    AIMC._pageState = state;
+    if (label) AIMC._currentPageLabel = label;
+    console.info(`[AIMC lifecycle] ${AIMC._currentPageLabel || '(none)'} → ${state}`);
+  };
+
+  // ── Part 2：Page Token（新命名 API，向下相容既有 AIMC.pageToken 數字）──
+  AIMC.pageToken = 0;
+  AIMC.getPageToken = function () { return AIMC.pageToken; };
+  AIMC.isCurrentToken = function (token) { return token === AIMC.pageToken; };
+
+  // ── Part 8：Memory Leak 追蹤用統計（供 AIMC.Debug 顯示；listeners 數改由
+  // registry 即時加總，這裡只保留真的需要累加/遞減的計數器）──
+  AIMC._stats = { timers: 0, pendingRequests: 0, renderCount: 0, abortCount: 0 };
+
+  // ── Part 6/7：目前頁面的銷毀函式（由 router.js 在切頁前呼叫）──
+  AIMC._currentDestroy = null;
+  AIMC.setCurrentPageDestroy = function (fn) { AIMC._currentDestroy = typeof fn === 'function' ? fn : null; };
+  AIMC.destroyCurrentPage = function () {
+    if (AIMC._currentDestroy) {
+      AIMC.setPageState('leaving');
+      try { AIMC._currentDestroy(); } catch (e) { console.warn('[AIMC] destroy() 執行時發生錯誤（已忽略，不影響切頁）：', e.message); }
+      AIMC.setPageState('destroyed');
+    }
+    AIMC._currentDestroy = null;
+  };
+
+  AIMC.isAbortError = function (e) {
+    return !!e && (e.name === 'AbortError' || e.code === 20 || /aborted/i.test(String(e.message || '')));
+  };
+
+  // ── Part 5：Router 每次切頁呼叫 —— token++、abort 上一頁所有請求、
+  // 清掉所有「不是最新 token」的殘留 listener（Part 7/8：Memory Leak 防護）──
+  AIMC.bumpPageToken = function () {
+    AIMC.pageToken += 1;
+    if (AIMC.currentAbortController) {
+      try { AIMC.currentAbortController.abort(); AIMC._stats.abortCount += 1; } catch (e) { /* 已中止過，忽略 */ }
+    }
+    AIMC.currentAbortController = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+
+    // 不管有多少個「來不及被個別頁面 destroy() 清理」的舊 token，這裡一次全部掃掉。
+    // 這是防止快速連續切頁造成 listener 無限累積的關鍵防線。
+    if (AIMC._listenerRegistry) {
+      Object.keys(AIMC._listenerRegistry).forEach((tokenKey) => {
+        if (Number(tokenKey) === AIMC.pageToken) return; // 這是新頁面自己的 token，還沒開始註冊，保留
+        const entries = AIMC._listenerRegistry[tokenKey];
+        entries.forEach(({ el, event, handler }) => {
+          try { el.removeEventListener(event, handler); } catch (e) { /* 元素可能已不存在，忽略 */ }
+        });
+        delete AIMC._listenerRegistry[tokenKey];
+      });
+    }
+    return AIMC.pageToken;
+  };
+
+  // ── Part 3：AbortController 正式啟用 ──
+  // 覆寫上面定義的 AIMC.api：預設自動帶入「目前頁面」的 AbortController signal，
+  // 呼叫端完全不用改任何一行程式碼就自動享有「切頁自動取消請求」的效果。
+  // 仍然可以在個別呼叫傳入 signal: null 明確跳過（目前沒有頁面這樣做）。
+  // 同時在這裡追蹤 pendingRequests 供 AIMC.Debug 顯示（Part 8）。
+  const _rawApi = AIMC.api;
+  AIMC.api = async function (path, opts = {}) {
+    const { method = 'GET', body, signal } = opts;
+    // 只自動中止「讀取用」的 GET 請求（純粹是為了畫面渲染，切頁後結果沒有意義）。
+    // POST/PUT/PATCH/DELETE 一律不自動中止 —— 這些代表使用者已經按下的動作
+    // （儲存知識、建立主題、送出生成、核准/退回…），中途切頁也不該被取消，
+    // 否則可能白白浪費一次 AI 生成成本、或讓使用者的儲存動作悄悄消失。
+    // 呼叫端仍可用 signal 明確覆蓋這個預設值（目前沒有任何頁面這樣做）。
+    const isMutating = String(method).toUpperCase() !== 'GET';
+    const effectiveSignal = signal !== undefined
+      ? signal
+      : (isMutating ? undefined : (AIMC.currentAbortController && AIMC.currentAbortController.signal));
+    AIMC._stats.pendingRequests += 1;
+    try {
+      return await _rawApi(path, { method, body, signal: effectiveSignal });
+    } finally {
+      AIMC._stats.pendingRequests -= 1;
+    }
+  };
+
+  // ── Part 4：Safe DOM 補齊 replace / classAdd / classRemove ────
+  (function extendDOM() {
+    function safeReplace(root, selector, newNode, label) {
+      const el = AIMC.DOM.safeQuery(root, selector, label);
+      if (el && el.parentNode && newNode) el.parentNode.replaceChild(newNode, el);
+      return el;
+    }
+    function safeClassAdd(root, selector, className, label) {
+      const el = AIMC.DOM.safeQuery(root, selector, label);
+      if (el) el.classList.add(className);
+      return el;
+    }
+    function safeClassRemove(root, selector, className, label) {
+      const el = AIMC.DOM.safeQuery(root, selector, label);
+      if (el) el.classList.remove(className);
+      return el;
+    }
+    AIMC.DOM.safeReplace = safeReplace;
+    AIMC.DOM.safeClassAdd = safeClassAdd;
+    AIMC.DOM.safeClassRemove = safeClassRemove;
+
+    // Part 7/8：forPage() 內建 Event Listener registry，改用「以 token 為 key」的
+    // 全域登記表（AIMC._listenerRegistry），而非只追蹤『最後一次』的 lifecycle。
+    // 原因：若使用者快速連續切頁、中間有好幾個 renderRoute() 呼叫來不及被
+    // destroy() 清理就被下一次呼叫覆蓋掉，只追蹤『目前這一個』會讓中間那些
+    // 呼叫註冊的 listener 變成孤兒、永遠沒人移除，造成真正的記憶體洩漏
+    // （1000 次快速切頁壓力測試證實了這一點）。
+    // 修法：bumpPageToken() 每次都會把「不是最新 token」的所有登記，
+    // 不論是否曾經被個別頁面呼叫過 destroy()，全部強制移除，
+    // 保證 listener 數量的上限只跟『目前這一頁』有關，不會隨切頁次數累積。
+    AIMC._listenerRegistry = {};
+
+    const _origForPage = AIMC.DOM.forPage;
+    AIMC.DOM.forPage = function (label) {
+      const base = _origForPage(label);
+      const token = AIMC.pageToken; // 建立當下的 token，之後這批 listener 都歸在這個 token 名下
+      const registry = AIMC._listenerRegistry[token] || (AIMC._listenerRegistry[token] = []);
+      base.replace = (root, selector, newNode) => safeReplace(root, selector, newNode, label);
+      base.classAdd = (root, selector, className) => safeClassAdd(root, selector, className, label);
+      base.classRemove = (root, selector, className) => safeClassRemove(root, selector, className, label);
+      base.on = (root, selector, event, handler) => {
+        const el = AIMC.DOM.safeQuery(root, selector, label);
+        if (el) {
+          el.addEventListener(event, handler);
+          registry.push({ el, event, handler });
+        }
+        return el;
+      };
+      base._registry = registry;
+      base.removeAllListeners = () => {
+        registry.forEach(({ el, event, handler }) => {
+          try { el.removeEventListener(event, handler); } catch (e) { /* 元素可能已不存在，忽略 */ }
+        });
+        registry.length = 0;
+      };
+      return base;
+    };
+  })();
+
+  // ── Part 9：Render Queue —— 同一個 label 連續呼叫（例如連點兩次「重新整理」），
+  // 只有「最後一次」呼叫在 await 之後還算數，較早的呼叫會在 checkpoint() 判定為過期並安全跳過。
+  const _callSeq = {};
+
+  // 供各頁 load()/refresh() 開頭呼叫，建立本次執行的生命週期物件：
+  //   const lc = AIMC.startLifecycle('Dashboard');
+  //   ...await 一些 API...
+  //   if (!lc.checkpoint('API 完成')) return;
+  //   lc.dom.html(root, '#xxx', html);
+  //   lc.done();
+  // 発生錯誤時：
+  //   catch (e) { lc.fail(e, root, '#xxx'); }   // 會自動判斷 stale / AbortError / 真的失敗三種情況
+  AIMC.startLifecycle = function (label) {
+    const token = AIMC.pageToken;
+    _callSeq[label] = (_callSeq[label] || 0) + 1;
+    const mySeq = _callSeq[label];
+    AIMC._stats.renderCount += 1;
+    console.group(`[AIMC] ${label} load token=${token}`);
+    return {
+      token,
+      label,
+      mySeq,
+      dom: AIMC.DOM.forPage(label),
+      isStale() {
+        return this.token !== AIMC.pageToken || this.mySeq !== _callSeq[label];
+      },
+      checkpoint(msg) {
+        if (this.isStale()) {
+          console.info(`[AIMC] ${label} render cancelled — token expired (was ${this.token}, now ${AIMC.pageToken})`);
+          console.groupEnd();
+          return false;
+        }
+        console.log(msg || 'token still valid');
+        return true;
+      },
+      // 統一的錯誤處理：stale → 靜默跳過；AbortError（切頁自動取消）→ 靜默跳過；
+      // 其餘才是真的失敗，才會顯示錯誤（寫進畫面或彈 toast）。
+      fail(e, root, selector, msgPrefix) {
+        if (this.isStale()) { console.groupEnd(); return; }
+        if (AIMC.isAbortError(e)) {
+          console.info(`[AIMC] ${label} request aborted（使用者已切頁，屬正常行為，非錯誤）`);
+          console.groupEnd();
+          return;
+        }
+        console.groupEnd();
+        if (root && selector) {
+          this.dom.html(root, selector, `<div class="empty">載入失敗：${AIMC.esc(e.message)}</div>`);
+        } else {
+          AIMC.toast((msgPrefix || '操作失敗：') + e.message, true);
+        }
+      },
+      done(msg) {
+        console.log(msg || 'render complete');
+        console.groupEnd();
+      },
+    };
+  };
+
+  // ── Part 8：Developer Debug ────────────────────────────────────
+  AIMC.Debug = {
+    getStats() {
+      // listeners 即時從 registry 加總（而非累加/遞減計數器），
+      // 保證這個數字永遠等於「當下實際還存在的 listener 數」，不會因為時序問題失準。
+      const listeners = AIMC._listenerRegistry
+        ? Object.values(AIMC._listenerRegistry).reduce((sum, arr) => sum + arr.length, 0)
+        : 0;
+      return {
+        currentPage: AIMC._currentPageLabel,
+        currentState: AIMC._pageState,
+        currentToken: AIMC.pageToken,
+        pendingRequests: AIMC._stats.pendingRequests,
+        listeners,
+        renderCount: AIMC._stats.renderCount,
+        abortCount: AIMC._stats.abortCount,
+        timers: AIMC._stats.timers,
+      };
+    },
   };
 })();
