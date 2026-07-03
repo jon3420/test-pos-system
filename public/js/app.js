@@ -1017,7 +1017,8 @@ function showPage(name) {
   if (name === 'categories') loadCategoriesPage();
   if (name === 'inventory')  loadInventoryPage();
   if (name === 'reports')    loadReportsPage();
-  if (name === 'ai_marketing') { if (typeof initAIMarketing === 'function') initAIMarketing(); }
+  // 舊版內嵌 AI 行銷中心（#page-ai_marketing）已於 V3 移除，
+  // 入口統一改為 openAIMarketingCenter() 開啟獨立 Workspace（/ai-marketing/）。
 }
 
 /**

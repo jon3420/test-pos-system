@@ -1,6 +1,9 @@
 // ============================================================
-// generate.js — AI 生成 Wizard（商品 → 主題 → 平台 → 內容目的 → 生成）
+// generate.js — AI Content Studio（AI 推薦生成 + 4 步驟 Wizard）
 // 呼叫方式與欄位 100% 沿用 Phase 1 POST /generate，不做任何邏輯變更。
+// 「AI 推薦生成」純粹是前端規則（從現有 topics/prompts/content-history
+// 推導出一組「有 Prompt 但還沒生成過」的組合），按下後呼叫同一支 API。
+// 支援路由參數 #/generate/<external_product_id>：自動選定該商品並跳到 Step 2。
 // ============================================================
 (function () {
   let step = 1;
@@ -10,7 +13,7 @@
   const GOALS = ['教育', '促銷', 'FAQ', '品牌故事', '顧客見證', 'SEO', '短影音', '圖文', 'Google商家', 'general'];
   const STEP_LABELS = ['商品', '主題', '平台', '內容目的'];
 
-  async function load(root) {
+  async function load(root, param) {
     resetPicked();
     step = 1;
     renderSteps(root);
@@ -18,12 +21,70 @@
     root.querySelector('#gGenerateBtn').addEventListener('click', () => doGenerate(root));
     root.querySelector('#gAgainBtn').addEventListener('click', () => resetWizard(root));
     root.querySelector('#gHistoryRefreshBtn').addEventListener('click', () => loadHistory(root));
+    root.querySelector('#gRecRefreshBtn').addEventListener('click', () => renderRecommend(root));
+
     await loadProducts(root);
     await loadHistory(root);
+    await renderRecommend(root);
+
+    if (param) {
+      const card = root.querySelector(`#gProductGrid [data-id="${CSS.escape(param)}"]`);
+      if (card) await selectProduct(root, card);
+    }
   }
 
   function resetPicked() {
     picked = { external_product_id: null, product_name: null, topic_id: null, topic_title: null, platform: null, content_goal: null };
+  }
+
+  // ── AI 推薦生成：找出「有 Prompt、但尚未生成過內容」的主題，優先推薦 ──
+  async function renderRecommend(root) {
+    const el = root.querySelector('#gRecommend');
+    el.innerHTML = AIMC.loadingHtml();
+    try {
+      const [{ data: topics }, { data: prompts }, { data: history }] = await Promise.all([
+        AIMC.api('/topics'), AIMC.api('/prompts'), AIMC.api('/content-history'),
+      ]);
+      AIMC.store.topics = topics; AIMC.store.prompts = prompts; AIMC.store.history = history;
+
+      const promptsByTopic = {};
+      prompts.forEach((p) => { if (p.topic_id) (promptsByTopic[p.topic_id] ||= []).push(p); });
+      const genTopicIds = new Set(history.map((h) => h.topic_id).filter(Boolean));
+
+      const candidates = topics
+        .filter((t) => t.status === 'active' && (promptsByTopic[t.id] || []).length)
+        .map((t) => ({ topic: t, prompts: promptsByTopic[t.id], hasGenerated: genTopicIds.has(t.id) }));
+
+      if (!candidates.length) {
+        el.innerHTML = AIMC.emptyState('🤖', '目前沒有「已建立 Prompt」的主題，請先到「Prompt」建立範本，AI 才能推薦生成組合。');
+        return;
+      }
+      // 優先推薦尚未生成過的，其次依優先度排序
+      candidates.sort((a, b) => (a.hasGenerated === b.hasGenerated ? b.topic.priority - a.topic.priority : (a.hasGenerated ? 1 : -1)));
+      const best = candidates[0];
+      const prompt = best.prompts.find((p) => p.is_default) || best.prompts[0];
+
+      el.innerHTML = `
+        <div class="recommend-card">
+          <div class="rc-head">⚡ ${AIMC.esc(best.topic.product_name)} → ${AIMC.esc(best.topic.title)} → ${AIMC.esc(AIMC.platformLabel(prompt.platform))} → ${AIMC.esc(prompt.content_goal)}</div>
+          <p class="muted" style="margin:6px 0 0">${best.hasGenerated ? '此主題已生成過內容，可以再生成一篇新素材。' : '此主題尚未生成過內容，建議優先產生第一篇。'}</p>
+          <div class="rc-ctas"><button class="btn ai sm" id="gRecGoBtn">⚡ 一鍵生成</button></div>
+        </div>`;
+      root.querySelector('#gRecGoBtn').addEventListener('click', () => quickGenerate(root, best.topic, prompt));
+    } catch (e) {
+      el.innerHTML = `<div class="empty">載入失敗：${AIMC.esc(e.message)}</div>`;
+    }
+  }
+
+  async function quickGenerate(root, topic, prompt) {
+    picked = {
+      external_product_id: topic.external_product_id, product_name: topic.product_name,
+      topic_id: topic.id, topic_title: topic.title,
+      platform: prompt.platform, content_goal: prompt.content_goal,
+    };
+    step = 4;
+    renderSteps(root);
+    await doGenerate(root);
   }
 
   function renderSteps(root) {
@@ -115,7 +176,7 @@
     if (!picked.platform) return AIMC.toast('請選擇平台', true);
     if (!picked.content_goal) return AIMC.toast('請選擇內容目的', true);
     const btn = root.querySelector('#gGenerateBtn');
-    btn.disabled = true; btn.textContent = '⏳ 生成中...';
+    btn.disabled = true; if (btn.textContent) btn.textContent = '⏳ 生成中...';
     try {
       const { data } = await AIMC.api('/generate', {
         method: 'POST',
@@ -124,11 +185,18 @@
       const card = root.querySelector('#gResultCard');
       card.style.display = 'block';
       root.querySelector('#gResult').innerHTML = `
+        <div class="grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:10px">
+          <div><div class="muted" style="margin-bottom:2px">平台</div><b>${AIMC.esc(AIMC.platformLabel(picked.platform))}</b></div>
+          <div><div class="muted" style="margin-bottom:2px">商品</div><b>${AIMC.esc(picked.product_name || '-')}</b></div>
+          <div><div class="muted" style="margin-bottom:2px">主題</div><b>${AIMC.esc(picked.topic_title || '-')}</b></div>
+          <div><div class="muted" style="margin-bottom:2px">狀態</div>${AIMC.badge(data.status, data.status)}</div>
+        </div>
         <div class="gen-result">${AIMC.esc(data.generated_text)}</div>
-        <p class="muted" style="margin-top:8px">模型：${AIMC.esc(data.model_provider)}/${AIMC.esc(data.model_name)}　狀態：${AIMC.badge(data.status, data.status)}　請至「審核」核准後才能排程發布（Phase 2 以後功能）</p>
+        <p class="muted" style="margin-top:8px">模型：${AIMC.esc(data.model_provider)}/${AIMC.esc(data.model_name)}　請至「審核」核准後才能排程發布（Phase 2 以後功能）</p>
       `;
       card.scrollIntoView({ behavior: 'smooth' });
       loadHistory(root);
+      renderRecommend(root);
     } catch (e) {
       AIMC.toast('生成失敗：' + e.message, true);
     } finally {

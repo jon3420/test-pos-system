@@ -1,4 +1,4 @@
-<div class="section-note">Master-Detail：左側為主題清單，右側顯示所選主題的詳細資料與操作。</div>
+<div class="section-note">Master-Detail：左側為主題清單，右側顯示所選主題的詳細資料與操作。建立主題前可先參考下方 AI Topic Suggestions 一鍵建立。</div>
 
 <div class="stat-grid" style="grid-template-columns:repeat(5,1fr)" id="tStatGrid"></div>
 
@@ -23,6 +23,14 @@
     <div class="field"><label>優先度 priority</label><input type="number" id="t_priority" value="0"></div>
   </div>
   <div class="row-actions"><button class="btn" id="t_createBtn">➕ 建立主題</button></div>
+
+  <div class="template-picker" style="margin-top:14px">
+    <div class="flex-between" style="margin-bottom:8px">
+      <strong style="font-size:13px">🤖 AI Topic Suggestions</strong>
+      <span class="muted" id="t_suggestProductLabel"></span>
+    </div>
+    <div class="suggestion-chips" id="t_suggestionChips"><span class="muted">請先選擇對應商品</span></div>
+  </div>
 </div>
 
 <div class="master-detail">

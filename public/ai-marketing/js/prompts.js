@@ -76,9 +76,49 @@
     } catch (e) { AIMC.toast('刪除失敗：' + e.message, true); }
   }
 
+  // ── V3：Prompt Template 範本庫 ──
+  // 涵蓋 FB / LINE / TikTok / Threads / Google 商家 × 常見內容目的，
+  // 「使用範本」只是把文字填入既有的 Prompt 表單，仍要按「建立」才會呼叫既有 POST /prompts。
+  const TEMPLATES = [
+    { platform: 'fb', goal: '教育', label: 'FB・教育', template: '請依{{store_name}}的品牌語氣，為{{topic.title}}撰寫一篇教育型 Facebook 貼文，清楚說明{{product.intro}}，並自然帶入{{product.features}}，結尾附上一句互動提問。' },
+    { platform: 'fb', goal: '促銷', label: 'FB・促銷', template: '請以促銷口吻，為{{topic.title}}撰寫一篇 Facebook 貼文，強調{{product.features}}的賣點，並附上限時優惠或行動呼籲（CTA）。' },
+    { platform: 'fb', goal: '品牌故事', label: 'FB・品牌故事', template: '請以說故事的方式，介紹{{store_name}}與{{topic.title}}的故事：{{product.story}}，語氣溫暖真誠，帶出品牌理念。' },
+    { platform: 'fb', goal: 'SEO', label: 'FB・SEO', template: '請撰寫一篇自然融入關鍵字「{{seo.keywords}}」的{{topic.title}}貼文，兼顧可讀性與 SEO，避免關鍵字堆砌。' },
+    { platform: 'line', goal: 'FAQ', label: 'LINE・FAQ', template: '請針對顧客常見問題，為{{topic.title}}撰寫一則 LINE 官方帳號常見問答（FAQ）貼文，條列式呈現，簡潔易懂。' },
+    { platform: 'line', goal: '促銷', label: 'LINE・促銷', template: '請為 LINE OA 撰寫一則{{topic.title}}促銷推播文案，字數精簡、語氣有吸引力，並附上明確的行動呼籲。' },
+    { platform: 'line', goal: '教育', label: 'LINE・教育', template: '請以親切口吻，為 LINE OA 用戶介紹{{topic.title}}的知識重點：{{product.intro}}，段落簡短適合手機閱讀。' },
+    { platform: 'tiktok', goal: '短影音', label: 'TikTok・短影音', template: '請為{{topic.title}}撰寫一支 15-30 秒 TikTok 短影音腳本，開頭 3 秒內要抓住注意力，包含分鏡提示與口白台詞。' },
+    { platform: 'threads', goal: '顧客見證', label: 'Threads・顧客見證', template: '請以顧客第一人稱口吻，分享對{{topic.title}}的真實使用心得，語氣自然、不誇大，像朋友聊天一樣。' },
+    { platform: 'threads', goal: '教育', label: 'Threads・教育', template: '請用輕鬆口語的方式，在 Threads 上分享一個關於{{topic.title}}的小知識：{{product.intro}}，適合搭配一句吸睛開頭。' },
+    { platform: 'google_business', goal: 'Google商家', label: 'Google商家・更新', template: '請為 Google 商家檔案撰寫一篇關於{{topic.title}}的簡短更新貼文，包含營業重點與一句吸引顧客上門的說法。' },
+    { platform: 'youtube_shorts', goal: '短影音', label: 'YouTube Shorts・短影音', template: '請為{{topic.title}}撰寫一支 60 秒內的 YouTube Shorts 腳本，含開場鉤子、主體內容與結尾 CTA。' },
+  ];
+
+  function findTemplate(platform, goal) {
+    return TEMPLATES.find((t) => t.platform === platform && t.goal === goal);
+  }
+
+  // 找不到完全對應的範本時，依平台特性給一個合理的通用範本
+  function genericTemplate(platform, goal) {
+    return `請依{{store_name}}的品牌語氣，針對${AIMC.platformLabel(platform)}平台，為{{topic.title}}撰寫一篇「${goal}」目的的貼文，自然融入：{{product.intro}}`;
+  }
+
+  function renderTemplatePicker(body) {
+    const options = TEMPLATES.map((t, i) => `<option value="${i}">${AIMC.esc(t.label)}</option>`).join('');
+    return `
+      <div class="template-picker">
+        <div class="tp-row">
+          <select id="pf_templatePicker">${options}</select>
+          <button class="btn ai sm" id="pf_useTemplateBtn" type="button">📋 使用範本</button>
+        </div>
+        <p class="muted" style="margin:6px 0 0">套用後仍可自行修改文字，範本只是加速起手，不會直接建立 Prompt。</p>
+      </div>`;
+  }
+
   function formHtml() {
     const s = AIMC.store;
     return `
+      ${renderTemplatePicker()}
       <div class="grid">
         <div class="field">
           <label>綁定主題（可留空 = 通用）</label>
@@ -117,6 +157,15 @@
 
   function openForm(root) {
     const body = AIMC.openDrawer('④ 建立 Prompt', formHtml());
+    body.querySelector('#pf_useTemplateBtn').addEventListener('click', () => {
+      const idx = Number(body.querySelector('#pf_templatePicker').value);
+      const tpl = TEMPLATES[idx];
+      if (!tpl) return;
+      body.querySelector('#pf_platform').value = tpl.platform;
+      body.querySelector('#pf_goal').value = tpl.goal;
+      body.querySelector('#pf_template').value = tpl.template;
+      AIMC.toast('已套用範本「' + tpl.label + '」，可依需要調整文字');
+    });
     body.querySelector('#pf_cancelBtn').addEventListener('click', () => AIMC.closeDrawer());
     body.querySelector('#pf_saveBtn').addEventListener('click', async () => {
       const template = body.querySelector('#pf_template').value.trim();

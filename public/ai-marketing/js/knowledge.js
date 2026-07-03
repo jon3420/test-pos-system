@@ -1,23 +1,30 @@
 // ============================================================
-// knowledge.js — 商品知識 Workspace
+// knowledge.js — 商品知識 V3「Product Health Center」
 // CRUD 邏輯 100% 沿用 Phase 1：POST/PUT/DELETE /knowledge，欄位不變。
-// 只是把原本「同一頁一張大表單」改成「列表 + 右側 Drawer 編輯」。
+// 表格改成健康度卡片，編輯一律走右側 Drawer，不再有首頁大表單。
+// 支援路由參數：
+//   #/knowledge/new-ai   → 自動開啟「AI 建立商品知識」草稿表單
+//   #/knowledge/<id>     → 自動開啟該商品的編輯 Drawer（來自 Dashboard CTA）
 // ============================================================
 (function () {
-  let selectedId = null;
-
   const FORM_FIELDS = ['intro', 'features', 'story', 'ingredient_intro', 'technique', 'storage_method',
     'nutrition', 'brand_philosophy', 'faq', 'myths', 'pairing', 'seo_description'];
 
-  async function load(root) {
+  async function load(root, param) {
     root.querySelector('#kNewBtn').addEventListener('click', () => openForm(null));
     root.querySelector('#kAiNewBtn').addEventListener('click', () => openForm(null, true));
     root.querySelector('#kRefreshBtn').addEventListener('click', () => refresh(root));
     await refresh(root);
+
+    if (param === 'new-ai') {
+      openForm(null, true);
+    } else if (param && AIMC.store.knowledge.some((k) => k.id === param)) {
+      openForm(param);
+    }
   }
 
   async function refresh(root) {
-    root.querySelector('#kListBody').innerHTML = '<tr><td colspan="9" class="empty">載入中...</td></tr>';
+    root.querySelector('#kHealthGrid').innerHTML = AIMC.loadingHtml();
     try {
       const { data } = await AIMC.api('/knowledge');
       AIMC.store.knowledge = data;
@@ -27,9 +34,9 @@
       AIMC.store.topics = topics; AIMC.store.prompts = prompts; AIMC.store.history = history;
       await AIMC.loadKnowledgeDetails();
       renderStats(root);
-      renderList(root);
+      renderHealthGrid(root);
     } catch (e) {
-      root.querySelector('#kListBody').innerHTML = `<tr><td colspan="9" class="empty">載入失敗：${AIMC.esc(e.message)}</td></tr>`;
+      root.querySelector('#kHealthGrid').innerHTML = `<div class="empty">載入失敗：${AIMC.esc(e.message)}</div>`;
     }
   }
 
@@ -49,58 +56,48 @@
     ].join('');
   }
 
-  function nextStepHint(topicsOfProduct, promptCount, genCount, pendingCount) {
-    if (!topicsOfProduct.length) return '建議建立主題';
-    if (!promptCount) return '建議建立 Prompt';
-    if (!genCount) return '建議產生內容';
-    if (pendingCount) return '有內容待審核';
-    return '可持續優化或建立新主題';
-  }
-
-  function renderList(root) {
-    const s = AIMC.store;
-    const tbody = root.querySelector('#kListBody');
-    if (!s.knowledge.length) {
-      tbody.innerHTML = `<tr><td colspan="9">${AIMC.emptyState('📦', '尚無資料，請按「新增商品知識」或「🤖 AI 建立商品知識」')}</td></tr>`;
+  function renderHealthGrid(root) {
+    const el = root.querySelector('#kHealthGrid');
+    const insights = AIMC.computeProductInsights();
+    if (!insights.length) {
+      el.innerHTML = AIMC.emptyState('📦', '尚無資料，請按「新增商品知識」或「🤖 AI 建立商品知識」');
       return;
     }
-    const { topicsByProduct, promptsByTopic, historyByTopic } = AIMC.buildDerivedMaps();
-    tbody.innerHTML = s.knowledge.map((row) => {
-      const pct = AIMC.calcCompleteness(s.knowledgeDetail[row.id]);
-      const topicsOfProduct = topicsByProduct[row.external_product_id] || [];
-      const topicIds = topicsOfProduct.map((t) => t.id);
-      const promptCount = topicIds.reduce((sum, tid) => sum + (promptsByTopic[tid] || []).length, 0);
-      const genList = topicIds.flatMap((tid) => historyByTopic[tid] || []);
-      const pendingCount = genList.filter((h) => h.status === 'generated').length;
-      const hint = nextStepHint(topicsOfProduct, promptCount, genList.length, pendingCount);
-      const isSelected = row.id === selectedId;
+    el.innerHTML = insights.map((ins) => {
+      const row = ins.row;
       return `
-      <tr class="row-clickable ${isSelected ? 'selected' : ''}" data-id="${row.id}">
-        <td>${AIMC.esc(row.external_product_id)}</td>
-        <td>${AIMC.esc(row.product_name)}</td>
-        <td>${AIMC.miniBar(pct)}</td>
-        <td>${topicsOfProduct.length}</td>
-        <td>${promptCount}</td>
-        <td>${genList.length}</td>
-        <td>${pendingCount ? AIMC.badge(pendingCount, 'generated') : '0'}</td>
-        <td><span class="next-step-hint">${AIMC.esc(hint)}</span></td>
-        <td>
-          <button class="link-btn" data-edit="${row.id}">編輯</button> ·
-          <button class="link-btn" style="color:var(--danger)" data-del="${row.id}">刪除</button>
-        </td>
-      </tr>`;
+      <div class="health-card" data-open="${row.id}">
+        <div class="hc-head">
+          <div><div class="hc-name">${AIMC.esc(row.product_name)}</div><div class="hc-code">${AIMC.esc(row.external_product_id)}</div></div>
+          <span class="badge outline">${ins.pct}%</span>
+        </div>
+        ${ins.missing.length ? `<div class="hc-missing">缺少：${ins.missing.map((m) => AIMC.badge(m, 'sensitive')).join('')}</div>` : `<div class="hc-missing">${AIMC.badge('欄位齊全', 'active')}</div>`}
+        <div class="hc-stats">
+          <div><div class="hc-stat-num">${ins.topics.length}</div><div class="hc-stat-label">Topic</div></div>
+          <div><div class="hc-stat-num">${ins.promptCount}</div><div class="hc-stat-label">Prompt</div></div>
+          <div><div class="hc-stat-num">${ins.genCount}</div><div class="hc-stat-label">Generated</div></div>
+          <div><div class="hc-stat-num">${ins.pendingCount}</div><div class="hc-stat-label">Review</div></div>
+        </div>
+        <div class="hc-hint">💡 AI 建議：${AIMC.esc(AIMC.nextStepHint(ins))}</div>
+        <div class="hc-ctas">
+          <button class="btn secondary sm" data-edit="${row.id}">📚 補知識</button>
+          ${!ins.topics.length ? `<button class="btn ghost sm" data-topic="${AIMC.esc(row.external_product_id)}">📝 建主題</button>` : ''}
+          ${ins.promptCount ? `<button class="btn ghost sm" data-gen="${AIMC.esc(row.external_product_id)}">✨ 生成內容</button>` : ''}
+          <button class="btn danger sm" data-del="${row.id}">刪除</button>
+        </div>
+      </div>`;
     }).join('');
 
-    tbody.querySelectorAll('tr[data-id]').forEach((tr) => {
-      tr.addEventListener('click', (e) => {
+    el.querySelectorAll('[data-open]').forEach((card) => {
+      card.addEventListener('click', (e) => {
         if (e.target.closest('button')) return;
-        selectedId = tr.dataset.id;
-        renderList(root);
-        renderPreview(root, selectedId);
+        openForm(card.dataset.open);
       });
     });
-    tbody.querySelectorAll('[data-edit]').forEach((b) => b.addEventListener('click', () => openForm(b.dataset.edit)));
-    tbody.querySelectorAll('[data-del]').forEach((b) => b.addEventListener('click', () => removeKnowledge(root, b.dataset.del)));
+    el.querySelectorAll('[data-edit]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); openForm(b.dataset.edit); }));
+    el.querySelectorAll('[data-topic]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); location.hash = '#/topics/' + encodeURIComponent(b.dataset.topic); }));
+    el.querySelectorAll('[data-gen]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); location.hash = '#/generate/' + encodeURIComponent(b.dataset.gen); }));
+    el.querySelectorAll('[data-del]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); removeKnowledge(document.getElementById('workspace'), b.dataset.del); }));
   }
 
   function fieldLabel(key) {
@@ -112,46 +109,17 @@
     return map[key] || key;
   }
 
-  async function renderPreview(root, id) {
-    const el = root.querySelector('#kPreview');
-    el.innerHTML = AIMC.loadingHtml();
-    try {
-      const { data } = await AIMC.api('/knowledge/' + id);
-      const blocks = FORM_FIELDS.filter((f) => data[f] && String(data[f]).trim())
-        .map((f) => `<div style="margin-bottom:12px"><div class="muted" style="margin-bottom:4px">${fieldLabel(f)}</div><div>${AIMC.esc(data[f]).replace(/\n/g, '<br>')}</div></div>`)
-        .join('');
-      const tagsHtml = `
-        <div class="row-actions" style="margin-top:0">
-          ${(data.keywords || []).map((k) => AIMC.badge(k, 'outline')).join(' ')}
-          ${(data.hashtags || []).map((k) => AIMC.badge(k, 'outline')).join(' ')}
-        </div>`;
-      el.innerHTML = `
-        <div class="flex-between">
-          <h3 style="margin:0">${AIMC.esc(data.product_name)}（${AIMC.esc(data.external_product_id)}）</h3>
-          <button class="btn sm" data-edit="${data.id}">✏️ 編輯</button>
-        </div>
-        <p class="muted">v${data.version} ・ ${data.ai_usage_allowed ? '✅ AI 可用' : '🚫 AI 停用'}</p>
-        ${blocks || AIMC.emptyState('📝', '此商品尚未填寫任何內容欄位')}
-        ${tagsHtml}
-      `;
-      el.querySelector('[data-edit]').addEventListener('click', () => openForm(data.id));
-    } catch (e) {
-      el.innerHTML = `<div class="empty">載入失敗：${AIMC.esc(e.message)}</div>`;
-    }
-  }
-
   async function removeKnowledge(root, id) {
     if (!confirm('確定刪除此商品知識？（關聯的主題不會一併刪除）')) return;
     try {
       await AIMC.api('/knowledge/' + id, { method: 'DELETE' });
       AIMC.toast('已刪除');
-      if (selectedId === id) { selectedId = null; root.querySelector('#kPreview').innerHTML = '<div class="empty">點擊上方任一商品，即可在此預覽完整知識內容</div>'; }
       refresh(root);
     } catch (e) { AIMC.toast('刪除失敗：' + e.message, true); }
   }
 
   function formHtml(data, aiDraftMode) {
-    const v = (k) => AIMC.esc(data && data[k] || '');
+    const v = (k) => AIMC.esc((data && data[k]) || '');
     return `
       <div class="grid">
         <div class="field"><label>商品編號 external_product_id *</label><input type="text" id="f_external_product_id" value="${v('external_product_id')}" ${data ? 'disabled' : ''} placeholder="例如 P0001"></div>
@@ -168,8 +136,8 @@
         ${FORM_FIELDS.map((f) => `<div class="field"><label>${fieldLabel(f)}</label><textarea id="f_${f}">${v(f)}</textarea></div>`).join('')}
       </div>
       <div class="grid">
-        <div class="field"><label>關鍵字 / SEO Keyword（逗號分隔）</label><input type="text" id="f_keywords" value="${AIMC.esc((data && data.keywords || []).join(', '))}"></div>
-        <div class="field"><label>Hashtag（逗號分隔）</label><input type="text" id="f_hashtags" value="${AIMC.esc((data && data.hashtags || []).join(', '))}"></div>
+        <div class="field"><label>關鍵字 / SEO Keyword（逗號分隔）</label><input type="text" id="f_keywords" value="${AIMC.esc(((data && data.keywords) || []).join(', '))}"></div>
+        <div class="field"><label>Hashtag（逗號分隔）</label><input type="text" id="f_hashtags" value="${AIMC.esc(((data && data.hashtags) || []).join(', '))}"></div>
       </div>
       <p class="muted" id="f_aiHint" style="display:${aiDraftMode ? 'block' : 'none'}">✏️ 以下為 AI 產生的草稿內容，請確認 / 修改後再按「儲存」，AI 不會自動發布任何內容。</p>
       <div class="row-actions">
@@ -226,7 +194,7 @@
     if (id) {
       try { data = (await AIMC.api('/knowledge/' + id)).data; } catch (e) { AIMC.toast('讀取失敗：' + e.message, true); return; }
     }
-    const body = AIMC.openDrawer(id ? `編輯商品知識（${AIMC.esc(data.product_name)}）` : 'Step ① → ② 新增商品知識', formHtml(data, aiDraftMode));
+    const body = AIMC.openDrawer(id ? `補知識（${AIMC.esc(data.product_name)}）` : '🤖 AI 建立商品知識', formHtml(data, aiDraftMode));
     body.querySelector('#f_aiDraftBtn').addEventListener('click', fillAiDraft);
     body.querySelector('#f_cancelBtn').addEventListener('click', () => AIMC.closeDrawer());
     body.querySelector('#f_saveBtn').addEventListener('click', async () => {
@@ -245,7 +213,7 @@
         refresh(root);
       } catch (e) {
         if (String(e.message).includes('ALREADY_EXISTS') || String(e.message).includes('已有知識')) {
-          AIMC.toast('此商品已有知識，請從列表點「編輯」', true);
+          AIMC.toast('此商品已有知識，請從列表點「補知識」', true);
         } else {
           AIMC.toast('儲存失敗：' + e.message, true);
         }

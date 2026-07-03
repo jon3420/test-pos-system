@@ -23,6 +23,32 @@
     { icon: '📈', title: '成效好時建議加碼廣告，差時建議換素材', sub: '依成效數據自動給出優化建議' },
   ];
 
+  const ROADMAP_NODES = [
+    { icon: '🧑‍💼', title: '目前：人工確認', now: true },
+    { icon: '🔗', title: 'n8n 串接' },
+    { icon: '🌙', title: '每日報告' },
+    { icon: '⭐', title: 'Google 評論' },
+    { icon: '🔥', title: '熱門商品' },
+    { icon: '📅', title: '排程發布' },
+    { icon: '📈', title: '成效分析' },
+    { icon: '💡', title: 'AI 建議' },
+  ];
+
+  function renderRoadmap(root) {
+    const el = root.querySelector('#csRoadmap');
+    if (!el) return;
+    el.innerHTML = ROADMAP_NODES.map((n, i) => {
+      const node = `
+        <div class="roadmap-node ${n.now ? 'now' : ''}">
+          <div class="rn-icon">${n.icon}</div>
+          <div class="rn-title">${AIMC.esc(n.title)}</div>
+          <div class="rn-badge">${n.now ? AIMC.badge('現況', 'active') : AIMC.badge('Coming Soon', 'soon')}</div>
+        </div>`;
+      const arrow = i < ROADMAP_NODES.length - 1 ? '<div class="roadmap-arrow">➜</div>' : '';
+      return node + arrow;
+    }).join('');
+  }
+
   async function load(root, param) {
     const auto = root.querySelector('#csAutomationSection');
     const grid = root.querySelector('#csGrid');
@@ -32,6 +58,7 @@
       auto.style.display = 'block';
       grid.style.display = 'none';
       note.textContent = 'Automation Center：以下情境目前皆為人工在 AI 行銷中心手動操作，未來串接 n8n 後可自動觸發。';
+      renderRoadmap(root);
       root.querySelector('#csAutomationList').innerHTML = AUTOMATION_ITEMS.map((a, i) => `
         <div class="automation-item">
           <span class="a-num">${i + 1}</span>

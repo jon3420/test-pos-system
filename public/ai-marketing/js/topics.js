@@ -1,14 +1,52 @@
 // ============================================================
-// topics.js — 主題 Workspace（Master-Detail）
+// topics.js — 主題 Workspace V3（Master-Detail + AI Topic Suggestions）
 // CRUD 呼叫方式與欄位 100% 沿用 Phase 1 /topics 端點，不做任何邏輯變更。
+// AI Topic Suggestions 為前端規則式建議（依商品名稱關鍵字比對），
+// 「一鍵建立」仍是呼叫既有的 POST /topics，不新增任何 API。
+// 支援路由參數 #/topics/<external_product_id>：自動預選對應商品並顯示建議。
 // ============================================================
 (function () {
   let selectedId = null;
 
-  async function load(root) {
+  // 規則式主題建議字典：依商品名稱關鍵字比對；找不到比對時使用通用建議。
+  const SUGGESTION_MAP = [
+    { match: '豬腰', items: [
+      { kw: '補鐵', cat: '營養' }, { kw: '先燙後冰', cat: '工法' }, { kw: '膽固醇迷思', cat: '迷思' },
+      { kw: '保存方式', cat: '知識' }, { kw: '厚切工法', cat: '工法' }, { kw: '去腥秘訣', cat: '工法' },
+    ] },
+    { match: '鴨賞', items: [
+      { kw: '煙燻工法', cat: '工法' }, { kw: '宜蘭文化', cat: '文化' }, { kw: '冷盤吃法', cat: '促銷' }, { kw: '下酒菜推薦', cat: '促銷' },
+    ] },
+    { match: '鳳爪', items: [
+      { kw: 'Q彈口感', cat: '知識' }, { kw: '膠質營養', cat: '營養' }, { kw: '下酒首選', cat: '促銷' },
+    ] },
+  ];
+  const GENERIC_SUGGESTIONS = [
+    { kw: '品牌故事', cat: '品牌' }, { kw: '營養知識', cat: '營養' }, { kw: '常見 FAQ', cat: 'FAQ' },
+    { kw: '推薦搭配', cat: '促銷' }, { kw: '季節限定', cat: '節日' },
+  ];
+
+  function suggestionsForProduct(productName) {
+    const hit = SUGGESTION_MAP.find((g) => productName && productName.includes(g.match));
+    return hit ? hit.items : GENERIC_SUGGESTIONS;
+  }
+
+  async function load(root, param) {
     root.querySelector('#t_createBtn').addEventListener('click', () => createTopic(root));
     root.querySelector('#t_refreshBtn').addEventListener('click', () => refresh(root));
+    root.querySelector('#t_product_select').addEventListener('change', (e) => renderSuggestions(root, e.target.value));
     await loadProductOptions(root);
+
+    if (param) {
+      const sel = root.querySelector('#t_product_select');
+      if ([...sel.options].some((o) => o.value === param)) {
+        sel.value = param;
+        renderSuggestions(root, param);
+      }
+    } else {
+      renderSuggestions(root, root.querySelector('#t_product_select').value);
+    }
+
     await refresh(root);
   }
 
@@ -18,9 +56,45 @@
       const { data } = await AIMC.api('/knowledge');
       AIMC.store.knowledge = data;
       sel.innerHTML = data.length
-        ? data.map((k) => `<option value="${AIMC.esc(k.external_product_id)}">${AIMC.esc(k.product_name)}（${AIMC.esc(k.external_product_id)}）</option>`).join('')
+        ? data.map((k) => `<option value="${AIMC.esc(k.external_product_id)}" data-name="${AIMC.esc(k.product_name)}">${AIMC.esc(k.product_name)}（${AIMC.esc(k.external_product_id)}）</option>`).join('')
         : '<option value="">請先建立商品知識</option>';
     } catch (e) { sel.innerHTML = '<option value="">載入失敗</option>'; }
+  }
+
+  function renderSuggestions(root, externalProductId) {
+    const sel = root.querySelector('#t_product_select');
+    const label = root.querySelector('#t_suggestProductLabel');
+    const chipsEl = root.querySelector('#t_suggestionChips');
+    const opt = [...sel.options].find((o) => o.value === externalProductId);
+    if (!opt || !externalProductId) {
+      label.textContent = '';
+      chipsEl.innerHTML = '<span class="muted">請先選擇對應商品</span>';
+      return;
+    }
+    const productName = opt.dataset.name || opt.textContent;
+    label.textContent = `依「${productName}」推導`;
+    const existingTitles = new Set(AIMC.store.topics.filter((t) => t.external_product_id === externalProductId).map((t) => t.title));
+    const items = suggestionsForProduct(productName);
+    chipsEl.innerHTML = items.map((it) => {
+      const title = productName + it.kw;
+      const already = existingTitles.has(title);
+      return `<span class="suggestion-chip">🏷️ ${AIMC.esc(it.kw)}（${AIMC.esc(it.cat)}）
+        <button class="btn ${already ? 'secondary' : 'ai'} sm" data-kw="${AIMC.esc(it.kw)}" data-cat="${AIMC.esc(it.cat)}" ${already ? 'disabled' : ''}>${already ? '已建立' : '一鍵建立'}</button>
+      </span>`;
+    }).join('');
+    chipsEl.querySelectorAll('[data-kw]').forEach((btn) => {
+      btn.addEventListener('click', () => quickCreateTopic(root, externalProductId, productName, btn.dataset.kw, btn.dataset.cat));
+    });
+  }
+
+  async function quickCreateTopic(root, externalProductId, productName, kw, cat) {
+    const title = productName + kw;
+    try {
+      await AIMC.api('/topics', { method: 'POST', body: { external_product_id: externalProductId, title, category: cat, priority: 0 } });
+      AIMC.toast(`已一鍵建立主題「${title}」`);
+      await refresh(root);
+      renderSuggestions(root, externalProductId);
+    } catch (e) { AIMC.toast('建立失敗：' + e.message, true); }
   }
 
   async function createTopic(root) {
@@ -33,7 +107,8 @@
       await AIMC.api('/topics', { method: 'POST', body: { external_product_id, title, category, priority } });
       AIMC.toast('已建立主題');
       root.querySelector('#t_title').value = '';
-      refresh(root);
+      await refresh(root);
+      renderSuggestions(root, external_product_id);
     } catch (e) { AIMC.toast('建立失敗：' + e.message, true); }
   }
 
@@ -75,7 +150,7 @@
   function renderList(root) {
     const s = AIMC.store;
     const el = root.querySelector('#t_listContainer');
-    if (!s.topics.length) { el.innerHTML = AIMC.emptyState('📝', '尚無主題'); return; }
+    if (!s.topics.length) { el.innerHTML = AIMC.emptyState('📝', '尚無主題，可用上方 AI Topic Suggestions 一鍵建立'); return; }
     el.innerHTML = s.topics.map((t) => `
       <div class="master-list-item ${t.id === selectedId ? 'active' : ''}" data-id="${t.id}">
         <div class="mli-title">${AIMC.esc(t.title)}</div>
@@ -124,7 +199,7 @@
 
       <div class="row-actions">
         <button class="btn secondary sm" id="t_toggleBtn">${t.status === 'active' ? '⏸ 暫停' : '▶ 啟用'}</button>
-        <button class="btn ghost sm" onclick="location.hash='#/generate'">✨ 去生成內容</button>
+        <button class="btn ghost sm" onclick="location.hash='#/generate/${encodeURIComponent(t.external_product_id)}'">✨ 去生成內容</button>
         <button class="btn danger sm" id="t_deleteBtn">刪除主題</button>
       </div>
     `;

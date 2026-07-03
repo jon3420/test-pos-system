@@ -1,3 +1,5 @@
+<div class="section-note">AI Command Center：AI 每天自動盤點所有商品／主題／內容狀態，整理成任務與建議，你只需要照著做。</div>
+
 <div class="stat-grid" id="dashStatGrid"></div>
 
 <div class="card" style="margin-top:16px">
@@ -6,15 +8,24 @@
   <p class="muted" id="dashCompletenessText">計算中...</p>
 </div>
 
-<div class="dash-cols">
-  <div class="card">
-    <div class="flex-between"><h3><span class="icon">✅</span>今日 AI 任務</h3><button class="link-btn" id="dashRefreshBtn">🔄 重新整理</button></div>
-    <div id="dashTaskList"></div>
-  </div>
-  <div class="card">
-    <h3><span class="icon">💡</span>今日 AI 建議</h3>
-    <div id="dashSuggestionList"></div>
-  </div>
+<div class="card">
+  <div class="flex-between"><h3><span class="icon">✅</span>① 今日 AI 任務</h3><button class="link-btn" id="dashRefreshBtn">🔄 重新整理</button></div>
+  <div class="task-card-list" id="dashTaskList"></div>
+</div>
+
+<div class="card">
+  <h3><span class="icon">💡</span>② 今日 AI 建議</h3>
+  <div id="dashRecommend"></div>
+</div>
+
+<div class="card">
+  <h3><span class="icon">🚀</span>③ 快速開始</h3>
+  <div class="quickstart-grid" id="dashQuickStart"></div>
+</div>
+
+<div class="card">
+  <div class="flex-between"><h3><span class="icon">🩺</span>④ 商品健康度</h3><button class="link-btn" onclick="location.hash='#/knowledge'">查看全部 →</button></div>
+  <div class="health-grid" id="dashHealthGrid"></div>
 </div>
 
 <div class="dash-cols">
@@ -27,11 +38,6 @@
     <h3><span class="icon">🕒</span>最近活動</h3>
     <div id="dashRecentActivity"></div>
   </div>
-</div>
-
-<div class="card">
-  <div class="flex-between"><h3><span class="icon">🚀</span>快速開始</h3></div>
-  <div class="grid cols-3" id="dashQuickStart"></div>
 </div>
 
 <div class="card">

@@ -7,7 +7,6 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/main.css?v=fix18-09F-h2">
-  <link rel="stylesheet" href="/css/ai-marketing.css?v=phase3">
 </head>
 <body>
 
@@ -45,7 +44,7 @@
     <button class="nav-btn" data-page="coupons" id="nav-btn-coupons" onclick="showPage('coupons')" style="display:none">
       <span class="nav-icon">🎟️</span><span>優惠券</span>
     </button>
-    <button class="nav-btn" id="nav-btn-ai-marketing" data-page="ai_marketing" onclick="showPage('ai_marketing')" style="display:none">
+    <button class="nav-btn" id="nav-btn-ai-marketing" onclick="openAIMarketingCenter()" style="display:none">
       <span class="nav-icon">🤖</span><span>AI 行銷中心</span>
     </button>
     <button class="nav-btn" data-page="settings" onclick="showPage('settings')">
@@ -2237,232 +2236,10 @@
   </div>
 </div>
 
-<!-- ======= AI 行銷中心（Phase 3：內嵌 POS Layout，不再是獨立分頁）======= -->
-<div id="page-ai_marketing" class="page">
-  <div class="aimc-tabs">
-    <button class="aimc-tab-btn active" data-tab="knowledge">📚 商品知識</button>
-    <button class="aimc-tab-btn" data-tab="topic">🏷️ 主題</button>
-    <button class="aimc-tab-btn" data-tab="prompt">✍️ Prompt</button>
-    <button class="aimc-tab-btn" data-tab="generate">⚡ 內容生成</button>
-    <button class="aimc-tab-btn" data-tab="review">✅ 審核</button>
-    <button class="aimc-tab-btn disabled" title="Coming Soon">🖼️ AI 圖片（即將推出）</button>
-    <button class="aimc-tab-btn disabled" title="Coming Soon">📅 排程發布（即將推出）</button>
-    <button class="aimc-tab-btn disabled" title="Coming Soon">📣 社群發布（即將推出）</button>
-    <button class="aimc-tab-btn disabled" title="Coming Soon">📈 成效分析（即將推出）</button>
-  </div>
-
-  <!-- ============ 商品知識 ============ -->
-  <div class="aimc-panel active" id="aimc-panel-knowledge">
-    <div class="card">
-      <h3>選擇 POS 商品</h3>
-      <p class="muted">直接從 POS 商品資料選擇，不需要再手動輸入商品編號、商品名稱、分類。選擇後會自動同步售價/圖片/上下架狀態，並自動建立（或更新）AI 知識骨架。</p>
-      <div class="field">
-        <label>POS 商品</label>
-        <select id="k_pos_product_select" onchange="aimcOnPosProductSelected()"><option value="">載入中...</option></select>
-      </div>
-      <div id="k_pos_product_preview" class="muted" style="margin-top:8px"></div>
-    </div>
-
-    <div class="card" id="k_content_form" style="display:none">
-      <h3 id="k_form_title">商品知識內容</h3>
-      <p class="muted">以下欄位由店家補充，POS 商品同步「不會」覆蓋這裡的內容。</p>
-      <div class="grid">
-        <div class="field"><label>商品介紹</label><textarea id="k_intro"></textarea></div>
-        <div class="field"><label>商品特色</label><textarea id="k_features"></textarea></div>
-        <div class="field"><label>商品故事</label><textarea id="k_story"></textarea></div>
-        <div class="field"><label>工法介紹</label><textarea id="k_technique"></textarea></div>
-        <div class="field"><label>保存方式</label><textarea id="k_storage_method"></textarea></div>
-        <div class="field"><label>營養知識</label><textarea id="k_nutrition"></textarea></div>
-        <div class="field"><label>品牌理念</label><textarea id="k_brand_philosophy"></textarea></div>
-        <div class="field"><label>商品賣點 USP（用「、」分隔，例如：先燙後冰、香又脆、厚切腰花、去腥）</label><textarea id="k_usp" placeholder="先燙後冰、香又脆、厚切腰花、去腥"></textarea></div>
-      </div>
-      <div class="grid">
-        <div class="field"><label>關鍵字（逗號分隔）</label><input type="text" id="k_keywords" placeholder="鐵質, 蛋白質, 補鐵"></div>
-        <div class="field"><label>Hashtag（逗號分隔）</label><input type="text" id="k_hashtags" placeholder="#脆豬腰, #宜蘭美食"></div>
-        <div class="field">
-          <label>是否允許 AI 使用</label>
-          <select id="k_ai_usage_allowed"><option value="true">允許</option><option value="false">不允許</option></select>
-        </div>
-      </div>
-      <div class="row-actions"><button class="btn" onclick="aimcSaveKnowledgeContent()">💾 儲存內容</button></div>
-    </div>
-
-    <div class="card">
-      <div class="flex-between"><h3>已建立的商品知識</h3><button class="link-btn" onclick="aimcLoadKnowledgeList()">🔄 重新整理</button></div>
-      <table>
-        <thead><tr><th>商品編號</th><th>商品名稱</th><th>分類</th><th>售價</th><th>上下架</th><th>版本</th><th></th></tr></thead>
-        <tbody id="aimc-knowledgeListBody"><tr><td colspan="7" class="empty">載入中...</td></tr></tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- ============ 主題 ============ -->
-  <div class="aimc-panel" id="aimc-panel-topic">
-    <div class="card">
-      <h3>建立主題</h3>
-      <div class="grid">
-        <div class="field">
-          <label>對應商品 *</label>
-          <select id="t_product_select"><option value="">請先建立商品知識</option></select>
-        </div>
-        <div class="field">
-          <label>分類 *</label>
-          <select id="t_category">
-            <option>營養</option><option>知識</option><option>文化</option><option>品牌</option>
-            <option>FAQ</option><option>迷思</option><option>工法</option><option>促銷</option>
-            <option>節日</option><option>SEO</option><option>教育</option><option>娛樂</option><option>短影音</option>
-          </select>
-        </div>
-        <div class="field"><label>主題標題 *</label><input type="text" id="t_title" placeholder="例如：豬腰補鐵知識"></div>
-        <div class="field"><label>優先度 priority</label><input type="number" id="t_priority" value="0"></div>
-      </div>
-      <div class="row-actions"><button class="btn" onclick="aimcCreateTopic()">➕ 建立主題</button></div>
-    </div>
-
-    <div class="card">
-      <div class="flex-between"><h3>主題列表</h3><button class="link-btn" onclick="aimcLoadTopicList()">🔄 重新整理</button></div>
-      <table>
-        <thead><tr><th>商品</th><th>標題</th><th>分類</th><th>優先度</th><th>狀態</th><th></th></tr></thead>
-        <tbody id="aimc-topicListBody"><tr><td colspan="6" class="empty">載入中...</td></tr></tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- ============ Prompt ============ -->
-  <div class="aimc-panel" id="aimc-panel-prompt">
-    <div class="card">
-      <h3>建立 Prompt</h3>
-      <div class="grid">
-        <div class="field">
-          <label>綁定主題（可留空 = 全店該平台/目的的通用 Prompt）</label>
-          <select id="p_topic_select"><option value="">（不綁定，通用 Prompt）</option></select>
-        </div>
-        <div class="field">
-          <label>平台 platform *</label>
-          <select id="p_platform">
-            <option value="fb">Facebook</option><option value="ig">Instagram</option>
-            <option value="threads">Threads</option><option value="tiktok">TikTok</option>
-            <option value="line">LINE OA</option><option value="google_business">Google 商家</option>
-            <option value="youtube_shorts">YouTube Shorts</option>
-          </select>
-        </div>
-        <div class="field">
-          <label>內容目的 content_goal *</label>
-          <select id="p_content_goal">
-            <option value="教育">教育</option><option value="促銷">促銷</option><option value="FAQ">FAQ</option>
-            <option value="品牌故事">品牌故事</option><option value="顧客見證">顧客見證</option>
-            <option value="SEO">SEO</option><option value="短影音">短影音</option>
-            <option value="圖文">圖文</option><option value="Google商家">Google商家</option>
-            <option value="general">一般（general）</option>
-          </select>
-        </div>
-        <div class="field">
-          <label>內容格式 content_format</label>
-          <select id="p_content_format">
-            <option value="text">純文字</option><option value="image">圖文（僅生成文字）</option>
-            <option value="video">影片腳本（僅生成文字）</option><option value="carousel">輪播</option>
-          </select>
-        </div>
-        <div class="field">
-          <label>設為此 platform+目的 的預設 Prompt</label>
-          <select id="p_is_default"><option value="false">否</option><option value="true">是</option></select>
-        </div>
-      </div>
-      <div class="field">
-        <label>Prompt 模板 *（可用 {{brand.name}} {{brand.slogan}} {{brand.tone}} {{brand.cta}} {{product.name}} {{product.intro}} {{product.price}} {{product.image}} {{product.usp}} {{topic.title}} 等變數，CTA 會自動附加在最後不用手寫）</label>
-        <textarea id="p_template" style="min-height:120px" placeholder="請用{{brand.name}}的品牌語氣，為{{product.name}}寫一篇{{topic.title}}的貼文，需自然融入：{{product.intro}}，並引用至少兩項賣點：{{product.usp}}"></textarea>
-      </div>
-      <div class="row-actions"><button class="btn" onclick="aimcCreatePrompt()">➕ 建立 Prompt</button></div>
-    </div>
-
-    <div class="card">
-      <div class="flex-between"><h3>Prompt 列表</h3><button class="link-btn" onclick="aimcLoadPromptList()">🔄 重新整理</button></div>
-      <table>
-        <thead><tr><th>平台</th><th>目的</th><th>格式</th><th>綁定主題</th><th>預設</th><th>版本</th><th></th></tr></thead>
-        <tbody id="aimc-promptListBody"><tr><td colspan="7" class="empty">載入中...</td></tr></tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- ============ 內容生成（Step Wizard）============ -->
-  <div class="aimc-panel" id="aimc-panel-generate">
-    <div class="card">
-      <h3>生成內容</h3>
-      <div class="aimc-steps" id="aimc-gen-steps"></div>
-      <div class="grid">
-        <div class="field">
-          <label>Step1：選擇商品 *</label>
-          <select id="g_product_select" onchange="aimcOnGenProductChange()"><option value="">請選擇商品</option></select>
-        </div>
-        <div class="field">
-          <label>Step2：選擇主題 *</label>
-          <select id="g_topic_select" onchange="aimcOnGenTopicChange()"><option value="">請先選擇商品</option></select>
-        </div>
-        <div class="field">
-          <label>Step3：平台 *</label>
-          <select id="g_platform" onchange="aimcOnGenPlatformChange()">
-            <option value="fb">Facebook</option><option value="ig">Instagram</option>
-            <option value="threads">Threads</option><option value="tiktok">TikTok</option>
-            <option value="line">LINE OA</option><option value="google_business">Google 商家</option>
-            <option value="youtube_shorts">YouTube Shorts</option>
-          </select>
-        </div>
-        <div class="field">
-          <label>Step4：內容目的（需與已建立的 Prompt 一致）</label>
-          <select id="g_content_goal" onchange="aimcOnGenGoalChange()">
-            <option value="教育">教育</option><option value="促銷">促銷</option><option value="FAQ">FAQ</option>
-            <option value="品牌故事">品牌故事</option><option value="顧客見證">顧客見證</option>
-            <option value="SEO">SEO</option><option value="短影音">短影音</option>
-            <option value="圖文">圖文</option><option value="Google商家">Google商家</option>
-            <option value="general">一般（general）</option>
-          </select>
-        </div>
-      </div>
-      <div class="row-actions">
-        <button class="btn" id="aimc-generateBtn" onclick="aimcGenerateContent()">⚡ Step5：產生內容</button>
-      </div>
-      <div id="aimc-generateResult"></div>
-    </div>
-
-    <div class="card">
-      <div class="flex-between"><h3>最近生成紀錄</h3><button class="link-btn" onclick="aimcLoadHistoryList()">🔄 重新整理</button></div>
-      <table>
-        <thead><tr><th>平台</th><th>目的</th><th>內容摘要</th><th>狀態</th><th>時間</th></tr></thead>
-        <tbody id="aimc-historyListBody"><tr><td colspan="5" class="empty">載入中...</td></tr></tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- ============ 審核 ============ -->
-  <div class="aimc-panel" id="aimc-panel-review">
-    <div class="card">
-      <div class="flex-between">
-        <h3>待審核內容</h3>
-        <div>
-          <select id="aimc-reviewStatusFilter" onchange="aimcLoadReviewList()">
-            <option value="generated">待審核（generated）</option>
-            <option value="approved">已核准（approved）</option>
-            <option value="rejected">已退回（rejected）</option>
-          </select>
-          <button class="link-btn" onclick="aimcLoadReviewList()">🔄</button>
-        </div>
-      </div>
-      <div id="aimc-reviewListContainer"><div class="empty">載入中...</div></div>
-    </div>
-  </div>
-
-  <!-- ============ Coming Soon 佔位分頁 ============ -->
-  <div class="aimc-panel" id="aimc-panel-ai_image"><div class="aimc-coming-soon">🖼️ AI 圖片生成即將推出</div></div>
-  <div class="aimc-panel" id="aimc-panel-schedule"><div class="aimc-coming-soon">📅 排程發布即將推出</div></div>
-  <div class="aimc-panel" id="aimc-panel-social_publish"><div class="aimc-coming-soon">📣 社群發布即將推出</div></div>
-  <div class="aimc-panel" id="aimc-panel-analytics"><div class="aimc-coming-soon">📈 成效分析即將推出</div></div>
-</div>
-
 <!-- Toast 通知 -->
 <div class="toast-container" id="toastContainer"></div>
 
 <script src="/js/app.js?v=fix18-09F-h2"></script>
-<script src="/js/ai-marketing.js?v=phase3"></script>
 <script src="/js/coupons.js?v=fix18-06"></script>
 <script src="/js/qrcode.min.js?v=fix18-09F-h2"></script>
 <script src="/license.js?v=fix18-06"></script>

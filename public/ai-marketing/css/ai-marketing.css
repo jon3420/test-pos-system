@@ -300,3 +300,86 @@ tr:hover { background: var(--bg-hover); }
 .color-swatch { display: inline-block; width: 20px; height: 20px; border-radius: 4px; vertical-align: middle; margin-right: 8px; border: 1px solid var(--border); }
 .provider-card { display: flex; align-items: center; gap: 10px; border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 8px; background: var(--bg-base); }
 .provider-card .p-name { font-weight: 600; flex: 1; }
+
+/* ============ V3: Task Card（Dashboard 今日 AI 任務）============ */
+.task-card-list { display: flex; flex-direction: column; gap: 10px; }
+.task-card {
+  border: 1px solid var(--border); background: var(--bg-base); border-radius: 10px; padding: 12px 14px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.task-card.urgent { border-color: rgba(229,57,53,.4); }
+.task-card.warn { border-color: rgba(234,179,8,.4); }
+.task-card .tc-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.task-card .tc-title { font-size: 13.5px; font-weight: 700; color: var(--text-primary); }
+.task-card .tc-detail { font-size: 12px; color: var(--text-secondary); line-height: 1.6; }
+.task-card .tc-ctas { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
+.task-card .tc-ctas button { padding: 5px 12px; font-size: 12px; }
+
+/* ============ V3: AI 建議 / 推薦卡 ============ */
+.recommend-card {
+  border: 1px solid var(--accent); background: rgba(245,166,35,.06); border-radius: 10px; padding: 14px 16px;
+}
+.recommend-card .rc-head { display: flex; align-items: center; gap: 8px; font-weight: 700; color: var(--accent-light); font-size: 14px; }
+.recommend-card .rc-reasons { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0; }
+.recommend-card .rc-ctas { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+.recommend-card .rc-ctas button { padding: 5px 12px; font-size: 12px; }
+
+/* ============ V3: 快速開始大卡 ============ */
+.quickstart-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+@media (max-width: 720px) { .quickstart-grid { grid-template-columns: 1fr; } }
+.quickstart-card {
+  background: linear-gradient(160deg, var(--bg-card), var(--bg-card-2)); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 20px; cursor: pointer; transition: border-color .15s;
+}
+.quickstart-card:hover { border-color: var(--accent); }
+.quickstart-card .qc-icon { font-size: 28px; }
+.quickstart-card .qc-title { font-weight: 700; font-size: 15px; margin: 10px 0 4px; }
+.quickstart-card .qc-desc { font-size: 12.5px; color: var(--text-secondary); line-height: 1.6; }
+
+/* ============ V3: 商品健康度卡（Knowledge Product Health Center）============ */
+.health-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+@media (max-width: 1080px) { .health-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 680px) { .health-grid { grid-template-columns: 1fr; } }
+.health-card {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px;
+  display: flex; flex-direction: column; gap: 10px; cursor: pointer; transition: border-color .15s;
+}
+.health-card:hover { border-color: var(--accent); }
+.health-card .hc-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.health-card .hc-name { font-weight: 700; font-size: 14.5px; color: var(--text-primary); }
+.health-card .hc-code { font-size: 11px; color: var(--text-muted); }
+.health-card .hc-missing { display: flex; gap: 4px; flex-wrap: wrap; }
+.health-card .hc-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; text-align: center; }
+.health-card .hc-stat-num { font-size: 15px; font-weight: 700; color: var(--accent-light); }
+.health-card .hc-stat-label { font-size: 10.5px; color: var(--text-secondary); }
+.health-card .hc-hint { font-size: 11.5px; color: var(--accent-light); background: rgba(245,166,35,.08); border-radius: 6px; padding: 6px 8px; }
+.health-card .hc-ctas { display: flex; gap: 6px; flex-wrap: wrap; }
+.health-card .hc-ctas button { padding: 5px 10px; font-size: 11.5px; }
+
+/* ============ V3: Automation Roadmap ============ */
+.roadmap { display: flex; align-items: stretch; gap: 0; overflow-x: auto; padding: 10px 2px 18px; }
+.roadmap-node {
+  flex: 0 0 auto; width: 132px; text-align: center; padding: 14px 10px; border-radius: 10px;
+  background: var(--bg-base); border: 1px solid var(--border-light); margin-right: 8px; position: relative;
+}
+.roadmap-node.now { border-color: var(--accent); }
+.roadmap-node .rn-icon { font-size: 22px; }
+.roadmap-node .rn-title { font-size: 12px; font-weight: 700; margin-top: 6px; color: var(--text-primary); }
+.roadmap-node .rn-badge { font-size: 9.5px; margin-top: 4px; }
+.roadmap-arrow { flex: 0 0 auto; display: flex; align-items: center; color: var(--text-muted); font-size: 16px; padding: 0 2px; }
+
+/* ============ V3: Prompt 範本挑選器 ============ */
+.template-picker { border: 1px dashed var(--border); border-radius: 8px; padding: 12px; margin-bottom: 14px; background: var(--bg-base); }
+.template-picker .tp-row { display: flex; gap: 8px; align-items: center; }
+.template-picker select { flex: 1; }
+
+/* ============ V3: Topic AI Suggestions ============ */
+.suggestion-chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0; }
+.suggestion-chip {
+  display: flex; align-items: center; gap: 6px; border: 1px solid var(--border); background: var(--bg-base);
+  border-radius: 999px; padding: 6px 8px 6px 14px; font-size: 12.5px; color: var(--text-primary);
+}
+.suggestion-chip button { padding: 3px 10px; font-size: 11.5px; }
+
+/* ============ V3: Review 建議文字 ============ */
+.review-hint { font-size: 11px; color: var(--accent-light); margin-top: 4px; }

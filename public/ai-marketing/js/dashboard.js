@@ -1,6 +1,7 @@
 // ============================================================
-// dashboard.js — Dashboard 頁面（首頁，非商品知識）
+// dashboard.js — Dashboard V3「AI Command Center」
 // 純讀取既有 API 彙整而成，不新增任何端點、不改任何 CRUD 邏輯。
+// 所有任務/建議皆為前端規則（knowledge/topics/prompts/content-history）推導。
 // ============================================================
 (function () {
   async function load(root) {
@@ -13,7 +14,8 @@
       AIMC.statCard('⏳', '-', '待審核', 'warn'),
     ].join('');
     root.querySelector('#dashTaskList').innerHTML = AIMC.loadingHtml();
-    root.querySelector('#dashSuggestionList').innerHTML = AIMC.loadingHtml();
+    root.querySelector('#dashRecommend').innerHTML = AIMC.loadingHtml();
+    root.querySelector('#dashHealthGrid').innerHTML = AIMC.loadingHtml();
     root.querySelector('#dashHotProducts').innerHTML = AIMC.loadingHtml();
     root.querySelector('#dashRecentActivity').innerHTML = AIMC.loadingHtml();
 
@@ -26,10 +28,12 @@
       await AIMC.loadCoreData();
       await AIMC.loadKnowledgeDetails();
       const rc = await AIMC.loadReviewCounts();
+      const insights = AIMC.computeProductInsights();
       renderStats(root);
       renderCompleteness(root);
-      renderTasks(root, rc);
-      renderSuggestions(root, rc);
+      renderTasks(root, insights, rc);
+      renderRecommend(root, insights);
+      renderHealthGrid(root, insights);
       renderHotProducts(root);
       renderRecentActivity(root);
     } catch (e) {
@@ -64,51 +68,118 @@
     text.textContent = `平均知識完整度 ${avg}%（依 ${s.knowledge.length} 項商品知識計算）`;
   }
 
-  function renderTasks(root, rc) {
-    const s = AIMC.store;
-    const el = root.querySelector('#dashTaskList');
-    const tasks = [];
-    if (!s.knowledge.length) {
-      tasks.push({ icon: '📦', html: '尚未建立任何<b>商品知識</b>，建議先從 1-2 個主打商品開始。', route: 'knowledge', cta: '前往建立' });
-    } else {
-      const low = s.knowledge.filter((row) => AIMC.calcCompleteness(s.knowledgeDetail[row.id]) < 50);
-      if (low.length) tasks.push({ icon: '📚', html: `有 <b>${low.length}</b> 項商品知識完整度低於 50%，建議補充內容。`, route: 'knowledge', cta: '去補充' });
-    }
-    const noTopic = s.knowledge.filter((row) => !s.topics.some((t) => t.external_product_id === row.external_product_id));
-    if (noTopic.length) tasks.push({ icon: '📝', html: `有 <b>${noTopic.length}</b> 項商品尚未建立任何主題。`, route: 'topics', cta: '去建立' });
-    const noPrompt = s.topics.filter((t) => !s.prompts.some((p) => p.topic_id === t.id));
-    if (noPrompt.length) tasks.push({ icon: '🤖', html: `有 <b>${noPrompt.length}</b> 個主題尚未建立 Prompt。`, route: 'prompts', cta: '去建立' });
-    if (rc.g.length) tasks.push({ icon: '⏳', html: `有 <b>${rc.g.length}</b> 篇內容待審核。`, route: 'review', cta: '去審核' });
-    const sensitive = s.topics.filter((t) => t.claim_sensitive);
-    if (sensitive.length) tasks.push({ icon: '⚠️', html: `有 <b>${sensitive.length}</b> 個主題涉及敏感宣稱，內容生成後請審慎審核。`, route: 'topics', cta: '查看' });
+  // ── ① 今日 AI 任務：逐商品規則推導，附具體數字與 CTA ──
+  function taskUrgencyScore(ins) {
+    let score = (100 - ins.pct);
+    score += ins.pendingCount * 10;
+    if (!ins.topics.length) score += 50;
+    else if (!ins.promptCount) score += 30;
+    else if (!ins.genCount) score += 20;
+    if (ins.sensitiveCount) score += 15;
+    return score;
+  }
 
-    if (!tasks.length) { el.innerHTML = AIMC.emptyState('🎉', '目前沒有待處理任務，做得很好！'); return; }
-    el.innerHTML = tasks.map((t) => `
-      <div class="task-item">
-        <span class="dot">${t.icon}</span>
-        <span class="txt">${t.html}</span>
-        <button class="btn ghost sm cta" onclick="location.hash='#/${t.route}'">${t.cta}</button>
+  function renderTasks(root, insights, rc) {
+    const el = root.querySelector('#dashTaskList');
+    if (!insights.length) {
+      el.innerHTML = AIMC.emptyState('📦', '尚未建立任何商品知識，建議先從 1-2 個主打商品開始。');
+      return;
+    }
+    const sorted = [...insights].sort((a, b) => taskUrgencyScore(b) - taskUrgencyScore(a)).slice(0, 6);
+    el.innerHTML = sorted.map((ins) => {
+      const name = AIMC.esc(ins.row.product_name);
+      const lines = [];
+      lines.push(`完成度 ${ins.pct}%${ins.pct < 50 ? '（偏低）' : ''}　・　Topic ${ins.topics.length}　・　Prompt ${ins.promptCount}　・　Generated ${ins.genCount}　・　待審核 ${ins.pendingCount}`);
+      if (ins.platforms.length) lines.push(`今天可生成：${ins.platforms.map((p) => AIMC.platformLabel(p)).join('、')}`);
+      if (ins.sensitiveCount) lines.push(`⚠️ 有 ${ins.sensitiveCount} 個主題涉及敏感宣稱，生成後請審慎審核`);
+
+      const ctas = [];
+      if (ins.pct < 70) ctas.push({ label: '📚 補知識', href: '#/knowledge/' + ins.row.id });
+      if (!ins.topics.length) ctas.push({ label: '📝 建主題', href: '#/topics/' + encodeURIComponent(ins.row.external_product_id) });
+      if (ins.promptCount && !ins.genCount) ctas.push({ label: '✨ 生成內容', href: '#/generate/' + encodeURIComponent(ins.row.external_product_id) });
+      if (ins.pendingCount) ctas.push({ label: '✅ 去審核', href: '#/review' });
+      if (!ctas.length) ctas.push({ label: '👍 保持優化', href: '#/knowledge/' + ins.row.id });
+
+      let cls = 'task-card';
+      if (ins.pendingCount || ins.sensitiveCount) cls += ' urgent';
+      else if (ins.pct < 50) cls += ' warn';
+
+      return `
+      <div class="${cls}">
+        <div class="tc-head"><span class="tc-title">${name}</span>${ins.pendingCount ? AIMC.badge(ins.pendingCount + ' 待審核', 'generated') : ''}</div>
+        <div class="tc-detail">${lines.join('<br>')}</div>
+        <div class="tc-ctas">${ctas.map((c) => `<button class="btn ghost sm" onclick="location.hash='${c.href}'">${c.label}</button>`).join('')}</div>
+      </div>`;
+    }).join('');
+  }
+
+  // ── ② 今日 AI 建議：綜合分數推薦一個主打商品 ──
+  function renderRecommend(root, insights) {
+    const el = root.querySelector('#dashRecommend');
+    const withTopics = insights.filter((i) => i.topics.length > 0);
+    const pool = withTopics.length ? withTopics : insights;
+    if (!pool.length) {
+      el.innerHTML = AIMC.emptyState('💡', '尚無足夠資料，建立商品知識與主題後 AI 才能給出推薦。');
+      return;
+    }
+    const best = [...pool].sort((a, b) => AIMC.recommendScore(b) - AIMC.recommendScore(a))[0];
+    const reasons = [];
+    if (best.pct >= 70) reasons.push('知識完整');
+    if (best.topics.length >= 3) reasons.push('Topic 豐富');
+    if (best.promptCount >= 2) reasons.push('Prompt 齊全');
+    if (best.genCount >= 3) reasons.push('熱門（生成量高）');
+    if (best.pendingCount === 0 && best.genCount > 0) reasons.push('待審核少');
+    if (best.row.price) reasons.push(`定價 $${best.row.price}`);
+    if (!reasons.length) reasons.push('潛力商品，值得優先投入');
+
+    const ctas = best.platforms.length
+      ? best.platforms.map((p) => `<button class="btn sm" onclick="location.hash='#/generate/${encodeURIComponent(best.row.external_product_id)}'">⚡ ${AIMC.esc(AIMC.platformLabel(p))} 生成</button>`).join('')
+      : `<button class="btn sm" onclick="location.hash='#/topics/${encodeURIComponent(best.row.external_product_id)}'">📝 建立主題</button>`;
+
+    el.innerHTML = `
+      <div class="recommend-card">
+        <div class="rc-head">🎯 推薦商品：${AIMC.esc(best.row.product_name)}</div>
+        <div class="rc-reasons">${reasons.map((r) => AIMC.badge(r, 'outline')).join('')}</div>
+        <p class="muted" style="margin:0">完成度 ${best.pct}%　・　Topic ${best.topics.length}　・　Prompt ${best.promptCount}　・　Generated ${best.genCount}　・　待審核 ${best.pendingCount}</p>
+        <div class="rc-ctas">${ctas}</div>
+      </div>`;
+  }
+
+  // ── ③ 快速開始（三張大卡）──
+  function renderQuickStart(root) {
+    const el = root.querySelector('#dashQuickStart');
+    const items = [
+      { icon: '🤖', title: 'AI 補知識', desc: '一鍵產生商品知識草稿（介紹／特色／FAQ／迷思…），確認後再儲存', href: '#/knowledge/new-ai' },
+      { icon: '📝', title: 'AI 建主題', desc: '依商品套用 AI Topic Suggestions，一鍵建立主題', href: '#/topics' },
+      { icon: '✨', title: 'AI 生成內容', desc: '用 AI Content Studio 快速選商品、主題、平台生成內容', href: '#/generate' },
+    ];
+    el.innerHTML = items.map((it) => `
+      <div class="quickstart-card" onclick="location.hash='${it.href}'">
+        <div class="qc-icon">${it.icon}</div>
+        <div class="qc-title">${AIMC.esc(it.title)}</div>
+        <div class="qc-desc">${AIMC.esc(it.desc)}</div>
       </div>`).join('');
   }
 
-  function renderSuggestions(root, rc) {
-    const s = AIMC.store;
-    const el = root.querySelector('#dashSuggestionList');
-    const list = [];
-    const productNoTopic = s.knowledge.find((row) => !s.topics.some((t) => t.external_product_id === row.external_product_id));
-    if (productNoTopic) list.push({ icon: '💡', html: `建議為「<b>${AIMC.esc(productNoTopic.product_name)}</b>」建立第一個主題。`, route: 'topics' });
-    const topicNoPrompt = s.topics.find((t) => !s.prompts.some((p) => p.topic_id === t.id));
-    if (topicNoPrompt) list.push({ icon: '💡', html: `主題「<b>${AIMC.esc(topicNoPrompt.title)}</b>」還沒有 Prompt，建議建立模板。`, route: 'prompts' });
-    const topicReadyToGen = s.topics.find((t) => s.prompts.some((p) => p.topic_id === t.id) && !s.history.some((h) => h.topic_id === t.id));
-    if (topicReadyToGen) list.push({ icon: '💡', html: `主題「<b>${AIMC.esc(topicReadyToGen.title)}</b>」已有 Prompt，可以產生第一篇內容了。`, route: 'generate' });
-    if (rc.g.length) list.push({ icon: '💡', html: `有 <b>${rc.g.length}</b> 篇內容在等待審核，別讓靈感過期。`, route: 'review' });
-    if (!list.length) list.push({ icon: '✨', html: '目前資料完整，AI 暫無特別建議，持續保持！', route: '' });
-
-    el.innerHTML = list.slice(0, 4).map((s2) => `
-      <div class="suggestion-item">
-        <span class="dot">${s2.icon}</span>
-        <span class="txt">${s2.html}</span>
-        ${s2.route ? `<button class="btn ghost sm cta" onclick="location.hash='#/${s2.route}'">前往</button>` : ''}
+  // ── ④ 商品健康度（精簡版卡片，完整版在 Knowledge 頁）──
+  function renderHealthGrid(root, insights) {
+    const el = root.querySelector('#dashHealthGrid');
+    if (!insights.length) { el.innerHTML = AIMC.emptyState('🩺', '尚無商品資料'); return; }
+    const top = [...insights].sort((a, b) => taskUrgencyScore(b) - taskUrgencyScore(a)).slice(0, 6);
+    el.innerHTML = top.map((ins) => `
+      <div class="health-card" onclick="location.hash='#/knowledge/${ins.row.id}'">
+        <div class="hc-head">
+          <div><div class="hc-name">${AIMC.esc(ins.row.product_name)}</div><div class="hc-code">${AIMC.esc(ins.row.external_product_id)}</div></div>
+          <span class="badge outline">${ins.pct}%</span>
+        </div>
+        ${ins.missing.length ? `<div class="hc-missing">缺少：${ins.missing.map((m) => AIMC.badge(m, 'sensitive')).join('')}</div>` : ''}
+        <div class="hc-stats">
+          <div><div class="hc-stat-num">${ins.topics.length}</div><div class="hc-stat-label">Topic</div></div>
+          <div><div class="hc-stat-num">${ins.promptCount}</div><div class="hc-stat-label">Prompt</div></div>
+          <div><div class="hc-stat-num">${ins.genCount}</div><div class="hc-stat-label">Generated</div></div>
+          <div><div class="hc-stat-num">${ins.pendingCount}</div><div class="hc-stat-label">Review</div></div>
+        </div>
+        <div class="hc-hint">💡 ${AIMC.esc(AIMC.nextStepHint(ins))}</div>
       </div>`).join('');
   }
 
@@ -140,21 +211,6 @@
         <span class="dot">${h.status === 'approved' ? '✅' : h.status === 'rejected' ? '❌' : '📝'}</span>
         <span class="txt">${AIMC.platformLabel(h.platform)} 內容已${h.status === 'approved' ? '核准' : h.status === 'rejected' ? '退回' : '生成'}</span>
         <span class="time">${AIMC.fmtTime(h.created_at)}</span>
-      </div>`).join('');
-  }
-
-  function renderQuickStart(root) {
-    const el = root.querySelector('#dashQuickStart');
-    const items = [
-      { icon: '📚', title: '建立商品知識', desc: '從商品介紹、特色開始累積內容素材', route: 'knowledge' },
-      { icon: '✨', title: '產生一篇內容', desc: '用 Wizard 快速選商品、主題、平台生成', route: 'generate' },
-      { icon: '✅', title: '前往審核', desc: '確認 AI 生成內容是否可用', route: 'review' },
-    ];
-    el.innerHTML = items.map((it) => `
-      <div class="card" style="cursor:pointer;margin-bottom:0" onclick="location.hash='#/${it.route}'">
-        <div style="font-size:22px">${it.icon}</div>
-        <div style="font-weight:700;margin:6px 0 2px">${AIMC.esc(it.title)}</div>
-        <div class="muted">${AIMC.esc(it.desc)}</div>
       </div>`).join('');
   }
 

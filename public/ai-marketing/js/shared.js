@@ -171,4 +171,56 @@ window.AIMC = window.AIMC || { pages: {} };
     AIMC.store.history.forEach((h) => { const key = h.topic_id || '__none__'; (historyByTopic[key] ||= []).push(h); });
     return { topicsByProduct, promptsByTopic, historyByTopic };
   };
+
+  // ── V3：商品洞察（Dashboard AI 任務/建議、Knowledge 健康卡共用）──
+  // 純粹用 AIMC.store 現有資料（knowledge / topics / prompts / history）做前端規則推導，
+  // 不呼叫任何新端點，也不做任何伺服器端計算。
+  AIMC.computeProductInsights = function () {
+    const s = AIMC.store;
+    const { topicsByProduct, promptsByTopic, historyByTopic } = AIMC.buildDerivedMaps();
+    return s.knowledge.map((row) => {
+      const detail = s.knowledgeDetail[row.id] || {};
+      const pct = AIMC.calcCompleteness(detail);
+      const topics = topicsByProduct[row.external_product_id] || [];
+      const topicIds = topics.map((t) => t.id);
+      const relatedPrompts = topicIds.flatMap((tid) => promptsByTopic[tid] || []);
+      const genList = topicIds.flatMap((tid) => historyByTopic[tid] || []);
+      const pendingCount = genList.filter((h) => h.status === 'generated').length;
+      const approvedCount = genList.filter((h) => h.status === 'approved').length;
+      const platforms = [...new Set(relatedPrompts.map((p) => p.platform))];
+      const missing = [];
+      if (!detail.faq || !String(detail.faq).trim()) missing.push('FAQ');
+      if (!detail.myths || !String(detail.myths).trim()) missing.push('迷思');
+      if (!detail.seo_description || !String(detail.seo_description).trim()) missing.push('SEO');
+      const sensitiveCount = topics.filter((t) => t.claim_sensitive).length;
+      return {
+        row, detail, pct, topics, promptCount: relatedPrompts.length,
+        genCount: genList.length, pendingCount, approvedCount, platforms, missing, sensitiveCount,
+      };
+    });
+  };
+
+  AIMC.nextStepHint = function (insight) {
+    if (!insight.topics.length) return '建議建立主題';
+    if (!insight.promptCount) return '建議建立 Prompt';
+    if (!insight.genCount) return '建議產生內容';
+    if (insight.pendingCount) return '有內容待審核';
+    return '可持續優化或建立新主題';
+  };
+
+  // 綜合分數：知識完整 + Topic 多 + Prompt 多 + Generated 多 + 待審核少 → 分數越高越適合主推
+  AIMC.recommendScore = function (insight) {
+    return insight.pct * 0.4 + insight.topics.length * 6 + insight.promptCount * 5
+      + insight.genCount * 4 - insight.pendingCount * 3;
+  };
+
+  // ── 複製到剪貼簿（Review 使用）──
+  AIMC.copyToClipboard = async function (text) {
+    try {
+      await navigator.clipboard.writeText(text || '');
+      AIMC.toast('已複製內容');
+    } catch (e) {
+      AIMC.toast('複製失敗，請手動選取文字複製', true);
+    }
+  };
 })();
