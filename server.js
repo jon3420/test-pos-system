@@ -176,6 +176,39 @@ function autoResetTodayClosed() {
   } catch(e) { console.error('[AUTO] 重置失敗:', e.message); }
 }
 
+// ── hotfix13-BUG2：今日完售商品每日自動恢復販售（每天 00:05 台灣時間）──
+// 商品被設為「今日完售」（sale_status='sold_out_today'）且 auto_restore_next_day=1 時，
+// 隔天應自動恢復為 available，不需要店家手動操作。
+// 舊版本只有手動觸發的 POST /api/products/reset-sold-out-today，從未被排程呼叫過，
+// 導致「今日完售」商品永遠不會自動恢復——這裡補上自動排程。
+function autoResetSoldOutToday() {
+  try {
+    const db = getDb();
+    // 只在「日期真的變了」才重置，避免伺服器中途重啟時把當天才剛設定的完售商品誤重置
+    const twNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
+    const todayStr = `${twNow.getFullYear()}-${String(twNow.getMonth()+1).padStart(2,'0')}-${String(twNow.getDate()).padStart(2,'0')}`;
+    const stores = db.all('SELECT store_id FROM stores WHERE active=1');
+    let total = 0;
+    stores.forEach(({ store_id }) => {
+      const lastRow = db.get("SELECT value FROM settings WHERE store_id=? AND key='sold_out_today_reset_date'", [store_id]);
+      const lastDate = lastRow ? lastRow.value : '';
+      if (lastDate === todayStr) return; // 今天已經重置過，跳過
+      const r = db.run(
+        `UPDATE products SET sale_status='available', sold_out_until='', updated_at=datetime('now','localtime')
+         WHERE store_id=? AND sale_status='sold_out_today' AND auto_restore_next_day=1`,
+        [store_id]
+      );
+      total += (r && r.changes) || 0;
+      if (lastRow) {
+        db.run("UPDATE settings SET value=? WHERE store_id=? AND key='sold_out_today_reset_date'", [todayStr, store_id]);
+      } else {
+        db.run("INSERT INTO settings (store_id,key,value) VALUES (?,?,?)", [store_id, 'sold_out_today_reset_date', todayStr]);
+      }
+    });
+    if (total > 0) console.log('[AUTO] 今日完售商品已自動恢復販售，共', total, '項（', stores.length, '家店）');
+  } catch(e) { console.error('[AUTO] 今日完售自動恢復失敗:', e.message); }
+}
+
 // ── LINE 今日可售份數每日重置（每天 00:05 台灣時間）──────
 function autoResetLineQuota() {
   try {
@@ -192,8 +225,11 @@ function autoResetLineQuota() {
   } catch(e) { console.error('[AUTO] LINE quota 重置失敗:', e.message); }
 }
 
-// 每小時執行（臨時店休重置）
-setInterval(autoResetTodayClosed, 60 * 60 * 1000);
+// 每小時執行（臨時店休重置 + hotfix13-BUG2 今日完售恢復的保險機制，避免剛好錯過午夜排程）
+setInterval(() => {
+  autoResetTodayClosed();
+  autoResetSoldOutToday();
+}, 60 * 60 * 1000);
 
 // 每天 00:05 台灣時間重置 LINE 份數
 function scheduleDailyQuotaReset() {
@@ -204,13 +240,18 @@ function scheduleDailyQuotaReset() {
   const msUntil = nextMidnight - twNow;
   setTimeout(() => {
     autoResetLineQuota();
-    setInterval(autoResetLineQuota, 24 * 60 * 60 * 1000);
+    autoResetSoldOutToday(); // hotfix13-BUG2
+    setInterval(() => {
+      autoResetLineQuota();
+      autoResetSoldOutToday(); // hotfix13-BUG2
+    }, 24 * 60 * 60 * 1000);
   }, msUntil);
   console.log(`[AUTO] LINE 份數重置排程已設定，下次重置：${nextMidnight.toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })}`);
 }
 
 initDb().then((db) => {
   autoResetTodayClosed();
+  autoResetSoldOutToday(); // hotfix13-BUG2：啟動時先跑一次，避免伺服器重啟後錯過午夜排程
   scheduleDailyQuotaReset();
 
   // ── Super Admin 總控台（獨立，不需 storeGuard）────────

@@ -2915,12 +2915,21 @@ function renderOrdersTable(orders) {
         pickupTag = `<br><span style="font-size:11px;color:#06C755">⏰${pt}</span>`;
       }
     }
+    // hotfix13-BUG1：LINE 外送訂單顯示外送地址／備註／距離／外送費／導航連結
+    let addressTag = '';
+    if (o.order_mode === 'delivery' && o.delivery_address) {
+      const distTxt = Number(o.delivery_distance_km) > 0 ? ` · ${o.delivery_distance_km}km` : '';
+      const feeTxt  = Number(o.delivery_fee) > 0 ? ` · 運費NT$${o.delivery_fee}` : '';
+      const navLink = o.delivery_maps_url ? ` <a href="${escHtml(o.delivery_maps_url)}" target="_blank" rel="noopener" style="color:#60a5fa">🧭導航</a>` : '';
+      addressTag = `<br><span style="font-size:11px;color:#94a3b8">📍${escHtml(o.delivery_address)}${distTxt}${feeTxt}${navLink}</span>`
+        + (o.delivery_address_note ? `<br><span style="font-size:11px;color:#94a3b8">備註：${escHtml(o.delivery_address_note)}</span>` : '');
+    }
     return `
       <tr style="${isVoid?'opacity:0.5':''}">
         <td><span class="order-num">${escHtml(o.order_number)}</span></td>
         <td><span class="mode-badge mode-${modeKey}">${modeLabel[modeKey]||modeKey}</span></td>
         <td style="font-size:12px;color:#999">${twTime(o.created_at,'time')}</td>
-        <td style="font-size:13px">${escHtml(ident)}${pickupTag}</td>
+        <td style="font-size:13px">${escHtml(ident)}${pickupTag}${addressTag}</td>
         <td style="font-size:12px">${o.items.map(i => {
           const groupName = isGroupLabelEnabled() ? getAnalysisGroupName(i.name) : null;
           return `${i.name}×${i.qty}` + (groupName ? `<br><span style="font-size:10px;color:#818cf8;background:rgba(99,102,241,0.12);border-radius:3px;padding:0 4px">📊 ${escHtml(groupName)}</span>` : '');
@@ -2956,6 +2965,8 @@ function renderOrdersTable(orders) {
         <td>
           <span class="order-status ${sCls}">${sLabel}</span>
           ${o.order_status&&o.order_status!=='completed'?`<br><span class="ostatus-badge ${ostatusCls[o.order_status]||''}">${ostatusLabel[o.order_status]||o.order_status}</span>`:''}
+          ${o.refund_status==='pending_refund'?'<br><span class="ostatus-badge" style="background:#f97316;color:#fff">💸 待退款</span>':''}
+          ${o.refund_status==='refunded'?'<br><span class="ostatus-badge" style="background:#64748b;color:#fff">已退款</span>':''}
         </td>
         <td>
           <div class="order-actions">
@@ -2965,15 +2976,35 @@ function renderOrdersTable(orders) {
             <button class="btn-icon print-btn" onclick="reprintOrder('${o.id}')">🖨️</button>
             ${o.payment_method==='cash'?`<button class="btn-icon" style="background:var(--success);color:#fff" title="開錢櫃" onclick="openDrawerFromOrder('${o.id}')">💰</button>`:''}
             ${o.payment_method==='linepay'&&o.payment_status!=='paid'&&!isVoid?`<button class="btn-icon" style="background:#06C755;color:#fff;font-size:11px" title="確認收款" onclick="confirmLinePayPayment('${o.uuid||o.id}','${escHtml(o.order_number)}')">💚 確認收款</button>`:''}
+            ${o.refund_status==='pending_refund'?`<button class="btn-icon" style="background:#f97316;color:#fff;font-size:11px" title="標記已退款" onclick="markOrderRefunded('${o.id}','${escHtml(o.order_number)}')">💸 標記已退款</button>`:''}
           </div>
         </td>
       </tr>`;
   }).join('');
 }
 
+// hotfix13-BUG6：LinePay 已付款訂單取消後的待退款清單，標記店家已完成退款
+async function markOrderRefunded(orderId, orderNumber) {
+  if (!confirm(`確認訂單 ${orderNumber} 已完成退款給顧客？`)) return;
+  try {
+    const res  = await apiFetch(`/api/orders/${orderId}/refund-complete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    });
+    const json = await res.json();
+    if (json.success) {
+      showToast('已標記為已退款', 'success');
+      refreshCurrentOrderView();
+    } else {
+      showToast(json.message || '操作失敗', 'error');
+    }
+  } catch { showToast('網路錯誤', 'error'); }
+}
+
 function renderDeliveryTable(orders) {
   const tbody = document.getElementById('deliveryOrdersBody');
-  if (!orders || !orders.length) { tbody.innerHTML = '<tr><td colspan="12" class="table-empty">無外送訂單</td></tr>'; return; }
+  if (!orders || !orders.length) { tbody.innerHTML = '<tr><td colspan="13" class="table-empty">無外送訂單</td></tr>'; return; }
   const payLabel = { cash:'現金', card:'刷卡', linepay:'LINE', jkopay:'街口', transfer:'轉帳', platform:'平台' };
   const statusMap = { completed:['status-completed','正常'], modified:['status-modified','已修改'], void:['status-void','已作廢'] };
   // 外送狀態設定
@@ -3004,6 +3035,14 @@ function renderDeliveryTable(orders) {
         <td style="font-weight:600;color:#ce93d8">${escHtml(o.delivery_platform||'—')}</td>
         <td style="font-size:12px;color:var(--text-muted);font-family:monospace">${escHtml(o.platform_order_no||'—')}</td>
         <td style="font-size:13px">${escHtml(o.customer_name||o.pickup_name||'—')}</td>
+        <td style="font-size:12px;max-width:160px" title="${escHtml(o.delivery_address||'')}">
+          ${o.delivery_address
+            ? (o.delivery_maps_url
+                ? `<a href="${escHtml(o.delivery_maps_url)}" target="_blank" rel="noopener" style="color:#60a5fa">📍 ${escHtml(o.delivery_address)}</a>`
+                : `📍 ${escHtml(o.delivery_address)}`)
+            : '<span style="color:var(--text-muted)">—</span>'}
+          ${o.delivery_address_note ? `<div style="font-size:11px;color:var(--text-muted)">備註：${escHtml(o.delivery_address_note)}</div>` : ''}
+        </td>
         <td style="font-size:12px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${itemsText}">${itemsText||'—'}</td>
         <td style="font-family:monospace;white-space:nowrap;${isCancelled?'opacity:0.5':''}">
           ${(function(){
@@ -3135,6 +3174,15 @@ async function showOrderDetail(orderId) {
         </div>
         <p style="font-size:12px;color:#999;margin-bottom:16px">${twTime(o.created_at,'datetime')}</p>
         ${isVoid ? `<div style="background:#2a0a0a;border:1px solid var(--danger);border-radius:6px;padding:8px 12px;margin-bottom:12px;font-size:13px;color:var(--danger)">🚫 作廢原因：${escHtml(o.void_reason||'—')}</div>` : ''}
+        ${o.refund_status==='pending_refund' ? `<div style="background:#3a1f0a;border:1px solid #f97316;border-radius:6px;padding:8px 12px;margin-bottom:12px;font-size:13px;color:#f97316">💸 該筆為 LINE Pay 已付款訂單，取消後請至待退款清單完成退款</div>` : ''}
+        ${o.refund_status==='refunded' ? `<div style="background:#1a1a2a;border:1px solid #64748b;border-radius:6px;padding:8px 12px;margin-bottom:12px;font-size:13px;color:#94a3b8">✅ 已完成退款${o.refunded_at?'（'+twTime(o.refunded_at,'datetime')+'）':''}</div>` : ''}
+        ${o.order_mode==='delivery' && o.delivery_address ? `
+        <div style="background:#0f1f2f;border:1px solid #334155;border-radius:6px;padding:8px 12px;margin-bottom:12px;font-size:13px">
+          <div>📍 外送地址：${escHtml(o.delivery_address)}</div>
+          ${o.delivery_address_note ? `<div style="color:#94a3b8;font-size:12px">備註：${escHtml(o.delivery_address_note)}</div>` : ''}
+          ${Number(o.delivery_distance_km)>0 ? `<div style="color:#94a3b8;font-size:12px">距離：${o.delivery_distance_km} km ｜ 外送費：NT$${o.delivery_fee||0}</div>` : ''}
+          ${o.delivery_maps_url ? `<div><a href="${escHtml(o.delivery_maps_url)}" target="_blank" rel="noopener" style="color:#60a5fa">🧭 開啟導航</a></div>` : ''}
+        </div>` : ''}
         <div class="receipt-body" style="margin:0;padding:0;border-bottom:1px dashed #333;padding-bottom:12px;margin-bottom:12px">
           ${o.items.map(i=>`
             <div class="receipt-item">
@@ -3957,6 +4005,11 @@ async function saveEditOrder() {
       if (diff?.type === 'surcharge') showToast(`已儲存，需補收 NT$${diff.amount}`, 'success');
       else if (diff?.type === 'refund') showToast(`已儲存，需退款 NT$${diff.amount}`, 'success');
       else showToast('訂單已修改', 'success');
+      // hotfix13-BUG3：LinePay 改現金付款時，後端會自動開錢櫃，這裡提示結果
+      if (json.drawerResult) {
+        showToast(json.drawerResult.success ? '💰 已自動開啟錢櫃' : ('開錢櫃失敗：' + json.drawerResult.message),
+          json.drawerResult.success ? 'success' : 'error');
+      }
       _editOriginalTotal = 0;
       closeEditOrder();
       refreshCurrentOrderView(); // fix18-07：維持目前分頁

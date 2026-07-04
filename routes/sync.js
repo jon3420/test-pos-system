@@ -2,6 +2,9 @@
 const express = require('express');
 const router  = express.Router();
 const { getDb } = require('../utils/db');
+const {
+  ORDER_STATUSES, ORDER_STATUS_LABEL, ORDER_STATUS_FLOW_BY_MODE, REFUND_STATUS_LABEL,
+} = require('../utils/orderStatusFlow'); // hotfix13-BUG7：Android 啟動時跟 Web 拿同一份狀態設定
 
 // Android 平板功能的預設值（Web 尚未設定 android_features 時使用）
 const ANDROID_FEATURES_DEFAULT = {
@@ -51,6 +54,13 @@ router.get('/config', (req, res) => {
       success: true,
       data: { products, categories, paymentMethods, platforms, settings },
       features,
+      // hotfix13-BUG7：Android 用這份資料畫狀態標籤/按鈕，不再自己寫死一份中文對照表
+      order_status_flow: {
+        statuses:      ORDER_STATUSES,
+        labels:        ORDER_STATUS_LABEL,
+        flow_by_mode:  ORDER_STATUS_FLOW_BY_MODE,
+        refund_labels: REFUND_STATUS_LABEL,
+      },
       store_id: storeId,
       synced_at: new Date().toISOString()
     });

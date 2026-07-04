@@ -572,6 +572,10 @@ function initTables(w) {
     'ALTER TABLE orders ADD COLUMN customer_line_id TEXT DEFAULT ""',
     'ALTER TABLE orders ADD COLUMN payment_method TEXT DEFAULT "cash"',
     'ALTER TABLE orders ADD COLUMN payment_category TEXT DEFAULT "cash"',
+    // hotfix13-BUG6：LinePay 已付款訂單取消時的待退款流程
+    'ALTER TABLE orders ADD COLUMN refund_status TEXT DEFAULT ""',
+    'ALTER TABLE orders ADD COLUMN refund_note TEXT DEFAULT ""',
+    'ALTER TABLE orders ADD COLUMN refunded_at TEXT DEFAULT ""',
   ];
   orderMigrations.forEach(sql => { try { w._db.run(sql); w._save(); } catch {} });
 

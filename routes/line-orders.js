@@ -18,6 +18,7 @@ const { v4: uuidv4 } = require('uuid');
 const fetch = require('node-fetch');
 const { validateCoupon } = require('./coupons'); // fix18-05
 const { getStoreFeatures } = require('../middleware/featureGate'); // fix18-05 coupon gate
+const { applyOrderStatusChange } = require('../utils/orderStatusFlow'); // hotfix13-BUG7：統一狀態機（單一來源，orders.js / online-orders.js 共用）
 
 // ── fix18-06：外送費後端重算 helper ──────────────────
 const SERVER_KEY = () => process.env.GOOGLE_MAPS_SERVER_KEY || '';
@@ -1005,15 +1006,15 @@ router.get('/online', (req, res) => {
 });
 
 // ── PATCH /online/:id/status ──────────────────────────────
+// hotfix13-BUG7：跟 orders.js PATCH /:id/status、online-orders.js PATCH /:id/status
+// 共用同一份 utils/orderStatusFlow.applyOrderStatusChange() 商業邏輯，
+// 三支 API（Web LINE 訂單中心 / Web POS / Android）行為保證一致，不會各自為政。
 router.patch('/online/:id/status', (req, res) => {
   try {
     const db = getDb();
     const storeId = req.storeId;
     const rawId = req.params.id;
     const newStatus = req.body.status || req.body.order_status;
-    const valid = ['pending','accepted','preparing','ready','completed','cancelled'];
-    if (!valid.includes(newStatus))
-      return res.status(400).json({ success: false, message: '無效的狀態值: ' + newStatus });
 
     const order = db.get(
       `SELECT * FROM orders WHERE store_id=? AND (order_number=? OR id=? OR uuid=?)`,
@@ -1022,21 +1023,20 @@ router.patch('/online/:id/status', (req, res) => {
     if (!order)
       return res.status(404).json({ success: false, error: 'ORDER_NOT_FOUND', message: '找不到訂單：' + rawId });
 
-    const orderNo = order.order_number;
-    const now2 = new Date().toLocaleString('sv', { timeZone: 'Asia/Taipei' }).replace('T', ' ');
-    db.run(
-      `UPDATE orders SET status=?, order_status=?, kitchen_status=?, updated_at=? WHERE order_number=? AND store_id=?`,
-      [newStatus, newStatus, newStatus, now2, orderNo, storeId]
-    );
+    const result = applyOrderStatusChange(db, storeId, order, newStatus);
+    if (!result.ok) {
+      return res.status(result.code).json({ success: false, message: result.message });
+    }
 
+    const orderNo = order.order_number;
     const verified = db.get(
-      `SELECT order_number, status, order_status, kitchen_status, updated_at FROM orders WHERE order_number=? AND store_id=?`,
+      `SELECT order_number, status, order_status, kitchen_status, updated_at, refund_status FROM orders WHERE order_number=? AND store_id=?`,
       [orderNo, storeId]
     );
     if (!verified || verified.order_status !== newStatus)
       return res.status(500).json({ success: false, error: 'VERIFY_FAILED', expected: newStatus, actual: verified?.order_status });
 
-    const fullOrder = db.get('SELECT * FROM orders WHERE order_number=? AND store_id=?', [orderNo, storeId]);
+    const fullOrder = result.data;
     try {
       const wss = req.app.get('wss');
       // 基本狀態變更廣播（後台刷新用）
@@ -1048,36 +1048,17 @@ router.patch('/online/:id/status', (req, res) => {
       }
     } catch {}
 
-    // 取消訂單時回補份數
-    if (newStatus === 'cancelled') {
-      const prevStatus = order.order_status;
-      // 只在尚未完成的訂單取消時才回補（避免已完成訂單取消重複回補）
-      if (!['completed', 'cancelled'].includes(prevStatus)) {
-        const cancelItems = (() => { try { return typeof order.items === 'string' ? JSON.parse(order.items||'[]') : (order.items||[]); } catch { return []; } })();
-        const cancelDateStr = (order.pickup_time||'').slice(0, 10);
-        const todayForCancel = twDateStr();
-        const cancelIsPreorder = cancelDateStr && cancelDateStr > todayForCancel;
-        cancelItems.forEach(item => {
-          const pid = item.product_id || item.id;
-          if (!pid) return;
-          const qty = Number(item.qty || 1);
-          if (cancelIsPreorder) {
-            db.run(`UPDATE products SET line_preorder_sold = MAX(0, line_preorder_sold - ?),
-              updated_at=datetime('now','localtime') WHERE id=? AND store_id=?`, [qty, pid, storeId]);
-          } else {
-            db.run(`UPDATE products SET line_quota_sold = MAX(0, line_quota_sold - ?),
-              updated_at=datetime('now','localtime') WHERE id=? AND store_id=?`, [qty, pid, storeId]);
-          }
-        });
-      }
-    }
-
     triggerN8nWebhook(db, storeId, 'line_order_status_changed', {
       order_number: order.order_number, customer_line_id: order.customer_line_id,
       old_status: order.order_status, new_status: newStatus,
       reject_reason: req.body.reject_reason||''
     });
-    res.json({ success: true, data: fullOrder });
+    res.json({
+      success: true,
+      data: fullOrder,
+      requires_refund: result.requiresRefund,
+      message: result.message,
+    });
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
 

@@ -9,6 +9,9 @@ const { getProductInventoryStatus } = require('../utils/inventoryHelper');
 const { v4: uuidv4 } = require('uuid');
 const fetch    = require('node-fetch');
 const { writeInventoryLog } = require('./inventory');
+const {
+  applyOrderStatusChange, restockOrderItems, requiresRefundOnCancel,
+} = require('../utils/orderStatusFlow'); // hotfix13-BUG7：統一狀態機（單一來源，line-orders.js / online-orders.js 也引用同一份）
 
 // ── fix18-09：safe migration（不重建資料庫）────────────────
 function ensureFix1809Columns(db) {
@@ -276,6 +279,23 @@ const DEFAULT_RATE = { ubereats: 31, foodpanda: 35 };
 // Routes
 // ══════════════════════════════════════════════════════════
 
+// GET /status-flow — hotfix13-BUG7：Web / Android 共用同一份狀態名稱與流程設定
+// 前端不應該各自寫死中文標籤或合法狀態陣列，一律呼叫這支 API 取得。
+router.get('/status-flow', (req, res) => {
+  const {
+    ORDER_STATUSES, ORDER_STATUS_LABEL, ORDER_STATUS_FLOW_BY_MODE, REFUND_STATUS_LABEL,
+  } = require('../utils/orderStatusFlow');
+  res.json({
+    success: true,
+    data: {
+      statuses:        ORDER_STATUSES,
+      labels:          ORDER_STATUS_LABEL,
+      flow_by_mode:    ORDER_STATUS_FLOW_BY_MODE,
+      refund_labels:   REFUND_STATUS_LABEL,
+    },
+  });
+});
+
 // GET /
 router.get('/', (req, res) => {
   try {
@@ -500,7 +520,7 @@ router.post('/', async (req, res) => {
 });
 
 // PUT /:id — 修改訂單（fix18-09：加入 created_at / discount_category / discount_note）
-router.put('/:id', (req, res) => {
+router.put('/:id', async (req, res) => {
   try {
     const db = getDb();
     ensureFix1809Columns(db);
@@ -707,28 +727,85 @@ router.put('/:id', (req, res) => {
       : amountDiff < 0
         ? { type: 'refund', amount: Math.abs(amountDiff) }
         : { type: 'none', amount: 0 };
-    res.json({ success: true, data: parseOrder(updated), diff });
+
+    // hotfix13-BUG3：LinePay 改現金付款時，比照結帳流程自動開錢櫃（若店家有開啟自動開錢櫃）
+    let drawerResult = null;
+    const wasCash = order.payment_method === 'cash';
+    const nowCash = newPayment === 'cash';
+    if (!wasCash && nowCash) {
+      try {
+        const printService = require('../services/printService');
+        const cfg = printService.getPrinterConfig(storeId);
+        if (cfg.enabled && cfg.auto_drawer) {
+          drawerResult = await printService.openCashDrawer(storeId);
+        }
+      } catch (pe) { console.error('[EditOrder→Cash] 自動開錢櫃失敗:', pe.message); }
+    }
+
+    res.json({ success: true, data: parseOrder(updated), diff, drawerResult });
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
 
 // PATCH /:id/status
+// hotfix13-BUG7：與 line-orders.js PATCH /online/:id/status 共用同一份 ORDER_STATUSES，
+// 外帶／外送／LINE 訂單的狀態名稱與可轉換範圍完全一致，Web 與 Android 都呼叫這一組 API。
 router.patch('/:id/status', (req, res) => {
   try {
     const db = getDb();
     const storeId = req.storeId;
     const order = db.get(
-      'SELECT id FROM orders WHERE (id=? OR order_number=?) AND store_id=?',
+      'SELECT * FROM orders WHERE (id=? OR order_number=?) AND store_id=?',
       [req.params.id, req.params.id, storeId]
     );
     if (!order) return res.status(404).json({ success: false, message: '訂單不存在' });
+    if (order.status === 'void') return res.status(400).json({ success: false, message: '已作廢訂單不可修改狀態' });
     const { order_status } = req.body;
-    const valid = ['pending','preparing','delivering','completed','cancelled'];
-    if (!valid.includes(order_status)) return res.status(400).json({ success: false, message: '無效狀態' });
+
+    const result = applyOrderStatusChange(db, storeId, order, order_status);
+    if (!result.ok) return res.status(result.code).json({ success: false, message: result.message });
+
+    res.json({
+      success: true,
+      data: parseOrder(result.data),
+      requires_refund: result.requiresRefund,
+      message: result.message,
+    });
+  } catch(e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+// POST /:id/refund-complete — hotfix13-BUG6：店家完成退款後，標記待退款訂單為已退款
+router.post('/:id/refund-complete', (req, res) => {
+  try {
+    const db = getDb();
+    const storeId = req.storeId;
+    const order = db.get(
+      'SELECT * FROM orders WHERE (id=? OR order_number=?) AND store_id=?',
+      [req.params.id, req.params.id, storeId]
+    );
+    if (!order) return res.status(404).json({ success: false, message: '訂單不存在' });
+    if (order.refund_status !== 'pending_refund') {
+      return res.status(400).json({ success: false, message: '此訂單目前沒有待退款狀態' });
+    }
+    const { note = '' } = req.body;
     db.run(
-      "UPDATE orders SET order_status=?,updated_at=datetime('now','localtime') WHERE id=? AND store_id=?",
-      [order_status, order.id, storeId]
+      `UPDATE orders SET refund_status='refunded', refund_note=?, refunded_at=datetime('now','localtime'),
+         updated_at=datetime('now','localtime') WHERE id=? AND store_id=?`,
+      [note || '', order.id, storeId]
     );
     res.json({ success: true, data: parseOrder(db.get('SELECT * FROM orders WHERE id=? AND store_id=?', [order.id, storeId])) });
+  } catch(e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+// GET /pending-refunds — hotfix13-BUG6：待退款清單（Web／Android 共用）
+router.get('/reports/pending-refunds', (req, res) => {
+  try {
+    const db = getDb();
+    const storeId = req.storeId;
+    const orders = db.all(
+      `SELECT * FROM orders WHERE store_id=? AND refund_status='pending_refund' ORDER BY updated_at DESC`,
+      [storeId]
+    );
+    res.json({ success: true, data: orders.map(parseOrder) });
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
 
@@ -780,12 +857,24 @@ router.post('/:id/void', (req, res) => {
        order.payment_method, order.payment_method,
        Number(order.received_amount || 0), 0, Number(order.change_amount || 0), 0]
     );
-    returnInventory(db, items, order.id, 'void_return', storeId);
+    // hotfix13-BUG5：改用共用的回補函式（同時支援食材配方商品 + 秤重庫存商品），
+    // 跟取消訂單（PATCH /:id/status）、LINE 訂單取消用同一套回補規則
+    restockOrderItems(db, items, order.order_number || order.id, storeId, '訂單作廢回補');
+
+    // hotfix13-BUG6：LinePay 已付款訂單作廢 → 待退款，不當作單純作廢結案
+    const needsRefund = requiresRefundOnCancel(order);
     db.run(
-      `UPDATE orders SET status='void',order_status='cancelled',void_reason=?,voided_at=datetime('now','localtime'),updated_at=datetime('now','localtime') WHERE id=? AND store_id=?`,
+      `UPDATE orders SET status='void',order_status='cancelled',void_reason=?,voided_at=datetime('now','localtime'),
+         ${needsRefund ? "refund_status='pending_refund'," : ''}
+         updated_at=datetime('now','localtime') WHERE id=? AND store_id=?`,
       [reason.trim(), order.id, storeId]
     );
-    res.json({ success: true, data: parseOrder(db.get('SELECT * FROM orders WHERE id=? AND store_id=?', [order.id, storeId])) });
+    res.json({
+      success: true,
+      data: parseOrder(db.get('SELECT * FROM orders WHERE id=? AND store_id=?', [order.id, storeId])),
+      requires_refund: needsRefund,
+      message: needsRefund ? '訂單已作廢，該筆為 LINE Pay 已付款訂單，請至待退款清單處理退款' : undefined,
+    });
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
 
