@@ -1,16 +1,18 @@
-<div class="section-note">雙欄設計：左側為內容清單（可依狀態篩選），右側顯示所選內容全文與審核操作，介面概念類似 Email 收件匣。</div>
+<div class="section-note">Hotfix18：左側改成「商品分類」——先看每個商品各有多少待審核／已通過／已退回，點商品只看該商品的內容；右側維持文章詳情與審核操作。</div>
 
 <div class="stat-grid" style="grid-template-columns:repeat(4,1fr)" id="rStatGrid"></div>
 
-<div class="card">
-  <div class="flex-between">
-    <h3><span class="icon">✅</span>內容審核</h3>
-    <div>
-      <select id="rStatusFilter">
-        <option value="generated">待審核（generated）</option>
-        <option value="approved">已核准（approved）</option>
-        <option value="rejected">已退回（rejected）</option>
-      </select>
+<div class="review-layout">
+  <div class="card review-product-pane">
+    <div class="flex-between" style="margin-bottom:8px"><h3 style="margin:0">商品</h3><button class="link-btn" id="rRefreshBtn">🔄</button></div>
+    <div id="rProductList"><div class="empty">載入中...</div></div>
+    <div class="flex-between" style="margin:14px 0 6px"><strong style="font-size:12.5px;color:var(--text-secondary)">篩選</strong></div>
+    <div class="chip-row" id="rFilterChips"></div>
+  </div>
+
+  <div class="card review-content-pane">
+    <div class="flex-between">
+      <h3 style="margin:0"><span class="icon">✅</span>內容審核</h3>
       <select id="rSortBy">
         <option value="default">排序：預設（生成時間）</option>
         <option value="sensitive">排序：敏感優先</option>
@@ -18,11 +20,10 @@
         <option value="platform">排序：依平台（FB→LINE→其他）</option>
         <option value="completeness">排序：依商品完整度（低→高）</option>
       </select>
-      <button class="link-btn" id="rRefreshBtn">🔄</button>
     </div>
-  </div>
-  <div class="review-cols">
-    <div class="review-list-pane" id="rListPane"><div class="empty">載入中...</div></div>
-    <div class="review-detail-pane" id="rDetailPane"><div class="empty">請從左側選擇一筆內容查看詳情</div></div>
+    <div class="review-cols">
+      <div class="review-list-pane" id="rListPane"><div class="empty">載入中...</div></div>
+      <div class="review-detail-pane" id="rDetailPane"><div class="empty">請從左側選擇一筆內容查看詳情</div></div>
+    </div>
   </div>
 </div>

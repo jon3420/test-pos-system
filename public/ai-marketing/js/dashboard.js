@@ -151,9 +151,12 @@
       const ctas = [];
       if (ins.pct < 70) ctas.push({ label: '📚 補知識', href: '#/knowledge/' + ins.row.id });
       if (!hasTopic) ctas.push({ label: '📝 建主題', href: '#/topics/' + encodeURIComponent(ins.row.external_product_id) });
-      else if (!hasPrompt) ctas.push({ label: '🤖 補 Prompt', href: '#/prompts' });
-      if (hasPrompt && !hasGenerate) ctas.push({ label: '✨ 生成內容', href: '#/generate/' + encodeURIComponent(ins.row.external_product_id) });
-      if (ins.pendingCount) ctas.push({ label: '✅ 去審核', href: '#/review' });
+      else if (!hasPrompt) ctas.push({ label: '🤖 補 Prompt', href: '#/topics/' + encodeURIComponent(ins.row.external_product_id) });
+      // Hotfix18 Goal1：Prompt 一旦存在就一律可以生成內容，不因為已經生成過或有待審核就拿掉這顆按鈕，
+      // 避免使用者誤以為「已經生成過就只能去審核、不能再生成」。
+      if (hasPrompt) ctas.push({ label: '✨ 生成內容', href: '#/generate/' + encodeURIComponent(ins.row.external_product_id) });
+      // Hotfix18 Goal4：所有「前往審核」都要帶數字，並且導到該商品專屬的 Review 分類。
+      if (ins.pendingCount) ctas.push({ label: `✅ 前往審核 ${ins.pendingCount}`, href: '#/review/' + encodeURIComponent(ins.row.external_product_id) });
       if (!ctas.length) ctas.push({ label: '👍 保持優化', href: '#/knowledge/' + ins.row.id });
 
       let cls = 'task-card';

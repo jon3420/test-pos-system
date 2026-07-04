@@ -39,10 +39,35 @@
     await renderRecommend(root);
 
     if (param) {
+      // Hotfix18 Goal2：支援 #/generate/<product>/<topic_id>/<platform>/<content_goal> 深連結，
+      // 從 Topic 頁的每列動作（生成內容／再次生成）點過來時，直接跳到對應步驟，不用使用者重選一次。
+      const parts = param.split('/').map((p) => decodeURIComponent(p));
+      const [extId, topicId, platform, goal] = parts;
       const dom = AIMC.DOM.forPage('Generate');
       const grid = dom.query(root, '#gProductGrid');
-      const card = grid ? grid.querySelector(`[data-id="${CSS.escape(param)}"]`) : null;
-      if (card) await selectProduct(root, card);
+      const card = grid ? grid.querySelector(`[data-id="${CSS.escape(extId)}"]`) : null;
+      if (card) {
+        await selectProduct(root, card);
+        if (topicId) {
+          const topicGrid = dom.query(root, '#gTopicGrid');
+          const topicCard = topicGrid ? topicGrid.querySelector(`[data-id="${CSS.escape(topicId)}"]`) : null;
+          if (topicCard) {
+            selectTopic(root, topicCard);
+            if (platform) {
+              const platGrid = dom.query(root, '#gPlatformGrid');
+              const platCard = platGrid ? platGrid.querySelector(`[data-p="${CSS.escape(platform)}"]`) : null;
+              if (platCard) {
+                selectPlatform(root, platCard);
+                if (goal) {
+                  const goalGrid = dom.query(root, '#gGoalGrid');
+                  const goalCard = goalGrid ? goalGrid.querySelector(`[data-g="${CSS.escape(goal)}"]`) : null;
+                  if (goalCard) selectGoalCard(root, dom, goalCard);
+                }
+              }
+            }
+          }
+        }
+      }
     }
   }
 
@@ -248,12 +273,15 @@
     setGenerateEnabled(root, dom, false);
     const grid = dom.query(root, '#gGoalGrid');
     if (grid) {
-      grid.querySelectorAll('[data-g]').forEach((c) => c.addEventListener('click', () => {
-        picked.content_goal = c.dataset.g;
-        grid.querySelectorAll('.pick-card').forEach((x) => x.classList.toggle('selected', x === c));
-        checkPromptStep(root, dom);
-      }));
+      grid.querySelectorAll('[data-g]').forEach((c) => c.addEventListener('click', () => selectGoalCard(root, dom, c)));
     }
+  }
+
+  function selectGoalCard(root, dom, cardEl) {
+    const grid = dom.query(root, '#gGoalGrid');
+    picked.content_goal = cardEl.dataset.g;
+    if (grid) grid.querySelectorAll('.pick-card').forEach((x) => x.classList.toggle('selected', x === cardEl));
+    checkPromptStep(root, dom);
   }
 
   function setGenerateEnabled(root, dom, enabled) {
@@ -319,6 +347,14 @@
         <div class="gen-result">${AIMC.esc(data.generated_text)}</div>
         <p class="muted" style="margin-top:8px">模型：${AIMC.esc(data.model_provider)}/${AIMC.esc(data.model_name)}　請至「審核」核准後才能排程發布（Phase 2 以後功能）</p>
       `);
+      // Hotfix18 Goal4：前往審核按鈕要帶上「這個商品」目前的待審核數，並導到該商品專屬的 Review 分類，
+      // 數字一律用 AIMC.reviewStatsForProduct（跟 Dashboard/Knowledge/Topic 同一套算法）。
+      const reviewBtn = lc.dom.query(root, '#gReviewBtn');
+      if (reviewBtn) {
+        const pending = AIMC.reviewStatsForProduct(picked.external_product_id).pending;
+        reviewBtn.textContent = `✅ 前往審核 ${pending}`;
+        reviewBtn.setAttribute('onclick', `location.hash='#/review/${encodeURIComponent(picked.external_product_id)}'`);
+      }
       const resultCard = lc.dom.query(root, '#gResultCard');
       if (resultCard) resultCard.scrollIntoView({ behavior: 'smooth' });
       loadHistory(root);

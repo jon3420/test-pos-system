@@ -1,59 +1,79 @@
 // ============================================================
-// review.js — 審核 Workspace V3（雙欄 Email 式介面 + 排序 + 建議 + 複製）
-// CRUD 呼叫方式與欄位 100% 沿用 Phase 1 /review 端點，不做任何邏輯變更。
-// 排序 / 敏感標示 / AI 建議文字 / 複製功能，全部是前端對既有資料的
-// 排序與展示處理，不新增、不修改任何 API。
+// review.js — Hotfix18：審核頁改成「商品歸類」
 //
-// V3.1 Stability Pass：所有 DOM 讀寫改用 AIMC.DOM，refresh()（打了 3 支 API
-// ＋ N 支 /knowledge/:id 明細）用 AIMC.startLifecycle() 做 Page Token 檢查。
+// 目標：左側先看每個商品各有多少待審核／已通過／已退回／今日生成，
+// 點一個商品只看該商品內容；右側維持原本雙欄（清單＋詳情）＋核准/退回。
+//
+// 不新增/修改 API：approve/reject 仍是既有 POST /review/:id/approve、/reject。
+// 列表資料來源改用既有 GET /content-history（本來就會回傳「全部狀態」，
+// 不像 GET /review?status= 一次只能拿一種狀態），前端再用 AIMC.store.topics
+// 做 join 補上 product_name / topic_title（跟 Topic 頁同樣的作法），
+// 這樣才能同時做「商品分類」＋「只看待審核／今日／FB/LINE」這些交叉篩選。
+//
+// 支援路由參數 #/review/<external_product_id>：自動選定該商品。
+//
+// Hotfix18 Goal5：待審核／已通過／已退回數字一律用 AIMC.reviewStatsForProduct，
+// 跟 Dashboard / Knowledge Health Card / Topic 頁共用同一套算法。
 // ============================================================
 (function () {
-  let selectedId = null;
-  let currentList = [];
-  let currentDom = null; // 記錄最近一次 lifecycle 的 dom（含 listener registry），供 destroy() 使用
+  let selectedItemId = null;
+  let selectedProductId = null; // null = 全部商品
+  let activeFilter = 'all'; // all|pending|today|fb|line
+  let fullList = [];
+  let currentDom = null;
   const PLATFORM_ORDER = ['fb', 'line', 'ig', 'tiktok', 'threads', 'google_business', 'youtube_shorts'];
 
-  async function load(root) {
+  const FILTER_CHIPS = [
+    { key: 'all', label: '全部商品' },
+    { key: 'pending', label: '只看待審核' },
+    { key: 'today', label: '只看今日生成' },
+    { key: 'fb', label: '只看 Facebook' },
+    { key: 'line', label: '只看 LINE' },
+  ];
+
+  async function load(root, param) {
     const lc = AIMC.startLifecycle('Review');
     currentDom = lc.dom;
-    lc.dom.on(root, '#rStatusFilter', 'change', () => { selectedId = null; refresh(root); });
-    lc.dom.on(root, '#rSortBy', 'change', () => { renderList(root, lc.dom, lc.dom.value(root, '#rStatusFilter')); });
+    lc.dom.on(root, '#rSortBy', 'change', () => renderList(root, lc.dom));
     lc.dom.on(root, '#rRefreshBtn', 'click', () => refresh(root));
     lc.done('event bindings ready');
-    await refresh(root);
+    await refresh(root, param ? decodeURIComponent(param) : null);
   }
 
-  async function refresh(root) {
+  async function refresh(root, presetProductId) {
     const lc = AIMC.startLifecycle('Review:refresh');
     currentDom = lc.dom;
-    const status = lc.dom.value(root, '#rStatusFilter') || 'generated';
     lc.dom.html(root, '#rListPane', AIMC.loadingHtml());
     try {
       const rc = await AIMC.loadReviewCounts();
       if (!lc.checkpoint('review counts 完成')) return;
       renderStats(root, lc.dom, rc);
 
-      const [{ data: list }, { data: topics }, { data: knowledge }] = await Promise.all([
-        AIMC.api('/review?status=' + encodeURIComponent(status)), AIMC.api('/topics'), AIMC.api('/knowledge'),
+      const [{ data: history }, { data: topics }, { data: knowledge }] = await Promise.all([
+        AIMC.api('/content-history'), AIMC.api('/topics'), AIMC.api('/knowledge'),
       ]);
-      if (!lc.checkpoint('review/topics/knowledge 完成')) return;
+      if (!lc.checkpoint('content-history/topics/knowledge 完成')) return;
       AIMC.store.topics = topics;
       AIMC.store.knowledge = knowledge;
-      currentList = list;
+      AIMC.store.history = history;
+
+      // 用 topic_id join 回 external_product_id / product_name / topic_title，
+      // 跟 Topic 頁同一套資料來源，保證兩邊「哪篇屬於哪個商品」永遠一致。
+      const topicMap = Object.fromEntries(topics.map((t) => [t.id, t]));
+      fullList = history.map((h) => {
+        const t = topicMap[h.topic_id];
+        return { ...h, external_product_id: t?.external_product_id, product_name: t?.product_name, topic_title: t?.title };
+      });
 
       await ensureCompletenessMap();
       if (!lc.checkpoint('completeness 明細完成')) return;
 
-      renderList(root, lc.dom, status);
-      if (selectedId && list.some((d) => d.id === selectedId)) {
-        renderDetail(root, lc.dom, selectedId, status);
-      } else if (list.length) {
-        selectedId = list[0].id;
-        renderDetail(root, lc.dom, selectedId, status);
-      } else {
-        selectedId = null;
-        lc.dom.html(root, '#rDetailPane', '<div class="empty">請從左側選擇一筆內容查看詳情</div>');
-      }
+      if (presetProductId) selectedProductId = presetProductId;
+      if (selectedProductId && !knowledge.some((k) => k.external_product_id === selectedProductId)) selectedProductId = null;
+
+      renderProductList(root, lc.dom);
+      renderFilterChips(root, lc.dom);
+      renderList(root, lc.dom);
       lc.done();
     } catch (e) {
       lc.fail(e, root, '#rListPane');
@@ -63,6 +83,60 @@
   // 商品完整度排序需要每個知識項目的明細（loadKnowledgeDetails 會抓 N 次 /knowledge/:id）
   async function ensureCompletenessMap() {
     try { await AIMC.loadKnowledgeDetails(); } catch (e) { /* 排序退回不依完整度也沒關係 */ }
+  }
+
+  function renderStats(root, dom, rc) {
+    const todayCount = [...rc.a, ...rc.r].filter((h) => AIMC.isToday(h.updated_at)).length;
+    dom.html(root, '#rStatGrid', [
+      AIMC.statCard('⏳', AIMC.store.reviewCounts.generated, '待審核', 'warn'),
+      AIMC.statCard('✅', AIMC.store.reviewCounts.approved, '已通過'),
+      AIMC.statCard('❌', AIMC.store.reviewCounts.rejected, '已退回', 'danger'),
+      AIMC.statCard('📅', todayCount, '今日審核數'),
+    ].join(''));
+  }
+
+  // ── 左側：商品分類清單 ──
+  function renderProductList(root, dom) {
+    const knowledge = AIMC.store.knowledge;
+    if (!knowledge.length) { dom.html(root, '#rProductList', AIMC.emptyState('📦', '尚無商品知識')); return; }
+    const rows = knowledge.map((k) => ({ k, rs: AIMC.reviewStatsForProduct(k.external_product_id) }))
+      .sort((a, b) => b.rs.pending - a.rs.pending);
+    dom.html(root, '#rProductList', rows.map(({ k, rs }) => `
+      <div class="review-product-item ${k.external_product_id === selectedProductId ? 'active' : ''}" data-pid="${AIMC.esc(k.external_product_id)}">
+        <div class="rpi-name">${AIMC.esc(k.product_name)}</div>
+        <div class="rpi-stats">待審核 <b class="pending">${rs.pending}</b>｜已通過 <b class="approved">${rs.approved}</b>｜退回 <b class="rejected">${rs.rejected}</b>｜今日生成 ${rs.todayGenerated}</div>
+      </div>`).join(''));
+    const el = dom.query(root, '#rProductList');
+    if (el) el.querySelectorAll('[data-pid]').forEach((item) => item.addEventListener('click', () => {
+      selectedProductId = (item.dataset.pid === selectedProductId) ? null : item.dataset.pid;
+      selectedItemId = null;
+      renderProductList(root, dom);
+      renderList(root, dom);
+    }));
+  }
+
+  // ── 篩選 chip：全部商品／只看待審核／只看今日生成／只看 Facebook／只看 LINE ──
+  function renderFilterChips(root, dom) {
+    dom.html(root, '#rFilterChips', FILTER_CHIPS.map((f) => `
+      <span class="chip ${f.key === activeFilter ? 'active' : ''}" data-filter="${f.key}">${AIMC.esc(f.label)}</span>
+    `).join(''));
+    const el = dom.query(root, '#rFilterChips');
+    if (el) el.querySelectorAll('[data-filter]').forEach((c) => c.addEventListener('click', () => {
+      activeFilter = c.dataset.filter;
+      if (activeFilter === 'all') { selectedProductId = null; renderProductList(root, dom); }
+      renderFilterChips(root, dom);
+      renderList(root, dom);
+    }));
+  }
+
+  function applyFilters(list) {
+    let out = list;
+    if (selectedProductId) out = out.filter((h) => h.external_product_id === selectedProductId);
+    if (activeFilter === 'pending') out = out.filter((h) => h.status === 'generated');
+    else if (activeFilter === 'today') out = out.filter((h) => AIMC.isToday(h.created_at));
+    else if (activeFilter === 'fb') out = out.filter((h) => h.platform === 'fb');
+    else if (activeFilter === 'line') out = out.filter((h) => h.platform === 'line');
+    return out;
   }
 
   function topicOf(item) {
@@ -92,18 +166,10 @@
       });
     } else if (sortBy === 'completeness') {
       arr.sort((a, b) => completenessOf(a) - completenessOf(b));
+    } else {
+      arr.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
     }
     return arr;
-  }
-
-  function renderStats(root, dom, rc) {
-    const todayCount = [...rc.a, ...rc.r].filter((h) => AIMC.isToday(h.updated_at)).length;
-    dom.html(root, '#rStatGrid', [
-      AIMC.statCard('⏳', AIMC.store.reviewCounts.generated, '待審核', 'warn'),
-      AIMC.statCard('✅', AIMC.store.reviewCounts.approved, '已通過'),
-      AIMC.statCard('❌', AIMC.store.reviewCounts.rejected, '已退回', 'danger'),
-      AIMC.statCard('📅', todayCount, '今日審核數'),
-    ].join(''));
   }
 
   function reviewHint(item) {
@@ -114,18 +180,26 @@
     return '';
   }
 
-  function renderList(root, dom, status) {
-    if (!currentList.length) { dom.html(root, '#rListPane', AIMC.emptyState('✅', '目前沒有符合條件的內容')); return; }
+  function currentFilteredList(root, dom) {
     const sortBy = dom.value(root, '#rSortBy') || 'default';
-    const sorted = sortList(currentList, sortBy);
-    dom.html(root, '#rListPane', sorted.map((item) => {
+    return sortList(applyFilters(fullList), sortBy);
+  }
+
+  function renderList(root, dom) {
+    const list = currentFilteredList(root, dom);
+    if (!list.length) {
+      dom.html(root, '#rListPane', AIMC.emptyState('✅', '目前沒有符合條件的內容'));
+      dom.html(root, '#rDetailPane', '<div class="empty">請從左側選擇一筆內容查看詳情</div>');
+      return;
+    }
+    dom.html(root, '#rListPane', list.map((item) => {
       const goal = (item.generation_params && item.generation_params.content_goal) || '-';
       const topic = topicOf(item);
       const hint = reviewHint(item);
       return `
-      <div class="review-list-item ${item.id === selectedId ? 'active' : ''}" data-id="${item.id}">
+      <div class="review-list-item ${item.id === selectedItemId ? 'active' : ''}" data-id="${item.id}">
         <div class="rli-top"><span>${AIMC.platformLabel(item.platform)} ・ ${AIMC.esc(goal)}</span><span>${AIMC.fmtTime(item.created_at)}</span></div>
-        <div class="rli-title">${AIMC.esc(item.product_name || '-')} ・ ${AIMC.esc(item.topic_title || '-')} ${topic && topic.claim_sensitive ? AIMC.badge('⚠️敏感', 'sensitive') : ''}</div>
+        <div class="rli-title">${AIMC.esc(item.product_name || '-')} ・ ${AIMC.esc(item.topic_title || '-')} ${topic && topic.claim_sensitive ? AIMC.badge('⚠️敏感', 'sensitive') : ''} ${AIMC.badge(item.status, item.status)}</div>
         <div class="rli-preview">${AIMC.esc((item.generated_text || '').slice(0, 60))}</div>
         ${hint ? `<div class="review-hint">${AIMC.esc(hint)}</div>` : ''}
       </div>`;
@@ -133,13 +207,19 @@
     const el = dom.query(root, '#rListPane');
     if (el) {
       el.querySelectorAll('[data-id]').forEach((it) => it.addEventListener('click', () => {
-        selectedId = it.dataset.id; renderList(root, dom, status); renderDetail(root, dom, selectedId, status);
+        selectedItemId = it.dataset.id; renderList(root, dom);
       }));
+    }
+    if (selectedItemId && list.some((d) => d.id === selectedItemId)) {
+      renderDetail(root, dom, selectedItemId);
+    } else {
+      selectedItemId = list[0].id;
+      renderDetail(root, dom, selectedItemId);
     }
   }
 
-  function renderDetail(root, dom, id, status) {
-    const item = currentList.find((x) => x.id === id);
+  function renderDetail(root, dom, id) {
+    const item = fullList.find((x) => x.id === id);
     if (!item) { dom.html(root, '#rDetailPane', '<div class="empty">請從左側選擇一筆內容查看詳情</div>'); return; }
     const goal = (item.generation_params && item.generation_params.content_goal) || '-';
     const topic = topicOf(item);
@@ -157,7 +237,6 @@
       </div>
       <p class="muted" style="margin:8px 0">
         模型：${AIMC.esc(item.model_provider || '-')}/${AIMC.esc(item.model_name || '-')}
-        　Prompt 版本：v${AIMC.esc(item.prompt_version ?? '-')}
         　耗時：${item.duration_ms != null ? item.duration_ms + 'ms' : '-'}
         　生成時間：${AIMC.fmtTime(item.created_at)}
       </p>
@@ -166,13 +245,13 @@
       ${item.reject_reason ? `<p class="muted">退回原因：${AIMC.esc(item.reject_reason)}</p>` : ''}
       <div class="row-actions">
         <button class="btn secondary" id="r_copyBtn">📋 複製</button>
-        ${status === 'generated' ? `
+        ${item.status === 'generated' ? `
           <button class="btn success" id="r_approveBtn">✅ 核准</button>
           <button class="btn danger" id="r_rejectBtn">❌ 退回</button>` : ''}
       </div>
     `);
     dom.on(root, '#r_copyBtn', 'click', () => AIMC.copyToClipboard(item.generated_text));
-    if (status === 'generated') {
+    if (item.status === 'generated') {
       dom.on(root, '#r_approveBtn', 'click', () => approve(root, item.id));
       dom.on(root, '#r_rejectBtn', 'click', () => reject(root, item.id));
     }

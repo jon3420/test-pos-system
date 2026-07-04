@@ -136,12 +136,32 @@
     const topics = s.topics.filter((t) => t.external_product_id === externalProductId);
     const topicIds = new Set(topics.map((t) => t.id));
     const promptCount = s.prompts.filter((p) => topicIds.has(p.topic_id)).length;
-    const genCount = s.history.filter((h) => topicIds.has(h.topic_id)).length;
-    const reviewCount = s.history.filter((h) => topicIds.has(h.topic_id) && h.status !== 'generated').length;
+    // Hotfix18 Goal5：待審核/已通過/已退回一律走 AIMC.reviewStatsForProduct，
+    // 跟 Dashboard、Knowledge Health Card、Review 頁共用同一套算法。
+    const rs = AIMC.reviewStatsForProduct(externalProductId);
     const pct = topics.length ? Math.round((topics.filter((t) => {
       return s.history.some((h) => h.topic_id === t.id && h.status === 'approved');
     }).length / topics.length) * 100) : 0;
-    return { topics, promptCount, genCount, reviewCount, pct };
+    return {
+      topics, promptCount, genCount: rs.total, pendingCount: rs.pending,
+      reviewedCount: rs.approved + rs.rejected, approvedCount: rs.approved, rejectedCount: rs.rejected, pct,
+    };
+  }
+
+  // 幫「生成內容／再次生成」深連結決定要帶哪個 content_goal：
+  // 優先找這個主題在指定平台已存在的 Prompt 的 content_goal（一定能成功生成），
+  // 找不到才退回 Zero Workflow Engine 的預設目的（教育）。
+  function pickGoalForTopic(topicId, platform) {
+    const s = AIMC.store;
+    const onPlatform = s.prompts.find((p) => p.topic_id === topicId && p.platform === platform);
+    if (onPlatform) return onPlatform.content_goal;
+    const any = s.prompts.find((p) => p.topic_id === topicId);
+    if (any) return any.content_goal;
+    return AIMC.Workflow.BASELINE_GOAL;
+  }
+
+  function generateHref(externalProductId, topicId, platform, goal) {
+    return '#/generate/' + [externalProductId, topicId, platform, goal].map((s) => encodeURIComponent(s)).join('/');
   }
 
   function renderProductList(root, dom) {
@@ -160,7 +180,7 @@
         ${k.product_image_url ? `<img class="pli-thumb" src="${AIMC.esc(k.product_image_url)}" alt="">` : '<div class="pli-thumb">🍽️</div>'}
         <div class="pli-body">
           <div class="pli-name">${AIMC.esc(k.product_name)}</div>
-          <div class="pli-stats">主題 ${st.topics.length} ・ Prompt ${st.promptCount} ・ 生成 ${st.genCount} ・ 審核 ${st.reviewCount}</div>
+          <div class="pli-stats">主題 ${st.topics.length} ・ Prompt ${st.promptCount} ・ 生成 ${st.genCount} ・ 待審核 ${st.pendingCount}</div>
         </div>
         <div class="pli-pct">${st.pct}%</div>
       </div>`;
@@ -194,23 +214,67 @@
     }
   }
 
+  // Hotfix18 Goal2：banner 文字/是否顯示一律用 AIMC.Workflow.productStepCta 算出的 step 決定，
+  // 只有「按鈕點下去要做什麼」依頁面情境客製（Knowledge 頁跳頁，Topics 頁盡量頁內完成）。
+  function renderNextStepBannerHtml(nextCta, insight, topics) {
+    if (nextCta.step === 'topic') {
+      return `<div class="workflow-card"><div class="wf-icon">👉</div><div class="wf-body"><div class="wf-title">下一步：${nextCta.hint}</div></div><button class="btn ai sm" data-banner-action="topic">${nextCta.label}</button></div>`;
+    }
+    if (nextCta.step === 'prompt') {
+      return `<div class="workflow-card"><div class="wf-icon">👉</div><div class="wf-body"><div class="wf-title">下一步：${nextCta.hint}</div></div><button class="btn ai sm" data-banner-action="prompt">${nextCta.label}</button></div>`;
+    }
+    if (nextCta.step === 'generate') {
+      const t0 = topics[0];
+      const href = t0 ? generateHref(selectedProductId, t0.id, 'fb', pickGoalForTopic(t0.id, 'fb')) : '#/generate/' + encodeURIComponent(selectedProductId);
+      return `<div class="workflow-card"><div class="wf-icon">👉</div><div class="wf-body"><div class="wf-title">下一步：${nextCta.hint}</div></div><button class="btn ai sm" onclick="location.hash='${href}'">${nextCta.label}</button></div>`;
+    }
+    if (nextCta.step === 'review') {
+      return `<div class="workflow-card"><div class="wf-icon">👉</div><div class="wf-body"><div class="wf-title">下一步：${nextCta.hint}</div></div><button class="btn ai sm" onclick="location.hash='${nextCta.href(insight)}'">${nextCta.label}</button></div>`;
+    }
+    // done：全部齊全且沒有待審核 —— 只有已經生成過內容才提示「可以再生成」，避免對全新商品也顯示這句
+    if (insight.genCount > 0) {
+      const t0 = topics[0];
+      const href = t0 ? generateHref(selectedProductId, t0.id, 'fb', pickGoalForTopic(t0.id, 'fb')) : '#/generate/' + encodeURIComponent(selectedProductId);
+      return `<div class="workflow-card"><div class="wf-icon">✨</div><div class="wf-body"><div class="wf-title">下一步：再次生成內容</div><div class="wf-desc">目前生成的內容都已審核完畢，可以繼續生成新素材。</div></div><button class="btn ai sm" onclick="location.hash='${href}'">✨ 生成內容</button></div>`;
+    }
+    return '';
+  }
+
+  function handleBannerAction(root, dom, action) {
+    if (action === 'topic') { toggleCreatePanel(root, dom); return; }
+    if (action === 'prompt') { activeTab = 'promptStatus'; renderDetailPane(root, dom); return; }
+  }
+
   function renderDetailPane(root, dom) {
     const product = AIMC.store.knowledge.find((k) => k.external_product_id === selectedProductId);
     if (!product) { dom.html(root, '#t_detailPane', AIMC.emptyState('📦', '找不到此商品')); return; }
     const topics = AIMC.store.topicsByProduct[selectedProductId] || [];
     const st = productStats(selectedProductId);
 
+    // Hotfix18 Goal2：右側加一個明顯的「下一步」CTA 區，跟 Knowledge 健康卡共用
+    // 同一套 AIMC.Workflow.productStepCta() 判斷（Goal5 一致性），不要自己另外寫一份規則。
+    // 「建立 Topic／建立 Prompt」在本頁就能完成，所以按鈕改成頁內動作（開表單／切 tab），
+    // 不會呆呆導到同一頁；「生成內容／前往審核」才需要真的跳頁。
+    const insight = {
+      row: { external_product_id: selectedProductId, id: product.id },
+      topics: st.topics, promptCount: st.promptCount, genCount: st.genCount, pendingCount: st.pendingCount,
+    };
+    const nextCta = AIMC.Workflow.productStepCta(insight);
+    const nextStepBanner = renderNextStepBannerHtml(nextCta, insight, topics);
+
     dom.html(root, '#t_detailPane', `
       <div class="flex-between">
         <div>
           <h3 class="td-header-title">${AIMC.esc(product.product_name)} ${AIMC.badge('active', 'active')}</h3>
-          <div class="td-meta">📝 主題 ${st.topics.length} ・ 🤖 Prompt ${st.promptCount} ・ ✨ 生成 ${st.genCount} ・ ✅ 審核 ${st.reviewCount} ・ 📈 完成度 ${st.pct}%</div>
+          <div class="td-meta">📝 主題 ${st.topics.length} ・ 🤖 Prompt ${st.promptCount} ・ ✨ 生成 ${st.genCount} ・ ⏳ 待審核 ${st.pendingCount} ・ 📈 完成度 ${st.pct}%</div>
         </div>
         <div class="row-actions" style="margin-top:0">
           <button class="btn ai sm" id="t_aiSuggestBtn">🪄 AI 建議主題</button>
           <button class="btn sm" id="t_newTopicBtn">➕ 新增主題</button>
         </div>
       </div>
+
+      ${nextStepBanner}
 
       <div class="topic-create-panel" id="t_suggestPanel">
         <div class="flex-between" style="margin-bottom:8px"><strong style="font-size:13px">🤖 AI Topic Suggestions</strong></div>
@@ -246,6 +310,7 @@
     dom.on(root, '#t_newTopicBtn', 'click', () => toggleCreatePanel(root, dom));
     dom.on(root, '#t_cancelCreateBtn', 'click', () => dom.classRemove(root, '#t_createPanel', 'open'));
     dom.on(root, '#t_createBtn', 'click', () => createTopic(root, dom));
+    dom.on(root, '[data-banner-action]', 'click', (e) => handleBannerAction(root, dom, e.currentTarget.dataset.bannerAction));
     const tabsEl = dom.query(root, '#t_tabs');
     if (tabsEl) tabsEl.querySelectorAll('[data-tab]').forEach((t) => t.addEventListener('click', () => {
       activeTab = t.dataset.tab;
@@ -326,9 +391,9 @@
     return '<span class="priority-badge low">低</span>';
   }
 
-  // 狀態判斷（依需求規則）：未開始＝Prompt=0 且 Generated=0；進行中＝Generated>0 且 Review=0；已完成＝Review>0
-  function topicStatus(promptCount, genCount, reviewCount) {
-    if (reviewCount > 0) return { key: 'done', label: '已完成' };
+  // 狀態判斷（依需求規則）：未開始＝Prompt=0 且 Generated=0；進行中＝Generated>0 且 已審核=0；已完成＝已審核(approved+rejected)>0
+  function topicStatus(promptCount, genCount, reviewedCount) {
+    if (reviewedCount > 0) return { key: 'done', label: '已完成' };
     if (genCount > 0) return { key: 'inprogress', label: '進行中' };
     if (promptCount === 0 && genCount === 0) return { key: 'notstarted', label: '未開始' };
     return { key: 'inprogress', label: '進行中' };
@@ -343,26 +408,42 @@
     const s = AIMC.store;
     dom.html(root, '#t_tabPanel', `
       <table>
-        <thead><tr><th>主題</th><th>分類</th><th>Prompt</th><th>生成</th><th>審核</th><th>優先度</th><th>狀態</th><th>操作</th></tr></thead>
+        <thead><tr><th>主題</th><th>分類</th><th>Prompt</th><th>生成</th><th>待審核</th><th>優先度</th><th>狀態</th><th>操作</th></tr></thead>
         <tbody>
           ${topics.map((t) => {
             const promptCount = s.prompts.filter((p) => p.topic_id === t.id).length;
             const platformsCovered = MATRIX_PLATFORMS.filter((pl) => s.prompts.some((p) => p.topic_id === t.id && p.platform === pl)).length;
-            const genCount = s.history.filter((h) => h.topic_id === t.id).length;
-            const reviewCount = s.history.filter((h) => h.topic_id === t.id && h.status !== 'generated').length;
-            const status = topicStatus(promptCount, genCount, reviewCount);
+            // Hotfix18 Goal5：即使是單一 Topic 的待審核數，也走同一套 AIMC.reviewStatsForTopicIds。
+            const topicRs = AIMC.reviewStatsForTopicIds([t.id]);
+            const genCount = topicRs.total;
+            const pendingCount = topicRs.pending;
+            const reviewedCount = topicRs.approved + topicRs.rejected;
+            const status = topicStatus(promptCount, genCount, reviewedCount);
+
+            // Hotfix18 Goal2：每列操作依 4 態決定——缺 Prompt／有 Prompt 未生成／有生成待審核／都完成再次生成
+            let action;
+            if (promptCount === 0) {
+              action = { label: '建立 Prompt', href: '#/prompts/' + encodeURIComponent(t.id) + '/fb' };
+            } else if (genCount === 0) {
+              action = { label: '生成內容', href: generateHref(selectedProductId, t.id, 'fb', pickGoalForTopic(t.id, 'fb')) };
+            } else if (pendingCount > 0) {
+              action = { label: `前往審核 ${pendingCount}`, href: '#/review/' + encodeURIComponent(selectedProductId) };
+            } else {
+              action = { label: '再次生成', href: generateHref(selectedProductId, t.id, 'fb', pickGoalForTopic(t.id, 'fb')) };
+            }
+
             return `
             <tr>
               <td>${AIMC.esc(t.title)}</td>
               <td>${AIMC.esc(t.category)}</td>
               <td>${platformsCovered}/${MATRIX_PLATFORMS.length}</td>
               <td>${genCount}</td>
-              <td>${reviewCount}</td>
+              <td>${pendingCount}</td>
               <td>${priorityBadge(t.priority || 0)}</td>
               <td><span class="topic-status-badge ${status.key}">${status.label}</span></td>
               <td class="row-actions" style="margin-top:0">
                 <button class="link-btn" data-view="${t.id}">檢視</button>
-                ${promptCount === 0 ? `<button class="link-btn" data-mkprompt="${t.id}">建立 Prompt</button>` : ''}
+                <button class="link-btn" data-action-href="${AIMC.esc(action.href)}">${AIMC.esc(action.label)}</button>
               </td>
             </tr>`;
           }).join('')}
@@ -376,8 +457,8 @@
         activeTab = 'promptStatus';
         renderDetailPane(root, dom);
       }));
-      el.querySelectorAll('[data-mkprompt]').forEach((b) => b.addEventListener('click', () => {
-        location.hash = '#/prompts/' + encodeURIComponent(b.dataset.mkprompt) + '/fb';
+      el.querySelectorAll('[data-action-href]').forEach((b) => b.addEventListener('click', () => {
+        location.hash = b.dataset.actionHref;
       }));
     }
   }
@@ -462,9 +543,10 @@
     const topicIds = new Set(topics.map((t) => t.id));
     const topicMap = Object.fromEntries(topics.map((t) => [t.id, t.title]));
     const items = AIMC.store.history.filter((h) => topicIds.has(h.topic_id) && h.status !== 'generated').sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-    const pendingCount = AIMC.store.history.filter((h) => topicIds.has(h.topic_id) && h.status === 'generated').length;
+    // Hotfix18 Goal5：待審核數改走 AIMC.reviewStatsForProduct，跟其他頁一致。
+    const pending = AIMC.reviewStatsForProduct(selectedProductId).pending;
     dom.html(root, '#t_tabPanel', `
-      ${pendingCount ? `<div class="workflow-card"><div class="wf-icon">⏳</div><div class="wf-body"><div class="wf-title">有 ${pendingCount} 篇待審核</div><div class="wf-desc">實際核准／退回請至「審核」頁進行，這裡只顯示紀錄。</div></div><button class="btn ai sm" onclick="location.hash='#/review'">前往審核</button></div>` : ''}
+      ${pending ? `<div class="workflow-card"><div class="wf-icon">⏳</div><div class="wf-body"><div class="wf-title">有 ${pending} 篇待審核</div><div class="wf-desc">實際核准／退回請至「審核」頁進行，這裡只顯示紀錄。</div></div><button class="btn ai sm" onclick="location.hash='#/review/${encodeURIComponent(selectedProductId)}'">前往審核 ${pending}</button></div>` : ''}
       ${items.length ? `
       <table>
         <thead><tr><th>主題</th><th>平台</th><th>決議</th><th>時間</th></tr></thead>

@@ -60,7 +60,8 @@
     const avg = s.knowledge.length
       ? Math.round(s.knowledge.reduce((sum, r) => sum + AIMC.calcCompleteness(s.knowledgeDetail[r.id]), 0) / s.knowledge.length)
       : 0;
-    const pendingReview = s.history.filter((h) => h.status === 'generated').length;
+    // Hotfix18 Goal5：全店待審核數也走 AIMC.reviewStatsForTopicIds，跟其他頁同一套算法。
+    const pendingReview = AIMC.reviewStatsForTopicIds(s.topics.map((t) => t.id)).pending;
     const totalProducts = Math.max(s.posProducts.length, s.knowledge.length);
     dom.html(root, '#kStatGrid', [
       AIMC.statCard('📦', totalProducts, 'POS 商品數'),
@@ -97,7 +98,7 @@
         </div>`;
       }
       return (() => {
-        const cta = AIMC.Workflow.productStepCta(ins);
+        const ctaInfo = AIMC.Workflow.productHealthCtas(ins);
         return `
       <div class="health-card" data-open="${row.id}">
         <div class="hc-head">
@@ -111,10 +112,10 @@
           <div><div class="hc-stat-num">${ins.genCount}</div><div class="hc-stat-label">Generated</div></div>
           <div><div class="hc-stat-num">${ins.pendingCount}</div><div class="hc-stat-label">Review</div></div>
         </div>
-        <div class="hc-hint">💡 AI 建議：${AIMC.esc(cta.hint)}</div>
+        <div class="hc-hint">💡 AI 建議：${AIMC.esc(ctaInfo.hint)}</div>
         <div class="hc-ctas">
           <button class="btn secondary sm" data-edit="${row.id}">📚 補知識</button>
-          <button class="btn ai sm" data-cta-href="${AIMC.esc(cta.href(ins))}">${cta.label}</button>
+          ${ctaInfo.buttons.map((b) => `<button class="btn ai sm" data-cta-href="${AIMC.esc(b.href)}">${b.label}</button>`).join('')}
           <button class="btn danger sm" data-del="${row.id}">刪除</button>
         </div>
       </div>`;

@@ -253,19 +253,49 @@ window.AIMC = window.AIMC || { pages: {} };
     return null;
   }
 
-  // 每個 step 對應：AI 建議文字（hint）、CTA 按鈕文字（label）、按鈕圖示可含在 label 內、
+  // 每個 step 對應：AI 建議文字（hint）、CTA 按鈕文字（label，可為 function 動態帶入數字）、
   // 以及點擊後要去哪裡（href 為 function，接收 insight 動態組出正確網址）。
   const PRODUCT_STEP_CTA = {
     topic:    { hint: '建議建立主題',   label: '📝 建立 Topic', href: (ins) => '#/topics/' + encodeURIComponent(ins.row.external_product_id) },
     prompt:   { hint: '建議建立 Prompt', label: '🤖 建立 Prompt', href: (ins) => '#/topics/' + encodeURIComponent(ins.row.external_product_id) },
     generate: { hint: '建議產生內容',   label: '✨ 生成內容',   href: (ins) => '#/generate/' + encodeURIComponent(ins.row.external_product_id) },
-    review:   { hint: '有內容待審核',   label: '✅ 前往審核',   href: () => '#/review' },
+    // Hotfix18 Goal4：所有「前往審核」都要帶數字，label 改成 function 動態組字。
+    review:   { hint: '有內容待審核',   label: (ins) => `✅ 前往審核 ${ins.pendingCount}`, href: (ins) => '#/review/' + encodeURIComponent(ins.row.external_product_id) },
     done:     { hint: '可持續優化或建立新主題', label: '👍 保持優化', href: (ins) => '#/knowledge/' + ins.row.id },
   };
 
   function productStepCta(insight) {
     const step = nextProductStep(insight) || 'done';
-    return { step, ...PRODUCT_STEP_CTA[step] };
+    const cfg = PRODUCT_STEP_CTA[step];
+    const label = typeof cfg.label === 'function' ? cfg.label(insight) : cfg.label;
+    return { step, hint: cfg.hint, label, href: cfg.href };
+  }
+
+  // ── Hotfix18 Goal1：Knowledge 健康卡「中間主 CTA」邏輯 ──
+  // 一旦 Prompt 已存在，永遠顯示「生成內容」（讓使用者知道隨時可以再生成，
+  // 不會因為已經有待審核內容就誤以為只能去審核），若同時有待審核內容，
+  // 再多顯示一顆帶數字的「前往審核」，兩顆並存。
+  // 回傳 { hint, buttons:[{label,href}] }，knowledge.js 依 buttons 陣列渲染按鈕，
+  // 不要再各自寫一次判斷式（保持 Goal5 的單一真相來源原則）。
+  function productHealthCtas(insight) {
+    const step = nextProductStep(insight);
+    if (step === 'topic' || step === 'prompt') {
+      const cta = productStepCta(insight);
+      return { hint: cta.hint, buttons: [{ label: cta.label, href: cta.href(insight) }] };
+    }
+    // 走到這裡代表 Topic、Prompt 都已具備 —— 一定可以生成內容
+    const generateHref = '#/generate/' + encodeURIComponent(insight.row.external_product_id);
+    const buttons = [{ label: '✨ 生成內容', href: generateHref }];
+    let hint;
+    if (insight.pendingCount > 0) {
+      buttons.push({ label: `✅ 前往審核 ${insight.pendingCount}`, href: '#/review/' + encodeURIComponent(insight.row.external_product_id) });
+      hint = `尚有 ${insight.pendingCount} 篇待審核，也可繼續生成新內容`;
+    } else if (!insight.genCount) {
+      hint = '建議產生內容';
+    } else {
+      hint = '可持續優化，或再次生成新內容';
+    }
+    return { hint, buttons };
   }
 
   AIMC.Workflow = {
@@ -284,5 +314,6 @@ window.AIMC = window.AIMC || { pages: {} };
     runGenerateWorkflow,
     nextProductStep,
     productStepCta,
+    productHealthCtas,
   };
 })();

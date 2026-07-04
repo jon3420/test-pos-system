@@ -215,21 +215,40 @@ window.AIMC = window.AIMC || { pages: {} };
     return { topicsByProduct, promptsByTopic, historyByTopic };
   };
 
+  // ── Hotfix18 Goal5：待審核／已通過／已退回／今日生成 —— 全站唯一算法 ──
+  // Dashboard / Knowledge Health Card / Topic 頁 / Review 頁全部呼叫這兩支，
+  // 不各自對 AIMC.store.history 寫一份篩選邏輯，避免同一個數字在不同頁算出不同結果。
+  AIMC.reviewStatsForTopicIds = function (topicIds) {
+    const idSet = topicIds instanceof Set ? topicIds : new Set(topicIds);
+    const items = AIMC.store.history.filter((h) => idSet.has(h.topic_id));
+    const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
+    const pending = items.filter((h) => h.status === 'generated').length;
+    const approved = items.filter((h) => h.status === 'approved').length;
+    const rejected = items.filter((h) => h.status === 'rejected').length;
+    const todayGenerated = items.filter((h) => new Date(h.created_at) >= startOfToday).length;
+    return { pending, approved, rejected, todayGenerated, total: items.length, items };
+  };
+
+  AIMC.reviewStatsForProduct = function (externalProductId) {
+    const topicIds = AIMC.store.topics.filter((t) => t.external_product_id === externalProductId).map((t) => t.id);
+    return AIMC.reviewStatsForTopicIds(topicIds);
+  };
+
   // ── V3：商品洞察（Dashboard AI 任務/建議、Knowledge 健康卡共用）──
   // 純粹用 AIMC.store 現有資料（knowledge / topics / prompts / history）做前端規則推導，
   // 不呼叫任何新端點，也不做任何伺服器端計算。
   AIMC.computeProductInsights = function () {
     const s = AIMC.store;
-    const { topicsByProduct, promptsByTopic, historyByTopic } = AIMC.buildDerivedMaps();
+    const { topicsByProduct, promptsByTopic } = AIMC.buildDerivedMaps();
     return s.knowledge.map((row) => {
       const detail = s.knowledgeDetail[row.id] || {};
       const pct = AIMC.calcCompleteness(detail);
       const topics = topicsByProduct[row.external_product_id] || [];
       const topicIds = topics.map((t) => t.id);
       const relatedPrompts = topicIds.flatMap((tid) => promptsByTopic[tid] || []);
-      const genList = topicIds.flatMap((tid) => historyByTopic[tid] || []);
-      const pendingCount = genList.filter((h) => h.status === 'generated').length;
-      const approvedCount = genList.filter((h) => h.status === 'approved').length;
+      // Hotfix18 Goal5：待審核/已通過/已退回/今日生成一律走 AIMC.reviewStatsForTopicIds，
+      // 跟 Topic 頁、Review 頁、Dashboard 共用同一套算法，不再各自篩選 AIMC.store.history。
+      const rs = AIMC.reviewStatsForTopicIds(topicIds);
       const platforms = [...new Set(relatedPrompts.map((p) => p.platform))];
       const missing = [];
       if (!detail.faq || !String(detail.faq).trim()) missing.push('FAQ');
@@ -238,7 +257,9 @@ window.AIMC = window.AIMC || { pages: {} };
       const sensitiveCount = topics.filter((t) => t.claim_sensitive).length;
       return {
         row, detail, pct, topics, promptCount: relatedPrompts.length,
-        genCount: genList.length, pendingCount, approvedCount, platforms, missing, sensitiveCount,
+        genCount: rs.total, pendingCount: rs.pending, approvedCount: rs.approved,
+        rejectedCount: rs.rejected, todayGenerated: rs.todayGenerated,
+        platforms, missing, sensitiveCount,
       };
     });
   };
@@ -264,9 +285,9 @@ window.AIMC = window.AIMC || { pages: {} };
 
   AIMC.nextStepHint = function (insight) {
     if (insight.uninitialized) return '立即建立商品知識';
-    // Hotfix17：與 Knowledge 健康卡的動態 CTA 共用同一套判斷（AIMC.Workflow.productStepCta），
-    // 避免「上面建議產生內容、下面按鈕卻是建主題」這種不一致。
-    return AIMC.Workflow.productStepCta(insight).hint;
+    // Hotfix18：與 Knowledge 健康卡的動態 CTA 共用同一套判斷（AIMC.Workflow.productHealthCtas），
+    // 確保「尚有 N 篇待審核，也可繼續生成新內容」這類文字在 Dashboard/Knowledge 都一致。
+    return AIMC.Workflow.productHealthCtas(insight).hint;
   };
 
   // 綜合分數：知識完整 + Topic 多 + Prompt 多 + Generated 多 + 待審核少 → 分數越高越適合主推
