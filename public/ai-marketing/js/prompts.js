@@ -17,13 +17,20 @@
   // （不分是否綁定主題，只要該 platform+content_goal 有任一筆 Prompt 就算 ✔）。
   const HEALTH_GOALS = ['教育', '品牌故事', 'FAQ', '促銷', 'SEO', '顧客見證', '短影音', 'Google商家'];
 
-  async function load(root) {
+  // Hotfix17：支援 #/prompts/<topic_id>/<platform> —— 從新版「主題」頁的
+  // 「建立 Prompt」CTA 跳轉過來時，自動開啟建立表單並帶入 topic_id + platform（預設 fb）。
+  async function load(root, param) {
     const lc = AIMC.startLifecycle('Prompts');
     currentDom = lc.dom;
     lc.dom.on(root, '#pNewBtn', 'click', () => openForm(root));
     lc.dom.on(root, '#pRefreshBtn', 'click', () => refresh(root));
     lc.done('event bindings ready');
     await refresh(root);
+
+    if (param) {
+      const [topicId, platform] = param.split('/');
+      if (topicId) openForm(root, { topic_id: topicId, platform: platform || 'fb' });
+    }
   }
 
   async function refresh(root) {
@@ -204,9 +211,13 @@
     `;
   }
 
-  function openForm(root) {
+  function openForm(root, preset) {
     const dom = AIMC.DOM.forPage('Prompts:drawer');
     const body = AIMC.openDrawer('④ 建立 Prompt', formHtml());
+    if (preset) {
+      if (preset.topic_id) dom.value(body, '#pf_topic', preset.topic_id);
+      if (preset.platform) dom.value(body, '#pf_platform', preset.platform);
+    }
     dom.on(body, '#pf_useTemplateBtn', 'click', () => {
       const idx = Number(dom.value(body, '#pf_templatePicker'));
       const tpl = TEMPLATES[idx];

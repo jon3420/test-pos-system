@@ -96,7 +96,9 @@
           </div>
         </div>`;
       }
-      return `
+      return (() => {
+        const cta = AIMC.Workflow.productStepCta(ins);
+        return `
       <div class="health-card" data-open="${row.id}">
         <div class="hc-head">
           <div><div class="hc-name">${AIMC.esc(row.product_name)}</div><div class="hc-code">${AIMC.esc(row.external_product_id)}</div></div>
@@ -109,14 +111,14 @@
           <div><div class="hc-stat-num">${ins.genCount}</div><div class="hc-stat-label">Generated</div></div>
           <div><div class="hc-stat-num">${ins.pendingCount}</div><div class="hc-stat-label">Review</div></div>
         </div>
-        <div class="hc-hint">💡 AI 建議：${AIMC.esc(AIMC.nextStepHint(ins))}</div>
+        <div class="hc-hint">💡 AI 建議：${AIMC.esc(cta.hint)}</div>
         <div class="hc-ctas">
           <button class="btn secondary sm" data-edit="${row.id}">📚 補知識</button>
-          ${!ins.topics.length ? `<button class="btn ghost sm" data-topic="${AIMC.esc(row.external_product_id)}">📝 建主題</button>` : ''}
-          ${ins.promptCount ? `<button class="btn ghost sm" data-gen="${AIMC.esc(row.external_product_id)}">✨ 生成內容</button>` : ''}
+          <button class="btn ai sm" data-cta-href="${AIMC.esc(cta.href(ins))}">${cta.label}</button>
           <button class="btn danger sm" data-del="${row.id}">刪除</button>
         </div>
       </div>`;
+      })();
     }).join(''));
 
     const el = dom.query(root, '#kHealthGrid');
@@ -128,8 +130,7 @@
       });
     });
     el.querySelectorAll('[data-edit]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); openForm(b.dataset.edit); }));
-    el.querySelectorAll('[data-topic]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); location.hash = '#/topics/' + encodeURIComponent(b.dataset.topic); }));
-    el.querySelectorAll('[data-gen]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); location.hash = '#/generate/' + encodeURIComponent(b.dataset.gen); }));
+    el.querySelectorAll('[data-cta-href]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); location.hash = b.dataset.ctaHref; }));
     el.querySelectorAll('[data-del]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); removeKnowledge(document.getElementById('workspace'), b.dataset.del); }));
     el.querySelectorAll('[data-create]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); openForm(null, false, b.dataset.create); }));
   }

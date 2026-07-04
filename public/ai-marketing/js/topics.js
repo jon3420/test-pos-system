@@ -1,17 +1,26 @@
 // ============================================================
-// topics.js — 主題 Workspace V3（Master-Detail + AI Topic Suggestions）
-// CRUD 呼叫方式與欄位 100% 沿用 Phase 1 /topics 端點，不做任何邏輯變更。
-// AI Topic Suggestions 為前端規則式建議（依商品名稱關鍵字比對），
-// 「一鍵建立」仍是呼叫既有的 POST /topics，不新增任何 API。
-// 支援路由參數 #/topics/<external_product_id>：自動預選對應商品並顯示建議。
+// topics.js — Hotfix17：主題「商品獨立歸類」（Product-Scoped Master-Detail + Tabs）
 //
-// V3.1 Stability Pass：所有 DOM 讀寫改用 AIMC.DOM，refresh()/loadProductOptions()
-// 這類「await 之後才寫 DOM」的函式都用 AIMC.startLifecycle() 做 Page Token 檢查。
+// 目標：左側改成商品列表，右側只顯示「目前選取商品」的主題／Prompt 狀態／
+// 生成內容／審核紀錄，不同商品之間資料不會混在一起。
+//
+// 不改既有 API：仍然是呼叫既有的 GET/POST/PATCH/DELETE /topics、
+// GET /prompts、GET /content-history，只是查詢時一律帶 external_product_id
+// 做篩選（既有端點本來就支援這個 query），前端另外用
+// AIMC.store.topicsByProduct[externalProductId] 做快取，避免混資料。
+//
+// 支援路由參數 #/topics/<external_product_id>：自動選定該商品。
 // ============================================================
 (function () {
-  let selectedId = null;
-  let currentDom = null; // 記錄最近一次 lifecycle 的 dom（含 listener registry），供 destroy() 使用
+  let currentDom = null;
+  let selectedProductId = null;
+  let activeTab = 'overview';
+  let searchQuery = '';
+  let categoryFilter = '全部';
+  let focusedTopicId = null; // 「檢視」按鈕點擊後，Prompt 狀態 tab 用來高亮對應主題
 
+  // AI Topic Suggestions（沿用 Hotfix15 既有規則式建議，未改邏輯，只是改成從
+  // selectedProductId 取商品名稱，而不是從 <select> 讀值）
   const SUGGESTION_MAP = [
     { match: '豬腰', items: [
       { kw: '補鐵', cat: '營養' }, { kw: '先燙後冰', cat: '工法' }, { kw: '膽固醇迷思', cat: '迷思' },
@@ -28,120 +37,57 @@
     { kw: '品牌故事', cat: '品牌' }, { kw: '營養知識', cat: '營養' }, { kw: '常見 FAQ', cat: 'FAQ' },
     { kw: '推薦搭配', cat: '促銷' }, { kw: '季節限定', cat: '節日' },
   ];
-
   function suggestionsForProduct(productName) {
     const hit = SUGGESTION_MAP.find((g) => productName && productName.includes(g.match));
     return hit ? hit.items : GENERIC_SUGGESTIONS;
   }
 
+  // Prompt 狀態 tab 用的平台×目的矩陣設定（沿用 Hotfix16 Part 9 的組態）
+  const TOPIC_MATRIX_CONFIG = {
+    fb: ['教育', '品牌故事', 'FAQ', '促銷'],
+    line: ['推播', '回購'],
+  };
+  const MATRIX_PLATFORMS = Object.keys(TOPIC_MATRIX_CONFIG); // ['fb','line']，用來算「Prompt X/4」的分母基準
+
   async function load(root, param) {
     const lc = AIMC.startLifecycle('Topics');
     currentDom = lc.dom;
-    lc.dom.on(root, '#t_createBtn', 'click', () => createTopic(root));
+    AIMC.store.topicsByProduct = AIMC.store.topicsByProduct || {};
+
     lc.dom.on(root, '#t_refreshBtn', 'click', () => refresh(root));
-    lc.dom.on(root, '#t_product_select', 'change', (e) => renderSuggestions(root, lc.dom, e.target.value));
+    lc.dom.on(root, '#t_search', 'input', (e) => { searchQuery = e.target.value.trim(); renderProductList(root, lc.dom); });
     lc.done('event bindings ready');
 
-    await loadProductOptions(root);
-
-    const sel = lc.dom.query(root, '#t_product_select');
-    if (param && sel && [...sel.options].some((o) => o.value === param)) {
-      sel.value = param;
-      renderSuggestions(root, lc.dom, param);
-    } else {
-      renderSuggestions(root, lc.dom, sel ? sel.value : '');
-    }
-
-    await refresh(root);
+    await refresh(root, param);
   }
 
-  async function loadProductOptions(root) {
-    const lc = AIMC.startLifecycle('Topics:loadProductOptions');
-    try {
-      const { data } = await AIMC.api('/knowledge');
-      if (!lc.checkpoint('API 完成')) return;
-      AIMC.store.knowledge = data;
-      lc.dom.html(root, '#t_product_select', data.length
-        ? data.map((k) => `<option value="${AIMC.esc(k.external_product_id)}" data-name="${AIMC.esc(k.product_name)}">${AIMC.esc(k.product_name)}（${AIMC.esc(k.external_product_id)}）</option>`).join('')
-        : '<option value="">請先建立商品知識</option>');
-      lc.done();
-    } catch (e) {
-      lc.fail(e, root, '#t_product_select');
-    }
-  }
-
-  function renderSuggestions(root, dom, externalProductId) {
-    const sel = dom.query(root, '#t_product_select');
-    if (!sel) return;
-    const opt = [...sel.options].find((o) => o.value === externalProductId);
-    if (!opt || !externalProductId) {
-      dom.text(root, '#t_suggestProductLabel', '');
-      dom.html(root, '#t_suggestionChips', '<span class="muted">請先選擇對應商品</span>');
-      return;
-    }
-    const productName = opt.dataset.name || opt.textContent;
-    dom.text(root, '#t_suggestProductLabel', `依「${productName}」推導`);
-    const existingTitles = new Set(AIMC.store.topics.filter((t) => t.external_product_id === externalProductId).map((t) => t.title));
-    const items = suggestionsForProduct(productName);
-    dom.html(root, '#t_suggestionChips', items.map((it) => {
-      const title = productName + it.kw;
-      const already = existingTitles.has(title);
-      return `<span class="suggestion-chip">🏷️ ${AIMC.esc(it.kw)}（${AIMC.esc(it.cat)}）
-        <button class="btn ${already ? 'secondary' : 'ai'} sm" data-kw="${AIMC.esc(it.kw)}" data-cat="${AIMC.esc(it.cat)}" ${already ? 'disabled' : ''}>${already ? '已建立' : '一鍵建立'}</button>
-      </span>`;
-    }).join(''));
-    const chipsEl = dom.query(root, '#t_suggestionChips');
-    if (chipsEl) {
-      chipsEl.querySelectorAll('[data-kw]').forEach((btn) => {
-        btn.addEventListener('click', () => quickCreateTopic(root, dom, externalProductId, productName, btn.dataset.kw, btn.dataset.cat));
-      });
-    }
-  }
-
-  async function quickCreateTopic(root, dom, externalProductId, productName, kw, cat) {
-    const title = productName + kw;
-    try {
-      await AIMC.api('/topics', { method: 'POST', body: { external_product_id: externalProductId, title, category: cat, priority: 0 } });
-      AIMC.toast(`已一鍵建立主題「${title}」`);
-      await refresh(root);
-      renderSuggestions(root, dom, externalProductId);
-    } catch (e) { AIMC.toast('建立失敗：' + e.message, true); }
-  }
-
-  async function createTopic(root) {
-    const dom = AIMC.DOM.forPage('Topics');
-    const external_product_id = dom.value(root, '#t_product_select');
-    const title = (dom.value(root, '#t_title') || '').trim();
-    const category = dom.value(root, '#t_category');
-    const priority = Number(dom.value(root, '#t_priority')) || 0;
-    if (!external_product_id || !title) return AIMC.toast('請選擇商品並填寫標題', true);
-    try {
-      await AIMC.api('/topics', { method: 'POST', body: { external_product_id, title, category, priority } });
-      AIMC.toast('已建立主題');
-      dom.value(root, '#t_title', '');
-      await refresh(root);
-      renderSuggestions(root, dom, external_product_id);
-    } catch (e) { AIMC.toast('建立失敗：' + e.message, true); }
-  }
-
-  async function refresh(root) {
+  // ── 一次載入全店的 knowledge/topics/prompts/history，前端再依商品切片 ──
+  // （既有 API 沒有「一次只拿某商品」的列表端點以外的用途，所以左側清單統計
+  // 仍需要全店資料；右側「選定商品」後才會另外呼叫 GET /topics?external_product_id=
+  // 確保右側資料保證是該商品專屬、不會混到別的商品）
+  async function refresh(root, presetProductId) {
     const lc = AIMC.startLifecycle('Topics:refresh');
     currentDom = lc.dom;
-    lc.dom.html(root, '#t_listContainer', AIMC.loadingHtml());
+    lc.dom.html(root, '#t_productList', AIMC.loadingHtml());
     try {
-      const [{ data }, { data: prompts }, { data: history }] = await Promise.all([
-        AIMC.api('/topics'), AIMC.api('/prompts'), AIMC.api('/content-history'),
+      const [{ data: knowledge }, { data: topics }, { data: prompts }, { data: history }] = await Promise.all([
+        AIMC.api('/knowledge'), AIMC.api('/topics'), AIMC.api('/prompts'), AIMC.api('/content-history'),
       ]);
       if (!lc.checkpoint('API 完成')) return;
-      AIMC.store.topics = data; AIMC.store.prompts = prompts; AIMC.store.history = history;
+      AIMC.store.knowledge = knowledge; AIMC.store.topics = topics; AIMC.store.prompts = prompts; AIMC.store.history = history;
+
       renderStats(root, lc.dom);
-      renderList(root, lc.dom);
-      if (selectedId && data.some((t) => t.id === selectedId)) renderDetail(root, lc.dom, selectedId);
-      else if (data.length) { selectedId = data[0].id; renderDetail(root, lc.dom, selectedId); }
-      else { selectedId = null; lc.dom.html(root, '#t_detailPane', '<div class="empty">請從左側選擇一個主題查看詳情</div>'); }
+      renderCategoryChips(root, lc.dom);
+      renderProductList(root, lc.dom);
+
+      const target = presetProductId && knowledge.some((k) => k.external_product_id === presetProductId)
+        ? presetProductId
+        : (selectedProductId && knowledge.some((k) => k.external_product_id === selectedProductId) ? selectedProductId : (knowledge[0] && knowledge[0].external_product_id));
+      if (target) await selectProduct(root, target);
+      else lc.dom.html(root, '#t_detailPane', AIMC.emptyState('📦', '尚無商品知識，請先到「商品知識」建立'));
       lc.done();
     } catch (e) {
-      lc.fail(e, root, '#t_listContainer');
+      lc.fail(e, root, '#t_productList');
     }
   }
 
@@ -163,134 +109,379 @@
     ].join(''));
   }
 
-  function renderList(root, dom) {
+  // ── 商品列表（左側）：分類篩選 chip 依「目前所有 Topic 的 category」動態算出，
+  // 不是寫死的商品名稱，避免商品一多就對不上（例如原始需求圖片裡的「豬腰」
+  // 其實是商品名稱不是分類，這裡改用真正的 Topic 分類欄位，邏輯更一致）──
+  function renderCategoryChips(root, dom) {
     const s = AIMC.store;
-    if (!s.topics.length) { dom.html(root, '#t_listContainer', AIMC.emptyState('📝', '尚無主題，可用上方 AI Topic Suggestions 一鍵建立')); return; }
-    dom.html(root, '#t_listContainer', s.topics.map((t) => `
-      <div class="master-list-item ${t.id === selectedId ? 'active' : ''}" data-id="${t.id}">
-        <div class="mli-title">${AIMC.esc(t.title)}</div>
-        <div class="mli-sub">${AIMC.esc(t.product_name)} ・ ${AIMC.esc(t.category)} ${t.claim_sensitive ? ' ・ ⚠️敏感' : ''}</div>
-      </div>`).join(''));
-    const el = dom.query(root, '#t_listContainer');
-    if (el) {
-      el.querySelectorAll('[data-id]').forEach((item) => {
-        item.addEventListener('click', () => { selectedId = item.dataset.id; renderList(root, dom); renderDetail(root, dom, selectedId); });
-      });
+    const counts = {};
+    s.topics.forEach((t) => { counts[t.category] = (counts[t.category] || 0) + 1; });
+    const cats = Object.keys(counts).sort((a, b) => counts[b] - counts[a]).slice(0, 5);
+    const totalCount = s.topics.length;
+    const chips = [{ label: '全部', count: totalCount }, ...cats.map((c) => ({ label: c, count: counts[c] }))];
+    if (!chips.some((c) => c.label === categoryFilter)) categoryFilter = '全部';
+    dom.html(root, '#t_categoryChips', chips.map((c) => `
+      <span class="chip ${c.label === categoryFilter ? 'active' : ''}" data-chip="${AIMC.esc(c.label)}">${AIMC.esc(c.label)}（${c.count}）</span>
+    `).join(''));
+    const el = dom.query(root, '#t_categoryChips');
+    if (el) el.querySelectorAll('[data-chip]').forEach((c) => c.addEventListener('click', () => {
+      categoryFilter = c.dataset.chip;
+      renderCategoryChips(root, dom);
+      renderProductList(root, dom);
+    }));
+  }
+
+  function productStats(externalProductId) {
+    const s = AIMC.store;
+    const topics = s.topics.filter((t) => t.external_product_id === externalProductId);
+    const topicIds = new Set(topics.map((t) => t.id));
+    const promptCount = s.prompts.filter((p) => topicIds.has(p.topic_id)).length;
+    const genCount = s.history.filter((h) => topicIds.has(h.topic_id)).length;
+    const reviewCount = s.history.filter((h) => topicIds.has(h.topic_id) && h.status !== 'generated').length;
+    const pct = topics.length ? Math.round((topics.filter((t) => {
+      return s.history.some((h) => h.topic_id === t.id && h.status === 'approved');
+    }).length / topics.length) * 100) : 0;
+    return { topics, promptCount, genCount, reviewCount, pct };
+  }
+
+  function renderProductList(root, dom) {
+    const s = AIMC.store;
+    let list = s.knowledge;
+    if (searchQuery) list = list.filter((k) => k.product_name.includes(searchQuery));
+    if (categoryFilter !== '全部') {
+      list = list.filter((k) => s.topics.some((t) => t.external_product_id === k.external_product_id && t.category === categoryFilter));
+    }
+    if (!list.length) { dom.html(root, '#t_productList', AIMC.emptyState('📦', '沒有符合條件的商品')); return; }
+    dom.html(root, '#t_productList', list.map((k) => {
+      const st = productStats(k.external_product_id);
+      const active = k.external_product_id === selectedProductId;
+      return `
+      <div class="product-list-item ${active ? 'active' : ''}" data-pid="${AIMC.esc(k.external_product_id)}">
+        ${k.product_image_url ? `<img class="pli-thumb" src="${AIMC.esc(k.product_image_url)}" alt="">` : '<div class="pli-thumb">🍽️</div>'}
+        <div class="pli-body">
+          <div class="pli-name">${AIMC.esc(k.product_name)}</div>
+          <div class="pli-stats">主題 ${st.topics.length} ・ Prompt ${st.promptCount} ・ 生成 ${st.genCount} ・ 審核 ${st.reviewCount}</div>
+        </div>
+        <div class="pli-pct">${st.pct}%</div>
+      </div>`;
+    }).join(''));
+    const el = dom.query(root, '#t_productList');
+    if (el) el.querySelectorAll('[data-pid]').forEach((item) => item.addEventListener('click', () => selectProduct(document.getElementById('workspace'), item.dataset.pid)));
+  }
+
+  // ── 選擇商品：另外呼叫一次 GET /topics?external_product_id=xxx，
+  // 保證右側資料是「這個商品專屬」，並快取進 AIMC.store.topicsByProduct，
+  // 驗收標準要求的「不同商品之間主題不會混在一起」由這支呼叫保證。──
+  async function selectProduct(root, externalProductId) {
+    selectedProductId = externalProductId;
+    activeTab = 'overview';
+    focusedTopicId = null;
+    const dom = AIMC.DOM.forPage('Topics');
+    renderProductList(root, dom);
+    dom.html(root, '#t_detailPane', AIMC.loadingHtml());
+
+    const lc = AIMC.startLifecycle('Topics:selectProduct');
+    try {
+      const { data } = await AIMC.api('/topics?external_product_id=' + encodeURIComponent(externalProductId));
+      if (!lc.checkpoint('API 完成')) return;
+      AIMC.store.topicsByProduct[externalProductId] = data;
+      // 同步回全域快取，讓其他既有邏輯（例如 AIMC.Workflow.checkTopic）看到的資料一致
+      AIMC.store.topics = AIMC.store.topics.filter((t) => t.external_product_id !== externalProductId).concat(data);
+      renderDetailPane(root, lc.dom);
+      lc.done();
+    } catch (e) {
+      lc.fail(e, root, '#t_detailPane');
     }
   }
 
-  function renderDetail(root, dom, id) {
-    const s = AIMC.store;
-    const t = s.topics.find((x) => x.id === id);
-    if (!t) { dom.html(root, '#t_detailPane', '<div class="empty">請從左側選擇一個主題查看詳情</div>'); return; }
-    const relatedPrompts = s.prompts.filter((p) => p.topic_id === t.id);
-    const goals = [...new Set(relatedPrompts.map((p) => p.content_goal))];
-    const relatedHistory = s.history.filter((h) => h.topic_id === t.id);
-    const risk = t.risk_level || 'low';
+  function renderDetailPane(root, dom) {
+    const product = AIMC.store.knowledge.find((k) => k.external_product_id === selectedProductId);
+    if (!product) { dom.html(root, '#t_detailPane', AIMC.emptyState('📦', '找不到此商品')); return; }
+    const topics = AIMC.store.topicsByProduct[selectedProductId] || [];
+    const st = productStats(selectedProductId);
 
     dom.html(root, '#t_detailPane', `
       <div class="flex-between">
-        <h3 style="margin:0">${AIMC.esc(t.title)}</h3>
-        <span class="badge ${t.status}">${t.status}</span>
-      </div>
-      <p class="muted">${AIMC.esc(t.product_name)} ・ 分類：${AIMC.esc(t.category)} ・ 優先度：${t.priority}</p>
-      <div class="row-actions" style="margin-top:0">
-        ${AIMC.badge(risk, 'risk-' + risk)}
-        ${t.claim_sensitive ? AIMC.badge('⚠️ 需審慎審核', 'sensitive') : ''}
-        ${goals.length ? goals.map((g) => AIMC.badge(g, 'outline')).join('') : '<span class="muted">尚無 Prompt</span>'}
-      </div>
-
-      <div class="card" style="margin-top:16px">
-        <h3 style="font-size:13px">關聯 Prompt（${relatedPrompts.length}）</h3>
-        ${relatedPrompts.length ? `<table><thead><tr><th>平台</th><th>目的</th><th>版本</th></tr></thead><tbody>
-          ${relatedPrompts.map((p) => `<tr><td>${AIMC.platformLabel(p.platform)}</td><td>${AIMC.esc(p.content_goal)}</td><td>v${p.version}</td></tr>`).join('')}
-        </tbody></table>` : AIMC.emptyState('🤖', '尚無 Prompt，前往「Prompt」建立')}
+        <div>
+          <h3 class="td-header-title">${AIMC.esc(product.product_name)} ${AIMC.badge('active', 'active')}</h3>
+          <div class="td-meta">📝 主題 ${st.topics.length} ・ 🤖 Prompt ${st.promptCount} ・ ✨ 生成 ${st.genCount} ・ ✅ 審核 ${st.reviewCount} ・ 📈 完成度 ${st.pct}%</div>
+        </div>
+        <div class="row-actions" style="margin-top:0">
+          <button class="btn ai sm" id="t_aiSuggestBtn">🪄 AI 建議主題</button>
+          <button class="btn sm" id="t_newTopicBtn">➕ 新增主題</button>
+        </div>
       </div>
 
-      <div class="card">
-        <h3 style="font-size:13px">🩺 此 Topic 可用 Prompt</h3>
-        <div id="t_promptMatrix"></div>
+      <div class="topic-create-panel" id="t_suggestPanel">
+        <div class="flex-between" style="margin-bottom:8px"><strong style="font-size:13px">🤖 AI Topic Suggestions</strong></div>
+        <div class="suggestion-chips" id="t_suggestionChips"></div>
       </div>
 
-      <div class="card">
-        <h3 style="font-size:13px">生成紀錄（${relatedHistory.length}）</h3>
-        ${relatedHistory.length ? `<table><thead><tr><th>平台</th><th>狀態</th><th>時間</th></tr></thead><tbody>
-          ${relatedHistory.slice(0, 8).map((h) => `<tr><td>${AIMC.platformLabel(h.platform)}</td><td><span class="badge ${h.status}">${h.status}</span></td><td class="muted">${AIMC.fmtTime(h.created_at)}</td></tr>`).join('')}
-        </tbody></table>` : AIMC.emptyState('✨', '尚無生成紀錄，前往「AI生成」建立')}
+      <div class="topic-create-panel" id="t_createPanel">
+        <div class="grid">
+          <div class="field">
+            <label>分類 *</label>
+            <select id="t_category">
+              <option>營養</option><option>知識</option><option>文化</option><option>品牌</option>
+              <option>FAQ</option><option>迷思</option><option>工法</option><option>促銷</option>
+              <option>節日</option><option>SEO</option><option>教育</option><option>娛樂</option><option>短影音</option>
+            </select>
+          </div>
+          <div class="field"><label>主題標題 *</label><input type="text" id="t_title" placeholder="例如：豬腰補鐵知識"></div>
+          <div class="field"><label>優先度 priority</label><input type="number" id="t_priority" value="0"></div>
+        </div>
+        <div class="row-actions"><button class="btn sm" id="t_createBtn">➕ 建立主題</button><button class="btn secondary sm" id="t_cancelCreateBtn">取消</button></div>
       </div>
 
-      <div class="row-actions">
-        <button class="btn secondary sm" id="t_toggleBtn">${t.status === 'active' ? '⏸ 暫停' : '▶ 啟用'}</button>
-        <button class="btn ghost sm" onclick="location.hash='#/generate/${encodeURIComponent(t.external_product_id)}'">✨ 去生成內容</button>
-        <button class="btn danger sm" id="t_deleteBtn">刪除主題</button>
+      <div class="detail-tabs" id="t_tabs">
+        <div class="detail-tab ${activeTab === 'overview' ? 'active' : ''}" data-tab="overview">主題總覽</div>
+        <div class="detail-tab ${activeTab === 'promptStatus' ? 'active' : ''}" data-tab="promptStatus">Prompt 狀態</div>
+        <div class="detail-tab ${activeTab === 'content' ? 'active' : ''}" data-tab="content">生成內容</div>
+        <div class="detail-tab ${activeTab === 'review' ? 'active' : ''}" data-tab="review">審核記錄</div>
       </div>
+      <div id="t_tabPanel"></div>
     `);
-    dom.on(root, '#t_toggleBtn', 'click', () => toggleStatus(root, t));
-    dom.on(root, '#t_deleteBtn', 'click', () => deleteTopic(root, t.id));
-    renderTopicPromptMatrix(root, dom, t);
+
+    dom.on(root, '#t_aiSuggestBtn', 'click', () => toggleSuggestPanel(root, dom));
+    dom.on(root, '#t_newTopicBtn', 'click', () => toggleCreatePanel(root, dom));
+    dom.on(root, '#t_cancelCreateBtn', 'click', () => dom.classRemove(root, '#t_createPanel', 'open'));
+    dom.on(root, '#t_createBtn', 'click', () => createTopic(root, dom));
+    const tabsEl = dom.query(root, '#t_tabs');
+    if (tabsEl) tabsEl.querySelectorAll('[data-tab]').forEach((t) => t.addEventListener('click', () => {
+      activeTab = t.dataset.tab;
+      renderDetailPane(root, dom);
+    }));
+
+    renderTabPanel(root, dom);
   }
 
-  // Hotfix16 Part 9：Topic Detail 顯示「此 Topic 可用 Prompt」矩陣（依平台分組，✔/✖ + 一鍵建立）
-  const TOPIC_MATRIX_CONFIG = {
-    fb: ['教育', '品牌故事', 'FAQ', '促銷'],
-    line: ['推播', '回購'],
-  };
+  function toggleSuggestPanel(root, dom) {
+    const panel = dom.query(root, '#t_suggestPanel');
+    if (!panel) return;
+    const willOpen = !panel.classList.contains('open');
+    dom.classRemove(root, '#t_createPanel', 'open');
+    panel.classList.toggle('open', willOpen);
+    if (willOpen) renderSuggestionChips(root, dom);
+  }
 
-  function renderTopicPromptMatrix(root, dom, t) {
-    dom.html(root, '#t_promptMatrix', Object.keys(TOPIC_MATRIX_CONFIG).map((platform) => {
-      const goals = TOPIC_MATRIX_CONFIG[platform];
-      const items = goals.map((goal) => ({ goal, ok: !!AIMC.Workflow.checkPrompt(t.id, platform, goal) }));
-      const doneCount = items.filter((i) => i.ok).length;
-      return `
-        <div class="health-matrix-card">
-          <div class="hmx-head">
-            <span class="hmx-platform">${AIMC.esc(AIMC.platformLabel(platform))}</span>
-            <span class="badge ${doneCount === items.length ? 'active' : 'outline'}">${doneCount}/${items.length}</span>
-          </div>
-          <div class="hmx-rows">
-            ${items.map((i) => `
-              <div class="hmx-row">
-                <span class="hmx-goal">${i.ok ? '✔' : '✖'} ${AIMC.esc(i.goal)}</span>
-                ${i.ok ? '' : `<button class="link-btn hmx-fix" data-tm-platform="${platform}" data-tm-goal="${AIMC.esc(i.goal)}">一鍵建立</button>`}
-              </div>`).join('')}
-          </div>
-        </div>`;
+  function toggleCreatePanel(root, dom) {
+    const panel = dom.query(root, '#t_createPanel');
+    if (!panel) return;
+    dom.classRemove(root, '#t_suggestPanel', 'open');
+    panel.classList.toggle('open');
+  }
+
+  function renderSuggestionChips(root, dom) {
+    const product = AIMC.store.knowledge.find((k) => k.external_product_id === selectedProductId);
+    const productName = product ? product.product_name : '';
+    const existingTitles = new Set((AIMC.store.topicsByProduct[selectedProductId] || []).map((t) => t.title));
+    const items = suggestionsForProduct(productName);
+    dom.html(root, '#t_suggestionChips', items.map((it) => {
+      const title = productName + it.kw;
+      const already = existingTitles.has(title);
+      return `<span class="suggestion-chip">🏷️ ${AIMC.esc(it.kw)}（${AIMC.esc(it.cat)}）
+        <button class="btn ${already ? 'secondary' : 'ai'} sm" data-kw="${AIMC.esc(it.kw)}" data-cat="${AIMC.esc(it.cat)}" ${already ? 'disabled' : ''}>${already ? '已建立' : '一鍵建立'}</button>
+      </span>`;
     }).join(''));
-    const el = dom.query(root, '#t_promptMatrix');
-    if (el) {
-      el.querySelectorAll('[data-tm-platform]').forEach((b) => {
-        b.addEventListener('click', () => fixTopicPrompt(root, t, b.dataset.tmPlatform, b.dataset.tmGoal));
-      });
-    }
+    const el = dom.query(root, '#t_suggestionChips');
+    if (el) el.querySelectorAll('[data-kw]').forEach((btn) => {
+      btn.addEventListener('click', () => quickCreateTopic(root, dom, productName, btn.dataset.kw, btn.dataset.cat));
+    });
   }
 
-  async function fixTopicPrompt(root, t, platform, goal) {
+  async function quickCreateTopic(root, dom, productName, kw, cat) {
+    const title = productName + kw;
     try {
-      await AIMC.Workflow.ensurePrompt({ topic_id: t.id, platform, content_goal: goal });
-      AIMC.toast(`已建立 ${AIMC.platformLabel(platform)} × ${goal} 的 Prompt`);
-      await refresh(root);
+      await AIMC.api('/topics', { method: 'POST', body: { external_product_id: selectedProductId, title, category: cat, priority: 0 } });
+      AIMC.toast(`已一鍵建立主題「${title}」`);
+      await selectProduct(root, selectedProductId);
+      dom.query(root, '#t_suggestPanel')?.classList.add('open');
+      renderSuggestionChips(root, dom);
     } catch (e) { AIMC.toast('建立失敗：' + e.message, true); }
   }
 
-  async function toggleStatus(root, t) {
-    const next = t.status === 'active' ? 'paused' : 'active';
+  async function createTopic(root, dom) {
+    const title = (dom.value(root, '#t_title') || '').trim();
+    const category = dom.value(root, '#t_category');
+    const priority = Number(dom.value(root, '#t_priority')) || 0;
+    if (!title) return AIMC.toast('請輸入主題標題', true);
     try {
-      await AIMC.api('/topics/' + t.id, { method: 'PATCH', body: { status: next } });
-      refresh(root);
-    } catch (e) { AIMC.toast('更新失敗：' + e.message, true); }
+      await AIMC.api('/topics', { method: 'POST', body: { external_product_id: selectedProductId, title, category, priority } });
+      AIMC.toast('已建立主題');
+      await selectProduct(root, selectedProductId);
+    } catch (e) { AIMC.toast('建立失敗：' + e.message, true); }
   }
 
-  async function deleteTopic(root, id) {
-    if (!confirm('確定刪除此主題？')) return;
-    try {
-      await AIMC.api('/topics/' + id, { method: 'DELETE' });
-      AIMC.toast('已刪除');
-      if (selectedId === id) selectedId = null;
-      refresh(root);
-    } catch (e) { AIMC.toast('刪除失敗：' + e.message, true); }
+  // ── Tab 內容渲染 ──
+  function renderTabPanel(root, dom) {
+    if (activeTab === 'overview') return renderOverviewTab(root, dom);
+    if (activeTab === 'promptStatus') return renderPromptStatusTab(root, dom);
+    if (activeTab === 'content') return renderContentTab(root, dom);
+    if (activeTab === 'review') return renderReviewTab(root, dom);
   }
 
-  // ── Part 6：Page API —— destroy / resume / pause（refresh 已定義於上方）──
+  function priorityBadge(priority) {
+    if (priority >= 7) return '<span class="priority-badge high">高</span>';
+    if (priority >= 4) return '<span class="priority-badge mid">中</span>';
+    return '<span class="priority-badge low">低</span>';
+  }
+
+  // 狀態判斷（依需求規則）：未開始＝Prompt=0 且 Generated=0；進行中＝Generated>0 且 Review=0；已完成＝Review>0
+  function topicStatus(promptCount, genCount, reviewCount) {
+    if (reviewCount > 0) return { key: 'done', label: '已完成' };
+    if (genCount > 0) return { key: 'inprogress', label: '進行中' };
+    if (promptCount === 0 && genCount === 0) return { key: 'notstarted', label: '未開始' };
+    return { key: 'inprogress', label: '進行中' };
+  }
+
+  function renderOverviewTab(root, dom) {
+    const topics = AIMC.store.topicsByProduct[selectedProductId] || [];
+    if (!topics.length) {
+      dom.html(root, '#t_tabPanel', AIMC.emptyState('📝', '此商品尚無主題，可用上方「AI 建議主題」或「新增主題」建立'));
+      return;
+    }
+    const s = AIMC.store;
+    dom.html(root, '#t_tabPanel', `
+      <table>
+        <thead><tr><th>主題</th><th>分類</th><th>Prompt</th><th>生成</th><th>審核</th><th>優先度</th><th>狀態</th><th>操作</th></tr></thead>
+        <tbody>
+          ${topics.map((t) => {
+            const promptCount = s.prompts.filter((p) => p.topic_id === t.id).length;
+            const platformsCovered = MATRIX_PLATFORMS.filter((pl) => s.prompts.some((p) => p.topic_id === t.id && p.platform === pl)).length;
+            const genCount = s.history.filter((h) => h.topic_id === t.id).length;
+            const reviewCount = s.history.filter((h) => h.topic_id === t.id && h.status !== 'generated').length;
+            const status = topicStatus(promptCount, genCount, reviewCount);
+            return `
+            <tr>
+              <td>${AIMC.esc(t.title)}</td>
+              <td>${AIMC.esc(t.category)}</td>
+              <td>${platformsCovered}/${MATRIX_PLATFORMS.length}</td>
+              <td>${genCount}</td>
+              <td>${reviewCount}</td>
+              <td>${priorityBadge(t.priority || 0)}</td>
+              <td><span class="topic-status-badge ${status.key}">${status.label}</span></td>
+              <td class="row-actions" style="margin-top:0">
+                <button class="link-btn" data-view="${t.id}">檢視</button>
+                ${promptCount === 0 ? `<button class="link-btn" data-mkprompt="${t.id}">建立 Prompt</button>` : ''}
+              </td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    `);
+    const el = dom.query(root, '#t_tabPanel');
+    if (el) {
+      el.querySelectorAll('[data-view]').forEach((b) => b.addEventListener('click', () => {
+        focusedTopicId = b.dataset.view;
+        activeTab = 'promptStatus';
+        renderDetailPane(root, dom);
+      }));
+      el.querySelectorAll('[data-mkprompt]').forEach((b) => b.addEventListener('click', () => {
+        location.hash = '#/prompts/' + encodeURIComponent(b.dataset.mkprompt) + '/fb';
+      }));
+    }
+  }
+
+  // Prompt 狀態 tab：每個主題各自一個矩陣卡（fb/line × 對應內容目的），
+  // 沿用 Hotfix16 Part 9 的判斷邏輯（AIMC.Workflow.checkPrompt），確保跟
+  // Generate 頁「缺 Prompt」判斷完全一致，不會出現兩邊結果不同的情況。
+  function renderPromptStatusTab(root, dom) {
+    const topics = AIMC.store.topicsByProduct[selectedProductId] || [];
+    if (!topics.length) {
+      dom.html(root, '#t_tabPanel', AIMC.emptyState('📝', '此商品尚無主題'));
+      return;
+    }
+    dom.html(root, '#t_tabPanel', topics.map((t) => {
+      const matrices = Object.keys(TOPIC_MATRIX_CONFIG).map((platform) => {
+        const goals = TOPIC_MATRIX_CONFIG[platform];
+        const items = goals.map((goal) => ({ goal, ok: !!AIMC.Workflow.checkPrompt(t.id, platform, goal) }));
+        const doneCount = items.filter((i) => i.ok).length;
+        return `
+          <div class="health-matrix-card">
+            <div class="hmx-head">
+              <span class="hmx-platform">${AIMC.esc(AIMC.platformLabel(platform))}</span>
+              <span class="badge ${doneCount === items.length ? 'active' : 'outline'}">${doneCount}/${items.length}</span>
+            </div>
+            <div class="hmx-rows">
+              ${items.map((i) => `
+                <div class="hmx-row">
+                  <span class="hmx-goal">${i.ok ? '✔' : '✖'} ${AIMC.esc(i.goal)}</span>
+                  ${i.ok ? '' : `<button class="link-btn hmx-fix" data-tm-topic="${t.id}" data-tm-platform="${platform}" data-tm-goal="${AIMC.esc(i.goal)}">一鍵建立</button>`}
+                </div>`).join('')}
+            </div>
+          </div>`;
+      }).join('');
+      return `
+        <div class="card" style="margin-bottom:12px;${t.id === focusedTopicId ? 'border-color:var(--accent)' : ''}">
+          <h3 style="font-size:13px;margin-top:0">${AIMC.esc(t.title)}　<span class="muted">${AIMC.esc(t.category)}</span></h3>
+          <div class="grid" style="grid-template-columns:repeat(2,1fr)">${matrices}</div>
+        </div>`;
+    }).join(''));
+    const el = dom.query(root, '#t_tabPanel');
+    if (el) el.querySelectorAll('[data-tm-topic]').forEach((b) => {
+      b.addEventListener('click', () => fixTopicPrompt(root, dom, b.dataset.tmTopic, b.dataset.tmPlatform, b.dataset.tmGoal));
+    });
+  }
+
+  async function fixTopicPrompt(root, dom, topicId, platform, goal) {
+    try {
+      await AIMC.Workflow.ensurePrompt({ topic_id: topicId, platform, content_goal: goal });
+      AIMC.toast(`已建立 ${AIMC.platformLabel(platform)} × ${goal} 的 Prompt`);
+      focusedTopicId = topicId;
+      await selectProduct(root, selectedProductId);
+      activeTab = 'promptStatus';
+      renderDetailPane(root, dom);
+    } catch (e) { AIMC.toast('建立失敗：' + e.message, true); }
+  }
+
+  function renderContentTab(root, dom) {
+    const topics = AIMC.store.topicsByProduct[selectedProductId] || [];
+    const topicIds = new Set(topics.map((t) => t.id));
+    const topicMap = Object.fromEntries(topics.map((t) => [t.id, t.title]));
+    const items = AIMC.store.history.filter((h) => topicIds.has(h.topic_id)).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    if (!items.length) { dom.html(root, '#t_tabPanel', AIMC.emptyState('✨', '此商品尚無生成紀錄，前往「AI 生成」建立')); return; }
+    dom.html(root, '#t_tabPanel', `
+      <table>
+        <thead><tr><th>主題</th><th>平台</th><th>內容目的</th><th>狀態</th><th>時間</th></tr></thead>
+        <tbody>
+          ${items.map((h) => `
+            <tr>
+              <td>${AIMC.esc(topicMap[h.topic_id] || '-')}</td>
+              <td>${AIMC.platformLabel(h.platform)}</td>
+              <td>${AIMC.esc((h.generation_params && h.generation_params.content_goal) || '-')}</td>
+              <td><span class="badge ${h.status}">${h.status}</span></td>
+              <td class="muted">${AIMC.fmtTime(h.created_at)}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    `);
+  }
+
+  function renderReviewTab(root, dom) {
+    const topics = AIMC.store.topicsByProduct[selectedProductId] || [];
+    const topicIds = new Set(topics.map((t) => t.id));
+    const topicMap = Object.fromEntries(topics.map((t) => [t.id, t.title]));
+    const items = AIMC.store.history.filter((h) => topicIds.has(h.topic_id) && h.status !== 'generated').sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    const pendingCount = AIMC.store.history.filter((h) => topicIds.has(h.topic_id) && h.status === 'generated').length;
+    dom.html(root, '#t_tabPanel', `
+      ${pendingCount ? `<div class="workflow-card"><div class="wf-icon">⏳</div><div class="wf-body"><div class="wf-title">有 ${pendingCount} 篇待審核</div><div class="wf-desc">實際核准／退回請至「審核」頁進行，這裡只顯示紀錄。</div></div><button class="btn ai sm" onclick="location.hash='#/review'">前往審核</button></div>` : ''}
+      ${items.length ? `
+      <table>
+        <thead><tr><th>主題</th><th>平台</th><th>決議</th><th>時間</th></tr></thead>
+        <tbody>
+          ${items.map((h) => `
+            <tr>
+              <td>${AIMC.esc(topicMap[h.topic_id] || '-')}</td>
+              <td>${AIMC.platformLabel(h.platform)}</td>
+              <td><span class="badge ${h.status}">${h.status === 'approved' ? '✅ 核准' : h.status === 'rejected' ? '❌ 退回' : '🔎 審核中'}</span></td>
+              <td class="muted">${AIMC.fmtTime(h.updated_at || h.created_at)}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>` : AIMC.emptyState('✅', '此商品尚無審核紀錄')}
+    `);
+  }
+
+  // ── Part 6：Page API —— destroy / resume / pause ──
   function destroy() {
     if (currentDom) currentDom.removeAllListeners();
     currentDom = null;

@@ -170,6 +170,7 @@ window.AIMC = window.AIMC || { pages: {} };
     reviewCounts: { generated: 0, approved: 0, rejected: 0 },
     knowledgeDetail: {},
     posProducts: [], // Hotfix16：全部 POS 商品（含尚未建立知識的），供一鍵初始化 / Health Card 全商品顯示使用
+    topicsByProduct: {}, // Hotfix17：external_product_id -> topics[]，主題頁「商品獨立歸類」的權威快取
   };
 
   AIMC.loadCoreData = async function () {
@@ -263,11 +264,9 @@ window.AIMC = window.AIMC || { pages: {} };
 
   AIMC.nextStepHint = function (insight) {
     if (insight.uninitialized) return '立即建立商品知識';
-    if (!insight.topics.length) return '建議建立主題';
-    if (!insight.promptCount) return '建議建立 Prompt';
-    if (!insight.genCount) return '建議產生內容';
-    if (insight.pendingCount) return '有內容待審核';
-    return '可持續優化或建立新主題';
+    // Hotfix17：與 Knowledge 健康卡的動態 CTA 共用同一套判斷（AIMC.Workflow.productStepCta），
+    // 避免「上面建議產生內容、下面按鈕卻是建主題」這種不一致。
+    return AIMC.Workflow.productStepCta(insight).hint;
   };
 
   // 綜合分數：知識完整 + Topic 多 + Prompt 多 + Generated 多 + 待審核少 → 分數越高越適合主推

@@ -240,6 +240,34 @@ window.AIMC = window.AIMC || { pages: {} };
     }
   };
 
+  // ── Hotfix17：商品層級「下一步」單一真相來源 ──
+  // Dashboard 的 AI 建議文字（nextStepHint）與 Knowledge 健康卡的動態 CTA 按鈕
+  // 都呼叫這支，保證兩處永遠給出同一個判斷，不會各算各的。
+  // insight 為 AIMC.computeProductInsights()/computeAllProductInsights() 產生的物件
+  // （已初始化商品才會走到這裡，uninitialized 商品另有專屬 CTA，不經過這裡）。
+  function nextProductStep(insight) {
+    if (!insight.topics.length) return 'topic';
+    if (!insight.promptCount) return 'prompt';
+    if (!insight.genCount) return 'generate';
+    if (insight.pendingCount) return 'review';
+    return null;
+  }
+
+  // 每個 step 對應：AI 建議文字（hint）、CTA 按鈕文字（label）、按鈕圖示可含在 label 內、
+  // 以及點擊後要去哪裡（href 為 function，接收 insight 動態組出正確網址）。
+  const PRODUCT_STEP_CTA = {
+    topic:    { hint: '建議建立主題',   label: '📝 建立 Topic', href: (ins) => '#/topics/' + encodeURIComponent(ins.row.external_product_id) },
+    prompt:   { hint: '建議建立 Prompt', label: '🤖 建立 Prompt', href: (ins) => '#/topics/' + encodeURIComponent(ins.row.external_product_id) },
+    generate: { hint: '建議產生內容',   label: '✨ 生成內容',   href: (ins) => '#/generate/' + encodeURIComponent(ins.row.external_product_id) },
+    review:   { hint: '有內容待審核',   label: '✅ 前往審核',   href: () => '#/review' },
+    done:     { hint: '可持續優化或建立新主題', label: '👍 保持優化', href: (ins) => '#/knowledge/' + ins.row.id },
+  };
+
+  function productStepCta(insight) {
+    const step = nextProductStep(insight) || 'done';
+    return { step, ...PRODUCT_STEP_CTA[step] };
+  }
+
   AIMC.Workflow = {
     BASELINE_PLATFORM,
     BASELINE_GOAL,
@@ -254,5 +282,7 @@ window.AIMC = window.AIMC || { pages: {} };
     runInit,
     renderInlineCard,
     runGenerateWorkflow,
+    nextProductStep,
+    productStepCta,
   };
 })();
