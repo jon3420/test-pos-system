@@ -31,6 +31,7 @@
     dom.html(root, '#dashHotProducts', AIMC.loadingHtml());
     dom.html(root, '#dashRecentActivity', AIMC.loadingHtml());
     dom.on(root, '#dashRefreshBtn', 'click', () => load(root));
+    dom.on(root, '#dashInitBtn', 'click', () => AIMC.runInitFlow(root, '#dashInitResult', () => load(root)));
 
     renderQuickStart(root, dom);
 
@@ -38,14 +39,16 @@
       await AIMC.loadCoreData();
       await AIMC.loadKnowledgeDetails();
       const rc = await AIMC.loadReviewCounts();
+      try { await AIMC.loadPosProducts(); } catch (e) { console.warn('[AIMC] 讀取 POS 商品清單失敗（今日任務仍會顯示已建立知識的商品）：', e.message); }
       if (!lc.checkpoint('API 完成')) return; // Part 9：Render Queue —— token/序號過期就安全跳過
 
-      const insights = AIMC.computeProductInsights();
+      const allInsights = AIMC.computeAllProductInsights(); // 含尚未初始化的 POS 商品，供 Part 11 流程卡使用
+      const knowledgeInsights = AIMC.computeProductInsights(); // 只含已建立知識的商品，供推薦/健康度沿用既有邏輯
       renderStats(root, dom);
       renderCompleteness(root, dom);
-      renderTasks(root, dom, insights, rc);
-      renderRecommend(root, dom, insights);
-      renderHealthGrid(root, dom, insights);
+      renderTasks(root, dom, allInsights, rc);
+      renderRecommend(root, dom, knowledgeInsights);
+      renderHealthGrid(root, dom, knowledgeInsights);
       renderHotProducts(root, dom);
       renderRecentActivity(root, dom);
       lc.done();
@@ -99,14 +102,47 @@
     return score;
   }
 
+  // Hotfix16 Part 11：流程卡加上明確的 Knowledge/Topic/Prompt/Generate/Review 勾選狀態
+  function stageBadge(ok, label) {
+    return `<span class="stage-badge ${ok ? 'ok' : 'no'}">${ok ? '✔' : '✖'} ${label}</span>`;
+  }
+
   function renderTasks(root, dom, insights, rc) {
     if (!insights.length) {
-      dom.html(root, '#dashTaskList', AIMC.emptyState('📦', '尚未建立任何商品知識，建議先從 1-2 個主打商品開始。'));
+      dom.html(root, '#dashTaskList', AIMC.emptyState('📦', '尚無 POS 商品，請先到「商品管理」建立商品'));
       return;
     }
     const sorted = [...insights].sort((a, b) => taskUrgencyScore(b) - taskUrgencyScore(a)).slice(0, 6);
     const html = sorted.map((ins) => {
       const name = AIMC.esc(ins.row.product_name);
+
+      // Part 3：尚未初始化的 POS 商品（連 Knowledge 都還沒有）— 只給一個初始化 CTA
+      if (ins.uninitialized) {
+        return `
+        <div class="task-card warn">
+          <div class="tc-head"><span class="tc-title">${name}</span>${AIMC.badge('尚未初始化', 'sensitive')}</div>
+          <div class="tc-detail">此商品尚未建立任何 AI 知識，建議先建立商品知識或直接使用一鍵初始化。</div>
+          <div class="tc-ctas">
+            <button class="btn ai sm" onclick="location.hash='#/knowledge/new-ai'">📚 建立商品知識</button>
+          </div>
+        </div>`;
+      }
+
+      const hasKnowledge = true; // insights 只有已建 knowledge 的商品才會走到這裡（uninitialized 已在上面提前 return）
+      const hasTopic = ins.topics.length > 0;
+      const hasPrompt = ins.promptCount > 0;
+      const hasGenerate = ins.genCount > 0;
+      const hasReview = ins.approvedCount > 0;
+
+      const stages = [
+        stageBadge(hasKnowledge, 'Knowledge'),
+        stageBadge(hasTopic, 'Topic'),
+        stageBadge(hasPrompt, 'Prompt'),
+        stageBadge(hasGenerate, 'Generate'),
+        stageBadge(hasReview, 'Review'),
+        `<span class="stage-badge soon">🔒 Publish（即將推出）</span>`,
+      ].join('');
+
       const lines = [];
       lines.push(`完成度 ${ins.pct}%${ins.pct < 50 ? '（偏低）' : ''}　・　Topic ${ins.topics.length}　・　Prompt ${ins.promptCount}　・　Generated ${ins.genCount}　・　待審核 ${ins.pendingCount}`);
       if (ins.platforms.length) lines.push(`今天可生成：${ins.platforms.map((p) => AIMC.platformLabel(p)).join('、')}`);
@@ -114,8 +150,9 @@
 
       const ctas = [];
       if (ins.pct < 70) ctas.push({ label: '📚 補知識', href: '#/knowledge/' + ins.row.id });
-      if (!ins.topics.length) ctas.push({ label: '📝 建主題', href: '#/topics/' + encodeURIComponent(ins.row.external_product_id) });
-      if (ins.promptCount && !ins.genCount) ctas.push({ label: '✨ 生成內容', href: '#/generate/' + encodeURIComponent(ins.row.external_product_id) });
+      if (!hasTopic) ctas.push({ label: '📝 建主題', href: '#/topics/' + encodeURIComponent(ins.row.external_product_id) });
+      else if (!hasPrompt) ctas.push({ label: '🤖 補 Prompt', href: '#/prompts' });
+      if (hasPrompt && !hasGenerate) ctas.push({ label: '✨ 生成內容', href: '#/generate/' + encodeURIComponent(ins.row.external_product_id) });
       if (ins.pendingCount) ctas.push({ label: '✅ 去審核', href: '#/review' });
       if (!ctas.length) ctas.push({ label: '👍 保持優化', href: '#/knowledge/' + ins.row.id });
 
@@ -126,6 +163,7 @@
       return `
       <div class="${cls}">
         <div class="tc-head"><span class="tc-title">${name}</span>${ins.pendingCount ? AIMC.badge(ins.pendingCount + ' 待審核', 'generated') : ''}</div>
+        <div class="tc-stages">${stages}</div>
         <div class="tc-detail">${lines.join('<br>')}</div>
         <div class="tc-ctas">${ctas.map((c) => `<button class="btn ghost sm" onclick="location.hash='${c.href}'">${c.label}</button>`).join('')}</div>
       </div>`;

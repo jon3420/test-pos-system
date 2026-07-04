@@ -208,6 +208,11 @@
       </div>
 
       <div class="card">
+        <h3 style="font-size:13px">🩺 此 Topic 可用 Prompt</h3>
+        <div id="t_promptMatrix"></div>
+      </div>
+
+      <div class="card">
         <h3 style="font-size:13px">生成紀錄（${relatedHistory.length}）</h3>
         ${relatedHistory.length ? `<table><thead><tr><th>平台</th><th>狀態</th><th>時間</th></tr></thead><tbody>
           ${relatedHistory.slice(0, 8).map((h) => `<tr><td>${AIMC.platformLabel(h.platform)}</td><td><span class="badge ${h.status}">${h.status}</span></td><td class="muted">${AIMC.fmtTime(h.created_at)}</td></tr>`).join('')}
@@ -222,6 +227,49 @@
     `);
     dom.on(root, '#t_toggleBtn', 'click', () => toggleStatus(root, t));
     dom.on(root, '#t_deleteBtn', 'click', () => deleteTopic(root, t.id));
+    renderTopicPromptMatrix(root, dom, t);
+  }
+
+  // Hotfix16 Part 9：Topic Detail 顯示「此 Topic 可用 Prompt」矩陣（依平台分組，✔/✖ + 一鍵建立）
+  const TOPIC_MATRIX_CONFIG = {
+    fb: ['教育', '品牌故事', 'FAQ', '促銷'],
+    line: ['推播', '回購'],
+  };
+
+  function renderTopicPromptMatrix(root, dom, t) {
+    dom.html(root, '#t_promptMatrix', Object.keys(TOPIC_MATRIX_CONFIG).map((platform) => {
+      const goals = TOPIC_MATRIX_CONFIG[platform];
+      const items = goals.map((goal) => ({ goal, ok: !!AIMC.Workflow.checkPrompt(t.id, platform, goal) }));
+      const doneCount = items.filter((i) => i.ok).length;
+      return `
+        <div class="health-matrix-card">
+          <div class="hmx-head">
+            <span class="hmx-platform">${AIMC.esc(AIMC.platformLabel(platform))}</span>
+            <span class="badge ${doneCount === items.length ? 'active' : 'outline'}">${doneCount}/${items.length}</span>
+          </div>
+          <div class="hmx-rows">
+            ${items.map((i) => `
+              <div class="hmx-row">
+                <span class="hmx-goal">${i.ok ? '✔' : '✖'} ${AIMC.esc(i.goal)}</span>
+                ${i.ok ? '' : `<button class="link-btn hmx-fix" data-tm-platform="${platform}" data-tm-goal="${AIMC.esc(i.goal)}">一鍵建立</button>`}
+              </div>`).join('')}
+          </div>
+        </div>`;
+    }).join(''));
+    const el = dom.query(root, '#t_promptMatrix');
+    if (el) {
+      el.querySelectorAll('[data-tm-platform]').forEach((b) => {
+        b.addEventListener('click', () => fixTopicPrompt(root, t, b.dataset.tmPlatform, b.dataset.tmGoal));
+      });
+    }
+  }
+
+  async function fixTopicPrompt(root, t, platform, goal) {
+    try {
+      await AIMC.Workflow.ensurePrompt({ topic_id: t.id, platform, content_goal: goal });
+      AIMC.toast(`已建立 ${AIMC.platformLabel(platform)} × ${goal} 的 Prompt`);
+      await refresh(root);
+    } catch (e) { AIMC.toast('建立失敗：' + e.message, true); }
   }
 
   async function toggleStatus(root, t) {

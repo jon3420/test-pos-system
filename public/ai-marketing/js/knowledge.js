@@ -22,6 +22,7 @@
     lc.dom.on(root, '#kNewBtn', 'click', () => openForm(null));
     lc.dom.on(root, '#kAiNewBtn', 'click', () => openForm(null, true));
     lc.dom.on(root, '#kRefreshBtn', 'click', () => refresh(root));
+    lc.dom.on(root, '#kInitBtn', 'click', () => AIMC.runInitFlow(root, '#kInitResult', () => refresh(root)));
     lc.done('event bindings ready');
     await refresh(root);
 
@@ -44,6 +45,7 @@
       AIMC.store.knowledge = data;
       AIMC.store.topics = topics; AIMC.store.prompts = prompts; AIMC.store.history = history;
       await AIMC.loadKnowledgeDetails();
+      try { await AIMC.loadPosProducts(); } catch (e) { console.warn('[AIMC] 讀取 POS 商品清單失敗（Health Card 仍會顯示已建立知識的商品）：', e.message); }
       if (!lc.checkpoint('API 完成')) return;
       renderStats(root, lc.dom);
       renderHealthGrid(root, lc.dom);
@@ -59,8 +61,9 @@
       ? Math.round(s.knowledge.reduce((sum, r) => sum + AIMC.calcCompleteness(s.knowledgeDetail[r.id]), 0) / s.knowledge.length)
       : 0;
     const pendingReview = s.history.filter((h) => h.status === 'generated').length;
+    const totalProducts = Math.max(s.posProducts.length, s.knowledge.length);
     dom.html(root, '#kStatGrid', [
-      AIMC.statCard('📦', s.knowledge.length, '商品數'),
+      AIMC.statCard('📦', totalProducts, 'POS 商品數'),
       AIMC.statCard('📚', s.knowledge.length, '已建知識數'),
       AIMC.statCard('📊', avg + '%', '平均完成度'),
       AIMC.statCard('📝', s.topics.length, 'Topic 數'),
@@ -69,14 +72,30 @@
     ].join(''));
   }
 
+  // Hotfix16 Part 3：改用 computeAllProductInsights()，讓「有 POS 商品但還沒
+  // 建立知識」的項目也會出現，並標示 尚未初始化／0%／建立商品知識 CTA。
   function renderHealthGrid(root, dom) {
-    const insights = AIMC.computeProductInsights();
+    const insights = AIMC.computeAllProductInsights();
     if (!insights.length) {
-      dom.html(root, '#kHealthGrid', AIMC.emptyState('📦', '尚無資料，請按「新增商品知識」或「🤖 AI 建立商品知識」'));
+      dom.html(root, '#kHealthGrid', AIMC.emptyState('📦', '尚無 POS 商品，請先到「商品管理」建立商品'));
       return;
     }
     dom.html(root, '#kHealthGrid', insights.map((ins) => {
       const row = ins.row;
+      if (ins.uninitialized) {
+        return `
+        <div class="health-card uninitialized" data-init-product="${AIMC.esc(row.external_product_id)}">
+          <div class="hc-head">
+            <div><div class="hc-name">${AIMC.esc(row.product_name)}</div><div class="hc-code">${AIMC.esc(row.external_product_id)}</div></div>
+            <span class="badge outline">0%</span>
+          </div>
+          <div class="hc-missing">${AIMC.badge('尚未初始化', 'sensitive')}</div>
+          <div class="hc-hint">💡 AI 建議：立即建立商品知識</div>
+          <div class="hc-ctas">
+            <button class="btn ai sm" data-create="${AIMC.esc(row.external_product_id)}">📚 建立商品知識</button>
+          </div>
+        </div>`;
+      }
       return `
       <div class="health-card" data-open="${row.id}">
         <div class="hc-head">
@@ -112,6 +131,7 @@
     el.querySelectorAll('[data-topic]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); location.hash = '#/topics/' + encodeURIComponent(b.dataset.topic); }));
     el.querySelectorAll('[data-gen]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); location.hash = '#/generate/' + encodeURIComponent(b.dataset.gen); }));
     el.querySelectorAll('[data-del]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); removeKnowledge(document.getElementById('workspace'), b.dataset.del); }));
+    el.querySelectorAll('[data-create]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); openForm(null, false, b.dataset.create); }));
   }
 
   function fieldLabel(key) {
@@ -132,13 +152,47 @@
     } catch (e) { AIMC.toast('刪除失敗：' + e.message, true); }
   }
 
-  function formHtml(data, aiDraftMode) {
+  // Hotfix16 Part 2：第一欄不再手動輸入商品編號/名稱/分類/價格，
+  // 一律從 POS 商品下拉選擇，選取後自動帶入（唯讀，不得手動亂改）。
+  // 編輯既有知識時（data 存在）：商品本身資訊也一律唯讀顯示，
+  // 因為 PUT /knowledge/:id 本來就不接受 external_product_id/product_name 等欄位，
+  // 商品基本資料一律由「初始化」或個別 sync-pos-product 呼叫同步，不走這個表單。
+  function productInfoBoxHtml(p) {
+    if (!p) return '<div class="pos-product-info empty">請選擇一個 POS 商品</div>';
+    const price = p.price != null && p.price !== '' ? `NT$ ${AIMC.esc(p.price)}` : '-';
+    return `
+      <div class="pos-product-info">
+        ${p.product_image_url ? `<img src="${AIMC.esc(p.product_image_url)}" alt="">` : '<div class="pos-product-info-noimg">🍽️</div>'}
+        <div class="pos-product-info-text">
+          <div class="pos-product-info-name">${AIMC.esc(p.product_name)}</div>
+          <div class="pos-product-info-sub">編號 ${AIMC.esc(p.external_product_id)} ・ ${AIMC.esc(p.category_name || '未分類')} ・ ${price}</div>
+        </div>
+      </div>`;
+  }
+
+  function formHtml(data, aiDraftMode, posProductOptions, preselectId) {
     const v = (k) => AIMC.esc((data && data[k]) || '');
+    const editingPosInfo = data
+      ? (AIMC.store.posProducts || []).find((p) => p.external_product_id === data.external_product_id)
+      : null;
+
+    const productSelectorHtml = data
+      ? `<div class="field full"><label>商品（同步自 POS，不可修改）</label>${productInfoBoxHtml(editingPosInfo || {
+          external_product_id: data.external_product_id, product_name: data.product_name,
+          category_name: editingPosInfo && editingPosInfo.category_name, price: data.price, product_image_url: data.product_image_url,
+        })}</div>`
+      : `<div class="field full">
+          <label>選擇 POS 商品 *</label>
+          <select id="f_pos_product">
+            <option value="">請選擇...</option>
+            ${(posProductOptions || []).map((p) => `<option value="${AIMC.esc(p.external_product_id)}" ${preselectId === p.external_product_id ? 'selected' : ''}>${AIMC.esc(p.product_name)}（${AIMC.esc(p.external_product_id)}）</option>`).join('')}
+          </select>
+          <div id="f_productInfoBox" style="margin-top:8px">${productInfoBoxHtml(null)}</div>
+        </div>`;
+
     return `
       <div class="grid">
-        <div class="field"><label>商品編號 external_product_id *</label><input type="text" id="f_external_product_id" value="${v('external_product_id')}" ${data ? 'disabled' : ''} placeholder="例如 P0001"></div>
-        <div class="field"><label>商品名稱 *</label><input type="text" id="f_product_name" value="${v('product_name')}" placeholder="例如 冷拌麻油豬腰"></div>
-        <div class="field"><label>分類名稱</label><input type="text" id="f_category_name" value="${v('category_name')}" placeholder="例如 熱炒"></div>
+        ${productSelectorHtml}
         <div class="field"><label>是否允許 AI 使用</label>
           <select id="f_ai_usage_allowed">
             <option value="true" ${!data || data.ai_usage_allowed ? 'selected' : ''}>允許</option>
@@ -164,12 +218,19 @@
     `;
   }
 
-  function collectPayload() {
+  // data：編輯既有知識時傳入該筆資料（已知 external_product_id/product_name，商品資訊不可改）
+  // selectedPosProduct：新增時，使用者從下拉選擇的 POS 商品（AIMC.normalizePosProduct 格式）
+  function collectPayload(data, selectedPosProduct) {
     const g = (id) => document.getElementById(id).value;
+    const identity = data
+      ? { external_product_id: data.external_product_id, product_name: data.product_name, category_name: undefined }
+      : {
+          external_product_id: selectedPosProduct ? selectedPosProduct.external_product_id : '',
+          product_name: selectedPosProduct ? selectedPosProduct.product_name : '',
+          category_name: selectedPosProduct ? (selectedPosProduct.category_name || undefined) : undefined,
+        };
     return {
-      external_product_id: g('f_external_product_id').trim(),
-      product_name: g('f_product_name').trim(),
-      category_name: g('f_category_name').trim() || undefined,
+      ...identity,
       intro: g('f_intro'), features: g('f_features'), story: g('f_story'),
       ingredient_intro: g('f_ingredient_intro'), technique: g('f_technique'), storage_method: g('f_storage_method'),
       nutrition: g('f_nutrition'), brand_philosophy: g('f_brand_philosophy'),
@@ -183,11 +244,10 @@
   // 🤖 AI 建立商品知識（草稿）— 純前端範本文字，不呼叫外部 AI/LLM API，
   // 需使用者確認後按「儲存」才會呼叫既有的 POST/PUT /knowledge。
   // 此表單活在 Drawer 內，Drawer 沒有路由生命週期問題，維持原本直接操作即可。
-  function fillAiDraft() {
-    const name = document.getElementById('f_product_name').value.trim();
-    const category = document.getElementById('f_category_name').value.trim();
-    if (!name) { AIMC.toast('請先輸入商品名稱，AI 才能產生草稿', true); return; }
-    const cat = category || '本店';
+  function fillAiDraft(productName, categoryName) {
+    const name = (productName || '').trim();
+    if (!name) { AIMC.toast('請先選擇 POS 商品，AI 才能產生草稿', true); return; }
+    const cat = (categoryName || '').trim() || '本店';
     const setIfEmpty = (id, val) => { const el = document.getElementById(id); if (!el.value.trim()) el.value = val; };
     setIfEmpty('f_intro', `${name}是${cat}類別中的人氣品項，選用新鮮食材用心製作，每一口都能感受到店家對品質的堅持。`);
     setIfEmpty('f_features', `- 選用當日新鮮食材\n- 職人手法製作，口感層次豐富\n- 適合搭配多種主餐或單點享用`);
@@ -204,17 +264,49 @@
     AIMC.toast('AI 已產生草稿，請確認內容後再儲存');
   }
 
-  async function openForm(id, aiDraftMode) {
+  // preselectExternalId：由 Health Card「建立商品知識」CTA 帶入，開表單時直接選好該商品
+  async function openForm(id, aiDraftMode, preselectExternalId) {
     let data = null;
     if (id) {
       try { data = (await AIMC.api('/knowledge/' + id)).data; } catch (e) { AIMC.toast('讀取失敗：' + e.message, true); return; }
     }
-    const body = AIMC.openDrawer(id ? `補知識（${AIMC.esc(data.product_name)}）` : '🤖 AI 建立商品知識', formHtml(data, aiDraftMode));
-    body.querySelector('#f_aiDraftBtn').addEventListener('click', fillAiDraft);
+
+    // 確保 POS 商品清單是新的（Drawer 可能在使用者還沒逛過 Knowledge 列表就被開啟，例如從 Dashboard CTA 直接進來）
+    if (!data && !(AIMC.store.posProducts || []).length) {
+      try { await AIMC.loadPosProducts(); } catch (e) { console.warn('[AIMC] 讀取 POS 商品清單失敗：', e.message); }
+    }
+    // 新增模式下，只列出「尚未建立知識」的 POS 商品，避免選到已有知識的商品又跳 ALREADY_EXISTS
+    const knownIds = new Set((AIMC.store.knowledge || []).map((k) => k.external_product_id));
+    const posProductOptions = data ? [] : (AIMC.store.posProducts || []).filter((p) => !knownIds.has(p.external_product_id));
+
+    let selectedPosProduct = data ? null : (posProductOptions.find((p) => p.external_product_id === preselectExternalId) || null);
+
+    const body = AIMC.openDrawer(
+      id ? `補知識（${AIMC.esc(data.product_name)}）` : '🤖 AI 建立商品知識',
+      formHtml(data, aiDraftMode, posProductOptions, preselectExternalId)
+    );
+
+    if (!data) {
+      const sel = body.querySelector('#f_pos_product');
+      const infoBox = body.querySelector('#f_productInfoBox');
+      const syncInfoBox = () => { if (infoBox) infoBox.innerHTML = productInfoBoxHtml(selectedPosProduct); };
+      if (sel) {
+        sel.addEventListener('change', () => {
+          selectedPosProduct = posProductOptions.find((p) => p.external_product_id === sel.value) || null;
+          syncInfoBox();
+        });
+      }
+      syncInfoBox();
+    }
+
+    body.querySelector('#f_aiDraftBtn').addEventListener('click', () => {
+      if (data) fillAiDraft(data.product_name, null);
+      else fillAiDraft(selectedPosProduct && selectedPosProduct.product_name, selectedPosProduct && selectedPosProduct.category_name);
+    });
     body.querySelector('#f_cancelBtn').addEventListener('click', () => AIMC.closeDrawer());
     body.querySelector('#f_saveBtn').addEventListener('click', async () => {
-      const payload = collectPayload();
-      if (!payload.external_product_id || !payload.product_name) return AIMC.toast('商品編號與商品名稱為必填', true);
+      if (!data && !selectedPosProduct) return AIMC.toast('請選擇 POS 商品', true);
+      const payload = collectPayload(data, selectedPosProduct);
       try {
         if (id) {
           await AIMC.api('/knowledge/' + id, { method: 'PUT', body: payload });
@@ -234,7 +326,7 @@
         }
       }
     });
-    if (aiDraftMode) fillAiDraft();
+    if (aiDraftMode && data) fillAiDraft(data.product_name, null);
   }
 
   // ── Part 6：Page API —— destroy / resume / pause（refresh 已定義於上方）──

@@ -16,6 +16,8 @@
     lc.dom.on(root, '#s_saveBtn', 'click', () => {
       AIMC.toast('設定儲存功能將於未來版本開放（需新增 Settings API，本次重構不建立新 API / DB）', true);
     });
+    // Hotfix16：Settings 頁也放一顆初始化入口，方便店家第一次設定品牌時順手一鍵初始化
+    lc.dom.on(root, '#sInitBtn', 'click', () => AIMC.runInitFlow(root, '#sInitResult'));
     lc.done('event bindings ready，無 API 呼叫');
   }
 

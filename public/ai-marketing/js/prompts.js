@@ -13,6 +13,10 @@
   const CONTENT_GOALS = ['教育', '促銷', 'FAQ', '品牌故事', '顧客見證', 'SEO', '短影音', '圖文', 'Google商家', 'general'];
   const CONTENT_FORMATS = ['text', 'image', 'video', 'carousel'];
 
+  // Hotfix16 Part 8：Prompt Health —— 每個平台檢視這 8 種常用內容目的是否已有 Prompt
+  // （不分是否綁定主題，只要該 platform+content_goal 有任一筆 Prompt 就算 ✔）。
+  const HEALTH_GOALS = ['教育', '品牌故事', 'FAQ', '促銷', 'SEO', '顧客見證', '短影音', 'Google商家'];
+
   async function load(root) {
     const lc = AIMC.startLifecycle('Prompts');
     currentDom = lc.dom;
@@ -31,12 +35,53 @@
       if (!lc.checkpoint('API 完成')) return;
       AIMC.store.prompts = prompts;
       AIMC.store.topics = topics;
+      renderHealthMatrix(root, lc.dom);
       renderTabs(root, lc.dom);
       renderGroups(root, lc.dom);
       lc.done();
     } catch (e) {
       lc.fail(e, root, '#pGoalGroups');
     }
+  }
+
+  // ── Hotfix16 Part 8：Platform Health Matrix ──
+  function renderHealthMatrix(root, dom) {
+    const s = AIMC.store;
+    dom.html(root, '#pHealthMatrix', PLATFORMS.map((platform) => {
+      const items = HEALTH_GOALS.map((goal) => {
+        const ok = !!AIMC.Workflow.checkPrompt(null, platform, goal) || s.prompts.some((p) => p.platform === platform && p.content_goal === goal);
+        return { goal, ok };
+      });
+      const doneCount = items.filter((i) => i.ok).length;
+      return `
+        <div class="health-matrix-card">
+          <div class="hmx-head">
+            <span class="hmx-platform">${AIMC.esc(AIMC.platformLabel(platform))}</span>
+            <span class="badge ${doneCount === items.length ? 'active' : 'outline'}">${doneCount}/${items.length}</span>
+          </div>
+          <div class="hmx-rows">
+            ${items.map((i) => `
+              <div class="hmx-row">
+                <span class="hmx-goal">${i.ok ? '✔' : '✖'} ${AIMC.esc(i.goal)}</span>
+                ${i.ok ? '' : `<button class="link-btn hmx-fix" data-fix-platform="${platform}" data-fix-goal="${AIMC.esc(i.goal)}">一鍵建立</button>`}
+              </div>`).join('')}
+          </div>
+        </div>`;
+    }).join(''));
+    const el = dom.query(root, '#pHealthMatrix');
+    if (el) {
+      el.querySelectorAll('[data-fix-platform]').forEach((b) => {
+        b.addEventListener('click', () => fixHealthPrompt(root, b.dataset.fixPlatform, b.dataset.fixGoal));
+      });
+    }
+  }
+
+  async function fixHealthPrompt(root, platform, goal) {
+    try {
+      await AIMC.Workflow.ensurePrompt({ topic_id: null, platform, content_goal: goal });
+      AIMC.toast(`已建立 ${AIMC.platformLabel(platform)} × ${goal} 的通用 Prompt`);
+      await refresh(root);
+    } catch (e) { AIMC.toast('建立失敗：' + e.message, true); }
   }
 
   function renderTabs(root, dom) {

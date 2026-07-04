@@ -1,5 +1,16 @@
 <div class="section-note">目前僅提供介面預覽：本次重構不新增 Database / API，此頁尚未串接儲存端點，變更暫不會保存（Phase 2 可補上 Settings API）。</div>
 
+<div class="card init-card">
+  <div class="flex-between">
+    <div>
+      <h3><span class="icon">🚀</span>AI 一鍵初始化</h3>
+      <p class="muted" style="margin:2px 0 0">自動匯入所有 POS 商品、建立 Knowledge 草稿 / 基礎 Topic / 基準 Prompt。已存在的資料一律跳過，不會重複建立。</p>
+    </div>
+    <button class="btn ai" id="sInitBtn">🚀 初始化 AI 行銷中心</button>
+  </div>
+  <div id="sInitResult"></div>
+</div>
+
 <div class="card">
   <h3><span class="icon">🏪</span>品牌資訊</h3>
   <div class="grid">

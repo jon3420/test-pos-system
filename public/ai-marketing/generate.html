@@ -11,10 +11,12 @@
   <div class="wizard-panel active" id="gPanel1">
     <h3>Step 1：選擇商品</h3>
     <div class="pick-grid" id="gProductGrid"><div class="empty">載入中...</div></div>
+    <div id="gKnowledgeWorkflowCard"></div>
   </div>
 
   <div class="wizard-panel" id="gPanel2">
     <h3>Step 2：選擇主題</h3>
+    <div id="gTopicWorkflowCard"></div>
     <div class="pick-grid" id="gTopicGrid"></div>
     <div class="row-actions"><button class="btn secondary sm" data-back="1">← 上一步</button></div>
   </div>
@@ -28,6 +30,7 @@
   <div class="wizard-panel" id="gPanel4">
     <h3>Step 4：選擇內容目的</h3>
     <div class="pick-grid" id="gGoalGrid"></div>
+    <div id="gPromptWorkflowCard"></div>
     <div class="row-actions">
       <button class="btn secondary sm" data-back="3">← 上一步</button>
       <button class="btn" id="gGenerateBtn">⚡ 產生內容</button>

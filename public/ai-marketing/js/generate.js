@@ -1,8 +1,10 @@
 // ============================================================
 // generate.js — AI Content Studio（AI 推薦生成 + 4 步驟 Wizard）
-// 呼叫方式與欄位 100% 沿用 Phase 1 POST /generate，不做任何邏輯變更。
-// 「AI 推薦生成」純粹是前端規則（從現有 topics/prompts/content-history
-// 推導出一組「有 Prompt 但還沒生成過」的組合），按下後呼叫同一支 API。
+// Hotfix16：Generate 一律走 AIMC.Workflow.runGenerateWorkflow()，
+// 缺 Knowledge / Topic / Prompt 一律顯示 Inline Workflow Card + 「立即建立」，
+// 不再讓使用者看到「找不到 Prompt」這類工程錯誤 Toast，也不再需要自己猜下一步。
+// 呼叫的 AI 生成 API 本身（POST /generate）欄位與行為完全不變。
+//
 // 支援路由參數 #/generate/<external_product_id>：自動選定該商品並跳到 Step 2。
 //
 // V3.1 Stability Pass：所有 DOM 讀寫改用 AIMC.DOM，doGenerate() 呼叫真正的
@@ -68,7 +70,7 @@
         .map((t) => ({ topic: t, prompts: promptsByTopic[t.id], hasGenerated: genTopicIds.has(t.id) }));
 
       if (!candidates.length) {
-        lc.dom.html(root, '#gRecommend', AIMC.emptyState('🤖', '目前沒有「已建立 Prompt」的主題，請先到「Prompt」建立範本，AI 才能推薦生成組合。'));
+        lc.dom.html(root, '#gRecommend', AIMC.emptyState('🤖', '目前沒有「已建立 Prompt」的主題，請先到「Prompt」建立範本，或直接使用下方「選擇商品」流程，缺什麼系統會自動帶你補齊。'));
         lc.done();
         return;
       }
@@ -117,17 +119,19 @@
     [1, 2, 3, 4].forEach((i) => dom.class(root, '#gPanel' + i, 'active', i === n));
   }
 
+  // Hotfix16 Part 5：Step1 商品清單改用「全部 POS 商品」，不再只列出已建知識的商品——
+  // 使用者可以選任何 POS 商品，Zero Workflow Engine 會自動帶著補齊 Knowledge/Topic/Prompt。
   async function loadProducts(root) {
     const lc = AIMC.startLifecycle('Generate:loadProducts');
     try {
-      const { data } = await AIMC.api('/knowledge');
+      const [posProducts] = await Promise.all([AIMC.loadPosProducts(), AIMC.api('/knowledge').then((r) => { AIMC.store.knowledge = r.data; })]);
       if (!lc.checkpoint('API 完成')) return;
-      AIMC.store.knowledge = data;
-      if (!data.length) { lc.dom.html(root, '#gProductGrid', AIMC.emptyState('📦', '請先到「商品知識」建立商品')); lc.done(); return; }
-      lc.dom.html(root, '#gProductGrid', data.map((k) => `
-        <div class="pick-card" data-id="${AIMC.esc(k.external_product_id)}" data-name="${AIMC.esc(k.product_name)}">
-          <div class="pc-title">${AIMC.esc(k.product_name)}</div>
-          <div class="pc-sub">${AIMC.esc(k.external_product_id)}</div>
+      if (!posProducts.length) { lc.dom.html(root, '#gProductGrid', AIMC.emptyState('📦', '請先到「商品管理」建立 POS 商品')); lc.done(); return; }
+      const knownIds = new Set(AIMC.store.knowledge.map((k) => k.external_product_id));
+      lc.dom.html(root, '#gProductGrid', posProducts.map((p) => `
+        <div class="pick-card" data-id="${AIMC.esc(p.external_product_id)}" data-name="${AIMC.esc(p.product_name)}">
+          <div class="pc-title">${AIMC.esc(p.product_name)}</div>
+          <div class="pc-sub">${AIMC.esc(p.external_product_id)} ${!knownIds.has(p.external_product_id) ? '・ <span class="muted">尚未初始化</span>' : ''}</div>
         </div>`).join(''));
       const grid = lc.dom.query(root, '#gProductGrid');
       if (grid) grid.querySelectorAll('[data-id]').forEach((c) => c.addEventListener('click', () => selectProduct(root, c)));
@@ -137,34 +141,77 @@
     }
   }
 
+  // ── Zero Workflow Engine：STEP1 檢查 Knowledge ──
   async function selectProduct(root, cardEl) {
     const dom = AIMC.DOM.forPage('Generate');
     picked.external_product_id = cardEl.dataset.id;
     picked.product_name = cardEl.dataset.name;
+    picked.topic_id = null; picked.topic_title = null; // 換商品要重選主題
     const grid = dom.query(root, '#gProductGrid');
     if (grid) grid.querySelectorAll('.pick-card').forEach((c) => c.classList.toggle('selected', c === cardEl));
+    dom.html(root, '#gKnowledgeWorkflowCard', '');
 
-    const lc = AIMC.startLifecycle('Generate:selectProduct');
-    lc.dom.html(root, '#gTopicGrid', AIMC.loadingHtml());
+    if (!AIMC.Workflow.checkKnowledge(picked.external_product_id)) {
+      dom.html(root, '#gKnowledgeWorkflowCard', AIMC.Workflow.renderInlineCard('knowledge'));
+      dom.on(root, '#gKnowledgeWorkflowCard [data-workflow-fix="knowledge"]', 'click', () => fixKnowledge(root));
+      dom.html(root, '#gTopicGrid', '');
+      dom.html(root, '#gTopicWorkflowCard', '');
+      return; // 停在 Step1，等使用者按「立即建立」
+    }
+    await proceedToTopicStep(root);
+  }
+
+  async function fixKnowledge(root) {
+    const dom = AIMC.DOM.forPage('Generate');
+    const posProduct = (AIMC.store.posProducts || []).find((p) => p.external_product_id === picked.external_product_id);
+    if (!posProduct) { AIMC.toast('找不到此 POS 商品資料', true); return; }
+    try {
+      await AIMC.Workflow.ensureKnowledge(posProduct);
+      AIMC.toast('已建立商品知識草稿，可至「商品知識」補充細節');
+      dom.html(root, '#gKnowledgeWorkflowCard', '');
+      await proceedToTopicStep(root);
+    } catch (e) { AIMC.toast('建立失敗：' + e.message, true); }
+  }
+
+  // ── Zero Workflow Engine：STEP2 檢查 Topic ──
+  async function proceedToTopicStep(root) {
+    const dom = AIMC.DOM.forPage('Generate');
+    goStep(root, dom, 2);
+    dom.html(root, '#gTopicGrid', AIMC.loadingHtml());
+    dom.html(root, '#gTopicWorkflowCard', '');
     try {
       const { data } = await AIMC.api('/topics?external_product_id=' + encodeURIComponent(picked.external_product_id));
-      if (!lc.checkpoint('API 完成')) return;
+      AIMC.store.topics = AIMC.store.topics.filter((t) => t.external_product_id !== picked.external_product_id).concat(data);
       if (!data.length) {
-        lc.dom.html(root, '#gTopicGrid', AIMC.emptyState('📝', '此商品尚無主題，請先到「主題」建立'));
-      } else {
-        lc.dom.html(root, '#gTopicGrid', data.map((t) => `
-          <div class="pick-card" data-id="${t.id}" data-title="${AIMC.esc(t.title)}">
-            <div class="pc-title">${AIMC.esc(t.title)}</div>
-            <div class="pc-sub">${AIMC.esc(t.category)}</div>
-          </div>`).join(''));
-        const topicGrid = lc.dom.query(root, '#gTopicGrid');
-        if (topicGrid) topicGrid.querySelectorAll('[data-id]').forEach((c) => c.addEventListener('click', () => selectTopic(root, c)));
+        dom.html(root, '#gTopicGrid', '');
+        dom.html(root, '#gTopicWorkflowCard', AIMC.Workflow.renderInlineCard('topic'));
+        dom.on(root, '#gTopicWorkflowCard [data-workflow-fix="topic"]', 'click', () => fixTopic(root));
+        return;
       }
-      lc.done();
+      renderTopicGrid(root, dom, data);
     } catch (e) {
-      lc.fail(e, root, '#gTopicGrid');
+      dom.html(root, '#gTopicGrid', `<div class="empty">載入失敗：${AIMC.esc(e.message)}</div>`);
     }
-    goStep(root, dom, 2);
+  }
+
+  function renderTopicGrid(root, dom, topics) {
+    dom.html(root, '#gTopicGrid', topics.map((t) => `
+      <div class="pick-card" data-id="${t.id}" data-title="${AIMC.esc(t.title)}">
+        <div class="pc-title">${AIMC.esc(t.title)}</div>
+        <div class="pc-sub">${AIMC.esc(t.category)}</div>
+      </div>`).join(''));
+    const topicGrid = dom.query(root, '#gTopicGrid');
+    if (topicGrid) topicGrid.querySelectorAll('[data-id]').forEach((c) => c.addEventListener('click', () => selectTopic(root, c)));
+  }
+
+  async function fixTopic(root) {
+    const dom = AIMC.DOM.forPage('Generate');
+    try {
+      const result = await AIMC.Workflow.ensureTopic(picked.external_product_id);
+      AIMC.toast(`已建立 ${result.created_count} 個主題${result.skipped_count ? `（${result.skipped_count} 個已存在，已跳過）` : ''}`);
+      dom.html(root, '#gTopicWorkflowCard', '');
+      await proceedToTopicStep(root);
+    } catch (e) { AIMC.toast('建立失敗：' + e.message, true); }
   }
 
   function selectTopic(root, cardEl) {
@@ -187,23 +234,55 @@
   function selectPlatform(root, cardEl) {
     const dom = AIMC.DOM.forPage('Generate');
     picked.platform = cardEl.dataset.p;
+    picked.content_goal = null;
     const grid = dom.query(root, '#gPlatformGrid');
     if (grid) grid.querySelectorAll('.pick-card').forEach((c) => c.classList.toggle('selected', c === cardEl));
     renderGoalGrid(root, dom);
     goStep(root, dom, 4);
   }
 
+  // ── Zero Workflow Engine：STEP3 檢查 Prompt（選定平台+目的後立即檢查）──
   function renderGoalGrid(root, dom) {
     dom.html(root, '#gGoalGrid', GOALS.map((g) => `<div class="pick-card" data-g="${g}"><div class="pc-title">${g}</div></div>`).join(''));
+    dom.html(root, '#gPromptWorkflowCard', '');
+    setGenerateEnabled(root, dom, false);
     const grid = dom.query(root, '#gGoalGrid');
     if (grid) {
       grid.querySelectorAll('[data-g]').forEach((c) => c.addEventListener('click', () => {
         picked.content_goal = c.dataset.g;
         grid.querySelectorAll('.pick-card').forEach((x) => x.classList.toggle('selected', x === c));
+        checkPromptStep(root, dom);
       }));
     }
   }
 
+  function setGenerateEnabled(root, dom, enabled) {
+    const btn = dom.query(root, '#gGenerateBtn');
+    if (btn) { btn.style.display = enabled ? '' : 'none'; }
+  }
+
+  function checkPromptStep(root, dom) {
+    dom.html(root, '#gPromptWorkflowCard', '');
+    const prompt = AIMC.Workflow.checkPrompt(picked.topic_id, picked.platform, picked.content_goal);
+    if (!prompt) {
+      dom.html(root, '#gPromptWorkflowCard', AIMC.Workflow.renderInlineCard('prompt', { platform: picked.platform, contentGoal: picked.content_goal }));
+      dom.on(root, '#gPromptWorkflowCard [data-workflow-fix="prompt"]', 'click', () => fixPrompt(root));
+      setGenerateEnabled(root, dom, false);
+    } else {
+      setGenerateEnabled(root, dom, true);
+    }
+  }
+
+  async function fixPrompt(root) {
+    const dom = AIMC.DOM.forPage('Generate');
+    try {
+      await AIMC.Workflow.ensurePrompt({ topic_id: picked.topic_id, platform: picked.platform, content_goal: picked.content_goal });
+      AIMC.toast('Prompt 已建立，可立即重新生成');
+      checkPromptStep(root, dom);
+    } catch (e) { AIMC.toast('建立失敗：' + e.message, true); }
+  }
+
+  // ── STEP4：全部齊全後才呼叫既有 POST /generate（透過 AIMC.Workflow.runGenerateWorkflow）──
   async function doGenerate(root) {
     if (!picked.topic_id) return AIMC.toast('請選擇主題', true);
     if (!picked.platform) return AIMC.toast('請選擇平台', true);
@@ -213,12 +292,22 @@
     const btn = lc.dom.query(root, '#gGenerateBtn');
     if (btn) { btn.disabled = true; btn.textContent = '⏳ 生成中...'; }
     try {
-      const { data } = await AIMC.api('/generate', {
-        method: 'POST',
-        body: { topic_id: picked.topic_id, platform: picked.platform, content_goal: picked.content_goal, content_type: 'text' },
+      const result = await AIMC.Workflow.runGenerateWorkflow(picked, {
+        onMissing: (missingStep) => {
+          // 理論上 UI 已經逐步擋掉，這裡是最後一道防線（例如資料在別的分頁被改動）：
+          // 一樣顯示 Inline Workflow Card，不丟工程錯誤 Toast。
+          lc.dom.html(root, '#gPromptWorkflowCard', AIMC.Workflow.renderInlineCard(missingStep, { platform: picked.platform, contentGoal: picked.content_goal }));
+          lc.dom.on(root, `#gPromptWorkflowCard [data-workflow-fix="${missingStep}"]`, 'click', () => {
+            if (missingStep === 'knowledge') fixKnowledge(root);
+            else if (missingStep === 'topic') fixTopic(root);
+            else fixPrompt(root);
+          });
+        },
       });
       if (!lc.checkpoint('生成 API 完成')) return; // 使用者已切頁：內容其實已經生成成功、也已落地 content_history，
                                                      // 只是「這個畫面」不需要再顯示結果，下次進審核頁會看得到，安全跳過即可
+      if (!result.ok) { lc.done('缺資料，已顯示 Inline Workflow Card'); return; }
+      const data = result.data;
       lc.dom.show(root, '#gResultCard', 'block');
       lc.dom.html(root, '#gResult', `
         <div class="grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:10px">
@@ -250,6 +339,10 @@
     dom.html(root, '#gTopicGrid', '');
     dom.html(root, '#gPlatformGrid', '');
     dom.html(root, '#gGoalGrid', '');
+    dom.html(root, '#gKnowledgeWorkflowCard', '');
+    dom.html(root, '#gTopicWorkflowCard', '');
+    dom.html(root, '#gPromptWorkflowCard', '');
+    setGenerateEnabled(root, dom, true);
     goStep(root, dom, 1);
   }
 

@@ -31,6 +31,44 @@ window.AIMC = window.AIMC || { pages: {} };
     return data;
   };
 
+  // ── Hotfix16：POS API 呼叫（同源直連 /api/products，不經過 AIMC 代理）──
+  // AIMC 服務本身沒有 POS 商品資料庫的直接存取權，「選擇 POS 商品」下拉、
+  // 「所有 POS 商品都要出現在 Health Card」都需要直接讀 POS 既有的
+  // GET /api/products（沿用既有 requireStore，接受 query.store_id，不新增任何 POS API，
+  // 也絕對不會寫入/修改 POS 商品資料——這裡只有 GET）。
+  AIMC.posApi = async function (path, { method = 'GET' } = {}) {
+    const sep = path.includes('?') ? '&' : '?';
+    const url = path + sep + 'store_id=' + encodeURIComponent(AIMC.storeId);
+    const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' } });
+    let data;
+    try { data = await res.json(); } catch { data = {}; }
+    if (!res.ok || data.success === false) {
+      throw new Error(data.message || ('HTTP ' + res.status));
+    }
+    return data;
+  };
+
+  // 統一把 POS products 表欄位映射成 AIMC 慣用命名（id → external_product_id 字串化），
+  // 不修改 POS 回傳的原始物件，只是包一層方便前端使用。
+  AIMC.normalizePosProduct = function (p) {
+    return {
+      external_product_id: String(p.id),
+      product_name: p.name,
+      category_name: p.category || '',
+      price: Number(p.dine_in_price || p.price || 0),
+      product_image_url: p.image || p.line_image_url || '',
+      active: !!p.enabled,
+      _raw: p,
+    };
+  };
+
+  AIMC.loadPosProducts = async function () {
+    const { data } = await AIMC.posApi('/api/products');
+    const list = (data || []).map(AIMC.normalizePosProduct);
+    AIMC.store.posProducts = list;
+    return list;
+  };
+
   // ── 格式化工具 ──
   AIMC.esc = (s) => (s ?? '').toString().replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   AIMC.fmtTime = (t) => (t ? new Date(t).toLocaleString('zh-TW', { hour12: false }) : '');
@@ -131,6 +169,7 @@ window.AIMC = window.AIMC || { pages: {} };
     history: [],
     reviewCounts: { generated: 0, approved: 0, rejected: 0 },
     knowledgeDetail: {},
+    posProducts: [], // Hotfix16：全部 POS 商品（含尚未建立知識的），供一鍵初始化 / Health Card 全商品顯示使用
   };
 
   AIMC.loadCoreData = async function () {
@@ -203,7 +242,27 @@ window.AIMC = window.AIMC || { pages: {} };
     });
   };
 
+  // ── Hotfix16 Part 3：所有 POS 商品都要出現在 Health Card（含尚未建立知識的）──
+  // 在既有 computeProductInsights() 的基礎上，補上「有 POS 商品、但還沒有 Knowledge」
+  // 的項目，標記 uninitialized:true，UI 據此顯示「尚未初始化 / 0% / 建立商品知識」。
+  // 不需要 AIMC.store.posProducts 事先載入好（呼叫端的 refresh() 需自行呼叫過
+  // AIMC.loadPosProducts()），這裡純粹做合併，不發任何請求。
+  AIMC.computeAllProductInsights = function () {
+    const withKnowledge = AIMC.computeProductInsights();
+    const knownIds = new Set(withKnowledge.map((ins) => ins.row.external_product_id));
+    const uninitialized = (AIMC.store.posProducts || [])
+      .filter((p) => !knownIds.has(p.external_product_id))
+      .map((p) => ({
+        row: { id: null, external_product_id: p.external_product_id, product_name: p.product_name },
+        detail: {}, pct: 0, topics: [], promptCount: 0, genCount: 0, pendingCount: 0,
+        approvedCount: 0, platforms: [], missing: [], sensitiveCount: 0,
+        uninitialized: true, posProduct: p,
+      }));
+    return [...withKnowledge, ...uninitialized];
+  };
+
   AIMC.nextStepHint = function (insight) {
+    if (insight.uninitialized) return '立即建立商品知識';
     if (!insight.topics.length) return '建議建立主題';
     if (!insight.promptCount) return '建議建立 Prompt';
     if (!insight.genCount) return '建議產生內容';
