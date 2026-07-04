@@ -5187,6 +5187,9 @@ async function loadLineBizStatus() {
     const cdText = document.getElementById('set-line_closed_dates_text');
     if (cdText) cdText.value = cdates.join('\n');
   } catch {}
+  // 📅 營業行事曆 Business Calendar V2：今日狀態 + 列表
+  refreshTodayBusinessStatus();
+  loadBusinessCalendar();
 }
 
 async function saveAdvancedLineSettings() {
@@ -5219,6 +5222,247 @@ async function setLineOrdering(enable) {
     showToast(enable ? '✅ LINE 點餐已開啟' : '🔴 LINE 點餐已關閉', 'success');
     loadLineBizStatus();
   } catch(e) { showToast('操作失敗', 'error'); }
+}
+
+// ═══════════════════════════════════════════════════════════
+// 📅 營業行事曆 Business Calendar V2（特殊營業日 / 休假日期覆蓋層）
+// ═══════════════════════════════════════════════════════════
+let _businessCalendarCache = [];
+
+// ── 今日狀態：🟢 正常營業 / 🟡 特殊營業 / 🔴 特殊休息 / 🔴 臨時休息（今日臨時休息優先）──
+async function refreshTodayBusinessStatus() {
+  const el = document.getElementById('businessCalendarTodayStatus');
+  if (!el) return;
+  el.textContent = '載入中…';
+  try {
+    const [settingsRes, todayRes] = await Promise.all([
+      apiFetch('/api/settings').then(r => r.json()),
+      apiFetch('/api/settings/business-calendar/today').then(r => r.json()),
+    ]);
+    const s = settingsRes.data || {};
+    const todayStr = new Date().toISOString().slice(0,10);
+    const isTodayTempClosed = s.line_today_closed === '1' && s.line_today_closed_date === todayStr;
+    const cal = todayRes.data || { matched: false };
+
+    if (isTodayTempClosed) {
+      // 今日臨時休息優先於營業行事曆
+      el.innerHTML = '<span style="color:#e53935">🔴 今日臨時休息</span>';
+      return;
+    }
+    if (!cal.matched) {
+      el.innerHTML = '<span style="color:#06C755">🟢 今日正常營業</span>';
+      return;
+    }
+    if (cal.mode === 'closed') {
+      const reasonTxt = (cal.show_reason && cal.reason) ? `：${escapeHtml(cal.reason)}` : '';
+      el.innerHTML = `<span style="color:#e53935">🔴 今日特殊休息${reasonTxt}</span>`;
+    } else if (cal.mode === 'custom_hours') {
+      const parts = [];
+      if (cal.takeout_enabled && cal.takeout_start_time)  parts.push(`外帶 ${cal.takeout_start_time}~${cal.takeout_end_time}`);
+      if (cal.delivery_enabled && cal.delivery_start_time) parts.push(`外送 ${cal.delivery_start_time}~${cal.delivery_end_time}`);
+      el.innerHTML = `<span style="color:#f9a825">🟡 今日特殊營業${parts.length ? '：' + parts.join('　') : ''}</span>`;
+    } else if (cal.mode === 'open_all_day') {
+      el.innerHTML = '<span style="color:#06C755">🟢 今日全天營業</span>';
+    } else {
+      el.innerHTML = '<span style="color:#06C755">🟢 今日正常營業</span>';
+    }
+  } catch(e) {
+    el.innerHTML = '<span style="color:#e53935">狀態載入失敗</span>';
+  }
+}
+
+// ── 小工具：YYYY-MM-DD → YYYY/MM/DD ──────────────────────
+function _bcFmtDate(d) { return (d || '').replaceAll('-', '/'); }
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+
+// ── 列表載入 ──────────────────────────────────────────────
+async function loadBusinessCalendar() {
+  const listEl = document.getElementById('businessCalendarList');
+  if (!listEl) return;
+  listEl.textContent = '載入中…';
+  try {
+    const res  = await apiFetch('/api/settings/business-calendar');
+    const json = await res.json();
+    _businessCalendarCache = json.data || [];
+    renderBusinessCalendar(_businessCalendarCache);
+  } catch(e) {
+    listEl.innerHTML = '<div style="color:#e53935;font-size:13px">載入失敗</div>';
+  }
+}
+
+// ── 列表渲染 ──────────────────────────────────────────────
+function renderBusinessCalendar(list) {
+  const listEl = document.getElementById('businessCalendarList');
+  if (!listEl) return;
+  if (!list || !list.length) {
+    listEl.innerHTML = '<div style="color:var(--text-muted);font-size:13px">尚未設定任何特殊營業日</div>';
+    return;
+  }
+  listEl.innerHTML = list.map(item => {
+    const icon = item.mode === 'closed' ? '🔴' : (item.mode === 'custom_hours' ? '🟡' : '🟢');
+    const dateRange = item.start_date === item.end_date
+      ? _bcFmtDate(item.start_date)
+      : `${_bcFmtDate(item.start_date)}～${_bcFmtDate(item.end_date)}`;
+
+    let modeDetail = '';
+    if (item.mode === 'closed') {
+      modeDetail = '全天休息';
+    } else if (item.mode === 'open_all_day') {
+      modeDetail = '全天營業';
+    } else {
+      const lines = [];
+      lines.push(item.takeout_enabled
+        ? `外帶 ${escapeHtml(item.takeout_start_time)}～${escapeHtml(item.takeout_end_time)}`
+        : '外帶：不開放');
+      lines.push(item.delivery_enabled
+        ? `外送 ${escapeHtml(item.delivery_start_time)}～${escapeHtml(item.delivery_end_time)}`
+        : '外送：不開放');
+      modeDetail = `特殊營業<br>${lines.join('<br>')}`;
+    }
+
+    const reasonLine = item.reason
+      ? `<div style="font-size:13px;color:var(--text-secondary);margin:4px 0">${escapeHtml(item.reason)}</div>`
+      : '';
+    const showReasonLine = item.reason
+      ? `<div style="font-size:12px;color:var(--text-muted)">顯示給客人：${item.show_reason ? '是' : '否'}</div>`
+      : '';
+
+    return `
+      <div style="background:var(--bg-base,#0f172a);border:1px solid var(--border,#334155);border-radius:8px;padding:12px 14px;display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+        <div style="flex:1;min-width:200px">
+          <div style="font-size:14px;font-weight:700">${icon} ${dateRange}</div>
+          ${reasonLine}
+          <div style="font-size:13px;color:var(--text-secondary);margin-top:4px">${modeDetail}</div>
+          ${showReasonLine}
+        </div>
+        <div style="display:flex;gap:6px;flex-shrink:0">
+          <button class="btn-secondary" style="padding:6px 12px;font-size:12px" onclick="editBusinessCalendar(${item.id})">編輯</button>
+          <button class="btn-secondary" style="padding:6px 12px;font-size:12px;color:#e53935;border-color:#e53935" onclick="deleteBusinessCalendar(${item.id})">刪除</button>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+// ── 新增/編輯視窗：開啟 ───────────────────────────────────
+function openBusinessCalendarForm(id) {
+  const modal = document.getElementById('businessCalendarModal');
+  const title = document.getElementById('businessCalendarModalTitle');
+  const errEl = document.getElementById('bc-form-error');
+  if (errEl) { errEl.style.display = 'none'; errEl.textContent = ''; }
+
+  const item = id ? _businessCalendarCache.find(x => x.id === id) : null;
+
+  document.getElementById('bc-id').value = item ? item.id : '';
+  document.getElementById('bc-start_date').value = item ? item.start_date : '';
+  document.getElementById('bc-end_date').value   = item ? item.end_date   : '';
+  document.querySelectorAll('input[name="bc-mode"]').forEach(r => { r.checked = (r.value === (item ? item.mode : 'closed')); });
+  document.getElementById('bc-reason').value = item ? item.reason : '';
+  document.getElementById('bc-show_reason').checked = item ? !!item.show_reason : true;
+  document.getElementById('bc-takeout_enabled').checked  = item ? !!item.takeout_enabled  : true;
+  document.getElementById('bc-delivery_enabled').checked = item ? !!item.delivery_enabled : true;
+  document.getElementById('bc-takeout_start_time').value  = item ? item.takeout_start_time  : '';
+  document.getElementById('bc-takeout_end_time').value    = item ? item.takeout_end_time    : '';
+  document.getElementById('bc-delivery_start_time').value = item ? item.delivery_start_time : '';
+  document.getElementById('bc-delivery_end_time').value   = item ? item.delivery_end_time   : '';
+
+  if (title) title.textContent = item ? '編輯行事曆' : '＋新增行事曆';
+  onBusinessCalendarModeChange();
+  if (modal) modal.classList.add('open');
+}
+
+function editBusinessCalendar(id) { openBusinessCalendarForm(id); }
+
+function closeBusinessCalendarForm() {
+  const modal = document.getElementById('businessCalendarModal');
+  if (modal) modal.classList.remove('open');
+}
+
+// ── 模式切換：closed 隱藏時間欄位／custom_hours 顯示／open_all_day 停用 ──
+function onBusinessCalendarModeChange() {
+  const mode = document.querySelector('input[name="bc-mode"]:checked')?.value || 'closed';
+  const hoursSection = document.getElementById('bc-hours-section');
+  const takeoutRow = document.getElementById('bc-takeout-time-row');
+  const deliveryRow = document.getElementById('bc-delivery-time-row');
+  const takeoutEnabled  = document.getElementById('bc-takeout_enabled')?.checked;
+  const deliveryEnabled = document.getElementById('bc-delivery_enabled')?.checked;
+
+  if (mode === 'closed') {
+    if (hoursSection) hoursSection.style.display = 'none';
+    return;
+  }
+  // custom_hours / open_all_day 都需要顯示外帶/外送開放開關
+  if (hoursSection) hoursSection.style.display = 'block';
+
+  const isCustom = mode === 'custom_hours';
+  if (takeoutRow) takeoutRow.style.display = (isCustom && takeoutEnabled) ? 'flex' : 'none';
+  if (deliveryRow) deliveryRow.style.display = (isCustom && deliveryEnabled) ? 'flex' : 'none';
+  // open_all_day：時間輸入停用（不需要輸入，全天視為開放）
+  ['bc-takeout_start_time','bc-takeout_end_time','bc-delivery_start_time','bc-delivery_end_time'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = !isCustom;
+  });
+}
+
+// ── 儲存（新增/編輯共用）──────────────────────────────────
+async function saveBusinessCalendar() {
+  const errEl = document.getElementById('bc-form-error');
+  const showErr = (msg) => { if (errEl) { errEl.textContent = msg; errEl.style.display = 'block'; } };
+  if (errEl) { errEl.style.display = 'none'; errEl.textContent = ''; }
+
+  const id = document.getElementById('bc-id').value;
+  const mode = document.querySelector('input[name="bc-mode"]:checked')?.value || 'closed';
+  const startDate = document.getElementById('bc-start_date').value;
+  const endDate   = document.getElementById('bc-end_date').value;
+
+  if (!startDate || !endDate) return showErr('請填寫開始日期與結束日期');
+  if (endDate < startDate) return showErr('結束日期不可早於開始日期');
+
+  const payload = {
+    start_date: startDate,
+    end_date: endDate,
+    mode,
+    reason: document.getElementById('bc-reason').value.trim(),
+    show_reason: document.getElementById('bc-show_reason').checked,
+    takeout_enabled:  document.getElementById('bc-takeout_enabled').checked,
+    delivery_enabled: document.getElementById('bc-delivery_enabled').checked,
+    takeout_start_time: document.getElementById('bc-takeout_start_time').value,
+    takeout_end_time:   document.getElementById('bc-takeout_end_time').value,
+    delivery_start_time: document.getElementById('bc-delivery_start_time').value,
+    delivery_end_time:   document.getElementById('bc-delivery_end_time').value,
+  };
+
+  try {
+    const url = id ? `/api/settings/business-calendar/${id}` : '/api/settings/business-calendar';
+    const res = await apiFetch(url, {
+      method: id ? 'PUT' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const json = await res.json();
+    if (!json.success) return showErr(json.message || '儲存失敗');
+
+    showToast(id ? '✅ 行事曆已更新' : '✅ 行事曆已新增', 'success');
+    closeBusinessCalendarForm();
+    loadBusinessCalendar();
+    refreshTodayBusinessStatus();
+  } catch(e) {
+    showErr('儲存失敗：' + e.message);
+  }
+}
+
+// ── 刪除 ──────────────────────────────────────────────────
+async function deleteBusinessCalendar(id) {
+  if (!confirm('確定要刪除這筆行事曆設定嗎？')) return;
+  try {
+    const res  = await apiFetch(`/api/settings/business-calendar/${id}`, { method: 'DELETE' });
+    const json = await res.json();
+    if (!json.success) return showToast(json.message || '刪除失敗', 'error');
+    showToast('🗑️ 已刪除', 'success');
+    loadBusinessCalendar();
+    refreshTodayBusinessStatus();
+  } catch(e) { showToast('刪除失敗', 'error'); }
 }
 
 async function setTodayClosed(closed) {

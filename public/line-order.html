@@ -173,6 +173,7 @@ img{max-width:100%;display:block}
     <div class="shop-info"><h2 id="shopName2"></h2><p id="shopAddr"></p></div>
   </div>
   <div class="announce" id="announce"></div>
+  <div class="announce" id="bizCalBanner" style="display:none"></div>
   <div id="lastOrderCard" style="display:none"></div>
   <!-- 外帶/外送模式分頁 -->
   <div class="mode-tabs" id="modeTabs" style="display:none">
@@ -349,6 +350,8 @@ const WD_NAMES=['日','一','二','三','四','五','六'];
 function parseLocalDate(ds){ const[y,m,d]=ds.split('-').map(Number); return new Date(y,m-1,d); }
 
 function fmtD(d){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
+// YYYY-MM-DD → M/D（供營業行事曆文案顯示，如「7/5～7/8」）
+function fmtMD(s){ if(!s) return ''; const p=s.split('-'); return `${Number(p[1])}/${Number(p[2])}`; }
 function twNow(){return new Date(new Date().toLocaleString('en-US',{timeZone:'Asia/Taipei'}));}
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2800);}
@@ -394,15 +397,48 @@ async function init(){
         showClosed('🔴 LINE 點餐暫停','目前 LINE 點餐暫停營業，請稍後再試。');return;
       }
 
-      // 今日店休
+      // 今日休息判斷（優先序：今日臨時休息 ＞ 營業行事曆 ＞ 每週公休/指定店休日，皆由後端算好）
       const now=twNow(), todayStr=fmtD(now);
       const isTodayClosed=d.line_today_closed==='1'&&d.line_today_closed_date===todayStr;
-      // 公休日
       const closedInfo=d.today_closed_info||{};
-      if(isTodayClosed||closedInfo.closed){
+      const calToday=d.business_calendar_today||{matched:false};
+
+      if(isTodayClosed){
+        // 今日臨時休息：一律優先蓋過營業行事曆
         todayClosed=true;
         showClosed('🌙 今日店休','今日暫停 LINE 點餐服務，感謝您的理解。\n請選擇其他日期預訂，或明天再來！');
         return;
+      }
+      if(closedInfo.closed){
+        todayClosed=true;
+        if(closedInfo.calendar && closedInfo.calendar.mode==='closed'){
+          // 營業行事曆：特殊休假日（單日或區間），顯示原因（依 show_reason）與恢復日期
+          const cal=closedInfo.calendar;
+          const rangeTxt = cal.start_date===cal.end_date
+            ? fmtMD(cal.start_date)
+            : `${fmtMD(cal.start_date)}～${fmtMD(cal.end_date)}`;
+          const reasonTxt = (cal.show_reason && cal.reason) ? `原因：${cal.reason}\n` : '';
+          showClosed('🌙 今日休息', `${reasonTxt}休假期間：${rangeTxt}\n預計 ${fmtMD(cal.resume_date)} 恢復營業`);
+        } else {
+          // 每週公休 / 指定店休日（舊版邏輯，維持原文案）
+          showClosed('🌙 今日店休','今日暫停 LINE 點餐服務，感謝您的理解。\n請選擇其他日期預訂，或明天再來！');
+        }
+        return;
+      }
+
+      // 營業行事曆：特殊營業／全天營業（不阻擋下單，僅顯示提示 banner）
+      const bizBanner=document.getElementById('bizCalBanner');
+      if(calToday.matched && calToday.mode==='custom_hours'){
+        const parts=[];
+        if(calToday.takeout_enabled && calToday.takeout_start_time) parts.push(`外帶：${calToday.takeout_start_time}～${calToday.takeout_end_time}`);
+        if(calToday.delivery_enabled && calToday.delivery_start_time) parts.push(`外送：${calToday.delivery_start_time}～${calToday.delivery_end_time}`);
+        bizBanner.textContent = `🟡 今日特殊營業${parts.length?('\n'+parts.join('\n')):''}`;
+        bizBanner.style.display='block';
+      } else if(calToday.matched && calToday.mode==='open_all_day'){
+        bizBanner.textContent = '🟢 今日全天營業';
+        bizBanner.style.display='block';
+      } else if(bizBanner){
+        bizBanner.style.display='none';
       }
 
       // 外帶/外送狀態

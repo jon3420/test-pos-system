@@ -1280,6 +1280,33 @@ function initTables(w) {
     w._db.run('CREATE INDEX IF NOT EXISTS idx_paga_store ON product_analysis_group_aliases(store_id)');
     w._save();
   } catch(e) { console.warn('[DB] product_analysis_aliases index:', e.message); }
+
+  // ── Business Calendar V2：營業行事曆（特殊營業日 / 休假日期覆蓋層）──
+  // safe migration：只用 CREATE TABLE IF NOT EXISTS，絕不 DROP / 重建 / 清空既有資料
+  // 專案沒有 tenant_id 概念，沿用既有慣例，僅用 store_id 隔離
+  w._db.run(`CREATE TABLE IF NOT EXISTS store_business_calendar (
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    store_id             TEXT NOT NULL,
+    start_date           TEXT NOT NULL,
+    end_date             TEXT NOT NULL,
+    mode                 TEXT NOT NULL DEFAULT 'closed',
+    reason               TEXT DEFAULT '',
+    show_reason          INTEGER DEFAULT 1,
+    takeout_enabled      INTEGER DEFAULT 1,
+    delivery_enabled     INTEGER DEFAULT 1,
+    takeout_start_time   TEXT DEFAULT '',
+    takeout_end_time     TEXT DEFAULT '',
+    delivery_start_time  TEXT DEFAULT '',
+    delivery_end_time    TEXT DEFAULT '',
+    created_at           TEXT DEFAULT (datetime('now','localtime')),
+    updated_at           TEXT DEFAULT (datetime('now','localtime'))
+  )`);
+  w._save();
+
+  try {
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_store_business_calendar_range ON store_business_calendar(store_id, start_date, end_date)');
+    w._save();
+  } catch(e) { console.warn('[DB] store_business_calendar index:', e.message); }
 }
 
 module.exports = { getDb, initDb };

@@ -342,6 +342,8 @@ initDb().then((db) => {
   app.use('/api/orders',           requireStore, require('./routes/orders'));
   app.use('/api/customers',        requireStore, require('./routes/customers'));
   app.use('/api/settings',         requireStore, require('./routes/settings'));
+  // Business Calendar V2：營業行事曆（特殊營業日 / 休假日期），屬 LINE 營業功能
+  app.use('/api/settings/business-calendar', requireStore, requireFeature('line_order'), require('./routes/business-calendar'));
   app.use('/api/categories',       requireStore, require('./routes/categories'));
   app.use('/api/platforms',        requireStore, requireFeature('delivery'), require('./routes/platforms'));
   app.use('/api/payment-methods',  requireStore, requireFeature('payment_methods'), require('./routes/payment-methods'));

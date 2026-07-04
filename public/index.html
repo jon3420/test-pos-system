@@ -882,6 +882,17 @@
           </div>
           <p style="font-size:12px;color:#888;margin-top:8px">隔日自動恢復</p>
         </div>
+        <!-- 📅 營業行事曆 Business Calendar V2：特殊營業日 / 休假日期覆蓋層 -->
+        <div class="settings-card" style="grid-column:1/-1">
+          <h3>📅 營業行事曆</h3>
+          <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px">
+            用來設定「指定日期區間」的休假或特殊營業時間（例如員工旅遊、國定假日），會覆蓋每週營業時間。今日臨時休息優先於營業行事曆。
+          </p>
+          <div id="businessCalendarTodayStatus" style="margin-bottom:14px;font-size:14px;font-weight:600">載入中…</div>
+          <button class="btn-primary" style="background:#06C755;border-color:#06C755;margin-bottom:14px" onclick="openBusinessCalendarForm()">＋新增行事曆</button>
+          <div id="businessCalendarList" style="display:flex;flex-direction:column;gap:10px">載入中…</div>
+        </div>
+
         <!-- 外帶/外送當前狀態一覽 -->
         <div class="settings-card">
           <h3>🚦 當前接單狀態</h3>
@@ -1399,6 +1410,88 @@
     <div class="modal-footer" style="display:flex;gap:8px;justify-content:flex-end;padding:16px">
       <button class="btn-secondary" onclick="closeMigrationPurgeConfirm()">取消</button>
       <button style="padding:10px 20px;border-radius:8px;border:none;background:#ef4444;color:#fff;font-weight:700;cursor:pointer" onclick="executeMigrationImport()">清空並還原</button>
+    </div>
+  </div>
+</div>
+
+<!-- 📅 營業行事曆 新增/編輯 Modal -->
+<div class="modal-overlay" id="businessCalendarModal" onclick="if(event.target===this)closeBusinessCalendarForm()">
+  <div class="modal" style="max-width:480px">
+    <div class="modal-header">
+      <h3 id="businessCalendarModalTitle">＋新增行事曆</h3>
+      <button class="modal-close" onclick="closeBusinessCalendarForm()">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="bc-id" value="">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
+        <label>
+          <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:6px">開始日期</div>
+          <input type="date" id="bc-start_date" class="form-input" style="width:100%;box-sizing:border-box">
+        </label>
+        <label>
+          <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:6px">結束日期</div>
+          <input type="date" id="bc-end_date" class="form-input" style="width:100%;box-sizing:border-box">
+        </label>
+      </div>
+
+      <div style="margin-bottom:14px">
+        <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:8px">模式</div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
+            <input type="radio" name="bc-mode" value="closed" checked onchange="onBusinessCalendarModeChange()">
+            🔴 全天休息
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
+            <input type="radio" name="bc-mode" value="custom_hours" onchange="onBusinessCalendarModeChange()">
+            🟡 特殊營業時間
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px">
+            <input type="radio" name="bc-mode" value="open_all_day" onchange="onBusinessCalendarModeChange()">
+            🟢 全天營業
+          </label>
+        </div>
+      </div>
+
+      <label style="display:block;margin-bottom:10px">
+        <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:6px">原因</div>
+        <input type="text" id="bc-reason" class="form-input" placeholder="例：員工旅遊 / 中秋節" style="width:100%;box-sizing:border-box">
+      </label>
+      <label class="checkbox-label" style="margin-bottom:14px">
+        <input type="checkbox" id="bc-show_reason" checked>
+        <span style="font-size:13px">顯示原因給客人</span>
+      </label>
+
+      <div id="bc-hours-section" style="display:none;border-top:1px solid var(--border);padding-top:14px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+          <div>
+            <label class="checkbox-label" style="margin-bottom:8px">
+              <input type="checkbox" id="bc-takeout_enabled" checked onchange="onBusinessCalendarModeChange()">
+              <span style="font-size:13px;font-weight:700">🛍️ 開放外帶</span>
+            </label>
+            <div id="bc-takeout-time-row" style="display:flex;gap:6px;align-items:center">
+              <input type="time" id="bc-takeout_start_time" class="form-input" style="flex:1;min-width:0">
+              <span style="color:var(--text-muted)">～</span>
+              <input type="time" id="bc-takeout_end_time" class="form-input" style="flex:1;min-width:0">
+            </div>
+          </div>
+          <div>
+            <label class="checkbox-label" style="margin-bottom:8px">
+              <input type="checkbox" id="bc-delivery_enabled" checked onchange="onBusinessCalendarModeChange()">
+              <span style="font-size:13px;font-weight:700">🛵 開放外送</span>
+            </label>
+            <div id="bc-delivery-time-row" style="display:flex;gap:6px;align-items:center">
+              <input type="time" id="bc-delivery_start_time" class="form-input" style="flex:1;min-width:0">
+              <span style="color:var(--text-muted)">～</span>
+              <input type="time" id="bc-delivery_end_time" class="form-input" style="flex:1;min-width:0">
+            </div>
+          </div>
+        </div>
+      </div>
+      <div id="bc-form-error" style="display:none;margin-top:12px;padding:10px;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:6px;font-size:12px;color:#f87171"></div>
+    </div>
+    <div class="modal-footer" style="display:flex;gap:8px;justify-content:flex-end;padding:16px">
+      <button class="btn-secondary" onclick="closeBusinessCalendarForm()">取消</button>
+      <button class="btn-primary" style="background:#06C755;border-color:#06C755" onclick="saveBusinessCalendar()">💾 儲存</button>
     </div>
   </div>
 </div>

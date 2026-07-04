@@ -19,6 +19,7 @@ const fetch = require('node-fetch');
 const { validateCoupon } = require('./coupons'); // fix18-05
 const { getStoreFeatures } = require('../middleware/featureGate'); // fix18-05 coupon gate
 const { applyOrderStatusChange } = require('../utils/orderStatusFlow'); // hotfix13-BUG7：統一狀態機（單一來源，orders.js / online-orders.js 共用）
+const { computeTodayStatus: computeCalendarStatus } = require('./business-calendar'); // Business Calendar V2：營業行事曆覆蓋層
 
 // ── fix18-06：外送費後端重算 helper ──────────────────
 const SERVER_KEY = () => process.env.GOOGLE_MAPS_SERVER_KEY || '';
@@ -143,12 +144,58 @@ function parseLocalDate(dateStr) {
 
 const WD_KEYS = ['sun','mon','tue','wed','thu','fri','sat'];
 
-// ── 公休/店休日判斷 ───────────────────────────────────────
+// ── Business Calendar V2：取得某日命中的行事曆覆蓋設定（無命中則 matched:false）──
+function getCalendarDateInfo(db, storeId, dateStr) {
+  try { return computeCalendarStatus(db, storeId, dateStr); }
+  catch { return { matched: false }; }
+}
+
+// ── 公休/店休日判斷（Business Calendar 為覆蓋層，命中時優先於每週設定）──
+// 命中行事曆：mode=closed → closed:true；mode=custom_hours/open_all_day → closed:false（覆蓋每週設定，不再套用固定公休/指定店休日）
+// 未命中：完全走舊邏輯（line_closed_weekdays / line_closed_dates），舊設定保留、行為不變
 function isClosedDate(db, storeId, dateStr) {
+  const cal = getCalendarDateInfo(db, storeId, dateStr);
+  if (cal.matched) {
+    return { closed: cal.mode === 'closed', isWeekly: false, calendar: cal };
+  }
   const dow = WD_KEYS[parseLocalDate(dateStr).getDay()];  // 安全解析
   const closedWds = (() => { try { return JSON.parse(getSetting(db, storeId, 'line_closed_weekdays', '[]')); } catch { return []; } })();
   const closedDts = (() => { try { return JSON.parse(getSetting(db, storeId, 'line_closed_dates', '[]')); } catch { return []; } })();
-  return { closed: closedWds.includes(dow) || closedDts.includes(dateStr), isWeekly: closedWds.includes(dow) };
+  return { closed: closedWds.includes(dow) || closedDts.includes(dateStr), isWeekly: closedWds.includes(dow), calendar: null };
+}
+
+// ── Business Calendar V2：某模式（takeout/delivery）在某日的時段覆蓋 ──
+// 回傳 undefined：無行事曆命中，呼叫端應 fallback 走舊的每週營業時間邏輯
+// 回傳 null：行事曆命中，但該模式當天被行事曆設定關閉（即使全域開關是開的）
+// 回傳 {open,close}：行事曆命中且該模式當天開放，使用覆蓋後的時段
+function resolveModeHoursForDate(db, storeId, mode, dateStr) {
+  const cal = getCalendarDateInfo(db, storeId, dateStr);
+  if (!cal.matched || cal.mode === 'closed') return undefined;
+  const modeEnabledInCal = mode === 'takeout' ? cal.takeout_enabled : cal.delivery_enabled;
+  if (!modeEnabledInCal) return null;
+  if (cal.mode === 'open_all_day') return { open: '00:00', close: '23:59' };
+  // custom_hours
+  const openT  = mode === 'takeout' ? cal.takeout_start_time : cal.delivery_start_time;
+  const closeT = mode === 'takeout' ? cal.takeout_end_time   : cal.delivery_end_time;
+  return { open: openT || '00:00', close: closeT || '23:59' };
+}
+
+// ── 某模式某日的「開店/打烊分鐘數」，統一整合 Business Calendar 覆蓋 + 舊版每週營業時間 ──
+// 回傳 null 代表該日該模式無法下單（行事曆關閉該模式，或每週設定當天未營業）
+function getDayOpenClose(db, storeId, mode, dateStr, modeSettings) {
+  const override = resolveModeHoursForDate(db, storeId, mode, dateStr);
+  if (override === null) return null;
+  if (override) {
+    return { openMins: timeToMins(override.open), closeMins: timeToMins(override.close) };
+  }
+  // 未命中行事曆 → 完全走舊邏輯
+  const wdKey = WD_KEYS[parseLocalDate(dateStr).getDay()];
+  const dh = modeSettings.bizHours[wdKey];
+  const bizHoursEmpty = !modeSettings.bizHours || Object.keys(modeSettings.bizHours).length === 0;
+  if (!bizHoursEmpty && (!dh || !dh.enabled)) return null;
+  const openMins  = dh ? timeToMins(dh.open  || '09:00') : timeToMins('09:00');
+  const closeMins = dh ? timeToMins(dh.close || '21:00') : timeToMins('21:00');
+  return { openMins, closeMins };
 }
 
 // ── 模式（外帶 takeout / 外送 delivery）設定讀取 ─────────
@@ -196,23 +243,19 @@ function isCutoffPassed(cutoffTime, nowMins) {
 
 // ── 取得某模式某日的最早可選時間（分鐘）────────────────────
 // 若今日超過結束 → 回傳 null（今日無時段）
-function getEarliestMins(modeSettings, dateStr, nowMins) {
+// v2：先查 Business Calendar 覆蓋層（getDayOpenClose），沒命中才走舊的每週營業時間
+function getEarliestMins(db, storeId, mode, modeSettings, dateStr, nowMins) {
   const todayStr = twDateStr();
   const isToday = dateStr === todayStr;
-  const wdKey = WD_KEYS[parseLocalDate(dateStr).getDay()];  // 修正：安全解析，不受伺服器 UTC 時區影響
-  const dh = modeSettings.bizHours[wdKey];
-  // 若 bizHours 完全未設定（空物件），視為全天營業（不限制）
-  const bizHoursEmpty = !modeSettings.bizHours || Object.keys(modeSettings.bizHours).length === 0;
-  if (!bizHoursEmpty && (!dh || !dh.enabled)) return null; // 非營業日
-  const openMins  = dh ? timeToMins(dh.open  || '09:00') : timeToMins('09:00');
-  const closeMins = dh ? timeToMins(dh.close || '21:00') : timeToMins('21:00');
+  const oc = getDayOpenClose(db, storeId, mode, dateStr, modeSettings);
+  if (!oc) return null; // 非營業日 / 行事曆該模式當日關閉
   if (isToday) {
     // 最早 = max(現在+prep, 開店時間)，進位至30分鐘格
-    const earliest = Math.max(Math.ceil((nowMins + modeSettings.prepMins) / 30) * 30, openMins);
-    if (earliest >= closeMins) return null; // 今日已無時段
+    const earliest = Math.max(Math.ceil((nowMins + modeSettings.prepMins) / 30) * 30, oc.openMins);
+    if (earliest >= oc.closeMins) return null; // 今日已無時段
     return earliest;
   } else {
-    return openMins;
+    return oc.openMins;
   }
 }
 
@@ -339,7 +382,7 @@ router.get('/shop', (req, res) => {
       allow_next_day: takeoutMode.allowNextDay,
       is_closed_day:  closedInfo.closed,
       earliest_today: takeoutMode.enabled && !closedInfo.closed
-        ? getEarliestMins(takeoutMode, todayStr, nowMins)
+        ? getEarliestMins(db, storeId, 'takeout', takeoutMode, todayStr, nowMins)
         : null,
       // fix18-06: 今日臨時截止資訊（供前台顯示用）
       today_cutoff:   takeoutMode.todayCutoff || '',
@@ -350,40 +393,51 @@ router.get('/shop', (req, res) => {
       allow_next_day: deliveryMode.allowNextDay,
       is_closed_day:  closedInfo.closed,
       earliest_today: deliveryMode.enabled && !closedInfo.closed
-        ? getEarliestMins(deliveryMode, todayStr, nowMins)
+        ? getEarliestMins(db, storeId, 'delivery', deliveryMode, todayStr, nowMins)
         : null,
       today_cutoff:   deliveryMode.todayCutoff || '',
     };
 
     // 找下一個可訂日（最多往後查 14 天）
-    // bizHours 為空物件時視為全天可訂（不限制）
-    function nextAvailableDates(modeSettings, count=3) {
+    // v2：改用 getDayOpenClose（Business Calendar 優先，沒命中才走舊的 bizHours 空值=全天可訂邏輯）
+    function nextAvailableDates(modeSettings, mode, count=3) {
       const dates = [];
       const d = new Date(now);
       d.setDate(d.getDate() + 1); // 從明天開始
-      const bizEmpty = !modeSettings.bizHours || Object.keys(modeSettings.bizHours).length === 0;
       for (let i=0; i<14 && dates.length<count; i++) {
         const ds = twDateStr(d);
         const cInfo = isClosedDate(db, storeId, ds);
         if (!cInfo.closed) {
-          if (bizEmpty) {
-            // bizHours 未設定：所有非店休日都可訂
-            dates.push(ds);
-          } else {
-            const wk = WD_KEYS[parseLocalDate(twDateStr(d)).getDay()];  // 安全解析
-            const dh = modeSettings.bizHours[wk];
-            if (dh && dh.enabled) dates.push(ds);
-          }
+          const oc = getDayOpenClose(db, storeId, mode, ds, modeSettings);
+          if (oc) dates.push(ds);
         }
         d.setDate(d.getDate() + 1);
       }
       return dates;
     }
-    settings.takeout_next_dates  = nextAvailableDates(takeoutMode, 3);
-    settings.delivery_next_dates = nextAvailableDates(deliveryMode, 3);
+    settings.takeout_next_dates  = nextAvailableDates(takeoutMode, 'takeout', 3);
+    settings.delivery_next_dates = nextAvailableDates(deliveryMode, 'delivery', 3);
     settings.today_closed_info   = closedInfo;
     settings.today = todayStr;
     settings.now_mins = nowMins;
+
+    // ── Business Calendar V2：今日行事曆命中狀態（供後台/前台顯示用）──
+    const calToday = getCalendarDateInfo(db, storeId, todayStr);
+    settings.business_calendar_today = calToday.matched ? {
+      matched: true,
+      mode: calToday.mode,
+      reason: calToday.reason,
+      show_reason: calToday.show_reason,
+      start_date: calToday.start_date,
+      end_date: calToday.end_date,
+      resume_date: calToday.resume_date,
+      takeout_enabled: calToday.takeout_enabled,
+      delivery_enabled: calToday.delivery_enabled,
+      takeout_start_time: calToday.takeout_start_time,
+      takeout_end_time: calToday.takeout_end_time,
+      delivery_start_time: calToday.delivery_start_time,
+      delivery_end_time: calToday.delivery_end_time,
+    } : { matched: false };
 
     // fix18-05: 加入 coupon feature 旗標，讓 LINE 前台決定是否顯示優惠券輸入框
     const lineFeatures = getStoreFeatures(storeId);
@@ -581,17 +635,15 @@ router.get('/timeslots', (req, res) => {
       return res.json({ success: true, slots: [], reason: 'cutoff_passed' });
     }
 
-    const earliestMins = getEarliestMins(modeSettings, dateStr, nowMins);
+    const earliestMins = getEarliestMins(db, storeId, mode, modeSettings, dateStr, nowMins);
     if (earliestMins === null) return res.json({ success: true, slots: [], reason: 'no_slots_today' });
 
-    const wdKey = WD_KEYS[parseLocalDate(dateStr).getDay()];  // 安全解析
-    const dh = modeSettings.bizHours[wdKey];
-    // fallback：若無 bizHours 設定，使用預設 09:00~21:00
-    const closeMins = dh ? timeToMins(dh.close || '21:00') : timeToMins('21:00');
-    const openMins  = dh ? timeToMins(dh.open  || '09:00') : timeToMins('09:00');
+    // v2：closeMins 需與 getEarliestMins 使用同一套「Business Calendar 覆蓋 + 舊每週營業時間」邏輯
+    const oc = getDayOpenClose(db, storeId, mode, dateStr, modeSettings);
+    if (!oc) return res.json({ success: true, slots: [], reason: 'no_slots_today' }); // 理論上不會發生，安全防呆
 
     const slots = [];
-    for (let t = earliestMins; t < closeMins; t += 30) {
+    for (let t = earliestMins; t < oc.closeMins; t += 30) {
       slots.push(minsToTime(t));
     }
     res.json({ success: true, slots, earliest: minsToTime(earliestMins), mode, date: dateStr });
@@ -645,17 +697,34 @@ function validateOrderConditions(db, storeId, mode, dateStr, pickupTime, nowMins
   if (getSetting(db, storeId, 'line_ordering_enabled', '1') !== '1')
     return { ok: false, reason: 'line_disabled', message: 'LINE 點餐目前暫停營業' };
 
-  // 2. 店休日判斷
   const orderDate = dateStr || todayStr;
-  const closedInfo = isClosedDate(db, storeId, orderDate);
-  if (closedInfo.closed)
-    return { ok: false, reason: 'closed_day', message: `${orderDate} 為店休日，請選擇其他日期` };
 
-  // 3. 今日臨時休息
+  // 2. 今日臨時休息（最高優先：即使 Business Calendar 設定當天營業，臨時休息一律蓋過，見 V2 需求）
   const todayClosed = getSetting(db, storeId, 'line_today_closed', '0');
   const closedDate  = getSetting(db, storeId, 'line_today_closed_date', '');
   if (todayClosed === '1' && closedDate === todayStr && orderDate === todayStr)
     return { ok: false, reason: 'today_closed', message: '今日 LINE 點餐休息' };
+
+  // 3. 店休日判斷（isClosedDate 內部已整合 Business Calendar 覆蓋層；沒命中才走舊的每週公休/指定店休日）
+  const closedInfo = isClosedDate(db, storeId, orderDate);
+  if (closedInfo.closed) {
+    if (closedInfo.calendar) {
+      const cal = closedInfo.calendar;
+      const reasonMsg = (cal.show_reason && cal.reason) ? `（${cal.reason}）` : '';
+      return { ok: false, reason: 'calendar_closed',
+        message: `${orderDate} 為特殊休假日${reasonMsg}，預計 ${cal.resume_date} 恢復營業` };
+    }
+    return { ok: false, reason: 'closed_day', message: `${orderDate} 為店休日，請選擇其他日期` };
+  }
+
+  // 3b. Business Calendar 命中但當天該模式（外帶/外送）被個別關閉（即使 mode 全域開關是開的）
+  if (closedInfo.calendar) {
+    const calModeEnabled = mode === 'takeout' ? closedInfo.calendar.takeout_enabled : closedInfo.calendar.delivery_enabled;
+    if (!calModeEnabled) {
+      return { ok: false, reason: 'calendar_mode_closed',
+        message: `${orderDate} ${mode === 'takeout' ? '外帶' : '外送'}服務依營業行事曆設定暫停服務` };
+    }
+  }
 
   // 4. 模式開關（外帶/外送獨立）
   const modeSettings = getModeSettings(db, storeId, mode);
