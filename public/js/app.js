@@ -5268,6 +5268,8 @@ async function refreshTodayBusinessStatus() {
     }
   } catch(e) {
     el.innerHTML = '<span style="color:#e53935">狀態載入失敗</span>';
+  } finally {
+    renderTodaySummary();
   }
 }
 
@@ -5275,6 +5277,30 @@ async function refreshTodayBusinessStatus() {
 function _bcFmtDate(d) { return (d || '').replaceAll('-', '/'); }
 function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+
+// ── 📋 今日營業摘要：彙整今日狀態 + 下一次休假，減少版面留白 ──
+// 純畫面呈現，直接沿用 #businessCalendarTodayStatus 已渲染好的狀態文字 + _businessCalendarCache 找下一次休假
+function renderTodaySummary() {
+  const statusEl = document.getElementById('todaySummaryStatus');
+  const nextEl   = document.getElementById('todaySummaryNextHoliday');
+  if (!statusEl || !nextEl) return;
+  const srcStatus = document.getElementById('businessCalendarTodayStatus');
+  if (srcStatus) statusEl.innerHTML = srcStatus.innerHTML;
+
+  const todayStr = new Date().toISOString().slice(0,10);
+  const nextClosed = (_businessCalendarCache || [])
+    .filter(x => x.mode === 'closed' && x.end_date >= todayStr)
+    .sort((a,b) => a.start_date.localeCompare(b.start_date))[0];
+
+  if (nextClosed) {
+    const range = nextClosed.start_date === nextClosed.end_date
+      ? _bcFmtDate(nextClosed.start_date)
+      : `${_bcFmtDate(nextClosed.start_date)}～${_bcFmtDate(nextClosed.end_date)}`;
+    nextEl.innerHTML = `📅 下一次休假：${range}${nextClosed.reason ? '　' + escapeHtml(nextClosed.reason) : ''}`;
+  } else {
+    nextEl.innerHTML = '';
+  }
 }
 
 // ── 列表載入 ──────────────────────────────────────────────
@@ -5289,6 +5315,8 @@ async function loadBusinessCalendar() {
     renderBusinessCalendar(_businessCalendarCache);
   } catch(e) {
     listEl.innerHTML = '<div style="color:#e53935;font-size:13px">載入失敗</div>';
+  } finally {
+    renderTodaySummary();
   }
 }
 
@@ -5330,7 +5358,7 @@ function renderBusinessCalendar(list) {
       : '';
 
     return `
-      <div style="background:var(--bg-base,#0f172a);border:1px solid var(--border,#334155);border-radius:8px;padding:12px 14px;display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+      <div class="bc-item bc-${item.mode}" style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
         <div style="flex:1;min-width:200px">
           <div style="font-size:14px;font-weight:700">${icon} ${dateRange}</div>
           ${reasonLine}

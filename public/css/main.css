@@ -1793,6 +1793,59 @@ body {
 }
 
 /* ═══════════════════════════════════════════════════════════
+   Business Calendar V2 Hotfix14：LINE 營業設定頁 UI/UX 優化
+   （純 CSS 調整，不影響既有功能與 API）
+   ═══════════════════════════════════════════════════════════ */
+
+/* ① + ⑤：卡片高度依內容自動撐開，不強制拉伸到同列最高卡片；
+   欄位改為 auto-fit，依可視寬度自動排列，減少右側大片留白 */
+.settings-grid {
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  align-items: start;
+}
+.settings-card { height: auto; }
+
+/* ⑥：LINE 點餐付款方式 2 欄排列時縮小垂直間距，降低整體高度 */
+#linePaymentToggles.checkbox-label,
+#linePaymentToggles .checkbox-label { margin-bottom: 0 !important; }
+
+/* ⑦：舊版營業時間收合區塊（原生 <details>，預設收合，避免店家誤改）*/
+.legacy-collapse summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  user-select: none;
+}
+.legacy-collapse summary::-webkit-details-marker { display: none; }
+.legacy-collapse-arrow {
+  display: inline-block;
+  font-size: 11px;
+  color: var(--text-secondary);
+  transition: transform 0.15s ease;
+}
+.legacy-collapse[open] .legacy-collapse-arrow { transform: rotate(90deg); }
+.legacy-collapse-body { margin-top: 14px; }
+
+/* ③：營業行事曆列表項目依模式顯示顏色（不再全灰）*/
+.bc-item {
+  background: var(--bg-base, #0f172a);
+  border: 1px solid var(--border, #334155);
+  border-left: 4px solid var(--border, #334155);
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+.bc-item.bc-closed       { border-left-color: #e53935; }
+.bc-item.bc-custom_hours { border-left-color: #f9a825; }
+.bc-item.bc-open_all_day { border-left-color: #06C755; }
+
+/* ⑨：中大尺寸螢幕下營業行事曆卡片維持合理寬度，避免過度拉伸跑版 */
+@media (min-width: 1600px) {
+  .settings-grid { grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); }
+}
+
+/* ═══════════════════════════════════════════════════════════
    v16 整合 UI 修正：防溢出 + Modal 文字深色 + bizHoursGrid
    ═══════════════════════════════════════════════════════════ */
 

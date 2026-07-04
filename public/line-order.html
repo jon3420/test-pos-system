@@ -234,7 +234,10 @@ img{max-width:100%;display:block}
         </select>
       </div>
     </div>
-    <div class="fg"><label class="fl">取餐日期 <span class="req">*</span></label><select class="fi" id="pDate" onchange="onDateChange()"></select></div>
+    <div class="fg"><label class="fl">取餐日期 <span class="req">*</span></label>
+      <div id="pDateCalWarning" style="display:none;font-size:12px;color:#e65100;background:#fff3e0;border-radius:6px;padding:6px 10px;margin-bottom:6px"></div>
+      <select class="fi" id="pDate" onchange="onDateChange()"></select>
+    </div>
     <div class="fg"><label class="fl" id="timeLabel">取餐時間 <span class="req">*</span></label><select class="fi" id="pTime"><option value="">請先選擇日期</option></select></div>
     <!-- fix18-06：外送地址（外送模式才顯示）-->
     <div class="delivery-addr-wrap" id="deliveryAddrWrap">
@@ -322,6 +325,7 @@ let _topSheet=null;
 let currentMode='takeout';
 // 後台回傳的 shop 設定
 let shopData={};
+let bizCalendarList=[]; // 營業行事曆列表（供日期選單顯示店休/特殊營業提示，UI 用途，下單仍以後端驗證為準）
 let couponFeatureEnabled=false; // fix18-05: set from /api/line-shop or /api/coupons/validate response
 let takeoutEnabled=false, deliveryEnabled=false;
 let takeoutCutoffPassed=false, deliveryCutoffPassed=false;
@@ -352,6 +356,38 @@ function parseLocalDate(ds){ const[y,m,d]=ds.split('-').map(Number); return new 
 function fmtD(d){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
 // YYYY-MM-DD → M/D（供營業行事曆文案顯示，如「7/5～7/8」）
 function fmtMD(s){ if(!s) return ''; const p=s.split('-'); return `${Number(p[1])}/${Number(p[2])}`; }
+// ── 營業行事曆：查某日是否命中（用於日期選單提示，UI 用途；實際下單仍以後端 /validate-cart 為準）──
+function findBizCalEntry(ds){
+  return bizCalendarList.find(e=>e.start_date<=ds && ds<=e.end_date) || null;
+}
+// 產生日期選單的「狀態後綴」文字（含顏色 emoji），並回傳是否應停用該日期
+function bizCalOptionSuffix(ds, isClosedWeekly, notBizDayWeekly){
+  const e=findBizCalEntry(ds);
+  if(e){
+    if(e.mode==='closed'){
+      const reasonTxt=(e.show_reason && e.reason) ? `（${e.reason}）` : '';
+      return { suffix:` 🔴 店休${reasonTxt}`, disabled:true };
+    }
+    if(e.mode==='custom_hours') return { suffix:' 🟡 特殊營業', disabled:false };
+    if(e.mode==='open_all_day') return { suffix:' 🟢 全天營業', disabled:false };
+  }
+  // 沒有命中行事曆 → 完全走舊的每週公休/非營業日判斷
+  return { suffix: isClosedWeekly?' 🔴 店休':(notBizDayWeekly?' — 非營業':''), disabled: isClosedWeekly||notBizDayWeekly };
+}
+// 掃描一段可見日期範圍，若有連續休假（mode=closed）區間與此範圍重疊，回傳提醒文字
+function bizCalRangeWarning(dateList){
+  const seen=new Set();
+  for(const ds of dateList){
+    const e=findBizCalEntry(ds);
+    if(e && e.mode==='closed' && !seen.has(e.id)){
+      seen.add(e.id);
+      const range=e.start_date===e.end_date ? fmtMD(e.start_date) : `${fmtMD(e.start_date)}～${fmtMD(e.end_date)}`;
+      const reasonTxt=(e.show_reason && e.reason) ? e.reason : '';
+      return `⚠️ ${range}${reasonTxt?(' '+reasonTxt+'休假中'):' 休假中'}`;
+    }
+  }
+  return '';
+}
 function twNow(){return new Date(new Date().toLocaleString('en-US',{timeZone:'Asia/Taipei'}));}
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2800);}
@@ -373,10 +409,12 @@ async function init(){
     setTimeout(()=>toast('LINE Pay 付款已取消，請重新選擇付款方式'),600);
   }
   try{
-    const[sr,mr]=await Promise.all([
+    const[sr,mr,bcr]=await Promise.all([
       apiFetch('/api/line-shop').then(r=>r.json()),
-      apiFetch('/api/line-menu').then(r=>r.json())
+      apiFetch('/api/line-menu').then(r=>r.json()),
+      apiFetch('/api/settings/business-calendar').then(r=>r.json()).catch(()=>({success:false}))
     ]);
+    bizCalendarList = (bcr && bcr.success && Array.isArray(bcr.data)) ? bcr.data : [];
     if(sr.success){
       shopData=sr.data;
       // fix18-05: 依 coupon_feature_enabled 顯示/隱藏優惠券區塊
@@ -586,6 +624,7 @@ function buildDateSelector(forceNextDay=false){
   // 正常模式顯示 今天/明天/後天；forceNextDay 模式從明天開始顯示未來 7 天供預約
   const maxDays=forceNextDay?7:3;
   const startOffset=forceNextDay?1:0;
+  const _dsListForWarning=[];
   for(let offset=startOffset;offset<startOffset+maxDays;offset++){
     const d=new Date(now);d.setDate(d.getDate()+offset);
     const ds=fmtD(d),wk=WD_KEYS[parseLocalDate(ds).getDay()];
@@ -594,11 +633,18 @@ function buildDateSelector(forceNextDay=false){
     const isClosed=closedWds.includes(wk)||closedDts.includes(ds);
     const dh=bizHours[wk];
     const notBizDay=!isClosed&&dh&&!dh.enabled;
-    const disabled=isClosed||notBizDay;
+    const {suffix,disabled}=bizCalOptionSuffix(ds,isClosed,notBizDay);
+    _dsListForWarning.push(ds);
     const opt=document.createElement('option');opt.value=ds;opt.disabled=disabled;
-    opt.textContent=`${lbl}（${mm}/${dd2} 週${WD_NAMES[d.getDay()]}）${isClosed?' — 店休':notBizDay?' — 非營業':''}`;
+    opt.textContent=`${lbl} ${mm}/${dd2}(${WD_NAMES[d.getDay()]})${suffix}`;
     if(!disabled&&!first)first=ds;
     sel.appendChild(opt);
+  }
+  const warnEl=document.getElementById('pDateCalWarning');
+  if(warnEl){
+    const warnTxt=bizCalRangeWarning(_dsListForWarning);
+    warnEl.textContent=warnTxt;
+    warnEl.style.display=warnTxt?'block':'none';
   }
   if(first)sel.value=first;
   if(!forceNextDay) buildTimeSelector();
@@ -877,6 +923,7 @@ function openCartSheetWithDate(dateStr, firstSlot, slots, mode){
     const bizHours=(() => { try { return JSON.parse(shopData[bizHoursKey]||'{}'); } catch { return {}; } })();
     const bizEmpty=Object.keys(bizHours).length===0;
     pDate.innerHTML='';
+    const _dsListForWarning2=[];
     for(let offset=1;offset<=14;offset++){
       const d=new Date(now); d.setDate(d.getDate()+offset);
       const ds=fmtD(d), wk=WD_KEYS[parseLocalDate(ds).getDay()];
@@ -885,11 +932,18 @@ function openCartSheetWithDate(dateStr, firstSlot, slots, mode){
       const isClosed=closedWds.includes(wk)||closedDts.includes(ds);
       const dh=bizHours[wk];
       const notBizDay=!isClosed&&!bizEmpty&&dh&&!dh.enabled;
-      const disabled=isClosed||notBizDay;
+      const {suffix,disabled}=bizCalOptionSuffix(ds,isClosed,notBizDay);
+      _dsListForWarning2.push(ds);
       const opt=document.createElement('option');
       opt.value=ds; opt.disabled=disabled;
-      opt.textContent=`${lbl}（${mm}/${dd2} 週${WD_NAMES[d.getDay()]}）${isClosed?' — 店休':notBizDay?' — 非營業':''}`;
+      opt.textContent=`${lbl} ${mm}/${dd2}(${WD_NAMES[d.getDay()]})${suffix}`;
       pDate.appendChild(opt);
+    }
+    const warnEl2=document.getElementById('pDateCalWarning');
+    if(warnEl2){
+      const warnTxt2=bizCalRangeWarning(_dsListForWarning2);
+      warnEl2.textContent=warnTxt2;
+      warnEl2.style.display=warnTxt2?'block':'none';
     }
     // 強制選中目標日期 dateStr
     const targetOpt=Array.from(pDate.options).find(o=>o.value===dateStr&&!o.disabled);

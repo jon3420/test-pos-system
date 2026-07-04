@@ -908,6 +908,12 @@
             </div>
           </div>
         </div>
+        <!-- 📋 今日營業摘要（減少版面留白，彙整今日狀態 + 下一次休假）-->
+        <div class="settings-card">
+          <h3>📋 今日營業摘要</h3>
+          <div id="todaySummaryStatus" style="font-size:14px;font-weight:700;margin-bottom:8px">載入中…</div>
+          <div id="todaySummaryNextHoliday" style="font-size:13px;color:var(--text-secondary)"></div>
+        </div>
         <!-- ── 外帶接單規則（v1）────────────────── -->
         <div class="settings-card" style="grid-column:1/-1">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
@@ -1002,7 +1008,7 @@
         <div class="settings-card">
           <h3>💳 LINE 點餐付款方式</h3>
           <p style="font-size:12px;color:#888;margin-bottom:12px">控制 LINE 點餐頁顯示的付款方式</p>
-          <div style="display:flex;flex-direction:column;gap:10px" id="linePaymentToggles">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 16px" id="linePaymentToggles">
             <label class="checkbox-label">
               <input type="checkbox" id="lp-cash" onchange="saveLinePaymentSettings()">
               <span>💵 現金 (cash)</span>
@@ -1012,31 +1018,38 @@
               <span>💚 LINE Pay</span>
             </label>
             <label class="checkbox-label">
-              <input type="checkbox" id="lp-transfer" onchange="saveLinePaymentSettings()">
-              <span>🏦 轉帳</span>
+              <input type="checkbox" id="lp-credit_card" onchange="saveLinePaymentSettings()">
+              <span>💳 信用卡</span>
             </label>
             <label class="checkbox-label">
               <input type="checkbox" id="lp-platform" onchange="saveLinePaymentSettings()">
               <span>📱 平台付款</span>
             </label>
             <label class="checkbox-label">
-              <input type="checkbox" id="lp-credit_card" onchange="saveLinePaymentSettings()">
-              <span>💳 信用卡</span>
+              <input type="checkbox" id="lp-transfer" onchange="saveLinePaymentSettings()">
+              <span>🏦 轉帳</span>
             </label>
           </div>
           <div id="linePaymentStatus" style="margin-top:10px;font-size:12px;color:#888"></div>
         </div>
         <div class="settings-card" style="grid-column:1/-1;overflow:hidden">
-          <h3>🕐 LINE 整體營業時間（舊版相容）</h3>
-          <p style="font-size:12px;color:#888;margin-bottom:10px">此為舊版整體時間設定，若已設定上方「外帶/外送」獨立規則，以獨立規則優先。</p>
-          <label class="checkbox-label" style="margin-bottom:14px">
-            <input type="checkbox" id="set-line_business_hours_enabled" onchange="saveLineBizSettings()">
-            <span>啟用整體營業時間限制</span>
-          </label>
-          <div id="bizHoursGrid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;width:100%;box-sizing:border-box">
-            <!-- 由 JS 動態產生 -->
-          </div>
-          <button class="btn-primary" style="margin-top:14px" onclick="saveLineBizSettings()">💾 儲存營業設定</button>
+          <details class="legacy-collapse" id="legacyBizHoursDetails">
+            <summary>
+              <span class="legacy-collapse-arrow">▶</span>
+              <h3 style="margin:0;display:inline">🕐 舊版營業時間（相容模式）</h3>
+            </summary>
+            <div class="legacy-collapse-body">
+              <p style="font-size:12px;color:#888;margin-bottom:10px">此為舊版整體時間設定，若已設定上方「外帶/外送」獨立規則，以獨立規則優先。</p>
+              <label class="checkbox-label" style="margin-bottom:14px">
+                <input type="checkbox" id="set-line_business_hours_enabled" onchange="saveLineBizSettings()">
+                <span>啟用整體營業時間限制</span>
+              </label>
+              <div id="bizHoursGrid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;width:100%;box-sizing:border-box">
+                <!-- 由 JS 動態產生 -->
+              </div>
+              <button class="btn-primary" style="margin-top:14px" onclick="saveLineBizSettings()">💾 儲存營業設定</button>
+            </div>
+          </details>
         </div>
         <!-- 預約設定 -->
         <div class="settings-card" style="grid-column:1/-1">
