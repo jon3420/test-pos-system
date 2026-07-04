@@ -171,10 +171,15 @@ function applyOrderStatusChange(db, storeId, order, newStatus) {
 
     // LINE 今日份數 / 預購份數回補（僅 LINE 來源訂單需要）
     if (isLineOrder) {
-      const cancelDateStr   = (order.pickup_time || '').slice(0, 10);
-      const twNow           = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
-      const todayForCancel  = `${twNow.getFullYear()}-${String(twNow.getMonth()+1).padStart(2,'0')}-${String(twNow.getDate()).padStart(2,'0')}`;
-      const cancelIsPreorder = cancelDateStr && cancelDateStr > todayForCancel;
+      // hotfix13-BUG-A：修正「今日 vs 預購」判斷方式。
+      // 舊寫法用 pickup_time 字串跟今天日期做「字串大小比較」（cancelDateStr > todayForCancel），
+      // 對「盡快」這種非日期字串來說，中文字元的 Unicode 編碼點遠大於日期字串的數字字元，
+      // 會被誤判成「比今天的日期還大」→ 誤判為預購單 → 回補到 line_preorder_sold，
+      // 導致真正該回補的 line_quota_sold（今日已售）完全沒有變動，商家看起來就是「沒有回補」。
+      // 改用跟 Web app.js（renderOrdersTable 的 pickupTag 判斷）完全一致的格式偵測：
+      // 只有「長度 > 10 且同時包含 '-' 與空白」才是「YYYY-MM-DD HH:MM」的預購格式，其餘一律視為今日單。
+      const pt = order.pickup_time || '';
+      const cancelIsPreorder = pt.length > 10 && pt.includes('-') && pt.includes(' ');
       const items2 = (() => {
         try { return typeof order.items === 'string' ? JSON.parse(order.items || '[]') : (order.items || []); }
         catch { return []; }
