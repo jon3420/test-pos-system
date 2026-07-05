@@ -28,6 +28,8 @@ const LINE_KEYS = new Set([
   // fix18-06: 今日臨時最後接單時間（有日期綁定，隔天自動失效）
   'takeout_today_cutoff_time', 'takeout_today_cutoff_date',
   'delivery_today_cutoff_time', 'delivery_today_cutoff_date',
+  // Hotfix15 LINE 營業中心 V3：顧客可提前預訂天數（0~60，預設14）
+  'line_preorder_days_limit',
 ]);
 
 // fix18-06：外送距離費率相關 key

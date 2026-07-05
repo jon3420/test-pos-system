@@ -193,6 +193,15 @@ img{max-width:100%;display:block}
 
 <div class="overlay" id="overlay" onclick="closeTopSheet()"></div>
 
+<!-- 🌙 休假公告 Sheet（V3：不整頁擋住，顧客關閉後仍可瀏覽菜單與購物車）-->
+<div class="sheet" id="holidaySheet">
+  <div class="sheet-hd"><h3 id="holidaySheetTitle">🌙 休假公告</h3><button class="close-btn" onclick="closeHolidayAnnouncement()">✕</button></div>
+  <div id="holidaySheetBody" style="padding:16px;font-size:14px;line-height:1.8;color:#444"></div>
+  <div style="padding:0 16px 20px">
+    <button class="btn-preorder" style="background:#06C755;color:#fff;border-color:#06C755;padding:12px" onclick="closeHolidayAnnouncement()">我知道了</button>
+  </div>
+</div>
+
 <!-- 購物車 Sheet -->
 <div class="sheet" id="cartSheet">
   <div class="sheet-hd"><h3>🛒 購物車</h3><button class="close-btn" onclick="closeSheet('cartSheet')">✕</button></div>
@@ -361,7 +370,8 @@ function findBizCalEntry(ds){
   return bizCalendarList.find(e=>e.start_date<=ds && ds<=e.end_date) || null;
 }
 // 產生日期選單的「狀態後綴」文字（含顏色 emoji），並回傳是否應停用該日期
-function bizCalOptionSuffix(ds, isClosedWeekly, notBizDayWeekly){
+// isWeeklyClosed：命中 line_closed_weekdays（固定公休）；isSpecificClosed：命中舊版 line_closed_dates（指定店休日）
+function bizCalOptionSuffix(ds, isWeeklyClosed, isSpecificClosed, notBizDayWeekly){
   const e=findBizCalEntry(ds);
   if(e){
     if(e.mode==='closed'){
@@ -371,8 +381,11 @@ function bizCalOptionSuffix(ds, isClosedWeekly, notBizDayWeekly){
     if(e.mode==='custom_hours') return { suffix:' 🟡 特殊營業', disabled:false };
     if(e.mode==='open_all_day') return { suffix:' 🟢 全天營業', disabled:false };
   }
-  // 沒有命中行事曆 → 完全走舊的每週公休/非營業日判斷
-  return { suffix: isClosedWeekly?' 🔴 店休':(notBizDayWeekly?' — 非營業':''), disabled: isClosedWeekly||notBizDayWeekly };
+  // 沒有命中行事曆 → 完全走舊的每週公休/指定店休日/非營業日判斷
+  if(isWeeklyClosed)   return { suffix:' 🔴 固定公休', disabled:true };
+  if(isSpecificClosed) return { suffix:' 🔴 店休',     disabled:true };
+  if(notBizDayWeekly)  return { suffix:' — 非營業',    disabled:true };
+  return { suffix:'', disabled:false };
 }
 // 掃描一段可見日期範圍，若有連續休假（mode=closed）區間與此範圍重疊，回傳提醒文字
 function bizCalRangeWarning(dateList){
@@ -436,6 +449,8 @@ async function init(){
       }
 
       // 今日休息判斷（優先序：今日臨時休息 ＞ 營業行事曆 ＞ 每週公休/指定店休日，皆由後端算好）
+      // Hotfix15 V3：不再整頁擋住（不 return、不覆蓋 body）。改為「休假公告 Modal」，
+      // 顧客關閉後仍可正常瀏覽菜單、加入購物車；休假日期本身不可送單，由 /validate-cart 與送單 API 後端把關。
       const now=twNow(), todayStr=fmtD(now);
       const isTodayClosed=d.line_today_closed==='1'&&d.line_today_closed_date===todayStr;
       const closedInfo=d.today_closed_info||{};
@@ -444,24 +459,19 @@ async function init(){
       if(isTodayClosed){
         // 今日臨時休息：一律優先蓋過營業行事曆
         todayClosed=true;
-        showClosed('🌙 今日店休','今日暫停 LINE 點餐服務，感謝您的理解。\n請選擇其他日期預訂，或明天再來！');
-        return;
-      }
-      if(closedInfo.closed){
+        openHolidayAnnouncement({type:'today_closed'});
+      } else if(closedInfo.closed){
         todayClosed=true;
         if(closedInfo.calendar && closedInfo.calendar.mode==='closed'){
           // 營業行事曆：特殊休假日（單日或區間），顯示原因（依 show_reason）與恢復日期
-          const cal=closedInfo.calendar;
-          const rangeTxt = cal.start_date===cal.end_date
-            ? fmtMD(cal.start_date)
-            : `${fmtMD(cal.start_date)}～${fmtMD(cal.end_date)}`;
-          const reasonTxt = (cal.show_reason && cal.reason) ? `原因：${cal.reason}\n` : '';
-          showClosed('🌙 今日休息', `${reasonTxt}休假期間：${rangeTxt}\n預計 ${fmtMD(cal.resume_date)} 恢復營業`);
+          openHolidayAnnouncement({type:'calendar_closed', cal:closedInfo.calendar});
+        } else if(closedInfo.isWeekly){
+          // 固定公休（每週幾）
+          openHolidayAnnouncement({type:'weekly_closed', wdName:WD_NAMES[now.getDay()]});
         } else {
-          // 每週公休 / 指定店休日（舊版邏輯，維持原文案）
-          showClosed('🌙 今日店休','今日暫停 LINE 點餐服務，感謝您的理解。\n請選擇其他日期預訂，或明天再來！');
+          // 舊版指定店休日（line_closed_dates，無原因欄位）
+          openHolidayAnnouncement({type:'specific_closed'});
         }
-        return;
       }
 
       // 營業行事曆：特殊營業／全天營業（不阻擋下單，僅顯示提示 banner）
@@ -516,12 +526,55 @@ async function init(){
   }
 }
 
-// ── 店休頁面 ──────────────────────────────────────────
+// ── 店休頁面（僅用於「總開關關閉」「兩模式皆關閉」等真正需要整頁擋住的情境；
+//    Hotfix15 V3 起，休假類情境改用 openHolidayAnnouncement，不再整頁擋住）──
 function showClosed(title,msg){
   document.getElementById('loading').style.display='none';
   const el=document.getElementById('content');el.style.display='block';
   el.innerHTML=`<div class="closed-screen"><div class="ei">${title.split(' ')[0]}</div><h2>${title.split(' ').slice(1).join(' ')}</h2><p>${msg.replace(/\n/g,'<br>')}</p></div>`;
 }
+
+// ── 🌙 休假公告 Modal（Hotfix15 V3）──────────────────────
+// 不整頁擋住：載入菜單 → 顯示公告 → 關閉後可正常瀏覽/加購物車；休假日期本身不可送單（後端二次驗證把關）
+function openHolidayAnnouncement(info){
+  const titleEl=document.getElementById('holidaySheetTitle');
+  const bodyEl=document.getElementById('holidaySheetBody');
+  if(!titleEl||!bodyEl||!info) return;
+  let title='🌙 休假公告', bodyHtml='';
+  if(info.type==='calendar_closed'){
+    const cal=info.cal||{};
+    title='🌙 今日休息';
+    const rangeTxt = cal.start_date===cal.end_date
+      ? fmtMD(cal.start_date)
+      : `${fmtMD(cal.start_date)}～${fmtMD(cal.end_date)}`;
+    const lines=[];
+    if(cal.show_reason && cal.reason) lines.push(`原因：${esc(cal.reason)}`);
+    lines.push(`休假期間：${rangeTxt}`);
+    lines.push(`預計 ${fmtMD(cal.resume_date)} 恢復營業`);
+    bodyHtml=lines.join('<br>');
+  } else if(info.type==='weekly_closed'){
+    title='🌙 今日固定公休';
+    bodyHtml=`每週${esc(info.wdName||'')}固定店休<br>您仍可預訂其他營業日期`;
+  } else if(info.type==='today_closed'){
+    title='🌙 今日臨時休息';
+    bodyHtml='您仍可預訂其他營業日期';
+  } else if(info.type==='specific_closed'){
+    title='🌙 今日店休';
+    bodyHtml='您仍可預訂其他營業日期';
+  } else {
+    return;
+  }
+  titleEl.textContent=title;
+  bodyEl.innerHTML=bodyHtml;
+  openSheet('holidaySheet');
+}
+function closeHolidayAnnouncement(){ closeSheet('holidaySheet'); }
+// Esc 鍵關閉休假公告 Modal（與其他 sheet 共用同一個 Esc 監聽，避免重複註冊）
+document.addEventListener('keydown', function(ev){
+  if(ev.key==='Escape' && document.getElementById('holidaySheet')?.classList.contains('show')){
+    closeHolidayAnnouncement();
+  }
+});
 
 // ── 模式切換 UI ────────────────────────────────────────
 function buildModeTabsUI(){
@@ -610,7 +663,14 @@ function buildPaymentButtons(settings){
 }
 function selectPay(btn){selectedPay=btn.dataset.code;document.querySelectorAll('.pay-btn').forEach(b=>b.classList.toggle('active',b===btn));}
 
-// ── 日期選擇器（依模式篩選公休日）──────────────────────
+// ── 顧客可提前預訂天數（Hotfix15 V3：line_preorder_days_limit，預設14天，0~60）──
+function getPreorderDaysLimit(){
+  const n=parseInt(shopData.line_preorder_days_limit,10);
+  if(isNaN(n)) return 14;
+  return Math.max(0, Math.min(60, n));
+}
+
+// ── 日期選擇器（依模式篩選公休日；日期範圍統一由 line_preorder_days_limit 控制）──
 function buildDateSelector(forceNextDay=false){
   const sel=document.getElementById('pDate');if(!sel)return;
   sel.innerHTML='';
@@ -620,20 +680,23 @@ function buildDateSelector(forceNextDay=false){
   const closedDts=(() => { try { return JSON.parse(shopData.line_closed_dates||'[]'); } catch { return []; } })();
   const bizHoursKey=mode==='takeout'?'takeout_business_hours':'delivery_business_hours';
   const bizHours=(() => { try { return JSON.parse(shopData[bizHoursKey]||'{}'); } catch { return {}; } })();
+  const bizEmpty=Object.keys(bizHours).length===0;
   let first=null;
-  // 正常模式顯示 今天/明天/後天；forceNextDay 模式從明天開始顯示未來 7 天供預約
-  const maxDays=forceNextDay?7:3;
+  // 統一日期範圍：0（今天）～ line_preorder_days_limit 天後；forceNextDay 時排除今天（今日已售完/不可下單，從明天起選）
+  const limit=getPreorderDaysLimit();
   const startOffset=forceNextDay?1:0;
+  const endOffset=limit;
   const _dsListForWarning=[];
-  for(let offset=startOffset;offset<startOffset+maxDays;offset++){
+  for(let offset=startOffset;offset<=endOffset;offset++){
     const d=new Date(now);d.setDate(d.getDate()+offset);
     const ds=fmtD(d),wk=WD_KEYS[parseLocalDate(ds).getDay()];
     const mm=String(d.getMonth()+1).padStart(2,'0'),dd2=String(d.getDate()).padStart(2,'0');
     const lbl=offset===0?'今天':offset===1?'明天':offset===2?'後天':`${offset}天後`;
-    const isClosed=closedWds.includes(wk)||closedDts.includes(ds);
+    const isWeeklyClosed=closedWds.includes(wk);
+    const isSpecificClosed=closedDts.includes(ds);
     const dh=bizHours[wk];
-    const notBizDay=!isClosed&&dh&&!dh.enabled;
-    const {suffix,disabled}=bizCalOptionSuffix(ds,isClosed,notBizDay);
+    const notBizDay=!isWeeklyClosed&&!isSpecificClosed&&!bizEmpty&&dh&&!dh.enabled;
+    const {suffix,disabled}=bizCalOptionSuffix(ds,isWeeklyClosed,isSpecificClosed,notBizDay);
     _dsListForWarning.push(ds);
     const opt=document.createElement('option');opt.value=ds;opt.disabled=disabled;
     opt.textContent=`${lbl} ${mm}/${dd2}(${WD_NAMES[d.getDay()]})${suffix}`;
@@ -912,40 +975,12 @@ function openCartSheetWithDate(dateStr, firstSlot, slots, mode){
   renderCartItems();
   openSheet('cartSheet');
 
-  // 2. 同步設定日期（直接操作 pDate，不依賴 buildDateSelector）
+  // 2. 同步設定日期（改為呼叫共用的 buildDateSelector，避免日期範圍邏輯重複維護；
+  //    Hotfix15 V3：日期範圍統一由 line_preorder_days_limit 控制）
   const pDate=document.getElementById('pDate');
   if(pDate){
-    // 先重建預約專用日期選項（從明天起 7 天，標記店休）
-    const now=twNow(), todayStr=fmtD(now);
-    const closedWds=(() => { try { return JSON.parse(shopData.line_closed_weekdays||'[]'); } catch { return []; } })();
-    const closedDts=(() => { try { return JSON.parse(shopData.line_closed_dates||'[]'); } catch { return []; } })();
-    const bizHoursKey=mode==='takeout'?'takeout_business_hours':'delivery_business_hours';
-    const bizHours=(() => { try { return JSON.parse(shopData[bizHoursKey]||'{}'); } catch { return {}; } })();
-    const bizEmpty=Object.keys(bizHours).length===0;
-    pDate.innerHTML='';
-    const _dsListForWarning2=[];
-    for(let offset=1;offset<=14;offset++){
-      const d=new Date(now); d.setDate(d.getDate()+offset);
-      const ds=fmtD(d), wk=WD_KEYS[parseLocalDate(ds).getDay()];
-      const mm=String(d.getMonth()+1).padStart(2,'0'), dd2=String(d.getDate()).padStart(2,'0');
-      const lbl=offset===1?'明天':offset===2?'後天':`${offset}天後`;
-      const isClosed=closedWds.includes(wk)||closedDts.includes(ds);
-      const dh=bizHours[wk];
-      const notBizDay=!isClosed&&!bizEmpty&&dh&&!dh.enabled;
-      const {suffix,disabled}=bizCalOptionSuffix(ds,isClosed,notBizDay);
-      _dsListForWarning2.push(ds);
-      const opt=document.createElement('option');
-      opt.value=ds; opt.disabled=disabled;
-      opt.textContent=`${lbl} ${mm}/${dd2}(${WD_NAMES[d.getDay()]})${suffix}`;
-      pDate.appendChild(opt);
-    }
-    const warnEl2=document.getElementById('pDateCalWarning');
-    if(warnEl2){
-      const warnTxt2=bizCalRangeWarning(_dsListForWarning2);
-      warnEl2.textContent=warnTxt2;
-      warnEl2.style.display=warnTxt2?'block':'none';
-    }
-    // 強制選中目標日期 dateStr
+    buildDateSelector(true); // forceNextDay=true：從明天起算，範圍到 line_preorder_days_limit
+    // 強制選中目標日期 dateStr（若該日期被停用則退回選單第一個可選日期）
     const targetOpt=Array.from(pDate.options).find(o=>o.value===dateStr&&!o.disabled);
     if(targetOpt){ pDate.value=dateStr; }
     else { pDate.value=pDate.querySelector('option:not([disabled])')?.value||dateStr; }

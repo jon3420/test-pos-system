@@ -908,11 +908,21 @@
             </div>
           </div>
         </div>
-        <!-- 📋 今日營業摘要（減少版面留白，彙整今日狀態 + 下一次休假）-->
+        <!-- 📋 今日營業摘要（Hotfix15 V3：擴充外帶/外送時間 + 是否可接單）-->
         <div class="settings-card">
           <h3>📋 今日營業摘要</h3>
           <div id="todaySummaryStatus" style="font-size:14px;font-weight:700;margin-bottom:8px">載入中…</div>
-          <div id="todaySummaryNextHoliday" style="font-size:13px;color:var(--text-secondary)"></div>
+          <div id="todaySummaryHours" style="font-size:13px;color:var(--text-secondary);line-height:1.8"></div>
+        </div>
+        <!-- 📅 下一次休假（Hotfix15 V3 新增獨立卡片）-->
+        <div class="settings-card">
+          <h3>📅 下一次休假</h3>
+          <div id="nextHolidaySummary" style="font-size:13px;color:var(--text-secondary);line-height:1.8">載入中…</div>
+        </div>
+        <!-- 🧾 預購摘要（Hotfix15 V3 新增：顧客可提前預訂天數 + 可預訂範圍 + 下一個可營業日）-->
+        <div class="settings-card">
+          <h3>🧾 預購摘要</h3>
+          <div id="preorderSummary" style="font-size:13px;color:var(--text-secondary);line-height:1.8">載入中…</div>
         </div>
         <!-- ── 外帶接單規則（v1）────────────────── -->
         <div class="settings-card" style="grid-column:1/-1">
@@ -1064,6 +1074,11 @@
               <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:6px">隔日最短預訂時間（小時）</div>
               <input type="number" id="set-next_day_preorder_hours" min="0" step="1" placeholder="2" class="form-input" style="width:100%">
               <div style="font-size:11px;color:var(--text-muted);margin-top:4px">預留給明天 / 後天的最短前置時間</div>
+            </label>
+            <label>
+              <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:6px">顧客可提前預訂天數</div>
+              <input type="number" id="set-line_preorder_days_limit" min="0" max="60" step="1" placeholder="14" class="form-input" style="width:100%">
+              <div style="font-size:11px;color:var(--text-muted);margin-top:4px">控制 LINE 點餐日期選單最多可選幾天內（0～60，預設 14）</div>
             </label>
           </div>
           <h3 style="margin-top:8px">📅 固定公休日</h3>

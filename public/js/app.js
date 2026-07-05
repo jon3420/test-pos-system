@@ -5179,6 +5179,9 @@ async function loadLineBizStatus() {
     if (sdm) sdm.value = d.same_day_preorder_minutes || 30;
     const ndh = document.getElementById('set-next_day_preorder_hours');
     if (ndh) ndh.value = d.next_day_preorder_hours || 2;
+    // Hotfix15 V3：顧客可提前預訂天數
+    const pdl = document.getElementById('set-line_preorder_days_limit');
+    if (pdl) { const n = parseInt(d.line_preorder_days_limit, 10); pdl.value = isNaN(n) ? 14 : Math.max(0, Math.min(60, n)); }
     // 固定公休日
     const cwds = (() => { try { return JSON.parse(d.line_closed_weekdays || '[]'); } catch { return []; } })();
     document.querySelectorAll('.cwd-chk').forEach(cb => { cb.checked = cwds.includes(cb.value); });
@@ -5195,6 +5198,10 @@ async function loadLineBizStatus() {
 async function saveAdvancedLineSettings() {
   const sdm = parseInt(document.getElementById('set-same_day_preorder_minutes')?.value || 30) || 30;
   const ndh = parseInt(document.getElementById('set-next_day_preorder_hours')?.value || 2)  || 2;
+  // Hotfix15 V3：顧客可提前預訂天數（0~60，預設14）
+  let pdl = parseInt(document.getElementById('set-line_preorder_days_limit')?.value, 10);
+  if (isNaN(pdl)) pdl = 14;
+  pdl = Math.max(0, Math.min(60, pdl));
   const cwds = Array.from(document.querySelectorAll('.cwd-chk:checked')).map(cb => cb.value);
   const cdRaw = (document.getElementById('set-line_closed_dates_text')?.value || '').split('\n')
     .map(d => d.trim()).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d));
@@ -5203,6 +5210,7 @@ async function saveAdvancedLineSettings() {
       body: JSON.stringify({
         same_day_preorder_minutes: String(sdm),
         next_day_preorder_hours:   String(ndh),
+        line_preorder_days_limit:  String(pdl),
         line_closed_weekdays:      JSON.stringify(cwds),
         line_closed_dates:         JSON.stringify(cdRaw),
       }) });
@@ -5279,28 +5287,126 @@ function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
 }
 
-// ── 📋 今日營業摘要：彙整今日狀態 + 下一次休假，減少版面留白 ──
-// 純畫面呈現，直接沿用 #businessCalendarTodayStatus 已渲染好的狀態文字 + _businessCalendarCache 找下一次休假
-function renderTodaySummary() {
-  const statusEl = document.getElementById('todaySummaryStatus');
-  const nextEl   = document.getElementById('todaySummaryNextHoliday');
-  if (!statusEl || !nextEl) return;
+// ── 📋📅🧾 Hotfix15 V3：今日營業摘要 / 下一次休假 / 預購摘要，減少版面留白 ──
+// 純畫面呈現：狀態文字沿用 #businessCalendarTodayStatus；下一次休假沿用 _businessCalendarCache；
+// 今日營業時間 / 預購範圍另外呼叫一次 /api/settings + /today（唯讀，不影響任何既有 API 行為）
+const _WD_KEYS_ADMIN = ['sun','mon','tue','wed','thu','fri','sat'];
+async function renderTodaySummary() {
+  const statusEl   = document.getElementById('todaySummaryStatus');
+  const hoursEl    = document.getElementById('todaySummaryHours');
+  const holidayEl  = document.getElementById('nextHolidaySummary');
+  const preorderEl = document.getElementById('preorderSummary');
+  if (!statusEl) return; // 尚未渲染此頁籤
+
+  // 1) 今日狀態：沿用既有 #businessCalendarTodayStatus 文字（不重複計算）
   const srcStatus = document.getElementById('businessCalendarTodayStatus');
   if (srcStatus) statusEl.innerHTML = srcStatus.innerHTML;
 
-  const todayStr = new Date().toISOString().slice(0,10);
+  // 2) 下一次休假：沿用 _businessCalendarCache（loadBusinessCalendar 已抓取，不額外呼叫 API）
+  const todayStr0 = new Date().toISOString().slice(0,10);
   const nextClosed = (_businessCalendarCache || [])
-    .filter(x => x.mode === 'closed' && x.end_date >= todayStr)
+    .filter(x => x.mode === 'closed' && x.end_date >= todayStr0)
     .sort((a,b) => a.start_date.localeCompare(b.start_date))[0];
-
-  if (nextClosed) {
-    const range = nextClosed.start_date === nextClosed.end_date
-      ? _bcFmtDate(nextClosed.start_date)
-      : `${_bcFmtDate(nextClosed.start_date)}～${_bcFmtDate(nextClosed.end_date)}`;
-    nextEl.innerHTML = `📅 下一次休假：${range}${nextClosed.reason ? '　' + escapeHtml(nextClosed.reason) : ''}`;
-  } else {
-    nextEl.innerHTML = '';
+  if (holidayEl) {
+    if (nextClosed) {
+      const range = nextClosed.start_date === nextClosed.end_date
+        ? _bcFmtDate(nextClosed.start_date)
+        : `${_bcFmtDate(nextClosed.start_date)}～${_bcFmtDate(nextClosed.end_date)}`;
+      const resumeDate = _bcAddOneDay(nextClosed.end_date);
+      holidayEl.innerHTML = [
+        range,
+        nextClosed.reason ? escapeHtml(nextClosed.reason) : '',
+        `${_bcFmtDate(resumeDate)} 恢復營業`,
+      ].filter(Boolean).join('<br>');
+    } else {
+      holidayEl.innerHTML = '目前沒有排定的休假';
+    }
   }
+
+  // 3) 今日營業時間（外帶/外送）+ 4) 預購摘要：需要 settings + 今日行事曆命中狀態
+  try {
+    const [settingsRes, todayRes] = await Promise.all([
+      apiFetch('/api/settings').then(r => r.json()),
+      apiFetch('/api/settings/business-calendar/today').then(r => r.json()),
+    ]);
+    const s = settingsRes.data || {};
+    const cal = todayRes.data || { matched: false };
+    const now = new Date();
+    const todayStr = now.toISOString().slice(0,10);
+    const wdKey = _WD_KEYS_ADMIN[now.getDay()];
+    const isTodayTempClosed = s.line_today_closed === '1' && s.line_today_closed_date === todayStr;
+    const closedTodayForOrdering = isTodayTempClosed || (cal.matched && cal.mode === 'closed');
+
+    function modeHoursToday(prefix) {
+      if (closedTodayForOrdering) return '今日不開放';
+      if (cal.matched && cal.mode === 'open_all_day') return '全天營業';
+      if (cal.matched && cal.mode === 'custom_hours') {
+        const en = prefix === 'takeout' ? cal.takeout_enabled : cal.delivery_enabled;
+        if (!en) return '今日不開放';
+        const st = prefix === 'takeout' ? cal.takeout_start_time : cal.delivery_start_time;
+        const et = prefix === 'takeout' ? cal.takeout_end_time   : cal.delivery_end_time;
+        return (st && et) ? `${st}～${et}` : '全天營業';
+      }
+      try {
+        const bh = JSON.parse(s[`${prefix}_business_hours`] || '{}');
+        if (!bh || !Object.keys(bh).length) return '未限制（全天可訂）';
+        const dh = bh[wdKey];
+        if (!dh) return '未限制（全天可訂）';
+        if (!dh.enabled) return '今日不營業';
+        return `${dh.open || '--'}～${dh.close || '--'}`;
+      } catch { return '未限制（全天可訂）'; }
+    }
+
+    if (hoursEl) {
+      const rows = [];
+      rows.push(`外帶：${s.takeout_enabled === '1' ? modeHoursToday('takeout') : '功能未開啟'}`);
+      rows.push(`外送：${s.delivery_enabled === '1' ? modeHoursToday('delivery') : '功能未開啟'}`);
+      rows.push(`今日是否可接單：${closedTodayForOrdering ? '否' : '是'}`);
+      hoursEl.innerHTML = rows.join('<br>');
+    }
+
+    if (preorderEl) {
+      let limit = parseInt(s.line_preorder_days_limit, 10);
+      if (isNaN(limit)) limit = 14;
+      limit = Math.max(0, Math.min(60, limit));
+      const endDate = new Date(now); endDate.setDate(endDate.getDate() + limit);
+      const fmtShort = (d) => `${d.getMonth()+1}/${d.getDate()}`;
+
+      // 掃描找「下一個可營業日」：跳過 Business Calendar closed、固定公休、指定店休日，最多掃描到 limit 天
+      const closedWds = (() => { try { return JSON.parse(s.line_closed_weekdays || '[]'); } catch { return []; } })();
+      const closedDts = (() => { try { return JSON.parse(s.line_closed_dates || '[]'); } catch { return []; } })();
+      let nextBizDay = null;
+      for (let i = 0; i <= limit; i++) {
+        const d = new Date(now); d.setDate(d.getDate() + i);
+        const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+        if (i === 0 && closedTodayForOrdering) continue;
+        const wk = _WD_KEYS_ADMIN[d.getDay()];
+        const calEntry = (_businessCalendarCache || []).find(e => e.start_date <= ds && ds <= e.end_date);
+        if (calEntry) {
+          if (calEntry.mode === 'closed') continue;
+          nextBizDay = ds; break;
+        }
+        if (closedWds.includes(wk) || closedDts.includes(ds)) continue;
+        nextBizDay = ds; break;
+      }
+
+      const rows = [
+        `可提前預訂：${limit} 天`,
+        `可預訂範圍：${fmtShort(now)}～${fmtShort(endDate)}`,
+        `下一個可營業日：${nextBizDay ? _bcFmtDate(nextBizDay) : '無（範圍內皆休假）'}`,
+      ];
+      preorderEl.innerHTML = rows.join('<br>');
+    }
+  } catch(e) {
+    if (hoursEl)    hoursEl.textContent = '載入失敗';
+    if (preorderEl) preorderEl.textContent = '載入失敗';
+  }
+}
+// YYYY-MM-DD + 1 天（供「下一次休假」計算恢復營業日）
+function _bcAddOneDay(dateStr) {
+  const [y,m,dd] = dateStr.split('-').map(Number);
+  const d = new Date(y, m-1, dd); d.setDate(d.getDate()+1);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
 
 // ── 列表載入 ──────────────────────────────────────────────

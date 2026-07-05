@@ -118,6 +118,19 @@ function getSetting(db, storeId, key, def='') {
   return row ? row.value : def;
 }
 
+// ── Hotfix15 LINE 營業中心 V3：顧客可提前預訂天數（0~60，預設14）──
+function getPreorderDaysLimit(db, storeId) {
+  const raw = getSetting(db, storeId, 'line_preorder_days_limit', '14');
+  let n = parseInt(raw, 10);
+  if (isNaN(n)) n = 14;
+  return Math.max(0, Math.min(60, n));
+}
+// 兩個 YYYY-MM-DD 之間相差天數（b - a），使用安全解析避免時區誤差
+function dateDiffDays(aStr, bStr) {
+  const a = parseLocalDate(aStr), b = parseLocalDate(bStr);
+  return Math.round((b - a) / 86400000);
+}
+
 // ── 台灣時間工具 ──────────────────────────────────────────
 function twNow() {
   return new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
@@ -364,6 +377,8 @@ router.get('/shop', (req, res) => {
       // fix18-06: 今日臨時截止設定
       'takeout_today_cutoff_time','takeout_today_cutoff_date',
       'delivery_today_cutoff_time','delivery_today_cutoff_date',
+      // Hotfix15 LINE 營業中心 V3
+      'line_preorder_days_limit',
     ];
     const settings = {};
     keys.forEach(k => { settings[k] = getSetting(db, storeId, k, ''); });
@@ -398,13 +413,14 @@ router.get('/shop', (req, res) => {
       today_cutoff:   deliveryMode.todayCutoff || '',
     };
 
-    // 找下一個可訂日（最多往後查 14 天）
+    // 找下一個可訂日（掃描範圍受 line_preorder_days_limit 限制，避免建議超出可預訂範圍的日期）
     // v2：改用 getDayOpenClose（Business Calendar 優先，沒命中才走舊的 bizHours 空值=全天可訂邏輯）
+    const _preorderLimitForScan = getPreorderDaysLimit(db, storeId);
     function nextAvailableDates(modeSettings, mode, count=3) {
       const dates = [];
       const d = new Date(now);
       d.setDate(d.getDate() + 1); // 從明天開始
-      for (let i=0; i<14 && dates.length<count; i++) {
+      for (let i=0; i<_preorderLimitForScan && dates.length<count; i++) {
         const ds = twDateStr(d);
         const cInfo = isClosedDate(db, storeId, ds);
         if (!cInfo.closed) {
@@ -627,6 +643,12 @@ router.get('/timeslots', (req, res) => {
     const modeSettings = getModeSettings(db, storeId, mode);
     if (!modeSettings.enabled) return res.json({ success: true, slots: [], reason: 'mode_closed' });
 
+    // Hotfix15 V3：顧客可提前預訂天數上限
+    const preorderLimit = getPreorderDaysLimit(db, storeId);
+    if (dateDiffDays(todayStr, dateStr) > preorderLimit) {
+      return res.json({ success: true, slots: [], reason: 'preorder_limit_exceeded' });
+    }
+
     const closedInfo = isClosedDate(db, storeId, dateStr);
     if (closedInfo.closed) return res.json({ success: true, slots: [], reason: 'closed_day' });
 
@@ -698,6 +720,14 @@ function validateOrderConditions(db, storeId, mode, dateStr, pickupTime, nowMins
     return { ok: false, reason: 'line_disabled', message: 'LINE 點餐目前暫停營業' };
 
   const orderDate = dateStr || todayStr;
+
+  // 1b. 顧客可提前預訂天數上限（Hotfix15 V3：line_preorder_days_limit，預設14天，0~60）
+  const preorderLimit = getPreorderDaysLimit(db, storeId);
+  const daysAhead = dateDiffDays(todayStr, orderDate);
+  if (daysAhead > preorderLimit) {
+    return { ok: false, reason: 'preorder_limit_exceeded',
+      message: `此日期超出可預訂範圍（最多可預訂 ${preorderLimit} 天內）` };
+  }
 
   // 2. 今日臨時休息（最高優先：即使 Business Calendar 設定當天營業，臨時休息一律蓋過，見 V2 需求）
   const todayClosed = getSetting(db, storeId, 'line_today_closed', '0');
