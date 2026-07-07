@@ -893,6 +893,115 @@
           <div id="businessCalendarList" style="display:flex;flex-direction:column;gap:10px">載入中…</div>
         </div>
 
+        <!-- 📢 商家公告中心（Hotfix17）──────────────────────── -->
+        <div class="settings-card" style="grid-column:1/-1">
+          <h3>📢 商家公告</h3>
+          <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px">
+            設定顯示在 LINE 點餐前台的公告（活動 / 新品 / 店休提醒等）。若未啟用手動公告，且「Business Calendar 休假時自動產生休假公告」開啟，休假期間會自動顯示休假公告。
+          </p>
+          <div style="display:grid;grid-template-columns:1fr 340px;gap:20px;align-items:start">
+            <div>
+              <label class="checkbox-label" style="margin-bottom:14px">
+                <input type="checkbox" id="set-line_announcement_enabled" onchange="renderAnnouncementPreview()">
+                <span style="font-size:14px;font-weight:700">啟用公告</span>
+              </label>
+              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:14px">
+                <label>
+                  <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:6px">公告類型</div>
+                  <select id="set-line_announcement_type" class="form-input" style="width:100%" onchange="renderAnnouncementPreview()">
+                    <option value="general">📢 一般公告</option>
+                    <option value="holiday">🏖️ 店休公告</option>
+                    <option value="promo">🎉 活動公告</option>
+                    <option value="new_product">🆕 新品上市</option>
+                    <option value="delivery">📦 宅配公告</option>
+                    <option value="member">🎁 會員公告</option>
+                    <option value="custom">✨ 自訂公告</option>
+                  </select>
+                </label>
+                <label>
+                  <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:6px">公告版本</div>
+                  <input type="text" id="set-line_announcement_version" class="form-input" style="width:100%" placeholder="1" oninput="renderAnnouncementPreview()">
+                  <div style="font-size:11px;color:var(--text-muted);margin-top:4px">內容更新時建議手動 +1，讓已關閉過公告的客人重新看到</div>
+                </label>
+              </div>
+              <label style="display:block;margin-bottom:14px">
+                <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:6px">公告標題</div>
+                <input type="text" id="set-line_announcement_title" class="form-input" style="width:100%" placeholder="例：新品上市" oninput="renderAnnouncementPreview()">
+              </label>
+              <label style="display:block;margin-bottom:14px">
+                <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:6px">公告內容</div>
+                <textarea id="set-line_announcement_body" class="form-input" style="width:100%;min-height:80px;resize:vertical" placeholder="支援換行" oninput="renderAnnouncementPreview()"></textarea>
+              </label>
+              <label style="display:block;margin-bottom:14px">
+                <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:6px">公告圖片 URL（選填）</div>
+                <input type="text" id="set-line_announcement_image_url" class="form-input" style="width:100%" placeholder="https://..." oninput="renderAnnouncementPreview()">
+              </label>
+              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:14px">
+                <label>
+                  <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:6px">按鈕文字</div>
+                  <input type="text" id="set-line_announcement_button_text" class="form-input" style="width:100%" placeholder="立即查看" oninput="renderAnnouncementPreview()">
+                </label>
+                <label>
+                  <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:6px">按鈕動作</div>
+                  <select id="set-line_announcement_button_action" class="form-input" style="width:100%" onchange="onAnnouncementButtonActionChange()">
+                    <option value="close">關閉公告</option>
+                    <option value="scroll_products">捲到商品</option>
+                    <option value="open_cart">開啟購物車</option>
+                    <option value="open_url">開啟網址</option>
+                    <option value="category">指定分類</option>
+                    <option value="product">指定商品</option>
+                    <option value="none">不顯示按鈕</option>
+                  </select>
+                </label>
+              </div>
+              <label id="announceUrlWrap" style="display:none;margin-bottom:14px">
+                <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:6px">按鈕網址（button_action=open_url 時使用）</div>
+                <input type="text" id="set-line_announcement_button_url" class="form-input" style="width:100%" placeholder="https://...">
+              </label>
+              <label id="announceCategoryWrap" style="display:none;margin-bottom:14px">
+                <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:6px">指定分類 ID（button_action=category 時使用）</div>
+                <input type="text" id="set-line_announcement_category_id" class="form-input" style="width:100%">
+              </label>
+              <label id="announceProductWrap" style="display:none;margin-bottom:14px">
+                <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:6px">指定商品 ID（button_action=product 時使用）</div>
+                <input type="text" id="set-line_announcement_product_id" class="form-input" style="width:100%">
+              </label>
+              <div style="margin-bottom:6px;font-size:12px;font-weight:700;color:var(--text-secondary)">公告有效期間</div>
+              <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap">
+                <input type="date" id="set-line_announcement_start_date" class="form-input" style="flex:1;min-width:140px">
+                <span style="color:var(--text-muted)">～</span>
+                <input type="date" id="set-line_announcement_end_date" class="form-input" style="flex:1;min-width:140px">
+                <span style="font-size:11px;color:var(--text-muted)">留空代表不限制</span>
+              </div>
+              <label class="checkbox-label" style="margin-bottom:10px">
+                <input type="checkbox" id="set-line_announcement_closable" checked>
+                <span>允許顧客關閉</span>
+              </label>
+              <div style="margin-bottom:6px;font-size:12px;font-weight:700;color:var(--text-secondary)">顯示方式</div>
+              <div style="display:flex;gap:16px;margin-bottom:14px">
+                <label style="display:flex;align-items:center;gap:6px;font-size:13px"><input type="radio" name="announceDisplayMode" value="modal" id="set-line_announcement_display_mode-modal" onchange="renderAnnouncementPreview()">彈窗</label>
+                <label style="display:flex;align-items:center;gap:6px;font-size:13px"><input type="radio" name="announceDisplayMode" value="banner" id="set-line_announcement_display_mode-banner" onchange="renderAnnouncementPreview()">頁面公告</label>
+              </div>
+              <div style="margin-bottom:6px;font-size:12px;font-weight:700;color:var(--text-secondary)">再次顯示</div>
+              <div style="display:flex;gap:14px;margin-bottom:14px;flex-wrap:wrap">
+                <label style="display:flex;align-items:center;gap:6px;font-size:13px"><input type="radio" name="announceFrequency" value="always" id="set-line_announcement_frequency-always">每次都顯示</label>
+                <label style="display:flex;align-items:center;gap:6px;font-size:13px"><input type="radio" name="announceFrequency" value="daily" id="set-line_announcement_frequency-daily">每天一次</label>
+                <label style="display:flex;align-items:center;gap:6px;font-size:13px"><input type="radio" name="announceFrequency" value="version" id="set-line_announcement_frequency-version">公告更新才重新顯示</label>
+                <label style="display:flex;align-items:center;gap:6px;font-size:13px"><input type="radio" name="announceFrequency" value="once" id="set-line_announcement_frequency-once">永遠只顯示一次</label>
+              </div>
+              <label class="checkbox-label" style="margin-bottom:16px">
+                <input type="checkbox" id="set-line_announcement_auto_holiday" checked>
+                <span>Business Calendar 休假時自動產生休假公告</span>
+              </label>
+              <button class="btn-primary" style="background:#06C755;border-color:#06C755" onclick="saveAnnouncementSettings()">💾 儲存公告設定</button>
+            </div>
+            <div style="position:sticky;top:12px">
+              <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:8px">即時預覽</div>
+              <div id="announcementPreview" style="border:1px solid var(--border,#334155);border-radius:12px;padding:16px;background:var(--bg-card,#1e293b);min-height:120px"></div>
+            </div>
+          </div>
+        </div>
+
         <!-- 外帶/外送當前狀態一覽 -->
         <div class="settings-card">
           <h3>🚦 當前接單狀態</h3>

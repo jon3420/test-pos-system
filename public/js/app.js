@@ -5189,10 +5189,109 @@ async function loadLineBizStatus() {
     const cdates = (() => { try { return JSON.parse(d.line_closed_dates || '[]'); } catch { return []; } })();
     const cdText = document.getElementById('set-line_closed_dates_text');
     if (cdText) cdText.value = cdates.join('\n');
+    // Hotfix17：商家公告設定填入
+    _fillAnnouncementForm(d);
   } catch {}
   // 📅 營業行事曆 Business Calendar V2：今日狀態 + 列表
   refreshTodayBusinessStatus();
   loadBusinessCalendar();
+}
+
+// ── Hotfix17：商家公告中心 ──────────────────────────────
+function _fillAnnouncementForm(d) {
+  const setV = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ''; };
+  const setC = (id, val) => { const el = document.getElementById(id); if (el) el.checked = !!val; };
+  setC('set-line_announcement_enabled', d.line_announcement_enabled === '1');
+  setV('set-line_announcement_type', d.line_announcement_type || 'general');
+  setV('set-line_announcement_title', d.line_announcement_title || '');
+  setV('set-line_announcement_body', d.line_announcement_body || '');
+  setV('set-line_announcement_image_url', d.line_announcement_image_url || '');
+  setV('set-line_announcement_button_text', d.line_announcement_button_text || '我知道了');
+  setV('set-line_announcement_button_action', d.line_announcement_button_action || 'close');
+  setV('set-line_announcement_button_url', d.line_announcement_button_url || '');
+  setV('set-line_announcement_category_id', d.line_announcement_category_id || '');
+  setV('set-line_announcement_product_id', d.line_announcement_product_id || '');
+  setV('set-line_announcement_start_date', d.line_announcement_start_date || '');
+  setV('set-line_announcement_end_date', d.line_announcement_end_date || '');
+  setC('set-line_announcement_closable', d.line_announcement_closable !== '0');
+  setC('set-line_announcement_auto_holiday', d.line_announcement_auto_holiday !== '0');
+  setV('set-line_announcement_version', d.line_announcement_version || '1');
+  const dispMode = d.line_announcement_display_mode || 'modal';
+  const dEl = document.getElementById(`set-line_announcement_display_mode-${dispMode}`);
+  if (dEl) dEl.checked = true; else { const m = document.getElementById('set-line_announcement_display_mode-modal'); if (m) m.checked = true; }
+  const freq = d.line_announcement_frequency || 'version';
+  const fEl = document.getElementById(`set-line_announcement_frequency-${freq}`);
+  if (fEl) fEl.checked = true; else { const v = document.getElementById('set-line_announcement_frequency-version'); if (v) v.checked = true; }
+  onAnnouncementButtonActionChange();
+  renderAnnouncementPreview();
+}
+
+// 依按鈕動作顯示/隱藏對應的輸入欄位
+function onAnnouncementButtonActionChange() {
+  const action = document.getElementById('set-line_announcement_button_action')?.value || 'close';
+  const show = (id, cond) => { const el = document.getElementById(id); if (el) el.style.display = cond ? 'block' : 'none'; };
+  show('announceUrlWrap', action === 'open_url');
+  show('announceCategoryWrap', action === 'category');
+  show('announceProductWrap', action === 'product');
+  renderAnnouncementPreview();
+}
+
+const _ANNOUNCE_ICON_MAP = {
+  general: '📢', holiday: '🏖️', promo: '🎉', new_product: '🆕',
+  delivery: '📦', member: '🎁', custom: '✨',
+};
+
+// 即時預覽（純畫面呈現，不呼叫 API）
+function renderAnnouncementPreview() {
+  const el = document.getElementById('announcementPreview');
+  if (!el) return;
+  const type  = document.getElementById('set-line_announcement_type')?.value || 'general';
+  const title = document.getElementById('set-line_announcement_title')?.value || '';
+  const body  = document.getElementById('set-line_announcement_body')?.value || '';
+  const btnTxt = document.getElementById('set-line_announcement_button_action')?.value === 'none'
+    ? '' : (document.getElementById('set-line_announcement_button_text')?.value || '我知道了');
+  const icon = _ANNOUNCE_ICON_MAP[type] || '📢';
+  const enabled = document.getElementById('set-line_announcement_enabled')?.checked;
+  if (!enabled && !title && !body) {
+    el.innerHTML = '<p style="text-align:center;color:var(--text-muted);font-size:13px;padding:20px 0">尚未啟用公告</p>';
+    return;
+  }
+  el.innerHTML = `
+    <div style="font-size:15px;font-weight:700;margin-bottom:8px">${icon} ${escapeHtml(title || '（尚未填寫標題）')}</div>
+    <div style="font-size:13px;color:var(--text-secondary);white-space:pre-line;line-height:1.7;margin-bottom:12px">${escapeHtml(body || '（尚未填寫內容）')}</div>
+    ${btnTxt ? `<button class="btn-primary" style="background:#06C755;border-color:#06C755;width:100%" disabled>${escapeHtml(btnTxt)}</button>` : ''}
+  `;
+}
+
+async function saveAnnouncementSettings() {
+  const getV = (id) => document.getElementById(id)?.value || '';
+  const getC = (id) => document.getElementById(id)?.checked ? '1' : '0';
+  const getRadio = (name, fallback) => document.querySelector(`input[name="${name}"]:checked`)?.value || fallback;
+  const body = {
+    line_announcement_enabled:     getC('set-line_announcement_enabled'),
+    line_announcement_type:        getV('set-line_announcement_type') || 'general',
+    line_announcement_title:       getV('set-line_announcement_title'),
+    line_announcement_body:        getV('set-line_announcement_body'),
+    line_announcement_image_url:   getV('set-line_announcement_image_url'),
+    line_announcement_button_text: getV('set-line_announcement_button_text') || '我知道了',
+    line_announcement_button_action: getV('set-line_announcement_button_action') || 'close',
+    line_announcement_button_url:  getV('set-line_announcement_button_url'),
+    line_announcement_category_id: getV('set-line_announcement_category_id'),
+    line_announcement_product_id:  getV('set-line_announcement_product_id'),
+    line_announcement_start_date:  getV('set-line_announcement_start_date'),
+    line_announcement_end_date:    getV('set-line_announcement_end_date'),
+    line_announcement_closable:    getC('set-line_announcement_closable'),
+    line_announcement_display_mode:  getRadio('announceDisplayMode', 'modal'),
+    line_announcement_frequency:     getRadio('announceFrequency', 'version'),
+    line_announcement_version:     getV('set-line_announcement_version') || '1',
+    line_announcement_auto_holiday: getC('set-line_announcement_auto_holiday'),
+  };
+  try {
+    await apiFetch('/api/settings', { method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(body) });
+    showToast('✅ 公告設定已儲存', 'success');
+    loadLineBizStatus();
+  } catch(e) { showToast('儲存失敗', 'error'); }
 }
 
 async function saveAdvancedLineSettings() {

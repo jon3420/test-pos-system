@@ -22,6 +22,23 @@ img{max-width:100%;display:block}
 .shop-info h2{font-size:17px;font-weight:700}
 .shop-info p{font-size:12px;color:var(--sub);margin-top:3px}
 .announce{background:#fff9e6;border-left:3px solid #f5a623;padding:8px 12px;font-size:13px;color:#7a5c00;border-radius:4px;margin:10px 12px 0;white-space:pre-line;display:none}
+/* Hotfix17：商家公告中心（modal / banner 兩種顯示方式）*/
+.announce-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:90;display:none;align-items:center;justify-content:center}
+.announce-overlay.show{display:flex}
+.announce-modal{background:#fff;border-radius:16px;width:80%;max-width:360px;max-height:80vh;overflow-y:auto;position:relative;box-shadow:0 8px 30px rgba(0,0,0,.25)}
+.announce-modal-close{position:absolute;top:8px;right:8px;width:30px;height:30px;border-radius:50%;background:rgba(0,0,0,.06);color:#666;font-size:16px;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:1}
+.announce-modal-body{padding:24px 20px 20px;text-align:center}
+.announce-modal-body img{border-radius:10px;margin-bottom:12px;max-height:160px;object-fit:cover;width:100%}
+.announce-modal-icon{font-size:34px;margin-bottom:8px}
+.announce-modal-title{font-size:17px;font-weight:700;margin-bottom:10px;color:#222}
+.announce-modal-msg{font-size:14px;color:#555;line-height:1.7;white-space:pre-line;margin-bottom:18px;text-align:left}
+.announce-modal-btn{width:100%;padding:12px;background:var(--g);color:#fff;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer}
+.announce-banner{margin:10px 12px 0;border-radius:12px;overflow:hidden;position:relative;display:none}
+.announce-banner-close{position:absolute;top:8px;right:10px;width:24px;height:24px;border-radius:50%;background:rgba(0,0,0,.08);color:#666;font-size:13px;display:flex;align-items:center;justify-content:center;cursor:pointer}
+.announce-banner-body{padding:14px 16px}
+.announce-banner-title{font-size:15px;font-weight:700;margin-bottom:4px}
+.announce-banner-msg{font-size:13px;line-height:1.6;white-space:pre-line;margin-top:4px}
+.announce-banner-btn{margin-top:10px;width:100%;padding:9px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;border:none}
 /* 模式標籤列 */
 .mode-tabs{display:flex;gap:8px;padding:12px 12px 0;margin-bottom:4px}
 .mode-tab{flex:1;padding:10px 4px;border-radius:var(--r);border:2px solid var(--bd);background:#fff;font-size:14px;font-weight:600;color:var(--sub);text-align:center;cursor:pointer;transition:.15s;position:relative}
@@ -176,6 +193,8 @@ img{max-width:100%;display:block}
     <div class="shop-info"><h2 id="shopName2"></h2><p id="shopAddr"></p></div>
   </div>
   <div class="announce" id="announce"></div>
+  <!-- Hotfix17：商家公告中心（modal / banner，取代自動休假公告時的舊 Banner 顯示）-->
+  <div class="announce-banner" id="announceBanner"></div>
   <!-- Hotfix16 BUG-004：休假公告改為頁面內固定 Banner，不使用 Modal / 遮罩，不阻擋瀏覽/加入購物車 -->
   <div id="holidayBanner" style="display:none;margin:10px 12px 0;border-radius:10px;overflow:hidden;border:1px solid #ffccbc;background:#fff3e0"></div>
   <div class="announce" id="bizCalBanner" style="display:none"></div>
@@ -197,6 +216,14 @@ img{max-width:100%;display:block}
 </div>
 
 <div class="overlay" id="overlay" onclick="closeTopSheet()"></div>
+
+<!-- Hotfix17：商家公告 Modal（獨立於購物車/查詢等 sheet 系統，僅供 line_announcement_display_mode=modal 使用）-->
+<div class="announce-overlay" id="announceOverlay" onclick="onAnnounceOverlayClick(event)">
+  <div class="announce-modal" id="announceModalBox">
+    <div class="announce-modal-close" id="announceModalCloseBtn" onclick="dismissAnnouncement()">✕</div>
+    <div class="announce-modal-body" id="announceModalBody"></div>
+  </div>
+</div>
 
 <!-- 購物車 Sheet -->
 <div class="sheet" id="cartSheet">
@@ -461,7 +488,12 @@ async function init(){
       const holidayBanner=d.holiday_banner||{active:false};
 
       todayClosed = !!holidayBanner.active;
-      renderHolidayBanner(holidayBanner);
+      // Hotfix17：商家公告中心（manual > auto_holiday > none）。
+      // 若自動休假公告已產生（涵蓋 Business Calendar 休假訊息），舊版 holidayBanner 不再重複顯示。
+      const announcement=d.announcement||{enabled:false,active:false,source:'none'};
+      renderAnnouncement(announcement);
+      if(shouldSkipHolidayBannerForAnnouncement(announcement)) hideHolidayBanner();
+      else renderHolidayBanner(holidayBanner);
 
       // 營業行事曆：特殊營業／全天營業（不阻擋下單，僅顯示提示 banner）
       const bizBanner=document.getElementById('bizCalBanner');
@@ -594,6 +626,128 @@ async function selectResumeDate(dateStr){
     if(targetOpt) pDate.value=dateStr;
   }
   await buildTimeSelector();
+}
+
+// ══════════════════════════════════════════════════════════
+// Hotfix17：商家公告中心（manual > auto_holiday > none，資料來源 = shopData.announcement）
+// modal：80% 彈窗，可背景/Esc/X 關閉（依 closable）；banner：頁面內公告，不遮罩不阻擋
+// 公告本身只負責顯示提醒，能不能送單仍由 Business Calendar / 後端驗證把關
+// ══════════════════════════════════════════════════════════
+let currentAnnouncement=null;
+let _announceDismissedThisSession=false; // 避免 frequency=always 的公告在同一頁面 session 內被定時刷新重新彈出
+const ANNOUNCE_ICON_MAP={general:'📢',holiday:'🏖️',promo:'🎉',new_product:'🆕',delivery:'📦',member:'🎁',custom:'✨'};
+const ANNOUNCE_BG_MAP={general:'#fff9e6',holiday:'#fff3e0',promo:'#fce4ec',new_product:'#e3f2fd',delivery:'#e8f5e9',member:'#f3e5f5',custom:'#fffde7'};
+
+function renderAnnouncement(a){
+  currentAnnouncement=a||null;
+  hideAnnouncementUI();
+  if(!a || !a.active) return;
+  if(_announceDismissedThisSession) return;
+  if(isAnnouncementDismissed(a)) return;
+  if(a.display_mode==='modal') showAnnouncementModal(a);
+  else showAnnouncementBanner(a);
+}
+function hideAnnouncementUI(){
+  document.getElementById('announceOverlay')?.classList.remove('show');
+  const bn=document.getElementById('announceBanner');
+  if(bn){ bn.style.display='none'; bn.innerHTML=''; }
+}
+function showAnnouncementModal(a){
+  const body=document.getElementById('announceModalBody');
+  const closeBtn=document.getElementById('announceModalCloseBtn');
+  if(!body) return;
+  const icon=a.icon||ANNOUNCE_ICON_MAP[a.type]||'📢';
+  const img=a.image_url?`<img src="${esc(a.image_url)}" alt="">`:'';
+  const showBtn=a.button_action!=='none' && a.button_text;
+  const btn=showBtn?`<button class="announce-modal-btn" onclick="announceButtonClick()">${esc(a.button_text)}</button>`:'';
+  body.innerHTML=`${img}<div class="announce-modal-icon">${icon}</div><div class="announce-modal-title">${esc(a.title||'')}</div><div class="announce-modal-msg">${esc(a.body||'')}</div>${btn}`;
+  if(closeBtn) closeBtn.style.display=(a.closable===false)?'none':'flex';
+  document.getElementById('announceOverlay')?.classList.add('show');
+}
+function showAnnouncementBanner(a){
+  const el=document.getElementById('announceBanner');
+  if(!el) return;
+  const icon=a.icon||ANNOUNCE_ICON_MAP[a.type]||'📢';
+  const bg=ANNOUNCE_BG_MAP[a.type]||'#fff9e6';
+  const closeBtn=(a.closable===false)?'':`<div class="announce-banner-close" onclick="dismissAnnouncement()">✕</div>`;
+  const showBtn=a.button_action!=='none' && a.button_text;
+  const btn=showBtn?`<button class="announce-banner-btn" style="background:#06C755;color:#fff" onclick="announceButtonClick()">${esc(a.button_text)}</button>`:'';
+  el.style.background=bg;
+  el.innerHTML=`${closeBtn}<div class="announce-banner-body"><div class="announce-banner-title">${icon} ${esc(a.title||'')}</div><div class="announce-banner-msg">${esc(a.body||'')}</div>${btn}</div>`;
+  el.style.display='block';
+}
+// 背景點擊關閉（僅 closable 時）
+function onAnnounceOverlayClick(ev){
+  if(ev && ev.target && ev.target.id==='announceOverlay' && currentAnnouncement && currentAnnouncement.closable!==false){
+    dismissAnnouncement();
+  }
+}
+// Esc 關閉公告 Modal（僅 closable 時）
+document.addEventListener('keydown', function(ev){
+  if(ev.key==='Escape' && document.getElementById('announceOverlay')?.classList.contains('show')){
+    if(currentAnnouncement && currentAnnouncement.closable!==false) dismissAnnouncement();
+  }
+});
+// 關閉公告（X / 背景 / Esc 觸發），依 frequency 規則記錄 localStorage
+function dismissAnnouncement(){
+  const a=currentAnnouncement;
+  hideAnnouncementUI();
+  _announceDismissedThisSession=true;
+  if(a) recordAnnouncementDismiss(a);
+}
+// 按鈕動作
+function announceButtonClick(){
+  const a=currentAnnouncement;
+  if(!a) return;
+  dismissAnnouncement();
+  runAnnouncementAction(a);
+}
+function runAnnouncementAction(a){
+  // 自動休假公告：直接沿用 Hotfix16 已測試過的「立即預訂」流程（含可預訂範圍檢查）
+  if(a.source==='auto_holiday'){
+    if(a.resume_date) selectResumeDate(a.resume_date);
+    else scrollToProducts();
+    return;
+  }
+  switch(a.button_action){
+    case 'scroll_products': scrollToProducts(); break;
+    case 'open_cart': scrollToProducts(); openSheet('cartSheet'); break;
+    case 'open_url': if(a.button_url) window.open(a.button_url,'_blank'); break;
+    case 'category':
+      if(a.category_id!=null && a.category_id!==''){ selectCat(String(a.category_id)); }
+      scrollToProducts();
+      break;
+    case 'product':
+      scrollToProducts();
+      setTimeout(()=>{ document.getElementById('pc-'+a.product_id)?.scrollIntoView({behavior:'smooth',block:'center'}); }, 300);
+      break;
+    case 'close': default: break;
+  }
+}
+// localStorage key：line_announcement_dismissed_${store_id}_${suffix}
+function _announceDismissKey(suffix){ return `line_announcement_dismissed_${LINE_STORE_ID}_${suffix}`; }
+function isAnnouncementDismissed(a){
+  const freq=a.frequency||'version';
+  try{
+    if(freq==='always') return false; // 每次都顯示，不記錄
+    if(freq==='once')  return localStorage.getItem(_announceDismissKey('once'))==='1';
+    if(freq==='daily') return localStorage.getItem(_announceDismissKey('daily'))===fmtD(twNow());
+    return localStorage.getItem(_announceDismissKey(String(a.version||'1')))==='1'; // version（預設）
+  }catch{ return false; }
+}
+function recordAnnouncementDismiss(a){
+  const freq=a.frequency||'version';
+  try{
+    if(freq==='always') return;
+    if(freq==='once'){ localStorage.setItem(_announceDismissKey('once'),'1'); return; }
+    if(freq==='daily'){ localStorage.setItem(_announceDismissKey('daily'),fmtD(twNow())); return; }
+    localStorage.setItem(_announceDismissKey(String(a.version||'1')),'1');
+  }catch{}
+}
+// 自動休假公告（source=auto_holiday）已涵蓋 Business Calendar 休假訊息時，
+// 舊版 holidayBanner 不再重複顯示，避免同一訊息出現兩次（今日臨時休息/固定公休不受影響，仍走舊版 Banner）
+function shouldSkipHolidayBannerForAnnouncement(a){
+  return !!(a && a.active && a.source==='auto_holiday');
 }
 
 // ── 模式切換 UI ────────────────────────────────────────
@@ -1343,7 +1497,11 @@ async function refreshShopStatus(){
     const prevTodayClosed=todayClosed;
     const holidayBanner=res.data.holiday_banner||{active:false};
     todayClosed=!!holidayBanner.active;
-    renderHolidayBanner(holidayBanner);
+    // Hotfix17：商家公告中心跟著定時刷新更新（例如公告有效期間結束、或後台更新了公告內容）
+    const announcement=res.data.announcement||{enabled:false,active:false,source:'none'};
+    renderAnnouncement(announcement);
+    if(shouldSkipHolidayBannerForAnnouncement(announcement)) hideHolidayBanner();
+    else renderHolidayBanner(holidayBanner);
     if(prevToCP!==takeoutCutoffPassed||prevDlCP!==deliveryCutoffPassed||prevTodayClosed!==todayClosed){
       // 重新載入菜單（休假狀態改變會影響商品卡的售完原因/預約明日等顯示）
       try{

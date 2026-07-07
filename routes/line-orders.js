@@ -130,6 +130,17 @@ function dateDiffDays(aStr, bStr) {
   const a = parseLocalDate(aStr), b = parseLocalDate(bStr);
   return Math.round((b - a) / 86400000);
 }
+// YYYY-MM-DD → M/D（供自動休假公告文案顯示用，如 "7/5"）
+function fmtMDShort(s) {
+  if (!s) return '';
+  const p = String(s).split('-');
+  return p.length >= 3 ? `${Number(p[1])}/${Number(p[2])}` : s;
+}
+// Hotfix17：商家公告類型 icon
+const ANNOUNCEMENT_ICONS = {
+  general: '📢', holiday: '🏖️', promo: '🎉', new_product: '🆕',
+  delivery: '📦', member: '🎁', custom: '✨',
+};
 
 // ── 台灣時間工具 ──────────────────────────────────────────
 function twNow() {
@@ -403,6 +414,13 @@ router.get('/shop', (req, res) => {
       'delivery_today_cutoff_time','delivery_today_cutoff_date',
       // Hotfix15 LINE 營業中心 V3
       'line_preorder_days_limit',
+      // Hotfix17：商家公告中心
+      'line_announcement_enabled','line_announcement_type','line_announcement_title','line_announcement_body',
+      'line_announcement_image_url','line_announcement_button_text','line_announcement_button_action',
+      'line_announcement_button_url','line_announcement_category_id','line_announcement_product_id',
+      'line_announcement_start_date','line_announcement_end_date','line_announcement_closable',
+      'line_announcement_display_mode','line_announcement_frequency','line_announcement_version',
+      'line_announcement_auto_holiday',
     ];
     const settings = {};
     keys.forEach(k => { settings[k] = getSetting(db, storeId, k, ''); });
@@ -486,6 +504,78 @@ router.get('/shop', (req, res) => {
       }
     }
     settings.holiday_banner = holidayBanner;
+
+    // ── Hotfix17：商家公告中心（優先序：手動公告 > 自動休假公告 > 無）──
+    // 注意：公告只負責顯示提醒，不可取代送單驗證；能不能送單仍由 Business Calendar / validateOrderConditions 把關。
+    {
+      const announceEnabled = settings.line_announcement_enabled === '1';
+      const startD = settings.line_announcement_start_date || '';
+      const endD   = settings.line_announcement_end_date || '';
+      const withinRange = (!startD || todayStr >= startD) && (!endD || todayStr <= endD);
+      const hasContent  = !!(settings.line_announcement_title || settings.line_announcement_body);
+
+      let announcement = { enabled: announceEnabled, active: false, source: 'none' };
+
+      if (announceEnabled && withinRange && hasContent) {
+        const type = settings.line_announcement_type || 'general';
+        announcement = {
+          enabled: true,
+          active: true,
+          type,
+          icon: ANNOUNCEMENT_ICONS[type] || '📢',
+          title: settings.line_announcement_title || '',
+          body: settings.line_announcement_body || '',
+          image_url: settings.line_announcement_image_url || '',
+          button_text: settings.line_announcement_button_text || '我知道了',
+          button_action: settings.line_announcement_button_action || 'close',
+          button_url: settings.line_announcement_button_url || '',
+          category_id: settings.line_announcement_category_id || '',
+          product_id: settings.line_announcement_product_id || '',
+          start_date: startD,
+          end_date: endD,
+          closable: settings.line_announcement_closable !== '0',
+          display_mode: settings.line_announcement_display_mode || 'modal',
+          frequency: settings.line_announcement_frequency || 'version',
+          version: settings.line_announcement_version || '1',
+          source: 'manual',
+        };
+      } else {
+        // 沒有生效中的手動公告 → 是否自動產生休假公告（僅在 Business Calendar 命中休假時，預設開啟）
+        const autoHoliday = settings.line_announcement_auto_holiday !== '0';
+        if (autoHoliday && holidayBanner.active && holidayBanner.type === 'calendar') {
+          const rangeTxt = holidayBanner.start_date === holidayBanner.end_date
+            ? fmtMDShort(holidayBanner.start_date)
+            : `${fmtMDShort(holidayBanner.start_date)}～${fmtMDShort(holidayBanner.end_date)}`;
+          const bodyLines = [rangeTxt];
+          if (holidayBanner.reason) bodyLines.push(holidayBanner.reason);
+          bodyLines.push(`${fmtMDShort(holidayBanner.resume_date)} 恢復營業`);
+          announcement = {
+            enabled: announceEnabled,
+            active: true,
+            type: 'holiday',
+            icon: ANNOUNCEMENT_ICONS.holiday,
+            title: '目前休假中',
+            body: bodyLines.join('\n'),
+            image_url: '',
+            button_text: '立即預訂',
+            button_action: holidayBanner.resume_within_limit ? 'open_cart' : 'scroll_products',
+            button_url: '',
+            category_id: '',
+            product_id: '',
+            start_date: holidayBanner.start_date,
+            end_date: holidayBanner.end_date,
+            closable: true,
+            display_mode: 'banner',
+            frequency: 'always',
+            version: holidayBanner.resume_date || '1',
+            source: 'auto_holiday',
+            resume_date: holidayBanner.resume_date,
+            resume_within_limit: holidayBanner.resume_within_limit,
+          };
+        }
+      }
+      settings.announcement = announcement;
+    }
 
     // ── Business Calendar V2：今日行事曆命中狀態（供後台/前台顯示用）──
     const calToday = getCalendarDateInfo(db, storeId, todayStr);

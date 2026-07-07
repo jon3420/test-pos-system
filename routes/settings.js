@@ -30,6 +30,15 @@ const LINE_KEYS = new Set([
   'delivery_today_cutoff_time', 'delivery_today_cutoff_date',
   // Hotfix15 LINE 營業中心 V3：顧客可提前預訂天數（0~60，預設14）
   'line_preorder_days_limit',
+  // Hotfix17：商家公告中心
+  'line_announcement_enabled', 'line_announcement_type',
+  'line_announcement_title', 'line_announcement_body', 'line_announcement_image_url',
+  'line_announcement_button_text', 'line_announcement_button_action', 'line_announcement_button_url',
+  'line_announcement_category_id', 'line_announcement_product_id',
+  'line_announcement_start_date', 'line_announcement_end_date',
+  'line_announcement_closable', 'line_announcement_display_mode',
+  'line_announcement_frequency', 'line_announcement_version',
+  'line_announcement_auto_holiday',
 ]);
 
 // fix18-06：外送距離費率相關 key
