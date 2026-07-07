@@ -5237,39 +5237,32 @@ async function setLineOrdering(enable) {
 // ═══════════════════════════════════════════════════════════
 let _businessCalendarCache = [];
 
-// ── 今日狀態：🟢 正常營業 / 🟡 特殊營業 / 🔴 特殊休息 / 🔴 臨時休息（今日臨時休息優先）──
+// ── 今日狀態：🟢 正常營業 / 🟡 特殊營業 / 🔴 休假中（Hotfix16：改用 /api/line-shop 的 holiday_banner，
+//    優先序 Business Calendar > 今日臨時休息 > 固定公休，與 LINE 前台 Banner 同一份資料來源）──
 async function refreshTodayBusinessStatus() {
   const el = document.getElementById('businessCalendarTodayStatus');
   if (!el) return;
   el.textContent = '載入中…';
   try {
-    const [settingsRes, todayRes] = await Promise.all([
-      apiFetch('/api/settings').then(r => r.json()),
-      apiFetch('/api/settings/business-calendar/today').then(r => r.json()),
-    ]);
-    const s = settingsRes.data || {};
-    const todayStr = new Date().toISOString().slice(0,10);
-    const isTodayTempClosed = s.line_today_closed === '1' && s.line_today_closed_date === todayStr;
-    const cal = todayRes.data || { matched: false };
+    const shopRes = await apiFetch('/api/line-shop').then(r => r.json());
+    if (!shopRes.success) throw new Error(shopRes.message || '載入失敗');
+    const d = shopRes.data;
+    const banner = d.holiday_banner || { active: false };
+    const cal = d.business_calendar_today || { matched: false };
 
-    if (isTodayTempClosed) {
-      // 今日臨時休息優先於營業行事曆
+    if (banner.active && banner.type === 'calendar') {
+      const reasonTxt = banner.reason ? `：${escapeHtml(banner.reason)}` : '';
+      el.innerHTML = `<span style="color:#e53935">🔴 目前休假中${reasonTxt}</span>`;
+    } else if (banner.active && banner.type === 'today_closed') {
       el.innerHTML = '<span style="color:#e53935">🔴 今日臨時休息</span>';
-      return;
-    }
-    if (!cal.matched) {
-      el.innerHTML = '<span style="color:#06C755">🟢 今日正常營業</span>';
-      return;
-    }
-    if (cal.mode === 'closed') {
-      const reasonTxt = (cal.show_reason && cal.reason) ? `：${escapeHtml(cal.reason)}` : '';
-      el.innerHTML = `<span style="color:#e53935">🔴 今日特殊休息${reasonTxt}</span>`;
-    } else if (cal.mode === 'custom_hours') {
+    } else if (banner.active && banner.type === 'weekly') {
+      el.innerHTML = '<span style="color:#e53935">🔴 今日固定公休</span>';
+    } else if (cal.matched && cal.mode === 'custom_hours') {
       const parts = [];
       if (cal.takeout_enabled && cal.takeout_start_time)  parts.push(`外帶 ${cal.takeout_start_time}~${cal.takeout_end_time}`);
       if (cal.delivery_enabled && cal.delivery_start_time) parts.push(`外送 ${cal.delivery_start_time}~${cal.delivery_end_time}`);
       el.innerHTML = `<span style="color:#f9a825">🟡 今日特殊營業${parts.length ? '：' + parts.join('　') : ''}</span>`;
-    } else if (cal.mode === 'open_all_day') {
+    } else if (cal.matched && cal.mode === 'open_all_day') {
       el.innerHTML = '<span style="color:#06C755">🟢 今日全天營業</span>';
     } else {
       el.innerHTML = '<span style="color:#06C755">🟢 今日正常營業</span>';
@@ -5287,9 +5280,9 @@ function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
 }
 
-// ── 📋📅🧾 Hotfix15 V3：今日營業摘要 / 下一次休假 / 預購摘要，減少版面留白 ──
-// 純畫面呈現：狀態文字沿用 #businessCalendarTodayStatus；下一次休假沿用 _businessCalendarCache；
-// 今日營業時間 / 預購範圍另外呼叫一次 /api/settings + /today（唯讀，不影響任何既有 API 行為）
+// ── 📋📅🧾 Hotfix16 BUG-007：今日營業摘要 / 下一次休假 / 預購摘要，
+// 全部改用 /api/line-shop 回傳的 holiday_banner / business_calendar_today / takeout_status / delivery_status，
+// 與 LINE 前台 Banner、商品 Badge、日期選單使用同一份後端判斷結果，不再各自重算，避免前後台顯示不一致。
 const _WD_KEYS_ADMIN = ['sun','mon','tue','wed','thu','fri','sat'];
 async function renderTodaySummary() {
   const statusEl   = document.getElementById('todaySummaryStatus');
@@ -5297,10 +5290,6 @@ async function renderTodaySummary() {
   const holidayEl  = document.getElementById('nextHolidaySummary');
   const preorderEl = document.getElementById('preorderSummary');
   if (!statusEl) return; // 尚未渲染此頁籤
-
-  // 1) 今日狀態：沿用既有 #businessCalendarTodayStatus 文字（不重複計算）
-  const srcStatus = document.getElementById('businessCalendarTodayStatus');
-  if (srcStatus) statusEl.innerHTML = srcStatus.innerHTML;
 
   // 2) 下一次休假：沿用 _businessCalendarCache（loadBusinessCalendar 已抓取，不額外呼叫 API）
   const todayStr0 = new Date().toISOString().slice(0,10);
@@ -5323,73 +5312,72 @@ async function renderTodaySummary() {
     }
   }
 
-  // 3) 今日營業時間（外帶/外送）+ 4) 預購摘要：需要 settings + 今日行事曆命中狀態
+  // 1) 今日狀態 + 3) 今日營業時間 + 4) 預購摘要：單一資料來源 = /api/line-shop
+  //    （已依 Business Calendar > 今日臨時休息 > 固定公休 優先序算好 holiday_banner，前後台共用）
   try {
-    const [settingsRes, todayRes] = await Promise.all([
-      apiFetch('/api/settings').then(r => r.json()),
-      apiFetch('/api/settings/business-calendar/today').then(r => r.json()),
-    ]);
-    const s = settingsRes.data || {};
-    const cal = todayRes.data || { matched: false };
-    const now = new Date();
-    const todayStr = now.toISOString().slice(0,10);
-    const wdKey = _WD_KEYS_ADMIN[now.getDay()];
-    const isTodayTempClosed = s.line_today_closed === '1' && s.line_today_closed_date === todayStr;
-    const closedTodayForOrdering = isTodayTempClosed || (cal.matched && cal.mode === 'closed');
+    const shopRes = await apiFetch('/api/line-shop').then(r => r.json());
+    if (!shopRes.success) throw new Error(shopRes.message || '載入失敗');
+    const d    = shopRes.data;
+    const banner = d.holiday_banner || { active: false };
+    const cal    = d.business_calendar_today || { matched: false };
+    const ts     = d.takeout_status  || {};
+    const ds2    = d.delivery_status || {};
+    const closedTodayForOrdering = !!banner.active;
 
-    function modeHoursToday(prefix) {
+    if (banner.active && banner.type === 'calendar') {
+      const range = banner.start_date === banner.end_date
+        ? _bcFmtDate(banner.start_date)
+        : `${_bcFmtDate(banner.start_date)}～${_bcFmtDate(banner.end_date)}`;
+      statusEl.innerHTML = [
+        '🔴 目前休假中',
+        `休假：${range}`,
+        banner.reason ? `原因：${escapeHtml(banner.reason)}` : '',
+        `恢復：${_bcFmtDate(banner.resume_date)}`,
+      ].filter(Boolean).join('<br>');
+    } else if (banner.active && banner.type === 'today_closed') {
+      statusEl.innerHTML = '🔴 今日臨時休息（可預訂其他營業日期）';
+    } else if (banner.active && banner.type === 'weekly') {
+      statusEl.innerHTML = '🔴 今日固定公休（可預訂其他營業日期）';
+    } else if (cal.matched && cal.mode === 'custom_hours') {
+      const parts = ['🟡 今日特殊營業'];
+      if (cal.takeout_enabled && cal.takeout_start_time)  parts.push(`外帶：${cal.takeout_start_time}～${cal.takeout_end_time}`);
+      if (cal.delivery_enabled && cal.delivery_start_time) parts.push(`外送：${cal.delivery_start_time}～${cal.delivery_end_time}`);
+      statusEl.innerHTML = parts.join('<br>');
+    } else if (cal.matched && cal.mode === 'open_all_day') {
+      statusEl.innerHTML = '🟢 今日全天營業';
+    } else {
+      statusEl.innerHTML = '🟢 正常營業';
+    }
+
+    function modeHoursToday(enabledInCal, startT, endT) {
       if (closedTodayForOrdering) return '今日不開放';
       if (cal.matched && cal.mode === 'open_all_day') return '全天營業';
       if (cal.matched && cal.mode === 'custom_hours') {
-        const en = prefix === 'takeout' ? cal.takeout_enabled : cal.delivery_enabled;
-        if (!en) return '今日不開放';
-        const st = prefix === 'takeout' ? cal.takeout_start_time : cal.delivery_start_time;
-        const et = prefix === 'takeout' ? cal.takeout_end_time   : cal.delivery_end_time;
-        return (st && et) ? `${st}～${et}` : '全天營業';
+        if (!enabledInCal) return '今日不開放';
+        return (startT && endT) ? `${startT}～${endT}` : '全天營業';
       }
-      try {
-        const bh = JSON.parse(s[`${prefix}_business_hours`] || '{}');
-        if (!bh || !Object.keys(bh).length) return '未限制（全天可訂）';
-        const dh = bh[wdKey];
-        if (!dh) return '未限制（全天可訂）';
-        if (!dh.enabled) return '今日不營業';
-        return `${dh.open || '--'}～${dh.close || '--'}`;
-      } catch { return '未限制（全天可訂）'; }
+      return '依營業時間設定';
     }
 
     if (hoursEl) {
       const rows = [];
-      rows.push(`外帶：${s.takeout_enabled === '1' ? modeHoursToday('takeout') : '功能未開啟'}`);
-      rows.push(`外送：${s.delivery_enabled === '1' ? modeHoursToday('delivery') : '功能未開啟'}`);
+      rows.push(`外帶：${ts.enabled ? modeHoursToday(cal.takeout_enabled, cal.takeout_start_time, cal.takeout_end_time) : '功能未開啟'}`);
+      rows.push(`外送：${ds2.enabled ? modeHoursToday(cal.delivery_enabled, cal.delivery_start_time, cal.delivery_end_time) : '功能未開啟'}`);
       rows.push(`今日是否可接單：${closedTodayForOrdering ? '否' : '是'}`);
       hoursEl.innerHTML = rows.join('<br>');
     }
 
     if (preorderEl) {
-      let limit = parseInt(s.line_preorder_days_limit, 10);
+      let limit = parseInt(d.line_preorder_days_limit, 10);
       if (isNaN(limit)) limit = 14;
       limit = Math.max(0, Math.min(60, limit));
+      const now = new Date();
       const endDate = new Date(now); endDate.setDate(endDate.getDate() + limit);
-      const fmtShort = (d) => `${d.getMonth()+1}/${d.getDate()}`;
-
-      // 掃描找「下一個可營業日」：跳過 Business Calendar closed、固定公休、指定店休日，最多掃描到 limit 天
-      const closedWds = (() => { try { return JSON.parse(s.line_closed_weekdays || '[]'); } catch { return []; } })();
-      const closedDts = (() => { try { return JSON.parse(s.line_closed_dates || '[]'); } catch { return []; } })();
-      let nextBizDay = null;
-      for (let i = 0; i <= limit; i++) {
-        const d = new Date(now); d.setDate(d.getDate() + i);
-        const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-        if (i === 0 && closedTodayForOrdering) continue;
-        const wk = _WD_KEYS_ADMIN[d.getDay()];
-        const calEntry = (_businessCalendarCache || []).find(e => e.start_date <= ds && ds <= e.end_date);
-        if (calEntry) {
-          if (calEntry.mode === 'closed') continue;
-          nextBizDay = ds; break;
-        }
-        if (closedWds.includes(wk) || closedDts.includes(ds)) continue;
-        nextBizDay = ds; break;
-      }
-
+      const fmtShort = (dt) => `${dt.getMonth()+1}/${dt.getDate()}`;
+      // 下一個可營業日：直接沿用後端 takeout_next_dates / delivery_next_dates（同一份掃描結果，不再重算）
+      const nextDates = (d.takeout_next_dates && d.takeout_next_dates.length) ? d.takeout_next_dates
+        : (d.delivery_next_dates || []);
+      const nextBizDay = nextDates[0] || null;
       const rows = [
         `可提前預訂：${limit} 天`,
         `可預訂範圍：${fmtShort(now)}～${fmtShort(endDate)}`,
@@ -6010,11 +5998,10 @@ function renderLinePreordersTable() {
   const PAY_LABEL    = {cash:'現金',linepay:'LINE Pay',transfer:'轉帳',platform:'平台',credit_card:'信用卡'};
   const tdS = 'padding:8px 8px;border-bottom:1px solid var(--border,#334155);vertical-align:middle';
 
-  // 依預購日期排序
+  // Hotfix16 BUG-001：訂單建立時間與預約取餐時間必須分離顯示，列表一律用 created_at 排序（新到舊）
   orders = [...orders].sort((a, b) => {
-    const da = (a.preorderDate || a.created_at || '').slice(0, 10);
-    const db2 = (b.preorderDate || b.created_at || '').slice(0, 10);
-    return da < db2 ? -1 : da > db2 ? 1 : (a.preorderTime||'') < (b.preorderTime||'') ? -1 : 1;
+    const ca = a.created_at || '', cb = b.created_at || '';
+    return ca < cb ? 1 : ca > cb ? -1 : 0;
   });
 
   tbody.innerHTML = orders.map(o => {
@@ -6030,18 +6017,22 @@ function renderLinePreordersTable() {
     const preorderBadge = isToday
       ? '<span style="background:#3b82f6;color:#fff;font-size:10px;padding:2px 6px;border-radius:8px;font-weight:700">今日單</span>'
       : '<span style="background:#7c3aed;color:#fff;font-size:10px;padding:2px 6px;border-radius:8px;font-weight:700">預購單</span>';
-    const dateDisplay = o.preorderDate
-      ? `${o.preorderDate.slice(5)} ${o.preorderTime||''}`
-      : (o.pickup_time||'—');
+    // 建立時間：客人實際送出訂單的時間（created_at），與預約取餐時間完全分離顯示
+    const createdDisplay = o.created_at ? o.created_at.slice(0,16).replace('-','/').replace('-','/') : '—';
+    // 預約取餐：pickup_date + pickup_time，只作為取餐資訊顯示，不影響排序
+    const pickupDisplay = o.preorderDate
+      ? `${o.preorderDate.replace(/-/g,'/')} ${o.preorderTime||''}`
+      : (o.pickup_time||'盡快');
 
     return `<tr style="background:var(--bg-card,#1e293b)">
       <td style="${tdS}">
         <div style="font-size:12px;font-weight:600;color:var(--text-primary,#f1f5f9)">${escHtml(o.order_number)}</div>
         <div style="margin-top:3px">${preorderBadge}</div>
-        <div style="font-size:10px;color:var(--text-muted,#64748b);margin-top:2px">建立：${(o.created_at||'').slice(5,16)}</div>
+        <div style="font-size:10px;color:var(--text-muted,#64748b);margin-top:2px">建立時間：${createdDisplay}</div>
       </td>
       <td style="${tdS};text-align:center">
-        <div style="font-size:13px;font-weight:700;color:${isToday?'#3b82f6':'#a78bfa'}">${dateDisplay}</div>
+        <div style="font-size:9px;color:var(--text-muted,#64748b);margin-bottom:2px">預約取餐</div>
+        <div style="font-size:13px;font-weight:700;color:${isToday?'#3b82f6':'#a78bfa'}">${pickupDisplay}</div>
       </td>
       <td style="${tdS}">${escHtml(o.customer_name||'—')}</td>
       <td style="${tdS};text-align:center;font-size:12px">${escHtml(phoneMasked)}</td>
