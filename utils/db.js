@@ -1377,6 +1377,23 @@ function initTables(w) {
       w._save();
     } catch(e) { console.warn('[DB] shipping seed:', k, e.message); }
   });
+
+  // ══════════════════════════════════════════════════════════════════
+  // ── fix18-10-hotfix19：LINE 冷藏宅配中心 V2 — 多通路商品獨立欄位 ─────
+  // 原則：safe migration，若欄位已存在（Hotfix18 已建立 shipping_name /
+  // shipping_spec）則略過；只新增缺少的欄位，不動既有資料。
+  // ══════════════════════════════════════════════════════════════════
+  const multiChannelProductCols = [
+    // LINE 通路（line_name/line_price/line_description/line_image_url 已存在，僅補 line_spec）
+    ['line_spec',               'TEXT DEFAULT ""'],
+    // 宅配通路（shipping_name/shipping_spec 已存在，僅補以下三個）
+    ['shipping_price',          'REAL DEFAULT 0'],
+    ['shipping_description',    'TEXT DEFAULT ""'],
+    ['shipping_image_url',      'TEXT DEFAULT ""'],
+  ];
+  multiChannelProductCols.forEach(([col, def]) => {
+    try { w._db.run(`ALTER TABLE products ADD COLUMN ${col} ${def}`); w._save(); } catch {}
+  });
 }
 
 module.exports = { getDb, initDb };

@@ -390,6 +390,9 @@ initDb().then((db) => {
   app.use('/api/line-orders',  requireStore, requireFeature('line_order'), lineOrderRouter);
   app.use('/api/online-orders', requireStore, requireFeature('line_order'), require('./routes/online-orders'));
 
+  // fix18-10-hotfix19：通用圖片上傳 API（商品圖片、公告圖片等共用，避免新增重複 API）
+  app.use('/api/uploads', requireStore, require('./routes/uploads'));
+
   // fix18-10-hotfix18：LINE 冷藏宅配中心 V1（獨立入口與獨立流程，不動外帶/外送）
   app.use('/api/line-shipping', requireStore, requireFeature('line_order'), require('./routes/line-shipping'));
 

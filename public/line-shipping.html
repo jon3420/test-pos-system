@@ -100,6 +100,18 @@ img{max-width:100%;display:block}
 .closed-screen p{font-size:15px;line-height:1.6;max-width:280px}
 .back-btn{display:flex;align-items:center;gap:4px;padding:4px 0;font-size:14px;color:var(--g);font-weight:600;background:none;border:none;margin:10px 12px 0}
 .upsell-hint{font-size:11px;color:var(--sub);padding:0 12px;margin-top:-4px;margin-bottom:6px}
+/* fix18-10-hotfix19：宅配訂單狀態查詢頁專用樣式 */
+.ship-status-title{font-size:16px;font-weight:700;text-align:center;margin-bottom:14px;color:var(--g)}
+.ship-stepper{display:flex;justify-content:space-between;margin-bottom:18px;position:relative}
+.ship-step{flex:1;text-align:center;position:relative;z-index:1}
+.ship-step .dot{width:22px;height:22px;border-radius:50%;background:#e0e0e0;color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;margin:0 auto 4px}
+.ship-step.done .dot{background:var(--g)}
+.ship-step.current .dot{background:var(--gd);box-shadow:0 0 0 4px #e3f2fd}
+.ship-step .lbl{font-size:10px;color:var(--sub);line-height:1.3}
+.ship-step.done .lbl,.ship-step.current .lbl{color:var(--g);font-weight:700}
+.ship-stepper::before{content:'';position:absolute;top:11px;left:8%;right:8%;height:2px;background:#e0e0e0;z-index:0}
+.ship-cancelled-banner{background:#fce8e8;color:#b71c1c;text-align:center;padding:10px;border-radius:8px;font-weight:700;margin-bottom:14px}
+.track-btn{width:100%;padding:10px;margin-top:8px;background:#fff;color:var(--g);border:1.5px solid var(--g);border-radius:8px;font-size:13px;font-weight:700}
 </style>
 </head>
 <body>
@@ -274,6 +286,10 @@ function renderShop() {
     document.getElementById('upsellSection').style.display = 'block';
     renderProductGrid('upsellGrid', d.upsell_products);
   }
+  // fix18-10-hotfix19（BUG1 修正）：綁定一次事件委派即可涵蓋所有重繪後的 +/- 按鈕
+  bindQtyDelegation('prodGrid');
+  bindQtyDelegation('upsellGrid');
+  bindQtyDelegation('cartItems');
 
   // 付款方式按鈕
   const payLabels = { cash: '💵 現金', linepay: '📱 LINE Pay', transfer: '🏦 轉帳' };
@@ -321,11 +337,11 @@ function renderProductGrid(elId, products) {
             ${soldOut ? '<span style="font-size:12px;color:#c62828;font-weight:700">已售完</span>' :
               qty > 0
               ? `<div class="qty-ctrl">
-                  <button class="minus" onclick="changeQty(${p.id},-1)">−</button>
+                  <button type="button" class="minus qty-btn" data-pid="${p.id}" data-delta="-1">−</button>
                   <span class="qnum">${qty}</span>
-                  <button class="plus" onclick="changeQty(${p.id},1)">＋</button>
+                  <button type="button" class="plus qty-btn" data-pid="${p.id}" data-delta="1">＋</button>
                  </div>`
-              : `<button class="add-btn" onclick="changeQty(${p.id},1)">＋</button>`
+              : `<button type="button" class="add-btn qty-btn" data-pid="${p.id}" data-delta="1">＋</button>`
             }
           </div>
         </div>
@@ -333,12 +349,30 @@ function renderProductGrid(elId, products) {
   }).join('');
 }
 
+// fix18-10-hotfix19（BUG1 修正）：改用事件委派（event delegation）處理 +/- 按鈕，
+// 避免商品卡重繪後 inline onclick 綁定失效或型別不一致造成按鈕無反應。
+// 所有 +/- 按鈕統一帶 class="qty-btn" data-pid data-delta，由外層容器監聽 click 統一分派。
+function bindQtyDelegation(containerId) {
+  const el = document.getElementById(containerId);
+  if (!el || el._qtyBound) return;
+  el._qtyBound = true;
+  el.addEventListener('click', (e) => {
+    const btn = e.target.closest('.qty-btn');
+    if (!btn || !el.contains(btn)) return;
+    const pid = Number(btn.dataset.pid);
+    const delta = Number(btn.dataset.delta);
+    if (!pid || !delta) return;
+    changeQty(pid, delta);
+  });
+}
+
 function findProduct(pid) {
   const all = [...(SHOP_DATA.products || []), ...(SHOP_DATA.upsell_products || [])];
-  return all.find(p => p.id === pid);
+  return all.find(p => Number(p.id) === Number(pid));
 }
 
 function changeQty(pid, delta) {
+  pid = Number(pid);
   const p = findProduct(pid);
   if (!p) return;
   const cur = cart[pid] ? cart[pid].qty : 0;
@@ -348,6 +382,12 @@ function changeQty(pid, delta) {
   renderProductGrid('prodGrid', SHOP_DATA.products);
   if (SHOP_DATA.upsell_products && SHOP_DATA.upsell_products.length) renderProductGrid('upsellGrid', SHOP_DATA.upsell_products);
   updateCartBar();
+  // 若購物車 Sheet 目前開啟中，同步刷新明細與金額（BUG1 驗收項目 4：購物車內也可 +/-）
+  const cartSheetEl = document.getElementById('cartSheet');
+  if (cartSheetEl && cartSheetEl.classList.contains('show')) {
+    renderCartItems();
+    refreshCartSheetTotals();
+  }
 }
 
 function cartList() { return Object.values(cart); }
@@ -382,9 +422,9 @@ function renderCartItems() {
         <div style="font-size:12px;color:#888">$${c.product.price} × ${c.qty}</div>
       </div>
       <div class="qty-ctrl">
-        <button class="minus" onclick="changeQty(${c.product.id},-1)">−</button>
+        <button type="button" class="minus qty-btn" data-pid="${c.product.id}" data-delta="-1">−</button>
         <span class="qnum">${c.qty}</span>
-        <button class="plus" onclick="changeQty(${c.product.id},1)">＋</button>
+        <button type="button" class="plus qty-btn" data-pid="${c.product.id}" data-delta="1">＋</button>
       </div>
     </div>`).join('');
 }
@@ -486,6 +526,27 @@ function openQueryFromSuccess() {
   openQuerySheet();
 }
 
+// fix18-10-hotfix19：宅配訂單狀態查詢頁重新設計（不再沿用 LINE 點餐樣式）
+const SHIP_STEPS = [
+  { key: 'pending',   label: '待確認' },
+  { key: 'accepted',  label: '已接單' },
+  { key: 'packing',   label: '包裝中' },
+  { key: 'shipped',   label: '已出貨' },
+  { key: 'delivered', label: '已送達' },
+  { key: 'completed', label: '已完成' },
+];
+function renderShipStepper(status) {
+  if (status === 'cancelled') {
+    return '<div class="ship-cancelled-banner">❌ 此訂單已取消</div>';
+  }
+  const curIdx = SHIP_STEPS.findIndex(s => s.key === status);
+  const idx = curIdx === -1 ? 0 : curIdx;
+  return `<div class="ship-stepper">${SHIP_STEPS.map((s, i) => {
+    const cls = i < idx ? 'done' : (i === idx ? 'current' : '');
+    return `<div class="ship-step ${cls}"><div class="dot">${i < idx ? '✓' : i + 1}</div><div class="lbl">${s.label}</div></div>`;
+  }).join('')}</div>`;
+}
+
 async function queryOrder() {
   const no = document.getElementById('qOrderNo').value.trim();
   const resultEl = document.getElementById('queryResult');
@@ -495,16 +556,32 @@ async function queryOrder() {
     const res = await apiGet(`/api/line-shipping/order/${encodeURIComponent(no)}`);
     if (!res.success) { resultEl.innerHTML = `<p style="color:#c62828;font-size:13px">${esc(res.message || '查無訂單')}</p>`; return; }
     const d = res.data;
-    const statusLabels = { pending: '待確認', accepted: '已接單', packing: '備貨中', shipped: '已出貨', delivered: '已送達', completed: '已完成', cancelled: '已取消' };
+    const trackBtn = d.tracking_number
+      ? `<button type="button" class="track-btn" id="trackBtn">🔍 物流查詢（${esc(d.carrier_name || '')} ${esc(d.tracking_number)}）</button>`
+      : '';
     resultEl.innerHTML = `
+      <div class="ship-status-title">📦 宅配訂單狀態</div>
+      ${renderShipStepper(d.status)}
       <div class="od-section">
-        <div class="od-row"><span class="od-label">狀態</span><span class="od-val">${esc(statusLabels[d.status] || d.status)}</span></div>
+        <div class="od-row"><span class="od-label">訂單編號</span><span class="od-val">${esc(d.order_number)}</span></div>
         <div class="od-row"><span class="od-label">收件人</span><span class="od-val">${esc(d.recipient_name)}</span></div>
+        <div class="od-row"><span class="od-label">電話</span><span class="od-val">${esc(d.phone)}</span></div>
         <div class="od-row"><span class="od-label">地址</span><span class="od-val">${esc(d.address)}</span></div>
-        <div class="od-row"><span class="od-label">希望到貨</span><span class="od-val">${d.arrival_type === 'date' ? esc(d.arrival_date) : '最快出貨'}</span></div>
-        <div class="od-row"><span class="od-label">商品</span><span class="od-val">${d.items.map(i => `${esc(i.name)}×${i.qty}`).join('<br>')}</span></div>
-        <div class="od-row"><span class="od-label">應付金額</span><span class="od-val od-total">$${d.total}</span></div>
-      </div>`;
+        <div class="od-row"><span class="od-label">到貨日期</span><span class="od-val">${d.arrival_type === 'date' ? esc(d.arrival_date) : '最快出貨'}</span></div>
+        <div class="od-row"><span class="od-label">商品明細</span><span class="od-val">${d.items.map(i => `${esc(i.name)}${i.spec ? '（'+esc(i.spec)+'）' : ''} × ${i.qty}`).join('<br>')}</span></div>
+        <div class="od-row"><span class="od-label">小計</span><span class="od-val">$${d.subtotal}</span></div>
+        <div class="od-row"><span class="od-label">運費</span><span class="od-val">$${d.shipping_fee}</span></div>
+        <div class="od-row"><span class="od-label">總金額</span><span class="od-val od-total">$${d.total}</span></div>
+        <div class="od-row"><span class="od-label">物流公司</span><span class="od-val">${esc(d.carrier_name || '－')}</span></div>
+        <div class="od-row"><span class="od-label">物流單號</span><span class="od-val">${esc(d.tracking_number || '－')}</span></div>
+        <div class="od-row"><span class="od-label">備註</span><span class="od-val">${esc(d.shipping_note || '－')}</span></div>
+      </div>
+      ${trackBtn}`;
+    // V2：物流查詢按鈕先開啟物流公司官網（尚未串接黑貓 API 追蹤，先做通用導引）
+    const tb = document.getElementById('trackBtn');
+    if (tb) tb.onclick = () => {
+      window.open('https://www.t-cat.com.tw/inquire/trace.aspx', '_blank');
+    };
   } catch (e) {
     resultEl.innerHTML = '<p style="color:#c62828;font-size:13px">查詢失敗</p>';
   }

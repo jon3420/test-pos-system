@@ -597,6 +597,7 @@ function applyFeatureGateUI() {
 // ── LINE 點餐入口 Tab 渲染 ─────────────────────────────────
 function loadLineEntryPage() {
   renderLineOrderEntry();
+  renderShippingEntry();
 }
 
 function renderLineOrderEntry() {
@@ -828,6 +829,173 @@ function downloadLineOrderQR() {
     } catch {}
   }
 
+  if (typeof showToast === 'function') showToast('QR Code 尚未產生，請稍後再試', 'error');
+}
+
+// ══════════════════════════════════════════════════════════════════
+// fix18-10-hotfix19：📦 冷藏宅配入口（獨立於 LINE 點餐入口，僅供後台使用；
+// 完全複製一份獨立函式，不共用/不修改上面 LINE 點餐入口的既有函式與 DOM id，
+// 避免任何交互影響）
+// ══════════════════════════════════════════════════════════════════
+function renderShippingEntry() {
+  const container = document.getElementById('shipEntryContent');
+  if (!container) return;
+  const store = window.currentStore;
+  const hasLine = hasFeature('line_order');
+  if (!store) { container.innerHTML = '<p style="color:var(--text-secondary,#64748b)">載入中...</p>'; return; }
+
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  if (!hasLine) {
+    container.innerHTML = `
+      <div style="text-align:center;padding:36px 20px;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.25);border-radius:10px">
+        <div style="font-size:2.5rem;margin-bottom:12px">🔒</div>
+        <div style="font-size:1rem;font-weight:600;color:#ef4444;margin-bottom:8px">冷藏宅配功能尚未啟用</div>
+        <div style="font-size:.875rem;color:var(--text-secondary,#64748b)">請聯絡系統管理員升級方案以使用 LINE 點餐／冷藏宅配功能。</div>
+      </div>`;
+    return;
+  }
+
+  const storeId = store.store_id || '';
+  const shipUrl = window.location.origin + '/line-shipping.html?store_id=' + encodeURIComponent(storeId);
+
+  container.innerHTML = `
+    <p class="settings-hint" style="margin-bottom:14px">此網址為冷藏宅配獨立下單頁，與 LINE 點餐頁分開，不會出現在顧客點餐頁的取餐方式選單中。</p>
+    <div style="margin-bottom:20px">
+      <div style="font-size:.8rem;color:var(--text-secondary,#64748b);margin-bottom:8px;font-weight:600;letter-spacing:.04em;text-transform:uppercase">冷藏宅配網址</div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <code id="shipUrlDisplay" style="flex:1;min-width:200px;padding:10px 14px;background:rgba(0,0,0,.25);border-radius:8px;font-size:.8rem;word-break:break-all;border:1px solid rgba(255,255,255,.1)">${esc(shipUrl)}</code>
+        <button class="btn-secondary" onclick="copyShippingUrl()" style="white-space:nowrap">📋 複製網址</button>
+        <button class="btn-secondary" onclick="openShippingUrl()" style="white-space:nowrap">🔗 開啟宅配頁</button>
+        <button class="btn-secondary" onclick="downloadShippingQR()" style="white-space:nowrap">⬇️ 下載 QR Code</button>
+      </div>
+    </div>
+    <div style="text-align:center">
+      <div style="font-size:.8rem;color:var(--text-secondary,#64748b);margin-bottom:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase">QR Code（掃描後開啟冷藏宅配頁）</div>
+      <div id="shipQrContainer" style="display:inline-block;background:#fff;padding:12px;border-radius:12px">
+        <canvas id="shipQrCanvas" width="220" height="220"></canvas>
+      </div>
+    </div>`;
+
+  _loadAndRenderQrShip(shipUrl);
+}
+
+function _loadAndRenderQrShip(url) {
+  if (typeof QRCode !== 'undefined') { _doRenderQrShip(url); return; }
+  const s = document.createElement('script');
+  s.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js';
+  s.onload  = () => _doRenderQrShip(url);
+  s.onerror = () => _doRenderQrFallbackShip(url);
+  document.head.appendChild(s);
+}
+
+function _doRenderQrShip(url) {
+  const container = document.getElementById('shipQrContainer');
+  if (!container) return;
+  try {
+    const size = 220;
+    const tmp  = document.createElement('div');
+    container.innerHTML = '';
+    container.appendChild(tmp);
+    new QRCode(tmp, { text: url, width: size, height: size, correctLevel: QRCode.CorrectLevel.M });
+    setTimeout(() => {
+      const srcCanvas = tmp.querySelector('canvas');
+      const srcImg    = tmp.querySelector('img') || (tmp._qrImg);
+      let dlCanvas = document.getElementById('shipQrCanvas');
+      if (!dlCanvas) {
+        dlCanvas = document.createElement('canvas');
+        dlCanvas.id = 'shipQrCanvas';
+        dlCanvas.style.display = 'none';
+        container.appendChild(dlCanvas);
+      }
+      dlCanvas.width = size; dlCanvas.height = size;
+      const ctx = dlCanvas.getContext('2d');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, size, size);
+      if (srcCanvas) {
+        ctx.drawImage(srcCanvas, 0, 0, size, size);
+      } else if (srcImg && srcImg.complete && srcImg.naturalWidth > 0) {
+        ctx.drawImage(srcImg, 0, 0, size, size);
+      } else if (srcImg) {
+        srcImg.onload = () => ctx.drawImage(srcImg, 0, 0, size, size);
+      }
+    }, 300);
+  } catch(e) {
+    _doRenderQrFallbackShip(url);
+  }
+}
+
+function _doRenderQrFallbackShip(url) {
+  const container = document.getElementById('shipQrContainer');
+  if (!container) return;
+  container.innerHTML =
+    '<div style="text-align:center;padding:20px;background:#fff;border-radius:8px;max-width:260px">' +
+    '<div style="font-size:2rem;margin-bottom:8px">📦</div>' +
+    '<div style="font-size:.75rem;color:#333;word-break:break-all;margin-bottom:10px">' +
+    '<a href="' + url + '" target="_blank" style="color:#1565c0">' + url + '</a></div>' +
+    '<div style="font-size:.7rem;color:#888">QR Code 產生失敗<br>請複製上方網址使用</div>' +
+    '</div>';
+  let dlCanvas = document.getElementById('shipQrCanvas');
+  if (!dlCanvas) {
+    dlCanvas = document.createElement('canvas');
+    dlCanvas.id = 'shipQrCanvas';
+    dlCanvas.width = 220; dlCanvas.height = 220;
+    dlCanvas.style.display = 'none';
+    container.appendChild(dlCanvas);
+  }
+}
+
+function copyShippingUrl() {
+  const store = window.currentStore;
+  if (!store) return;
+  const url = window.location.origin + '/line-shipping.html?store_id=' + encodeURIComponent(store.store_id);
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(url)
+      .then(() => { if (typeof showToast === 'function') showToast('冷藏宅配網址已複製', 'success'); })
+      .catch(() => _fallbackCopy(url));
+  } else { _fallbackCopy(url); }
+}
+
+function openShippingUrl() {
+  const store = window.currentStore;
+  if (!store) return;
+  const url = window.location.origin + '/line-shipping.html?store_id=' + encodeURIComponent(store.store_id);
+  window.open(url, '_blank');
+}
+
+function downloadShippingQR() {
+  const store = window.currentStore;
+  if (!store) return;
+  const filename = 'line-shipping-' + store.store_id + '.png';
+  const canvas = document.getElementById('shipQrCanvas');
+  if (canvas && canvas.width > 0) {
+    try {
+      const link = document.createElement('a');
+      link.download = filename;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+      return;
+    } catch {}
+  }
+  const container = document.getElementById('shipQrContainer');
+  const img = container ? container.querySelector('img') : null;
+  if (img && img.src && img.complete) {
+    try {
+      const c = document.createElement('canvas');
+      c.width = 220; c.height = 220;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, 220, 220);
+      ctx.drawImage(img, 0, 0, 220, 220);
+      const link = document.createElement('a');
+      link.download = filename;
+      link.href = c.toDataURL('image/png');
+      link.click();
+      return;
+    } catch {}
+  }
   if (typeof showToast === 'function') showToast('QR Code 尚未產生，請稍後再試', 'error');
 }
 
@@ -1900,17 +2068,20 @@ function switchOrderTab(tab) {
   // fix18-07：切換分頁時同步更新 currentOrderView
   if (tab === 'delivery') currentOrderView = 'delivery';
   else if (tab === 'pos') currentOrderView = 'takeout';
+  else if (tab === 'shipping') currentOrderView = 'shipping';
   else currentOrderView = 'all';
   document.querySelectorAll('.order-tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
-  document.getElementById('order-tab-all').style.display      = tab === 'delivery' ? 'none' : 'block';
+  document.getElementById('order-tab-all').style.display      = (tab === 'delivery' || tab === 'shipping') ? 'none' : 'block';
   document.getElementById('order-tab-delivery').style.display = tab === 'delivery' ? 'block' : 'none';
+  const shipPanel = document.getElementById('order-tab-shipping');
+  if (shipPanel) shipPanel.style.display = tab === 'shipping' ? 'block' : 'none';
   // fix18-09B：切換分頁時重置折扣篩選
   currentDiscountFilter = 'all';
-  document.querySelectorAll('.disc-filter-btn').forEach(b => b.classList.toggle('active', b.dataset.filter === 'all'));
+  document.querySelectorAll('.disc-filter-btn[data-filter]').forEach(b => b.classList.toggle('active', b.dataset.filter === 'all'));
   refreshCurrentOrderView();
 }
 
-// fix18-07：統一刷新函式，依 currentOrderView 決定呼叫哪個載入函式
+// fix18-10-hotfix19：統一刷新函式，依 currentOrderView 決定呼叫哪個載入函式
 function refreshCurrentOrderView() {
   switch (currentOrderView) {
     case 'delivery':
@@ -1918,6 +2089,9 @@ function refreshCurrentOrderView() {
       break;
     case 'takeout':
       loadOrders('pos');
+      break;
+    case 'shipping':
+      loadShippingOrders();
       break;
     default:
       loadOrders(null);
@@ -2151,6 +2325,146 @@ async function loadDeliveryReport() {
     const filteredDelivOrders = applyDiscountFilter(delivOrders, currentDiscountFilter);
     renderDeliveryTable(filteredDelivOrders);
   } catch { showToast('外送報表載入失敗', 'error'); }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// fix18-10-hotfix19：📦 冷藏宅配 Web 後台管理（獨立於外帶/外送/一般訂單表格）
+// ══════════════════════════════════════════════════════════════════
+let currentShippingStatusFilter = 'all';
+let _shippingOrdersCache = [];
+
+const SHIP_STATUS_LABEL = {
+  pending: '待確認', accepted: '已接單', packing: '包裝中', shipped: '已出貨',
+  delivered: '已送達', completed: '已完成', cancelled: '已取消',
+};
+const SHIP_STATUS_COLOR = {
+  pending: '#f57f17', accepted: '#1565c0', packing: '#6a1b9a', shipped: '#00838f',
+  delivered: '#2e7d32', completed: '#555', cancelled: '#b71c1c',
+};
+// 每個狀態下一步可執行的動作按鈕
+const SHIP_NEXT_ACTIONS = {
+  pending:   [{ to: 'accepted',  label: '✅ 已接單' }, { to: 'cancelled', label: '❌ 取消' }],
+  accepted:  [{ to: 'packing',   label: '📦 包裝中' }, { to: 'cancelled', label: '❌ 取消' }],
+  packing:   [{ to: 'shipped',   label: '🚚 已出貨' }],
+  shipped:   [{ to: 'delivered', label: '📬 已送達' }],
+  delivered: [{ to: 'completed', label: '🎉 已完成' }],
+  completed: [],
+  cancelled: [],
+};
+
+function setShippingStatusFilter(status) {
+  currentShippingStatusFilter = status;
+  document.querySelectorAll('#shippingStatusFilterBar .disc-filter-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.sstatus === status);
+  });
+  const filtered = status === 'all' ? _shippingOrdersCache : _shippingOrdersCache.filter(o => (o.shipping_status || 'pending') === status);
+  renderShippingOrdersTable(filtered);
+}
+
+async function loadShippingOrders() {
+  const tbody = document.getElementById('shippingOrdersBody');
+  if (tbody) tbody.innerHTML = '<tr><td colspan="16" class="table-empty">載入中...</td></tr>';
+  try {
+    const res  = await apiFetch('/api/line-shipping/admin/orders?limit=200');
+    const json = await res.json();
+    if (!json.success) { if (tbody) tbody.innerHTML = '<tr><td colspan="16" class="table-empty">載入失敗</td></tr>'; return; }
+    _shippingOrdersCache = json.data || [];
+    const filtered = currentShippingStatusFilter === 'all'
+      ? _shippingOrdersCache
+      : _shippingOrdersCache.filter(o => (o.shipping_status || 'pending') === currentShippingStatusFilter);
+    renderShippingOrdersTable(filtered);
+  } catch (e) {
+    if (tbody) tbody.innerHTML = '<tr><td colspan="16" class="table-empty">載入失敗</td></tr>';
+    showToast('宅配訂單載入失敗', 'error');
+  }
+}
+
+function renderShippingOrdersTable(orders) {
+  const tbody = document.getElementById('shippingOrdersBody');
+  if (!tbody) return;
+  if (!orders || !orders.length) { tbody.innerHTML = '<tr><td colspan="16" class="table-empty">目前無宅配訂單</td></tr>'; return; }
+
+  const payLabel = { cash: '現金', linepay: 'LINE Pay', transfer: '轉帳' };
+
+  tbody.innerHTML = orders.map(o => {
+    let items = [];
+    try { items = typeof o.items === 'string' ? JSON.parse(o.items || '[]') : (o.items || []); } catch {}
+    const itemsTxt = items.map(i => `${escHtml(i.name)}${i.spec ? '('+escHtml(i.spec)+')' : ''}×${i.qty}`).join('<br>');
+    const address = `${o.shipping_city||''}${o.shipping_district||''}${o.shipping_address||''}`;
+    const arrivalTxt = o.shipping_arrival_type === 'date' && o.shipping_arrival_date ? o.shipping_arrival_date : '最快出貨';
+    const status = o.shipping_status || 'pending';
+    const statusColor = SHIP_STATUS_COLOR[status] || '#888';
+    const actions = (SHIP_NEXT_ACTIONS[status] || []).map(a =>
+      `<button class="btn-secondary" style="font-size:11px;padding:4px 8px;white-space:nowrap" onclick="updateShippingStatus('${o.order_number}','${a.to}')">${a.label}</button>`
+    ).join(' ');
+    const rowId = `ship-track-${o.order_number}`;
+
+    return `<tr>
+      <td>${escHtml(o.order_number)}</td>
+      <td>${escHtml(twTime ? twTime(o.created_at,'datetime') : (o.created_at||''))}</td>
+      <td>${escHtml(o.shipping_recipient_name || o.customer_name || '')}</td>
+      <td>${escHtml(o.shipping_phone || o.customer_phone || '')}</td>
+      <td style="max-width:180px;white-space:normal">${escHtml(address)}</td>
+      <td style="max-width:160px;white-space:normal">${itemsTxt}</td>
+      <td>$${Number(o.subtotal||0)}</td>
+      <td>$${Number(o.shipping_fee||0)}</td>
+      <td><strong>$${Number(o.total||0)}</strong></td>
+      <td>${escHtml(arrivalTxt)}</td>
+      <td>${payLabel[o.payment_method] || escHtml(o.payment_method||'')}</td>
+      <td><span style="color:${statusColor};font-weight:700">${SHIP_STATUS_LABEL[status] || status}</span></td>
+      <td style="min-width:110px">
+        <input type="text" id="${rowId}-carrier" value="${escHtml(o.carrier_name || o.shipping_carrier_name || '')}" placeholder="物流公司" style="width:100%;font-size:12px;padding:3px 5px;border:1px solid var(--border,#334155);border-radius:4px;background:var(--bg-base,#0f172a);color:var(--text-primary,#e2e8f0)">
+      </td>
+      <td style="min-width:110px">
+        <input type="text" id="${rowId}-no" value="${escHtml(o.tracking_number || '')}" placeholder="物流單號" style="width:100%;font-size:12px;padding:3px 5px;border:1px solid var(--border,#334155);border-radius:4px;background:var(--bg-base,#0f172a);color:var(--text-primary,#e2e8f0)">
+      </td>
+      <td style="min-width:110px">
+        <input type="text" id="${rowId}-note" value="${escHtml(o.shipping_note || '')}" placeholder="備註" style="width:100%;font-size:12px;padding:3px 5px;border:1px solid var(--border,#334155);border-radius:4px;background:var(--bg-base,#0f172a);color:var(--text-primary,#e2e8f0)">
+      </td>
+      <td style="min-width:140px">
+        <div style="display:flex;flex-direction:column;gap:4px">
+          ${actions}
+          <button class="btn-secondary" style="font-size:11px;padding:4px 8px" onclick="saveShippingTracking('${o.order_number}')">💾 儲存物流</button>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+// 更新宅配狀態（pending→accepted→packing→shipped→delivered→completed／cancelled）
+async function updateShippingStatus(orderNo, newStatus) {
+  if (newStatus === 'cancelled' && !confirm(`確定要取消宅配訂單「${orderNo}」嗎？`)) return;
+  try {
+    const res  = await apiFetch(`/api/line-shipping/admin/orders/${encodeURIComponent(orderNo)}/status`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: newStatus }),
+    });
+    const json = await res.json();
+    if (!json.success) { showToast(json.message || '更新失敗', 'error'); return; }
+    showToast(`✅ 已更新為「${SHIP_STATUS_LABEL[newStatus] || newStatus}」`, 'success');
+    loadShippingOrders();
+  } catch (e) { showToast('更新失敗', 'error'); }
+}
+
+// 儲存物流資訊（carrier_name / tracking_number / shipping_note）
+// 優先呼叫 routes/line-shipping.js 專屬的 /tracking 端點（fix18-10-hotfix19 新增）
+async function saveShippingTracking(orderNo) {
+  const rowId = `ship-track-${orderNo}`;
+  const carrier_name    = document.getElementById(`${rowId}-carrier`)?.value.trim() || '';
+  const tracking_number = document.getElementById(`${rowId}-no`)?.value.trim() || '';
+  const shipping_note   = document.getElementById(`${rowId}-note`)?.value.trim() || '';
+  try {
+    const res  = await apiFetch(`/api/line-shipping/admin/orders/${encodeURIComponent(orderNo)}/tracking`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ carrier_name, tracking_number, shipping_note }),
+    });
+    const json = await res.json();
+    if (!json.success) { showToast(json.message || '儲存失敗', 'error'); return; }
+    showToast('✅ 物流資訊已儲存', 'success');
+    loadShippingOrders();
+  } catch (e) { showToast('儲存失敗', 'error'); }
 }
 
 function renderStatCards(stats, allOrders) {
@@ -3512,6 +3826,7 @@ async function openLineSettingsModal(id) {
     document.getElementById('lineSaleStatus').value    = p.sale_status  || 'available';
     document.getElementById('lineProductName').value   = p.line_name    || '';
     document.getElementById('lineProductPrice').value  = p.line_price   || '';
+    document.getElementById('lineProductSpec').value   = p.line_spec    || '';
     document.getElementById('lineProductDesc').value   = p.line_description || '';
     document.getElementById('lineImageUrl').value      = p.line_image_url   || '';
     document.getElementById('lineHot').checked         = !!Number(p.line_hot);
@@ -3590,8 +3905,11 @@ async function openLineSettingsModal(id) {
     const shipEnabledEl = document.getElementById('shipEnabled');
     if (shipEnabledEl) shipEnabledEl.checked = !!Number(p.shipping_enabled);
     setQV('shipName', p.shipping_name || '');
+    setQV('shipPrice', p.shipping_price || '');
     setQV('shipSpec', p.shipping_spec || '');
     setQV('shipSortOrder', Number(p.shipping_sort_order || 0));
+    setQV('shipDescription', p.shipping_description || '');
+    setQV('shipImageUrl', p.shipping_image_url || '');
     const shipUpsellEl = document.getElementById('shipUpsell');
     if (shipUpsellEl) shipUpsellEl.checked = !!Number(p.shipping_upsell);
     const shipShareEl = document.getElementById('shipShareLineStock');
@@ -3631,6 +3949,7 @@ async function saveLineSettings() {
   const line_name          = document.getElementById('lineProductName').value.trim();
   const line_price_raw     = document.getElementById('lineProductPrice').value;
   const line_price         = line_price_raw ? parseFloat(line_price_raw) : 0;
+  const line_spec          = document.getElementById('lineProductSpec').value.trim();
   const line_description   = document.getElementById('lineProductDesc').value.trim();
   const line_image_url     = document.getElementById('lineImageUrl').value.trim();
   const line_category_id   = Number(document.getElementById('lineCategoryId').value) || 0;
@@ -3645,7 +3964,7 @@ async function saveLineSettings() {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        show_on_line, sale_status, line_name, line_price,
+        show_on_line, sale_status, line_name, line_price, line_spec,
         line_description, line_image_url, line_category_id,
         line_hot, line_promo, line_sold_out, auto_restore_next_day,
         // LINE 可售份數（v1）
@@ -3660,7 +3979,7 @@ async function saveLineSettings() {
     const json = await res.json();
     if (!json.success) { showToast(json.message || '儲存失敗', 'error'); return; }
 
-    // fix18-10-hotfix18：冷藏宅配商品設定（獨立 API，不影響上面既有 LINE 設定儲存結果）
+    // fix18-10-hotfix18/19：冷藏宅配商品設定（獨立 API，不影響上面既有 LINE 設定儲存結果，兩通路互不覆蓋）
     try {
       await apiFetch(`/api/products/${id}/shipping-settings`, {
         method: 'PATCH',
@@ -3668,8 +3987,11 @@ async function saveLineSettings() {
         body: JSON.stringify({
           shipping_enabled:          document.getElementById('shipEnabled')?.checked ? 1 : 0,
           shipping_name:             document.getElementById('shipName')?.value.trim() || '',
+          shipping_price:            parseFloat(document.getElementById('shipPrice')?.value || 0) || 0,
           shipping_spec:             document.getElementById('shipSpec')?.value.trim() || '',
           shipping_sort_order:       Number(document.getElementById('shipSortOrder')?.value || 0),
+          shipping_description:      document.getElementById('shipDescription')?.value.trim() || '',
+          shipping_image_url:        document.getElementById('shipImageUrl')?.value.trim() || '',
           shipping_upsell:           document.getElementById('shipUpsell')?.checked ? 1 : 0,
           shipping_share_line_stock: document.getElementById('shipShareLineStock')?.checked ? 1 : 0,
         })
@@ -5337,6 +5659,42 @@ const _ANNOUNCE_ICON_MAP = {
 };
 
 // 即時預覽（純畫面呈現，不呼叫 API）
+// fix18-10-hotfix19：商家公告圖片上傳（沿用通用 /api/uploads/image API，不新增重複端點）
+function uploadAnnouncementImage(inputEl) {
+  const file = inputEl.files && inputEl.files[0];
+  if (!file) return;
+  const hint = document.getElementById('announceImageUploadHint');
+  if (hint) { hint.style.display = 'block'; hint.textContent = '上傳中…'; hint.style.color = '#888'; }
+  const reader = new FileReader();
+  reader.onload = async () => {
+    try {
+      const res = await apiFetch('/api/uploads/image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image_base64: reader.result }),
+      });
+      const json = await res.json();
+      if (!json.success) {
+        if (hint) { hint.textContent = '上傳失敗：' + (json.message || ''); hint.style.color = '#e53935'; }
+        showToast(json.message || '上傳失敗', 'error');
+        return;
+      }
+      const urlInput = document.getElementById('set-line_announcement_image_url');
+      if (urlInput) urlInput.value = window.location.origin + json.url;
+      if (typeof renderAnnouncementPreview === 'function') renderAnnouncementPreview();
+      if (hint) { hint.textContent = '✅ 上傳成功'; hint.style.color = '#06C755'; }
+      showToast('圖片上傳成功', 'success');
+    } catch (e) {
+      if (hint) { hint.textContent = '上傳失敗：' + e.message; hint.style.color = '#e53935'; }
+      showToast('上傳失敗', 'error');
+    } finally {
+      inputEl.value = '';
+    }
+  };
+  reader.onerror = () => { if (hint) { hint.textContent = '讀取檔案失敗'; hint.style.color = '#e53935'; } };
+  reader.readAsDataURL(file);
+}
+
 function renderAnnouncementPreview() {
   const el = document.getElementById('announcementPreview');
   if (!el) return;

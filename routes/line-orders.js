@@ -421,8 +421,6 @@ router.get('/shop', (req, res) => {
       'line_announcement_start_date','line_announcement_end_date','line_announcement_closable',
       'line_announcement_display_mode','line_announcement_frequency','line_announcement_version',
       'line_announcement_auto_holiday',
-      // fix18-10-hotfix18：LINE 冷藏宅配中心 V1（僅供前台判斷是否顯示入口按鈕）
-      'shipping_enabled',
     ];
     const settings = {};
     keys.forEach(k => { settings[k] = getSetting(db, storeId, k, ''); });

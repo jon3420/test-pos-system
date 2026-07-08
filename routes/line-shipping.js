@@ -137,17 +137,19 @@ router.get('/shop', (req, res) => {
       [storeId]
     );
 
+    // fix18-10-hotfix19：多通路商品獨立顯示。宅配頁優先使用 shipping_* 欄位，
+    // 若空才 fallback 回 POS 主商品欄位（不 fallback 到 LINE 通路欄位，兩通路互不影響）。
     const toShippingProduct = (p) => ({
       id: p.id,
       name: (p.shipping_name && p.shipping_name.trim()) ? p.shipping_name : p.name,
       spec: p.shipping_spec || '',
-      image: p.line_image_url || p.image || '',
-      description: p.line_description || '',
+      image: p.shipping_image_url || p.image || '',
+      description: (p.shipping_description && p.shipping_description.trim()) ? p.shipping_description : (p.description || ''),
       storage_note: settings.shipping_storage_note,
-      price: Number(p.line_price) > 0 ? Number(p.line_price) : Number(p.price) || 0,
+      price: Number(p.shipping_price) > 0 ? Number(p.shipping_price) : Number(p.price) || 0,
       is_upsell: Number(p.shipping_upsell) === 1,
       share_line_stock: Number(p.shipping_share_line_stock) !== 0,
-      // 若共用 LINE 份數，回傳剩餘份數供前台顯示（V1 僅顯示，不在此攔截，攔截於 validate-cart / orders）
+      // 若共用 LINE 份數，回傳剩餘份數供前台顯示（V1/V2 僅顯示，不在此攔截，攔截於 validate-cart / orders）
       quota_remaining: (Number(p.shipping_share_line_stock) !== 0 && Number(p.line_quota_enabled))
         ? Math.max(0, Number(p.line_quota_daily || 0) - Number(p.line_quota_sold || 0))
         : null,
@@ -215,7 +217,7 @@ router.post('/validate-cart', (req, res) => {
           return res.status(400).json({ success: false, message: `「${prod.name}」剩餘份數不足（剩 ${remaining} 份）` });
         }
       }
-      const price = Number(prod.line_price) > 0 ? Number(prod.line_price) : Number(prod.price) || 0;
+      const price = Number(prod.shipping_price) > 0 ? Number(prod.shipping_price) : Number(prod.price) || 0;
       subtotal += price * qty;
       checkedItems.push({ product_id: prod.id, name: prod.name, price, qty });
     }
@@ -283,7 +285,7 @@ router.post('/', (req, res) => {
           return res.status(400).json({ success: false, message: `「${prod.name}」份數不足，無法送單` });
         }
       }
-      const price = Number(prod.line_price) > 0 ? Number(prod.line_price) : Number(prod.price) || 0;
+      const price = Number(prod.shipping_price) > 0 ? Number(prod.shipping_price) : Number(prod.price) || 0;
       subtotal += price * qty;
       finalItems.push({ product_id: prod.id, name: (prod.shipping_name && prod.shipping_name.trim()) ? prod.shipping_name : prod.name, price, qty, spec: prod.shipping_spec || '' });
     }
@@ -411,8 +413,9 @@ router.get('/order/:orderNo', (req, res) => {
         shipping_fee: Number(order.shipping_fee || 0),
         total: Number(order.total || 0),
         payment_method: order.payment_method,
-        carrier_name: order.shipping_carrier_name,
+        carrier_name: order.carrier_name || order.shipping_carrier_name || '',
         tracking_number: order.tracking_number || '',
+        shipping_note: order.shipping_note || '',
         created_at: order.created_at,
       },
     });
@@ -484,6 +487,41 @@ router.patch('/admin/orders/:id/status', (req, res) => {
     triggerN8nWebhook(db, storeId, 'line_shipping_status_changed', {
       order_number: order.order_number, old_status: order.shipping_status, new_status: newStatus,
     });
+
+    res.json({ success: true, data: updated });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+// ── PATCH /api/line-shipping/admin/orders/:id/tracking — fix18-10-hotfix19 ──
+// 專屬更新物流資訊（carrier_name / tracking_number / shipping_note），
+// 與 /status 端點分開，方便 Web 後台只更新物流欄位而不變動宅配狀態。
+router.patch('/admin/orders/:id/tracking', (req, res) => {
+  try {
+    const db = getDb();
+    const storeId = req.storeId;
+    const rawId = req.params.id;
+    const order = db.get(
+      `SELECT * FROM orders WHERE store_id=? AND fulfillment_type='shipping' AND (order_number=? OR id=? OR uuid=?)`,
+      [storeId, rawId, rawId, rawId]
+    );
+    if (!order) return res.status(404).json({ success: false, message: '找不到宅配訂單：' + rawId });
+
+    const { carrier_name, tracking_number, shipping_note } = req.body;
+    const sets = []; const vals = [];
+    if (carrier_name !== undefined) { sets.push('carrier_name=?'); vals.push(carrier_name); }
+    if (tracking_number !== undefined) { sets.push('tracking_number=?'); vals.push(tracking_number); }
+    if (shipping_note !== undefined) { sets.push('shipping_note=?'); vals.push(shipping_note); }
+    if (!sets.length) return res.status(400).json({ success: false, message: '沒有要更新的物流欄位' });
+
+    sets.push("updated_at=datetime('now','localtime')");
+    vals.push(order.id, storeId);
+    db.run(`UPDATE orders SET ${sets.join(',')} WHERE id=? AND store_id=?`, vals);
+
+    const updated = db.get('SELECT * FROM orders WHERE id=? AND store_id=?', [order.id, storeId]);
+    try {
+      const wss = req.app.get('wss');
+      broadcastToStore(wss, storeId, { type: 'line_shipping_tracking_updated', order: updated });
+    } catch {}
 
     res.json({ success: true, data: updated });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
