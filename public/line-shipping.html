@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<meta name="theme-color" content="#1565c0">
+<title>冷藏宅配</title>
+<style>
+:root{--g:#1565c0;--gd:#0d47a1;--bg:#f5f7fa;--card:#fff;--text:#222;--sub:#888;--bd:#eee;--shadow:0 2px 10px rgba(0,0,0,.10);--r:12px}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--bg);font-family:-apple-system,'Noto Sans TC',sans-serif;color:var(--text);min-height:100vh}
+button{border:none;cursor:pointer;font-family:inherit}
+img{max-width:100%;display:block}
+.hdr{background:linear-gradient(135deg,var(--g),var(--gd));color:#fff;padding:20px 16px 64px}
+.hdr h1{font-size:22px;font-weight:700}
+.hdr p{font-size:12px;opacity:.85;margin-top:4px}
+.shop-card{background:#fff;border-radius:var(--r);margin:0 12px;margin-top:-52px;padding:16px;box-shadow:var(--shadow);display:flex;gap:14px;align-items:center}
+.shop-logo{width:56px;height:56px;border-radius:50%;background:var(--g);display:flex;align-items:center;justify-content:center;font-size:26px;color:#fff;flex-shrink:0;overflow:hidden}
+.shop-logo img{width:100%;height:100%;object-fit:cover}
+.shop-info h2{font-size:17px;font-weight:700}
+.shop-info p{font-size:12px;color:var(--sub);margin-top:3px}
+.notice{background:#e3f2fd;border-left:3px solid var(--g);padding:10px 14px;font-size:13px;color:#0d47a1;border-radius:4px;margin:10px 12px 0;white-space:pre-line;display:none}
+.storage-note{background:#fff8e1;border-left:3px solid #ffa000;padding:8px 14px;font-size:12px;color:#8d6e00;border-radius:4px;margin:8px 12px 0}
+.sec-title{font-size:15px;font-weight:700;padding:14px 12px 6px}
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;padding:0 12px}
+@media(min-width:480px){.grid{grid-template-columns:repeat(3,1fr)}}
+.prod-card{background:var(--card);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden;position:relative;display:flex;flex-direction:column}
+.prod-img{width:100%;height:110px;object-fit:cover;display:block;background:#f0f0f0}
+.prod-ph{width:100%;height:110px;display:flex;align-items:center;justify-content:center;font-size:40px;background:linear-gradient(135deg,#e3f2fd,#dcecff)}
+.prod-body{padding:10px;flex:1;display:flex;flex-direction:column}
+.prod-name{font-size:14px;font-weight:700;line-height:1.3;margin-bottom:3px}
+.prod-spec{font-size:11px;color:var(--g);font-weight:600;margin-bottom:2px}
+.prod-desc{font-size:11px;color:var(--sub);margin-bottom:6px;line-height:1.4;flex:1}
+.prod-price{font-size:16px;font-weight:700;color:var(--g)}
+.prod-footer{display:flex;align-items:center;justify-content:space-between;margin-top:8px}
+.add-btn{width:30px;height:30px;border-radius:50%;background:var(--g);color:#fff;font-size:20px;display:flex;align-items:center;justify-content:center;-webkit-tap-highlight-color:transparent}
+.add-btn:active{transform:scale(.9)}
+.qty-ctrl{display:flex;align-items:center;gap:6px}
+.qty-ctrl button{width:26px;height:26px;border-radius:50%;font-size:16px;display:flex;align-items:center;justify-content:center}
+.qty-ctrl .minus{background:#f5f5f5;color:#333}
+.qty-ctrl .plus{background:var(--g);color:#fff}
+.qty-ctrl .qnum{font-size:14px;font-weight:700;min-width:20px;text-align:center}
+.cart-bar{position:fixed;bottom:0;left:0;right:0;background:var(--g);color:#fff;padding:12px 16px;display:flex;align-items:center;gap:12px;z-index:100;cursor:pointer;box-shadow:0 -2px 12px rgba(0,0,0,.18);-webkit-tap-highlight-color:transparent}
+.cart-bar.hidden{display:none}
+.cart-cnt{background:rgba(255,255,255,.25);border-radius:20px;padding:3px 10px;font-size:13px;font-weight:700;min-width:28px;text-align:center}
+.cart-lbl{flex:1;font-size:15px;font-weight:700}
+.cart-ttl{font-size:15px;font-weight:700}
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:200;display:none}
+.overlay.show{display:block}
+.sheet{position:fixed;bottom:0;left:0;right:0;background:#fff;border-radius:16px 16px 0 0;max-height:92vh;overflow-y:auto;z-index:201;transform:translateY(100%);transition:transform .28s cubic-bezier(.4,0,.2,1)}
+.sheet.show{transform:translateY(0)}
+.sheet-hd{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--bd);position:sticky;top:0;background:#fff;z-index:1}
+.close-btn{width:30px;height:30px;border-radius:50%;background:#f5f5f5;font-size:16px;color:#666}
+.cf{padding:14px 16px 24px}
+.fg{margin-bottom:14px}
+.fl{font-size:13px;font-weight:600;color:#555;margin-bottom:6px;display:block}
+.fl .req{color:#e53935}
+.fi{width:100%;border:1px solid var(--bd);border-radius:8px;padding:10px 12px;font-size:15px;outline:none;-webkit-appearance:none}
+.fi:focus{border-color:var(--g)}
+.fr{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.fr3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+.pay-btns{display:flex;gap:8px;flex-wrap:wrap}
+.pay-btn{padding:8px 16px;border-radius:20px;font-size:13px;border:1.5px solid var(--bd);background:#fff;color:#555}
+.pay-btn.active{border-color:var(--g);background:#e3f2fd;color:var(--g);font-weight:600}
+.arrival-btns{display:flex;gap:8px;margin-bottom:10px}
+.arrival-btn{flex:1;padding:9px;border-radius:8px;font-size:13px;border:1.5px solid var(--bd);background:#fff;color:#555}
+.arrival-btn.active{border-color:var(--g);background:#e3f2fd;color:var(--g);font-weight:700}
+.ot{display:flex;justify-content:space-between;padding:8px 0;font-size:14px;font-weight:500;color:#777}
+.ot.total{font-size:17px;font-weight:700;color:var(--text);border-top:1px solid var(--bd);margin-top:4px;padding-top:10px}
+.free-hint{font-size:12px;color:var(--g);background:#e3f2fd;border-radius:6px;padding:6px 10px;margin:6px 0}
+.sub-btn{width:100%;padding:14px;background:var(--g);color:#fff;border-radius:var(--r);font-size:16px;font-weight:700;margin-top:12px}
+.sub-btn:disabled{background:#ccc;cursor:not-allowed}
+.pb{padding-bottom:80px}
+.loading{text-align:center;padding:60px 20px;color:var(--sub)}
+.spinner{width:36px;height:36px;border:3px solid #eee;border-top-color:var(--g);border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 12px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:10px 20px;border-radius:20px;font-size:13px;z-index:999;opacity:0;transition:.3s;pointer-events:none;white-space:nowrap}
+.toast.show{opacity:1}
+.success-screen{position:fixed;inset:0;background:#fff;z-index:300;display:none;flex-direction:column;align-items:center;overflow-y:auto;padding:24px 20px 40px;text-align:center}
+.success-screen.show{display:flex}
+.suc-icon{font-size:72px;margin-top:24px}
+.suc-title{font-size:24px;font-weight:700;color:var(--g);margin-top:8px}
+.suc-no{font-size:20px;font-weight:700;margin-top:4px;color:#333}
+.suc-btns{display:flex;flex-direction:column;gap:10px;width:100%;max-width:380px;margin-top:20px}
+.suc-btn{padding:14px;background:var(--g);color:#fff;border-radius:var(--r);font-size:16px;font-weight:700}
+.suc-btn-outline{padding:12px;background:#fff;color:var(--g);border:2px solid var(--g);border-radius:var(--r);font-size:15px;font-weight:700}
+.order-detail{padding:16px;text-align:left}
+.od-section{background:#f8f8f8;border-radius:var(--r);padding:14px;margin-bottom:14px}
+.od-row{display:flex;justify-content:space-between;align-items:flex-start;padding:5px 0;border-bottom:1px solid var(--bd)}
+.od-row:last-child{border-bottom:none}
+.od-label{font-size:13px;color:var(--sub);flex-shrink:0;margin-right:8px}
+.od-val{font-size:13px;font-weight:600;text-align:right;word-break:break-all}
+.od-total{font-size:16px;color:var(--g);font-weight:700}
+.empty-hint{text-align:center;padding:50px 20px;color:var(--sub)}
+.empty-hint .ei{font-size:48px;margin-bottom:12px}
+.empty-hint p{font-size:14px;line-height:1.7}
+.closed-screen{text-align:center;padding:60px 24px;color:#888;min-height:60vh;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.closed-screen .ei{font-size:64px;margin-bottom:16px}
+.closed-screen h2{font-size:20px;color:#444;margin-bottom:12px}
+.closed-screen p{font-size:15px;line-height:1.6;max-width:280px}
+.back-btn{display:flex;align-items:center;gap:4px;padding:4px 0;font-size:14px;color:var(--g);font-weight:600;background:none;border:none;margin:10px 12px 0}
+.upsell-hint{font-size:11px;color:var(--sub);padding:0 12px;margin-top:-4px;margin-bottom:6px}
+</style>
+</head>
+<body>
+
+<div id="loading" class="loading"><div class="spinner"></div><p>載入中…</p></div>
+<div id="closedScreen" class="closed-screen" style="display:none">
+  <div class="ei">📦</div>
+  <h2>冷藏宅配尚未開放</h2>
+  <p>請洽詢店家，或稍後再試。</p>
+</div>
+
+<div id="content" style="display:none">
+  <div class="hdr">
+    <h1 id="shopTitle">冷藏宅配</h1>
+    <p id="shopSub"></p>
+  </div>
+  <div class="shop-card">
+    <div class="shop-logo" id="logoWrap">📦</div>
+    <div class="shop-info"><h2 id="shopName2"></h2><p id="shopAddr"></p></div>
+  </div>
+  <div class="notice" id="notice"></div>
+  <div class="storage-note" id="storageNote"></div>
+
+  <div class="sec-title">📦 可宅配商品</div>
+  <div id="prodGrid" class="grid pb"></div>
+
+  <div id="upsellSection" style="display:none">
+    <div class="sec-title">➕ 加購商品</div>
+    <div class="upsell-hint">可與宅配商品一起加入購物車</div>
+    <div id="upsellGrid" class="grid pb"></div>
+  </div>
+</div>
+
+<div class="cart-bar hidden" id="cartBar" onclick="openCartSheet()">
+  <div class="cart-cnt" id="cartCnt">0</div>
+  <div class="cart-lbl">查看購物車</div>
+  <div class="cart-ttl" id="cartBarTotal">$0</div>
+</div>
+
+<div class="overlay" id="overlay" onclick="closeSheet()"></div>
+
+<div class="sheet" id="cartSheet">
+  <div class="sheet-hd"><h3>🛒 宅配購物車</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
+  <div id="cartItems" style="padding:0 16px"></div>
+  <div class="cf">
+    <div class="ot"><span>小計</span><span id="subtotalDisplay">$0</span></div>
+    <div class="ot"><span>運費</span><span id="feeDisplay">$0</span></div>
+    <div id="freeHint" class="free-hint" style="display:none"></div>
+    <div class="ot total"><span>應付金額</span><span id="orderTotal">$0</span></div>
+
+    <div class="fg"><label class="fl">收件人姓名 <span class="req">*</span></label><input class="fi" id="rName" placeholder="收件人姓名"></div>
+    <div class="fr">
+      <div class="fg"><label class="fl">收件電話 <span class="req">*</span></label><input class="fi" id="rPhone" placeholder="聯絡電話" type="tel"></div>
+      <div class="fg"><label class="fl">郵遞區號</label><input class="fi" id="rPostal" placeholder="郵遞區號"></div>
+    </div>
+    <div class="fr">
+      <div class="fg"><label class="fl">縣市 <span class="req">*</span></label><input class="fi" id="rCity" placeholder="縣市"></div>
+      <div class="fg"><label class="fl">鄉鎮市區 <span class="req">*</span></label><input class="fi" id="rDistrict" placeholder="鄉鎮市區"></div>
+    </div>
+    <div class="fg"><label class="fl">詳細地址 <span class="req">*</span></label><input class="fi" id="rAddress" placeholder="詳細地址"></div>
+    <div class="fg"><label class="fl">地址備註</label><input class="fi" id="rAddressNote" placeholder="例：管理室代收"></div>
+
+    <div class="fg">
+      <label class="fl">希望到貨</label>
+      <div class="arrival-btns">
+        <button class="arrival-btn active" id="arrivalAsapBtn" onclick="setArrivalType('asap')">🚚 最快出貨</button>
+        <button class="arrival-btn" id="arrivalDateBtn" onclick="setArrivalType('date')">📅 指定日期</button>
+      </div>
+      <input class="fi" id="rArrivalDate" type="date" style="display:none">
+    </div>
+
+    <div class="fg">
+      <label class="fl">付款方式</label>
+      <div class="pay-btns" id="payBtns"></div>
+    </div>
+
+    <div class="fg"><label class="fl">備註</label><input class="fi" id="rNote" placeholder="給店家的話（選填）"></div>
+
+    <button class="sub-btn" id="submitBtn" onclick="submitOrder()">送出訂單</button>
+  </div>
+</div>
+
+<!-- 查詢訂單 Sheet -->
+<div class="sheet" id="querySheet">
+  <div class="sheet-hd"><h3>🔍 查詢宅配訂單</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
+  <div class="cf">
+    <div class="fg"><label class="fl">訂單編號</label><input class="fi" id="qOrderNo" placeholder="例：SHIP-20260708-120000"></div>
+    <button class="sub-btn" onclick="queryOrder()">查詢</button>
+    <div id="queryResult" style="margin-top:14px"></div>
+  </div>
+</div>
+
+<div class="success-screen" id="successScreen">
+  <div class="suc-icon">🎉</div>
+  <div class="suc-title">訂單已送出</div>
+  <div class="suc-no" id="sucOrderNo"></div>
+  <div class="order-detail" id="sucDetail"></div>
+  <div class="suc-btns">
+    <button class="suc-btn" onclick="backToShop()">繼續選購</button>
+    <button class="suc-btn-outline" onclick="openQueryFromSuccess()">查詢訂單</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const params = new URLSearchParams(location.search);
+const STORE_ID = params.get('store_id') || '';
+let SHOP_DATA = null;
+let cart = {}; // product_id -> {product, qty}
+let arrivalType = 'asap';
+let selectedPayment = '';
+
+function apiUrl(path) {
+  const sep = path.includes('?') ? '&' : '?';
+  return path + sep + 'store_id=' + encodeURIComponent(STORE_ID);
+}
+async function apiGet(path) {
+  const res = await fetch(apiUrl(path));
+  return res.json();
+}
+async function apiPost(path, body) {
+  const res = await fetch(apiUrl(path), {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {})
+  });
+  return res.json();
+}
+function esc(s) { const d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+async function init() {
+  try {
+    const res = await apiGet('/api/line-shipping/shop');
+    if (!res.success) throw new Error(res.message || '載入失敗');
+    SHOP_DATA = res.data;
+    if (!SHOP_DATA.settings.shipping_enabled) {
+      document.getElementById('loading').style.display = 'none';
+      document.getElementById('closedScreen').style.display = 'flex';
+      return;
+    }
+    renderShop();
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('content').style.display = 'block';
+  } catch (e) {
+    document.getElementById('loading').innerHTML = `<p>載入失敗：${esc(e.message)}</p>`;
+  }
+}
+
+function renderShop() {
+  const d = SHOP_DATA;
+  document.getElementById('shopTitle').textContent = d.settings.shipping_title || '冷藏宅配';
+  document.getElementById('shopSub').textContent = d.settings.shipping_description || '';
+  document.getElementById('shopName2').textContent = d.store.name || '';
+  document.getElementById('shopAddr').textContent = d.store.address || '';
+  const logoWrap = document.getElementById('logoWrap');
+  if (d.store.logo) logoWrap.innerHTML = `<img src="${esc(d.store.logo)}">`;
+
+  const noticeEl = document.getElementById('notice');
+  if (d.shipping_notice) { noticeEl.textContent = d.shipping_notice; noticeEl.style.display = 'block'; }
+
+  const storageNote = d.settings.shipping_storage_note || '';
+  const storageEl = document.getElementById('storageNote');
+  if (storageNote) { storageEl.textContent = '❄️ ' + storageNote; storageEl.style.display = 'block'; }
+  else storageEl.style.display = 'none';
+
+  renderProductGrid('prodGrid', d.products);
+  if (d.settings.shipping_upsell_enabled && d.upsell_products && d.upsell_products.length) {
+    document.getElementById('upsellSection').style.display = 'block';
+    renderProductGrid('upsellGrid', d.upsell_products);
+  }
+
+  // 付款方式按鈕
+  const payLabels = { cash: '💵 現金', linepay: '📱 LINE Pay', transfer: '🏦 轉帳' };
+  const payWrap = document.getElementById('payBtns');
+  payWrap.innerHTML = '';
+  (d.payment_methods || []).forEach((code, i) => {
+    const btn = document.createElement('button');
+    btn.className = 'pay-btn' + (i === 0 ? ' active' : '');
+    btn.textContent = payLabels[code] || code;
+    btn.onclick = () => {
+      document.querySelectorAll('.pay-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      selectedPayment = code;
+      if (code === 'linepay') toast('TODO：LINE Pay 尚未支援宅配流程，請先選擇其他付款方式');
+    };
+    payWrap.appendChild(btn);
+  });
+  if ((d.payment_methods || []).length) selectedPayment = d.payment_methods[0];
+
+  // 到貨日期輸入範圍限制
+  const dateInput = document.getElementById('rArrivalDate');
+  dateInput.min = d.earliest_date;
+  dateInput.max = d.latest_date;
+  dateInput.value = d.earliest_date;
+}
+
+function renderProductGrid(elId, products) {
+  const grid = document.getElementById(elId);
+  if (!products || !products.length) {
+    grid.innerHTML = '<div class="empty-hint" style="grid-column:1/-1"><div class="ei">📦</div><p>目前尚無可宅配商品</p></div>';
+    return;
+  }
+  grid.innerHTML = products.map(p => {
+    const qty = cart[p.id] ? cart[p.id].qty : 0;
+    const soldOut = p.quota_remaining !== null && p.quota_remaining <= 0;
+    return `
+      <div class="prod-card" data-pid="${p.id}">
+        ${p.image ? `<img class="prod-img" src="${esc(p.image)}">` : `<div class="prod-ph">📦</div>`}
+        <div class="prod-body">
+          ${p.spec ? `<div class="prod-spec">${esc(p.spec)}</div>` : ''}
+          <div class="prod-name">${esc(p.name)}</div>
+          <div class="prod-desc">${esc(p.description || '')}</div>
+          <div class="prod-price">$${p.price}</div>
+          <div class="prod-footer">
+            ${soldOut ? '<span style="font-size:12px;color:#c62828;font-weight:700">已售完</span>' :
+              qty > 0
+              ? `<div class="qty-ctrl">
+                  <button class="minus" onclick="changeQty(${p.id},-1)">−</button>
+                  <span class="qnum">${qty}</span>
+                  <button class="plus" onclick="changeQty(${p.id},1)">＋</button>
+                 </div>`
+              : `<button class="add-btn" onclick="changeQty(${p.id},1)">＋</button>`
+            }
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function findProduct(pid) {
+  const all = [...(SHOP_DATA.products || []), ...(SHOP_DATA.upsell_products || [])];
+  return all.find(p => p.id === pid);
+}
+
+function changeQty(pid, delta) {
+  const p = findProduct(pid);
+  if (!p) return;
+  const cur = cart[pid] ? cart[pid].qty : 0;
+  const next = Math.max(0, cur + delta);
+  if (next === 0) delete cart[pid];
+  else cart[pid] = { product: p, qty: next };
+  renderProductGrid('prodGrid', SHOP_DATA.products);
+  if (SHOP_DATA.upsell_products && SHOP_DATA.upsell_products.length) renderProductGrid('upsellGrid', SHOP_DATA.upsell_products);
+  updateCartBar();
+}
+
+function cartList() { return Object.values(cart); }
+function cartSubtotal() { return cartList().reduce((s, c) => s + c.product.price * c.qty, 0); }
+function cartCount() { return cartList().reduce((s, c) => s + c.qty, 0); }
+
+function updateCartBar() {
+  const bar = document.getElementById('cartBar');
+  const cnt = cartCount();
+  if (cnt <= 0) { bar.classList.add('hidden'); return; }
+  bar.classList.remove('hidden');
+  document.getElementById('cartCnt').textContent = cnt;
+  document.getElementById('cartBarTotal').textContent = '$' + cartSubtotal();
+}
+
+function calcFee() {
+  const settings = SHOP_DATA.settings;
+  const sub = cartSubtotal();
+  const meetsFree = settings.shipping_free_threshold > 0 && sub >= settings.shipping_free_threshold;
+  const fee = meetsFree ? 0 : settings.shipping_fee;
+  return { sub, fee, meetsFree, total: sub + fee };
+}
+
+function renderCartItems() {
+  const wrap = document.getElementById('cartItems');
+  const list = cartList();
+  if (!list.length) { wrap.innerHTML = '<p style="padding:14px 0;color:#888;font-size:13px">購物車是空的</p>'; return; }
+  wrap.innerHTML = list.map(c => `
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--bd)">
+      <div>
+        <div style="font-size:14px;font-weight:600">${esc(c.product.name)}${c.product.spec ? ' · ' + esc(c.product.spec) : ''}</div>
+        <div style="font-size:12px;color:#888">$${c.product.price} × ${c.qty}</div>
+      </div>
+      <div class="qty-ctrl">
+        <button class="minus" onclick="changeQty(${c.product.id},-1)">−</button>
+        <span class="qnum">${c.qty}</span>
+        <button class="plus" onclick="changeQty(${c.product.id},1)">＋</button>
+      </div>
+    </div>`).join('');
+}
+
+function refreshCartSheetTotals() {
+  const { sub, fee, meetsFree, total } = calcFee();
+  document.getElementById('subtotalDisplay').textContent = '$' + sub;
+  document.getElementById('feeDisplay').textContent = '$' + fee;
+  document.getElementById('orderTotal').textContent = '$' + total;
+  const freeHint = document.getElementById('freeHint');
+  const threshold = SHOP_DATA.settings.shipping_free_threshold;
+  if (threshold > 0) {
+    if (meetsFree) { freeHint.style.display = 'block'; freeHint.textContent = '🎉 已達免運門檻'; }
+    else { freeHint.style.display = 'block'; freeHint.textContent = `再買 NT$${threshold - sub} 免運`; }
+  } else freeHint.style.display = 'none';
+}
+
+function openCartSheet() {
+  renderCartItems();
+  refreshCartSheetTotals();
+  document.getElementById('overlay').classList.add('show');
+  document.getElementById('cartSheet').classList.add('show');
+}
+function openQuerySheet() {
+  document.getElementById('overlay').classList.add('show');
+  document.getElementById('querySheet').classList.add('show');
+}
+function closeSheet() {
+  document.getElementById('overlay').classList.remove('show');
+  document.querySelectorAll('.sheet').forEach(s => s.classList.remove('show'));
+}
+
+function setArrivalType(type) {
+  arrivalType = type;
+  document.getElementById('arrivalAsapBtn').classList.toggle('active', type === 'asap');
+  document.getElementById('arrivalDateBtn').classList.toggle('active', type === 'date');
+  document.getElementById('rArrivalDate').style.display = type === 'date' ? 'block' : 'none';
+}
+
+async function submitOrder() {
+  if (!cartList().length) { toast('購物車是空的'); return; }
+  const name = document.getElementById('rName').value.trim();
+  const phone = document.getElementById('rPhone').value.trim();
+  const postal = document.getElementById('rPostal').value.trim();
+  const city = document.getElementById('rCity').value.trim();
+  const district = document.getElementById('rDistrict').value.trim();
+  const address = document.getElementById('rAddress').value.trim();
+  const addressNote = document.getElementById('rAddressNote').value.trim();
+  const note = document.getElementById('rNote').value.trim();
+  const arrivalDate = document.getElementById('rArrivalDate').value;
+
+  if (!name || !phone) { toast('請填寫收件人姓名與電話'); return; }
+  if (!city || !district || !address) { toast('請填寫完整收件地址'); return; }
+  if (!selectedPayment) { toast('請選擇付款方式'); return; }
+
+  const btn = document.getElementById('submitBtn');
+  btn.disabled = true; btn.textContent = '送出中…';
+  try {
+    const res = await apiPost('/api/line-shipping', {
+      items: cartList().map(c => ({ product_id: c.product.id, name: c.product.name, qty: c.qty })),
+      recipient_name: name, phone, postal_code: postal, city, district, address, address_note: addressNote,
+      arrival_type: arrivalType, arrival_date: arrivalType === 'date' ? arrivalDate : '',
+      payment_method: selectedPayment, note,
+    });
+    if (!res.success) { toast(res.message || '送出失敗'); btn.disabled = false; btn.textContent = '送出訂單'; return; }
+    showSuccess(res.data);
+    cart = {};
+    updateCartBar();
+    closeSheet();
+  } catch (e) {
+    toast('送出失敗，請稍後再試');
+  } finally {
+    btn.disabled = false; btn.textContent = '送出訂單';
+  }
+}
+
+function showSuccess(d) {
+  document.getElementById('sucOrderNo').textContent = d.order_number;
+  const payLabels = { cash: '現金', linepay: 'LINE Pay', transfer: '轉帳' };
+  document.getElementById('sucDetail').innerHTML = `
+    <div class="od-section">
+      <div class="od-row"><span class="od-label">收件人</span><span class="od-val">${esc(d.recipient_name)}</span></div>
+      <div class="od-row"><span class="od-label">電話</span><span class="od-val">${esc(d.phone)}</span></div>
+      <div class="od-row"><span class="od-label">地址</span><span class="od-val">${esc(d.address)}</span></div>
+      <div class="od-row"><span class="od-label">希望到貨</span><span class="od-val">${d.arrival_type === 'date' ? esc(d.arrival_date) : '最快出貨'}</span></div>
+      <div class="od-row"><span class="od-label">付款方式</span><span class="od-val">${payLabels[d.payment_method] || esc(d.payment_method)}</span></div>
+      <div class="od-row"><span class="od-label">商品</span><span class="od-val">${d.items.map(i => `${esc(i.name)}×${i.qty}`).join('<br>')}</span></div>
+      <div class="od-row"><span class="od-label">運費</span><span class="od-val">$${d.shipping_fee}</span></div>
+      <div class="od-row"><span class="od-label">應付金額</span><span class="od-val od-total">$${d.total}</span></div>
+    </div>`;
+  document.getElementById('successScreen').classList.add('show');
+}
+
+function backToShop() {
+  document.getElementById('successScreen').classList.remove('show');
+}
+function openQueryFromSuccess() {
+  document.getElementById('successScreen').classList.remove('show');
+  openQuerySheet();
+}
+
+async function queryOrder() {
+  const no = document.getElementById('qOrderNo').value.trim();
+  const resultEl = document.getElementById('queryResult');
+  if (!no) { toast('請輸入訂單編號'); return; }
+  resultEl.innerHTML = '<p style="color:#888;font-size:13px">查詢中…</p>';
+  try {
+    const res = await apiGet(`/api/line-shipping/order/${encodeURIComponent(no)}`);
+    if (!res.success) { resultEl.innerHTML = `<p style="color:#c62828;font-size:13px">${esc(res.message || '查無訂單')}</p>`; return; }
+    const d = res.data;
+    const statusLabels = { pending: '待確認', accepted: '已接單', packing: '備貨中', shipped: '已出貨', delivered: '已送達', completed: '已完成', cancelled: '已取消' };
+    resultEl.innerHTML = `
+      <div class="od-section">
+        <div class="od-row"><span class="od-label">狀態</span><span class="od-val">${esc(statusLabels[d.status] || d.status)}</span></div>
+        <div class="od-row"><span class="od-label">收件人</span><span class="od-val">${esc(d.recipient_name)}</span></div>
+        <div class="od-row"><span class="od-label">地址</span><span class="od-val">${esc(d.address)}</span></div>
+        <div class="od-row"><span class="od-label">希望到貨</span><span class="od-val">${d.arrival_type === 'date' ? esc(d.arrival_date) : '最快出貨'}</span></div>
+        <div class="od-row"><span class="od-label">商品</span><span class="od-val">${d.items.map(i => `${esc(i.name)}×${i.qty}`).join('<br>')}</span></div>
+        <div class="od-row"><span class="od-label">應付金額</span><span class="od-val od-total">$${d.total}</span></div>
+      </div>`;
+  } catch (e) {
+    resultEl.innerHTML = '<p style="color:#c62828;font-size:13px">查詢失敗</p>';
+  }
+}
+
+init();
+</script>
+</body>
+</html>

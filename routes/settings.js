@@ -52,6 +52,15 @@ const DELIVERY_FEE_KEYS = [
   'coupon_apply_to_delivery_fee',
 ];
 
+// fix18-10-hotfix18：LINE 冷藏宅配中心 V1 設定 key
+const SHIPPING_KEYS = [
+  'shipping_enabled', 'shipping_title', 'shipping_description', 'shipping_notice',
+  'shipping_storage_note', 'shipping_fee', 'shipping_free_threshold',
+  'shipping_min_order_amount', 'shipping_arrival_days_limit', 'shipping_lead_days',
+  'shipping_closed_weekdays', 'shipping_payment_methods', 'shipping_carrier_name',
+  'shipping_allow_arrival_date', 'shipping_upsell_enabled',
+];
+
 // fix18-08：外送平台抽成率 key
 const COMMISSION_KEYS = [
   'ubereats_commission_rate',
@@ -79,6 +88,7 @@ const ALL_ALLOWED = [
   ...DELIVERY_FEE_KEYS,
   ...LINE_KEYS,
   ...COMMISSION_KEYS,
+  ...SHIPPING_KEYS,
 ];
 
 // GET /api/settings
@@ -101,7 +111,7 @@ router.put('/', (req, res) => {
 
     // ── fix14：檢查是否修改 LINE key ───────────────────────
     const requestedKeys = Object.keys(req.body);
-    const hasLineKey    = requestedKeys.some(k => LINE_KEYS.has(k));
+    const hasLineKey    = requestedKeys.some(k => LINE_KEYS.has(k) || SHIPPING_KEYS.includes(k));
 
     if (hasLineKey) {
       // 查授權

@@ -390,6 +390,9 @@ initDb().then((db) => {
   app.use('/api/line-orders',  requireStore, requireFeature('line_order'), lineOrderRouter);
   app.use('/api/online-orders', requireStore, requireFeature('line_order'), require('./routes/online-orders'));
 
+  // fix18-10-hotfix18：LINE 冷藏宅配中心 V1（獨立入口與獨立流程，不動外帶/外送）
+  app.use('/api/line-shipping', requireStore, requireFeature('line_order'), require('./routes/line-shipping'));
+
   // ── 老闆儀表板 Dashboard API（reports feature gate）─────
   app.use('/api/dashboard', requireStore, requireFeature('reports'), require('./routes/dashboard'));
 

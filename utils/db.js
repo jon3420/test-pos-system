@@ -1307,6 +1307,76 @@ function initTables(w) {
     w._db.run('CREATE INDEX IF NOT EXISTS idx_store_business_calendar_range ON store_business_calendar(store_id, start_date, end_date)');
     w._save();
   } catch(e) { console.warn('[DB] store_business_calendar index:', e.message); }
+
+  // ══════════════════════════════════════════════════════════════════
+  // ── fix18-10-hotfix18：LINE 冷藏宅配中心 V1 ─────────────────────────
+  // 原則：safe migration，只用 ALTER TABLE ADD COLUMN / CREATE TABLE IF NOT EXISTS，
+  // 絕不 DROP / 重建既有 orders、products 資料表或既有欄位。
+  // ══════════════════════════════════════════════════════════════════
+
+  // ── orders 補欄位（宅配訂單專用，獨立於外帶/外送欄位）──────────────
+  const shippingOrderCols = [
+    ['fulfillment_type',        'TEXT DEFAULT ""'],
+    ['order_source',            'TEXT DEFAULT ""'],
+    ['shipping_recipient_name', 'TEXT DEFAULT ""'],
+    ['shipping_phone',          'TEXT DEFAULT ""'],
+    ['shipping_postal_code',    'TEXT DEFAULT ""'],
+    ['shipping_city',           'TEXT DEFAULT ""'],
+    ['shipping_district',       'TEXT DEFAULT ""'],
+    ['shipping_address',        'TEXT DEFAULT ""'],
+    ['shipping_address_note',   'TEXT DEFAULT ""'],
+    ['shipping_arrival_type',   'TEXT DEFAULT ""'],
+    ['shipping_arrival_date',   'TEXT DEFAULT ""'],
+    ['shipping_fee',            'REAL DEFAULT 0'],
+    ['shipping_free_discount',  'REAL DEFAULT 0'],
+    ['shipping_carrier_name',   'TEXT DEFAULT ""'],
+    ['shipping_status',         'TEXT DEFAULT ""'],
+    // V1 保留欄位（不串黑貓 API，僅供未來擴充/手動填寫）
+    ['tracking_number',         'TEXT DEFAULT ""'],
+    ['carrier_name',            'TEXT DEFAULT ""'],
+    ['shipping_note',           'TEXT DEFAULT ""'],
+  ];
+  shippingOrderCols.forEach(([col, def]) => {
+    try { w._db.run(`ALTER TABLE orders ADD COLUMN ${col} ${def}`); w._save(); } catch {}
+  });
+
+  // ── products 補欄位（可宅配商品設定）────────────────────────────────
+  const shippingProductCols = [
+    ['shipping_enabled',           'INTEGER DEFAULT 0'],
+    ['shipping_name',              'TEXT DEFAULT ""'],
+    ['shipping_spec',              'TEXT DEFAULT ""'],
+    ['shipping_sort_order',        'INTEGER DEFAULT 0'],
+    ['shipping_upsell',            'INTEGER DEFAULT 0'],
+    ['shipping_share_line_stock',  'INTEGER DEFAULT 1'],
+  ];
+  shippingProductCols.forEach(([col, def]) => {
+    try { w._db.run(`ALTER TABLE products ADD COLUMN ${col} ${def}`); w._save(); } catch {}
+  });
+
+  // ── settings seed（冷藏宅配設定，全部 INSERT OR IGNORE，不影響既有 key）──
+  const shippingSeeds = [
+    ['shipping_enabled',              '0'],
+    ['shipping_title',                '冷藏宅配'],
+    ['shipping_description',          ''],
+    ['shipping_notice',               ''],
+    ['shipping_storage_note',         '收到後請立即冷藏，建議 48 小時內食用完畢'],
+    ['shipping_fee',                  '200'],
+    ['shipping_free_threshold',       '1500'],
+    ['shipping_min_order_amount',     '150'],
+    ['shipping_arrival_days_limit',   '14'],
+    ['shipping_lead_days',            '1'],
+    ['shipping_closed_weekdays',      '[]'],
+    ['shipping_payment_methods',      JSON.stringify(['cash','transfer'])],
+    ['shipping_carrier_name',         '黑貓冷藏宅配'],
+    ['shipping_allow_arrival_date',   '1'],
+    ['shipping_upsell_enabled',       '1'],
+  ];
+  shippingSeeds.forEach(([k, v]) => {
+    try {
+      w._db.run('INSERT OR IGNORE INTO settings (store_id,key,value) VALUES (?,?,?)', ['store_001', k, v]);
+      w._save();
+    } catch(e) { console.warn('[DB] shipping seed:', k, e.message); }
+  });
 }
 
 module.exports = { getDb, initDb };

@@ -199,6 +199,10 @@ img{max-width:100%;display:block}
   <div id="holidayBanner" style="display:none;margin:10px 12px 0;border-radius:10px;overflow:hidden;border:1px solid #ffccbc;background:#fff3e0"></div>
   <div class="announce" id="bizCalBanner" style="display:none"></div>
   <div id="lastOrderCard" style="display:none"></div>
+  <!-- fix18-10-hotfix18：冷藏宅配入口（獨立頁面，不與外帶/外送購物車流程共用）-->
+  <div id="shippingEntryWrap" style="display:none;margin:10px 12px 0">
+    <button onclick="goToShippingPage()" style="width:100%;padding:12px;border-radius:12px;background:linear-gradient(135deg,#1565c0,#0d47a1);color:#fff;font-size:14px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:8px">📦 冷藏宅配</button>
+  </div>
   <!-- 外帶/外送模式分頁 -->
   <div class="mode-tabs" id="modeTabs" style="display:none">
     <button class="mode-tab active" id="tabTakeout" onclick="switchMode('takeout')">🛍️ 外帶</button>
@@ -474,6 +478,10 @@ async function init(){
       if(d.shop_logo)document.getElementById('logoWrap').innerHTML=`<img src="${d.shop_logo}" alt="logo">`;
       const ann=document.getElementById('announce');
       if(d.shop_announcement){ann.textContent=d.shop_announcement;ann.style.display='block';}
+
+      // fix18-10-hotfix18：冷藏宅配入口（獨立頁面，不影響外帶/外送）
+      const shipWrap=document.getElementById('shippingEntryWrap');
+      if(shipWrap) shipWrap.style.display = d.shipping_enabled==='1' ? 'block' : 'none';
 
       // 全域 LINE 開關
       if(d.line_ordering_enabled==='0'||d.line_ordering_enabled===0){
@@ -1565,6 +1573,10 @@ function closeTopSheet(){
   document.getElementById('overlay').classList.remove('show');
 }
 
+// fix18-10-hotfix18：導向冷藏宅配獨立頁面
+function goToShippingPage(){
+  window.location.href = `line-shipping.html?store_id=${encodeURIComponent(LINE_STORE_ID)}`;
+}
 function openQuerySheet(){
   const lastNo=localStorage.getItem('last_line_order_number');
   const lastPh=localStorage.getItem('last_line_order_phone');

@@ -1509,6 +1509,7 @@ body {
 .mode-dine_in  { background: #0a2a1a; color: #4caf50; }
 .mode-takeout  { background: #1a1a00; color: var(--accent); }
 .mode-delivery { background: #1a0a2a; color: #ce93d8; }
+.mode-shipping { background: #0a1a2a; color: #4fc3f7; } /* fix18-10-hotfix18：LINE 冷藏宅配 */
 
 /* 訂單狀態徽章 */
 .ostatus-badge {

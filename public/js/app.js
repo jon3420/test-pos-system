@@ -2890,7 +2890,7 @@ function renderOrdersTable(orders) {
   if (!orders.length) { tbody.innerHTML = '<tr><td colspan="9" class="table-empty">無訂單</td></tr>'; return; }
   const payLabel = { cash:'現金', card:'刷卡', linepay:'LINE', jkopay:'街口', transfer:'轉帳', platform:'平台' };
   const statusMap = { completed:['status-completed','正常'], modified:['status-modified','已修改'], void:['status-void','已作廢'] };
-  const modeLabel = { dine_in:'🍽️ 內用', takeout:'🛍️ 外帶', delivery:'🛵 外送' };
+  const modeLabel = { dine_in:'🍽️ 內用', takeout:'🛍️ 外帶', delivery:'🛵 外送', shipping:'📦 宅配' };
   const ostatusLabel = { pending:'待接單', accepted:'已接單', preparing:'製作中', ready:'可取餐', delivering:'配送中', completed:'已完成', cancelled:'已取消' };
   const ostatusCls   = { pending:'ostatus-pending', accepted:'ostatus-accepted', preparing:'ostatus-preparing', ready:'ostatus-ready', delivering:'ostatus-delivering', completed:'ostatus-completed', cancelled:'ostatus-cancelled' };
 
@@ -2898,8 +2898,10 @@ function renderOrdersTable(orders) {
     const [sCls, sLabel] = statusMap[o.status] || ['status-completed','正常'];
     const isVoid = o.status === 'void';
     const modeKey = o.order_mode || 'dine_in';
+    const isShipping = o.fulfillment_type === 'shipping' || o.order_mode === 'shipping';
     const ident = o.order_mode === 'dine_in' ? (o.table_number||'—') :
                   o.order_mode === 'takeout'  ? (o.pickup_name||o.customer_name||'—') :
+                  isShipping ? (o.shipping_recipient_name||o.customer_name||'—') :
                   (o.delivery_platform||o.customer_name||'—');
     // pickup_time 顯示（LINE 訂單取餐時間）
     // 預購單：pickup_time 格式 "YYYY-MM-DD HH:MM"
@@ -2924,12 +2926,25 @@ function renderOrdersTable(orders) {
       addressTag = `<br><span style="font-size:11px;color:#94a3b8">📍${escHtml(o.delivery_address)}${distTxt}${feeTxt}${navLink}</span>`
         + (o.delivery_address_note ? `<br><span style="font-size:11px;color:#94a3b8">備註：${escHtml(o.delivery_address_note)}</span>` : '');
     }
+    // fix18-10-hotfix18：LINE 冷藏宅配訂單獨立顯示區塊（不可與外送混用）
+    let shippingTag = '';
+    if (isShipping) {
+      const shipStatusLabel = { pending:'待確認', accepted:'已接單', packing:'備貨中', shipped:'已出貨', delivered:'已送達', completed:'已完成', cancelled:'已取消' };
+      const sStatus = o.shipping_status || 'pending';
+      const fullAddr = `${o.shipping_city||''}${o.shipping_district||''}${o.shipping_address||''}`;
+      const arrivalTxt = o.shipping_arrival_type === 'date' && o.shipping_arrival_date ? `📅 ${o.shipping_arrival_date}` : '🚚 最快出貨';
+      shippingTag = `<br><span style="font-size:11px;color:#4fc3f7">📞${escHtml(o.shipping_phone||'')}</span>`
+        + `<br><span style="font-size:11px;color:#94a3b8">📍${escHtml(fullAddr)}</span>`
+        + (o.shipping_address_note ? `<br><span style="font-size:11px;color:#94a3b8">備註：${escHtml(o.shipping_address_note)}</span>` : '')
+        + `<br><span style="font-size:11px;color:#94a3b8">${arrivalTxt} · 運費NT$${Number(o.shipping_fee||0)}</span>`
+        + `<br><span style="font-size:11px;color:#4fc3f7;font-weight:700">物流狀態：${shipStatusLabel[sStatus]||sStatus}</span>`;
+    }
     return `
       <tr style="${isVoid?'opacity:0.5':''}">
         <td><span class="order-num">${escHtml(o.order_number)}</span></td>
         <td><span class="mode-badge mode-${modeKey}">${modeLabel[modeKey]||modeKey}</span></td>
         <td style="font-size:12px;color:#999">${twTime(o.created_at,'time')}</td>
-        <td style="font-size:13px">${escHtml(ident)}${pickupTag}${addressTag}</td>
+        <td style="font-size:13px">${escHtml(ident)}${pickupTag}${addressTag}${shippingTag}</td>
         <td style="font-size:12px">${o.items.map(i => {
           const groupName = isGroupLabelEnabled() ? getAnalysisGroupName(i.name) : null;
           return `${i.name}×${i.qty}` + (groupName ? `<br><span style="font-size:10px;color:#818cf8;background:rgba(99,102,241,0.12);border-radius:3px;padding:0 4px">📊 ${escHtml(groupName)}</span>` : '');
@@ -3571,6 +3586,17 @@ async function openLineSettingsModal(id) {
       else { previewWrap.style.display = 'none'; }
     };
 
+    // ── fix18-10-hotfix18：冷藏宅配商品設定填入 ──────────
+    const shipEnabledEl = document.getElementById('shipEnabled');
+    if (shipEnabledEl) shipEnabledEl.checked = !!Number(p.shipping_enabled);
+    setQV('shipName', p.shipping_name || '');
+    setQV('shipSpec', p.shipping_spec || '');
+    setQV('shipSortOrder', Number(p.shipping_sort_order || 0));
+    const shipUpsellEl = document.getElementById('shipUpsell');
+    if (shipUpsellEl) shipUpsellEl.checked = !!Number(p.shipping_upsell);
+    const shipShareEl = document.getElementById('shipShareLineStock');
+    if (shipShareEl) shipShareEl.checked = p.shipping_share_line_stock != null ? !!Number(p.shipping_share_line_stock) : true;
+
     document.getElementById('lineSettingsModal').classList.add('open');
   } catch(e) { showToast('載入商品資料失敗：' + e.message, 'error'); }
 }
@@ -3632,13 +3658,27 @@ async function saveLineSettings() {
       })
     });
     const json = await res.json();
-    if (json.success) {
-      showToast('LINE 設定已儲存', 'success');
-      closeLineSettingsModal();
-      loadProductsPage();
-    } else {
-      showToast(json.message || '儲存失敗', 'error');
-    }
+    if (!json.success) { showToast(json.message || '儲存失敗', 'error'); return; }
+
+    // fix18-10-hotfix18：冷藏宅配商品設定（獨立 API，不影響上面既有 LINE 設定儲存結果）
+    try {
+      await apiFetch(`/api/products/${id}/shipping-settings`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          shipping_enabled:          document.getElementById('shipEnabled')?.checked ? 1 : 0,
+          shipping_name:             document.getElementById('shipName')?.value.trim() || '',
+          shipping_spec:             document.getElementById('shipSpec')?.value.trim() || '',
+          shipping_sort_order:       Number(document.getElementById('shipSortOrder')?.value || 0),
+          shipping_upsell:           document.getElementById('shipUpsell')?.checked ? 1 : 0,
+          shipping_share_line_stock: document.getElementById('shipShareLineStock')?.checked ? 1 : 0,
+        })
+      });
+    } catch(shipErr) { console.warn('[shipping-settings] 儲存失敗:', shipErr.message); }
+
+    showToast('LINE 設定已儲存', 'success');
+    closeLineSettingsModal();
+    loadProductsPage();
   } catch(e) { showToast('網路錯誤', 'error'); }
 }
 
@@ -5191,10 +5231,65 @@ async function loadLineBizStatus() {
     if (cdText) cdText.value = cdates.join('\n');
     // Hotfix17：商家公告設定填入
     _fillAnnouncementForm(d);
+    // fix18-10-hotfix18：冷藏宅配設定填入
+    _fillShippingSettingsForm(d);
   } catch {}
   // 📅 營業行事曆 Business Calendar V2：今日狀態 + 列表
   refreshTodayBusinessStatus();
   loadBusinessCalendar();
+}
+
+// ── fix18-10-hotfix18：LINE 冷藏宅配中心 V1 ─────────────────────────
+function _fillShippingSettingsForm(d) {
+  const setV = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ''; };
+  const setC = (id, val) => { const el = document.getElementById(id); if (el) el.checked = !!val; };
+  setC('set-shipping_enabled', d.shipping_enabled === '1');
+  setV('set-shipping_title', d.shipping_title || '冷藏宅配');
+  setV('set-shipping_carrier_name', d.shipping_carrier_name || '黑貓冷藏宅配');
+  setV('set-shipping_description', d.shipping_description || '');
+  setV('set-shipping_notice', d.shipping_notice || '');
+  setV('set-shipping_storage_note', d.shipping_storage_note || '收到後請立即冷藏，建議 48 小時內食用完畢');
+  setV('set-shipping_fee', d.shipping_fee != null && d.shipping_fee !== '' ? d.shipping_fee : 200);
+  setV('set-shipping_free_threshold', d.shipping_free_threshold != null && d.shipping_free_threshold !== '' ? d.shipping_free_threshold : 1500);
+  setV('set-shipping_min_order_amount', d.shipping_min_order_amount != null && d.shipping_min_order_amount !== '' ? d.shipping_min_order_amount : 150);
+  setV('set-shipping_arrival_days_limit', d.shipping_arrival_days_limit != null && d.shipping_arrival_days_limit !== '' ? d.shipping_arrival_days_limit : 14);
+  setV('set-shipping_lead_days', d.shipping_lead_days != null && d.shipping_lead_days !== '' ? d.shipping_lead_days : 1);
+  setC('set-shipping_allow_arrival_date', d.shipping_allow_arrival_date !== '0');
+  setC('set-shipping_upsell_enabled', d.shipping_upsell_enabled !== '0');
+  const cwds = (() => { try { return JSON.parse(d.shipping_closed_weekdays || '[]'); } catch { return []; } })();
+  document.querySelectorAll('.ship-cwd-chk').forEach(cb => { cb.checked = cwds.includes(cb.value); });
+  const pays = (() => { try { const p = JSON.parse(d.shipping_payment_methods || '[]'); return Array.isArray(p) && p.length ? p : ['cash','transfer']; } catch { return ['cash','transfer']; } })();
+  document.querySelectorAll('.ship-pay-chk').forEach(cb => { cb.checked = pays.includes(cb.value); });
+}
+
+async function saveShippingSettings() {
+  const getV = (id) => document.getElementById(id)?.value || '';
+  const getC = (id) => document.getElementById(id)?.checked ? '1' : '0';
+  const cwds = Array.from(document.querySelectorAll('.ship-cwd-chk:checked')).map(cb => cb.value);
+  const pays = Array.from(document.querySelectorAll('.ship-pay-chk:checked')).map(cb => cb.value);
+  if (!pays.length) { showToast('請至少選擇一種付款方式', 'error'); return; }
+  const body = {
+    shipping_enabled:            getC('set-shipping_enabled'),
+    shipping_title:               getV('set-shipping_title') || '冷藏宅配',
+    shipping_carrier_name:        getV('set-shipping_carrier_name') || '黑貓冷藏宅配',
+    shipping_description:         getV('set-shipping_description'),
+    shipping_notice:              getV('set-shipping_notice'),
+    shipping_storage_note:        getV('set-shipping_storage_note'),
+    shipping_fee:                 String(parseInt(getV('set-shipping_fee'), 10) || 0),
+    shipping_free_threshold:      String(parseInt(getV('set-shipping_free_threshold'), 10) || 0),
+    shipping_min_order_amount:    String(parseInt(getV('set-shipping_min_order_amount'), 10) || 0),
+    shipping_arrival_days_limit:  String(Math.max(0, Math.min(60, parseInt(getV('set-shipping_arrival_days_limit'), 10) || 14))),
+    shipping_lead_days:           String(Math.max(0, parseInt(getV('set-shipping_lead_days'), 10) || 1)),
+    shipping_allow_arrival_date:  getC('set-shipping_allow_arrival_date'),
+    shipping_upsell_enabled:      getC('set-shipping_upsell_enabled'),
+    shipping_closed_weekdays:     JSON.stringify(cwds),
+    shipping_payment_methods:     JSON.stringify(pays),
+  };
+  try {
+    await apiFetch('/api/settings', { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    showToast('✅ 冷藏宅配設定已儲存', 'success');
+    loadLineBizStatus();
+  } catch(e) { showToast('儲存失敗', 'error'); }
 }
 
 // ── Hotfix17：商家公告中心 ──────────────────────────────

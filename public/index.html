@@ -1204,6 +1204,84 @@
           <textarea id="set-line_closed_dates_text" rows="3" placeholder="例：2026-06-04\n2026-06-05" style="width:100%;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);padding:8px 10px;font-family:var(--font-body);font-size:13px;resize:vertical"></textarea>
           <button class="btn-primary" style="margin-top:12px" onclick="saveAdvancedLineSettings()">💾 儲存預約設定</button>
         </div>
+
+        <!-- 📦 冷藏宅配設定（Hotfix18 fix18-10-hotfix18）───────────────── -->
+        <div class="settings-card" style="grid-column:1/-1">
+          <h3>📦 冷藏宅配設定</h3>
+          <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px">
+            獨立於外帶/外送的冷藏宅配入口。啟用後，LINE 點餐首頁會出現「📦 冷藏宅配」按鈕，導向獨立下單頁面。
+          </p>
+          <label class="checkbox-label" style="margin-bottom:14px;display:block">
+            <input type="checkbox" id="set-shipping_enabled"> 啟用冷藏宅配
+          </label>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px">
+            <label>
+              <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:6px">宅配頁標題</div>
+              <input type="text" id="set-shipping_title" placeholder="冷藏宅配" class="form-input" style="width:100%">
+            </label>
+            <label>
+              <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:6px">物流公司名稱</div>
+              <input type="text" id="set-shipping_carrier_name" placeholder="黑貓冷藏宅配" class="form-input" style="width:100%">
+            </label>
+          </div>
+          <label style="display:block;margin-top:10px">
+            <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:6px">宅配說明</div>
+            <textarea id="set-shipping_description" rows="2" style="width:100%;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);padding:8px 10px;font-family:var(--font-body);font-size:13px;resize:vertical"></textarea>
+          </label>
+          <label style="display:block;margin-top:10px">
+            <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:6px">宅配公告（顯示於前台頁）</div>
+            <textarea id="set-shipping_notice" rows="3" style="width:100%;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);padding:8px 10px;font-family:var(--font-body);font-size:13px;resize:vertical" placeholder="例：📦 全台冷藏宅配&#10;真空包裝冷藏配送&#10;收到後請立即冷藏"></textarea>
+          </label>
+          <label style="display:block;margin-top:10px">
+            <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:6px">保存方式提醒</div>
+            <input type="text" id="set-shipping_storage_note" placeholder="收到後請立即冷藏，建議 48 小時內食用完畢" class="form-input" style="width:100%">
+          </label>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-top:10px">
+            <label>
+              <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:6px">宅配運費（NT$）</div>
+              <input type="number" id="set-shipping_fee" min="0" step="1" class="form-input" style="width:100%">
+            </label>
+            <label>
+              <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:6px">滿額免運門檻（NT$）</div>
+              <input type="number" id="set-shipping_free_threshold" min="0" step="1" class="form-input" style="width:100%">
+            </label>
+            <label>
+              <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:6px">最低訂購金額（NT$）</div>
+              <input type="number" id="set-shipping_min_order_amount" min="0" step="1" class="form-input" style="width:100%">
+            </label>
+            <label>
+              <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:6px">可提前指定到貨天數</div>
+              <input type="number" id="set-shipping_arrival_days_limit" min="0" max="60" step="1" class="form-input" style="width:100%">
+            </label>
+            <label>
+              <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:6px">最短出貨準備天數</div>
+              <input type="number" id="set-shipping_lead_days" min="0" step="1" class="form-input" style="width:100%">
+            </label>
+          </div>
+          <label class="checkbox-label" style="margin-top:10px;display:block">
+            <input type="checkbox" id="set-shipping_allow_arrival_date"> 開放顧客指定到貨日期
+          </label>
+          <label class="checkbox-label" style="margin-top:6px;display:block">
+            <input type="checkbox" id="set-shipping_upsell_enabled"> 顯示加購區
+          </label>
+          <h3 style="margin-top:14px;font-size:14px">🚫 不可到貨星期</h3>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px" id="shippingClosedWeekdayBtns">
+            <label class="checkbox-label"><input type="checkbox" class="ship-cwd-chk" value="mon"> 週一</label>
+            <label class="checkbox-label"><input type="checkbox" class="ship-cwd-chk" value="tue"> 週二</label>
+            <label class="checkbox-label"><input type="checkbox" class="ship-cwd-chk" value="wed"> 週三</label>
+            <label class="checkbox-label"><input type="checkbox" class="ship-cwd-chk" value="thu"> 週四</label>
+            <label class="checkbox-label"><input type="checkbox" class="ship-cwd-chk" value="fri"> 週五</label>
+            <label class="checkbox-label"><input type="checkbox" class="ship-cwd-chk" value="sat"> 週六</label>
+            <label class="checkbox-label"><input type="checkbox" class="ship-cwd-chk" value="sun"> 週日</label>
+          </div>
+          <h3 style="font-size:14px">💳 付款方式</h3>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+            <label class="checkbox-label"><input type="checkbox" class="ship-pay-chk" value="cash"> 現金</label>
+            <label class="checkbox-label"><input type="checkbox" class="ship-pay-chk" value="transfer"> 轉帳</label>
+            <label class="checkbox-label"><input type="checkbox" class="ship-pay-chk" value="linepay"> LINE Pay（V1 尚未支援結帳流程）</label>
+          </div>
+          <button class="btn-primary" onclick="saveShippingSettings()">💾 儲存冷藏宅配設定</button>
+        </div>
       </div>
     </div>
 
@@ -2469,7 +2547,7 @@
 <!-- Toast 通知 -->
 <div class="toast-container" id="toastContainer"></div>
 
-<script src="/js/app.js?v=fix18-09F-h2"></script>
+<script src="/js/app.js?v=fix18-10-hotfix18"></script>
 <script src="/js/coupons.js?v=fix18-06"></script>
 <script src="/js/qrcode.min.js?v=fix18-09F-h2"></script>
 <script src="/license.js?v=fix18-06"></script>
@@ -2640,6 +2718,39 @@
           </div>
           <p style="font-size:11px;color:#aaa;margin-top:6px">販售時段留空 = 不限時段</p>
         </div>
+      </div>
+
+      <!-- ── 冷藏宅配商品設定（Hotfix18 fix18-10-hotfix18）────────────── -->
+      <div style="border-top:1px solid #eee;margin-top:16px;padding-top:16px">
+        <h4 style="font-size:14px;font-weight:700;color:#222;margin:0 0 10px">📦 冷藏宅配商品設定</h4>
+        <label class="checkbox-label" style="margin-bottom:10px">
+          <input type="checkbox" id="shipEnabled">
+          <span>可宅配（顯示於冷藏宅配獨立頁面）</span>
+        </label>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+          <label style="font-size:13px;color:#555">
+            宅配商品名稱
+            <input type="text" id="shipName" placeholder="空白時使用商品名稱" style="width:100%;margin-top:4px;padding:8px;border:1px solid #ddd;border-radius:6px;font-size:14px">
+          </label>
+          <label style="font-size:13px;color:#555">
+            宅配規格
+            <input type="text" id="shipSpec" placeholder="例：200g / 三寶組" style="width:100%;margin-top:4px;padding:8px;border:1px solid #ddd;border-radius:6px;font-size:14px">
+          </label>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+          <label style="font-size:13px;color:#555">
+            宅配排序
+            <input type="number" id="shipSortOrder" min="0" step="1" placeholder="0" style="width:100%;margin-top:4px;padding:8px;border:1px solid #ddd;border-radius:6px;font-size:14px">
+          </label>
+        </div>
+        <label class="checkbox-label" style="margin-bottom:6px">
+          <input type="checkbox" id="shipUpsell">
+          <span>設為加購商品（顯示於「加購區」而非主商品區）</span>
+        </label>
+        <label class="checkbox-label">
+          <input type="checkbox" id="shipShareLineStock" checked>
+          <span>共用 LINE 份數（沿用上方「LINE 今日可售份數」設定）</span>
+        </label>
       </div>
     <div class="modal-footer">
       <button class="btn-secondary" onclick="closeLineSettingsModal()">取消</button>

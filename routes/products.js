@@ -74,6 +74,13 @@ function enrichProduct(p) {
     line_preorder_remaining: Number(p.line_preorder_enabled)
       ? Math.max(0, Number(p.line_preorder_daily||0) - Number(p.line_preorder_sold||0))
       : null,
+    // fix18-10-hotfix18：LINE 冷藏宅配中心 V1
+    shipping_enabled:          Number(p.shipping_enabled)          || 0,
+    shipping_name:             p.shipping_name || '',
+    shipping_spec:             p.shipping_spec || '',
+    shipping_sort_order:       Number(p.shipping_sort_order)       || 0,
+    shipping_upsell:           Number(p.shipping_upsell)           || 0,
+    shipping_share_line_stock: p.shipping_share_line_stock != null ? Number(p.shipping_share_line_stock) : 1,
   };
 }
 
@@ -379,6 +386,34 @@ router.patch('/:id/line-status', requireFeature('line_order'), (req, res) => {
     if (!sets.length) return res.status(400).json({ success: false, message: '沒有要更新的欄位' });
     sets.push("updated_at=datetime('now','localtime')");
     vals.push(id); vals.push(storeId);
+    db.run(`UPDATE products SET ${sets.join(',')} WHERE id=? AND store_id=?`, vals);
+    res.json({ success: true, data: enrichProduct(db.get('SELECT * FROM products WHERE id=?', [id])) });
+  } catch(e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+/* PATCH /api/products/:id/shipping-settings — fix18-10-hotfix18：LINE 冷藏宅配商品設定 */
+router.patch('/:id/shipping-settings', requireFeature('line_order'), (req, res) => {
+  try {
+    const db = getDb();
+    const storeId = req.storeId;
+    const id = req.params.id;
+    const ex = db.get('SELECT id FROM products WHERE id=? AND store_id=?', [id, storeId]);
+    if (!ex) return res.status(404).json({ success: false, message: '商品不存在' });
+    const {
+      shipping_enabled, shipping_name, shipping_spec,
+      shipping_sort_order, shipping_upsell, shipping_share_line_stock,
+    } = req.body;
+    const sets = []; const vals = [];
+    const add = (col, val) => { if (val !== undefined) { sets.push(`${col}=?`); vals.push(val); } };
+    add('shipping_enabled',           shipping_enabled           != null ? Number(shipping_enabled)           : undefined);
+    add('shipping_name',              shipping_name);
+    add('shipping_spec',              shipping_spec);
+    add('shipping_sort_order',        shipping_sort_order        != null ? Number(shipping_sort_order)        : undefined);
+    add('shipping_upsell',            shipping_upsell            != null ? Number(shipping_upsell)            : undefined);
+    add('shipping_share_line_stock',  shipping_share_line_stock  != null ? Number(shipping_share_line_stock)  : undefined);
+    if (!sets.length) return res.status(400).json({ success: false, message: '沒有要更新的欄位' });
+    sets.push("updated_at=datetime('now','localtime')");
+    vals.push(id, storeId);
     db.run(`UPDATE products SET ${sets.join(',')} WHERE id=? AND store_id=?`, vals);
     res.json({ success: true, data: enrichProduct(db.get('SELECT * FROM products WHERE id=?', [id])) });
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
