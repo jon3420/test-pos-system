@@ -205,7 +205,12 @@
           <button class="shortcut-btn"        data-range="week"      onclick="setDateRange('week')">本週</button>
           <button class="shortcut-btn"        data-range="month"     onclick="setDateRange('month')">本月</button>
           <button class="shortcut-btn"        data-range="lastmonth" onclick="setDateRange('lastmonth')">上月</button>
+          <button class="shortcut-btn"        data-range="single"    onclick="setDateRange('single')">單日</button>
           <button class="shortcut-btn"        data-range="custom"    onclick="setDateRange('custom')">自訂</button>
+        </div>
+        <!-- fix18-10-hotfix21：單日查詢，只查指定單一日期 00:00:00~23:59:59 -->
+        <div id="singleDateRange" style="display:none;gap:4px;align-items:center;display:flex">
+          <input type="date" id="singleDate" onchange="applySingleDateRange()">
         </div>
         <div id="customDateRange" style="display:none;gap:4px;align-items:center;display:flex">
           <input type="date" id="dateFrom">
@@ -292,11 +297,12 @@
           <thead>
             <tr>
               <th>訂單編號</th><th>建立時間</th><th>模式</th><th>顧客</th>
-              <th>商品</th><th>金額</th><th>付款</th><th>狀態</th><th>操作</th>
+              <th>商品</th><th>金額</th><th>付款方式</th><th>付款狀態</th><th>交易編號</th>
+              <th>物流公司</th><th>物流單號</th><th>物流狀態</th><th>操作</th>
             </tr>
           </thead>
           <tbody id="orderRecShippingBody">
-            <tr><td colspan="9" class="table-empty">載入中...</td></tr>
+            <tr><td colspan="13" class="table-empty">載入中...</td></tr>
           </tbody>
         </table>
       </div>
@@ -595,7 +601,13 @@
         <button class="btn-secondary" id="lpf-today" onclick="lpSetFilter('today')" style="font-size:12px;padding:5px 10px">今天</button>
         <button class="btn-secondary" id="lpf-tomorrow" onclick="lpSetFilter('tomorrow')" style="font-size:12px;padding:5px 10px">明天</button>
         <button class="btn-secondary" id="lpf-week" onclick="lpSetFilter('week')" style="font-size:12px;padding:5px 10px">本週</button>
+        <button class="btn-secondary" id="lpf-single" onclick="lpSetFilter('single')" style="font-size:12px;padding:5px 10px">單日</button>
         <button class="btn-secondary" id="lpf-all" onclick="lpSetFilter('all')" style="font-size:12px;padding:5px 10px;background:var(--accent);color:#fff">全部預購</button>
+      </div>
+      <!-- fix18-10-hotfix21：單日查詢，只查指定單一日期 -->
+      <div id="lp-single-date-wrap" style="display:none;gap:6px;align-items:center">
+        <label style="font-size:12px;color:var(--text-secondary,#94a3b8)">指定日期</label>
+        <input type="date" id="lp-date-single" onchange="lpSetFilter('single')" style="padding:5px 8px;border:1px solid var(--border,#334155);border-radius:6px;font-size:12px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
       </div>
       <div style="display:flex;gap:6px;align-items:center">
         <label style="font-size:12px;color:var(--text-secondary,#94a3b8)">自訂日期</label>
@@ -614,12 +626,11 @@
       <div style="display:flex;gap:6px" id="lp-status-filter-wrap">
         <select id="lp-filter-status" onchange="renderLinePreordersTable()" style="padding:5px 8px;border:1px solid var(--border,#334155);border-radius:6px;font-size:12px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
           <option value="">全部狀態</option>
-          <option value="pending">待接單</option>
+          <option value="confirm">待確認</option>
           <option value="accepted">已接單</option>
-          <option value="preparing">製作中</option>
-          <option value="ready">可取餐</option>
-          <option value="completed">已完成</option>
-          <option value="cancelled">已取消</option>
+          <option value="processing">處理中</option>
+          <option value="done">已完成</option>
+          <option value="cancel">已取消</option>
         </select>
       </div>
       <span id="lp-count-badge" style="font-size:12px;color:#06C755;font-weight:600;margin-left:auto"></span>
@@ -1416,6 +1427,56 @@
             <label class="checkbox-label"><input type="checkbox" class="ship-pay-chk" value="linepay"> LINE Pay（V1 尚未支援結帳流程）</label>
           </div>
           <button class="btn-primary" onclick="saveShippingSettings()">💾 儲存冷藏宅配設定</button>
+        </div>
+
+        <!-- 📦 物流 API 設定（fix18-10-hotfix21：架構預留 V1，尚未串接正式物流商）───── -->
+        <div class="settings-card" style="grid-column:1/-1">
+          <h3>📦 物流 API 設定</h3>
+          <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px">
+            V1 僅預留物流 API 串接架構，目前物流公司與物流單號仍為手動輸入；啟用後也不會自動呼叫正式物流商 API。
+          </p>
+          <label class="checkbox-label" style="margin-bottom:14px;display:block">
+            <input type="checkbox" id="set-shipping_api_enabled"> 啟用物流 API（V1 架構預留，尚未正式串接）
+          </label>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px">
+            <label>
+              <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:6px">物流商</div>
+              <select id="set-shipping_provider" class="form-input" style="width:100%">
+                <option value="manual">手動輸入</option>
+              </select>
+            </label>
+            <label>
+              <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:6px">API Key</div>
+              <input type="text" id="set-shipping_api_key" class="form-input" style="width:100%" autocomplete="off">
+            </label>
+            <label>
+              <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:6px">API Secret</div>
+              <input type="password" id="set-shipping_api_secret" class="form-input" style="width:100%" autocomplete="off">
+            </label>
+            <label>
+              <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:6px">客戶代號（Merchant ID）</div>
+              <input type="text" id="set-shipping_customer_id" class="form-input" style="width:100%">
+            </label>
+            <label>
+              <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:6px">寄件人名稱</div>
+              <input type="text" id="set-shipping_sender_name" class="form-input" style="width:100%">
+            </label>
+            <label>
+              <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:6px">寄件人電話</div>
+              <input type="text" id="set-shipping_sender_phone" class="form-input" style="width:100%">
+            </label>
+          </div>
+          <label style="display:block;margin-top:10px">
+            <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:6px">寄件人地址</div>
+            <input type="text" id="set-shipping_sender_address" class="form-input" style="width:100%">
+          </label>
+          <label class="checkbox-label" style="margin-top:10px;display:block">
+            <input type="checkbox" id="set-shipping_test_mode"> 測試模式
+          </label>
+          <div style="display:flex;gap:10px;margin-top:14px">
+            <button class="btn-secondary" onclick="testShippingApiConnection()">🔌 測試連線</button>
+            <button class="btn-primary" onclick="saveShippingApiSettings()">💾 儲存設定</button>
+          </div>
         </div>
       </div>
     </div>

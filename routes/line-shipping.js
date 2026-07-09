@@ -423,14 +423,18 @@ router.get('/order/:orderNo', (req, res) => {
 });
 
 // ── GET /api/line-shipping/admin/orders — Web 後台宅配訂單列表 ────────
+// fix18-10-hotfix21：新增 date / date_from / date_to 篩選，供「訂單紀錄」
+// 與「LINE 預購管理」的日期快選（含單日）共用同一套查詢邏輯。
 router.get('/admin/orders', (req, res) => {
   try {
     const db = getDb();
     const storeId = req.storeId;
-    const { status, limit = 50, offset = 0 } = req.query;
+    const { status, limit = 50, offset = 0, date, date_from, date_to } = req.query;
     let where = "WHERE store_id=? AND fulfillment_type='shipping'";
     const params = [storeId];
     if (status && status !== 'all') { where += ' AND shipping_status=?'; params.push(status); }
+    if (date) { where += ' AND DATE(created_at)=?'; params.push(date); }
+    else if (date_from && date_to) { where += ' AND DATE(created_at)>=? AND DATE(created_at)<=?'; params.push(date_from, date_to); }
     const orders = db.all(
       `SELECT * FROM orders ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
       [...params, Number(limit), Number(offset)]

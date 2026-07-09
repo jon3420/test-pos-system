@@ -61,6 +61,13 @@ const SHIPPING_KEYS = [
   'shipping_allow_arrival_date', 'shipping_upsell_enabled',
 ];
 
+// fix18-10-hotfix21：冷藏宅配「物流 API 設定架構預留」key（V1 只做架構，不串接正式物流商）
+const SHIPPING_API_KEYS = [
+  'shipping_api_enabled', 'shipping_provider', 'shipping_api_key', 'shipping_api_secret',
+  'shipping_customer_id', 'shipping_sender_name', 'shipping_sender_phone',
+  'shipping_sender_address', 'shipping_test_mode',
+];
+
 // fix18-08：外送平台抽成率 key
 const COMMISSION_KEYS = [
   'ubereats_commission_rate',
@@ -89,6 +96,7 @@ const ALL_ALLOWED = [
   ...LINE_KEYS,
   ...COMMISSION_KEYS,
   ...SHIPPING_KEYS,
+  ...SHIPPING_API_KEYS,
 ];
 
 // GET /api/settings
@@ -111,7 +119,7 @@ router.put('/', (req, res) => {
 
     // ── fix14：檢查是否修改 LINE key ───────────────────────
     const requestedKeys = Object.keys(req.body);
-    const hasLineKey    = requestedKeys.some(k => LINE_KEYS.has(k) || SHIPPING_KEYS.includes(k));
+    const hasLineKey    = requestedKeys.some(k => LINE_KEYS.has(k) || SHIPPING_KEYS.includes(k) || SHIPPING_API_KEYS.includes(k));
 
     if (hasLineKey) {
       // 查授權

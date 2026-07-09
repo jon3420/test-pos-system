@@ -1394,6 +1394,35 @@ function initTables(w) {
   multiChannelProductCols.forEach(([col, def]) => {
     try { w._db.run(`ALTER TABLE products ADD COLUMN ${col} ${def}`); w._save(); } catch {}
   });
+
+  // ══════════════════════════════════════════════════════════════════
+  // ── fix18-10-hotfix21：物流 API 架構預留 V1 ──────────────────────────
+  // 原則：safe migration，只用 ALTER TABLE ADD COLUMN / INSERT OR IGNORE，
+  // 絕不 DROP / 重建既有 orders 資料表或既有欄位；不改既有訂單資料。
+  // 這一版不會有任何流程寫入下列欄位，僅預留架構供未來版本擴充。
+  // ══════════════════════════════════════════════════════════════════
+  const shippingApiOrderCols = [
+    ['shipping_provider',        'TEXT DEFAULT ""'],
+    ['shipping_api_status',      'TEXT DEFAULT ""'],
+    ['shipping_api_updated_at',  'TEXT DEFAULT ""'],
+    ['shipping_api_message',     'TEXT DEFAULT ""'],
+  ];
+  shippingApiOrderCols.forEach(([col, def]) => {
+    try { w._db.run(`ALTER TABLE orders ADD COLUMN ${col} ${def}`); w._save(); } catch {}
+  });
+
+  // ── settings 預設值（物流 API 設定，全部 INSERT OR IGNORE，不影響既有 key）──
+  const shippingApiSeeds = [
+    ['shipping_api_enabled', '0'],
+    ['shipping_provider',    'manual'],
+    ['shipping_test_mode',   '1'],
+  ];
+  shippingApiSeeds.forEach(([k, v]) => {
+    try {
+      w._db.run('INSERT OR IGNORE INTO settings (store_id,key,value) VALUES (?,?,?)', ['store_001', k, v]);
+      w._save();
+    } catch(e) { console.warn('[DB] shipping api seed:', k, e.message); }
+  });
 }
 
 module.exports = { getDb, initDb };

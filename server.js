@@ -396,6 +396,9 @@ initDb().then((db) => {
   // fix18-10-hotfix18：LINE 冷藏宅配中心 V1（獨立入口與獨立流程，不動外帶/外送）
   app.use('/api/line-shipping', requireStore, requireFeature('line_order'), require('./routes/line-shipping'));
 
+  // fix18-10-hotfix21：物流 API 架構預留 V1（不串接正式物流商，僅設定架構）
+  app.use('/api/shipping', requireStore, requireFeature('line_order'), require('./routes/shipping'));
+
   // ── 老闆儀表板 Dashboard API（reports feature gate）─────
   app.use('/api/dashboard', requireStore, requireFeature('reports'), require('./routes/dashboard'));
 
