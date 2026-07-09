@@ -99,7 +99,16 @@ setInterval(() => {
 app.use(cors());
 app.use(bodyParser.json({ limit: '5mb' }));
 app.use(bodyParser.urlencoded({ extended: true }));
-app.use(express.static(path.join(__dirname, 'public')));
+// fix18-10-hotfix22A：LINE 內建瀏覽器（尤其 iOS）對 .html 進入頁常有過度快取問題，
+// 導致客戶端點開 line-order.html / line-shipping.html 時吃到舊版畫面。
+// 僅對 .html 文件關閉快取，其餘靜態資源（js/css/圖片）不受影響、行為不變。
+app.use(express.static(path.join(__dirname, 'public'), {
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.html')) {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    }
+  },
+}));
 
 app.post('/webhook/n8n', (req, res) => {
   console.log('[n8n Webhook]', JSON.stringify(req.body, null, 2));

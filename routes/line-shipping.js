@@ -385,6 +385,84 @@ router.post('/', (req, res) => {
   }
 });
 
+// ── Hotfix22：客戶端「我的訂單」查詢共用 helper（獨立於 line-orders.js 的 safeOrder，避免耦合）──
+const SHIP_STATUS_LABELS = {
+  pending: '待確認', accepted: '已接單', packing: '包裝中', shipped: '已出貨',
+  delivered: '已送達', completed: '已完成', cancelled: '已取消', returned: '退貨',
+};
+const SHIP_PAYMENT_STATUS_LABELS = {
+  pending: '待付款', paid: '付款成功', failed: '付款失敗', refunded: '退款', cancelled: '取消',
+};
+const SHIP_PAYMENT_METHOD_LABELS = { cash: '現金', linepay: 'LINE Pay', transfer: '轉帳' };
+
+function isFullPhoneShip(input) { return /^\d{6,}$/.test(String(input || '').replace(/[-\s]/g, '')); }
+
+function safeShippingOrder(order) {
+  let items = [];
+  try { items = typeof order.items === 'string' ? JSON.parse(order.items || '[]') : (order.items || []); } catch {}
+  const phone = String(order.shipping_phone || order.customer_phone || '');
+  const shipStatus = order.shipping_status || 'pending';
+  const payStatus = order.payment_status || 'pending';
+  return {
+    order_number: order.order_number,
+    created_at: order.created_at,
+    status: shipStatus,
+    status_label: SHIP_STATUS_LABELS[shipStatus] || shipStatus,
+    payment_status: payStatus,
+    payment_status_label: SHIP_PAYMENT_STATUS_LABELS[payStatus] || payStatus,
+    payment_method: order.payment_method || '',
+    payment_method_label: SHIP_PAYMENT_METHOD_LABELS[order.payment_method] || order.payment_method || '',
+    carrier_name: order.carrier_name || order.shipping_carrier_name || '',
+    tracking_number: order.tracking_number || '',
+    arrival_type: order.shipping_arrival_type || 'asap',
+    arrival_date: order.shipping_arrival_date || '',
+    recipient_name: order.shipping_recipient_name || '',
+    phone_last3: phone.slice(-3),
+    phone,
+    address: `${order.shipping_city || ''}${order.shipping_district || ''}${order.shipping_address || ''}`,
+    items,
+    subtotal: Number(order.subtotal || 0),
+    shipping_fee: Number(order.shipping_fee || 0),
+    total: Number(order.total || 0),
+    note: order.note || '',
+  };
+}
+
+// ── POST /api/line-shipping/history — 客戶端「我的訂單」（依電話查詢歷史宅配訂單）──
+// 沿用 /api/line-orders/history 相同的查詢慣例（完整電話 → 全部歷史；後三碼 → 需搭配姓名，僅查最近3天），
+// 但只查 fulfillment_type='shipping' 的訂單，與 LINE 外帶/外送歷史查詢完全獨立、互不影響。
+router.post('/history', (req, res) => {
+  try {
+    const db = getDb();
+    const storeId = req.storeId;
+    const rawPhone = String(req.body.phone || '').trim();
+    const rawName = String(req.body.customer_name || '').trim();
+    if (!rawPhone) return res.status(400).json({ success: false, message: '請輸入電話' });
+
+    const now = twNow();
+    const threeDaysAgo = (() => { const d = new Date(now); d.setDate(d.getDate() - 3); return twDateStr(d); })();
+
+    if (isFullPhoneShip(rawPhone)) {
+      const cleaned = rawPhone.replace(/[-\s]/g, '');
+      const orders = db.all(
+        `SELECT * FROM orders WHERE store_id=? AND fulfillment_type='shipping' AND shipping_phone=? ORDER BY created_at DESC LIMIT 30`,
+        [storeId, cleaned]
+      );
+      if (!orders.length) return res.status(404).json({ success: false, message: '查無宅配訂單記錄，請確認電話號碼' });
+      return res.json({ success: true, orders: orders.map(safeShippingOrder) });
+    }
+    if (!rawName) return res.status(400).json({ success: false, message: '電話後三碼查詢需搭配姓名' });
+    const last3 = rawPhone.slice(-3);
+    if (!/^\d{3}$/.test(last3)) return res.status(400).json({ success: false, message: '電話後三碼請輸入3位數字' });
+    const orders = db.all(
+      `SELECT * FROM orders WHERE store_id=? AND fulfillment_type='shipping' AND substr(shipping_phone,-3)=? AND shipping_recipient_name LIKE ? AND date(created_at) >= ? ORDER BY created_at DESC LIMIT 30`,
+      [storeId, last3, `%${rawName}%`, threeDaysAgo]
+    );
+    if (!orders.length) return res.status(404).json({ success: false, message: '查無最近3天宅配訂單，請確認資料或詢問店員' });
+    return res.json({ success: true, orders: orders.map(safeShippingOrder) });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
 // ── GET /api/line-shipping/order/:orderNo — 查詢宅配訂單 ──────────────
 router.get('/order/:orderNo', (req, res) => {
   try {
@@ -413,6 +491,8 @@ router.get('/order/:orderNo', (req, res) => {
         shipping_fee: Number(order.shipping_fee || 0),
         total: Number(order.total || 0),
         payment_method: order.payment_method,
+        payment_status: order.payment_status || 'pending',
+        payment_status_label: SHIP_PAYMENT_STATUS_LABELS[order.payment_status] || order.payment_status || '待付款',
         carrier_name: order.carrier_name || order.shipping_carrier_name || '',
         tracking_number: order.tracking_number || '',
         shipping_note: order.shipping_note || '',

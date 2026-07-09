@@ -14,6 +14,27 @@ img{max-width:100%;display:block}
 .hdr{background:linear-gradient(135deg,var(--g),var(--gd));color:#fff;padding:20px 16px 64px}
 .hdr h1{font-size:22px;font-weight:700}
 .hdr p{font-size:12px;opacity:.85;margin-top:4px}
+.hdr-btns{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.hdr-btn{background:rgba(255,255,255,.22);color:#fff;border:1.5px solid rgba(255,255,255,.5);padding:7px 14px;border-radius:20px;font-size:13px;font-weight:600;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.hdr-btn:active{background:rgba(255,255,255,.35)}
+.copy-btn{padding:8px;margin-top:6px;background:#fff;color:var(--sub);border:1.5px solid var(--bd);border-radius:8px;font-size:12px;font-weight:600}
+.ship-info-box{background:#f0f6ff;border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:12px;color:#0d47a1;line-height:1.7}
+.ship-info-box .sib-row{display:flex;justify-content:space-between;gap:8px}
+.ship-info-box .sib-note{white-space:pre-line;margin-top:4px;color:#1565c0}
+.min-order-warn{background:#fff3e0;color:#e65100;border-radius:6px;padding:8px 10px;font-size:12px;margin:6px 0;font-weight:600}
+.mo-card{background:#fff;border:1px solid var(--bd);border-radius:var(--r);padding:12px 14px;margin:0 12px 10px}
+.mo-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.mo-no{font-size:13px;font-weight:700}
+.mo-time{font-size:11px;color:var(--sub);margin-top:2px}
+.mo-badges{display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end}
+.mo-badge{font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;white-space:nowrap}
+.mo-badge.pay-paid{background:#e8f5e9;color:#2e7d32}
+.mo-badge.pay-pending{background:#fff3e0;color:#e65100}
+.mo-badge.pay-failed,.mo-badge.pay-refunded,.mo-badge.pay-cancelled{background:#fce8e8;color:#b71c1c}
+.mo-badge.ship{background:#e3f2fd;color:#0d47a1}
+.mo-bottom{display:flex;justify-content:space-between;align-items:center;margin-top:6px}
+.mo-amount{font-size:14px;font-weight:700;color:var(--g)}
+.mo-detail-btn{padding:6px 12px;background:var(--g);color:#fff;border-radius:16px;font-size:12px;font-weight:700}
 .shop-card{background:#fff;border-radius:var(--r);margin:0 12px;margin-top:-52px;padding:16px;box-shadow:var(--shadow);display:flex;gap:14px;align-items:center}
 .shop-logo{width:56px;height:56px;border-radius:50%;background:var(--g);display:flex;align-items:center;justify-content:center;font-size:26px;color:#fff;flex-shrink:0;overflow:hidden}
 .shop-logo img{width:100%;height:100%;object-fit:cover}
@@ -127,6 +148,10 @@ img{max-width:100%;display:block}
   <div class="hdr">
     <h1 id="shopTitle">冷藏宅配</h1>
     <p id="shopSub"></p>
+    <div class="hdr-btns">
+      <button class="hdr-btn" onclick="openQuerySheet()">🔍 查詢訂單</button>
+      <button class="hdr-btn" onclick="openMyOrders()">📋 我的訂單</button>
+    </div>
   </div>
   <div class="shop-card">
     <div class="shop-logo" id="logoWrap">📦</div>
@@ -157,9 +182,11 @@ img{max-width:100%;display:block}
   <div class="sheet-hd"><h3>🛒 宅配購物車</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
   <div id="cartItems" style="padding:0 16px"></div>
   <div class="cf">
+    <div id="cartShipInfo" style="padding:0"></div>
     <div class="ot"><span>小計</span><span id="subtotalDisplay">$0</span></div>
     <div class="ot"><span>運費</span><span id="feeDisplay">$0</span></div>
     <div id="freeHint" class="free-hint" style="display:none"></div>
+    <div id="minOrderWarn" class="min-order-warn" style="display:none"></div>
     <div class="ot total"><span>應付金額</span><span id="orderTotal">$0</span></div>
 
     <div class="fg"><label class="fl">收件人姓名 <span class="req">*</span></label><input class="fi" id="rName" placeholder="收件人姓名"></div>
@@ -202,6 +229,21 @@ img{max-width:100%;display:block}
     <button class="sub-btn" onclick="queryOrder()">查詢</button>
     <div id="queryResult" style="margin-top:14px"></div>
   </div>
+</div>
+
+<!-- 我的訂單 Sheet -->
+<div class="sheet" id="myOrdersSheet">
+  <div class="sheet-hd"><h3>📋 我的宅配訂單</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
+  <div id="myOrdersBody" style="padding-bottom:20px"></div>
+</div>
+
+<!-- 訂單詳情 Sheet（供「我的訂單」列表點入使用；查詢訂單維持原本 querySheet 內嵌顯示，不受影響） -->
+<div class="sheet" id="shipDetailSheet">
+  <div class="sheet-hd">
+    <button class="close-btn" onclick="backToMyOrders()" style="width:auto;border-radius:16px;padding:0 12px;font-size:13px">← 返回</button>
+    <button class="close-btn" onclick="closeSheet()">✕</button>
+  </div>
+  <div id="shipDetailBody" style="padding:0 16px 20px"></div>
 </div>
 
 <div class="success-screen" id="successScreen">
@@ -408,7 +450,9 @@ function calcFee() {
   const sub = cartSubtotal();
   const meetsFree = settings.shipping_free_threshold > 0 && sub >= settings.shipping_free_threshold;
   const fee = meetsFree ? 0 : settings.shipping_fee;
-  return { sub, fee, meetsFree, total: sub + fee };
+  const minAmt = Number(settings.shipping_min_order_amount || 0);
+  const belowMin = minAmt > 0 && sub > 0 && sub < minAmt;
+  return { sub, fee, meetsFree, belowMin, minAmt, total: sub + fee };
 }
 
 function renderCartItems() {
@@ -430,7 +474,7 @@ function renderCartItems() {
 }
 
 function refreshCartSheetTotals() {
-  const { sub, fee, meetsFree, total } = calcFee();
+  const { sub, fee, meetsFree, belowMin, minAmt, total } = calcFee();
   document.getElementById('subtotalDisplay').textContent = '$' + sub;
   document.getElementById('feeDisplay').textContent = '$' + fee;
   document.getElementById('orderTotal').textContent = '$' + total;
@@ -440,6 +484,29 @@ function refreshCartSheetTotals() {
     if (meetsFree) { freeHint.style.display = 'block'; freeHint.textContent = '🎉 已達免運門檻'; }
     else { freeHint.style.display = 'block'; freeHint.textContent = `再買 NT$${threshold - sub} 免運`; }
   } else freeHint.style.display = 'none';
+
+  const warnEl = document.getElementById('minOrderWarn');
+  if (belowMin) { warnEl.style.display = 'block'; warnEl.textContent = `⚠️ 未達最低訂購金額 NT$${minAmt}，還差 NT$${minAmt - sub}`; }
+  else warnEl.style.display = 'none';
+
+  const submitBtn = document.getElementById('submitBtn');
+  if (submitBtn) submitBtn.disabled = belowMin;
+
+  renderCartShipInfo();
+}
+
+// fix18-10-hotfix22：購物車內顯示物流資訊（物流公司／配送方式提醒／後台設定的宅配說明公告）
+function renderCartShipInfo() {
+  const el = document.getElementById('cartShipInfo');
+  if (!el || !SHOP_DATA) return;
+  const s = SHOP_DATA.settings;
+  const carrier = s.shipping_carrier_name || '';
+  const notes = [s.shipping_notice, s.shipping_storage_note].filter(Boolean);
+  el.innerHTML = `<div class="ship-info-box">
+    ${carrier ? `<div class="sib-row"><span>🚚 物流公司</span><span>${esc(carrier)}</span></div>` : ''}
+    <div class="sib-row"><span>📦 配送方式</span><span>${arrivalType === 'date' ? '指定到貨' : '最快出貨'}</span></div>
+    ${notes.length ? `<div class="sib-note">${notes.map(esc).join('\n')}</div>` : ''}
+  </div>`;
 }
 
 function openCartSheet() {
@@ -462,10 +529,12 @@ function setArrivalType(type) {
   document.getElementById('arrivalAsapBtn').classList.toggle('active', type === 'asap');
   document.getElementById('arrivalDateBtn').classList.toggle('active', type === 'date');
   document.getElementById('rArrivalDate').style.display = type === 'date' ? 'block' : 'none';
+  renderCartShipInfo();
 }
 
 async function submitOrder() {
   if (!cartList().length) { toast('購物車是空的'); return; }
+  if (calcFee().belowMin) { toast(`未達最低訂購金額 NT$${SHOP_DATA.settings.shipping_min_order_amount}`); return; }
   const name = document.getElementById('rName').value.trim();
   const phone = document.getElementById('rPhone').value.trim();
   const postal = document.getElementById('rPostal').value.trim();
@@ -547,6 +616,56 @@ function renderShipStepper(status) {
   }).join('')}</div>`;
 }
 
+// fix18-10-hotfix22：把訂單詳情樣板抽成共用函式，供「查詢訂單」與新增的「我的訂單」共用，
+// 避免重複維護兩份幾乎相同的樣板（不影響既有 queryOrder() 對外行為）。
+const SHIP_PAY_LABELS = { pending: '待付款', paid: '付款成功', failed: '付款失敗', refunded: '退款', cancelled: '取消' };
+function renderShipOrderDetailHTML(d, opts) {
+  opts = opts || {};
+  const trackBtnId = opts.idPrefix ? opts.idPrefix + 'TrackBtn' : 'trackBtn';
+  const copyBtnId = opts.idPrefix ? opts.idPrefix + 'CopyBtn' : 'copyTrackBtn';
+  const payLabel = d.payment_status_label || SHIP_PAY_LABELS[d.payment_status] || '待付款';
+  const trackBtn = d.tracking_number
+    ? `<button type="button" class="track-btn" id="${trackBtnId}">🔍 物流查詢（${esc(d.carrier_name || '')} ${esc(d.tracking_number)}）</button>
+       <button type="button" class="copy-btn" id="${copyBtnId}" style="width:100%">📋 複製物流單號</button>`
+    : '';
+  return `
+    <div class="ship-status-title">📦 宅配訂單狀態</div>
+    ${renderShipStepper(d.status)}
+    <div class="od-section">
+      <div class="od-row"><span class="od-label">訂單編號</span><span class="od-val">${esc(d.order_number)}</span></div>
+      <div class="od-row"><span class="od-label">建立時間</span><span class="od-val">${esc(d.created_at || '')}</span></div>
+      <div class="od-row"><span class="od-label">付款狀態</span><span class="od-val">${esc(payLabel)}</span></div>
+      <div class="od-row"><span class="od-label">付款方式</span><span class="od-val">${esc(d.payment_method_label || d.payment_method || '')}</span></div>
+      <div class="od-row"><span class="od-label">收件人</span><span class="od-val">${esc(d.recipient_name)}</span></div>
+      <div class="od-row"><span class="od-label">電話</span><span class="od-val">${esc(d.phone || (d.phone_last3 ? '***' + d.phone_last3 : ''))}</span></div>
+      <div class="od-row"><span class="od-label">地址</span><span class="od-val">${esc(d.address)}</span></div>
+      <div class="od-row"><span class="od-label">希望到貨</span><span class="od-val">${d.arrival_type === 'date' ? esc(d.arrival_date) : '最快出貨'}</span></div>
+      <div class="od-row"><span class="od-label">商品明細</span><span class="od-val">${(d.items||[]).map(i => `${esc(i.name)}${i.spec ? '（'+esc(i.spec)+'）' : ''} × ${i.qty}`).join('<br>')}</span></div>
+      <div class="od-row"><span class="od-label">小計</span><span class="od-val">$${d.subtotal}</span></div>
+      <div class="od-row"><span class="od-label">運費</span><span class="od-val">$${d.shipping_fee}</span></div>
+      <div class="od-row"><span class="od-label">總金額</span><span class="od-val od-total">$${d.total}</span></div>
+      <div class="od-row"><span class="od-label">物流公司</span><span class="od-val">${esc(d.carrier_name || '－')}</span></div>
+      <div class="od-row"><span class="od-label">物流單號</span><span class="od-val">${esc(d.tracking_number || '－')}</span></div>
+      <div class="od-row"><span class="od-label">備註</span><span class="od-val">${esc(d.note || d.shipping_note || '－')}</span></div>
+    </div>
+    ${trackBtn}`;
+}
+function bindShipDetailButtons(d, opts) {
+  opts = opts || {};
+  const trackBtnId = opts.idPrefix ? opts.idPrefix + 'TrackBtn' : 'trackBtn';
+  const copyBtnId = opts.idPrefix ? opts.idPrefix + 'CopyBtn' : 'copyTrackBtn';
+  const tb = document.getElementById(trackBtnId);
+  // V2：物流查詢按鈕先開啟物流公司官網（尚未串接黑貓 API 追蹤，先做通用導引）
+  if (tb) tb.onclick = () => { window.open('https://www.t-cat.com.tw/inquire/trace.aspx', '_blank'); };
+  const cb = document.getElementById(copyBtnId);
+  if (cb) cb.onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(d.tracking_number || '');
+      toast('已複製物流單號');
+    } catch (e) { toast('複製失敗，請手動選取'); }
+  };
+}
+
 async function queryOrder() {
   const no = document.getElementById('qOrderNo').value.trim();
   const resultEl = document.getElementById('queryResult');
@@ -556,35 +675,89 @@ async function queryOrder() {
     const res = await apiGet(`/api/line-shipping/order/${encodeURIComponent(no)}`);
     if (!res.success) { resultEl.innerHTML = `<p style="color:#c62828;font-size:13px">${esc(res.message || '查無訂單')}</p>`; return; }
     const d = res.data;
-    const trackBtn = d.tracking_number
-      ? `<button type="button" class="track-btn" id="trackBtn">🔍 物流查詢（${esc(d.carrier_name || '')} ${esc(d.tracking_number)}）</button>`
-      : '';
-    resultEl.innerHTML = `
-      <div class="ship-status-title">📦 宅配訂單狀態</div>
-      ${renderShipStepper(d.status)}
-      <div class="od-section">
-        <div class="od-row"><span class="od-label">訂單編號</span><span class="od-val">${esc(d.order_number)}</span></div>
-        <div class="od-row"><span class="od-label">收件人</span><span class="od-val">${esc(d.recipient_name)}</span></div>
-        <div class="od-row"><span class="od-label">電話</span><span class="od-val">${esc(d.phone)}</span></div>
-        <div class="od-row"><span class="od-label">地址</span><span class="od-val">${esc(d.address)}</span></div>
-        <div class="od-row"><span class="od-label">到貨日期</span><span class="od-val">${d.arrival_type === 'date' ? esc(d.arrival_date) : '最快出貨'}</span></div>
-        <div class="od-row"><span class="od-label">商品明細</span><span class="od-val">${d.items.map(i => `${esc(i.name)}${i.spec ? '（'+esc(i.spec)+'）' : ''} × ${i.qty}`).join('<br>')}</span></div>
-        <div class="od-row"><span class="od-label">小計</span><span class="od-val">$${d.subtotal}</span></div>
-        <div class="od-row"><span class="od-label">運費</span><span class="od-val">$${d.shipping_fee}</span></div>
-        <div class="od-row"><span class="od-label">總金額</span><span class="od-val od-total">$${d.total}</span></div>
-        <div class="od-row"><span class="od-label">物流公司</span><span class="od-val">${esc(d.carrier_name || '－')}</span></div>
-        <div class="od-row"><span class="od-label">物流單號</span><span class="od-val">${esc(d.tracking_number || '－')}</span></div>
-        <div class="od-row"><span class="od-label">備註</span><span class="od-val">${esc(d.shipping_note || '－')}</span></div>
-      </div>
-      ${trackBtn}`;
-    // V2：物流查詢按鈕先開啟物流公司官網（尚未串接黑貓 API 追蹤，先做通用導引）
-    const tb = document.getElementById('trackBtn');
-    if (tb) tb.onclick = () => {
-      window.open('https://www.t-cat.com.tw/inquire/trace.aspx', '_blank');
-    };
+    resultEl.innerHTML = renderShipOrderDetailHTML(d);
+    bindShipDetailButtons(d);
   } catch (e) {
     resultEl.innerHTML = '<p style="color:#c62828;font-size:13px">查詢失敗</p>';
   }
+}
+
+// ── Hotfix22：我的訂單（依電話查詢歷史宅配訂單，獨立於「查詢訂單」單號查詢）──
+function openMyOrders() {
+  const phone = localStorage.getItem('line_shipping_customer_phone');
+  const name = localStorage.getItem('line_shipping_customer_name');
+  if (phone) loadMyOrders(phone, name);
+  else showMyOrdersLogin();
+  document.getElementById('overlay').classList.add('show');
+  document.getElementById('myOrdersSheet').classList.add('show');
+}
+function showMyOrdersLogin() {
+  document.getElementById('myOrdersBody').innerHTML = `
+    <div style="padding:16px">
+      <div class="ship-info-box">📱 請輸入您訂購時填寫的電話查看宅配歷史訂單</div>
+      <div class="fg"><label class="fl">電話 / 後三碼 <span class="req">*</span></label><input class="fi" id="moPhone" placeholder="完整電話或後三碼" type="tel"></div>
+      <div class="fg"><label class="fl">收件人姓名（後三碼查詢時必填）</label><input class="fi" id="moName" placeholder="收件人姓名" type="text"></div>
+      <button class="sub-btn" onclick="loginMyOrders()">查詢我的訂單</button>
+    </div>`;
+}
+async function loginMyOrders() {
+  const phone = document.getElementById('moPhone')?.value.trim();
+  const name = document.getElementById('moName')?.value.trim();
+  if (!phone) { toast('請輸入電話'); return; }
+  await loadMyOrders(phone, name, true);
+}
+function clearMyOrdersLogin() {
+  localStorage.removeItem('line_shipping_customer_phone');
+  localStorage.removeItem('line_shipping_customer_name');
+  showMyOrdersLogin();
+}
+async function loadMyOrders(phone, name, save) {
+  const body = document.getElementById('myOrdersBody');
+  body.innerHTML = '<div style="text-align:center;padding:40px;color:#888"><div class="spinner" style="margin:0 auto 8px"></div>載入中…</div>';
+  try {
+    const b = { phone }; if (name) b.customer_name = name;
+    const res = await apiPost('/api/line-shipping/history', b);
+    if (!res.success) {
+      body.innerHTML = `<div class="empty-hint"><div class="ei">📭</div><p>${esc(res.message || '查無宅配訂單')}</p><button class="sub-btn" style="margin:16px auto 0;max-width:240px" onclick="clearMyOrdersLogin()">重新輸入</button></div>`;
+      return;
+    }
+    if (save) {
+      localStorage.setItem('line_shipping_customer_phone', phone);
+      if (name) localStorage.setItem('line_shipping_customer_name', name);
+    }
+    _myOrdersCache = res.orders;
+    body.innerHTML = `<div style="padding:10px 16px;display:flex;justify-content:space-between;align-items:center"><span style="font-size:13px;color:#888">共 ${res.orders.length} 筆宅配訂單</span><button onclick="clearMyOrdersLogin()" style="font-size:12px;color:var(--sub);background:none;border:none;cursor:pointer">切換帳號</button></div>`
+      + res.orders.map((o, i) => buildShipOrderCardHTML(o, i)).join('') + '<div style="height:20px"></div>';
+  } catch (e) {
+    body.innerHTML = '<p style="color:#c62828;text-align:center;padding:40px">載入失敗，請重試</p>';
+  }
+}
+let _myOrdersCache = [];
+function buildShipOrderCardHTML(o, idx) {
+  const payClass = 'pay-' + (o.payment_status || 'pending');
+  return `<div class="mo-card">
+    <div class="mo-head">
+      <div><div class="mo-no">📦 ${esc(o.order_number)}</div><div class="mo-time">🕒 ${esc((o.created_at||'').slice(0,16))}</div></div>
+      <div class="mo-badges">
+        <span class="mo-badge ${payClass}">${esc(o.payment_status_label)}</span>
+        <span class="mo-badge ship">${esc(o.status_label)}</span>
+      </div>
+    </div>
+    <div class="mo-bottom">
+      <span class="mo-amount">💰 $${o.total}</span>
+      <button class="mo-detail-btn" onclick="openShipOrderDetail(${idx})">查看詳情</button>
+    </div>
+  </div>`;
+}
+function openShipOrderDetail(idx) {
+  const d = _myOrdersCache[idx];
+  if (!d) return;
+  document.getElementById('shipDetailBody').innerHTML = renderShipOrderDetailHTML(d, { idPrefix: 'mo' });
+  bindShipDetailButtons(d, { idPrefix: 'mo' });
+  document.getElementById('shipDetailSheet').classList.add('show');
+}
+function backToMyOrders() {
+  document.getElementById('shipDetailSheet').classList.remove('show');
 }
 
 init();

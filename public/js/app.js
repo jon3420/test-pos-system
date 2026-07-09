@@ -1146,6 +1146,11 @@ function showPage(name) {
     });
   }
 
+  // fix18-10-hotfix22A：離開頁面時強制關閉「LINE 上架設定」與「冷藏宅配商品設定」兩個 Modal，
+  // 避免在 LINE 商品管理頁切換分頁/離開後，殘留 open 狀態帶到下一次操作（雙 Modal 同時出現的成因之一）
+  if (typeof closeLineSettingsModal === 'function') closeLineSettingsModal();
+  if (typeof closeShippingProductModal === 'function') closeShippingProductModal();
+
   // 3. 清除所有 nav active 狀態
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
 
@@ -3963,6 +3968,8 @@ async function deleteProduct(id) {
 // ===== LINE 商品設定 Modal (v16) =====
 
 async function openLineSettingsModal(id) {
+  // fix18-10-hotfix22A：強制先關閉「冷藏宅配商品設定」Modal，避免殘留 open 狀態造成雙 Modal 同時出現
+  closeShippingProductModal();
   try {
     // 載入分類選項（LINE 唯一來源）
     await loadLineCategoryOptions();
@@ -4081,6 +4088,9 @@ async function loadLineCategoryOptions() {
 
 function closeLineSettingsModal() {
   document.getElementById('lineSettingsModal').classList.remove('open');
+  // fix18-10-hotfix22A：防止殘留 — 關閉 LINE 上架設定時，一併確保冷藏宅配商品設定沒有殘留開啟
+  const shipModal = document.getElementById('shippingProductModal');
+  if (shipModal) shipModal.classList.remove('open');
 }
 
 async function saveLineSettings() {
@@ -4132,6 +4142,8 @@ async function saveLineSettings() {
 // ===== 📦 冷藏宅配商品設定 Modal（fix18-10-hotfix20：從 LINE 上架設定 Modal 移出，獨立管理）=====
 // 供「LINE 商品管理 → 冷藏宅配商品」分頁使用，也可從 POS 商品管理列表快速開啟。
 async function openShippingProductModal(id) {
+  // fix18-10-hotfix22A：強制先關閉「LINE 上架設定」Modal，避免殘留 open 狀態造成雙 Modal 同時出現
+  closeLineSettingsModal();
   try {
     const res = await apiFetch('/api/products/' + id);
     const json = await res.json();
@@ -4160,7 +4172,24 @@ async function openShippingProductModal(id) {
 }
 
 function closeShippingProductModal() {
-  document.getElementById('shippingProductModal').classList.remove('open');
+  const modal = document.getElementById('shippingProductModal');
+  if (!modal) return;
+  modal.classList.remove('open');
+  // fix18-10-hotfix22A：完整清空狀態，避免下次開啟時殘留上一個商品的資料
+  const idEl = document.getElementById('shipSettingsProductId');
+  if (idEl) idEl.value = '';
+  const nameEl = document.getElementById('shipSettingsProductName');
+  if (nameEl) nameEl.textContent = '';
+  ['shipName', 'shipPrice', 'shipSpec', 'shipSortOrder', 'shipDescription', 'shipImageUrl'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  ['shipEnabled', 'shipUpsell'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.checked = false;
+  });
+  const shareEl = document.getElementById('shipShareLineStock');
+  if (shareEl) shareEl.checked = true; // 預設值：共用 LINE 份數
 }
 
 async function saveShippingProductSettings() {
@@ -7020,6 +7049,9 @@ async function loadLineProductsPage() {
 // ── Tab 切換：今日販售 / 預購管理 / 冷藏宅配商品（fix18-10-hotfix20 新增第三頁籤）──
 let _lpmTab = 'today'; // 'today' | 'preorder' | 'shipping'
 function lpmSwitchTab(tab) {
+  // fix18-10-hotfix22A：切換分頁前先強制關閉兩個商品設定 Modal，避免殘留 open 狀態帶到下一個分頁
+  closeLineSettingsModal();
+  closeShippingProductModal();
   _lpmTab = tab;
   const todayBtn       = document.getElementById('lpm-tab-today');
   const preorderBtn    = document.getElementById('lpm-tab-preorder');
