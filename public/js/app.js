@@ -3970,13 +3970,20 @@ async function deleteProduct(id) {
 async function openLineSettingsModal(id) {
   // fix18-10-hotfix22A：強制先關閉「冷藏宅配商品設定」Modal，避免殘留 open 狀態造成雙 Modal 同時出現
   closeShippingProductModal();
+  // fix18-10-hotfix22A補充：立即開啟 Modal，不等待分類/商品資料載入完成，避免點擊後看起來沒反應
+  const modal = document.getElementById('lineSettingsModal');
+  const idEl = document.getElementById('lineSettingsProductId');
+  const nameEl = document.getElementById('lineSettingsProductName');
+  if (idEl) idEl.value = id;
+  if (nameEl) nameEl.textContent = '載入中…';
+  if (modal) modal.classList.add('open');
   try {
     // 載入分類選項（LINE 唯一來源）
     await loadLineCategoryOptions();
 
     const res = await apiFetch('/api/products/' + id);
     const json = await res.json();
-    if (!json.success) { showToast('載入失敗', 'error'); return; }
+    if (!json.success) { showToast('載入失敗：' + (json.message || ''), 'error'); return; }
     const p = json.data;
 
     document.getElementById('lineSettingsProductId').value = id;
@@ -4144,14 +4151,22 @@ async function saveLineSettings() {
 async function openShippingProductModal(id) {
   // fix18-10-hotfix22A：強制先關閉「LINE 上架設定」Modal，避免殘留 open 狀態造成雙 Modal 同時出現
   closeLineSettingsModal();
+  // fix18-10-hotfix22A補充：立即開啟 Modal（不等待 API 回應），避免 fetch 較慢或失敗時
+  // 讓使用者誤以為「點了沒反應」。欄位先顯示載入中，資料到位後再填入。
+  const modal = document.getElementById('shippingProductModal');
+  const idEl = document.getElementById('shipSettingsProductId');
+  const nameEl = document.getElementById('shipSettingsProductName');
+  if (idEl) idEl.value = id;
+  if (nameEl) nameEl.textContent = '載入中…';
+  if (modal) modal.classList.add('open');
   try {
     const res = await apiFetch('/api/products/' + id);
     const json = await res.json();
-    if (!json.success) { showToast('載入失敗', 'error'); return; }
+    if (!json.success) { showToast('載入失敗：' + (json.message || ''), 'error'); return; }
     const p = json.data;
 
-    document.getElementById('shipSettingsProductId').value = id;
-    document.getElementById('shipSettingsProductName').textContent = p.name + (p.category ? ` （${p.category}）` : '');
+    if (idEl) idEl.value = id;
+    if (nameEl) nameEl.textContent = p.name + (p.category ? ` （${p.category}）` : '');
 
     const setV = (elId, v) => { const el = document.getElementById(elId); if (el) el.value = v; };
     const shipEnabledEl = document.getElementById('shipEnabled');
@@ -4166,9 +4181,10 @@ async function openShippingProductModal(id) {
     if (shipUpsellEl) shipUpsellEl.checked = !!Number(p.shipping_upsell);
     const shipShareEl = document.getElementById('shipShareLineStock');
     if (shipShareEl) shipShareEl.checked = p.shipping_share_line_stock != null ? !!Number(p.shipping_share_line_stock) : true;
-
-    document.getElementById('shippingProductModal').classList.add('open');
-  } catch(e) { showToast('載入商品資料失敗：' + e.message, 'error'); }
+  } catch(e) {
+    showToast('載入商品資料失敗：' + e.message, 'error');
+    if (nameEl) nameEl.textContent = '⚠️ 載入失敗，請關閉後重試';
+  }
 }
 
 function closeShippingProductModal() {
@@ -5735,6 +5751,8 @@ async function loadLineBizStatus() {
         const el = document.getElementById(`lp-${code}`);
         if (el) el.checked = d[key] === '1';
       });
+      // fix18-10-hotfix22A：外帶/外送獨立付款方式（若未設定則 fallback 顯示與上方全域勾選一致）
+      _fillModePaymentToggles(d);
     }
     // ── 外帶規則填入（v1）──────────────────────────────
     const setV = (id, val) => { const el = document.getElementById(id); if(el) el.value = val||''; };
@@ -6448,6 +6466,48 @@ async function setDelivery(enable) {
     body: JSON.stringify({ delivery_enabled: enable ? '1' : '0' }) });
   showToast(enable ? '✅ 外送已開啟' : '❌ 外送已關閉', 'success');
   loadLineBizStatus();
+}
+
+const MODE_PAY_CODES  = ['cash', 'linepay', 'transfer', 'platform', 'credit_card'];
+const MODE_PAY_PREFIX = { takeout: 'tkp', delivery: 'dvp' };
+const MODE_PAY_KEY    = { takeout: 'takeout_payment_methods', delivery: 'delivery_payment_methods' };
+const MODE_PAY_LEGACY_KEY = {
+  cash: 'line_payment_cash_enabled', linepay: 'line_payment_linepay_enabled',
+  transfer: 'line_payment_transfer_enabled', platform: 'line_payment_platform_enabled',
+  credit_card: 'line_payment_credit_card_enabled',
+};
+const MODE_PAY_LABEL = { cash: '現金', linepay: 'LINE Pay', transfer: '轉帳', platform: '平台付款', credit_card: '信用卡' };
+
+// fix18-10-hotfix22A：填入外帶/外送獨立付款方式勾選框。若店家尚未設定新版陣列，
+// 顯示與全域 line_payment_*_enabled 一致的勾選狀態（純顯示 fallback，不會寫回資料庫）。
+function _fillModePaymentToggles(d) {
+  ['takeout', 'delivery'].forEach(mode => {
+    const prefix = MODE_PAY_PREFIX[mode];
+    const raw = d[MODE_PAY_KEY[mode]];
+    let codes = null;
+    try { const arr = JSON.parse(raw || '[]'); if (Array.isArray(arr) && arr.length) codes = arr; } catch {}
+    MODE_PAY_CODES.forEach(code => {
+      const el = document.getElementById(`${prefix}-${code}`);
+      if (!el) return;
+      el.checked = codes ? codes.includes(code) : (d[MODE_PAY_LEGACY_KEY[code]] === '1');
+    });
+  });
+}
+
+async function saveModePaymentSettings(mode) {
+  const prefix = MODE_PAY_PREFIX[mode];
+  const codes = MODE_PAY_CODES.filter(code => document.getElementById(`${prefix}-${code}`)?.checked);
+  if (!codes.length) {
+    showToast('請至少選擇一種付款方式', 'error');
+    _fillModePaymentToggles((await (await apiFetch('/api/settings')).json()).data || {});
+    return;
+  }
+  const body = {};
+  body[MODE_PAY_KEY[mode]] = JSON.stringify(codes);
+  try {
+    await apiFetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    showToast(`✅ ${mode === 'takeout' ? '外帶' : '外送'}付款方式已儲存：${codes.map(c => MODE_PAY_LABEL[c]).join('、')}`, 'success');
+  } catch (e) { showToast('儲存失敗', 'error'); }
 }
 
 async function saveLinePaymentSettings() {

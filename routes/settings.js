@@ -19,6 +19,10 @@ const LINE_KEYS = new Set([
   'line_payment_cash_enabled', 'line_payment_linepay_enabled',
   'line_payment_transfer_enabled', 'line_payment_platform_enabled',
   'line_payment_credit_card_enabled',
+  // fix18-10-hotfix22A：付款方式改為與冷藏宅配一致的「通路獨立開關」架構（JSON 陣列，
+  // 例如 '["cash","linepay","transfer"]'）。未設定時，後端會自動 fallback 沿用上面的
+  // 全域 line_payment_*_enabled 設定，確保既有店家設定不受影響、行為不變。
+  'takeout_payment_methods', 'delivery_payment_methods',
   // LINE 接單與可售管理中心 v1
   'takeout_enabled', 'takeout_cutoff_time', 'takeout_prep_minutes',
   'takeout_allow_next_day', 'takeout_business_hours',

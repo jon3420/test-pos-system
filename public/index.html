@@ -1297,6 +1297,30 @@
           </div>
           <div id="linePaymentStatus" style="margin-top:10px;font-size:12px;color:#888"></div>
         </div>
+
+        <div class="settings-card">
+          <h3>🛍️ 外帶付款方式（獨立開關）</h3>
+          <p style="font-size:12px;color:#888;margin-bottom:12px">未勾選任何項目時，自動沿用上方「LINE 點餐付款方式」設定</p>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 16px" id="takeoutPaymentToggles">
+            <label class="checkbox-label"><input type="checkbox" id="tkp-cash" onchange="saveModePaymentSettings('takeout')"><span>💵 現金 (cash)</span></label>
+            <label class="checkbox-label"><input type="checkbox" id="tkp-linepay" onchange="saveModePaymentSettings('takeout')"><span>💚 LINE Pay</span></label>
+            <label class="checkbox-label"><input type="checkbox" id="tkp-credit_card" onchange="saveModePaymentSettings('takeout')"><span>💳 信用卡</span></label>
+            <label class="checkbox-label"><input type="checkbox" id="tkp-platform" onchange="saveModePaymentSettings('takeout')"><span>📱 平台付款</span></label>
+            <label class="checkbox-label"><input type="checkbox" id="tkp-transfer" onchange="saveModePaymentSettings('takeout')"><span>🏦 轉帳</span></label>
+          </div>
+        </div>
+
+        <div class="settings-card">
+          <h3>🛵 外送付款方式（獨立開關）</h3>
+          <p style="font-size:12px;color:#888;margin-bottom:12px">未勾選任何項目時，自動沿用上方「LINE 點餐付款方式」設定</p>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 16px" id="deliveryPaymentToggles">
+            <label class="checkbox-label"><input type="checkbox" id="dvp-cash" onchange="saveModePaymentSettings('delivery')"><span>💵 現金 (cash)</span></label>
+            <label class="checkbox-label"><input type="checkbox" id="dvp-linepay" onchange="saveModePaymentSettings('delivery')"><span>💚 LINE Pay</span></label>
+            <label class="checkbox-label"><input type="checkbox" id="dvp-credit_card" onchange="saveModePaymentSettings('delivery')"><span>💳 信用卡</span></label>
+            <label class="checkbox-label"><input type="checkbox" id="dvp-platform" onchange="saveModePaymentSettings('delivery')"><span>📱 平台付款</span></label>
+            <label class="checkbox-label"><input type="checkbox" id="dvp-transfer" onchange="saveModePaymentSettings('delivery')"><span>🏦 轉帳</span></label>
+          </div>
+        </div>
         <div class="settings-card" style="grid-column:1/-1;overflow:hidden">
           <details class="legacy-collapse" id="legacyBizHoursDetails">
             <summary>
@@ -2943,6 +2967,12 @@
 
       <!-- fix18-10-hotfix20：冷藏宅配商品設定已移至「LINE 商品管理 → 📦 冷藏宅配商品」分頁獨立管理，
            此 Modal 只保留 LINE 外帶/外送商品資料，不再與宅配欄位混合 -->
+    </div>
+    <!-- ↑ fix18-10-hotfix22A（真正原因修正）：補上原本缺漏的 .modal-body 收尾 </div>。
+         缺少這個收尾標籤導致後面所有標籤深度多算一層，連帶使 lineSettingsModal 的外層
+         <div> 永遠沒有正確關閉，把緊接在後面的 shippingProductModal 整個吃進巢狀結構裡。
+         這就是「編輯宅配沒開 Modal、之後 LINE設定又兩個 Modal 一起跑出」的真正原因，
+         不是 JS 事件或 open class 的問題。-->
     <div class="modal-footer">
       <button class="btn-secondary" onclick="closeLineSettingsModal()">取消</button>
       <button class="btn-primary" style="background:#06C755;border-color:#06C755" onclick="saveLineSettings()">💾 儲存 LINE 設定</button>
@@ -3009,7 +3039,6 @@
   </div>
 </div>
 
-</div>
 <!-- fix18-09F：商品分析群組 Modal (moved to body-end by hotfix2) -->
 <!-- fix18-09F：商品分析群組 新增/編輯 Modal -->
 <div class="modal-overlay" id="analysisGroupModal" onclick="if(event.target===this)closeAnalysisGroupModal()">

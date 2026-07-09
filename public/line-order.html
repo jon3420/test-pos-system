@@ -800,6 +800,8 @@ function switchMode(mode){
   // fix18-08: 統一顯示/隱藏外送地址
   updateDeliveryAddressVisibility();
   updateCartTotals();
+  // fix18-10-hotfix22A：外帶/外送付款方式可能不同，切換模式時重建付款按鈕
+  buildPaymentButtons(shopData);
 }
 function onModeChange(){
   const oType=document.getElementById('oType');
@@ -812,6 +814,8 @@ function onModeChange(){
   // fix18-08: 統一顯示/隱藏外送地址
   updateDeliveryAddressVisibility();
   updateCartTotals();
+  // fix18-10-hotfix22A：外帶/外送付款方式可能不同，切換模式時重建付款按鈕
+  buildPaymentButtons(shopData);
 }
 
 // ── 截止售完橫幅 ──────────────────────────────────────
@@ -832,9 +836,15 @@ function updateCutoffBanner(){
 }
 
 // ── 付款方式 ──────────────────────────────────────────
+// fix18-10-hotfix22A：改為依通路（外帶/外送）獨立開關；若後端未回傳新版陣列（舊店家尚未設定），
+// 自動 fallback 使用原本的全域 line_payment_*_enabled 判斷，行為與舊版完全相同。
 function buildPaymentButtons(settings){
   const c=document.getElementById('payBtns');c.innerHTML='';
-  const en=PAYMENT_OPTIONS.filter(p=>settings[p.key]==='1');
+  const modeKey = currentMode==='delivery' ? 'delivery_payment_methods' : 'takeout_payment_methods';
+  const codes = Array.isArray(settings[modeKey]) ? settings[modeKey] : null;
+  const en = (codes && codes.length)
+    ? PAYMENT_OPTIONS.filter(p=>codes.includes(p.code))
+    : PAYMENT_OPTIONS.filter(p=>settings[p.key]==='1');
   if(!en.length){c.innerHTML='<p style="color:#e53935;font-size:13px">目前未開放付款方式</p>';selectedPay='';return;}
   en.forEach((p,i)=>{const b=document.createElement('button');b.className='pay-btn'+(i===0?' active':'');b.dataset.code=p.code;b.textContent=p.label;b.onclick=function(){selectPay(this);};c.appendChild(b);});
   selectedPay=en[0].code;

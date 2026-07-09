@@ -247,6 +247,29 @@ function getDayOpenClose(db, storeId, mode, dateStr, modeSettings) {
 }
 
 // ── 模式（外帶 takeout / 外送 delivery）設定讀取 ─────────
+// fix18-10-hotfix22A：外帶/外送付款方式改為與冷藏宅配一致的「通路獨立開關」架構。
+// 若店家尚未設定新版 JSON 陣列（takeout_payment_methods / delivery_payment_methods），
+// 自動 fallback 沿用舊版全域 line_payment_*_enabled 設定，確保既有店家設定/行為完全不變。
+function getModePaymentMethods(db, storeId, settingKey) {
+  const raw = getSetting(db, storeId, settingKey, '');
+  if (raw) {
+    try {
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr) && arr.length) return arr;
+    } catch {}
+  }
+  const legacyMap = [
+    ['cash', 'line_payment_cash_enabled'],
+    ['linepay', 'line_payment_linepay_enabled'],
+    ['transfer', 'line_payment_transfer_enabled'],
+    ['platform', 'line_payment_platform_enabled'],
+    ['credit_card', 'line_payment_credit_card_enabled'],
+  ];
+  return legacyMap
+    .filter(([, key]) => getSetting(db, storeId, key, '') === '1')
+    .map(([code]) => code);
+}
+
 function getModeSettings(db, storeId, mode) {
   // mode: 'takeout' | 'delivery'
   // fix18-06: 今日臨時截止時間判斷
@@ -455,6 +478,10 @@ router.get('/shop', (req, res) => {
         : null,
       today_cutoff:   deliveryMode.todayCutoff || '',
     };
+
+    // fix18-10-hotfix22A：外帶/外送付款方式（通路獨立開關，未設定時 fallback 沿用全域設定）
+    settings.takeout_payment_methods  = getModePaymentMethods(db, storeId, 'takeout_payment_methods');
+    settings.delivery_payment_methods = getModePaymentMethods(db, storeId, 'delivery_payment_methods');
 
     // 找下一個可訂日（掃描範圍受 line_preorder_days_limit 限制，避免建議超出可預訂範圍的日期）
     // v2：改用 getDayOpenClose（Business Calendar 優先，沒命中才走舊的 bizHours 空值=全天可訂邏輯）

@@ -189,17 +189,17 @@ img{max-width:100%;display:block}
     <div id="minOrderWarn" class="min-order-warn" style="display:none"></div>
     <div class="ot total"><span>應付金額</span><span id="orderTotal">$0</span></div>
 
-    <div class="fg"><label class="fl">收件人姓名 <span class="req">*</span></label><input class="fi" id="rName" placeholder="收件人姓名"></div>
+    <div class="fg"><label class="fl">收件人姓名 <span class="req">*</span></label><input class="fi" id="rName" placeholder="收件人姓名" oninput="persistCart()"></div>
     <div class="fr">
-      <div class="fg"><label class="fl">收件電話 <span class="req">*</span></label><input class="fi" id="rPhone" placeholder="聯絡電話" type="tel"></div>
-      <div class="fg"><label class="fl">郵遞區號</label><input class="fi" id="rPostal" placeholder="郵遞區號"></div>
+      <div class="fg"><label class="fl">收件電話 <span class="req">*</span></label><input class="fi" id="rPhone" placeholder="聯絡電話" type="tel" oninput="persistCart()"></div>
+      <div class="fg"><label class="fl">郵遞區號</label><input class="fi" id="rPostal" placeholder="郵遞區號" oninput="persistCart()"></div>
     </div>
     <div class="fr">
-      <div class="fg"><label class="fl">縣市 <span class="req">*</span></label><input class="fi" id="rCity" placeholder="縣市"></div>
-      <div class="fg"><label class="fl">鄉鎮市區 <span class="req">*</span></label><input class="fi" id="rDistrict" placeholder="鄉鎮市區"></div>
+      <div class="fg"><label class="fl">縣市 <span class="req">*</span></label><input class="fi" id="rCity" placeholder="縣市" oninput="persistCart()"></div>
+      <div class="fg"><label class="fl">鄉鎮市區 <span class="req">*</span></label><input class="fi" id="rDistrict" placeholder="鄉鎮市區" oninput="persistCart()"></div>
     </div>
-    <div class="fg"><label class="fl">詳細地址 <span class="req">*</span></label><input class="fi" id="rAddress" placeholder="詳細地址"></div>
-    <div class="fg"><label class="fl">地址備註</label><input class="fi" id="rAddressNote" placeholder="例：管理室代收"></div>
+    <div class="fg"><label class="fl">詳細地址 <span class="req">*</span></label><input class="fi" id="rAddress" placeholder="詳細地址" oninput="persistCart()"></div>
+    <div class="fg"><label class="fl">地址備註</label><input class="fi" id="rAddressNote" placeholder="例：管理室代收" oninput="persistCart()"></div>
 
     <div class="fg">
       <label class="fl">希望到貨</label>
@@ -207,7 +207,7 @@ img{max-width:100%;display:block}
         <button class="arrival-btn active" id="arrivalAsapBtn" onclick="setArrivalType('asap')">🚚 最快出貨</button>
         <button class="arrival-btn" id="arrivalDateBtn" onclick="setArrivalType('date')">📅 指定日期</button>
       </div>
-      <input class="fi" id="rArrivalDate" type="date" style="display:none">
+      <input class="fi" id="rArrivalDate" type="date" style="display:none" onchange="persistCart()">
     </div>
 
     <div class="fg">
@@ -215,7 +215,7 @@ img{max-width:100%;display:block}
       <div class="pay-btns" id="payBtns"></div>
     </div>
 
-    <div class="fg"><label class="fl">備註</label><input class="fi" id="rNote" placeholder="給店家的話（選填）"></div>
+    <div class="fg"><label class="fl">備註</label><input class="fi" id="rNote" placeholder="給店家的話（選填）" oninput="persistCart()"></div>
 
     <button class="sub-btn" id="submitBtn" onclick="submitOrder()">送出訂單</button>
   </div>
@@ -266,6 +266,9 @@ let SHOP_DATA = null;
 let cart = {}; // product_id -> {product, qty}
 let arrivalType = 'asap';
 let selectedPayment = '';
+// fix18-10-hotfix22A補充：購物車 localStorage 暫存（關閉視窗/重新整理不清空，24小時有效期，下單成功才清空）
+const SHIP_CART_KEY = 'line_shipping_cart_' + STORE_ID;
+const SHIP_CART_TTL_MS = 24 * 60 * 60 * 1000;
 
 function apiUrl(path) {
   const sep = path.includes('?') ? '&' : '?';
@@ -299,6 +302,7 @@ async function init() {
       return;
     }
     renderShop();
+    restoreCart();
     document.getElementById('loading').style.display = 'none';
     document.getElementById('content').style.display = 'block';
   } catch (e) {
@@ -340,12 +344,14 @@ function renderShop() {
   (d.payment_methods || []).forEach((code, i) => {
     const btn = document.createElement('button');
     btn.className = 'pay-btn' + (i === 0 ? ' active' : '');
+    btn.dataset.code = code;
     btn.textContent = payLabels[code] || code;
     btn.onclick = () => {
       document.querySelectorAll('.pay-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       selectedPayment = code;
       if (code === 'linepay') toast('TODO：LINE Pay 尚未支援宅配流程，請先選擇其他付款方式');
+      persistCart();
     };
     payWrap.appendChild(btn);
   });
@@ -356,6 +362,92 @@ function renderShop() {
   dateInput.min = d.earliest_date;
   dateInput.max = d.latest_date;
   dateInput.value = d.earliest_date;
+}
+
+// fix18-10-hotfix22A補充：購物車 + 表單 localStorage 完整暫存（24小時有效期，下單成功才清空）
+function persistCart() {
+  try {
+    const cartQtyMap = {};
+    Object.entries(cart).forEach(([pid, c]) => { cartQtyMap[pid] = c.qty; });
+    const data = {
+      cart: cartQtyMap,
+      paymentMethod: selectedPayment,
+      deliveryMode: arrivalType, // 'asap' | 'date'
+      recipient: document.getElementById('rName')?.value || '',
+      phone: document.getElementById('rPhone')?.value || '',
+      zipcode: document.getElementById('rPostal')?.value || '',
+      city: document.getElementById('rCity')?.value || '',
+      district: document.getElementById('rDistrict')?.value || '',
+      address: document.getElementById('rAddress')?.value || '',
+      addressNote: document.getElementById('rAddressNote')?.value || '',
+      shippingDate: document.getElementById('rArrivalDate')?.value || '',
+      shippingTime: '', // 目前畫面無獨立到貨時段欄位，保留欄位供未來擴充
+      remark: document.getElementById('rNote')?.value || '',
+      savedAt: Date.now(),
+    };
+    localStorage.setItem(SHIP_CART_KEY, JSON.stringify(data));
+  } catch (e) { /* localStorage 不可用時安靜略過，不影響下單流程 */ }
+}
+
+function clearCartStorage() {
+  try { localStorage.removeItem(SHIP_CART_KEY); } catch (e) {}
+}
+
+// 頁面初始化時呼叫：還原購物車商品、收件資料、付款方式、備註（需在 renderShop() 之後執行，
+// 因為要透過 findProduct() 用目前商品清單重建購物車項目、並同步付款按鈕選取狀態）
+function restoreCart() {
+  let data;
+  try {
+    const raw = localStorage.getItem(SHIP_CART_KEY);
+    if (!raw) return;
+    data = JSON.parse(raw);
+  } catch (e) { clearCartStorage(); return; }
+  if (!data || !data.savedAt || (Date.now() - data.savedAt) > SHIP_CART_TTL_MS) {
+    clearCartStorage();
+    return;
+  }
+
+  // 還原購物車商品（依目前商品清單重新查找，商品若已下架/刪除則自動略過）
+  cart = {};
+  if (data.cart) {
+    Object.entries(data.cart).forEach(([pid, qty]) => {
+      const p = findProduct(Number(pid));
+      const q = Number(qty);
+      if (p && q > 0) cart[pid] = { product: p, qty: q };
+    });
+  }
+
+  // 還原收件資料/備註
+  const setV = (id, v) => { const el = document.getElementById(id); if (el && v != null) el.value = v; };
+  setV('rName', data.recipient);
+  setV('rPhone', data.phone);
+  setV('rPostal', data.zipcode);
+  setV('rCity', data.city);
+  setV('rDistrict', data.district);
+  setV('rAddress', data.address);
+  setV('rAddressNote', data.addressNote);
+  setV('rArrivalDate', data.shippingDate);
+  setV('rNote', data.remark);
+
+  // 還原付款方式選取狀態（若還原的付款代碼目前仍在開放清單內）
+  if (data.paymentMethod) {
+    let matched = false;
+    document.querySelectorAll('#payBtns .pay-btn').forEach(b => {
+      const isMatch = b.dataset.code === data.paymentMethod;
+      b.classList.toggle('active', isMatch);
+      if (isMatch) matched = true;
+    });
+    if (matched) selectedPayment = data.paymentMethod;
+  }
+
+  // 還原希望到貨模式（asap/date）— 放在付款方式還原之後，避免此函式內觸發的 persistCart()
+  // 存下尚未還原完成的付款方式快照
+  setArrivalType(data.deliveryMode === 'date' ? 'date' : 'asap');
+
+  // 重新渲染商品卡（顯示已還原的數量）與購物車列
+  renderProductGrid('prodGrid', SHOP_DATA.products);
+  if (SHOP_DATA.upsell_products && SHOP_DATA.upsell_products.length) renderProductGrid('upsellGrid', SHOP_DATA.upsell_products);
+  updateCartBar();
 }
 
 function renderProductGrid(elId, products) {
@@ -421,6 +513,7 @@ function changeQty(pid, delta) {
   const next = Math.max(0, cur + delta);
   if (next === 0) delete cart[pid];
   else cart[pid] = { product: p, qty: next };
+  persistCart();
   renderProductGrid('prodGrid', SHOP_DATA.products);
   if (SHOP_DATA.upsell_products && SHOP_DATA.upsell_products.length) renderProductGrid('upsellGrid', SHOP_DATA.upsell_products);
   updateCartBar();
@@ -530,6 +623,7 @@ function setArrivalType(type) {
   document.getElementById('arrivalDateBtn').classList.toggle('active', type === 'date');
   document.getElementById('rArrivalDate').style.display = type === 'date' ? 'block' : 'none';
   renderCartShipInfo();
+  persistCart();
 }
 
 async function submitOrder() {
@@ -561,6 +655,7 @@ async function submitOrder() {
     if (!res.success) { toast(res.message || '送出失敗'); btn.disabled = false; btn.textContent = '送出訂單'; return; }
     showSuccess(res.data);
     cart = {};
+    clearCartStorage();
     updateCartBar();
     closeSheet();
   } catch (e) {
