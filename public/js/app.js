@@ -1179,7 +1179,7 @@ function showPage(name) {
   if (name === 'orders')        loadCurrentOrderTab();
   if (name === 'products')      loadProductsPage();
   if (name === 'line_products') loadLineProductsPage();
-  if (name === 'line_preorders') loadLinePreorders();
+  if (name === 'line_preorders') { initLinePreordersPage(); }
   if (name === 'coupons')      loadCouponsPage();   // fix18-05
   if (name === 'settings')   { loadSettingsPage(); switchSettingsTab('basic'); }
   if (name === 'categories') loadCategoriesPage();
@@ -2091,7 +2091,8 @@ function refreshCurrentOrderView() {
       loadOrders('pos');
       break;
     case 'shipping':
-      loadShippingOrders();
+      // fix18-10-hotfix20：訂單紀錄頁改用簡潔版宅配列表；完整物流處理請至「LINE 預購管理→冷藏宅配」
+      loadOrderRecShipping();
       break;
     default:
       loadOrders(null);
@@ -2465,6 +2466,108 @@ async function saveShippingTracking(orderNo) {
     showToast('✅ 物流資訊已儲存', 'success');
     loadShippingOrders();
   } catch (e) { showToast('儲存失敗', 'error'); }
+}
+
+// ═══════════════════════════════════════════════════════════
+// 📦 訂單紀錄頁「冷藏宅配」分頁（簡潔版，fix18-10-hotfix20）
+// 訂單紀錄只做簡潔查詢，不做物流管理中心；完整物流處理（狀態更新、
+// 物流公司/單號/備註）請至「LINE 預購管理 → 📦 冷藏宅配」
+// ═══════════════════════════════════════════════════════════
+let _orderRecShippingCache = [];
+let _orderRecShippingStatusFilter = 'all';
+
+function setOrderRecShippingStatusFilter(status) {
+  _orderRecShippingStatusFilter = status;
+  document.querySelectorAll('#orderRecShippingStatusFilterBar .disc-filter-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.sstatus === status);
+  });
+  const filtered = status === 'all'
+    ? _orderRecShippingCache
+    : _orderRecShippingCache.filter(o => (o.shipping_status || 'pending') === status);
+  renderOrderRecShippingTable(filtered);
+}
+
+async function loadOrderRecShipping() {
+  const tbody = document.getElementById('orderRecShippingBody');
+  if (tbody) tbody.innerHTML = '<tr><td colspan="9" class="table-empty">載入中...</td></tr>';
+  try {
+    const res  = await apiFetch('/api/line-shipping/admin/orders?limit=200');
+    const json = await res.json();
+    if (!json.success) { if (tbody) tbody.innerHTML = '<tr><td colspan="9" class="table-empty">載入失敗</td></tr>'; return; }
+    _orderRecShippingCache = json.data || [];
+    const filtered = _orderRecShippingStatusFilter === 'all'
+      ? _orderRecShippingCache
+      : _orderRecShippingCache.filter(o => (o.shipping_status || 'pending') === _orderRecShippingStatusFilter);
+    renderOrderRecShippingTable(filtered);
+  } catch (e) {
+    if (tbody) tbody.innerHTML = '<tr><td colspan="9" class="table-empty">載入失敗</td></tr>';
+    showToast('宅配訂單載入失敗', 'error');
+  }
+}
+
+// 簡潔列表：訂單編號／建立時間／模式／顧客／商品／金額／付款／狀態／操作（詳細）
+function renderOrderRecShippingTable(orders) {
+  const tbody = document.getElementById('orderRecShippingBody');
+  if (!tbody) return;
+  if (!orders || !orders.length) { tbody.innerHTML = '<tr><td colspan="9" class="table-empty">目前無冷藏宅配訂單</td></tr>'; return; }
+
+  const payLabel = { cash: '現金', linepay: 'LINE Pay', transfer: '轉帳' };
+
+  tbody.innerHTML = orders.map(o => {
+    let items = [];
+    try { items = typeof o.items === 'string' ? JSON.parse(o.items || '[]') : (o.items || []); } catch {}
+    const itemsTxt = items.map(i => `${escHtml(i.name)}×${i.qty}`).join('、');
+    const status = o.shipping_status || 'pending';
+    const statusColor = SHIP_STATUS_COLOR[status] || '#888';
+    return `<tr>
+      <td><span class="order-num">${escHtml(o.order_number)}</span></td>
+      <td style="font-size:12px;color:#999">${escHtml(twTime ? twTime(o.created_at,'datetime') : (o.created_at||''))}</td>
+      <td><span class="mode-badge mode-shipping">📦 冷藏宅配</span></td>
+      <td style="font-size:13px">${escHtml(o.shipping_recipient_name || o.customer_name || '')}</td>
+      <td style="font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(itemsTxt)}">${escHtml(itemsTxt||'—')}</td>
+      <td style="font-family:monospace;font-weight:700;color:#f5a623">$${Number(o.total||0)}</td>
+      <td style="font-size:12px">${payLabel[o.payment_method] || escHtml(o.payment_method||'')}</td>
+      <td><span style="color:${statusColor};font-weight:700">${SHIP_STATUS_LABEL[status] || status}</span></td>
+      <td><button class="btn-icon" onclick="openShipOrderDetail('${escHtml(o.order_number)}')">📋 詳細</button></td>
+    </tr>`;
+  }).join('');
+}
+
+// 「詳細」彈窗：顯示完整宅配資訊（收件地址／到貨日／運費／物流公司／物流單號／備註）
+function openShipOrderDetail(orderNo) {
+  const o = _orderRecShippingCache.find(x => x.order_number === orderNo);
+  if (!o) { showToast('找不到訂單資料', 'error'); return; }
+  let items = [];
+  try { items = typeof o.items === 'string' ? JSON.parse(o.items || '[]') : (o.items || []); } catch {}
+  const itemsTxt = items.map(i => `${escHtml(i.name)}${i.spec ? '('+escHtml(i.spec)+')' : ''}×${i.qty}`).join('<br>');
+  const address = `${o.shipping_city||''}${o.shipping_district||''}${o.shipping_address||''}`;
+  const arrivalTxt = o.shipping_arrival_type === 'date' && o.shipping_arrival_date ? o.shipping_arrival_date : '最快出貨';
+  const payLabel = { cash: '現金', linepay: 'LINE Pay', transfer: '轉帳' };
+  const status = o.shipping_status || 'pending';
+
+  document.getElementById('shipDetailOrderNo').textContent = o.order_number;
+  document.getElementById('shipOrderDetailBody').innerHTML = `
+    <div><b>建立時間：</b>${escHtml(twTime ? twTime(o.created_at,'datetime') : (o.created_at||''))}</div>
+    <div><b>顧客：</b>${escHtml(o.shipping_recipient_name || o.customer_name || '')}</div>
+    <div><b>電話：</b>${escHtml(o.shipping_phone || o.customer_phone || '')}</div>
+    <div><b>收件地址：</b>${escHtml(address)}</div>
+    ${o.shipping_address_note ? `<div><b>地址備註：</b>${escHtml(o.shipping_address_note)}</div>` : ''}
+    <div style="margin-top:6px"><b>商品明細：</b><br>${itemsTxt}</div>
+    <div style="margin-top:6px"><b>小計：</b>$${Number(o.subtotal||0)}</div>
+    <div><b>運費：</b>$${Number(o.shipping_fee||0)}</div>
+    <div><b>應付金額：</b>$${Number(o.total||0)}</div>
+    <div><b>希望到貨日：</b>${escHtml(arrivalTxt)}</div>
+    <div><b>付款方式：</b>${payLabel[o.payment_method] || escHtml(o.payment_method||'')}</div>
+    <div><b>宅配狀態：</b>${SHIP_STATUS_LABEL[status] || status}</div>
+    <div style="margin-top:6px"><b>物流公司：</b>${escHtml(o.carrier_name || o.shipping_carrier_name || '—')}</div>
+    <div><b>物流單號：</b>${escHtml(o.tracking_number || '—')}</div>
+    <div><b>備註：</b>${escHtml(o.shipping_note || '—')}</div>
+  `;
+  document.getElementById('shipOrderDetailModal').classList.add('open');
+}
+
+function closeShipOrderDetail() {
+  document.getElementById('shipOrderDetailModal').classList.remove('open');
 }
 
 function renderStatCards(stats, allOrders) {
@@ -3901,19 +4004,8 @@ async function openLineSettingsModal(id) {
       else { previewWrap.style.display = 'none'; }
     };
 
-    // ── fix18-10-hotfix18：冷藏宅配商品設定填入 ──────────
-    const shipEnabledEl = document.getElementById('shipEnabled');
-    if (shipEnabledEl) shipEnabledEl.checked = !!Number(p.shipping_enabled);
-    setQV('shipName', p.shipping_name || '');
-    setQV('shipPrice', p.shipping_price || '');
-    setQV('shipSpec', p.shipping_spec || '');
-    setQV('shipSortOrder', Number(p.shipping_sort_order || 0));
-    setQV('shipDescription', p.shipping_description || '');
-    setQV('shipImageUrl', p.shipping_image_url || '');
-    const shipUpsellEl = document.getElementById('shipUpsell');
-    if (shipUpsellEl) shipUpsellEl.checked = !!Number(p.shipping_upsell);
-    const shipShareEl = document.getElementById('shipShareLineStock');
-    if (shipShareEl) shipShareEl.checked = p.shipping_share_line_stock != null ? !!Number(p.shipping_share_line_stock) : true;
+    // fix18-10-hotfix20：冷藏宅配商品設定已移至獨立 Modal（openShippingProductModal），
+    // 此 Modal 只保留 LINE 外帶/外送商品資料，不再填入宅配欄位。
 
     document.getElementById('lineSettingsModal').classList.add('open');
   } catch(e) { showToast('載入商品資料失敗：' + e.message, 'error'); }
@@ -3979,28 +4071,76 @@ async function saveLineSettings() {
     const json = await res.json();
     if (!json.success) { showToast(json.message || '儲存失敗', 'error'); return; }
 
-    // fix18-10-hotfix18/19：冷藏宅配商品設定（獨立 API，不影響上面既有 LINE 設定儲存結果，兩通路互不覆蓋）
-    try {
-      await apiFetch(`/api/products/${id}/shipping-settings`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          shipping_enabled:          document.getElementById('shipEnabled')?.checked ? 1 : 0,
-          shipping_name:             document.getElementById('shipName')?.value.trim() || '',
-          shipping_price:            parseFloat(document.getElementById('shipPrice')?.value || 0) || 0,
-          shipping_spec:             document.getElementById('shipSpec')?.value.trim() || '',
-          shipping_sort_order:       Number(document.getElementById('shipSortOrder')?.value || 0),
-          shipping_description:      document.getElementById('shipDescription')?.value.trim() || '',
-          shipping_image_url:        document.getElementById('shipImageUrl')?.value.trim() || '',
-          shipping_upsell:           document.getElementById('shipUpsell')?.checked ? 1 : 0,
-          shipping_share_line_stock: document.getElementById('shipShareLineStock')?.checked ? 1 : 0,
-        })
-      });
-    } catch(shipErr) { console.warn('[shipping-settings] 儲存失敗:', shipErr.message); }
+    // fix18-10-hotfix20：冷藏宅配商品設定已移至獨立 Modal/API（openShippingProductModal /
+    // saveShippingProductSettings），此處不再一併儲存，兩通路完全分開管理、互不覆蓋。
 
     showToast('LINE 設定已儲存', 'success');
     closeLineSettingsModal();
     loadProductsPage();
+  } catch(e) { showToast('網路錯誤', 'error'); }
+}
+
+// ===== 📦 冷藏宅配商品設定 Modal（fix18-10-hotfix20：從 LINE 上架設定 Modal 移出，獨立管理）=====
+// 供「LINE 商品管理 → 冷藏宅配商品」分頁使用，也可從 POS 商品管理列表快速開啟。
+async function openShippingProductModal(id) {
+  try {
+    const res = await apiFetch('/api/products/' + id);
+    const json = await res.json();
+    if (!json.success) { showToast('載入失敗', 'error'); return; }
+    const p = json.data;
+
+    document.getElementById('shipSettingsProductId').value = id;
+    document.getElementById('shipSettingsProductName').textContent = p.name + (p.category ? ` （${p.category}）` : '');
+
+    const setV = (elId, v) => { const el = document.getElementById(elId); if (el) el.value = v; };
+    const shipEnabledEl = document.getElementById('shipEnabled');
+    if (shipEnabledEl) shipEnabledEl.checked = !!Number(p.shipping_enabled);
+    setV('shipName', p.shipping_name || '');
+    setV('shipPrice', p.shipping_price || '');
+    setV('shipSpec', p.shipping_spec || '');
+    setV('shipSortOrder', Number(p.shipping_sort_order || 0));
+    setV('shipDescription', p.shipping_description || '');
+    setV('shipImageUrl', p.shipping_image_url || '');
+    const shipUpsellEl = document.getElementById('shipUpsell');
+    if (shipUpsellEl) shipUpsellEl.checked = !!Number(p.shipping_upsell);
+    const shipShareEl = document.getElementById('shipShareLineStock');
+    if (shipShareEl) shipShareEl.checked = p.shipping_share_line_stock != null ? !!Number(p.shipping_share_line_stock) : true;
+
+    document.getElementById('shippingProductModal').classList.add('open');
+  } catch(e) { showToast('載入商品資料失敗：' + e.message, 'error'); }
+}
+
+function closeShippingProductModal() {
+  document.getElementById('shippingProductModal').classList.remove('open');
+}
+
+async function saveShippingProductSettings() {
+  const id = document.getElementById('shipSettingsProductId').value;
+  try {
+    const res = await apiFetch(`/api/products/${id}/shipping-settings`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        shipping_enabled:          document.getElementById('shipEnabled')?.checked ? 1 : 0,
+        shipping_name:             document.getElementById('shipName')?.value.trim() || '',
+        shipping_price:            parseFloat(document.getElementById('shipPrice')?.value || 0) || 0,
+        shipping_spec:             document.getElementById('shipSpec')?.value.trim() || '',
+        shipping_sort_order:       Number(document.getElementById('shipSortOrder')?.value || 0),
+        shipping_description:      document.getElementById('shipDescription')?.value.trim() || '',
+        shipping_image_url:        document.getElementById('shipImageUrl')?.value.trim() || '',
+        shipping_upsell:           document.getElementById('shipUpsell')?.checked ? 1 : 0,
+        shipping_share_line_stock: document.getElementById('shipShareLineStock')?.checked ? 1 : 0,
+      })
+    });
+    const json = await res.json();
+    if (!json.success) { showToast(json.message || '儲存失敗', 'error'); return; }
+    showToast('冷藏宅配設定已儲存', 'success');
+    closeShippingProductModal();
+    // 若目前正在 LINE 商品管理頁的冷藏宅配分頁，重新整理該表格；否則不影響其他頁面
+    if (typeof _lpmTab !== 'undefined' && _lpmTab === 'shipping') {
+      loadLineProductsPage();
+    }
+    if (typeof loadProductsPage === 'function') loadProductsPage();
   } catch(e) { showToast('網路錯誤', 'error'); }
 }
 
@@ -6438,6 +6578,57 @@ async function resetLineQuotaSold() {
 
 let _lpAllOrders = [];  // 全部預購訂單快取
 let _lpFilter = 'all';  // today | tomorrow | week | all | custom
+// fix18-10-hotfix20：LINE 訂單處理中心通路 Tab 狀態（'' = 全部 | 'takeout' | 'delivery' | 'shipping'）
+let _lpModeFilter = '';
+
+// ── 通路 Tab 切換：全部／外帶／外送／冷藏宅配 ──────────────
+function lpSetModeFilter(mode) {
+  _lpModeFilter = mode;
+  const map = { '':'lpm-mode-all', takeout:'lpm-mode-takeout', delivery:'lpm-mode-delivery', shipping:'lpm-mode-shipping' };
+  Object.values(map).forEach(id => {
+    const btn = document.getElementById(id);
+    if (btn) { btn.style.background = ''; btn.style.color = ''; }
+  });
+  const activeBtn = document.getElementById(map[mode] ?? 'lpm-mode-all');
+  if (activeBtn) { activeBtn.style.background = 'var(--accent,#3b82f6)'; activeBtn.style.color = '#fff'; }
+
+  const preorderPanel = document.getElementById('lp-preorder-panel');
+  const shippingPanel = document.getElementById('lp-shipping-panel');
+  const statusFilterWrap = document.getElementById('lp-status-filter-wrap');
+  const isShipping = mode === 'shipping';
+  if (preorderPanel) preorderPanel.style.display = isShipping ? 'none' : 'block';
+  if (shippingPanel) shippingPanel.style.display = isShipping ? 'block' : 'none';
+  if (statusFilterWrap) statusFilterWrap.style.display = isShipping ? 'none' : 'flex';
+
+  if (isShipping) {
+    loadShippingOrders();
+  } else {
+    renderLinePreordersTable();
+  }
+}
+
+// ── 進入「LINE 預購管理」頁時呼叫：依目前通路 Tab 狀態初始化顯示並載入資料 ──
+function initLinePreordersPage() {
+  const map = { '':'lpm-mode-all', takeout:'lpm-mode-takeout', delivery:'lpm-mode-delivery', shipping:'lpm-mode-shipping' };
+  Object.values(map).forEach(id => {
+    const btn = document.getElementById(id);
+    if (btn) { btn.style.background = ''; btn.style.color = ''; }
+  });
+  const activeBtn = document.getElementById(map[_lpModeFilter] ?? 'lpm-mode-all');
+  if (activeBtn) { activeBtn.style.background = 'var(--accent,#3b82f6)'; activeBtn.style.color = '#fff'; }
+
+  const isShipping = _lpModeFilter === 'shipping';
+  const preorderPanel = document.getElementById('lp-preorder-panel');
+  const shippingPanel = document.getElementById('lp-shipping-panel');
+  const statusFilterWrap = document.getElementById('lp-status-filter-wrap');
+  if (preorderPanel) preorderPanel.style.display = isShipping ? 'none' : 'block';
+  if (shippingPanel) shippingPanel.style.display = isShipping ? 'block' : 'none';
+  if (statusFilterWrap) statusFilterWrap.style.display = isShipping ? 'none' : 'flex';
+
+  if (isShipping) loadShippingOrders();
+  loadLinePreorders(); // 預先載入一般預購資料，切回全部/外帶/外送時可立即顯示
+}
+
 
 // ── 日期工具 ──────────────────────────────────────────────
 function twTodayStr() {
@@ -6487,7 +6678,9 @@ async function loadLinePreorders() {
     // 用 LINE 訂單 API，依建立日期抓取
     const res  = await apiFetch(`/api/orders?date_from=${dateFrom}&date_to=${dateTo}&source=line`);
     const json = await res.json();
-    let orders = (json.success ? json.data : []).filter(o => o.source === 'line');
+    // fix18-10-hotfix20：冷藏宅配訂單改由獨立面板（lp-shipping-panel／loadShippingOrders）處理，
+    // 一般預購表格（全部／外帶／外送）不再混入 order_mode==='shipping' 的資料列，避免欄位不對應。
+    let orders = (json.success ? json.data : []).filter(o => o.source === 'line' && o.order_mode !== 'shipping');
 
     // 判斷是否為預購單：pickup_time 包含日期（格式 YYYY-MM-DD HH:MM）或日期 > 建立日期
     orders = orders.map(o => {
@@ -6517,7 +6710,7 @@ function renderLinePreordersTable() {
   const tbody = document.getElementById('lp-tbody');
   if (!tbody) return;
 
-  const modeFilter   = document.getElementById('lp-filter-mode')?.value   || '';
+  const modeFilter   = _lpModeFilter || '';
   const statusFilter = document.getElementById('lp-filter-status')?.value || '';
 
   let orders = _lpAllOrders;
@@ -6661,25 +6854,35 @@ async function loadLineProductsPage() {
   }
 }
 
-// ── Tab 切換：今日販售 / 預購管理 ──────────────────────────
-let _lpmTab = 'today'; // 'today' | 'preorder'
+// ── Tab 切換：今日販售 / 預購管理 / 冷藏宅配商品（fix18-10-hotfix20 新增第三頁籤）──
+let _lpmTab = 'today'; // 'today' | 'preorder' | 'shipping'
 function lpmSwitchTab(tab) {
   _lpmTab = tab;
   const todayBtn       = document.getElementById('lpm-tab-today');
   const preorderBtn    = document.getElementById('lpm-tab-preorder');
+  const shippingBtn    = document.getElementById('lpm-tab-shipping');
   const todayControls  = document.getElementById('lpm-today-controls');
   const preorderCtrls  = document.getElementById('lpm-preorder-controls');
-
-  const activeStyle = 'color:var(--accent,#3b82f6);border-bottom-color:var(--accent,#3b82f6)';
-  const inactiveStyle = 'color:var(--text-muted,#64748b);border-bottom-color:transparent';
+  const shippingCtrls  = document.getElementById('lpm-shipping-controls');
+  const tableWrap      = document.getElementById('lpm-table-wrap');
+  const shipTableWrap  = document.getElementById('lpm-shipping-table-wrap');
 
   if (todayBtn)    { todayBtn.style.color    = tab==='today'    ? 'var(--accent,#3b82f6)' : 'var(--text-muted,#64748b)'; todayBtn.style.borderBottomColor    = tab==='today'    ? 'var(--accent,#3b82f6)' : 'transparent'; }
   if (preorderBtn) { preorderBtn.style.color = tab==='preorder' ? '#a78bfa'                : 'var(--text-muted,#64748b)'; preorderBtn.style.borderBottomColor = tab==='preorder' ? '#7c3aed' : 'transparent'; }
+  if (shippingBtn) { shippingBtn.style.color = tab==='shipping' ? '#1565c0'                : 'var(--text-muted,#64748b)'; shippingBtn.style.borderBottomColor = tab==='shipping' ? '#1565c0' : 'transparent'; }
 
   if (todayControls)  todayControls.style.display  = tab==='today'    ? 'block' : 'none';
   if (preorderCtrls)  preorderCtrls.style.display  = tab==='preorder' ? 'block' : 'none';
+  if (shippingCtrls)  shippingCtrls.style.display  = tab==='shipping' ? 'block' : 'none';
 
-  renderLpmTable(_lpmProducts);
+  if (tableWrap)     tableWrap.style.display     = tab==='shipping' ? 'none'  : 'block';
+  if (shipTableWrap) shipTableWrap.style.display  = tab==='shipping' ? 'block' : 'none';
+
+  if (tab === 'shipping') {
+    renderLpmShippingTable(_lpmProducts);
+  } else {
+    renderLpmTable(_lpmProducts);
+  }
 }
 
 // ── LINE 商品狀態計算 ──────────────────────────────────────
@@ -6807,13 +7010,30 @@ function renderLpmTable(products) {
   }).join('');
 }
 
-// ── 全選 / 取消全選 ──────────────────────────────────────
+// ── 全選 / 取消全選（fix18-10-hotfix20：改為依目前 Tab 切換操作對象）──
 function lpmToggleAll(checked) {
+  if (_lpmTab === 'shipping') {
+    document.querySelectorAll('.lpm-ship-chk').forEach(cb => { cb.checked = checked; });
+    lpmUpdateShippingSelectedCount();
+    return;
+  }
   document.querySelectorAll('.lpm-chk').forEach(cb => { cb.checked = checked; });
   lpmUpdateCount();
 }
-function lpmSelectAll()   { document.getElementById('lpm-check-all').checked = true;  lpmToggleAll(true);  }
-function lpmDeselectAll() { document.getElementById('lpm-check-all').checked = false; lpmToggleAll(false); }
+function lpmSelectAll() {
+  if (_lpmTab === 'shipping') {
+    const el = document.getElementById('lpm-ship-check-all'); if (el) el.checked = true;
+    lpmToggleAll(true); return;
+  }
+  document.getElementById('lpm-check-all').checked = true;  lpmToggleAll(true);
+}
+function lpmDeselectAll() {
+  if (_lpmTab === 'shipping') {
+    const el = document.getElementById('lpm-ship-check-all'); if (el) el.checked = false;
+    lpmToggleAll(false); return;
+  }
+  document.getElementById('lpm-check-all').checked = false; lpmToggleAll(false);
+}
 
 function lpmUpdateCount() {
   const sel = document.querySelectorAll('.lpm-chk:checked').length;
@@ -7203,6 +7423,207 @@ async function lpmBatch(type) {
     ? `✅ ${successCount} 個成功，⚠️ ${failCount} 個失敗`
     : `✅ ${successCount} 個商品批量更新完成`;
   showToast(msg, failCount ? 'error' : 'success');
+}
+
+// ═══════════════════════════════════════════════════════════
+// 📦 冷藏宅配商品 Tab（fix18-10-hotfix20 新增）
+// LINE 商品管理第三分頁：直接列表管理宅配商品，不再全部塞在 LINE 上架設定 Modal 內
+// ═══════════════════════════════════════════════════════════
+
+// ── 渲染冷藏宅配商品總表 ────────────────────────────────────
+function renderLpmShippingTable(products) {
+  const tbody = document.getElementById('lpm-shipping-tbody');
+  if (!tbody) return;
+  const checkAll = document.getElementById('lpm-ship-check-all');
+  if (checkAll) checkAll.checked = false;
+  lpmUpdateShippingSelectedCount();
+  if (!products.length) {
+    tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">尚無商品</td></tr>';
+    return;
+  }
+  const tdStyle = 'padding:8px 6px;border-bottom:1px solid var(--border,#334155);vertical-align:middle;text-align:center';
+  tbody.innerHTML = products.map(p => {
+    const imgSrc = p.image || '';
+    const thumbHtml = imgSrc
+      ? `<img src="${escAttr(imgSrc)}" style="width:38px;height:38px;border-radius:6px;object-fit:cover" onerror="this.style.display='none'">`
+      : `<div style="width:38px;height:38px;border-radius:6px;background:var(--bg-base,#0f172a);display:flex;align-items:center;justify-content:center;font-size:18px">📦</div>`;
+    const enabled   = !!Number(p.shipping_enabled);
+    const shipName  = p.shipping_name  ? escHtml(p.shipping_name)  : `<span style="color:var(--text-muted,#64748b)">（沿用「${escHtml(p.name)}」）</span>`;
+    const shipPrice = Number(p.shipping_price) > 0 ? `$${Number(p.shipping_price)}` : `<span style="color:var(--text-muted,#64748b)">（沿用 POS $${p.price}）</span>`;
+    const shipSpec  = p.shipping_spec ? escHtml(p.shipping_spec) : '<span style="color:var(--text-muted,#64748b)">—</span>';
+    const upsell    = !!Number(p.shipping_upsell);
+    const shareLine  = p.shipping_share_line_stock != null ? !!Number(p.shipping_share_line_stock) : true;
+    return `<tr id="lpm-ship-row-${p.id}" style="background:var(--bg-card,#1e293b)">
+      <td style="${tdStyle}"><input type="checkbox" class="lpm-ship-chk" data-id="${p.id}" onchange="lpmUpdateShippingSelectedCount()"></td>
+      <td style="${tdStyle}">${thumbHtml}</td>
+      <td style="${tdStyle};text-align:left;padding-left:10px">
+        <div style="font-weight:600;font-size:13px">${escHtml(p.name)}</div>
+        <div style="font-size:11px;color:var(--text-muted,#64748b)">${escHtml(p.category||'')}</div>
+      </td>
+      <td style="${tdStyle}">
+        <label style="display:flex;align-items:center;justify-content:center;gap:4px;cursor:pointer">
+          <input type="checkbox" ${enabled?'checked':''} onchange="lpmToggleShippingEnabled(${p.id},this.checked)">
+          <span style="font-size:10px;color:${enabled?'#06C755':'#94a3b8'}">${enabled?'✅':'⬜'}</span>
+        </label>
+      </td>
+      <td style="${tdStyle};text-align:left;font-size:12px">${shipName}</td>
+      <td style="${tdStyle};font-size:12px">${shipPrice}</td>
+      <td style="${tdStyle};font-size:12px">${shipSpec}</td>
+      <td style="${tdStyle};font-size:12px">${Number(p.shipping_sort_order)||0}</td>
+      <td style="${tdStyle}"><span style="font-size:11px;color:${upsell?'#7c3aed':'#94a3b8'}">${upsell?'✅ 加購':'—'}</span></td>
+      <td style="${tdStyle}"><span style="font-size:11px;color:${shareLine?'#06C755':'#94a3b8'}">${shareLine?'✅ 共用':'獨立'}</span></td>
+      <td style="${tdStyle}">
+        <button onclick="openShippingProductModal(${p.id})" style="padding:4px 8px;background:#1565c0;color:#fff;border:none;border-radius:5px;font-size:12px;cursor:pointer">✏️編輯宅配</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+// ── 選取計數（冷藏宅配 Tab，沿用共用的選取計數列）────────────
+function lpmUpdateShippingSelectedCount() {
+  const sel = document.querySelectorAll('.lpm-ship-chk:checked').length;
+  const el  = document.getElementById('lpm-selected-count');
+  if (el) el.textContent = sel ? `（已選取 ${sel} 個商品）` : '（未選取商品）';
+}
+
+// ── 全選 / 取消全選（表格自身 checkbox 觸發）────────────────
+function lpmToggleAllShipping(checked) {
+  document.querySelectorAll('.lpm-ship-chk').forEach(cb => { cb.checked = checked; });
+  lpmUpdateShippingSelectedCount();
+}
+
+function lpmShippingGetSelected() {
+  return Array.from(document.querySelectorAll('.lpm-ship-chk:checked')).map(cb => Number(cb.dataset.id));
+}
+
+// ── 快速開關可宅配（表格 checkbox 直接切換，只 PATCH shipping-settings）──
+async function lpmToggleShippingEnabled(productId, enabled) {
+  try {
+    const res  = await apiFetch(`/api/products/${productId}/shipping-settings`, {
+      method:'PATCH', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ shipping_enabled: enabled ? 1 : 0 })
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message);
+    const idx = _lpmProducts.findIndex(x => x.id === productId);
+    if (idx !== -1) _lpmProducts[idx] = { ..._lpmProducts[idx], ...json.data };
+    renderLpmShippingTable(_lpmProducts);
+    showToast(enabled ? '✅ 已開啟可宅配' : '❌ 已關閉可宅配', 'success');
+  } catch(e) { showToast(e.message || '操作失敗', 'error'); }
+}
+
+// ── 套用宅配設定（主按鈕：售價 / 規格 / 排序，只填有輸入的欄位）──
+async function lpmApplyShippingBatch() {
+  const ids = lpmShippingGetSelected();
+  if (!ids.length) { showToast('請先選擇商品', 'error'); return; }
+
+  const priceVal = document.getElementById('lpm-ship-price')?.value?.trim();
+  const specVal  = document.getElementById('lpm-ship-spec')?.value?.trim();
+  const sortVal  = document.getElementById('lpm-ship-sort')?.value?.trim();
+
+  if (!priceVal && !specVal && !sortVal) { showToast('請至少輸入一項要套用的設定', 'error'); return; }
+
+  const body = {};
+  if (priceVal) body.shipping_price = Number(priceVal);
+  if (specVal)  body.shipping_spec  = specVal;
+  if (sortVal)  body.shipping_sort_order = Number(sortVal);
+
+  if (!confirm(`確定要將已選 ${ids.length} 個商品套用以上宅配設定嗎？`)) return;
+  await _lpmShippingBatchSend(ids, body, '宅配設定');
+}
+
+// ── 個別批次按鈕（啟用/關閉/售價/規格/排序/加購/共用份數）──
+async function lpmShippingBatch(type) {
+  const ids = lpmShippingGetSelected();
+  if (!ids.length) { showToast('請先勾選商品', 'error'); return; }
+
+  let body = {};
+  if (type === 'enable') {
+    if (!confirm(`確定要批次啟用已選 ${ids.length} 個商品的宅配嗎？`)) return;
+    body = { shipping_enabled: 1 };
+  } else if (type === 'disable') {
+    if (!confirm(`確定要批次關閉已選 ${ids.length} 個商品的宅配嗎？`)) return;
+    body = { shipping_enabled: 0 };
+  } else if (type === 'price') {
+    const val = document.getElementById('lpm-ship-price')?.value?.trim();
+    if (!val || isNaN(Number(val))) { showToast('請輸入有效的宅配售價', 'error'); return; }
+    if (!confirm(`確定要將已選 ${ids.length} 個商品的宅配售價設定為 $${val} 嗎？`)) return;
+    body = { shipping_price: Number(val) };
+  } else if (type === 'spec') {
+    const val = document.getElementById('lpm-ship-spec')?.value?.trim();
+    if (!val) { showToast('請輸入宅配規格', 'error'); return; }
+    if (!confirm(`確定要將已選 ${ids.length} 個商品的宅配規格設定為「${val}」嗎？`)) return;
+    body = { shipping_spec: val };
+  } else if (type === 'sort') {
+    const val = document.getElementById('lpm-ship-sort')?.value?.trim();
+    if (val === '' || isNaN(Number(val))) { showToast('請輸入有效的排序數字', 'error'); return; }
+    if (!confirm(`確定要將已選 ${ids.length} 個商品的宅配排序設定為 ${val} 嗎？`)) return;
+    body = { shipping_sort_order: Number(val) };
+  } else if (type === 'upsell_on') {
+    if (!confirm(`確定要將已選 ${ids.length} 個商品設為加購商品嗎？`)) return;
+    body = { shipping_upsell: 1 };
+  } else if (type === 'upsell_off') {
+    if (!confirm(`確定要取消已選 ${ids.length} 個商品的加購商品設定嗎？`)) return;
+    body = { shipping_upsell: 0 };
+  } else if (type === 'share_on') {
+    if (!confirm(`確定要將已選 ${ids.length} 個商品設為共用 LINE 份數嗎？`)) return;
+    body = { shipping_share_line_stock: 1 };
+  } else if (type === 'share_off') {
+    if (!confirm(`確定要將已選 ${ids.length} 個商品設為不共用 LINE 份數（獨立庫存）嗎？`)) return;
+    body = { shipping_share_line_stock: 0 };
+  } else {
+    return;
+  }
+
+  await _lpmShippingBatchSend(ids, body, '宅配');
+}
+
+// ── 共用批量發送邏輯（冷藏宅配 Tab 專用，只呼叫 shipping-settings，絕不動 LINE 外帶/外送欄位）──
+async function _lpmShippingBatchSend(ids, body, label) {
+  let successCount = 0, failCount = 0, firstFailReason = '';
+  const chunks = [];
+  for (let i = 0; i < ids.length; i += 5) chunks.push(ids.slice(i, i+5));
+  for (const chunk of chunks) {
+    await Promise.all(chunk.map(async id => {
+      try {
+        const res = await apiFetch(`/api/products/${id}/shipping-settings`, {
+          method:'PATCH', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify(body)
+        });
+        let json;
+        if (res && typeof res.json === 'function') {
+          json = await res.json();
+        } else if (res && res.body) {
+          json = res.body;
+        } else {
+          throw new Error(`HTTP error (status=${res?.status ?? 'unknown'})`);
+        }
+        if (json && json.success) {
+          const idx = _lpmProducts.findIndex(x => x.id === id);
+          if (idx !== -1) _lpmProducts[idx] = { ..._lpmProducts[idx], ...json.data };
+          successCount++;
+        } else {
+          const reason = json?.message || '伺服器回傳 success:false';
+          console.warn(`[lpmShippingBatchSend] id=${id} 失敗：`, reason);
+          if (!firstFailReason) firstFailReason = reason;
+          failCount++;
+        }
+      } catch(e) {
+        const reason = e?.message || String(e);
+        console.error(`[lpmShippingBatchSend] id=${id} 例外：`, reason);
+        if (!firstFailReason) firstFailReason = reason;
+        failCount++;
+      }
+    }));
+  }
+  renderLpmShippingTable(_lpmProducts);
+  if (!failCount) {
+    showToast(`✅ 已更新 ${successCount} 個商品的${label}`, 'success');
+  } else if (!successCount) {
+    showToast(`⚠️ 全部 ${failCount} 個失敗。原因：${firstFailReason || '未知'}`, 'error');
+  } else {
+    showToast(`✅ ${successCount} 個成功，⚠️ ${failCount} 個失敗（${firstFailReason}）`, 'error');
+  }
 }
 
 // ── 批量食材控管（開啟 / 關閉 inventory_enabled）────────────
