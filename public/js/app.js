@@ -5741,18 +5741,8 @@ async function loadLineBizStatus() {
           : cutoffPassed ? '<span style="color:#ff6d00">截止售完</span>'
           : '<span style="color:#06C755">接單中</span>';
       }
-      // 填入 LINE 付款方式設定
-      const lpMap = {
-        cash: 'line_payment_cash_enabled', linepay: 'line_payment_linepay_enabled',
-        transfer: 'line_payment_transfer_enabled', platform: 'line_payment_platform_enabled',
-        credit_card: 'line_payment_credit_card_enabled'
-      };
-      Object.entries(lpMap).forEach(([code, key]) => {
-        const el = document.getElementById(`lp-${code}`);
-        if (el) el.checked = d[key] === '1';
-      });
-      // fix18-10-hotfix22A：外帶/外送獨立付款方式（若未設定則 fallback 顯示與上方全域勾選一致）
-      _fillModePaymentToggles(d);
+      // fix18-10-hotfix22A（付款設定架構釐清）：填入「線上付款方式管理」（外帶/外送/冷藏宅配三通路）
+      _fillOnlinePaymentToggles(d);
     }
     // ── 外帶規則填入（v1）──────────────────────────────
     const setV = (id, val) => { const el = document.getElementById(id); if(el) el.value = val||''; };
@@ -5818,16 +5808,14 @@ function _fillShippingSettingsForm(d) {
   setC('set-shipping_upsell_enabled', d.shipping_upsell_enabled !== '0');
   const cwds = (() => { try { return JSON.parse(d.shipping_closed_weekdays || '[]'); } catch { return []; } })();
   document.querySelectorAll('.ship-cwd-chk').forEach(cb => { cb.checked = cwds.includes(cb.value); });
-  const pays = (() => { try { const p = JSON.parse(d.shipping_payment_methods || '[]'); return Array.isArray(p) && p.length ? p : ['cash','transfer']; } catch { return ['cash','transfer']; } })();
-  document.querySelectorAll('.ship-pay-chk').forEach(cb => { cb.checked = pays.includes(cb.value); });
+  // fix18-10-hotfix22A（付款設定架構釐清）：冷藏宅配付款方式已統一移至「LINE 營業 → 線上付款方式管理」，
+  // 不再於本表單管理，避免兩處同時控制同一個 shipping_payment_methods 設定互相覆蓋。
 }
 
 async function saveShippingSettings() {
   const getV = (id) => document.getElementById(id)?.value || '';
   const getC = (id) => document.getElementById(id)?.checked ? '1' : '0';
   const cwds = Array.from(document.querySelectorAll('.ship-cwd-chk:checked')).map(cb => cb.value);
-  const pays = Array.from(document.querySelectorAll('.ship-pay-chk:checked')).map(cb => cb.value);
-  if (!pays.length) { showToast('請至少選擇一種付款方式', 'error'); return; }
   const body = {
     shipping_enabled:            getC('set-shipping_enabled'),
     shipping_title:               getV('set-shipping_title') || '冷藏宅配',
@@ -5843,7 +5831,6 @@ async function saveShippingSettings() {
     shipping_allow_arrival_date:  getC('set-shipping_allow_arrival_date'),
     shipping_upsell_enabled:      getC('set-shipping_upsell_enabled'),
     shipping_closed_weekdays:     JSON.stringify(cwds),
-    shipping_payment_methods:     JSON.stringify(pays),
   };
   try {
     await apiFetch('/api/settings', { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
@@ -6468,70 +6455,65 @@ async function setDelivery(enable) {
   loadLineBizStatus();
 }
 
-const MODE_PAY_CODES  = ['cash', 'linepay', 'transfer', 'platform', 'credit_card'];
-const MODE_PAY_PREFIX = { takeout: 'tkp', delivery: 'dvp' };
-const MODE_PAY_KEY    = { takeout: 'takeout_payment_methods', delivery: 'delivery_payment_methods' };
-const MODE_PAY_LEGACY_KEY = {
+// fix18-10-hotfix22A（付款設定架構釐清）：「線上付款方式管理」— 統一管理 LINE 線上點餐
+// 三個通路（外帶/外送/冷藏宅配）各自獨立的付款方式開關。
+// 與「系統設定 → 付款方式管理」（實體 POS 現場結帳，payment_methods 資料表）、
+// 「系統設定 → 金流 API」（LINE Pay/綠界/藍新等金流憑證）完全獨立，互不覆蓋、互不讀寫對方的資料。
+const ONLINE_PAY_CODES  = ['cash', 'linepay', 'transfer', 'credit_card', 'platform'];
+const ONLINE_PAY_LABEL  = { cash: '現金', linepay: 'LINE Pay', transfer: '轉帳', credit_card: '信用卡', platform: '平台付款' };
+const ONLINE_PAY_PREFIX = { takeout: 'op-takeout', delivery: 'op-delivery', shipping: 'op-shipping' };
+const ONLINE_PAY_KEY    = { takeout: 'takeout_payment_methods', delivery: 'delivery_payment_methods', shipping: 'shipping_payment_methods' };
+const ONLINE_PAY_CHANNEL_LABEL = { takeout: '外帶', delivery: '外送', shipping: '冷藏宅配' };
+// 外帶/外送舊版全域開關（Hotfix22A 之前唯一的設定來源）；僅作為「尚未設定新版陣列時」的顯示 fallback，
+// 冷藏宅配從一開始就是獨立陣列設定，沒有對應的舊版全域開關可以 fallback。
+const ONLINE_PAY_LEGACY_KEY = {
   cash: 'line_payment_cash_enabled', linepay: 'line_payment_linepay_enabled',
   transfer: 'line_payment_transfer_enabled', platform: 'line_payment_platform_enabled',
   credit_card: 'line_payment_credit_card_enabled',
 };
-const MODE_PAY_LABEL = { cash: '現金', linepay: 'LINE Pay', transfer: '轉帳', platform: '平台付款', credit_card: '信用卡' };
 
-// fix18-10-hotfix22A：填入外帶/外送獨立付款方式勾選框。若店家尚未設定新版陣列，
-// 顯示與全域 line_payment_*_enabled 一致的勾選狀態（純顯示 fallback，不會寫回資料庫）。
-function _fillModePaymentToggles(d) {
-  ['takeout', 'delivery'].forEach(mode => {
-    const prefix = MODE_PAY_PREFIX[mode];
-    const raw = d[MODE_PAY_KEY[mode]];
+// 填入「線上付款方式管理」15 個勾選框（3 通路 × 5 方式）
+function _fillOnlinePaymentToggles(d) {
+  ['takeout', 'delivery', 'shipping'].forEach(channel => {
+    const prefix = ONLINE_PAY_PREFIX[channel];
+    const raw = d[ONLINE_PAY_KEY[channel]];
     let codes = null;
     try { const arr = JSON.parse(raw || '[]'); if (Array.isArray(arr) && arr.length) codes = arr; } catch {}
-    MODE_PAY_CODES.forEach(code => {
+    ONLINE_PAY_CODES.forEach(code => {
       const el = document.getElementById(`${prefix}-${code}`);
       if (!el) return;
-      el.checked = codes ? codes.includes(code) : (d[MODE_PAY_LEGACY_KEY[code]] === '1');
+      if (codes) el.checked = codes.includes(code);
+      else if (channel !== 'shipping') el.checked = d[ONLINE_PAY_LEGACY_KEY[code]] === '1'; // 外帶/外送 fallback 顯示
+      else el.checked = (code === 'cash' || code === 'transfer'); // 冷藏宅配預設值（與既有預設一致）
     });
   });
 }
 
-async function saveModePaymentSettings(mode) {
-  const prefix = MODE_PAY_PREFIX[mode];
-  const codes = MODE_PAY_CODES.filter(code => document.getElementById(`${prefix}-${code}`)?.checked);
-  if (!codes.length) {
-    showToast('請至少選擇一種付款方式', 'error');
-    _fillModePaymentToggles((await (await apiFetch('/api/settings')).json()).data || {});
-    return;
+// 統一儲存「線上付款方式管理」— 一次寫入三個通路，逐一驗證至少勾選一種才送出
+async function saveOnlinePaymentMethods() {
+  const result = {};
+  for (const channel of ['takeout', 'delivery', 'shipping']) {
+    const prefix = ONLINE_PAY_PREFIX[channel];
+    const codes = ONLINE_PAY_CODES.filter(code => document.getElementById(`${prefix}-${code}`)?.checked);
+    if (!codes.length) {
+      showToast(`「${ONLINE_PAY_CHANNEL_LABEL[channel]}」至少需要選擇一種付款方式`, 'error');
+      return;
+    }
+    result[channel] = codes;
   }
-  const body = {};
-  body[MODE_PAY_KEY[mode]] = JSON.stringify(codes);
+  const body = {
+    takeout_payment_methods:  JSON.stringify(result.takeout),
+    delivery_payment_methods: JSON.stringify(result.delivery),
+    shipping_payment_methods: JSON.stringify(result.shipping),
+  };
   try {
     await apiFetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    showToast(`✅ ${mode === 'takeout' ? '外帶' : '外送'}付款方式已儲存：${codes.map(c => MODE_PAY_LABEL[c]).join('、')}`, 'success');
+    showToast('✅ 線上付款方式管理已儲存', 'success');
+    // 冷藏宅配若勾選 LINE Pay，提醒尚未支援正式結帳（後台可勾選，前台會擋下並提示，見 line-shipping.html）
+    if (result.shipping.includes('linepay')) {
+      showToast('⚠️ 冷藏宅配已開放 LINE Pay 選項，但正式付款流程尚未串接，客人端會看到提示且無法送出', 'error');
+    }
   } catch (e) { showToast('儲存失敗', 'error'); }
-}
-
-async function saveLinePaymentSettings() {
-  const lpMap = {
-    cash: 'line_payment_cash_enabled', linepay: 'line_payment_linepay_enabled',
-    transfer: 'line_payment_transfer_enabled', platform: 'line_payment_platform_enabled',
-    credit_card: 'line_payment_credit_card_enabled'
-  };
-  const body = {};
-  Object.entries(lpMap).forEach(([code, key]) => {
-    const el = document.getElementById(`lp-${code}`);
-    if (el) body[key] = el.checked ? '1' : '0';
-  });
-  try {
-    await apiFetch('/api/settings', { method:'PUT', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify(body) });
-    const enabled = Object.entries(lpMap)
-      .filter(([code]) => document.getElementById(`lp-${code}`)?.checked)
-      .map(([code]) => ({ cash:'現金', linepay:'LINE Pay', transfer:'轉帳', platform:'平台付款', credit_card:'信用卡' }[code]))
-      .join('、');
-    const st = document.getElementById('linePaymentStatus');
-    if (st) st.textContent = enabled ? `✅ 已開啟：${enabled}` : '⚠️ 所有付款方式已關閉';
-    showToast('✅ LINE 付款方式已儲存', 'success');
-  } catch(e) { showToast('儲存失敗', 'error'); }
 }
 
 const DAY_NAMES = { mon:'週一', tue:'週二', wed:'週三', thu:'週四', fri:'週五', sat:'週六', sun:'週日' };

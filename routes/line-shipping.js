@@ -259,6 +259,12 @@ router.post('/', (req, res) => {
     if (!settings.shipping_enabled) {
       return res.status(403).json({ success: false, message: '冷藏宅配目前未開放' });
     }
+
+    // fix18-10-hotfix22A（付款設定架構釐清）：LINE Pay 冷藏宅配正式付款流程尚未串接，
+    // 即使後台已開放此選項、前端檢查被繞過，後端仍需擋下，避免建立無法完成付款的訂單。
+    if (payment_method === 'linepay') {
+      return res.status(400).json({ success: false, message: 'LINE Pay 冷藏宅配正式付款流程尚未串接完成，請選擇其他付款方式' });
+    }
     if (!items || !Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ success: false, message: '購物車不能為空' });
     }
@@ -393,7 +399,7 @@ const SHIP_STATUS_LABELS = {
 const SHIP_PAYMENT_STATUS_LABELS = {
   pending: '待付款', paid: '付款成功', failed: '付款失敗', refunded: '退款', cancelled: '取消',
 };
-const SHIP_PAYMENT_METHOD_LABELS = { cash: '現金', linepay: 'LINE Pay', transfer: '轉帳' };
+const SHIP_PAYMENT_METHOD_LABELS = { cash: '現金', linepay: 'LINE Pay', transfer: '轉帳', credit_card: '信用卡', platform: '平台付款' };
 
 function isFullPhoneShip(input) { return /^\d{6,}$/.test(String(input || '').replace(/[-\s]/g, '')); }
 

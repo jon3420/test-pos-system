@@ -1270,57 +1270,50 @@
           <button class="btn-primary" style="margin-top:12px;background:#06C755;border-color:#06C755" onclick="saveTakeoutDeliveryRule('delivery')">💾 儲存外送設定</button>
         </div>
 
-        <div class="settings-card">
-          <h3>💳 LINE 點餐付款方式</h3>
-          <p style="font-size:12px;color:#888;margin-bottom:12px">控制 LINE 點餐頁顯示的付款方式</p>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 16px" id="linePaymentToggles">
-            <label class="checkbox-label">
-              <input type="checkbox" id="lp-cash" onchange="saveLinePaymentSettings()">
-              <span>💵 現金 (cash)</span>
-            </label>
-            <label class="checkbox-label">
-              <input type="checkbox" id="lp-linepay" onchange="saveLinePaymentSettings()">
-              <span>💚 LINE Pay</span>
-            </label>
-            <label class="checkbox-label">
-              <input type="checkbox" id="lp-credit_card" onchange="saveLinePaymentSettings()">
-              <span>💳 信用卡</span>
-            </label>
-            <label class="checkbox-label">
-              <input type="checkbox" id="lp-platform" onchange="saveLinePaymentSettings()">
-              <span>📱 平台付款</span>
-            </label>
-            <label class="checkbox-label">
-              <input type="checkbox" id="lp-transfer" onchange="saveLinePaymentSettings()">
-              <span>🏦 轉帳</span>
-            </label>
+        <div class="settings-card full">
+          <h3>💳 線上付款方式管理</h3>
+          <p style="font-size:12px;color:#888;margin-bottom:4px">
+            控制 LINE 線上點餐三個通路（外帶／外送／冷藏宅配）各自可用的付款方式，<b>與實體 POS「系統設定 → 付款方式管理」、「系統設定 → 金流 API」完全獨立，互不影響</b>。
+          </p>
+          <p style="font-size:12px;color:#e65100;margin-bottom:12px">⚠️ 每個通路至少需要勾選一種付款方式，否則無法儲存。</p>
+
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:20px">
+            <div>
+              <h4 style="font-size:13px;font-weight:700;margin-bottom:8px">🛍️ 外帶付款方式</h4>
+              <div style="display:flex;flex-direction:column;gap:6px">
+                <label class="checkbox-label"><input type="checkbox" id="op-takeout-cash"><span>💵 現金</span></label>
+                <label class="checkbox-label"><input type="checkbox" id="op-takeout-linepay"><span>💚 LINE Pay</span></label>
+                <label class="checkbox-label"><input type="checkbox" id="op-takeout-transfer"><span>🏦 轉帳</span></label>
+                <label class="checkbox-label"><input type="checkbox" id="op-takeout-credit_card"><span>💳 信用卡</span></label>
+                <label class="checkbox-label"><input type="checkbox" id="op-takeout-platform"><span>📱 平台付款</span></label>
+              </div>
+            </div>
+            <div>
+              <h4 style="font-size:13px;font-weight:700;margin-bottom:8px">🛵 外送付款方式</h4>
+              <div style="display:flex;flex-direction:column;gap:6px">
+                <label class="checkbox-label"><input type="checkbox" id="op-delivery-cash"><span>💵 現金</span></label>
+                <label class="checkbox-label"><input type="checkbox" id="op-delivery-linepay"><span>💚 LINE Pay</span></label>
+                <label class="checkbox-label"><input type="checkbox" id="op-delivery-transfer"><span>🏦 轉帳</span></label>
+                <label class="checkbox-label"><input type="checkbox" id="op-delivery-credit_card"><span>💳 信用卡</span></label>
+                <label class="checkbox-label"><input type="checkbox" id="op-delivery-platform"><span>📱 平台付款</span></label>
+              </div>
+            </div>
+            <div>
+              <h4 style="font-size:13px;font-weight:700;margin-bottom:8px">📦 冷藏宅配付款方式</h4>
+              <div style="display:flex;flex-direction:column;gap:6px">
+                <label class="checkbox-label"><input type="checkbox" id="op-shipping-cash"><span>💵 現金</span></label>
+                <label class="checkbox-label"><input type="checkbox" id="op-shipping-linepay"><span>💚 LINE Pay ⚠️</span></label>
+                <label class="checkbox-label"><input type="checkbox" id="op-shipping-transfer"><span>🏦 轉帳</span></label>
+                <label class="checkbox-label"><input type="checkbox" id="op-shipping-credit_card"><span>💳 信用卡</span></label>
+                <label class="checkbox-label"><input type="checkbox" id="op-shipping-platform"><span>📱 平台付款</span></label>
+              </div>
+              <p style="font-size:11px;color:#e65100;margin-top:6px">⚠️ LINE Pay 冷藏宅配正式付款流程尚未串接完成。勾選後客人可以在前台看到此選項，但送出訂單時會被擋下並看到提示，請選擇其他方式完成付款。</p>
+            </div>
           </div>
-          <div id="linePaymentStatus" style="margin-top:10px;font-size:12px;color:#888"></div>
+
+          <button class="btn-primary" style="margin-top:16px;background:#06C755;border-color:#06C755" onclick="saveOnlinePaymentMethods()">💾 儲存線上付款方式管理</button>
         </div>
 
-        <div class="settings-card">
-          <h3>🛍️ 外帶付款方式（獨立開關）</h3>
-          <p style="font-size:12px;color:#888;margin-bottom:12px">未勾選任何項目時，自動沿用上方「LINE 點餐付款方式」設定</p>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 16px" id="takeoutPaymentToggles">
-            <label class="checkbox-label"><input type="checkbox" id="tkp-cash" onchange="saveModePaymentSettings('takeout')"><span>💵 現金 (cash)</span></label>
-            <label class="checkbox-label"><input type="checkbox" id="tkp-linepay" onchange="saveModePaymentSettings('takeout')"><span>💚 LINE Pay</span></label>
-            <label class="checkbox-label"><input type="checkbox" id="tkp-credit_card" onchange="saveModePaymentSettings('takeout')"><span>💳 信用卡</span></label>
-            <label class="checkbox-label"><input type="checkbox" id="tkp-platform" onchange="saveModePaymentSettings('takeout')"><span>📱 平台付款</span></label>
-            <label class="checkbox-label"><input type="checkbox" id="tkp-transfer" onchange="saveModePaymentSettings('takeout')"><span>🏦 轉帳</span></label>
-          </div>
-        </div>
-
-        <div class="settings-card">
-          <h3>🛵 外送付款方式（獨立開關）</h3>
-          <p style="font-size:12px;color:#888;margin-bottom:12px">未勾選任何項目時，自動沿用上方「LINE 點餐付款方式」設定</p>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 16px" id="deliveryPaymentToggles">
-            <label class="checkbox-label"><input type="checkbox" id="dvp-cash" onchange="saveModePaymentSettings('delivery')"><span>💵 現金 (cash)</span></label>
-            <label class="checkbox-label"><input type="checkbox" id="dvp-linepay" onchange="saveModePaymentSettings('delivery')"><span>💚 LINE Pay</span></label>
-            <label class="checkbox-label"><input type="checkbox" id="dvp-credit_card" onchange="saveModePaymentSettings('delivery')"><span>💳 信用卡</span></label>
-            <label class="checkbox-label"><input type="checkbox" id="dvp-platform" onchange="saveModePaymentSettings('delivery')"><span>📱 平台付款</span></label>
-            <label class="checkbox-label"><input type="checkbox" id="dvp-transfer" onchange="saveModePaymentSettings('delivery')"><span>🏦 轉帳</span></label>
-          </div>
-        </div>
         <div class="settings-card" style="grid-column:1/-1;overflow:hidden">
           <details class="legacy-collapse" id="legacyBizHoursDetails">
             <summary>
@@ -1444,12 +1437,7 @@
             <label class="checkbox-label"><input type="checkbox" class="ship-cwd-chk" value="sat"> 週六</label>
             <label class="checkbox-label"><input type="checkbox" class="ship-cwd-chk" value="sun"> 週日</label>
           </div>
-          <h3 style="font-size:14px">💳 付款方式</h3>
-          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
-            <label class="checkbox-label"><input type="checkbox" class="ship-pay-chk" value="cash"> 現金</label>
-            <label class="checkbox-label"><input type="checkbox" class="ship-pay-chk" value="transfer"> 轉帳</label>
-            <label class="checkbox-label"><input type="checkbox" class="ship-pay-chk" value="linepay"> LINE Pay（V1 尚未支援結帳流程）</label>
-          </div>
+          <p style="font-size:12px;color:#888;margin-top:4px">💳 付款方式已統一移至「LINE 營業 → 線上付款方式管理」設定，此處不再重複顯示。</p>
           <button class="btn-primary" onclick="saveShippingSettings()">💾 儲存冷藏宅配設定</button>
         </div>
 

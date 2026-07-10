@@ -213,6 +213,9 @@ img{max-width:100%;display:block}
     <div class="fg">
       <label class="fl">付款方式</label>
       <div class="pay-btns" id="payBtns"></div>
+      <div id="linepayWarn" style="display:none;background:#fff3e0;color:#e65100;border-radius:6px;padding:8px 10px;font-size:12px;margin-top:8px;font-weight:600">
+        ⚠️ LINE Pay 冷藏宅配正式付款流程尚未串接完成，暫時無法用 LINE Pay 送出宅配訂單，請選擇其他付款方式。
+      </div>
     </div>
 
     <div class="fg"><label class="fl">備註</label><input class="fi" id="rNote" placeholder="給店家的話（選填）" oninput="persistCart()"></div>
@@ -291,6 +294,13 @@ function toast(msg) {
   setTimeout(() => t.classList.remove('show'), 2200);
 }
 
+// fix18-10-hotfix22A（付款設定架構釐清）：冷藏宅配 LINE Pay 正式付款流程尚未串接，
+// 後台可以勾選開放此選項，但前台必須清楚提示且擋下送出（見 submitOrder() 內的硬性檢查）。
+function updateLinepayWarning() {
+  const warn = document.getElementById('linepayWarn');
+  if (warn) warn.style.display = (selectedPayment === 'linepay') ? 'block' : 'none';
+}
+
 async function init() {
   try {
     const res = await apiGet('/api/line-shipping/shop');
@@ -338,7 +348,7 @@ function renderShop() {
   bindQtyDelegation('cartItems');
 
   // 付款方式按鈕
-  const payLabels = { cash: '💵 現金', linepay: '📱 LINE Pay', transfer: '🏦 轉帳' };
+  const payLabels = { cash: '💵 現金', linepay: '📱 LINE Pay', transfer: '🏦 轉帳', credit_card: '💳 信用卡', platform: '📱 平台付款' };
   const payWrap = document.getElementById('payBtns');
   payWrap.innerHTML = '';
   (d.payment_methods || []).forEach((code, i) => {
@@ -350,7 +360,8 @@ function renderShop() {
       document.querySelectorAll('.pay-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       selectedPayment = code;
-      if (code === 'linepay') toast('TODO：LINE Pay 尚未支援宅配流程，請先選擇其他付款方式');
+      updateLinepayWarning();
+      if (code === 'linepay') toast('⚠️ LINE Pay 尚未支援宅配正式付款流程，請先選擇其他付款方式');
       persistCart();
     };
     payWrap.appendChild(btn);
@@ -439,6 +450,7 @@ function restoreCart() {
     });
     if (matched) selectedPayment = data.paymentMethod;
   }
+  updateLinepayWarning();
 
   // 還原希望到貨模式（asap/date）— 放在付款方式還原之後，避免此函式內觸發的 persistCart()
   // 存下尚未還原完成的付款方式快照
@@ -642,6 +654,11 @@ async function submitOrder() {
   if (!name || !phone) { toast('請填寫收件人姓名與電話'); return; }
   if (!city || !district || !address) { toast('請填寫完整收件地址'); return; }
   if (!selectedPayment) { toast('請選擇付款方式'); return; }
+  if (selectedPayment === 'linepay') {
+    toast('⚠️ LINE Pay 冷藏宅配正式付款流程尚未串接完成，請選擇其他付款方式');
+    updateLinepayWarning();
+    return;
+  }
 
   const btn = document.getElementById('submitBtn');
   btn.disabled = true; btn.textContent = '送出中…';
@@ -667,7 +684,7 @@ async function submitOrder() {
 
 function showSuccess(d) {
   document.getElementById('sucOrderNo').textContent = d.order_number;
-  const payLabels = { cash: '現金', linepay: 'LINE Pay', transfer: '轉帳' };
+  const payLabels = { cash: '現金', linepay: 'LINE Pay', transfer: '轉帳', credit_card: '信用卡', platform: '平台付款' };
   document.getElementById('sucDetail').innerHTML = `
     <div class="od-section">
       <div class="od-row"><span class="od-label">收件人</span><span class="od-val">${esc(d.recipient_name)}</span></div>
