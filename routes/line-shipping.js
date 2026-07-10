@@ -260,11 +260,9 @@ router.post('/', (req, res) => {
       return res.status(403).json({ success: false, message: '冷藏宅配目前未開放' });
     }
 
-    // fix18-10-hotfix22A（付款設定架構釐清）：LINE Pay 冷藏宅配正式付款流程尚未串接，
-    // 即使後台已開放此選項、前端檢查被繞過，後端仍需擋下，避免建立無法完成付款的訂單。
-    if (payment_method === 'linepay') {
-      return res.status(400).json({ success: false, message: 'LINE Pay 冷藏宅配正式付款流程尚未串接完成，請選擇其他付款方式' });
-    }
+    // hotfix22-B：LINE Pay 冷藏宅配正式付款流程已確認可用（Request/Confirm/Webhook
+    // 皆透過共用的 orders 表以 uuid 辨識，不區分 takeout/delivery/shipping），
+    // 移除舊版強制擋下。付款方式是否開放仍受 shipping_payment_methods 白名單控管（見下方檢查）。
     if (!items || !Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ success: false, message: '購物車不能為空' });
     }

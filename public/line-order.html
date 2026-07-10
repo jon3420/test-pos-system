@@ -531,6 +531,10 @@ async function init(){
       if(takeoutEnabled && !takeoutCutoffPassed) currentMode='takeout';
       else if(deliveryEnabled && !deliveryCutoffPassed) currentMode='delivery';
       else currentMode=takeoutEnabled?'takeout':'delivery';
+      // hotfix22-B：currentMode 決定後立即同步 oType（購物車表單的 select），
+      // 避免任何尚未更新的程式碼路徑誤讀到 <select> 的 HTML 預設值。
+      const _oTypeInit=document.getElementById('oType');
+      if(_oTypeInit) _oTypeInit.value=currentMode;
 
       buildModeTabsUI();
       buildPaymentButtons(d);
@@ -863,7 +867,12 @@ function buildDateSelector(forceNextDay=false){
   const sel=document.getElementById('pDate');if(!sel)return;
   sel.innerHTML='';
   const now=twNow();
-  const mode=document.getElementById('oType')?.value||currentMode;
+  // hotfix22-B ROOT CAUSE FIX：外帶/外送模式必須只有 currentMode 這一個單一來源。
+  // 舊版讀取 oType.value 作為主要依據，但 oType 這個 <select> 只有在使用者手動切換
+  // 或購物車開啟時才會被同步；頁面剛載入、或行事曆/今日截止讓某模式被關閉時，
+  // oType 仍停留在 HTML 預設值（'外帶'），導致用「錯誤的模式」去查時段，
+  // 出現「外送已關閉」「今日截止」等錯誤訊息（即使該模式其實是開啟的）。
+  const mode=currentMode;
   const closedWds=(() => { try { return JSON.parse(shopData.line_closed_weekdays||'[]'); } catch { return []; } })();
   const closedDts=(() => { try { return JSON.parse(shopData.line_closed_dates||'[]'); } catch { return []; } })();
   const bizHoursKey=mode==='takeout'?'takeout_business_hours':'delivery_business_hours';
@@ -908,7 +917,8 @@ async function buildTimeSelector(){
   if(!sel)return;
   sel.innerHTML='<option value="">載入中…</option>';
   const sd=dateSel?.value;if(!sd){sel.innerHTML='<option value="">請先選擇日期</option>';return;}
-  const mode=document.getElementById('oType')?.value||currentMode;
+  // hotfix22-B ROOT CAUSE FIX：同上，改用單一來源 currentMode，避免用到未同步的 oType.value
+  const mode=currentMode;
   const lbl=document.getElementById('timeLabel');
   if(lbl) lbl.childNodes[0].textContent=mode==='delivery'?'外送時間 ':'取餐時間 ';
   try{
@@ -1122,6 +1132,25 @@ function addCart(id,evt){
 
 // ── B: 預約明日 — 完整流程 ────────────────────────────────
 // 1. 找下一個可訂日 2. 加商品進購物車 3. 載入明日時段 4. 打開購物車
+// hotfix22-B：找出某模式（takeout/delivery）下一個可訂日（排除今日、公休日、非營業日）
+// preorderNextDay() 與「今日截止後導向下一可營業日」共用同一套邏輯，避免各自維護不同判斷
+function findNextAvailableDate(mode){
+  const now=twNow();
+  const closedWds=(() => { try { return JSON.parse(shopData.line_closed_weekdays||'[]'); } catch { return []; } })();
+  const closedDts=(() => { try { return JSON.parse(shopData.line_closed_dates||'[]'); } catch { return []; } })();
+  const bizHoursKey=mode==='takeout'?'takeout_business_hours':'delivery_business_hours';
+  const bizHours=(() => { try { return JSON.parse(shopData[bizHoursKey]||'{}'); } catch { return {}; } })();
+  const bizHoursEmpty=Object.keys(bizHours).length===0;
+  const WD_KEYS_LOCAL=['sun','mon','tue','wed','thu','fri','sat'];
+  for(let offset=1;offset<=14;offset++){
+    const d=new Date(now); d.setDate(d.getDate()+offset);
+    const ds=fmtD(d),wk=WD_KEYS_LOCAL[parseLocalDate(ds).getDay()];
+    if(closedWds.includes(wk)||closedDts.includes(ds)) continue;
+    if(!bizHoursEmpty){ const dh=bizHours[wk]; if(dh&&!dh.enabled) continue; }
+    return ds;
+  }
+  return null;
+}
 async function preorderNextDay(id,evt){
   if(evt){evt.stopPropagation();}
   const p=allProducts.find(x=>x.id==id);if(!p)return;
@@ -1130,24 +1159,7 @@ async function preorderNextDay(id,evt){
   if(!canNextDay){toast('此商品不支援明日預約');return;}
 
   // 找下一個可訂日（排除今日、公休日、非營業日）
-  const now=twNow(), todayStr=fmtD(now);
-  const closedWds=(() => { try { return JSON.parse(shopData.line_closed_weekdays||'[]'); } catch { return []; } })();
-  const closedDts=(() => { try { return JSON.parse(shopData.line_closed_dates||'[]'); } catch { return []; } })();
-  const bizHoursKey=mode==='takeout'?'takeout_business_hours':'delivery_business_hours';
-  const bizHours=(() => { try { return JSON.parse(shopData[bizHoursKey]||'{}'); } catch { return {}; } })();
-  const bizHoursEmpty=Object.keys(bizHours).length===0;
-  const WD_KEYS_LOCAL=['sun','mon','tue','wed','thu','fri','sat'];
-
-  let nextDate=null;
-  for(let offset=1;offset<=14;offset++){
-    const d=new Date(now); d.setDate(d.getDate()+offset);
-    const ds=fmtD(d),wk=WD_KEYS_LOCAL[parseLocalDate(ds).getDay()];
-    // 跳過公休日 / 指定店休
-    if(closedWds.includes(wk)||closedDts.includes(ds)) continue;
-    // bizHours 未設定時視為全天可訂；有設定時需 enabled=true
-    if(!bizHoursEmpty){ const dh=bizHours[wk]; if(dh&&!dh.enabled) continue; }
-    nextDate=ds; break;
-  }
+  const nextDate=findNextAvailableDate(mode);
   if(!nextDate){ toast('目前找不到可預約的未來時段，請確認外帶/外送營業設定'); return; }
 
   // 加商品進購物車（繞過今日售完，預約訂單不扣今日份數）
@@ -1298,7 +1310,7 @@ function updateBar(){
   // fix18-06: 外送費納入應付金額
   const cartDelivRow=document.getElementById('cartDelivFeeRow');
   const cartDelivEl=document.getElementById('cartDelivFeeDisplay');
-  const isDelivMode=document.getElementById('oType')?.value==='delivery';
+  const isDelivMode=currentMode==='delivery';
   const shownDelivFee=isDelivMode&&deliveryFeeCalculated?calcDeliveryFee:0;
   if(cartDelivRow) cartDelivRow.style.display=shownDelivFee>0?'flex':'none';
   if(cartDelivEl) cartDelivEl.textContent=`$${shownDelivFee}`;
@@ -1368,6 +1380,9 @@ function openCartSheet(){
     oType.value=currentMode;
   }
   renderCartItems();openSheet('cartSheet');
+  // hotfix22-B：開啟購物車時重新查詢日期/時段（即時打 API，避免使用頁面載入當下的快取狀態；
+  // 例如店家在顧客瀏覽期間才設定「今日臨時最後接單時間」，此時應立即反映，而非等下次整頁重整）
+  buildDateSelector();
 }
 function renderCartItems(){
   const el=document.getElementById('cartItems');
@@ -1442,7 +1457,29 @@ async function submitOrder(){
     }).then(r=>r.json());
     if(!orderRes.success){
       toast(orderRes.message||'送出失敗');
-      if(orderRes.reason==='cutoff_sold_out'||orderRes.reason==='real_sold_out') setTimeout(()=>location.reload(),2000);
+      // hotfix22-B：外帶/外送「今日最後接單時間」在送單當下才過期（例如顧客瀏覽期間店家臨時調整截止時間），
+      // 後端已擋下（見 routes/line-orders.js validateOrderConditions）。前台若該模式允許預約明日，
+      // 直接帶去下一個可營業日，而不是單純重整頁面讓顧客自己重新摸索。
+      if(orderRes.reason==='cutoff_sold_out'){
+        const allowNext = currentMode==='takeout'
+          ? (shopData.takeout_status?.allow_next_day)
+          : (shopData.delivery_status?.allow_next_day);
+        if(allowNext){
+          const nextDate=findNextAvailableDate(currentMode);
+          if(nextDate){
+            try{
+              const tsRes=await apiFetch(`/api/line-orders/timeslots?mode=${currentMode}&date=${nextDate}`).then(r=>r.json());
+              const slots=(tsRes.success&&tsRes.slots)?tsRes.slots:[];
+              toast(`⏰ 今日已截止，已為您帶到下一個可營業日（${nextDate}）`);
+              openCartSheetWithDate(nextDate, slots[0]||'', slots, currentMode);
+              btn.disabled=false;btn.textContent='送出訂單';
+              return;
+            }catch(e){ console.warn('cutoff next-day redirect failed',e); }
+          }
+        }
+        setTimeout(()=>location.reload(),2000);
+      }
+      if(orderRes.reason==='real_sold_out') setTimeout(()=>location.reload(),2000);
       if(orderRes.reason==='maps_unavailable'||orderRes.reason==='out_of_range'){
         resetDeliveryFee();
       }

@@ -404,17 +404,22 @@ router.post('/request', async (req, res) => {
 // ══════════════════════════════════════════════════════════
 router.get('/confirm', async (req, res) => {
   const storeId = req.query.store_id || req.storeId || null;
+  // hotfix22-B：冷藏宅配訂單走同一組 Request/Confirm/Webhook，但付款完成後應導回
+  // line-shipping.html 而非 line-order.html。前端呼叫 /api/linepay/request 時會在
+  // confirmUrl 附上 &source=shipping，此處據以決定導回頁面；若缺少此參數，稍後也會
+  // 用讀到的 order.order_mode 做二次判斷（雙重保險，不影響既有外帶/外送行為）。
+  let pageBase = req.query.source === 'shipping' ? 'line-shipping.html' : 'line-order.html';
   try {
     const db  = getDb();
     const cfg = getLinePayConfig(db, storeId);
 
     if (!cfg) {
-      return res.redirect(`/line-order.html?store_id=${storeId}&linepay=error&msg=config_missing`);
+      return res.redirect(`/${pageBase}?store_id=${storeId}&linepay=error&msg=config_missing`);
     }
 
     const { transactionId, orderId } = req.query;
     if (!transactionId || !orderId) {
-      return res.redirect(`/line-order.html?store_id=${storeId}&linepay=error&msg=missing_params`);
+      return res.redirect(`/${pageBase}?store_id=${storeId}&linepay=error&msg=missing_params`);
     }
 
     const order = db.get(
@@ -422,8 +427,10 @@ router.get('/confirm', async (req, res) => {
       [storeId, orderId, orderId]
     );
     if (!order) {
-      return res.redirect(`/line-order.html?store_id=${storeId}&linepay=error&msg=order_not_found`);
+      return res.redirect(`/${pageBase}?store_id=${storeId}&linepay=error&msg=order_not_found`);
     }
+    // 二次判斷：即使呼叫端漏帶 source 參數，仍可用訂單本身的 order_mode 修正導回頁面
+    if (order.order_mode === 'shipping') pageBase = 'line-shipping.html';
 
     const confirmBody = { amount: Number(order.total || 0), currency: 'TWD' };
     const uri   = `/v3/payments/${transactionId}/confirm`;
@@ -441,7 +448,7 @@ router.get('/confirm', async (req, res) => {
     if (data.returnCode !== '0000') {
       console.error('[linepay/confirm] error:', data);
       return res.redirect(
-        `/line-order.html?store_id=${storeId}&linepay=fail&order=${orderId}&code=${data.returnCode}`
+        `/${pageBase}?store_id=${storeId}&linepay=fail&order=${orderId}&code=${data.returnCode}`
       );
     }
 
@@ -468,6 +475,10 @@ router.get('/confirm', async (req, res) => {
 
     // ── LINE Pay 付款成功後扣份數 ──────────────────────────
     // 訂單的商品在建立時（POST /api/line-orders）已存入 DB，現在從 DB 讀取並扣份數
+    // hotfix22-B：冷藏宅配訂單（order_mode='shipping'）在建立訂單當下（routes/line-shipping.js）
+    // 就已經扣過共用 LINE 份數（line_quota_sold），與外帶/外送「付款成功才扣」的時機不同。
+    // 若在此再扣一次會造成重複扣份數，因此宅配訂單跳過這段（避免新問題：宅配 LINE Pay 雙重扣份數）。
+    if (order.order_mode !== 'shipping') {
     const paidItems = (() => {
       try { return typeof order.items === 'string' ? JSON.parse(order.items||'[]') : (order.items||[]); }
       catch { return []; }
@@ -496,6 +507,7 @@ router.get('/confirm', async (req, res) => {
         }
       }
     });
+    }
 
     // 廣播付款成功通知（後台列表刷新）
     try {
@@ -511,10 +523,10 @@ router.get('/confirm', async (req, res) => {
       // 也廣播 order_status_changed 讓列表刷新
       broadcastToStore(wss, storeId, { type: 'order_status_changed', order: paidOrder });
     } catch(e) { console.error('[linepay] paid broadcast error:', e.message); }
-    res.redirect(`/line-order.html?store_id=${storeId}&linepay=success&order=${order.order_number}`);
+    res.redirect(`/${pageBase}?store_id=${storeId}&linepay=success&order=${order.order_number}`);
   } catch(e) {
     console.error('[linepay/confirm] exception:', e.message);
-    res.redirect(`/line-order.html?store_id=${storeId}&linepay=error&msg=${encodeURIComponent(e.message)}`);
+    res.redirect(`/${pageBase}?store_id=${storeId}&linepay=error&msg=${encodeURIComponent(e.message)}`);
   }
 });
 

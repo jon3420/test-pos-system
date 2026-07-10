@@ -6509,10 +6509,6 @@ async function saveOnlinePaymentMethods() {
   try {
     await apiFetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     showToast('✅ 線上付款方式管理已儲存', 'success');
-    // 冷藏宅配若勾選 LINE Pay，提醒尚未支援正式結帳（後台可勾選，前台會擋下並提示，見 line-shipping.html）
-    if (result.shipping.includes('linepay')) {
-      showToast('⚠️ 冷藏宅配已開放 LINE Pay 選項，但正式付款流程尚未串接，客人端會看到提示且無法送出', 'error');
-    }
   } catch (e) { showToast('儲存失敗', 'error'); }
 }
 

@@ -213,9 +213,6 @@ img{max-width:100%;display:block}
     <div class="fg">
       <label class="fl">付款方式</label>
       <div class="pay-btns" id="payBtns"></div>
-      <div id="linepayWarn" style="display:none;background:#fff3e0;color:#e65100;border-radius:6px;padding:8px 10px;font-size:12px;margin-top:8px;font-weight:600">
-        ⚠️ LINE Pay 冷藏宅配正式付款流程尚未串接完成，暫時無法用 LINE Pay 送出宅配訂單，請選擇其他付款方式。
-      </div>
     </div>
 
     <div class="fg"><label class="fl">備註</label><input class="fi" id="rNote" placeholder="給店家的話（選填）" oninput="persistCart()"></div>
@@ -294,14 +291,36 @@ function toast(msg) {
   setTimeout(() => t.classList.remove('show'), 2200);
 }
 
-// fix18-10-hotfix22A（付款設定架構釐清）：冷藏宅配 LINE Pay 正式付款流程尚未串接，
-// 後台可以勾選開放此選項，但前台必須清楚提示且擋下送出（見 submitOrder() 內的硬性檢查）。
-function updateLinepayWarning() {
-  const warn = document.getElementById('linepayWarn');
-  if (warn) warn.style.display = (selectedPayment === 'linepay') ? 'block' : 'none';
-}
+// hotfix22-B：冷藏宅配 LINE Pay 正式付款流程已確認可用（見 routes/line-shipping.js 與
+// routes/linepay.js），移除舊版「尚未串接」阻擋提示。
 
 async function init() {
+  // ── hotfix22-B：LINE Pay 導回結果處理（宅配專用，導回本頁而非 line-order.html）──
+  const _lpP = new URLSearchParams(window.location.search);
+  if (_lpP.get('linepay') === 'success') {
+    document.getElementById('loading').style.display = 'none';
+    const orderNo = _lpP.get('order') || '';
+    try {
+      const qres = await apiGet(`/api/line-shipping/order/${encodeURIComponent(orderNo)}`);
+      if (qres.success) { showSuccess(qres.data); }
+      else {
+        document.getElementById('sucOrderNo').textContent = orderNo;
+        document.getElementById('sucDetail').innerHTML = '<div style="color:#06C755;font-weight:700;font-size:16px;text-align:center;padding:20px">💚 LINE Pay 付款成功！宅配訂單已建立。</div>';
+        document.getElementById('successScreen').classList.add('show');
+      }
+    } catch {
+      document.getElementById('sucOrderNo').textContent = orderNo;
+      document.getElementById('sucDetail').innerHTML = '<div style="color:#06C755;font-weight:700;font-size:16px;text-align:center;padding:20px">💚 LINE Pay 付款成功！宅配訂單已建立。</div>';
+      document.getElementById('successScreen').classList.add('show');
+    }
+    return;
+  }
+  if (_lpP.get('linepay') === 'cancel') {
+    setTimeout(() => toast('LINE Pay 付款已取消，請重新選擇付款方式'), 600);
+  }
+  if (_lpP.get('linepay') === 'fail' || _lpP.get('linepay') === 'error') {
+    setTimeout(() => toast('LINE Pay 付款失敗，請重新嘗試或選擇其他付款方式'), 600);
+  }
   try {
     const res = await apiGet('/api/line-shipping/shop');
     if (!res.success) throw new Error(res.message || '載入失敗');
@@ -360,8 +379,6 @@ function renderShop() {
       document.querySelectorAll('.pay-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       selectedPayment = code;
-      updateLinepayWarning();
-      if (code === 'linepay') toast('⚠️ LINE Pay 尚未支援宅配正式付款流程，請先選擇其他付款方式');
       persistCart();
     };
     payWrap.appendChild(btn);
@@ -450,7 +467,6 @@ function restoreCart() {
     });
     if (matched) selectedPayment = data.paymentMethod;
   }
-  updateLinepayWarning();
 
   // 還原希望到貨模式（asap/date）— 放在付款方式還原之後，避免此函式內觸發的 persistCart()
   // 存下尚未還原完成的付款方式快照
@@ -654,11 +670,6 @@ async function submitOrder() {
   if (!name || !phone) { toast('請填寫收件人姓名與電話'); return; }
   if (!city || !district || !address) { toast('請填寫完整收件地址'); return; }
   if (!selectedPayment) { toast('請選擇付款方式'); return; }
-  if (selectedPayment === 'linepay') {
-    toast('⚠️ LINE Pay 冷藏宅配正式付款流程尚未串接完成，請選擇其他付款方式');
-    updateLinepayWarning();
-    return;
-  }
 
   const btn = document.getElementById('submitBtn');
   btn.disabled = true; btn.textContent = '送出中…';
@@ -670,7 +681,49 @@ async function submitOrder() {
       payment_method: selectedPayment, note,
     });
     if (!res.success) { toast(res.message || '送出失敗'); btn.disabled = false; btn.textContent = '送出訂單'; return; }
-    showSuccess(res.data);
+    const d = res.data;
+
+    // hotfix22-B：宅配 LINE Pay 正式付款流程 — 沿用 line-order.html 已驗證過的模式
+    // （POST /api/linepay/request → 導向 LINE Pay → /api/linepay/confirm 導回本頁）。
+    // confirmUrl 帶上 &source=shipping，讓 /api/linepay/confirm 導回宅配頁而非外帶/外送頁。
+    if (selectedPayment === 'linepay') {
+      btn.textContent = '前往 LINE Pay…';
+      try {
+        const baseUrl = `${location.protocol}//${location.host}`;
+        // LINE Pay 商品明細金額加總必須等於 amount/total（見 routes/linepay.js 驗證），
+        // 因此運費需視為獨立品項一併帶入，與外帶/外送「外送費」品項的作法一致。
+        const lpItems = (d.items || []).map(i => ({ name: i.name, qty: i.qty, price: i.price }));
+        if (Number(d.shipping_fee) > 0) {
+          lpItems.push({ name: '運費', qty: 1, price: Number(d.shipping_fee) });
+        }
+        const lpRes = await apiPost('/api/linepay/request', {
+          order_uuid: d.uuid,
+          order_number: d.order_number,
+          total: d.total,
+          items: lpItems,
+          customer_name: name,
+          redirect_url: `${baseUrl}/api/linepay/confirm?store_id=${STORE_ID}&source=shipping`,
+          cancel_url: `${baseUrl}/line-shipping.html?store_id=${STORE_ID}&linepay=cancel`,
+        });
+        if (lpRes.success && lpRes.payment_url) {
+          cart = {};
+          clearCartStorage();
+          window.location.href = lpRes.payment_url;
+          return;
+        } else {
+          toast(lpRes.message || 'LINE Pay 建立付款失敗，請改選其他付款方式');
+          btn.disabled = false; btn.textContent = '送出訂單';
+          return;
+        }
+      } catch (lpErr) {
+        toast('LINE Pay 連線失敗：' + lpErr.message);
+        btn.disabled = false; btn.textContent = '送出訂單';
+        return;
+      }
+    }
+
+    // 現金 / 轉帳 / 其他付款 → 直接顯示成功頁
+    showSuccess(d);
     cart = {};
     clearCartStorage();
     updateCartBar();
@@ -685,6 +738,10 @@ async function submitOrder() {
 function showSuccess(d) {
   document.getElementById('sucOrderNo').textContent = d.order_number;
   const payLabels = { cash: '現金', linepay: 'LINE Pay', transfer: '轉帳', credit_card: '信用卡', platform: '平台付款' };
+  // hotfix22-B：若已知付款狀態（例如 LINE Pay 導回後查到 payment_status_label），明確顯示「付款成功」
+  const payStatusRow = d.payment_status_label
+    ? `<div class="od-row"><span class="od-label">付款狀態</span><span class="od-val" style="color:${d.payment_status==='paid'?'#06C755':'#e65100'};font-weight:700">${esc(d.payment_status_label)}</span></div>`
+    : '';
   document.getElementById('sucDetail').innerHTML = `
     <div class="od-section">
       <div class="od-row"><span class="od-label">收件人</span><span class="od-val">${esc(d.recipient_name)}</span></div>
@@ -692,6 +749,7 @@ function showSuccess(d) {
       <div class="od-row"><span class="od-label">地址</span><span class="od-val">${esc(d.address)}</span></div>
       <div class="od-row"><span class="od-label">希望到貨</span><span class="od-val">${d.arrival_type === 'date' ? esc(d.arrival_date) : '最快出貨'}</span></div>
       <div class="od-row"><span class="od-label">付款方式</span><span class="od-val">${payLabels[d.payment_method] || esc(d.payment_method)}</span></div>
+      ${payStatusRow}
       <div class="od-row"><span class="od-label">商品</span><span class="od-val">${d.items.map(i => `${esc(i.name)}×${i.qty}`).join('<br>')}</span></div>
       <div class="od-row"><span class="od-label">運費</span><span class="od-val">$${d.shipping_fee}</span></div>
       <div class="od-row"><span class="od-label">應付金額</span><span class="od-val od-total">$${d.total}</span></div>
