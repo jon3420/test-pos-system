@@ -2396,14 +2396,14 @@ function setShippingStatusFilter(status) {
 
 async function loadShippingOrders() {
   const tbody = document.getElementById('shippingOrdersBody');
-  if (tbody) tbody.innerHTML = '<tr><td colspan="16" class="table-empty">載入中...</td></tr>';
+  if (tbody) tbody.innerHTML = '<tr><td colspan="17" class="table-empty">載入中...</td></tr>';
   try {
     // fix18-10-hotfix21：與「LINE 預購管理」頁的日期篩選（含單日）保持一致
     const { dateFrom, dateTo } = (typeof getLpDateRange === 'function') ? getLpDateRange() : {};
     const qs = dateFrom && dateTo ? `&date_from=${dateFrom}&date_to=${dateTo}` : '';
     const res  = await apiFetch(`/api/line-shipping/admin/orders?limit=500${qs}`);
     const json = await res.json();
-    if (!json.success) { if (tbody) tbody.innerHTML = '<tr><td colspan="16" class="table-empty">載入失敗</td></tr>'; return; }
+    if (!json.success) { if (tbody) tbody.innerHTML = '<tr><td colspan="17" class="table-empty">載入失敗</td></tr>'; return; }
     _shippingOrdersCache = json.data || [];
     const filtered = currentShippingStatusFilter === 'all'
       ? _shippingOrdersCache
@@ -2414,7 +2414,7 @@ async function loadShippingOrders() {
       renderLinePreordersTable();
     }
   } catch (e) {
-    if (tbody) tbody.innerHTML = '<tr><td colspan="16" class="table-empty">載入失敗</td></tr>';
+    if (tbody) tbody.innerHTML = '<tr><td colspan="17" class="table-empty">載入失敗</td></tr>';
     showToast('宅配訂單載入失敗', 'error');
   }
 }
@@ -2422,9 +2422,9 @@ async function loadShippingOrders() {
 function renderShippingOrdersTable(orders) {
   const tbody = document.getElementById('shippingOrdersBody');
   if (!tbody) return;
-  if (!orders || !orders.length) { tbody.innerHTML = '<tr><td colspan="16" class="table-empty">目前無宅配訂單</td></tr>'; return; }
+  if (!orders || !orders.length) { tbody.innerHTML = '<tr><td colspan="17" class="table-empty">目前無宅配訂單</td></tr>'; return; }
 
-  const payLabel = { cash: '現金', linepay: 'LINE Pay', transfer: '轉帳' };
+  const payLabel = { cash: '現金', linepay: 'LINE Pay', transfer: '轉帳', credit_card: '信用卡', platform: '平台付款' };
 
   tbody.innerHTML = orders.map(o => {
     let items = [];
@@ -2434,6 +2434,11 @@ function renderShippingOrdersTable(orders) {
     const arrivalTxt = o.shipping_arrival_type === 'date' && o.shipping_arrival_date ? o.shipping_arrival_date : '最快出貨';
     const status = o.shipping_status || 'pending';
     const statusColor = SHIP_STATUS_COLOR[status] || '#888';
+    // hotfix22-C：優惠券折扣顯示（若無套用優惠券則顯示 —）
+    const discAmt = Number(o.discount_amount || 0);
+    const discTxt = discAmt > 0
+      ? `<span style="color:#06C755;font-weight:700">-$${discAmt}</span>${o.coupon_code ? `<div style="font-size:10px;color:var(--text-muted,#64748b)">${escHtml(o.coupon_code)}</div>` : ''}`
+      : '—';
     const actions = (SHIP_NEXT_ACTIONS[status] || []).map(a =>
       `<button class="btn-secondary" style="font-size:11px;padding:4px 8px;white-space:nowrap" onclick="updateShippingStatus('${o.order_number}','${a.to}')">${a.label}</button>`
     ).join(' ');
@@ -2447,6 +2452,7 @@ function renderShippingOrdersTable(orders) {
       <td style="max-width:180px;white-space:normal">${escHtml(address)}</td>
       <td style="max-width:160px;white-space:normal">${itemsTxt}</td>
       <td>$${Number(o.subtotal||0)}</td>
+      <td>${discTxt}</td>
       <td>$${Number(o.shipping_fee||0)}</td>
       <td><strong>$${Number(o.total||0)}</strong></td>
       <td>${escHtml(arrivalTxt)}</td>
@@ -6762,6 +6768,71 @@ let _lpFilter = 'all';  // today | tomorrow | week | all | custom
 // fix18-10-hotfix20：LINE 訂單處理中心通路 Tab 狀態（'' = 全部 | 'takeout' | 'delivery' | 'shipping'）
 let _lpModeFilter = '';
 
+// ── hotfix22-C：統一正規化函式 ──────────────────────────────────
+// 目的：外帶/外送（來自 /api/orders）與冷藏宅配（來自 /api/line-shipping/admin/orders）
+// 兩邊欄位名稱、狀態機都不一樣，過去「全部」「共 N 筆」「統計卡」各自用不同資料源計算，
+// 才會出現「全部看不到宅配」「宅配 Tab 顯示共 0 筆」等不一致。
+// 統一轉換成同一份共用格式後，後面所有 filter／summary／render 都只吃這份正規化後的資料，
+// 不再各自為政。不修改 loadLinePreorders() / loadShippingOrders() 既有的資料載入邏輯。
+function normalizePreorder(o, source) {
+  if (source === 'shipping') {
+    let items = [];
+    try { items = typeof o.items === 'string' ? JSON.parse(o.items || '[]') : (o.items || []); } catch {}
+    const arrivalDisplay = (o.shipping_arrival_type === 'date' && o.shipping_arrival_date)
+      ? o.shipping_arrival_date.replace(/-/g, '/')
+      : '最快出貨';
+    return {
+      id: o.id || o.uuid || o.order_number,
+      order_no: o.order_number,
+      created_at: o.created_at || '',
+      fulfillment_type: 'shipping',
+      order_source: o.order_source || 'line_shipping',
+      customer_name: o.shipping_recipient_name || o.customer_name || '',
+      phone: o.shipping_phone || o.customer_phone || '',
+      items,
+      subtotal: Number(o.subtotal || 0),
+      shipping_fee: Number(o.shipping_fee || 0),
+      delivery_fee: 0,
+      coupon_code: o.coupon_code || '',
+      discount_amount: Number(o.discount_amount || 0),
+      total: Number(o.total || 0),
+      payment_method: o.payment_method || '',
+      payment_status: o.payment_status || 'pending',
+      order_status: o.shipping_status || 'pending',
+      logistics_status: o.shipping_status || 'pending',
+      note: o.shipping_note || o.note || '',
+      pickup_display: arrivalDisplay,
+      __raw: o,
+    };
+  }
+  // source === 'line'（外帶/外送；loadLinePreorders() 已先補上 preorderDate/preorderTime）
+  let items = o.items;
+  if (typeof items === 'string') { try { items = JSON.parse(items || '[]'); } catch { items = []; } }
+  return {
+    id: o.id || o.uuid || o.order_number,
+    order_no: o.order_number,
+    created_at: o.created_at || '',
+    fulfillment_type: o.order_mode || 'takeout',
+    order_source: o.source || 'line',
+    customer_name: o.customer_name || '',
+    phone: o.customer_phone || '',
+    items: items || [],
+    subtotal: Number(o.subtotal ?? o.total ?? 0),
+    shipping_fee: 0,
+    delivery_fee: Number(o.delivery_fee || 0),
+    coupon_code: o.coupon_code || '',
+    discount_amount: Number(o.discount_amount || 0),
+    total: Number(o.total || 0),
+    payment_method: o.payment_method || '',
+    payment_status: o.payment_status || '',
+    order_status: o.order_status || o.status || 'pending',
+    logistics_status: '',
+    note: o.note || '',
+    pickup_display: o.preorderDate ? `${o.preorderDate.replace(/-/g, '/')} ${o.preorderTime || ''}` : (o.pickup_time || '盡快'),
+    __raw: o,
+  };
+}
+
 // ── 通路 Tab 切換：全部／外帶／外送／冷藏宅配 ──────────────
 function lpSetModeFilter(mode) {
   _lpModeFilter = mode;
@@ -6906,14 +6977,15 @@ async function loadLinePreorders() {
 }
 
 // fix18-10-hotfix21：統一狀態分類（待確認/已接單/處理中/已出貨/已送達/已完成/已取消）
-// 外帶/外送用 order_status，冷藏宅配用 shipping_status，各自對應到同一組分類 key。
+// hotfix22-C：改吃 normalizePreorder() 正規化後的欄位（fulfillment_type / logistics_status / order_status），
+// 外帶/外送與冷藏宅配用同一支函式判斷，不再各自維護一套邏輯。
 const LP_BUCKET_LABEL = { confirm:'待確認', accepted:'已接單', processing:'處理中', shipped:'已出貨', delivered:'已送達', done:'已完成', cancel:'已取消' };
-function lpBucketOf(o) {
-  if (o.__ship) {
-    const s = o.shipping_status || 'pending';
+function lpBucketOf(n) {
+  if (n.fulfillment_type === 'shipping') {
+    const s = n.logistics_status || 'pending';
     return ({ pending:'confirm', accepted:'accepted', packing:'processing', shipped:'shipped', delivered:'delivered', completed:'done', cancelled:'cancel' })[s] || 'confirm';
   }
-  const s = o.order_status || o.status || 'pending';
+  const s = n.order_status || 'pending';
   return ({
     pending:'confirm', pending_accept:'confirm', accepted:'accepted',
     preparing:'processing', ready:'processing', delivering:'processing',
@@ -6924,6 +6996,13 @@ function lpBucketOf(o) {
 }
 
 // ── 渲染預購表格 ──────────────────────────────────────────
+// hotfix22-C ROOT CAUSE FIX：過去表格資料（orders，來自 _lpAllOrders，設計上永遠不含
+// shipping）與統計資料（statOrders，另外merge了 _shippingOrdersCache）是兩份不同的陣列，
+// 「共 N 筆」badge 卻誤用了表格用的 orders.length，導致：
+//   1. 切到「冷藏宅配」Tab 時，orders 仍是空的外帶/外送陣列 → 顯示「共 0 筆」
+//   2. 切到「全部」Tab 時，表格（lp-tbody）本來就設計成不放宅配列 → 看不到宅配訂單
+// 修法：改用 normalizePreorder() 統一正規化外帶/外送與冷藏宅配資料，合併成同一份陣列，
+// 之後的 modeFilter／statusFilter／表格列／badge／統計卡全部只讀這同一份資料。
 function renderLinePreordersTable() {
   const tbody = document.getElementById('lp-tbody');
   if (!tbody) return;
@@ -6931,99 +7010,121 @@ function renderLinePreordersTable() {
   const modeFilter   = _lpModeFilter || '';
   const statusFilter = document.getElementById('lp-filter-status')?.value || '';
 
-  // 外帶/外送清單（表格顯示用，永遠不含冷藏宅配資料列，欄位才會對應）
-  let orders = _lpAllOrders;
-  if (modeFilter === 'takeout' || modeFilter === 'delivery') orders = orders.filter(o => o.order_mode === modeFilter);
-  if (statusFilter) orders = orders.filter(o => lpBucketOf(o) === statusFilter);
+  const normTakeoutDelivery = _lpAllOrders.map(o => normalizePreorder(o, 'line'));
+  const normShipping        = (_shippingOrdersCache || []).map(o => normalizePreorder(o, 'shipping'));
 
-  // fix18-10-hotfix21：統計卡依模式合併對應通路 ────────────────────────
-  // 全部 = 外帶 + 外送 + 冷藏宅配；冷藏宅配 = 只算冷藏宅配；外帶/外送 = 只算該通路
-  const shipTagged = (_shippingOrdersCache || []).map(o => ({ ...o, __ship: true }));
-  let statOrders;
+  // 依通路 Tab 決定這個畫面應該看到哪些正規化後的訂單
+  // 全部 = 外帶 + 外送 + 冷藏宅配；外帶／外送＝只算該通路；冷藏宅配＝只算冷藏宅配
+  let modeScoped;
   if (modeFilter === 'takeout' || modeFilter === 'delivery') {
-    statOrders = orders;
+    modeScoped = normTakeoutDelivery.filter(n => n.fulfillment_type === modeFilter);
   } else if (modeFilter === 'shipping') {
-    statOrders = statusFilter ? shipTagged.filter(o => lpBucketOf(o) === statusFilter) : shipTagged;
+    modeScoped = normShipping;
   } else {
-    const tdAll   = statusFilter ? _lpAllOrders.filter(o => lpBucketOf(o) === statusFilter) : _lpAllOrders;
-    const shipAll = statusFilter ? shipTagged.filter(o => lpBucketOf(o) === statusFilter) : shipTagged;
-    statOrders = [...tdAll, ...shipAll];
+    modeScoped = [...normTakeoutDelivery, ...normShipping];
   }
 
-  // 「筆數」「金額」計入該模式下所有狀態（含已取消）；「待處理」排除已完成／已取消
-  const countTotal   = statOrders.length;
-  const pendingCount = statOrders.filter(o => { const b = lpBucketOf(o); return b !== 'done' && b !== 'cancel'; }).length;
-  const revenue       = statOrders.reduce((s, o) => s + Number(o.total||0), 0);
+  // 狀態篩選：套用在同一份正規化資料上（外帶/外送/冷藏宅配共用同一套 lpBucketOf 分類）
+  const filteredAll = statusFilter ? modeScoped.filter(n => lpBucketOf(n) === statusFilter) : modeScoped;
+
+  // ── 統計規則 ──────────────────────────────────────────────
+  // 共 N 筆（badge）：目前篩選後的實際筆數，與表格實際顯示的列數一致（含已取消）
+  // 預購筆數／預購金額：目前篩選後、排除已取消訂單
+  // 待處理：pending/confirmed 等尚未完成（排除 done 與 cancel）
+  const nonCancelled = filteredAll.filter(n => lpBucketOf(n) !== 'cancel');
+  const countTotal   = nonCancelled.length;
+  const pendingCount = filteredAll.filter(n => { const b = lpBucketOf(n); return b !== 'done' && b !== 'cancel'; }).length;
+  const revenue      = nonCancelled.reduce((s, n) => s + Number(n.total || 0), 0);
 
   const setStat = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
   setStat('lp-stat-total',   countTotal);
   setStat('lp-stat-pending', pendingCount);
   setStat('lp-stat-revenue', 'NT$' + revenue.toLocaleString());
   const badge = document.getElementById('lp-count-badge');
-  if (badge) badge.textContent = `共 ${orders.length} 筆`;
+  if (badge) badge.textContent = `共 ${filteredAll.length} 筆`;
 
-  if (!orders.length) {
+  if (!filteredAll.length) {
     tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">此條件下無預購訂單</td></tr>';
     return;
   }
 
-  const STATUS_CLS   = {confirm:'status-new',accepted:'status-preparing',processing:'status-preparing',done:'status-completed',cancel:'status-void'};
-  const MODE_LABEL   = {takeout:'🛍️ 外帶', delivery:'🛵 外送', dine_in:'🍽️ 內用'};
+  const STATUS_CLS   = {confirm:'status-new',accepted:'status-preparing',processing:'status-preparing',shipped:'status-preparing',delivered:'status-preparing',done:'status-completed',cancel:'status-void'};
+  const MODE_LABEL   = {takeout:'🛍️ 外帶', delivery:'🛵 外送', shipping:'📦 宅配', dine_in:'🍽️ 內用'};
   const PAY_LABEL    = {cash:'現金',linepay:'LINE Pay',transfer:'轉帳',platform:'平台',credit_card:'信用卡'};
   const tdS = 'padding:8px 8px;border-bottom:1px solid var(--border,#334155);vertical-align:middle';
 
   // Hotfix16 BUG-001：訂單建立時間與預約取餐時間必須分離顯示，列表一律用 created_at 排序（新到舊）
-  orders = [...orders].sort((a, b) => {
+  const today = twTodayStr();
+  const rows = [...filteredAll].sort((a, b) => {
     const ca = a.created_at || '', cb = b.created_at || '';
     return ca < cb ? 1 : ca > cb ? -1 : 0;
   });
 
-  tbody.innerHTML = orders.map(o => {
-    const st = o.order_status || o.status || 'pending';
-    const bucket  = lpBucketOf(o);
+  tbody.innerHTML = rows.map(n => {
+    const bucket  = lpBucketOf(n);
     const stCls   = STATUS_CLS[bucket]   || 'status-completed';
     const stLabel = LP_BUCKET_LABEL[bucket] || bucket;
-    const items   = (typeof o.items==='string') ? JSON.parse(o.items||'[]') : (o.items||[]);
-    const itemStr = items.map(i => `${i.name}×${i.qty}`).join('、');
-    const phone   = String(o.customer_phone||'');
+    const itemStr = (n.items || []).map(i => `${i.name}×${i.qty}`).join('、');
+    const phone   = String(n.phone || '');
     const phoneMasked = phone.length > 4 ? phone.slice(0,3)+'****'+phone.slice(-3) : phone;
-    const today = twTodayStr();
-    const isToday = o.preorderDate === today;
-    const preorderBadge = isToday
+    const isShip  = n.fulfillment_type === 'shipping';
+    const isToday = !isShip && n.__raw?.preorderDate === today;
+    const preorderBadge = isShip ? '' : (isToday
       ? '<span style="background:#3b82f6;color:#fff;font-size:10px;padding:2px 6px;border-radius:8px;font-weight:700">今日單</span>'
-      : '<span style="background:#7c3aed;color:#fff;font-size:10px;padding:2px 6px;border-radius:8px;font-weight:700">預購單</span>';
+      : '<span style="background:#7c3aed;color:#fff;font-size:10px;padding:2px 6px;border-radius:8px;font-weight:700">預購單</span>');
     // 建立時間：客人實際送出訂單的時間（created_at），與預約取餐時間完全分離顯示
-    const createdDisplay = o.created_at ? o.created_at.slice(0,16).replace('-','/').replace('-','/') : '—';
-    // 預約取餐：pickup_date + pickup_time，只作為取餐資訊顯示，不影響排序
-    const pickupDisplay = o.preorderDate
-      ? `${o.preorderDate.replace(/-/g,'/')} ${o.preorderTime||''}`
-      : (o.pickup_time||'盡快');
+    const createdDisplay = n.created_at ? n.created_at.slice(0,16).replace('-','/').replace('-','/') : '—';
+
+    // hotfix22-C：冷藏宅配的狀態機（pending→accepted→packing→shipped→delivered→completed／cancelled）
+    // 與外帶/外送不同，因此「接單／取消」按鈕改呼叫既有的 updateShippingStatus()（routes/line-shipping.js
+    // 專屬端點），不會誤用 lpUpdateStatus()（呼叫 /api/line-orders/online，不支援宅配訂單）。
+    // 「詳情」則導去既有的📦冷藏宅配管理分頁查看完整宅配資訊（地址／物流公司／單號等），
+    // 不強行把宅配細節塞進外帶/外送用的詳情彈窗，避免欄位不對應。
+    const acceptBtn = bucket === 'confirm'
+      ? (isShip
+          ? `<button style="padding:4px 8px;font-size:11px;background:#06C755;border:none;border-radius:5px;color:#fff;cursor:pointer" onclick="updateShippingStatus('${n.order_no}','accepted')">✅ 接單</button>`
+          : `<button style="padding:4px 8px;font-size:11px;background:#06C755;border:none;border-radius:5px;color:#fff;cursor:pointer" onclick="lpUpdateStatus('${n.id}','${n.order_no}','accepted')">✅ 接單</button>`)
+      : '';
+    const cancelBtn = (bucket === 'confirm' || bucket === 'accepted' || bucket === 'processing')
+      ? (isShip
+          ? `<button style="padding:4px 8px;font-size:11px;background:#e53935;border:none;border-radius:5px;color:#fff;cursor:pointer" onclick="updateShippingStatus('${n.order_no}','cancelled')">❌ 取消</button>`
+          : `<button style="padding:4px 8px;font-size:11px;background:#e53935;border:none;border-radius:5px;color:#fff;cursor:pointer" onclick="lpUpdateStatus('${n.id}','${n.order_no}','cancelled')">❌ 取消</button>`)
+      : '';
+    const detailBtn = isShip
+      ? `<button style="padding:4px 8px;font-size:11px;background:var(--bg-base,#0f172a);border:1px solid var(--border,#334155);border-radius:5px;color:var(--text-secondary,#94a3b8);cursor:pointer" onclick="lpSetModeFilter('shipping')">📦 前往宅配管理</button>`
+      : `<button style="padding:4px 8px;font-size:11px;background:var(--bg-base,#0f172a);border:1px solid var(--border,#334155);border-radius:5px;color:var(--text-secondary,#94a3b8);cursor:pointer" onclick="showOrderDetail('${n.id}')">📋 詳情</button>`;
 
     return `<tr style="background:var(--bg-card,#1e293b)">
       <td style="${tdS}">
-        <div style="font-size:12px;font-weight:600;color:var(--text-primary,#f1f5f9)">${escHtml(o.order_number)}</div>
+        <div style="font-size:12px;font-weight:600;color:var(--text-primary,#f1f5f9)">${escHtml(n.order_no)}</div>
         <div style="margin-top:3px">${preorderBadge}</div>
         <div style="font-size:10px;color:var(--text-muted,#64748b);margin-top:2px">建立時間：${createdDisplay}</div>
       </td>
       <td style="${tdS};text-align:center">
-        <div style="font-size:9px;color:var(--text-muted,#64748b);margin-bottom:2px">預約取餐</div>
-        <div style="font-size:13px;font-weight:700;color:${isToday?'#3b82f6':'#a78bfa'}">${pickupDisplay}</div>
+        <div style="font-size:9px;color:var(--text-muted,#64748b);margin-bottom:2px">${isShip ? '希望到貨' : '預約取餐'}</div>
+        <div style="font-size:13px;font-weight:700;color:${isShip ? '#f59e0b' : (isToday?'#3b82f6':'#a78bfa')}">${escHtml(n.pickup_display)}</div>
       </td>
-      <td style="${tdS}">${escHtml(o.customer_name||'—')}</td>
+      <td style="${tdS}">${escHtml(n.customer_name||'—')}</td>
       <td style="${tdS};text-align:center;font-size:12px">${escHtml(phoneMasked)}</td>
-      <td style="${tdS};text-align:center">${MODE_LABEL[o.order_mode]||o.order_mode||'—'}</td>
+      <td style="${tdS};text-align:center">${MODE_LABEL[n.fulfillment_type]||n.fulfillment_type||'—'}</td>
       <td style="${tdS};max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(itemStr)}">${escHtml(itemStr||'—')}</td>
-      <td style="${tdS};text-align:center;font-weight:700;color:#f5a623">$${o.total||0}</td>
-      <td style="${tdS};text-align:center;font-size:11px">${PAY_LABEL[o.payment_method]||o.payment_method||'—'}</td>
-      <td style="${tdS};font-size:11px;color:var(--text-muted,#64748b)">${escHtml(o.note||'')}</td>
+      <td style="${tdS};text-align:center">
+        <div style="font-weight:700;color:#f5a623">$${n.total||0}</div>
+        ${(isShip || n.discount_amount > 0) ? `<div style="font-size:9px;color:var(--text-muted,#64748b);margin-top:2px">小計$${n.subtotal||0}${n.discount_amount>0?` <span style="color:#06C755">-$${n.discount_amount}</span>`:''}${isShip?` +運費$${n.shipping_fee||0}`:''}</div>` : ''}
+      </td>
+      <td style="${tdS};text-align:center;font-size:11px">
+        ${PAY_LABEL[n.payment_method]||n.payment_method||'—'}
+        ${n.payment_status ? `<div style="font-size:9px;color:${n.payment_status==='paid'?'#06C755':'var(--text-muted,#64748b)'}">${n.payment_status==='paid'?'✅ 已付款':(n.payment_status==='pending'?'待付款':escHtml(n.payment_status))}</div>` : ''}
+      </td>
+      <td style="${tdS};font-size:11px;color:var(--text-muted,#64748b)">${escHtml(n.note||'')}</td>
       <td style="${tdS};text-align:center">
         <span class="order-status ${stCls}" style="font-size:11px">${stLabel}</span>
       </td>
       <td style="${tdS};text-align:center">
         <div style="display:flex;gap:4px;justify-content:center;flex-wrap:wrap">
-          <button style="padding:4px 8px;font-size:11px;background:var(--bg-base,#0f172a);border:1px solid var(--border,#334155);border-radius:5px;color:var(--text-secondary,#94a3b8);cursor:pointer" onclick="showOrderDetail('${o.id}')">📋 詳情</button>
-          ${bucket==='confirm'?`<button style="padding:4px 8px;font-size:11px;background:#06C755;border:none;border-radius:5px;color:#fff;cursor:pointer" onclick="lpUpdateStatus('${o.id||o.uuid}','${o.order_number}','accepted')">✅ 接單</button>`:''}
-          ${(bucket==='confirm'||bucket==='accepted'||bucket==='processing')?`<button style="padding:4px 8px;font-size:11px;background:#e53935;border:none;border-radius:5px;color:#fff;cursor:pointer" onclick="lpUpdateStatus('${o.id||o.uuid}','${o.order_number}','cancelled')">❌ 取消</button>`:''}
+          ${detailBtn}
+          ${acceptBtn}
+          ${cancelBtn}
         </div>
       </td>
     </tr>`;

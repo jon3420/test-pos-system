@@ -183,7 +183,23 @@ img{max-width:100%;display:block}
   <div id="cartItems" style="padding:0 16px"></div>
   <div class="cf">
     <div id="cartShipInfo" style="padding:0"></div>
+    <!-- hotfix22-C：優惠券輸入（與 line-order.html 相同流程，共用同一組 /api/coupons/validate） -->
+    <div class="fg" id="couponArea" style="display:none">
+      <label class="fl">🎟️ 優惠券代碼</label>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input class="fi" id="couponInput" placeholder="輸入優惠券代碼（如 WELCOME30）" style="flex:1;text-transform:uppercase" oninput="this.value=this.value.toUpperCase()" onkeydown="if(event.key==='Enter'){event.preventDefault();applyCoupon();}">
+        <button id="couponApplyBtn" onclick="applyCoupon()" style="padding:10px 14px;background:#06C755;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;white-space:nowrap;flex-shrink:0;cursor:pointer">套用</button>
+      </div>
+      <div id="couponMsg" style="font-size:12px;margin-top:4px;min-height:18px"></div>
+      <div id="couponAppliedRow" style="display:none;margin-top:4px;font-size:12px;color:#06C755;align-items:center;gap:8px">
+        <span id="couponAppliedText"></span>
+        <button onclick="clearCoupon()" style="background:none;border:1px solid #06C755;color:#06C755;border-radius:6px;padding:2px 8px;font-size:11px;cursor:pointer">清除優惠券</button>
+      </div>
+    </div>
     <div class="ot"><span>小計</span><span id="subtotalDisplay">$0</span></div>
+    <div id="discountRow" class="ot" style="display:none">
+      <span style="color:#06C755;font-weight:600">🎟️ 優惠折扣</span><span id="discountDisplay" style="color:#06C755;font-weight:600">-$0</span>
+    </div>
     <div class="ot"><span>運費</span><span id="feeDisplay">$0</span></div>
     <div id="freeHint" class="free-hint" style="display:none"></div>
     <div id="minOrderWarn" class="min-order-warn" style="display:none"></div>
@@ -266,6 +282,9 @@ let SHOP_DATA = null;
 let cart = {}; // product_id -> {product, qty}
 let arrivalType = 'asap';
 let selectedPayment = '';
+// hotfix22-C：優惠券狀態（共用 /api/coupons/validate，與 line-order.html 相同結構）
+let appliedCoupon = null; // { code, discount_amount, coupon: {...} }
+let couponFeatureEnabled = false;
 // fix18-10-hotfix22A補充：購物車 localStorage 暫存（關閉視窗/重新整理不清空，24小時有效期，下單成功才清空）
 const SHIP_CART_KEY = 'line_shipping_cart_' + STORE_ID;
 const SHIP_CART_TTL_MS = 24 * 60 * 60 * 1000;
@@ -330,8 +349,12 @@ async function init() {
       document.getElementById('closedScreen').style.display = 'flex';
       return;
     }
+    // hotfix22-C：依 coupon_feature_enabled 顯示/隱藏優惠券輸入區（與 line-order.html 相同判斷）
+    couponFeatureEnabled = SHOP_DATA.coupon_feature_enabled === true;
+    const couponAreaEl = document.getElementById('couponArea');
+    if (couponAreaEl) couponAreaEl.style.display = couponFeatureEnabled ? '' : 'none';
     renderShop();
-    restoreCart();
+    await restoreCart();
     document.getElementById('loading').style.display = 'none';
     document.getElementById('content').style.display = 'block';
   } catch (e) {
@@ -411,6 +434,9 @@ function persistCart() {
       shippingDate: document.getElementById('rArrivalDate')?.value || '',
       shippingTime: '', // 目前畫面無獨立到貨時段欄位，保留欄位供未來擴充
       remark: document.getElementById('rNote')?.value || '',
+      // hotfix22-C：只保存 coupon code，絕不保存 discount_amount —— 還原時一律重新呼叫
+      // /api/coupons/validate 驗證，避免用一個可能已經失效/被竄改的折扣金額
+      couponCode: appliedCoupon?.code || '',
       savedAt: Date.now(),
     };
     localStorage.setItem(SHIP_CART_KEY, JSON.stringify(data));
@@ -423,7 +449,8 @@ function clearCartStorage() {
 
 // 頁面初始化時呼叫：還原購物車商品、收件資料、付款方式、備註（需在 renderShop() 之後執行，
 // 因為要透過 findProduct() 用目前商品清單重建購物車項目、並同步付款按鈕選取狀態）
-function restoreCart() {
+// hotfix22-C：改為 async，因為優惠券還原需要重新呼叫後端驗證 API，不能直接信任 localStorage
+async function restoreCart() {
   let data;
   try {
     const raw = localStorage.getItem(SHIP_CART_KEY);
@@ -472,10 +499,38 @@ function restoreCart() {
   // 存下尚未還原完成的付款方式快照
   setArrivalType(data.deliveryMode === 'date' ? 'date' : 'asap');
 
+  // hotfix22-C：優惠券還原 —— 只保存過 code，這裡一律重新呼叫 /api/coupons/validate 驗證，
+  // 絕不直接信任 localStorage 存的折扣金額（規則2/3）。若優惠券已過期、店家停用、商品金額
+  // 變動後不再達最低消費門檻、或使用次數已滿等，一率自動清除並顯示友善提示（規則4），
+  // 不會擋住顧客繼續購物或送單。
+  appliedCoupon = null;
+  const restoredCode = data.couponCode ? String(data.couponCode).trim().toUpperCase() : '';
+  if (restoredCode && cartCount() > 0) {
+    try {
+      const sub = cartSubtotal();
+      const phone = document.getElementById('rPhone')?.value || '';
+      const res = await apiPost('/api/coupons/validate', { code: restoredCode, subtotal: sub, customer_phone: phone });
+      if (res.success) {
+        appliedCoupon = { code: res.coupon.code, discount_amount: res.discount_amount, coupon: res.coupon };
+        const inp = document.getElementById('couponInput'); if (inp) inp.value = res.coupon.code;
+        const appliedRow  = document.getElementById('couponAppliedRow');
+        const appliedText = document.getElementById('couponAppliedText');
+        if (appliedText) appliedText.textContent = `✅ ${res.coupon.name}：折扣 -$${res.discount_amount}`;
+        if (appliedRow) appliedRow.style.display = 'flex';
+      } else {
+        toast(`優惠券「${restoredCode}」已無法使用（${res.message || '請重新套用'}），已自動移除`);
+      }
+    } catch (e) {
+      // 網路錯誤：安全起見不恢復優惠券顯示，避免顯示未經驗證的折扣，使用者可自行重新套用
+    }
+  }
+
   // 重新渲染商品卡（顯示已還原的數量）與購物車列
   renderProductGrid('prodGrid', SHOP_DATA.products);
   if (SHOP_DATA.upsell_products && SHOP_DATA.upsell_products.length) renderProductGrid('upsellGrid', SHOP_DATA.upsell_products);
   updateCartBar();
+  // 若優惠券還原失敗而被清除，重新寫回 localStorage，避免下次整頁重整又嘗試恢復同一張失效券
+  persistCart();
 }
 
 function renderProductGrid(elId, products) {
@@ -533,7 +588,7 @@ function findProduct(pid) {
   return all.find(p => Number(p.id) === Number(pid));
 }
 
-function changeQty(pid, delta) {
+async function changeQty(pid, delta) {
   pid = Number(pid);
   const p = findProduct(pid);
   if (!p) return;
@@ -545,12 +600,39 @@ function changeQty(pid, delta) {
   renderProductGrid('prodGrid', SHOP_DATA.products);
   if (SHOP_DATA.upsell_products && SHOP_DATA.upsell_products.length) renderProductGrid('upsellGrid', SHOP_DATA.upsell_products);
   updateCartBar();
+  // hotfix22-C：購物車清空時一併清除優惠券（避免下次加商品時殘留舊折扣顯示）
+  if (cartCount() === 0 && appliedCoupon) clearCoupon();
+  // hotfix22-C：商品數量變動後，若已套用優惠券，重新呼叫驗證 API 拿最新折扣金額
+  // （百分比折扣會隨小計變動；小計變小也可能跌破最低消費門檻）
+  else if (appliedCoupon) await revalidateAppliedCoupon();
   // 若購物車 Sheet 目前開啟中，同步刷新明細與金額（BUG1 驗收項目 4：購物車內也可 +/-）
   const cartSheetEl = document.getElementById('cartSheet');
   if (cartSheetEl && cartSheetEl.classList.contains('show')) {
     renderCartItems();
     refreshCartSheetTotals();
   }
+}
+
+// hotfix22-C：重新驗證已套用的優惠券（購物車金額變動後呼叫），絕不沿用舊的折扣金額
+async function revalidateAppliedCoupon() {
+  if (!appliedCoupon) return;
+  const sub = cartSubtotal();
+  if (sub <= 0) { clearCoupon(); return; }
+  try {
+    const phone = document.getElementById('rPhone')?.value || '';
+    const res = await apiPost('/api/coupons/validate', { code: appliedCoupon.code, subtotal: sub, customer_phone: phone });
+    if (res.success) {
+      appliedCoupon = { code: res.coupon.code, discount_amount: res.discount_amount, coupon: res.coupon };
+      const appliedText = document.getElementById('couponAppliedText');
+      if (appliedText) appliedText.textContent = `✅ ${res.coupon.name}：折扣 -$${res.discount_amount}`;
+    } else {
+      appliedCoupon = null;
+      const appliedRow = document.getElementById('couponAppliedRow'); if (appliedRow) appliedRow.style.display = 'none';
+      const inp = document.getElementById('couponInput'); if (inp) inp.value = '';
+      toast(`優惠券已不符合套用條件（${res.message || ''}），已自動移除`);
+    }
+    persistCart();
+  } catch (e) { /* 網路錯誤時暫時保留顯示，送單前後端一定會再驗一次，不會多算折扣 */ }
 }
 
 function cartList() { return Object.values(cart); }
@@ -569,11 +651,17 @@ function updateCartBar() {
 function calcFee() {
   const settings = SHOP_DATA.settings;
   const sub = cartSubtotal();
-  const meetsFree = settings.shipping_free_threshold > 0 && sub >= settings.shipping_free_threshold;
-  const fee = meetsFree ? 0 : settings.shipping_fee;
   const minAmt = Number(settings.shipping_min_order_amount || 0);
   const belowMin = minAmt > 0 && sub > 0 && sub < minAmt;
-  return { sub, fee, meetsFree, belowMin, minAmt, total: sub + fee };
+  // hotfix22-C：優惠券只折商品小計，不折運費；顯示端也用 min() 夾住，避免購物車數量減少後
+  // 折扣金額超過小計（送單時後端 validateCoupon() 一定會重新驗證，這裡只是畫面上不要出現負數）
+  const discount = appliedCoupon ? Math.min(Number(appliedCoupon.discount_amount || 0), sub) : 0;
+  // hotfix22-C 規則C：免運門檻固定以「折扣後商品小計」計算，前後端必須完全一致
+  // discounted_subtotal = max(0, subtotal - discount_amount)
+  const discountedSub = Math.max(0, sub - discount);
+  const meetsFree = settings.shipping_free_threshold > 0 && discountedSub >= settings.shipping_free_threshold;
+  const fee = meetsFree ? 0 : settings.shipping_fee;
+  return { sub, fee, meetsFree, belowMin, minAmt, discount, discountedSub, total: discountedSub + fee };
 }
 
 function renderCartItems() {
@@ -595,15 +683,19 @@ function renderCartItems() {
 }
 
 function refreshCartSheetTotals() {
-  const { sub, fee, meetsFree, belowMin, minAmt, total } = calcFee();
+  const { sub, fee, meetsFree, belowMin, minAmt, discount, discountedSub, total } = calcFee();
   document.getElementById('subtotalDisplay').textContent = '$' + sub;
   document.getElementById('feeDisplay').textContent = '$' + fee;
   document.getElementById('orderTotal').textContent = '$' + total;
+  const discRow = document.getElementById('discountRow');
+  const discDisplay = document.getElementById('discountDisplay');
+  if (discRow) discRow.style.display = discount > 0 ? 'flex' : 'none';
+  if (discDisplay) discDisplay.textContent = '-$' + discount;
   const freeHint = document.getElementById('freeHint');
   const threshold = SHOP_DATA.settings.shipping_free_threshold;
   if (threshold > 0) {
     if (meetsFree) { freeHint.style.display = 'block'; freeHint.textContent = '🎉 已達免運門檻'; }
-    else { freeHint.style.display = 'block'; freeHint.textContent = `再買 NT$${threshold - sub} 免運`; }
+    else { freeHint.style.display = 'block'; freeHint.textContent = `再買 NT$${threshold - discountedSub} 免運`; }
   } else freeHint.style.display = 'none';
 
   const warnEl = document.getElementById('minOrderWarn');
@@ -614,6 +706,50 @@ function refreshCartSheetTotals() {
   if (submitBtn) submitBtn.disabled = belowMin;
 
   renderCartShipInfo();
+}
+
+// hotfix22-C：優惠券套用／清除（直接共用 /api/coupons/validate，與 line-order.html 相同流程與規則）
+async function applyCoupon() {
+  const code = (document.getElementById('couponInput')?.value || '').trim().toUpperCase();
+  const msgEl = document.getElementById('couponMsg');
+  if (!code) { if (msgEl) msgEl.innerHTML = '<span style="color:#e53935">請輸入優惠券代碼</span>'; return; }
+  const sub = cartSubtotal();
+  if (!sub) { if (msgEl) msgEl.innerHTML = '<span style="color:#e53935">購物車是空的，無法套用優惠券</span>'; return; }
+  const phone = (document.getElementById('rPhone')?.value || '').trim();
+  const btn = document.getElementById('couponApplyBtn');
+  if (btn) { btn.disabled = true; btn.textContent = '驗證中…'; }
+  try {
+    const res = await apiPost('/api/coupons/validate', { code, subtotal: sub, customer_phone: phone });
+    if (res.success) {
+      appliedCoupon = { code: res.coupon.code, discount_amount: res.discount_amount, coupon: res.coupon };
+      if (msgEl) msgEl.innerHTML = '';
+      const appliedRow = document.getElementById('couponAppliedRow');
+      const appliedText = document.getElementById('couponAppliedText');
+      if (appliedText) appliedText.textContent = `✅ ${res.coupon.name}：折扣 -$${res.discount_amount}`;
+      if (appliedRow) appliedRow.style.display = 'flex';
+    } else {
+      appliedCoupon = null;
+      if (res.error === 'COUPON_FEATURE_DISABLED') {
+        const area = document.getElementById('couponArea');
+        if (area) area.style.display = 'none';
+      }
+      if (msgEl) msgEl.innerHTML = `<span style="color:#e53935">❌ ${esc(res.message || '優惠券無效')}</span>`;
+    }
+    persistCart();
+    refreshCartSheetTotals();
+  } catch (e) {
+    if (msgEl) msgEl.innerHTML = '<span style="color:#e53935">❌ 網路錯誤，請稍後再試</span>';
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '套用'; }
+  }
+}
+function clearCoupon() {
+  appliedCoupon = null;
+  const inp = document.getElementById('couponInput'); if (inp) inp.value = '';
+  const msg = document.getElementById('couponMsg'); if (msg) msg.innerHTML = '';
+  const appliedRow = document.getElementById('couponAppliedRow'); if (appliedRow) appliedRow.style.display = 'none';
+  persistCart();
+  refreshCartSheetTotals();
 }
 
 // fix18-10-hotfix22：購物車內顯示物流資訊（物流公司／配送方式提醒／後台設定的宅配說明公告）
@@ -679,6 +815,8 @@ async function submitOrder() {
       recipient_name: name, phone, postal_code: postal, city, district, address, address_note: addressNote,
       arrival_type: arrivalType, arrival_date: arrivalType === 'date' ? arrivalDate : '',
       payment_method: selectedPayment, note,
+      // hotfix22-C：只送 coupon_code，折扣金額一律由後端重新計算，前端算出來的數字只作畫面預覽用
+      coupon_code: appliedCoupon?.code || '',
     });
     if (!res.success) { toast(res.message || '送出失敗'); btn.disabled = false; btn.textContent = '送出訂單'; return; }
     const d = res.data;
@@ -707,6 +845,7 @@ async function submitOrder() {
         });
         if (lpRes.success && lpRes.payment_url) {
           cart = {};
+          appliedCoupon = null;
           clearCartStorage();
           window.location.href = lpRes.payment_url;
           return;
@@ -725,6 +864,7 @@ async function submitOrder() {
     // 現金 / 轉帳 / 其他付款 → 直接顯示成功頁
     showSuccess(d);
     cart = {};
+    appliedCoupon = null;
     clearCartStorage();
     updateCartBar();
     closeSheet();
@@ -742,6 +882,11 @@ function showSuccess(d) {
   const payStatusRow = d.payment_status_label
     ? `<div class="od-row"><span class="od-label">付款狀態</span><span class="od-val" style="color:${d.payment_status==='paid'?'#06C755':'#e65100'};font-weight:700">${esc(d.payment_status_label)}</span></div>`
     : '';
+  // hotfix22-C：有套用優惠券時顯示折扣列
+  const discAmt = Number(d.discount_amount || 0);
+  const discountRow = discAmt > 0
+    ? `<div class="od-row"><span class="od-label">優惠折扣${d.coupon_code ? '（'+esc(d.coupon_code)+'）' : ''}</span><span class="od-val" style="color:#06C755">-$${discAmt}</span></div>`
+    : '';
   document.getElementById('sucDetail').innerHTML = `
     <div class="od-section">
       <div class="od-row"><span class="od-label">收件人</span><span class="od-val">${esc(d.recipient_name)}</span></div>
@@ -751,6 +896,8 @@ function showSuccess(d) {
       <div class="od-row"><span class="od-label">付款方式</span><span class="od-val">${payLabels[d.payment_method] || esc(d.payment_method)}</span></div>
       ${payStatusRow}
       <div class="od-row"><span class="od-label">商品</span><span class="od-val">${d.items.map(i => `${esc(i.name)}×${i.qty}`).join('<br>')}</span></div>
+      <div class="od-row"><span class="od-label">商品小計</span><span class="od-val">$${d.subtotal != null ? d.subtotal : ''}</span></div>
+      ${discountRow}
       <div class="od-row"><span class="od-label">運費</span><span class="od-val">$${d.shipping_fee}</span></div>
       <div class="od-row"><span class="od-label">應付金額</span><span class="od-val od-total">$${d.total}</span></div>
     </div>`;

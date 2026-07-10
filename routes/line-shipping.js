@@ -15,6 +15,11 @@ const router  = express.Router();
 const { getDb } = require('../utils/db');
 const { broadcastToStore } = require('../utils/wssBroadcast');
 const { v4: uuidv4 } = require('uuid');
+// hotfix22-C：冷藏宅配優惠券支援 — 直接共用既有優惠券引擎（routes/coupons.js），
+// 不重做驗證規則（期限／最低消費／每人次數上限／tenant 隔離皆沿用同一份邏輯），
+// 也不影響 routes/line-shipping.js 本來「不共用外帶/外送購物車與驗證流程」的獨立設計。
+const { validateCoupon } = require('./coupons');
+const { getStoreFeatures } = require('../middleware/featureGate');
 
 // ── helpers（獨立於 line-orders.js，避免耦合既有外帶/外送邏輯）──────────
 function getSetting(db, storeId, key, def = '') {
@@ -161,6 +166,8 @@ router.get('/shop', (req, res) => {
       : [];
 
     const todayStr = twDateStr();
+    // hotfix22-C：優惠券功能開關（與 /api/line-shop 相同判斷邏輯，供前台決定是否顯示優惠券輸入區）
+    const shipFeatures = getStoreFeatures(storeId);
     res.json({
       success: true,
       data: {
@@ -178,6 +185,7 @@ router.get('/shop', (req, res) => {
         earliest_date: addDays(todayStr, settings.shipping_lead_days),
         latest_date: addDays(todayStr, settings.shipping_arrival_days_limit),
         closed_weekdays: settings.shipping_closed_weekdays,
+        coupon_feature_enabled: shipFeatures.coupon === true,
       },
     });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
@@ -252,7 +260,7 @@ router.post('/', (req, res) => {
       items,
       recipient_name, phone, postal_code, city, district, address, address_note,
       arrival_type, arrival_date,
-      payment_method, note,
+      payment_method, note, coupon_code,
     } = req.body;
 
     const settings = getShippingSettings(db, storeId);
@@ -294,14 +302,52 @@ router.post('/', (req, res) => {
       finalItems.push({ product_id: prod.id, name: (prod.shipping_name && prod.shipping_name.trim()) ? prod.shipping_name : prod.name, price, qty, spec: prod.shipping_spec || '' });
     }
 
-    const feeResult = calcShippingFee(settings, subtotal);
-    if (feeResult.below_min_order) {
+    // ── hotfix22-C：最低訂購金額檢查（沿用「折扣前」原始小計，與免運門檻規則各自獨立）──
+    const minOrderCheck = calcShippingFee(settings, subtotal);
+    if (minOrderCheck.below_min_order) {
       return res.status(400).json({
         success: false,
         message: `未達最低訂購金額 NT$${settings.shipping_min_order_amount}`,
         reason: 'below_min_order',
       });
     }
+
+    // ── hotfix22-C：優惠券後端重新驗證（不信任前端傳來的 discount_amount）──────────
+    // 直接共用 routes/coupons.js 的 validateCoupon()，V1 規則：優惠券只折「商品小計」，
+    // 不折宅配運費；validateCoupon() 內部本來就會把折扣上限鎖在傳入的 subtotal 以內，
+    // 這裡只要用「不含運費」的 subtotal 呼叫，就自動滿足「折扣不得超過商品小計」且
+    // 「不折運費」，不需要另外重寫折扣上限判斷。
+    let discAmt = 0;
+    let appliedCouponId = null;
+    let appliedCouponCode = '';
+    const normalCouponCode = coupon_code ? String(coupon_code).trim().toUpperCase() : '';
+    if (normalCouponCode) {
+      const storeFeatures = getStoreFeatures(storeId);
+      if (storeFeatures.coupon !== true) {
+        return res.status(403).json({
+          success: false,
+          error: 'COUPON_FEATURE_DISABLED',
+          message: '優惠券功能未啟用',
+        });
+      }
+      const cvResult = validateCoupon(db, storeId, normalCouponCode, subtotal, phone);
+      if (!cvResult.ok) {
+        return res.status(400).json({ success: false, message: cvResult.message, reason: 'coupon_invalid' });
+      }
+      discAmt           = cvResult.discount_amount;
+      appliedCouponId   = cvResult.coupon.id;
+      appliedCouponCode = cvResult.coupon.code;
+    }
+
+    // ── hotfix22-C：免運門檻規則 —— 固定採用「折扣後商品小計」計算（與前端 calcFee() 一致）──
+    //   discounted_subtotal = max(0, subtotal - discount_amount)
+    //   discounted_subtotal >= free_shipping_threshold → shipping_fee = 0，否則收基本運費
+    //   total = discounted_subtotal + shipping_fee
+    // 不得發生「前端顯示免運，後端卻重新加運費」的不一致，所以前後端共用同一套算法。
+    const discountedSubtotal = Math.max(0, subtotal - discAmt);
+    const feeResult = calcShippingFee(settings, discountedSubtotal);
+    // 應付金額 = 商品小計 - 優惠折扣 + 宅配運費（運費本身不受折扣影響）
+    const finalTotal = discountedSubtotal + feeResult.shipping_fee;
 
     // ── 到貨日期驗證 ─────────────────────────────────────────────────
     const finalArrivalType = arrival_type === 'date' ? 'date' : 'asap';
@@ -323,26 +369,26 @@ router.post('/', (req, res) => {
     const pad = (n, l = 2) => String(n).padStart(l, '0');
     const nowStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
     const itemsJson = JSON.stringify(finalItems);
-    const total = feeResult.total;
+    const total = finalTotal;
 
     db.run(
       `INSERT INTO orders (
         id, uuid, order_number, store_id, order_mode, order_status, kitchen_status,
         customer_name, customer_phone,
         items, payment_method, payment_category, payment_status,
-        subtotal, discount_type, discount_amount, original_total, total,
+        subtotal, discount_type, discount_amount, original_total, coupon_code, total,
         note, sync_status, device_id, source, created_at, updated_at,
         fulfillment_type, order_source,
         shipping_recipient_name, shipping_phone, shipping_postal_code, shipping_city,
         shipping_district, shipping_address, shipping_address_note,
         shipping_arrival_type, shipping_arrival_date, shipping_fee, shipping_free_discount,
         shipping_carrier_name, shipping_status
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         uuid, uuid, orderNo, storeId, 'shipping', 'pending', 'pending',
         recipient_name, phone,
         itemsJson, payment_method, payment_method === 'cash' ? 'cash' : 'non_cash', 'pending',
-        subtotal, 'none', 0, subtotal, total,
+        subtotal, discAmt > 0 ? 'coupon' : 'none', discAmt, subtotal, appliedCouponCode, total,
         note || '', 'synced', 'LINE', 'line', nowStr, nowStr,
         'shipping', 'line_shipping',
         recipient_name, phone, postal_code || '', city || '',
@@ -351,6 +397,27 @@ router.post('/', (req, res) => {
         settings.shipping_carrier_name || '', 'pending',
       ]
     );
+
+    // ── hotfix22-C：寫入 coupon_redemptions（訂單建立成功後，與 line-orders.js 相同做法）──
+    if (appliedCouponId) {
+      try {
+        db.run(
+          `INSERT OR IGNORE INTO coupon_redemptions
+             (store_id, coupon_id, coupon_code, order_id, order_number,
+              customer_phone, discount_amount, original_total, final_total, created_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?)`,
+          [
+            storeId, appliedCouponId, appliedCouponCode,
+            uuid, orderNo,
+            String(phone || '').trim(),
+            discAmt, subtotal, total, nowStr
+          ]
+        );
+      } catch (rErr) {
+        console.error('[line-shipping] coupon_redemptions 寫入失敗:', rErr.message);
+        // redemption 寫入失敗不中斷訂單，但記錄錯誤（與 line-orders.js 行為一致）
+      }
+    }
 
     // ── 扣 LINE 共用份數（若商品設定共用）──────────────────────────
     finalItems.forEach(item => {
@@ -378,6 +445,7 @@ router.post('/', (req, res) => {
       data: {
         order_number: orderNo, uuid, total,
         subtotal, shipping_fee: feeResult.shipping_fee, free_discount: feeResult.free_discount,
+        coupon_code: appliedCouponCode, discount_amount: discAmt,
         arrival_type: finalArrivalType, arrival_date: finalArrivalType === 'date' ? arrival_date : '',
         recipient_name, phone, address, payment_method,
         items: finalItems,
@@ -427,6 +495,8 @@ function safeShippingOrder(order) {
     items,
     subtotal: Number(order.subtotal || 0),
     shipping_fee: Number(order.shipping_fee || 0),
+    coupon_code: order.coupon_code || '',
+    discount_amount: Number(order.discount_amount || 0),
     total: Number(order.total || 0),
     note: order.note || '',
   };
@@ -493,6 +563,8 @@ router.get('/order/:orderNo', (req, res) => {
         items,
         subtotal: Number(order.subtotal || 0),
         shipping_fee: Number(order.shipping_fee || 0),
+        coupon_code: order.coupon_code || '',
+        discount_amount: Number(order.discount_amount || 0),
         total: Number(order.total || 0),
         payment_method: order.payment_method,
         payment_status: order.payment_status || 'pending',
