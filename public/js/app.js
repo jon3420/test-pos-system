@@ -5785,6 +5785,8 @@ async function loadLineBizStatus() {
     if (cdText) cdText.value = cdates.join('\n');
     // Hotfix17：商家公告設定填入
     _fillAnnouncementForm(d);
+    // fix18-10-hotfix22D：冷藏宅配公告設定填入（獨立資料來源，不影響上面 LINE 點餐公告）
+    _fillShippingAnnouncementForm(d);
     // fix18-10-hotfix18：冷藏宅配設定填入
     _fillShippingSettingsForm(d);
     // fix18-10-hotfix21：物流 API 設定填入（架構預留 V1）
@@ -6038,6 +6040,140 @@ async function saveAnnouncementSettings() {
       body: JSON.stringify(body) });
     showToast('✅ 公告設定已儲存', 'success');
     loadLineBizStatus();
+  } catch(e) { showToast('儲存失敗', 'error'); }
+}
+
+// ── fix18-10-hotfix22D：冷藏宅配公告（商家公告分頁二）──────────────────
+// 設計原則：與上面「LINE 點餐公告」完全獨立的一組 DOM 欄位（set-shipping_announcement_*）
+// 與獨立的 settings key（shipping_announcement_*，見 routes/settings.js SHIPPING_ANNOUNCEMENT_KEYS／
+// routes/line-shipping.js getShippingAnnouncement()），切換分頁只是顯示/隱藏對應表單區塊，
+// 不會把兩邊的資料互相覆蓋或共用。
+let currentAnnouncementTarget = 'line_order';
+function switchAnnouncementTarget(target) {
+  currentAnnouncementTarget = target;
+  const lineWrap = document.getElementById('annFormWrap-line_order');
+  const shipWrap = document.getElementById('annFormWrap-shipping');
+  const lineBtn  = document.getElementById('annTabBtn-line_order');
+  const shipBtn  = document.getElementById('annTabBtn-shipping');
+  if (lineWrap) lineWrap.style.display = target === 'line_order' ? 'grid' : 'none';
+  if (shipWrap) shipWrap.style.display = target === 'shipping'   ? 'grid' : 'none';
+  if (lineBtn) { lineBtn.style.background = target === 'line_order' ? '#06C755' : ''; lineBtn.style.borderColor = target === 'line_order' ? '#06C755' : ''; lineBtn.style.color = target === 'line_order' ? '#fff' : ''; }
+  if (shipBtn) { shipBtn.style.background = target === 'shipping'   ? '#1565c0' : ''; shipBtn.style.borderColor = target === 'shipping'   ? '#1565c0' : ''; shipBtn.style.color = target === 'shipping'   ? '#fff' : ''; }
+  // 切到哪一頁就即時重繪哪一頁的預覽（右側預覽立即變成對應分頁內容，兩邊資料互不影響）
+  if (target === 'line_order') { if (typeof renderAnnouncementPreview === 'function') renderAnnouncementPreview(); }
+  else { renderShippingAnnouncementPreview(); }
+}
+
+function _fillShippingAnnouncementForm(d) {
+  const setV = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ''; };
+  const setC = (id, val) => { const el = document.getElementById(id); if (el) el.checked = !!val; };
+  setC('set-shipping_announcement_enabled', d.shipping_announcement_enabled === '1');
+  setV('set-shipping_announcement_type', d.shipping_announcement_type || 'general');
+  setV('set-shipping_announcement_title', d.shipping_announcement_title || '');
+  setV('set-shipping_announcement_body', d.shipping_announcement_body || '');
+  setV('set-shipping_announcement_image_url', d.shipping_announcement_image_url || '');
+  setV('set-shipping_announcement_button_text', d.shipping_announcement_button_text || '我知道了');
+  setV('set-shipping_announcement_button_action', d.shipping_announcement_button_action || 'close');
+  setV('set-shipping_announcement_button_url', d.shipping_announcement_button_url || '');
+  setV('set-shipping_announcement_start_date', d.shipping_announcement_start_date || '');
+  setV('set-shipping_announcement_end_date', d.shipping_announcement_end_date || '');
+  setC('set-shipping_announcement_closable', d.shipping_announcement_closable !== '0');
+  setC('set-shipping_announcement_auto_holiday', d.shipping_announcement_auto_holiday !== '0');
+  setV('set-shipping_announcement_version', d.shipping_announcement_version || '1');
+  const dispMode = d.shipping_announcement_display_mode || 'modal';
+  const dEl = document.getElementById(`set-shipping_announcement_display_mode-${dispMode}`);
+  if (dEl) dEl.checked = true; else { const m = document.getElementById('set-shipping_announcement_display_mode-modal'); if (m) m.checked = true; }
+  const freq = d.shipping_announcement_frequency || 'version';
+  const fEl = document.getElementById(`set-shipping_announcement_frequency-${freq}`);
+  if (fEl) fEl.checked = true; else { const v = document.getElementById('set-shipping_announcement_frequency-version'); if (v) v.checked = true; }
+  onShippingAnnouncementButtonActionChange();
+  renderShippingAnnouncementPreview();
+}
+function onShippingAnnouncementButtonActionChange() {
+  const action = document.getElementById('set-shipping_announcement_button_action')?.value || 'close';
+  const show = (id, cond) => { const el = document.getElementById(id); if (el) el.style.display = cond ? 'block' : 'none'; };
+  show('shipAnnounceUrlWrap', action === 'open_url');
+  renderShippingAnnouncementPreview();
+}
+function uploadShippingAnnouncementImage(inputEl) {
+  const file = inputEl.files && inputEl.files[0];
+  if (!file) return;
+  const hint = document.getElementById('shipAnnounceImageUploadHint');
+  if (hint) { hint.style.display = 'block'; hint.textContent = '上傳中…'; hint.style.color = '#888'; }
+  const reader = new FileReader();
+  reader.onload = async () => {
+    try {
+      const res = await apiFetch('/api/uploads/image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image_base64: reader.result }),
+      });
+      const json = await res.json();
+      if (!json.success) {
+        if (hint) { hint.textContent = '上傳失敗：' + (json.message || ''); hint.style.color = '#e53935'; }
+        showToast(json.message || '上傳失敗', 'error');
+        return;
+      }
+      const urlInput = document.getElementById('set-shipping_announcement_image_url');
+      if (urlInput) urlInput.value = window.location.origin + json.url;
+      renderShippingAnnouncementPreview();
+      if (hint) { hint.textContent = '✅ 上傳成功'; hint.style.color = '#06C755'; }
+      showToast('圖片上傳成功', 'success');
+    } catch (e) {
+      if (hint) { hint.textContent = '上傳失敗：' + e.message; hint.style.color = '#e53935'; }
+      showToast('上傳失敗', 'error');
+    } finally {
+      inputEl.value = '';
+    }
+  };
+  reader.onerror = () => { if (hint) { hint.textContent = '讀取檔案失敗'; hint.style.color = '#e53935'; } };
+  reader.readAsDataURL(file);
+}
+function renderShippingAnnouncementPreview() {
+  const el = document.getElementById('shipAnnouncementPreview');
+  if (!el) return;
+  const type  = document.getElementById('set-shipping_announcement_type')?.value || 'general';
+  const title = document.getElementById('set-shipping_announcement_title')?.value || '';
+  const body  = document.getElementById('set-shipping_announcement_body')?.value || '';
+  const btnTxt = document.getElementById('set-shipping_announcement_button_action')?.value === 'none'
+    ? '' : (document.getElementById('set-shipping_announcement_button_text')?.value || '我知道了');
+  const icon = _ANNOUNCE_ICON_MAP[type] || '📢';
+  const enabled = document.getElementById('set-shipping_announcement_enabled')?.checked;
+  if (!enabled && !title && !body) {
+    el.innerHTML = '<p style="text-align:center;color:var(--text-muted);font-size:13px;padding:20px 0">尚未啟用公告</p>';
+    return;
+  }
+  el.innerHTML = `
+    <div style="font-size:15px;font-weight:700;margin-bottom:8px">${icon} ${escapeHtml(title || '（尚未填寫標題）')}</div>
+    <div style="font-size:13px;color:var(--text-secondary);white-space:pre-line;line-height:1.7;margin-bottom:12px">${escapeHtml(body || '（尚未填寫內容）')}</div>
+    ${btnTxt ? `<button class="btn-primary" style="background:#1565c0;border-color:#1565c0;width:100%" disabled>${escapeHtml(btnTxt)}</button>` : ''}
+  `;
+}
+async function saveShippingAnnouncementSettings() {
+  const getV = (id) => document.getElementById(id)?.value || '';
+  const getC = (id) => document.getElementById(id)?.checked ? '1' : '0';
+  const getRadio = (name, fallback) => document.querySelector(`input[name="${name}"]:checked`)?.value || fallback;
+  const body = {
+    shipping_announcement_enabled:     getC('set-shipping_announcement_enabled'),
+    shipping_announcement_type:        getV('set-shipping_announcement_type') || 'general',
+    shipping_announcement_title:       getV('set-shipping_announcement_title'),
+    shipping_announcement_body:        getV('set-shipping_announcement_body'),
+    shipping_announcement_image_url:   getV('set-shipping_announcement_image_url'),
+    shipping_announcement_button_text: getV('set-shipping_announcement_button_text') || '我知道了',
+    shipping_announcement_button_action: getV('set-shipping_announcement_button_action') || 'close',
+    shipping_announcement_button_url:  getV('set-shipping_announcement_button_url'),
+    shipping_announcement_start_date:  getV('set-shipping_announcement_start_date'),
+    shipping_announcement_end_date:    getV('set-shipping_announcement_end_date'),
+    shipping_announcement_closable:    getC('set-shipping_announcement_closable'),
+    shipping_announcement_display_mode:  getRadio('shipAnnounceDisplayMode', 'modal'),
+    shipping_announcement_frequency:     getRadio('shipAnnounceFrequency', 'version'),
+    shipping_announcement_version:     getV('set-shipping_announcement_version') || '1',
+    shipping_announcement_auto_holiday: getC('set-shipping_announcement_auto_holiday'),
+  };
+  try {
+    await apiFetch('/api/settings', { method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(body) });
+    showToast('✅ 冷藏宅配公告設定已儲存', 'success');
   } catch(e) { showToast('儲存失敗', 'error'); }
 }
 

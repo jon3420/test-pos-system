@@ -72,6 +72,18 @@ const SHIPPING_API_KEYS = [
   'shipping_sender_address', 'shipping_test_mode',
 ];
 
+// fix18-10-hotfix22D：冷藏宅配公告 key — 與 LINE_KEYS 內的 line_announcement_* 完全獨立，
+// 不共用、不互相覆蓋（見 routes/line-shipping.js getShippingAnnouncement()）。
+const SHIPPING_ANNOUNCEMENT_KEYS = [
+  'shipping_announcement_enabled', 'shipping_announcement_type',
+  'shipping_announcement_title', 'shipping_announcement_body', 'shipping_announcement_image_url',
+  'shipping_announcement_button_text', 'shipping_announcement_button_action', 'shipping_announcement_button_url',
+  'shipping_announcement_start_date', 'shipping_announcement_end_date',
+  'shipping_announcement_closable', 'shipping_announcement_display_mode',
+  'shipping_announcement_frequency', 'shipping_announcement_version',
+  'shipping_announcement_auto_holiday',
+];
+
 // fix18-08：外送平台抽成率 key
 const COMMISSION_KEYS = [
   'ubereats_commission_rate',
@@ -101,6 +113,7 @@ const ALL_ALLOWED = [
   ...COMMISSION_KEYS,
   ...SHIPPING_KEYS,
   ...SHIPPING_API_KEYS,
+  ...SHIPPING_ANNOUNCEMENT_KEYS,
 ];
 
 // GET /api/settings
@@ -123,7 +136,7 @@ router.put('/', (req, res) => {
 
     // ── fix14：檢查是否修改 LINE key ───────────────────────
     const requestedKeys = Object.keys(req.body);
-    const hasLineKey    = requestedKeys.some(k => LINE_KEYS.has(k) || SHIPPING_KEYS.includes(k) || SHIPPING_API_KEYS.includes(k));
+    const hasLineKey    = requestedKeys.some(k => LINE_KEYS.has(k) || SHIPPING_KEYS.includes(k) || SHIPPING_API_KEYS.includes(k) || SHIPPING_ANNOUNCEMENT_KEYS.includes(k));
 
     if (hasLineKey) {
       // 查授權

@@ -17,6 +17,24 @@ img{max-width:100%;display:block}
 .hdr-btns{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
 .hdr-btn{background:rgba(255,255,255,.22);color:#fff;border:1.5px solid rgba(255,255,255,.5);padding:7px 14px;border-radius:20px;font-size:13px;font-weight:600;cursor:pointer;-webkit-tap-highlight-color:transparent}
 .hdr-btn:active{background:rgba(255,255,255,.35)}
+/* fix18-10-hotfix22D：冷藏宅配公告（獨立於 LINE 點餐 line-order.html 的公告樣式與資料） */
+.ship-announce-banner{margin:0 16px 12px;border-radius:12px;overflow:hidden;position:relative;display:none;background:#e3f2fd}
+.ship-announce-banner-close{position:absolute;top:8px;right:10px;width:24px;height:24px;border-radius:50%;background:rgba(0,0,0,.08);color:#666;font-size:13px;display:flex;align-items:center;justify-content:center;cursor:pointer}
+.ship-announce-banner-img{width:100%;aspect-ratio:1200/630;object-fit:cover;border-radius:12px 12px 0 0;display:block}
+.ship-announce-banner-body{padding:14px 16px}
+.ship-announce-banner-title{font-size:15px;font-weight:700;margin-bottom:4px}
+.ship-announce-banner-msg{font-size:13px;line-height:1.6;white-space:pre-line;margin-top:4px;color:#444}
+.ship-announce-banner-btn{margin-top:10px;width:100%;padding:9px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;border:none;background:var(--g);color:#fff}
+.ship-announce-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:90;display:none;align-items:center;justify-content:center}
+.ship-announce-overlay.show{display:flex}
+.ship-announce-modal{background:#fff;border-radius:16px;width:80%;max-width:360px;max-height:80vh;overflow-y:auto;position:relative;box-shadow:0 8px 30px rgba(0,0,0,.25)}
+.ship-announce-modal-close{position:absolute;top:8px;right:8px;width:30px;height:30px;border-radius:50%;background:rgba(0,0,0,.06);color:#666;font-size:16px;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:1}
+.ship-announce-modal-body{padding:24px 20px 20px;text-align:center}
+.ship-announce-modal-body img{border-radius:10px;margin-bottom:12px;width:100%;aspect-ratio:1200/630;object-fit:cover;display:block}
+.ship-announce-modal-icon{font-size:34px;margin-bottom:8px}
+.ship-announce-modal-title{font-size:17px;font-weight:700;margin-bottom:10px;color:#222}
+.ship-announce-modal-msg{font-size:14px;color:#555;line-height:1.7;white-space:pre-line;margin-bottom:18px;text-align:left}
+.ship-announce-modal-btn{width:100%;padding:12px;background:var(--g);color:#fff;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer}
 .copy-btn{padding:8px;margin-top:6px;background:#fff;color:var(--sub);border:1.5px solid var(--bd);border-radius:8px;font-size:12px;font-weight:600}
 .ship-info-box{background:#f0f6ff;border-radius:8px;padding:10px 12px;margin-bottom:14px;font-size:12px;color:#0d47a1;line-height:1.7}
 .ship-info-box .sib-row{display:flex;justify-content:space-between;gap:8px}
@@ -157,6 +175,8 @@ img{max-width:100%;display:block}
     <div class="shop-logo" id="logoWrap">📦</div>
     <div class="shop-info"><h2 id="shopName2"></h2><p id="shopAddr"></p></div>
   </div>
+  <!-- fix18-10-hotfix22D：冷藏宅配公告（banner 模式，資料獨立於 LINE 點餐公告） -->
+  <div class="ship-announce-banner" id="shipAnnounceBanner"></div>
   <div class="notice" id="notice"></div>
   <div class="storage-note" id="storageNote"></div>
 
@@ -273,6 +293,14 @@ img{max-width:100%;display:block}
   </div>
 </div>
 
+<!-- fix18-10-hotfix22D：冷藏宅配公告 Modal（獨立於 LINE 點餐公告，資料/顯示互不影響）-->
+<div class="ship-announce-overlay" id="shipAnnounceOverlay" onclick="onShipAnnounceOverlayClick(event)">
+  <div class="ship-announce-modal" id="shipAnnounceModalBox">
+    <div class="ship-announce-modal-close" id="shipAnnounceModalCloseBtn" onclick="dismissShipAnnouncement()">✕</div>
+    <div class="ship-announce-modal-body" id="shipAnnounceModalBody"></div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -373,6 +401,9 @@ function renderShop() {
 
   const noticeEl = document.getElementById('notice');
   if (d.shipping_notice) { noticeEl.textContent = d.shipping_notice; noticeEl.style.display = 'block'; }
+
+  // fix18-10-hotfix22D：冷藏宅配公告（資料來源 d.announcement，完全獨立於 LINE 點餐公告）
+  renderShippingAnnouncement(d.announcement);
 
   const storageNote = d.settings.shipping_storage_note || '';
   const storageEl = document.getElementById('storageNote');
@@ -779,6 +810,107 @@ function openQuerySheet() {
 function closeSheet() {
   document.getElementById('overlay').classList.remove('show');
   document.querySelectorAll('.sheet').forEach(s => s.classList.remove('show'));
+}
+
+// ══════════════════════════════════════════════════════════
+// fix18-10-hotfix22D：冷藏宅配公告中心（manual > auto_holiday > none）
+// 資料來源＝SHOP_DATA.announcement（routes/line-shipping.js getShippingAnnouncement()），
+// 與 line-order.html 的 LINE 點餐公告（shopData.announcement，line_announcement_* 設定）
+// 完全是兩份獨立資料／獨立 localStorage key，互不影響、不共用。
+// ══════════════════════════════════════════════════════════
+let currentShipAnnouncement = null;
+let _shipAnnounceDismissedThisSession = false;
+const SHIP_ANNOUNCE_ICON_MAP = { general: '📢', holiday: '🏖️', promo: '🎉', new_product: '🆕', delivery: '📦', member: '🎁', custom: '✨' };
+
+function renderShippingAnnouncement(a) {
+  currentShipAnnouncement = a || null;
+  hideShippingAnnouncementUI();
+  if (!a || !a.active) return;
+  if (_shipAnnounceDismissedThisSession) return;
+  if (isShippingAnnouncementDismissed(a)) return;
+  if (a.display_mode === 'modal') showShipAnnouncementModal(a);
+  else showShipAnnouncementBanner(a);
+}
+function hideShippingAnnouncementUI() {
+  document.getElementById('shipAnnounceOverlay')?.classList.remove('show');
+  const bn = document.getElementById('shipAnnounceBanner');
+  if (bn) { bn.style.display = 'none'; bn.innerHTML = ''; }
+}
+function showShipAnnouncementModal(a) {
+  const body = document.getElementById('shipAnnounceModalBody');
+  const closeBtn = document.getElementById('shipAnnounceModalCloseBtn');
+  if (!body) return;
+  const icon = a.icon || SHIP_ANNOUNCE_ICON_MAP[a.type] || '📢';
+  // 沒有圖片時維持純文字公告；圖片載入失敗時自動隱藏圖片區，不影響文字內容
+  const img = a.image_url ? `<img src="${esc(a.image_url)}" alt="" onerror="this.style.display='none'">` : '';
+  const showBtn = a.button_action !== 'none' && a.button_text;
+  const btn = showBtn ? `<button class="ship-announce-modal-btn" onclick="shipAnnounceButtonClick()">${esc(a.button_text)}</button>` : '';
+  body.innerHTML = `${img}<div class="ship-announce-modal-icon">${icon}</div><div class="ship-announce-modal-title">${esc(a.title || '')}</div><div class="ship-announce-modal-msg">${esc(a.body || '')}</div>${btn}`;
+  if (closeBtn) closeBtn.style.display = (a.closable === false) ? 'none' : 'flex';
+  document.getElementById('shipAnnounceOverlay')?.classList.add('show');
+}
+function showShipAnnouncementBanner(a) {
+  const el = document.getElementById('shipAnnounceBanner');
+  if (!el) return;
+  const icon = a.icon || SHIP_ANNOUNCE_ICON_MAP[a.type] || '📢';
+  const closeBtn = (a.closable === false) ? '' : `<div class="ship-announce-banner-close" onclick="dismissShipAnnouncement()">✕</div>`;
+  const showBtn = a.button_action !== 'none' && a.button_text;
+  const btn = showBtn ? `<button class="ship-announce-banner-btn" onclick="shipAnnounceButtonClick()">${esc(a.button_text)}</button>` : '';
+  const img = a.image_url ? `<img class="ship-announce-banner-img" src="${esc(a.image_url)}" alt="" onerror="this.style.display='none'">` : '';
+  el.innerHTML = `${closeBtn}${img}<div class="ship-announce-banner-body"><div class="ship-announce-banner-title">${icon} ${esc(a.title || '')}</div><div class="ship-announce-banner-msg">${esc(a.body || '')}</div>${btn}</div>`;
+  el.style.display = 'block';
+}
+// 背景點擊關閉（僅 closable 時）；banner 模式本身就不遮罩、不阻擋商品瀏覽，故只有 modal 需要這個處理
+function onShipAnnounceOverlayClick(ev) {
+  if (ev && ev.target && ev.target.id === 'shipAnnounceOverlay' && currentShipAnnouncement && currentShipAnnouncement.closable !== false) {
+    dismissShipAnnouncement();
+  }
+}
+function dismissShipAnnouncement() {
+  const a = currentShipAnnouncement;
+  hideShippingAnnouncementUI();
+  _shipAnnounceDismissedThisSession = true;
+  if (a) recordShippingAnnouncementDismiss(a);
+}
+function shipAnnounceButtonClick() {
+  const a = currentShipAnnouncement;
+  if (!a) return;
+  dismissShipAnnouncement();
+  handleShippingAnnouncementAction(a);
+}
+function handleShippingAnnouncementAction(a) {
+  // 自動休假公告（暫停出貨）：只提醒，不代為做任何送單判斷（是否能下單仍由後端驗證把關）
+  if (a.source === 'auto_holiday') { scrollToShippingProducts(); return; }
+  switch (a.button_action) {
+    case 'scroll_products': scrollToShippingProducts(); break;
+    case 'open_cart': scrollToShippingProducts(); if (cartList().length) openCartSheet(); break;
+    case 'open_url': if (a.button_url) window.open(a.button_url, '_blank'); break;
+    case 'close': default: break;
+  }
+}
+function scrollToShippingProducts() {
+  document.getElementById('prodGrid')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+// localStorage key：line_announcement_dismissed_${store_id}_shipping_${suffix}
+// 刻意與 line-order.html 的 line_order 版本用不同 target 區隔，關閉其中一份公告不影響另一份
+function _shipAnnounceDismissKey(suffix) { return `line_announcement_dismissed_${STORE_ID}_shipping_${suffix}`; }
+function isShippingAnnouncementDismissed(a) {
+  const freq = a.frequency || 'version';
+  try {
+    if (freq === 'always') return false;
+    if (freq === 'once') return localStorage.getItem(_shipAnnounceDismissKey('once')) === '1';
+    if (freq === 'daily') return localStorage.getItem(_shipAnnounceDismissKey('daily')) === (SHOP_DATA?.today || '');
+    return localStorage.getItem(_shipAnnounceDismissKey(String(a.version || '1'))) === '1'; // version（預設）
+  } catch { return false; }
+}
+function recordShippingAnnouncementDismiss(a) {
+  const freq = a.frequency || 'version';
+  try {
+    if (freq === 'always') return;
+    if (freq === 'once') { localStorage.setItem(_shipAnnounceDismissKey('once'), '1'); return; }
+    if (freq === 'daily') { localStorage.setItem(_shipAnnounceDismissKey('daily'), SHOP_DATA?.today || ''); return; }
+    localStorage.setItem(_shipAnnounceDismissKey(String(a.version || '1')), '1');
+  } catch {}
 }
 
 function setArrivalType(type) {

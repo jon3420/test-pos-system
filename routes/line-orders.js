@@ -1505,3 +1505,6 @@ router.post('/quota-reset', (req, res) => {
 });
 
 module.exports = router;
+// fix18-10-hotfix22D：匯出既有 Business Calendar 唯讀查詢函式，供 routes/line-shipping.js
+// 的「冷藏宅配公告」自動休假判斷共用（不重寫、不修改 Business Calendar 本身邏輯）。
+module.exports.getCalendarDateInfo = getCalendarDateInfo;

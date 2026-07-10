@@ -20,6 +20,9 @@ const { v4: uuidv4 } = require('uuid');
 // 也不影響 routes/line-shipping.js 本來「不共用外帶/外送購物車與驗證流程」的獨立設計。
 const { validateCoupon } = require('./coupons');
 const { getStoreFeatures } = require('../middleware/featureGate');
+// fix18-10-hotfix22D：冷藏宅配公告的「自動休假公告」唯讀共用 routes/line-orders.js 已匯出的
+// Business Calendar 查詢函式（不修改 Business Calendar 本身、不影響 LINE 點餐公告既有邏輯）。
+const { getCalendarDateInfo } = require('./line-orders');
 
 // ── helpers（獨立於 line-orders.js，避免耦合既有外帶/外送邏輯）──────────
 function getSetting(db, storeId, key, def = '') {
@@ -86,6 +89,108 @@ function getShippingSettings(db, storeId) {
   try { s.shipping_closed_weekdays = JSON.parse(s.shipping_closed_weekdays || '[]'); } catch { s.shipping_closed_weekdays = []; }
   try { s.shipping_payment_methods = JSON.parse(s.shipping_payment_methods || '[]'); } catch { s.shipping_payment_methods = ['cash', 'transfer']; }
   return s;
+}
+
+// ── fix18-10-hotfix22D：冷藏宅配公告（完全獨立於 LINE 點餐商家公告 line_announcement_*）──
+// 設計原則：
+//   1. 獨立一套 settings key（shipping_announcement_*），與 line_announcement_* 不共用、不互相覆蓋。
+//   2. 資料形狀（enabled/type/title/body/image_url/button_*/display_mode/frequency/version/…）
+//      刻意與 LINE 點餐公告一致，方便前台共用同一套 renderAnnouncement 邏輯，但兩者資料來源
+//      （settings key 前綴）完全分開，符合「不得共用 LINE 點餐公告」的要求。
+//   3. 自動休假公告：唯讀查詢 Business Calendar（getCalendarDateInfo），只有「今日被行事曆設定
+//      為公休（mode==='closed'）」時才自動產生休假公告，不影響 Business Calendar 本身、也不影響
+//      LINE 點餐公告自己的自動休假判斷（那一份沿用 getDateClosedStatus()，本函式完全不呼叫它）。
+const SHIPPING_ANNOUNCEMENT_ICONS = {
+  general: '📢', holiday: '🏖️', promo: '🎉', new_product: '🆕',
+  delivery: '📦', member: '🎁', custom: '✨',
+};
+function fmtMDShortLocal(s) {
+  if (!s) return '';
+  const p = String(s).split('-');
+  return p.length >= 3 ? `${Number(p[1])}/${Number(p[2])}` : s;
+}
+function getShippingAnnouncement(db, storeId) {
+  const keys = [
+    'shipping_announcement_enabled', 'shipping_announcement_type',
+    'shipping_announcement_title', 'shipping_announcement_body', 'shipping_announcement_image_url',
+    'shipping_announcement_button_text', 'shipping_announcement_button_action', 'shipping_announcement_button_url',
+    'shipping_announcement_start_date', 'shipping_announcement_end_date',
+    'shipping_announcement_closable', 'shipping_announcement_display_mode',
+    'shipping_announcement_frequency', 'shipping_announcement_version',
+    'shipping_announcement_auto_holiday',
+  ];
+  const s = {};
+  keys.forEach(k => { s[k] = getSetting(db, storeId, k, ''); });
+
+  const todayStr = twDateStr();
+  const announceEnabled = s.shipping_announcement_enabled === '1';
+  const startD = s.shipping_announcement_start_date || '';
+  const endD   = s.shipping_announcement_end_date || '';
+  const withinRange = (!startD || todayStr >= startD) && (!endD || todayStr <= endD);
+  const hasContent  = !!(s.shipping_announcement_title || s.shipping_announcement_body);
+
+  let announcement = { enabled: announceEnabled, active: false, source: 'none', target: 'shipping' };
+
+  if (announceEnabled && withinRange && hasContent) {
+    const type = s.shipping_announcement_type || 'general';
+    announcement = {
+      enabled: true,
+      active: true,
+      target: 'shipping',
+      type,
+      icon: SHIPPING_ANNOUNCEMENT_ICONS[type] || '📢',
+      title: s.shipping_announcement_title || '',
+      body: s.shipping_announcement_body || '',
+      image_url: s.shipping_announcement_image_url || '',
+      button_text: s.shipping_announcement_button_text || '我知道了',
+      button_action: s.shipping_announcement_button_action || 'close',
+      button_url: s.shipping_announcement_button_url || '',
+      start_date: startD,
+      end_date: endD,
+      closable: s.shipping_announcement_closable !== '0',
+      display_mode: s.shipping_announcement_display_mode || 'modal',
+      frequency: s.shipping_announcement_frequency || 'version',
+      version: s.shipping_announcement_version || '1',
+      source: 'manual',
+    };
+  } else {
+    // 沒有生效中的手動公告 → 是否自動產生休假公告（僅在 Business Calendar 命中「公休」時，預設開啟）
+    const autoHoliday = s.shipping_announcement_auto_holiday !== '0';
+    if (autoHoliday) {
+      let cal = { matched: false };
+      try { cal = getCalendarDateInfo(db, storeId, todayStr); } catch { cal = { matched: false }; }
+      if (cal.matched && cal.mode === 'closed') {
+        const rangeTxt = cal.start_date === cal.end_date
+          ? fmtMDShortLocal(cal.start_date)
+          : `${fmtMDShortLocal(cal.start_date)}～${fmtMDShortLocal(cal.end_date)}`;
+        const bodyLines = [rangeTxt];
+        if (cal.show_reason && cal.reason) bodyLines.push(cal.reason);
+        if (cal.resume_date) bodyLines.push(`${fmtMDShortLocal(cal.resume_date)} 恢復出貨`);
+        announcement = {
+          enabled: announceEnabled,
+          active: true,
+          target: 'shipping',
+          type: 'holiday',
+          icon: SHIPPING_ANNOUNCEMENT_ICONS.holiday,
+          title: '目前暫停出貨',
+          body: bodyLines.join('\n'),
+          image_url: '',
+          button_text: '我知道了',
+          button_action: 'close',
+          button_url: '',
+          start_date: cal.start_date || '',
+          end_date: cal.end_date || '',
+          closable: true,
+          display_mode: 'banner',
+          frequency: 'always',
+          version: cal.resume_date || '1',
+          source: 'auto_holiday',
+          resume_date: cal.resume_date || '',
+        };
+      }
+    }
+  }
+  return announcement;
 }
 
 // ── 運費計算（V1 規則：單一固定運費 + 滿額免運 + 最低訂購金額）────────
@@ -186,8 +291,23 @@ router.get('/shop', (req, res) => {
         latest_date: addDays(todayStr, settings.shipping_arrival_days_limit),
         closed_weekdays: settings.shipping_closed_weekdays,
         coupon_feature_enabled: shipFeatures.coupon === true,
+        // fix18-10-hotfix22D：冷藏宅配公告（與 LINE 點餐公告完全獨立的資料來源，見 getShippingAnnouncement()）
+        announcement: getShippingAnnouncement(db, storeId),
       },
     });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+// ── GET /api/line-shipping/notice — 冷藏宅配公告（獨立端點）───────────────
+// fix18-10-hotfix22D：對應規格【五】提出的兩種方案，這裡採「共用 target=shipping」的做法，
+// 掛在既有的 /api/line-shipping router 下（不新增獨立 router、不影響 /api/merchant-notice
+// 這類其他既有公告 API；GET /shop 也已內含同一份 announcement，此端點供只需要公告本身、
+// 不需整個 /shop payload 的情境使用）。
+router.get('/notice', (req, res) => {
+  try {
+    const db = getDb();
+    const storeId = req.storeId;
+    res.json({ success: true, data: { announcement: getShippingAnnouncement(db, storeId) } });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 });
 

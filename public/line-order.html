@@ -28,7 +28,7 @@ img{max-width:100%;display:block}
 .announce-modal{background:#fff;border-radius:16px;width:80%;max-width:360px;max-height:80vh;overflow-y:auto;position:relative;box-shadow:0 8px 30px rgba(0,0,0,.25)}
 .announce-modal-close{position:absolute;top:8px;right:8px;width:30px;height:30px;border-radius:50%;background:rgba(0,0,0,.06);color:#666;font-size:16px;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:1}
 .announce-modal-body{padding:24px 20px 20px;text-align:center}
-.announce-modal-body img{border-radius:10px;margin-bottom:12px;max-height:160px;object-fit:cover;width:100%}
+.announce-modal-body img{border-radius:10px;margin-bottom:12px;width:100%;aspect-ratio:1200/630;object-fit:cover;display:block}
 .announce-modal-icon{font-size:34px;margin-bottom:8px}
 .announce-modal-title{font-size:17px;font-weight:700;margin-bottom:10px;color:#222}
 .announce-modal-msg{font-size:14px;color:#555;line-height:1.7;white-space:pre-line;margin-bottom:18px;text-align:left}
@@ -36,6 +36,7 @@ img{max-width:100%;display:block}
 .announce-banner{margin:10px 12px 0;border-radius:12px;overflow:hidden;position:relative;display:none}
 .announce-banner-close{position:absolute;top:8px;right:10px;width:24px;height:24px;border-radius:50%;background:rgba(0,0,0,.08);color:#666;font-size:13px;display:flex;align-items:center;justify-content:center;cursor:pointer}
 .announce-banner-body{padding:14px 16px}
+.announce-banner-img{width:100%;aspect-ratio:1200/630;object-fit:cover;border-radius:12px;display:block}
 .announce-banner-title{font-size:15px;font-weight:700;margin-bottom:4px}
 .announce-banner-msg{font-size:13px;line-height:1.6;white-space:pre-line;margin-top:4px}
 .announce-banner-btn{margin-top:10px;width:100%;padding:9px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;border:none}
@@ -353,6 +354,9 @@ function apiFetch(url, options={}) {
 // ── 全域狀態 ──
 let allProducts=[], categories=[];
 let cart={};
+// fix18-10-hotfix22D：記錄哪些商品是「今日不可下單、但允許直接加入購物車並自動預約下個營業日」，
+// 供 openCartSheet()/switchMode()/onModeChange() 判斷購物車日期是否要自動預設下個營業日。
+let preorderRequiredIds=new Set();
 let appliedCoupon=null; // fix18-05: { code, discount_amount, final_total, coupon: {...} }
 let selectedPay='';
 let currentCat='all';
@@ -665,7 +669,8 @@ function showAnnouncementModal(a){
   const closeBtn=document.getElementById('announceModalCloseBtn');
   if(!body) return;
   const icon=a.icon||ANNOUNCE_ICON_MAP[a.type]||'📢';
-  const img=a.image_url?`<img src="${esc(a.image_url)}" alt="">`:'';
+  // fix18-10-hotfix22D：圖片載入失敗時隱藏圖片區，不影響文字公告；沒有圖片時維持原本純文字公告
+  const img=a.image_url?`<img src="${esc(a.image_url)}" alt="" onerror="this.style.display='none'">`:'';
   const showBtn=a.button_action!=='none' && a.button_text;
   const btn=showBtn?`<button class="announce-modal-btn" onclick="announceButtonClick()">${esc(a.button_text)}</button>`:'';
   body.innerHTML=`${img}<div class="announce-modal-icon">${icon}</div><div class="announce-modal-title">${esc(a.title||'')}</div><div class="announce-modal-msg">${esc(a.body||'')}</div>${btn}`;
@@ -680,8 +685,10 @@ function showAnnouncementBanner(a){
   const closeBtn=(a.closable===false)?'':`<div class="announce-banner-close" onclick="dismissAnnouncement()">✕</div>`;
   const showBtn=a.button_action!=='none' && a.button_text;
   const btn=showBtn?`<button class="announce-banner-btn" style="background:#06C755;color:#fff" onclick="announceButtonClick()">${esc(a.button_text)}</button>`:'';
+  // fix18-10-hotfix22D：banner 模式同樣支援圖片（沒有圖片時維持原本純文字公告）；圖片載入失敗時自動隱藏
+  const img=a.image_url?`<img class="announce-banner-img" src="${esc(a.image_url)}" alt="" onerror="this.style.display='none'">`:'';
   el.style.background=bg;
-  el.innerHTML=`${closeBtn}<div class="announce-banner-body"><div class="announce-banner-title">${icon} ${esc(a.title||'')}</div><div class="announce-banner-msg">${esc(a.body||'')}</div>${btn}</div>`;
+  el.innerHTML=`${closeBtn}${img}<div class="announce-banner-body"><div class="announce-banner-title">${icon} ${esc(a.title||'')}</div><div class="announce-banner-msg">${esc(a.body||'')}</div>${btn}</div>`;
   el.style.display='block';
 }
 // 背景點擊關閉（僅 closable 時）
@@ -732,15 +739,18 @@ function runAnnouncementAction(a){
     case 'close': default: break;
   }
 }
-// localStorage key：line_announcement_dismissed_${store_id}_${suffix}
-function _announceDismissKey(suffix){ return `line_announcement_dismissed_${LINE_STORE_ID}_${suffix}`; }
+// fix18-10-hotfix22D：localStorage key 加上 target=line_order，避免未來與冷藏宅配公告（target=shipping）
+// 共用同一把 key；新關閉動作一律寫新版 key，但讀取時仍相容舊版 key（避免已關閉過公告的老客人重新看到）。
+function _announceDismissKey(suffix){ return `line_announcement_dismissed_${LINE_STORE_ID}_line_order_${suffix}`; }
+function _announceDismissKeyLegacy(suffix){ return `line_announcement_dismissed_${LINE_STORE_ID}_${suffix}`; }
 function isAnnouncementDismissed(a){
   const freq=a.frequency||'version';
   try{
     if(freq==='always') return false; // 每次都顯示，不記錄
-    if(freq==='once')  return localStorage.getItem(_announceDismissKey('once'))==='1';
-    if(freq==='daily') return localStorage.getItem(_announceDismissKey('daily'))===fmtD(twNow());
-    return localStorage.getItem(_announceDismissKey(String(a.version||'1')))==='1'; // version（預設）
+    if(freq==='once')  return localStorage.getItem(_announceDismissKey('once'))==='1' || localStorage.getItem(_announceDismissKeyLegacy('once'))==='1';
+    if(freq==='daily'){ const today=fmtD(twNow()); return localStorage.getItem(_announceDismissKey('daily'))===today || localStorage.getItem(_announceDismissKeyLegacy('daily'))===today; }
+    const v=String(a.version||'1');
+    return localStorage.getItem(_announceDismissKey(v))==='1' || localStorage.getItem(_announceDismissKeyLegacy(v))==='1'; // version（預設）
   }catch{ return false; }
 }
 function recordAnnouncementDismiss(a){
@@ -800,7 +810,8 @@ function switchMode(mode){
   // 同步購物車 sheet 的模式選擇
   const oType=document.getElementById('oType');
   if(oType) oType.value=mode;
-  buildDateSelector();
+  // fix18-10-hotfix22D：改用 refreshDateSelectorForCart()，避免切換模式後把已預約的下個營業日覆蓋回今天
+  refreshDateSelectorForCart();
   // fix18-08: 統一顯示/隱藏外送地址
   updateDeliveryAddressVisibility();
   updateCartTotals();
@@ -814,7 +825,8 @@ function onModeChange(){
   updateModeTabActive();
   renderMenu();
   updateCutoffBanner();
-  buildDateSelector();
+  // fix18-10-hotfix22D：改用 refreshDateSelectorForCart()，避免切換模式後把已預約的下個營業日覆蓋回今天
+  refreshDateSelectorForCart();
   // fix18-08: 統一顯示/隱藏外送地址
   updateDeliveryAddressVisibility();
   updateCartTotals();
@@ -1024,23 +1036,18 @@ function buildCard(p, mode){
       else                   stockBadge=`<div class="prod-stock-badge stock-ok">🟢 剩 ${r} 份</div>`;
     }
   }
-  // 預購數量標籤（顯示在「預約明日」按鈕旁，canPreorderNextDay 時才顯示）
-  let preorderBadge='';
-  if(canPreorderNextDay && preorderInfo.hasPreorder){
-    const pr=Number(preorderInfo.remaining??0);
-    if(pr<=0)                  preorderBadge='<div class="prod-stock-badge stock-zero">預購已滿</div>';
-    else if(pr<=preorderInfo.low) preorderBadge=`<div class="prod-stock-badge stock-low">預購快滿（剩${pr}）</div>`;
-    else if(pr>=preorderInfo.high)preorderBadge='<div class="prod-stock-badge stock-ok">可預購</div>';
-    else                          preorderBadge=`<div class="prod-stock-badge stock-ok">可預購（剩${pr}）</div>`;
-  }
+  // fix18-10-hotfix22D：canPreorderNextDay 商品不再顯示「預約明日/預約下個營業日」按鈕，
+  // 改為直接顯示 [-] qty [+]，故只需保留「預購是否已滿」的判斷。
+  const preorderFullBlocked = canPreorderNextDay && preorderInfo.hasPreorder && Number(preorderInfo.remaining??0)<=0;
 
   // Hotfix16 BUG-002/006：🟢 可預約（尚未開賣但允許預購今天稍後時段）— 不灰掉、可直接加入購物車
   const preSaleBadge = (!isSoldOut && preSaleAvailable)
     ? '<span class="badge badge-green">🟢 可預約</span>' : '';
 
   const qty=cart[p.id]?.qty||0;
+  // fix18-10-hotfix22D：canPreorderNextDay 且份數未滿時，商品卡永遠顯示 [-] qty [+]（不再需要先按預約按鈕）
   let footer='';
-  if(!isSoldOut){
+  if(!isSoldOut || (canPreorderNextDay && !preorderFullBlocked)){
     // pre_sale_available 商品同樣可直接加入購物車（不受尚未開賣影響）
     footer=qty>0
       ?`<div class="qty-ctrl"><button class="minus" onclick="chgQty(${p.id},-1)">−</button><span class="qnum">${qty}</span><button class="plus" onclick="chgQty(${p.id},1)">+</button></div>`
@@ -1048,28 +1055,24 @@ function buildCard(p, mode){
   }
 
   // Hotfix16 BUG-006：商品遮罩 — 只有休假／售完／停售才灰掉，pre_sale_available 一律不灰掉
+  // fix18-10-hotfix22D：canPreorderNextDay 商品「不再」顯示遮罩／預約按鈕，只有「預購已滿」或
+  // 完全不可預購（unavailFully）時才灰掉。
   let mask='';
-  if(canPreorderNextDay){
-    const preorderFullBlocked = preorderInfo.hasPreorder && Number(preorderInfo.remaining??0)<=0;
-    const nextBtnLabel = isDayClosed ? '📅 預約下個營業日' : '📅 預約明日';
-    // fix18-10-hotfix19：狀態徽章改為兩排——第一排（休假中/可預購等狀態徽章），第二排（動作按鈕）
-    mask=`<div class="sold-mask" style="flex-direction:column;gap:6px;padding:10px">
-      <div class="badge-row-main">
-        <span style="background:#fff;color:#555;font-size:12px;font-weight:700;padding:4px 12px;border-radius:20px">${soldLbl}</span>
-        ${preorderBadge}
-      </div>
-      <div class="badge-row-action">
-        ${preorderFullBlocked?'<span style="background:#9e9e9e;color:#fff;font-size:11px;padding:2px 10px;border-radius:10px">預購已滿</span>':`<button class="btn-preorder" style="background:#e3f2fd;color:#1565c0;border-color:#1565c0" onclick="preorderNextDay(${p.id},event)">${nextBtnLabel}</button>`}
-      </div>
-    </div>`;
+  if(preorderFullBlocked){
+    mask=`<div class="sold-mask"><span>預購已滿</span></div>`;
   } else if(unavailFully){
     mask=`<div class="sold-mask"><span>${soldLbl}</span></div>`;
   }
 
   const imgHtml=img?`<img class="prod-img" src="${img}" alt="${esc(name)}" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`:'';
-  const soldBadgeTxt=canPreorderNextDay?(isDayClosed?'預約下個營業日':'可預約明日'):soldLbl;
-  const soldBadgeCls=canPreorderNextDay?'badge-blue':soldCls;
-  const badgesSoldOut=isSoldOut?`<span class="badge ${soldBadgeCls}">${soldBadgeTxt}</span>`:'';
+  // fix18-10-hotfix22D：canPreorderNextDay（且未預購額滿）時，改為兩個徽章「🔴{狀態}」＋「🟢可預購」，
+  // 取代舊版「可預約明日／預約下個營業日」單一徽章；其餘不可預購狀態維持原本單一徽章。
+  let badgesSoldOut='';
+  if(canPreorderNextDay && !preorderFullBlocked){
+    badgesSoldOut=`<span class="badge ${soldCls}">🔴 ${soldLbl}</span><span class="badge badge-green">🟢 可預購</span>`;
+  } else if(isSoldOut){
+    badgesSoldOut=`<span class="badge ${soldCls}">${soldLbl}</span>`;
+  }
   return `<div class="prod-card" id="pc-${p.id}">${mask}${imgHtml}<div class="prod-ph" ${img?'style="display:none"':''}>🍽️</div><div class="prod-body"><div class="badges">${isHot?'<span class="badge badge-hot">🔥 熱銷</span>':''}${isPromo?'<span class="badge badge-promo">🎁 優惠</span>':''}${badgesSoldOut}${preSaleBadge}</div><div class="prod-name">${esc(name)}</div>${spec?`<div class="prod-spec">${esc(spec)}</div>`:''}${stockBadge}<div class="prod-desc">${esc(desc)}</div><div class="prod-footer"><span class="prod-price">$${price}</span>${footer}</div></div></div>`;
 }
 
@@ -1081,9 +1084,9 @@ function addCart(id,evt){
   const canNextDay=mode==='delivery'?p.delivery_can_next_day:p.takeout_can_next_day;
   // 完全關閉
   if(soldOutReason==='mode_closed'){alert('此模式已關閉');return;}
-  // 任何售完原因：若允許預約則導向預約；否則拒絕
+  // 任何售完原因：若允許預約則直接加入購物車（不再要求先按預約按鈕）；否則拒絕
   if(soldOutReason){
-    if(canNextDay){ preorderNextDay(id,evt); return; }
+    if(canNextDay){ addPreorderToCart(id,evt,p); return; }
     const msgs={
       cutoff_sold_out:'已超過今日接單截止時間，無法加入購物車',
       real_sold_out:(p.effective_line_name||p.name)+' LINE 今日份數已售完',
@@ -1096,7 +1099,7 @@ function addCart(id,evt){
     alert(msgs[soldOutReason]||'此商品目前無法加入購物車');return;
   }
   if(Number(p.line_sold_out)===1){
-    if(canNextDay){ preorderNextDay(id,evt); return; }
+    if(canNextDay){ addPreorderToCart(id,evt,p); return; }
     alert((p.effective_line_name||p.name)+' 今日已售完');return;
   }
   // BUG-002 修正：依目前購物車選擇的日期，決定用今日 quota 還是預購 preorder 判斷
@@ -1116,7 +1119,7 @@ function addCart(id,evt){
   } else {
     // 今日訂單：用 line_quota_*
     if(p.line_quota?.hasQuota&&Number(p.line_quota?.remaining)<=0){
-      if(canNextDay){ preorderNextDay(id,evt); return; }
+      if(canNextDay){ addPreorderToCart(id,evt,p); return; }
       alert((p.effective_line_name||p.name)+' LINE 今日份數已售完');return;
     }
     if(p.line_quota?.hasQuota){
@@ -1151,68 +1154,56 @@ function findNextAvailableDate(mode){
   }
   return null;
 }
-async function preorderNextDay(id,evt){
+function addPreorderToCart(id,evt,p){
+  // fix18-10-hotfix22D：取代舊版「preorderNextDay()」的按鈕流程——不再另外打開購物車、
+  // 不再強制設定日期／時段（改由 openCartSheet()/switchMode()/onModeChange() 在購物車實際
+  // 開啟時，依 preorderRequiredIds 統一重新計算下個營業日與時段，避免背景預先寫入之後又被
+  // 使用者切換模式或店家異動設定弄成過期資料）。這裡只負責：驗證預購份數 → 加入購物車 → 標記。
   if(evt){evt.stopPropagation();}
-  const p=allProducts.find(x=>x.id==id);if(!p)return;
-  const mode=currentMode;
-  const canNextDay=mode==='delivery'?p.delivery_can_next_day:p.takeout_can_next_day;
-  if(!canNextDay){toast('此商品不支援明日預約');return;}
-
-  // 找下一個可訂日（排除今日、公休日、非營業日）
-  const nextDate=findNextAvailableDate(mode);
-  if(!nextDate){ toast('目前找不到可預約的未來時段，請確認外帶/外送營業設定'); return; }
-
-  // 加商品進購物車（繞過今日售完，預約訂單不扣今日份數）
-  if(!cart[id]) cart[id]={product:p,qty:0};
+  const preorderInfo=p.line_preorder||{hasPreorder:false};
+  if(preorderInfo.hasPreorder && Number(preorderInfo.remaining??0)<=0){
+    alert((p.effective_line_name||p.name)+' 預購已滿');return;
+  }
+  const inCart=cart[id]?.qty||0;
+  if(preorderInfo.hasPreorder && inCart>=(Number(preorderInfo.remaining??0))){
+    alert((p.effective_line_name||p.name)+` 預購剩餘份數不足（剩 ${preorderInfo.remaining} 份）`);return;
+  }
+  if(!cart[id])cart[id]={product:p,qty:0};
   cart[id].qty++;
-  updateBar();
-
-  // 載入次日時段（加重試）
-  let slots=[], firstSlot='';
-  try{
-    const res=await apiFetch(`/api/line-orders/timeslots?mode=${mode}&date=${nextDate}`).then(r=>r.json());
-    if(res.success&&res.slots&&res.slots.length>0){
-      slots=res.slots; firstSlot=res.slots[0];
-    } else {
-      // 如果指定日無時段，嘗試再往後一天
-      console.warn('[preorderNextDay] no slots for',nextDate,'reason:',res.reason);
-    }
-  }catch(e){ console.warn('timeslots error',e); }
-
-  // 打開購物車並設定日期、時段、模式
-  openCartSheetWithDate(nextDate, firstSlot, slots, mode);
-  toast('✅ 已加入預約，請確認取餐時間');
+  preorderRequiredIds.add(Number(id));
+  if(evt){const fly=document.createElement('div');fly.className='fly-item';fly.textContent='🛒';fly.style.cssText=`left:${evt.clientX}px;top:${evt.clientY}px`;document.body.appendChild(fly);setTimeout(()=>fly.remove(),700);}
+  updateBar();updateProductCard(id);
+  toast('✅ 已加入購物車，將自動預約下個營業日');
 }
 
-// ── 帶日期資訊打開購物車 ─────────────────────────────────
-// ── BUG-001 FIX: 帶日期資訊打開購物車（同步設定，不用雙層 setTimeout）──
-function openCartSheetWithDate(dateStr, firstSlot, slots, mode){
-  if(!Object.keys(cart).length)return;
-
-  // 1. 同步模式選單
-  const oType=document.getElementById('oType');
-  if(oType){
-    oType.innerHTML='';
-    if(takeoutEnabled){const o=document.createElement('option');o.value='takeout';o.textContent='🛍️ 外帶';oType.appendChild(o);}
-    if(deliveryEnabled){const o=document.createElement('option');o.value='delivery';o.textContent='🛵 外送';oType.appendChild(o);}
-    oType.value=mode;
+// ── 依購物車內容重新計算日期選擇器：若購物車內有任何商品需要自動預約下個營業日，
+//    forceNextDay=true（從明天起算），並自動選中下個可訂日；否則維持原本今天起算的選單。
+//    hotfix22-B 既有慣例：每次開啟/切換都即時重算，避免使用頁面載入當下的快取狀態。
+async function refreshDateSelectorForCart(){
+  const mode=currentMode;
+  const needsNextDay=Object.keys(cart).some(id=>preorderRequiredIds.has(Number(id)));
+  if(needsNextDay){
+    buildDateSelector(true); // forceNextDay=true：從明天起算，範圍到 line_preorder_days_limit
+    const nextDate=findNextAvailableDate(mode);
+    const pDate=document.getElementById('pDate');
+    if(pDate&&nextDate){
+      const targetOpt=Array.from(pDate.options).find(o=>o.value===nextDate&&!o.disabled);
+      if(targetOpt) pDate.value=nextDate;
+    }
+    await buildTimeSelector(); // forceNextDay=true 時 buildDateSelector 不會自動呼叫，這裡手動載入時段
+  } else {
+    buildDateSelector();
   }
-
-  renderCartItems();
-  openSheet('cartSheet');
-
-  // 2. 同步設定日期（改為呼叫共用的 buildDateSelector，避免日期範圍邏輯重複維護；
-  //    Hotfix15 V3：日期範圍統一由 line_preorder_days_limit 控制）
+}
+// fix18-10-hotfix22D：取代舊版 openCartSheetWithDate()——僅用於「送單當下才發現今日已截止」
+// 的救援導向（購物車 sheet 此時已經是開啟狀態，只需要把日期/時段改成下一個可營業日）。
+function applyDateTimeToCartSheet(dateStr, slots){
+  buildDateSelector(true); // forceNextDay=true：從明天起算
   const pDate=document.getElementById('pDate');
   if(pDate){
-    buildDateSelector(true); // forceNextDay=true：從明天起算，範圍到 line_preorder_days_limit
-    // 強制選中目標日期 dateStr（若該日期被停用則退回選單第一個可選日期）
     const targetOpt=Array.from(pDate.options).find(o=>o.value===dateStr&&!o.disabled);
-    if(targetOpt){ pDate.value=dateStr; }
-    else { pDate.value=pDate.querySelector('option:not([disabled])')?.value||dateStr; }
+    pDate.value = targetOpt ? dateStr : (pDate.querySelector('option:not([disabled])')?.value||dateStr);
   }
-
-  // 3. 設定時段（直接用傳入的 slots，不重新呼叫 API）
   const pTime=document.getElementById('pTime');
   if(pTime){
     if(slots&&slots.length>0){
@@ -1223,60 +1214,44 @@ function openCartSheetWithDate(dateStr, firstSlot, slots, mode){
         const o=document.createElement('option');o.value=t;o.textContent=lbl;
         pTime.appendChild(o);
       });
-      if(firstSlot) pTime.value=firstSlot;
+      pTime.value=slots[0];
     } else {
-      // slots 為空：顯示提示，並再次嘗試 API（用目前選中的日期）
-      pTime.innerHTML='<option value="" disabled>載入時段中…</option>';
-      const selDate=pDate?.value||dateStr;
-      apiFetch(`/api/line-orders/timeslots?mode=${mode}&date=${selDate}`).then(r=>r.json()).then(res=>{
-        if(res.success&&res.slots&&res.slots.length>0){
-          pTime.innerHTML='';
-          res.slots.forEach(t=>{
-            const h=Number(t.split(':')[0]);
-            const lbl=h<12?`上午 ${t}`:h===12?`中午 ${t}`:`下午 ${t}`;
-            const o=document.createElement('option');o.value=t;o.textContent=lbl;
-            pTime.appendChild(o);
-          });
-          if(res.slots[0]) pTime.value=res.slots[0];
-        } else {
-          pTime.innerHTML='<option value="" disabled>此日無可選時段，請選其他日期</option>';
-        }
-      }).catch(()=>{
-        pTime.innerHTML='<option value="" disabled>時段載入失敗，請重試</option>';
-      });
+      pTime.innerHTML='<option value="" disabled>此日無可選時段，請選其他日期</option>';
     }
   }
-
-  // 4. 預約提示（移除舊的後重建）
-  const oldHint=document.getElementById('preorder-hint');
-  if(oldHint) oldHint.remove();
-  const hint=document.createElement('div');
-  hint.id='preorder-hint';
-  hint.style.cssText='background:#e8f5e9;border-left:3px solid #06C755;padding:8px 12px;border-radius:6px;font-size:12px;color:#1b5e20;margin-top:6px';
-  hint.textContent='📅 預約日期：'+dateStr+'，請依選擇時段取餐 / 收餐';
-  const pDateEl=document.getElementById('pDate');
-  if(pDateEl&&pDateEl.parentNode) pDateEl.parentNode.appendChild(hint);
 }
 function chgQty(id,d){
   if(!cart[id])return;
   if(d>0){
     const p=allProducts.find(x=>x.id==id);
-    // BUG-002 修正：依目前購物車選擇的日期，決定用今日 quota 還是預購 preorder 判斷
-    const _selectedDate = document.getElementById('pDate')?.value || '';
-    const _todayStr = fmtD(twNow());
-    const _isPreorderCart = _selectedDate && _selectedDate > _todayStr;
-    if(_isPreorderCart){
-      // 預購日期：只用 line_preorder_*，完全不看 line_quota_*
+    // fix18-10-hotfix22D：商品已被 addPreorderToCart() 標記為「需自動預約下個營業日」時，
+    // 一律用 line_preorder_* 判斷，不再依賴購物車 pDate 目前的值（此時 pDate 可能還沒被
+    // refreshDateSelectorForCart() 同步過，例如購物車尚未開啟過）。
+    const isPreorderItem=preorderRequiredIds.has(Number(id));
+    if(isPreorderItem){
       const preorderInfo=p?.line_preorder||{hasPreorder:false};
       if(preorderInfo.hasPreorder && cart[id].qty>=(Number(preorderInfo.remaining??0))){
         alert('預購剩餘份數不足');return;
       }
     } else {
-      // 今日訂單：用 line_quota_*
-      if(p&&p.line_quota?.hasQuota&&cart[id].qty>=(p.line_quota.remaining||0)){alert('LINE 份數不足');return;}
+      // BUG-002 修正：依目前購物車選擇的日期，決定用今日 quota 還是預購 preorder 判斷
+      const _selectedDate = document.getElementById('pDate')?.value || '';
+      const _todayStr = fmtD(twNow());
+      const _isPreorderCart = _selectedDate && _selectedDate > _todayStr;
+      if(_isPreorderCart){
+        // 預購日期：只用 line_preorder_*，完全不看 line_quota_*
+        const preorderInfo=p?.line_preorder||{hasPreorder:false};
+        if(preorderInfo.hasPreorder && cart[id].qty>=(Number(preorderInfo.remaining??0))){
+          alert('預購剩餘份數不足');return;
+        }
+      } else {
+        // 今日訂單：用 line_quota_*
+        if(p&&p.line_quota?.hasQuota&&cart[id].qty>=(p.line_quota.remaining||0)){alert('LINE 份數不足');return;}
+      }
     }
   }
-  cart[id].qty+=d;if(cart[id].qty<=0)delete cart[id];
+  cart[id].qty+=d;
+  if(cart[id].qty<=0){ delete cart[id]; preorderRequiredIds.delete(Number(id)); }
   updateBar();updateProductCard(id);
   if(document.getElementById('cartSheet').classList.contains('show'))renderCartItems();
 }
@@ -1285,7 +1260,14 @@ function updateProductCard(id){
   const card=document.getElementById(`pc-${id}`);if(!card)return;
   const mode=currentMode;
   const soldOutReason=mode==='delivery'?p.delivery_sold_out_reason:p.takeout_sold_out_reason;
-  if(soldOutReason||Number(p.line_sold_out)===1||(p.sale_status||'available')!=='available')return;
+  const canNextDay=mode==='delivery'?p.delivery_can_next_day:p.takeout_can_next_day;
+  const isSoldOutFlag=!!soldOutReason||Number(p.line_sold_out)===1||(p.sale_status||'available')!=='available';
+  // fix18-10-hotfix22D：canPreorderNextDay 商品現在footer照樣顯示 [-] qty [+]，
+  // 故只有「真的完全不可預購」時才提早 return（維持遮罩，不更新 footer）。
+  const canPreorderNextDay=isSoldOutFlag && !!canNextDay && soldOutReason!=='mode_closed';
+  const preorderInfo=p.line_preorder||{hasPreorder:false};
+  const preorderFullBlocked=canPreorderNextDay && preorderInfo.hasPreorder && Number(preorderInfo.remaining??0)<=0;
+  if(isSoldOutFlag && !(canPreorderNextDay && !preorderFullBlocked)) return;
   const qty=cart[id]?.qty||0;
   const footer=card.querySelector('.prod-footer');if(!footer)return;
   const last=footer.lastElementChild;if(!last)return;
@@ -1382,7 +1364,9 @@ function openCartSheet(){
   renderCartItems();openSheet('cartSheet');
   // hotfix22-B：開啟購物車時重新查詢日期/時段（即時打 API，避免使用頁面載入當下的快取狀態；
   // 例如店家在顧客瀏覽期間才設定「今日臨時最後接單時間」，此時應立即反映，而非等下次整頁重整）
-  buildDateSelector();
+  // fix18-10-hotfix22D：改用 refreshDateSelectorForCart()——若購物車內含休假/售完但允許預購的商品，
+  // 自動預設下個營業日＋第一個可預約時段，不再需要客人自己按「預約下個營業日」。
+  refreshDateSelectorForCart();
 }
 function renderCartItems(){
   const el=document.getElementById('cartItems');
@@ -1471,7 +1455,7 @@ async function submitOrder(){
               const tsRes=await apiFetch(`/api/line-orders/timeslots?mode=${currentMode}&date=${nextDate}`).then(r=>r.json());
               const slots=(tsRes.success&&tsRes.slots)?tsRes.slots:[];
               toast(`⏰ 今日已截止，已為您帶到下一個可營業日（${nextDate}）`);
-              openCartSheetWithDate(nextDate, slots[0]||'', slots, currentMode);
+              applyDateTimeToCartSheet(nextDate, slots);
               btn.disabled=false;btn.textContent='送出訂單';
               return;
             }catch(e){ console.warn('cutoff next-day redirect failed',e); }
@@ -1507,7 +1491,7 @@ async function submitOrder(){
         }).then(r=>r.json());
         if(lpRes.success&&lpRes.payment_url){
           clearCoupon();
-          closeSheet('cartSheet');cart={};updateBar();renderMenu();
+          closeSheet('cartSheet');cart={};preorderRequiredIds.clear();updateBar();renderMenu();
           window.location.href=lpRes.payment_url;
           return;
         }else{
@@ -1524,7 +1508,7 @@ async function submitOrder(){
     const finalDelivFee=orderData.delivery_fee||0;
     clearCoupon();
     resetDeliveryFee();
-    closeSheet('cartSheet');cart={};updateBar();renderMenu();
+    closeSheet('cartSheet');cart={};preorderRequiredIds.clear();updateBar();renderMenu();
     document.getElementById('sucNo').textContent=`訂單編號：${orderData.order_number}`;
     document.getElementById('sucDetail').innerHTML=buildDetailRows({
       status:'pending',status_label:'待確認',
