@@ -79,6 +79,20 @@ img{max-width:100%;display:block}
 .qty-ctrl .qnum{font-size:14px;font-weight:700;min-width:20px;text-align:center}
 .sold-mask{position:absolute;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;border-radius:var(--r);z-index:2}
 .sold-mask span{background:#fff;color:#555;font-size:12px;font-weight:700;padding:4px 12px;border-radius:20px}
+/* hotfix22-F 第九點：不可購買時只讓「照片」變暗，商品名稱/說明/價格維持正常顯示（不再用整卡 mask） */
+.prod-img-wrap{position:relative;width:100%;height:110px;overflow:hidden}
+.prod-img-wrap .prod-img,.prod-img-wrap .prod-ph{height:110px}
+.prod-img-wrap.img-dimmed .prod-img{filter:brightness(.55) saturate(.7)}
+.prod-img-wrap.img-dimmed .prod-ph{filter:brightness(.7) grayscale(.4)}
+/* hotfix22-F 第九點：行銷標籤——左上主緞帶／右上小膠囊，最多 2 個，疊在照片上（不佔版面） */
+.tag-ribbon{position:absolute;top:0;left:0;font-size:10px;font-weight:700;color:#fff;padding:4px 10px 4px 8px;border-radius:0 0 10px 0;z-index:3;box-shadow:0 1px 3px rgba(0,0,0,.25)}
+.tag-ribbon-promo{background:#9c27b0}
+.tag-ribbon-hot{background:#e53935}
+.tag-capsule{position:absolute;top:6px;right:6px;font-size:9px;font-weight:700;color:#fff;padding:2px 8px;border-radius:10px;z-index:3;box-shadow:0 1px 3px rgba(0,0,0,.25)}
+.tag-capsule.tag-ribbon-promo{background:#9c27b0}
+.tag-capsule.tag-ribbon-hot{background:#e53935}
+/* hotfix22-F 第九點：照片下方固定保留一排狀態標籤（休假中/今日售完/可預購），固定高度避免商品卡錯位 */
+.status-row{min-height:20px;display:flex;align-items:center;justify-content:center;gap:4px;flex-wrap:wrap;margin:2px 0 4px}
 /* fix18-10-hotfix19：商品卡狀態徽章固定兩排，避免三排堆疊跑版 */
 .badge-row-main{display:flex;gap:6px;flex-wrap:wrap;align-items:center;justify-content:center;max-width:100%}
 .badge-row-action{display:flex;justify-content:center;width:100%}
@@ -210,6 +224,8 @@ img{max-width:100%;display:block}
     <button class="mode-tab" id="tabDelivery" onclick="switchMode('delivery')">🛵 外送</button>
   </div>
   <div class="cutoff-banner" id="cutoffBanner"></div>
+  <!-- hotfix22-F 補正：目前選擇的模式（外帶/外送）被店家關閉時顯示，不清空購物車，只擋送單 -->
+  <div class="cutoff-banner" id="modeUnavailableBanner" style="display:none;background:#ffebee;color:#c62828;border-color:#ffcdd2"></div>
   <div class="cat-bar" id="catBar"></div>
   <div id="menuArea" class="pb"></div>
 </div>
@@ -232,7 +248,7 @@ img{max-width:100%;display:block}
 
 <!-- 購物車 Sheet -->
 <div class="sheet" id="cartSheet">
-  <div class="sheet-hd"><h3>🛒 購物車</h3><button class="close-btn" onclick="closeSheet('cartSheet')">✕</button></div>
+  <div class="sheet-hd"><h3>🛒 購物車</h3><div style="display:flex;gap:8px;align-items:center"><button class="close-btn" onclick="clearCartByUser()" title="清空購物車">🗑️</button><button class="close-btn" onclick="closeSheet('cartSheet')">✕</button></div></div>
   <div id="cartItems"></div>
   <div class="cf">
     <!-- fix18-05：優惠券輸入 -->
@@ -261,9 +277,9 @@ img{max-width:100%;display:block}
     <div class="ot" style="border-top:1px solid var(--bd)">
       <span>應付金額</span><span id="orderTotal">$0</span>
     </div>
-    <div class="fg"><label class="fl">姓名 <span class="req">*</span></label><input class="fi" id="cName" placeholder="您的姓名" type="text"></div>
+    <div class="fg"><label class="fl">姓名 <span class="req">*</span></label><input class="fi" id="cName" placeholder="您的姓名" type="text" oninput="debouncedPersistCart()"></div>
     <div class="fr">
-      <div class="fg"><label class="fl">電話 <span class="req">*</span></label><input class="fi" id="cPhone" placeholder="聯絡電話" type="tel"></div>
+      <div class="fg"><label class="fl">電話 <span class="req">*</span></label><input class="fi" id="cPhone" placeholder="聯絡電話" type="tel" oninput="debouncedPersistCart()"></div>
       <div class="fg"><label class="fl">取餐方式</label>
         <select class="fi" id="oType" onchange="onModeChange()">
           <option value="takeout">🛍️ 外帶</option>
@@ -275,15 +291,15 @@ img{max-width:100%;display:block}
       <div id="pDateCalWarning" style="display:none;font-size:12px;color:#e65100;background:#fff3e0;border-radius:6px;padding:6px 10px;margin-bottom:6px"></div>
       <select class="fi" id="pDate" onchange="onDateChange()"></select>
     </div>
-    <div class="fg"><label class="fl" id="timeLabel">取餐時間 <span class="req">*</span></label><select class="fi" id="pTime"><option value="">請先選擇日期</option></select></div>
+    <div class="fg"><label class="fl" id="timeLabel">取餐時間 <span class="req">*</span></label><select class="fi" id="pTime" onchange="persistCart()"><option value="">請先選擇日期</option></select></div>
     <!-- fix18-06：外送地址（外送模式才顯示）-->
     <div class="delivery-addr-wrap" id="deliveryAddrWrap">
       <div class="fg"><label class="fl">外送地址 <span class="req">*</span></label>
-        <input class="fi" id="deliveryAddress" placeholder="輸入地址或點選下方定位…" type="text" autocomplete="off">
+        <input class="fi" id="deliveryAddress" placeholder="輸入地址或點選下方定位…" type="text" autocomplete="off" oninput="debouncedPersistCart()">
       </div>
       <button class="delivery-gps-btn" type="button" onclick="useCurrentLocation()">📍 使用目前位置</button>
       <div class="fg" style="margin-top:8px"><label class="fl">地址備註</label>
-        <input class="fi" id="deliveryAddressNote" placeholder="樓層、管理室、門口按鈴…" type="text">
+        <input class="fi" id="deliveryAddressNote" placeholder="樓層、管理室、門口按鈴…" type="text" oninput="debouncedPersistCart()">
       </div>
       <div id="deliveryFeeRow" class="delivery-fee-row" style="display:none">
         <span class="delivery-fee-label">外送費 <span id="deliveryDistBadge" class="delivery-distance-badge"></span></span>
@@ -293,7 +309,7 @@ img{max-width:100%;display:block}
     </div>
     <!-- end delivery -->
     <div class="fg"><label class="fl">付款方式</label><div class="pay-btns" id="payBtns"></div></div>
-    <div class="fg"><label class="fl">備註</label><input class="fi" id="oNote" placeholder="特殊需求…"></div>
+    <div class="fg"><label class="fl">備註</label><input class="fi" id="oNote" placeholder="特殊需求…" oninput="debouncedPersistCart()"></div>
     <button class="sub-btn" id="subBtn" onclick="submitOrder()">確認送出訂單</button>
   </div>
 </div>
@@ -345,6 +361,25 @@ img{max-width:100%;display:block}
 'use strict';
 // ── SaaS store_id 綁定 ──
 const LINE_STORE_ID = new URLSearchParams(window.location.search).get('store_id') || 'store_001';
+// hotfix22-F：購物車永久保留（不做 24 小時到期判斷）。key 加上 target=line_order，
+// 與冷藏宅配（line_shipping_cart_）完全獨立，互不干擾。
+const ORDER_CART_KEY = 'line_order_cart_' + LINE_STORE_ID;
+// hotfix22-F 第九點：預留 Conversion Analytics 用欄位（目前只存不分析，供未來
+// AddToCart/BeginCheckout/Purchase 事件串接）
+function _getVisitorId(){
+  try{
+    let v=localStorage.getItem('line_visitor_id');
+    if(!v){ v='v_'+Date.now()+'_'+Math.random().toString(36).slice(2,10); localStorage.setItem('line_visitor_id',v); }
+    return v;
+  }catch(e){ return ''; }
+}
+function _getSessionId(){
+  try{
+    let s=sessionStorage.getItem('line_session_id');
+    if(!s){ s='s_'+Date.now()+'_'+Math.random().toString(36).slice(2,10); sessionStorage.setItem('line_session_id',s); }
+    return s;
+  }catch(e){ return ''; }
+}
 function apiFetch(url, options={}) {
   const sep = url.includes('?') ? '&' : '?';
   const fullUrl = url + sep + 'store_id=' + encodeURIComponent(LINE_STORE_ID);
@@ -370,6 +405,17 @@ let couponFeatureEnabled=false; // fix18-05: set from /api/line-shop or /api/cou
 let takeoutEnabled=false, deliveryEnabled=false;
 let takeoutCutoffPassed=false, deliveryCutoffPassed=false;
 let todayClosed=false;
+// hotfix22-F 補正：若使用者上次選的模式（order_mode）目前被店家關閉，仍必須維持在該模式
+// （不得自動退回另一個開放中的模式），並讓頁籤保持可見，好讓使用者自己切換。
+let modeForcedVisible=false;
+function _peekSavedOrderMode(){
+  try{
+    const raw=localStorage.getItem(ORDER_CART_KEY);
+    if(!raw) return '';
+    const d=JSON.parse(raw);
+    return d?.order_mode||d?.cartMode||'';
+  }catch(e){ return ''; }
+}
 
 // fix18-06: 外送地址與費用狀態
 let mapsAutocomplete = null;
@@ -451,6 +497,8 @@ async function init(){
   // ── LINE Pay redirect 結果處理 ──────────────────────
   const _lpP=new URLSearchParams(window.location.search);
   if(_lpP.get('linepay')==='success'){
+    // hotfix22-F：LINE Pay 付款成功才是唯一清空購物車的時機之一，這裡才真正清除 localStorage
+    clearCartStorage();
     document.getElementById('loading').style.display='none';
     document.getElementById('sucNo').textContent='訂單編號：'+(_lpP.get('order')||'');
     document.getElementById('sucDetail').innerHTML='<div style="color:#06C755;font-weight:700;font-size:16px;text-align:center;padding:20px">💚 LINE Pay 付款成功！訂單已建立。</div>';
@@ -458,8 +506,13 @@ async function init(){
     return;
   }
   if(_lpP.get('linepay')==='cancel'){
-    // 繼續正常初始化，但提示取消
+    // hotfix22-F：LINE Pay 取消付款，購物車必須仍保留 —— 繼續正常初始化流程，
+    // 稍後 restoreCart() 會把 localStorage 內容還原回來，不做任何清除。
     setTimeout(()=>toast('LINE Pay 付款已取消，請重新選擇付款方式'),600);
+  }
+  if(_lpP.get('linepay')==='fail'||_lpP.get('linepay')==='error'){
+    // hotfix22-F：付款失敗同樣不得清空購物車
+    setTimeout(()=>toast('LINE Pay 付款失敗，請重新嘗試或選擇其他付款方式'),600);
   }
   try{
     const[sr,mr,bcr]=await Promise.all([
@@ -532,7 +585,16 @@ async function init(){
       }
 
       // 決定預設模式
-      if(takeoutEnabled && !takeoutCutoffPassed) currentMode='takeout';
+      // hotfix22-F 補正：若 localStorage 有保存過 order_mode，一律優先沿用該模式——
+      // 即使該模式目前被店家關閉，也不得自動切回另一個開放中的模式。只有使用者自己
+      // 在畫面上手動切換頁籤／下拉選單，才會更新並保存新的 order_mode（見 switchMode()/onModeChange()）。
+      const _savedMode=_peekSavedOrderMode();
+      if(_savedMode==='takeout' || _savedMode==='delivery'){
+        currentMode=_savedMode;
+        if((_savedMode==='takeout' && !takeoutEnabled) || (_savedMode==='delivery' && !deliveryEnabled)){
+          modeForcedVisible=true; // 該模式目前未開放，頁籤仍需保持可見，讓使用者能看到狀態並自行切換
+        }
+      } else if(takeoutEnabled && !takeoutCutoffPassed) currentMode='takeout';
       else if(deliveryEnabled && !deliveryCutoffPassed) currentMode='delivery';
       else currentMode=takeoutEnabled?'takeout':'delivery';
       // hotfix22-B：currentMode 決定後立即同步 oType（購物車表單的 select），
@@ -545,9 +607,13 @@ async function init(){
       buildDateSelector();
       // fix18-08: 初始化時同步外送地址顯示狀態
       updateDeliveryAddressVisibility();
+      updateModeAvailabilityUI();
     }
     if(mr.success){categories=mr.data.categories||[];allProducts=mr.data.products||[];}
     buildCats();renderMenu();
+    // hotfix22-F：還原永久保留的購物車（不設 24hr 到期），需在 allProducts/日期時段/付款方式
+    // 都已建立好之後執行，才能正確重新驗證商品是否仍存在、日期時段是否仍合法。
+    await restoreCart();
     document.getElementById('loading').style.display='none';
     document.getElementById('content').style.display='block';
     renderLastOrderCard();
@@ -774,13 +840,17 @@ function buildModeTabsUI(){
   const btnTo=document.getElementById('tabTakeout');
   const btnDl=document.getElementById('tabDelivery');
   if(!takeoutEnabled && !deliveryEnabled){tabs.style.display='none';return;}
-  // 只有一種模式：隱藏頁籤列
-  if(takeoutEnabled && !deliveryEnabled){tabs.style.display='none';currentMode='takeout';return;}
-  if(!takeoutEnabled && deliveryEnabled){tabs.style.display='none';currentMode='delivery';return;}
+  // hotfix22-F 補正：只有在「沒有被強制保留模式」的情況下，才會在只剩一種模式開放時
+  // 隱藏頁籤並強制切換；一旦 modeForcedVisible=true（代表使用者/購物車保留的模式目前
+  // 被關閉），頁籤必須保持顯示，讓使用者能看到「未開放」狀態並自行切換，不得自動代為切換。
+  if(!modeForcedVisible){
+    if(takeoutEnabled && !deliveryEnabled){tabs.style.display='none';currentMode='takeout';return;}
+    if(!takeoutEnabled && deliveryEnabled){tabs.style.display='none';currentMode='delivery';return;}
+  }
   tabs.style.display='flex';
-  // 截止但仍顯示
-  if(takeoutCutoffPassed) btnTo.innerHTML='🛍️ 外帶<span class="mode-badge">售完</span>';
-  if(deliveryCutoffPassed) btnDl.innerHTML='🛵 外送<span class="mode-badge">售完</span>';
+  // 截止但仍顯示 / 目前未開放（優先顯示「未開放」，比截止售完更明確）
+  btnTo.innerHTML='🛍️ 外帶'+(!takeoutEnabled?'<span class="mode-badge">未開放</span>':(takeoutCutoffPassed?'<span class="mode-badge">售完</span>':''));
+  btnDl.innerHTML='🛵 外送'+(!deliveryEnabled?'<span class="mode-badge">未開放</span>':(deliveryCutoffPassed?'<span class="mode-badge">售完</span>':''));
   updateModeTabActive();
 }
 function updateModeTabActive(){
@@ -807,6 +877,7 @@ function switchMode(mode){
   updateModeTabActive();
   renderMenu();
   updateCutoffBanner();
+  updateModeAvailabilityUI();
   // 同步購物車 sheet 的模式選擇
   const oType=document.getElementById('oType');
   if(oType) oType.value=mode;
@@ -817,6 +888,7 @@ function switchMode(mode){
   updateCartTotals();
   // fix18-10-hotfix22A：外帶/外送付款方式可能不同，切換模式時重建付款按鈕
   buildPaymentButtons(shopData);
+  persistCart();
 }
 function onModeChange(){
   const oType=document.getElementById('oType');
@@ -825,6 +897,7 @@ function onModeChange(){
   updateModeTabActive();
   renderMenu();
   updateCutoffBanner();
+  updateModeAvailabilityUI();
   // fix18-10-hotfix22D：改用 refreshDateSelectorForCart()，避免切換模式後把已預約的下個營業日覆蓋回今天
   refreshDateSelectorForCart();
   // fix18-08: 統一顯示/隱藏外送地址
@@ -832,6 +905,7 @@ function onModeChange(){
   updateCartTotals();
   // fix18-10-hotfix22A：外帶/外送付款方式可能不同，切換模式時重建付款按鈕
   buildPaymentButtons(shopData);
+  persistCart();
 }
 
 // ── 截止售完橫幅 ──────────────────────────────────────
@@ -851,6 +925,29 @@ function updateCutoffBanner(){
   }
 }
 
+// hotfix22-F 補正：目前選擇的模式（外帶/外送）若被店家關閉——不清空購物車/優惠券/顧客資料，
+// 只顯示「未開放」提示、擋住日期時段產生可送單選項、停用送單按鈕；使用者自行切換到另一個
+// 有開放的模式後才恢復可下單（並在切換時更新、保存新的 order_mode，見 switchMode()/onModeChange()）。
+function isCurrentModeAvailable(){
+  return currentMode==='takeout' ? takeoutEnabled : deliveryEnabled;
+}
+function updateModeAvailabilityUI(){
+  const banner=document.getElementById('modeUnavailableBanner');
+  const btn=document.getElementById('subBtn');
+  if(!isCurrentModeAvailable()){
+    if(banner){
+      banner.style.display='block';
+      banner.textContent = currentMode==='delivery'
+        ? '🔴 外送目前未開放，購物車內容已為您保留，請切換至外帶下單，或稍後再試。'
+        : '🔴 外帶目前未開放，購物車內容已為您保留，請切換至外送下單，或稍後再試。';
+    }
+    if(btn){ btn.disabled=true; btn.textContent=(currentMode==='delivery'?'外送':'外帶')+'目前未開放'; }
+  }else{
+    if(banner) banner.style.display='none';
+    if(btn){ btn.disabled=false; btn.textContent='確認送出訂單'; }
+  }
+}
+
 // ── 付款方式 ──────────────────────────────────────────
 // fix18-10-hotfix22A：改為依通路（外帶/外送）獨立開關；若後端未回傳新版陣列（舊店家尚未設定），
 // 自動 fallback 使用原本的全域 line_payment_*_enabled 判斷，行為與舊版完全相同。
@@ -865,7 +962,7 @@ function buildPaymentButtons(settings){
   en.forEach((p,i)=>{const b=document.createElement('button');b.className='pay-btn'+(i===0?' active':'');b.dataset.code=p.code;b.textContent=p.label;b.onclick=function(){selectPay(this);};c.appendChild(b);});
   selectedPay=en[0].code;
 }
-function selectPay(btn){selectedPay=btn.dataset.code;document.querySelectorAll('.pay-btn').forEach(b=>b.classList.toggle('active',b===btn));}
+function selectPay(btn){selectedPay=btn.dataset.code;document.querySelectorAll('.pay-btn').forEach(b=>b.classList.toggle('active',b===btn));persistCart();}
 
 // ── 顧客可提前預訂天數（Hotfix15 V3：line_preorder_days_limit，預設14天，0~60）──
 function getPreorderDaysLimit(){
@@ -878,6 +975,17 @@ function getPreorderDaysLimit(){
 function buildDateSelector(forceNextDay=false){
   const sel=document.getElementById('pDate');if(!sel)return;
   sel.innerHTML='';
+  // hotfix22-F 補正：目前模式（外帶/外送）整個被店家關閉時，不得產生任何可送單的日期／時段選項，
+  // 但商品/顧客資料仍完整保留，只是擋住送單；等使用者切到有開放的模式才恢復正常選單。
+  if(!isCurrentModeAvailable()){
+    const opt=document.createElement('option');opt.value='';opt.disabled=true;
+    opt.textContent=(currentMode==='delivery'?'外送':'外帶')+'目前未開放';
+    sel.appendChild(opt);
+    const pTimeUnavail=document.getElementById('pTime');
+    if(pTimeUnavail) pTimeUnavail.innerHTML=`<option value="" disabled>${currentMode==='delivery'?'外送':'外帶'}目前未開放</option>`;
+    updateModeAvailabilityUI();
+    return;
+  }
   const now=twNow();
   // hotfix22-B ROOT CAUSE FIX：外帶/外送模式必須只有 currentMode 這一個單一來源。
   // 舊版讀取 oType.value 作為主要依據，但 oType 這個 <select> 只有在使用者手動切換
@@ -921,7 +1029,7 @@ function buildDateSelector(forceNextDay=false){
   if(first)sel.value=first;
   if(!forceNextDay) buildTimeSelector();
 }
-function onDateChange(){buildTimeSelector();}
+function onDateChange(){buildTimeSelector().then(()=>persistCart());}
 
 // ── 時間選擇器（呼叫後端 API，依模式計算）────────────────
 async function buildTimeSelector(){
@@ -1057,23 +1165,37 @@ function buildCard(p, mode){
   // Hotfix16 BUG-006：商品遮罩 — 只有休假／售完／停售才灰掉，pre_sale_available 一律不灰掉
   // fix18-10-hotfix22D：canPreorderNextDay 商品「不再」顯示遮罩／預約按鈕，只有「預購已滿」或
   // 完全不可預購（unavailFully）時才灰掉。
-  let mask='';
-  if(preorderFullBlocked){
-    mask=`<div class="sold-mask"><span>預購已滿</span></div>`;
-  } else if(unavailFully){
-    mask=`<div class="sold-mask"><span>${soldLbl}</span></div>`;
-  }
+  // hotfix22-F 第九點：不可立即購買時，只讓圖片變暗，商品名稱/說明/價格仍正常顯示；
+  // 不再用整卡覆蓋式 mask（舊版 .sold-mask 會蓋住名稱與價格）。
+  const imgDimmed = unavailFully || preorderFullBlocked;
 
   const imgHtml=img?`<img class="prod-img" src="${img}" alt="${esc(name)}" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`:'';
   // fix18-10-hotfix22D：canPreorderNextDay（且未預購額滿）時，改為兩個徽章「🔴{狀態}」＋「🟢可預購」，
   // 取代舊版「可預約明日／預約下個營業日」單一徽章；其餘不可預購狀態維持原本單一徽章。
-  let badgesSoldOut='';
-  if(canPreorderNextDay && !preorderFullBlocked){
-    badgesSoldOut=`<span class="badge ${soldCls}">🔴 ${soldLbl}</span><span class="badge badge-green">🟢 可預購</span>`;
+  // hotfix22-F：這些「今日售完／休假中／可預購」屬於狀態標籤，固定顯示在照片下方（status-row），
+  // 不參與行銷標籤排序、不佔用照片上的行銷標籤版位。
+  let statusRowHtml='';
+  if(preorderFullBlocked){
+    statusRowHtml=`<span class="badge ${soldCls}">預購已滿</span>`;
+  } else if(canPreorderNextDay){
+    statusRowHtml=`<span class="badge ${soldCls}">🔴 ${soldLbl}</span><span class="badge badge-green">🟢 可預購</span>`;
   } else if(isSoldOut){
-    badgesSoldOut=`<span class="badge ${soldCls}">${soldLbl}</span>`;
+    statusRowHtml=`<span class="badge ${soldCls}">${soldLbl}</span>`;
+  } else if(preSaleBadge){
+    statusRowHtml=preSaleBadge;
   }
-  return `<div class="prod-card" id="pc-${p.id}">${mask}${imgHtml}<div class="prod-ph" ${img?'style="display:none"':''}>🍽️</div><div class="prod-body"><div class="badges">${isHot?'<span class="badge badge-hot">🔥 熱銷</span>':''}${isPromo?'<span class="badge badge-promo">🎁 優惠</span>':''}${badgesSoldOut}${preSaleBadge}</div><div class="prod-name">${esc(name)}</div>${spec?`<div class="prod-spec">${esc(spec)}</div>`:''}${stockBadge}<div class="prod-desc">${esc(desc)}</div><div class="prod-footer"><span class="prod-price">$${price}</span>${footer}</div></div></div>`;
+
+  // hotfix22-F 第九點：行銷標籤（左上主緞帶／右上小膠囊，最多顯示 2 個）。
+  // 本版維持預設優先順序：優惠 > 新品 > 店長推薦 > 熱銷；「新品」「店長推薦」需要商品資料表
+  // 新欄位才能支援，本輪不修改商品資料表，故暫不提供，僅先支援既有「優惠」「熱銷」欄位。
+  // 商家可調整名稱/排序/開關/數量的後台設定延後至下一版。
+  const marketingTags=[];
+  if(isPromo) marketingTags.push({cls:'tag-ribbon-promo',label:'🎁 優惠'});
+  if(isHot)   marketingTags.push({cls:'tag-ribbon-hot',label:'🔥 熱銷'});
+  const ribbonHtml  = marketingTags[0] ? `<div class="tag-ribbon ${marketingTags[0].cls}">${marketingTags[0].label}</div>` : '';
+  const capsuleHtml = marketingTags[1] ? `<div class="tag-capsule ${marketingTags[1].cls}">${marketingTags[1].label}</div>` : '';
+
+  return `<div class="prod-card" id="pc-${p.id}"><div class="prod-img-wrap${imgDimmed?' img-dimmed':''}">${imgHtml}<div class="prod-ph" ${img?'style="display:none"':''}>🍽️</div>${ribbonHtml}${capsuleHtml}</div><div class="prod-body"><div class="prod-name">${esc(name)}</div>${spec?`<div class="prod-spec">${esc(spec)}</div>`:''}<div class="status-row">${statusRowHtml}</div>${stockBadge}<div class="prod-desc">${esc(desc)}</div><div class="prod-footer"><span class="prod-price">$${price}</span>${footer}</div></div></div>`;
 }
 
 // ── 購物車操作 ─────────────────────────────────────────
@@ -1131,6 +1253,7 @@ function addCart(id,evt){
   cart[id].qty++;
   if(evt){const fly=document.createElement('div');fly.className='fly-item';fly.textContent='🛒';fly.style.cssText=`left:${evt.clientX}px;top:${evt.clientY}px`;document.body.appendChild(fly);setTimeout(()=>fly.remove(),700);}
   updateBar();updateProductCard(id);
+  persistCart();
 }
 
 // ── B: 預約明日 — 完整流程 ────────────────────────────────
@@ -1173,6 +1296,7 @@ function addPreorderToCart(id,evt,p){
   preorderRequiredIds.add(Number(id));
   if(evt){const fly=document.createElement('div');fly.className='fly-item';fly.textContent='🛒';fly.style.cssText=`left:${evt.clientX}px;top:${evt.clientY}px`;document.body.appendChild(fly);setTimeout(()=>fly.remove(),700);}
   updateBar();updateProductCard(id);
+  persistCart();
   toast('✅ 已加入購物車，將自動預約下個營業日');
 }
 
@@ -1194,6 +1318,7 @@ async function refreshDateSelectorForCart(){
   } else {
     buildDateSelector();
   }
+  persistCart();
 }
 // fix18-10-hotfix22D：取代舊版 openCartSheetWithDate()——僅用於「送單當下才發現今日已截止」
 // 的救援導向（購物車 sheet 此時已經是開啟狀態，只需要把日期/時段改成下一個可營業日）。
@@ -1219,6 +1344,7 @@ function applyDateTimeToCartSheet(dateStr, slots){
       pTime.innerHTML='<option value="" disabled>此日無可選時段，請選其他日期</option>';
     }
   }
+  persistCart();
 }
 function chgQty(id,d){
   if(!cart[id])return;
@@ -1254,6 +1380,7 @@ function chgQty(id,d){
   if(cart[id].qty<=0){ delete cart[id]; preorderRequiredIds.delete(Number(id)); }
   updateBar();updateProductCard(id);
   if(document.getElementById('cartSheet').classList.contains('show'))renderCartItems();
+  persistCart();
 }
 function updateProductCard(id){
   const p=allProducts.find(x=>x.id==id);if(!p)return;
@@ -1325,6 +1452,7 @@ async function applyCoupon(){
       appliedCoupon={code:res.coupon.code,discount_amount:res.discount_amount,final_total:res.final_total,coupon:res.coupon};
       if(msgEl)msgEl.innerHTML=`<span style="color:#06C755">✅ ${res.coupon.name}：折扣 -$${res.discount_amount}</span>`;
       updateBar();
+      persistCart();
     }else{
       appliedCoupon=null;
       // fix18-05: 若優惠券功能被停用，隱藏整個輸入區
@@ -1346,6 +1474,169 @@ function clearCoupon(){
   const inp=document.getElementById('couponInput');if(inp)inp.value='';
   const msg=document.getElementById('couponMsg');if(msg)msg.innerHTML='';
   const dr=document.getElementById('discountRow');if(dr)dr.style.display='none';
+  persistCart();
+}
+
+// ── hotfix22-F：購物車 localStorage 永久保留（不設 expires_at / 24hr 判斷，
+//    與冷藏宅配 line-shipping.html 使用統一資料格式，但各用獨立 key）────────
+// 清空條件只有：①訂單成立 ②LINE Pay 付款成功 ③使用者按「清空購物車」
+//              ④商品已下架（只移除該商品）⑤商家手動清除
+function persistCart(){
+  try{
+    const cartQtyMap={};
+    Object.entries(cart).forEach(([pid,c])=>{ cartQtyMap[pid]=c.qty; });
+    let _existingCreatedAt=null;
+    try{ const _prev=JSON.parse(localStorage.getItem(ORDER_CART_KEY)||'null'); _existingCreatedAt=_prev?.cart_created_at||null; }catch(e){}
+    const data={
+      version:1,
+      store_id:LINE_STORE_ID,
+      // 預留：未來 Conversion Analytics（AddToCart/BeginCheckout/Purchase）用，目前只存不分析
+      session_id:_getSessionId(),
+      visitor_id:_getVisitorId(),
+      cart_created_at:_existingCreatedAt||Date.now(),
+      cart_updated_at:Date.now(),
+      cart:cartQtyMap,
+      order_mode:currentMode, // 'takeout' | 'delivery'
+      customer:{
+        name:document.getElementById('cName')?.value||'',
+        phone:document.getElementById('cPhone')?.value||'',
+        delivery_address:document.getElementById('deliveryAddress')?.value||'',
+        delivery_address_note:document.getElementById('deliveryAddressNote')?.value||'',
+      },
+      coupon_code:appliedCoupon?.code||'', // 只存 code，還原時一律重新驗證
+      pickup_date:document.getElementById('pDate')?.value||'',
+      pickup_time:document.getElementById('pTime')?.value||'',
+      payment_method:selectedPay||'',
+      order_note:document.getElementById('oNote')?.value||'',
+    };
+    localStorage.setItem(ORDER_CART_KEY,JSON.stringify(data));
+  }catch(e){ /* localStorage 不可用時安靜略過，不影響下單流程 */ }
+}
+function _debounce(fn,ms){ let t=null; return function(...args){ clearTimeout(t); t=setTimeout(()=>fn.apply(this,args),ms); }; }
+// 文字輸入框（姓名/電話/地址/備註）用 debounce，避免每個按鍵都寫入 localStorage；
+// 其餘互動（加減商品、切換模式、選日期/時段、套用優惠券…）一律立即呼叫 persistCart()。
+const debouncedPersistCart=_debounce(persistCart,400);
+function clearCartStorage(){
+  try{ localStorage.removeItem(ORDER_CART_KEY); }catch(e){}
+}
+// 使用者主動按「清空購物車」──────────────────────────────
+function clearCartByUser(){
+  if(!Object.keys(cart).length && !appliedCoupon){ closeSheet('cartSheet'); return; }
+  if(!confirm('確定要清空購物車嗎？')) return;
+  cart={};preorderRequiredIds.clear();
+  clearCoupon();
+  clearCartStorage();
+  updateBar();renderMenu();renderCartItems();
+  closeSheet('cartSheet');
+  toast('🗑️ 已清空購物車');
+}
+// 頁面載入時還原購物車（不設任何到期時間；商品不存在/已下架時只跳過該項，
+// 不清空整台購物車；日期/時段失效時自動落回目前模式下一個可預約日期/時段，
+// 沿用既有 buildDateSelector()/buildTimeSelector() 的營業規則判斷，不另寫新規則）───
+async function restoreCart(){
+  let data;
+  try{
+    const raw=localStorage.getItem(ORDER_CART_KEY);
+    if(!raw) return;
+    data=JSON.parse(raw);
+  }catch(e){ clearCartStorage(); return; }
+  if(!data) return;
+
+  // 還原購物車商品：一律先用「最新一次 API 回來的 allProducts」查找 —— 名稱/價格/圖片/
+  // 描述全部採最新資料，localStorage 只提供「id → 數量」，絕不信任舊的價格與總額。
+  // 商品不存在／已下架／已停用／LINE 未上架時，allProducts 裡就已經沒有這個 id，
+  // 直接跳過該項即可，其餘商品全部保留（不清空整台購物車）。
+  cart={};
+  const savedCartMap=data.cart||{};
+  Object.entries(savedCartMap).forEach(([pid,qty])=>{
+    const p=allProducts.find(x=>String(x.id)===String(pid));
+    const q=Number(qty);
+    if(p && q>0) cart[pid]={product:p,qty:q};
+  });
+  const _droppedCount=Object.keys(savedCartMap).length-Object.keys(cart).length;
+  if(_droppedCount>0) toast(`⚠️ 有 ${_droppedCount} 件商品已下架，已自動從購物車移除`);
+
+  // 還原外帶/外送模式：一律沿用 order_mode（即使目前該模式被關閉，也不得自動切回另一個
+  // 開放中的模式——已在 init() 內的 _peekSavedOrderMode() 提前套用並設定 modeForcedVisible，
+  // 這裡只是保險再套用一次，確保 restoreCart() 單獨被呼叫時行為一致）。
+  const savedMode=data.order_mode;
+  if(savedMode==='takeout' || savedMode==='delivery') currentMode=savedMode;
+  updateModeTabActive();
+  const oTypeSel=document.getElementById('oType');
+  if(oTypeSel) oTypeSel.value=currentMode;
+  updateDeliveryAddressVisibility();
+  buildPaymentButtons(shopData);
+  updateModeAvailabilityUI();
+
+  // 還原顧客資料/備註/外送地址
+  const ci=data.customer||{};
+  const setV=(id,v)=>{ const el=document.getElementById(id); if(el && v!=null) el.value=v; };
+  setV('cName',ci.name);
+  setV('cPhone',ci.phone);
+  setV('oNote',data.order_note);
+  setV('deliveryAddress',ci.delivery_address);
+  setV('deliveryAddressNote',ci.delivery_address_note);
+
+  // 還原取餐日期/時間：先依「今天」重新產生整份日期選單（沿用既有今日臨時休息／
+  // 今日最後接單／Business Calendar／每週營業時間判斷，不另寫規則）。
+  // 若舊日期仍是選單中未 disabled 的選項才套用；否則自動落在目前模式下一個可預約日期，
+  // 不清空購物車商品，只提示已自動更新。
+  let _dateChanged=false, _timeChanged=false;
+  buildDateSelector();
+  const pDateSel=document.getElementById('pDate');
+  if(pDateSel && data.pickup_date){
+    const opt=Array.from(pDateSel.options).find(o=>o.value===data.pickup_date && !o.disabled);
+    if(opt) pDateSel.value=data.pickup_date;
+    else if(Object.keys(cart).length) _dateChanged=true;
+  }
+  await buildTimeSelector();
+  const pTimeSel=document.getElementById('pTime');
+  if(pTimeSel && data.pickup_time){
+    const topt=Array.from(pTimeSel.options).find(o=>o.value===data.pickup_time && !o.disabled);
+    if(topt) pTimeSel.value=data.pickup_time;
+    else if(Object.keys(cart).length) _timeChanged=true;
+  }
+  if((_dateChanged||_timeChanged) && isCurrentModeAvailable()) toast('⏰ 原預約日期或時段已失效，已更新為下一個可用時段');
+
+  // 還原付款方式（若還原代碼目前仍在開放清單內）
+  const savedPayMethod=data.payment_method;
+  if(savedPayMethod){
+    let matched=false;
+    document.querySelectorAll('#payBtns .pay-btn').forEach(b=>{
+      const isMatch=b.dataset.code===savedPayMethod;
+      b.classList.toggle('active',isMatch);
+      if(isMatch) matched=true;
+    });
+    if(matched) selectedPay=savedPayMethod;
+  }
+
+  // 還原優惠券：只保存過 code，一律重新呼叫 /api/coupons/validate 驗證，絕不直接信任
+  // localStorage 存的折扣金額；優惠券已失效/停用/不再達門檻時只清除優惠券，購物車商品保留。
+  appliedCoupon=null;
+  const restoredCode=data.coupon_code?String(data.coupon_code).trim().toUpperCase():'';
+  if(restoredCode && Object.keys(cart).length){
+    try{
+      const subtotal=Object.values(cart).reduce((s,{product:p,qty})=>s+(p.effective_line_price||p.price)*qty,0);
+      const phone=document.getElementById('cPhone')?.value||'';
+      const res=await apiFetch('/api/coupons/validate',{
+        method:'POST',
+        body:JSON.stringify({code:restoredCode,subtotal,customer_phone:phone})
+      }).then(r=>r.json());
+      if(res.success){
+        appliedCoupon={code:res.coupon.code,discount_amount:res.discount_amount,final_total:res.final_total,coupon:res.coupon};
+        const inp=document.getElementById('couponInput'); if(inp) inp.value=res.coupon.code;
+        const msgEl=document.getElementById('couponMsg');
+        if(msgEl) msgEl.innerHTML=`<span style="color:#06C755">✅ ${res.coupon.name}：折扣 -$${res.discount_amount}</span>`;
+      }else{
+        toast('原優惠券目前已失效，購物車商品已保留');
+      }
+    }catch(e){ /* 網路錯誤：安全起見不恢復優惠券顯示，客人可自行重新套用 */ }
+  }
+
+  updateBar();renderMenu();
+  if(document.getElementById('cartSheet')?.classList.contains('show')) renderCartItems();
+  // 還原過程中可能捨棄了失效優惠券/下架商品，寫回一份乾淨的狀態，避免下次整頁重整又嘗試恢復同一批失效資料
+  persistCart();
 }
 
 function openCartSheet(){
@@ -1357,8 +1648,11 @@ function openCartSheet(){
   const oType=document.getElementById('oType');
   if(oType){
     oType.innerHTML='';
-    if(takeoutEnabled){const o=document.createElement('option');o.value='takeout';o.textContent='🛍️ 外帶';if(takeoutCutoffPassed)o.textContent+=' (已截止)';oType.appendChild(o);}
-    if(deliveryEnabled){const o=document.createElement('option');o.value='delivery';o.textContent='🛵 外送';if(deliveryCutoffPassed)o.textContent+=' (已截止)';oType.appendChild(o);}
+    // hotfix22-F 補正：即使目前模式被關閉，也要保留該選項讓使用者看到「未開放」並停留在原模式，
+    // 不能因為 enabled=false 就把選項整個拿掉（否則使用者根本看不到自己原本選的是外送）。
+    const _mkOpt=(val,label)=>{const o=document.createElement('option');o.value=val;o.textContent=label;return o;};
+    oType.appendChild(_mkOpt('takeout','🛍️ 外帶'+(!takeoutEnabled?' (未開放)':(takeoutCutoffPassed?' (已截止)':''))));
+    oType.appendChild(_mkOpt('delivery','🛵 外送'+(!deliveryEnabled?' (未開放)':(deliveryCutoffPassed?' (已截止)':''))));
     oType.value=currentMode;
   }
   renderCartItems();openSheet('cartSheet');
@@ -1388,6 +1682,11 @@ async function submitOrder(){
   if(!phone){toast('請填寫電話');return;}
   if(!Object.keys(cart).length){toast('購物車是空的');return;}
   if(!type){toast('請選擇取餐方式');return;}
+  // hotfix22-F 補正：目前模式被店家關閉時一律擋下送單（不清空購物車），
+  // 与 updateModeAvailabilityUI()/buildDateSelector() 的 UI 層限制互為保險。
+  if((type==='takeout' && !takeoutEnabled) || (type==='delivery' && !deliveryEnabled)){
+    toast((type==='delivery'?'外送':'外帶')+'目前未開放，請切換模式或稍後再試');return;
+  }
   if(!selectedPay){toast('請選擇付款方式');return;}
   if(!pickupDate){toast('請選擇日期');return;}
   if(!time){toast('請選擇時間');return;}
@@ -1490,8 +1789,10 @@ async function submitOrder(){
           })
         }).then(r=>r.json());
         if(lpRes.success&&lpRes.payment_url){
-          clearCoupon();
-          closeSheet('cartSheet');cart={};preorderRequiredIds.clear();updateBar();renderMenu();
+          // hotfix22-F：LINE Pay 導轉付款前不得清空購物車／優惠券 —— 只有「付款成功」導回時
+          // （linepay=success，見 init()）才真正 clearCartStorage()。若使用者取消或付款失敗，
+          // 購物車（含 localStorage）維持原樣，讓顧客回來後仍能繼續結帳。
+          persistCart();
           window.location.href=lpRes.payment_url;
           return;
         }else{
@@ -1509,6 +1810,8 @@ async function submitOrder(){
     clearCoupon();
     resetDeliveryFee();
     closeSheet('cartSheet');cart={};preorderRequiredIds.clear();updateBar();renderMenu();
+    // hotfix22-F：訂單成功建立才清空購物車（含 localStorage）
+    clearCartStorage();
     document.getElementById('sucNo').textContent=`訂單編號：${orderData.order_number}`;
     document.getElementById('sucDetail').innerHTML=buildDetailRows({
       status:'pending',status_label:'待確認',
@@ -1536,8 +1839,11 @@ async function refreshShopStatus(){
     const ts=res.data.takeout_status||{};
     const ds2=res.data.delivery_status||{};
     const prevToCP=takeoutCutoffPassed, prevDlCP=deliveryCutoffPassed;
+    const prevToEn=takeoutEnabled, prevDlEn=deliveryEnabled;
     takeoutCutoffPassed=!!ts.cutoff_passed;
     deliveryCutoffPassed=!!ds2.cutoff_passed;
+    takeoutEnabled=!!ts.enabled;
+    deliveryEnabled=!!ds2.enabled;
     // Hotfix16 BUG-004：休假 Banner 隨定時刷新自動更新／消失（恢復營業日到達後自動不再顯示）
     const prevTodayClosed=todayClosed;
     const holidayBanner=res.data.holiday_banner||{active:false};
@@ -1547,13 +1853,20 @@ async function refreshShopStatus(){
     renderAnnouncement(announcement);
     if(shouldSkipHolidayBannerForAnnouncement(announcement)) hideHolidayBanner();
     else renderHolidayBanner(holidayBanner);
-    if(prevToCP!==takeoutCutoffPassed||prevDlCP!==deliveryCutoffPassed||prevTodayClosed!==todayClosed){
+    if(prevToCP!==takeoutCutoffPassed||prevDlCP!==deliveryCutoffPassed||prevTodayClosed!==todayClosed||prevToEn!==takeoutEnabled||prevDlEn!==deliveryEnabled){
       // 重新載入菜單（休假狀態改變會影響商品卡的售完原因/預約明日等顯示）
       try{
         const mr=await apiFetch('/api/line-menu').then(r=>r.json());
         if(mr.success){categories=mr.data.categories||[];allProducts=mr.data.products||[];buildCats();}
       }catch{}
-      renderMenu();updateCutoffBanner();
+      // hotfix22-F 補正：enabled 狀態改變時，若目前選擇的模式（currentMode）變成關閉，
+      // 一律維持在原模式並顯示「未開放」，不自動切換；只重建頁籤/日期時段/送單按鈕的顯示狀態。
+      if(prevToEn!==takeoutEnabled||prevDlEn!==deliveryEnabled){
+        if((currentMode==='takeout'&&!takeoutEnabled)||(currentMode==='delivery'&&!deliveryEnabled)) modeForcedVisible=true;
+        buildModeTabsUI();
+        buildDateSelector();
+      }
+      renderMenu();updateCutoffBanner();updateModeAvailabilityUI();
     }
   }catch{}
 }

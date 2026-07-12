@@ -199,7 +199,7 @@ img{max-width:100%;display:block}
 <div class="overlay" id="overlay" onclick="closeSheet()"></div>
 
 <div class="sheet" id="cartSheet">
-  <div class="sheet-hd"><h3>🛒 宅配購物車</h3><button class="close-btn" onclick="closeSheet()">✕</button></div>
+  <div class="sheet-hd"><h3>🛒 宅配購物車</h3><div style="display:flex;gap:8px;align-items:center"><button class="close-btn" onclick="clearCartByUser()" title="清空購物車">🗑️</button><button class="close-btn" onclick="closeSheet()">✕</button></div></div>
   <div id="cartItems" style="padding:0 16px"></div>
   <div class="cf">
     <div id="cartShipInfo" style="padding:0"></div>
@@ -225,17 +225,17 @@ img{max-width:100%;display:block}
     <div id="minOrderWarn" class="min-order-warn" style="display:none"></div>
     <div class="ot total"><span>應付金額</span><span id="orderTotal">$0</span></div>
 
-    <div class="fg"><label class="fl">收件人姓名 <span class="req">*</span></label><input class="fi" id="rName" placeholder="收件人姓名" oninput="persistCart()"></div>
+    <div class="fg"><label class="fl">收件人姓名 <span class="req">*</span></label><input class="fi" id="rName" placeholder="收件人姓名" oninput="debouncedPersistCart()"></div>
     <div class="fr">
-      <div class="fg"><label class="fl">收件電話 <span class="req">*</span></label><input class="fi" id="rPhone" placeholder="聯絡電話" type="tel" oninput="persistCart()"></div>
-      <div class="fg"><label class="fl">郵遞區號</label><input class="fi" id="rPostal" placeholder="郵遞區號" oninput="persistCart()"></div>
+      <div class="fg"><label class="fl">收件電話 <span class="req">*</span></label><input class="fi" id="rPhone" placeholder="聯絡電話" type="tel" oninput="debouncedPersistCart()"></div>
+      <div class="fg"><label class="fl">郵遞區號</label><input class="fi" id="rPostal" placeholder="郵遞區號" oninput="debouncedPersistCart()"></div>
     </div>
     <div class="fr">
-      <div class="fg"><label class="fl">縣市 <span class="req">*</span></label><input class="fi" id="rCity" placeholder="縣市" oninput="persistCart()"></div>
-      <div class="fg"><label class="fl">鄉鎮市區 <span class="req">*</span></label><input class="fi" id="rDistrict" placeholder="鄉鎮市區" oninput="persistCart()"></div>
+      <div class="fg"><label class="fl">縣市 <span class="req">*</span></label><input class="fi" id="rCity" placeholder="縣市" oninput="debouncedPersistCart()"></div>
+      <div class="fg"><label class="fl">鄉鎮市區 <span class="req">*</span></label><input class="fi" id="rDistrict" placeholder="鄉鎮市區" oninput="debouncedPersistCart()"></div>
     </div>
-    <div class="fg"><label class="fl">詳細地址 <span class="req">*</span></label><input class="fi" id="rAddress" placeholder="詳細地址" oninput="persistCart()"></div>
-    <div class="fg"><label class="fl">地址備註</label><input class="fi" id="rAddressNote" placeholder="例：管理室代收" oninput="persistCart()"></div>
+    <div class="fg"><label class="fl">詳細地址 <span class="req">*</span></label><input class="fi" id="rAddress" placeholder="詳細地址" oninput="debouncedPersistCart()"></div>
+    <div class="fg"><label class="fl">地址備註</label><input class="fi" id="rAddressNote" placeholder="例：管理室代收" oninput="debouncedPersistCart()"></div>
 
     <div class="fg">
       <label class="fl">希望到貨</label>
@@ -251,7 +251,7 @@ img{max-width:100%;display:block}
       <div class="pay-btns" id="payBtns"></div>
     </div>
 
-    <div class="fg"><label class="fl">備註</label><input class="fi" id="rNote" placeholder="給店家的話（選填）" oninput="persistCart()"></div>
+    <div class="fg"><label class="fl">備註</label><input class="fi" id="rNote" placeholder="給店家的話（選填）" oninput="debouncedPersistCart()"></div>
 
     <button class="sub-btn" id="submitBtn" onclick="submitOrder()">送出訂單</button>
   </div>
@@ -313,9 +313,24 @@ let selectedPayment = '';
 // hotfix22-C：優惠券狀態（共用 /api/coupons/validate，與 line-order.html 相同結構）
 let appliedCoupon = null; // { code, discount_amount, coupon: {...} }
 let couponFeatureEnabled = false;
-// fix18-10-hotfix22A補充：購物車 localStorage 暫存（關閉視窗/重新整理不清空，24小時有效期，下單成功才清空）
+// hotfix22-F：購物車 localStorage 永久保留，不設任何到期時間（不再用 expires_at / TTL 判斷）。
+// 清空條件只有：①訂單成立 ②LINE Pay 付款成功 ③使用者按「清空購物車」④商品下架（只移除該項）⑤商家手動清除。
 const SHIP_CART_KEY = 'line_shipping_cart_' + STORE_ID;
-const SHIP_CART_TTL_MS = 24 * 60 * 60 * 1000;
+// hotfix22-F 第九點：預留 Conversion Analytics 用欄位（目前只存不分析）
+function _getVisitorId(){
+  try{
+    let v=localStorage.getItem('line_visitor_id');
+    if(!v){ v='v_'+Date.now()+'_'+Math.random().toString(36).slice(2,10); localStorage.setItem('line_visitor_id',v); }
+    return v;
+  }catch(e){ return ''; }
+}
+function _getSessionId(){
+  try{
+    let s=sessionStorage.getItem('line_session_id');
+    if(!s){ s='s_'+Date.now()+'_'+Math.random().toString(36).slice(2,10); sessionStorage.setItem('line_session_id',s); }
+    return s;
+  }catch(e){ return ''; }
+}
 
 function apiUrl(path) {
   const sep = path.includes('?') ? '&' : '?';
@@ -345,6 +360,8 @@ async function init() {
   // ── hotfix22-B：LINE Pay 導回結果處理（宅配專用，導回本頁而非 line-order.html）──
   const _lpP = new URLSearchParams(window.location.search);
   if (_lpP.get('linepay') === 'success') {
+    // hotfix22-F：LINE Pay 付款成功才是清空購物車的時機，這裡才真正清除 localStorage
+    clearCartStorage();
     document.getElementById('loading').style.display = 'none';
     const orderNo = _lpP.get('order') || '';
     try {
@@ -446,41 +463,70 @@ function renderShop() {
   dateInput.value = d.earliest_date;
 }
 
-// fix18-10-hotfix22A補充：購物車 + 表單 localStorage 完整暫存（24小時有效期，下單成功才清空）
+// hotfix22-F：購物車 + 表單 localStorage 完整暫存，永久保留（不設有效期），下單成功/付款成功/
+// 使用者清空/商品下架/商家清除才會異動。與外帶/外送使用統一基礎格式，但獨立 key，互不共用。
 function persistCart() {
   try {
     const cartQtyMap = {};
     Object.entries(cart).forEach(([pid, c]) => { cartQtyMap[pid] = c.qty; });
+    let _existingCreatedAt = null;
+    try { const _prev = JSON.parse(localStorage.getItem(SHIP_CART_KEY) || 'null'); _existingCreatedAt = _prev?.cart_created_at || null; } catch (e) {}
     const data = {
+      version: 1,
+      store_id: STORE_ID,
+      session_id: _getSessionId(),
+      visitor_id: _getVisitorId(),
+      cart_created_at: _existingCreatedAt || Date.now(),
+      cart_updated_at: Date.now(),
       cart: cartQtyMap,
-      paymentMethod: selectedPayment,
-      deliveryMode: arrivalType, // 'asap' | 'date'
-      recipient: document.getElementById('rName')?.value || '',
-      phone: document.getElementById('rPhone')?.value || '',
-      zipcode: document.getElementById('rPostal')?.value || '',
+      order_mode: 'shipping',
+      customer: {
+        name: document.getElementById('rName')?.value || '',
+        phone: document.getElementById('rPhone')?.value || '',
+      },
+      coupon_code: appliedCoupon?.code || '', // 只存 code，還原時一律重新驗證
+      pickup_date: '', pickup_time: '', // 冷藏宅配不使用取餐日期/時段欄位，保留供格式一致
+      payment_method: selectedPayment,
+      order_note: document.getElementById('rNote')?.value || '',
+      // 冷藏宅配專屬欄位
+      arrival_type: arrivalType, // 'asap' | 'date'
+      arrival_date: document.getElementById('rArrivalDate')?.value || '',
+      postal_code: document.getElementById('rPostal')?.value || '',
       city: document.getElementById('rCity')?.value || '',
       district: document.getElementById('rDistrict')?.value || '',
       address: document.getElementById('rAddress')?.value || '',
-      addressNote: document.getElementById('rAddressNote')?.value || '',
-      shippingDate: document.getElementById('rArrivalDate')?.value || '',
-      shippingTime: '', // 目前畫面無獨立到貨時段欄位，保留欄位供未來擴充
-      remark: document.getElementById('rNote')?.value || '',
-      // hotfix22-C：只保存 coupon code，絕不保存 discount_amount —— 還原時一律重新呼叫
-      // /api/coupons/validate 驗證，避免用一個可能已經失效/被竄改的折扣金額
-      couponCode: appliedCoupon?.code || '',
-      savedAt: Date.now(),
+      address_note: document.getElementById('rAddressNote')?.value || '',
     };
     localStorage.setItem(SHIP_CART_KEY, JSON.stringify(data));
   } catch (e) { /* localStorage 不可用時安靜略過，不影響下單流程 */ }
 }
+function _debounce(fn, ms) { let t = null; return function (...args) { clearTimeout(t); t = setTimeout(() => fn.apply(this, args), ms); }; }
+// 文字輸入框用 debounce，避免每個按鍵都寫入 localStorage；其餘互動立即呼叫 persistCart()。
+const debouncedPersistCart = _debounce(persistCart, 400);
 
 function clearCartStorage() {
   try { localStorage.removeItem(SHIP_CART_KEY); } catch (e) {}
 }
 
+// hotfix22-F：使用者主動按「清空購物車」——與外帶/外送 line-order.html 行為統一
+function clearCartByUser() {
+  if (!cartCount() && !appliedCoupon) { closeSheet(); return; }
+  if (!confirm('確定要清空購物車嗎？')) return;
+  cart = {};
+  appliedCoupon = null;
+  clearCartStorage();
+  updateCartBar();
+  renderProductGrid('prodGrid', SHOP_DATA?.products || []);
+  if (SHOP_DATA?.upsell_products?.length) renderProductGrid('upsellGrid', SHOP_DATA.upsell_products);
+  closeSheet();
+  toast('🗑️ 已清空購物車');
+}
+
 // 頁面初始化時呼叫：還原購物車商品、收件資料、付款方式、備註（需在 renderShop() 之後執行，
 // 因為要透過 findProduct() 用目前商品清單重建購物車項目、並同步付款按鈕選取狀態）
-// hotfix22-C：改為 async，因為優惠券還原需要重新呼叫後端驗證 API，不能直接信任 localStorage
+// 不設任何到期時間；商品不存在/已下架時只跳過該項目，不清空整台購物車；到貨日期失效時
+// 自動落回可選範圍內的最早日期（沿用 renderShop() 已算好的 earliest_date/latest_date），
+// 不清空商品。hotfix22-C：改為 async，因為優惠券還原需要重新呼叫後端驗證 API，不能直接信任 localStorage
 async function restoreCart() {
   let data;
   try {
@@ -488,54 +534,72 @@ async function restoreCart() {
     if (!raw) return;
     data = JSON.parse(raw);
   } catch (e) { clearCartStorage(); return; }
-  if (!data || !data.savedAt || (Date.now() - data.savedAt) > SHIP_CART_TTL_MS) {
-    clearCartStorage();
-    return;
-  }
+  if (!data) return;
 
-  // 還原購物車商品（依目前商品清單重新查找，商品若已下架/刪除則自動略過）
+  // 還原購物車商品：一律用最新一次 API 回來的商品清單（findProduct）重新查找，名稱/價格/
+  // 圖片全部採最新資料，localStorage 只提供 id → 數量。商品不存在/已下架/已刪除/已停用時，
+  // findProduct() 就會找不到，直接跳過該項，其餘商品全部保留（不清空整台購物車）。
   cart = {};
-  if (data.cart) {
-    Object.entries(data.cart).forEach(([pid, qty]) => {
-      const p = findProduct(Number(pid));
-      const q = Number(qty);
-      if (p && q > 0) cart[pid] = { product: p, qty: q };
-    });
-  }
+  const savedCartMap = data.cart || {};
+  Object.entries(savedCartMap).forEach(([pid, qty]) => {
+    const p = findProduct(Number(pid));
+    const q = Number(qty);
+    if (p && q > 0) cart[pid] = { product: p, qty: q };
+  });
+  const _droppedCount = Object.keys(savedCartMap).length - Object.keys(cart).length;
+  if (_droppedCount > 0) toast(`⚠️ 有 ${_droppedCount} 件商品已下架，已自動從購物車移除`);
 
-  // 還原收件資料/備註
+  // 還原收件資料/備註（相容新舊欄位命名）
+  const cu = data.customer || {};
   const setV = (id, v) => { const el = document.getElementById(id); if (el && v != null) el.value = v; };
-  setV('rName', data.recipient);
-  setV('rPhone', data.phone);
-  setV('rPostal', data.zipcode);
+  setV('rName', cu.name ?? data.recipient);
+  setV('rPhone', cu.phone ?? data.phone);
+  setV('rPostal', data.postal_code ?? data.zipcode);
   setV('rCity', data.city);
   setV('rDistrict', data.district);
   setV('rAddress', data.address);
-  setV('rAddressNote', data.addressNote);
-  setV('rArrivalDate', data.shippingDate);
-  setV('rNote', data.remark);
+  setV('rAddressNote', data.address_note ?? data.addressNote);
+  setV('rNote', data.order_note ?? data.remark);
 
   // 還原付款方式選取狀態（若還原的付款代碼目前仍在開放清單內）
-  if (data.paymentMethod) {
+  const savedPayMethod = data.payment_method ?? data.paymentMethod;
+  if (savedPayMethod) {
     let matched = false;
     document.querySelectorAll('#payBtns .pay-btn').forEach(b => {
-      const isMatch = b.dataset.code === data.paymentMethod;
+      const isMatch = b.dataset.code === savedPayMethod;
       b.classList.toggle('active', isMatch);
       if (isMatch) matched = true;
     });
-    if (matched) selectedPayment = data.paymentMethod;
+    if (matched) selectedPayment = savedPayMethod;
+  }
+
+  // 還原希望到貨日期：沿用 renderShop() 已算好的 earliest_date/latest_date 範圍判斷，不另寫規則。
+  // 若舊日期已超出目前可選範圍（例如隔了很多天才回來），自動落回最早可選日期，不清空商品。
+  let _dateChanged = false;
+  const savedArrivalDate = data.arrival_date ?? data.shippingDate;
+  const dateInput = document.getElementById('rArrivalDate');
+  if (dateInput && savedArrivalDate) {
+    const min = dateInput.min, max = dateInput.max;
+    if ((min && savedArrivalDate < min) || (max && savedArrivalDate > max)) {
+      dateInput.value = min || savedArrivalDate;
+      _dateChanged = true;
+    } else {
+      dateInput.value = savedArrivalDate;
+    }
   }
 
   // 還原希望到貨模式（asap/date）— 放在付款方式還原之後，避免此函式內觸發的 persistCart()
   // 存下尚未還原完成的付款方式快照
-  setArrivalType(data.deliveryMode === 'date' ? 'date' : 'asap');
+  const savedMode = data.arrival_type ?? data.deliveryMode;
+  setArrivalType(savedMode === 'date' ? 'date' : 'asap');
+  if (_dateChanged) toast('⏰ 原到貨日期已超出可選範圍，已更新為最早可到貨日期');
 
   // hotfix22-C：優惠券還原 —— 只保存過 code，這裡一律重新呼叫 /api/coupons/validate 驗證，
   // 絕不直接信任 localStorage 存的折扣金額（規則2/3）。若優惠券已過期、店家停用、商品金額
-  // 變動後不再達最低消費門檻、或使用次數已滿等，一率自動清除並顯示友善提示（規則4），
+  // 變動後不再達最低消費門檻、或使用次數已滿等，只清除優惠券、購物車商品保留（規則4），
   // 不會擋住顧客繼續購物或送單。
   appliedCoupon = null;
-  const restoredCode = data.couponCode ? String(data.couponCode).trim().toUpperCase() : '';
+  const restoredCode = (data.coupon_code ?? data.couponCode) ? String(data.coupon_code ?? data.couponCode).trim().toUpperCase() : '';
   if (restoredCode && cartCount() > 0) {
     try {
       const sub = cartSubtotal();
@@ -549,7 +613,7 @@ async function restoreCart() {
         if (appliedText) appliedText.textContent = `✅ ${res.coupon.name}：折扣 -$${res.discount_amount}`;
         if (appliedRow) appliedRow.style.display = 'flex';
       } else {
-        toast(`優惠券「${restoredCode}」已無法使用（${res.message || '請重新套用'}），已自動移除`);
+        toast('原優惠券目前已失效，購物車商品已保留');
       }
     } catch (e) {
       // 網路錯誤：安全起見不恢復優惠券顯示，避免顯示未經驗證的折扣，使用者可自行重新套用
@@ -560,7 +624,8 @@ async function restoreCart() {
   renderProductGrid('prodGrid', SHOP_DATA.products);
   if (SHOP_DATA.upsell_products && SHOP_DATA.upsell_products.length) renderProductGrid('upsellGrid', SHOP_DATA.upsell_products);
   updateCartBar();
-  // 若優惠券還原失敗而被清除，重新寫回 localStorage，避免下次整頁重整又嘗試恢復同一張失效券
+  // 若優惠券還原失敗而被清除、或商品下架被移除，重新寫回一份乾淨的狀態，避免下次整頁重整
+  // 又嘗試恢復同一批失效資料
   persistCart();
 }
 
@@ -976,9 +1041,9 @@ async function submitOrder() {
           cancel_url: `${baseUrl}/line-shipping.html?store_id=${STORE_ID}&linepay=cancel`,
         });
         if (lpRes.success && lpRes.payment_url) {
-          cart = {};
-          appliedCoupon = null;
-          clearCartStorage();
+          // hotfix22-F：導轉 LINE Pay 前不得清空購物車/優惠券——只有付款成功導回（linepay=success，
+          // 見 init()）才是唯一的清空時機；取消或失敗導回時購物車必須完整保留。
+          persistCart();
           window.location.href = lpRes.payment_url;
           return;
         } else {
