@@ -316,20 +316,106 @@ let couponFeatureEnabled = false;
 // hotfix22-F：購物車 localStorage 永久保留，不設任何到期時間（不再用 expires_at / TTL 判斷）。
 // 清空條件只有：①訂單成立 ②LINE Pay 付款成功 ③使用者按「清空購物車」④商品下架（只移除該項）⑤商家手動清除。
 const SHIP_CART_KEY = 'line_shipping_cart_' + STORE_ID;
-// hotfix22-F 第九點：預留 Conversion Analytics 用欄位（目前只存不分析）
+// hotfix22-F 第九點：預留 Conversion Analytics 用欄位；hotfix23-A 起正式串接 analytics_events。
+// key 加上 store_id，避免同一瀏覽器逛多家店時 visitor/session 互相污染。
 function _getVisitorId(){
   try{
-    let v=localStorage.getItem('line_visitor_id');
-    if(!v){ v='v_'+Date.now()+'_'+Math.random().toString(36).slice(2,10); localStorage.setItem('line_visitor_id',v); }
+    const key='line_visitor_id_'+STORE_ID;
+    let v=localStorage.getItem(key);
+    if(!v){ v='v_'+Date.now()+'_'+Math.random().toString(36).slice(2,10); localStorage.setItem(key,v); }
     return v;
   }catch(e){ return ''; }
 }
 function _getSessionId(){
   try{
-    let s=sessionStorage.getItem('line_session_id');
-    if(!s){ s='s_'+Date.now()+'_'+Math.random().toString(36).slice(2,10); sessionStorage.setItem('line_session_id',s); }
+    const key='line_session_id_'+STORE_ID;
+    let s=sessionStorage.getItem(key);
+    if(!s){ s='s_'+Date.now()+'_'+Math.random().toString(36).slice(2,10); sessionStorage.setItem(key,s); }
     return s;
   }catch(e){ return ''; }
+}
+// ── fix18-10-hotfix23-A：Analytics Foundation ──────────────────────────
+function _getCartId(createIfMissing){
+  try{
+    const key='line_cart_id_'+STORE_ID;
+    let c=sessionStorage.getItem(key)||localStorage.getItem(key);
+    if(!c && createIfMissing){
+      c='c_'+Date.now()+'_'+Math.random().toString(36).slice(2,10);
+      localStorage.setItem(key,c);
+    }
+    return c||'';
+  }catch(e){ return ''; }
+}
+function _resetCartId(){
+  try{ localStorage.removeItem('line_cart_id_'+STORE_ID); }catch(e){}
+}
+function _deriveSource(utmSource, referrer){
+  const ref=(referrer||'').toLowerCase();
+  if(utmSource) return String(utmSource).toLowerCase();
+  if(!ref) return 'direct';
+  if(ref.includes('facebook.com')||ref.includes('fb.com')) return 'facebook';
+  if(ref.includes('instagram.com')) return 'instagram';
+  if(ref.includes('threads.net')) return 'threads';
+  if(ref.includes('google.')) return 'google';
+  if(ref.includes('line.me')||ref.includes('liff')) return 'line_oa';
+  try{
+    const refHost=new URL(referrer).hostname;
+    if(refHost && refHost===location.hostname) return 'direct';
+  }catch(e){}
+  return 'unknown';
+}
+function _getAnalyticsContext(){
+  try{
+    const ctxKey='line_actx_'+STORE_ID;
+    let ctx=null;
+    try{ ctx=JSON.parse(sessionStorage.getItem(ctxKey)||'null'); }catch(e){}
+    if(!ctx){
+      const p=new URLSearchParams(window.location.search);
+      const utm_source=p.get('utm_source')||'';
+      ctx={
+        utm_source, utm_medium:p.get('utm_medium')||'', utm_campaign:p.get('utm_campaign')||'',
+        fbclid:p.get('fbclid')||'', gclid:p.get('gclid')||'',
+        referrer:document.referrer||'', landing_page:location.pathname+location.search,
+        source:_deriveSource(utm_source, document.referrer||''),
+      };
+      try{ sessionStorage.setItem(ctxKey, JSON.stringify(ctx)); }catch(e){}
+    }
+    return ctx;
+  }catch(e){ return {}; }
+}
+// 前台一般事件追蹤：fire-and-forget；purchase/submit_order 由後端寫入，前端不送出。
+function _trackEvent(eventName, extra){
+  try{
+    const ctx=_getAnalyticsContext();
+    const body={
+      visitor_id:_getVisitorId(), session_id:_getSessionId(),
+      cart_id:_getCartId(false)||null,
+      event_name:eventName,
+      order_mode:'shipping',
+      source:ctx.source, medium:ctx.utm_medium||'', campaign:ctx.utm_campaign||'',
+      referrer:ctx.referrer, landing_page:ctx.landing_page,
+      fbclid:ctx.fbclid, gclid:ctx.gclid,
+      ...(extra||{}),
+    };
+    fetch(apiUrl('/api/analytics/events'),{
+      method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)
+    }).catch(()=>{});
+  }catch(e){ /* 追蹤失敗不影響主要功能 */ }
+}
+function _analyticsPayloadForOrder(){
+  const ctx=_getAnalyticsContext();
+  return {
+    visitor_id:_getVisitorId(), session_id:_getSessionId(), cart_id:_getCartId(false)||null,
+    source:ctx.source, medium:ctx.utm_medium||'', campaign:ctx.utm_campaign||'',
+    referrer:ctx.referrer, landing_page:ctx.landing_page, fbclid:ctx.fbclid, gclid:ctx.gclid,
+  };
+}
+function _trackAddToCart(id, qtyDelta){
+  _getCartId(true);
+  _trackEvent('add_to_cart',{product_id:Number(id), quantity:Math.max(1,Number(qtyDelta)||1)});
+}
+function _trackRemoveFromCart(id, qtyDelta){
+  _trackEvent('remove_from_cart',{product_id:Number(id), quantity:Math.max(1,Number(qtyDelta)||1)});
 }
 
 function apiUrl(path) {
@@ -402,6 +488,14 @@ async function init() {
     await restoreCart();
     document.getElementById('loading').style.display = 'none';
     document.getElementById('content').style.display = 'block';
+    // fix18-10-hotfix23-A：page_view — 頁面初始化成功後記錄一次，同一 session 不重複
+    try{
+      const pvKey='line_pv_sent_'+STORE_ID;
+      if(!sessionStorage.getItem(pvKey)){
+        _trackEvent('page_view');
+        sessionStorage.setItem(pvKey,'1');
+      }
+    }catch(e){}
   } catch (e) {
     document.getElementById('loading').innerHTML = `<p>載入失敗：${esc(e.message)}</p>`;
   }
@@ -506,12 +600,23 @@ const debouncedPersistCart = _debounce(persistCart, 400);
 
 function clearCartStorage() {
   try { localStorage.removeItem(SHIP_CART_KEY); } catch (e) {}
+  _resetCartId(); // fix18-10-hotfix23-A：訂單成立/清空後，下一個購物車要用新的 cart_id
 }
 
 // hotfix22-F：使用者主動按「清空購物車」——與外帶/外送 line-order.html 行為統一
 function clearCartByUser() {
   if (!cartCount() && !appliedCoupon) { closeSheet(); return; }
   if (!confirm('確定要清空購物車嗎？')) return;
+  // fix18-10-hotfix23-A：使用者主動清空購物車 → 記一筆 remove_from_cart（metadata.reason=clear_cart）
+  try{
+    const items=Object.entries(cart).map(([pid,c])=>({product_id:Number(pid),qty:c.qty}));
+    if(items.length){
+      _trackEvent('remove_from_cart',{
+        quantity: items.reduce((s,i)=>s+i.qty,0),
+        metadata:{reason:'clear_cart', items},
+      });
+    }
+  }catch(e){}
   cart = {};
   appliedCoupon = null;
   clearCartStorage();
@@ -660,6 +765,36 @@ function renderProductGrid(elId, products) {
         </div>
       </div>`;
   }).join('');
+  _setupViewProductObserver(elId);
+}
+// fix18-10-hotfix23-A：view_product — 商品卡真正進入視窗時記錄一次（同一 session +
+// product_id 去重）
+let _viewProductObservers = {};
+function _setupViewProductObserver(elId){
+  try{
+    if(!('IntersectionObserver' in window)) return;
+    if(_viewProductObservers[elId]) _viewProductObservers[elId].disconnect();
+    const seenKey='line_viewed_products_'+STORE_ID;
+    let seen=[];
+    try{ seen=JSON.parse(sessionStorage.getItem(seenKey)||'[]'); }catch(e){}
+    const seenSet=new Set(seen);
+    const observer=new IntersectionObserver((entries)=>{
+      entries.forEach(entry=>{
+        if(!entry.isIntersecting) return;
+        const pid=entry.target.getAttribute('data-pid');
+        if(!pid || seenSet.has(pid)) return;
+        seenSet.add(pid);
+        try{ sessionStorage.setItem(seenKey, JSON.stringify([...seenSet])); }catch(e){}
+        _trackEvent('view_product',{product_id:Number(pid)});
+        observer.unobserve(entry.target);
+      });
+    },{threshold:0.5});
+    document.getElementById(elId)?.querySelectorAll('.prod-card[data-pid]').forEach(card=>{
+      const pid=card.getAttribute('data-pid');
+      if(!seenSet.has(pid)) observer.observe(card);
+    });
+    _viewProductObservers[elId]=observer;
+  }catch(e){ /* 追蹤失敗不影響商品渲染 */ }
 }
 
 // fix18-10-hotfix19（BUG1 修正）：改用事件委派（event delegation）處理 +/- 按鈕，
@@ -690,7 +825,11 @@ async function changeQty(pid, delta) {
   if (!p) return;
   const cur = cart[pid] ? cart[pid].qty : 0;
   const next = Math.max(0, cur + delta);
-  if (next === 0) delete cart[pid];
+  if (delta > 0) { _getCartId(true); _trackAddToCart(pid, delta); }
+  if (next === 0) {
+    if (cur > 0) _trackRemoveFromCart(pid, cur);
+    delete cart[pid];
+  }
   else cart[pid] = { product: p, qty: next };
   persistCart();
   renderProductGrid('prodGrid', SHOP_DATA.products);
@@ -863,6 +1002,17 @@ function renderCartShipInfo() {
 }
 
 function openCartSheet() {
+  // fix18-10-hotfix23-A：begin_checkout — 第一次打開購物車時記錄，同一 cart_id 去重一次
+  try{
+    const cid=_getCartId(true);
+    const bcKey='line_bc_sent_'+STORE_ID;
+    let sentFor=null;
+    try{ sentFor=sessionStorage.getItem(bcKey); }catch(e){}
+    if(cid && sentFor!==cid){
+      _trackEvent('begin_checkout');
+      try{ sessionStorage.setItem(bcKey,cid); }catch(e){}
+    }
+  }catch(e){}
   renderCartItems();
   refreshCartSheetTotals();
   document.getElementById('overlay').classList.add('show');
@@ -1006,6 +1156,9 @@ async function submitOrder() {
 
   const btn = document.getElementById('submitBtn');
   btn.disabled = true; btn.textContent = '送出中…';
+  // fix18-10-hotfix23-A：payment_started — 非 LINE Pay（無跳轉）選擇付款方式並送出時記錄；
+  // LINE Pay 改在跳轉前記錄（見下方 lpRes.payment_url 導轉處）
+  if (selectedPayment !== 'linepay') { _trackEvent('payment_started'); }
   try {
     const res = await apiPost('/api/line-shipping', {
       items: cartList().map(c => ({ product_id: c.product.id, name: c.product.name, qty: c.qty })),
@@ -1014,6 +1167,7 @@ async function submitOrder() {
       payment_method: selectedPayment, note,
       // hotfix22-C：只送 coupon_code，折扣金額一律由後端重新計算，前端算出來的數字只作畫面預覽用
       coupon_code: appliedCoupon?.code || '',
+      analytics: _analyticsPayloadForOrder(),
     });
     if (!res.success) { toast(res.message || '送出失敗'); btn.disabled = false; btn.textContent = '送出訂單'; return; }
     const d = res.data;
@@ -1041,6 +1195,7 @@ async function submitOrder() {
           cancel_url: `${baseUrl}/line-shipping.html?store_id=${STORE_ID}&linepay=cancel`,
         });
         if (lpRes.success && lpRes.payment_url) {
+          _trackEvent('payment_started');
           // hotfix22-F：導轉 LINE Pay 前不得清空購物車/優惠券——只有付款成功導回（linepay=success，
           // 見 init()）才是唯一的清空時機；取消或失敗導回時購物車必須完整保留。
           persistCart();

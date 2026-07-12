@@ -1423,6 +1423,53 @@ function initTables(w) {
       w._save();
     } catch(e) { console.warn('[DB] shipping api seed:', k, e.message); }
   });
+
+  // ══════════════════════════════════════════════════════════════════
+  // ── fix18-10-hotfix23-A：Analytics Foundation（前台轉換事件基礎）───────
+  // 原則：safe migration，只用 CREATE TABLE IF NOT EXISTS / CREATE INDEX IF NOT
+  // EXISTS，絕不 DROP / 重建既有資料表。全新獨立資料表，不影響既有報表系統、
+  // POS、Android、LINE 外帶外送、冷藏宅配、LINE Pay、優惠券等既有功能。
+  // 依專案慣例以 store_id 隔離；本表不含 tenant_id（專案沒有 tenant_id 概念）。
+  // ══════════════════════════════════════════════════════════════════
+  w._db.run(`CREATE TABLE IF NOT EXISTS analytics_events (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    store_id        TEXT NOT NULL,
+    visitor_id      TEXT NOT NULL,
+    session_id      TEXT NOT NULL,
+    cart_id         TEXT,
+    order_id        TEXT,
+    event_name      TEXT NOT NULL,
+    product_id      INTEGER,
+    quantity        INTEGER DEFAULT 1,
+    order_mode      TEXT,
+    source          TEXT,
+    medium          TEXT,
+    campaign        TEXT,
+    referrer        TEXT,
+    landing_page    TEXT,
+    fbclid          TEXT,
+    gclid           TEXT,
+    metadata_json   TEXT,
+    created_at      TEXT DEFAULT (datetime('now'))
+  )`);
+  w._save();
+
+  try {
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_analytics_store_created ON analytics_events(store_id, created_at)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_analytics_store_event_created ON analytics_events(store_id, event_name, created_at)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_analytics_store_visitor ON analytics_events(store_id, visitor_id)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_analytics_store_session ON analytics_events(store_id, session_id)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_analytics_store_cart ON analytics_events(store_id, cart_id)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_analytics_store_product_created ON analytics_events(store_id, product_id, created_at)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_analytics_store_order_event ON analytics_events(store_id, order_id, event_name)');
+    // 防重複寫入 defense-in-depth：logServerEvent() 內已用同步查重擋下重複 purchase/
+    // submit_order（Node 單執行緒、查重與寫入之間沒有 await，天然不會被其他請求插入），
+    // 這裡再加一道 partial unique index 作保險，即使未來查重邏輯被繞過也不會產生髒資料。
+    w._db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_analytics_order_event_unique
+      ON analytics_events(store_id, order_id, event_name)
+      WHERE order_id IS NOT NULL AND event_name IN ('submit_order','purchase')`);
+    w._save();
+  } catch(e) { console.warn('[DB] analytics_events index:', e.message); }
 }
 
 module.exports = { getDb, initDb };

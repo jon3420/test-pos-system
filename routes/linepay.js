@@ -11,6 +11,7 @@ const fetch    = require('node-fetch');
 const { v4: uuidv4 } = require('uuid');
 const { getDb }      = require('../utils/db');
 const { broadcastToStore } = require('../utils/wssBroadcast');
+const { logServerEvent, getOrderTrackingContext } = require('../utils/analyticsLog'); // fix18-10-hotfix23-A
 
 // ── API endpoint（依 mode 決定）──────────────────────────
 function getApiBase(mode) {
@@ -507,6 +508,32 @@ router.get('/confirm', async (req, res) => {
         }
       }
     });
+    }
+
+    // ── fix18-10-hotfix23-A：Analytics Foundation ──────────────────────
+    // LINE Pay 的 purchase 事件只在 Confirm 真正成功時才寫入（不信任前端 redirect 就代表付款
+    // 成功）。同一 order_id 只能有一筆 purchase（logServerEvent 內部已查重）。追蹤欄位取自
+    // 訂單建立當下寫入的 submit_order 事件（/request 與 /confirm 都收不到 visitor/session）。
+    try {
+      const ctx = getOrderTrackingContext(db, storeId, order.uuid) || {};
+      logServerEvent(db, {
+        store_id: storeId,
+        visitor_id: ctx.visitor_id || `unknown_${order.uuid}`,
+        session_id: ctx.session_id || `unknown_${order.uuid}`,
+        cart_id: ctx.cart_id || null,
+        order_id: order.uuid,
+        event_name: 'purchase',
+        order_mode: ctx.order_mode || order.order_mode || null,
+        source: ctx.source || null,
+        medium: ctx.medium || null,
+        campaign: ctx.campaign || null,
+        referrer: ctx.referrer || null,
+        landing_page: ctx.landing_page || null,
+        fbclid: ctx.fbclid || null,
+        gclid: ctx.gclid || null,
+      });
+    } catch (evtErr) {
+      console.warn('[linepay/confirm] analytics event write failed:', evtErr.message);
     }
 
     // 廣播付款成功通知（後台列表刷新）

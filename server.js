@@ -411,6 +411,10 @@ initDb().then((db) => {
   // ── 老闆儀表板 Dashboard API（reports feature gate）─────
   app.use('/api/dashboard', requireStore, requireFeature('reports'), require('./routes/dashboard'));
 
+  // fix18-10-hotfix23-A：Analytics Foundation（前台轉換事件收集，獨立路由，不掛 feature gate，
+  // 與既有 dashboard/reports 系統各自獨立，僅需 store 存在即可寫入事件）
+  app.use('/api/analytics', requireStore, require('./routes/analytics'));
+
   app.get('/api/printers/list', async (req, res) => {
     try {
       const ps   = require('./services/printService');

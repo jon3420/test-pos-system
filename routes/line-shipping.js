@@ -15,6 +15,7 @@ const router  = express.Router();
 const { getDb } = require('../utils/db');
 const { broadcastToStore } = require('../utils/wssBroadcast');
 const { v4: uuidv4 } = require('uuid');
+const { logServerEvent } = require('../utils/analyticsLog'); // fix18-10-hotfix23-A：Analytics Foundation
 // hotfix22-C：冷藏宅配優惠券支援 — 直接共用既有優惠券引擎（routes/coupons.js），
 // 不重做驗證規則（期限／最低消費／每人次數上限／tenant 隔離皆沿用同一份邏輯），
 // 也不影響 routes/line-shipping.js 本來「不共用外帶/外送購物車與驗證流程」的獨立設計。
@@ -381,6 +382,8 @@ router.post('/', (req, res) => {
       recipient_name, phone, postal_code, city, district, address, address_note,
       arrival_type, arrival_date,
       payment_method, note, coupon_code,
+      // fix18-10-hotfix23-A：Analytics Foundation — 追蹤欄位，不影響金額/付款信任邊界
+      analytics: analyticsPayload,
     } = req.body;
 
     const settings = getShippingSettings(db, storeId);
@@ -559,6 +562,34 @@ router.post('/', (req, res) => {
     triggerN8nWebhook(db, storeId, 'line_shipping_new_order', {
       order_number: orderNo, recipient_name, phone, total, items: finalItems,
     });
+
+    // ── fix18-10-hotfix23-A：Analytics Foundation ──────────────────────
+    // 規則與 routes/line-orders.js 一致：submit_order 無論付款方式都寫入；
+    // purchase 非 LINE Pay 訂單於此立即寫入，LINE Pay 訂單改由 /api/linepay/confirm 寫入。
+    try {
+      const ap = (analyticsPayload && typeof analyticsPayload === 'object') ? analyticsPayload : {};
+      const evtBase = {
+        store_id: storeId,
+        visitor_id: ap.visitor_id || `unknown_${uuid}`,
+        session_id: ap.session_id || `unknown_${uuid}`,
+        cart_id: ap.cart_id || null,
+        order_id: uuid,
+        order_mode: 'shipping',
+        source: ap.source || null,
+        medium: ap.medium || null,
+        campaign: ap.campaign || null,
+        referrer: ap.referrer || null,
+        landing_page: ap.landing_page || null,
+        fbclid: ap.fbclid || null,
+        gclid: ap.gclid || null,
+      };
+      logServerEvent(db, { ...evtBase, event_name: 'submit_order' });
+      if (payment_method !== 'linepay') {
+        logServerEvent(db, { ...evtBase, event_name: 'purchase' });
+      }
+    } catch (evtErr) {
+      console.warn('[line-shipping] analytics event write failed:', evtErr.message);
+    }
 
     res.json({
       success: true,
