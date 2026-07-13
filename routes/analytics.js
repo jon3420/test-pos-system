@@ -26,6 +26,12 @@ const {
   isValidEventName,
   insertEvent,
 } = require('../utils/analyticsLog');
+const { resolveDateRange, DashboardDateError } = require('../utils/dashboardDate');
+const {
+  getKpi, getFixedWeekMonth, getFunnel, getRealtime, getCartAnalysis, getProductRanking,
+  getPayments, getSources, getRepeatCustomers, getIncomplete,
+  getHealthScore, getRecommendations,
+} = require('../utils/dashboardAnalytics');
 
 // 前台一般事件端點不接受 submit_order / purchase：這兩者只能由後端在
 // 訂單真正成立 / 付款真正成功時寫入（見 routes/line-orders.js、
@@ -153,3 +159,81 @@ router.post('/events', (req, res) => {
 });
 
 module.exports = router;
+
+// ══════════════════════════════════════════════════════════════════
+// fix18-10-hotfix23-B：老闆儀表板 V2 × Conversion Analytics
+// GET /api/analytics/dashboard?preset=today|yesterday|week|month|lastmonth|single|custom
+//                              &start_date=&end_date=&timezone=Asia/Taipei
+//
+// 一次回傳所有區塊需要的資料，前端不得每張卡片各自打 API（需求文件四）。
+// 舊的 GET /api/dashboard（routes/dashboard.js）維持不動，兩支 API 並存。
+// ══════════════════════════════════════════════════════════════════
+router.get('/dashboard', (req, res) => {
+  try {
+    const db = getDb();
+    const storeId = req.storeId;
+
+    let range;
+    try {
+      range = resolveDateRange(req.query);
+    } catch (e) {
+      if (e instanceof DashboardDateError) {
+        return res.status(400).json({ success: false, message: e.message });
+      }
+      throw e;
+    }
+
+    const kpi = getKpi(db, storeId, range);
+    const fixedWeekMonth = getFixedWeekMonth(db, storeId);
+    const funnel = getFunnel(db, storeId, range);
+    const realtime = getRealtime(db, storeId);
+    const cart = getCartAnalysis(db, storeId, range);
+    const products = getProductRanking(db, storeId, range);
+    const payments = getPayments(db, storeId, range);
+    const sources = getSources(db, storeId, range, kpi);
+    const repeat_customers = getRepeatCustomers(db, storeId, range);
+    const incomplete = getIncomplete(db, storeId, range);
+    const health_score = getHealthScore(kpi, funnel, cart, repeat_customers, payments);
+    const recommendations = getRecommendations(funnel, cart, payments, repeat_customers);
+
+    // analytics_events 是否有足夠資料（用來判斷 Conversion 區塊要不要顯示「尚無足夠資料」）
+    const hasAnalyticsData = funnel.some(f => f.count > 0);
+
+    res.json({
+      success: true,
+      range: {
+        preset: range.preset,
+        start_date: range.start_date,
+        end_date: range.end_date,
+        timezone: range.timezone,
+      },
+      kpi: {
+        revenue: kpi.revenue,
+        orders: kpi.orders,
+        avg_order_value: kpi.avg_order_value,
+        paid_orders: kpi.paid_orders,
+        unpaid_orders: kpi.unpaid_orders,
+        is_today: kpi.is_today,
+        payment_stats: kpi.paymentStats,
+        top_products: kpi.topProducts,
+        week_revenue: fixedWeekMonth.week_revenue,
+        week_orders: fixedWeekMonth.week_orders,
+        month_revenue: fixedWeekMonth.month_revenue,
+        month_orders: fixedWeekMonth.month_orders,
+      },
+      funnel: hasAnalyticsData ? funnel : { insufficient_data: true, message: '尚無足夠的轉換事件資料', stages: funnel },
+      realtime,
+      cart: hasAnalyticsData ? cart : { insufficient_data: true, message: '尚無足夠的轉換事件資料' },
+      products: hasAnalyticsData ? products : [],
+      payments: hasAnalyticsData ? payments : { rows: [], note: '尚無足夠的轉換事件資料' },
+      sources,
+      repeat_customers,
+      incomplete,
+      health_score,
+      recommendations: hasAnalyticsData ? recommendations : [],
+    });
+  } catch (e) {
+    console.error('[analytics] GET /dashboard error:', e.message, e.stack);
+    res.status(500).json({ success: false, message: e.message });
+  }
+});

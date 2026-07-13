@@ -228,7 +228,14 @@ function hasFeature(key) {
   return window.currentFeatures[key] === true;
 }
 
-/** 載入老闆儀表板（fix16b 升級）*/
+/** 載入老闆儀表板 V2（fix18-10-hotfix23-B：日期同步 × Conversion Analytics）*/
+// 統一日期篩選狀態，所有 KPI／漏斗／購物車／商品／付款／來源／回購／未完成／健康度／建議
+// 一律共用這一個 state，不得各區塊自行算日期。
+let dashboardDateState = { preset: 'today', start_date: '', end_date: '', timezone: 'Asia/Taipei' };
+let _dashboardLastData = null;      // 保留最後一次成功資料，API 失敗時不讓整頁白屏
+let _dashboardProductsCache = [];   // 商品轉換排行原始資料（排序在前端做，不重打 API）
+let _dashboardProductSort = 'cart';
+
 function loadReportsPage() {
   const container = document.getElementById('reports-container');
   if (!container) return;
@@ -243,48 +250,133 @@ function loadReportsPage() {
     return;
   }
 
-  container.innerHTML = _dashboardSkeleton();
-  _loadDashboard();
+  // 還原上次的日期篩選狀態（同分頁內重新整理保留目前選擇）
+  try {
+    const saved = JSON.parse(sessionStorage.getItem('dashboardDateState') || 'null');
+    if (saved && saved.preset) dashboardDateState = Object.assign({ preset:'today', start_date:'', end_date:'', timezone:'Asia/Taipei' }, saved);
+  } catch (e) {}
+
+  container.innerHTML = _dashboardSkeletonV2();
+  renderDashboardDateControls();
+  loadDashboardV2();
 }
 
-function _dashboardSkeleton() {
+function _dashboardSkeletonV2() {
   return `
   <div id="dashboard-wrap" style="font-family:-apple-system,sans-serif;width:100%;box-sizing:border-box">
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
       <h2 style="margin:0;font-size:1.2rem">📊 老闆儀表板</h2>
-      <input type="date" id="db-date" style="padding:6px 10px;border-radius:8px;border:1px solid var(--border,#2a2d3e);background:var(--bg-card,#1a1d27);color:var(--text-primary,#e2e8f0);font-size:.85rem"
-        onchange="_loadDashboard()">
-      <button onclick="_loadDashboard()" style="padding:6px 12px;border-radius:8px;background:#6366f1;border:none;color:#fff;cursor:pointer;font-size:.85rem">🔄 重新整理</button>
     </div>
-    <div id="db-body"><div style="color:var(--text-secondary,#64748b);padding:20px">載入中...</div></div>
+    <div id="db-date-controls" style="margin-bottom:20px"></div>
+    <div id="db-body-v2"><div style="color:var(--text-secondary,#64748b);padding:20px">載入中...</div></div>
   </div>`;
 }
 
-async function _loadDashboard() {
-  const dateEl = document.getElementById('db-date');
-  if (dateEl && !dateEl.value) {
-    // 設定預設日期（台灣今日）
-    const n = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
-    dateEl.value = n.toISOString().slice(0,10);
+// ── A. 日期篩選 UI ──────────────────────────────────────────────
+function renderDashboardDateControls() {
+  const el = document.getElementById('db-date-controls');
+  if (!el) return;
+  const presets = [['today','今日'],['yesterday','昨日'],['week','本週'],['month','本月'],['lastmonth','上月'],['single','單日'],['custom','自訂']];
+  const btnStyle = (active) => `padding:6px 12px;border-radius:8px;border:1px solid var(--border,#2a2d3e);font-size:.8rem;cursor:pointer;white-space:nowrap;background:${active?'#6366f1':'transparent'};color:${active?'#fff':'var(--text-secondary,#64748b)'}`;
+  const isSingle = dashboardDateState.preset === 'single';
+  const isCustom = dashboardDateState.preset === 'custom';
+  el.innerHTML = `
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+      ${presets.map(([k,label]) => `<button onclick="setDashboardPreset('${k}')" style="${btnStyle(dashboardDateState.preset===k)}">${label}</button>`).join('')}
+      <div id="db-single-wrap" style="display:${isSingle?'flex':'none'};gap:4px;align-items:center">
+        <input type="date" id="db-single-date" value="${escHtml(dashboardDateState.start_date||twTodayStr())}"
+          style="padding:5px 8px;border-radius:8px;border:1px solid var(--border,#2a2d3e);background:var(--bg-card,#1a1d27);color:var(--text-primary,#e2e8f0);font-size:.8rem">
+      </div>
+      <div id="db-custom-wrap" style="display:${isCustom?'flex':'none'};gap:4px;align-items:center">
+        <input type="date" id="db-custom-start" value="${escHtml(dashboardDateState.start_date||'')}"
+          style="padding:5px 8px;border-radius:8px;border:1px solid var(--border,#2a2d3e);background:var(--bg-card,#1a1d27);color:var(--text-primary,#e2e8f0);font-size:.8rem">
+        <span style="color:var(--text-secondary,#64748b)">～</span>
+        <input type="date" id="db-custom-end" value="${escHtml(dashboardDateState.end_date||'')}"
+          style="padding:5px 8px;border-radius:8px;border:1px solid var(--border,#2a2d3e);background:var(--bg-card,#1a1d27);color:var(--text-primary,#e2e8f0);font-size:.8rem">
+      </div>
+      <button onclick="applyDashboardDateFilter()" style="padding:6px 14px;border-radius:8px;background:#10b981;border:none;color:#fff;cursor:pointer;font-size:.8rem">🔍 查詢</button>
+      <button onclick="refreshDashboardV2()" style="padding:6px 14px;border-radius:8px;background:#6366f1;border:none;color:#fff;cursor:pointer;font-size:.8rem">🔄 重新整理</button>
+    </div>
+    <div style="font-size:.72rem;color:var(--text-secondary,#64748b);margin-top:6px">
+      目前查詢區間：${escHtml(dashboardDateState.start_date||'—')} ～ ${escHtml(dashboardDateState.end_date||'—')}（Asia/Taipei）
+    </div>`;
+}
+
+function setDashboardPreset(preset) {
+  dashboardDateState.preset = preset;
+  if (preset !== 'single' && preset !== 'custom') {
+    dashboardDateState.start_date = '';
+    dashboardDateState.end_date = '';
+  } else if (preset === 'single' && !dashboardDateState.start_date) {
+    dashboardDateState.start_date = dashboardDateState.end_date = twTodayStr();
   }
-  const date = dateEl ? dateEl.value : '';
-  const body = document.getElementById('db-body');
+  renderDashboardDateControls();
+  // 今日/昨日/本週/本月/上月可直接查；單日/自訂要等使用者選好日期按「查詢」
+  if (preset !== 'single' && preset !== 'custom') loadDashboardV2();
+}
+
+function applyDashboardDateFilter() {
+  if (dashboardDateState.preset === 'single') {
+    const d = document.getElementById('db-single-date')?.value;
+    if (!d) { showToast('請選擇日期', 'error'); return; }
+    dashboardDateState.start_date = d;
+    dashboardDateState.end_date = d;
+  } else if (dashboardDateState.preset === 'custom') {
+    const s = document.getElementById('db-custom-start')?.value;
+    const e = document.getElementById('db-custom-end')?.value;
+    if (!s || !e) { showToast('請選擇開始與結束日期', 'error'); return; }
+    if (e < s) { showToast('結束日期不得早於開始日期', 'error'); return; }
+    dashboardDateState.start_date = s;
+    dashboardDateState.end_date = e;
+  }
+  renderDashboardDateControls();
+  loadDashboardV2();
+}
+
+function refreshDashboardV2() {
+  loadDashboardV2();
+}
+
+// ── N. API 串接 ─────────────────────────────────────────────────
+async function loadDashboardV2() {
+  try { sessionStorage.setItem('dashboardDateState', JSON.stringify(dashboardDateState)); } catch (e) {}
+
+  const body = document.getElementById('db-body-v2');
   if (!body) return;
-  body.innerHTML = '<div style="color:var(--text-secondary,#64748b);padding:20px">載入中...</div>';
+  if (!_dashboardLastData) body.innerHTML = '<div style="color:var(--text-secondary,#64748b);padding:20px">載入中...</div>';
+
+  const params = new URLSearchParams({ preset: dashboardDateState.preset, timezone: 'Asia/Taipei' });
+  if (dashboardDateState.start_date) params.set('start_date', dashboardDateState.start_date);
+  if (dashboardDateState.end_date) params.set('end_date', dashboardDateState.end_date);
 
   try {
-    const url = '/api/dashboard' + (date ? '?date=' + date : '');
-    const res  = await apiFetch(url);
+    const res = await apiFetch('/api/analytics/dashboard?' + params.toString());
     if (!res || res.status === 403) {
-      body.innerHTML = '<div style="color:#ef4444;padding:20px">❌ 無法載入報表（功能未授權）</div>';
+      renderDashboardLoadError('無法載入儀表板（功能未授權）');
       return;
     }
     const json = await res.json();
-    if (!json.success) { body.innerHTML = '<div style="color:#ef4444;padding:20px">❌ ' + (json.message || '載入失敗') + '</div>'; return; }
-    body.innerHTML = _renderDashboard(json.data, json.date);
-  } catch(e) {
-    body.innerHTML = '<div style="color:#ef4444;padding:20px">❌ 載入失敗：' + e.message + '</div>';
+    if (!json.success) { renderDashboardLoadError(json.message || '載入失敗'); return; }
+    _dashboardLastData = json;
+    renderDashboardV2(json);
+  } catch (e) {
+    renderDashboardLoadError(e.message);
   }
+}
+
+// API 失敗時：若已有上次成功資料，保留既有畫面只提示 toast；完全沒資料時才顯示錯誤區塊，
+// 不讓整個老闆儀表板白屏。
+function renderDashboardLoadError(msg) {
+  if (_dashboardLastData) {
+    showToast('儀表板更新失敗：' + msg, 'error');
+    return;
+  }
+  const body = document.getElementById('db-body-v2');
+  if (body) body.innerHTML = `<div style="color:#ef4444;padding:20px">❌ 載入失敗：${escHtml(msg)}</div>`;
+}
+
+function _fmtPct(v) {
+  return (v === null || v === undefined || typeof v !== 'number' || !isFinite(v)) ? '—' : (v + '%');
 }
 
 function _nt(n) { return 'NT$' + Number(n||0).toLocaleString('zh-TW',{minimumFractionDigits:0,maximumFractionDigits:0}); }
@@ -305,204 +397,325 @@ function _section(title, html) {
   </div>`;
 }
 
-function _renderDashboard(d, date) {
-  const f = window.currentFeatures || {};
+// ── 組裝所有區塊（依需求文件 M. UI 規則指定順序）──────────────────
+function renderDashboardV2(data) {
+  const body = document.getElementById('db-body-v2');
+  if (!body) return;
   let html = '';
+  html += renderDashboardHealth(data.health_score, data.range);
+  html += renderDashboardKpi(data.kpi, data.range);
+  html += renderDashboardFunnel(data.funnel);
+  html += renderDashboardRealtime(data.realtime);
+  html += renderDashboardCart(data.cart);
+  html += renderDashboardProducts(data.products);
+  html += renderDashboardPayments(data.payments);
+  html += renderDashboardSources(data.sources);
+  html += renderDashboardRepeatCustomers(data.repeat_customers);
+  html += renderDashboardIncomplete(data.incomplete);
+  html += renderDashboardRecommendations(data.recommendations);
+  body.innerHTML = html;
+  // 商品排行表格在 innerHTML 掛載後才能抓到 DOM，另外呼叫填入
+  renderDashboardProductsTable();
+}
 
-  // ── 第一區：今日總覽 ───────────────────────────────
-  html += `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-bottom:20px;width:100%">
-    ${_card('今日營收', _nt(d.todayRevenue), date, '#10b981')}
-    ${_card('今日訂單', d.todayOrders + ' 筆', '', '')}
-    ${_card('平均客單', _nt(d.avgOrderValue), '', '')}
-    ${_card('已結帳', d.paidOrders + ' 筆', '', '#818cf8')}
-    ${_card('未結帳', d.unpaidOrders + ' 筆', '', d.unpaidOrders > 0 ? '#f59e0b' : '')}
+// ── C. 經營健康度 ───────────────────────────────────────────────
+function renderDashboardHealth(h, range) {
+  const isToday = range && range.preset === 'today';
+  const label = isToday ? '今日經營健康度' : '區間經營健康度';
+  if (!h || h.score === null || h.score === undefined) {
+    const missing = (h && h.missing) || [];
+    return _section('🩺 經營健康度',
+      `<div style="display:flex;align-items:center;gap:10px;margin-bottom:${missing.length?'8px':'0'}">
+        <span style="font-size:1.4rem">⚪</span>
+        <span style="font-size:1.05rem;font-weight:700">經營健康度：資料不足</span>
+      </div>
+      ${missing.length ? `<div style="font-size:.78rem;color:var(--text-secondary,#64748b)">缺少：${missing.map(escHtml).join('、')}</div>` : ''}`
+    );
+  }
+  const emoji = h.score >= 80 ? '🟢' : h.score >= 60 ? '🟡' : '🔴';
+  return _section('🩺 經營健康度',
+    `<div style="display:flex;align-items:center;gap:10px">
+      <span style="font-size:1.4rem">${emoji}</span>
+      <span style="font-size:1.05rem;font-weight:700">${label}：${h.score} 分</span>
+    </div>
+    ${h.missing && h.missing.length ? `<div style="font-size:.75rem;color:var(--text-secondary,#64748b);margin-top:8px">部分項目資料不足，未納入計分：${h.missing.map(escHtml).join('、')}</div>` : ''}`
+  );
+}
+
+// ── B. 既有 KPI（依區間動態改標題）───────────────────────────────
+function renderDashboardKpi(kpi, range) {
+  if (!kpi) return '';
+  const isToday = range && range.preset === 'today';
+  const prefix = isToday ? '今日' : '區間';
+  let html = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-bottom:20px;width:100%">
+    ${_card(prefix+'營收', _nt(kpi.revenue), '', '#10b981')}
+    ${_card(prefix+'訂單', kpi.orders + ' 筆', '', '')}
+    ${_card(prefix+'平均客單', _nt(kpi.avg_order_value), '', '')}
+    ${_card(prefix+'已結帳', kpi.paid_orders + ' 筆', '', '#818cf8')}
+    ${_card(prefix+'未結帳', kpi.unpaid_orders + ' 筆', '', kpi.unpaid_orders > 0 ? '#f59e0b' : '')}
   </div>`;
 
-  // ── 第二區：週月營收 ────────────────────────────────
-  html += _section('📅 週月營收分析',
+  html += _section('📅 週月營收（固定顯示目前本週／本月，不隨上方日期篩選變動）',
     `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-      ${_card('本週營收', _nt(d.weekRevenue), d.weekOrders + ' 筆', '#6366f1')}
-      ${_card('本月營收', _nt(d.monthRevenue), d.monthOrders + ' 筆', '#8b5cf6')}
+      ${_card('本週營收', _nt(kpi.week_revenue), (kpi.week_orders||0) + ' 筆', '#6366f1')}
+      ${_card('本月營收', _nt(kpi.month_revenue), (kpi.month_orders||0) + ' 筆', '#8b5cf6')}
     </div>`
   );
 
-  // ── 第三區：付款方式 ────────────────────────────────
-  const pmNames = {cash:'現金',card:'刷卡',linepay:'LINE Pay',jkopay:'街口支付',transfer:'轉帳',platform:'平台付款'};
-  const pmRows = (d.paymentStats||[]).map(p =>
-    `<tr><td style="padding:6px 0">${pmNames[p.payment_method]||p.payment_method}</td>
+  const pmNames = {cash:'現金',card:'刷卡',linepay:'LINE Pay',jkopay:'街口支付',transfer:'轉帳',platform:'平台付款',credit_card:'信用卡'};
+  const pmRows = (kpi.payment_stats||[]).map(p =>
+    `<tr><td style="padding:6px 0">${pmNames[p.payment_method]||escHtml(p.payment_method)}</td>
       <td style="padding:6px 0;text-align:right">${p.count} 筆</td>
       <td style="padding:6px 0;text-align:right;color:#10b981">${_nt(p.revenue)}</td>
-      <td style="padding:6px 0;text-align:right;color:var(--text-secondary,#64748b)">${_pct(p.revenue,d.todayRevenue)}</td></tr>`
+      <td style="padding:6px 0;text-align:right;color:var(--text-secondary,#64748b)">${_pct(p.revenue,kpi.revenue)}</td></tr>`
   ).join('');
-  html += _section('💳 付款方式分析',
-    pmRows ? `<table style="width:100%;border-collapse:collapse;font-size:.875rem">
+  html += _section('💳 付款方式分析（訂單實收金額）',
+    pmRows ? `<div style="overflow-x:auto"><table style="width:100%;min-width:380px;border-collapse:collapse;font-size:.875rem">
       <thead><tr style="color:var(--text-secondary,#64748b);font-size:.75rem">
         <th style="text-align:left;padding-bottom:8px">方式</th><th style="text-align:right;padding-bottom:8px">筆數</th>
         <th style="text-align:right;padding-bottom:8px">金額</th><th style="text-align:right;padding-bottom:8px">佔比</th></tr></thead>
-      <tbody>${pmRows}</tbody></table>` : '<div style="color:var(--text-secondary,#64748b);font-size:.875rem">今日無資料</div>'
+      <tbody>${pmRows}</tbody></table></div>` : `<div style="color:var(--text-secondary,#64748b);font-size:.875rem">此區間無資料</div>`
   );
 
-  // ── 第四區：訂單來源 ────────────────────────────────
-  const modeNames = {dine_in:'內用',takeout:'外帶',delivery:'外送'};
-  const srcRows = (d.sourceStats||[]).map(s => {
-    const modeName = modeNames[s.mode] || s.mode;
-    const platLabel = s.platform ? ` (${s.platform})` : '';
-    return `<tr><td style="padding:6px 0">${modeName}${platLabel}</td>
-      <td style="padding:6px 0;text-align:right">${s.count} 筆</td>
-      <td style="padding:6px 0;text-align:right;color:#10b981">${_nt(s.revenue)}</td></tr>`;
-  }).join('');
-  html += _section('📦 訂單來源分析',
-    srcRows ? `<table style="width:100%;border-collapse:collapse;font-size:.875rem">
-      <thead><tr style="color:var(--text-secondary,#64748b);font-size:.75rem">
-        <th style="text-align:left;padding-bottom:8px">來源</th>
-        <th style="text-align:right;padding-bottom:8px">筆數</th>
-        <th style="text-align:right;padding-bottom:8px">金額</th></tr></thead>
-      <tbody>${srcRows}</tbody></table>` : '<div style="color:var(--text-secondary,#64748b);font-size:.875rem">今日無資料</div>'
-  );
-
-  // ── 第五區：熱銷商品 TOP10（fix18-09F：支援群組統計）────────
+  // 熱銷商品 TOP10（沿用既有商品群組統計切換，fix18-09F）
   const _dbMode = getProductStatMode();
-  // 從 topProducts（API 返回的原始商品排行）重新用群組合併
   const _rawTopMap = {};
-  (d.topProducts||[]).forEach(p => {
+  (kpi.top_products||[]).forEach(p => {
     const dname = resolveProductDisplayName(p.name, _dbMode);
     if (!_rawTopMap[dname]) _rawTopMap[dname] = { name: dname, qty: 0, revenue: 0 };
-    _rawTopMap[dname].qty     += Number(p.qty     || 0);
+    _rawTopMap[dname].qty += Number(p.qty || 0);
     _rawTopMap[dname].revenue += Number(p.revenue || 0);
   });
   const _mergedTop = Object.values(_rawTopMap).sort((a,b) => b.qty - a.qty).slice(0, 10);
   const _modeToggle = `<div style="display:flex;gap:6px;align-items:center;margin-bottom:12px">
     <span style="font-size:12px;color:var(--text-secondary,#64748b)">統計模式：</span>
-    <button onclick="setProductStatMode('group');_loadDashboard()" style="font-size:12px;padding:3px 10px;border-radius:99px;border:1px solid var(--border,#2a2d3e);background:${_dbMode==='group'?'#6366f1':'transparent'};color:${_dbMode==='group'?'#fff':'var(--text-secondary,#64748b)'};cursor:pointer">商品群組</button>
-    <button onclick="setProductStatMode('raw');_loadDashboard()" style="font-size:12px;padding:3px 10px;border-radius:99px;border:1px solid var(--border,#2a2d3e);background:${_dbMode==='raw'?'#6366f1':'transparent'};color:${_dbMode==='raw'?'#fff':'var(--text-secondary,#64748b)'};cursor:pointer">原始商品</button>
+    <button onclick="setProductStatMode('group');loadDashboardV2()" style="font-size:12px;padding:3px 10px;border-radius:99px;border:1px solid var(--border,#2a2d3e);background:${_dbMode==='group'?'#6366f1':'transparent'};color:${_dbMode==='group'?'#fff':'var(--text-secondary,#64748b)'};cursor:pointer">商品群組</button>
+    <button onclick="setProductStatMode('raw');loadDashboardV2()" style="font-size:12px;padding:3px 10px;border-radius:99px;border:1px solid var(--border,#2a2d3e);background:${_dbMode==='raw'?'#6366f1':'transparent'};color:${_dbMode==='raw'?'#fff':'var(--text-secondary,#64748b)'};cursor:pointer">原始商品</button>
   </div>`;
   const topRows = _mergedTop.map((p,i) =>
     `<tr><td style="padding:5px 0;color:${i<3?'#f59e0b':'inherit'}">${i+1}. ${escHtml(p.name)}</td>
       <td style="padding:5px 0;text-align:right">${p.qty} 份</td>
       <td style="padding:5px 0;text-align:right;color:#10b981">${_nt(p.revenue)}</td></tr>`
   ).join('');
-  html += _section('🏆 熱銷商品排行 TOP10',
-    _modeToggle + (topRows ? `<table style="width:100%;border-collapse:collapse;font-size:.875rem">
+  html += _section(`🏆 熱銷商品排行 TOP10（${prefix}）`,
+    _modeToggle + (topRows ? `<div style="overflow-x:auto"><table style="width:100%;min-width:320px;border-collapse:collapse;font-size:.875rem">
       <thead><tr style="color:var(--text-secondary,#64748b);font-size:.75rem">
         <th style="text-align:left;padding-bottom:8px">商品</th>
         <th style="text-align:right;padding-bottom:8px">數量</th>
         <th style="text-align:right;padding-bottom:8px">營收</th></tr></thead>
-      <tbody>${topRows}</tbody></table>` : '<div style="color:var(--text-secondary,#64748b);font-size:.875rem">今日無資料</div>')
+      <tbody>${topRows}</tbody></table></div>` : '<div style="color:var(--text-secondary,#64748b);font-size:.875rem">此區間無資料</div>')
   );
 
-  // ── fix18-09F：商品群組排行 TOP10 ────────────────────
-  // 只在群組模式且有群組時顯示
-  if (_dbMode === 'group' && allProductAnalysisGroups && allProductAnalysisGroups.length) {
-    const _enabledGroups = allProductAnalysisGroups.filter(g => g.enabled);
-    // 從 topProducts 聚合群組統計（包含折扣）
-    const _grpMap = {};
-    _enabledGroups.forEach(g => {
-      _grpMap[g.group_name] = { name: g.group_name, qty: 0, revenue: 0, discount: 0, actual: 0 };
-    });
-    // 掃原始 topProducts
-    (d.topProducts||[]).forEach(p => {
-      const gname = getAnalysisGroupName(p.name);
-      if (gname && _grpMap[gname]) {
-        _grpMap[gname].qty     += Number(p.qty     || 0);
-        _grpMap[gname].revenue += Number(p.revenue || 0);
-      }
-    });
-    // 折扣資料（從 allOrdersCache 若有）
-    const _grpRowsArr = Object.values(_grpMap)
-      .filter(g => g.qty > 0 || g.revenue > 0)
-      .sort((a,b) => b.qty - a.qty)
-      .slice(0, 10);
-    if (_grpRowsArr.length) {
-      const _grpRows = _grpRowsArr.map((g, i) =>
-        `<tr>
-          <td style="padding:6px 0;color:${i<3?'#f59e0b':'inherit'}">${i+1}. ${escHtml(g.name)}</td>
-          <td style="padding:6px 0;text-align:right">${g.qty} 份</td>
-          <td style="padding:6px 0;text-align:right;color:#10b981">${_nt(g.revenue)}</td>
-        </tr>`
-      ).join('');
-      html += _section('📊 商品群組排行 TOP10',
-        `<table style="width:100%;border-collapse:collapse;font-size:.875rem">
-          <thead><tr style="color:var(--text-secondary,#64748b);font-size:.75rem">
-            <th style="text-align:left;padding-bottom:8px">群組</th>
-            <th style="text-align:right;padding-bottom:8px">銷量</th>
-            <th style="text-align:right;padding-bottom:8px">營收</th>
-          </tr></thead>
-          <tbody>${_grpRows}</tbody>
-        </table>`
-      );
-    }
-  }
+  return html;
+}
 
-  // ── 第六區：外送平台 ────────────────────────────────
-  if (f.delivery !== false) {
-    const delivRows = (d.deliveryStats||[]).map(p =>
-      `<tr><td style="padding:6px 0">${escHtml(p.platform)}</td>
-        <td style="padding:6px 0;text-align:right">${p.count} 筆</td>
-        <td style="padding:6px 0;text-align:right">${_nt(p.revenue)}</td>
-        <td style="padding:6px 0;text-align:right;color:#ef4444">${_nt(p.commission)}</td>
-        <td style="padding:6px 0;text-align:right;color:#10b981">${_nt(p.store_income)}</td></tr>`
-    ).join('');
-    html += _section('🛵 外送平台分析',
-      delivRows ? `<table style="width:100%;border-collapse:collapse;font-size:.875rem">
-        <thead><tr style="color:var(--text-secondary,#64748b);font-size:.75rem">
-          <th style="text-align:left;padding-bottom:8px">平台</th>
-          <th style="text-align:right;padding-bottom:8px">筆數</th>
-          <th style="text-align:right;padding-bottom:8px">營收</th>
-          <th style="text-align:right;padding-bottom:8px">抽成</th>
-          <th style="text-align:right;padding-bottom:8px">實收</th></tr></thead>
-        <tbody>${delivRows}</tbody></table>` : '<div style="color:var(--text-secondary,#64748b);font-size:.875rem">今日無外送訂單</div>'
-    );
+// ── D. 轉換漏斗 ─────────────────────────────────────────────────
+function renderDashboardFunnel(funnel) {
+  const insufficient = funnel && !Array.isArray(funnel) && funnel.insufficient_data;
+  const stages = insufficient ? funnel.stages : funnel;
+  if (!stages || !stages.length || !(stages.some(s => s.count > 0))) {
+    return _section('📈 轉換分析', `<div style="color:var(--text-secondary,#64748b);font-size:.875rem">尚無足夠的轉換事件資料</div>`);
   }
-
-  // ── 第七區：時段分析 ────────────────────────────────
-  const hourBars = (d.hourlyStats||[]).filter(h => h.count > 0).map(h => {
-    const maxCount = Math.max(...(d.hourlyStats||[]).map(x=>x.count), 1);
-    const pct = Math.round(h.count / maxCount * 100);
-    return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;font-size:.8rem">
-      <span style="width:40px;color:var(--text-secondary,#64748b)">${h.label}</span>
-      <div style="flex:1;background:var(--border,#2a2d3e);border-radius:4px;height:18px;position:relative">
+  const maxCount = Math.max(...stages.map(s => s.count), 1);
+  const rows = stages.map(s => {
+    const pct = maxCount > 0 ? Math.round(s.count / maxCount * 100) : 0;
+    const detail = [
+      s.step_conversion_rate !== null && s.step_conversion_rate !== undefined ? `前一步 ${_fmtPct(s.step_conversion_rate)}` : null,
+      `整體 ${_fmtPct(s.overall_conversion_rate)}`,
+    ].filter(Boolean).join(' · ');
+    return `<div style="margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;font-size:.85rem;margin-bottom:4px;flex-wrap:wrap;gap:4px">
+        <span style="font-weight:600">${escHtml(s.label)}</span>
+        <span style="color:var(--text-secondary,#64748b)">${s.count} 人 · ${detail}</span>
+      </div>
+      <div style="background:var(--border,#2a2d3e);border-radius:4px;height:16px;overflow:hidden">
         <div style="width:${pct}%;background:#6366f1;height:100%;border-radius:4px;transition:width .3s"></div>
       </div>
-      <span style="width:30px;text-align:right">${h.count}</span>
-      <span style="width:70px;text-align:right;color:#10b981">${_nt(h.revenue)}</span>
-    </div>`;
-  }).join('') || '<div style="color:var(--text-secondary,#64748b);font-size:.875rem">今日無資料</div>';
-  html += _section('⏰ 時段分析', hourBars);
-
-  // ── 第八區：星期分析 ────────────────────────────────
-  const wdBars = (d.weekdayStats||[]).map(w => {
-    const maxRev = Math.max(...(d.weekdayStats||[]).map(x=>x.revenue), 1);
-    const pct = Math.round(w.revenue / maxRev * 100);
-    return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;font-size:.8rem">
-      <span style="width:32px;color:var(--text-secondary,#64748b)">${w.label}</span>
-      <div style="flex:1;background:var(--border,#2a2d3e);border-radius:4px;height:18px">
-        <div style="width:${pct}%;background:#8b5cf6;height:100%;border-radius:4px"></div>
-      </div>
-      <span style="width:30px;text-align:right">${w.count}</span>
-      <span style="width:80px;text-align:right;color:#10b981">${_nt(w.revenue)}</span>
     </div>`;
   }).join('');
-  html += _section('📆 星期分析（最近4週）', wdBars || '<div style="color:var(--text-secondary,#64748b);font-size:.875rem">無資料</div>');
+  return _section('📈 轉換分析', rows);
+}
 
-  // ── 第九區：LINE 點餐 ───────────────────────────────
-  if (f.line_order) {
-    const ls = d.lineStats || {};
-    html += _section('📲 LINE 點餐分析',
-      `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-        ${_card('LINE 點餐訂單', (ls.orders||0) + ' 筆', '', '#06C755')}
-        ${_card('LINE 點餐營收', _nt(ls.revenue), '', '#06C755')}
-      </div>`
-    );
+// ── E. 近 5 分鐘狀態 ────────────────────────────────────────────
+function renderDashboardRealtime(rt) {
+  if (!rt) return '';
+  return _section(`⚡ ${escHtml(rt.window || '近 5 分鐘')}狀態`,
+    `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:12px">
+      ${_card('目前在線', (rt.online||0) + ' 人', '近 5 分鐘', '#10b981')}
+      ${_card('正在瀏覽商品', (rt.browsing_product||0) + ' 人', '', '')}
+      ${_card('正在購物車', (rt.in_cart||0) + ' 人', '', '')}
+      ${_card('正在付款', (rt.paying||0) + ' 人', '', '#f59e0b')}
+    </div>`
+  );
+}
+
+// ── F. 購物車分析 ───────────────────────────────────────────────
+function renderDashboardCart(cart) {
+  if (!cart || cart.insufficient_data) {
+    return _section('🛒 購物車分析', `<div style="color:var(--text-secondary,#64748b);font-size:.875rem">${cart && cart.message ? escHtml(cart.message) : '尚無足夠的轉換事件資料'}</div>`);
   }
+  const buckets = cart.abandon_time_buckets || {};
+  const bucketMax = Math.max(...Object.values(buckets), 1);
+  const bucketHtml = Object.entries(buckets).map(([label, count]) => {
+    const pct = bucketMax > 0 ? Math.round(count / bucketMax * 100) : 0;
+    return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;font-size:.8rem">
+      <span style="width:110px;color:var(--text-secondary,#64748b)">${escHtml(label)}</span>
+      <div style="flex:1;background:var(--border,#2a2d3e);border-radius:4px;height:14px;overflow:hidden">
+        <div style="width:${pct}%;background:#f59e0b;height:100%;border-radius:4px"></div>
+      </div>
+      <span style="width:26px;text-align:right">${count}</span>
+    </div>`;
+  }).join('');
+  return _section('🛒 購物車分析',
+    `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px;margin-bottom:16px">
+      ${_card('加入購物車人數', cart.add_to_cart_visitors + ' 人', '', '')}
+      ${_card('已完成購買', cart.completed_carts + ' 個', '', '#10b981')}
+      ${_card('未完成購物車', cart.incomplete_carts + ' 個', '', '#f59e0b')}
+      ${_card('放棄率', _fmtPct(cart.abandonment_rate), '', '#ef4444')}
+      ${_card('未完成估計金額', _nt(cart.estimated_abandoned_amount), '', '')}
+      ${_card('平均停留時間', cart.avg_dwell_seconds !== null && cart.avg_dwell_seconds !== undefined ? Math.round(cart.avg_dwell_seconds/60) + ' 分' : '—', '', '')}
+    </div>
+    <div style="font-size:.8rem;color:var(--text-secondary,#64748b);margin-bottom:8px;font-weight:600">放棄時間分布（購物車永久保留，但不代表永遠算活躍——僅分類，不刪除資料）</div>
+    ${bucketHtml}`
+  );
+}
 
-  // ── 第十區：庫存（預留）───────────────────────────────
-  if (f.inventory) {
-    html += _section('🏪 庫存分析（預留）',
-      '<div style="color:var(--text-secondary,#64748b);font-size:.875rem">庫存分析功能開發中...</div>'
-    );
+// ── G. 商品轉換排行 ─────────────────────────────────────────────
+function renderDashboardProducts(products) {
+  _dashboardProductsCache = products || [];
+  const sortBtns = [['cart','加入最多'],['purchase','成交最多'],['abandon','放棄最多'],['rate_desc','轉換率最高'],['rate_asc','轉換率最低']];
+  return _section('🏆 商品轉換排行',
+    `<div style="margin-bottom:10px;display:flex;gap:6px;flex-wrap:wrap">
+      ${sortBtns.map(([k,l]) => `<button onclick="sortDashboardProducts('${k}')" style="font-size:12px;padding:3px 10px;border-radius:99px;border:1px solid var(--border,#2a2d3e);background:${_dashboardProductSort===k?'#6366f1':'transparent'};color:${_dashboardProductSort===k?'#fff':'var(--text-secondary,#64748b)'};cursor:pointer">${l}</button>`).join('')}
+    </div>
+    <div id="db-products-table" style="overflow-x:auto"></div>`
+  );
+}
+function sortDashboardProducts(mode) {
+  _dashboardProductSort = mode;
+  document.querySelectorAll('#db-body-v2 button[onclick^="sortDashboardProducts"]').forEach(b => {
+    const m = (b.getAttribute('onclick')||'').match(/sortDashboardProducts\('(\w+)'\)/);
+    const active = m && m[1] === mode;
+    b.style.background = active ? '#6366f1' : 'transparent';
+    b.style.color = active ? '#fff' : 'var(--text-secondary,#64748b)';
+  });
+  renderDashboardProductsTable();
+}
+function renderDashboardProductsTable() {
+  const el = document.getElementById('db-products-table');
+  if (!el) return;
+  const list = [..._dashboardProductsCache];
+  if (_dashboardProductSort === 'cart') list.sort((a,b) => b.cart_people - a.cart_people);
+  else if (_dashboardProductSort === 'purchase') list.sort((a,b) => b.purchase_people - a.purchase_people);
+  else if (_dashboardProductSort === 'abandon') list.sort((a,b) => b.not_purchased_people - a.not_purchased_people);
+  else if (_dashboardProductSort === 'rate_desc') list.sort((a,b) => (b.cart_to_purchase_rate ?? -1) - (a.cart_to_purchase_rate ?? -1));
+  else if (_dashboardProductSort === 'rate_asc') list.sort((a,b) => (a.cart_to_purchase_rate ?? 999) - (b.cart_to_purchase_rate ?? 999));
+
+  if (!list.length) { el.innerHTML = '<div style="color:var(--text-secondary,#64748b);font-size:.875rem">此區間尚無商品轉換資料</div>'; return; }
+
+  el.innerHTML = `<table style="width:100%;min-width:640px;border-collapse:collapse;font-size:.8rem">
+    <thead><tr style="color:var(--text-secondary,#64748b);font-size:.72rem">
+      <th style="text-align:left;padding-bottom:6px">商品</th>
+      <th style="text-align:right;padding-bottom:6px">瀏覽人數</th><th style="text-align:right;padding-bottom:6px">加購人數</th><th style="text-align:right;padding-bottom:6px">加購數量</th>
+      <th style="text-align:right;padding-bottom:6px">成交人數</th><th style="text-align:right;padding-bottom:6px">成交數量</th><th style="text-align:right;padding-bottom:6px">未成交人數</th>
+      <th style="text-align:right;padding-bottom:6px">加入→成交率</th>
+    </tr></thead>
+    <tbody>${list.map(p => `<tr>
+      <td style="padding:5px 0">${p.is_delisted ? `已下架商品 #${p.product_id}` : escHtml(p.product_name)}</td>
+      <td style="text-align:right">${p.view_people}</td><td style="text-align:right">${p.cart_people}</td><td style="text-align:right">${p.cart_qty}</td>
+      <td style="text-align:right">${p.purchase_people}</td><td style="text-align:right">${p.purchase_qty}</td><td style="text-align:right">${p.not_purchased_people}</td>
+      <td style="text-align:right">${_fmtPct(p.cart_to_purchase_rate)}</td>
+    </tr>`).join('')}</tbody></table>`;
+}
+
+// ── H. 付款流程分析 ─────────────────────────────────────────────
+function renderDashboardPayments(payments) {
+  const pmLabel = {cash:'現金',linepay:'LINE Pay',transfer:'轉帳',credit_card:'信用卡',platform:'平台付款'};
+  const rows = (payments && payments.rows) || [];
+  if (!rows.length) {
+    return _section('💳 付款流程分析（開始付款 → 成功）', `<div style="color:var(--text-secondary,#64748b);font-size:.875rem">${payments && payments.note ? escHtml(payments.note) : '尚無足夠的轉換事件資料'}</div>`);
   }
+  const body = rows.map(r => `<tr>
+    <td style="padding:6px 0">${pmLabel[r.payment_method] || escHtml(r.payment_method)}</td>
+    <td style="padding:6px 0;text-align:right">${r.started}</td>
+    <td style="padding:6px 0;text-align:right;color:#10b981">${r.succeeded}</td>
+    <td style="padding:6px 0;text-align:right;color:${r.failed_or_interrupted > 0 ? '#ef4444' : 'inherit'}">${Math.max(0, r.failed_or_interrupted)}</td>
+    <td style="padding:6px 0;text-align:right">${_fmtPct(r.success_rate)}</td>
+  </tr>`).join('');
+  return _section('💳 付款流程分析（開始付款 → 成功）',
+    `<div style="overflow-x:auto"><table style="width:100%;min-width:420px;border-collapse:collapse;font-size:.85rem">
+      <thead><tr style="color:var(--text-secondary,#64748b);font-size:.75rem">
+        <th style="text-align:left">付款方式</th><th style="text-align:right">開始付款</th><th style="text-align:right">付款成功</th><th style="text-align:right">失敗／中斷</th><th style="text-align:right">成功率</th>
+      </tr></thead><tbody>${body}</tbody></table></div>
+    <div style="font-size:.72rem;color:var(--text-secondary,#64748b);margin-top:8px">LINE Pay 成功只依 purchase 事件認定，不以前端 payment_started 當成交。</div>`
+  );
+}
 
-  return html;
+// ── I. 訂單來源與廣告來源 ───────────────────────────────────────
+function renderDashboardSources(sources) {
+  if (!sources) return '';
+  const modeNames = {dine_in:'內用',takeout:'外帶',delivery:'外送',shipping:'冷藏宅配'};
+  const orderRows = (sources.order_sources||[]).map(s => {
+    const modeName = modeNames[s.mode] || s.mode;
+    const platLabel = s.platform ? ` (${escHtml(s.platform)})` : '';
+    return `<tr><td style="padding:6px 0">${escHtml(modeName)}${platLabel}</td>
+      <td style="padding:6px 0;text-align:right">${s.count} 筆</td>
+      <td style="padding:6px 0;text-align:right;color:#10b981">${_nt(s.revenue)}</td></tr>`;
+  }).join('');
+  const srcLabel = {facebook:'Facebook',instagram:'Instagram',threads:'Threads',google:'Google',line_oa:'LINE OA',direct:'直接進站',unknown:'未知'};
+  const analyticsRows = (sources.analytics_sources||[]).map(s =>
+    `<tr><td style="padding:6px 0">${srcLabel[s.source] || escHtml(s.source)}</td><td style="padding:6px 0;text-align:right">${s.visitors} 人</td></tr>`
+  ).join('');
+  return _section('📦 訂單來源分析',
+    orderRows ? `<div style="overflow-x:auto"><table style="width:100%;min-width:320px;border-collapse:collapse;font-size:.875rem">
+      <thead><tr style="color:var(--text-secondary,#64748b);font-size:.75rem"><th style="text-align:left">來源</th><th style="text-align:right">筆數</th><th style="text-align:right">金額</th></tr></thead>
+      <tbody>${orderRows}</tbody></table></div>` : '<div style="color:var(--text-secondary,#64748b);font-size:.875rem">此區間無訂單資料</div>'
+  ) + _section('📣 Analytics 廣告來源（進站訪客，尚未完整串接 UTM／廣告追蹤）',
+    (analyticsRows ? `<div style="overflow-x:auto"><table style="width:100%;min-width:260px;border-collapse:collapse;font-size:.875rem">
+      <thead><tr style="color:var(--text-secondary,#64748b);font-size:.75rem"><th style="text-align:left">來源</th><th style="text-align:right">訪客數</th></tr></thead>
+      <tbody>${analyticsRows}</tbody></table></div>` : '<div style="color:var(--text-secondary,#64748b);font-size:.875rem">此區間無進站資料</div>')
+  );
+}
+
+// ── J. 回購分析 ─────────────────────────────────────────────────
+function renderDashboardRepeatCustomers(rc) {
+  if (!rc || !rc.identifiable_customers) {
+    return _section('🔁 回購分析', '<div style="color:var(--text-secondary,#64748b);font-size:.875rem">此區間尚無可辨識顧客資料（需有電話的已完成訂單）</div>');
+  }
+  return _section('🔁 回購分析',
+    `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:12px">
+      ${_card('新客人數', rc.new_customers + ' 人', '', '')}
+      ${_card('回購客人數', rc.repeat_customers + ' 人', '', '#10b981')}
+      ${_card('新客占比', _fmtPct(rc.new_ratio), '', '')}
+      ${_card('回購占比', _fmtPct(rc.repeat_ratio), '', '#6366f1')}
+      ${_card('平均回購天數', rc.avg_repeat_days !== null && rc.avg_repeat_days !== undefined ? rc.avg_repeat_days + ' 天' : '—', '', '')}
+      ${_card('可辨識顧客數', rc.identifiable_customers + ' 人', '', '')}
+    </div>
+    <div style="font-size:.72rem;color:var(--text-secondary,#64748b);margin-top:10px">同一天多筆訂單視為「同日加購」，已從回購天數計算中排除，避免高估回購頻率；沒有電話的訂單不納入分母。</div>`
+  );
+}
+
+// ── K. 未完成訂單分析 ───────────────────────────────────────────
+function renderDashboardIncomplete(inc) {
+  if (!inc) return '';
+  return _section('⏳ 未完成訂單分析',
+    `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px">
+      ${_card('購物車未結帳', inc.cart_not_checked_out + ' 個', '', '#f59e0b')}
+      ${_card('填單未送出', inc.checkout_not_submitted + ' 個', '', '#f59e0b')}
+      ${_card('已送單等待付款', inc.awaiting_payment + ' 筆', '', '#f59e0b')}
+      ${_card('LINE Pay 中斷', inc.linepay_interrupted + ' 筆', '', '#ef4444')}
+      ${_card('待確認宅配訂單', inc.pending_shipping_confirmation + ' 筆', '', '#8b5cf6')}
+    </div>`
+  );
+}
+
+// ── L. 規則式經營建議 ───────────────────────────────────────────
+function renderDashboardRecommendations(recs) {
+  if (!recs || !recs.length) {
+    return _section('🤖 經營建議', '<div style="color:var(--text-secondary,#64748b);font-size:.875rem">目前資料不足，累積更多訪客與訂單後將提供建議。</div>');
+  }
+  const items = recs.map(r => `<li style="margin-bottom:10px;font-size:.85rem;line-height:1.5"><b>${escHtml(r.metric)}。</b>${escHtml(r.text)}</li>`).join('');
+  return _section('🤖 經營建議', `<ul style="margin:0;padding-left:18px">${items}</ul>`);
 }
 
 /** 載入目前店家資訊 + 授權，呼叫 /api/store-me */
