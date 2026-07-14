@@ -421,6 +421,9 @@ function renderDashboardV2(data) {
   html += renderDashboardPayments(data.payments);
   html += renderDashboardSources(data.sources);
   html += renderDashboardAdsAttribution(data.ads_attribution);
+  html += renderDashboardLineMemberFunnel(data.line_member_funnel);
+  html += renderDashboardLineCrmKpi(data.line_crm_kpi);
+  html += renderDashboardLineCrmHealth(data.line_crm_health);
   html += renderDashboardRepeatCustomers(data.repeat_customers);
   html += renderDashboardIncomplete(data.incomplete);
   html += renderDashboardRecommendations(data.recommendations);
@@ -1049,6 +1052,67 @@ function renderDashboardAdsAttribution(ads) {
     toggle + `<div id="db-ads-attribution-body">${_renderAdsAttributionBody(ads)}</div>`
   ) + roasCard;
 }
+
+// ── fix18-10-hotfix23-E：👤 LINE 會員轉換 × 🧭 顧客旅程漏斗 ─────────────────
+function renderDashboardLineMemberFunnel(f) {
+  if (!f || f.insufficient_data || !f.stages || !f.stages.length) {
+    return _section('🧭 顧客旅程（LINE 會員轉換）', `<div style="color:var(--text-secondary,#64748b);font-size:.875rem">${(f && f.message) || '尚無足夠的 LINE 會員轉換資料'}</div>`);
+  }
+  const rows = f.stages.map(s => `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+      <div style="width:100px;font-size:.78rem;color:var(--text-secondary,#64748b)">${s.label}</div>
+      <div style="flex:1;background:var(--bg-hover,#232734);border-radius:6px;overflow:hidden;height:20px">
+        <div style="height:100%;background:#06C755;width:${Math.max(2, s.overall_conversion_rate || 0)}%"></div>
+      </div>
+      <div style="width:110px;text-align:right;font-size:.8rem">${s.count}${s.step_conversion_rate!=null?` <span style="color:var(--text-secondary,#64748b)">(${s.step_conversion_rate}%)</span>`:''}</div>
+    </div>`).join('');
+  const rev = f.revenue || {};
+  return _section('🧭 顧客旅程（LINE 會員轉換）',
+    rows + `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px;margin-top:14px">
+      ${_card('LINE 會員營收', _nt(rev.member_revenue), '', '#06C755')}
+      ${_card('非會員營收', _nt(rev.non_member_revenue), '', '')}
+      ${_card('首購營收', _nt(rev.first_purchase_revenue), '', '#10b981')}
+      ${_card('回購營收', _nt(rev.repeat_purchase_revenue), '', '#10b981')}
+    </div>`);
+}
+
+// ── fix18-10-hotfix23-E：會員生命週期 KPI ───────────────────────────────
+function renderDashboardLineCrmKpi(k) {
+  if (!k || k.insufficient_data) {
+    return _section('👤 LINE 會員轉換', `<div style="color:var(--text-secondary,#64748b);font-size:.875rem">尚無足夠的 LINE 會員資料</div>`);
+  }
+  return _section('👤 LINE 會員轉換',
+    `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:12px">
+      ${_card('會員總數', k.total_members, '', '')}
+      ${_card('好友數', k.friends, '', '#06C755')}
+      ${_card('封鎖數', k.blocked, '', '#ef4444')}
+      ${_card('登入會員', k.logged_in_members, '', '')}
+      ${_card('首次購買會員', k.first_buyers, '', '#10b981')}
+      ${_card('回購會員', k.repeat_buyers, '', '#10b981')}
+      ${_card('會員營收', _nt(k.member_revenue), '', '#06C755')}
+      ${_card('平均會員客單', _nt(k.avg_member_order_value), '', '')}
+      ${_card('平均回購天數', k.avg_repeat_days != null ? k.avg_repeat_days + ' 天' : '資料不足', '', '')}
+      ${_card('平均 LTV', _nt(k.avg_ltv), '', '')}
+    </div>`);
+}
+
+// ── fix18-10-hotfix23-E：💚 LINE CRM 健康度（純規則式，不呼叫 AI）────────────
+function renderDashboardLineCrmHealth(h) {
+  if (!h || h.insufficient_data) {
+    return _section('💚 LINE CRM 健康度', `<div style="color:var(--text-secondary,#64748b);font-size:.875rem">${(h && h.message) || '資料不足'}</div>`);
+  }
+  const stars = '★★★★★'.slice(0, h.stars) + '☆☆☆☆☆'.slice(0, 5 - h.stars);
+  const breakdown = (h.breakdown || []).map(b => `
+    <div style="display:flex;justify-content:space-between;font-size:.8rem;padding:4px 0;border-bottom:1px solid var(--border,#2a2d3e)">
+      <span>${b.label}（${b.value}%）</span><span>${b.score} / ${b.max}</span>
+    </div>`).join('');
+  const suggestions = (h.suggestions || []).map(s => `<li style="margin-bottom:4px">${s}</li>`).join('');
+  return _section('💚 LINE CRM 健康度',
+    `<div style="font-size:1.6rem;font-weight:700;margin-bottom:4px">${h.score} 分　<span style="color:#f59e0b">${stars}</span></div>
+     ${breakdown}
+     ${suggestions ? `<h4 style="margin:14px 0 6px;font-size:.85rem">📋 LINE CRM 建議</h4><ul style="margin:0;padding-left:18px;font-size:.8rem">${suggestions}</ul>` : ''}`);
+}
+
 function renderDashboardRepeatCustomers(rc) {
   if (!rc || !rc.identifiable_customers) {
     return _section('🔁 回購分析', '<div style="color:var(--text-secondary,#64748b);font-size:.875rem">此區間尚無可辨識顧客資料（需有電話的已完成訂單）</div>');
@@ -1867,6 +1931,8 @@ function switchSettingsTab(tab) {
   if (tab === 'delivery_fee')     loadDeliveryFeeTab();     // fix18-06
   if (tab === 'product_analysis_groups') loadProductAnalysisGroupsTab(); // fix18-09F
   if (tab === 'ads_attribution')  loadAdsTrackingSettings(); // fix18-10-hotfix23-D
+  if (tab === 'line_member')      loadLineMemberGateSettings(); // fix18-10-hotfix23-E
+  if (tab === 'line_members_list') loadLineMembersList(); // fix18-10-hotfix23-E
 }
 
 // ===== 設定 =====
@@ -1998,6 +2064,149 @@ async function saveAdsTrackingSettings() {
       showToast(json.message || '儲存失敗', 'error');
     }
   } catch { showToast('網路錯誤', 'error'); }
+}
+
+// ===== fix18-10-hotfix23-E：LINE 會員入口設定 =====
+// 沿用既有 /api/settings GET/PUT 與白名單，不建立第二套設定 API。
+const LINE_MEMBER_GATE_KEYS = [
+  'line_member_gate_enabled', 'line_member_gate_mode', 'line_member_require_friend',
+  'line_member_allow_skip', 'line_member_add_friend_url', 'line_member_basic_id',
+  'line_member_login_channel_id', 'line_member_liff_id', 'line_member_return_url',
+  'line_member_title', 'line_member_description', 'line_member_friend_button_text',
+  'line_member_login_button_text', 'line_member_skip_button_text',
+];
+async function loadLineMemberGateSettings() {
+  await loadSettings();
+  const enEl = document.getElementById('set-line_member_gate_enabled');
+  if (enEl) enEl.checked = settings.line_member_gate_enabled === '1';
+  const modeEl = document.getElementById('set-line_member_gate_mode');
+  if (modeEl) modeEl.value = settings.line_member_gate_mode || 'disabled';
+  const reqEl = document.getElementById('set-line_member_require_friend');
+  if (reqEl) reqEl.checked = settings.line_member_require_friend === '1';
+  const skipEl = document.getElementById('set-line_member_allow_skip');
+  if (skipEl) skipEl.checked = settings.line_member_allow_skip === '1';
+  ['line_member_liff_id','line_member_login_channel_id','line_member_basic_id',
+   'line_member_add_friend_url','line_member_return_url','line_member_title',
+   'line_member_description','line_member_login_button_text','line_member_friend_button_text',
+   'line_member_skip_button_text'].forEach(k => {
+    const el = document.getElementById('set-' + k);
+    if (el) el.value = settings[k] || '';
+  });
+  updateLineMemberTestUrlHint();
+}
+function updateLineMemberTestUrlHint() {
+  const hint = document.getElementById('lmgTestUrlHint');
+  if (!hint) return;
+  const sid = (window.currentStore && window.currentStore.store_id) || (JSON.parse(localStorage.getItem('pos_store_info')||'{}').store_id) || '';
+  hint.textContent = sid ? `測試網址：/line-order.html?store_id=${sid}&member_gate_test=1` : '尚未取得 store_id';
+}
+function _lineMemberTestUrl() {
+  const sid = (window.currentStore && window.currentStore.store_id) || (JSON.parse(localStorage.getItem('pos_store_info')||'{}').store_id) || '';
+  return `${location.origin}/line-order.html?store_id=${encodeURIComponent(sid)}&member_gate_test=1`;
+}
+function copyLineMemberTestUrl() {
+  const url = _lineMemberTestUrl();
+  navigator.clipboard?.writeText(url).then(() => showToast('測試網址已複製', 'success')).catch(() => showToast('複製失敗', 'error'));
+}
+function openLineMemberTestUrl() { window.open(_lineMemberTestUrl(), '_blank'); }
+
+async function saveLineMemberGateSettings() {
+  const body = {};
+  LINE_MEMBER_GATE_KEYS.forEach(k => {
+    const el = document.getElementById('set-' + k);
+    if (!el) return;
+    body[k] = el.type === 'checkbox' ? (el.checked ? '1' : '0') : el.value;
+  });
+  try {
+    const res = await apiFetch('/api/settings', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+    });
+    const json = await res.json();
+    if (json.success) {
+      settings = json.data;
+      showToast('LINE 會員入口設定已儲存', 'success');
+      updateLineMemberTestUrlHint();
+    } else {
+      showToast(json.message || '儲存失敗', 'error');
+    }
+  } catch { showToast('網路錯誤', 'error'); }
+}
+
+// ===== fix18-10-hotfix23-E：LINE 會員管理（列表 / CSV 匯出 / 詳情） =====
+async function loadLineMembersList() {
+  const tbody = document.getElementById('lmTableBody');
+  if (!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="13">載入中…</td></tr>';
+  const q = document.getElementById('lmSearchInput')?.value || '';
+  const filter = document.getElementById('lmFilterSelect')?.value || '';
+  const sort = document.getElementById('lmSortSelect')?.value || '';
+  try {
+    const params = new URLSearchParams();
+    if (q) params.set('q', q);
+    if (filter) params.set('filter', filter);
+    if (sort) params.set('sort', sort);
+    const res = await apiFetch('/api/line-member/members?' + params.toString());
+    const json = await res.json();
+    if (!json.success) { tbody.innerHTML = `<tr><td colspan="13">${json.message || '載入失敗'}</td></tr>`; return; }
+    if (!json.data.length) { tbody.innerHTML = '<tr><td colspan="13">尚無資料</td></tr>'; return; }
+    tbody.innerHTML = json.data.map(m => `
+      <tr>
+        <td>${(m.display_name || '').replace(/</g,'&lt;')}</td>
+        <td>${m.line_user_id_masked}</td>
+        <td>${m.is_friend === 1 ? '✅' : (m.is_friend === 0 ? '❌' : '❓')}</td>
+        <td>${m.is_blocked ? '🚫' : ''}</td>
+        <td>${m.lifecycle_stage}</td>
+        <td>${m.first_touch_source || ''}</td>
+        <td>${m.last_touch_source || ''}</td>
+        <td>${m.first_order_at || ''}</td>
+        <td>${m.last_order_at || ''}</td>
+        <td>${m.order_count || 0}</td>
+        <td>NT$${Math.round(m.total_spent || 0)}</td>
+        <td>NT$${Math.round(m.lifetime_value || 0)}</td>
+        <td><button class="btn-secondary" onclick="openLineMemberDetail(${m.line_user_id_ref})">詳情</button></td>
+      </tr>`).join('');
+  } catch (e) {
+    tbody.innerHTML = '<tr><td colspan="13">網路錯誤</td></tr>';
+  }
+}
+function exportLineMembersCsv() {
+  const url = (typeof apiFetch === 'function') ? '/api/line-member/members/export' : '';
+  // CSV 走 GET 直接下載，帶上 store_id（沿用 apiFetch 相同 query 慣例）
+  const sid = (window.currentStore && window.currentStore.store_id) || (JSON.parse(localStorage.getItem('pos_store_info')||'{}').store_id) || '';
+  window.open(`/api/line-member/members/export?store_id=${encodeURIComponent(sid)}`, '_blank');
+}
+async function openLineMemberDetail(id) {
+  const modal = document.getElementById('lmDetailModal');
+  const body = document.getElementById('lmDetailBody');
+  if (!modal || !body) return;
+  modal.style.display = 'flex';
+  body.innerHTML = '載入中…';
+  try {
+    const res = await apiFetch('/api/line-member/members/' + id);
+    const json = await res.json();
+    if (!json.success) { body.innerHTML = json.message || '載入失敗'; return; }
+    const d = json.data;
+    body.innerHTML = `
+      <h3>${(d.display_name || '').replace(/</g,'&lt;')} <small style="color:#999">${d.line_user_id_masked}</small></h3>
+      <p>好友：${d.is_friend === 1 ? '是' : (d.is_friend === 0 ? '否' : '未知')}　封鎖：${d.is_blocked ? '是' : '否'}</p>
+      <p>加入好友：${d.friend_since || '—'}　最後登入：${d.last_login_at || '—'}　最後好友確認：${d.last_friend_check || '—'}</p>
+      <p>首次來源：${d.first_touch_source || '—'} / ${d.first_touch_campaign || '—'}</p>
+      <p>最後來源：${d.last_touch_source || '—'} / ${d.last_touch_campaign || '—'}</p>
+      <p>首次加購商品 ID：${d.first_product_id ?? '—'}　首次加購：${d.first_cart_at || '—'}</p>
+      <p>首購：${d.first_purchase_at || '—'}　最後購買：${d.last_purchase_at || '—'}</p>
+      <p>訂單數：${d.order_count}　累積消費：NT$${Math.round(d.total_spent)}　平均客單：NT$${Math.round(d.avg_order_value)}　LTV：NT$${Math.round(d.lifetime_value)}</p>
+      <p>生命週期階段：${d.lifecycle_stage}${d.inactive ? '（' + d.inactive + '）' : ''}</p>
+      <h4>CRM Timeline</h4>
+      <div style="max-height:200px;overflow:auto;font-size:12px">
+        ${(d.timeline || []).map(t => `<div style="padding:4px 0;border-bottom:1px solid #eee">${t.created_at} — ${t.event_name}</div>`).join('') || '尚無紀錄'}
+      </div>`;
+  } catch (e) {
+    body.innerHTML = '網路錯誤';
+  }
+}
+function closeLineMemberDetail() {
+  const modal = document.getElementById('lmDetailModal');
+  if (modal) modal.style.display = 'none';
 }
 
 async function loadProducts() {

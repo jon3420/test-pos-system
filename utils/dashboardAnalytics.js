@@ -1185,6 +1185,192 @@ function getAdsAttribution(db, storeId, range) {
   };
 }
 
+// ────────────────────────────────────────────────────────────────
+// fix18-10-hotfix23-E：LINE 會員入口 × Customer Journey 漏斗
+// 沿用 getFunnel() 同一套 COUNT(DISTINCT ...) 原則，不把事件次數當人數。
+// 漏斗最後幾階（完成付款／首次購買／回購）改用 line_members 表本身的
+// 累計欄位計算，因為那些欄位已經是「去重過的會員層級」統計，不需要再從
+// analytics_events 重新聚合一次。
+// ────────────────────────────────────────────────────────────────
+function getLineMemberFunnel(db, storeId, range) {
+  const evtWhere = `store_id=? AND event_name=? AND ${A_LOCAL} BETWEEN ? AND ?`;
+  const p = (evt) => [storeId, evt, range.startLocal, range.endLocal];
+  const distinctVisitors = (evt) => Number((db.get(
+    `SELECT COUNT(DISTINCT visitor_id) c FROM analytics_events WHERE ${evtWhere}`, p(evt)
+  ) || {}).c || 0);
+  const distinctOrders = (evt) => Number((db.get(
+    `SELECT COUNT(DISTINCT order_id) c FROM analytics_events WHERE ${evtWhere} AND order_id IS NOT NULL`, p(evt)
+  ) || {}).c || 0);
+
+  const loggedInMembers = Number((db.get(
+    `SELECT COUNT(DISTINCT line_user_id) c FROM line_member_history
+     WHERE store_id=? AND event_name='login' AND created_at BETWEEN ? AND ?`,
+    [storeId, range.startLocal, range.endLocal]
+  ) || {}).c || 0);
+  const friendAddedMembers = Number((db.get(
+    `SELECT COUNT(DISTINCT line_user_id) c FROM line_member_history
+     WHERE store_id=? AND event_name IN ('friend_added','friend_restored') AND created_at BETWEEN ? AND ?`,
+    [storeId, range.startLocal, range.endLocal]
+  ) || {}).c || 0);
+  const firstPurchaseMembers = Number((db.get(
+    `SELECT COUNT(DISTINCT line_user_id) c FROM line_member_history
+     WHERE store_id=? AND event_name='first_purchase' AND created_at BETWEEN ? AND ?`,
+    [storeId, range.startLocal, range.endLocal]
+  ) || {}).c || 0);
+  const repeatPurchaseMembers = Number((db.get(
+    `SELECT COUNT(DISTINCT line_user_id) c FROM line_member_history
+     WHERE store_id=? AND event_name='repeat_purchase' AND created_at BETWEEN ? AND ?`,
+    [storeId, range.startLocal, range.endLocal]
+  ) || {}).c || 0);
+
+  const stages = [
+    { key: 'page_view', label: '進站', count: distinctVisitors('page_view') },
+    { key: 'line_gate_view', label: '看到 LINE Gate', count: distinctVisitors('line_gate_view') },
+    { key: 'line_login', label: 'LINE Login', count: loggedInMembers },
+    { key: 'friend_added', label: '加入好友', count: friendAddedMembers },
+    { key: 'add_to_cart', label: '加入購物車', count: distinctVisitors('add_to_cart') },
+    { key: 'submit_order', label: '送出訂單', count: distinctOrders('submit_order') },
+    { key: 'purchase', label: '完成付款', count: distinctOrders('purchase') },
+    { key: 'first_purchase', label: '首次購買', count: firstPurchaseMembers },
+    { key: 'repeat_purchase', label: '回購', count: repeatPurchaseMembers },
+  ];
+  const entryCount = stages[0].count;
+  const mapped = stages.map((s, i) => {
+    const prev = i > 0 ? stages[i - 1].count : null;
+    return {
+      ...s,
+      step_conversion_rate: prev !== null ? (prev > 0 ? round2(s.count / prev * 100) : null) : null,
+      overall_conversion_rate: entryCount > 0 ? round2(s.count / entryCount * 100) : null,
+    };
+  });
+
+  // 首購營收／回購營收：從 history 的 metadata_json 取出 order_id 對應到 orders 表金額，
+  // 不信任前端傳入的金額（recordMemberPurchase 寫入 history 時已用後端確認過的金額，
+  // 這裡改讀 orders.total 是為了與其他營收欄位口徑一致，非重新採信前端）。
+  const revByStage = (stageEvent) => Number((db.get(
+    `SELECT COALESCE(SUM(o.total),0) v
+     FROM line_member_history h
+     JOIN orders o ON o.store_id=h.store_id AND o.id = json_extract(h.metadata_json,'$.order_id')
+     WHERE h.store_id=? AND h.event_name=? AND h.created_at BETWEEN ? AND ?`,
+    [storeId, stageEvent, range.startLocal, range.endLocal]
+  ) || {}).v || 0);
+
+  // 上面的 JOIN 依賴 SQLite JSON1 擴充功能（sql.js 已內建），若環境不支援則安全 fallback為 0
+  let firstPurchaseRevenue = 0, repeatPurchaseRevenue = 0;
+  try { firstPurchaseRevenue = revByStage('first_purchase'); } catch { firstPurchaseRevenue = 0; }
+  try { repeatPurchaseRevenue = revByStage('repeat_purchase'); } catch { repeatPurchaseRevenue = 0; }
+
+  // 會員營收／非會員營收：以 orders.line_user_id 是否有值區分，口徑與 getKpi()
+  // 的 revenue 完全一致（同一 ORDERS_PAID_EXPR），確保兩者相加等於總營收。
+  const memberRevenueRow = db.get(
+    `SELECT COALESCE(SUM(CASE WHEN line_user_id IS NOT NULL AND line_user_id!='' AND ${ORDERS_PAID_EXPR} THEN total ELSE 0 END),0) as member_revenue,
+            COALESCE(SUM(CASE WHEN (line_user_id IS NULL OR line_user_id='') AND ${ORDERS_PAID_EXPR} THEN total ELSE 0 END),0) as non_member_revenue
+     FROM orders WHERE ${ORDERS_BASE_WHERE} AND created_at BETWEEN ? AND ?`,
+    [storeId, range.startLocal, range.endLocal]
+  ) || {};
+
+  return {
+    stages: mapped,
+    revenue: {
+      member_revenue: round2(Number(memberRevenueRow.member_revenue || 0)),
+      non_member_revenue: round2(Number(memberRevenueRow.non_member_revenue || 0)),
+      first_purchase_revenue: round2(firstPurchaseRevenue),
+      repeat_purchase_revenue: round2(repeatPurchaseRevenue),
+    },
+  };
+}
+
+// ────────────────────────────────────────────────────────────────
+// fix18-10-hotfix23-E：會員生命週期 KPI（需求文件十二）
+// ────────────────────────────────────────────────────────────────
+function getLineCrmKpi(db, storeId, range) {
+  const totals = db.get(
+    `SELECT COUNT(*) as total_members,
+            SUM(CASE WHEN is_friend=1 THEN 1 ELSE 0 END) as friends,
+            SUM(CASE WHEN is_blocked=1 THEN 1 ELSE 0 END) as blocked,
+            SUM(CASE WHEN is_blocked=0 AND friend_since!='' THEN 1 ELSE 0 END) as unblocked,
+            SUM(CASE WHEN first_purchase_at!='' THEN 1 ELSE 0 END) as first_buyers,
+            SUM(CASE WHEN order_count>1 THEN 1 ELSE 0 END) as repeat_buyers,
+            COALESCE(SUM(total_spent),0) as member_revenue,
+            COALESCE(AVG(CASE WHEN order_count>0 THEN total_spent/order_count END),0) as avg_member_order_value,
+            COALESCE(AVG(lifetime_value),0) as avg_ltv
+     FROM line_members WHERE store_id=?`,
+    [storeId]
+  ) || {};
+
+  const loggedInMembers = Number((db.get(
+    `SELECT COUNT(DISTINCT line_user_id) c FROM line_member_history
+     WHERE store_id=? AND event_name='login' AND created_at BETWEEN ? AND ?`,
+    [storeId, range.startLocal, range.endLocal]
+  ) || {}).c || 0);
+
+  // 平均回購天數：同一會員 first_purchase_at → last_purchase_at 的天數平均（僅回購會員）
+  const repeatDaysRow = db.get(
+    `SELECT AVG(julianday(last_purchase_at) - julianday(first_purchase_at)) as avg_days
+     FROM line_members WHERE store_id=? AND order_count>1 AND first_purchase_at!='' AND last_purchase_at!=''`,
+    [storeId]
+  ) || {};
+
+  const totalMembers = Number(totals.total_members || 0);
+  return {
+    insufficient_data: totalMembers === 0,
+    total_members: totalMembers,
+    friends: Number(totals.friends || 0),
+    blocked: Number(totals.blocked || 0),
+    unblocked: Number(totals.unblocked || 0),
+    logged_in_members: loggedInMembers,
+    first_buyers: Number(totals.first_buyers || 0),
+    repeat_buyers: Number(totals.repeat_buyers || 0),
+    member_revenue: round2(Number(totals.member_revenue || 0)),
+    avg_member_order_value: round2(Number(totals.avg_member_order_value || 0)),
+    avg_repeat_days: totals.repeat_buyers > 0 && repeatDaysRow.avg_days != null ? round2(Number(repeatDaysRow.avg_days)) : null,
+    avg_ltv: round2(Number(totals.avg_ltv || 0)),
+  };
+}
+
+// ────────────────────────────────────────────────────────────────
+// fix18-10-hotfix23-E：LINE CRM 健康度（需求文件十三）—— 純規則式，不呼叫 AI。
+// 權重：好友率25／封鎖率20／登入率15／首購率20／回購率20
+// ────────────────────────────────────────────────────────────────
+function getLineCrmHealth(crmKpi) {
+  if (!crmKpi || crmKpi.insufficient_data || !crmKpi.total_members) {
+    return { insufficient_data: true, message: '資料不足，尚無足夠的 LINE 會員資料計算健康度', score: null, stars: null, breakdown: [], suggestions: [] };
+  }
+  const total = crmKpi.total_members;
+  const friendRate = total > 0 ? crmKpi.friends / total : 0;
+  const blockRate = total > 0 ? crmKpi.blocked / total : 0;
+  const loginRate = total > 0 ? crmKpi.logged_in_members / total : 0;
+  const firstBuyRate = crmKpi.logged_in_members > 0 ? crmKpi.first_buyers / crmKpi.logged_in_members : 0;
+  const repeatRate = crmKpi.first_buyers > 0 ? crmKpi.repeat_buyers / crmKpi.first_buyers : 0;
+
+  const friendScore = round2(Math.min(1, friendRate) * 25);
+  const blockScore = round2(Math.max(0, 1 - blockRate) * 20);
+  const loginScore = round2(Math.min(1, loginRate) * 15);
+  const firstBuyScore = round2(Math.min(1, firstBuyRate) * 20);
+  const repeatScore = round2(Math.min(1, repeatRate) * 20);
+  const score = round2(friendScore + blockScore + loginScore + firstBuyScore + repeatScore);
+  const stars = Math.max(1, Math.min(5, Math.round(score / 20)));
+
+  const suggestions = [];
+  if (blockRate >= 0.2) suggestions.push('最近 LINE 封鎖率偏高，建議降低推播頻率。');
+  if (loginRate >= 0.3 && firstBuyRate < 0.2) suggestions.push('LINE 登入會員多，但首購率偏低，建議優化首次下單優惠。');
+  if (firstBuyRate >= 0.3 && repeatRate < 0.2) suggestions.push('首購表現良好，但回購偏低，建議推出回購券或會員專屬活動。');
+  if (friendRate >= 0.5 && loginRate < 0.2) suggestions.push('好友數高但登入會員偏低，建議調整 LINE 入口與登入引導。');
+
+  return {
+    insufficient_data: false,
+    score, stars,
+    breakdown: [
+      { key: 'friend_rate', label: '好友率', value: round2(friendRate * 100), score: friendScore, max: 25 },
+      { key: 'block_rate', label: '封鎖率', value: round2(blockRate * 100), score: blockScore, max: 20 },
+      { key: 'login_rate', label: '登入率', value: round2(loginRate * 100), score: loginScore, max: 15 },
+      { key: 'first_buy_rate', label: '首購率', value: round2(firstBuyRate * 100), score: firstBuyScore, max: 20 },
+      { key: 'repeat_rate', label: '回購率', value: round2(repeatRate * 100), score: repeatScore, max: 20 },
+    ],
+    suggestions,
+  };
+}
+
 module.exports = {
   getKpi, getFixedWeekMonth, getFunnel, getRealtime, getCartAnalysis, getProductRanking,
   getPayments, getSources, getRepeatCustomers, getIncomplete,
@@ -1194,4 +1380,7 @@ module.exports = {
   getProductTiers, getForecast, getTodaySummary, getTodoList, getDailyTip,
   // fix18-10-hotfix23-D（Ads Attribution Foundation）
   getAdsAttribution,
+  // fix18-10-hotfix23-E（LINE 會員入口 × Customer Journey × CRM Health）
+  getLineMemberFunnel, getLineCrmKpi, getLineCrmHealth,
+  ORDERS_PAID_EXPR, ORDERS_BASE_WHERE,
 };

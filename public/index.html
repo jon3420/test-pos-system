@@ -733,6 +733,8 @@
       <button class="settings-tab-btn"        data-stab="discount_campaigns" onclick="switchSettingsTab('discount_campaigns')">💸 折扣活動</button>
       <button class="settings-tab-btn"        data-stab="product_analysis_groups" onclick="switchSettingsTab('product_analysis_groups')">📊 商品分析群組</button>
       <button class="settings-tab-btn"        data-stab="ads_attribution" onclick="switchSettingsTab('ads_attribution')">📣 廣告追蹤</button>
+      <button class="settings-tab-btn"        data-stab="line_member" onclick="switchSettingsTab('line_member')">👤 LINE 會員入口</button>
+      <button class="settings-tab-btn"        data-stab="line_members_list" onclick="switchSettingsTab('line_members_list')">👥 LINE 會員</button>
       <button class="settings-tab-btn"        data-stab="migration" onclick="switchSettingsTab('migration')">📦 資料備份/搬家</button>
       <!-- fix10: 店家授權 Tab 已移至 /system-admin，一般店家不可存取 -->
     </div>
@@ -1816,6 +1818,103 @@
         </div>
       </div>
       <button class="btn-primary" onclick="saveAdsTrackingSettings()">💾 儲存廣告追蹤設定</button>
+    </div>
+
+    <!-- fix18-10-hotfix23-E：LINE 會員入口設定（LIFF 登入 × 好友狀態） -->
+    <div class="settings-tab-panel" id="stab-line_member" style="display:none">
+      <div class="settings-grid">
+        <div class="settings-card">
+          <h3>👤 LINE 會員入口</h3>
+          <label style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+            <input type="checkbox" id="set-line_member_gate_enabled" style="width:auto">
+            <span>啟用 LINE 會員入口</span>
+          </label>
+          <label>入口模式
+            <select id="set-line_member_gate_mode">
+              <option value="disabled">不限制（disabled）</option>
+              <option value="checkout">結帳前要求登入（checkout）</option>
+              <option value="entry">進站即要求登入（entry）</option>
+            </select>
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;margin:10px 0">
+            <input type="checkbox" id="set-line_member_require_friend" style="width:auto">
+            <span>要求加入官方帳號</span>
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+            <input type="checkbox" id="set-line_member_allow_skip" style="width:auto">
+            <span>允許略過（僅 entry 模式生效）</span>
+          </label>
+        </div>
+        <div class="settings-card">
+          <h3>🔑 LINE 串接設定</h3>
+          <label>LIFF ID<input type="text" id="set-line_member_liff_id" placeholder="例如：1234567890-abcdefgh"></label>
+          <label>LINE Login Channel ID<input type="text" id="set-line_member_login_channel_id"></label>
+          <label>LINE 官方帳號 Basic ID<input type="text" id="set-line_member_basic_id" placeholder="@yourshop"></label>
+          <label>加好友網址<input type="text" id="set-line_member_add_friend_url" placeholder="https://lin.ee/xxxxx"></label>
+          <label>登入成功返回網址<input type="text" id="set-line_member_return_url" placeholder="https://your-domain.com/line-order.html"></label>
+        </div>
+        <div class="settings-card">
+          <h3>✏️ 顯示文字</h3>
+          <label>提示標題<input type="text" id="set-line_member_title" placeholder="LINE 會員登入"></label>
+          <label>提示說明<input type="text" id="set-line_member_description" placeholder="登入 LINE 會員即可享有專屬服務"></label>
+          <label>登入按鈕文字<input type="text" id="set-line_member_login_button_text" placeholder="使用 LINE 登入"></label>
+          <label>加好友按鈕文字<input type="text" id="set-line_member_friend_button_text" placeholder="加入官方帳號"></label>
+          <label>略過按鈕文字<input type="text" id="set-line_member_skip_button_text" placeholder="略過"></label>
+        </div>
+        <div class="settings-card full">
+          <h3>🧪 測試工具</h3>
+          <p class="settings-hint" id="lmgTestUrlHint">尚未儲存設定</p>
+          <button class="btn-secondary" onclick="copyLineMemberTestUrl()">📋 複製測試網址</button>
+          <button class="btn-secondary" onclick="openLineMemberTestUrl()">🔗 開啟測試網址</button>
+        </div>
+      </div>
+      <button class="btn-primary" onclick="saveLineMemberGateSettings()">💾 儲存 LINE 會員入口設定</button>
+    </div>
+
+    <!-- fix18-10-hotfix23-E：LINE 會員管理（列表 / 篩選 / CSV 匯出 / 詳情） -->
+    <div class="settings-tab-panel" id="stab-line_members_list" style="display:none">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:center">
+        <input type="text" id="lmSearchInput" placeholder="搜尋顯示名稱" style="flex:1;min-width:160px">
+        <select id="lmFilterSelect" onchange="loadLineMembersList()">
+          <option value="">全部</option>
+          <option value="friend">好友</option>
+          <option value="not_friend">非好友</option>
+          <option value="blocked">已封鎖</option>
+          <option value="unblocked">已解除封鎖</option>
+          <option value="logged_in_no_purchase">已登入未購買</option>
+          <option value="first_buyer">首購會員</option>
+          <option value="repeat_buyer">回購會員</option>
+          <option value="inactive_30d">30 天未購買</option>
+          <option value="inactive_90d">90 天未購買</option>
+          <option value="high_ltv">高 LTV</option>
+        </select>
+        <select id="lmSortSelect" onchange="loadLineMembersList()">
+          <option value="last_login">最近登入</option>
+          <option value="last_order">最近購買</option>
+          <option value="total_spent">累積消費</option>
+          <option value="order_count">訂單數</option>
+          <option value="ltv">LTV</option>
+        </select>
+        <button class="btn-secondary" onclick="loadLineMembersList()">🔍 查詢</button>
+        <button class="btn-secondary" onclick="exportLineMembersCsv()">⬇️ CSV 匯出</button>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="data-table" id="lmTable">
+          <thead>
+            <tr>
+              <th>顯示名稱</th><th>LINE User ID</th><th>好友</th><th>封鎖</th><th>階段</th>
+              <th>首次來源</th><th>最後來源</th><th>首購</th><th>最後購買</th><th>訂單數</th><th>累積消費</th><th>LTV</th><th></th>
+            </tr>
+          </thead>
+          <tbody id="lmTableBody"><tr><td colspan="13">尚未查詢</td></tr></tbody>
+        </table>
+      </div>
+      <div id="lmDetailModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;align-items:center;justify-content:center">
+        <div style="background:#fff;border-radius:12px;max-width:480px;width:92%;max-height:80vh;overflow:auto;padding:20px">
+          <div id="lmDetailBody">載入中…</div>
+          <button class="btn-secondary" onclick="closeLineMemberDetail()" style="margin-top:12px;width:100%">關閉</button>
+        </div>
+      </div>
     </div>
   </div>
 </div>

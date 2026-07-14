@@ -28,6 +28,10 @@ const {
 } = require('../utils/analyticsLog');
 const { resolveDateRange, DashboardDateError } = require('../utils/dashboardDate');
 const {
+  recordFirstCart,
+} = require('../utils/lineMemberStats'); // fix18-10-hotfix23-E
+const { verifyMemberSession } = require('../utils/lineMemberSession'); // fix18-10-hotfix23-E：安全 Member Session
+const {
   getKpi, getFixedWeekMonth, getFunnel, getRealtime, getCartAnalysis, getProductRanking,
   getPayments, getSources, getRepeatCustomers, getIncomplete,
   getHealthScore, getRecommendations,
@@ -36,12 +40,21 @@ const {
   getProductTiers, getForecast, getTodaySummary, getTodoList, getDailyTip,
   // fix18-10-hotfix23-D（Ads Attribution Foundation，同樣是附加運算，不影響既有欄位）
   getAdsAttribution,
+  // fix18-10-hotfix23-E（LINE 會員漏斗 × Customer Journey × CRM Health，附加運算）
+  getLineMemberFunnel, getLineCrmKpi, getLineCrmHealth,
 } = require('../utils/dashboardAnalytics');
 
-// 前台一般事件端點不接受 submit_order / purchase：這兩者只能由後端在
-// 訂單真正成立 / 付款真正成功時寫入（見 routes/line-orders.js、
-// routes/line-shipping.js、routes/linepay.js）。
-const SERVER_ONLY_EVENTS = new Set(['submit_order', 'purchase']);
+// 前台一般事件端點不接受 submit_order / purchase，以及 LINE 會員入口中「真實性
+// 只能由後端確認」的事件（登入結果、好友狀態、CRM 購買事件）：這些只能由後端在
+// 真正驗證成功 / 訂單真正成立 / 付款真正成功時寫入（見 routes/line-member.js、
+// routes/line-orders.js、routes/line-shipping.js、routes/linepay.js）。
+const SERVER_ONLY_EVENTS = new Set([
+  'submit_order', 'purchase',
+  'line_login_success', 'line_login_failed', 'friend_status_checked',
+  'friend_added', 'friend_removed', 'friend_restored',
+  'member_login', 'member_profile_updated', 'member_first_cart',
+  'member_first_purchase', 'member_repeat_purchase', 'member_source_updated',
+]);
 
 // ── 簡易 in-memory rate limit（同一 session_id）───────────────────
 // 單一 process 記憶體即可，不需要額外套件；重啟後重置屬預期行為。
@@ -81,6 +94,10 @@ router.post('/events', (req, res) => {
       product_id, quantity, order_mode,
       source, medium, campaign, referrer, landing_page,
       fbclid, gclid, metadata,
+      // fix18-10-hotfix23-E：LINE 會員入口 —— 若顧客已登入，前端會附上（後端簽發的）
+      // member_session，只用來做「第一次加入購物車」CRM 記錄，不影響事件本身是否
+      // 寫入。一律經 verifyMemberSession 驗證，驗證失敗一律當作未登入。
+      member_session,
     } = req.body || {};
 
     // ── 基本必填欄位 ──
@@ -156,6 +173,20 @@ router.post('/events', (req, res) => {
     if (!ok) {
       return res.status(500).json({ success: false, message: '事件寫入失敗' });
     }
+
+    // ── fix18-10-hotfix23-E：第一次 add_to_cart 記錄 CRM first_cart（需求文件八）──
+    // 只在 member_session 驗證通過（本店已知、未過期、簽章正確）時才記錄；
+    // 未知/偽造/過期的 session 一律被 verifyMemberSession 擋下，不建立資料。
+    // 失敗絕不影響事件本身是否成功寫入（已經 res.json 前完成，且包在 try/catch）。
+    if (event_name === 'add_to_cart' && member_session) {
+      try {
+        const knownId = verifyMemberSession(member_session, storeId);
+        if (knownId) recordFirstCart(db, storeId, knownId, pid);
+      } catch (crmErr) {
+        console.warn('[analytics] first_cart CRM hook failed:', crmErr.message);
+      }
+    }
+
     res.json({ success: true });
   } catch (e) {
     console.error('[analytics] POST /events error:', e.message);
@@ -232,6 +263,28 @@ router.get('/dashboard', (req, res) => {
       };
     }
 
+    // ── fix18-10-hotfix23-E｜LINE 會員入口 × Customer Journey × CRM Health ──
+    // 同樣附加運算，失敗不得讓整支 API 500。
+    let line_member_funnel, line_crm_kpi, line_crm_health;
+    try {
+      line_member_funnel = getLineMemberFunnel(db, storeId, range);
+    } catch (lmErr) {
+      console.error('[analytics] line_member_funnel computation failed:', lmErr.message);
+      line_member_funnel = { insufficient_data: true, message: 'LINE 會員漏斗資料計算失敗', stages: [] };
+    }
+    try {
+      line_crm_kpi = getLineCrmKpi(db, storeId, range);
+    } catch (lmErr) {
+      console.error('[analytics] line_crm_kpi computation failed:', lmErr.message);
+      line_crm_kpi = { insufficient_data: true, message: 'LINE 會員 KPI 計算失敗' };
+    }
+    try {
+      line_crm_health = getLineCrmHealth(line_crm_kpi);
+    } catch (lmErr) {
+      console.error('[analytics] line_crm_health computation failed:', lmErr.message);
+      line_crm_health = { insufficient_data: true, message: 'LINE CRM 健康度計算失敗' };
+    }
+
     res.json({
       success: true,
       range: {
@@ -277,6 +330,11 @@ router.get('/dashboard', (req, res) => {
 
       // fix18-10-hotfix23-D（Ads Attribution Foundation）—— 新增欄位
       ads_attribution,
+
+      // fix18-10-hotfix23-E（LINE 會員入口 × Customer Journey × CRM Health）—— 新增欄位
+      line_member_funnel,
+      line_crm_kpi,
+      line_crm_health,
     });
   } catch (e) {
     console.error('[analytics] GET /dashboard error:', e.message, e.stack);

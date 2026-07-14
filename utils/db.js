@@ -576,6 +576,9 @@ function initTables(w) {
     'ALTER TABLE orders ADD COLUMN refund_status TEXT DEFAULT ""',
     'ALTER TABLE orders ADD COLUMN refund_note TEXT DEFAULT ""',
     'ALTER TABLE orders ADD COLUMN refunded_at TEXT DEFAULT ""',
+    // fix18-10-hotfix23-E：LINE 會員入口 —— 訂單會員綁定（未登入訂單維持空字串，不影響
+    // 既有訂單；沿用專案既有「try/catch ALTER TABLE」safe migration 慣例，可重複執行）
+    'ALTER TABLE orders ADD COLUMN line_user_id TEXT DEFAULT ""',
   ];
   orderMigrations.forEach(sql => { try { w._db.run(sql); w._save(); } catch {} });
 
@@ -1475,6 +1478,135 @@ function initTables(w) {
       WHERE order_id IS NOT NULL AND event_name IN ('submit_order','purchase')`);
     w._save();
   } catch(e) { console.warn('[DB] analytics_events index:', e.message); }
+
+  // ══════════════════════════════════════════════════════════════════
+  // ── fix18-10-hotfix23-E：LINE 會員入口 × LIFF 登入 × 好友狀態綁定 ──────
+  // 原則同 Hotfix23-A：safe migration，只用 CREATE TABLE IF NOT EXISTS /
+  // CREATE INDEX IF NOT EXISTS，全新獨立資料表，不影響既有 POS / Android /
+  // LINE 外帶外送 / 冷藏宅配 / LINE Pay / 優惠券 / Business Calendar。
+  // 以 store_id 隔離；UNIQUE(store_id, line_user_id) 確保同一店家內
+  // 同一 LINE 使用者只有一筆會員資料，不同店家可各自獨立存在同一 line_user_id。
+  // ══════════════════════════════════════════════════════════════════
+  w._db.run(`CREATE TABLE IF NOT EXISTS line_members (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    store_id        TEXT NOT NULL,
+    line_user_id    TEXT NOT NULL,
+    display_name    TEXT DEFAULT '',
+    picture_url     TEXT DEFAULT '',
+    is_friend       INTEGER DEFAULT NULL,
+    first_seen_at   TEXT DEFAULT (datetime('now','localtime')),
+    last_seen_at    TEXT DEFAULT (datetime('now','localtime')),
+    first_order_at  TEXT DEFAULT '',
+    last_order_at   TEXT DEFAULT '',
+    order_count     INTEGER DEFAULT 0,
+    total_spent     REAL DEFAULT 0,
+    created_at      TEXT DEFAULT (datetime('now','localtime')),
+    updated_at      TEXT DEFAULT (datetime('now','localtime'))
+  )`);
+  w._save();
+  try {
+    w._db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_line_members_store_user ON line_members(store_id, line_user_id)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_line_members_store_last_seen ON line_members(store_id, last_seen_at)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_line_members_store_last_order ON line_members(store_id, last_order_at)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_line_members_store_is_friend ON line_members(store_id, is_friend)');
+    w._save();
+  } catch(e) { console.warn('[DB] line_members index:', e.message); }
+
+  // ══════════════════════════════════════════════════════════════════
+  // ── fix18-10-hotfix23-E（續）：LINE CRM Foundation × Customer Journey ──
+  // 同樣是 safe migration：CREATE TABLE IF NOT EXISTS / ALTER TABLE 皆包在
+  // try/catch，可重複執行、不 DROP、不影響既有資料。
+  // ══════════════════════════════════════════════════════════════════
+  const lineMemberCrmMigrations = [
+    "ALTER TABLE line_members ADD COLUMN is_blocked INTEGER DEFAULT 0",
+    "ALTER TABLE line_members ADD COLUMN friend_since TEXT DEFAULT ''",
+    "ALTER TABLE line_members ADD COLUMN last_friend_check TEXT DEFAULT ''",
+    "ALTER TABLE line_members ADD COLUMN last_login_at TEXT DEFAULT ''",
+    "ALTER TABLE line_members ADD COLUMN first_touch_source TEXT DEFAULT ''",
+    "ALTER TABLE line_members ADD COLUMN first_touch_campaign TEXT DEFAULT ''",
+    "ALTER TABLE line_members ADD COLUMN last_touch_source TEXT DEFAULT ''",
+    "ALTER TABLE line_members ADD COLUMN last_touch_campaign TEXT DEFAULT ''",
+    "ALTER TABLE line_members ADD COLUMN first_product_id INTEGER DEFAULT NULL",
+    "ALTER TABLE line_members ADD COLUMN first_cart_at TEXT DEFAULT ''",
+    "ALTER TABLE line_members ADD COLUMN first_purchase_at TEXT DEFAULT ''",
+    "ALTER TABLE line_members ADD COLUMN last_purchase_at TEXT DEFAULT ''",
+    "ALTER TABLE line_members ADD COLUMN lifetime_value REAL DEFAULT 0",
+  ];
+  lineMemberCrmMigrations.forEach(sql => { try { w._db.run(sql); w._save(); } catch {} });
+
+  // ── line_member_history：CRM Timeline（好友歷程／購買歷程等事件流水帳）───
+  w._db.run(`CREATE TABLE IF NOT EXISTS line_member_history (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    store_id      TEXT NOT NULL,
+    line_user_id  TEXT NOT NULL,
+    event_name    TEXT NOT NULL,
+    old_value     TEXT DEFAULT '',
+    new_value     TEXT DEFAULT '',
+    metadata_json TEXT DEFAULT '',
+    created_at    TEXT DEFAULT (datetime('now','localtime'))
+  )`);
+  w._save();
+  try {
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_lm_history_store ON line_member_history(store_id)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_lm_history_store_user ON line_member_history(store_id, line_user_id)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_lm_history_store_event ON line_member_history(store_id, event_name)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_lm_history_store_created ON line_member_history(store_id, created_at)');
+    w._save();
+  } catch(e) { console.warn('[DB] line_member_history index:', e.message); }
+
+  // ── line_member_sessions：把匿名 Analytics 流程（visitor_id/session_id/cart_id）
+  //    與登入後的 line_user_id 串接，供 Customer Journey 使用 ─────────────────
+  w._db.run(`CREATE TABLE IF NOT EXISTS line_member_sessions (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    store_id      TEXT NOT NULL,
+    line_user_id  TEXT NOT NULL,
+    visitor_id    TEXT DEFAULT '',
+    session_id    TEXT DEFAULT '',
+    cart_id       TEXT DEFAULT '',
+    first_seen_at TEXT DEFAULT (datetime('now','localtime')),
+    last_seen_at  TEXT DEFAULT (datetime('now','localtime')),
+    created_at    TEXT DEFAULT (datetime('now','localtime')),
+    updated_at    TEXT DEFAULT (datetime('now','localtime'))
+  )`);
+  w._save();
+  try {
+    w._db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_lm_sessions_unique ON line_member_sessions(store_id, line_user_id, visitor_id)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_lm_sessions_store_user ON line_member_sessions(store_id, line_user_id)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_lm_sessions_store_visitor ON line_member_sessions(store_id, visitor_id)');
+    w._save();
+  } catch(e) { console.warn('[DB] line_member_sessions index:', e.message); }
+
+  // ── line_member_order_links：訂單成交 (purchase) 與會員消費累加的防重複表 ──
+  // UNIQUE(store_id, order_id) — 同一張訂單只能觸發一次首購/回購累加，即使
+  // logServerEvent 的 purchase 查重被繞過，這裡仍是最後一道保險。
+  w._db.run(`CREATE TABLE IF NOT EXISTS line_member_order_links (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    store_id     TEXT NOT NULL,
+    line_user_id TEXT NOT NULL,
+    order_id     TEXT NOT NULL,
+    created_at   TEXT DEFAULT (datetime('now','localtime'))
+  )`);
+  w._save();
+  try {
+    w._db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_lm_order_links_unique ON line_member_order_links(store_id, order_id)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_lm_order_links_store_user ON line_member_order_links(store_id, line_user_id)');
+    w._save();
+  } catch(e) { console.warn('[DB] line_member_order_links index:', e.message); }
+
+  // ── line_member_tags：本版只預留 schema，不做自動標籤／推播／AI 分群 ──────
+  w._db.run(`CREATE TABLE IF NOT EXISTS line_member_tags (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    store_id     TEXT NOT NULL,
+    line_user_id TEXT NOT NULL,
+    tag_code     TEXT NOT NULL,
+    tag_name     TEXT DEFAULT '',
+    created_at   TEXT DEFAULT (datetime('now','localtime'))
+  )`);
+  w._save();
+  try {
+    w._db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_lm_tags_unique ON line_member_tags(store_id, line_user_id, tag_code)');
+    w._save();
+  } catch(e) { console.warn('[DB] line_member_tags index:', e.message); }
 }
 
 module.exports = { getDb, initDb };

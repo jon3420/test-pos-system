@@ -359,6 +359,7 @@ img{max-width:100%;display:block}
 
 <script src="/js/analytics-attribution.js"></script>
 <script src="/js/analytics-platforms.js"></script>
+<script src="/js/line-member-gate.js"></script>
 <script>
 'use strict';
 // ── SaaS store_id 綁定 ──
@@ -425,6 +426,7 @@ function _trackEvent(eventName, extra){
       referrer:fields.referrer, landing_page:fields.landing_page,
       fbclid:fields.fbclid, gclid:fields.gclid,
       metadata:fields.metadata,
+      member_session:_currentMemberSession(),
       ...(extra||{}),
     };
     apiFetch('/api/analytics/events',{method:'POST',body:JSON.stringify(body)}).catch(()=>{});
@@ -486,6 +488,39 @@ function apiFetch(url, options={}) {
   const sep = url.includes('?') ? '&' : '?';
   const fullUrl = url + sep + 'store_id=' + encodeURIComponent(LINE_STORE_ID);
   return fetch(fullUrl, { ...options, headers: { 'Content-Type':'application/json', ...(options.headers||{}) } });
+}
+
+// ── fix18-10-hotfix23-E：LINE 會員入口 ──────────────────────────────────
+// disabled/checkout/entry 三種模式共用同一份設定，不在這裡各寫一套規則
+// （見 public/js/line-member-gate.js）。initLineMemberGate 內部若 liff_id 空白
+// 會安全略過，disabled 模式完全不影響既有點餐流程。
+let _lineMemberGateConfig=null;
+function _buildLineMemberGateConfig(d){
+  return {
+    liff_id:d.line_member_liff_id||'',
+    gate_enabled:d.line_member_gate_enabled==='1',
+    gate_mode:d.line_member_gate_mode||'disabled',
+    require_friend:d.line_member_require_friend==='1',
+    allow_skip:d.line_member_allow_skip==='1',
+    add_friend_url:d.line_member_add_friend_url||'',
+    title:d.line_member_title||'LINE 會員登入',
+    description:d.line_member_description||'登入 LINE 會員即可享有專屬服務',
+    friend_button_text:d.line_member_friend_button_text||'加入官方帳號',
+    login_button_text:d.line_member_login_button_text||'使用 LINE 登入',
+    skip_button_text:d.line_member_skip_button_text||'略過',
+  };
+}
+function _gateIds(){ return { visitor_id:_getVisitorId(), session_id:_getSessionId(), cart_id:_getCartId(false), order_mode:currentMode, attribution:_getAnalyticsContext() }; }
+async function _initLineMemberGateFromShopData(d){
+  _lineMemberGateConfig=_buildLineMemberGateConfig(d);
+  if(!_lineMemberGateConfig.gate_enabled || _lineMemberGateConfig.gate_mode==='disabled') return;
+  try{ await LineMemberGate.initLineMemberGate({ store_id:LINE_STORE_ID, liff_id:_lineMemberGateConfig.liff_id }); }catch(e){ return; }
+  if(_lineMemberGateConfig.gate_mode==='entry'){
+    LineMemberGate.requireMemberOnEntry(LINE_STORE_ID, _lineMemberGateConfig, _gateIds(), _trackEvent);
+  }
+}
+function _currentMemberSession(){
+  try{ const s=LineMemberGate.getMemberSession(LINE_STORE_ID); return s?s.member_session:null; }catch(e){ return null; }
 }
 
 // ── 全域狀態 ──
@@ -642,6 +677,9 @@ async function init(){
       // fix18-10-hotfix23-D：依店家設定初始化 Meta Pixel／GA4（沒啟用或沒有 ID 時
       // AnalyticsPlatforms.init() 內部什麼都不會載入）
       try{ AnalyticsPlatforms.init(shopData); }catch(e){}
+      // fix18-10-hotfix23-E：LINE 會員入口 —— 初始化 LIFF；disabled 模式下
+      // liff_id 通常也未設定，initLineMemberGate 內部會安全略過，完全不影響既有流程。
+      try{ _initLineMemberGateFromShopData(shopData); }catch(e){}
       // fix18-05: 依 coupon_feature_enabled 顯示/隱藏優惠券區塊
       couponFeatureEnabled = shopData.coupon_feature_enabled === true;
       const couponAreaEl = document.getElementById('couponArea');
@@ -1912,6 +1950,11 @@ async function submitOrder(){
   } : {};
 
   const btn=document.getElementById('subBtn');btn.disabled=true;btn.textContent='送出中…';
+  // fix18-10-hotfix23-E：checkout 模式在送單前要求登入（entry 模式已經在進站時擋過）
+  if(_lineMemberGateConfig && _lineMemberGateConfig.gate_enabled && _lineMemberGateConfig.gate_mode==='checkout'){
+    const gateResult=await LineMemberGate.requireMemberBeforeCheckout(LINE_STORE_ID,_lineMemberGateConfig,_gateIds(),_trackEvent);
+    if(!gateResult.ok){ btn.disabled=false;btn.textContent='送出訂單'; return; }
+  }
   // fix18-10-hotfix23-A：payment_started — 非 LINE Pay（無跳轉）選擇付款方式並送出時記錄；
   // LINE Pay 改在跳轉前記錄（見下方 lpRes.payment_url 導轉處）
   if(selectedPay!=='linepay'){ _trackEvent('payment_started'); }
@@ -1926,6 +1969,7 @@ async function submitOrder(){
         total:subtotal,
         ...delivPayload,
         analytics:_analyticsPayloadForOrder(),
+        member_session:_currentMemberSession(),
       })
     }).then(r=>r.json());
     if(!orderRes.success){

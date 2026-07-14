@@ -12,6 +12,7 @@ const { v4: uuidv4 } = require('uuid');
 const { getDb }      = require('../utils/db');
 const { broadcastToStore } = require('../utils/wssBroadcast');
 const { logServerEvent, getOrderTrackingContext } = require('../utils/analyticsLog'); // fix18-10-hotfix23-A
+const { recordMemberPurchase } = require('../utils/lineMemberStats'); // fix18-10-hotfix23-E：LINE 會員入口
 
 // ── API endpoint（依 mode 決定）──────────────────────────
 function getApiBase(mode) {
@@ -539,6 +540,27 @@ router.get('/confirm', async (req, res) => {
       });
     } catch (evtErr) {
       console.warn('[linepay/confirm] analytics event write failed:', evtErr.message);
+    }
+
+    // ── fix18-10-hotfix23-E：LINE Pay 付款成功才更新會員 total_spent/LTV/首購/回購 ──
+    // 用 line_member_order_links 的 UNIQUE(store_id, order_id) 防止 webhook／使用者
+    // 重新整理 confirm 頁面／重複 callback 造成重複累加（recordMemberPurchase 內部保證）。
+    try {
+      if (order.line_user_id) {
+        const purchaseEvent = recordMemberPurchase(db, storeId, order.line_user_id, order.uuid, Number(order.total || 0));
+        if (purchaseEvent) {
+          logServerEvent(db, {
+            store_id: storeId,
+            visitor_id: `member_${order.line_user_id}`,
+            session_id: `member_${order.line_user_id}`,
+            order_id: order.uuid,
+            event_name: purchaseEvent === 'first_purchase' ? 'member_first_purchase' : 'member_repeat_purchase',
+            order_mode: order.order_mode || null,
+          });
+        }
+      }
+    } catch (memErr) {
+      console.warn('[linepay/confirm] member purchase update failed:', memErr.message);
     }
 
     // 廣播付款成功通知（後台列表刷新）

@@ -24,6 +24,29 @@ const EVENT_WHITELIST = [
   'submit_order',
   'payment_started',
   'purchase',
+  // fix18-10-hotfix23-E：LINE 會員入口 × LIFF 登入 × 好友狀態綁定
+  // 純顯示/操作類事件，沒有安全疑慮，可由前端直接送出。
+  'line_gate_view',
+  'line_login_start',
+  'friend_prompt_shown',
+  'friend_gate_passed',
+  'line_gate_skipped',
+  // 下列事件的真實性只能由後端確認（登入成功與否、好友狀態查詢結果、
+  // 好友加入/取消/恢復、CRM 購買事件），不得由前端直接寫入 —— 見
+  // routes/analytics.js 的 SERVER_ONLY_EVENTS，這裡列在白名單只是讓
+  // logServerEvent() 可以合法寫入，不代表前台 POST /events 允許使用。
+  'line_login_success',
+  'line_login_failed',
+  'friend_status_checked',
+  'friend_added',
+  'friend_removed',
+  'friend_restored',
+  'member_login',
+  'member_profile_updated',
+  'member_first_cart',
+  'member_first_purchase',
+  'member_repeat_purchase',
+  'member_source_updated',
 ];
 
 const MAX_METADATA_BYTES = 4 * 1024; // 4KB

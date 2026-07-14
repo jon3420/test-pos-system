@@ -104,6 +104,15 @@ const ANALYTICS_KEYS = [
   'analytics_ga4_enabled', 'analytics_ga4_measurement_id',
 ];
 
+// fix18-10-hotfix23-E：LINE 會員入口設定 key
+const LINE_MEMBER_KEYS = [
+  'line_member_gate_enabled', 'line_member_gate_mode', 'line_member_require_friend',
+  'line_member_allow_skip', 'line_member_add_friend_url', 'line_member_basic_id',
+  'line_member_login_channel_id', 'line_member_liff_id', 'line_member_return_url',
+  'line_member_title', 'line_member_description', 'line_member_friend_button_text',
+  'line_member_login_button_text', 'line_member_skip_button_text',
+];
+
 // 所有允許修改的 key（包含 LINE key）
 const ALL_ALLOWED = [
   'shop_name', 'n8n_webhook_url', 'line_channel_token', 'tax_rate', 'receipt_footer',
@@ -124,6 +133,7 @@ const ALL_ALLOWED = [
   ...SHIPPING_API_KEYS,
   ...SHIPPING_ANNOUNCEMENT_KEYS,
   ...ANALYTICS_KEYS,
+  ...LINE_MEMBER_KEYS,
 ];
 
 // GET /api/settings
@@ -146,7 +156,7 @@ router.put('/', (req, res) => {
 
     // ── fix14：檢查是否修改 LINE key ───────────────────────
     const requestedKeys = Object.keys(req.body);
-    const hasLineKey    = requestedKeys.some(k => LINE_KEYS.has(k) || SHIPPING_KEYS.includes(k) || SHIPPING_API_KEYS.includes(k) || SHIPPING_ANNOUNCEMENT_KEYS.includes(k));
+    const hasLineKey    = requestedKeys.some(k => LINE_KEYS.has(k) || SHIPPING_KEYS.includes(k) || SHIPPING_API_KEYS.includes(k) || SHIPPING_ANNOUNCEMENT_KEYS.includes(k) || LINE_MEMBER_KEYS.includes(k));
 
     if (hasLineKey) {
       // 查授權
@@ -176,6 +186,46 @@ router.put('/', (req, res) => {
     if (req.body.analytics_ga4_measurement_id !== undefined && String(req.body.analytics_ga4_measurement_id).trim() !== '') {
       if (!/^G-[A-Z0-9]{6,12}$/i.test(String(req.body.analytics_ga4_measurement_id).trim())) {
         return res.status(400).json({ success: false, message: 'GA4 Measurement ID 格式錯誤（應為 G- 開頭，例如 G-XXXXXXXXXX）' });
+      }
+    }
+
+    // ── fix18-10-hotfix23-E：LINE 會員入口設定驗證（需求文件四）───────────
+    // 只在有實際送值 / 有啟用時才擋，未啟用時允許欄位保留舊值不清除。
+    if (Object.keys(req.body).some(k => LINE_MEMBER_KEYS.includes(k))) {
+      const existingRows = db.all('SELECT key, value FROM settings WHERE store_id=?', [storeId]);
+      const existing = {}; existingRows.forEach(r => { existing[r.key] = r.value; });
+      const merged = { ...existing, ...req.body };
+
+      const gateEnabled = String(merged.line_member_gate_enabled) === '1' || merged.line_member_gate_enabled === true;
+      if (gateEnabled) {
+        if (!merged.line_member_liff_id || !String(merged.line_member_liff_id).trim()) {
+          return res.status(400).json({ success: false, message: '啟用 LINE 會員入口時，LIFF ID 不可空白' });
+        }
+        if (!merged.line_member_login_channel_id || !String(merged.line_member_login_channel_id).trim()) {
+          return res.status(400).json({ success: false, message: '啟用 LINE 會員入口時，LINE Login Channel ID 不可空白' });
+        }
+      }
+      const friendUrl = merged.line_member_add_friend_url ? String(merged.line_member_add_friend_url).trim() : '';
+      if (friendUrl && !/^https:\/\/(lin\.ee\/|line\.me\/)/i.test(friendUrl)) {
+        return res.status(400).json({ success: false, message: '加好友網址格式錯誤（必須是 https://lin.ee/ 或 https://line.me/ 開頭）' });
+      }
+      const basicId = merged.line_member_basic_id ? String(merged.line_member_basic_id).trim() : '';
+      if (basicId && !/^@?[A-Za-z0-9_-]{2,30}$/.test(basicId)) {
+        return res.status(400).json({ success: false, message: 'LINE 官方帳號 Basic ID 格式錯誤' });
+      }
+      const returnUrl = merged.line_member_return_url ? String(merged.line_member_return_url).trim() : '';
+      if (returnUrl && !/^https:\/\//i.test(returnUrl)) {
+        return res.status(400).json({ success: false, message: '登入成功返回網址必須是 HTTPS' });
+      }
+      const mode = merged.line_member_gate_mode ? String(merged.line_member_gate_mode).trim() : '';
+      if (mode && !['disabled', 'checkout', 'entry'].includes(mode)) {
+        return res.status(400).json({ success: false, message: '入口模式必須是 disabled / checkout / entry 其中之一' });
+      }
+      const textFields = ['line_member_title', 'line_member_description', 'line_member_friend_button_text', 'line_member_login_button_text', 'line_member_skip_button_text'];
+      for (const f of textFields) {
+        if (merged[f] !== undefined && String(merged[f]).length > 200) {
+          return res.status(400).json({ success: false, message: `${f} 文字過長（上限 200 字）` });
+        }
       }
     }
 

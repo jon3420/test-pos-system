@@ -305,6 +305,7 @@ img{max-width:100%;display:block}
 
 <script src="/js/analytics-attribution.js"></script>
 <script src="/js/analytics-platforms.js"></script>
+<script src="/js/line-member-gate.js"></script>
 <script>
 const params = new URLSearchParams(location.search);
 const STORE_ID = params.get('store_id') || '';
@@ -374,6 +375,7 @@ function _trackEvent(eventName, extra){
       referrer:fields.referrer, landing_page:fields.landing_page,
       fbclid:fields.fbclid, gclid:fields.gclid,
       metadata:fields.metadata,
+      member_session:_currentMemberSession(),
       ...(extra||{}),
     };
     fetch(apiUrl('/api/analytics/events'),{
@@ -386,6 +388,35 @@ function _trackEvent(eventName, extra){
       AnalyticsPlatforms.trackPlatformEvent(eventName, pp);
     }catch(e){}
   }
+}
+// ── fix18-10-hotfix23-E：LINE 會員入口 —— 與 line-order.html 共用同一套規則 ──
+let _lineMemberGateConfig=null;
+function _buildLineMemberGateConfig(d){
+  return {
+    liff_id:d.line_member_liff_id||'',
+    gate_enabled:d.line_member_gate_enabled==='1',
+    gate_mode:d.line_member_gate_mode||'disabled',
+    require_friend:d.line_member_require_friend==='1',
+    allow_skip:d.line_member_allow_skip==='1',
+    add_friend_url:d.line_member_add_friend_url||'',
+    title:d.line_member_title||'LINE 會員登入',
+    description:d.line_member_description||'登入 LINE 會員即可享有專屬服務',
+    friend_button_text:d.line_member_friend_button_text||'加入官方帳號',
+    login_button_text:d.line_member_login_button_text||'使用 LINE 登入',
+    skip_button_text:d.line_member_skip_button_text||'略過',
+  };
+}
+function _gateIds(){ return { visitor_id:_getVisitorId(), session_id:_getSessionId(), cart_id:_getCartId(false), order_mode:'shipping', attribution:_getAnalyticsContext() }; }
+async function _initLineMemberGateFromShopData(d){
+  _lineMemberGateConfig=_buildLineMemberGateConfig(d);
+  if(!_lineMemberGateConfig.gate_enabled || _lineMemberGateConfig.gate_mode==='disabled') return;
+  try{ await LineMemberGate.initLineMemberGate({ store_id:STORE_ID, liff_id:_lineMemberGateConfig.liff_id }); }catch(e){ return; }
+  if(_lineMemberGateConfig.gate_mode==='entry'){
+    LineMemberGate.requireMemberOnEntry(STORE_ID, _lineMemberGateConfig, _gateIds(), _trackEvent);
+  }
+}
+function _currentMemberSession(){
+  try{ const s=LineMemberGate.getMemberSession(STORE_ID); return s?s.member_session:null; }catch(e){ return null; }
 }
 function _analyticsPayloadForOrder(){
   const fields=_getAnalyticsContext();
@@ -495,6 +526,9 @@ async function init() {
     SHOP_DATA = res.data;
     // fix18-10-hotfix23-D：依店家設定初始化 Meta Pixel／GA4（沒啟用或沒有 ID 時不會載入）
     try{ AnalyticsPlatforms.init(SHOP_DATA.settings || {}); }catch(e){}
+    // fix18-10-hotfix23-E：LINE 會員入口 —— disabled 模式或未設定 liff_id 時安全略過，
+    // 完全不影響既有宅配點餐流程。
+    try{ _initLineMemberGateFromShopData(SHOP_DATA.settings || {}); }catch(e){}
     if (!SHOP_DATA.settings.shipping_enabled) {
       document.getElementById('loading').style.display = 'none';
       document.getElementById('closedScreen').style.display = 'flex';
@@ -1176,6 +1210,11 @@ async function submitOrder() {
 
   const btn = document.getElementById('submitBtn');
   btn.disabled = true; btn.textContent = '送出中…';
+  // fix18-10-hotfix23-E：checkout 模式在真正送單前要求登入
+  if(_lineMemberGateConfig && _lineMemberGateConfig.gate_enabled && _lineMemberGateConfig.gate_mode==='checkout'){
+    const gateResult=await LineMemberGate.requireMemberBeforeCheckout(STORE_ID,_lineMemberGateConfig,_gateIds(),_trackEvent);
+    if(!gateResult.ok){ btn.disabled=false; btn.textContent='送出訂單'; return; }
+  }
   // fix18-10-hotfix23-A：payment_started — 非 LINE Pay（無跳轉）選擇付款方式並送出時記錄；
   // LINE Pay 改在跳轉前記錄（見下方 lpRes.payment_url 導轉處）
   if (selectedPayment !== 'linepay') { _trackEvent('payment_started'); }
@@ -1188,6 +1227,7 @@ async function submitOrder() {
       // hotfix22-C：只送 coupon_code，折扣金額一律由後端重新計算，前端算出來的數字只作畫面預覽用
       coupon_code: appliedCoupon?.code || '',
       analytics: _analyticsPayloadForOrder(),
+      member_session: _currentMemberSession(),
     });
     if (!res.success) { toast(res.message || '送出失敗'); btn.disabled = false; btn.textContent = '送出訂單'; return; }
     const d = res.data;
