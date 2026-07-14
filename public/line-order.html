@@ -357,6 +357,8 @@ img{max-width:100%;display:block}
 
 <div class="toast" id="toast"></div>
 
+<script src="/js/analytics-attribution.js"></script>
+<script src="/js/analytics-platforms.js"></script>
 <script>
 'use strict';
 // ── SaaS store_id 綁定 ──
@@ -399,66 +401,77 @@ function _getCartId(createIfMissing){
 function _resetCartId(){
   try{ localStorage.removeItem('line_cart_id_'+LINE_STORE_ID); }catch(e){}
 }
-// UTM / 來源擷取（只存不分析，本期不做廣告成本與 ROAS）
+// ── fix18-10-hotfix23-D：來源判斷／first-touch／last-touch 一律由共用模組
+// public/js/analytics-attribution.js 負責，這裡只是 delegate，不得再各寫一套規則
+// （需求文件二／三）。函式名稱保留，既有呼叫點（_trackEvent('page_view') 等）不必更動。
 function _deriveSource(utmSource, referrer){
-  const ref=(referrer||'').toLowerCase();
-  if(utmSource) return String(utmSource).toLowerCase();
-  if(!ref) return 'direct';
-  if(ref.includes('facebook.com')||ref.includes('fb.com')) return 'facebook';
-  if(ref.includes('instagram.com')) return 'instagram';
-  if(ref.includes('threads.net')) return 'threads';
-  if(ref.includes('google.')) return 'google';
-  if(ref.includes('line.me')||ref.includes('liff')) return 'line_oa';
-  try{
-    const refHost=new URL(referrer).hostname;
-    if(refHost && refHost===location.hostname) return 'direct';
-  }catch(e){}
-  return 'unknown';
+  return AnalyticsAttribution.normalizeTrafficSource({ get:(k)=> k==='utm_source'?(utmSource||''):'' }, referrer||'');
 }
 function _getAnalyticsContext(){
-  try{
-    const ctxKey='line_actx_'+LINE_STORE_ID;
-    let ctx=null;
-    try{ ctx=JSON.parse(sessionStorage.getItem(ctxKey)||'null'); }catch(e){}
-    if(!ctx){
-      const p=new URLSearchParams(window.location.search);
-      const utm_source=p.get('utm_source')||'';
-      ctx={
-        utm_source, utm_medium:p.get('utm_medium')||'', utm_campaign:p.get('utm_campaign')||'',
-        fbclid:p.get('fbclid')||'', gclid:p.get('gclid')||'',
-        referrer:document.referrer||'', landing_page:location.pathname+location.search,
-        source:_deriveSource(utm_source, document.referrer||''),
-      };
-      try{ sessionStorage.setItem(ctxKey, JSON.stringify(ctx)); }catch(e){}
-    }
-    return ctx;
-  }catch(e){ return {}; }
+  try{ return AnalyticsAttribution.buildAnalyticsEventContext(LINE_STORE_ID); }catch(e){ return {}; }
 }
 // 前台一般事件追蹤：fire-and-forget，絕不阻塞下單/瀏覽流程；purchase/submit_order
 // 由後端於訂單真正成立/付款真正成功時寫入，前端不送出這兩種事件。
+// 同時把對應的 Meta Pixel／GA4 事件（purchase 除外）一併送出，兩邊失敗互不影響主要流程。
 function _trackEvent(eventName, extra){
   try{
-    const ctx=_getAnalyticsContext();
+    const fields=_getAnalyticsContext();
     const body={
       visitor_id:_getVisitorId(), session_id:_getSessionId(),
       cart_id:_getCartId(false)||null,
       event_name:eventName,
       order_mode:currentMode,
-      source:ctx.source, medium:ctx.utm_medium||'', campaign:ctx.utm_campaign||'',
-      referrer:ctx.referrer, landing_page:ctx.landing_page,
-      fbclid:ctx.fbclid, gclid:ctx.gclid,
+      source:fields.source, medium:fields.medium, campaign:fields.campaign,
+      referrer:fields.referrer, landing_page:fields.landing_page,
+      fbclid:fields.fbclid, gclid:fields.gclid,
+      metadata:fields.metadata,
       ...(extra||{}),
     };
     apiFetch('/api/analytics/events',{method:'POST',body:JSON.stringify(body)}).catch(()=>{});
   }catch(e){ /* 追蹤失敗不影響主要功能 */ }
+  // purchase 不透過這裡送 Pixel／GA4（必須等後端確認成功才在結果頁單獨觸發，見送單/LINE Pay 成功處）
+  if (eventName !== 'purchase') {
+    try{
+      const pp = (extra && extra.product_id) ? { content_ids:[String(extra.product_id)], content_type:'product' } : {};
+      AnalyticsPlatforms.trackPlatformEvent(eventName, pp);
+    }catch(e){}
+  }
 }
 function _analyticsPayloadForOrder(){
-  const ctx=_getAnalyticsContext();
+  const fields=_getAnalyticsContext();
+  const orderAttr=(function(){ try{ return AnalyticsAttribution.buildOrderAnalyticsContext(LINE_STORE_ID); }catch(e){ return {first_touch:null,last_touch:null}; } })();
   return {
     visitor_id:_getVisitorId(), session_id:_getSessionId(), cart_id:_getCartId(false)||null,
-    source:ctx.source, medium:ctx.utm_medium||'', campaign:ctx.utm_campaign||'',
-    referrer:ctx.referrer, landing_page:ctx.landing_page, fbclid:ctx.fbclid, gclid:ctx.gclid,
+    source:fields.source, medium:fields.medium, campaign:fields.campaign,
+    referrer:fields.referrer, landing_page:fields.landing_page, fbclid:fields.fbclid, gclid:fields.gclid,
+    metadata:fields.metadata,
+    first_touch:orderAttr.first_touch, last_touch:orderAttr.last_touch,
   };
+}
+// fix18-10-hotfix23-D：Meta Pixel／GA4 的 Purchase 只能在後端已確認訂單成立／付款成功
+// 的結果頁觸發一次，用 order_number 當去重 key（localStorage 記錄「已觸發過」，避免使用者
+// 重新整理成功頁或重複進入同一頁面時對同一張訂單重複計算 Purchase）。value 一律用呼叫端
+// 傳入的「後端回傳金額」，這個函式本身不重新計算金額。
+function _firePurchaseOnce(orderNumber, orderTotal, itemsForPixel){
+  try{
+    if(!orderNumber) return;
+    const dedupKey='analytics_purchase_fired_'+LINE_STORE_ID+'_'+orderNumber;
+    if(localStorage.getItem(dedupKey)) return;
+    localStorage.setItem(dedupKey,'1');
+    const contentIds=(itemsForPixel||[]).map(it=>String(it.product_id||it.id||'')).filter(Boolean);
+    const ga4Items=(itemsForPixel||[]).map(it=>({
+      item_id:String(it.product_id||it.id||''), item_name:it.name||'', price:Number(it.price||0), quantity:Number(it.qty||1),
+    }));
+    AnalyticsPlatforms.trackPlatformEvent('purchase', {
+      transaction_id: orderNumber,
+      eventId: orderNumber,
+      value: Number(orderTotal||0),
+      currency:'TWD',
+      content_ids: contentIds,
+      content_type:'product',
+      items: ga4Items,
+    });
+  }catch(e){ /* Pixel/GA4 失敗不影響訂單，訂單本身已經成立 */ }
 }
 // fix18-10-hotfix23-A：加入購物車時若尚未有 cart_id（購物車原本是空的），先建立一個；
 // 移除商品降到 0 時記錄 remove_from_cart。quantity 帶「這次異動」的數量，不是購物車總量。
@@ -589,9 +602,23 @@ async function init(){
     // hotfix22-F：LINE Pay 付款成功才是唯一清空購物車的時機之一，這裡才真正清除 localStorage
     clearCartStorage();
     document.getElementById('loading').style.display='none';
-    document.getElementById('sucNo').textContent='訂單編號：'+(_lpP.get('order')||'');
+    const _lpOrderNo=_lpP.get('order')||'';
+    document.getElementById('sucNo').textContent='訂單編號：'+_lpOrderNo;
     document.getElementById('sucDetail').innerHTML='<div style="color:#06C755;font-weight:700;font-size:16px;text-align:center;padding:20px">💚 LINE Pay 付款成功！訂單已建立。</div>';
     document.getElementById('successScreen').classList.add('show');
+    // fix18-10-hotfix23-D：LINE Pay callback URL 只有訂單編號，沒有金額——不能用 URL
+    // 上的任何數字當 Purchase value（那可以被竄改）。改用既有的 /api/line-orders/query
+    // （只用 order_number 查詢，後端回傳的是訂單當下真正的 total）取得後端權威金額，
+    // 才觸發 Purchase，並且用 order_number 去重，重整這個成功頁不會重複計算。
+    if(_lpOrderNo){
+      apiFetch('/api/line-orders/query',{method:'POST',body:JSON.stringify({order_number:_lpOrderNo})})
+        .then(r=>r.json())
+        .then(qr=>{
+          const o=(qr&&qr.success&&qr.orders&&qr.orders[0])?qr.orders[0]:null;
+          if(o) _firePurchaseOnce(_lpOrderNo, o.total, o.items||[]);
+        })
+        .catch(()=>{});
+    }
     return;
   }
   if(_lpP.get('linepay')==='cancel'){
@@ -612,6 +639,9 @@ async function init(){
     bizCalendarList = (bcr && bcr.success && Array.isArray(bcr.data)) ? bcr.data : [];
     if(sr.success){
       shopData=sr.data;
+      // fix18-10-hotfix23-D：依店家設定初始化 Meta Pixel／GA4（沒啟用或沒有 ID 時
+      // AnalyticsPlatforms.init() 內部什麼都不會載入）
+      try{ AnalyticsPlatforms.init(shopData); }catch(e){}
       // fix18-05: 依 coupon_feature_enabled 顯示/隱藏優惠券區塊
       couponFeatureEnabled = shopData.coupon_feature_enabled === true;
       const couponAreaEl = document.getElementById('couponArea');
@@ -1987,6 +2017,10 @@ async function submitOrder(){
       payment_label:PLABELS[selectedPay]||selectedPay, note
     });
     document.getElementById('successScreen').classList.add('show');
+    // fix18-10-hotfix23-D：非 LINE Pay 訂單在這裡就是後端已確認成立的成交（與後端
+    // routes/line-orders.js 的 purchase 事件寫入時機一致），value 用 orderData.total
+    // （後端回傳金額，不是前端 subtotal 自算值）。
+    _firePurchaseOnce(orderData.order_number, orderData.total, items);
   }catch{toast('網路錯誤，請重試');}
   finally{btn.disabled=false;btn.textContent='確認送出訂單';}
 }

@@ -20,7 +20,7 @@ const { validateCoupon } = require('./coupons'); // fix18-05
 const { getStoreFeatures } = require('../middleware/featureGate'); // fix18-05 coupon gate
 const { applyOrderStatusChange } = require('../utils/orderStatusFlow'); // hotfix13-BUG7：統一狀態機（單一來源，orders.js / online-orders.js 共用）
 const { computeTodayStatus: computeCalendarStatus } = require('./business-calendar'); // Business Calendar V2：營業行事曆覆蓋層
-const { logServerEvent } = require('../utils/analyticsLog'); // fix18-10-hotfix23-A：Analytics Foundation
+const { logServerEvent, buildTrackingMetadata } = require('../utils/analyticsLog'); // fix18-10-hotfix23-A/D：Analytics Foundation + Ads Attribution
 
 // ── fix18-06：外送費後端重算 helper ──────────────────
 const SERVER_KEY = () => process.env.GOOGLE_MAPS_SERVER_KEY || '';
@@ -459,6 +459,10 @@ router.get('/shop', (req, res) => {
       'line_announcement_start_date','line_announcement_end_date','line_announcement_closable',
       'line_announcement_display_mode','line_announcement_frequency','line_announcement_version',
       'line_announcement_auto_holiday',
+      // fix18-10-hotfix23-D：廣告追蹤設定（Pixel ID／Measurement ID 本身非密鑰，
+      // 前台本來就需要明碼載入才能初始化 Meta Pixel／GA4）
+      'analytics_meta_pixel_enabled', 'analytics_meta_pixel_id',
+      'analytics_ga4_enabled', 'analytics_ga4_measurement_id',
     ];
     const settings = {};
     keys.forEach(k => { settings[k] = getSetting(db, storeId, k, ''); });
@@ -1339,6 +1343,9 @@ router.post('/', async (req, res) => {
         landing_page: ap.landing_page || null,
         fbclid: ap.fbclid || null,
         gclid: ap.gclid || null,
+        // fix18-10-hotfix23-D：first_touch／last_touch／utm_content／utm_term 一律走白名單
+        // 組裝（buildTrackingMetadata 只挑追蹤欄位，前端塞入其他資料不會被寫入）
+        metadata: buildTrackingMetadata(ap),
       };
       logServerEvent(db, { ...evtBase, event_name: 'submit_order' });
       if (payment_method !== 'linepay') {

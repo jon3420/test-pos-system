@@ -15,7 +15,7 @@ const router  = express.Router();
 const { getDb } = require('../utils/db');
 const { broadcastToStore } = require('../utils/wssBroadcast');
 const { v4: uuidv4 } = require('uuid');
-const { logServerEvent } = require('../utils/analyticsLog'); // fix18-10-hotfix23-A：Analytics Foundation
+const { logServerEvent, buildTrackingMetadata } = require('../utils/analyticsLog'); // fix18-10-hotfix23-A/D：Analytics Foundation + Ads Attribution
 // hotfix22-C：冷藏宅配優惠券支援 — 直接共用既有優惠券引擎（routes/coupons.js），
 // 不重做驗證規則（期限／最低消費／每人次數上限／tenant 隔離皆沿用同一份邏輯），
 // 也不影響 routes/line-shipping.js 本來「不共用外帶/外送購物車與驗證流程」的獨立設計。
@@ -76,6 +76,9 @@ function getShippingSettings(db, storeId) {
     'shipping_allow_arrival_date', 'shipping_upsell_enabled',
     // 沿用既有店家基本資料
     'shop_name', 'shop_logo', 'shop_address',
+    // fix18-10-hotfix23-D：廣告追蹤設定（與 line-order 頁一致，同一套 key）
+    'analytics_meta_pixel_enabled', 'analytics_meta_pixel_id',
+    'analytics_ga4_enabled', 'analytics_ga4_measurement_id',
   ];
   const s = {};
   keys.forEach(k => { s[k] = getSetting(db, storeId, k, ''); });
@@ -582,6 +585,8 @@ router.post('/', (req, res) => {
         landing_page: ap.landing_page || null,
         fbclid: ap.fbclid || null,
         gclid: ap.gclid || null,
+        // fix18-10-hotfix23-D：與 routes/line-orders.js 一致的追蹤欄位白名單組裝
+        metadata: buildTrackingMetadata(ap),
       };
       logServerEvent(db, { ...evtBase, event_name: 'submit_order' });
       if (payment_method !== 'linepay') {

@@ -132,7 +132,7 @@ function getOrderTrackingContext(db, storeId, orderId) {
   try {
     const row = db.get(
       `SELECT visitor_id, session_id, cart_id, order_mode, source, medium, campaign,
-              referrer, landing_page, fbclid, gclid
+              referrer, landing_page, fbclid, gclid, metadata_json
        FROM analytics_events
        WHERE store_id=? AND order_id=? AND event_name='submit_order'
        ORDER BY id DESC LIMIT 1`,
@@ -156,6 +156,36 @@ function logServerEvent(db, fields) {
   return insertEvent(db, fields);
 }
 
+// ── fix18-10-hotfix23-D：把前端送單時附帶的 first_touch／last_touch／utm_content／
+// utm_term 組成 submit_order 的 metadata。只挑固定的追蹤欄位，前端就算塞入姓名、電話、
+// 金額等其他欄位也不會被寫入（需求文件十四：資料安全）。
+const MAX_TOUCH_STR = 300;
+function _sanitizeTouch(touch) {
+  if (!touch || typeof touch !== 'object') return null;
+  const pick = (v, max) => (v === undefined || v === null) ? '' : String(v).slice(0, max || MAX_TOUCH_STR);
+  const out = {
+    source: pick(touch.source), medium: pick(touch.medium), campaign: pick(touch.campaign),
+    content: pick(touch.content), term: pick(touch.term),
+    referrer: pick(touch.referrer, 500), landing_page: pick(touch.landing_page, 500),
+    fbclid: pick(touch.fbclid), gclid: pick(touch.gclid),
+    captured_at: pick(touch.captured_at, 50),
+  };
+  // 全空就視為沒有資料，不寫入空殼物件
+  return Object.values(out).some(v => v) ? out : null;
+}
+function buildTrackingMetadata(ap) {
+  ap = ap || {};
+  const metadata = {};
+  const rawMeta = (ap.metadata && typeof ap.metadata === 'object') ? ap.metadata : {};
+  if (rawMeta.utm_content) metadata.utm_content = String(rawMeta.utm_content).slice(0, 300);
+  if (rawMeta.utm_term) metadata.utm_term = String(rawMeta.utm_term).slice(0, 300);
+  const ft = _sanitizeTouch(ap.first_touch || rawMeta.first_touch);
+  const lt = _sanitizeTouch(ap.last_touch || rawMeta.last_touch);
+  if (ft) metadata.first_touch = ft;
+  if (lt) metadata.last_touch = lt;
+  return Object.keys(metadata).length ? metadata : null;
+}
+
 module.exports = {
   EVENT_WHITELIST,
   isValidEventName,
@@ -168,4 +198,5 @@ module.exports = {
   hasEventForOrder,
   getOrderTrackingContext,
   logServerEvent,
+  buildTrackingMetadata,
 };

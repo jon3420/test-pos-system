@@ -95,6 +95,15 @@ const COMMISSION_KEYS = [
   'unknown_commission_rate',
 ];
 
+// fix18-10-hotfix23-D：廣告追蹤設定（Meta Pixel／GA4）。刻意不放 CAPI Access Token／
+// Test Event Code——本版沒有實作 Conversion API，避免店家誤以為已經完成串接
+// （需求文件五／需求文件八）。Pixel ID、Measurement ID 本身不是密鑰，前端本來就會明碼
+// 嵌入頁面，GET /api/settings 照既有行為原樣回傳沒有額外風險。
+const ANALYTICS_KEYS = [
+  'analytics_meta_pixel_enabled', 'analytics_meta_pixel_id',
+  'analytics_ga4_enabled', 'analytics_ga4_measurement_id',
+];
+
 // 所有允許修改的 key（包含 LINE key）
 const ALL_ALLOWED = [
   'shop_name', 'n8n_webhook_url', 'line_channel_token', 'tax_rate', 'receipt_footer',
@@ -114,6 +123,7 @@ const ALL_ALLOWED = [
   ...SHIPPING_KEYS,
   ...SHIPPING_API_KEYS,
   ...SHIPPING_ANNOUNCEMENT_KEYS,
+  ...ANALYTICS_KEYS,
 ];
 
 // GET /api/settings
@@ -153,6 +163,19 @@ router.put('/', (req, res) => {
           feature: 'line_order',
           message: '此功能未授權，請聯絡系統管理員升級方案（LINE 點餐設定需 line_order 授權）'
         });
+      }
+    }
+
+    // ── fix18-10-hotfix23-D：廣告追蹤 ID 基本格式驗證（需求文件五第 2 點）──
+    // 只在有實際送值時才驗證；空字串（清空設定）永遠允許。
+    if (req.body.analytics_meta_pixel_id !== undefined && String(req.body.analytics_meta_pixel_id).trim() !== '') {
+      if (!/^\d{6,20}$/.test(String(req.body.analytics_meta_pixel_id).trim())) {
+        return res.status(400).json({ success: false, message: 'Meta Pixel ID 格式錯誤（應為 6~20 位數字）' });
+      }
+    }
+    if (req.body.analytics_ga4_measurement_id !== undefined && String(req.body.analytics_ga4_measurement_id).trim() !== '') {
+      if (!/^G-[A-Z0-9]{6,12}$/i.test(String(req.body.analytics_ga4_measurement_id).trim())) {
+        return res.status(400).json({ success: false, message: 'GA4 Measurement ID 格式錯誤（應為 G- 開頭，例如 G-XXXXXXXXXX）' });
       }
     }
 

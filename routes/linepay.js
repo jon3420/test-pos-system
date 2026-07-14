@@ -531,6 +531,11 @@ router.get('/confirm', async (req, res) => {
         landing_page: ctx.landing_page || null,
         fbclid: ctx.fbclid || null,
         gclid: ctx.gclid || null,
+        // fix18-10-hotfix23-D：LINE Pay callback URL 本身沒有 UTM，purchase 必須沿用
+        // submit_order 當下存下的 first_touch/last_touch metadata，不能因為 callback
+        // 網址乾淨就變成 direct（需求文件七第 5 點）。metadata_json 已是 JSON 字串，
+        // insertEvent()/normalizeMetadata() 支援字串直接寫入。
+        metadata: ctx.metadata_json || null,
       });
     } catch (evtErr) {
       console.warn('[linepay/confirm] analytics event write failed:', evtErr.message);

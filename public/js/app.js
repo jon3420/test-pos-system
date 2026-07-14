@@ -263,6 +263,11 @@ function loadReportsPage() {
 
 function _dashboardSkeletonV2() {
   return `
+  <style>
+    /* fix18-10-hotfix23-C：Dashboard V3 版面優化——卡片陰影／hover／色彩區隔，維持 Dark Theme */
+    .db-v3-hover { box-shadow: 0 1px 2px rgba(0,0,0,.25); transition: transform .15s ease, box-shadow .15s ease; }
+    .db-v3-hover:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,.35); }
+  </style>
   <div id="dashboard-wrap" style="font-family:-apple-system,sans-serif;width:100%;box-sizing:border-box">
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
       <h2 style="margin:0;font-size:1.2rem">📊 老闆儀表板</h2>
@@ -397,25 +402,283 @@ function _section(title, html) {
   </div>`;
 }
 
-// ── 組裝所有區塊（依需求文件 M. UI 規則指定順序）──────────────────
+// ── 組裝所有區塊（依需求文件 M. UI 規則指定順序；fix18-10-hotfix23-C 起
+//    在既有 Hotfix23-B 區塊「之上」疊加 Dashboard V3 首頁模式／KPI 成長比較／
+//    健康度 V2／30 天趨勢／Funnel V2／商品分級，既有區塊本身不刪除）──────
 function renderDashboardV2(data) {
   const body = document.getElementById('db-body-v2');
   if (!body) return;
   let html = '';
-  html += renderDashboardHealth(data.health_score, data.range);
-  html += renderDashboardKpi(data.kpi, data.range);
-  html += renderDashboardFunnel(data.funnel);
+  html += renderDashboardTodo(data.todo_list);
+  html += renderDashboardHome(data);
+  html += renderDashboardKpiV3(data.kpi, data.kpi_comparison, data.range);
+  html += renderDashboardHealthV2(data.health_score_v2, data.range);
+  html += renderDashboardTrend30d(data.trend_30d);
+  html += renderDashboardFunnelV2(data.funnel);
   html += renderDashboardRealtime(data.realtime);
   html += renderDashboardCart(data.cart);
-  html += renderDashboardProducts(data.products);
+  html += renderDashboardProductsV2(data.products, data.product_tiers);
   html += renderDashboardPayments(data.payments);
   html += renderDashboardSources(data.sources);
+  html += renderDashboardAdsAttribution(data.ads_attribution);
   html += renderDashboardRepeatCustomers(data.repeat_customers);
   html += renderDashboardIncomplete(data.incomplete);
   html += renderDashboardRecommendations(data.recommendations);
   body.innerHTML = html;
   // 商品排行表格在 innerHTML 掛載後才能抓到 DOM，另外呼叫填入
   renderDashboardProductsTable();
+}
+
+// ── V3-0. 📋 今日待處理（首頁最上方）──────────────────────────────
+function renderDashboardTodo(todos) {
+  if (!todos || !todos.length) return '';
+  const levelColor = { red: '#ef4444', yellow: '#f59e0b', green: '#10b981', orange: '#fb923c' };
+  const rows = todos.map(t => `
+    <div class="db-v3-hover" style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;font-size:.85rem">
+      <span style="font-size:1rem">${t.icon}</span>
+      <span style="color:${levelColor[t.level] || 'inherit'}">${escHtml(t.text)}</span>
+    </div>`).join('');
+  return _section('📋 今日待處理', rows);
+}
+
+// ── V3-1. 首頁 Hero（Good Evening 老闆 × 今日營收 × 健康度 × 在線 × 預估 × AI 建議）
+function _timeGreeting() {
+  const h = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' })).getHours();
+  if (h < 5) return 'Good Night';
+  if (h < 12) return 'Good Morning';
+  if (h < 18) return 'Good Afternoon';
+  return 'Good Evening';
+}
+function renderDashboardHome(data) {
+  if (!data.range || data.range.preset !== 'today') return ''; // 首頁模式只在「今日」視圖顯示
+  const kpi = data.kpi, cmp = data.kpi_comparison, health = data.health_score_v2;
+  const revTrend = cmp && cmp.revenue;
+  const trendColor = { green: '#10b981', red: '#ef4444', gray: 'var(--text-secondary,#64748b)' };
+  const storeName = (typeof getCurrentStoreName === 'function' && getCurrentStoreName()) || '老闆';
+  const healthEmoji = health && health.score !== null ? (health.score >= 80 ? '🟢' : health.score >= 60 ? '🟡' : '🔴') : '⚪';
+
+  return `<div class="db-v3-hover" style="background:linear-gradient(135deg,#1e2130,#181a24);border:1px solid var(--border,#2a2d3e);border-radius:16px;padding:22px 24px;margin-bottom:20px;width:100%;box-sizing:border-box">
+    <div style="font-size:1.1rem;font-weight:700;margin-bottom:2px">${_timeGreeting()}，${escHtml(storeName)}</div>
+    <div style="font-size:.75rem;color:var(--text-secondary,#64748b);margin-bottom:16px">30 秒掌握今天狀況</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:14px">
+      <div>
+        <div style="font-size:.72rem;color:var(--text-secondary,#64748b)">今日營收</div>
+        <div style="font-size:1.5rem;font-weight:700;color:#10b981">${_nt(kpi.revenue)}</div>
+        ${revTrend ? `<div style="font-size:.78rem;color:${trendColor[revTrend.color]}">${revTrend.arrow} ${revTrend.delta_pct !== null ? revTrend.delta_pct + '%' : ''}</div>` : ''}
+      </div>
+      <div>
+        <div style="font-size:.72rem;color:var(--text-secondary,#64748b)">今日健康度</div>
+        <div style="font-size:1.5rem;font-weight:700">${healthEmoji} ${health && health.score !== null ? health.score + ' 分' : '—'}</div>
+      </div>
+      <div>
+        <div style="font-size:.72rem;color:var(--text-secondary,#64748b)">目前在線</div>
+        <div style="font-size:1.5rem;font-weight:700">${data.realtime ? data.realtime.online : 0} 人</div>
+      </div>
+      <div>
+        <div style="font-size:.72rem;color:var(--text-secondary,#64748b)">預估今日</div>
+        <div style="font-size:1.5rem;font-weight:700;color:#818cf8">${data.forecast && data.forecast.applicable ? _nt(data.forecast.forecast_revenue) : '—'}</div>
+      </div>
+    </div>
+    ${data.ai_daily_tip ? `<div style="margin-top:16px;padding:12px 14px;background:rgba(99,102,241,.1);border:1px solid rgba(99,102,241,.3);border-radius:10px;font-size:.85rem">
+      🤖 <strong>今日經營建議</strong>：${escHtml(data.ai_daily_tip)}
+    </div>` : ''}
+  </div>`;
+}
+
+// ── V3-2. KPI（每張卡片附上一期間比較：▲／▼／—、百分比、顏色）────────
+function _cardTrend(label, value, trend, color) {
+  const trendColor = { green: '#10b981', red: '#ef4444', gray: 'var(--text-secondary,#64748b)' };
+  const sub = trend ? `<span style="color:${trendColor[trend.color]}">${trend.arrow} ${trend.delta_pct !== null ? Math.abs(trend.delta_pct) + '%' : ''}</span>
+    <span style="color:var(--text-secondary,#64748b)"> 比上一期間</span>` : '';
+  return `<div class="db-v3-hover" style="background:var(--bg-card,#1a1d27);border:1px solid var(--border,#2a2d3e);border-radius:12px;padding:16px 20px;min-width:150px">
+    <div style="font-size:.75rem;color:var(--text-secondary,#64748b);margin-bottom:6px">${label}</div>
+    <div style="font-size:1.5rem;font-weight:700;color:${color||'var(--text-primary,#e2e8f0)'}">${value}</div>
+    ${sub ? `<div style="font-size:.72rem;margin-top:4px">${sub}</div>` : ''}
+  </div>`;
+}
+function renderDashboardKpiV3(kpi, cmp, range) {
+  if (!kpi) return '';
+  const isToday = range && range.preset === 'today';
+  const prefix = isToday ? '今日' : '區間';
+  const c = cmp || {};
+  let html = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-bottom:20px;width:100%">
+    ${_cardTrend(prefix+'營收', _nt(kpi.revenue), c.revenue, '#10b981')}
+    ${_cardTrend(prefix+'訂單', kpi.orders + ' 筆', c.orders, '')}
+    ${_cardTrend(prefix+'平均客單', _nt(kpi.avg_order_value), c.avg_order_value, '')}
+    ${_cardTrend(prefix+'已結帳', kpi.paid_orders + ' 筆', c.paid_orders, '#818cf8')}
+    ${_cardTrend(prefix+'未結帳', kpi.unpaid_orders + ' 筆', c.unpaid_orders, kpi.unpaid_orders > 0 ? '#f59e0b' : '')}
+  </div>`;
+
+  html += _section('📅 週月營收（固定顯示目前本週／本月，不隨上方日期篩選變動）',
+    `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      ${_card('本週營收', _nt(kpi.week_revenue), (kpi.week_orders||0) + ' 筆', '#6366f1')}
+      ${_card('本月營收', _nt(kpi.month_revenue), (kpi.month_orders||0) + ' 筆', '#8b5cf6')}
+    </div>`
+  );
+
+  const pmNames = {cash:'現金',card:'刷卡',linepay:'LINE Pay',jkopay:'街口支付',transfer:'轉帳',platform:'平台付款',credit_card:'信用卡'};
+  const pmRows = (kpi.payment_stats||[]).map(p =>
+    `<tr><td style="padding:6px 0">${pmNames[p.payment_method]||escHtml(p.payment_method)}</td>
+      <td style="padding:6px 0;text-align:right">${p.count} 筆</td>
+      <td style="padding:6px 0;text-align:right;color:#10b981">${_nt(p.revenue)}</td>
+      <td style="padding:6px 0;text-align:right;color:var(--text-secondary,#64748b)">${_pct(p.revenue,kpi.revenue)}</td></tr>`
+  ).join('');
+  html += _section('💳 付款方式分析（訂單實收金額）',
+    pmRows ? `<div style="overflow-x:auto"><table style="width:100%;min-width:380px;border-collapse:collapse;font-size:.875rem">
+      <thead><tr style="color:var(--text-secondary,#64748b);font-size:.75rem">
+        <th style="text-align:left;padding-bottom:8px">方式</th><th style="text-align:right;padding-bottom:8px">筆數</th>
+        <th style="text-align:right;padding-bottom:8px">金額</th><th style="text-align:right;padding-bottom:8px">佔比</th></tr></thead>
+      <tbody>${pmRows}</tbody></table></div>` : `<div style="color:var(--text-secondary,#64748b);font-size:.875rem">此區間無資料</div>`
+  );
+
+  // 熱銷商品 TOP10（沿用既有商品群組統計切換，fix18-09F）
+  const _dbMode = getProductStatMode();
+  const _rawTopMap = {};
+  (kpi.top_products||[]).forEach(p => {
+    const dname = resolveProductDisplayName(p.name, _dbMode);
+    if (!_rawTopMap[dname]) _rawTopMap[dname] = { name: dname, qty: 0, revenue: 0 };
+    _rawTopMap[dname].qty += Number(p.qty || 0);
+    _rawTopMap[dname].revenue += Number(p.revenue || 0);
+  });
+  const _mergedTop = Object.values(_rawTopMap).sort((a,b) => b.qty - a.qty).slice(0, 10);
+  const _modeToggle = `<div style="display:flex;gap:6px;align-items:center;margin-bottom:12px">
+    <span style="font-size:12px;color:var(--text-secondary,#64748b)">統計模式：</span>
+    <button onclick="setProductStatMode('group');loadDashboardV2()" style="font-size:12px;padding:3px 10px;border-radius:99px;border:1px solid var(--border,#2a2d3e);background:${_dbMode==='group'?'#6366f1':'transparent'};color:${_dbMode==='group'?'#fff':'var(--text-secondary,#64748b)'};cursor:pointer">商品群組</button>
+    <button onclick="setProductStatMode('raw');loadDashboardV2()" style="font-size:12px;padding:3px 10px;border-radius:99px;border:1px solid var(--border,#2a2d3e);background:${_dbMode==='raw'?'#6366f1':'transparent'};color:${_dbMode==='raw'?'#fff':'var(--text-secondary,#64748b)'};cursor:pointer">原始商品</button>
+  </div>`;
+  const topRows = _mergedTop.map((p,i) =>
+    `<tr><td style="padding:5px 0;color:${i<3?'#f59e0b':'inherit'}">${i+1}. ${escHtml(p.name)}</td>
+      <td style="padding:5px 0;text-align:right">${p.qty} 份</td>
+      <td style="padding:5px 0;text-align:right;color:#10b981">${_nt(p.revenue)}</td></tr>`
+  ).join('');
+  html += _section(`🏆 熱銷商品排行 TOP10（${prefix}）`,
+    _modeToggle + (topRows ? `<div style="overflow-x:auto"><table style="width:100%;min-width:320px;border-collapse:collapse;font-size:.875rem">
+      <thead><tr style="color:var(--text-secondary,#64748b);font-size:.75rem">
+        <th style="text-align:left;padding-bottom:8px">商品</th>
+        <th style="text-align:right;padding-bottom:8px">數量</th>
+        <th style="text-align:right;padding-bottom:8px">營收</th></tr></thead>
+      <tbody>${topRows}</tbody></table></div>` : '<div style="color:var(--text-secondary,#64748b);font-size:.875rem">此區間無資料</div>')
+  );
+
+  return html;
+}
+
+// ── V3-3. 經營健康度 V2（星級拆解 + 低分警示建議）───────────────────
+function renderDashboardHealthV2(h, range) {
+  if (!h) return '';
+  const isToday = range && range.preset === 'today';
+  const label = isToday ? '今日經營健康度' : '區間經營健康度';
+  const stars = n => n === null ? '—' : '★'.repeat(n) + '☆'.repeat(5 - n);
+  if (h.score === null || h.score === undefined) {
+    return _section('🩺 經營健康度',
+      `<div style="display:flex;align-items:center;gap:10px">
+        <span style="font-size:1.4rem">⚪</span>
+        <span style="font-size:1.05rem;font-weight:700">${label}：資料不足</span>
+      </div>`
+    );
+  }
+  const emoji = h.score >= 80 ? '🟢' : h.score >= 60 ? '🟡' : '🔴';
+  const dimRows = (h.dimensions || []).map(d => `
+    <div style="display:flex;justify-content:space-between;font-size:.85rem;padding:5px 0">
+      <span>${escHtml(d.label)}</span>
+      <span style="color:#f59e0b">${stars(d.stars)}</span>
+    </div>`).join('');
+  const alertHtml = (h.alerts || []).map(a => `
+    <div style="margin-top:10px;padding:10px 12px;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.3);border-radius:8px;font-size:.82rem">
+      <div style="color:#ef4444;font-weight:600;margin-bottom:4px">${escHtml(a.text)}</div>
+      <div style="color:var(--text-secondary,#64748b)">建議：${a.suggestions.map(escHtml).join('、')}</div>
+    </div>`).join('');
+  return _section('🩺 經營健康度',
+    `<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+      <span style="font-size:1.4rem">${emoji}</span>
+      <span style="font-size:1.05rem;font-weight:700">${label}：${h.score} 分</span>
+      <span style="color:#f59e0b">${stars(Math.round(h.score/20))}</span>
+    </div>
+    ${dimRows}
+    ${alertHtml}`
+  );
+}
+
+// ── V3-4. 近 30 天趨勢（沿用簡單 SVG 折線，不新增圖表套件）──────────
+function _sparkline(points, color) {
+  if (!points.length) return '<div style="color:var(--text-secondary,#64748b);font-size:.8rem">尚無資料</div>';
+  const w = 600, h = 120, pad = 8;
+  const max = Math.max(...points, 1), min = Math.min(...points, 0);
+  const range = (max - min) || 1;
+  const stepX = (w - pad * 2) / Math.max(points.length - 1, 1);
+  const coords = points.map((v, i) => {
+    const x = pad + i * stepX;
+    const y = h - pad - ((v - min) / range) * (h - pad * 2);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  });
+  return `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:100px;display:block">
+    <polyline points="${coords.join(' ')}" fill="none" stroke="${color}" stroke-width="2"/>
+  </svg>`;
+}
+function renderDashboardTrend30d(trend) {
+  if (!trend || !trend.length) return '';
+  const revenue = trend.map(d => d.revenue);
+  const orders = trend.map(d => d.orders);
+  const aov = trend.map(d => d.avg_order_value);
+  const repeatRate = trend.map(d => d.repeat_rate || 0);
+  const last = trend[trend.length - 1];
+  return _section('📈 近 30 天趨勢',
+    `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px">
+      <div><div style="font-size:.78rem;color:var(--text-secondary,#64748b);margin-bottom:4px">營收（今日 ${_nt(last.revenue)}）</div>${_sparkline(revenue, '#10b981')}</div>
+      <div><div style="font-size:.78rem;color:var(--text-secondary,#64748b);margin-bottom:4px">訂單數（今日 ${last.orders} 筆）</div>${_sparkline(orders, '#6366f1')}</div>
+      <div><div style="font-size:.78rem;color:var(--text-secondary,#64748b);margin-bottom:4px">客單價（今日 ${_nt(last.avg_order_value)}）</div>${_sparkline(aov, '#818cf8')}</div>
+      <div><div style="font-size:.78rem;color:var(--text-secondary,#64748b);margin-bottom:4px">回購率（今日 ${_fmtPct(last.repeat_rate)}）</div>${_sparkline(repeatRate, '#f59e0b')}</div>
+    </div>`
+  );
+}
+
+// ── V3-5. 轉換漏斗 V2（真正梯形 Funnel，資料來源與既有漏斗完全相同）───
+function renderDashboardFunnelV2(funnel) {
+  const insufficient = funnel && !Array.isArray(funnel) && funnel.insufficient_data;
+  const stages = insufficient ? funnel.stages : funnel;
+  if (!stages || !stages.length || !(stages.some(s => s.count > 0))) {
+    return _section('📈 轉換漏斗', `<div style="color:var(--text-secondary,#64748b);font-size:.875rem">尚無足夠的轉換事件資料</div>`);
+  }
+  const entryCount = stages[0].count || 1;
+  const rows = stages.map(s => {
+    const widthPct = Math.max(4, Math.round((s.count / entryCount) * 100));
+    const overall = s.overall_conversion_rate !== null && s.overall_conversion_rate !== undefined ? _fmtPct(s.overall_conversion_rate) : '—';
+    return `<div style="margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;font-size:.8rem;margin-bottom:4px">
+        <span style="font-weight:600">${escHtml(s.label)}</span>
+        <span style="color:var(--text-secondary,#64748b)">${s.count} 人 · ${overall}</span>
+      </div>
+      <div style="width:100%;background:transparent">
+        <div class="db-v3-hover" style="width:${widthPct}%;min-width:60px;margin:0 auto;background:linear-gradient(90deg,#6366f1,#818cf8);height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:.72rem;font-weight:600">${widthPct}%</div>
+      </div>
+    </div>`;
+  }).join('');
+  return _section('📈 轉換漏斗', rows);
+}
+
+// ── V3-6. 商品排行 V2（🏆🥈🥉 + 🔥爆款／⭐潛力／⚠低轉換 標籤）────────
+function renderDashboardProductsV2(products, tiers) {
+  _dashboardProductsCache = products || [];
+  tiers = tiers || { hot: [], potential: [], low_conversion: [] };
+  const sortBtns = [['cart','加入最多'],['purchase','成交最多'],['abandon','放棄最多'],['rate_desc','轉換率最高'],['rate_asc','轉換率最低']];
+
+  const byPurchase = [...(products||[])].filter(p => p.purchase_qty > 0).sort((a,b) => b.purchase_qty - a.purchase_qty).slice(0, 3);
+  const medalRows = byPurchase.length ? `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+    ${byPurchase.map((p, i) => `<div class="db-v3-hover" style="background:var(--bg-card,#1a1d27);border:1px solid var(--border,#2a2d3e);border-radius:10px;padding:10px 14px;min-width:140px">
+      <div style="font-size:.8rem">${['🏆 TOP 1','🥈 TOP 2','🥉 TOP 3'][i]}</div>
+      <div style="font-weight:700;margin-top:4px">${escHtml(p.product_name)}</div>
+      <div style="font-size:.72rem;color:var(--text-secondary,#64748b)">${p.purchase_qty} 件成交</div>
+    </div>`).join('')}
+  </div>` : '';
+
+  window._dashboardProductTiers = tiers;
+  return _section('🏆 商品排行 V2',
+    medalRows +
+    `<div style="margin-bottom:10px;display:flex;gap:6px;flex-wrap:wrap">
+      ${sortBtns.map(([k,l]) => `<button onclick="sortDashboardProducts('${k}')" style="font-size:12px;padding:3px 10px;border-radius:99px;border:1px solid var(--border,#2a2d3e);background:${_dashboardProductSort===k?'#6366f1':'transparent'};color:${_dashboardProductSort===k?'#fff':'var(--text-secondary,#64748b)'};cursor:pointer">${l}</button>`).join('')}
+    </div>
+    <div id="db-products-table" style="overflow-x:auto"></div>`
+  );
 }
 
 // ── C. 經營健康度 ───────────────────────────────────────────────
@@ -613,15 +876,25 @@ function renderDashboardProductsTable() {
 
   if (!list.length) { el.innerHTML = '<div style="color:var(--text-secondary,#64748b);font-size:.875rem">此區間尚無商品轉換資料</div>'; return; }
 
-  el.innerHTML = `<table style="width:100%;min-width:640px;border-collapse:collapse;font-size:.8rem">
+  // fix18-10-hotfix23-C：🔥爆款／⭐潛力／⚠低轉換 標籤（來自 API 附加的 product_tiers，不重算）
+  const tiers = window._dashboardProductTiers || { hot: [], potential: [], low_conversion: [] };
+  const tierBadge = (pid) => {
+    if (tiers.hot.includes(pid)) return '<span style="color:#ef4444">🔥爆款</span>';
+    if (tiers.potential.includes(pid)) return '<span style="color:#f59e0b">⭐潛力</span>';
+    if (tiers.low_conversion.includes(pid)) return '<span style="color:var(--text-secondary,#64748b)">⚠低轉換</span>';
+    return '';
+  };
+
+  el.innerHTML = `<table style="width:100%;min-width:680px;border-collapse:collapse;font-size:.8rem">
     <thead><tr style="color:var(--text-secondary,#64748b);font-size:.72rem">
-      <th style="text-align:left;padding-bottom:6px">商品</th>
+      <th style="text-align:left;padding-bottom:6px">商品</th><th style="text-align:left;padding-bottom:6px">分級</th>
       <th style="text-align:right;padding-bottom:6px">瀏覽人數</th><th style="text-align:right;padding-bottom:6px">加購人數</th><th style="text-align:right;padding-bottom:6px">加購數量</th>
       <th style="text-align:right;padding-bottom:6px">成交人數</th><th style="text-align:right;padding-bottom:6px">成交數量</th><th style="text-align:right;padding-bottom:6px">未成交人數</th>
       <th style="text-align:right;padding-bottom:6px">加入→成交率</th>
     </tr></thead>
-    <tbody>${list.map(p => `<tr>
+    <tbody>${list.map(p => `<tr class="db-v3-hover">
       <td style="padding:5px 0">${p.is_delisted ? `已下架商品 #${p.product_id}` : escHtml(p.product_name)}</td>
+      <td style="padding:5px 0;font-size:.72rem">${tierBadge(p.product_id)}</td>
       <td style="text-align:right">${p.view_people}</td><td style="text-align:right">${p.cart_people}</td><td style="text-align:right">${p.cart_qty}</td>
       <td style="text-align:right">${p.purchase_people}</td><td style="text-align:right">${p.purchase_qty}</td><td style="text-align:right">${p.not_purchased_people}</td>
       <td style="text-align:right">${_fmtPct(p.cart_to_purchase_rate)}</td>
@@ -662,22 +935,120 @@ function renderDashboardSources(sources) {
       <td style="padding:6px 0;text-align:right">${s.count} 筆</td>
       <td style="padding:6px 0;text-align:right;color:#10b981">${_nt(s.revenue)}</td></tr>`;
   }).join('');
-  const srcLabel = {facebook:'Facebook',instagram:'Instagram',threads:'Threads',google:'Google',line_oa:'LINE OA',direct:'直接進站',unknown:'未知'};
-  const analyticsRows = (sources.analytics_sources||[]).map(s =>
-    `<tr><td style="padding:6px 0">${srcLabel[s.source] || escHtml(s.source)}</td><td style="padding:6px 0;text-align:right">${s.visitors} 人</td></tr>`
-  ).join('');
   return _section('📦 訂單來源分析',
     orderRows ? `<div style="overflow-x:auto"><table style="width:100%;min-width:320px;border-collapse:collapse;font-size:.875rem">
       <thead><tr style="color:var(--text-secondary,#64748b);font-size:.75rem"><th style="text-align:left">來源</th><th style="text-align:right">筆數</th><th style="text-align:right">金額</th></tr></thead>
       <tbody>${orderRows}</tbody></table></div>` : '<div style="color:var(--text-secondary,#64748b);font-size:.875rem">此區間無訂單資料</div>'
-  ) + _section('📣 Analytics 廣告來源（進站訪客，尚未完整串接 UTM／廣告追蹤）',
-    (analyticsRows ? `<div style="overflow-x:auto"><table style="width:100%;min-width:260px;border-collapse:collapse;font-size:.875rem">
-      <thead><tr style="color:var(--text-secondary,#64748b);font-size:.75rem"><th style="text-align:left">來源</th><th style="text-align:right">訪客數</th></tr></thead>
-      <tbody>${analyticsRows}</tbody></table></div>` : '<div style="color:var(--text-secondary,#64748b);font-size:.875rem">此區間無進站資料</div>')
   );
 }
 
-// ── J. 回購分析 ─────────────────────────────────────────────────
+// ── V3-7. fix18-10-hotfix23-D：📣 廣告來源分析（Last Touch／First Touch）───
+const SRC_LABEL = {
+  facebook:'Facebook', instagram:'Instagram', threads:'Threads', google:'Google',
+  line_oa:'LINE OA', direct:'直接進站', referral:'站外連結', unknown:'未知',
+};
+let _adsAttributionMode = 'last_touch';
+
+function _adsSourceTableHtml(rows) {
+  if (!rows || !rows.length) {
+    return '<div style="color:var(--text-secondary,#64748b);font-size:.875rem">此區間無進站資料</div>';
+  }
+  const body = rows.map(r => `<tr class="db-v3-hover">
+    <td style="padding:6px 0">${SRC_LABEL[r.source] || escHtml(r.source)}</td>
+    <td style="text-align:right">${r.entry || '—'}</td>
+    <td style="text-align:right">${r.view_product || '—'}</td>
+    <td style="text-align:right">${r.add_to_cart || '—'}</td>
+    <td style="text-align:right">${r.begin_checkout || '—'}</td>
+    <td style="text-align:right">${r.submit_order || '—'}</td>
+    <td style="text-align:right">${r.purchase || '—'}</td>
+    <td style="text-align:right">${r.conversion_rate === null || r.conversion_rate === undefined ? '—' : _fmtPct(r.conversion_rate)}</td>
+    <td style="text-align:right;color:#10b981">${_nt(r.ad_revenue || 0)}</td>
+  </tr>`).join('');
+  return `<div style="overflow-x:auto"><table style="width:100%;min-width:640px;border-collapse:collapse;font-size:.8rem">
+    <thead><tr style="color:var(--text-secondary,#64748b);font-size:.7rem">
+      <th style="text-align:left">來源</th><th style="text-align:right">進站</th><th style="text-align:right">商品瀏覽</th>
+      <th style="text-align:right">加入購物車</th><th style="text-align:right">開始結帳</th><th style="text-align:right">送出訂單</th>
+      <th style="text-align:right">完成付款</th><th style="text-align:right">進站→付款</th><th style="text-align:right">廣告營收</th>
+    </tr></thead><tbody>${body}</tbody></table></div>`;
+}
+
+function _adsCampaignTableHtml(rows) {
+  if (!rows || !rows.length) {
+    return '<div style="color:var(--text-secondary,#64748b);font-size:.875rem">此區間無活動資料</div>';
+  }
+  const body = rows.map(r => `<tr class="db-v3-hover">
+    <td style="padding:6px 0">${escHtml(r.campaign)}</td>
+    <td>${SRC_LABEL[r.source] || escHtml(r.source)}</td>
+    <td style="text-align:right">${r.entry || '—'}</td>
+    <td style="text-align:right">${r.view_product || '—'}</td>
+    <td style="text-align:right">${r.add_to_cart || '—'}</td>
+    <td style="text-align:right">${r.begin_checkout || '—'}</td>
+    <td style="text-align:right">${r.submit_order || '—'}</td>
+    <td style="text-align:right">${r.purchase || '—'}</td>
+    <td style="text-align:right">${r.conversion_rate === null || r.conversion_rate === undefined ? '—' : _fmtPct(r.conversion_rate)}</td>
+    <td style="text-align:right;color:#10b981">${_nt(r.ad_revenue || 0)}</td>
+  </tr>`).join('');
+  return `<div style="overflow-x:auto"><table style="width:100%;min-width:720px;border-collapse:collapse;font-size:.8rem">
+    <thead><tr style="color:var(--text-secondary,#64748b);font-size:.7rem">
+      <th style="text-align:left">活動名稱</th><th style="text-align:left">來源</th><th style="text-align:right">進站</th>
+      <th style="text-align:right">商品瀏覽</th><th style="text-align:right">加購</th><th style="text-align:right">開始結帳</th>
+      <th style="text-align:right">送出訂單</th><th style="text-align:right">完成付款</th><th style="text-align:right">轉換率</th>
+      <th style="text-align:right">廣告營收</th>
+    </tr></thead><tbody>${body}</tbody></table></div>`;
+}
+
+function _renderAdsAttributionBody(ads) {
+  const modeData = (ads.by_mode && ads.by_mode[_adsAttributionMode]) || { sources: [], campaigns: [], revenue: 0 };
+  if (_adsAttributionMode === 'first_touch' && modeData.insufficient_data) {
+    return `<div style="color:var(--text-secondary,#64748b);font-size:.875rem;margin-bottom:14px">${escHtml(modeData.message || 'First Touch 資料自 Hotfix23-D 上線後開始累積')}</div>`;
+  }
+  return `
+    <div style="font-size:.85rem;font-weight:600;margin:14px 0 8px">來源漏斗</div>
+    ${_adsSourceTableHtml(modeData.sources)}
+    <div style="font-size:.85rem;font-weight:600;margin:18px 0 8px">Campaign 明細</div>
+    ${_adsCampaignTableHtml(modeData.campaigns)}
+  `;
+}
+
+function setAdsAttributionMode(mode) {
+  _adsAttributionMode = mode;
+  const ads = window._dashboardAdsAttribution;
+  if (!ads) return;
+  document.querySelectorAll('.ads-touch-toggle-btn').forEach(b => {
+    const active = b.dataset.mode === mode;
+    b.style.background = active ? '#6366f1' : 'transparent';
+    b.style.color = active ? '#fff' : 'var(--text-secondary,#64748b)';
+  });
+  const body = document.getElementById('db-ads-attribution-body');
+  if (body) body.innerHTML = _renderAdsAttributionBody(ads);
+}
+
+function renderDashboardAdsAttribution(ads) {
+  if (!ads) return '';
+  window._dashboardAdsAttribution = ads;
+  _adsAttributionMode = 'last_touch'; // 每次重新載入 Dashboard（換日期區間）都重置回預設模式
+
+  const toggle = `<div style="display:flex;gap:6px;margin-bottom:10px">
+    <button class="ads-touch-toggle-btn" data-mode="last_touch" onclick="setAdsAttributionMode('last_touch')"
+      style="font-size:12px;padding:4px 12px;border-radius:99px;border:1px solid var(--border,#2a2d3e);background:#6366f1;color:#fff;cursor:pointer">最終來源 Last Touch</button>
+    <button class="ads-touch-toggle-btn" data-mode="first_touch" onclick="setAdsAttributionMode('first_touch')"
+      style="font-size:12px;padding:4px 12px;border-radius:99px;border:1px solid var(--border,#2a2d3e);background:transparent;color:var(--text-secondary,#64748b);cursor:pointer">首次來源 First Touch</button>
+  </div>`;
+
+  const roasCard = _section('💰 廣告成效',
+    `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px">
+      ${_card('廣告花費', '尚未串接', '', '')}
+      ${_card('廣告營收（Last Touch）', _nt(ads.revenue.last_touch), '', '#10b981')}
+      ${_card('廣告營收（First Touch）', ads.first_touch_available ? _nt(ads.revenue.first_touch) : '—', '', '#10b981')}
+      ${_card('ROAS', '尚未串接廣告花費', '', '')}
+    </div>
+    <div style="font-size:.72rem;color:var(--text-secondary,#64748b);margin-top:10px">廣告營收只計算 purchase 事件對應的真實訂單金額，不包含預估營收或購物車估算金額。</div>`
+  );
+
+  return _section('📣 廣告來源分析',
+    toggle + `<div id="db-ads-attribution-body">${_renderAdsAttributionBody(ads)}</div>`
+  ) + roasCard;
+}
 function renderDashboardRepeatCustomers(rc) {
   if (!rc || !rc.identifiable_customers) {
     return _section('🔁 回購分析', '<div style="color:var(--text-secondary,#64748b);font-size:.875rem">此區間尚無可辨識顧客資料（需有電話的已完成訂單）</div>');
@@ -1495,6 +1866,7 @@ function switchSettingsTab(tab) {
   if (tab === 'discount_campaigns') loadDiscountCampaignsTab(); // fix18-09C
   if (tab === 'delivery_fee')     loadDeliveryFeeTab();     // fix18-06
   if (tab === 'product_analysis_groups') loadProductAnalysisGroupsTab(); // fix18-09F
+  if (tab === 'ads_attribution')  loadAdsTrackingSettings(); // fix18-10-hotfix23-D
 }
 
 // ===== 設定 =====
@@ -1572,6 +1944,59 @@ async function saveCommissionRates() {
       settings = json.data;
       showToast('抽成率設定已儲存', 'success');
     } else { showToast(json.message || '儲存失敗', 'error'); }
+  } catch { showToast('網路錯誤', 'error'); }
+}
+
+// ===== fix18-10-hotfix23-D：廣告追蹤設定（Meta Pixel／GA4）=====
+// 沿用既有 /api/settings GET/PUT 與白名單，不建立第二套設定 API。
+async function loadAdsTrackingSettings() {
+  await loadSettings();
+  const enMeta = document.getElementById('set-analytics_meta_pixel_enabled');
+  const idMeta = document.getElementById('set-analytics_meta_pixel_id');
+  const enGa4  = document.getElementById('set-analytics_ga4_enabled');
+  const idGa4  = document.getElementById('set-analytics_ga4_measurement_id');
+  if (enMeta) enMeta.checked = settings.analytics_meta_pixel_enabled === '1';
+  if (idMeta) idMeta.value = settings.analytics_meta_pixel_id || '';
+  if (enGa4)  enGa4.checked = settings.analytics_ga4_enabled === '1';
+  if (idGa4)  idGa4.value = settings.analytics_ga4_measurement_id || '';
+  const metaHint = document.getElementById('adsMetaHint');
+  const ga4Hint  = document.getElementById('adsGa4Hint');
+  if (metaHint) metaHint.style.display = 'none';
+  if (ga4Hint)  ga4Hint.style.display = 'none';
+}
+
+async function saveAdsTrackingSettings() {
+  const metaId = (document.getElementById('set-analytics_meta_pixel_id')?.value || '').trim();
+  const ga4Id  = (document.getElementById('set-analytics_ga4_measurement_id')?.value || '').trim();
+  const metaHint = document.getElementById('adsMetaHint');
+  const ga4Hint  = document.getElementById('adsGa4Hint');
+  // 前端先做一次基本格式檢查（友善提示），後端 PUT /api/settings 仍會再驗一次擋下不合法的值
+  let hasError = false;
+  if (metaId && !/^\d{6,20}$/.test(metaId)) { if (metaHint) metaHint.style.display = 'block'; hasError = true; }
+  else if (metaHint) metaHint.style.display = 'none';
+  if (ga4Id && !/^G-[A-Za-z0-9]{6,12}$/.test(ga4Id)) { if (ga4Hint) ga4Hint.style.display = 'block'; hasError = true; }
+  else if (ga4Hint) ga4Hint.style.display = 'none';
+  if (hasError) { showToast('請修正格式錯誤的欄位', 'error'); return; }
+
+  const body = {
+    analytics_meta_pixel_enabled: document.getElementById('set-analytics_meta_pixel_enabled')?.checked ? '1' : '0',
+    analytics_meta_pixel_id: metaId,
+    analytics_ga4_enabled: document.getElementById('set-analytics_ga4_enabled')?.checked ? '1' : '0',
+    analytics_ga4_measurement_id: ga4Id,
+  };
+  try {
+    const res = await apiFetch('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const json = await res.json();
+    if (json.success) {
+      settings = json.data;
+      showToast('廣告追蹤設定已儲存', 'success');
+    } else {
+      showToast(json.message || '儲存失敗', 'error');
+    }
   } catch { showToast('網路錯誤', 'error'); }
 }
 

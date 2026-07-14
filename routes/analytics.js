@@ -31,6 +31,11 @@ const {
   getKpi, getFixedWeekMonth, getFunnel, getRealtime, getCartAnalysis, getProductRanking,
   getPayments, getSources, getRepeatCustomers, getIncomplete,
   getHealthScore, getRecommendations,
+  // fix18-10-hotfix23-C（Dashboard V3，附加運算，皆為新函式，不影響上面 Hotfix23-B 既有邏輯）
+  getPreviousRange, getKpiComparison, getHealthScoreV2, getTrend30d,
+  getProductTiers, getForecast, getTodaySummary, getTodoList, getDailyTip,
+  // fix18-10-hotfix23-D（Ads Attribution Foundation，同樣是附加運算，不影響既有欄位）
+  getAdsAttribution,
 } = require('../utils/dashboardAnalytics');
 
 // 前台一般事件端點不接受 submit_order / purchase：這兩者只能由後端在
@@ -199,6 +204,34 @@ router.get('/dashboard', (req, res) => {
     // analytics_events 是否有足夠資料（用來判斷 Conversion 區塊要不要顯示「尚無足夠資料」）
     const hasAnalyticsData = funnel.some(f => f.count > 0);
 
+    // ── fix18-10-hotfix23-C｜Dashboard V3 附加運算 ──────────────────────
+    // 全部只讀取上面已經算好的資料／同一個 db，不新增重複查詢的 API 端點。
+    const previousRange = getPreviousRange(range);
+    const previousKpi = getKpi(db, storeId, previousRange);
+    const kpi_comparison = getKpiComparison(kpi, previousKpi);
+    const health_score_v2 = getHealthScoreV2(kpi_comparison, funnel, cart, repeat_customers, payments, health_score);
+    const trend_30d = getTrend30d(db, storeId);
+    const product_tiers = getProductTiers(products);
+    const forecast = getForecast(kpi, range);
+    const today_summary = getTodaySummary(realtime, forecast, kpi);
+    const todo_list = getTodoList(db, storeId, incomplete, repeat_customers);
+    const ai_daily_tip = getDailyTip(recommendations, product_tiers, products, cart);
+
+    // ── fix18-10-hotfix23-D｜Ads Attribution Foundation 附加運算 ─────────
+    // 一樣附加在同一次 API 回應裡，不新增端點；解析 metadata 失敗不得讓整支 API 500
+    // （getAdsAttribution 內部已對每筆 metadata_json 做 try/catch）。
+    let ads_attribution;
+    try {
+      ads_attribution = getAdsAttribution(db, storeId, range);
+    } catch (adErr) {
+      console.error('[analytics] ads_attribution computation failed:', adErr.message);
+      ads_attribution = {
+        mode: 'last_touch', sources: [], campaigns: [], revenue: { last_touch: 0, first_touch: 0 },
+        first_touch_available: false, note: '廣告來源資料計算失敗',
+        by_mode: { last_touch: { sources: [], campaigns: [], revenue: 0 }, first_touch: { insufficient_data: true, message: '廣告來源資料計算失敗', sources: [], campaigns: [], revenue: 0 } },
+      };
+    }
+
     res.json({
       success: true,
       range: {
@@ -231,6 +264,19 @@ router.get('/dashboard', (req, res) => {
       incomplete,
       health_score,
       recommendations: hasAnalyticsData ? recommendations : [],
+
+      // fix18-10-hotfix23-C（Dashboard V3）—— 全部是新增欄位，既有欄位一律不變
+      kpi_comparison,
+      health_score_v2,
+      trend_30d,
+      product_tiers,
+      forecast,
+      today_summary,
+      todo_list,
+      ai_daily_tip,
+
+      // fix18-10-hotfix23-D（Ads Attribution Foundation）—— 新增欄位
+      ads_attribution,
     });
   } catch (e) {
     console.error('[analytics] GET /dashboard error:', e.message, e.stack);

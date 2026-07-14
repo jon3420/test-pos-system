@@ -1462,6 +1462,11 @@ function initTables(w) {
     w._db.run('CREATE INDEX IF NOT EXISTS idx_analytics_store_cart ON analytics_events(store_id, cart_id)');
     w._db.run('CREATE INDEX IF NOT EXISTS idx_analytics_store_product_created ON analytics_events(store_id, product_id, created_at)');
     w._db.run('CREATE INDEX IF NOT EXISTS idx_analytics_store_order_event ON analytics_events(store_id, order_id, event_name)');
+    // fix18-10-hotfix23-D：廣告歸因查詢新增的索引（稽核既有索引後補上缺少的兩個，
+    // 其餘 store_id+event_name+created_at／store_id+visitor_id／store_id+order_id 等
+    // 既有索引已足夠涵蓋，未重複建立）
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_analytics_store_source_created ON analytics_events(store_id, source, created_at)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_analytics_store_campaign_created ON analytics_events(store_id, campaign, created_at)');
     // 防重複寫入 defense-in-depth：logServerEvent() 內已用同步查重擋下重複 purchase/
     // submit_order（Node 單執行緒、查重與寫入之間沒有 await，天然不會被其他請求插入），
     // 這裡再加一道 partial unique index 作保險，即使未來查重邏輯被繞過也不會產生髒資料。
