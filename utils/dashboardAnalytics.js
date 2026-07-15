@@ -9,6 +9,9 @@
 'use strict';
 
 const { ANALYTICS_CREATED_AT_LOCAL_EXPR: A_LOCAL } = require('./dashboardDate');
+// fix18-10-hotfix24-A3：Channel Resolver（需求文件六／十一）× Identity Resolver（需求文件四／十）
+const { ORDER_CHANNEL_SQL_EXPR, ORDER_CHANNELS } = require('./channelResolver');
+const { summarizeIdentityBasis } = require('./analyticsIdentity');
 
 // 訂單「已付款／有效」判斷，與既有 routes/dashboard.js 完全一致（不得另創新邏輯）
 const ORDERS_BASE_WHERE = "store_id=? AND status!='void' AND (order_status IS NULL OR order_status!='cancelled')";
@@ -17,9 +20,18 @@ const ORDERS_PAID_EXPR = "(status IN ('completed','modified'))";
 // ────────────────────────────────────────────────────────────────
 // 1. KPI（沿用既有 routes/dashboard.js 邏輯，改成任意日期區間）
 // ────────────────────────────────────────────────────────────────
-function getKpi(db, storeId, range) {
-  const where = `${ORDERS_BASE_WHERE} AND created_at BETWEEN ? AND ?`;
-  const params = [storeId, range.startLocal, range.endLocal];
+// fix18-10-hotfix24-A3：channel 為可選參數（需求文件十一）——'all' 或未提供時完全比照
+// 既有行為（不加任何額外條件），確保舊呼叫端（不帶 channel）結果不變。
+function _channelWhereClause(channel) {
+  if (!channel || channel === 'all') return { sql: '', params: [] };
+  if (!ORDER_CHANNELS.includes(channel)) return { sql: '', params: [] }; // 不合法值一律當作 all，不報錯
+  return { sql: ` AND ${ORDER_CHANNEL_SQL_EXPR} = ?`, params: [channel] };
+}
+
+function getKpi(db, storeId, range, channel) {
+  const ch = _channelWhereClause(channel);
+  const where = `${ORDERS_BASE_WHERE} AND created_at BETWEEN ? AND ?${ch.sql}`;
+  const params = [storeId, range.startLocal, range.endLocal, ...ch.params];
   const row = db.get(
     `SELECT COUNT(*) as total_orders,
             SUM(CASE WHEN ${ORDERS_PAID_EXPR} THEN 1 ELSE 0 END) as paid_orders,
@@ -94,10 +106,26 @@ function getFixedWeekMonth(db, storeId) {
 
 // ────────────────────────────────────────────────────────────────
 // 2. 轉換漏斗（distinct visitor_id / order_id，不得用事件總次數）
+//
+// fix18-10-hotfix24-A1（Part 8/11：Event 與 User 正式分離）：
+//   既有 `count` 欄位語意完全不變（distinct visitor / distinct order，仍是
+//   Hotfix23-B 原本的設計，供既有消費端如 app.js renderDashboardFunnelV2()
+//   繼續使用，不受影響）。這裡只「新增」`event_count`（raw COUNT(*)，代表
+//   事件發生次數，不去重）欄位，供 Analytics V2 用來分開顯示「次數」與
+//   「人數」，避免「加入購物車 5 人」這種把事件數當人數的誤導寫法。
 // ────────────────────────────────────────────────────────────────
-function getFunnel(db, storeId, range) {
-  const evtWhere = `store_id=? AND event_name=? AND ${A_LOCAL} BETWEEN ? AND ?`;
-  const p = (evt) => [storeId, evt, range.startLocal, range.endLocal];
+function _eventChannelWhereClause(channel) {
+  if (!channel || channel === 'all') return { sql: '', params: [] };
+  if (!ORDER_CHANNELS.includes(channel)) return { sql: '', params: [] };
+  // 舊資料沒有 order_channel（NULL）一律歸類 'unknown'（需求文件七案例 F），
+  // 篩選 channel=unknown 時也要撈得到這些舊資料列，不能只比對字串 'unknown'。
+  return { sql: ` AND COALESCE(order_channel,'unknown') = ?`, params: [channel] };
+}
+
+function getFunnel(db, storeId, range, channel) {
+  const chClause = _eventChannelWhereClause(channel);
+  const evtWhere = `store_id=? AND event_name=? AND ${A_LOCAL} BETWEEN ? AND ?${chClause.sql}`;
+  const p = (evt) => [storeId, evt, range.startLocal, range.endLocal, ...chClause.params];
 
   const distinctVisitors = (evt) => Number((db.get(
     `SELECT COUNT(DISTINCT visitor_id) c FROM analytics_events WHERE ${evtWhere}`, p(evt)
@@ -105,14 +133,17 @@ function getFunnel(db, storeId, range) {
   const distinctOrders = (evt) => Number((db.get(
     `SELECT COUNT(DISTINCT order_id) c FROM analytics_events WHERE ${evtWhere} AND order_id IS NOT NULL`, p(evt)
   ) || {}).c || 0);
+  const eventCount = (evt) => Number((db.get(
+    `SELECT COUNT(*) c FROM analytics_events WHERE ${evtWhere}`, p(evt)
+  ) || {}).c || 0);
 
   const stages = [
-    { key: 'page_view', label: '進站', count: distinctVisitors('page_view') },
-    { key: 'view_product', label: '商品瀏覽', count: distinctVisitors('view_product') },
-    { key: 'add_to_cart', label: '加入購物車', count: distinctVisitors('add_to_cart') },
-    { key: 'begin_checkout', label: '開始結帳', count: distinctVisitors('begin_checkout') },
-    { key: 'submit_order', label: '送出訂單', count: distinctOrders('submit_order') },
-    { key: 'purchase', label: '完成付款', count: distinctOrders('purchase') },
+    { key: 'page_view', label: '進站', count: distinctVisitors('page_view'), event_count: eventCount('page_view'), unique_users: distinctVisitors('page_view') },
+    { key: 'view_product', label: '商品瀏覽', count: distinctVisitors('view_product'), event_count: eventCount('view_product'), unique_users: distinctVisitors('view_product') },
+    { key: 'add_to_cart', label: '加入購物車', count: distinctVisitors('add_to_cart'), event_count: eventCount('add_to_cart'), unique_users: distinctVisitors('add_to_cart') },
+    { key: 'begin_checkout', label: '開始結帳', count: distinctVisitors('begin_checkout'), event_count: eventCount('begin_checkout'), unique_users: distinctVisitors('begin_checkout') },
+    { key: 'submit_order', label: '送出訂單', count: distinctOrders('submit_order'), event_count: eventCount('submit_order'), unique_users: distinctVisitors('submit_order'), orders: distinctOrders('submit_order') },
+    { key: 'purchase', label: '完成付款', count: distinctOrders('purchase'), event_count: eventCount('purchase'), unique_users: distinctVisitors('purchase'), orders: distinctOrders('purchase') },
   ];
 
   const entryCount = stages[0].count;
@@ -124,6 +155,66 @@ function getFunnel(db, storeId, range) {
       overall_conversion_rate: entryCount > 0 ? round2(s.count / entryCount * 100) : null,
     };
   });
+}
+
+// ────────────────────────────────────────────────────────────────
+// 2b. fix18-10-hotfix24-A3（需求文件十四／十五）：Funnel 摘要 —— 明確拆開
+// Unique Users／Event Count／Orders，並用正確命名（不得全部叫「轉換率」）計算
+// 使用者轉換率／訂單訪客比／付款率。這是「新增」欄位（funnel_summary），
+// 既有 funnel 陣列本身結構完全不變，既有前端呼叫端不受影響（需求文件十九）。
+// ────────────────────────────────────────────────────────────────
+function getFunnelSummary(funnelStages) {
+  const byKey = {};
+  (funnelStages || []).forEach(s => { byKey[s.key] = s; });
+  const visitors = byKey.page_view || { unique_users: 0, event_count: 0 };
+  const submit = byKey.submit_order || { unique_users: 0, event_count: 0, orders: 0 };
+  const purchase = byKey.purchase || { unique_users: 0, event_count: 0, orders: 0 };
+
+  const visitorUsers = Number(visitors.unique_users || 0);
+  const submitOrders = Number(submit.orders != null ? submit.orders : submit.count || 0);
+  const purchaseOrders = Number(purchase.orders != null ? purchase.orders : purchase.count || 0);
+  const purchaseUsers = Number(purchase.unique_users || 0);
+
+  // 使用者轉換率 = 購買人數 ÷ 訪客人數（需求文件十五）—— 語意上不可能超過 100%
+  // （同一人不論買幾次都只算一次），故不需額外 clamp，數學上本來就 <=100%。
+  const userConversionRate = visitorUsers > 0 ? round2(purchaseUsers / visitorUsers * 100) : null;
+  // 訂單／訪客比 = 訂單數 ÷ 訪客人數（需求文件十五案例：3 筆訂單 ÷ 1 訪客 = 300%）——
+  // 這裡的「訂單數」是「送出的訂單總數」（submit_order 的 distinct order 數），
+  // 不是已付款訂單數，因為這個指標要呈現的是「同一人下了幾張單」，可能超過 100%；
+  // 前端顯示時只 clamp「bar 寬度」，文字仍顯示真實數字。
+  const ordersPerVisitorRate = visitorUsers > 0 ? round2(submitOrders / visitorUsers * 100) : null;
+  // 付款率 = 已付款訂單 ÷ 送出訂單數
+  const paymentRate = submitOrders > 0 ? round2(purchaseOrders / submitOrders * 100) : null;
+
+  return {
+    visitors: { unique_users: visitorUsers, event_count: Number(visitors.event_count || 0) },
+    submit_order: { unique_users: Number(submit.unique_users || 0), event_count: Number(submit.event_count || 0), orders: submitOrders },
+    purchase: { unique_users: purchaseUsers, event_count: Number(purchase.event_count || 0), orders: purchaseOrders },
+    rates: {
+      user_conversion_rate: userConversionRate,
+      orders_per_visitor_rate: ordersPerVisitorRate,
+      payment_rate: paymentRate,
+    },
+    labels: {
+      user_conversion_rate: '使用者轉換率',
+      orders_per_visitor_rate: '訂單／訪客比',
+      payment_rate: '付款率',
+    },
+  };
+}
+
+// ────────────────────────────────────────────────────────────────
+// 2c. fix18-10-hotfix24-A3（需求文件二／十）：identity_basis —— 這段時間主要
+// 是靠什麼辨識使用者（LINE 會員／估算的 session）。純統計，不做任何身份合併。
+// ────────────────────────────────────────────────────────────────
+function getIdentityBasis(db, storeId, range, channel) {
+  const chClause = _eventChannelWhereClause(channel);
+  const rows = db.all(
+    `SELECT identity_type FROM analytics_events
+     WHERE store_id=? AND ${A_LOCAL} BETWEEN ? AND ?${chClause.sql}`,
+    [storeId, range.startLocal, range.endLocal, ...chClause.params]
+  );
+  return summarizeIdentityBasis(rows);
 }
 
 function round2(n) { return Math.round(n * 100) / 100; }
@@ -1383,4 +1474,6 @@ module.exports = {
   // fix18-10-hotfix23-E（LINE 會員入口 × Customer Journey × CRM Health）
   getLineMemberFunnel, getLineCrmKpi, getLineCrmHealth,
   ORDERS_PAID_EXPR, ORDERS_BASE_WHERE,
+  // fix18-10-hotfix24-A3（Identity Resolver × Channel Dimensions × Funnel Accuracy）
+  getFunnelSummary, getIdentityBasis,
 };

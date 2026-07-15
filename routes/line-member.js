@@ -25,6 +25,11 @@ const {
   maskLineUserId, computeLifecycleStage,
 } = require('../utils/lineMemberStats');
 const { logServerEvent } = require('../utils/analyticsLog');
+// fix18-10-hotfix23-E1：管理端 endpoint（會員列表／詳情／CSV 匯出）強制 staff JWT，
+// 不再接受 x-store-id / query.store_id 作為授權依據。POST /verify 維持公開
+// （顧客登入用），不套用此 middleware。
+const { requireStaffJwt } = require('../middleware/storeGuard');
+const { sanitizeCsvCell } = require('../utils/csvSecurity');
 
 // ── 簡易 in-memory rate limit（同一 store + IP）── 每 60 秒最多 20 次驗證請求
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
@@ -113,6 +118,11 @@ router.post('/verify', async (req, res) => {
     }
 
     const lineUserId = verifyResult.line_user_id;
+    // fix18-10-hotfix24-A3：Identity Resolver（需求文件四）—— 一旦 ID Token 驗證通過，
+    // 後續所有這個請求裡的事件（friend_status_checked／line_login_success／
+    // member_login／friend_added 等）都應該用這個已驗證過的 line_user_id 當身份依據，
+    // 而不是退回估算用的 session_id。
+    evtBase.line_user_id = lineUserId;
 
     // ── 好友狀態（安全 fallback：查不到就是 null，不阻擋流程）─────
     let friendResult = { ok: false, is_friend: null };
@@ -176,7 +186,7 @@ router.post('/verify', async (req, res) => {
 // ══════════════════════════════════════════════════════════════════
 // GET /api/line-member/members — 後台會員列表
 // ══════════════════════════════════════════════════════════════════
-router.get('/members', (req, res) => {
+router.get('/members', requireStaffJwt, (req, res) => {
   try {
     const db = getDb();
     const storeId = req.storeId;
@@ -254,13 +264,14 @@ router.get('/members', (req, res) => {
 // ══════════════════════════════════════════════════════════════════
 // GET /api/line-member/members/export — CSV 匯出（遮罩 LINE User ID，不含 Token）
 // ══════════════════════════════════════════════════════════════════
-router.get('/members/export', (req, res) => {
+router.get('/members/export', requireStaffJwt, (req, res) => {
   try {
     const db = getDb();
     const storeId = req.storeId;
     const rows = db.all('SELECT * FROM line_members WHERE store_id=? ORDER BY last_seen_at DESC', [storeId]);
     const header = ['顯示名稱','LINE User ID(遮罩)','是否好友','是否封鎖','加入好友日期','最後登入','首次來源','最後來源','首次購買','最後購買','訂單數','累積消費','LTV'];
-    const csvRows = [header.join(',')];
+    // fix18-10-hotfix23-E1：每個欄位都經過 sanitizeCsvCell()，防止 CSV Formula Injection。
+    const csvRows = [header.map(sanitizeCsvCell).join(',')];
     rows.forEach(r => {
       const cells = [
         r.display_name || '', maskLineUserId(r.line_user_id),
@@ -270,12 +281,13 @@ router.get('/members/export', (req, res) => {
         r.first_touch_source || '', r.last_touch_source || '',
         r.first_order_at || '', r.last_order_at || '',
         r.order_count || 0, r.total_spent || 0, r.lifetime_value || 0,
-      ].map(v => `"${String(v).replace(/"/g, '""')}"`);
+      ].map(sanitizeCsvCell);
       csvRows.push(cells.join(','));
     });
     const csv = '\uFEFF' + csvRows.join('\n'); // BOM 讓 Excel 正確辨識 UTF-8
+    const dateStr = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="line_members_${storeId}.csv"`);
+    res.setHeader('Content-Disposition', `attachment; filename="line-members-${dateStr}.csv"`);
     res.send(csv);
   } catch (e) {
     console.error('[line-member] GET /members/export error:', e.message);
@@ -286,7 +298,7 @@ router.get('/members/export', (req, res) => {
 // ══════════════════════════════════════════════════════════════════
 // GET /api/line-member/members/:id — 會員詳細頁（:id 為 line_members.id，不是 LINE User ID）
 // ══════════════════════════════════════════════════════════════════
-router.get('/members/:id', (req, res) => {
+router.get('/members/:id', requireStaffJwt, (req, res) => {
   try {
     const db = getDb();
     const storeId = req.storeId;

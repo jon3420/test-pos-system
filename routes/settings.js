@@ -6,6 +6,8 @@ const router  = express.Router();
 const { getDb } = require('../utils/db');
 const { broadcastToStore } = require('../utils/wssBroadcast');
 const { getStoreLicense }  = require('../middleware/featureGate');
+// fix18-10-hotfix23-E1：line_member_return_url allowlist 驗證
+const { validateLineMemberReturnUrl } = require('../utils/returnUrlValidator');
 
 // LINE 相關設定 key — line_order=false 時不可修改
 const LINE_KEYS = new Set([
@@ -213,9 +215,25 @@ router.put('/', (req, res) => {
       if (basicId && !/^@?[A-Za-z0-9_-]{2,30}$/.test(basicId)) {
         return res.status(400).json({ success: false, message: 'LINE 官方帳號 Basic ID 格式錯誤' });
       }
-      const returnUrl = merged.line_member_return_url ? String(merged.line_member_return_url).trim() : '';
-      if (returnUrl && !/^https:\/\//i.test(returnUrl)) {
-        return res.status(400).json({ success: false, message: '登入成功返回網址必須是 HTTPS' });
+      // fix18-10-hotfix23-E1：只在這次請求「實際有送值」修改 return_url 時才驗證，
+      // 未啟用 Gate／未修改此欄位時，允許保留既有（可能是舊規則儲存的）合法舊值，
+      // 不因為舊值而擋下這次請求裡其他欄位的儲存；但非法的舊值不會被「重新儲存」。
+      if (req.body.line_member_return_url !== undefined) {
+        const returnUrl = String(req.body.line_member_return_url).trim();
+        if (returnUrl) {
+          const check = validateLineMemberReturnUrl(returnUrl, { req });
+          if (!check.ok) {
+            // line_member_return_url_rejected（server-only 安全記錄）：
+            // 只記 hostname／reason，不記完整網址（可能含 query 敏感資料）。
+            let rejectedHostname = '';
+            try { rejectedHostname = new URL(returnUrl).hostname; } catch (e) { rejectedHostname = '(unparseable)'; }
+            console.warn(`[settings] line_member_return_url_rejected store_id=${storeId} hostname=${rejectedHostname} reason=${check.reason}`);
+            return res.status(400).json({
+              success: false,
+              message: '登入返回網址不在允許的網域內，請使用目前 POS 系統網域的 HTTPS 網址。',
+            });
+          }
+        }
       }
       const mode = merged.line_member_gate_mode ? String(merged.line_member_gate_mode).trim() : '';
       if (mode && !['disabled', 'checkout', 'entry'].includes(mode)) {
@@ -225,6 +243,25 @@ router.put('/', (req, res) => {
       for (const f of textFields) {
         if (merged[f] !== undefined && String(merged[f]).length > 200) {
           return res.status(400).json({ success: false, message: `${f} 文字過長（上限 200 字）` });
+        }
+      }
+
+      // fix18-10-hotfix25（需求文件十五）：登入成功返回網址已改由前端依「來源頁」
+      // 自動判斷（見 public/js/line-member-gate.js），不再是每店必填、不再開放
+      // 店家手動輸入固定網址。這裡只在啟用 Gate 且店家「完全沒有送值」時，
+      // 由後端依系統網域自動補一份 fallback URL 寫入（單純供舊資料相容／後台
+      // 顯示參考用；前端目前不會讀取這個值來決定跳轉目的地）。產生失敗（例如
+      // 沒有設定 PUBLIC_BASE_URL/APP_BASE_URL 且無法信任 request host）時直接
+      // 略過，不阻擋這次設定儲存。
+      if (gateEnabled && req.body.line_member_return_url === undefined) {
+        const base = process.env.PUBLIC_BASE_URL || process.env.APP_BASE_URL || '';
+        if (base) {
+          try {
+            const autoUrl = new URL('/line-order.html', base);
+            autoUrl.searchParams.set('store_id', storeId);
+            const check = validateLineMemberReturnUrl(autoUrl.toString(), { req });
+            if (check.ok) req.body.line_member_return_url = autoUrl.toString();
+          } catch (e) { /* 產生失敗就略過，不擋這次儲存 */ }
         }
       }
     }

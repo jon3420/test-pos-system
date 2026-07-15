@@ -142,8 +142,64 @@ function requireSuperAdmin(req, res, next) {
   }
 }
 
+/**
+ * requireStaffJwt — fix18-10-hotfix23-E1
+ *
+ * 給後台管理端 API 使用（例如 LINE 會員列表／詳情／CSV 匯出）。
+ * 與 requireStore 不同：requireStaffJwt 不接受 x-store-id / query.store_id
+ * 作為授權依據，store_id 只能來自已驗證的 Bearer JWT。
+ *
+ *   - 沒有 Authorization / JWT 無效 / JWT 過期        → 401
+ *   - JWT 有效但是 super_admin token（非店家 staff）   → 403
+ *     （Super Admin 目前沒有專用的跨店 line-member 端點；
+ *       如需跨店查詢，請走既有 /api/super-admin 架構，
+ *       不得讓一般 staff JWT 冒充。）
+ *   - JWT 有效但缺少 store_id                         → 401
+ *   - JWT 對應店家不存在 / 已停用                      → 403
+ *
+ * 成功時設定：
+ *   req.auth    = { store_id, role, store_name }
+ *   req.storeId = req.auth.store_id（覆蓋 requireStore 可能設定的值，
+ *                 確保後續查詢一律以 JWT 內 store_id 為準）
+ */
+function requireStaffJwt(req, res, next) {
+  const auth = req.headers['authorization'];
+  if (!auth || !auth.startsWith('Bearer ')) {
+    return res.status(401).json({ success: false, error: 'NO_JWT', message: '需要登入權杖（JWT）才能存取此功能' });
+  }
+
+  let payload;
+  try {
+    payload = jwt.verify(auth.slice(7), JWT_SECRET);
+  } catch (e) {
+    return res.status(401).json({ success: false, error: 'INVALID_JWT', message: 'Token 無效或已過期，請重新登入' });
+  }
+
+  if (payload.role === 'super_admin') {
+    return res.status(403).json({
+      success: false,
+      error: 'SUPER_ADMIN_NOT_ALLOWED',
+      message: 'Super Admin token 不可直接用於店家管理端 API，請使用 /api/super-admin',
+    });
+  }
+
+  if (!payload.store_id) {
+    return res.status(401).json({ success: false, error: 'NO_STORE_IN_TOKEN', message: 'Token 缺少店家資訊，請重新登入' });
+  }
+
+  const result = validateStore(payload.store_id);
+  if (!result.ok) {
+    return res.status(403).json({ success: false, message: result.reason });
+  }
+
+  // 管理端授權只信任 JWT，不接受 query / header 覆寫 store_id
+  req.auth = { store_id: payload.store_id, role: payload.role || 'store', store_name: payload.store_name };
+  req.storeId = payload.store_id;
+  return next();
+}
+
 function invalidateStoreCache(storeId) {
   if (storeId) storeCache.delete(storeId);
 }
 
-module.exports = { requireStore, requireSuperAdmin, invalidateStoreCache, JWT_SECRET };
+module.exports = { requireStore, requireStaffJwt, requireSuperAdmin, invalidateStoreCache, JWT_SECRET };

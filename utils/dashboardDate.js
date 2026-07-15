@@ -20,6 +20,26 @@ const PRESETS = ['today', 'yesterday', 'week', 'month', 'lastmonth', 'single', '
 // analytics_events.created_at 轉成 Asia/Taipei 本地時間的 SQL 運算式，供 WHERE / SELECT 共用
 const ANALYTICS_CREATED_AT_LOCAL_EXPR = "datetime(created_at,'+8 hours')";
 
+// fix18-10-hotfix24-A1（Part 7：舊資料與新資料分離）
+// Analytics Event Tracking（analytics_events 表）是從這個日期才開始寫入的
+// （見 CHANGELOG_HOTFIX23_A_ANALYTICS_FOUNDATION.md）。在這之前的 orders 屬於
+// 「Legacy Orders」——那些訂單完全沒有對應的瀏覽/加購/結帳事件，如果直接把
+// Funnel／轉換率跟 orders 表的歷史營收放在一起看，會出現「轉換率 800%」這種
+// 失真數字。這裡只新增一個常數 + 判斷函式，不新增資料表、不回填舊資料、
+// 不改變 orders 表任何欄位。
+const TRACKING_START_DATE = '2026-07-15';
+
+// 判斷查詢區間是否完全或部分落在 Tracking 啟用「之前」
+function getTrackingPeriodInfo(range) {
+  const startsBeforeTracking = range.start_date < TRACKING_START_DATE;
+  const endsBeforeTracking = range.end_date < TRACKING_START_DATE;
+  return {
+    tracking_start_date: TRACKING_START_DATE,
+    is_legacy_period: endsBeforeTracking, // 整個查詢區間都在 Tracking 啟用之前
+    is_mixed_period: startsBeforeTracking && !endsBeforeTracking, // 區間橫跨啟用日，前段是 Legacy
+  };
+}
+
 class DashboardDateError extends Error {
   constructor(message) { super(message); this.name = 'DashboardDateError'; this.status = 400; }
 }
@@ -120,4 +140,7 @@ module.exports = {
   DashboardDateError,
   ANALYTICS_CREATED_AT_LOCAL_EXPR,
   PRESETS,
+  // fix18-10-hotfix24-A1（Part 7）
+  TRACKING_START_DATE,
+  getTrackingPeriodInfo,
 };

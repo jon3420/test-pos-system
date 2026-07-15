@@ -537,6 +537,14 @@ router.get('/confirm', async (req, res) => {
         // 網址乾淨就變成 direct（需求文件七第 5 點）。metadata_json 已是 JSON 字串，
         // insertEvent()/normalizeMetadata() 支援字串直接寫入。
         metadata: ctx.metadata_json || null,
+        // fix18-10-hotfix24-A3：Identity × Channel（需求文件四／六）—— order.line_user_id
+        // 是訂單建立當下已驗證過寫入 orders 表的值（非本次請求才臨時信任的前端輸入）；
+        // LINE Pay 訂單一律來自 LINE 點餐／宅配頁面，channel_source 固定為 'line'，
+        // 宅配訂單則沿用 orders 表既有的 fulfillment_type／order_source 欄位判斷。
+        line_user_id: order.line_user_id || null,
+        channel_source: 'line',
+        fulfillment_type: order.fulfillment_type || null,
+        order_source: order.order_source || null,
       });
     } catch (evtErr) {
       console.warn('[linepay/confirm] analytics event write failed:', evtErr.message);
@@ -556,6 +564,11 @@ router.get('/confirm', async (req, res) => {
             order_id: order.uuid,
             event_name: purchaseEvent === 'first_purchase' ? 'member_first_purchase' : 'member_repeat_purchase',
             order_mode: order.order_mode || null,
+            // fix18-10-hotfix24-A3：Identity × Channel（需求文件四／六）
+            line_user_id: order.line_user_id || null,
+            channel_source: 'line',
+            fulfillment_type: order.fulfillment_type || null,
+            order_source: order.order_source || null,
           });
         }
       }

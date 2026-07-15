@@ -13,6 +13,15 @@
 
 'use strict';
 
+// fix18-10-hotfix24-A3：共用 Identity Resolver × Channel／Page Type Resolver。
+// 集中在這裡（insertEvent 是所有事件寫入路徑的唯一共同出口）呼叫，讓
+// routes/analytics.js、routes/line-orders.js、routes/line-shipping.js、
+// routes/linepay.js、routes/line-member.js 等所有呼叫端「自動」補上
+// identity_key／identity_type／order_channel／page_type，不必逐一修改每個
+// 呼叫點的邏輯（需求文件九：「所有事件寫入路徑必須統一補充」）。
+const { resolveIdentity } = require('./analyticsIdentity');
+const { resolveOrderChannel, resolvePageType } = require('./channelResolver');
+
 // 本期（Hotfix23-A）事件白名單，只有這 8 種可經由前台一般 API 寫入。
 // purchase 不開放前台一般 API 直接寫入（見 routes/analytics.js）。
 const EVENT_WHITELIST = [
@@ -83,6 +92,21 @@ function normalizeMetadata(metadata) {
   return jsonStr;
 }
 
+// fix18-10-hotfix24-A1（Part 5：UTM Validation）—— source / campaign 寫入時一律不得是
+// NULL 或空字串，統一在這裡正規化（唯一寫入點，所有呼叫端自動受益，不必逐一修改
+// routes/analytics.js、line-orders.js、line-shipping.js、linepay.js 各自的呼叫）：
+//   - source 空白 → 'Direct'（沿用 utils/analyticsV2.js classifySource() 對空來源的既有語意）
+//   - campaign 空白 → '(No Campaign)'（避免前端顯示 NULL 或空字串造成誤解）
+//   - medium 維持可為 null（medium 是輔助欄位，NULL 語意明確是「未提供」，不需要假造預設值）
+function _normalizeSource(v) {
+  const s = (v === undefined || v === null) ? '' : String(v).trim();
+  return s === '' ? 'Direct' : s;
+}
+function _normalizeCampaign(v) {
+  const s = (v === undefined || v === null) ? '' : String(v).trim();
+  return s === '' ? '(No Campaign)' : s;
+}
+
 // 內部寫入（不做白名單檢查，呼叫端需自行確保 event_name 合法）
 // 回傳 true/false，絕不拋出例外。
 function insertEvent(db, fields) {
@@ -92,6 +116,14 @@ function insertEvent(db, fields) {
       event_name, product_id = null, quantity = 1, order_mode = null,
       source = null, medium = null, campaign = null, referrer = null,
       landing_page = null, fbclid = null, gclid = null, metadata = null,
+      // fix18-10-hotfix24-A3：呼叫端可選擇性提供，用來算 identity/channel/page_type。
+      // 全部是「新增、可選」的欄位，未提供時退回既有行為（identity 用 session/cart，
+      // channel 依 order_mode 判斷，page_type 依 event_name 判斷），不影響既有呼叫端。
+      line_user_id = null,          // 已驗證過的 LINE user id（見 utils/lineMemberSession.js）
+      customer_id = null,           // 客戶／會員紀錄 ID（本專案目前少用，保留擴充）
+      channel_source = null,        // 'pos' | 'line'，訂單建立來源（供 resolveOrderChannel 判斷）
+      fulfillment_type = null, order_source = null, // 宅配相關既有欄位，供渠道判斷
+      page_name = null,             // 呼叫端已知的標準 page_type 值時可直接指定
     } = fields;
 
     if (!store_id || !visitor_id || !session_id || !event_name) return false;
@@ -101,22 +133,43 @@ function insertEvent(db, fields) {
       ? null
       : clampInt(product_id, { min: 1, max: 2147483647, fallback: null });
 
+    // ── fix18-10-hotfix24-A3：共用 Identity Resolver × Channel／Page Type Resolver ──
+    // 任一 resolver 失敗都不得讓事件寫入失敗（外層已有 try/catch，這裡再保守一層，
+    // 失敗就退回 NULL / 'unknown'，不影響事件本身寫入）。
+    let identity = { identity_key: null, identity_type: null, is_estimated: true };
+    try {
+      identity = resolveIdentity({ line_user_id, customer_id, session_id, cart_id });
+    } catch (e2) { /* 保守退回預設值 */ }
+
+    let orderChannel = 'unknown';
+    try {
+      orderChannel = resolveOrderChannel({ order_mode, fulfillment_type, order_source, source: channel_source });
+    } catch (e2) { /* 保守退回 'unknown' */ }
+
+    let pageType = 'unknown';
+    try {
+      pageType = resolvePageType({ page_name, event_name, order_mode, page_url: landing_page });
+    } catch (e2) { /* 保守退回 'unknown' */ }
+
     db.run(
       `INSERT INTO analytics_events (
         store_id, visitor_id, session_id, cart_id, order_id,
         event_name, product_id, quantity, order_mode,
         source, medium, campaign, referrer, landing_page,
-        fbclid, gclid, metadata_json
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        fbclid, gclid, metadata_json,
+        identity_key, identity_type, is_estimated_identity, order_channel, page_type
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         safeStr(store_id, 100), safeStr(visitor_id, 200), safeStr(session_id, 200),
         cart_id ? safeStr(cart_id, 200) : null, order_id ? safeStr(order_id, 200) : null,
         event_name, pid, qty, order_mode ? safeStr(order_mode, 50) : null,
-        source ? safeStr(source, 100) : null, medium ? safeStr(medium, 100) : null,
-        campaign ? safeStr(campaign, 200) : null, referrer ? safeStr(referrer, 500) : null,
+        safeStr(_normalizeSource(source), 100), medium ? safeStr(medium, 100) : null,
+        safeStr(_normalizeCampaign(campaign), 200), referrer ? safeStr(referrer, 500) : null,
         landing_page ? safeStr(landing_page, 500) : null,
         fbclid ? safeStr(fbclid, 200) : null, gclid ? safeStr(gclid, 200) : null,
         normalizeMetadata(metadata),
+        identity.identity_key, identity.identity_type, identity.is_estimated ? 1 : 0,
+        orderChannel, pageType,
       ]
     );
     return true;
@@ -222,4 +275,7 @@ module.exports = {
   getOrderTrackingContext,
   logServerEvent,
   buildTrackingMetadata,
+  // fix18-10-hotfix24-A1（Part 5：UTM Validation）
+  normalizeSource: _normalizeSource,
+  normalizeCampaign: _normalizeCampaign,
 };

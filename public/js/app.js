@@ -414,7 +414,8 @@ function renderDashboardV2(data) {
   html += renderDashboardKpiV3(data.kpi, data.kpi_comparison, data.range);
   html += renderDashboardHealthV2(data.health_score_v2, data.range);
   html += renderDashboardTrend30d(data.trend_30d);
-  html += renderDashboardFunnelV2(data.funnel);
+  html += `<div style="font-size:.72rem;color:var(--text-secondary,#64748b);margin:-8px 0 12px 2px">🔎 目前：全部渠道（渠道篩選請至「營運分析 V2」）</div>`;
+  html += renderDashboardFunnelV2(data.funnel, data.funnel_summary);
   html += renderDashboardRealtime(data.realtime);
   html += renderDashboardCart(data.cart);
   html += renderDashboardProductsV2(data.products, data.product_tiers);
@@ -636,27 +637,55 @@ function renderDashboardTrend30d(trend) {
 }
 
 // ── V3-5. 轉換漏斗 V2（真正梯形 Funnel，資料來源與既有漏斗完全相同）───
-function renderDashboardFunnelV2(funnel) {
+// fix18-10-hotfix24-A3（需求文件三／十四／十五）：修正「送出訂單 3 人・300%」錯誤顯示。
+//   - submit_order／purchase 是「次數／筆數」不是「人數」，改標「次」/「筆」，並在括號
+//     附註不重複人數（unique_users）。
+//   - 條形圖寬度一律 clamp 到 100%（Math.min(rate,100)），避免 300% 撐爆卡片／橫向捲動。
+//     文字仍顯示真實百分比（可能 >100%），並在有此情形時加上一行說明。
+//   - 底部新增 summary（若有）：使用者轉換率／訂單／訪客比／付款率，用正確命名，
+//     不再全部叫「轉換率」。
+function renderDashboardFunnelV2(funnel, summary) {
   const insufficient = funnel && !Array.isArray(funnel) && funnel.insufficient_data;
   const stages = insufficient ? funnel.stages : funnel;
   if (!stages || !stages.length || !(stages.some(s => s.count > 0))) {
     return _section('📈 轉換漏斗', `<div style="color:var(--text-secondary,#64748b);font-size:.875rem">尚無足夠的轉換事件資料</div>`);
   }
   const entryCount = stages[0].count || 1;
+  const orderUnitStages = new Set(['submit_order', 'purchase']);
+  let hasOverRate = false;
   const rows = stages.map(s => {
-    const widthPct = Math.max(4, Math.round((s.count / entryCount) * 100));
-    const overall = s.overall_conversion_rate !== null && s.overall_conversion_rate !== undefined ? _fmtPct(s.overall_conversion_rate) : '—';
+    const rawPct = entryCount > 0 ? (s.count / entryCount) * 100 : 0;
+    if (rawPct > 100) hasOverRate = true;
+    const widthPct = Math.min(100, Math.max(4, Math.round(rawPct))); // bar 寬度 clamp，不得超出容器
+    const displayPct = Math.min(100, Math.round(rawPct)); // bar 內文字跟著 clamp 後寬度走，避免文字被裁切
+    const overall = s.overall_conversion_rate !== null && s.overall_conversion_rate !== undefined ? _fmtPct(s.overall_conversion_rate) : '—'; // 真實整體佔比，可能 >100%
+    const isOrderUnit = orderUnitStages.has(s.key);
+    const countLabel = isOrderUnit ? `${s.count} ${s.key === 'submit_order' ? '次' : '筆'}` : `${s.count} 人`;
+    const peopleNote = isOrderUnit && typeof s.unique_users === 'number'
+      ? ` <span style="opacity:.75">（${s.unique_users} 人）</span>` : '';
     return `<div style="margin-bottom:10px">
-      <div style="display:flex;justify-content:space-between;font-size:.8rem;margin-bottom:4px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;font-size:.8rem;margin-bottom:4px;flex-wrap:wrap;gap:4px">
         <span style="font-weight:600">${escHtml(s.label)}</span>
-        <span style="color:var(--text-secondary,#64748b)">${s.count} 人 · ${overall}</span>
+        <span style="color:var(--text-secondary,#64748b);text-align:right">${countLabel}${peopleNote} · ${overall}</span>
       </div>
-      <div style="width:100%;background:transparent">
-        <div class="db-v3-hover" style="width:${widthPct}%;min-width:60px;margin:0 auto;background:linear-gradient(90deg,#6366f1,#818cf8);height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:.72rem;font-weight:600">${widthPct}%</div>
+      <div style="width:100%;background:transparent;overflow:hidden;box-sizing:border-box">
+        <div class="db-v3-hover" style="width:min(${widthPct}%,100%);min-width:60px;max-width:100%;margin:0 auto;background:linear-gradient(90deg,#6366f1,#818cf8);height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:.72rem;font-weight:600;box-sizing:border-box;overflow:hidden;white-space:nowrap">${displayPct}%</div>
       </div>
     </div>`;
   }).join('');
-  return _section('📈 轉換漏斗', rows);
+  const warn = hasOverRate
+    ? `<div style="font-size:.72rem;color:var(--text-secondary,#64748b);margin-top:4px">⚠ 事件次數／訂單數高於不重複訪客數，可能因同一人多次送出或多次下單造成。</div>`
+    : '';
+  let summaryHtml = '';
+  if (summary && summary.rates) {
+    const r = summary.rates;
+    summaryHtml = `<div style="display:flex;gap:18px;flex-wrap:wrap;margin-top:14px;padding-top:12px;border-top:1px solid var(--border,#2a2d3e)">
+      <div><div style="font-size:.72rem;color:var(--text-secondary,#64748b)">使用者轉換率</div><div style="font-size:1.05rem;font-weight:700">${_fmtPct(r.user_conversion_rate)}</div></div>
+      <div><div style="font-size:.72rem;color:var(--text-secondary,#64748b)">訂單／訪客比</div><div style="font-size:1.05rem;font-weight:700">${_fmtPct(r.orders_per_visitor_rate)}</div></div>
+      <div><div style="font-size:.72rem;color:var(--text-secondary,#64748b)">付款率</div><div style="font-size:1.05rem;font-weight:700">${_fmtPct(r.payment_rate)}</div></div>
+    </div>`;
+  }
+  return _section('📈 轉換漏斗', rows + warn + summaryHtml);
 }
 
 // ── V3-6. 商品排行 V2（🏆🥈🥉 + 🔥爆款／⭐潛力／⚠低轉換 標籤）────────
@@ -782,6 +811,7 @@ function renderDashboardFunnel(funnel) {
   if (!stages || !stages.length || !(stages.some(s => s.count > 0))) {
     return _section('📈 轉換分析', `<div style="color:var(--text-secondary,#64748b);font-size:.875rem">尚無足夠的轉換事件資料</div>`);
   }
+  const orderUnitStages = new Set(['submit_order', 'purchase']);
   const maxCount = Math.max(...stages.map(s => s.count), 1);
   const rows = stages.map(s => {
     const pct = maxCount > 0 ? Math.round(s.count / maxCount * 100) : 0;
@@ -789,10 +819,11 @@ function renderDashboardFunnel(funnel) {
       s.step_conversion_rate !== null && s.step_conversion_rate !== undefined ? `前一步 ${_fmtPct(s.step_conversion_rate)}` : null,
       `整體 ${_fmtPct(s.overall_conversion_rate)}`,
     ].filter(Boolean).join(' · ');
+    const countLabel = orderUnitStages.has(s.key) ? `${s.count} ${s.key === 'submit_order' ? '次' : '筆'}` : `${s.count} 人`;
     return `<div style="margin-bottom:12px">
       <div style="display:flex;justify-content:space-between;font-size:.85rem;margin-bottom:4px;flex-wrap:wrap;gap:4px">
         <span style="font-weight:600">${escHtml(s.label)}</span>
-        <span style="color:var(--text-secondary,#64748b)">${s.count} 人 · ${detail}</span>
+        <span style="color:var(--text-secondary,#64748b)">${countLabel} · ${detail}</span>
       </div>
       <div style="background:var(--border,#2a2d3e);border-radius:4px;height:16px;overflow:hidden">
         <div style="width:${pct}%;background:#6366f1;height:100%;border-radius:4px;transition:width .3s"></div>
@@ -1198,6 +1229,12 @@ function applyFeatureGateUI() {
   // fix16: 報表分析（主選單）
   const reportsNav = document.getElementById('nav-btn-reports');
   if (reportsNav) reportsNav.style.display = f.reports !== false ? '' : 'none';
+
+  // fix18-10-hotfix24-A：POS Analytics V2（營運分析）—— 沿用既有 reports 權限，
+  // 不新增第二套權限旗標；未授權時左側入口直接隱藏（不能靠切 hash/page name 繞過，
+  // 真正的資料保護仍在後端 requireStore + /api/analytics/dashboard，這裡只是 UX）。
+  const analyticsV2Nav = document.getElementById('nav-btn-analytics_v2');
+  if (analyticsV2Nav) analyticsV2Nav.style.display = f.reports !== false ? '' : 'none';
 
   // ── 設定 Tab ────────────────────────────────────────────
   // LINE 營業
@@ -1764,6 +1801,16 @@ function showPage(name) {
       name = 'pos'; // 導回點餐頁
     }
   }
+  // fix18-10-hotfix24-A：POS Analytics V2 沿用 reports 權限，攔截未授權的頁面切換
+  // （即使使用者手動改 hash / 直接呼叫 showPage('analytics_v2') 也擋下；真正的資料
+  // 保護仍在後端 requireStore，這裡防止空白頁與不必要的 API 呼叫）
+  if (name === 'analytics_v2') {
+    const f = window.currentFeatures || {};
+    if (f.reports === false) {
+      showToast('此功能未授權，請聯絡系統管理員', 'error');
+      name = 'pos';
+    }
+  }
 
   // fix16f: 強制用 style 切換，確保只有一個 page 顯示
   // classList 操作不夠——某些 page 有獨立 CSS 規則（如 #page-reports）需 style 覆蓋
@@ -1838,6 +1885,7 @@ function showPage(name) {
   if (name === 'categories') loadCategoriesPage();
   if (name === 'inventory')  loadInventoryPage();
   if (name === 'reports')    loadReportsPage();
+  if (name === 'analytics_v2' && typeof loadAnalyticsV2Page === 'function') loadAnalyticsV2Page(); // fix18-10-hotfix24-A
   // 舊版內嵌 AI 行銷中心（#page-ai_marketing）已於 V3 移除，
   // 入口統一改為 openAIMarketingCenter() 開啟獨立 Workspace（/ai-marketing/）。
 }
@@ -2071,7 +2119,7 @@ async function saveAdsTrackingSettings() {
 const LINE_MEMBER_GATE_KEYS = [
   'line_member_gate_enabled', 'line_member_gate_mode', 'line_member_require_friend',
   'line_member_allow_skip', 'line_member_add_friend_url', 'line_member_basic_id',
-  'line_member_login_channel_id', 'line_member_liff_id', 'line_member_return_url',
+  'line_member_login_channel_id', 'line_member_liff_id',
   'line_member_title', 'line_member_description', 'line_member_friend_button_text',
   'line_member_login_button_text', 'line_member_skip_button_text',
 ];
@@ -2086,13 +2134,22 @@ async function loadLineMemberGateSettings() {
   const skipEl = document.getElementById('set-line_member_allow_skip');
   if (skipEl) skipEl.checked = settings.line_member_allow_skip === '1';
   ['line_member_liff_id','line_member_login_channel_id','line_member_basic_id',
-   'line_member_add_friend_url','line_member_return_url','line_member_title',
+   'line_member_add_friend_url','line_member_title',
    'line_member_description','line_member_login_button_text','line_member_friend_button_text',
    'line_member_skip_button_text'].forEach(k => {
     const el = document.getElementById('set-' + k);
     if (el) el.value = settings[k] || '';
   });
   updateLineMemberTestUrlHint();
+  // fix18-10-hotfix25：登入成功返回網址改由系統自動判斷，這裡只顯示預設
+  // fallback 網址供店家參考，不再提供可編輯欄位。
+  const fbEl = document.getElementById('lmgFallbackReturnUrlHint');
+  if (fbEl) {
+    const sid = (window.currentStore && window.currentStore.store_id) || (JSON.parse(localStorage.getItem('pos_store_info')||'{}').store_id) || '';
+    fbEl.textContent = sid
+      ? `預設返回：${location.origin}/line-order.html?store_id=${sid}`
+      : '';
+  }
 }
 function updateLineMemberTestUrlHint() {
   const hint = document.getElementById('lmgTestUrlHint');
@@ -2169,11 +2226,16 @@ async function loadLineMembersList() {
     tbody.innerHTML = '<tr><td colspan="13">網路錯誤</td></tr>';
   }
 }
+// fix18-10-hotfix23-E1：後台會員管理 API 強制 staff JWT，CSV 匯出改用
+// downloadWithAuth()（apiFetch 帶 Authorization header → blob 下載），
+// 不再用 window.open()（無法附加 Authorization header，且會把 token
+// 暴露在 query string / 瀏覽器歷史紀錄中）。
+function downloadLineMembersCsv() {
+  downloadWithAuth('/api/line-member/members/export', 'line-members.csv');
+}
+// 保留舊名稱相容既有呼叫端（HTML 上可能還有 onclick="exportLineMembersCsv()"）
 function exportLineMembersCsv() {
-  const url = (typeof apiFetch === 'function') ? '/api/line-member/members/export' : '';
-  // CSV 走 GET 直接下載，帶上 store_id（沿用 apiFetch 相同 query 慣例）
-  const sid = (window.currentStore && window.currentStore.store_id) || (JSON.parse(localStorage.getItem('pos_store_info')||'{}').store_id) || '';
-  window.open(`/api/line-member/members/export?store_id=${encodeURIComponent(sid)}`, '_blank');
+  downloadLineMembersCsv();
 }
 async function openLineMemberDetail(id) {
   const modal = document.getElementById('lmDetailModal');

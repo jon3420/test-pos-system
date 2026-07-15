@@ -514,9 +514,17 @@ function _gateIds(){ return { visitor_id:_getVisitorId(), session_id:_getSession
 async function _initLineMemberGateFromShopData(d){
   _lineMemberGateConfig=_buildLineMemberGateConfig(d);
   if(!_lineMemberGateConfig.gate_enabled || _lineMemberGateConfig.gate_mode==='disabled') return;
-  try{ await LineMemberGate.initLineMemberGate({ store_id:LINE_STORE_ID, liff_id:_lineMemberGateConfig.liff_id }); }catch(e){ return; }
+  let gateState=null;
+  try{ gateState=await LineMemberGate.initLineMemberGate({ store_id:LINE_STORE_ID, liff_id:_lineMemberGateConfig.liff_id }, _gateIds(), _trackEvent); }catch(e){ return; }
   if(_lineMemberGateConfig.gate_mode==='entry'){
     LineMemberGate.requireMemberOnEntry(LINE_STORE_ID, _lineMemberGateConfig, _gateIds(), _trackEvent);
+  }
+  // fix18-10-hotfix25：checkout 模式下，若剛從 LINE 登入導回並自動完成驗證，
+  // 購物車本來就已由既有 persistCart()/還原機制保留，這裡再把結帳畫面（購物車
+  // 面板）重新打開，客人不需要重新操作，只需再按一次「送出訂單」即可完成。
+  const cbResult=gateState&&gateState.loginCallbackResult;
+  if(_lineMemberGateConfig.gate_mode==='checkout' && cbResult && cbResult.ok && cbResult.autoVerified){
+    try{ if(Object.keys(cart||{}).length) openCartSheet(); }catch(e){}
   }
 }
 function _currentMemberSession(){

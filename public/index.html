@@ -6,7 +6,7 @@
   <title>餐車 POS</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/main.css?v=fix18-09F-h2">
+  <link rel="stylesheet" href="/css/main.css?v=fix18-10-hotfix24-UI">
 </head>
 <body>
 
@@ -34,6 +34,9 @@
     </button>
     <button class="nav-btn" id="nav-btn-reports" data-page="reports" onclick="showPage('reports')">
       <span class="nav-icon">📊</span><span>報表分析</span>
+    </button>
+    <button class="nav-btn" id="nav-btn-analytics_v2" data-page="analytics_v2" onclick="showPage('analytics_v2')">
+      <span class="nav-icon">📊</span><span>營運分析</span>
     </button>
     <button class="nav-btn" data-page="line_products" id="nav-btn-line_products" onclick="showPage('line_products')" style="display:none">
       <span class="nav-icon">📲</span><span>LINE商品</span>
@@ -714,6 +717,12 @@
   <div id="reports-container"></div>
 </div>
 
+<!-- fix18-10-hotfix24-A：📊 POS Analytics V2｜營運分析中心
+     未來所有經營分析功能唯一入口，全部沿用 GET /api/analytics/dashboard，不新增第二套 Analytics API -->
+<div id="page-analytics_v2" class="page">
+  <div id="analytics-v2-container"></div>
+</div>
+
 <!-- 設定頁 -->
 <div id="page-settings" class="page">
   <div class="page-inner">
@@ -733,7 +742,7 @@
       <button class="settings-tab-btn"        data-stab="discount_campaigns" onclick="switchSettingsTab('discount_campaigns')">💸 折扣活動</button>
       <button class="settings-tab-btn"        data-stab="product_analysis_groups" onclick="switchSettingsTab('product_analysis_groups')">📊 商品分析群組</button>
       <button class="settings-tab-btn"        data-stab="ads_attribution" onclick="switchSettingsTab('ads_attribution')">📣 廣告追蹤</button>
-      <button class="settings-tab-btn"        data-stab="line_member" onclick="switchSettingsTab('line_member')">👤 LINE 會員入口</button>
+      <button class="settings-tab-btn"        data-stab="line_member" onclick="switchSettingsTab('line_member')">👤 LINE 會員登入設定</button>
       <button class="settings-tab-btn"        data-stab="line_members_list" onclick="switchSettingsTab('line_members_list')">👥 LINE 會員</button>
       <button class="settings-tab-btn"        data-stab="migration" onclick="switchSettingsTab('migration')">📦 資料備份/搬家</button>
       <!-- fix10: 店家授權 Tab 已移至 /system-admin，一般店家不可存取 -->
@@ -1820,14 +1829,21 @@
       <button class="btn-primary" onclick="saveAdsTrackingSettings()">💾 儲存廣告追蹤設定</button>
     </div>
 
-    <!-- fix18-10-hotfix23-E：LINE 會員入口設定（LIFF 登入 × 好友狀態） -->
+    <!-- fix18-10-hotfix25：LINE 會員登入設定（點餐／宅配共用同一套會員資料） -->
     <div class="settings-tab-panel" id="stab-line_member" style="display:none">
       <div class="settings-grid">
+        <div class="settings-card full">
+          <p class="settings-hint">
+            💡 LINE 會員資料由外帶、外送及冷藏宅配共用（同一組 LIFF ID／LINE Login Channel／
+            LINE 官方帳號，同一份會員主檔）。顧客登入後會自動返回原本使用的入口，不會被固定導回
+            LINE 點餐頁。
+          </p>
+        </div>
         <div class="settings-card">
-          <h3>👤 LINE 會員入口</h3>
+          <h3>👤 LINE 會員登入</h3>
           <label style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
             <input type="checkbox" id="set-line_member_gate_enabled" style="width:auto">
-            <span>啟用 LINE 會員入口</span>
+            <span>啟用 LINE 會員登入</span>
           </label>
           <label>入口模式
             <select id="set-line_member_gate_mode">
@@ -1844,6 +1860,7 @@
             <input type="checkbox" id="set-line_member_allow_skip" style="width:auto">
             <span>允許略過（僅 entry 模式生效）</span>
           </label>
+          <p class="settings-hint" style="margin-top:8px">此設定同時套用於 LINE 點餐（外帶／外送）與冷藏宅配入口，不需分開設定。</p>
         </div>
         <div class="settings-card">
           <h3>🔑 LINE 串接設定</h3>
@@ -1851,7 +1868,16 @@
           <label>LINE Login Channel ID<input type="text" id="set-line_member_login_channel_id"></label>
           <label>LINE 官方帳號 Basic ID<input type="text" id="set-line_member_basic_id" placeholder="@yourshop"></label>
           <label>加好友網址<input type="text" id="set-line_member_add_friend_url" placeholder="https://lin.ee/xxxxx"></label>
-          <label>登入成功返回網址<input type="text" id="set-line_member_return_url" placeholder="https://your-domain.com/line-order.html"></label>
+          <div style="margin-top:10px">
+            <div style="font-size:.8rem;color:var(--text-secondary,#64748b);margin-bottom:6px;font-weight:600">登入後返回方式</div>
+            <div style="padding:10px 14px;background:rgba(0,0,0,.2);border-radius:8px;border:1px solid rgba(255,255,255,.08);font-size:.85rem;line-height:1.6">
+              自動返回顧客原本使用的入口
+              <div style="color:var(--text-secondary,#64748b);font-size:.78rem;margin-top:4px">
+                支援 LINE 外帶／外送與冷藏宅配；若無法辨識來源，預設返回 LINE 點餐入口。
+              </div>
+              <div id="lmgFallbackReturnUrlHint" style="color:var(--text-secondary,#64748b);font-size:.75rem;margin-top:6px;word-break:break-all"></div>
+            </div>
+          </div>
         </div>
         <div class="settings-card">
           <h3>✏️ 顯示文字</h3>
@@ -1868,8 +1894,9 @@
           <button class="btn-secondary" onclick="openLineMemberTestUrl()">🔗 開啟測試網址</button>
         </div>
       </div>
-      <button class="btn-primary" onclick="saveLineMemberGateSettings()">💾 儲存 LINE 會員入口設定</button>
+      <button class="btn-primary" onclick="saveLineMemberGateSettings()">💾 儲存 LINE 會員登入設定</button>
     </div>
+
 
     <!-- fix18-10-hotfix23-E：LINE 會員管理（列表 / 篩選 / CSV 匯出 / 詳情） -->
     <div class="settings-tab-panel" id="stab-line_members_list" style="display:none">
@@ -3011,6 +3038,7 @@
 <div class="toast-container" id="toastContainer"></div>
 
 <script src="/js/app.js?v=fix18-10-hotfix22"></script>
+<script src="/js/analytics-v2.js?v=fix18-10-hotfix24-UI"></script>
 <script src="/js/coupons.js?v=fix18-06"></script>
 <script src="/js/qrcode.min.js?v=fix18-09F-h2"></script>
 <script src="/license.js?v=fix18-06"></script>

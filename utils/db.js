@@ -1480,6 +1480,47 @@ function initTables(w) {
   } catch(e) { console.warn('[DB] analytics_events index:', e.message); }
 
   // ══════════════════════════════════════════════════════════════════
+  // ── fix18-10-hotfix24-A3：Identity Resolver × Channel × Page Type ─────
+  // safe migration：只用 ALTER TABLE ADD COLUMN（PRAGMA 檢查後才補建，同一套
+  // 慣例見上面 products 的 _preorderColDefs），絕不 DROP／重建 analytics_events，
+  // 絕不新增資料表。舊資料列這些欄位一律是 NULL，讀取端一律當作
+  // identity_type=null / order_channel='unknown' / page_type='unknown' 處理
+  // （見 utils/analyticsLog.js insertEvent() 與 utils/channelResolver.js）。
+  // ══════════════════════════════════════════════════════════════════
+  const _analyticsIdentityColDefs = [
+    ['identity_key',      'TEXT'],
+    ['identity_type',     'TEXT'],
+    ['is_estimated_identity', 'INTEGER'],
+    ['order_channel',     'TEXT'],
+    ['page_type',         'TEXT'],
+  ];
+  try {
+    const _aeExistCols = w.all('PRAGMA table_info(analytics_events)').map(r => r.name);
+    let _aeAdded = 0;
+    for (const [col, def] of _analyticsIdentityColDefs) {
+      if (!_aeExistCols.includes(col)) {
+        try {
+          w._db.run(`ALTER TABLE analytics_events ADD COLUMN ${col} ${def}`);
+          w._save();
+          _aeAdded++;
+          console.log(`[DB] ✅ analytics_events 補建欄位: ${col}`);
+        } catch (e2) {
+          console.error(`[DB] ❌ analytics_events 補建失敗 ${col}:`, e2.message);
+        }
+      }
+    }
+    if (_aeAdded === 0) console.log('[DB] ✅ analytics_events identity/channel 欄位均已存在');
+  } catch (e) {
+    console.error('[DB] ❌ PRAGMA table_info(analytics_events) 失敗:', e.message);
+  }
+  try {
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_analytics_store_identity ON analytics_events(store_id, identity_key)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_analytics_store_channel_created ON analytics_events(store_id, order_channel, created_at)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_analytics_store_page_type ON analytics_events(store_id, page_type)');
+    w._save();
+  } catch(e) { console.warn('[DB] analytics_events identity/channel index:', e.message); }
+
+  // ══════════════════════════════════════════════════════════════════
   // ── fix18-10-hotfix23-E：LINE 會員入口 × LIFF 登入 × 好友狀態綁定 ──────
   // 原則同 Hotfix23-A：safe migration，只用 CREATE TABLE IF NOT EXISTS /
   // CREATE INDEX IF NOT EXISTS，全新獨立資料表，不影響既有 POS / Android /

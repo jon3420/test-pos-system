@@ -2589,3 +2589,209 @@ input[type="time"]::selection {
   border-color: var(--accent, #f5a623) !important;
   box-shadow: 0 0 0 2px rgba(245,166,35,0.2);
 }
+
+/* ══════════════════════════════════════════════════════════════════
+   fix18-10-hotfix24-UI — POS Analytics V2 全寬版面重構 × Scroll Fix
+   ══════════════════════════════════════════════════════════════════
+
+   【Funnel 無法捲動的真正原因】
+   全站 body 是固定滿版 SPA 殼層：
+     html, body { height:100%; overflow:hidden; }
+     .page { position:fixed; top:var(--topbar-h); ...; overflow:hidden; }
+   每個 .page 預設是「固定尺寸、裁切溢出」的容器，只有真正掛上 overflow-y:auto
+   的內層容器才能捲動。既有「老闆儀表板」（#page-reports）本來就有專屬覆寫：
+     #page-reports.active { overflow-y:auto !important; }
+     #reports-container   { width:100%; padding:24px; box-sizing:border-box; }
+   但 Hotfix24-A 新增的 #page-analytics_v2 / #analytics-v2-container 當初沒有
+   套用同一組覆寫，因此繼承了 .page 的 overflow:hidden，導致 Funnel 商品列表
+   （或任何較長內容）超出可視高度後被直接裁掉，捲不到最後一個商品。
+
+   【偏左、只佔 60~70% 寬度的真正原因】
+   .page.active { display:flex; } 讓 .page 變成 flex container；
+   #reports-container 之所以能撐滿寬度，是因為它明確寫了 width:100%
+   （flex item 在 row 方向的 flex container 裡，沒有明確 width 就會依內容
+   shrink-to-fit，不會自動撐滿）。#analytics-v2-container 當初沒有這行
+   width:100%，於是整個 Analytics 內容跟著 shrink-to-fit，看起來偏左、
+   右側大片留白。
+
+   修法：完全比照 #page-reports / #reports-container 既有寫法（不是另外
+   發明一套新機制），只是把同一組覆寫也套用在 #page-analytics_v2 上。
+   ══════════════════════════════════════════════════════════════════ */
+
+#page-analytics_v2 {
+  overflow-x: hidden;
+}
+#page-analytics_v2:not(.active) {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+#page-analytics_v2.active {
+  overflow-y: auto !important;
+  visibility: visible !important;
+  pointer-events: auto !important;
+}
+#analytics-v2-container {
+  width: 100%;
+  padding: 24px;
+  box-sizing: border-box;
+}
+
+/* ── 全寬 Shell（與老闆儀表板同一套間距，不另造視覺系統）───────────── */
+.analytics-shell {
+  width: 100%;
+  max-width: none;
+  box-sizing: border-box;
+  height: auto;
+  min-height: 0;
+  overflow: visible;
+}
+
+/* ── 頂部標題區（依需求文件七重排：標題／副標、日期列、查詢區間、頁籤）── */
+.analytics-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 16px;
+}
+.analytics-title {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 900;
+  color: var(--text-primary);
+}
+.analytics-subtitle {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+.analytics-date-controls {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin: 14px 0 4px;
+}
+.analytics-date-range-label {
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  margin-bottom: 14px;
+}
+.analytics-tabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 10px;
+  margin-bottom: 20px;
+}
+
+/* ── 卡片／區塊（沿用既有 --bg-card / --border / --radius 變數，不另造）── */
+.analytics-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+  padding: 16px 20px;
+  box-sizing: border-box;
+}
+.analytics-section {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  margin-bottom: 20px;
+}
+.analytics-section h3 {
+  margin: 0 0 14px;
+  font-size: 0.95rem;
+  color: var(--text-primary);
+}
+
+/* ── KPI Grid（依需求文件八：桌機自動填滿六欄，不擠在左側）─────────── */
+.analytics-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 14px;
+  width: 100%;
+  margin-bottom: 20px;
+}
+
+/* ── 熱門商品多維排行 Grid（依需求文件十一：桌機三欄兩排）───────────── */
+.analytics-ranking-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  width: 100%;
+}
+/* AI Insights 建議卡片用（依需求文件十四：桌機兩欄），仍受下方響應式規則管控 */
+.analytics-ranking-grid--two-col {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+/* ── Funnel 指標 Grid（依需求文件九：五個轉換節點平均分布，不擠左側）── */
+.analytics-funnel-metrics {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  width: 100%;
+  align-items: end;
+}
+.analytics-funnel-card {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* ── Sources / Campaigns 兩欄（依需求文件十二）───────────────────── */
+.analytics-two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  width: 100%;
+}
+
+/* ── 表格容器（依需求文件十六：桌機滿版，手機／平板可水平捲動）────── */
+.analytics-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+.analytics-table-wrap table { width: 100%; min-width: 420px; border-collapse: collapse; font-size: 0.875rem; }
+
+/* ── 空狀態（依需求文件十七：全 Analytics 共用同一套，不各自寫小文字）── */
+.analytics-empty-state {
+  width: 100%;
+  box-sizing: border-box;
+  text-align: center;
+  padding: 48px 20px;
+}
+.analytics-empty-icon { font-size: 2.4rem; margin-bottom: 12px; opacity: .8; }
+.analytics-empty-state h3 { margin: 0 0 8px; font-size: 1rem; color: var(--text-primary); }
+.analytics-empty-state p { margin: 0; font-size: 0.85rem; color: var(--text-secondary); line-height: 1.7; max-width: 520px; margin: 0 auto; }
+
+/* 卡片 hover 效果（原本在 analytics-v2.js 內以 inline <style> 注入，Hotfix24-UI
+   改為集中在這裡，避免每次重繪頁面都重新注入一份重複的 <style> 標籤） */
+.db-v3-hover { box-shadow: 0 1px 2px rgba(0,0,0,.25); transition: transform .15s ease, box-shadow .15s ease; }
+.db-v3-hover:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,.35); }
+
+/* ── 響應式規則（依需求文件十五）───────────────────────────────────
+   ≥1440px：內容滿版／KPI 六欄／排行三欄／Source-Campaign 兩欄（預設值即是）
+   1024px～1439px：KPI 三～四欄／排行兩欄／Source-Campaign 兩欄
+   768px～1023px：KPI 兩欄／Funnel 指標換行／排行一～二欄／Source-Campaign 一欄
+   <768px：全部單欄，日期按鈕與頁籤換行，表格可水平捲動
+   ────────────────────────────────────────────────────────────── */
+@media (max-width: 1200px) {
+  .analytics-kpi-grid { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+  .analytics-ranking-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 900px) {
+  .analytics-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .analytics-ranking-grid { grid-template-columns: repeat(1, minmax(0, 1fr)); }
+  .analytics-funnel-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .analytics-two-col { grid-template-columns: 1fr; }
+}
+@media (max-width: 640px) {
+  .analytics-kpi-grid { grid-template-columns: 1fr; }
+  .analytics-funnel-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .analytics-date-controls, .analytics-tabs { flex-wrap: wrap; }
+}

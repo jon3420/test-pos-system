@@ -600,6 +600,11 @@ router.post('/', (req, res) => {
         gclid: ap.gclid || null,
         // fix18-10-hotfix23-D：與 routes/line-orders.js 一致的追蹤欄位白名單組裝
         metadata: buildTrackingMetadata(ap),
+        // fix18-10-hotfix24-A3：Identity × Channel（需求文件四／六）—— 冷藏宅配訂單
+        // 一律視為 fulfillment_type='shipping'，channel_source 固定為 'line'。
+        line_user_id: knownLineUserId || null,
+        channel_source: 'line',
+        fulfillment_type: 'shipping',
       };
       logServerEvent(db, { ...evtBase, event_name: 'submit_order' });
       if (knownLineUserId) touchMemberOnOrder(db, storeId, knownLineUserId);

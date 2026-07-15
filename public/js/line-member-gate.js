@@ -1,4 +1,5 @@
-// public/js/line-member-gate.js — fix18-10-hotfix23-E｜LINE 會員入口 × LIFF 登入
+// public/js/line-member-gate.js — fix18-10-hotfix25｜LINE 會員登入共用模組
+// （點餐／宅配共用同一套 LINE 會員資料 × 登入後返回原入口）
 //
 // 共用模組，供 line-order.html 與 line-shipping.html 共同載入。
 // 只負責：LIFF 初始化／登入、與後端 /api/line-member/verify 溝通、Gate UI
@@ -9,9 +10,46 @@
 // 只保存：member_session（後端簽章過的短效 token）、遮罩後的 profile、
 // is_friend、expires_at、gate 狀態。絕不保存 Access Token / ID Token /
 // Channel Secret / 完整 line_user_id。
+//
+// fix18-10-hotfix25：新增「共用登入返回機制」——
+//   - 會員身分本來就已經共用（同一 liff_id / channel_id / line_members 主檔，
+//     見 routes/line-member.js、utils/db.js 的 UNIQUE(store_id, line_user_id)）。
+//   - LIFF 登入原本就是用 liff.login({redirectUri: 目前網址}) 導回原頁，本次
+//     再加上 sessionStorage 備援（避免特定瀏覽器/LINE App 內建瀏覽器忽略
+//     redirectUri 的邊界情況），並新增：回來後自動完成驗證（不需要使用者
+//     再按一次登入）、一次性參數清除、登入中旗標＋逾時，避免無限跳轉/循環。
 
 'use strict';
 (function (global) {
+
+  // ── sessionStorage keys（共用登入返回機制，需求文件二）────────────
+  const RETURN_URL_KEY = 'line_member_return_url';
+  const RETURN_STORE_KEY = 'line_member_return_store_id';
+  const LOGIN_IN_PROGRESS_KEY = 'line_member_login_in_progress';
+  const LOGIN_ATTEMPTED_KEY_PREFIX = 'line_member_login_attempted_';
+  const LOGIN_IN_PROGRESS_TIMEOUT_MS = 2 * 60 * 1000; // hotfix25 修訂：2 分鐘逾時，避免卡死
+
+  // 允許自動返回的系統內頁（需求文件三）。可依實際專案頁面擴充。
+  const ALLOWED_RETURN_PATHS = new Set([
+    '/line-order.html',
+    '/line-shipping.html',
+    '/member.html',
+    '/coupons.html',
+  ]);
+
+  // 登入完成返回後應移除的一次性／測試／LINE Login callback 參數，避免重複
+  // 觸發登入或無限循環（需求文件四／十三）。不動 store_id、商品 id、優惠券
+  // code、取餐方式等既有購物流程參數。
+  const TRANSIENT_RETURN_PARAMS = [
+    'member_gate_test', 'line_login', 'login_required',
+    'login_callback', 'code', 'state', 'liff.state',
+  ];
+
+  function getCurrentStoreId() {
+    try {
+      return new URLSearchParams(window.location.search).get('store_id') || '';
+    } catch (e) { return ''; }
+  }
 
   function loadLiffSdk() {
     return new Promise((resolve, reject) => {
@@ -56,18 +94,106 @@
     try { localStorage.removeItem(sessionKey(storeId)); } catch (e) {}
   }
 
+  // fix18-10-hotfix23-E1：執行時再次驗證 return URL（需求文件十）。
+  // 這裡一律以「目前頁面 origin」為準組成網址，本來就是同源、安全的來源，
+  // 這個檢查是防禦性的第二道保險——避免未來若改成直接採用店家設定值時，
+  // 忘記再驗證一次而直接把未經允許的網址交給 LINE Login 導頁。
+  function isSafeReturnUrl(urlString) {
+    try {
+      const u = new URL(urlString, window.location.href);
+      if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
+      if (u.username || u.password) return false;
+      // 只信任目前頁面所在的 origin，不接受任何跨網域網址
+      return u.origin === window.location.origin;
+    } catch (e) { return false; }
+  }
+
+  // fix18-10-hotfix25: path-allowlist return url validator for sessionStorage
+  // based fallback return mechanism. Also requires store_id to match.
+  function validateSafeInternalReturnUrl(rawUrl, storeId) {
+    if (!rawUrl) return false;
+    try {
+      const parsed = new URL(rawUrl, window.location.origin);
+      if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return false;
+      if (parsed.origin !== window.location.origin) return false;
+      if (parsed.username || parsed.password) return false;
+      if (!ALLOWED_RETURN_PATHS.has(parsed.pathname)) return false;
+      const urlStoreId = parsed.searchParams.get('store_id');
+      if (storeId && urlStoreId && urlStoreId !== storeId) return false;
+      return true;
+    } catch (e) { return false; }
+  }
+
+  function saveLineMemberReturnUrl(storeId) {
+    try {
+      sessionStorage.setItem(RETURN_URL_KEY, window.location.href);
+      sessionStorage.setItem(RETURN_STORE_KEY, storeId || getCurrentStoreId());
+    } catch (e) { /* sessionStorage unavailable should not block login */ }
+  }
+
+  function getSavedLineMemberReturnUrl() {
+    try { return sessionStorage.getItem(RETURN_URL_KEY) || ''; } catch (e) { return ''; }
+  }
+
+  function clearSavedLineMemberReturnUrl() {
+    try {
+      sessionStorage.removeItem(RETURN_URL_KEY);
+      sessionStorage.removeItem(RETURN_STORE_KEY);
+    } catch (e) {}
+  }
+
+  // Remove one-time/test params after returning from login so the page does
+  // not immediately re-trigger login or loop.
+  function stripTransientReturnParams() {
+    try {
+      const url = new URL(window.location.href);
+      let changed = false;
+      TRANSIENT_RETURN_PARAMS.forEach((p) => {
+        if (url.searchParams.has(p)) { url.searchParams.delete(p); changed = true; }
+      });
+      if (changed && global.history && global.history.replaceState) {
+        global.history.replaceState(null, '', url.toString());
+      }
+    } catch (e) {}
+  }
+
+  // Login-in-progress flag with timeout, to avoid infinite redirect loops.
+  function markLoginInProgress() {
+    try { sessionStorage.setItem(LOGIN_IN_PROGRESS_KEY, String(Date.now())); } catch (e) {}
+  }
+  function clearLoginInProgress() {
+    try { sessionStorage.removeItem(LOGIN_IN_PROGRESS_KEY); } catch (e) {}
+  }
+  function isLoginInProgress() {
+    try {
+      const raw = sessionStorage.getItem(LOGIN_IN_PROGRESS_KEY);
+      if (!raw) return false;
+      const startedAt = Number(raw);
+      if (!startedAt || Date.now() - startedAt > LOGIN_IN_PROGRESS_TIMEOUT_MS) {
+        clearLoginInProgress();
+        return false;
+      }
+      return true;
+    } catch (e) { return false; }
+  }
+
   // 登入跳轉前，保存原始頁面所需的一切狀態（購物車由既有 ORDER_CART_KEY 機制
   // 自然保留，這裡只需額外保存「要跳轉回來的網址」與 gate 觸發階段）。
   function buildReturnUrl(storeId, extra) {
     const url = new URL(window.location.href);
     url.searchParams.set('store_id', storeId);
     if (extra && extra.gate_stage) url.searchParams.set('line_gate_return', extra.gate_stage);
-    return url.toString();
+    const candidate = url.toString();
+    saveLineMemberReturnUrl(storeId); // hotfix25 sessionStorage fallback
+    if (isSafeReturnUrl(candidate)) return candidate;
+    // fallback：目前頁面 origin + pathname + store_id（不得使用未經驗證的網址）
+    console.warn('[line-member-gate] return url 驗證失敗，改用安全 fallback');
+    return window.location.origin + window.location.pathname + '?store_id=' + encodeURIComponent(storeId);
   }
 
   const state = {}; // per-store 執行期狀態（不落地）
 
-  async function initLineMemberGate(config) {
+  async function initLineMemberGate(config, ids, onEvent) {
     const storeId = config.store_id;
     state[storeId] = { config, liffReady: false };
     if (!config.liff_id) return state[storeId];
@@ -75,10 +201,16 @@
       await loadLiffSdk();
       await global.liff.init({ liffId: config.liff_id });
       state[storeId].liffReady = true;
+      try {
+        state[storeId].loginCallbackResult = await handleLineMemberLoginCallback(storeId, ids, onEvent);
+      } catch (e) { /* never let callback handling block the page */ }
     } catch (e) {
       console.warn('[line-member-gate] LIFF 初始化失敗:', e.message);
       state[storeId].liffReady = false;
       state[storeId].liffError = e.message;
+      // fix18-10-hotfix25 (section 6): LIFF init failing mid-return-from-login
+      // must not leave a stale in-progress flag around.
+      clearLoginInProgress();
     }
     return state[storeId];
   }
@@ -90,11 +222,15 @@
   async function loginWithLine(storeId, opts) {
     if (!isLiffAvailable(storeId)) throw new Error('liff_not_ready');
     if (!global.liff.isLoggedIn()) {
+      markLoginInProgress();
       global.liff.login({ redirectUri: buildReturnUrl(storeId, opts) });
       return { redirected: true };
     }
     return { redirected: false };
   }
+
+  // alias, spec section 9 naming
+  function startLineMemberLogin(storeId, opts) { return loginWithLine(storeId, opts); }
 
   async function getLineProfile() {
     if (!global.liff || !global.liff.isLoggedIn()) return null;
@@ -128,6 +264,68 @@
     } catch (e) {
       console.warn('[line-member-gate] verifyWithBackend failed:', e.message);
       return { success: false, reason: 'exception' };
+    }
+  }
+
+  // fix18-10-hotfix25 (spec section 2 / 13): called right after LIFF init.
+  // If LIFF already reports logged-in (i.e. we just came back from the LINE
+  // login redirect) but there is no local member_session yet, finish the
+  // verification automatically instead of waiting for another button click.
+  // Guarded by a login-in-progress flag + a per-store "already attempted"
+  // flag so a verify failure never causes a retry loop or repeated LIFF
+  // redirects. Always resolves (never throws) so it can't block ordering.
+  async function handleLineMemberLoginCallback(storeId, ids, onEvent) {
+    try {
+      const attemptedKey = LOGIN_ATTEMPTED_KEY_PREFIX + storeId;
+      const existing = getMemberSession(storeId);
+      if (existing) {
+        clearLoginInProgress();
+        clearSavedLineMemberReturnUrl();
+        try { sessionStorage.removeItem(attemptedKey); } catch (e) {}
+        stripTransientReturnParams();
+        return { ok: true, session: existing, autoVerified: false };
+      }
+
+      if (!isLiffAvailable(storeId) || !global.liff.isLoggedIn()) {
+        // fix18-10-hotfix25 (section 2/6): if a login was in progress but we
+        // come back not logged in (user cancelled, or LIFF init failed),
+        // the attempt is over — clear the in-progress flag and saved return
+        // url so we don't hold stale state that could suppress or confuse a
+        // later legitimate login attempt.
+        const wasInProgress = isLoginInProgress();
+        clearLoginInProgress();
+        if (wasInProgress) {
+          clearSavedLineMemberReturnUrl();
+          onEvent && onEvent('line_login_cancelled');
+        }
+        return { ok: false, autoVerified: false };
+      }
+
+      let alreadyAttempted = false;
+      try { alreadyAttempted = sessionStorage.getItem(attemptedKey) === '1'; } catch (e) {}
+      // Not "logging in" right now (no flag) and we already tried once this
+      // browser session without success — do not keep retrying silently;
+      // let the normal gate UI (button click) take over instead.
+      if (!isLoginInProgress() && alreadyAttempted) {
+        return { ok: false, autoVerified: false };
+      }
+
+      try { sessionStorage.setItem(attemptedKey, '1'); } catch (e) {}
+      onEvent && onEvent('line_login_start');
+      const verifyRes = await verifyWithBackend(storeId, { ...ids, gate_stage: 'callback' });
+      clearLoginInProgress();
+      stripTransientReturnParams();
+      clearSavedLineMemberReturnUrl();
+      if (verifyRes.success) {
+        try { sessionStorage.removeItem(attemptedKey); } catch (e) {}
+        onEvent && onEvent('line_login_success');
+        return { ok: true, session: getMemberSession(storeId), autoVerified: true };
+      }
+      onEvent && onEvent('line_login_failed');
+      return { ok: false, reason: verifyRes.reason, autoVerified: true };
+    } catch (e) {
+      clearLoginInProgress();
+      return { ok: false, reason: 'exception', autoVerified: false };
     }
   }
 
@@ -256,12 +454,43 @@
     });
   }
 
+  // fix18-10-hotfix25: render a small "logged in / not logged in" status
+  // line into any container element. Safe no-op if el is missing. Used by
+  // both line-order.html and line-shipping.html (spec sections 7/8) so the
+  // two entry pages show a consistent, shared member status.
+  function renderLineMemberStatus(el, storeId, config) {
+    if (!el) return;
+    try {
+      const enabled = !!(config && config.gate_enabled);
+      if (!enabled) {
+        el.textContent = 'LINE 會員登入：未啟用';
+        el.style.color = '';
+        return;
+      }
+      const session = getMemberSession(storeId);
+      if (session) {
+        const name = session.display_name ? `（${session.display_name}）` : '';
+        el.textContent = `LINE 會員登入：已登入${name}`;
+        el.style.color = '#06C755';
+      } else {
+        el.textContent = 'LINE 會員登入：已啟用（尚未登入）';
+        el.style.color = '';
+      }
+    } catch (e) { /* status display is best-effort only */ }
+  }
+
   global.LineMemberGate = {
+    // 既有 API（維持相容，勿刪除／勿變更行為）
     initLineMemberGate, isLiffAvailable, loginWithLine, getLineProfile,
     getFriendshipStatus, refreshFriendStatus, openFriendAddPage,
     buildReturnUrl, saveMemberSession, getMemberSession, clearMemberSession,
     showMemberGate, closeMemberGate, verifyWithBackend,
     requireMemberBeforeCheckout, requireMemberOnEntry,
+    // fix18-10-hotfix25 新增（需求文件九命名的公開 API）
+    getCurrentStoreId, saveLineMemberReturnUrl, getSavedLineMemberReturnUrl,
+    clearSavedLineMemberReturnUrl, validateSafeInternalReturnUrl,
+    startLineMemberLogin, handleLineMemberLoginCallback,
+    getLineMemberSession: getMemberSession, renderLineMemberStatus,
   };
 
 })(window);

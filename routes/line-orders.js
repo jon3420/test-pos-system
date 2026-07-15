@@ -1363,6 +1363,11 @@ router.post('/', async (req, res) => {
         // fix18-10-hotfix23-D：first_touch／last_touch／utm_content／utm_term 一律走白名單
         // 組裝（buildTrackingMetadata 只挑追蹤欄位，前端塞入其他資料不會被寫入）
         metadata: buildTrackingMetadata(ap),
+        // fix18-10-hotfix24-A3：Identity × Channel（需求文件四／六）—— knownLineUserId
+        // 是本檔案已用 verifyMemberSession() 驗證過的 line_user_id（見上方下單流程），
+        // 這裡的訂單一律來自 LINE 點餐頁面，channel_source 固定為 'line'。
+        line_user_id: knownLineUserId || null,
+        channel_source: 'line',
       };
       logServerEvent(db, { ...evtBase, event_name: 'submit_order' });
       // fix18-10-hotfix23-E：訂單成立就更新 order_count/first_order_at/last_order_at
