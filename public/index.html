@@ -1893,6 +1893,17 @@
           <button class="btn-secondary" onclick="copyLineMemberTestUrl()">📋 複製測試網址</button>
           <button class="btn-secondary" onclick="openLineMemberTestUrl()">🔗 開啟測試網址</button>
         </div>
+        <!-- fix18-10-hotfix26-D：LINE 設定診斷中心 -->
+        <div class="settings-card full">
+          <h3>🔌 LINE 連線測試</h3>
+          <p class="settings-hint">一鍵檢查 LIFF／Channel／Friend API／Backend Verify／網域等設定是否正常。Callback URL 與 Endpoint 在 LINE Developers 後台的實際設定，系統無法直接讀取，僅提供建議值與人工確認提示。</p>
+          <div id="lineDiagHealth" class="line-diag-health">尚未測試</div>
+          <div id="lineDiagPanel" class="line-diag-panel" style="display:none"></div>
+          <div class="line-diag-actions">
+            <button class="btn-primary" id="lineDiagRunBtn" onclick="runLineDiagnostics()">🔍 測試 LINE 設定</button>
+            <button class="btn-secondary" id="lineDiagCopySummaryBtn" onclick="copyLineDiagSummary()" style="display:none">📋 複製診斷結果</button>
+          </div>
+        </div>
       </div>
       <button class="btn-primary" onclick="saveLineMemberGateSettings()">💾 儲存 LINE 會員登入設定</button>
     </div>
@@ -1902,8 +1913,8 @@
     <div class="settings-tab-panel" id="stab-line_members_list" style="display:none">
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:center">
         <input type="text" id="lmSearchInput" placeholder="搜尋顯示名稱" style="flex:1;min-width:160px">
-        <select id="lmFilterSelect" onchange="loadLineMembersList()">
-          <option value="">全部</option>
+        <select id="lmFilterSelect">
+          <option value="">全部（既有分類）</option>
           <option value="friend">好友</option>
           <option value="not_friend">非好友</option>
           <option value="blocked">已封鎖</option>
@@ -1915,16 +1926,24 @@
           <option value="inactive_90d">90 天未購買</option>
           <option value="high_ltv">高 LTV</option>
         </select>
-        <select id="lmSortSelect" onchange="loadLineMembersList()">
+        <!-- fix18-10-hotfix26-C：好友三態篩選（獨立於上面既有分類，對應後端 friend_status query） -->
+        <select id="lmFriendStatusSelect">
+          <option value="all">好友狀態：全部</option>
+          <option value="friend">🟢 好友</option>
+          <option value="non_friend">🔴 非好友</option>
+          <option value="unknown">⚪ 未知</option>
+        </select>
+        <select id="lmSortSelect">
           <option value="last_login">最近登入</option>
           <option value="last_order">最近購買</option>
           <option value="total_spent">累積消費</option>
           <option value="order_count">訂單數</option>
           <option value="ltv">LTV</option>
         </select>
-        <button class="btn-secondary" onclick="loadLineMembersList()">🔍 查詢</button>
+        <button class="btn-secondary" onclick="loadLineMembersList(true)">🔍 查詢</button>
         <button class="btn-secondary" onclick="exportLineMembersCsv()">⬇️ CSV 匯出</button>
       </div>
+      <div id="lmPager" style="margin-bottom:10px;font-size:.85rem"></div>
       <div style="overflow-x:auto">
         <table class="data-table" id="lmTable">
           <thead>
@@ -1936,10 +1955,9 @@
           <tbody id="lmTableBody"><tr><td colspan="13">尚未查詢</td></tr></tbody>
         </table>
       </div>
-      <div id="lmDetailModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;align-items:center;justify-content:center">
-        <div style="background:#fff;border-radius:12px;max-width:480px;width:92%;max-height:80vh;overflow:auto;padding:20px">
+      <div id="lmDetailModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;align-items:center;justify-content:center;padding:16px">
+        <div class="member-detail-modal">
           <div id="lmDetailBody">載入中…</div>
-          <button class="btn-secondary" onclick="closeLineMemberDetail()" style="margin-top:12px;width:100%">關閉</button>
         </div>
       </div>
     </div>
@@ -3037,6 +3055,7 @@
 <!-- Toast 通知 -->
 <div class="toast-container" id="toastContainer"></div>
 
+<script src="/js/line-member-gate.js?v=fix18-10-hotfix26-D"></script>
 <script src="/js/app.js?v=fix18-10-hotfix22"></script>
 <script src="/js/analytics-v2.js?v=fix18-10-hotfix24-UI"></script>
 <script src="/js/coupons.js?v=fix18-06"></script>

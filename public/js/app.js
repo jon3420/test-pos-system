@@ -1980,7 +1980,7 @@ function switchSettingsTab(tab) {
   if (tab === 'product_analysis_groups') loadProductAnalysisGroupsTab(); // fix18-09F
   if (tab === 'ads_attribution')  loadAdsTrackingSettings(); // fix18-10-hotfix23-D
   if (tab === 'line_member')      loadLineMemberGateSettings(); // fix18-10-hotfix23-E
-  if (tab === 'line_members_list') loadLineMembersList(); // fix18-10-hotfix23-E
+  if (tab === 'line_members_list') { initLineMemberFilterListeners(); loadLineMembersList(true); } // fix18-10-hotfix23-E / hotfix26-C
 }
 
 // ===== 設定 =====
@@ -2189,19 +2189,393 @@ async function saveLineMemberGateSettings() {
   } catch { showToast('網路錯誤', 'error'); }
 }
 
+// ===== fix18-10-hotfix26-D：LINE 設定診斷中心 =====
+// 沿用既有 /api/settings（liff_id/channel_id/basic_id/add_friend_url/gate 設定）
+// 與 Hotfix26-A 已建立的 POST /api/line-member/verify { diagnostic_only:true }
+// 做安全的 Backend Verify 檢查，不新增其他後端 endpoint。
+const LINE_DIAG_OLD_DOMAIN = 'pop-system-v13.zeabur.app';
+let _lineDiagLastResult = null;
+let _lineDiagLiffReadyFor = null; // 記錄已經成功 init 過的 liff_id，避免重複 init（需求文件 D3）
+
+function _lineDiagStatusMeta(level) {
+  return {
+    ok: { icon: '🟢', className: 'line-diag-status--ok' },
+    warn: { icon: '🟡', className: 'line-diag-status--warn' },
+    error: { icon: '🔴', className: 'line-diag-status--error' },
+    untested: { icon: '⚪', className: 'line-diag-status--untested' },
+  }[level] || { icon: '⚪', className: 'line-diag-status--untested' };
+}
+
+function _lineDiagCheckLiffIdFormat(liffId) {
+  if (!liffId || !String(liffId).trim()) {
+    return { level: 'error', text: '尚未設定', detail: 'LIFF ID 不可空白' };
+  }
+  const ok = /^\d+-[A-Za-z0-9]+$/.test(String(liffId).trim());
+  return ok ? { level: 'ok', text: '格式正常' } : { level: 'warn', text: '格式可能不正確', detail: '建議格式：{channelId}-{suffix}，例如 2010718887-xxxxx' };
+}
+function _lineDiagCheckChannelConsistency(liffId, channelId) {
+  if (!liffId || !channelId) return { level: 'untested', text: '尚未測試（缺少 LIFF ID 或 Channel ID）' };
+  const prefix = String(liffId).split('-')[0];
+  if (prefix === String(channelId).trim()) return { level: 'ok', text: '一致' };
+  return {
+    level: 'error', text: '不一致',
+    detail: `目前 LIFF ID：${liffId}\n目前 Channel ID：${channelId}\n請確認 LIFF App 是否建立於同一個 LINE Login Channel。`,
+  };
+}
+function _lineDiagCheckDomain() {
+  const origin = window.location.origin;
+  const isLocalhost = /^(localhost|127\.0\.0\.1|\[::1\])/.test(window.location.hostname);
+  if (window.location.protocol === 'https:') return { level: 'ok', text: origin };
+  if (isLocalhost) return { level: 'warn', text: origin, detail: '開發環境（localhost），正式環境必須使用 HTTPS' };
+  return { level: 'error', text: origin, detail: '正式環境必須使用 HTTPS' };
+}
+function _lineDiagCheckReturnUrl(storeId) {
+  const url = `${window.location.origin}/line-order.html?store_id=${encodeURIComponent(storeId || '')}`;
+  try {
+    const safe = window.LineMemberGate && typeof window.LineMemberGate.validateSafeInternalReturnUrl === 'function'
+      ? window.LineMemberGate.validateSafeInternalReturnUrl(url, storeId)
+      : true;
+    return safe ? { level: 'ok', text: url } : { level: 'error', text: url, detail: '返回網址未通過安全驗證' };
+  } catch (e) { return { level: 'warn', text: url, detail: '無法自動驗證，請人工確認' }; }
+}
+function _lineDiagCheckBasicId(basicId) {
+  if (!basicId || !String(basicId).trim()) return { level: 'warn', text: '尚未設定' };
+  const ok = /^@[A-Za-z0-9_-]{2,30}$/.test(String(basicId).trim());
+  return ok ? { level: 'ok', text: basicId } : { level: 'warn', text: basicId, detail: '建議以 @ 開頭，例如 @936gvopq' };
+}
+function _lineDiagCheckAddFriendUrl(url, requireFollow) {
+  if (!url || !String(url).trim()) {
+    return requireFollow
+      ? { level: 'error', text: '未設定', detail: '已要求加入官方帳號，但未設定加好友網址' }
+      : { level: 'warn', text: '未設定' };
+  }
+  let ok = false; let hostname = '';
+  try { hostname = new URL(url).hostname; ok = new URL(url).protocol === 'https:'; } catch (e) { ok = false; }
+  const knownHosts = ['lin.ee', 'line.me', 'page.line.me', 'liff.line.me'];
+  if (ok && knownHosts.some(h => hostname === h || hostname.endsWith('.' + h))) return { level: 'ok', text: url };
+  if (ok) return { level: 'warn', text: url, detail: '非常見 LINE 網域，請人工確認' };
+  return { level: 'error', text: url, detail: '必須是 HTTPS 網址' };
+}
+function _lineDiagCheckOldDomain(settingsObj) {
+  // fix18-10-hotfix26-D（需求文件 D12）：只在「目前設定值／目前頁面網址」實際
+  // 找到舊網域字串時才回報異常，不因 changelog／歷史文件出現過而誤判
+  // （前端本來就讀不到那些檔案，天然就不會誤觸發)。
+  const haystack = [
+    window.location.origin,
+    settingsObj && settingsObj.line_member_return_url,
+    settingsObj && settingsObj.line_member_add_friend_url,
+  ].filter(Boolean).join(' ');
+  if (haystack.includes(LINE_DIAG_OLD_DOMAIN)) {
+    return { level: 'error', text: '系統設定仍包含舊網域', detail: `目前網域：${window.location.origin}\n請人工確認 LINE Developers 中的 Callback 與 Endpoint 不再使用：https://${LINE_DIAG_OLD_DOMAIN}` };
+  }
+  return { level: 'ok', text: '未偵測到舊網域' };
+}
+async function _lineDiagInitLiff(liffId) {
+  if (!liffId) return { level: 'error', text: '未設定 LIFF ID' };
+  try {
+    if (_lineDiagLiffReadyFor === liffId && window.liff) {
+      return { level: 'ok', text: '正常（沿用已初始化的 LIFF 實例）' };
+    }
+    await window.LineMemberGate.loadLiffSdk();
+    await window.liff.init({ liffId });
+    _lineDiagLiffReadyFor = liffId;
+    return { level: 'ok', text: '正常' };
+  } catch (e) {
+    return { level: 'error', text: '初始化失敗', detail: String(e && e.message || e).slice(0, 200) };
+  }
+}
+function _lineDiagCheckLogin() {
+  try {
+    if (window.liff && typeof window.liff.isLoggedIn === 'function' && window.liff.isLoggedIn()) {
+      return { level: 'ok', text: '已登入 LINE' };
+    }
+    return { level: 'warn', text: '尚未登入 LINE' };
+  } catch (e) { return { level: 'untested', text: '尚未測試' }; }
+}
+async function _lineDiagCheckFriendApi(loggedIn) {
+  if (!loggedIn) return { level: 'untested', text: '需先登入 LINE' };
+  try {
+    const friendship = await window.liff.getFriendship();
+    const isFriend = typeof (friendship && friendship.friendFlag) === 'boolean' ? friendship.friendFlag : null;
+    if (isFriend === null) return { level: 'warn', text: '正常，但好友狀態未知' };
+    return { level: 'ok', text: `正常，好友：${isFriend ? '是' : '否'}` };
+  } catch (e) {
+    return { level: 'error', text: '呼叫失敗', detail: String(e && e.message || e).slice(0, 200) };
+  }
+}
+async function _lineDiagCheckBackendVerify(storeId, loggedIn) {
+  try {
+    if (loggedIn && window.liff && window.liff.getIDToken()) {
+      const res = await fetch('/api/line-member/verify?store_id=' + encodeURIComponent(storeId), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id_token: window.liff.getIDToken(), access_token: window.liff.getAccessToken(), diagnostic_only: true }),
+      });
+      const json = await res.json();
+      if (json && json.success && json.diagnostic_only) return { level: 'ok', text: '正常（診斷模式，未寫入資料）' };
+      return { level: 'warn', text: json && json.message ? json.message : '後端回應異常但連線正常' };
+    }
+    // 未登入時退回純連線檢查（沿用已載入的 /api/settings，不新增 endpoint）
+    const res = await apiFetch('/api/settings');
+    const json = await res.json();
+    return json && json.success ? { level: 'warn', text: '連線正常（未登入 LINE，無法完整測試 Token 驗證）' } : { level: 'error', text: '無法連線' };
+  } catch (e) {
+    return { level: 'error', text: '連線失敗', detail: String(e && e.message || e).slice(0, 200) };
+  }
+}
+
+function _computeLineDiagHealth(r) {
+  // 需求文件 D13 配分。Callback／Endpoint 為人工項目，不納入核心分數。
+  let score = 0;
+  const add = (level, max) => {
+    if (level === 'ok') score += max;
+    else if (level === 'warn' || level === 'untested') score += Math.round(max * 0.5);
+    // error → 0 分
+  };
+  add(r.liffFormat.level, 10);
+  add(r.channelConsistency.level, 10);
+  add(r.liffInit.level, 15);
+  add(r.login.level, 10);
+  add(r.friendApi.level === 'untested' ? 'warn' : r.friendApi.level, 15); // 未登入不應直接視為故障
+  add(r.backendVerify.level, 15);
+  add(r.domain.level, 10);
+  add(r.returnUrl.level, 10);
+  add(r.basicId.level === 'error' ? 'warn' : r.basicId.level, 5);
+  score = Math.max(0, Math.min(100, score));
+  const level = score >= 90 ? 'green' : (score >= 70 ? 'yellow' : 'red');
+  const label = level === 'green' ? '🟢 正常' : (level === 'yellow' ? '🟡 建議檢查' : '🔴 需要修正');
+  return { score, level, label };
+}
+
+function _lineDiagRow(label, result) {
+  const meta = _lineDiagStatusMeta(result.level);
+  return `
+    <div class="line-diag-row">
+      <span class="line-diag-row__label">${label}</span>
+      <span class="line-diag-row__value ${meta.className}">${meta.icon} ${(result.text || '').replace(/</g,'&lt;')}</span>
+    </div>
+    ${result.detail ? `<div class="line-diag-detail">${result.detail.replace(/</g,'&lt;')}</div>` : ''}`;
+}
+
+async function runLineDiagnostics() {
+  const btn = document.getElementById('lineDiagRunBtn');
+  const healthEl = document.getElementById('lineDiagHealth');
+  const panel = document.getElementById('lineDiagPanel');
+  if (!btn || !panel) return;
+  btn.disabled = true;
+  const originalText = btn.textContent;
+  btn.textContent = '測試中…';
+  healthEl.textContent = '測試中…';
+  panel.style.display = 'block';
+  panel.innerHTML = '<div class="line-diag-row"><span class="line-diag-row__label">正在執行診斷…</span></div>';
+
+  try {
+    await loadSettings();
+    const storeId = (window.currentStore && window.currentStore.store_id) || (JSON.parse(localStorage.getItem('pos_store_info') || '{}').store_id) || '';
+    const liffId = settings.line_member_liff_id || '';
+    const channelId = settings.line_member_login_channel_id || '';
+    const basicId = settings.line_member_basic_id || '';
+    const addFriendUrl = settings.line_member_add_friend_url || '';
+    const requireFollow = settings.line_member_require_friend === '1';
+
+    const r = {};
+    r.liffFormat = _lineDiagCheckLiffIdFormat(liffId);
+    r.channelConsistency = _lineDiagCheckChannelConsistency(liffId, channelId);
+    r.domain = _lineDiagCheckDomain();
+    r.returnUrl = _lineDiagCheckReturnUrl(storeId);
+    r.basicId = _lineDiagCheckBasicId(basicId);
+    r.addFriendUrl = _lineDiagCheckAddFriendUrl(addFriendUrl, requireFollow);
+    r.oldDomain = _lineDiagCheckOldDomain(settings);
+    r.liffInit = liffId && window.LineMemberGate ? await _lineDiagInitLiff(liffId) : { level: 'untested', text: '未設定 LIFF ID 或共用模組未載入' };
+    r.login = r.liffInit.level === 'ok' ? _lineDiagCheckLogin() : { level: 'untested', text: '需先完成 LIFF 初始化' };
+    const loggedIn = r.login.level === 'ok';
+    r.friendApi = await _lineDiagCheckFriendApi(loggedIn);
+    r.backendVerify = await _lineDiagCheckBackendVerify(storeId, loggedIn);
+
+    const health = _computeLineDiagHealth(r);
+    const healthClass = health.level === 'green' ? 'line-diag-health--green' : (health.level === 'yellow' ? 'line-diag-health--yellow' : 'line-diag-health--red');
+    healthEl.className = `line-diag-health ${healthClass}`;
+    healthEl.innerHTML = `LINE 設定健康度：<span class="line-diag-health__score">${health.score}</span> / 100　${health.label}`;
+
+    const currentDomain = window.location.origin;
+    const orderEndpoint = `${currentDomain}/line-order.html?store_id=${encodeURIComponent(storeId)}`;
+    const shippingEndpoint = `${currentDomain}/line-shipping.html?store_id=${encodeURIComponent(storeId)}`;
+    const callbackUrl = currentDomain; // LIFF/LINE Login 現行架構：liff.login({redirectUri}) 導回目前頁面，Callback 設定值即目前網域
+
+    panel.innerHTML = `
+      ${_lineDiagRow('LIFF ID 格式', r.liffFormat)}
+      ${_lineDiagRow('Channel ID 一致性', r.channelConsistency)}
+      ${_lineDiagRow('LIFF 初始化', r.liffInit)}
+      ${_lineDiagRow('LINE Login', r.login)}
+      ${_lineDiagRow('Friend API', r.friendApi)}
+      ${_lineDiagRow('Backend Verify', r.backendVerify)}
+      ${_lineDiagRow('目前網域 / HTTPS', r.domain)}
+      ${_lineDiagRow('預設返回網址', r.returnUrl)}
+      ${_lineDiagRow('LINE 官方帳號 Basic ID', r.basicId)}
+      ${_lineDiagRow('加好友網址', r.addFriendUrl)}
+      ${_lineDiagRow('舊網域檢查', r.oldDomain)}
+      ${_lineDiagRow('Callback URL', { level: 'warn', text: '需至 LINE Developers 人工確認', detail: `建議值：${callbackUrl}` })}
+      ${_lineDiagRow('點餐 Endpoint', { level: 'warn', text: '需人工比對', detail: orderEndpoint })}
+      ${_lineDiagRow('宅配 Endpoint', { level: 'warn', text: '需人工比對', detail: shippingEndpoint })}
+      <div class="line-diag-actions">
+        <button class="btn-secondary" onclick="copyLineDiagText('${callbackUrl}', this)">📋 複製 Callback URL</button>
+        <button class="btn-secondary" onclick="copyLineDiagText('${orderEndpoint}', this)">📋 複製點餐 Endpoint</button>
+        <button class="btn-secondary" onclick="copyLineDiagText('${shippingEndpoint}', this)">📋 複製宅配 Endpoint</button>
+        <button class="btn-secondary" onclick="copyLineDiagText('${currentDomain}', this)">📋 複製目前網域</button>
+        <a class="btn-secondary" href="https://developers.line.biz/console/channel/${encodeURIComponent(channelId || '')}" target="_blank" rel="noopener">🔗 開啟 LINE Developers</a>
+      </div>`;
+
+    _lineDiagLastResult = {
+      storeId, currentDomain, health, r,
+      callbackUrl, orderEndpoint, shippingEndpoint,
+    };
+    const copyBtn = document.getElementById('lineDiagCopySummaryBtn');
+    if (copyBtn) copyBtn.style.display = '';
+  } catch (e) {
+    panel.innerHTML = `<div class="line-diag-row"><span class="line-diag-row__label">診斷過程發生錯誤</span><span class="line-diag-row__value line-diag-status--error">🔴 ${(e && e.message || '未知錯誤').replace(/</g,'&lt;')}</span></div>`;
+    healthEl.textContent = '測試失敗，請重新測試';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalText;
+  }
+}
+
+// fix18-10-hotfix26-D（需求文件 D14）：複製到剪貼簿，含 fallback（不支援
+// navigator.clipboard 時改用暫時 textarea + execCommand('copy')）。
+function copyLineDiagText(text, btnEl) {
+  const done = (ok) => {
+    if (btnEl) {
+      const original = btnEl.textContent;
+      btnEl.textContent = ok ? '已複製' : '無法自動複製，請手動選取';
+      setTimeout(() => { btnEl.textContent = original; }, 1500);
+    }
+    showToast(ok ? '已複製' : '無法自動複製，請手動選取', ok ? 'success' : 'error');
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(() => done(true)).catch(() => done(false));
+    return;
+  }
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.focus(); ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    done(ok);
+  } catch (e) { done(false); }
+}
+
+// 需求文件 D15：可複製的診斷摘要文字。絕不包含 ID Token／Access Token／
+// Channel Secret／完整 LINE User ID／Session Cookie／Authorization header。
+function buildLineDiagSummaryText() {
+  const d = _lineDiagLastResult;
+  if (!d) return 'LINE 設定尚未測試，請先按「測試 LINE 設定」';
+  const r = d.r;
+  const lvl = (x) => ({ ok: '正常', warn: '需人工確認', error: '異常', untested: '尚未測試' }[x.level] || '未知');
+  return [
+    'LINE 設定診斷結果', '',
+    `店家：${d.storeId || '—'}`,
+    `目前網域：${d.currentDomain}`,
+    `健康度：${d.health.score} / 100`, '',
+    `LIFF ID 格式：${lvl(r.liffFormat)}`,
+    `Channel ID 一致性：${lvl(r.channelConsistency)}`,
+    `LIFF 初始化：${lvl(r.liffInit)}`,
+    `LINE Login：${r.login.text}`,
+    `Friend API：${r.friendApi.text}`,
+    `Backend Verify：${lvl(r.backendVerify)}`,
+    `HTTPS／網域：${lvl(r.domain)}`,
+    `返回網址：${lvl(r.returnUrl)}`, '',
+    `Callback：需人工確認（建議值：${d.callbackUrl}）`,
+    `點餐 Endpoint：需人工比對（${d.orderEndpoint}）`,
+    `宅配 Endpoint：需人工比對（${d.shippingEndpoint}）`,
+  ].join('\n');
+}
+function copyLineDiagSummary() {
+  copyLineDiagText(buildLineDiagSummaryText(), document.getElementById('lineDiagCopySummaryBtn'));
+}
+
+// ===== fix18-10-hotfix26-C：好友三態／台灣時區 共用 helper =====
+// 需求文件 C2：不可只靠顏色，必須同時有文字；不可用 truthy 判斷誤判 0/null。
+function renderFriendStatus(value) {
+  if (value === true || value === 1 || value === 'friend') {
+    return { text: '好友', icon: '🟢', className: 'friend-status--yes' };
+  }
+  if (value === false || value === 0 || value === 'non_friend') {
+    return { text: '非好友', icon: '🔴', className: 'friend-status--no' };
+  }
+  return { text: '未知', icon: '⚪', className: 'friend-status--unknown' };
+}
+function friendStatusHtml(value) {
+  const s = renderFriendStatus(value);
+  return `<span class="${s.className}">${s.icon} ${s.text}</span>`;
+}
+
+// 需求文件 C6／C7：資料庫繼續存 UTC，只在前端顯示時轉 Asia/Taipei。
+// SQL 端部分欄位是用 datetime('now','localtime') 寫入（無時區的
+// 'YYYY-MM-DD HH:MM:SS'字串），JS 端部分欄位（friend_since／last_friend_check）
+// 是用 new Date().toISOString() 寫入（帶 'Z' 的 UTC 字串）。parseUtcDate() 統一
+// 把「看起來沒有時區資訊」的字串視為 UTC，避免瀏覽器誤當本地時間解析。
+function parseUtcDate(value) {
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value)) {
+    return new Date(value.replace(' ', 'T') + 'Z');
+  }
+  return new Date(value);
+}
+function formatTaipeiDateTime(value, includeSeconds = false) {
+  if (!value) return '—';
+  const date = parseUtcDate(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  const options = {
+    timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  };
+  if (includeSeconds) options.second = '2-digit';
+  try { return new Intl.DateTimeFormat('zh-TW', options).format(date); } catch (e) { return '—'; }
+}
+
+// 需求文件 C8：CRM Timeline 事件中文顯示名稱。未知事件仍顯示原始 event_name，
+// 不可整段消失（避免未來新增事件時，舊版前端把資料吃掉看不到）。
+const LINE_MEMBER_EVENT_LABELS = {
+  login: '登入',
+  new_member: '建立會員',
+  profile_updated: '更新會員資料',
+  friend_added: '加入好友',
+  friend_removed: '取消好友',
+  friend_restored: '重新加入好友',
+  friend_status_checked: '已確認官方帳號好友狀態',
+  joined_official_account: '已加入 LINE 官方帳號',
+  unfollowed_official_account: '已取消好友或封鎖官方帳號',
+  first_cart: '第一次加入購物車',
+  first_purchase: '首次購買',
+  repeat_purchase: '回購',
+};
+function friendEventLabel(eventName) {
+  return LINE_MEMBER_EVENT_LABELS[eventName] || eventName;
+}
+
 // ===== fix18-10-hotfix23-E：LINE 會員管理（列表 / CSV 匯出 / 詳情） =====
-async function loadLineMembersList() {
+// fix18-10-hotfix26-C：新增好友狀態三態篩選（獨立於既有 lmFilterSelect 的
+// friend/not_friend 語意，對應後端新的 friend_status query），change listener
+// 只在 DOMContentLoaded 綁定一次（見檔案底部 initLineMemberFilterListeners()），
+// 不在每次 loadLineMembersList() 內重複 addEventListener。
+async function loadLineMembersList(resetPage) {
   const tbody = document.getElementById('lmTableBody');
   if (!tbody) return;
+  if (resetPage) window._lmPage = 1;
+  const page = window._lmPage || 1;
+  const pageSize = 50;
   tbody.innerHTML = '<tr><td colspan="13">載入中…</td></tr>';
   const q = document.getElementById('lmSearchInput')?.value || '';
   const filter = document.getElementById('lmFilterSelect')?.value || '';
+  const friendStatus = document.getElementById('lmFriendStatusSelect')?.value || '';
   const sort = document.getElementById('lmSortSelect')?.value || '';
   try {
     const params = new URLSearchParams();
     if (q) params.set('q', q);
     if (filter) params.set('filter', filter);
+    if (friendStatus && friendStatus !== 'all') params.set('friend_status', friendStatus);
     if (sort) params.set('sort', sort);
+    params.set('limit', String(pageSize));
+    params.set('offset', String((page - 1) * pageSize));
     const res = await apiFetch('/api/line-member/members?' + params.toString());
     const json = await res.json();
     if (!json.success) { tbody.innerHTML = `<tr><td colspan="13">${json.message || '載入失敗'}</td></tr>`; return; }
@@ -2210,21 +2584,45 @@ async function loadLineMembersList() {
       <tr>
         <td>${(m.display_name || '').replace(/</g,'&lt;')}</td>
         <td>${m.line_user_id_masked}</td>
-        <td>${m.is_friend === 1 ? '✅' : (m.is_friend === 0 ? '❌' : '❓')}</td>
+        <td>${friendStatusHtml(m.friend_status !== undefined ? m.friend_status : m.is_friend)}</td>
         <td>${m.is_blocked ? '🚫' : ''}</td>
         <td>${m.lifecycle_stage}</td>
         <td>${m.first_touch_source || ''}</td>
         <td>${m.last_touch_source || ''}</td>
-        <td>${m.first_order_at || ''}</td>
-        <td>${m.last_order_at || ''}</td>
+        <td>${m.first_order_at ? formatTaipeiDateTime(m.first_order_at) : ''}</td>
+        <td>${m.last_order_at ? formatTaipeiDateTime(m.last_order_at) : ''}</td>
         <td>${m.order_count || 0}</td>
         <td>NT$${Math.round(m.total_spent || 0)}</td>
         <td>NT$${Math.round(m.lifetime_value || 0)}</td>
         <td><button class="btn-secondary" onclick="openLineMemberDetail(${m.line_user_id_ref})">詳情</button></td>
       </tr>`).join('');
+    renderLineMembersPager(json.total || 0, page, pageSize);
   } catch (e) {
     tbody.innerHTML = '<tr><td colspan="13">網路錯誤</td></tr>';
   }
+}
+function renderLineMembersPager(total, page, pageSize) {
+  const el = document.getElementById('lmPager');
+  if (!el) return;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  el.innerHTML = `
+    <button class="btn-secondary" ${page <= 1 ? 'disabled' : ''} onclick="_lmGotoPage(${page - 1})">‹ 上一頁</button>
+    <span style="margin:0 8px;font-size:.85rem;color:var(--text-secondary,#94a3b8)">第 ${page} / ${totalPages} 頁（共 ${total} 筆）</span>
+    <button class="btn-secondary" ${page >= totalPages ? 'disabled' : ''} onclick="_lmGotoPage(${page + 1})">下一頁 ›</button>`;
+}
+function _lmGotoPage(p) { window._lmPage = Math.max(1, p); loadLineMembersList(false); }
+// fix18-10-hotfix26-C：切換篩選（好友狀態／既有 filter／排序）一律回到第 1 頁，
+// 但保留其他搜尋條件；change listener 只在頁面初始化時綁定一次。
+function _lmFilterChanged() { loadLineMembersList(true); }
+function initLineMemberFilterListeners() {
+  const ids = ['lmFilterSelect', 'lmFriendStatusSelect', 'lmSortSelect'];
+  ids.forEach(id => {
+    const el = document.getElementById(id);
+    if (el && !el._lmListenerBound) {
+      el.addEventListener('change', _lmFilterChanged);
+      el._lmListenerBound = true;
+    }
+  });
 }
 // fix18-10-hotfix23-E1：後台會員管理 API 強制 staff JWT，CSV 匯出改用
 // downloadWithAuth()（apiFetch 帶 Authorization header → blob 下載），
@@ -2242,28 +2640,71 @@ async function openLineMemberDetail(id) {
   const body = document.getElementById('lmDetailBody');
   if (!modal || !body) return;
   modal.style.display = 'flex';
-  body.innerHTML = '載入中…';
+  body.innerHTML = '<div class="member-detail-modal__body">載入中…</div>';
   try {
     const res = await apiFetch('/api/line-member/members/' + id);
     const json = await res.json();
-    if (!json.success) { body.innerHTML = json.message || '載入失敗'; return; }
+    if (!json.success) {
+      body.innerHTML = `<div class="member-detail-modal__body">${(json.message || '載入失敗').replace(/</g,'&lt;')}</div>`;
+      return;
+    }
     const d = json.data;
+    // fix18-10-hotfix26-C（需求文件 C4）：require_follow/meets_requirement 顯示規則，
+    // null 不可顯示成「不符合」，只能顯示「無法確認」。
+    const requireFollow = !!(d.require_friend || d.require_follow);
+    const meetsRaw = d.meets_requirement;
+    const meetsText = meetsRaw === true ? '符合' : (meetsRaw === false ? '不符合' : '無法確認');
+    const lastFriendCheckAt = d.last_friend_check_at || d.last_friend_check;
+    const timelineHtml = (d.timeline || []).length
+      ? d.timeline.map(t => `
+          <div class="member-detail-modal__timeline-item">
+            <span class="ts">${formatTaipeiDateTime(t.created_at, true)}</span>${friendEventLabel(t.event_name)}
+          </div>`).join('')
+      : '<div class="member-detail-modal__timeline-item muted">尚無紀錄</div>';
+
     body.innerHTML = `
-      <h3>${(d.display_name || '').replace(/</g,'&lt;')} <small style="color:#999">${d.line_user_id_masked}</small></h3>
-      <p>好友：${d.is_friend === 1 ? '是' : (d.is_friend === 0 ? '否' : '未知')}　封鎖：${d.is_blocked ? '是' : '否'}</p>
-      <p>加入好友：${d.friend_since || '—'}　最後登入：${d.last_login_at || '—'}　最後好友確認：${d.last_friend_check || '—'}</p>
-      <p>首次來源：${d.first_touch_source || '—'} / ${d.first_touch_campaign || '—'}</p>
-      <p>最後來源：${d.last_touch_source || '—'} / ${d.last_touch_campaign || '—'}</p>
-      <p>首次加購商品 ID：${d.first_product_id ?? '—'}　首次加購：${d.first_cart_at || '—'}</p>
-      <p>首購：${d.first_purchase_at || '—'}　最後購買：${d.last_purchase_at || '—'}</p>
-      <p>訂單數：${d.order_count}　累積消費：NT$${Math.round(d.total_spent)}　平均客單：NT$${Math.round(d.avg_order_value)}　LTV：NT$${Math.round(d.lifetime_value)}</p>
-      <p>生命週期階段：${d.lifecycle_stage}${d.inactive ? '（' + d.inactive + '）' : ''}</p>
-      <h4>CRM Timeline</h4>
-      <div style="max-height:200px;overflow:auto;font-size:12px">
-        ${(d.timeline || []).map(t => `<div style="padding:4px 0;border-bottom:1px solid #eee">${t.created_at} — ${t.event_name}</div>`).join('') || '尚無紀錄'}
+      <div class="member-detail-modal__header">
+        <h3>${(d.display_name || '').replace(/</g,'&lt;')} <span class="muted" style="font-size:.75rem">${d.line_user_id_masked}</span></h3>
+        <button class="member-detail-modal__close" onclick="closeLineMemberDetail()">✕ 關閉</button>
+      </div>
+      <div class="member-detail-modal__body">
+        <div class="member-detail-modal__section">
+          <h4>好友與官方帳號</h4>
+          <div class="member-detail-modal__row"><span class="member-detail-modal__label">好友狀態</span><span class="member-detail-modal__value">${friendStatusHtml(d.friend_status !== undefined ? d.friend_status : d.is_friend)}</span></div>
+          <div class="member-detail-modal__row"><span class="member-detail-modal__label">最後確認</span><span class="member-detail-modal__value">${formatTaipeiDateTime(lastFriendCheckAt)}</span></div>
+          <div class="member-detail-modal__row"><span class="member-detail-modal__label">官方帳號要求</span><span class="member-detail-modal__value">${requireFollow ? '已啟用' : '未啟用'}</span></div>
+          <div class="member-detail-modal__row"><span class="member-detail-modal__label">符合要求</span><span class="member-detail-modal__value">${meetsText}</span></div>
+          <div class="member-detail-modal__row"><span class="member-detail-modal__label">加入好友</span><span class="member-detail-modal__value">${formatTaipeiDateTime(d.friend_since)}</span></div>
+          <div class="member-detail-modal__row"><span class="member-detail-modal__label">封鎖</span><span class="member-detail-modal__value">${d.is_blocked ? '是' : '否'}</span></div>
+        </div>
+        <div class="member-detail-modal__section">
+          <h4>登入與來源</h4>
+          <div class="member-detail-modal__row"><span class="member-detail-modal__label">最後登入</span><span class="member-detail-modal__value">${formatTaipeiDateTime(d.last_login_at)}</span></div>
+          <div class="member-detail-modal__row"><span class="member-detail-modal__label">首次來源</span><span class="member-detail-modal__value">${d.first_touch_source || '—'} / ${d.first_touch_campaign || '—'}</span></div>
+          <div class="member-detail-modal__row"><span class="member-detail-modal__label">最後來源</span><span class="member-detail-modal__value">${d.last_touch_source || '—'} / ${d.last_touch_campaign || '—'}</span></div>
+        </div>
+        <div class="member-detail-modal__section">
+          <h4>消費紀錄</h4>
+          <div class="member-detail-modal__row"><span class="member-detail-modal__label">首次加購商品 ID</span><span class="member-detail-modal__value">${d.first_product_id ?? '—'}</span></div>
+          <div class="member-detail-modal__row"><span class="member-detail-modal__label">首次加購</span><span class="member-detail-modal__value">${formatTaipeiDateTime(d.first_cart_at)}</span></div>
+          <div class="member-detail-modal__row"><span class="member-detail-modal__label">首購</span><span class="member-detail-modal__value">${formatTaipeiDateTime(d.first_purchase_at)}</span></div>
+          <div class="member-detail-modal__row"><span class="member-detail-modal__label">最後購買</span><span class="member-detail-modal__value">${formatTaipeiDateTime(d.last_purchase_at)}</span></div>
+          <div class="member-detail-modal__row"><span class="member-detail-modal__label">訂單數</span><span class="member-detail-modal__value">${d.order_count}</span></div>
+          <div class="member-detail-modal__row"><span class="member-detail-modal__label">累積消費</span><span class="member-detail-modal__value">NT$${Math.round(d.total_spent)}</span></div>
+          <div class="member-detail-modal__row"><span class="member-detail-modal__label">平均客單</span><span class="member-detail-modal__value">NT$${Math.round(d.avg_order_value)}</span></div>
+          <div class="member-detail-modal__row"><span class="member-detail-modal__label">LTV</span><span class="member-detail-modal__value">NT$${Math.round(d.lifetime_value)}</span></div>
+          <div class="member-detail-modal__row"><span class="member-detail-modal__label">生命週期階段</span><span class="member-detail-modal__value">${d.lifecycle_stage}${d.inactive ? '（' + d.inactive + '）' : ''}</span></div>
+        </div>
+        <div class="member-detail-modal__section">
+          <h4>CRM Timeline</h4>
+          <div class="member-detail-modal__timeline">${timelineHtml}</div>
+        </div>
+      </div>
+      <div class="member-detail-modal__footer">
+        <button class="btn-secondary" onclick="closeLineMemberDetail()">關閉</button>
       </div>`;
   } catch (e) {
-    body.innerHTML = '網路錯誤';
+    body.innerHTML = '<div class="member-detail-modal__body">網路錯誤</div>';
   }
 }
 function closeLineMemberDetail() {

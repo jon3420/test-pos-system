@@ -58,6 +58,33 @@ function getSetting(db, storeId, key) {
   return row ? row.value : '';
 }
 
+// fix18-10-hotfix26（需求文件四）：前端 liff.getFriendship() 結果的正規化。
+// 只接受真正的 boolean，其他一律視為 null（未知），不接受 "true"/"false"/1/0
+// 這類字串或數字，避免型別混淆造成誤判。
+function normalizeFriendFlag(value) {
+  if (value === true) return 1;
+  if (value === false) return 0;
+  return null;
+}
+
+// fix18-10-hotfix26-A：is_friend (1/0/null) → 'friend' / 'non_friend' / 'unknown' 字串，
+// 供前端／CSV／診斷中心共用同一套字彙，不必各自重複判斷。
+function friendStatusLabel(isFriend) {
+  if (isFriend === 1 || isFriend === true) return 'friend';
+  if (isFriend === 0 || isFriend === false) return 'non_friend';
+  return 'unknown';
+}
+
+// fix18-10-hotfix26-A（需求文件十五／A6）：是否符合「要求加入官方帳號」設定。
+// requireFriend=false → true（沒有要求，一律符合）
+// requireFriend=true  → is_friend=1 為 true／is_friend=0 為 false／is_friend=NULL 為 null（無法確認，不可誤判）
+function meetsRequirement(requireFriend, isFriend) {
+  if (!requireFriend) return true;
+  if (isFriend === 1 || isFriend === true) return true;
+  if (isFriend === 0 || isFriend === false) return false;
+  return null;
+}
+
 // ══════════════════════════════════════════════════════════════════
 // POST /api/line-member/verify
 // ══════════════════════════════════════════════════════════════════
@@ -73,7 +100,11 @@ router.post('/verify', async (req, res) => {
       return res.status(429).json({ success: false, reason: 'rate_limited', message: '請求過於頻繁，請稍後再試' });
     }
 
-    const { id_token, access_token } = req.body || {};
+    // fix18-10-hotfix26（需求文件三／四）：friend_flag 為前端 liff.getFriendship()
+    // 當次登入取得的結果；diagnostic_only 為後台「LINE 設定診斷中心」用的安全測試
+    // 模式（驗證 token／連線是否正常，但不得建立或更新任何會員資料）。
+    const { id_token, access_token, friend_flag, diagnostic_only } = req.body || {};
+    const isDiagnosticOnly = diagnostic_only === true;
     if (!id_token || typeof id_token !== 'string') {
       return res.status(400).json({ success: false, reason: 'missing_id_token', message: '缺少 id_token' });
     }
@@ -118,6 +149,23 @@ router.post('/verify', async (req, res) => {
     }
 
     const lineUserId = verifyResult.line_user_id;
+
+    // ── 診斷模式（需求文件十八第 5 點）：只驗證 Token／連線是否正常，───────
+    // 絕不建立會員、絕不寫入 CRM Timeline、絕不更新消費資料。
+    if (isDiagnosticOnly) {
+      let diagFriendResult = { ok: false, is_friend: null };
+      if (access_token) diagFriendResult = await getFriendshipStatus(access_token);
+      const clientFlag = normalizeFriendFlag(friend_flag);
+      const diagIsFriend = diagFriendResult.ok ? diagFriendResult.is_friend : (clientFlag === null ? null : clientFlag === 1);
+      return res.json({
+        success: true,
+        diagnostic_only: true,
+        is_friend: diagIsFriend,
+        display_name: verifyResult.display_name,
+        message: '診斷模式：Token 驗證成功，未建立或更新會員資料',
+      });
+    }
+
     // fix18-10-hotfix24-A3：Identity Resolver（需求文件四）—— 一旦 ID Token 驗證通過，
     // 後續所有這個請求裡的事件（friend_status_checked／line_login_success／
     // member_login／friend_added 等）都應該用這個已驗證過的 line_user_id 當身份依據，
@@ -125,19 +173,29 @@ router.post('/verify', async (req, res) => {
     evtBase.line_user_id = lineUserId;
 
     // ── 好友狀態（安全 fallback：查不到就是 null，不阻擋流程）─────
+    // fix18-10-hotfix26（需求文件三／四／六）：優先信任後端自己用 access_token
+    // 呼叫 LINE 好友關係 API 得到的結果（friendResult.ok）；只有在後端這次查不到
+    // 時，才退而使用前端 liff.getFriendship() 送來的 friend_flag 當備援訊號——
+    // 但 friend_flag 仍只是「前端 SDK 回報的結果」，不可單獨當成唯一信任來源，
+    // 這裡只在後端驗證失敗時才採用，且一律經過 normalizeFriendFlag() 正規化。
     let friendResult = { ok: false, is_friend: null };
     if (access_token) {
       friendResult = await getFriendshipStatus(access_token);
     }
+    const clientFriendFlag = normalizeFriendFlag(friend_flag);
+    const finalIsFriend = friendResult.ok
+      ? friendResult.is_friend
+      : (clientFriendFlag === null ? null : clientFriendFlag === 1);
+
     logServerEvent(db, { ...evtBase, event_name: 'friend_status_checked',
-      metadata: { is_friend: friendResult.is_friend, gate_stage: ap.gate_stage || null } });
+      metadata: { is_friend: finalIsFriend, gate_stage: ap.gate_stage || null } });
 
     // ── upsert 會員資料 + 好友狀態轉換規則 ───────────────────────
     const upsertResult = upsertMemberProfile(db, storeId, {
       line_user_id: lineUserId,
       display_name: verifyResult.display_name,
       picture_url: verifyResult.picture_url,
-      is_friend: friendResult.is_friend,
+      is_friend: finalIsFriend,
       is_login: true,
     });
 
@@ -154,26 +212,44 @@ router.post('/verify', async (req, res) => {
     }
 
     logServerEvent(db, { ...evtBase, event_name: 'line_login_success',
-      metadata: { is_friend: friendResult.is_friend, gate_stage: ap.gate_stage || null } });
+      metadata: { is_friend: finalIsFriend, gate_stage: ap.gate_stage || null } });
     logServerEvent(db, { ...evtBase, event_name: 'member_login', metadata: { gate_stage: ap.gate_stage || null } });
 
     if (upsertResult && upsertResult.friendEvent) {
       logServerEvent(db, { ...evtBase, event_name: upsertResult.friendEvent, metadata: {} });
     }
 
-    const freshRow = db.get('SELECT is_blocked FROM line_members WHERE store_id=? AND line_user_id=?', [storeId, lineUserId]) || {};
+    const freshRow = db.get('SELECT is_blocked, last_friend_check FROM line_members WHERE store_id=? AND line_user_id=?', [storeId, lineUserId]) || {};
+    // fix18-10-hotfix26（需求文件八）：是否「要求加入官方帳號」由店家設定決定，
+    // 沿用既有 line_member_require_friend 設定 key（規格文件裡的 require_follow
+    // 只是範例命名，實際專案已有這個設定，不重複建立第二個）。回傳給前端，
+    // 讓 line-member-gate.js 的 checkout／entry 兩種模式都能一致判斷是否放行。
+    const requireFriend = getSetting(db, storeId, 'line_member_require_friend') === '1';
+    const lastFriendCheckAt = freshRow.last_friend_check || '';
 
     res.json({
       success: true,
       // fix18-10-hotfix23-E：前端下單流程改帶這個簽章過的短效 session，不再直接
       // 使用/保存原始 line_user_id（見 utils/lineMemberSession.js）。
       member_session: createMemberSession({ store_id: storeId, line_user_id: lineUserId }),
+      require_friend: requireFriend,
+      // fix18-10-hotfix26-A：以下三個是 require_follow / friend_status /
+      // last_friend_check_at 的相容別名，讓回應同時符合專案既有命名
+      // （require_friend／last_friend_check）與需求文件範例命名。
+      require_follow: requireFriend,
+      is_friend: finalIsFriend,
+      friend_status: friendStatusLabel(finalIsFriend),
+      last_friend_check_at: lastFriendCheckAt,
+      meets_requirement: meetsRequirement(requireFriend, finalIsFriend),
       member: {
         line_user_id_masked: maskLineUserId(lineUserId),
         display_name: verifyResult.display_name,
         picture_url: verifyResult.picture_url,
-        is_friend: friendResult.is_friend,
+        is_friend: finalIsFriend,
+        friend_status: friendStatusLabel(finalIsFriend),
         is_blocked: !!freshRow.is_blocked,
+        last_friend_check: lastFriendCheckAt,
+        last_friend_check_at: lastFriendCheckAt,
       },
     });
   } catch (e) {
@@ -190,13 +266,22 @@ router.get('/members', requireStaffJwt, (req, res) => {
   try {
     const db = getDb();
     const storeId = req.storeId;
-    const { filter, sort, q, limit = 50, offset = 0 } = req.query;
+    const { filter, sort, q, limit = 50, offset = 0, friend_status } = req.query;
 
     const where = ['store_id=?'];
     const params = [storeId];
     if (q && String(q).trim()) {
       where.push('display_name LIKE ?');
       params.push('%' + String(q).trim().slice(0, 100) + '%');
+    }
+    // fix18-10-hotfix26（需求文件十三）：好友狀態三態篩選，與既有 filter／q／sort／
+    // 分頁／store_id 隔離可同時使用（獨立於既有 filter 的 friend/not_friend，
+    // 保留舊參數相容，不刪除既有行為）。
+    switch (friend_status) {
+      case 'friend': where.push('is_friend=1'); break;
+      case 'non_friend': where.push('is_friend=0'); break;
+      case 'unknown': where.push('is_friend IS NULL'); break;
+      case 'all': default: break;
     }
     switch (filter) {
       case 'friend': where.push('is_friend=1'); break;
@@ -238,6 +323,7 @@ router.get('/members', requireStaffJwt, (req, res) => {
         display_name: r.display_name,
         picture_url: r.picture_url,
         is_friend: r.is_friend,
+        friend_status: friendStatusLabel(r.is_friend),
         is_blocked: r.is_blocked,
         friend_since: r.friend_since,
         last_login_at: r.last_login_at,
@@ -313,14 +399,23 @@ router.get('/members/:id', requireStaffJwt, (req, res) => {
     const lifecycle = computeLifecycleStage(row);
     const avgOrderValue = row.order_count > 0 ? round(row.total_spent / row.order_count) : 0;
 
+    // fix18-10-hotfix26（需求文件十五／A6）：官方帳號要求 × 是否符合要求。
+    // 未知一律不能顯示成「符合」或「不符合」，只能顯示「無法確認」（null）。
+    // 統一用 module-level meetsRequirement() 回傳 true/false/null，與 verify
+    // API 回應格式一致，不再用局部字串 'yes'/'no'/'unknown'（避免前端要處理
+    // 兩套不同的值域）。
+    const requireFriend = getSetting(db, storeId, 'line_member_require_friend') === '1';
+    const meetsReq = meetsRequirement(requireFriend, row.is_friend);
+
     res.json({
       success: true,
       data: {
         line_user_id_masked: maskLineUserId(row.line_user_id),
         display_name: row.display_name, picture_url: row.picture_url,
-        is_friend: row.is_friend, is_blocked: row.is_blocked,
+        is_friend: row.is_friend, friend_status: friendStatusLabel(row.is_friend), is_blocked: row.is_blocked,
         friend_since: row.friend_since, last_login_at: row.last_login_at,
-        last_friend_check: row.last_friend_check,
+        last_friend_check: row.last_friend_check, last_friend_check_at: row.last_friend_check,
+        require_friend: requireFriend, require_follow: requireFriend, meets_requirement: meetsReq,
         first_touch_source: row.first_touch_source, first_touch_campaign: row.first_touch_campaign,
         last_touch_source: row.last_touch_source, last_touch_campaign: row.last_touch_campaign,
         first_product_id: row.first_product_id, first_cart_at: row.first_cart_at,
@@ -339,3 +434,7 @@ router.get('/members/:id', requireStaffJwt, (req, res) => {
 function round(n) { return Math.round(Number(n || 0) * 100) / 100; }
 
 module.exports = router;
+// fix18-10-hotfix26-A：把純函式掛在 router 物件上，只供 scripts/smoke-hotfix26-a.js
+// 做單元測試用，不影響 app.use(require('./routes/line-member')) 的既有掛載方式
+// （express Router 本身是 function，可以安全附加額外屬性）。
+router._test = { normalizeFriendFlag, friendStatusLabel, meetsRequirement };

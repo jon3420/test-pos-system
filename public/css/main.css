@@ -2795,3 +2795,164 @@ input[type="time"]::selection {
   .analytics-funnel-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .analytics-date-controls, .analytics-tabs { flex-wrap: wrap; }
 }
+
+/* ══════════════════════════════════════════════════════════════════
+   fix18-10-hotfix26-C：LINE 會員後台 UI —— 好友三態、深色會員詳情 Modal
+   ══════════════════════════════════════════════════════════════════ */
+
+/* 好友三態（需求文件 C2）：文字＋icon 一起顯示，不可只靠顏色 */
+.friend-status--yes,
+.friend-status--no,
+.friend-status--unknown {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: .85rem;
+  white-space: nowrap;
+}
+.friend-status--yes { color: #22c55e; }
+.friend-status--no { color: #f87171; }
+.friend-status--unknown { color: #9ca3af; }
+
+/* 會員詳情 Modal（需求文件 C5）：與後台一致的深色樣式，取代原本白底淺字 */
+.member-detail-modal {
+  background: #202020;
+  color: #f5f5f5;
+  border: 1px solid #3a3a3a;
+  border-radius: 14px;
+  max-width: 560px;
+  width: 92%;
+  max-height: min(86vh, 900px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  font-family: inherit;
+}
+.member-detail-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid #3a3a3a;
+  flex: 0 0 auto;
+}
+.member-detail-modal__header h3 {
+  margin: 0;
+  font-size: 1.05rem;
+  color: #fff;
+  word-break: break-word;
+}
+.member-detail-modal__body {
+  overflow-y: auto;
+  max-height: calc(86vh - 70px);
+  padding: 16px 20px;
+}
+.member-detail-modal__section {
+  margin-bottom: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #2c2c2c;
+}
+.member-detail-modal__section:last-child { border-bottom: none; margin-bottom: 0; }
+.member-detail-modal__section h4 {
+  margin: 0 0 8px;
+  font-size: .82rem;
+  color: #9d9d9d;
+  font-weight: 600;
+  letter-spacing: .02em;
+}
+.member-detail-modal__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: .88rem;
+  padding: 4px 0;
+  flex-wrap: wrap;
+}
+.member-detail-modal__label { color: #aaa; }
+.member-detail-modal__value { color: #fff; text-align: right; }
+.member-detail-modal .muted { color: #9d9d9d; }
+.member-detail-modal strong { color: #fff; }
+.member-detail-modal hr { border-color: #444; }
+.member-detail-modal__close {
+  background: #333;
+  color: #f5f5f5;
+  border: 1px solid #4a4a4a;
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-size: .85rem;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.member-detail-modal__close:hover { background: #3f3f3f; }
+.member-detail-modal__timeline {
+  max-height: 220px;
+  overflow-y: auto;
+  font-size: .78rem;
+  border: 1px solid #2c2c2c;
+  border-radius: 8px;
+}
+.member-detail-modal__timeline-item {
+  padding: 6px 10px;
+  border-bottom: 1px solid #2c2c2c;
+  color: #ddd;
+}
+.member-detail-modal__timeline-item:last-child { border-bottom: none; }
+.member-detail-modal__timeline-item .ts { color: #888; margin-right: 8px; }
+.member-detail-modal__footer {
+  padding: 12px 20px;
+  border-top: 1px solid #3a3a3a;
+  flex: 0 0 auto;
+}
+.member-detail-modal__footer button { width: 100%; }
+
+@media (max-width: 640px) {
+  .member-detail-modal { width: 96%; max-width: none; }
+  .member-detail-modal__row { flex-direction: column; gap: 2px; }
+  .member-detail-modal__value { text-align: left; }
+}
+
+/* LINE 設定診斷中心（需求文件 D1/D16） */
+.line-diag-panel {
+  background: rgba(0,0,0,.2);
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-top: 10px;
+}
+.line-diag-health {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 1rem;
+}
+.line-diag-health__score { font-size: 1.4rem; font-weight: 700; }
+.line-diag-health--green .line-diag-health__score { color: #22c55e; }
+.line-diag-health--yellow .line-diag-health__score { color: #eab308; }
+.line-diag-health--red .line-diag-health__score { color: #f87171; }
+.line-diag-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(255,255,255,.06);
+  font-size: .85rem;
+  flex-wrap: wrap;
+}
+.line-diag-row:last-child { border-bottom: none; }
+.line-diag-row__label { color: var(--text-secondary,#a0a0a0); }
+.line-diag-row__value { text-align: right; }
+.line-diag-status--ok { color: #22c55e; }
+.line-diag-status--warn { color: #eab308; }
+.line-diag-status--error { color: #f87171; }
+.line-diag-status--untested { color: #9ca3af; }
+.line-diag-detail {
+  font-size: .75rem;
+  color: #9d9d9d;
+  margin-top: 4px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.line-diag-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }

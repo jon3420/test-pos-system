@@ -82,7 +82,9 @@
         display_name: data.member ? data.member.display_name : '',
         picture_url: data.member ? data.member.picture_url : '',
         line_user_id_masked: data.member ? data.member.line_user_id_masked : '',
-        is_friend: data.member ? data.member.is_friend : null,
+        // fix18-10-hotfix26-B：改用共用 normalizeServerFriendStatus()，同時支援
+        // is_friend／friend_status 兩種回應欄位，行為與 verify 呼叫端一致。
+        is_friend: normalizeServerFriendStatus(data),
         is_blocked: data.member ? data.member.is_blocked : false,
         // member_session 內部已含 expires_at，這裡另外存一份給前端快速判斷（24hr）
         expires_at: Date.now() + 24 * 60 * 60 * 1000,
@@ -237,6 +239,52 @@
     try { return await global.liff.getProfile(); } catch (e) { return null; }
   }
 
+  // fix18-10-hotfix26（需求文件三）：取得目前登入者的好友狀態。每次登入／每次
+  // verify 都重新呼叫一次（不只在第一次建立會員時取得），使用者今天才加入的話
+  // 狀態才能被更新。API 失敗一律回傳 null（未知），絕不拋出例外阻擋登入流程，
+  // 也絕不把例外直接顯示給顧客（只 console.warn）。
+  async function getClientFriendFlag() {
+    try {
+      if (!global.liff || typeof global.liff.getFriendship !== 'function') return null;
+      const friendship = await global.liff.getFriendship();
+      return typeof (friendship && friendship.friendFlag) === 'boolean' ? friendship.friendFlag : null;
+    } catch (e) {
+      console.warn('[LINE Member] Unable to get friendship status:', e.message);
+      return null;
+    }
+  }
+
+  // fix18-10-hotfix26-B（需求文件三）：後端 verify 回應可能同時有 is_friend／
+  // friend_status（member 物件內或頂層），這裡統一成單一入口，避免不同流程各自
+  //判斷造成不一致。優先看 is_friend（true/false），查無再看 friend_status
+  // 字串，都沒有才是 null（未知）。
+  function normalizeServerFriendStatus(response) {
+    if (!response) return null;
+    if (response.is_friend === true) return true;
+    if (response.is_friend === false) return false;
+    if (response.friend_status === 'friend') return true;
+    if (response.friend_status === 'non_friend') return false;
+    if (response.member) return normalizeServerFriendStatus(response.member);
+    return null;
+  }
+
+  // fix18-10-hotfix26-B（需求文件三）：後端可能回傳 require_friend 或
+  // require_follow（兩個命名同義），這裡統一成單一布林值，避免不同流程各自
+  //讀取不同欄位造成判斷不一致。
+  function normalizeRequireFollow(response) {
+    return !!(response && (response.require_follow === true || response.require_friend === true));
+  }
+
+  // fix18-10-hotfix26-B（需求文件四）：是否符合「要求加入官方帳號」規則。
+  // require_follow=false → 一律放行；require_follow=true 時 true→放行、
+  // false→阻擋、null/undefined（未知）→放行（不可把未知誤判為非好友）。
+  function friendRequirementMet(requireFollow, isFriend) {
+    if (!requireFollow) return true;
+    if (isFriend === true) return true;
+    if (isFriend === null || isFriend === undefined) return true;
+    return false;
+  }
+
   // 呼叫後端驗證，換得簽章過的 member_session。絕不在前端自行判斷登入是否有效。
   async function verifyWithBackend(storeId, extra) {
     try {
@@ -244,9 +292,13 @@
       const idToken = global.liff.getIDToken();
       const accessToken = global.liff.getAccessToken();
       if (!idToken) return { success: false, reason: 'no_id_token' };
+      // fix18-10-hotfix26（需求文件三）：每次 verify 都重新取得好友狀態，一併送給
+      // 後端當備援訊號（後端仍以自己呼叫 LINE API 的結果為主，見 routes/line-member.js）。
+      const friendFlag = await getClientFriendFlag();
       const body = {
         id_token: idToken,
         access_token: accessToken,
+        friend_flag: friendFlag,
         visitor_id: extra && extra.visitor_id,
         session_id: extra && extra.session_id,
         cart_id: extra && extra.cart_id,
@@ -264,6 +316,19 @@
     } catch (e) {
       console.warn('[line-member-gate] verifyWithBackend failed:', e.message);
       return { success: false, reason: 'exception' };
+    }
+  }
+
+  // fix18-10-hotfix26：重新確認好友狀態＝重新呼叫一次 verify。用旗標防止連續
+  // 點擊造成併發更新（需求文件二十三）。
+  let _friendRecheckInFlight = false;
+  async function recheckFriendship(storeId, extra) {
+    if (_friendRecheckInFlight) return { success: false, reason: 'in_progress' };
+    _friendRecheckInFlight = true;
+    try {
+      return await verifyWithBackend(storeId, { ...(extra || {}), gate_stage: (extra && extra.gate_stage) || 'friend_recheck' });
+    } finally {
+      _friendRecheckInFlight = false;
     }
   }
 
@@ -339,10 +404,37 @@
     return verifyWithBackend(storeId, extra);
   }
 
-  function openFriendAddPage(config) {
+  // fix18-10-hotfix26-B（需求文件六）：優先嘗試 liff.requestFriendship()（若 SDK
+  // 提供且支援），失敗／不支援／使用者取消時 fallback 到 add_friend_url。
+  // 絕不清除購物車、絕不清除 sessionStorage 返回網址、絕不卡住登入中旗標——
+  // 這個函式完全不觸碰那些狀態，只負責「打開加好友的畫面」。完成後仍要靠使用者
+  // 按「重新確認」才會真正更新好友狀態，不假設 requestFriendship 一定成功。
+  async function openFriendAddPage(config) {
     const url = config && config.add_friend_url;
-    if (!url) return;
-    window.open(url, '_blank');
+    try {
+      if (global.liff && typeof global.liff.requestFriendship === 'function') {
+        await global.liff.requestFriendship();
+        return { attempted: true, method: 'requestFriendship' };
+      }
+    } catch (e) {
+      console.warn('[LINE Member] requestFriendship failed, using add friend URL:', e.message);
+    }
+    if (!url) {
+      setGateStatus('尚未設定官方帳號加入網址');
+      return { attempted: false, method: 'none' };
+    }
+    try {
+      if (global.liff && typeof global.liff.isInClient === 'function' && global.liff.isInClient() && typeof global.liff.openWindow === 'function') {
+        // LINE App 內建瀏覽器：用 liff.openWindow 開外部連結，避免部分機型對
+        // window.open 支援不穩定。
+        global.liff.openWindow({ url, external: true });
+      } else {
+        window.open(url, '_blank');
+      }
+    } catch (e) {
+      try { window.open(url, '_blank'); } catch (e2) { /* 開窗失敗也不拋例外中斷流程 */ }
+    }
+    return { attempted: true, method: 'add_friend_url' };
   }
 
   // ── Gate UI（輕量 fullscreen/modal，不依賴任何 CSS 框架）─────────────
@@ -380,18 +472,103 @@
     return String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   }
 
-  // ── 高階 API：checkout / entry 兩種模式共用的驗證流程 ─────────────────
+  // fix18-10-hotfix26-B（需求文件五）：沿用同一個 Gate 容器（同一個 #lineMemberGate
+  // overlay／同一個 closeMemberGate() 可以關閉），只是內容換成「請先加入官方帳號」，
+  // 不是另外建立一套完全不同的 Modal。
+  function showFriendRequiredGate(config, opts) {
+    closeMemberGate();
+    gateEl = document.createElement('div');
+    gateEl.id = 'lineMemberGate';
+    gateEl.style.cssText = `position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.55);
+      display:flex;align-items:center;justify-content:center;padding:16px;`;
+    const allowSkip = !!(opts && opts.allow_skip);
+    gateEl.innerHTML = `
+      <div style="background:#fff;border-radius:16px;max-width:360px;width:100%;padding:24px;text-align:center;font-family:inherit">
+        <div style="font-size:40px;line-height:1;margin-bottom:8px">📣</div>
+        <h3 style="margin:0 0 8px;font-size:18px">請先加入 LINE 官方帳號</h3>
+        <p style="margin:0 0 16px;color:#666;font-size:14px">加入官方帳號後，即可繼續使用會員服務。</p>
+        <div id="lmgStatus" style="font-size:13px;color:#888;margin-bottom:12px"></div>
+        <button id="lmgAddFriendBtn" style="width:100%;padding:12px;border:0;border-radius:10px;background:#06C755;color:#fff;font-size:15px;font-weight:600;margin-bottom:8px;cursor:pointer">${escapeHtml(config.friend_button_text || '加入官方帳號')}</button>
+        <button id="lmgRecheckBtn" style="width:100%;padding:12px;border:1px solid #06C755;border-radius:10px;background:#fff;color:#06C755;font-size:15px;font-weight:600;cursor:pointer;margin-bottom:8px">我已加入，重新確認</button>
+        ${allowSkip ? `<button id="lmgSkipBtn" style="width:100%;padding:10px;border:0;background:transparent;color:#999;font-size:13px;cursor:pointer">${escapeHtml(config.skip_button_text || '略過')}</button>` : ''}
+      </div>`;
+    document.body.appendChild(gateEl);
+    return gateEl;
+  }
+
+  // fix18-10-hotfix26-B（需求文件四／七／九）：require_follow 真正生效的核心
+  // 流程。已經有本地 session 時也會檢查一次（避免舊 session 是在 require_follow
+  // 還沒開啟時建立的）。用模組內 state（_friendGateCompletedStores）記錄「這個
+  // 分頁這次已經確認過好友」，避免 recheck 成功、Gate 關閉後，同一頁面內又被
+  // 其他呼叫端重新打開（需求文件九防循環）——不额外新增 sessionStorage key。
+  const _friendGateCompletedStores = {};
+  function ensureFriendRequirement(storeId, config, ids, onEvent) {
+    return new Promise((resolve) => {
+      const session = getMemberSession(storeId);
+      const requireFollow = !!(config && (config.require_friend || config.require_follow));
+      const isFriend = session ? session.is_friend : null;
+      if (_friendGateCompletedStores[storeId] || friendRequirementMet(requireFollow, isFriend)) {
+        return resolve({ ok: true, session });
+      }
+      onEvent && onEvent('friend_prompt_shown');
+      const gate = showFriendRequiredGate(config, { allow_skip: !!(config && config.allow_skip) });
+      const addBtn = gate.querySelector('#lmgAddFriendBtn');
+      const recheckBtn = gate.querySelector('#lmgRecheckBtn');
+      const skipBtn = gate.querySelector('#lmgSkipBtn');
+      let recheckInProgress = false;
+      addBtn.addEventListener('click', () => { openFriendAddPage(config); });
+      recheckBtn.addEventListener('click', async () => {
+        // 防連點／防併發（需求文件七／二十三）
+        if (recheckInProgress) return;
+        recheckInProgress = true;
+        recheckBtn.disabled = true;
+        setGateStatus('確認中…');
+        let res;
+        try {
+          res = await recheckFriendship(storeId, ids);
+        } finally {
+          recheckInProgress = false;
+          recheckBtn.disabled = false;
+        }
+        const nowFriend = normalizeServerFriendStatus(res);
+        if (res && res.success && nowFriend === true) {
+          _friendGateCompletedStores[storeId] = true;
+          onEvent && onEvent('friend_gate_passed');
+          closeMemberGate();
+          resolve({ ok: true, session: getMemberSession(storeId) });
+        } else if (res && res.success && nowFriend === false) {
+          // B：仍非好友——不得當成放行，Gate 保持開啟
+          setGateStatus('尚未確認加入官方帳號，請確認已完成加入後再試一次。');
+        } else {
+          // C：null／API 失敗／verify 失敗——不自動放行、不無限重試，只提示可再試一次
+          setGateStatus('暫時無法確認好友狀態，請稍後再試。');
+        }
+      });
+      if (skipBtn) {
+        skipBtn.addEventListener('click', () => {
+          onEvent && onEvent('line_gate_skipped');
+          closeMemberGate();
+          resolve({ ok: false, skipped: true });
+        });
+      }
+    });
+  }
+
+
   // callback(result) — result: {ok:true} 表示可以繼續；{ok:false, skipped:true} 表示使用者略過
   function requireMemberBeforeCheckout(storeId, config, ids, onEvent) {
     return new Promise((resolve) => {
       const existing = getMemberSession(storeId);
-      if (existing && (!config.require_friend || existing.is_friend === true)) {
-        return resolve({ ok: true, session: existing });
+      if (existing) {
+        // fix18-10-hotfix26-B：已登入時，仍要再檢查一次是否符合好友要求
+        // （例如 session 是在店家還沒開啟「要求加入官方帳號」之前建立的，
+        // 或稍後才被設為要求好友）。
+        ensureFriendRequirement(storeId, config, ids, onEvent).then(resolve);
+        return;
       }
       onEvent && onEvent('friend_prompt_shown');
       const gate = showMemberGate(config, { allow_skip: false });
       const loginBtn = gate.querySelector('#lmgLoginBtn');
-      const friendBtn = gate.querySelector('#lmgFriendBtn');
       loginBtn.addEventListener('click', async () => {
         setGateStatus('登入中…');
         onEvent && onEvent('line_login_start');
@@ -403,25 +580,26 @@
         if (loginRes.redirected) return; // 頁面即將跳轉，購物車已由既有機制保留
         const verifyRes = await verifyWithBackend(storeId, { ...ids, gate_stage: 'checkout' });
         if (verifyRes.success) {
-          if (config.require_friend && verifyRes.member.is_friend !== true) {
-            friendBtn.style.display = 'block';
-            setGateStatus('請先加入官方帳號才能繼續下單');
-          } else {
-            closeMemberGate();
-            resolve({ ok: true, session: getMemberSession(storeId) });
-          }
+          closeMemberGate();
+          // fix18-10-hotfix26-B：登入成功後，改由 ensureFriendRequirement 統一
+          // 判斷是否還要顯示「請先加入官方帳號」畫面（沿用同一個 Gate 容器）。
+          const friendRes = await ensureFriendRequirement(storeId, config, ids, onEvent);
+          resolve(friendRes);
         } else {
           setGateStatus(verifyRes.message || '登入失敗，請重試');
         }
       });
-      friendBtn.addEventListener('click', () => openFriendAddPage(config));
     });
   }
 
   function requireMemberOnEntry(storeId, config, ids, onEvent) {
     return new Promise((resolve) => {
       const existing = getMemberSession(storeId);
-      if (existing) return resolve({ ok: true, session: existing });
+      if (existing) {
+        // fix18-10-hotfix26-B：同上，既有 session 也要檢查好友要求。
+        ensureFriendRequirement(storeId, config, ids, onEvent).then(resolve);
+        return;
+      }
       onEvent && onEvent('line_gate_view');
       const gate = showMemberGate(config, { allow_skip: !!config.allow_skip });
       const loginBtn = gate.querySelector('#lmgLoginBtn');
@@ -439,7 +617,9 @@
         if (verifyRes.success) {
           closeMemberGate();
           onEvent && onEvent('friend_gate_passed');
-          resolve({ ok: true, session: getMemberSession(storeId) });
+          // fix18-10-hotfix26-B：登入成功後，再檢查一次是否符合好友要求。
+          const friendRes = await ensureFriendRequirement(storeId, config, ids, onEvent);
+          resolve(friendRes);
         } else {
           setGateStatus(verifyRes.message || '登入失敗，請重試');
         }
@@ -491,6 +671,12 @@
     clearSavedLineMemberReturnUrl, validateSafeInternalReturnUrl,
     startLineMemberLogin, handleLineMemberLoginCallback,
     getLineMemberSession: getMemberSession, renderLineMemberStatus,
+    // fix18-10-hotfix26-B 新增：LINE Friendship Gate
+    getClientFriendFlag, recheckFriendship, normalizeServerFriendStatus,
+    normalizeRequireFollow, friendRequirementMet, ensureFriendRequirement,
+    showFriendRequiredGate,
+    // fix18-10-hotfix26-D 新增：供「LINE 設定診斷中心」重用，不重複寫一套 SDK 載入邏輯
+    loadLiffSdk,
   };
 
 })(window);

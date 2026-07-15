@@ -76,7 +76,18 @@ function upsertMemberProfile(db, storeId, member) {
       if (isFriendRaw === 1) friendEvent = 'friend_added';
       writeHistory(db, storeId, lineUserId, 'login', '', 'new_member', { is_friend: isFriendRaw });
       if (friendEvent) writeHistory(db, storeId, lineUserId, friendEvent, '', 'true', {});
-      return { created: true, isFriend: isFriendRaw === 1, friendEvent };
+      // fix18-10-hotfix26（需求文件七）：CRM Timeline 額外補一筆規格指定命名的事件
+      // （friend_status_checked／joined_official_account／unfollowed_official_account）。
+      // 刻意用「額外補寫」而不是「取代」上面 friendEvent 的寫入方式——
+      // utils/dashboardAnalytics.js 的好友漏斗查詢直接對 line_member_history 的
+      // event_name IN ('friend_added','friend_restored') 做統計，取代掉會讓既有
+      // Dashboard 漏斗少算，所以兩種命名並存，不刪除、不改寫舊事件。
+      let crmFriendEvent = null;
+      if (isFriendRaw !== null) crmFriendEvent = 'friend_status_checked'; // 首次取得好友狀態（不論 true/false）
+      if (crmFriendEvent) {
+        writeHistory(db, storeId, lineUserId, crmFriendEvent, 'unknown', String(!!isFriendRaw), { friend_flag: isFriendRaw === 1 });
+      }
+      return { created: true, isFriend: isFriendRaw === 1, friendEvent, crmFriendEvent };
     }
 
     const prevIsFriend = existing.is_friend; // 1 / 0 / null
@@ -85,18 +96,29 @@ function upsertMemberProfile(db, storeId, member) {
     // ── 好友狀態轉換規則（需求文件三）───────────────────────────
     let nextIsBlocked = existing.is_blocked;
     let friendSinceSql = null;
+    // fix18-10-hotfix26（需求文件七）：CRM Timeline 用的規格命名事件，與下面舊有
+    // friendEvent（analytics_events／Dashboard 漏斗用，命名不可變更）分開計算，
+    // 兩者並存寫入，互不取代。
+    let crmFriendEvent = null;
     if (isFriendRaw !== null && isFriendRaw !== prevIsFriend) {
       if (isFriendRaw === 1) {
         // null/false → true
         friendEvent = (prevIsFriend === null || existing.friend_since === '' || existing.friend_since === null)
           ? 'friend_added'
           : 'friend_restored';
+        crmFriendEvent = prevIsFriend === null ? 'friend_status_checked' : 'joined_official_account';
         nextIsBlocked = 0;
         // friend_since：第一次加入才設定；重新加入保留原始值
         if (!existing.friend_since) friendSinceSql = new Date().toISOString();
-      } else if (isFriendRaw === 0 && prevIsFriend === 1) {
-        friendEvent = 'friend_removed';
-        nextIsBlocked = 1;
+      } else if (isFriendRaw === 0) {
+        if (prevIsFriend === 1) {
+          friendEvent = 'friend_removed';
+          crmFriendEvent = 'unfollowed_official_account';
+          nextIsBlocked = 1;
+        } else if (prevIsFriend === null) {
+          // 第一次確認就是「非好友」：只記錄「已確認」，不算 unfollow（沒有 follow 過）
+          crmFriendEvent = 'friend_status_checked';
+        }
       }
     }
 
@@ -120,8 +142,13 @@ function upsertMemberProfile(db, storeId, member) {
         prevIsFriend === null ? 'unknown' : String(!!prevIsFriend),
         String(!!isFriendRaw), {});
     }
+    if (crmFriendEvent) {
+      writeHistory(db, storeId, lineUserId, crmFriendEvent,
+        prevIsFriend === null ? 'unknown' : String(!!prevIsFriend),
+        String(!!isFriendRaw), { friend_flag: isFriendRaw === 1 });
+    }
 
-    return { created: false, isFriend: nextIsFriend === 1, friendEvent };
+    return { created: false, isFriend: nextIsFriend === 1, friendEvent, crmFriendEvent };
   } catch (e) {
     console.warn('[lineMemberStats] upsertMemberProfile failed:', e.message);
     return false;
