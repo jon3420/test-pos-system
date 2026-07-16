@@ -2621,30 +2621,64 @@ async function loadLineAnalyticsOverview() {
 
     const health = json.health;
     const s = json.summary;
+    // fix18-10-hotfix26-G1（需求文件八）：session_health 是新欄位，向下相容——
+    // 若後端還沒提供（舊版），一律 fallback 回原本的 s.success_rate／
+    // s.failure_rate，不可造成 undefined 或頁面錯誤。
+    const sh = json.session_health || {};
+    const systemHealthRate = Number.isFinite(Number(sh.system_health_rate))
+      ? Number(sh.system_health_rate) : (s.success_rate != null ? s.success_rate : null);
+    const systemFaultCount = Number.isFinite(Number(sh.system_fault_count))
+      ? Number(sh.system_fault_count) : s.failed;
+    const sessionExpiredCount = Number.isFinite(Number(sh.session_expired_count))
+      ? Number(sh.session_expired_count) : 0;
+    const configErrorCount = Number.isFinite(Number(sh.config_error_count)) ? Number(sh.config_error_count) : 0;
+    const duplicateExpiredTokenSuspected = sh.duplicate_expired_token_suspected === true;
+
     const healthClass = health.status === 'healthy' ? 'line-diag-health--green' : (health.status === 'warning' ? 'line-diag-health--yellow' : (health.status === 'critical' ? 'line-diag-health--red' : ''));
     healthSummaryEl.className = `line-diag-health ${healthClass}`;
-    healthSummaryEl.innerHTML = `Verify Status：${health.icon} ${health.text}　（期間內 ${s.total} 筆，成功率 ${s.success_rate != null ? s.success_rate + '%' : '—'}）`;
+    // fix18-10-hotfix26-G1（需求文件二）：標題優先顯示「系統健康度」，不再只顯示
+    // 原始成功率——原始成功率會把 EXPIRED_ID_TOKEN 這類可恢復事件也算進失敗，
+    // 誤導成「成功率 50%」。
+    healthSummaryEl.innerHTML = `Verify Status：${health.icon} ${health.text}　（系統健康度 ${systemHealthRate != null ? systemHealthRate + '%' : '—'}${sessionExpiredCount > 0 ? '，登入狀態過期 ' + sessionExpiredCount + ' 次' : ''}）`;
 
     healthDetailEl.innerHTML = `
       ${_lineDiagRow('最後成功時間', { level: s.last_success_at ? 'ok' : 'untested', text: s.last_success_at ? formatTaipeiDateTime(s.last_success_at, true) : '尚無紀錄' })}
       ${_lineDiagRow('最後失敗時間', { level: s.last_failure_at ? 'warn' : 'ok', text: s.last_failure_at ? formatTaipeiDateTime(s.last_failure_at, true) : '尚無紀錄' })}
       ${_lineDiagRow('最近 HTTP Status', { level: s.last_http_status == null ? 'untested' : (String(s.last_http_status).startsWith('2') ? 'ok' : 'warn'), text: s.last_http_status != null ? String(s.last_http_status) : '尚無資料' })}
-      ${_lineDiagRow('Verify Success Rate', { level: s.success_rate == null ? 'untested' : (s.success_rate >= 95 ? 'ok' : 'warn'), text: s.success_rate != null ? s.success_rate + '%' : '尚無資料' })}
-      ${_lineDiagRow('Verify Failure Rate', { level: s.failure_rate == null ? 'untested' : (s.failure_rate <= 5 ? 'ok' : 'warn'), text: s.failure_rate != null ? s.failure_rate + '%' : '尚無資料' })}
+      ${_lineDiagRow('系統 Verify 健康度', { level: systemHealthRate == null ? 'untested' : (systemHealthRate >= 95 ? 'ok' : 'warn'), text: systemHealthRate != null ? systemHealthRate + '%' : '尚無資料' })}
+      ${_lineDiagRow('系統性失敗', { level: systemFaultCount > 0 ? 'warn' : 'ok', text: String(systemFaultCount) + ' 次' })}
+      ${_lineDiagRow('使用者登入狀態過期', { level: sessionExpiredCount > 0 ? 'warn' : 'ok', text: String(sessionExpiredCount) + ' 次' })}
+      ${_lineDiagRow('全部驗證成功率（含使用者 Token 過期）', { level: s.success_rate == null ? 'untested' : (s.success_rate >= 95 ? 'ok' : 'warn'), text: s.success_rate != null ? s.success_rate + '%' : '尚無資料' })}
+      ${_lineDiagRow('全部驗證失敗率（含使用者 Token 過期）', { level: s.failure_rate == null ? 'untested' : (s.failure_rate <= 5 ? 'ok' : 'warn'), text: s.failure_rate != null ? s.failure_rate + '%' : '尚無資料' })}
+      ${duplicateExpiredTokenSuspected ? `<div class="line-diag-detail">🟡 疑似重複提交同一枚過期 ID Token，可能存在前端 Token 重用問題。</div>` : ''}
       ${(health.reasons || []).map(r => `<div class="line-diag-detail">⚠️ ${r.replace(/</g,'&lt;')}</div>`).join('')}
     `;
 
-    errorStatsEl.innerHTML = (json.error_breakdown || []).length
-      ? json.error_breakdown.map(e => _lineDiagRow(e.label, { level: e.count > 0 ? 'warn' : 'ok', text: e.count + ' 次' })).join('')
-      : '<div class="line-diag-row"><span class="line-diag-row__label">目前期間內沒有任何 Verify 失敗紀錄</span></div>';
+    // fix18-10-hotfix26-G1（需求文件四）：把「系統錯誤」與「可恢復登入狀態事件」
+    // 分開顯示，避免只有 Expired Token 時被誤讀成一般系統性 Verify Error。
+    const RECOVERABLE_ERROR_LABELS = new Set(['Expired Token', 'Missing ID Token', 'Access Token Expired', 'LINE Relogin Required']);
+    const breakdown = json.error_breakdown || [];
+    const systemErrors = breakdown.filter(e => !RECOVERABLE_ERROR_LABELS.has(e.label));
+    const sessionErrors = breakdown.filter(e => RECOVERABLE_ERROR_LABELS.has(e.label));
+    errorStatsEl.innerHTML = breakdown.length ? `
+      <div style="font-weight:600;margin-bottom:4px">系統錯誤統計</div>
+      ${systemErrors.length ? systemErrors.map(e => _lineDiagRow(e.label, { level: e.count > 0 ? 'warn' : 'ok', text: e.count + ' 次' })).join('') : '<div class="line-diag-detail">目前期間內沒有系統錯誤</div>'}
+      <div style="font-weight:600;margin:10px 0 4px">登入狀態事件（可恢復，非系統故障）</div>
+      ${sessionErrors.length ? sessionErrors.map(e => _lineDiagRow(e.label, { level: 'warn', text: e.count + ' 次' })).join('') : '<div class="line-diag-detail">目前期間內沒有登入狀態過期事件</div>'}
+      ${duplicateExpiredTokenSuspected ? `<div class="line-diag-detail">🟡 疑似重複提交同一枚過期 ID Token，可能存在前端 Token 重用問題。</div>` : ''}
+    ` : '<div class="line-diag-row"><span class="line-diag-row__label">目前期間內沒有任何 Verify 失敗紀錄</span></div>';
 
+    // fix18-10-hotfix26-G1（需求文件五）：摘要區欄位改為系統健康度導向，不再只
+    // 顯示容易誤導的「成功率」。
     summaryEl.innerHTML = `
-      ${_lineDiagRow('登入總次數', { level: 'ok', text: String(s.total) })}
+      ${_lineDiagRow('驗證總次數', { level: 'ok', text: String(s.total) })}
       ${_lineDiagRow('成功', { level: 'ok', text: String(s.success) })}
-      ${_lineDiagRow('失敗', { level: s.failed > 0 ? 'warn' : 'ok', text: String(s.failed) })}
-      ${_lineDiagRow('成功率', { level: s.success_rate == null ? 'untested' : (s.success_rate >= 95 ? 'ok' : 'warn'), text: s.success_rate != null ? s.success_rate + '%' : '—' })}
+      ${_lineDiagRow('系統性失敗', { level: systemFaultCount > 0 ? 'warn' : 'ok', text: String(systemFaultCount) })}
+      ${_lineDiagRow('登入狀態過期', { level: sessionExpiredCount > 0 ? 'warn' : 'ok', text: String(sessionExpiredCount) })}
+      ${_lineDiagRow('系統健康度', { level: systemHealthRate == null ? 'untested' : (systemHealthRate >= 95 ? 'ok' : 'warn'), text: systemHealthRate != null ? systemHealthRate + '%' : '—' })}
+      ${_lineDiagRow('全部驗證成功率', { level: s.success_rate == null ? 'untested' : (s.success_rate >= 95 ? 'ok' : 'warn'), text: s.success_rate != null ? s.success_rate + '%' : '—' })}
       <div style="font-weight:600;margin:8px 0 4px">主要失敗原因</div>
-      ${(json.error_breakdown || []).slice(0, 5).map(f => _lineDiagRow(f.label, { level: 'warn', text: f.count + ' 次' })).join('') || '<div class="line-diag-detail">尚無失敗紀錄</div>'}
+      ${breakdown.slice(0, 5).map(f => _lineDiagRow(f.label, { level: 'warn', text: f.count + ' 次' })).join('') || '<div class="line-diag-detail">尚無失敗紀錄</div>'}
     `;
 
     const funnelItems = (json.analytics && json.analytics.funnel) || [];

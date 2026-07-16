@@ -60,6 +60,18 @@ function safeParseMetadata(raw) {
   try { const v = JSON.parse(raw); return (v && typeof v === 'object') ? v : {}; } catch (e) { return {}; }
 }
 
+// fix18-10-hotfix26-G（需求文件二十六）：「使用者登入狀態已過期／可恢復」事件
+// 與真正的「系統故障／設定錯誤」分開統計，不能讓 EXPIRED_ID_TOKEN 這類可恢復
+// 事件單獨拖累 Verify 系統健康度判斷成 🔴。純粹是「顯示分類」，不改變既有
+// verifyLineIdToken() 判斷邏輯或既有 code 值。
+const SESSION_EXPIRED_CODES = new Set([
+  'EXPIRED_ID_TOKEN', 'LINE_RELOGIN_REQUIRED', 'ID_TOKEN_MISSING', 'ACCESS_TOKEN_EXPIRED',
+]);
+function isSessionExpiredCode(code) { return SESSION_EXPIRED_CODES.has(code); }
+// 設定錯誤（真正需要人工修正 LINE Developers 設定的錯誤），與其他系統性故障
+// （網路逾時／LINE API 5xx／未知例外）分開顯示，方便判斷是否要去檢查後台設定。
+const CONFIG_ERROR_LABELS = new Set(['Audience Mismatch', 'Store Config Missing']);
+
 // ── Verify Error Breakdown 分類（需求文件四）─────────────────────────
 // 純粹是「顯示分類」，不是修改 utils/lineMemberAuth.js 既有的 code／reason 值。
 // reason 是主要依據，code／http_status 用來做更細的分桶。誠實限制：目前的
@@ -104,6 +116,12 @@ function computeVerifySummary(db, storeId, range) {
   const errorBreakdownMap = {};
   let consecutiveFailures = 0;
   let sawNonDiagnosticEvent = false;
+  // fix18-10-hotfix26-G：session-expired（可恢復）與系統性故障分開累計
+  let sessionExpiredFailed = 0;
+  let systemFaultFailed = 0;
+  let systemConsecutiveFailures = 0;
+  let sawNonDiagnosticSystemFault = false;
+  const fingerprintCounts = {}; // 偵測是否重複送出同一枚過期 Token
 
   events.forEach((e) => {
     const meta = safeParseMetadata(e.metadata_json);
@@ -116,10 +134,21 @@ function computeVerifySummary(db, storeId, range) {
       success++;
       if (!lastSuccessAt) lastSuccessAt = e.created_at;
       sawNonDiagnosticEvent = true; // 只要遇到（由新到舊）第一筆成功，連續失敗計數就停止往前累加
+      sawNonDiagnosticSystemFault = true;
     } else {
       failed++;
       if (!lastFailureAt) lastFailureAt = e.created_at;
       if (!sawNonDiagnosticEvent) consecutiveFailures++;
+      const sessionExpired = isSessionExpiredCode(meta.code);
+      if (sessionExpired) {
+        sessionExpiredFailed++;
+        if (meta.token_fingerprint) {
+          fingerprintCounts[meta.token_fingerprint] = (fingerprintCounts[meta.token_fingerprint] || 0) + 1;
+        }
+      } else {
+        systemFaultFailed++;
+        if (!sawNonDiagnosticSystemFault) systemConsecutiveFailures++;
+      }
       const label = bucketVerifyFailure(meta.reason, meta.code, status);
       errorBreakdownMap[label] = (errorBreakdownMap[label] || 0) + 1;
     }
@@ -133,10 +162,27 @@ function computeVerifySummary(db, storeId, range) {
     .sort((a, b) => b[1] - a[1])
     .map(([label, count]) => ({ label, count }));
 
+  // fix18-10-hotfix26-G（需求文件二十六）：Verify API 系統健康度——分母排除
+  // 「使用者登入狀態過期」這類可恢復事件，避免過期 Token 拖累系統健康度判斷。
+  const systemTotal = success + systemFaultFailed;
+  const systemHealthRate = systemTotal > 0 ? Math.round((success / systemTotal) * 1000) / 10 : null;
+  const configErrorCount = errorBreakdown
+    .filter(e => CONFIG_ERROR_LABELS.has(e.label))
+    .reduce((sum, e) => sum + e.count, 0);
+  // 同一枚過期 Token 的指紋出現 ≥2 次 → 疑似前端重複送出同一枚 Token（需求文件二十六／二十七）
+  const duplicateExpiredTokenSuspected = Object.values(fingerprintCounts).some(c => c >= 2);
+
   return {
     total, success, failed, successRate, failureRate,
     lastSuccessAt, lastFailureAt, lastHttpStatus,
     httpStatusCounts, errorBreakdown, consecutiveFailures,
+    // fix18-10-hotfix26-G 新增欄位（additive，既有欄位維持不變，不影響既有呼叫端）
+    session_expired_count: sessionExpiredFailed,
+    system_fault_failed: systemFaultFailed,
+    system_health_rate: systemHealthRate,
+    system_consecutive_failures: systemConsecutiveFailures,
+    config_error_count: configErrorCount,
+    duplicate_expired_token_suspected: duplicateExpiredTokenSuspected,
   };
 }
 
@@ -149,22 +195,31 @@ function evaluateHealthRules(summary) {
   const audienceMismatch = summary.errorBreakdown.find(e => e.label === 'Audience Mismatch');
   const audienceMismatchCount = audienceMismatch ? audienceMismatch.count : 0;
   const http500 = summary.httpStatusCounts['500'] || summary.httpStatusCounts[500] || 0;
-  const rate = summary.successRate;
-  const consecutive = summary.consecutiveFailures;
+  // fix18-10-hotfix26-G（需求文件二十六）：健康度判斷改用「系統健康度」／
+  // 「系統性連續失敗」——排除 EXPIRED_ID_TOKEN 等使用者登入狀態過期（可恢復）
+  // 事件，避免使用者剛好連續幾次過期 Token 就被誤判為 🔴 LINE Login 系統異常。
+  const rate = summary.system_health_rate;
+  const consecutive = summary.system_consecutive_failures;
 
   const reasons = [];
   // Critical 優先判斷（最嚴重的狀態要蓋過較輕的狀態）
-  if (rate !== null && rate < 95) reasons.push(`成功率 ${rate}% < 95%`);
-  if (consecutive >= 5) reasons.push(`連續失敗 ${consecutive} 次 ≥ 5`);
+  if (rate !== null && rate < 95) reasons.push(`系統健康度 ${rate}% < 95%`);
+  if (consecutive >= 5) reasons.push(`連續系統性失敗 ${consecutive} 次 ≥ 5`);
   if (http500 >= 5) reasons.push(`HTTP 500 ${http500} 次 ≥ 5`);
   if ((rate !== null && rate < 95) || consecutive >= 5 || http500 >= 5) {
     return { status: 'critical', reasons };
   }
 
   const warnReasons = [];
-  if (rate !== null && rate >= 95 && rate <= 97.99) warnReasons.push(`成功率 ${rate}%（95%～97.99%）`);
+  if (rate !== null && rate >= 95 && rate <= 97.99) warnReasons.push(`系統健康度 ${rate}%（95%～97.99%）`);
   if (audienceMismatchCount >= 1) warnReasons.push(`Audience Mismatch ${audienceMismatchCount} 次 ≥ 1`);
-  if (consecutive >= 3 && consecutive <= 4) warnReasons.push(`連續失敗 ${consecutive} 次（3～4 次）`);
+  if (consecutive >= 3 && consecutive <= 4) warnReasons.push(`連續系統性失敗 ${consecutive} 次（3～4 次）`);
+  // fix18-10-hotfix26-G（需求文件二十六）：登入狀態過期本身不算異常，但若疑似
+  // 同一枚過期 Token 被重複送出（前端 Token 重用問題），仍需要提示，而不是
+  // 靜默放過或被計入系統故障。
+  if (summary.duplicate_expired_token_suspected) {
+    warnReasons.push('疑似重複提交同一枚過期 ID Token，可能存在前端 Token 重用問題');
+  }
   if (warnReasons.length > 0) return { status: 'warning', reasons: warnReasons };
 
   return { status: 'healthy', reasons: [] };
@@ -324,6 +379,13 @@ router.get('/health', requireStaffJwt, (req, res) => {
         elapsed_ms: (typeof meta.elapsed_ms === 'number') ? meta.elapsed_ms : null,
         diagnostic_only: meta.diagnostic_only === true,
         identity_masked: identityMasked,
+        // fix18-10-hotfix26-G（需求文件二十七）：診斷欄位——絕不含完整 Token，
+        // token_fingerprint 只是 sha256 前 8 碼，無法還原原始 Token。
+        recoverable: isSuccess ? null : !!meta.recoverable,
+        session_expired: isSuccess ? null : isSessionExpiredCode(meta.code),
+        token_fingerprint: isSuccess ? null : (meta.token_fingerprint || null),
+        retry_attempt: isSuccess ? null : (typeof meta.retry_attempt === 'number' ? meta.retry_attempt : 0),
+        client_event: meta.client_event || null,
       };
     });
 
@@ -335,6 +397,19 @@ router.get('/health', requireStaffJwt, (req, res) => {
         success_rate: summary.successRate, failure_rate: summary.failureRate,
         last_success_at: summary.lastSuccessAt, last_failure_at: summary.lastFailureAt,
         last_http_status: summary.lastHttpStatus,
+      },
+      // fix18-10-hotfix26-G（需求文件二十六）：把「系統健康度」／「登入狀態過期」／
+      // 「設定錯誤」拆開顯示，避免 EXPIRED_ID_TOKEN 這類可恢復事件跟真正的設定
+      // 錯誤／系統故障混在一起，誤導管理者去檢查根本沒有問題的設定。
+      session_health: {
+        system_health_rate: summary.system_health_rate,
+        system_fault_count: summary.system_fault_failed,
+        session_expired_count: summary.session_expired_count,
+        config_error_count: summary.config_error_count,
+        session_expired_label: summary.session_expired_count > 0
+          ? { icon: '🟡', text: '使用者登入狀態已過期' }
+          : { icon: '⚪', text: '無' },
+        duplicate_expired_token_suspected: summary.duplicate_expired_token_suspected,
       },
       health: { status: ruleResult.status, icon: statusMeta.icon, text: statusMeta.text, reasons: ruleResult.reasons },
       error_breakdown: summary.errorBreakdown,
@@ -370,4 +445,5 @@ router.__test = {
   evaluateHealthRules, healthStatusMeta, bucketVerifyFailure,
   resolvePeriod, twTodayStr, subtractDays, safeParseMetadata,
   computeVerifySummary, computeModules, computeFunnel,
+  isSessionExpiredCode, SESSION_EXPIRED_CODES,
 };

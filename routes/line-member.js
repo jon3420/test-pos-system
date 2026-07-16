@@ -35,7 +35,27 @@ const { requireStaffJwt, JWT_SECRET } = require('../middleware/storeGuard');
 // JWT），這裡只在「想拿到 verify_debug」這個額外資訊時才驗證 JWT，不影響
 //一般登入或既有 diagnostic_only（無 debug）行為。
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const { sanitizeCsvCell } = require('../utils/csvSecurity');
+
+// fix18-10-hotfix26-G（需求文件十七～二十七）：EXPIRED_ID_TOKEN 根因修正——
+// 「使用者登入狀態已過期」是可恢復事件，不是系統故障，不能算成 is_friend=false，
+// 也不該在 Verify Health 裡跟 CHANNEL_ID_MISMATCH 這種真正的設定錯誤混在一起。
+// 這裡只新增分類資訊（recoverable／action／token 指紋），完全不改變既有
+// verifyLineIdToken()／getFriendshipStatus() 的判斷邏輯或既有回應欄位。
+const RECOVERABLE_VERIFY_CODES = new Set(['EXPIRED_ID_TOKEN', 'MISSING_ID_TOKEN', 'ID_TOKEN_MISSING']);
+function verifyCodeRecoverable(code) { return RECOVERABLE_VERIFY_CODES.has(code); }
+function verifyCodeAction(code) {
+  if (code === 'EXPIRED_ID_TOKEN' || code === 'MISSING_ID_TOKEN' || code === 'ID_TOKEN_MISSING') return 'REAUTHENTICATE';
+  return 'NONE';
+}
+// 單向雜湊，只保留前 8 碼，供 Verify Timeline 判斷「是否重送同一枚過期 Token」，
+// 絕對無法還原原始 Token（需求文件二十七）。
+function tokenFingerprint(token) {
+  if (!token) return null;
+  try { return crypto.createHash('sha256').update(String(token)).digest('hex').slice(0, 8); }
+  catch (e) { return null; }
+}
 
 // ── 簡易 in-memory rate limit（同一 store + IP）── 每 60 秒最多 20 次驗證請求
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
@@ -182,6 +202,12 @@ router.post('/verify', async (req, res) => {
     };
 
     if (!verifyResult.ok) {
+      // fix18-10-hotfix26-G：token_fingerprint／retry_attempt 純供診斷（Verify
+      // Timeline／健康度）使用，retry_attempt 是前端自己回報的重試次數計數，
+      // 不作為任何安全判斷依據（不可信任前端數字），只用來人工判讀是否疑似
+      // 前端重複送出同一枚過期 Token。
+      const clientRetryAttempt = Number.isFinite(Number(req.body && req.body.retry_attempt))
+        ? Math.max(0, Math.min(50, Number(req.body.retry_attempt))) : 0;
       logServerEvent(db, { ...evtBase, event_name: 'line_login_failed',
         metadata: {
           reason: verifyResult.reason, code: verifyResult.code || null, gate_stage: ap.gate_stage || null,
@@ -195,11 +221,23 @@ router.post('/verify', async (req, res) => {
           // 觸發的測試呼叫，讓 Verify Health 統計可以排除管理者自己的測試，只反映
           // 真實顧客的登入健康狀態；Verify Timeline 仍會顯示這個欄位供人工判讀。
           diagnostic_only: isDiagnosticOnly,
+          // fix18-10-hotfix26-G（需求文件二十六／二十七）：可恢復事件分類 + Token 指紋
+          recoverable: verifyCodeRecoverable(verifyResult.code),
+          action: verifyCodeAction(verifyResult.code),
+          token_fingerprint: tokenFingerprint(id_token),
+          retry_attempt: clientRetryAttempt,
+          client_event: ap.gate_stage || null,
         } });
       // 不得因 LINE API 錯誤回 500 破壞點餐（需求文件六）
       const failurePayload = {
         success: false, reason: verifyResult.reason, message: verifyResult.message,
         code: verifyResult.code || 'UNKNOWN_VERIFY_ERROR',
+        // fix18-10-hotfix26-G（需求文件二十五）：前端需要明確的 recoverable／action
+        // 才能判斷是否可以自動恢復（例如自動重新登入），而不是收到一個籠統的
+        // verify_failed 卻不知道能不能自救。絕不因此把此次事件寫成 is_friend=false、
+        // 清除會員綁定、或建立新會員（上面 upsertMemberProfile 完全沒有被呼叫到）。
+        recoverable: verifyCodeRecoverable(verifyResult.code),
+        action: verifyCodeAction(verifyResult.code),
       };
       // fix18-10-hotfix26-E（需求文件十）：verify_debug 三個條件缺一不可——
       // diagnostic_only=true、伺服器 LINE_MEMBER_DEBUG=1（verifyResult.debug
@@ -505,4 +543,4 @@ module.exports = router;
 // fix18-10-hotfix26-A：把純函式掛在 router 物件上，只供 scripts/smoke-hotfix26-a.js
 // 做單元測試用，不影響 app.use(require('./routes/line-member')) 的既有掛載方式
 // （express Router 本身是 function，可以安全附加額外屬性）。
-router._test = { normalizeFriendFlag, friendStatusLabel, meetsRequirement };
+router._test = { normalizeFriendFlag, friendStatusLabel, meetsRequirement, verifyCodeRecoverable, verifyCodeAction, tokenFingerprint };

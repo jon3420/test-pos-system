@@ -29,6 +29,13 @@
   const LOGIN_ATTEMPTED_KEY_PREFIX = 'line_member_login_attempted_';
   const LOGIN_IN_PROGRESS_TIMEOUT_MS = 2 * 60 * 1000; // hotfix25 修訂：2 分鐘逾時，避免卡死
 
+  // fix18-10-hotfix26-G（需求文件五／十七～二十三）：從外部「加入／解除封鎖官方
+  // 帳號」頁面返回時，需要自動重新查詢好友狀態；以及 ID Token 過期時最多自動
+  // 重新登入一次，避免無限跳轉迴圈。都用 sessionStorage 記錄，同一瀏覽器分頁
+  // 內有效，不落地到 localStorage（不需要跨分頁/長期保存）。
+  const AWAITING_FRIENDSHIP_RETURN_KEY = 'line_friendship_recheck_required';
+  const REAUTH_ATTEMPTED_KEY = 'line_friend_reauth_attempted';
+
   // 允許自動返回的系統內頁（需求文件三）。可依實際專案頁面擴充。
   const ALLOWED_RETURN_PATHS = new Set([
     '/line-order.html',
@@ -285,13 +292,111 @@
     return false;
   }
 
+  // fix18-10-hotfix26-G（需求文件五）：標記「等待從外部加好友頁返回」。開啟
+  // lin.ee／requestFriendship 前呼叫，返回頁面（visibilitychange/pageshow/
+  // focus）時據此判斷是否要自動重新查詢好友狀態。
+  function markAwaitingFriendshipReturn() {
+    try { sessionStorage.setItem(AWAITING_FRIENDSHIP_RETURN_KEY, '1'); } catch (e) {}
+  }
+  function clearAwaitingFriendshipReturn() {
+    try { sessionStorage.removeItem(AWAITING_FRIENDSHIP_RETURN_KEY); } catch (e) {}
+  }
+  function isAwaitingFriendshipReturn() {
+    try { return sessionStorage.getItem(AWAITING_FRIENDSHIP_RETURN_KEY) === '1'; } catch (e) { return false; }
+  }
+
+  // fix18-10-hotfix26-G（需求文件十九）：安全解析 JWT payload，只用來判斷是否
+  // 即將過期——前端解析結果絕對不能取代後端正式驗證（後端仍會用自己的
+  // verifyLineIdToken() 呼叫 LINE 官方 API），也不可信任 decode 出來的 user id。
+  function decodeJwtPayloadSafely(token) {
+    try {
+      const parts = String(token || '').split('.');
+      if (parts.length < 2) return null;
+      let b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+      while (b64.length % 4) b64 += '=';
+      const json = decodeURIComponent(
+        atob(b64).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join('')
+      );
+      return JSON.parse(json);
+    } catch (e) { return null; }
+  }
+
+  // fix18-10-hotfix26-G（需求文件十七～十九）：根因修正——先前每次都直接用
+  // global.liff.getIDToken() 送出，若 LIFF session 內部快取的 ID Token 已過期
+  // （例如使用者停留很久、或離開頁面去解除封鎖再回來），後端 verify 會回
+  // EXPIRED_ID_TOKEN，但前端當時只顯示「暫時無法確認」，不會主動恢復，導致
+  // 使用者持續卡在加入好友彈窗（見需求文件根因分析）。這裡在送出前先在前端
+  // 檢查 exp，快過期／已過期就不要送出注定失敗的請求，改觸發重新登入。
+  async function getFreshLineIdToken(storeId, opts) {
+    const minValiditySeconds = (opts && opts.minValiditySeconds) || 60;
+    if (!isLiffAvailable(storeId)) return { ok: false, code: 'LIFF_NOT_AVAILABLE', idToken: null };
+    if (!global.liff.isLoggedIn()) return { ok: false, code: 'LINE_NOT_LOGGED_IN', idToken: null };
+    const idToken = global.liff.getIDToken();
+    if (!idToken) return { ok: false, code: 'ID_TOKEN_MISSING', idToken: null };
+    const payload = decodeJwtPayloadSafely(idToken);
+    // 解不出 payload／沒有 exp：不在前端擋，交給後端正式驗證判斷（前端解析
+    // 失敗不代表 Token 真的有問題，避免前端誤判擋下原本有效的 Token）。
+    if (!payload || !payload.exp) return { ok: true, code: 'ID_TOKEN_READY', idToken };
+    const remainingSeconds = payload.exp - Math.floor(Date.now() / 1000);
+    if (remainingSeconds <= minValiditySeconds) {
+      return { ok: false, code: 'ID_TOKEN_EXPIRED_OR_EXPIRING', idToken: null, remainingSeconds };
+    }
+    return { ok: true, code: 'ID_TOKEN_READY', idToken, remainingSeconds };
+  }
+
+  // fix18-10-hotfix26-G（需求文件二十二）：ID Token 已過期／即將過期時，嘗試
+  // 重新建立 LINE 登入狀態。用 sessionStorage 旗標保證同一分頁內最多自動嘗試
+  // 一次，不得無限重登；購物車由既有 ORDER_CART_KEY 機制自然保留，這裡不需要
+  // 額外保存購物車內容，只需標記「返回後要自動重新確認好友狀態」。
+  async function recoverLineLoginSession(storeId) {
+    if (!isLiffAvailable(storeId)) return { ok: false, code: 'LIFF_NOT_AVAILABLE' };
+    let alreadyAttempted = false;
+    try { alreadyAttempted = sessionStorage.getItem(REAUTH_ATTEMPTED_KEY) === '1'; } catch (e) {}
+    if (alreadyAttempted) return { ok: false, code: 'LINE_RELOGIN_REQUIRED' };
+    try { sessionStorage.setItem(REAUTH_ATTEMPTED_KEY, '1'); } catch (e) {}
+    try {
+      markLoginInProgress();
+      markAwaitingFriendshipReturn();
+      if (typeof global.liff.logout === 'function') {
+        try { global.liff.logout(); } catch (e) { /* logout 失敗也繼續嘗試 login */ }
+      }
+      global.liff.login({ redirectUri: buildReturnUrl(storeId, { gate_stage: 'friend_recheck' }) });
+      return { ok: false, code: 'REAUTH_REDIRECT_STARTED' };
+    } catch (e) {
+      return { ok: false, code: 'UNKNOWN_VERIFY_ERROR' };
+    }
+  }
+  // 成功登入後（新頁面載入、handleLineMemberLoginCallback 完成）應清掉「只能
+  // 嘗試一次」的旗標，讓下一次真的過期時還能再自動恢復一次。
+  function clearReauthAttemptedFlag() {
+    try { sessionStorage.removeItem(REAUTH_ATTEMPTED_KEY); } catch (e) {}
+  }
+
   // 呼叫後端驗證，換得簽章過的 member_session。絕不在前端自行判斷登入是否有效。
+  // fix18-10-hotfix26-G：retry_attempt 只是純診斷計數（送給後端寫進 Verify
+  // Timeline，方便人工判讀「是否重複送出同一枚過期 Token」），不作為任何安全
+  // 判斷依據，也不影響前端自己的重試次數限制（那個仍由 _reauthAttempted /
+  // sessionStorage 旗標控制，最多自動恢復一次）。
+  let _verifyRetryAttempt = 0;
+
   async function verifyWithBackend(storeId, extra) {
     try {
-      if (!global.liff || !global.liff.isLoggedIn()) return { success: false, reason: 'not_logged_in' };
-      const idToken = global.liff.getIDToken();
+      if (!global.liff || !global.liff.isLoggedIn()) return { success: false, reason: 'not_logged_in', code: 'LINE_NOT_LOGGED_IN' };
+      // fix18-10-hotfix26-G（需求文件十七～二十）：每次呼叫都重新從目前 LIFF
+      // session 取得 Token（不使用頁面初始化時保存的舊值、不讀 sessionStorage
+      // 快取的舊 idToken），並先在前端檢查是否已過期／即將過期。
+      const tokenResult = await getFreshLineIdToken(storeId, { minValiditySeconds: 60 });
+      if (!tokenResult.ok) {
+        if (tokenResult.code === 'ID_TOKEN_EXPIRED_OR_EXPIRING' || tokenResult.code === 'ID_TOKEN_MISSING') {
+          // Token 已經確定過期／即將過期，送出注定失敗的請求沒有意義，直接嘗試
+          // 一次性自動重新登入（需求文件二十二），而不是先打一次一定會失敗的 verify。
+          const recovery = await recoverLineLoginSession(storeId);
+          return { success: false, reason: 'token_expired', code: tokenResult.code, recoverable: true, action: 'REAUTHENTICATE', recovery_code: recovery.code };
+        }
+        return { success: false, reason: 'not_logged_in', code: tokenResult.code };
+      }
+      const idToken = tokenResult.idToken;
       const accessToken = global.liff.getAccessToken();
-      if (!idToken) return { success: false, reason: 'no_id_token' };
       // fix18-10-hotfix26（需求文件三）：每次 verify 都重新取得好友狀態，一併送給
       // 後端當備援訊號（後端仍以自己呼叫 LINE API 的結果為主，見 routes/line-member.js）。
       const friendFlag = await getClientFriendFlag();
@@ -304,6 +409,8 @@
         cart_id: extra && extra.cart_id,
         attribution: extra && extra.attribution,
         analytics: { gate_stage: extra && extra.gate_stage, order_mode: extra && extra.order_mode },
+        // fix18-10-hotfix26-G：純診斷用途，後端不會拿它做任何安全判斷。
+        retry_attempt: _verifyRetryAttempt,
       };
       const res = await fetch('/api/line-member/verify?store_id=' + encodeURIComponent(storeId), {
         method: 'POST',
@@ -311,11 +418,26 @@
         body: JSON.stringify(body),
       });
       const json = await res.json();
-      if (json.success) saveMemberSession(storeId, json);
+      if (json.success) {
+        _verifyRetryAttempt = 0;
+        clearReauthAttemptedFlag();
+        saveMemberSession(storeId, json);
+        return json;
+      }
+      // fix18-10-hotfix26-G（需求文件二十一）：後端仍回傳 EXPIRED_ID_TOKEN（例如
+      // 前端解析誤判、或時間差邊界情況），且尚未自動恢復過，就再嘗試一次；
+      // 不得重送同一枚 Token、不得無限重試（recoverLineLoginSession 內部本身
+      // 已用 sessionStorage 旗標保證最多一次）。
+      if (json.code === 'EXPIRED_ID_TOKEN' && json.recoverable) {
+        _verifyRetryAttempt += 1;
+        const recovery = await recoverLineLoginSession(storeId);
+        return { ...json, recovery_code: recovery.code };
+      }
+      _verifyRetryAttempt += 1;
       return json;
     } catch (e) {
       console.warn('[line-member-gate] verifyWithBackend failed:', e.message);
-      return { success: false, reason: 'exception' };
+      return { success: false, reason: 'exception', code: 'UNKNOWN_VERIFY_ERROR' };
     }
   }
 
@@ -486,10 +608,10 @@
       <div style="background:#fff;border-radius:16px;max-width:360px;width:100%;padding:24px;text-align:center;font-family:inherit">
         <div style="font-size:40px;line-height:1;margin-bottom:8px">📣</div>
         <h3 style="margin:0 0 8px;font-size:18px">請先加入 LINE 官方帳號</h3>
-        <p style="margin:0 0 16px;color:#666;font-size:14px">加入官方帳號後，即可繼續使用會員服務。</p>
+        <p style="margin:0 0 16px;color:#666;font-size:14px">加入或解除封鎖後，系統會自動重新確認好友狀態。</p>
         <div id="lmgStatus" style="font-size:13px;color:#888;margin-bottom:12px"></div>
-        <button id="lmgAddFriendBtn" style="width:100%;padding:12px;border:0;border-radius:10px;background:#06C755;color:#fff;font-size:15px;font-weight:600;margin-bottom:8px;cursor:pointer">${escapeHtml(config.friend_button_text || '加入官方帳號')}</button>
-        <button id="lmgRecheckBtn" style="width:100%;padding:12px;border:1px solid #06C755;border-radius:10px;background:#fff;color:#06C755;font-size:15px;font-weight:600;cursor:pointer;margin-bottom:8px">我已加入，重新確認</button>
+        <button id="lmgAddFriendBtn" style="width:100%;padding:12px;border:0;border-radius:10px;background:#06C755;color:#fff;font-size:15px;font-weight:600;margin-bottom:8px;cursor:pointer">${escapeHtml(config.friend_button_text || '加入／解除封鎖官方帳號')}</button>
+        <button id="lmgRecheckBtn" style="width:100%;padding:12px;border:1px solid #06C755;border-radius:10px;background:#fff;color:#06C755;font-size:15px;font-weight:600;cursor:pointer;margin-bottom:8px">我已完成，重新確認</button>
         ${allowSkip ? `<button id="lmgSkipBtn" style="width:100%;padding:10px;border:0;background:transparent;color:#999;font-size:13px;cursor:pointer">${escapeHtml(config.skip_button_text || '略過')}</button>` : ''}
       </div>`;
     document.body.appendChild(gateEl);
@@ -502,6 +624,13 @@
   // 分頁這次已經確認過好友」，避免 recheck 成功、Gate 關閉後，同一頁面內又被
   // 其他呼叫端重新打開（需求文件九防循環）——不额外新增 sessionStorage key。
   const _friendGateCompletedStores = {};
+  // fix18-10-hotfix26-G（需求文件五）：目前開啟中的「請先加入好友」Gate（若有），
+  // 供 attemptAutoFriendshipResume() 在使用者從外部加好友頁返回時，直接把這個
+  // 還沒 resolve 的 Promise 解開、自動關閉彈窗、繼續原本被中斷的送單流程——
+  // 不需要另外引入 pendingCheckoutSubmission 回呼機制，submitOrder() 本來就是
+  // await 著這個 Promise，resolve 了就會自動往下執行。
+  let _activeFriendGate = null; // { storeId, config, ids, onEvent, resolve }
+
   function ensureFriendRequirement(storeId, config, ids, onEvent) {
     return new Promise((resolve) => {
       const session = getMemberSession(storeId);
@@ -516,13 +645,18 @@
       const recheckBtn = gate.querySelector('#lmgRecheckBtn');
       const skipBtn = gate.querySelector('#lmgSkipBtn');
       let recheckInProgress = false;
-      addBtn.addEventListener('click', () => { openFriendAddPage(config); });
-      recheckBtn.addEventListener('click', async () => {
-        // 防連點／防併發（需求文件七／二十三）
+
+      const wrappedResolve = (result) => {
+        _activeFriendGate = null;
+        resolve(result);
+      };
+      _activeFriendGate = { storeId, config, ids, onEvent, resolve: wrappedResolve };
+
+      async function runRecheckAndSettle() {
         if (recheckInProgress) return;
         recheckInProgress = true;
         recheckBtn.disabled = true;
-        setGateStatus('確認中…');
+        setGateStatus('正在向 LINE 確認好友狀態…');
         let res;
         try {
           res = await recheckFriendship(storeId, ids);
@@ -534,25 +668,94 @@
         if (res && res.success && nowFriend === true) {
           _friendGateCompletedStores[storeId] = true;
           onEvent && onEvent('friend_gate_passed');
+          setGateStatus('已確認加入官方帳號，正在繼續送出訂單…');
           closeMemberGate();
-          resolve({ ok: true, session: getMemberSession(storeId) });
+          wrappedResolve({ ok: true, session: getMemberSession(storeId) });
         } else if (res && res.success && nowFriend === false) {
           // B：仍非好友——不得當成放行，Gate 保持開啟
-          setGateStatus('尚未確認加入官方帳號，請確認已完成加入後再試一次。');
+          setGateStatus('LINE 目前仍回傳尚未加入或仍在封鎖中，請完成加入後再重新確認。');
+        } else if (res && (res.reason === 'token_expired' || res.code === 'ID_TOKEN_EXPIRED_OR_EXPIRING')) {
+          // fix18-10-hotfix26-G：正在自動重新登入（可能導致頁面跳轉），不要顯示
+          // 一般錯誤字樣嚇到使用者。
+          setGateStatus('登入狀態已過期，正在為您重新登入…');
         } else {
           // C：null／API 失敗／verify 失敗——不自動放行、不無限重試，只提示可再試一次
-          setGateStatus('暫時無法確認好友狀態，請稍後再試。');
+          setGateStatus('暫時無法取得 LINE 好友狀態，請稍後再試。');
+        }
+      }
+
+      recheckBtn.addEventListener('click', runRecheckAndSettle);
+      addBtn.addEventListener('click', async () => {
+        // fix18-10-hotfix26-G（需求文件四／五）：開啟加好友頁前先標記「等待返回」，
+        // 讓使用者從 lin.ee／解除封鎖流程返回時，visibilitychange/pageshow/focus
+        // 能自動重新查詢，不必一定要再按一次「重新確認」。
+        markAwaitingFriendshipReturn();
+        const addRes = await openFriendAddPage(config);
+        // requestFriendship() resolve 不代表使用者一定已加入／解除封鎖（需求文件
+        // 四第 1 點），但既然 LIFF 內建流程已經跑完一輪、使用者已經回到這個頁面
+        // （沒有實際跳轉離開），直接順手自動重新確認一次，省去使用者還要再按
+        // 「重新確認」的一步；若使用者其實取消了，這裡就只是查到 friendFlag=false，
+        // Gate 照樣保持開啟，不會誤放行。
+        if (addRes && addRes.method === 'requestFriendship') {
+          await runRecheckAndSettle();
         }
       });
       if (skipBtn) {
         skipBtn.addEventListener('click', () => {
           onEvent && onEvent('line_gate_skipped');
           closeMemberGate();
-          resolve({ ok: false, skipped: true });
+          wrappedResolve({ ok: false, skipped: true });
         });
       }
     });
   }
+
+  // fix18-10-hotfix26-G（需求文件五）：使用者從外部「加入／解除封鎖官方帳號」
+  // 頁面返回時（lin.ee 分頁關閉、或切回 LINE App 內的點餐頁），自動重新查詢
+  // 好友狀態，不必等使用者自己按「重新確認」。用 debounce + in-flight lock
+  // 避免 visibilitychange/pageshow/focus 短時間內重複觸發造成多次併發請求。
+  let _friendshipResumeTimer = null;
+  let _friendshipResumeInFlight = false;
+  async function attemptAutoFriendshipResume() {
+    if (document.visibilityState && document.visibilityState !== 'visible') return;
+    const gate = _activeFriendGate;
+    if (!gate && !isAwaitingFriendshipReturn()) return;
+    clearTimeout(_friendshipResumeTimer);
+    _friendshipResumeTimer = setTimeout(async () => {
+      if (_friendshipResumeInFlight) return;
+      _friendshipResumeInFlight = true;
+      try {
+        const target = _activeFriendGate;
+        const storeId = target ? target.storeId : (getCurrentStoreId() || null);
+        if (!storeId) { clearAwaitingFriendshipReturn(); return; }
+        if (target) setGateStatus('正在向 LINE 確認好友狀態…');
+        const res = await recheckFriendship(storeId, target ? target.ids : {});
+        const nowFriend = normalizeServerFriendStatus(res);
+        if (res && res.success && nowFriend === true) {
+          clearAwaitingFriendshipReturn();
+          if (target) {
+            _friendGateCompletedStores[storeId] = true;
+            target.onEvent && target.onEvent('friend_gate_passed');
+            setGateStatus('已確認加入官方帳號，正在繼續送出訂單…');
+            closeMemberGate();
+            target.resolve({ ok: true, session: getMemberSession(storeId) });
+          }
+        } else if (target && res && res.success && nowFriend === false) {
+          setGateStatus('LINE 目前仍回傳尚未加入或仍在封鎖中，請完成加入後再重新確認。');
+        } else if (target) {
+          setGateStatus('暫時無法取得 LINE 好友狀態，請稍後再試。');
+        }
+        // 非 target（沒有開著的 Gate）情況下，只是安靜地把 is_friend 同步好，
+        // 不用跳出任何 UI；若仍非好友／查詢失敗，保留 awaiting 旗標，下次
+        // 使用者再切回來還會再檢查一次。
+      } finally {
+        _friendshipResumeInFlight = false;
+      }
+    }, 500);
+  }
+  document.addEventListener('visibilitychange', attemptAutoFriendshipResume);
+  global.addEventListener('pageshow', attemptAutoFriendshipResume);
+  global.addEventListener('focus', attemptAutoFriendshipResume);
 
 
   // callback(result) — result: {ok:true} 表示可以繼續；{ok:false, skipped:true} 表示使用者略過
@@ -677,6 +880,9 @@
     showFriendRequiredGate,
     // fix18-10-hotfix26-D 新增：供「LINE 設定診斷中心」重用，不重複寫一套 SDK 載入邏輯
     loadLiffSdk,
+    // fix18-10-hotfix26-G 新增：ID Token 過期自動恢復 × 加好友返回自動重新確認
+    getFreshLineIdToken, recoverLineLoginSession, decodeJwtPayloadSafely,
+    markAwaitingFriendshipReturn, clearAwaitingFriendshipReturn, isAwaitingFriendshipReturn,
   };
 
 })(window);
