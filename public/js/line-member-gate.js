@@ -831,17 +831,27 @@
       display:flex;align-items:center;justify-content:center;padding:16px;`;
 
     // 需求文件十：iOS／Android 用字不同，不可宣稱「已自動開啟 Safari」。
-    const osHintLabel = environment.isIOS ? '如何用 Safari 開啟'
+    // fix18-10-hotfix26-F2：iOS 文案改用需求文件指定字樣「如何使用 Safari 開啟」
+    // （原為「如何用 Safari 開啟」，純文字對齊，行為不變）；Android 維持原字樣不動。
+    const osHintLabel = environment.isIOS ? '如何使用 Safari 開啟'
       : (environment.isAndroid ? '使用 Chrome 開啟' : '如何用瀏覽器開啟');
+
+    // fix18-10-hotfix26-F2（需求文件一）：iOS 上 Messenger/Instagram WebView 對外部
+    // App 喚醒本來就有官方限制，不宜再引導使用者「直接嘗試用 LINE 開啟」當作首選——
+    // 改成官方建議流程（提示改用 Safari 開啟 → 在 Safari 內完成 LINE 登入）。Android
+    // 維持原本文案與流程完全不動（Messenger→Chrome→LINE Login 本來就能自動登入）。
+    const introHtml = environment.isIOS
+      ? `您目前正在 Facebook／Instagram 內建瀏覽器中。<br><br>iOS 上的內建瀏覽器可能無法直接完成 LINE 自動登入。<br><br>請點右上角「⋯」，選擇「在 Safari 中開啟」，即可直接使用 LINE 登入。<br><br>購物車內容會為您保留。`
+      : `您目前正在 Facebook／Instagram 內建瀏覽器中。<br><br>直接登入可能會要求輸入 LINE 電子郵件與密碼。<br><br>建議改用 LINE App 開啟，即可更安全、快速地完成會員登入，購物車內容會為您保留。`;
 
     externalGuideEl.innerHTML = `
       <div style="background:#fff;border-radius:16px;max-width:380px;width:100%;padding:24px;text-align:left;font-family:inherit">
         <div style="font-size:40px;line-height:1;margin-bottom:8px;text-align:center">📲</div>
         <h3 style="margin:0 0 8px;font-size:18px;text-align:center">請使用 LINE 完成會員登入</h3>
-        <p style="margin:0 0 12px;color:#666;font-size:14px;line-height:1.6">您目前正在 Facebook／Instagram 內建瀏覽器中。<br><br>直接登入可能會要求輸入 LINE 電子郵件與密碼。<br><br>建議改用 LINE App 開啟，即可更安全、快速地完成會員登入，購物車內容會為您保留。</p>
+        <p style="margin:0 0 12px;color:#666;font-size:14px;line-height:1.6">${introHtml}</p>
         <div style="background:#fff7e6;border:1px solid #ffd580;border-radius:8px;padding:8px 10px;margin-bottom:14px;font-size:13px;color:#a15c00">⚠ 不需要在此頁輸入 LINE 帳號密碼。</div>
         <div id="lmgExternalStatus" style="font-size:13px;color:#888;margin-bottom:10px;text-align:center"></div>
-        <button id="lmgOpenLineBtn" style="width:100%;padding:12px;border:0;border-radius:10px;background:#06C755;color:#fff;font-size:15px;font-weight:600;margin-bottom:8px;cursor:pointer">使用 LINE 開啟</button>
+        <button id="lmgOpenLineBtn" style="width:100%;padding:12px;border:0;border-radius:10px;background:#06C755;color:#fff;font-size:15px;font-weight:600;margin-bottom:8px;cursor:pointer">嘗試使用 LINE 開啟</button>
         <button id="lmgOsHintBtn" style="width:100%;padding:12px;border:1px solid #06C755;border-radius:10px;background:#fff;color:#06C755;font-size:14px;font-weight:600;cursor:pointer;margin-bottom:8px">${escapeHtml(osHintLabel)}</button>
         <button id="lmgCopyLinkBtn" style="width:100%;padding:12px;border:1px solid #ccc;border-radius:10px;background:#fff;color:#333;font-size:14px;font-weight:600;cursor:pointer;margin-bottom:8px">複製點餐連結</button>
         <button id="lmgExternalBackBtn" style="width:100%;padding:10px;border:0;background:transparent;color:#999;font-size:13px;cursor:pointer;text-align:center">返回購物車</button>
@@ -885,9 +895,17 @@
       } finally {
         // 若真的跳轉離開頁面，這行不會有機會執行；留著是為了「LIFF URL 建置
         // 失敗」這種沒有真的跳轉的情況，讓使用者還能再按一次（需求文件十六）。
+        // fix18-10-hotfix26-F2（需求文件一）：iOS 上 Messenger/Instagram WebView
+        // 本來就有官方限制，重試「嘗試使用 LINE 開啟」大機率仍會失敗——與其讓使用者
+        // 一直重試同一個註定失敗的動作，改直接引導改用 Safari（不提供重試連結）；
+        // Android（Chrome 能正常自動登入）維持原本「再次使用 LINE 開啟」重試行為不變。
         setTimeout(() => {
           externalLoginActionInProgress = false;
-          setExternalStatus('LINE 沒有成功開啟嗎？', true);
+          if (environment.isIOS) {
+            setExternalStatus('目前瀏覽器限制，請改用 Safari 再登入。', false);
+          } else {
+            setExternalStatus('LINE 沒有成功開啟嗎？', true);
+          }
         }, 1500);
       }
     }

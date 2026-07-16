@@ -1022,8 +1022,11 @@ function buildModeTabsUI(){
   }
   tabs.style.display='flex';
   // 截止但仍顯示 / 目前未開放（優先顯示「未開放」，比截止售完更明確）
-  btnTo.innerHTML='🛍️ 外帶'+(!takeoutEnabled?'<span class="mode-badge">未開放</span>':(takeoutCutoffPassed?'<span class="mode-badge">售完</span>':''));
-  btnDl.innerHTML='🛵 外送'+(!deliveryEnabled?'<span class="mode-badge">未開放</span>':(deliveryCutoffPassed?'<span class="mode-badge">售完</span>':''));
+  // fix18-10-hotfix26-F2：改用 modeLabelSuffix()，選到未來日期時不再誤顯示「已截止」。
+  const _toSuf=modeLabelSuffix('takeout',takeoutEnabled);
+  const _dlSuf=modeLabelSuffix('delivery',deliveryEnabled);
+  btnTo.innerHTML='🛍️ 外帶'+(_toSuf?`<span class="mode-badge">${_toSuf}</span>`:'');
+  btnDl.innerHTML='🛵 外送'+(_dlSuf?`<span class="mode-badge">${_dlSuf}</span>`:'');
   updateModeTabActive();
 }
 function updateModeTabActive(){
@@ -1049,7 +1052,7 @@ function switchMode(mode){
   currentMode=mode;
   updateModeTabActive();
   renderMenu();
-  updateCutoffBanner();
+  refreshModeCutoffUI();
   updateModeAvailabilityUI();
   // 同步購物車 sheet 的模式選擇
   const oType=document.getElementById('oType');
@@ -1069,7 +1072,7 @@ function onModeChange(){
   currentMode=oType.value;
   updateModeTabActive();
   renderMenu();
-  updateCutoffBanner();
+  refreshModeCutoffUI();
   updateModeAvailabilityUI();
   // fix18-10-hotfix22D：改用 refreshDateSelectorForCart()，避免切換模式後把已預約的下個營業日覆蓋回今天
   refreshDateSelectorForCart();
@@ -1082,9 +1085,77 @@ function onModeChange(){
 }
 
 // ── 截止售完橫幅 ──────────────────────────────────────
+// fix18-10-hotfix26-F2（需求文件二）：根因修正——takeoutCutoffPassed／
+// deliveryCutoffPassed 這兩個旗標來自 GET /shop，永遠只代表「今天」是否已過截止
+// 時間，本身完全沒有日期概念。過去所有畫面（模式頁籤、購物車取餐方式下拉、
+// 這個橫幅）都直接拿這兩個旗標當「目前選擇日期」的截止狀態使用，導致使用者
+// 選擇未來日期（例如明天）時，仍然被顯示「已截止」——這是本次唯一要修的 BUG。
+// 修法：所有「已截止」文字，一律只在 selectedPickupDateStr()===今天 時才可能出現；
+// 選到未來日期時改用「（預約）」或「（該日未營業）」，不得再出現「已截止」字樣。
+// 明確使用 Date 物件（parseLocalDate／twNow）比較日期，不用字串時間（HH:mm）跨日比較。
+function selectedPickupDateStr(){
+  const v=document.getElementById('pDate')?.value;
+  return v || fmtD(twNow());
+}
+function isSelectedDateToday(){
+  return selectedPickupDateStr()===fmtD(twNow());
+}
+// 「所選日期」是否真的已過截止——只有選到今天，且今天的截止旗標為 true 時才成立。
+function cutoffPassedForMode(mode){
+  const raw = mode==='takeout' ? takeoutCutoffPassed : deliveryCutoffPassed;
+  return !!raw && isSelectedDateToday();
+}
+// 目前 #pDate 選到的這個 <option> 是否被停用（休假／非營業日）。直接讀
+// buildDateSelector() 已經算好的 disabled 狀態，不重複另寫一套判斷規則，
+// 避免兩邊邏輯不同步、標籤與下拉選單顯示互相矛盾。
+function isSelectedDateOptionDisabled(){
+  const sel=document.getElementById('pDate');
+  if(!sel) return false;
+  const opt=Array.from(sel.options).find(o=>o.value===sel.value);
+  return !!(opt && opt.disabled);
+}
+// 今天/明天/後天/N天後 這種相對日文案，供「（明日未營業）」這類提示使用。
+function dayOffsetLabel(dateStr){
+  const days=Math.round((parseLocalDate(dateStr)-parseLocalDate(fmtD(twNow())))/86400000);
+  if(days<=0) return '今日';
+  if(days===1) return '明日';
+  if(days===2) return '後天';
+  return `${days}天後`;
+}
+// 統一的模式標籤後綴文字，優先序：未開放 > 今日已截止 > 該日未營業 > 預約中 > 無。
+// buildModeTabsUI()／購物車取餐方式下拉／截止橫幅三處共用同一套規則，避免各自維護
+// 出現不一致的文字（例如頁籤說「已截止」但下拉選單卻沒有提示）。
+function modeLabelSuffix(mode, enabled){
+  if(!enabled) return '未開放';
+  if(cutoffPassedForMode(mode)) return '今日已截止';
+  if(!isSelectedDateToday() && isSelectedDateOptionDisabled()) return dayOffsetLabel(selectedPickupDateStr())+'未營業';
+  if(!isSelectedDateToday()) return '預約';
+  return '';
+}
+// fix18-10-hotfix26-F2：任何會改變「目前選擇日期」或「目前模式」的地方都呼叫這個
+// 函式，統一重新計算頁籤／橫幅／購物車下拉的文字，取代過去各自零星呼叫、
+// 且切換日期時完全沒有重新計算的舊行為。
+function refreshModeCutoffUI(){
+  buildModeTabsUI();
+  updateCutoffBanner();
+  const oType=document.getElementById('oType');
+  const cartOpen=document.getElementById('cartSheet')?.classList.contains('show');
+  if(oType && cartOpen){
+    const cur=oType.value||currentMode;
+    oType.innerHTML='';
+    const _mkOpt=(val,label)=>{const o=document.createElement('option');o.value=val;o.textContent=label;return o;};
+    const toSuffix=modeLabelSuffix('takeout',takeoutEnabled);
+    const dlSuffix=modeLabelSuffix('delivery',deliveryEnabled);
+    oType.appendChild(_mkOpt('takeout','🛍️ 外帶'+(toSuffix?` (${toSuffix})`:'')));
+    oType.appendChild(_mkOpt('delivery','🛵 外送'+(dlSuffix?` (${dlSuffix})`:'')));
+    oType.value=cur;
+  }
+}
 function updateCutoffBanner(){
   const banner=document.getElementById('cutoffBanner');
-  const cutoff=currentMode==='takeout'?takeoutCutoffPassed:deliveryCutoffPassed;
+  // fix18-10-hotfix26-F2：改用日期感知的 cutoffPassedForMode()，選到未來日期時
+  // 永遠不會是 true（即使「今天」已經截止），修正核心 BUG。
+  const cutoff=cutoffPassedForMode(currentMode);
   const allowNext = currentMode==='takeout'
     ? (shopData.takeout_status?.allow_next_day)
     : (shopData.delivery_status?.allow_next_day);
@@ -1093,6 +1164,11 @@ function updateCutoffBanner(){
     const ct=shopData[currentMode==='takeout'?'takeout_cutoff_time':'delivery_cutoff_time']||'';
     banner.innerHTML=`⏰ ${currentMode==='takeout'?'外帶':'外送'}今日接單已截止（${ct||'今日'}），商品顯示今日售完。`
       + (allowNext ? `<br>💡 <strong>允許預約明日</strong>，請在購物車選擇明日取餐時間。` : '');
+  }else if(!isSelectedDateToday() && isSelectedDateOptionDisabled()){
+    // fix18-10-hotfix26-F2：選到的未來日期本身不營業（休假／非該模式營業日），
+    // 明確提示「該日未營業」，不得誤用「已截止」字樣。
+    banner.style.display='block';
+    banner.innerHTML=`🚫 ${currentMode==='takeout'?'外帶':'外送'}（${dayOffsetLabel(selectedPickupDateStr())}未營業），請選擇其他日期。`;
   }else{
     banner.style.display='none';
   }
@@ -1202,7 +1278,7 @@ function buildDateSelector(forceNextDay=false){
   if(first)sel.value=first;
   if(!forceNextDay) buildTimeSelector();
 }
-function onDateChange(){buildTimeSelector().then(()=>persistCart());}
+function onDateChange(){buildTimeSelector().then(()=>{refreshModeCutoffUI();persistCart();});}
 
 // ── 時間選擇器（呼叫後端 API，依模式計算）────────────────
 async function buildTimeSelector(){
@@ -1522,6 +1598,7 @@ async function refreshDateSelectorForCart(){
   } else {
     buildDateSelector();
   }
+  refreshModeCutoffUI();
   persistCart();
 }
 // fix18-10-hotfix22D：取代舊版 openCartSheetWithDate()——僅用於「送單當下才發現今日已截止」
@@ -1548,6 +1625,7 @@ function applyDateTimeToCartSheet(dateStr, slots){
       pTime.innerHTML='<option value="" disabled>此日無可選時段，請選其他日期</option>';
     }
   }
+  refreshModeCutoffUI();
   persistCart();
 }
 function chgQty(id,d){
@@ -1883,8 +1961,11 @@ function openCartSheet(){
     // hotfix22-F 補正：即使目前模式被關閉，也要保留該選項讓使用者看到「未開放」並停留在原模式，
     // 不能因為 enabled=false 就把選項整個拿掉（否則使用者根本看不到自己原本選的是外送）。
     const _mkOpt=(val,label)=>{const o=document.createElement('option');o.value=val;o.textContent=label;return o;};
-    oType.appendChild(_mkOpt('takeout','🛍️ 外帶'+(!takeoutEnabled?' (未開放)':(takeoutCutoffPassed?' (已截止)':''))));
-    oType.appendChild(_mkOpt('delivery','🛵 外送'+(!deliveryEnabled?' (未開放)':(deliveryCutoffPassed?' (已截止)':''))));
+    // fix18-10-hotfix26-F2：改用 modeLabelSuffix()，選到未來日期時不再誤顯示「已截止」。
+    const _toSuf=modeLabelSuffix('takeout',takeoutEnabled);
+    const _dlSuf=modeLabelSuffix('delivery',deliveryEnabled);
+    oType.appendChild(_mkOpt('takeout','🛍️ 外帶'+(_toSuf?` (${_toSuf})`:'')));
+    oType.appendChild(_mkOpt('delivery','🛵 外送'+(_dlSuf?` (${_dlSuf})`:'')));
     oType.value=currentMode;
   }
   renderCartItems();openSheet('cartSheet');
@@ -2110,10 +2191,9 @@ async function refreshShopStatus(){
       // 一律維持在原模式並顯示「未開放」，不自動切換；只重建頁籤/日期時段/送單按鈕的顯示狀態。
       if(prevToEn!==takeoutEnabled||prevDlEn!==deliveryEnabled){
         if((currentMode==='takeout'&&!takeoutEnabled)||(currentMode==='delivery'&&!deliveryEnabled)) modeForcedVisible=true;
-        buildModeTabsUI();
         buildDateSelector();
       }
-      renderMenu();updateCutoffBanner();updateModeAvailabilityUI();
+      renderMenu();refreshModeCutoffUI();updateModeAvailabilityUI();
     }
   }catch{}
 }
