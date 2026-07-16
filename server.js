@@ -409,6 +409,12 @@ initDb().then((db) => {
   // 沿用既有 LINE 相關路由的授權慣例（requireStore + line_order 授權）。
   app.use('/api/line-member', requireStore, requireFeature('line_order'), require('./routes/line-member'));
 
+  // fix18-10-hotfix26-E：LINE Verify Health Dashboard × LINE Analytics Center。
+  // 純唯讀報表 API，只讀取 routes/line-member.js 早就寫好的 analytics_events／
+  // line_members／line_member_history，不是第二套 Verify／Login API，路由內
+  // 每個 endpoint 都掛 requireStaffJwt（管理者專用）。
+  app.use('/api/line-analytics', requireStore, requireFeature('line_order'), require('./routes/line-analytics'));
+
   // fix18-10-hotfix21：物流 API 架構預留 V1（不串接正式物流商，僅設定架構）
   app.use('/api/shipping', requireStore, requireFeature('line_order'), require('./routes/shipping'));
 

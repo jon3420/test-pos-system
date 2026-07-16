@@ -28,7 +28,13 @@ const { logServerEvent } = require('../utils/analyticsLog');
 // fix18-10-hotfix23-E1：管理端 endpoint（會員列表／詳情／CSV 匯出）強制 staff JWT，
 // 不再接受 x-store-id / query.store_id 作為授權依據。POST /verify 維持公開
 // （顧客登入用），不套用此 middleware。
-const { requireStaffJwt } = require('../middleware/storeGuard');
+const { requireStaffJwt, JWT_SECRET } = require('../middleware/storeGuard');
+// fix18-10-hotfix26-E（需求文件十）：verify_debug 三個條件缺一不可——
+// LINE_MEMBER_DEBUG=1、diagnostic_only=true、且呼叫端帶有效的店家管理員
+// JWT。POST /verify 本身仍是公開端點（一般顧客登入不需要、也不會帶 staff
+// JWT），這裡只在「想拿到 verify_debug」這個額外資訊時才驗證 JWT，不影響
+//一般登入或既有 diagnostic_only（無 debug）行為。
+const jwt = require('jsonwebtoken');
 const { sanitizeCsvCell } = require('../utils/csvSecurity');
 
 // ── 簡易 in-memory rate limit（同一 store + IP）── 每 60 秒最多 20 次驗證請求
@@ -56,6 +62,20 @@ function checkRateLimit(storeId, ip) {
 function getSetting(db, storeId, key) {
   const row = db.get('SELECT value FROM settings WHERE store_id=? AND key=?', [storeId, key]);
   return row ? row.value : '';
+}
+
+// fix18-10-hotfix26-E（需求文件十）：verify_debug 三個條件之一——呼叫端必須帶
+// 這個 store 的有效管理員 JWT。純唯讀檢查，不影響一般顧客 verify 流程（一般
+// 顧客本來就不會、也不需要帶這個 header）。
+function hasValidStaffAuth(req, storeId) {
+  try {
+    const auth = req.headers && req.headers['authorization'];
+    if (!auth || !auth.startsWith('Bearer ')) return false;
+    const payload = jwt.verify(auth.slice(7), JWT_SECRET);
+    return !!payload && payload.role === 'store' && String(payload.store_id) === String(storeId);
+  } catch (e) {
+    return false;
+  }
 }
 
 // fix18-10-hotfix26（需求文件四）：前端 liff.getFriendship() 結果的正規化。
@@ -97,7 +117,7 @@ router.post('/verify', async (req, res) => {
     if (!checkRateLimit(storeId, ip)) {
       // 不得因驗證頻率限制中斷點餐（需求文件六第 9 點／十八）：回傳結構化錯誤，
       // 前端 fallback 為「請稍後再試」，不擋既有瀏覽/加購行為。
-      return res.status(429).json({ success: false, reason: 'rate_limited', message: '請求過於頻繁，請稍後再試' });
+      return res.status(429).json({ success: false, reason: 'rate_limited', code: 'RATE_LIMITED', message: '請求過於頻繁，請稍後再試' });
     }
 
     // fix18-10-hotfix26（需求文件三／四）：friend_flag 為前端 liff.getFriendship()
@@ -105,17 +125,37 @@ router.post('/verify', async (req, res) => {
     // 模式（驗證 token／連線是否正常，但不得建立或更新任何會員資料）。
     const { id_token, access_token, friend_flag, diagnostic_only } = req.body || {};
     const isDiagnosticOnly = diagnostic_only === true;
+
+    // fix18-10-hotfix26-verify-debug（需求文件一）：安全 Debug log，只記錄
+    // present/length，絕不輸出 token 內容本身。預設關閉，需設定環境變數
+    // LINE_MEMBER_DEBUG=1 才會輸出，避免正式環境 log 被灌爆。
+    if (process.env.LINE_MEMBER_DEBUG === '1') {
+      console.log('[line-member][verify-debug]', JSON.stringify({
+        store_id: storeId,
+        id_token: { present: !!id_token, length: id_token ? String(id_token).length : 0 },
+        access_token: { present: !!access_token, length: access_token ? String(access_token).length : 0 },
+        friend_flag: typeof friend_flag === 'boolean' ? friend_flag : null,
+        diagnostic_only: isDiagnosticOnly,
+        source: (req.body && req.body.analytics && req.body.analytics.source) || (req.body && req.body.attribution && req.body.attribution.source) || null,
+      }));
+    }
+
     if (!id_token || typeof id_token !== 'string') {
-      return res.status(400).json({ success: false, reason: 'missing_id_token', message: '缺少 id_token' });
+      return res.status(400).json({ success: false, reason: 'missing_id_token', code: 'MISSING_ID_TOKEN', message: '缺少 id_token' });
     }
 
     const channelId = getSetting(db, storeId, 'line_member_login_channel_id');
     if (!channelId) {
-      return res.status(400).json({ success: false, reason: 'not_configured', message: '此店家尚未設定 LINE Login Channel' });
+      return res.status(400).json({ success: false, reason: 'not_configured', code: 'STORE_CONFIG_MISSING', message: '此店家尚未設定 LINE Login Channel' });
     }
 
     // ── 驗證 ID Token（不信任前端傳入的 line_user_id）───────────
+    // fix18-10-hotfix26-E：在路由層量測耗時（完全在 verifyLineIdToken() 外部
+    // 計時，不改動該函式本身、不改動它的回傳值或判斷邏輯），供 LINE Verify
+    // Health Dashboard 的「Verify Timeline」與健康度統計使用。
+    const verifyStartedAt = Date.now();
     const verifyResult = await verifyLineIdToken(id_token, channelId);
+    const verifyElapsedMs = Date.now() - verifyStartedAt;
     // 供 analytics 事件關聯用；相容兩種輸入格式：{analytics:{...}} 或頂層
     // visitor_id/session_id/cart_id/attribution（見需求文件四）。
     const bodyAp = (req.body && req.body.analytics && typeof req.body.analytics === 'object') ? req.body.analytics : {};
@@ -143,9 +183,34 @@ router.post('/verify', async (req, res) => {
 
     if (!verifyResult.ok) {
       logServerEvent(db, { ...evtBase, event_name: 'line_login_failed',
-        metadata: { reason: verifyResult.reason, gate_stage: ap.gate_stage || null } });
+        metadata: {
+          reason: verifyResult.reason, code: verifyResult.code || null, gate_stage: ap.gate_stage || null,
+          // fix18-10-hotfix26-E：http_status 在 aud_mismatch/expired/no_sub 這幾種
+          // 失敗原因裡，LINE 官方 API 本身其實是回 200（是我方驗證邏輯判定失敗），
+          // 只有 verify_failed 這個 reason 才是 LINE API 本身回非 2xx／無法解析，
+          // 這裡如實反映，不誤導 Health Dashboard 的 HTTP Status 統計。
+          http_status: verifyResult.http_status || 200,
+          elapsed_ms: verifyElapsedMs,
+          // fix18-10-hotfix26-E（需求文件十一）：標記這筆是不是後台診斷中心自己
+          // 觸發的測試呼叫，讓 Verify Health 統計可以排除管理者自己的測試，只反映
+          // 真實顧客的登入健康狀態；Verify Timeline 仍會顯示這個欄位供人工判讀。
+          diagnostic_only: isDiagnosticOnly,
+        } });
       // 不得因 LINE API 錯誤回 500 破壞點餐（需求文件六）
-      return res.status(200).json({ success: false, reason: verifyResult.reason, message: verifyResult.message });
+      const failurePayload = {
+        success: false, reason: verifyResult.reason, message: verifyResult.message,
+        code: verifyResult.code || 'UNKNOWN_VERIFY_ERROR',
+      };
+      // fix18-10-hotfix26-E（需求文件十）：verify_debug 三個條件缺一不可——
+      // diagnostic_only=true、伺服器 LINE_MEMBER_DEBUG=1（verifyResult.debug
+      // 才會存在）、且呼叫端帶這個 store 的有效管理員 JWT，三者都成立才附加。
+      if (isDiagnosticOnly && verifyResult.debug && hasValidStaffAuth(req, storeId)) {
+        failurePayload.diagnostic_only = true;
+        failurePayload.verify_debug = verifyResult.debug;
+      } else if (isDiagnosticOnly) {
+        failurePayload.diagnostic_only = true;
+      }
+      return res.status(200).json(failurePayload);
     }
 
     const lineUserId = verifyResult.line_user_id;
@@ -157,13 +222,16 @@ router.post('/verify', async (req, res) => {
       if (access_token) diagFriendResult = await getFriendshipStatus(access_token);
       const clientFlag = normalizeFriendFlag(friend_flag);
       const diagIsFriend = diagFriendResult.ok ? diagFriendResult.is_friend : (clientFlag === null ? null : clientFlag === 1);
-      return res.json({
+      const diagPayload = {
         success: true,
         diagnostic_only: true,
         is_friend: diagIsFriend,
         display_name: verifyResult.display_name,
         message: '診斷模式：Token 驗證成功，未建立或更新會員資料',
-      });
+      };
+      // 同上：三個條件缺一不可才附加 verify_debug。
+      if (verifyResult.debug && hasValidStaffAuth(req, storeId)) diagPayload.verify_debug = verifyResult.debug;
+      return res.json(diagPayload);
     }
 
     // fix18-10-hotfix24-A3：Identity Resolver（需求文件四）—— 一旦 ID Token 驗證通過，
@@ -212,7 +280,7 @@ router.post('/verify', async (req, res) => {
     }
 
     logServerEvent(db, { ...evtBase, event_name: 'line_login_success',
-      metadata: { is_friend: finalIsFriend, gate_stage: ap.gate_stage || null } });
+      metadata: { is_friend: finalIsFriend, gate_stage: ap.gate_stage || null, http_status: 200, elapsed_ms: verifyElapsedMs, diagnostic_only: false } });
     logServerEvent(db, { ...evtBase, event_name: 'member_login', metadata: { gate_stage: ap.gate_stage || null } });
 
     if (upsertResult && upsertResult.friendEvent) {
@@ -255,7 +323,7 @@ router.post('/verify', async (req, res) => {
   } catch (e) {
     console.error('[line-member] POST /verify error:', e.message);
     // 不得讓例外破壞點餐流程，回傳結構化失敗，前端安全 fallback
-    res.status(200).json({ success: false, reason: 'exception', message: '驗證發生錯誤，請稍後再試' });
+    res.status(200).json({ success: false, reason: 'exception', code: 'UNKNOWN_VERIFY_ERROR', message: '驗證發生錯誤，請稍後再試' });
   }
 });
 

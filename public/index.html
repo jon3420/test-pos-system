@@ -743,6 +743,7 @@
       <button class="settings-tab-btn"        data-stab="product_analysis_groups" onclick="switchSettingsTab('product_analysis_groups')">📊 商品分析群組</button>
       <button class="settings-tab-btn"        data-stab="ads_attribution" onclick="switchSettingsTab('ads_attribution')">📣 廣告追蹤</button>
       <button class="settings-tab-btn"        data-stab="line_member" onclick="switchSettingsTab('line_member')">👤 LINE 會員登入設定</button>
+      <button class="settings-tab-btn"        data-stab="line_analytics" onclick="switchSettingsTab('line_analytics')">📡 LINE 管理</button>
       <button class="settings-tab-btn"        data-stab="line_members_list" onclick="switchSettingsTab('line_members_list')">👥 LINE 會員</button>
       <button class="settings-tab-btn"        data-stab="migration" onclick="switchSettingsTab('migration')">📦 資料備份/搬家</button>
       <!-- fix10: 店家授權 Tab 已移至 /system-admin，一般店家不可存取 -->
@@ -1906,6 +1907,66 @@
         </div>
       </div>
       <button class="btn-primary" onclick="saveLineMemberGateSettings()">💾 儲存 LINE 會員登入設定</button>
+    </div>
+
+    <!-- fix18-10-hotfix26-E：LINE Verify Health Dashboard × LINE Analytics Center -->
+    <div class="settings-tab-panel" id="stab-line_analytics" style="display:none">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
+        <label style="margin:0">統計期間
+          <select id="laPeriodSelect">
+            <option value="today">今日</option>
+            <option value="yesterday">昨日</option>
+            <option value="last7">近 7 天</option>
+            <option value="last30">近 30 天</option>
+            <option value="month">本月</option>
+            <option value="custom">自訂</option>
+          </select>
+        </label>
+        <input type="date" id="laCustomStart" style="display:none">
+        <input type="date" id="laCustomEnd" style="display:none">
+        <button class="btn-secondary" onclick="loadLineAnalyticsOverview()">🔄 重新整理</button>
+      </div>
+
+      <div class="settings-card full">
+        <h3>💓 LINE Verify Health</h3>
+        <div id="laVerifyHealthSummary" class="line-diag-health">尚未載入</div>
+        <div id="laVerifyHealthDetail" class="line-diag-panel"></div>
+      </div>
+
+      <div class="settings-card full">
+        <h3>📊 Verify Error 統計</h3>
+        <div id="laErrorStats" class="line-diag-panel">尚未載入</div>
+      </div>
+
+      <div class="settings-card full">
+        <h3>🧾 Verify Summary</h3>
+        <div id="laVerifySummary" class="line-diag-panel">尚未載入</div>
+      </div>
+
+      <div class="settings-card full">
+        <h3>🕒 Verify Timeline（最近 50 筆）</h3>
+        <div style="overflow-x:auto">
+          <table class="data-table" style="min-width:600px">
+            <thead><tr><th>時間</th><th>Store</th><th>Result</th><th>HTTP</th><th>Code</th><th>Reason</th><th>Elapsed(ms)</th><th>Diagnostic Only</th><th>Identity</th></tr></thead>
+            <tbody id="laTimelineBody"><tr><td colspan="9">尚未載入</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="settings-card full">
+        <h3>🚦 LINE Analytics（漏斗）</h3>
+        <div id="laFunnel" class="line-diag-panel">尚未載入</div>
+      </div>
+
+      <div class="settings-card full">
+        <h3>🩺 LINE Health</h3>
+        <div id="laHealthGrid" class="line-diag-panel">尚未載入</div>
+      </div>
+
+      <div class="settings-card full">
+        <h3>🏢 LINE OA Center</h3>
+        <div id="laOaCenterGrid" class="line-diag-panel">尚未載入</div>
+      </div>
     </div>
 
 

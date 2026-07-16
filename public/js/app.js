@@ -1981,6 +1981,7 @@ function switchSettingsTab(tab) {
   if (tab === 'ads_attribution')  loadAdsTrackingSettings(); // fix18-10-hotfix23-D
   if (tab === 'line_member')      loadLineMemberGateSettings(); // fix18-10-hotfix23-E
   if (tab === 'line_members_list') { initLineMemberFilterListeners(); loadLineMembersList(true); } // fix18-10-hotfix23-E / hotfix26-C
+  if (tab === 'line_analytics') { initLineAnalyticsListeners(); loadLineAnalyticsOverview(); } // fix18-10-hotfix26-E
 }
 
 // ===== 設定 =====
@@ -2306,13 +2307,23 @@ async function _lineDiagCheckFriendApi(loggedIn) {
 async function _lineDiagCheckBackendVerify(storeId, loggedIn) {
   try {
     if (loggedIn && window.liff && window.liff.getIDToken()) {
-      const res = await fetch('/api/line-member/verify?store_id=' + encodeURIComponent(storeId), {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+      // fix18-10-hotfix26-E：改用 apiFetch()（會自動帶上管理員 Bearer JWT），
+      // 因為 verify_debug 現在要求「diagnostic_only=true + LINE_MEMBER_DEBUG=1 +
+      // 有效管理員 JWT」三者同時成立才會回傳，用原本沒帶 Authorization 的
+      // fetch() 永遠拿不到 verify_debug。
+      const res = await apiFetch('/api/line-member/verify?store_id=' + encodeURIComponent(storeId), {
+        method: 'POST',
         body: JSON.stringify({ id_token: window.liff.getIDToken(), access_token: window.liff.getAccessToken(), diagnostic_only: true }),
       });
       const json = await res.json();
-      if (json && json.success && json.diagnostic_only) return { level: 'ok', text: '正常（診斷模式，未寫入資料）' };
-      return { level: 'warn', text: json && json.message ? json.message : '後端回應異常但連線正常' };
+      const verifyDebug = json && json.verify_debug ? json.verify_debug : null;
+      if (json && json.success && json.diagnostic_only) return { level: 'ok', text: '正常（診斷模式，未寫入資料）', verifyDebug };
+      // fix18-10-hotfix26-verify-debug（需求文件六）：後台診斷中心是管理端頁面、
+      // 非顧客畫面，這裡額外顯示 code／HTTP 狀態方便排查，但絕對不顯示
+      // token／secret／stack —— json 裡本來就不會有這些欄位（見
+      // routes/line-member.js／utils/lineMemberAuth.js）。
+      const codeText = json && json.code ? `（code: ${json.code}, HTTP ${res.status}）` : `（HTTP ${res.status}）`;
+      return { level: 'warn', text: (json && json.message ? json.message : '後端回應異常但連線正常') + ' ' + codeText, verifyDebug };
     }
     // 未登入時退回純連線檢查（沿用已載入的 /api/settings，不新增 endpoint）
     const res = await apiFetch('/api/settings');
@@ -2354,6 +2365,45 @@ function _lineDiagRow(label, result) {
       <span class="line-diag-row__value ${meta.className}">${meta.icon} ${(result.text || '').replace(/</g,'&lt;')}</span>
     </div>
     ${result.detail ? `<div class="line-diag-detail">${result.detail.replace(/</g,'&lt;')}</div>` : ''}`;
+}
+
+// fix18-10-hotfix26-verify-deep（需求文件十）：診斷中心「Verify Debug」區塊。
+// 只有伺服器設定 LINE_MEMBER_DEBUG=1 時，/api/line-member/verify 的
+// diagnostic_only 回應才會帶 verify_debug；沒帶就顯示提示文字，不假裝有資料。
+// 這裡完全只讀後端已經算好、已經遮罩過的欄位（sub 已用 maskLineUserId 處理過），
+// 不在前端重新組任何 token 相關內容。
+function _lineDiagVerifyDebugHtml(verifyDebug) {
+  if (!verifyDebug) {
+    return `
+      <div class="line-diag-row">
+        <span class="line-diag-row__label">Verify Debug</span>
+        <span class="line-diag-row__value line-diag-status--untested">⚪ 尚未啟用（伺服器需設定環境變數 LINE_MEMBER_DEBUG=1 才會輸出）</span>
+      </div>`;
+  }
+  const cls = verifyDebug.classification || {};
+  const aud = verifyDebug.audience_check || {};
+  const exp = verifyDebug.expiry_check || {};
+  const resp = verifyDebug.response || {};
+  const req = verifyDebug.request || {};
+  const rows = [
+    ['Verify HTTP Status', cls.verify_api_status ?? resp.http_status ?? '—'],
+    ['Verify Error', cls.verify_api_error || '—'],
+    ['Verify Error Description', cls.verify_api_error_description || '—'],
+    ['Audience（LINE 回傳）', aud.line_aud || '—'],
+    ['DB Channel ID（trim 前 / 長度）', aud.db_channel_id_before_trim != null ? `"${aud.db_channel_id_before_trim}" / ${aud.db_channel_id_before_trim_length}` : '—'],
+    ['DB Channel ID（trim 後 / 長度）', aud.db_channel_id_after_trim != null ? `"${aud.db_channel_id_after_trim}" / ${aud.db_channel_id_after_trim_length}` : '—'],
+    ['Audience 是否一致（未 trim，實際判斷邏輯）', aud.match_raw === true ? '是' : (aud.match_raw === false ? '否' : '—')],
+    ['Audience 若 trim 後是否一致（僅供人工判讀，不影響實際判斷）', aud.match_if_trimmed_proof_only === true ? '是' : (aud.match_if_trimmed_proof_only === false ? '否' : '—')],
+    ['Expire Time (exp)', exp.exp || '—'],
+    ['Remaining (seconds)', exp.remaining_seconds != null ? exp.remaining_seconds : '—'],
+    ['Verify Endpoint', req.endpoint || '—'],
+    ['LINE Response Time (ms)', resp.elapsed_ms != null ? resp.elapsed_ms : '—'],
+  ];
+  return rows.map(([label, value]) => `
+    <div class="line-diag-row">
+      <span class="line-diag-row__label">${label}</span>
+      <span class="line-diag-row__value">${String(value).replace(/</g,'&lt;')}</span>
+    </div>`).join('');
 }
 
 async function runLineDiagnostics() {
@@ -2416,6 +2466,14 @@ async function runLineDiagnostics() {
       ${_lineDiagRow('Callback URL', { level: 'warn', text: '需至 LINE Developers 人工確認', detail: `建議值：${callbackUrl}` })}
       ${_lineDiagRow('點餐 Endpoint', { level: 'warn', text: '需人工比對', detail: orderEndpoint })}
       ${_lineDiagRow('宅配 Endpoint', { level: 'warn', text: '需人工比對', detail: shippingEndpoint })}
+      <div class="line-diag-panel" style="margin-top:12px">
+        <details id="lineDiagVerifyDebugDetails">
+          <summary style="cursor:pointer;font-weight:600">🔬 Verify Debug（僅管理者可見，點擊展開／收合）</summary>
+          <div style="margin-top:8px">
+            ${_lineDiagVerifyDebugHtml(r.backendVerify && r.backendVerify.verifyDebug)}
+          </div>
+        </details>
+      </div>
       <div class="line-diag-actions">
         <button class="btn-secondary" onclick="copyLineDiagText('${callbackUrl}', this)">📋 複製 Callback URL</button>
         <button class="btn-secondary" onclick="copyLineDiagText('${orderEndpoint}', this)">📋 複製點餐 Endpoint</button>
@@ -2491,6 +2549,152 @@ function buildLineDiagSummaryText() {
 }
 function copyLineDiagSummary() {
   copyLineDiagText(buildLineDiagSummaryText(), document.getElementById('lineDiagCopySummaryBtn'));
+}
+
+// ===== fix18-10-hotfix26-E：LINE Verify Health Dashboard × LINE Analytics Center =====
+// 純唯讀報表頁面，資料來自單一支 GET /api/line-analytics/health（切換日期只
+// 打這一支 API，summary／error_breakdown／timeline／line_health／oa_center／
+// analytics 全部一起回來，不會每個區塊各自打 API）。
+function initLineAnalyticsListeners() {
+  const periodSelect = document.getElementById('laPeriodSelect');
+  if (periodSelect && !periodSelect._laListenerBound) {
+    periodSelect.addEventListener('change', () => {
+      const isCustom = periodSelect.value === 'custom';
+      document.getElementById('laCustomStart').style.display = isCustom ? '' : 'none';
+      document.getElementById('laCustomEnd').style.display = isCustom ? '' : 'none';
+      if (!isCustom) loadLineAnalyticsOverview();
+    });
+    periodSelect._laListenerBound = true;
+  }
+  ['laCustomStart', 'laCustomEnd'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el && !el._laListenerBound) {
+      el.addEventListener('change', () => { if (document.getElementById('laPeriodSelect').value === 'custom') loadLineAnalyticsOverview(); });
+      el._laListenerBound = true;
+    }
+  });
+}
+
+// 狀態值對照：healthy/warning/critical/insufficient_data/not_configured/not_tracked
+function _laHealthMeta(status) {
+  return {
+    healthy: { icon: '🟢', text: '正常', className: 'line-diag-status--ok' },
+    warning: { icon: '🟡', text: '需注意', className: 'line-diag-status--warn' },
+    critical: { icon: '🔴', text: '異常', className: 'line-diag-status--error' },
+    insufficient_data: { icon: '⚪', text: '資料不足', className: 'line-diag-status--untested' },
+    not_configured: { icon: '⚪', text: '尚未設定', className: 'line-diag-status--untested' },
+    not_tracked: { icon: '⚪', text: '尚未追蹤', className: 'line-diag-status--untested' },
+  }[status] || { icon: '⚪', text: '未知', className: 'line-diag-status--untested' };
+}
+function _laModuleRow(label, mod) {
+  if (!mod) return _lineDiagRow(label, { level: 'untested', text: '未知' });
+  const meta = _laHealthMeta(mod.status);
+  return `<div class="line-diag-row"><span class="line-diag-row__label">${label}</span><span class="line-diag-row__value ${meta.className}">${mod.icon || meta.icon} ${(mod.text || meta.text).replace(/</g,'&lt;')}</span></div>`;
+}
+
+async function loadLineAnalyticsOverview() {
+  const period = document.getElementById('laPeriodSelect')?.value || 'today';
+  const params = new URLSearchParams({ period });
+  if (period === 'custom') {
+    const start = document.getElementById('laCustomStart')?.value;
+    const end = document.getElementById('laCustomEnd')?.value;
+    if (!start || !end) return; // 等使用者兩個日期都選完再查
+    params.set('start_date', start); params.set('end_date', end);
+  }
+  const healthSummaryEl = document.getElementById('laVerifyHealthSummary');
+  const healthDetailEl = document.getElementById('laVerifyHealthDetail');
+  const errorStatsEl = document.getElementById('laErrorStats');
+  const summaryEl = document.getElementById('laVerifySummary');
+  const funnelEl = document.getElementById('laFunnel');
+  const healthGridEl = document.getElementById('laHealthGrid');
+  const oaCenterEl = document.getElementById('laOaCenterGrid');
+  const tbody = document.getElementById('laTimelineBody');
+  if (!healthSummaryEl) return;
+
+  healthSummaryEl.textContent = '載入中…';
+  if (tbody) tbody.innerHTML = '<tr><td colspan="9">載入中…</td></tr>';
+  try {
+    // fix18-10-hotfix26-E（需求文件九）：所有區塊共用同一份回應，只打這一支 API。
+    const res = await apiFetch('/api/line-analytics/health?' + params.toString());
+    const json = await res.json();
+    if (!json.success) { healthSummaryEl.textContent = json.message || '載入失敗'; return; }
+
+    const health = json.health;
+    const s = json.summary;
+    const healthClass = health.status === 'healthy' ? 'line-diag-health--green' : (health.status === 'warning' ? 'line-diag-health--yellow' : (health.status === 'critical' ? 'line-diag-health--red' : ''));
+    healthSummaryEl.className = `line-diag-health ${healthClass}`;
+    healthSummaryEl.innerHTML = `Verify Status：${health.icon} ${health.text}　（期間內 ${s.total} 筆，成功率 ${s.success_rate != null ? s.success_rate + '%' : '—'}）`;
+
+    healthDetailEl.innerHTML = `
+      ${_lineDiagRow('最後成功時間', { level: s.last_success_at ? 'ok' : 'untested', text: s.last_success_at ? formatTaipeiDateTime(s.last_success_at, true) : '尚無紀錄' })}
+      ${_lineDiagRow('最後失敗時間', { level: s.last_failure_at ? 'warn' : 'ok', text: s.last_failure_at ? formatTaipeiDateTime(s.last_failure_at, true) : '尚無紀錄' })}
+      ${_lineDiagRow('最近 HTTP Status', { level: s.last_http_status == null ? 'untested' : (String(s.last_http_status).startsWith('2') ? 'ok' : 'warn'), text: s.last_http_status != null ? String(s.last_http_status) : '尚無資料' })}
+      ${_lineDiagRow('Verify Success Rate', { level: s.success_rate == null ? 'untested' : (s.success_rate >= 95 ? 'ok' : 'warn'), text: s.success_rate != null ? s.success_rate + '%' : '尚無資料' })}
+      ${_lineDiagRow('Verify Failure Rate', { level: s.failure_rate == null ? 'untested' : (s.failure_rate <= 5 ? 'ok' : 'warn'), text: s.failure_rate != null ? s.failure_rate + '%' : '尚無資料' })}
+      ${(health.reasons || []).map(r => `<div class="line-diag-detail">⚠️ ${r.replace(/</g,'&lt;')}</div>`).join('')}
+    `;
+
+    errorStatsEl.innerHTML = (json.error_breakdown || []).length
+      ? json.error_breakdown.map(e => _lineDiagRow(e.label, { level: e.count > 0 ? 'warn' : 'ok', text: e.count + ' 次' })).join('')
+      : '<div class="line-diag-row"><span class="line-diag-row__label">目前期間內沒有任何 Verify 失敗紀錄</span></div>';
+
+    summaryEl.innerHTML = `
+      ${_lineDiagRow('登入總次數', { level: 'ok', text: String(s.total) })}
+      ${_lineDiagRow('成功', { level: 'ok', text: String(s.success) })}
+      ${_lineDiagRow('失敗', { level: s.failed > 0 ? 'warn' : 'ok', text: String(s.failed) })}
+      ${_lineDiagRow('成功率', { level: s.success_rate == null ? 'untested' : (s.success_rate >= 95 ? 'ok' : 'warn'), text: s.success_rate != null ? s.success_rate + '%' : '—' })}
+      <div style="font-weight:600;margin:8px 0 4px">主要失敗原因</div>
+      ${(json.error_breakdown || []).slice(0, 5).map(f => _lineDiagRow(f.label, { level: 'warn', text: f.count + ' 次' })).join('') || '<div class="line-diag-detail">尚無失敗紀錄</div>'}
+    `;
+
+    const funnelItems = (json.analytics && json.analytics.funnel) || [];
+    const maxFunnelCount = Math.max(1, ...funnelItems.filter(f => f.tracked).map(f => f.count || 0));
+    funnelEl.innerHTML = funnelItems.map(f => `
+      <div class="line-diag-row">
+        <span class="line-diag-row__label">${f.label}</span>
+        <span class="line-diag-row__value">${f.tracked ? f.count : '⚪ 尚未追蹤'}${f.note ? ' <span class="muted" style="font-size:.75rem">（' + f.note + '）</span>' : ''}</span>
+      </div>
+      ${f.tracked ? `<div style="background:rgba(255,255,255,.08);border-radius:4px;height:6px;margin:2px 0 8px">
+        <div style="background:#3b82f6;height:100%;border-radius:4px;width:${Math.round((f.count || 0) / maxFunnelCount * 100)}%"></div>
+      </div>` : ''}`).join('');
+
+    const modules = json.line_health || {};
+    healthGridEl.innerHTML = [
+      _laModuleRow('Login', modules.login), _laModuleRow('Verify', modules.verify),
+      _laModuleRow('Messaging API', modules.messaging_api), _laModuleRow('Friendship', modules.friendship),
+      _laModuleRow('LIFF', modules.liff),
+    ].join('');
+
+    const oaModules = json.oa_center || {};
+    oaCenterEl.innerHTML = [
+      _laModuleRow('LINE Login', oaModules.login), _laModuleRow('Verify', oaModules.verify),
+      _laModuleRow('LIFF', oaModules.liff), _laModuleRow('Messaging API', oaModules.messaging_api),
+      _laModuleRow('Friendship', oaModules.friendship), _laModuleRow('Member', oaModules.member),
+      _laModuleRow('Timeline', oaModules.timeline), _laModuleRow('Coupon', oaModules.coupon),
+      _laModuleRow('Rich Menu', oaModules.rich_menu), _laModuleRow('CRM', oaModules.crm),
+    ].join('');
+
+    // Verify Timeline（需求文件三）：時間／Store／Result／HTTP Status／Code／
+    // Reason／Elapsed ms／Diagnostic Only／Identity 遮罩。不顯示任何 token。
+    if (tbody) {
+      const rows = json.timeline || [];
+      tbody.innerHTML = rows.length ? rows.map(row => `
+        <tr>
+          <td>${formatTaipeiDateTime(row.created_at, true)}</td>
+          <td>${(row.store || '').replace(/</g,'&lt;')}</td>
+          <td>${row.result === 'Success' ? '🟢 Success' : '🔴 Failed'}</td>
+          <td>${row.http_status}</td>
+          <td>${row.code || '—'}</td>
+          <td>${(row.reason || '—').replace(/</g,'&lt;')}</td>
+          <td>${row.elapsed_ms != null ? row.elapsed_ms : '—'}</td>
+          <td>${row.diagnostic_only ? '是' : '否'}</td>
+          <td>${row.identity_masked || '—'}</td>
+        </tr>`).join('') : '<tr><td colspan="9">尚無資料</td></tr>';
+    }
+  } catch (e) {
+    healthSummaryEl.textContent = '網路錯誤';
+    if (tbody) tbody.innerHTML = '<tr><td colspan="9">網路錯誤</td></tr>';
+  }
 }
 
 // ===== fix18-10-hotfix26-C：好友三態／台灣時區 共用 helper =====
