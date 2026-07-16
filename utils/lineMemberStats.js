@@ -39,11 +39,31 @@ function writeHistory(db, storeId, lineUserId, eventName, oldValue, newValue, me
   }
 }
 
+// fix18-10-hotfix26-F1（需求文件五／十六）：所有來源（LIFF 登入、verify、
+// 結帳重新確認、會員 upsert）在判斷「這次查到的好友狀態該不該覆蓋 DB」時，
+// 都必須走同一套比較規則——不得各自各寫一套。這裡只負責「新事件時間是否
+// 比 DB 上次紀錄的時間更新」，不做任何 DB 寫入（純函式，方便單元測試）。
+// existingCheckedAt / incomingCheckedAt 皆為 ISO 字串或空字串；任一方缺值時
+// 視為「無法比較，不擋」（安全預設：只有明確拿到比較新/舊時間才會忽略）。
+function isStaleFriendshipUpdate(existingCheckedAt, incomingCheckedAt) {
+  if (!incomingCheckedAt) return false; // 沒帶 checked_at，視為不參與競爭保護
+  if (!existingCheckedAt) return false; // DB 還沒有任何檢查紀錄，一定不算 stale
+  const existingMs = Date.parse(existingCheckedAt);
+  const incomingMs = Date.parse(incomingCheckedAt);
+  if (!Number.isFinite(existingMs) || !Number.isFinite(incomingMs)) return false;
+  return incomingMs < existingMs;
+}
+
 // 登入 / 好友狀態查詢完成後呼叫：建立或更新會員基本資料，並依狀態轉換規則
 // 寫入 friend_added / friend_removed / friend_restored 事件（回傳供呼叫端串接
 // analytics_events server-only 事件）。
 // isFriendRaw: true / false / null（null = 這次查不到，不覆蓋既有狀態）
-function upsertMemberProfile(db, storeId, member) {
+// options（fix18-10-hotfix26-F1 新增，皆為選填，省略時行為與舊版完全相同）：
+//   - source: 'liff_friendship' | 'login_verify' | 'checkout_recheck' |
+//             'manual_recheck' | 'webhook_follow' | 'webhook_unfollow' | 'unknown'
+//   - checked_at: 這次好友狀態查詢「真正發生」的時間（ISO 字串）；用來防止
+//     時間較舊的事件（例如晚到的 webhook）覆蓋掉時間較新的結果。
+function upsertMemberProfile(db, storeId, member, options) {
   try {
     const lineUserId = safeStr(member.line_user_id, 100);
     if (!storeId || !lineUserId) return false;
@@ -51,9 +71,13 @@ function upsertMemberProfile(db, storeId, member) {
     const pictureUrl = safeStr(member.picture_url, 500);
     const isFriendRaw = member.is_friend === true ? 1 : (member.is_friend === false ? 0 : null);
     const isLogin = !!member.is_login; // 是否伴隨一次登入（更新 last_login_at）
+    const opts = options || {};
+    const source = opts.source ? safeStr(opts.source, 40) : '';
+    const checkedAtNow = new Date().toISOString();
+    const checkedAt = opts.checked_at ? safeStr(opts.checked_at, 40) : checkedAtNow;
 
     const existing = db.get(
-      'SELECT id, is_friend, is_blocked, friend_since, display_name FROM line_members WHERE store_id=? AND line_user_id=?',
+      'SELECT id, is_friend, is_blocked, friend_since, display_name, last_friend_check FROM line_members WHERE store_id=? AND line_user_id=?',
       [storeId, lineUserId]
     );
 
@@ -64,13 +88,15 @@ function upsertMemberProfile(db, storeId, member) {
       db.run(
         `INSERT INTO line_members (
            store_id, line_user_id, display_name, picture_url, is_friend, is_blocked,
-           friend_since, last_friend_check, last_login_at
-         ) VALUES (?,?,?,?,?,0,?,?,?)`,
+           friend_since, last_friend_check, last_login_at, friend_source, friend_status_changed_at
+         ) VALUES (?,?,?,?,?,0,?,?,?,?,?)`,
         [
           storeId, lineUserId, displayName, pictureUrl, isFriendRaw,
-          isFriendRaw === 1 ? new Date().toISOString() : '',
-          isFriendRaw === null ? '' : new Date().toISOString(),
-          isLogin ? new Date().toISOString() : '',
+          isFriendRaw === 1 ? checkedAtNow : '',
+          isFriendRaw === null ? '' : checkedAt,
+          isLogin ? checkedAtNow : '',
+          isFriendRaw === null ? '' : (source || 'unknown'),
+          isFriendRaw === null ? '' : checkedAt,
         ]
       );
       if (isFriendRaw === 1) friendEvent = 'friend_added';
@@ -85,13 +111,26 @@ function upsertMemberProfile(db, storeId, member) {
       let crmFriendEvent = null;
       if (isFriendRaw !== null) crmFriendEvent = 'friend_status_checked'; // 首次取得好友狀態（不論 true/false）
       if (crmFriendEvent) {
-        writeHistory(db, storeId, lineUserId, crmFriendEvent, 'unknown', String(!!isFriendRaw), { friend_flag: isFriendRaw === 1 });
+        writeHistory(db, storeId, lineUserId, crmFriendEvent, 'unknown', String(!!isFriendRaw), { friend_flag: isFriendRaw === 1, source: source || 'unknown' });
       }
-      return { created: true, isFriend: isFriendRaw === 1, friendEvent, crmFriendEvent };
+      return { created: true, isFriend: isFriendRaw === 1, friendEvent, crmFriendEvent, staleIgnored: false };
     }
 
+    // fix18-10-hotfix26-F1（需求文件十六）：時間競爭保護——若這次帶了 checked_at，
+    // 且明確早於 DB 目前的 last_friend_check，代表是晚到的舊事件，直接忽略這次
+    // 好友狀態／來源／時間的變更（display_name／last_seen_at 等與好友狀態無關的
+    // 欄位仍可正常更新，不受影響）。只寫 log，不寫 history（需求文件十六）。
+    const staleIgnored = isFriendRaw !== null && isStaleFriendshipUpdate(existing.last_friend_check, checkedAt);
+    if (staleIgnored && process.env.LINE_MEMBER_DEBUG === '1') {
+      console.log('[lineMemberStats] stale_update_ignored', JSON.stringify({
+        store_id: storeId, source: source || 'unknown',
+        existing_checked_at: existing.last_friend_check, incoming_checked_at: checkedAt,
+      }));
+    }
+    const effectiveIsFriendRaw = staleIgnored ? null : isFriendRaw;
+
     const prevIsFriend = existing.is_friend; // 1 / 0 / null
-    const nextIsFriend = isFriendRaw === null ? prevIsFriend : isFriendRaw;
+    const nextIsFriend = effectiveIsFriendRaw === null ? prevIsFriend : effectiveIsFriendRaw;
 
     // ── 好友狀態轉換規則（需求文件三）───────────────────────────
     let nextIsBlocked = existing.is_blocked;
@@ -100,8 +139,8 @@ function upsertMemberProfile(db, storeId, member) {
     // friendEvent（analytics_events／Dashboard 漏斗用，命名不可變更）分開計算，
     // 兩者並存寫入，互不取代。
     let crmFriendEvent = null;
-    if (isFriendRaw !== null && isFriendRaw !== prevIsFriend) {
-      if (isFriendRaw === 1) {
+    if (effectiveIsFriendRaw !== null && effectiveIsFriendRaw !== prevIsFriend) {
+      if (effectiveIsFriendRaw === 1) {
         // null/false → true
         friendEvent = (prevIsFriend === null || existing.friend_since === '' || existing.friend_since === null)
           ? 'friend_added'
@@ -109,8 +148,8 @@ function upsertMemberProfile(db, storeId, member) {
         crmFriendEvent = prevIsFriend === null ? 'friend_status_checked' : 'joined_official_account';
         nextIsBlocked = 0;
         // friend_since：第一次加入才設定；重新加入保留原始值
-        if (!existing.friend_since) friendSinceSql = new Date().toISOString();
-      } else if (isFriendRaw === 0) {
+        if (!existing.friend_since) friendSinceSql = checkedAtNow;
+      } else if (effectiveIsFriendRaw === 0) {
         if (prevIsFriend === 1) {
           friendEvent = 'friend_removed';
           crmFriendEvent = 'unfollowed_official_account';
@@ -121,15 +160,23 @@ function upsertMemberProfile(db, storeId, member) {
         }
       }
     }
+    const friendStateChanged = effectiveIsFriendRaw !== null && effectiveIsFriendRaw !== prevIsFriend;
 
     const sets = [
       'display_name=?', 'picture_url=?', 'is_friend=?', 'is_blocked=?',
       'last_seen_at=' + nowClause, 'updated_at=' + nowClause,
     ];
     const vals = [displayName, pictureUrl, nextIsFriend, nextIsBlocked];
-    if (isFriendRaw !== null) { sets.push('last_friend_check=?'); vals.push(new Date().toISOString()); }
-    if (isLogin) { sets.push('last_login_at=?'); vals.push(new Date().toISOString()); }
+    // fix18-10-hotfix26-F1：狀態相同時（effectiveIsFriendRaw !== null 但沒有轉換）
+    // 只更新 last_friend_check／friend_source／updated_at，不動 friend_status_changed_at
+    // （需求文件八）；stale 的這次直接整組略過，不更新任何好友相關欄位或時間戳。
+    if (effectiveIsFriendRaw !== null) {
+      sets.push('last_friend_check=?'); vals.push(checkedAt);
+      sets.push('friend_source=?'); vals.push(source || 'unknown');
+    }
+    if (isLogin) { sets.push('last_login_at=?'); vals.push(checkedAtNow); }
     if (friendSinceSql) { sets.push('friend_since=?'); vals.push(friendSinceSql); }
+    if (friendStateChanged) { sets.push('friend_status_changed_at=?'); vals.push(checkedAt); }
 
     db.run(`UPDATE line_members SET ${sets.join(', ')} WHERE store_id=? AND line_user_id=?`, [...vals, storeId, lineUserId]);
 
@@ -140,15 +187,15 @@ function upsertMemberProfile(db, storeId, member) {
     if (friendEvent) {
       writeHistory(db, storeId, lineUserId, friendEvent,
         prevIsFriend === null ? 'unknown' : String(!!prevIsFriend),
-        String(!!isFriendRaw), {});
+        String(!!effectiveIsFriendRaw), { source: source || 'unknown' });
     }
     if (crmFriendEvent) {
       writeHistory(db, storeId, lineUserId, crmFriendEvent,
         prevIsFriend === null ? 'unknown' : String(!!prevIsFriend),
-        String(!!isFriendRaw), { friend_flag: isFriendRaw === 1 });
+        String(!!effectiveIsFriendRaw), { friend_flag: effectiveIsFriendRaw === 1, source: source || 'unknown' });
     }
 
-    return { created: false, isFriend: nextIsFriend === 1, friendEvent, crmFriendEvent };
+    return { created: false, isFriend: nextIsFriend === 1, friendEvent, crmFriendEvent, staleIgnored };
   } catch (e) {
     console.warn('[lineMemberStats] upsertMemberProfile failed:', e.message);
     return false;
@@ -361,6 +408,7 @@ function computeLifecycleStage(member, nowMs) {
 module.exports = {
   writeHistory,
   upsertMemberProfile,
+  isStaleFriendshipUpdate,
   linkMemberSession,
   updateTouchAttribution,
   recordFirstCart,

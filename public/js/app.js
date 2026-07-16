@@ -2790,6 +2790,22 @@ function friendEventLabel(eventName) {
   return LINE_MEMBER_EVENT_LABELS[eventName] || eventName;
 }
 
+// fix18-10-hotfix26-F1（需求文件十三）：好友狀態最後一次成功查核的來源，
+// 供 CRM 會員詳情頁顯示（不影響既有 CRM Layout，只是文字說明）。
+const LINE_MEMBER_FRIEND_SOURCE_LABELS = {
+  liff_friendship: 'LIFF 好友狀態查詢',
+  login_verify: 'LINE 登入驗證',
+  checkout_recheck: '結帳重新確認',
+  manual_recheck: '手動重新確認',
+  webhook_follow: 'LINE Webhook（加入好友）',
+  webhook_unfollow: 'LINE Webhook（取消/封鎖）',
+  unknown: '未知',
+};
+function friendSourceLabel(source) {
+  if (!source) return '—';
+  return LINE_MEMBER_FRIEND_SOURCE_LABELS[source] || source;
+}
+
 // ===== fix18-10-hotfix23-E：LINE 會員管理（列表 / CSV 匯出 / 詳情） =====
 // fix18-10-hotfix26-C：新增好友狀態三態篩選（獨立於既有 lmFilterSelect 的
 // friend/not_friend 語意，對應後端新的 friend_status query），change listener
@@ -2909,7 +2925,7 @@ async function openLineMemberDetail(id) {
         <div class="member-detail-modal__section">
           <h4>好友與官方帳號</h4>
           <div class="member-detail-modal__row"><span class="member-detail-modal__label">好友狀態</span><span class="member-detail-modal__value">${friendStatusHtml(d.friend_status !== undefined ? d.friend_status : d.is_friend)}</span></div>
-          <div class="member-detail-modal__row"><span class="member-detail-modal__label">最後確認</span><span class="member-detail-modal__value">${formatTaipeiDateTime(lastFriendCheckAt)}</span></div>
+          <div class="member-detail-modal__row"><span class="member-detail-modal__label">最後確認</span><span class="member-detail-modal__value">${formatTaipeiDateTime(lastFriendCheckAt)}（${friendSourceLabel(d.friend_source)}）</span></div>
           <div class="member-detail-modal__row"><span class="member-detail-modal__label">官方帳號要求</span><span class="member-detail-modal__value">${requireFollow ? '已啟用' : '未啟用'}</span></div>
           <div class="member-detail-modal__row"><span class="member-detail-modal__label">符合要求</span><span class="member-detail-modal__value">${meetsText}</span></div>
           <div class="member-detail-modal__row"><span class="member-detail-modal__label">加入好友</span><span class="member-detail-modal__value">${formatTaipeiDateTime(d.friend_since)}</span></div>

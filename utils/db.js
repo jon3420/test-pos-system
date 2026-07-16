@@ -1572,6 +1572,13 @@ function initTables(w) {
     "ALTER TABLE line_members ADD COLUMN first_purchase_at TEXT DEFAULT ''",
     "ALTER TABLE line_members ADD COLUMN last_purchase_at TEXT DEFAULT ''",
     "ALTER TABLE line_members ADD COLUMN lifetime_value REAL DEFAULT 0",
+    // fix18-10-hotfix26-F1（需求文件七）：好友狀態同步來源與「真正轉換時間」。
+    // friend_source 只記錄「最後一次成功查到好友狀態」的來源（liff_friendship／
+    // login_verify／checkout_recheck／manual_recheck／webhook_follow／
+    // webhook_unfollow／unknown），friend_status_changed_at 只在 is_friend 真的
+    // 從 true↔false 轉換時才更新（狀態不變時只更新 last_friend_check，不動這欄）。
+    "ALTER TABLE line_members ADD COLUMN friend_source TEXT DEFAULT ''",
+    "ALTER TABLE line_members ADD COLUMN friend_status_changed_at TEXT DEFAULT ''",
   ];
   lineMemberCrmMigrations.forEach(sql => { try { w._db.run(sql); w._save(); } catch {} });
 

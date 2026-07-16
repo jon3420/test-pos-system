@@ -115,6 +115,19 @@ function friendStatusLabel(isFriend) {
   return 'unknown';
 }
 
+// fix18-10-hotfix26-F1（需求文件九／十一）：把前端送來的 gate_stage 對應成
+// 規格指定的 friend_source 詞彙。這裡只是命名對應，不影響任何既有判斷邏輯——
+// 'friend_recheck' 就是使用者按下「我已加入，重新確認」或從加好友頁自動返回
+// 觸發的重新確認，對應規格的 checkout_recheck；'callback' 是 LIFF 登入導回頁
+// 自動完成的驗證，對應 login_verify；其餘（entry/checkout 首次驗證等）視為
+// 一般的 liff_friendship 結果來源。
+function friendSourceFromGateStage(gateStage) {
+  if (gateStage === 'friend_recheck') return 'checkout_recheck';
+  if (gateStage === 'callback') return 'login_verify';
+  if (gateStage === 'manual_recheck') return 'manual_recheck';
+  return 'liff_friendship';
+}
+
 // fix18-10-hotfix26-A（需求文件十五／A6）：是否符合「要求加入官方帳號」設定。
 // requireFriend=false → true（沒有要求，一律符合）
 // requireFriend=true  → is_friend=1 為 true／is_friend=0 為 false／is_friend=NULL 為 null（無法確認，不可誤判）
@@ -297,13 +310,18 @@ router.post('/verify', async (req, res) => {
       metadata: { is_friend: finalIsFriend, gate_stage: ap.gate_stage || null } });
 
     // ── upsert 會員資料 + 好友狀態轉換規則 ───────────────────────
+    // fix18-10-hotfix26-F1（需求文件五／七／十六）：所有來源都經同一組
+    // upsertMemberProfile() 參數（source／checked_at）走同一套規則，不再各自
+    // 判斷；checked_at 用「這次請求真正發生的時間」，讓時間競爭保護生效。
+    const friendCheckedAt = new Date().toISOString();
+    const friendSource = friendSourceFromGateStage(ap.gate_stage);
     const upsertResult = upsertMemberProfile(db, storeId, {
       line_user_id: lineUserId,
       display_name: verifyResult.display_name,
       picture_url: verifyResult.picture_url,
       is_friend: finalIsFriend,
       is_login: true,
-    });
+    }, { source: friendSource, checked_at: friendCheckedAt });
 
     // ── 串接匿名 Analytics 識別（Customer Journey）──────────────
     linkMemberSession(db, storeId, lineUserId, {
@@ -325,7 +343,7 @@ router.post('/verify', async (req, res) => {
       logServerEvent(db, { ...evtBase, event_name: upsertResult.friendEvent, metadata: {} });
     }
 
-    const freshRow = db.get('SELECT is_blocked, last_friend_check FROM line_members WHERE store_id=? AND line_user_id=?', [storeId, lineUserId]) || {};
+    const freshRow = db.get('SELECT is_blocked, last_friend_check, friend_source FROM line_members WHERE store_id=? AND line_user_id=?', [storeId, lineUserId]) || {};
     // fix18-10-hotfix26（需求文件八）：是否「要求加入官方帳號」由店家設定決定，
     // 沿用既有 line_member_require_friend 設定 key（規格文件裡的 require_follow
     // 只是範例命名，實際專案已有這個設定，不重複建立第二個）。回傳給前端，
@@ -356,6 +374,14 @@ router.post('/verify', async (req, res) => {
         is_blocked: !!freshRow.is_blocked,
         last_friend_check: lastFriendCheckAt,
         last_friend_check_at: lastFriendCheckAt,
+      },
+      // fix18-10-hotfix26-F1（需求文件十七）：向下相容新增欄位，不移除既有欄位。
+      friendship: {
+        is_friend: finalIsFriend,
+        status: friendStatusLabel(finalIsFriend),
+        source: freshRow.friend_source || friendSource,
+        checked_at: friendCheckedAt,
+        changed: !!(upsertResult && upsertResult.friendEvent),
       },
     });
   } catch (e) {
@@ -434,6 +460,8 @@ router.get('/members', requireStaffJwt, (req, res) => {
         friend_since: r.friend_since,
         last_login_at: r.last_login_at,
         last_friend_check: r.last_friend_check,
+        last_friend_check_at: r.last_friend_check,
+        friend_source: r.friend_source || '',
         first_touch_source: r.first_touch_source,
         last_touch_source: r.last_touch_source,
         first_order_at: r.first_order_at,
@@ -521,6 +549,7 @@ router.get('/members/:id', requireStaffJwt, (req, res) => {
         is_friend: row.is_friend, friend_status: friendStatusLabel(row.is_friend), is_blocked: row.is_blocked,
         friend_since: row.friend_since, last_login_at: row.last_login_at,
         last_friend_check: row.last_friend_check, last_friend_check_at: row.last_friend_check,
+        friend_source: row.friend_source || '', friend_status_changed_at: row.friend_status_changed_at || '',
         require_friend: requireFriend, require_follow: requireFriend, meets_requirement: meetsReq,
         first_touch_source: row.first_touch_source, first_touch_campaign: row.first_touch_campaign,
         last_touch_source: row.last_touch_source, last_touch_campaign: row.last_touch_campaign,
