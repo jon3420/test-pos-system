@@ -315,8 +315,13 @@ async function testCheckoutAndEntryPromiseResolve() {
     } else fail('checkout（Facebook 環境）：resolve 內容不符', JSON.stringify(result));
     const guideEl = doc.getElementById('lineMemberExternalGuide') || null;
     // 由於 idRegistry 只在對應容器 innerHTML set 時註冊 id，這裡改用行為斷言：
-    // showExternalBrowserLoginGuide 呼叫後應該有 lmgOpenLineBtn 可互動。
-    if (doc.getElementById('lmgOpenLineBtn')) pass('checkout（Facebook 環境）：顯示外部瀏覽器引導（使用 LINE 開啟按鈕存在）');
+    // showExternalBrowserLoginGuide 呼叫後應該有可互動的引導按鈕存在。
+    // fix18-10-hotfix26-F3（回歸修正，非邏輯改動）：F3 起，iOS 版引導改用
+    // Chrome 優先版型（lmgChromeBtn／lmgSafariBtn／lmgCopyLinkBtn），不再顯示
+    // 舊版 lmgOpenLineBtn（「嘗試使用 LINE 開啟」）——這是 F3 需求文件明確要求的
+    // 行為變更（LINE/iOS 官方限制下不宜再宣稱這顆按鈕會成功），因此這裡改成
+    // 斷言 F3 之後 iOS 應該顯示的按鈕，而不是斷言已被有意移除的舊按鈕。
+    if (doc.getElementById('lmgChromeBtn')) pass('checkout（Facebook 環境）：顯示外部瀏覽器引導（iOS 版「使用 Chrome 開啟」按鈕存在，fix18-10-hotfix26-F3 起取代舊版 LINE 開啟按鈕）');
     else fail('checkout（Facebook 環境）：應顯示外部瀏覽器引導', '');
   }
   {

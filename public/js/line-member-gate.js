@@ -840,21 +840,40 @@
     // App 喚醒本來就有官方限制，不宜再引導使用者「直接嘗試用 LINE 開啟」當作首選——
     // 改成官方建議流程（提示改用 Safari 開啟 → 在 Safari 內完成 LINE 登入）。Android
     // 維持原本文案與流程完全不動（Messenger→Chrome→LINE Login 本來就能自動登入）。
-    const introHtml = environment.isIOS
+    const introHtmlLegacy = environment.isIOS
       ? `您目前正在 Facebook／Instagram 內建瀏覽器中。<br><br>iOS 上的內建瀏覽器可能無法直接完成 LINE 自動登入。<br><br>請點右上角「⋯」，選擇「在 Safari 中開啟」，即可直接使用 LINE 登入。<br><br>購物車內容會為您保留。`
       : `您目前正在 Facebook／Instagram 內建瀏覽器中。<br><br>直接登入可能會要求輸入 LINE 電子郵件與密碼。<br><br>建議改用 LINE App 開啟，即可更安全、快速地完成會員登入，購物車內容會為您保留。`;
+
+    // fix18-10-hotfix26-F3（Fix-2）：iOS 專用引導畫面——標題／文案／按鈕改採需求文件
+    // 指定的 Chrome 優先版型（使用 Chrome 開啟／如何使用 Safari 開啟／複製點餐連結），
+    // 不再把「嘗試使用 LINE 開啟」當 iOS 的主要按鈕（LINE / iOS / Messenger WebView
+    // 官方本來就有限制，不宜宣稱這個按鈕會成功）。Android／其他瀏覽器分支完全維持
+    // hotfix26-F2 原本的標題／文案／四個按鈕不變，一個字都不動。
+    const headingText = environment.isIOS ? '請改用外部瀏覽器完成 LINE 登入' : '請使用 LINE 完成會員登入';
+    const introHtml = environment.isIOS
+      ? `目前 Facebook／Messenger／Instagram 內建瀏覽器限制，可能要求重新輸入 LINE 帳號密碼。<br><br>建議改用 Chrome 或 Safari 開啟。<br><br>購物車內容會保留。`
+      : introHtmlLegacy;
+
+    const iosButtonsHtml = `
+        <button id="lmgChromeBtn" style="width:100%;padding:12px;border:0;border-radius:10px;background:#06C755;color:#fff;font-size:15px;font-weight:600;margin-bottom:8px;cursor:pointer">使用 Chrome 開啟</button>
+        <div style="font-size:12px;color:#888;text-align:center;margin-bottom:6px">若 Chrome 仍無法完成登入，請使用 Safari。</div>
+        <button id="lmgSafariBtn" style="width:100%;padding:12px;border:1px solid #06C755;border-radius:10px;background:#fff;color:#06C755;font-size:14px;font-weight:600;cursor:pointer;margin-bottom:8px">如何使用 Safari 開啟</button>
+        <button id="lmgCopyLinkBtn" style="width:100%;padding:12px;border:1px solid #ccc;border-radius:10px;background:#fff;color:#333;font-size:14px;font-weight:600;cursor:pointer;margin-bottom:8px">複製點餐連結</button>
+        <button id="lmgExternalBackBtn" style="width:100%;padding:10px;border:0;background:transparent;color:#999;font-size:13px;cursor:pointer;text-align:center">返回購物車</button>`;
+    // fix18-10-hotfix26-F2 原始版型（Android／其他瀏覽器維持不變，逐字未改）：
+    const legacyButtonsHtml = `
+        <button id="lmgOpenLineBtn" style="width:100%;padding:12px;border:0;border-radius:10px;background:#06C755;color:#fff;font-size:15px;font-weight:600;margin-bottom:8px;cursor:pointer">嘗試使用 LINE 開啟</button>
+        <button id="lmgOsHintBtn" style="width:100%;padding:12px;border:1px solid #06C755;border-radius:10px;background:#fff;color:#06C755;font-size:14px;font-weight:600;cursor:pointer;margin-bottom:8px">${escapeHtml(osHintLabel)}</button>
+        <button id="lmgCopyLinkBtn" style="width:100%;padding:12px;border:1px solid #ccc;border-radius:10px;background:#fff;color:#333;font-size:14px;font-weight:600;cursor:pointer;margin-bottom:8px">複製點餐連結</button>
+        <button id="lmgExternalBackBtn" style="width:100%;padding:10px;border:0;background:transparent;color:#999;font-size:13px;cursor:pointer;text-align:center">返回購物車</button>`;
 
     externalGuideEl.innerHTML = `
       <div style="background:#fff;border-radius:16px;max-width:380px;width:100%;padding:24px;text-align:left;font-family:inherit">
         <div style="font-size:40px;line-height:1;margin-bottom:8px;text-align:center">📲</div>
-        <h3 style="margin:0 0 8px;font-size:18px;text-align:center">請使用 LINE 完成會員登入</h3>
+        <h3 style="margin:0 0 8px;font-size:18px;text-align:center">${escapeHtml(headingText)}</h3>
         <p style="margin:0 0 12px;color:#666;font-size:14px;line-height:1.6">${introHtml}</p>
         <div style="background:#fff7e6;border:1px solid #ffd580;border-radius:8px;padding:8px 10px;margin-bottom:14px;font-size:13px;color:#a15c00">⚠ 不需要在此頁輸入 LINE 帳號密碼。</div>
-        <div id="lmgExternalStatus" style="font-size:13px;color:#888;margin-bottom:10px;text-align:center"></div>
-        <button id="lmgOpenLineBtn" style="width:100%;padding:12px;border:0;border-radius:10px;background:#06C755;color:#fff;font-size:15px;font-weight:600;margin-bottom:8px;cursor:pointer">嘗試使用 LINE 開啟</button>
-        <button id="lmgOsHintBtn" style="width:100%;padding:12px;border:1px solid #06C755;border-radius:10px;background:#fff;color:#06C755;font-size:14px;font-weight:600;cursor:pointer;margin-bottom:8px">${escapeHtml(osHintLabel)}</button>
-        <button id="lmgCopyLinkBtn" style="width:100%;padding:12px;border:1px solid #ccc;border-radius:10px;background:#fff;color:#333;font-size:14px;font-weight:600;cursor:pointer;margin-bottom:8px">複製點餐連結</button>
-        <button id="lmgExternalBackBtn" style="width:100%;padding:10px;border:0;background:transparent;color:#999;font-size:13px;cursor:pointer;text-align:center">返回購物車</button>
+        <div id="lmgExternalStatus" style="font-size:13px;color:#888;margin-bottom:10px;text-align:center"></div>${environment.isIOS ? iosButtonsHtml : legacyButtonsHtml}
       </div>`;
     document.body.appendChild(externalGuideEl);
     externalGuideVisible = true;
@@ -910,33 +929,82 @@
       }
     }
 
+    // fix18-10-hotfix26-F3（Fix-2）：iOS 版「使用 Chrome 開啟」——與 Android 版
+    // openInAndroidChrome() 同樣手法（保留完整 host/path/search，即 Fix-3 要求的
+    // 所有 Query String 都要保留），只是改用 iOS Chrome 官方文件記載的
+    // googlechromes:// scheme（https 對應 googlechromes://，http 對應
+    // googlechrome://），不是「奇怪的自創 scheme」。無法偵測是否真的喚起 Chrome
+    // （iOS 瀏覽器本來就無法偵測），因此一律同時顯示「若沒有反應」的說明，
+    // 不宣稱一定成功。
+    function openInIOSChrome(url) {
+      try {
+        const parsed = new URL(url);
+        const isHttps = parsed.protocol === 'https:';
+        const chromeScheme = isHttps ? 'googlechromes://' : 'googlechrome://';
+        const chromeUrl = chromeScheme + parsed.host + parsed.pathname + parsed.search;
+        global.location.href = chromeUrl;
+        return true;
+      } catch (e) { return false; }
+    }
+
     const openLineBtn = externalGuideEl.querySelector('#lmgOpenLineBtn');
     const osHintBtn = externalGuideEl.querySelector('#lmgOsHintBtn');
+    const chromeBtn = externalGuideEl.querySelector('#lmgChromeBtn');
+    const safariBtn = externalGuideEl.querySelector('#lmgSafariBtn');
     const copyBtn = externalGuideEl.querySelector('#lmgCopyLinkBtn');
     const backBtn = externalGuideEl.querySelector('#lmgExternalBackBtn');
 
-    openLineBtn.addEventListener('click', attemptOpenLine);
+    // Android／其他瀏覽器（legacyButtonsHtml）才會有這兩個元素；iOS 版型
+    // （iosButtonsHtml）沒有 lmgOpenLineBtn／lmgOsHintBtn，以下沿用 hotfix26-F2
+    // 原本的邏輯，完全不變。
+    if (openLineBtn) openLineBtn.addEventListener('click', attemptOpenLine);
 
-    osHintBtn.addEventListener('click', () => {
-      trackLineEnvironmentEvent(onEvent, 'line_login_open_browser_clicked', environment, gateStage, storeId);
-      if (environment.isAndroid) {
-        // 需求文件十：intent 失敗要有 fallback，不白畫面、不無限重試。
-        const ok = openInAndroidChrome(getSafeCurrentPageUrl());
-        if (!ok) setExternalStatus('請點右上角選單，選擇「使用外部瀏覽器開啟」。', false);
-      } else if (environment.isIOS) {
-        setExternalStatus('請點右上角「⋯」，選擇「在瀏覽器中開啟」，回到點餐頁後再按 LINE 登入。', false);
-      } else {
-        setExternalStatus('請點選瀏覽器選單，選擇「使用外部瀏覽器開啟」。', false);
-      }
-    });
+    if (osHintBtn) {
+      osHintBtn.addEventListener('click', () => {
+        trackLineEnvironmentEvent(onEvent, 'line_login_open_browser_clicked', environment, gateStage, storeId);
+        if (environment.isAndroid) {
+          // 需求文件十：intent 失敗要有 fallback，不白畫面、不無限重試。
+          const ok = openInAndroidChrome(getSafeCurrentPageUrl());
+          if (!ok) setExternalStatus('請點右上角選單，選擇「使用外部瀏覽器開啟」。', false);
+        } else if (environment.isIOS) {
+          setExternalStatus('請點右上角「⋯」，選擇「在瀏覽器中開啟」，回到點餐頁後再按 LINE 登入。', false);
+        } else {
+          setExternalStatus('請點選瀏覽器選單，選擇「使用外部瀏覽器開啟」。', false);
+        }
+      });
+    }
+
+    // fix18-10-hotfix26-F3（Fix-2）：iOS 專用兩顆按鈕，只在 iosButtonsHtml 版型存在。
+    if (chromeBtn) {
+      chromeBtn.addEventListener('click', () => {
+        trackLineEnvironmentEvent(onEvent, 'line_login_open_chrome_clicked', environment, gateStage, storeId);
+        const ok = openInIOSChrome(getSafeCurrentPageUrl());
+        // 不宣稱一定成功（iOS 無法偵測 googlechromes:// 是否真的喚起 App）。
+        setExternalStatus(ok
+          ? '建議使用 Chrome。若沒有反應，代表尚未安裝 Chrome 或您的裝置限制此功能，請改用下方 Safari 說明。'
+          : '目前無法開啟 Chrome，請改用下方 Safari 說明。', false);
+      });
+    }
+    if (safariBtn) {
+      safariBtn.addEventListener('click', () => {
+        trackLineEnvironmentEvent(onEvent, 'line_login_open_browser_clicked', environment, gateStage, storeId);
+        setExternalStatus('請點右上角「⋯」，選擇「在 Safari 中開啟」，回到點餐頁後再按 LINE 登入。', false);
+      });
+    }
 
     copyBtn.addEventListener('click', async () => {
       trackLineEnvironmentEvent(onEvent, 'line_login_copy_link_clicked', environment, gateStage, storeId);
       const url = getSafeCurrentPageUrl();
+      // fix18-10-hotfix26-F3（Fix-2 Copy Link）：iOS 版複製成功文案改用需求文件
+      // 指定的「貼到 LINE 聊天室／官方帳號圖文選單」說明；Android／其他瀏覽器
+      // 維持 hotfix26-F2 原本的文案不變。
+      const copiedMsg = environment.isIOS
+        ? '已複製點餐連結。若仍無法登入，請將連結貼到 LINE 聊天室或官方帳號圖文選單，重新開啟即可完成 LINE 登入。'
+        : '已複製點餐連結，請貼到瀏覽器開啟。';
       try {
         if (global.navigator && global.navigator.clipboard && global.navigator.clipboard.writeText) {
           await global.navigator.clipboard.writeText(url);
-          setExternalStatus('已複製點餐連結，請貼到瀏覽器開啟。', false);
+          setExternalStatus(copiedMsg, false);
         } else {
           setExternalStatus('請手動複製此連結：' + url, false);
         }

@@ -472,6 +472,12 @@ router.get('/shop', (req, res) => {
       'line_member_login_channel_id', 'line_member_liff_id', 'line_member_return_url',
       'line_member_title', 'line_member_description', 'line_member_friend_button_text',
       'line_member_login_button_text', 'line_member_skip_button_text',
+      // fix18-10-hotfix26-F3：取餐地址（外帶模式顯示用）。store_address／store_lat／
+      // store_lng 本來就已存在於既有外送距離費率設定，這裡純粹「額外」讓 GET /shop
+      // 一併回傳，不新增資料表、不影響既有外送費率計算邏輯；pickup_address 為新增
+      // 選填欄位，當 store_address 未設定時才使用（優先序見前端 resolvePickupAddressText()：
+      // store_address → pickup_address → 都沒有則顯示「請洽店家確認取餐地點」）。
+      'store_address', 'store_lat', 'store_lng', 'pickup_address',
     ];
     const settings = {};
     keys.forEach(k => { settings[k] = getSetting(db, storeId, k, ''); });

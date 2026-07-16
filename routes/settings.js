@@ -45,6 +45,9 @@ const LINE_KEYS = new Set([
   'line_announcement_closable', 'line_announcement_display_mode',
   'line_announcement_frequency', 'line_announcement_version',
   'line_announcement_auto_holiday',
+  // fix18-10-hotfix26-F3：外帶取餐地址（顧客結帳頁顯示用；純新增選填欄位，
+  // 沒有設定時前端 fallback 使用 store_address，兩者都沒有時顯示「請洽店家確認取餐地點」）。
+  'pickup_address',
 ]);
 
 // fix18-06：外送距離費率相關 key

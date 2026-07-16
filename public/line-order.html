@@ -190,6 +190,12 @@ img{max-width:100%;display:block}
 .delivery-addr-wrap.visible{display:block}
 .delivery-gps-btn{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;padding:9px;background:#e8f5e9;color:#2e7d32;border:1.5px solid #66bb6a;border-radius:8px;font-size:13px;font-weight:600;margin-top:6px;cursor:pointer;-webkit-tap-highlight-color:transparent}
 .delivery-gps-btn:active{opacity:.82}
+/* fix18-10-hotfix26-F3: 外帶取餐地址區塊（純新增，樣式沿用外送地址區塊的視覺語彙）*/
+.pickup-addr-wrap{display:none;margin-top:0}
+.pickup-addr-wrap.visible{display:block}
+.pickup-addr-box{background:#f7f9fb;border:1px solid var(--bd);border-radius:8px;padding:10px 12px;font-size:13.5px;color:#333;line-height:1.6;margin-bottom:8px;white-space:pre-line}
+.pickup-addr-btns{display:flex;gap:8px}
+.pickup-addr-btns .delivery-gps-btn{margin-top:0}
 .delivery-fee-row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;font-size:14px;font-weight:500;color:#e65100;border-top:1px dashed #ffe0b2;margin-top:6px}
 .delivery-fee-label{color:#888;font-size:13px}
 .delivery-distance-badge{background:#fff3e0;color:#e65100;border-radius:6px;padding:2px 8px;font-size:12px;font-weight:700;margin-left:6px}
@@ -292,6 +298,16 @@ img{max-width:100%;display:block}
       <select class="fi" id="pDate" onchange="onDateChange()"></select>
     </div>
     <div class="fg"><label class="fl" id="timeLabel">取餐時間 <span class="req">*</span></label><select class="fi" id="pTime" onchange="persistCart()"><option value="">請先選擇日期</option></select></div>
+    <!-- fix18-10-hotfix26-F3：取餐地址（外帶模式才顯示，純新增，不影響外送地址區塊）-->
+    <div class="pickup-addr-wrap" id="pickupAddrWrap">
+      <div class="fg"><label class="fl">📍 取餐地址</label>
+        <div class="pickup-addr-box" id="pickupAddrText"></div>
+        <div class="pickup-addr-btns">
+          <button type="button" class="delivery-gps-btn" id="pickupMapsBtn" onclick="openPickupAddressMaps()">🗺️ 開啟 Google Maps</button>
+          <button type="button" class="delivery-gps-btn" id="pickupCopyBtn" onclick="copyPickupAddress()">📋 複製地址</button>
+        </div>
+      </div>
+    </div>
     <!-- fix18-06：外送地址（外送模式才顯示）-->
     <div class="delivery-addr-wrap" id="deliveryAddrWrap">
       <div class="fg"><label class="fl">外送地址 <span class="req">*</span></label>
@@ -772,6 +788,7 @@ async function init(){
       buildDateSelector();
       // fix18-08: 初始化時同步外送地址顯示狀態
       updateDeliveryAddressVisibility();
+  updatePickupAddressVisibility();
       updateModeAvailabilityUI();
     }
     if(mr.success){categories=mr.data.categories||[];allProducts=mr.data.products||[];}
@@ -1048,6 +1065,68 @@ function updateDeliveryAddressVisibility(){
     if(typeof resetDeliveryFee==='function') resetDeliveryFee();
   }
 }
+
+// ── fix18-10-hotfix26-F3：外帶取餐地址（純新增，additive）──────────────
+// 地址來源優先序：store_address → pickup_address → 都沒有則顯示提示文字，
+// 不得寫死 store_001／任何特定店家地址。
+function resolvePickupAddressText(){
+  const storeAddr=(shopData&&shopData.store_address)?String(shopData.store_address).trim():'';
+  if(storeAddr) return storeAddr;
+  const pickupAddr=(shopData&&shopData.pickup_address)?String(shopData.pickup_address).trim():'';
+  if(pickupAddr) return pickupAddr;
+  return '';
+}
+// 有座標優先用座標產生 Google Maps 連結（較精準）；沒有座標才 fallback 用地址搜尋。
+function buildPickupMapsUrl(){
+  const lat=parseFloat(shopData&&shopData.store_lat);
+  const lng=parseFloat(shopData&&shopData.store_lng);
+  if(Number.isFinite(lat)&&Number.isFinite(lng)) return `https://www.google.com/maps?q=${lat},${lng}`;
+  const addr=resolvePickupAddressText();
+  if(!addr) return '';
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addr)}`;
+}
+// 只有外帶才顯示；外送一律隱藏（需求文件 Fix1「UI 規則」）。
+function updatePickupAddressVisibility(){
+  const wrap=document.getElementById('pickupAddrWrap');
+  const textEl=document.getElementById('pickupAddrText');
+  const mapsBtn=document.getElementById('pickupMapsBtn');
+  const copyBtn=document.getElementById('pickupCopyBtn');
+  if(!wrap) return;
+  if(currentMode!=='takeout'){
+    wrap.style.display='none';
+    wrap.classList.remove('visible');
+    return;
+  }
+  wrap.style.display='';
+  wrap.classList.add('visible');
+  const addr=resolvePickupAddressText();
+  if(textEl) textEl.textContent = addr || '請洽店家確認取餐地點';
+  const mapsUrl = addr ? buildPickupMapsUrl() : '';
+  if(mapsBtn){ mapsBtn.disabled=!mapsUrl; mapsBtn.style.opacity = mapsUrl ? '1' : '.5'; }
+  if(copyBtn){ copyBtn.disabled=!addr; copyBtn.style.opacity = addr ? '1' : '.5'; }
+}
+function openPickupAddressMaps(){
+  const url=buildPickupMapsUrl();
+  if(!url){ toast('尚未設定取餐地址'); return; }
+  window.open(url,'_blank');
+}
+async function copyPickupAddress(){
+  const addr=resolvePickupAddressText();
+  if(!addr){ toast('尚未設定取餐地址'); return; }
+  try{
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      await navigator.clipboard.writeText(addr);
+    }else{
+      const ta=document.createElement('textarea');
+      ta.value=addr; ta.style.position='fixed'; ta.style.opacity='0';
+      document.body.appendChild(ta); ta.select();
+      document.execCommand('copy'); document.body.removeChild(ta);
+    }
+    toast('已複製取餐地址');
+  }catch(e){
+    toast('複製失敗，請手動複製：'+addr);
+  }
+}
 function switchMode(mode){
   currentMode=mode;
   updateModeTabActive();
@@ -1061,6 +1140,7 @@ function switchMode(mode){
   refreshDateSelectorForCart();
   // fix18-08: 統一顯示/隱藏外送地址
   updateDeliveryAddressVisibility();
+  updatePickupAddressVisibility();
   updateCartTotals();
   // fix18-10-hotfix22A：外帶/外送付款方式可能不同，切換模式時重建付款按鈕
   buildPaymentButtons(shopData);
@@ -1078,6 +1158,7 @@ function onModeChange(){
   refreshDateSelectorForCart();
   // fix18-08: 統一顯示/隱藏外送地址
   updateDeliveryAddressVisibility();
+  updatePickupAddressVisibility();
   updateCartTotals();
   // fix18-10-hotfix22A：外帶/外送付款方式可能不同，切換模式時重建付款按鈕
   buildPaymentButtons(shopData);
@@ -1864,6 +1945,7 @@ async function restoreCart(){
   const oTypeSel=document.getElementById('oType');
   if(oTypeSel) oTypeSel.value=currentMode;
   updateDeliveryAddressVisibility();
+  updatePickupAddressVisibility();
   buildPaymentButtons(shopData);
   updateModeAvailabilityUI();
 

@@ -17,6 +17,17 @@ const fs = require('fs');
 const path = require('path');
 const ROOT = path.join(__dirname, '..');
 
+// fix18-10-hotfix26-F3（回歸修正）：測試基準日期改用與正式程式碼相同的
+// Asia/Taipei 時區計算（twNow() 邏輯），不能用伺服器所在時區的 new Date()——
+// 兩者在午夜前後（例如伺服器為 UTC，現在是 UTC 16:xx／Taipei 已跨午夜）會算出
+//不同的「今天」，導致測試本身誤判，而非程式碼有問題（見 twNow() 於 line-order.html）。
+function taipeiToday(offsetDays) {
+  const d = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
+  d.setDate(d.getDate() + (offsetDays || 0));
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+
 const results = [];
 function pass(name) { results.push({ name, status: 'PASS' }); console.log(`[PASS] ${name}`); }
 function fail(name, detail) { results.push({ name, status: 'FAIL', detail }); console.log(`[FAIL] ${name}${detail ? ' — ' + detail : ''}`); }
@@ -134,7 +145,7 @@ function runInSandbox(pDateValue, pDateOptionDisabled, extraGlobals) {
 // 案例 1：選today、takeout 今日已截止 → cutoffPassedForMode('takeout')=true，
 // modeLabelSuffix 回傳「今日已截止」
 {
-  const todayStr = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; })();
+  const todayStr = taipeiToday(0);
   global.takeoutCutoffPassed = true; global.deliveryCutoffPassed = false;
   const api = runInSandbox(todayStr, false);
   // cutoffPassedForMode 內部直接引用外層 takeoutCutoffPassed/deliveryCutoffPassed 全域變數
@@ -146,7 +157,7 @@ function runInSandbox(pDateValue, pDateOptionDisabled, extraGlobals) {
 // 案例 2：選未來日期（明天）→ isSelectedDateToday()=false，即使 raw cutoff 旗標為 true，
 // modeLabelSuffix 也不得回傳「今日已截止」（這是本次修的核心 BUG）
 {
-  const tomorrow = (() => { const d = new Date(); d.setDate(d.getDate() + 1); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; })();
+  const tomorrow = taipeiToday(1);
   const api = runInSandbox(tomorrow, false);
   if (api.isSelectedDateToday() === false) pass('選擇明天時 isSelectedDateToday()=false');
   else fail('選擇明天時 isSelectedDateToday() 應為 false');
@@ -179,7 +190,7 @@ function runInSandbox(pDateValue, pDateOptionDisabled, extraGlobals) {
 
 // 案例 3：選未來日期但該日 <option> 被停用（休假）→ 應回傳「{offset}未營業」而非「已截止」
 {
-  const dayAfterTomorrow = (() => { const d = new Date(); d.setDate(d.getDate() + 2); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; })();
+  const dayAfterTomorrow = taipeiToday(2);
   const fullSrc = `
     (function(document){
       let takeoutCutoffPassed = false;
