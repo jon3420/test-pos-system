@@ -11820,9 +11820,43 @@ async function doPreorderImport() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 // ── E-1. 匯出搬家檔 ──────────────────────────────────────────────────────
+// fix18-10-hotfix26-F0：需求文件五「下載前與匯出完成後 UI 必須顯示筆數」
+function renderMigrationExportSummaryHtml(s) {
+  return `
+    <div style="font-weight:700;margin-bottom:6px;color:var(--accent,#3b82f6)">📊 匯出內容筆數</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px">
+      <div>商品：<strong>${s.products||0}</strong></div>
+      <div>分類：<strong>${s.categories||0}</strong></div>
+      <div>訂單：<strong>${s.orders||0}</strong></div>
+      <div>LINE預購：<strong>${s.preorders||0}</strong></div>
+      <div>Analytics 事件：<strong>${s.analytics_events||0}</strong></div>
+      <div>LINE 會員：<strong>${s.line_members||0}</strong></div>
+      <div>會員歷程：<strong>${s.line_member_history||0}</strong></div>
+      <div>Verify／登入事件：<strong>${s.verify_login_events||0}</strong></div>
+      <div>來源／Campaign 事件：<strong>${(s.source_attribution_events||0)}／${(s.campaign_events||0)}</strong></div>
+      <div>Tracking metadata：<strong>${s.tracking_metadata_included ? '已包含' : '未包含'}</strong></div>
+    </div>`;
+}
+
 async function exportMigrationFile() {
-  const statusEl = document.getElementById('migrationExportStatus');
+  const statusEl  = document.getElementById('migrationExportStatus');
+  const previewEl = document.getElementById('migrationExportPreview');
   if (statusEl) { statusEl.style.color = 'var(--text-secondary,#94a3b8)'; statusEl.textContent = '準備匯出…'; }
+
+  // 下載前：先取得筆數摘要並顯示（輕量 COUNT 查詢，不含完整資料）
+  let preSummary = null;
+  try {
+    const presRes = await apiFetch('/api/migration/export/preview');
+    const presJson = await presRes.json();
+    if (presJson.success) {
+      preSummary = presJson.summary;
+      if (previewEl) {
+        previewEl.style.display = 'block';
+        previewEl.innerHTML = renderMigrationExportSummaryHtml(preSummary);
+      }
+    }
+  } catch(e) { /* 摘要取得失敗不影響實際匯出 */ }
+
   try {
     const res = await apiFetch('/api/migration/export');
     if (!res.ok) {
@@ -11835,6 +11869,10 @@ async function exportMigrationFile() {
     const name = m ? m[1] : 'pos_migration.json';
     downloadBlob(blob, name);
     if (statusEl) { statusEl.style.color = '#4ade80'; statusEl.textContent = `✅ 已下載：${name}`; }
+    // 匯出完成後：再次顯示筆數摘要（與下載前一致，供使用者核對）
+    if (previewEl && preSummary) {
+      previewEl.innerHTML = `<div style="margin-bottom:6px;color:#4ade80">✅ 匯出完成</div>` + renderMigrationExportSummaryHtml(preSummary);
+    }
     showToast('搬家檔匯出成功', 'success');
   } catch(e) {
     if (statusEl) { statusEl.style.color = '#f87171'; statusEl.textContent = `❌ 匯出失敗：${e.message}`; }
@@ -11905,7 +11943,15 @@ async function onMigrationFileSelected(input) {
         <div>群組成員：<strong>${s.product_analysis_group_items}</strong> 筆</div>
         <div>歷史別名：<strong>${s.product_analysis_group_aliases}</strong> 筆</div>
         <div>設定：<strong>${s.settings}</strong> 筆</div>
+        <div>Analytics 事件：<strong>${s.analytics_events||0}</strong> 筆</div>
+        <div>LINE 會員：<strong>${s.line_members||0}</strong> 筆</div>
+        <div>會員歷程：<strong>${s.line_member_history||0}</strong> 筆</div>
+        <div>Verify／登入事件：<strong>${s.verify_login_events||0}</strong> 筆</div>
+        <div>來源歸因事件：<strong>${s.source_attribution_events||0}</strong> 筆</div>
+        <div>Campaign 事件：<strong>${s.campaign_events||0}</strong> 筆</div>
+        <div>Tracking metadata：<strong>${s.tracking_metadata_included ? '有' : '無'}</strong></div>
       </div>
+      ${prev.legacy_no_analytics_crm ? `<div style="margin-top:8px;padding:8px;background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.3);border-radius:6px;font-size:12px;color:#fbbf24">⚠️ 此備份檔未包含 Analytics／CRM 歷史資料（舊版搬家檔，仍可正常匯入）</div>` : ''}
       <div style="margin-top:8px;font-size:12px;color:var(--text-muted,#64748b)">
         備份店家：${escHtml(prev.store_name || prev.file_store_id || '—')} ／
         版本：${escHtml(prev.version||'—')} ／
@@ -12032,8 +12078,12 @@ async function executeMigrationImport() {
         `分析群組：${r.analysis_groups?.added||0}`,
         `群組成員：${r.analysis_items?.added||0}`,
         `歷史別名：${r.analysis_aliases?.added||0}`,
-        `設定：${r.settings?.added||0}`
-      ].join('、') + ' 筆';
+        `設定：${r.settings?.added||0}`,
+        `Analytics 事件：新增${r.analytics_events?.added||0}／跳過${r.analytics_events?.skipped||0}／失敗${r.analytics_events?.failed||0}`,
+        `LINE 會員：新增${r.line_members?.added||0}／更新${r.line_members?.updated||0}／跳過${r.line_members?.skipped||0}／失敗${r.line_members?.failed||0}`,
+        `會員歷程：新增${r.line_member_history?.added||0}／跳過${r.line_member_history?.skipped||0}／失敗${r.line_member_history?.failed||0}`,
+        `Tracking metadata：${r.tracking_metadata?.included ? '已包含於備份檔' : '未包含'}`
+      ].join('、') + '（各項筆數）';
       const skipFail = r.failed > 0 ? `｜失敗 ${r.failed} 筆` : '';
       if (statusEl) {
         statusEl.style.color = r.failed > 0 ? '#fbbf24' : '#4ade80';

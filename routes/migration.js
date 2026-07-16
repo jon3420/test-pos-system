@@ -86,6 +86,15 @@ function safeGet(db, sql, params) {
   try { return db.get(sql, params); } catch { return null; }
 }
 
+// ── safeCount：cheap COUNT(*)，資料表不存在就回 0，不報錯 ─────────────────
+function safeCount(db, tableName, where, params) {
+  try {
+    if (!tableExists(db, tableName)) return 0;
+    const row = db.get(`SELECT COUNT(*) as c FROM ${tableName} WHERE ${where}`, params);
+    return row ? (row.c || 0) : 0;
+  } catch { return 0; }
+}
+
 // ── ensure discount tables ─────────────────────────────────────────────────
 function ensureDiscountCategoriesTable(db) {
   db.exec(`
@@ -172,6 +181,63 @@ function safeExportAll(db, tableName, where, params) {
   } catch(e) {
     console.warn(`[migration/export] ${tableName} error:`, e.message);
     return [];
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+//  fix18-10-hotfix26-F0：Sensitive Data 防護
+//  Analytics／CRM 匯出／匯入共用的敏感欄位／敏感 key 黑名單處理
+// ══════════════════════════════════════════════════════════════════════════
+
+// line_members / line_member_history 等資料表，即使目前 schema 沒有下列欄位，
+// 未來若被加入，匯出時也一律預設排除（防呆黑名單，大小寫不敏感）
+const SENSITIVE_COLUMN_BLACKLIST = new Set([
+  'access_token', 'id_token', 'refresh_token', 'jwt', 'jwt_secret',
+  'channel_secret', 'messaging_api_access_token', 'line_pay_secret',
+  'line_pay_channel_secret', 'liff_secret', 'oauth_client_secret',
+  'client_secret', 'webhook_secret', 'authorization', 'password', 'cookie'
+]);
+function filterSensitiveCols(cols) {
+  return cols.filter(c => !SENSITIVE_COLUMN_BLACKLIST.has(String(c).toLowerCase()));
+}
+
+// metadata_json／properties_json 等 JSON 欄位內，遞迴移除敏感 key（大小寫不敏感）
+const SENSITIVE_JSON_KEYS = [
+  'token', 'id_token', 'access_token', 'refresh_token', 'authorization',
+  'secret', 'channel_secret', 'client_secret', 'password', 'cookie'
+];
+function _isSensitiveJsonKey(key) {
+  const k = String(key).toLowerCase();
+  return SENSITIVE_JSON_KEYS.some(bad => k.includes(bad));
+}
+function stripSensitiveDeep(value) {
+  if (Array.isArray(value)) return value.map(stripSensitiveDeep);
+  if (value && typeof value === 'object') {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) {
+      if (_isSensitiveJsonKey(k)) continue; // 直接移除該 key，不留空值提示內容曾存在
+      out[k] = stripSensitiveDeep(v);
+    }
+    return out;
+  }
+  return value;
+}
+// 安全清理 JSON 字串：能 parse 就遞迴移除敏感 key 後重新 stringify；
+// 不能 parse（非 JSON 格式的自由字串）就用保守 regex 移除疑似 key:value 片段，
+// 絕不能因為 parse 失敗就整段原樣外流。
+function sanitizeJsonString(str) {
+  if (str == null || str === '') return str;
+  const s = String(str);
+  try {
+    const parsed = JSON.parse(s);
+    return JSON.stringify(stripSensitiveDeep(parsed));
+  } catch {
+    try {
+      return s.replace(
+        /("(?:token|id_token|access_token|refresh_token|authorization|secret|channel_secret|client_secret|password|cookie)"\s*:\s*")[^"]*(")/gi,
+        '$1$2'
+      );
+    } catch { return s; }
   }
 }
 
@@ -669,13 +735,61 @@ router.get('/migration/export', (req, res) => {
     const deliveryFees      = safeAll(db, 'SELECT * FROM delivery_fees      WHERE store_id=?', [storeId]);
     const settings          = safeAll(db, 'SELECT * FROM settings WHERE store_id=?', [storeId]);
 
+    // ══════════════════════════════════════════════════════════════════
+    // fix18-10-hotfix26-F0：Analytics Events / LINE Members / LINE Member
+    // History / Tracking Metadata —— 補齊資料備份／搬家對 POS Analytics V2、
+    // LINE CRM、LINE Verify 歷史資料的覆蓋不足。
+    // 全部依實際資料表 schema 動態匯出（SELECT *），欄位不存在也不會報錯。
+    // 不建立第二套 Analytics／CRM 表，不備份 Dashboard Summary／快照。
+    // ══════════════════════════════════════════════════════════════════
+    const analyticsEventsRaw = safeExportAll(db, 'analytics_events', 'store_id=?', [storeId]);
+    // metadata_json／properties_json 內遞迴移除敏感 key（token/secret 等），
+    // 避免 metadata 曾被誤寫入敏感資訊時外洩於備份檔。
+    const analyticsEvents = analyticsEventsRaw.map(ev => {
+      const out = { ...ev };
+      if (out.metadata_json)   out.metadata_json   = sanitizeJsonString(out.metadata_json);
+      if (out.properties_json) out.properties_json = sanitizeJsonString(out.properties_json);
+      return out;
+    });
+
+    const lineMembersRaw    = safeExportAll(db, 'line_members', 'store_id=?', [storeId]);
+    const lineMemberSafeCols = filterSensitiveCols([...getTableCols(db, 'line_members')]);
+    const lineMembers = lineMembersRaw.map(row => {
+      const out = {};
+      for (const c of lineMemberSafeCols) out[c] = row[c];
+      return out;
+    });
+
+    const lineMemberHistoryRaw = safeExportAll(db, 'line_member_history', 'store_id=?', [storeId]);
+    const lineMemberHistory = lineMemberHistoryRaw.map(h => {
+      const out = { ...h };
+      if (out.metadata_json) out.metadata_json = sanitizeJsonString(out.metadata_json);
+      return out;
+    });
+
+    const verifyLoginEvents      = analyticsEvents.filter(e => ['line_login_success','line_login_failed'].includes(e.event_name));
+    const sourceAttributionEvents = analyticsEvents.filter(e => e.source);
+    const campaignEvents         = analyticsEvents.filter(e => e.campaign);
+
+    // Tracking Metadata：優先使用既有常數／設定，不新增第二套設定表
+    let trackingStartDate = '';
+    try { ({ TRACKING_START_DATE: trackingStartDate } = require('../utils/dashboardDate')); } catch {}
+    const analyticsMeta = {
+      tracking_start_date: trackingStartDate || '',
+      tracking_enabled: tableExists(db, 'analytics_events'),
+      analytics_schema_version: 1,
+      identity_schema_version: 1,
+      channel_schema_version: 1
+    };
+
     const ts = tsFile(), fileName = `pos_migration_${storeId}_${ts}.json`;
 
     const payload = {
-      type: 'pos_migration_backup', version: 'fix18-10-hotfix9',
+      type: 'pos_migration_backup', version: 'fix18-10-hotfix26-F0',
+      migration_version: '26-F0',
       exported_at: isoNow(), store_id: storeId,
       store_name: storeRow ? (storeRow.name||storeRow.store_id||storeId) : storeId,
-      schema_version: 3,
+      schema_version: 4,
       data: {
         products, categories, orders,
         order_items: [],
@@ -697,7 +811,12 @@ router.get('/migration/export', (req, res) => {
         product_analysis_group_aliases: analysisAliases,
         delivery_platforms: deliveryPlatforms,
         delivery_fees:      deliveryFees,
-        settings
+        settings,
+        // fix18-10-hotfix26-F0：Analytics／CRM 歷史資料
+        analytics_events:     analyticsEvents,
+        line_members:         lineMembers,
+        line_member_history:  lineMemberHistory,
+        analytics_meta:       analyticsMeta
       }
     };
 
@@ -718,7 +837,15 @@ router.get('/migration/export', (req, res) => {
       analysis_aliases: analysisAliases.length,
       settings: settings.length,
       delivery_platforms: deliveryPlatforms.length,
-      delivery_fees: deliveryFees.length
+      delivery_fees: deliveryFees.length,
+      // fix18-10-hotfix26-F0
+      analytics_events:          analyticsEvents.length,
+      line_members:              lineMembers.length,
+      line_member_history:       lineMemberHistory.length,
+      verify_login_events:       verifyLoginEvents.length,
+      source_attribution_events: sourceAttributionEvents.length,
+      campaign_events:           campaignEvents.length,
+      tracking_metadata_included: true
     };
 
     writeMigrationLog(db, storeId, '匯出快速搬家檔', fileName, 'export', summary, 'success', '');
@@ -729,6 +856,42 @@ router.get('/migration/export', (req, res) => {
     console.error('[migration/export]', e.message, e.stack);
     res.status(500).json({ success: false, message: e.message });
   }
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+//  匯出前摘要（不含實際資料，只回傳筆數）  GET /api/migration/export/preview
+//  fix18-10-hotfix26-F0：需求文件五「下載前與匯出完成後 UI 必須顯示筆數」
+//  用 COUNT(*) 取代整表 SELECT *，避免大量 Analytics Events 拖慢下載前的摘要顯示。
+// ══════════════════════════════════════════════════════════════════════════
+router.get('/migration/export/preview', (req, res) => {
+  try {
+    const db      = getDb();
+    const storeId = req.storeId;
+
+    const summary = {
+      products:            safeCount(db, 'products',   'store_id=?', [storeId]),
+      categories:          safeCount(db, 'categories', 'store_id=?', [storeId]),
+      orders:              safeCount(db, 'orders',     'store_id=?', [storeId]),
+      preorders:           safeCount(db, 'orders',     "store_id=? AND source='line'", [storeId]),
+      ingredients:         safeCount(db, 'ingredients','store_id=?', [storeId]),
+      discount_categories: safeCount(db, 'discount_categories', 'store_id=?', [storeId]),
+      discount_campaigns:  safeCount(db, 'discount_campaigns',  'store_id=?', [storeId]),
+      settings:            safeCount(db, 'settings',   'store_id=?', [storeId]),
+      // fix18-10-hotfix26-F0
+      analytics_events:          safeCount(db, 'analytics_events', 'store_id=?', [storeId]),
+      line_members:              safeCount(db, 'line_members', 'store_id=?', [storeId]),
+      line_member_history:       safeCount(db, 'line_member_history', 'store_id=?', [storeId]),
+      verify_login_events:       safeCount(db, 'analytics_events',
+        "store_id=? AND event_name IN ('line_login_success','line_login_failed')", [storeId]),
+      source_attribution_events: safeCount(db, 'analytics_events',
+        "store_id=? AND source IS NOT NULL AND source<>''", [storeId]),
+      campaign_events:           safeCount(db, 'analytics_events',
+        "store_id=? AND campaign IS NOT NULL AND campaign<>''", [storeId]),
+      tracking_metadata_included: tableExists(db, 'analytics_events')
+    };
+
+    res.json({ success: true, store_id: storeId, summary });
+  } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -774,8 +937,22 @@ router.post('/migration/import/preview', (req, res) => {
       product_analysis_group_aliases:(d.product_analysis_group_aliases  || []).length,
       settings:                      (d.settings                        || []).length,
       delivery_platforms:            (d.delivery_platforms              || []).length,
-      delivery_fees:                 (d.delivery_fees                   || []).length
+      delivery_fees:                 (d.delivery_fees                   || []).length,
+      // fix18-10-hotfix26-F0：Analytics／CRM 歷史資料統計
+      analytics_events:              (d.analytics_events                || []).length,
+      line_members:                  (d.line_members                    || []).length,
+      line_member_history:           (d.line_member_history             || []).length,
+      verify_login_events:           (d.analytics_events || []).filter(e =>
+        ['line_login_success','line_login_failed'].includes(e && e.event_name)).length,
+      source_attribution_events:     (d.analytics_events || []).filter(e => e && e.source).length,
+      campaign_events:               (d.analytics_events || []).filter(e => e && e.campaign).length,
+      tracking_metadata_included:    !!(d.analytics_meta && Object.keys(d.analytics_meta).length)
     };
+
+    // fix18-10-hotfix26-F0（需求文件十七）：舊版備份檔沒有 Analytics／CRM 欄位，
+    // 仍需正常預覽與匯入，只是顯示提示，不阻止匯入。
+    const legacyNoAnalyticsCrm = !d.analytics_events && !d.line_members &&
+      !d.line_member_history && !d.analytics_meta;
 
     res.json({
       success: true,
@@ -784,7 +961,8 @@ router.post('/migration/import/preview', (req, res) => {
       version: payload.version||'', exported_at: payload.exported_at||'',
       store_name: payload.store_name||'',
       date_range: dateRange,
-      summary
+      summary,
+      legacy_no_analytics_crm: legacyNoAnalyticsCrm
     });
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
@@ -838,7 +1016,12 @@ router.post('/migration/import', (req, res) => {
       analysis_aliases:   { added:0, skipped:0, failed:0, errors:[] },
       settings:           { added:0, skipped:0, failed:0, errors:[] },
       delivery_platforms: { added:0, skipped:0, failed:0, errors:[] },
-      delivery_fees:      { added:0, skipped:0, failed:0, errors:[] }
+      delivery_fees:      { added:0, skipped:0, failed:0, errors:[] },
+      // fix18-10-hotfix26-F0
+      line_members:         { added:0, updated:0, skipped:0, failed:0, errors:[] },
+      line_member_history:  { added:0, skipped:0, failed:0, errors:[] },
+      analytics_events:     { added:0, skipped:0, failed:0, errors:[] },
+      tracking_metadata:    { included:false, skipped:0, failed:0, errors:[] }
     };
 
     // 預先讀取所有資料表的實際欄位
@@ -861,7 +1044,11 @@ router.post('/migration/import', (req, res) => {
       analysis_aliases:  'product_analysis_group_aliases',
       settings:          'settings',
       delivery_platforms: 'delivery_platforms',
-      delivery_fees:      'delivery_fees'
+      delivery_fees:      'delivery_fees',
+      // fix18-10-hotfix26-F0
+      line_members:         'line_members',
+      line_member_history:  'line_member_history',
+      analytics_events:     'analytics_events'
     };
     for (const [k, tbl] of Object.entries(tableMap)) {
       schemas[k] = getTableCols(db, tbl);
@@ -935,6 +1122,15 @@ router.post('/migration/import', (req, res) => {
           try { rawRun(raw,`DELETE FROM settings WHERE store_id=?`,[storeId]); } catch {}
           try { rawRun(raw,`DELETE FROM delivery_platforms WHERE store_id=?`,[storeId]); } catch {}
           try { rawRun(raw,`DELETE FROM delivery_fees WHERE store_id=?`,[storeId]); } catch {}
+
+          // ── fix18-10-hotfix26-F0：清空本店 Analytics／CRM 歷史資料 ──────
+          // 順序：先清 line_member_history（子表），再清 line_members（主表），
+          // 避免先刪主表後、歷程表殘留無主資料造成關聯／統計錯亂。
+          // analytics_events 無其他表依賴它，順序無關，一併清除即可。
+          // 全部只用 WHERE store_id=? 隔離，不影響其他店家。
+          safeRawDelete(raw, 'line_member_history', 'store_id=?', [storeId]);
+          safeRawDelete(raw, 'line_members',        'store_id=?', [storeId]);
+          safeRawDelete(raw, 'analytics_events',     'store_id=?', [storeId]);
         }
 
         // ── categories（不寫 id，避免跨店 PK 衝突）────────────────────
@@ -1082,6 +1278,17 @@ router.post('/migration/import', (req, res) => {
           for (const np of newProds) prodNameToId[np.name] = np.id;
         } catch {}
 
+        // fix18-10-hotfix26-F0：舊 product_id → 新 product_id 對照表（供 analytics_events
+        // 的 product_id remap 使用）。analytics_events.product_id 存的是來源店的
+        // products.id（自動遞增，跨環境不通用），必須透過 name 轉換成目的店的新 id，
+        // 找不到對應商品時設為 null（避免誤指向目的店中不相干的商品）。
+        const productIdRemap = {};
+        for (const p of (d.products || [])) {
+          if (p && p.id != null && p.name && prodNameToId[p.name] != null) {
+            productIdRemap[p.id] = prodNameToId[p.name];
+          }
+        }
+
         // ── orders ────────────────────────────────────────────────────
         const orderCols = schemas['orders'];
         const importOrderCandidates = [
@@ -1219,6 +1426,227 @@ router.post('/migration/import', (req, res) => {
             if (strictMode) throw e;
           }
         }
+
+        // ══════════════════════════════════════════════════════════════
+        // fix18-10-hotfix26-F0：LINE Members（CRM 會員資料還原）
+        // 唯一鍵：store_id + line_user_id（不使用資料庫自動遞增 id 判重）
+        // ══════════════════════════════════════════════════════════════
+        const lmCols = schemas['line_members'];
+        const lmInsertCandidates = filterSensitiveCols([
+          'store_id','line_user_id','display_name','picture_url','is_friend',
+          'first_seen_at','last_seen_at','first_order_at','last_order_at',
+          'order_count','total_spent',
+          'is_blocked','friend_since','last_friend_check','last_login_at',
+          'first_touch_source','first_touch_campaign','last_touch_source','last_touch_campaign',
+          'first_product_id','first_cart_at','first_purchase_at','last_purchase_at','lifetime_value',
+          'created_at','updated_at'
+        ]);
+        for (const m of (d.line_members || [])) {
+          try {
+            const lineUserId = String(m.line_user_id || '').trim();
+            if (!lineUserId) { results.line_members.failed++; continue; }
+            const existLm = safeGet(db,
+              'SELECT id FROM line_members WHERE store_id=? AND line_user_id=?', [storeId, lineUserId]);
+            const src = { store_id: storeId, line_user_id: lineUserId };
+            for (const c of lmInsertCandidates) {
+              if (c === 'store_id' || c === 'line_user_id') continue;
+              src[c] = m[c] ?? null;
+            }
+            if (existLm) {
+              if (mode === 'skip' || mode === 'replace') { results.line_members.skipped++; continue; }
+              if (mode === 'overwrite') {
+                // 覆蓋更新：只更新非敏感欄位（lmInsertCandidates 已預先排除 token／secret 類欄位）。
+                // 不新增重複會員（同一 line_user_id 只會 UPDATE，不會 INSERT 第二筆）。
+                const updCols = lmInsertCandidates.filter(c =>
+                  c !== 'store_id' && c !== 'line_user_id' && lmCols.has(c));
+                if (updCols.length) {
+                  const updVals = [...updCols.map(c => src[c] ?? null), storeId, lineUserId];
+                  const updSql = `UPDATE line_members SET ${updCols.map(c => `${c}=?`).join(',')},updated_at=datetime('now','localtime') WHERE store_id=? AND line_user_id=?`;
+                  const n = rawRunCount(raw, updSql, updVals);
+                  if (n > 0) results.line_members.updated++; else results.line_members.skipped++;
+                } else { results.line_members.skipped++; }
+              } else { results.line_members.skipped++; }
+              continue;
+            }
+            const q = buildDynamicInsert('line_members', lmInsertCandidates, src, lmCols, 'OR IGNORE');
+            if (!q) { results.line_members.skipped++; continue; }
+            const n = rawRunCount(raw, q.sql, q.vals);
+            if (n > 0) results.line_members.added++; else results.line_members.skipped++;
+          } catch(e) {
+            results.line_members.errors.push(`line_user_id=${m.line_user_id}: ${e.message}`);
+            results.line_members.failed++;
+            if (strictMode) throw e;
+          }
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        // fix18-10-hotfix26-F0：LINE Member History（CRM Timeline，append-only）
+        // 去重優先序：history_uuid（目前 schema 無此欄位，若未來新增則優先採用）；
+        // 否則用 store_id+line_user_id+event_name+created_at+old_value+new_value
+        // 複合鍵（實際資料表沒有 order_id 欄位，依實際 schema 動態處理，欄位不存在
+        // 不報錯）。History 屬歷程流水帳，只補不覆蓋，避免 Timeline／回購次數翻倍。
+        // ══════════════════════════════════════════════════════════════
+        const lmhCols = schemas['line_member_history'];
+        const lmhInsertCandidates = [
+          'store_id','line_user_id','event_name','old_value','new_value','metadata_json','created_at'
+        ].filter(c => lmhCols.has(c));
+        for (const h of (d.line_member_history || [])) {
+          try {
+            // 舊備份檔可能只有 member_id（自增 id，跨環境不可信），一律改用穩定的
+            // line_user_id 重建關聯；member_id 只在 line_user_id 缺漏時當備援。
+            const lineUserId = String(h.line_user_id || h.member_id || '').trim();
+            const eventName  = h.event_name || '';
+            if (!lineUserId || !eventName) { results.line_member_history.failed++; continue; }
+
+            const hasStableUuid = !!(lmhCols.has('history_uuid') && h.history_uuid);
+            let existH;
+            if (hasStableUuid) {
+              existH = safeGet(db,
+                'SELECT id FROM line_member_history WHERE store_id=? AND history_uuid=?',
+                [storeId, h.history_uuid]);
+            } else {
+              existH = safeGet(db,
+                `SELECT id FROM line_member_history
+                 WHERE store_id=? AND line_user_id=? AND event_name=? AND created_at=?
+                   AND IFNULL(old_value,'')=? AND IFNULL(new_value,'')=?`,
+                [storeId, lineUserId, eventName, h.created_at || '', h.old_value || '', h.new_value || '']);
+            }
+
+            if (existH) {
+              // append-only：即使 mode=overwrite，沒有 stable UUID 就不覆蓋既有歷程，
+              // 只有 stable UUID 命中時才允許真正「同一筆」被更新（見下方分支）。
+              if (mode === 'overwrite' && hasStableUuid) {
+                const updSrc = {
+                  old_value: h.old_value || '', new_value: h.new_value || '',
+                  metadata_json: h.metadata_json ? sanitizeJsonString(h.metadata_json) : ''
+                };
+                const updCols = ['old_value','new_value','metadata_json'].filter(c => lmhCols.has(c));
+                if (updCols.length) {
+                  const updVals = [...updCols.map(c => updSrc[c]), existH.id];
+                  rawRunCount(raw, `UPDATE line_member_history SET ${updCols.map(c=>`${c}=?`).join(',')} WHERE id=?`, updVals);
+                }
+              }
+              results.line_member_history.skipped++;
+              continue;
+            }
+
+            const metaClean = h.metadata_json ? sanitizeJsonString(h.metadata_json) : (h.metadata_json ?? '');
+            const src = {
+              store_id: storeId, line_user_id: lineUserId, event_name: eventName,
+              old_value: h.old_value || '', new_value: h.new_value || '',
+              metadata_json: metaClean, created_at: h.created_at || ''
+            };
+            if (hasStableUuid) src.history_uuid = h.history_uuid;
+            const candidates = hasStableUuid ? [...lmhInsertCandidates, 'history_uuid'] : lmhInsertCandidates;
+            const q = buildDynamicInsert('line_member_history', candidates, src, lmhCols, 'OR IGNORE');
+            if (!q) { results.line_member_history.skipped++; continue; }
+            const n = rawRunCount(raw, q.sql, q.vals);
+            if (n > 0) results.line_member_history.added++; else results.line_member_history.skipped++;
+          } catch(e) {
+            results.line_member_history.errors.push(`line_user_id=${h.line_user_id}: ${e.message}`);
+            results.line_member_history.failed++;
+            if (strictMode) throw e;
+          }
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        // fix18-10-hotfix26-F0：Analytics Events（POS Analytics V2 歷史還原）
+        // 完全依實際資料表 schema 動態處理欄位（不存在的欄位跳過，不報錯）。
+        // product_id 透過 productIdRemap（依商品名稱）轉換成目的店新 id；
+        // order_id 存的是 orders.uuid（搬家時原樣保留，不需要 remap）。
+        // 去重優先序：
+        //   1. event_uuid（目前 schema 無此欄位，若未來新增則優先採用）
+        //   2. purchase／submit_order：store_id+event_name+order_id
+        //      （資料庫本身已有 idx_analytics_order_event_unique 這道 UNIQUE INDEX
+        //       做最後防線，即使這裡查重被繞過也不會真的寫入重複列）
+        //   3. line_login_success／line_login_failed／line_verify_success／
+        //      line_verify_failed：event_name+identity_key+created_at
+        //      （+diagnostic_only，若欄位存在），避免不同時間的正常登入被誤判重複
+        //   4. 其餘事件：store_id+event_name+session_id+cart_id+product_id+created_at
+        // ══════════════════════════════════════════════════════════════
+        const aeCols = schemas['analytics_events'];
+        const aeInsertCandidates = [...aeCols].filter(c => c !== 'id');
+        const LOGIN_VERIFY_EVENTS = new Set([
+          'line_login_success', 'line_login_failed',
+          'line_verify_success', 'line_verify_failed'
+        ]);
+        const PURCHASE_LIKE_EVENTS = new Set(['purchase', 'submit_order']);
+
+        for (const ev of (d.analytics_events || [])) {
+          try {
+            const eventName = ev && ev.event_name;
+            if (!eventName) { results.analytics_events.failed++; continue; }
+
+            const remappedProductId = (aeCols.has('product_id') && ev.product_id != null)
+              ? (productIdRemap[ev.product_id] != null ? productIdRemap[ev.product_id] : null)
+              : null;
+
+            const src = {};
+            for (const c of aeInsertCandidates) src[c] = ev[c] ?? null;
+            src.store_id = storeId; // 強制覆寫，不信任備份檔內的 store_id
+            if (aeCols.has('product_id')) src.product_id = remappedProductId;
+            if (aeCols.has('metadata_json') && src.metadata_json) {
+              src.metadata_json = sanitizeJsonString(src.metadata_json);
+            }
+            if (aeCols.has('properties_json') && src.properties_json) {
+              src.properties_json = sanitizeJsonString(src.properties_json);
+            }
+
+            // ── 決定去重查詢條件 ──────────────────────────────────────
+            let whereSql, whereParams;
+            if (aeCols.has('event_uuid') && ev.event_uuid) {
+              whereSql = 'store_id=? AND event_uuid=?';
+              whereParams = [storeId, ev.event_uuid];
+            } else if (ev.order_id && PURCHASE_LIKE_EVENTS.has(eventName)) {
+              whereSql = 'store_id=? AND event_name=? AND order_id=?';
+              whereParams = [storeId, eventName, ev.order_id];
+            } else if (LOGIN_VERIFY_EVENTS.has(eventName)) {
+              const parts = ["store_id=?", "event_name=?", "IFNULL(identity_key,'')=?", "IFNULL(created_at,'')=?"];
+              const params = [storeId, eventName, ev.identity_key || '', ev.created_at || ''];
+              if (aeCols.has('diagnostic_only')) {
+                parts.push("IFNULL(diagnostic_only,'')=?");
+                params.push(ev.diagnostic_only ?? '');
+              }
+              whereSql = parts.join(' AND ');
+              whereParams = params;
+            } else {
+              whereSql = "store_id=? AND event_name=? AND IFNULL(session_id,'')=? AND IFNULL(cart_id,'')=? AND IFNULL(product_id,-1)=? AND IFNULL(created_at,'')=?";
+              whereParams = [storeId, eventName, ev.session_id || '', ev.cart_id || '', remappedProductId ?? -1, ev.created_at || ''];
+            }
+
+            const existAe = safeGet(db, `SELECT id FROM analytics_events WHERE ${whereSql}`, whereParams);
+            if (existAe) {
+              if (mode === 'overwrite') {
+                const updCols = aeInsertCandidates.filter(c => c !== 'store_id' && aeCols.has(c));
+                if (updCols.length) {
+                  const updVals = [...updCols.map(c => src[c] ?? null), existAe.id];
+                  rawRunCount(raw, `UPDATE analytics_events SET ${updCols.map(c => `${c}=?`).join(',')} WHERE id=?`, updVals);
+                }
+              }
+              // 無論是否更新，都視為「已存在」，不重複計入新增（避免 Purchase／Funnel 翻倍）
+              results.analytics_events.skipped++;
+              continue;
+            }
+
+            const q = buildDynamicInsert('analytics_events', aeInsertCandidates, src, aeCols, 'OR IGNORE');
+            if (!q) { results.analytics_events.skipped++; continue; }
+            const n = rawRunCount(raw, q.sql, q.vals);
+            if (n > 0) results.analytics_events.added++; else results.analytics_events.skipped++;
+          } catch(e) {
+            results.analytics_events.errors.push(`event_name=${ev && ev.event_name}: ${e.message}`);
+            results.analytics_events.failed++;
+            if (strictMode) throw e;
+          }
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        // fix18-10-hotfix26-F0：Tracking Metadata
+        // analytics_meta 本身是由既有常數／程式碼衍生的唯讀資訊（見 utils/dashboardDate.js
+        // 的 TRACKING_START_DATE），不對應任何可覆寫的設定資料列，因此不寫入、不新增、
+        // 不更新任何資料表（不新增第二套設定表）。這裡只記錄備份檔是否包含
+        // analytics_meta，供匯入摘要與 UI 顯示「Tracking metadata：有／無」。
+        // ══════════════════════════════════════════════════════════════
+        results.tracking_metadata.included = !!(d.analytics_meta && Object.keys(d.analytics_meta).length);
 
         // ══════════════════════════════════════════════════════════════
         // hotfix9: 食材相關資料恢復（含 ID remap）
