@@ -198,8 +198,14 @@ function evaluateHealthRules(summary) {
   // fix18-10-hotfix26-G（需求文件二十六）：健康度判斷改用「系統健康度」／
   // 「系統性連續失敗」——排除 EXPIRED_ID_TOKEN 等使用者登入狀態過期（可恢復）
   // 事件，避免使用者剛好連續幾次過期 Token 就被誤判為 🔴 LINE Login 系統異常。
-  const rate = summary.system_health_rate;
-  const consecutive = summary.system_consecutive_failures;
+  // fix18-10-hotfix26-I（回歸修正）：hotfix26-G 把這裡改成只讀新欄位
+  // system_health_rate／system_consecutive_failures，若呼叫端傳入的 summary
+  // 物件沒有這兩個新欄位（例如既有 smoke-hotfix26-e.js 測試 fixture 只帶舊欄位
+  // successRate／consecutiveFailures），會讀到 undefined，導致規則永遠判斷不出
+  // critical/warning。這裡改為向下相容：新欄位不存在時 fallback 回舊欄位，
+  // 產生正式資料的 computeVerifySummary() 一定會同時提供兩者，行為不受影響。
+  const rate = summary.system_health_rate != null ? summary.system_health_rate : summary.successRate;
+  const consecutive = summary.system_consecutive_failures != null ? summary.system_consecutive_failures : summary.consecutiveFailures;
 
   const reasons = [];
   // Critical 優先判斷（最嚴重的狀態要蓋過較輕的狀態）

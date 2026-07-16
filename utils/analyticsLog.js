@@ -56,6 +56,17 @@ const EVENT_WHITELIST = [
   'member_first_purchase',
   'member_repeat_purchase',
   'member_source_updated',
+  // fix18-10-hotfix26-I（需求文件十八）：Facebook／Instagram 內建瀏覽器環境偵測
+  // 相關事件，純顯示/操作類事件，不計入 Funnel（page_view/add_to_cart/
+  // begin_checkout/purchase 等既有轉換事件維持原樣，不受影響）。
+  'line_login_inapp_browser_detected',
+  'line_login_external_guide_shown',
+  'line_login_open_line_clicked',
+  'line_login_open_browser_clicked',
+  'line_login_copy_link_clicked',
+  'line_login_external_guide_closed',
+  'line_login_external_return_detected',
+  'line_login_external_retry_clicked',
 ];
 
 const MAX_METADATA_BYTES = 4 * 1024; // 4KB

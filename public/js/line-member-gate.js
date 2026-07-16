@@ -22,6 +22,14 @@
 'use strict';
 (function (global) {
 
+  // fix18-10-hotfix26-I（Regression 修正）：本模組同時要能在真實瀏覽器與
+  // Node.js（node --check／smoke test 用簡化版 window mock）執行。任何
+  // document/window 專屬 API（addEventListener／clipboard／history／
+  // location／sessionStorage／localStorage 等）都不可在 module top-level
+  // 假設一定存在，一律先用 hasDOM／個別 typeof 檢查，找不到就安全略過，
+  // 不得丟出例外中斷整支模組載入。
+  const hasDOM = typeof global !== 'undefined' && typeof global.document !== 'undefined';
+
   // ── sessionStorage keys（共用登入返回機制，需求文件二）────────────
   const RETURN_URL_KEY = 'line_member_return_url';
   const RETURN_STORE_KEY = 'line_member_return_store_id';
@@ -35,6 +43,20 @@
   // 內有效，不落地到 localStorage（不需要跨分頁/長期保存）。
   const AWAITING_FRIENDSHIP_RETURN_KEY = 'line_friendship_recheck_required';
   const REAUTH_ATTEMPTED_KEY = 'line_friend_reauth_attempted';
+
+  // fix18-10-hotfix26-I（需求文件六／十一）：Facebook／Instagram 內建瀏覽器
+  // 環境切換時，只允許轉傳這些「非敏感、不會被拿來偽造身分」的參數，絕不轉傳
+  // Token／Session／任意來源網址。
+  const SAFE_FORWARD_PARAMS = [
+    'store_id', 'line_gate_return',
+    'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term',
+    'fbclid', 'gclid', 'cart_id', 'order_type',
+  ];
+  // 切換到外部瀏覽器前記錄的暫存狀態（只存 store_id／gate_stage／建立時間／
+  // 已經過安全驗證的 return_url，不存購物車內容本身——購物車由既有
+  // ORDER_CART_KEY 機制自然保留，不需要在這裡重複保存）。
+  const EXTERNAL_LOGIN_PENDING_KEY = 'line_member_external_login_pending';
+  const EXTERNAL_LOGIN_PENDING_MAX_AGE_MS = 15 * 60 * 1000; // 需求文件十二：15 分鐘
 
   // 允許自動返回的系統內頁（需求文件三）。可依實際專案頁面擴充。
   const ALLOWED_RETURN_PATHS = new Set([
@@ -228,14 +250,163 @@
     return !!(state[storeId] && state[storeId].liffReady && global.liff);
   }
 
+  // ══════════════════════════════════════════════════════════════════
+  // fix18-10-hotfix26-I：Facebook／Instagram 內建瀏覽器環境修復
+  // ══════════════════════════════════════════════════════════════════
+
+  // 需求文件四：不可只判斷 FBAN，需涵蓋 Facebook 新舊版 UA／Instagram；LINE
+  // App 內 LIFF（UA 含 Line/）不可誤判為 Facebook／Instagram WebView；
+  // Safari／Chrome 不受影響；偵測失敗一律視為一般瀏覽器（不封鎖）。
+  function detectBrowserEnvironment() {
+    const ua = (global.navigator && (global.navigator.userAgent || global.navigator.vendor)) || '';
+    const isFacebook = /FBAN|FBAV|FB_IAB|Facebook/i.test(ua);
+    const isInstagram = /Instagram/i.test(ua);
+    const isLine = /Line\//i.test(ua);
+    const isIOS = /iPhone|iPad|iPod/i.test(ua);
+    const isAndroid = /Android/i.test(ua);
+    const isInAppBrowser = !isLine && (isFacebook || isInstagram);
+    return {
+      ua, isFacebook, isInstagram, isLine, isIOS, isAndroid, isInAppBrowser,
+      browser: isFacebook ? 'facebook' : (isInstagram ? 'instagram' : 'other'),
+      os: isIOS ? 'ios' : (isAndroid ? 'android' : 'other'),
+    };
+  }
+
+  // 需求文件十七：只用來標記來源／供 Analytics／顯示更精準提示，絕不單獨用來
+  // 阻擋 liff.login()——是否阻擋只看 detectBrowserEnvironment().isInAppBrowser。
+  function detectTrafficSource() {
+    try {
+      const url = new URL(global.location.href);
+      const source = String(url.searchParams.get('utm_source') || '').toLowerCase();
+      return {
+        hasFbclid: url.searchParams.has('fbclid'),
+        hasGclid: url.searchParams.has('gclid'),
+        utmSource: source,
+        isFacebookAds: url.searchParams.has('fbclid') || source === 'facebook' || source === 'fb' || source === 'instagram' || source === 'ig',
+      };
+    } catch (e) { return { hasFbclid: false, hasGclid: false, utmSource: '', isFacebookAds: false }; }
+  }
+
+  // 需求文件十九：沿用既有 onEvent 回呼架構（頁面本來就會把 _trackEvent 當
+  // onEvent 傳進 requireMemberBeforeCheckout／requireMemberOnEntry），不另建
+  // 第二套追蹤系統。事件本身不含任何敏感資料（Token／完整 UID／地址／電話等）。
+  function trackLineEnvironmentEvent(onEvent, eventName, environment, gateStage, storeId) {
+    try {
+      const traffic = detectTrafficSource();
+      const payload = {
+        browser: (environment && environment.browser) || 'other',
+        os: (environment && environment.os) || 'other',
+        gate_stage: gateStage || '',
+        traffic_source: traffic.isFacebookAds ? 'facebook_ads' : (traffic.hasGclid ? 'google_ads' : 'other'),
+      };
+      onEvent && onEvent(eventName, payload);
+    } catch (e) { /* Analytics 失敗不可阻擋登入 */ }
+  }
+
+  // 需求文件七／九：只能導向 https://liff.line.me/，LIFF ID 必須來自目前商店
+  // 已載入的設定（config.liff_id），不可直接把目前完整網址／redirect_uri／
+  // 任意第三方 Deep Link 塞進去；只轉傳白名單參數，絕不含 Token。
+  function buildLiffOpenUrl(storeId, config, opts) {
+    const liffId = String((config && config.liff_id) || '').trim();
+    if (!liffId) return '';
+    let url;
+    try { url = new URL('https://liff.line.me/' + encodeURIComponent(liffId)); }
+    catch (e) { return ''; }
+    url.searchParams.set('store_id', storeId);
+    const gateStage = (opts && (opts.gate_stage || opts.gateStage)) || '';
+    if (gateStage) url.searchParams.set('line_gate_return', gateStage);
+    try {
+      const current = new URL(global.location.href);
+      SAFE_FORWARD_PARAMS.forEach((key) => {
+        if (current.searchParams.has(key) && !url.searchParams.has(key)) {
+          url.searchParams.set(key, current.searchParams.get(key));
+        }
+      });
+    } catch (e) { /* 目前網址解析失敗不影響基本 LIFF URL */ }
+    return url.toString();
+  }
+
+  // 需求文件十：Android intent 開 Chrome；若失敗回傳 false，呼叫端顯示手動教學，
+  // 不自動反覆重試（見需求文件十五）。
+  function openInAndroidChrome(url) {
+    try {
+      const parsed = new URL(url);
+      const intentUrl = 'intent://' + parsed.host + parsed.pathname + parsed.search +
+        '#Intent;scheme=https;package=com.android.chrome;end';
+      global.location.href = intentUrl;
+      return true;
+    } catch (e) { return false; }
+  }
+
+  // 需求文件二十：複製點餐連結只能複製「目前頁面網址」，且先移除任何可能
+  // 意外夾帶的敏感參數（id_token/access_token/token/line_uid/session）。
+  function getSafeCurrentPageUrl() {
+    try {
+      const current = new URL(global.location.href);
+      current.hash = '';
+      ['id_token', 'access_token', 'token', 'line_uid', 'session'].forEach((key) => {
+        current.searchParams.delete(key);
+      });
+      if (current.origin !== global.location.origin) return global.location.origin;
+      return current.toString();
+    } catch (e) { return global.location.origin; }
+  }
+
+  // 需求文件十一：切換到外部瀏覽器（LINE App／Safari／Chrome）前，保存最基本
+  // 的返回資訊。不清除、不改名既有購物車 key；購物車／訂單類型／預約時間／
+  // 地址／備註／優惠券等狀態本來就已經由既有機制（ORDER_CART_KEY 等）保存在
+  // localStorage，這裡只需確保「回到原網址」與「知道要自動重新檢查好友」。
+  function persistBeforeExternalLogin(storeId, opts) {
+    saveLineMemberReturnUrl(storeId);
+    markAwaitingFriendshipReturn();
+    try {
+      sessionStorage.setItem(EXTERNAL_LOGIN_PENDING_KEY, JSON.stringify({
+        store_id: storeId,
+        gate_stage: (opts && opts.gate_stage) || '',
+        created_at: Date.now(),
+        return_url: buildReturnUrl(storeId, opts),
+      }));
+    } catch (e) { /* 不阻擋顧客操作 */ }
+  }
+
+  // 需求文件十二：pending 狀態超過 15 分鐘視為過期，自動清除，避免舊 pending
+  // 持續觸發提示。
+  function readExternalLoginPending() {
+    try {
+      const raw = sessionStorage.getItem(EXTERNAL_LOGIN_PENDING_KEY);
+      const value = raw ? JSON.parse(raw) : null;
+      if (!value || !value.created_at || (Date.now() - Number(value.created_at)) > EXTERNAL_LOGIN_PENDING_MAX_AGE_MS) {
+        sessionStorage.removeItem(EXTERNAL_LOGIN_PENDING_KEY);
+        return null;
+      }
+      return value;
+    } catch (e) {
+      try { sessionStorage.removeItem(EXTERNAL_LOGIN_PENDING_KEY); } catch (e2) {}
+      return null;
+    }
+  }
+  function clearExternalLoginPending() {
+    try { sessionStorage.removeItem(EXTERNAL_LOGIN_PENDING_KEY); } catch (e) {}
+  }
+
   async function loginWithLine(storeId, opts) {
     if (!isLiffAvailable(storeId)) throw new Error('liff_not_ready');
-    if (!global.liff.isLoggedIn()) {
-      markLoginInProgress();
-      global.liff.login({ redirectUri: buildReturnUrl(storeId, opts) });
-      return { redirected: true };
+    if (global.liff.isLoggedIn()) {
+      return { redirected: false, alreadyLoggedIn: true, externalBrowserRequired: false };
     }
-    return { redirected: false };
+    // fix18-10-hotfix26-I（需求文件二／五）：Facebook／Instagram 內建瀏覽器
+    // 無法沿用 LINE App 登入狀態，直接呼叫 liff.login() 會把顧客導向 LINE 網頁
+    // 帳密登入頁，容易誤以為要輸入帳密而流失。這裡改成不呼叫 liff.login()，
+    // 回傳 externalBrowserRequired=true，交給呼叫端顯示外部開啟引導。
+    const env = detectBrowserEnvironment();
+    if (env.isInAppBrowser) {
+      const returnUrl = buildReturnUrl(storeId, opts);
+      saveLineMemberReturnUrl(storeId);
+      return { redirected: false, alreadyLoggedIn: false, externalBrowserRequired: true, environment: env, returnUrl };
+    }
+    markLoginInProgress();
+    global.liff.login({ redirectUri: buildReturnUrl(storeId, opts) });
+    return { redirected: true, alreadyLoggedIn: false, externalBrowserRequired: false };
   }
 
   // alias, spec section 9 naming
@@ -329,7 +500,14 @@
   // 檢查 exp，快過期／已過期就不要送出注定失敗的請求，改觸發重新登入。
   async function getFreshLineIdToken(storeId, opts) {
     const minValiditySeconds = (opts && opts.minValiditySeconds) || 60;
-    if (!isLiffAvailable(storeId)) return { ok: false, code: 'LIFF_NOT_AVAILABLE', idToken: null };
+    // fix18-10-hotfix26-I（回歸修正）：原本 verifyWithBackend 只檢查
+    // global.liff.isLoggedIn()，不要求 isLiffAvailable(storeId) 內部的
+    // state[storeId].liffReady 記帳（那個 flag 只在 initLineMemberGate() 跑過
+    // 才會設定）。這裡改回只檢查 global.liff 本身是否可用，避免任何原本能正常
+    // verify 的呼叫路徑（例如尚未經過完整 initLineMemberGate 流程）被誤擋。
+    if (!global.liff || typeof global.liff.isLoggedIn !== 'function') {
+      return { ok: false, code: 'LIFF_NOT_AVAILABLE', idToken: null };
+    }
     if (!global.liff.isLoggedIn()) return { ok: false, code: 'LINE_NOT_LOGGED_IN', idToken: null };
     const idToken = global.liff.getIDToken();
     if (!idToken) return { ok: false, code: 'ID_TOKEN_MISSING', idToken: null };
@@ -349,7 +527,7 @@
   // 一次，不得無限重登；購物車由既有 ORDER_CART_KEY 機制自然保留，這裡不需要
   // 額外保存購物車內容，只需標記「返回後要自動重新確認好友狀態」。
   async function recoverLineLoginSession(storeId) {
-    if (!isLiffAvailable(storeId)) return { ok: false, code: 'LIFF_NOT_AVAILABLE' };
+    if (!global.liff || typeof global.liff.login !== 'function') return { ok: false, code: 'LIFF_NOT_AVAILABLE' };
     let alreadyAttempted = false;
     try { alreadyAttempted = sessionStorage.getItem(REAUTH_ATTEMPTED_KEY) === '1'; } catch (e) {}
     if (alreadyAttempted) return { ok: false, code: 'LINE_RELOGIN_REQUIRED' };
@@ -618,6 +796,148 @@
     return gateEl;
   }
 
+  // ══════════════════════════════════════════════════════════════════
+  // fix18-10-hotfix26-I（需求文件八～十六）：Facebook／Instagram 內建瀏覽器
+  // 外部開啟引導。獨立於 #lineMemberGate（同一時間只會有一個這種引導，見
+  // externalGuideVisible），不重用會員登入/好友 Gate 的 overlay，避免關閉時
+  // 誤觸發彼此的 resolve。
+  // ══════════════════════════════════════════════════════════════════
+  let externalGuideEl = null;
+  let externalGuideVisible = false;
+  let externalLoginActionInProgress = false; // 需求文件十五：跳轉前鎖定一次操作
+
+  function closeExternalBrowserLoginGuide() {
+    if (externalGuideEl && externalGuideEl.parentNode) externalGuideEl.parentNode.removeChild(externalGuideEl);
+    externalGuideEl = null;
+    externalGuideVisible = false;
+  }
+
+  // options: { storeId, config, gateStage, environment, onEvent, onClose }
+  function showExternalBrowserLoginGuide(config, options) {
+    const storeId = options && options.storeId;
+    const gateStage = (options && options.gateStage) || '';
+    const environment = (options && options.environment) || detectBrowserEnvironment();
+    const onEvent = options && options.onEvent;
+
+    // 需求文件十五：同一時間只能存在一個外部登入引導。
+    if (externalGuideVisible) return externalGuideEl;
+    closeExternalBrowserLoginGuide();
+
+    trackLineEnvironmentEvent(onEvent, 'line_login_inapp_browser_detected', environment, gateStage, storeId);
+
+    externalGuideEl = document.createElement('div');
+    externalGuideEl.id = 'lineMemberExternalGuide';
+    externalGuideEl.style.cssText = `position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,.6);
+      display:flex;align-items:center;justify-content:center;padding:16px;`;
+
+    // 需求文件十：iOS／Android 用字不同，不可宣稱「已自動開啟 Safari」。
+    const osHintLabel = environment.isIOS ? '如何用 Safari 開啟'
+      : (environment.isAndroid ? '使用 Chrome 開啟' : '如何用瀏覽器開啟');
+
+    externalGuideEl.innerHTML = `
+      <div style="background:#fff;border-radius:16px;max-width:380px;width:100%;padding:24px;text-align:left;font-family:inherit">
+        <div style="font-size:40px;line-height:1;margin-bottom:8px;text-align:center">📲</div>
+        <h3 style="margin:0 0 8px;font-size:18px;text-align:center">請使用 LINE 完成會員登入</h3>
+        <p style="margin:0 0 12px;color:#666;font-size:14px;line-height:1.6">您目前正在 Facebook／Instagram 內建瀏覽器中。<br><br>直接登入可能會要求輸入 LINE 電子郵件與密碼。<br><br>建議改用 LINE App 開啟，即可更安全、快速地完成會員登入，購物車內容會為您保留。</p>
+        <div style="background:#fff7e6;border:1px solid #ffd580;border-radius:8px;padding:8px 10px;margin-bottom:14px;font-size:13px;color:#a15c00">⚠ 不需要在此頁輸入 LINE 帳號密碼。</div>
+        <div id="lmgExternalStatus" style="font-size:13px;color:#888;margin-bottom:10px;text-align:center"></div>
+        <button id="lmgOpenLineBtn" style="width:100%;padding:12px;border:0;border-radius:10px;background:#06C755;color:#fff;font-size:15px;font-weight:600;margin-bottom:8px;cursor:pointer">使用 LINE 開啟</button>
+        <button id="lmgOsHintBtn" style="width:100%;padding:12px;border:1px solid #06C755;border-radius:10px;background:#fff;color:#06C755;font-size:14px;font-weight:600;cursor:pointer;margin-bottom:8px">${escapeHtml(osHintLabel)}</button>
+        <button id="lmgCopyLinkBtn" style="width:100%;padding:12px;border:1px solid #ccc;border-radius:10px;background:#fff;color:#333;font-size:14px;font-weight:600;cursor:pointer;margin-bottom:8px">複製點餐連結</button>
+        <button id="lmgExternalBackBtn" style="width:100%;padding:10px;border:0;background:transparent;color:#999;font-size:13px;cursor:pointer;text-align:center">返回購物車</button>
+      </div>`;
+    document.body.appendChild(externalGuideEl);
+    externalGuideVisible = true;
+    trackLineEnvironmentEvent(onEvent, 'line_login_external_guide_shown', environment, gateStage, storeId);
+
+    const setExternalStatus = (text, showRetry) => {
+      const el = document.getElementById('lmgExternalStatus');
+      if (!el) return;
+      el.innerHTML = text ? String(text).replace(/</g, '&lt;') : '';
+      if (showRetry) {
+        el.innerHTML += ' <a href="#" id="lmgRetryOpenLine" style="color:#06C755;text-decoration:underline">再次使用 LINE 開啟</a>';
+        const retryLink = document.getElementById('lmgRetryOpenLine');
+        if (retryLink) {
+          retryLink.addEventListener('click', (ev) => {
+            ev.preventDefault();
+            trackLineEnvironmentEvent(onEvent, 'line_login_external_retry_clicked', environment, gateStage, storeId);
+            attemptOpenLine();
+          });
+        }
+      }
+    };
+
+    // 需求文件九／十六：每次點擊都重新產生一個乾淨的 LIFF URL，只由使用者
+    // 主動點擊觸發，不定時自動重試，不重複保存 Token（這裡完全不碰 Token）。
+    async function attemptOpenLine() {
+      if (externalLoginActionInProgress) return;
+      externalLoginActionInProgress = true;
+      try {
+        const liffOpenUrl = buildLiffOpenUrl(storeId, config, { gate_stage: gateStage });
+        if (!liffOpenUrl) {
+          setExternalStatus('目前無法開啟 LINE，請改用瀏覽器開啟或複製連結。', false);
+          return;
+        }
+        trackLineEnvironmentEvent(onEvent, 'line_login_open_line_clicked', environment, gateStage, storeId);
+        persistBeforeExternalLogin(storeId, { gate_stage: gateStage });
+        setExternalStatus('正在為您開啟 LINE…', false);
+        global.location.href = liffOpenUrl;
+      } finally {
+        // 若真的跳轉離開頁面，這行不會有機會執行；留著是為了「LIFF URL 建置
+        // 失敗」這種沒有真的跳轉的情況，讓使用者還能再按一次（需求文件十六）。
+        setTimeout(() => {
+          externalLoginActionInProgress = false;
+          setExternalStatus('LINE 沒有成功開啟嗎？', true);
+        }, 1500);
+      }
+    }
+
+    const openLineBtn = externalGuideEl.querySelector('#lmgOpenLineBtn');
+    const osHintBtn = externalGuideEl.querySelector('#lmgOsHintBtn');
+    const copyBtn = externalGuideEl.querySelector('#lmgCopyLinkBtn');
+    const backBtn = externalGuideEl.querySelector('#lmgExternalBackBtn');
+
+    openLineBtn.addEventListener('click', attemptOpenLine);
+
+    osHintBtn.addEventListener('click', () => {
+      trackLineEnvironmentEvent(onEvent, 'line_login_open_browser_clicked', environment, gateStage, storeId);
+      if (environment.isAndroid) {
+        // 需求文件十：intent 失敗要有 fallback，不白畫面、不無限重試。
+        const ok = openInAndroidChrome(getSafeCurrentPageUrl());
+        if (!ok) setExternalStatus('請點右上角選單，選擇「使用外部瀏覽器開啟」。', false);
+      } else if (environment.isIOS) {
+        setExternalStatus('請點右上角「⋯」，選擇「在瀏覽器中開啟」，回到點餐頁後再按 LINE 登入。', false);
+      } else {
+        setExternalStatus('請點選瀏覽器選單，選擇「使用外部瀏覽器開啟」。', false);
+      }
+    });
+
+    copyBtn.addEventListener('click', async () => {
+      trackLineEnvironmentEvent(onEvent, 'line_login_copy_link_clicked', environment, gateStage, storeId);
+      const url = getSafeCurrentPageUrl();
+      try {
+        if (global.navigator && global.navigator.clipboard && global.navigator.clipboard.writeText) {
+          await global.navigator.clipboard.writeText(url);
+          setExternalStatus('已複製點餐連結，請貼到瀏覽器開啟。', false);
+        } else {
+          setExternalStatus('請手動複製此連結：' + url, false);
+        }
+      } catch (e) {
+        setExternalStatus('請手動複製此連結：' + url, false);
+      }
+    });
+
+    backBtn.addEventListener('click', () => {
+      // 需求文件二十一：返回購物車——關閉引導、不清購物車、不清 pending、
+      // 不自動重新彈出會員 Gate，只有使用者再次主動送單/登入才會再顯示。
+      trackLineEnvironmentEvent(onEvent, 'line_login_external_guide_closed', environment, gateStage, storeId);
+      closeExternalBrowserLoginGuide();
+      options && options.onClose && options.onClose();
+    });
+
+    return externalGuideEl;
+  }
+
   // fix18-10-hotfix26-B（需求文件四／七／九）：require_follow 真正生效的核心
   // 流程。已經有本地 session 時也會檢查一次（避免舊 session 是在 require_follow
   // 還沒開啟時建立的）。用模組內 state（_friendGateCompletedStores）記錄「這個
@@ -728,6 +1048,16 @@
         const target = _activeFriendGate;
         const storeId = target ? target.storeId : (getCurrentStoreId() || null);
         if (!storeId) { clearAwaitingFriendshipReturn(); return; }
+        // fix18-10-hotfix26-I（需求文件十二／二十一）：若稍早有記錄「切到外部
+        // 瀏覽器登入」的 pending 狀態，這裡視為「使用者已返回」，記錄一次
+        // Analytics 事件並清除 pending（過期超過 15 分鐘的已由
+        // readExternalLoginPending() 自動失效，不會殘留持續觸發）。
+        const externalPending = readExternalLoginPending();
+        if (externalPending) {
+          trackLineEnvironmentEvent(target ? target.onEvent : null, 'line_login_external_return_detected',
+            detectBrowserEnvironment(), externalPending.gate_stage, storeId);
+          clearExternalLoginPending();
+        }
         if (target) setGateStatus('正在向 LINE 確認好友狀態…');
         const res = await recheckFriendship(storeId, target ? target.ids : {});
         const nowFriend = normalizeServerFriendStatus(res);
@@ -753,9 +1083,20 @@
       }
     }, 500);
   }
-  document.addEventListener('visibilitychange', attemptAutoFriendshipResume);
-  global.addEventListener('pageshow', attemptAutoFriendshipResume);
-  global.addEventListener('focus', attemptAutoFriendshipResume);
+  // fix18-10-hotfix26-I（回歸修正）：hotfix26-G 新增這三行監聽時，沒有防範
+  // document／addEventListener 不存在的情況（例如既有 smoke test 用簡化版
+  // window/document mock，或極舊瀏覽器），導致模組載入時直接拋例外。這裡
+  // 改成防禦性檢查（hasDOM + 個別 typeof 檢查），行為完全不變，只是不再
+  // 假設這些 API 一定存在。
+  try {
+    if (hasDOM && typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+      document.addEventListener('visibilitychange', attemptAutoFriendshipResume);
+    }
+    if (typeof global.addEventListener === 'function') {
+      global.addEventListener('pageshow', attemptAutoFriendshipResume);
+      global.addEventListener('focus', attemptAutoFriendshipResume);
+    }
+  } catch (e) { /* 非標準瀏覽器環境，安全略過，不影響其餘功能 */ }
 
 
   // callback(result) — result: {ok:true} 表示可以繼續；{ok:false, skipped:true} 表示使用者略過
@@ -779,8 +1120,22 @@
           setGateStatus('LIFF 尚未就緒，請稍後再試或改用加好友連結');
           return;
         }
-        const loginRes = await loginWithLine(storeId, { gate_stage: 'checkout' });
+        const loginOpts = { gate_stage: 'checkout' };
+        const loginRes = await loginWithLine(storeId, loginOpts);
         if (loginRes.redirected) return; // 頁面即將跳轉，購物車已由既有機制保留
+        // fix18-10-hotfix26-I（需求文件十三）：Facebook／Instagram 內建瀏覽器，
+        // 不能直接跳轉 liff.login()；改顯示外部開啟引導，Promise 仍必須 resolve，
+        // 讓送出按鈕能恢復，不可懸掛、不可先建立訂單再登入。
+        if (loginRes.externalBrowserRequired) {
+          persistBeforeExternalLogin(storeId, loginOpts);
+          closeMemberGate();
+          showExternalBrowserLoginGuide(config, {
+            storeId, gateStage: 'checkout', environment: loginRes.environment, onEvent,
+            onClose: () => { /* 需求文件二十一：關閉引導不重新彈出會員 Gate */ },
+          });
+          resolve({ ok: false, reason: 'external_browser_required', externalBrowserRequired: true });
+          return;
+        }
         const verifyRes = await verifyWithBackend(storeId, { ...ids, gate_stage: 'checkout' });
         if (verifyRes.success) {
           closeMemberGate();
@@ -814,8 +1169,21 @@
           setGateStatus('LIFF 尚未就緒，請稍後再試');
           return;
         }
-        const loginRes = await loginWithLine(storeId, { gate_stage: 'entry' });
+        const loginOpts = { gate_stage: 'entry' };
+        const loginRes = await loginWithLine(storeId, loginOpts);
         if (loginRes.redirected) return;
+        // fix18-10-hotfix26-I（需求文件十四）：entry 模式也要共用同一套外部
+        // 瀏覽器引導，不可只修 checkout。
+        if (loginRes.externalBrowserRequired) {
+          persistBeforeExternalLogin(storeId, loginOpts);
+          closeMemberGate();
+          showExternalBrowserLoginGuide(config, {
+            storeId, gateStage: 'entry', environment: loginRes.environment, onEvent,
+            onClose: () => {},
+          });
+          resolve({ ok: false, reason: 'external_browser_required', externalBrowserRequired: true });
+          return;
+        }
         const verifyRes = await verifyWithBackend(storeId, { ...ids, gate_stage: 'entry' });
         if (verifyRes.success) {
           closeMemberGate();
@@ -883,6 +1251,11 @@
     // fix18-10-hotfix26-G 新增：ID Token 過期自動恢復 × 加好友返回自動重新確認
     getFreshLineIdToken, recoverLineLoginSession, decodeJwtPayloadSafely,
     markAwaitingFriendshipReturn, clearAwaitingFriendshipReturn, isAwaitingFriendshipReturn,
+    // fix18-10-hotfix26-I 新增：Facebook／Instagram 內建瀏覽器環境修復
+    detectBrowserEnvironment, detectTrafficSource, buildLiffOpenUrl, openInAndroidChrome,
+    getSafeCurrentPageUrl, persistBeforeExternalLogin, readExternalLoginPending,
+    clearExternalLoginPending, showExternalBrowserLoginGuide, closeExternalBrowserLoginGuide,
+    trackLineEnvironmentEvent,
   };
 
 })(window);
