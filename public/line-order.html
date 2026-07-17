@@ -1066,20 +1066,47 @@ function updateDeliveryAddressVisibility(){
   }
 }
 
-// ── fix18-10-hotfix26-F3：外帶取餐地址（純新增，additive）──────────────
-// 地址來源優先序：store_address → pickup_address → 都沒有則顯示提示文字，
-// 不得寫死 store_001／任何特定店家地址。
+// ── fix18-10-hotfix26-F3/F5：外帶取餐地址（純新增，additive）─────────────
+// fix18-10-hotfix26-F5：地址/座標來源改用「取餐地點與店家地址相同」優先序，
+// 與後端 utils/pickupLocation.js 的 resolvePickupSettings() 同一套規則：
+//   same_as_store=true  → store_address / store_lat,lng
+//   same_as_store=false → pickup_address → store_address（座標同理 pickup_lat/lng → store_lat/lng）
+// GET /shop 一定會回傳 boolean 的 pickup_address_same_as_store（見 routes/line-orders.js
+// resolveSameAsStoreFlag()），這裡仍保留舊版 fallback 分支以防萬一 shopData 尚未載入。
 function resolvePickupAddressText(){
+  if(shopData && typeof shopData.pickup_address_same_as_store === 'boolean'){
+    if(shopData.pickup_address_same_as_store){
+      return (shopData.store_address ? String(shopData.store_address).trim() : '');
+    }
+    const pickupAddr=shopData.pickup_address?String(shopData.pickup_address).trim():'';
+    if(pickupAddr) return pickupAddr;
+    return (shopData.store_address ? String(shopData.store_address).trim() : '');
+  }
+  // Fallback（理論上不會發生：GET /shop 一定帶 same_as_store；保留舊版邏輯保守處理）
   const storeAddr=(shopData&&shopData.store_address)?String(shopData.store_address).trim():'';
   if(storeAddr) return storeAddr;
   const pickupAddr=(shopData&&shopData.pickup_address)?String(shopData.pickup_address).trim():'';
   if(pickupAddr) return pickupAddr;
   return '';
 }
+// fix18-10-hotfix26-F5：取餐說明——只有「獨立取餐地址」時才有意義，跟店家地址相同時不顯示。
+function resolvePickupAddressNote(){
+  if(shopData && shopData.pickup_address_same_as_store === false){
+    return shopData.pickup_address_note ? String(shopData.pickup_address_note).trim() : '';
+  }
+  return '';
+}
 // 有座標優先用座標產生 Google Maps 連結（較精準）；沒有座標才 fallback 用地址搜尋。
 function buildPickupMapsUrl(){
-  const lat=parseFloat(shopData&&shopData.store_lat);
-  const lng=parseFloat(shopData&&shopData.store_lng);
+  let lat, lng;
+  if(shopData && shopData.pickup_address_same_as_store === false){
+    lat=parseFloat(shopData.pickup_lat); lng=parseFloat(shopData.pickup_lng);
+    if(!(Number.isFinite(lat)&&Number.isFinite(lng))){
+      lat=parseFloat(shopData.store_lat); lng=parseFloat(shopData.store_lng);
+    }
+  } else {
+    lat=parseFloat(shopData&&shopData.store_lat); lng=parseFloat(shopData&&shopData.store_lng);
+  }
   if(Number.isFinite(lat)&&Number.isFinite(lng)) return `https://www.google.com/maps?q=${lat},${lng}`;
   const addr=resolvePickupAddressText();
   if(!addr) return '';
@@ -2498,8 +2525,12 @@ function buildPickupLocationRowsHTML(pickupLocation){
   const hasAddr=!!pickupLocation.has_address;
   const addrJson=JSON.stringify(String(pickupLocation.address||'')).replace(/"/g,'&quot;');
   const mapsJson=JSON.stringify(String(mapsUrl||'')).replace(/"/g,'&quot;');
+  // fix18-10-hotfix26-F5：取餐說明只在有值時顯示，空值時整列隱藏（不留空白列）。
+  const note=String(pickupLocation.address_note||'').trim();
+  const noteRow=note?`<div class="od-row"><span class="od-label">📝 取餐說明</span><span class="od-val">${esc(note)}</span></div>`:'';
   return `<div class="od-row"><span class="od-label">🏪 取餐門市</span><span class="od-val">${storeName}</span></div>`
     + `<div class="od-row"><span class="od-label">📍 取餐地址</span><span class="od-val">${address}</span></div>`
+    + noteRow
     + `<div class="od-row" style="gap:8px">`
     + `<button type="button" class="btn-detail" ${mapsUrl?'':'disabled style="opacity:.5"'} onclick='openPickupMapsUrl(${mapsJson})'>開啟 Google Maps</button>`
     + `<button type="button" class="btn-detail" ${hasAddr?'':'disabled style="opacity:.5"'} onclick='copyPickupAddressText(${addrJson})'>複製地址</button>`

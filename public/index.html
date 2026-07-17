@@ -890,6 +890,53 @@
           <div id="geocode-status" style="font-size:12px;color:#888;margin-top:6px;min-height:18px"></div>
         </div>
 
+        <!-- fix18-10-hotfix26-F5：取餐地點設定（可與店家地址不同，例如騎樓/市場/後門入口） -->
+        <div class="settings-card" style="grid-column:1/-1">
+          <h3>🏪 外帶取餐地點</h3>
+          <p style="color:#888;font-size:13px;margin-bottom:12px">
+            外帶顧客結帳頁與訂單完成頁顯示的實際取餐位置，可以跟店家登記地址不同
+            （例如騎樓攤位、市場、夜市、商場美食街、社區中庭、後門取餐等情境）。
+          </p>
+          <div class="settings-row">
+            <label>取餐地點與店家地址相同</label>
+            <label class="toggle"><input type="checkbox" id="set-pickup_address_same_as_store" onchange="togglePickupSameAsStore()"><span class="slider"></span></label>
+          </div>
+          <div id="pickup-same-as-store-summary" style="font-size:13px;color:#555;background:#f7f7f7;border-radius:8px;padding:10px 12px;margin-bottom:12px;display:none">
+            目前使用店家地址與店家座標<br>
+            <span id="pickup-same-as-store-summary-addr" style="color:#888"></span>
+          </div>
+          <div id="pickup-independent-fields" style="display:none">
+            <div class="settings-row">
+              <label>取餐地址</label>
+              <input type="text" id="set-pickup_address" placeholder="例：桃園市中壢區龍東路128號騎樓" style="flex:1">
+            </div>
+            <div class="settings-row">
+              <label>取餐說明</label>
+              <input type="text" id="set-pickup_address_note" placeholder="例：龍岡國中對面，請從面向龍東路的騎樓入口取餐" style="flex:1">
+            </div>
+            <div class="settings-row" style="gap:8px;flex-wrap:wrap">
+              <label style="min-width:80px">取餐緯度</label>
+              <input type="text" id="set-pickup_lat" placeholder="例：24.9639" style="flex:1;min-width:120px">
+              <label style="min-width:80px">取餐經度</label>
+              <input type="text" id="set-pickup_lng" placeholder="例：121.2248" style="flex:1;min-width:120px">
+            </div>
+            <div class="settings-row" style="font-size:13px;color:#888">
+              <label>定位模式</label>
+              <span id="pickup-coordinate-mode-label">○ 地址自動定位</span>
+            </div>
+            <button class="btn-secondary" onclick="geocodePickupAddress()" style="margin-top:8px;width:100%">📍 從取餐地址取得座標</button>
+            <button class="btn-secondary" onclick="openPickupMapModal()" style="margin-top:8px;width:100%">🗺 在地圖上手動校正</button>
+            <button class="btn-secondary" onclick="usePickupCurrentLocation()" style="margin-top:8px;width:100%">📡 使用目前位置</button>
+            <div id="pickup-geocode-status" style="font-size:12px;color:#888;margin-top:6px;min-height:18px"></div>
+            <div class="settings-row" style="margin-top:10px">
+              <label>將此取餐座標同步作為外送距離計算起點</label>
+              <label class="toggle"><input type="checkbox" id="set-pickup_sync_delivery_origin"><span class="slider"></span></label>
+            </div>
+            <p style="color:#888;font-size:12px;margin-top:-4px">同步後，外送距離與外送費將從此座標開始計算。</p>
+          </div>
+        </div>
+        <!-- end fix18-10-hotfix26-F5 取餐地點設定 -->
+
         <div class="settings-card">
           <h3>🛵 外送費規則</h3>
           <div class="settings-row">
@@ -2031,6 +2078,35 @@
 <!-- ═══════════════════════════════════════════════════════════
      fix18-10 modals: 訂單匯出、訂單匯入、預購匯出、預購匯入、搬家確認
 ═════════════════════════════════════════════════════════════ -->
+
+<!-- fix18-10-hotfix26-F5：取餐座標手動校正 Modal -->
+<div class="modal-overlay" id="pickupMapModal" style="display:none" onclick="if(event.target===this)closePickupMapModal()">
+  <div class="modal" style="max-width:520px">
+    <div class="modal-header">
+      <h3>🗺 校正實際取餐位置</h3>
+      <button class="modal-close" onclick="closePickupMapModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:13px;color:#888;margin-bottom:10px">請將地圖上的定位點拖曳到實際取餐入口。</p>
+      <div id="pickupMapCanvas" style="width:100%;height:280px;border-radius:8px;background:#e0e0e0"></div>
+      <div style="display:flex;gap:8px;margin:10px 0">
+        <button class="btn-secondary" onclick="setPickupMapType('roadmap')" style="flex:1">🗺 地圖</button>
+        <button class="btn-secondary" onclick="setPickupMapType('satellite')" style="flex:1">🛰 衛星</button>
+      </div>
+      <div style="font-size:13px;color:#555">
+        目前緯度：<span id="pickupMapLatDisplay">—</span><br>
+        目前經度：<span id="pickupMapLngDisplay">—</span>
+      </div>
+      <div id="pickup-map-status" style="font-size:12px;color:#888;margin-top:6px;min-height:18px"></div>
+    </div>
+    <div class="modal-footer" style="display:flex;gap:8px;justify-content:flex-end;padding:16px;flex-wrap:wrap">
+      <button class="btn-secondary" onclick="pickupMapRelocateFromAddress()">重新定位取餐地址</button>
+      <button class="btn-secondary" onclick="pickupMapUseCurrentLocation()">使用目前位置</button>
+      <button class="btn-secondary" onclick="closePickupMapModal()">取消</button>
+      <button class="btn-primary" onclick="confirmPickupMapPin()">使用此座標</button>
+    </div>
+  </div>
+</div>
 
 <!-- 訂單匯出 Modal -->
 <div class="modal-overlay" id="orderExportModal" style="display:none" onclick="if(event.target===this)closeOrderExportModal()">

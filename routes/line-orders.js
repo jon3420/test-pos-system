@@ -23,7 +23,7 @@ const { computeTodayStatus: computeCalendarStatus } = require('./business-calend
 const { logServerEvent, buildTrackingMetadata } = require('../utils/analyticsLog'); // fix18-10-hotfix23-A/D：Analytics Foundation + Ads Attribution
 const { touchMemberOnOrder, recordMemberPurchase } = require('../utils/lineMemberStats'); // fix18-10-hotfix23-E：LINE 會員入口
 const { verifyMemberSession } = require('../utils/lineMemberSession'); // fix18-10-hotfix23-E：安全 Member Session
-const { buildPickupSnapshot, resolvePickupLocation } = require('../utils/pickupLocation'); // fix18-10-hotfix26-F4：取餐門市/地址 snapshot 共用 helper
+const { buildPickupSnapshot, resolvePickupLocation, resolveSameAsStoreFlag } = require('../utils/pickupLocation'); // fix18-10-hotfix26-F4/F5：取餐門市/地址/取餐地點設定共用 helper
 
 // ── fix18-06：外送費後端重算 helper ──────────────────
 const SERVER_KEY = () => process.env.GOOGLE_MAPS_SERVER_KEY || '';
@@ -479,6 +479,13 @@ router.get('/shop', (req, res) => {
       // 選填欄位，當 store_address 未設定時才使用（優先序見前端 resolvePickupAddressText()：
       // store_address → pickup_address → 都沒有則顯示「請洽店家確認取餐地點」）。
       'store_address', 'store_lat', 'store_lng', 'pickup_address',
+      // fix18-10-hotfix26-F5：獨立「取餐地點」設定（向下相容新增，不移除既有欄位）。
+      // pickup_address_note／pickup_lat／pickup_lng／pickup_coordinate_mode／
+      // pickup_coordinate_verified_at 直接用原始字串回傳；pickup_address_same_as_store／
+      // pickup_sync_delivery_origin 在下面覆寫成真正的 boolean（與 settings.is_open 同樣寫法）。
+      // 前台只有外帶模式會用到這些欄位。
+      'pickup_address_note', 'pickup_lat', 'pickup_lng',
+      'pickup_coordinate_mode', 'pickup_coordinate_verified_at',
     ];
     const settings = {};
     keys.forEach(k => { settings[k] = getSetting(db, storeId, k, ''); });
@@ -486,6 +493,14 @@ router.get('/shop', (req, res) => {
     // Hotfix16 BUG-003：今日休假狀態改用單一函式判斷，優先序 Business Calendar > 今日臨時休息 > 固定公休
     const todayClosedStatus = getDateClosedStatus(db, storeId, todayStr);
     settings.is_open = settings.line_ordering_enabled === '1' && !todayClosedStatus.closed;
+
+    // fix18-10-hotfix26-F5：pickup_address_same_as_store／pickup_sync_delivery_origin
+    // 覆寫成真正的 boolean（跟上面 is_open 同樣寫法），且 same_as_store 的預設值推斷
+    // 呼叫共用 helper resolveSameAsStoreFlag()，跟 resolvePickupSettings() 用同一份邏輯，
+    // 確保購物車頁跟訂單完成頁/查詢訂單看到的「相同店家地址」判斷完全一致。
+    settings.pickup_address_same_as_store = resolveSameAsStoreFlag(db, storeId);
+    settings.pickup_sync_delivery_origin = settings.pickup_sync_delivery_origin === '1' || String(settings.pickup_sync_delivery_origin).toLowerCase() === 'true';
+    settings.pickup_coordinate_mode = settings.pickup_coordinate_mode === 'manual' ? 'manual' : 'auto';
 
     // 外帶/外送獨立狀態
     const takeoutMode   = getModeSettings(db, storeId, 'takeout');
@@ -1256,7 +1271,7 @@ router.post('/', async (req, res) => {
     // 外送訂單不寫 snapshot（維持既有顧客配送地址欄位，避免誤寫成配送地址）。
     const pickupSnapshot = !isDelivery
       ? buildPickupSnapshot(db, storeId)
-      : { pickup_store_name_snapshot: '', pickup_address_snapshot: '', pickup_lat_snapshot: '', pickup_lng_snapshot: '' };
+      : { pickup_store_name_snapshot: '', pickup_address_snapshot: '', pickup_address_note_snapshot: '', pickup_lat_snapshot: '', pickup_lng_snapshot: '' };
 
     db.run(
       `INSERT INTO orders (
@@ -1266,12 +1281,12 @@ router.post('/', async (req, res) => {
         delivery_platform, platform_order_no,
         delivery_lat, delivery_lng, delivery_distance_km, delivery_maps_url,
         delivery_fee,
-        pickup_store_name_snapshot, pickup_address_snapshot,
+        pickup_store_name_snapshot, pickup_address_snapshot, pickup_address_note_snapshot,
         pickup_lat_snapshot, pickup_lng_snapshot,
         items, payment_method, payment_category, payment_status,
         subtotal, discount_type, discount_amount, original_total, coupon_code, total,
         note, sync_status, device_id, source, created_at, updated_at, line_user_id
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         uuid, uuid, orderNo, storeId, orderMode, 'pending', 'pending',
         customer_name, customer_phone, customer_line_id||'',
@@ -1281,7 +1296,7 @@ router.post('/', async (req, res) => {
         isDelivery ? String(parseFloat(delivery_lng)||'') : '',
         calcDistKm, calcMapsUrl,
         calcDelivFee,
-        pickupSnapshot.pickup_store_name_snapshot, pickupSnapshot.pickup_address_snapshot,
+        pickupSnapshot.pickup_store_name_snapshot, pickupSnapshot.pickup_address_snapshot, pickupSnapshot.pickup_address_note_snapshot,
         pickupSnapshot.pickup_lat_snapshot, pickupSnapshot.pickup_lng_snapshot,
         itemsJson, payment_method||'cash', payment_category, 'pending',
         sub, 'none', discAmt, sub, appliedCouponCode, finalTotal,
@@ -1525,6 +1540,7 @@ function safeOrder(order, db, storeId) {
     pickup_location: pickupLocation,
     pickup_store_name: pickupLocation ? pickupLocation.store_name : '',
     pickup_address: pickupLocation ? pickupLocation.address : '',
+    pickup_address_note: pickupLocation ? (pickupLocation.address_note || '') : '',
     pickup_lat: pickupLocation ? pickupLocation.lat : null,
     pickup_lng: pickupLocation ? pickupLocation.lng : null,
     pickup_maps_url: pickupLocation ? pickupLocation.maps_url : '',

@@ -48,7 +48,20 @@ const LINE_KEYS = new Set([
   // fix18-10-hotfix26-F3：外帶取餐地址（顧客結帳頁顯示用；純新增選填欄位，
   // 沒有設定時前端 fallback 使用 store_address，兩者都沒有時顯示「請洽店家確認取餐地點」）。
   'pickup_address',
+  // fix18-10-hotfix26-F5：獨立「取餐地點」設定（與上面的 pickup_address 同一組功能的
+  // 延伸，沿用同一個 line_order feature gate；不新增資料表，全部是 settings key-value）。
+  'pickup_address_same_as_store', 'pickup_address_note',
+  'pickup_lat', 'pickup_lng', 'pickup_coordinate_mode', 'pickup_coordinate_verified_at',
+  'pickup_sync_delivery_origin',
 ]);
+
+// fix18-10-hotfix26-F5：上面 LINE_KEYS 內「取餐地點」設定 key 的清單（給 PUT /api/settings
+// 內的專屬驗證/同步邏輯引用，避免驗證程式碼要重複打一次落落長的字串陣列）。
+const PICKUP_LOCATION_KEYS = [
+  'pickup_address_same_as_store', 'pickup_address', 'pickup_address_note',
+  'pickup_lat', 'pickup_lng', 'pickup_coordinate_mode', 'pickup_coordinate_verified_at',
+  'pickup_sync_delivery_origin',
+];
 
 // fix18-06：外送距離費率相關 key
 const DELIVERY_FEE_KEYS = [
@@ -140,6 +153,52 @@ const ALL_ALLOWED = [
   ...ANALYTICS_KEYS,
   ...LINE_MEMBER_KEYS,
 ];
+
+// fix18-10-hotfix26-F5：lat/lng 範圍驗證（-90~90 / -180~180，不可 NaN）。
+// 空字串視為「清空座標」允許通過（空值安全處理）。純函式，供 PUT /api/settings
+// 與 smoke test（router.__test）共用同一份驗證邏輯。
+function validatePickupLatLng(label, raw, min, max) {
+  const s = raw === undefined ? '' : String(raw).trim();
+  if (s === '') return null;
+  const n = Number(s);
+  if (!Number.isFinite(n)) return `${label} 格式錯誤（必須是數字）`;
+  if (n < min || n > max) return `${label} 超出範圍（必須介於 ${min} ~ ${max}）`;
+  return null;
+}
+
+// fix18-10-hotfix26-F5：產生 Asia/Taipei 目前時間的 ISO 字串（含 +08:00 offset），
+// 供 pickup_coordinate_verified_at 使用。一律由後端產生，不信任前端傳入的時間。
+function buildTaipeiVerifiedAtStamp() {
+  const twNowDate = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${twNowDate.getFullYear()}-${pad(twNowDate.getMonth()+1)}-${pad(twNowDate.getDate())}T${pad(twNowDate.getHours())}:${pad(twNowDate.getMinutes())}:${pad(twNowDate.getSeconds())}+08:00`;
+}
+
+// fix18-10-hotfix26-F5：同步外送距離計算起點（需求文件九）。
+// 只有 pickup_sync_delivery_origin=true，且這次請求確實送了 pickup_lat/pickup_lng
+// 兩者皆為合法數值時，才把 store_lat/store_lng 同步覆寫成取餐座標；絕不覆寫
+// store_address（文件明確要求「只同步座標，不要自動覆蓋店家地址」）。sync 開關本身
+// 若這次沒送，就讀資料庫目前已儲存的值來判斷（維持既有設定的同步狀態）。
+// 獨立函式（吃 db/storeId/body），方便 smoke test 直接呼叫驗證，不需要真的發 HTTP request。
+function applyPickupSyncToStoreCoords(db, storeId, body) {
+  const syncFlagRaw = body.pickup_sync_delivery_origin !== undefined
+    ? String(body.pickup_sync_delivery_origin)
+    : (db.get('SELECT value FROM settings WHERE store_id=? AND key=?', [storeId, 'pickup_sync_delivery_origin']) || {}).value;
+  const syncEnabled = String(syncFlagRaw) === '1' || String(syncFlagRaw).toLowerCase() === 'true';
+
+  if (!syncEnabled || body.pickup_lat === undefined || body.pickup_lng === undefined) return false;
+
+  const latN = Number(String(body.pickup_lat).trim());
+  const lngN = Number(String(body.pickup_lng).trim());
+  if (!Number.isFinite(latN) || !Number.isFinite(lngN)) return false;
+
+  ['store_lat', 'store_lng'].forEach((k) => {
+    const v = k === 'store_lat' ? String(latN) : String(lngN);
+    const updated = db.run('UPDATE settings SET value=? WHERE store_id=? AND key=?', [v, storeId, k]);
+    if (!updated.changes) db.run('INSERT OR IGNORE INTO settings (store_id,key,value) VALUES (?,?,?)', [storeId, k, v]);
+  });
+  return true;
+}
 
 // GET /api/settings
 router.get('/', (req, res) => {
@@ -269,6 +328,28 @@ router.put('/', (req, res) => {
       }
     }
 
+    // ── fix18-10-hotfix26-F5：取餐地點設定驗證與同步（需求文件八／九）──────
+    // 只在這次請求有實際送出「取餐地點」相關欄位時才處理，未送出時完全不動作
+    // （沿用既有 PUT /api/settings「只更新有送值的 key」慣例）。
+    if (Object.keys(req.body).some(k => PICKUP_LOCATION_KEYS.includes(k))) {
+      const latErr = validatePickupLatLng('取餐緯度 (pickup_lat)', req.body.pickup_lat, -90, 90);
+      if (latErr) return res.status(400).json({ success: false, message: latErr });
+      const lngErr = validatePickupLatLng('取餐經度 (pickup_lng)', req.body.pickup_lng, -180, 180);
+      if (lngErr) return res.status(400).json({ success: false, message: lngErr });
+
+      const modeRaw = req.body.pickup_coordinate_mode !== undefined ? String(req.body.pickup_coordinate_mode).trim() : undefined;
+      if (modeRaw !== undefined && modeRaw !== '' && !['auto', 'manual'].includes(modeRaw)) {
+        return res.status(400).json({ success: false, message: 'pickup_coordinate_mode 必須是 auto 或 manual' });
+      }
+
+      // pickup_coordinate_verified_at 一律由後端用伺服器目前時間（Asia/Taipei）覆寫，
+      // 不信任前端傳入的時間字串——只要這次請求有動到座標或校正模式，就重新蓋章。
+      // （req.body 本身若有送這個欄位也會被這裡蓋掉，確保時間戳記真實可信。）
+      if (req.body.pickup_lat !== undefined || req.body.pickup_lng !== undefined || modeRaw !== undefined) {
+        req.body.pickup_coordinate_verified_at = buildTaipeiVerifiedAtStamp();
+      }
+    }
+
     // ── 寫入允許的 key ─────────────────────────────────────
     ALL_ALLOWED.forEach(k => {
       if (req.body[k] !== undefined) {
@@ -285,6 +366,13 @@ router.put('/', (req, res) => {
       }
     });
 
+    // ── fix18-10-hotfix26-F5：同步外送距離計算起點（需求文件九）───────────
+    try {
+      applyPickupSyncToStoreCoords(db, storeId, req.body);
+    } catch (syncErr) {
+      console.warn('[settings] pickup_sync_delivery_origin 同步失敗:', syncErr.message);
+    }
+
     // ── WebSocket broadcast ───────────────────────────────
     try {
       const wss   = req.app.get('wss');
@@ -300,5 +388,14 @@ router.put('/', (req, res) => {
     res.json({ success: true, data: s });
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
+
+// fix18-10-hotfix26-F5：供 scripts/smoke-hotfix26-f5.js 直接呼叫驗證，不需要真的
+// 起 HTTP server（沿用 routes/line-analytics.js 既有的 router.__test 慣例）。
+router.__test = {
+  validatePickupLatLng,
+  buildTaipeiVerifiedAtStamp,
+  applyPickupSyncToStoreCoords,
+  PICKUP_LOCATION_KEYS,
+};
 
 module.exports = router;
