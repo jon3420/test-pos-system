@@ -2956,3 +2956,8 @@ input[type="time"]::selection {
   word-break: break-all;
 }
 .line-diag-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+
+/* fix18-10-hotfix26-F6：Google Places Autocomplete 建議清單（.pac-container）需高於
+   既有 Modal（.modal-overlay z-index:99999），否則搜尋建議下拉會被 Modal 蓋住。
+   只提高 z-index，不動 .pac-container 其他預設樣式，不影響其他頁面/Modal 外觀。 */
+.pac-container { z-index: 100000 !important; }

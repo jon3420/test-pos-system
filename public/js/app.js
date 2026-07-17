@@ -11175,6 +11175,8 @@ async function openPickupMapModal() {
   modal.style.display = 'flex';
   const statusEl = document.getElementById('pickup-map-status');
   if (statusEl) statusEl.textContent = '';
+  // fix18-10-hotfix26-F6：每次開啟都先清空上一次殘留的搜尋字串/結果/摘要（不影響表單）。
+  clearPickupSearchState();
 
   // 起始座標：目前表單的 pickup_lat/lng → fallback 店家 store_lat/lng → 桃園市中心
   const curLat = parseFloat(document.getElementById('set-pickup_lat')?.value);
@@ -11187,17 +11189,22 @@ async function openPickupMapModal() {
   // 若接下來使用者按「重新定位取餐地址」改用地址 Geocode，會再改回 auto。
   _pickupModalMode = 'manual';
 
-  await _ensurePickupMapsLoaded();
-  if (!_pickupMapsReady) {
+  // fix18-10-hotfix26-F6：改用共用 ensureGoogleMapsSdk()（含 places library），
+  // 取代 F5 的 _ensurePickupMapsLoaded()（仍保留該函式作為向下相容別名，見下方）。
+  const sdkOk = await ensureGoogleMapsSdk();
+  _pickupMapsReady = sdkOk;
+  if (!sdkOk) {
     if (statusEl) statusEl.textContent = '❌ Google 地圖載入失敗，請確認網路連線或稍後再試';
     return;
   }
   _initPickupMap(startLat, startLng);
+  initPickupPlaceAutocomplete();
 }
 
 function closePickupMapModal() {
   const modal = document.getElementById('pickupMapModal');
   if (modal) modal.style.display = 'none';
+  clearPickupSearchState();
   // 關閉／取消不得修改原設定：不動 set-pickup_lat/lng，不動 _pickupCoordinateMode。
 }
 
@@ -11301,7 +11308,12 @@ function pickupMapUseCurrentLocation() {
 }
 
 // 「使用此座標」：唯一會把 modal 內 marker 座標寫回表單欄位的地方（未按這顆按鈕，
-// 拖曳／重新定位／目前位置都只影響 modal 內部狀態，不動表單、不寫 DB）。
+// 拖曳／重新定位／目前位置／搜尋 都只影響 modal 內部狀態，不動表單、不寫 DB）。
+// fix18-10-hotfix26-F6（需求文件十）：只要是「店家在 Modal 內主動確認」的座標——
+// 不論來自拖曳、GPS、地址重新定位、Autocomplete、Text Search 或 Geocoder 搜尋——
+// 一律保存為 manual（人工確認過的座標不可再被背景自動 Geocode 覆蓋）。唯一維持
+// auto 的情境是「後台自動背景 Geocode」，也就是主頁面（非 Modal）的
+// geocodePickupAddress() 按鈕，那個流程完全不經過這裡。
 function confirmPickupMapPin() {
   if (!_pickupMarker) { closePickupMapModal(); return; }
   const pos = _pickupMarker.getPosition();
@@ -11310,13 +11322,340 @@ function confirmPickupMapPin() {
   const lngEl = document.getElementById('set-pickup_lng');
   if (latEl) latEl.value = lat;
   if (lngEl) lngEl.value = lng;
-  _pickupCoordinateMode = _pickupModalMode === 'manual' ? 'manual' : 'auto';
+  _pickupCoordinateMode = 'manual';
   renderPickupCoordinateModeLabel();
   const statusEl = document.getElementById('pickup-geocode-status');
   if (statusEl) { statusEl.textContent = `✅ 已套用地圖校正座標（${lat.toFixed(6)}, ${lng.toFixed(6)}），請記得按下方「儲存外送費設定」`; statusEl.style.color = '#2e7d32'; }
   closePickupMapModal();
 }
 
+
+// ═══════════════════════════════════════════════════════
+// fix18-10-hotfix26-F6：取餐地點搜尋（Google Places Autocomplete × Text Search × Geocoder）
+// ═══════════════════════════════════════════════════════
+//
+// pickupMapSearchState：本次 modal 開啟期間「候選搜尋結果」的暫存狀態，只存在前端，
+// 不新增資料庫欄位。source 可為 autocomplete｜text_search｜geocode｜current_location｜
+// marker_drag｜pickup_address。搜尋只負責讓 Marker 跳到候選位置，真正寫回表單要等
+// 使用者按「使用此座標」（confirmPickupMapPin()，F5 既有函式，本版未重寫其寫入邏輯，
+// 只調整了它「保存為 auto 還是 manual」的判斷——見上方 confirmPickupMapPin() 註解）。
+let pickupMapSearchState = { source: null, placeId: null, name: '', formattedAddress: '', lat: null, lng: null };
+let _pickupAutocomplete = null;
+let _pickupPlacesService = null;
+let _pickupSearchResults = [];
+let _pickupMapsSdkPromise = null;
+
+// ensureGoogleMapsSdk()：共用 Google Maps JS SDK loader（含 places library）。
+// 用單一 Promise 記憶體快取，避免重複插入多個 <script>；一律透過既有
+// /api/config/maps-browser-key 取得 Key，不在前端硬編碼。F5 的 _ensurePickupMapsLoaded()
+// 保留作為向下相容別名（見下方），但實際載入邏輯統一走這裡。
+async function ensureGoogleMapsSdk() {
+  if (window.google && window.google.maps && window.google.maps.places) return true;
+  if (_pickupMapsSdkPromise) return _pickupMapsSdkPromise;
+  _pickupMapsSdkPromise = (async () => {
+    try {
+      const res = await apiFetch('/api/config/maps-browser-key');
+      const json = await res.json();
+      if (!json.success || !json.key) return false;
+      if (window._pickupMapsScriptInjected) {
+        // 已經有其他呼叫插入過 <script>（理論上不會發生，因為本函式是唯一入口，
+        // 但仍防禦性處理），等待 SDK 就緒即可，不再重複插入。
+        await new Promise((resolve) => {
+          const check = () => (window.google && window.google.maps && window.google.maps.places) ? resolve() : setTimeout(check, 100);
+          check();
+        });
+        return !!(window.google && window.google.maps && window.google.maps.places);
+      }
+      window._pickupMapsScriptInjected = true;
+      await new Promise((resolve) => {
+        window._initPickupMapsCallback = resolve;
+        const s = document.createElement('script');
+        s.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(json.key)}&libraries=places&language=zh-TW&callback=_initPickupMapsCallback`;
+        s.async = true; s.defer = true;
+        s.onerror = () => resolve();
+        document.head.appendChild(s);
+      });
+      return !!(window.google && window.google.maps && window.google.maps.places);
+    } catch (e) {
+      console.warn('[pickup-search] Google Maps SDK 載入失敗:', e.message);
+      return false;
+    }
+  })();
+  return _pickupMapsSdkPromise;
+}
+
+// initPickupPlaceAutocomplete()：綁定 google.maps.places.Autocomplete 到搜尋輸入框。
+// 只綁定一次（modal 重複開啟不會 new 出第二個 Autocomplete 實例）。限制台灣地區，
+// 且刻意不限制 types，讓 establishment/point_of_interest/restaurant/store/
+// street_address/premise/route 都能被建議（文件四）。
+function initPickupPlaceAutocomplete() {
+  const input = document.getElementById('pickupSearchInput');
+  if (!input || !window.google || !window.google.maps || !window.google.maps.places) return;
+  if (_pickupAutocomplete) return;
+  _pickupAutocomplete = new google.maps.places.Autocomplete(input, {
+    fields: ['place_id', 'name', 'formatted_address', 'geometry', 'types'],
+    componentRestrictions: { country: 'tw' },
+  });
+  _pickupAutocomplete.addListener('place_changed', () => {
+    const place = _pickupAutocomplete.getPlace();
+    if (!place || !place.geometry || !place.geometry.location) {
+      _setPickupSearchStatus('找不到符合的地點，請改用完整地址或附近地標搜尋。', true);
+      return;
+    }
+    applyPickupSearchResult({
+      source: 'autocomplete',
+      placeId: place.place_id || null,
+      name: place.name || '',
+      formattedAddress: place.formatted_address || '',
+      lat: place.geometry.location.lat(),
+      lng: place.geometry.location.lng(),
+      types: place.types || [],
+    });
+  });
+}
+
+function _setPickupSearchStatus(text, isError) {
+  const el = document.getElementById('pickup-search-status');
+  if (!el) return;
+  el.textContent = text || '';
+  el.style.color = isError ? '#e53935' : '#888';
+}
+
+function _setPickupSearchLoading(loading) {
+  const btn = document.getElementById('pickupSearchBtn');
+  if (btn) btn.disabled = !!loading;
+  if (loading) _setPickupSearchStatus('正在搜尋地點…', false);
+}
+
+// searchPickupPlace()：搜尋按鈕／Enter 的統一入口。Places Text Search → Geocoder fallback。
+// 任何一層失敗（API 未啟用／OVER_QUERY_LIMIT／REQUEST_DENIED／INVALID_REQUEST／
+// 網路錯誤等）都轉成友善訊息，不 throw、不讓整個 Modal 失效——拖曳/GPS/地圖切換
+// 仍然可用。
+async function searchPickupPlace() {
+  const input = document.getElementById('pickupSearchInput');
+  const query = (input?.value || '').trim();
+  if (!query) { _setPickupSearchStatus('請先輸入店名、地址或地標', true); return; }
+
+  const sdkOk = await ensureGoogleMapsSdk();
+  if (!sdkOk) {
+    _setPickupSearchStatus('Google 地點搜尋目前無法使用，仍可手動拖曳地圖定位。', true);
+    return;
+  }
+  initPickupPlaceAutocomplete();
+
+  _setPickupSearchLoading(true);
+  renderPickupSearchResults([]);
+  try {
+    const results = await searchPickupPlaceByText(query);
+    if (results && results.length) {
+      _handlePickupPlacesResults(results);
+      return;
+    }
+    const geo = await geocodePickupSearchText(query);
+    if (geo) {
+      applyPickupSearchResult(geo);
+    } else {
+      _setPickupSearchStatus('找不到符合的地點，請改用完整地址或附近地標搜尋。', true);
+    }
+  } catch (e) {
+    _setPickupSearchStatus('搜尋發生錯誤：' + e.message, true);
+  } finally {
+    _setPickupSearchLoading(false);
+  }
+}
+
+// searchPickupPlaceByText()：第一層，Places Text Search。可用目前地圖中心當 location
+// bias，但不限制在附近幾百公尺內（不設 radius/bounds 強制裁切，讓 Places 自行判斷）。
+function searchPickupPlaceByText(query) {
+  return new Promise((resolve) => {
+    if (!window.google || !window.google.maps || !window.google.maps.places) { resolve([]); return; }
+    if (!_pickupPlacesService) {
+      _pickupPlacesService = new google.maps.places.PlacesService(_pickupMap || document.createElement('div'));
+    }
+    const request = { query };
+    if (_pickupMap) request.location = _pickupMap.getCenter();
+    _pickupPlacesService.textSearch(request, (results, status) => {
+      if (status === google.maps.places.PlacesServiceStatus.OK && results && results.length) {
+        resolve(results.slice(0, 5));
+      } else {
+        // ZERO_RESULTS／OVER_QUERY_LIMIT／REQUEST_DENIED／INVALID_REQUEST 等一律視為
+        // 「這層沒有結果」，交給呼叫端 fallback 到 Geocoder，不在這裡顯示錯誤。
+        if (status !== google.maps.places.PlacesServiceStatus.ZERO_RESULTS) {
+          console.warn('[pickup-search] Places textSearch status:', status);
+        }
+        resolve([]);
+      }
+    });
+  });
+}
+
+// geocodePickupSearchText()：第二層 fallback，google.maps.Geocoder（client-side JS SDK，
+// 與 F5 既有的伺服器端 /api/maps/geocode 是不同的兩條路徑——這裡是給互動式搜尋用，
+// F5 的「重新定位取餐地址」按鈕維持呼叫伺服器端端點，不受影響）。
+function geocodePickupSearchText(query) {
+  return new Promise((resolve) => {
+    if (!window.google || !window.google.maps) { resolve(null); return; }
+    const geocoder = new google.maps.Geocoder();
+    geocoder.geocode({ address: query, region: 'TW' }, (results, status) => {
+      if (status === 'OK' && results && results.length) {
+        const r = results[0];
+        resolve({
+          source: 'geocode',
+          placeId: r.place_id || null,
+          name: '',
+          formattedAddress: r.formatted_address || '',
+          lat: r.geometry.location.lat(),
+          lng: r.geometry.location.lng(),
+          types: r.types || [],
+        });
+      } else {
+        resolve(null);
+      }
+    });
+  });
+}
+
+function _placeResultToState(source, r) {
+  const loc = r.geometry && r.geometry.location;
+  return {
+    source,
+    placeId: r.place_id || null,
+    name: r.name || '',
+    formattedAddress: r.formatted_address || r.vicinity || '',
+    lat: loc ? (typeof loc.lat === 'function' ? loc.lat() : loc.lat) : null,
+    lng: loc ? (typeof loc.lng === 'function' ? loc.lng() : loc.lng) : null,
+    types: r.types || [],
+  };
+}
+
+// Text Search 只有 1 筆 → 直接套用；多筆（最多 5 筆）→ 顯示清單讓店家選，不預設選第一筆。
+function _handlePickupPlacesResults(results) {
+  if (results.length === 1) {
+    applyPickupSearchResult(_placeResultToState('text_search', results[0]));
+    return;
+  }
+  _pickupSearchResults = results;
+  renderPickupSearchResults(results);
+  _setPickupSearchStatus(`搜尋到 ${results.length} 個結果，請選擇：`, false);
+}
+
+// renderPickupSearchResults()：安全渲染最多 5 筆搜尋結果。用 DOM API／textContent
+// 組裝，不把 Google 回傳的店名/地址未過濾拼進 inline HTML 或 onclick 字串，避免 XSS；
+// 每筆結果用陣列 index 綁定 click 監聽器（不是把文字塞進 onclick="..."）。
+function renderPickupSearchResults(results) {
+  const wrap = document.getElementById('pickupSearchResultsList');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  if (!results || !results.length) { wrap.style.display = 'none'; return; }
+  results.slice(0, 5).forEach((r, idx) => {
+    const item = document.createElement('div');
+    item.style.padding = '8px 10px';
+    item.style.borderBottom = idx < Math.min(results.length, 5) - 1 ? '1px solid #eee' : 'none';
+    item.style.cursor = 'pointer';
+    item.style.fontSize = '13px';
+
+    const nameEl = document.createElement('div');
+    nameEl.style.fontWeight = '600';
+    nameEl.textContent = `${idx + 1}. ${r.name || '（無名稱）'}`;
+    const addrEl = document.createElement('div');
+    addrEl.style.color = '#888';
+    addrEl.style.fontSize = '12px';
+    addrEl.textContent = r.formatted_address || r.vicinity || '';
+
+    item.appendChild(nameEl);
+    item.appendChild(addrEl);
+    item.addEventListener('click', () => {
+      applyPickupSearchResult(_placeResultToState('text_search', r));
+      wrap.style.display = 'none';
+      wrap.innerHTML = '';
+    });
+    wrap.appendChild(item);
+  });
+  wrap.style.display = 'block';
+}
+
+// applyPickupSearchResult()：套用搜尋結果——地圖中心移動、Marker 跳轉、更新暫存
+// lat/lng、調整 zoom（17～19）、顯示搜尋摘要。不立即寫入表單／DB，要等使用者按
+// 「使用此座標」（confirmPickupMapPin()）才會真正更新表單。
+function applyPickupSearchResult(result) {
+  if (!result || result.lat == null || result.lng == null) return;
+  pickupMapSearchState = {
+    source: result.source || null, placeId: result.placeId || null,
+    name: result.name || '', formattedAddress: result.formattedAddress || '',
+    lat: result.lat, lng: result.lng,
+  };
+  if (_pickupMap && _pickupMarker) {
+    _setPickupMarkerPosition(result.lat, result.lng);
+    const targetZoom = Math.max(17, Math.min(19, _pickupMap.getZoom() || 18));
+    _pickupMap.setZoom(targetZoom);
+  }
+  // fix18-10-hotfix26-F6（需求文件十）：搜尋確認過的候選座標一律視為 manual；
+  // 這裡只更新 modal 暫存的 _pickupModalMode，實際寫入表單/DB仍要等「使用此座標」。
+  _pickupModalMode = 'manual';
+
+  const summaryEl = document.getElementById('pickupSearchSummary');
+  if (summaryEl) {
+    const lines = [];
+    lines.push(result.name ? `搜尋結果：${result.name}` : '搜尋結果：');
+    if (result.formattedAddress) lines.push(`地址：${result.formattedAddress}`);
+    if (result.types && result.types.length) lines.push(`類型：${result.types.slice(0, 3).join('／')}`);
+    summaryEl.textContent = lines.join('\n');
+    summaryEl.style.whiteSpace = 'pre-line';
+    summaryEl.style.display = 'block';
+  }
+  _setPickupSearchStatus('', false);
+  renderPickupSearchResults([]); // 已選定一筆，收合清單
+}
+
+// usePickupAddressAsSearch()：「帶入目前取餐地址」。same_as_store=true 用 store_address，
+// false 用 pickup_address；帶入後自動執行搜尋。
+function usePickupAddressAsSearch() {
+  const sameAsStore = document.getElementById('set-pickup_address_same_as_store')?.checked;
+  const addr = sameAsStore
+    ? (document.getElementById('set-store_address')?.value || '').trim()
+    : (document.getElementById('set-pickup_address')?.value || '').trim();
+  if (!addr) { _setPickupSearchStatus('目前沒有可帶入的地址，請先輸入取餐地址。', true); return; }
+  const input = document.getElementById('pickupSearchInput');
+  if (input) input.value = addr;
+  pickupMapSearchState.source = 'pickup_address';
+  searchPickupPlace();
+}
+
+// useStoreNameAsSearch()：「帶入店家名稱」。優先序：店名+取餐地址 → 店名+店家地址 → 只有店名。
+function useStoreNameAsSearch() {
+  const storeName = (settings && settings.shop_name) ? String(settings.shop_name).trim() : '';
+  if (!storeName) { _setPickupSearchStatus('目前沒有可帶入的店家名稱，請先在基本設定填寫店名。', true); return; }
+  const sameAsStore = document.getElementById('set-pickup_address_same_as_store')?.checked;
+  const pickupAddr = (document.getElementById('set-pickup_address')?.value || '').trim();
+  const storeAddr  = (document.getElementById('set-store_address')?.value || '').trim();
+  let query = storeName;
+  if (!sameAsStore && pickupAddr) query = `${storeName} ${pickupAddr}`;
+  else if (storeAddr) query = `${storeName} ${storeAddr}`;
+  const input = document.getElementById('pickupSearchInput');
+  if (input) input.value = query;
+  pickupMapSearchState.source = 'pickup_address';
+  searchPickupPlace();
+}
+
+// clearPickupSearchState()：Modal 關閉時清除搜尋字串／結果清單／摘要／loading／
+// error／search state，但不清除原始表單設定（set-pickup_* 欄位完全不動）。
+function clearPickupSearchState() {
+  const input = document.getElementById('pickupSearchInput');
+  if (input) input.value = '';
+  _pickupSearchResults = [];
+  pickupMapSearchState = { source: null, placeId: null, name: '', formattedAddress: '', lat: null, lng: null };
+  const wrap = document.getElementById('pickupSearchResultsList');
+  if (wrap) { wrap.style.display = 'none'; wrap.innerHTML = ''; }
+  const summaryEl = document.getElementById('pickupSearchSummary');
+  if (summaryEl) { summaryEl.style.display = 'none'; summaryEl.textContent = ''; }
+  _setPickupSearchStatus('', false);
+  const btn = document.getElementById('pickupSearchBtn');
+  if (btn) btn.disabled = false;
+}
+
+// fix18-10-hotfix26-F6：原本的 _ensurePickupMapsLoaded()（F5）留在上方原位置不變，
+// 現在已不再被 openPickupMapModal() 呼叫（改呼叫 ensureGoogleMapsSdk()），純粹保留
+// 作為向下相容函式，避免任何殘留呼叫點找不到函式而噴錯。
 
 // ── fix18-05: window 全域函式匯出 ─────────────────────────────────────────
 // 確保 onclick 屬性與外部 JS（coupons.js 等）可直接呼叫這些函式
@@ -11344,6 +11683,10 @@ function confirmPickupMapPin() {
   window.pickupMapRelocateFromAddress = pickupMapRelocateFromAddress;
   window.pickupMapUseCurrentLocation  = pickupMapUseCurrentLocation;
   window.confirmPickupMapPin          = confirmPickupMapPin;
+  // fix18-10-hotfix26-F6：取餐地點搜尋
+  window.searchPickupPlace            = searchPickupPlace;
+  window.usePickupAddressAsSearch     = usePickupAddressAsSearch;
+  window.useStoreNameAsSearch         = useStoreNameAsSearch;
 })();
 
 // ═══════════════════════════════════════════════════════════
