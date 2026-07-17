@@ -2229,6 +2229,9 @@ async function submitOrder(){
       delivery_address:delivPayload.delivery_address||'',
       distance_km:orderData.distance_km||0,
       total:orderData.total,
+      // fix18-10-hotfix26-F4：外帶訂單顯示後端剛寫入 snapshot 解析出的取餐門市/地址；
+      // 外送訂單 orderData.pickup_location 後端固定回傳 null，不會誤顯示。
+      pickup_location:orderData.pickup_location||null,
       payment_label:PLABELS[selectedPay]||selectedPay, note
     });
     document.getElementById('successScreen').classList.add('show');
@@ -2428,6 +2431,10 @@ function openOrderDetail(o){
   const isReady=o.status==='ready';
   const itemRows=(o.items||[]).map(i=>`<div class="od-row"><span class="od-label">${esc(i.name||'')} × ${i.qty||1}</span><span class="od-val">$${i.subtotal||0}</span></div>`).join('');
   const oStr=encodeURIComponent(JSON.stringify(o));
+  // fix18-10-hotfix26-F4：查詢訂單／我的訂單詳情，取餐門市/地址與訂單完成頁
+  // 共用同一個 pickup_location（後端 safeOrder() 的 resolvePickupLocation() 產生），
+  // 外送訂單 o.pickup_location 一律是 null，不會顯示取餐門市/地址。
+  const pickupHTML=buildPickupLocationRowsHTML(o.pickup_location);
   document.getElementById('detailBody').innerHTML=`<div class="order-detail">
     ${isReady?'<div style="background:#e8f5e9;border-left:3px solid var(--g);padding:10px 14px;border-radius:8px;margin-bottom:14px;font-size:13px;font-weight:600;color:#1b5e20">🎉 餐點已備妥，請至現場出示訂單編號取餐</div>':''}
     <div class="od-section">
@@ -2436,6 +2443,7 @@ function openOrderDetail(o){
       <div class="od-row"><span class="od-label">顧客姓名</span><span class="od-val">${esc(o.customer_name||'')}</span></div>
       <div class="od-row"><span class="od-label">電話</span><span class="od-val">***${esc(o.phone_last3||'')}</span></div>
       <div class="od-row"><span class="od-label">取餐方式</span><span class="od-val">${esc(o.order_type_label||o.order_type||'')}</span></div>
+      ${pickupHTML}
       <div class="od-row"><span class="od-label">取餐時間</span><span class="od-val">${esc(o.pickup_time||'—')}</span></div>
       <div class="od-row"><span class="od-label">付款方式</span><span class="od-val">${esc(o.payment_label||o.payment_method||'')}</span></div>
     </div>
@@ -2453,15 +2461,62 @@ function openOrderDetail(o){
   openSheet('detailSheet');
 }
 
+// fix18-10-hotfix26-F4：完成頁／查詢訂單／我的訂單共用的「開啟 Google Maps／
+// 複製地址」小工具。與既有 F3 的 openPickupAddressMaps()/copyPickupAddress()
+// 差異在於：這兩個新函式直接吃「已經 resolve 好的」地址／Maps URL（來自後端
+// pickup_location snapshot），而不是即時讀 shopData——訂單完成後顯示的必須是
+// 下單當下的門市/地址快照，不是「現在」的店家設定。clipboard fallback 邏輯與
+// F3 copyPickupAddress() 完全一致（沿用既有 fallback，不因 clipboard API 不可用
+// 而讓頁面報錯）。
+function openPickupMapsUrl(url){
+  if(!url){ toast('尚未設定取餐地址'); return; }
+  window.open(url,'_blank');
+}
+async function copyPickupAddressText(addr){
+  if(!addr){ toast('尚未設定取餐地址'); return; }
+  try{
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      await navigator.clipboard.writeText(addr);
+    }else{
+      const ta=document.createElement('textarea');
+      ta.value=addr; ta.style.position='fixed'; ta.style.opacity='0';
+      document.body.appendChild(ta); ta.select();
+      document.execCommand('copy'); document.body.removeChild(ta);
+    }
+    toast('已複製取餐地址');
+  }catch(e){
+    toast('複製失敗，請手動複製：'+addr);
+  }
+}
+// 產生「取餐門市／取餐地址」區塊 HTML（只有外帶會傳入 pickupLocation，外送/宅配
+// 傳 null/undefined 時回傳空字串，不顯示任何取餐門市/地址）。
+function buildPickupLocationRowsHTML(pickupLocation){
+  if(!pickupLocation) return '';
+  const storeName=esc(pickupLocation.store_name||'');
+  const address=esc(pickupLocation.address||'');
+  const mapsUrl=pickupLocation.maps_url||'';
+  const hasAddr=!!pickupLocation.has_address;
+  const addrJson=JSON.stringify(String(pickupLocation.address||'')).replace(/"/g,'&quot;');
+  const mapsJson=JSON.stringify(String(mapsUrl||'')).replace(/"/g,'&quot;');
+  return `<div class="od-row"><span class="od-label">🏪 取餐門市</span><span class="od-val">${storeName}</span></div>`
+    + `<div class="od-row"><span class="od-label">📍 取餐地址</span><span class="od-val">${address}</span></div>`
+    + `<div class="od-row" style="gap:8px">`
+    + `<button type="button" class="btn-detail" ${mapsUrl?'':'disabled style="opacity:.5"'} onclick='openPickupMapsUrl(${mapsJson})'>開啟 Google Maps</button>`
+    + `<button type="button" class="btn-detail" ${hasAddr?'':'disabled style="opacity:.5"'} onclick='copyPickupAddressText(${addrJson})'>複製地址</button>`
+    + `</div>`;
+}
 function buildDetailRows(d){
   const rows=[
     ['訂單狀態',`<span class="status-badge s-pending">🟡 待確認</span>`],
     ['取餐方式',esc(d.order_type_label)],
+  ];
+  const pickupHTML=buildPickupLocationRowsHTML(d.pickup_location);
+  rows.push(
     ['取餐時間',esc(d.pickup_time)],
     ['顧客姓名',esc(d.customer_name)],
     ['電話',`***${esc(d.phone_last3)}`],
     ['付款方式',esc(d.payment_label)],
-  ];
+  );
   if(d.delivery_address)rows.push(['外送地址',esc(d.delivery_address)]);
   if(d.note)rows.push(['備註',esc(d.note)]);
   const ir=(d.items||[]).map(i=>`<div class="od-row"><span class="od-label">${esc(i.name)}×${i.qty}</span><span class="od-val">$${i.subtotal}</span></div>`).join('');
@@ -2475,7 +2530,9 @@ function buildDetailRows(d){
   const delivRow=delivFee>0
     ? `<div class="od-row"><span class="od-label" style="color:#e65100">🛵 外送費${d.distance_km?` (${d.distance_km}km)`:''}</span><span class="od-val" style="color:#e65100">$${delivFee}</span></div>`
     : '';
-  return rows.map(([l,v])=>`<div class="od-row"><span class="od-label">${l}</span><span class="od-val">${v}</span></div>`).join('')
+  const headRows=rows.slice(0,2).map(([l,v])=>`<div class="od-row"><span class="od-label">${l}</span><span class="od-val">${v}</span></div>`).join('');
+  const tailRows=rows.slice(2).map(([l,v])=>`<div class="od-row"><span class="od-label">${l}</span><span class="od-val">${v}</span></div>`).join('');
+  return headRows+pickupHTML+tailRows
     +ir+discRow+delivRow+`<div class="od-row"><span class="od-label" style="font-weight:700">應付金額</span><span class="od-val" style="color:var(--g);font-size:15px;font-weight:700">$${d.total}</span></div>`;
 }
 

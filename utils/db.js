@@ -1641,6 +1641,20 @@ function initTables(w) {
     w._save();
   } catch(e) { console.warn('[DB] line_member_order_links index:', e.message); }
 
+  // ── fix18-10-hotfix26-F4：訂單「取餐門市 / 取餐地址」快照 ──────────────
+  // 目的：訂單建立當下把門市名稱／取餐地址／座標寫死存進訂單本身，避免日後
+  // 店家修改地址設定後，舊訂單的完成頁／查詢訂單／我的訂單跟著顯示錯誤地址。
+  // 沿用既有「try/catch ALTER TABLE」safe migration 慣例：可重複執行、不破壞
+  // 舊資料、舊訂單允許為 NULL（顯示時由 utils/pickupLocation.js fallback 處理）。
+  // 只新增欄位，不重建 orders 表、不新增新資料表。
+  const pickupSnapshotMigrations = [
+    'ALTER TABLE orders ADD COLUMN pickup_store_name_snapshot TEXT DEFAULT NULL',
+    'ALTER TABLE orders ADD COLUMN pickup_address_snapshot TEXT DEFAULT NULL',
+    'ALTER TABLE orders ADD COLUMN pickup_lat_snapshot TEXT DEFAULT NULL',
+    'ALTER TABLE orders ADD COLUMN pickup_lng_snapshot TEXT DEFAULT NULL',
+  ];
+  pickupSnapshotMigrations.forEach(sql => { try { w._db.run(sql); w._save(); } catch {} });
+
   // ── line_member_tags：本版只預留 schema，不做自動標籤／推播／AI 分群 ──────
   w._db.run(`CREATE TABLE IF NOT EXISTS line_member_tags (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,

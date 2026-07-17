@@ -23,6 +23,7 @@ const { computeTodayStatus: computeCalendarStatus } = require('./business-calend
 const { logServerEvent, buildTrackingMetadata } = require('../utils/analyticsLog'); // fix18-10-hotfix23-A/D：Analytics Foundation + Ads Attribution
 const { touchMemberOnOrder, recordMemberPurchase } = require('../utils/lineMemberStats'); // fix18-10-hotfix23-E：LINE 會員入口
 const { verifyMemberSession } = require('../utils/lineMemberSession'); // fix18-10-hotfix23-E：安全 Member Session
+const { buildPickupSnapshot, resolvePickupLocation } = require('../utils/pickupLocation'); // fix18-10-hotfix26-F4：取餐門市/地址 snapshot 共用 helper
 
 // ── fix18-06：外送費後端重算 helper ──────────────────
 const SERVER_KEY = () => process.env.GOOGLE_MAPS_SERVER_KEY || '';
@@ -1250,6 +1251,13 @@ router.post('/', async (req, res) => {
     // 驗證失敗（過期／簽章錯誤／store_id 不符）一律視為未登入，不阻擋下單。
     const knownLineUserId = member_session ? verifyMemberSession(member_session, storeId) : null;
 
+    // fix18-10-hotfix26-F4：外帶（含預購外帶）訂單建立當下，由後端依 storeId 重新
+    // 讀取店家設定寫入「取餐門市/地址」snapshot；不信任前端傳入的門市名稱/地址/座標。
+    // 外送訂單不寫 snapshot（維持既有顧客配送地址欄位，避免誤寫成配送地址）。
+    const pickupSnapshot = !isDelivery
+      ? buildPickupSnapshot(db, storeId)
+      : { pickup_store_name_snapshot: '', pickup_address_snapshot: '', pickup_lat_snapshot: '', pickup_lng_snapshot: '' };
+
     db.run(
       `INSERT INTO orders (
         id, uuid, order_number, store_id, order_mode, order_status, kitchen_status,
@@ -1258,10 +1266,12 @@ router.post('/', async (req, res) => {
         delivery_platform, platform_order_no,
         delivery_lat, delivery_lng, delivery_distance_km, delivery_maps_url,
         delivery_fee,
+        pickup_store_name_snapshot, pickup_address_snapshot,
+        pickup_lat_snapshot, pickup_lng_snapshot,
         items, payment_method, payment_category, payment_status,
         subtotal, discount_type, discount_amount, original_total, coupon_code, total,
         note, sync_status, device_id, source, created_at, updated_at, line_user_id
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         uuid, uuid, orderNo, storeId, orderMode, 'pending', 'pending',
         customer_name, customer_phone, customer_line_id||'',
@@ -1271,6 +1281,8 @@ router.post('/', async (req, res) => {
         isDelivery ? String(parseFloat(delivery_lng)||'') : '',
         calcDistKm, calcMapsUrl,
         calcDelivFee,
+        pickupSnapshot.pickup_store_name_snapshot, pickupSnapshot.pickup_address_snapshot,
+        pickupSnapshot.pickup_lat_snapshot, pickupSnapshot.pickup_lng_snapshot,
         itemsJson, payment_method||'cash', payment_category, 'pending',
         sub, 'none', discAmt, sub, appliedCouponCode, finalTotal,
         note||'', 'synced', 'LINE', 'line', nowStr, nowStr, knownLineUserId||''
@@ -1392,9 +1404,16 @@ router.post('/', async (req, res) => {
       console.warn('[line-orders] analytics event write failed:', evtErr.message);
     }
 
+    // fix18-10-hotfix26-F4：完成頁需要顯示取餐門市/地址，直接回傳剛寫入的 snapshot
+    // 解析結果，向下相容新增 pickup_location 欄位（不移除任何既有 response 欄位）。
+    // 外送/宅配一律回傳 null，不得誤回取餐地址（resolvePickupLocation 內部已判斷
+    // order_mode==='delivery' 回傳 null）。
+    const pickupLocation = resolvePickupLocation(newOrder, db, storeId);
+
     res.json({ success: true, data: {
       order_number: orderNo, uuid, total: finalTotal,
       delivery_fee: calcDelivFee, distance_km: calcDistKm,
+      pickup_location: pickupLocation,
     } });
   } catch(e) {
     console.error('[line-orders] POST error:', e.message);
@@ -1486,10 +1505,14 @@ const STATUS_LABELS = { pending:'待確認', accepted:'已接單', preparing:'�
 const ORDER_TYPE_LABELS = { delivery:'外送', takeout:'自取', pickup:'自取' };
 const PAYMENT_LABELS = { cash:'現金', linepay:'LINE Pay', transfer:'轉帳', platform:'平台付款', credit_card:'信用卡' };
 
-function safeOrder(order) {
+function safeOrder(order, db, storeId) {
   let items = [];
   try { items = typeof order.items==='string' ? JSON.parse(order.items||'[]') : (order.items||[]); } catch {}
   const phone = String(order.customer_phone || '');
+  // fix18-10-hotfix26-F4：外帶訂單附上取餐門市/地址（外送回傳 null，見
+  // resolvePickupLocation）。查詢訂單／我的訂單／歷史訂單詳情共用同一份 resolver，
+  // 確保跟訂單完成頁（POST / 回傳的 pickup_location）資料來源完全一致。
+  const pickupLocation = resolvePickupLocation(order, db, storeId);
   return {
     order_number: order.order_number, status: order.order_status,
     status_label: STATUS_LABELS[order.order_status] || order.order_status,
@@ -1499,6 +1522,12 @@ function safeOrder(order) {
     subtotal: Number(order.subtotal||0), total: Number(order.total||0),
     payment_method: order.payment_method||'', payment_label: PAYMENT_LABELS[order.payment_method]||order.payment_method||'',
     note: order.note||'', created_at: order.created_at, source: order.source,
+    pickup_location: pickupLocation,
+    pickup_store_name: pickupLocation ? pickupLocation.store_name : '',
+    pickup_address: pickupLocation ? pickupLocation.address : '',
+    pickup_lat: pickupLocation ? pickupLocation.lat : null,
+    pickup_lng: pickupLocation ? pickupLocation.lng : null,
+    pickup_maps_url: pickupLocation ? pickupLocation.maps_url : '',
   };
 }
 
@@ -1528,7 +1557,7 @@ router.post('/query', (req, res) => {
     if (!rawPhone && rawOrderNo) {
       const order = db.get("SELECT * FROM orders WHERE store_id=? AND order_number=? AND source='line'", [storeId, rawOrderNo]);
       if (!order) return res.status(404).json({ success: false, message: '查無此訂單' });
-      return res.json({ success: true, mode: 'single', orders: [safeOrder(order)] });
+      return res.json({ success: true, mode: 'single', orders: [safeOrder(order, db, storeId)] });
     }
     if (!rawPhone) return res.status(400).json({ success: false, message: '請輸入電話或電話後三碼' });
 
@@ -1544,13 +1573,13 @@ router.post('/query', (req, res) => {
       const cleaned = rawPhone.replace(/[-\s]/g,'');
       const verified = storedPhone===cleaned || storedPhone.endsWith(cleaned.slice(-3)) || (cleaned.length>=4 && storedPhone.endsWith(cleaned));
       if (!verified) return res.status(403).json({ success: false, message: '查無此訂單，請確認訂單編號或電話' });
-      return res.json({ success: true, mode: 'single', orders: [safeOrder(order)] });
+      return res.json({ success: true, mode: 'single', orders: [safeOrder(order, db, storeId)] });
     }
     if (fullPhone) {
       const cleaned = rawPhone.replace(/[-\s]/g,'');
       const orders = db.all("SELECT * FROM orders WHERE store_id=? AND source='line' AND customer_phone=? ORDER BY created_at DESC LIMIT 30", [storeId, cleaned]);
       if (!orders.length) return res.status(404).json({ success: false, message: '查無訂單記錄，請確認電話號碼' });
-      return res.json({ success: true, mode: 'list', orders: orders.map(safeOrder) });
+      return res.json({ success: true, mode: 'list', orders: orders.map(o => safeOrder(o, db, storeId)) });
     }
     const last3 = rawPhone.slice(-3);
     if (!/^\d{3}$/.test(last3)) return res.status(400).json({ success: false, message: '電話後三碼請輸入3位數字' });
@@ -1560,14 +1589,14 @@ router.post('/query', (req, res) => {
         [storeId, last3, `%${rawName}%`, threeDaysAgo]
       );
       if (!orders.length) return res.status(404).json({ success: false, message: '查無最近3天訂單，請確認資料或詢問店員' });
-      return res.json({ success: true, mode: 'list', orders: orders.map(safeOrder) });
+      return res.json({ success: true, mode: 'list', orders: orders.map(o => safeOrder(o, db, storeId)) });
     } else {
       const orders = db.all(
         `SELECT * FROM orders WHERE store_id=? AND source='line' AND substr(customer_phone,-3)=? AND date(created_at)=? ORDER BY created_at DESC LIMIT 10`,
         [storeId, last3, todayStr2]
       );
       if (!orders.length) return res.status(404).json({ success: false, message: '查無今日訂單，請確認電話後三碼或詢問店員' });
-      return res.json({ success: true, mode: 'list', orders: orders.map(safeOrder) });
+      return res.json({ success: true, mode: 'list', orders: orders.map(o => safeOrder(o, db, storeId)) });
     }
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
@@ -1586,7 +1615,7 @@ router.post('/history', (req, res) => {
       const cleaned = rawPhone.replace(/[-\s]/g,'');
       const orders = db.all("SELECT * FROM orders WHERE store_id=? AND source='line' AND customer_phone=? ORDER BY created_at DESC LIMIT 30", [storeId, cleaned]);
       if (!orders.length) return res.status(404).json({ success: false, message: '查無訂單記錄，請確認電話號碼' });
-      return res.json({ success: true, orders: orders.map(safeOrder) });
+      return res.json({ success: true, orders: orders.map(o => safeOrder(o, db, storeId)) });
     }
     if (!rawName) return res.status(400).json({ success: false, message: '電話後三碼查詢需搭配姓名' });
     const last3 = rawPhone.slice(-3);
@@ -1596,7 +1625,7 @@ router.post('/history', (req, res) => {
       [storeId, last3, `%${rawName}%`, threeDaysAgo2]
     );
     if (!orders.length) return res.status(404).json({ success: false, message: '查無最近3天訂單，請確認資料或詢問店員' });
-    return res.json({ success: true, orders: orders.map(safeOrder) });
+    return res.json({ success: true, orders: orders.map(o => safeOrder(o, db, storeId)) });
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
 

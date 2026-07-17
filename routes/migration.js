@@ -389,6 +389,9 @@ router.post('/import/orders', (req, res) => {
       'discount_campaign_id','discount_campaign_name','discount_target_type',
       'discount_product_id','discount_product_name','discount_product_ids','discount_product_names',
       'kitchen_status','payment_status','uuid','sync_status','device_id',
+      // fix18-10-hotfix26-F4：取餐門市/地址 snapshot（外帶訂單建立當下寫入，外送為空字串）。
+      // snapshot 本身不含敏感資料（門市名稱/地址/座標，本來就是給顧客看的公開資訊）。
+      'pickup_store_name_snapshot','pickup_address_snapshot','pickup_lat_snapshot','pickup_lng_snapshot',
       'created_at','updated_at'
     ].filter(c => validCols.has(c));
 
@@ -429,6 +432,11 @@ router.post('/import/orders', (req, res) => {
         kitchen_status: o.kitchen_status||'pending', payment_status: o.payment_status||'paid',
         uuid: o.uuid||safeId, sync_status: o.sync_status||'synced',
         device_id: o.device_id||'',
+        // fix18-10-hotfix26-F4：舊備份沒有這些欄位時 fallback 空字串，import 不報錯
+        pickup_store_name_snapshot: o.pickup_store_name_snapshot||'',
+        pickup_address_snapshot: o.pickup_address_snapshot||'',
+        pickup_lat_snapshot: o.pickup_lat_snapshot||'',
+        pickup_lng_snapshot: o.pickup_lng_snapshot||'',
         created_at: o.created_at||'', updated_at: o.updated_at||''
       };
       return importCols.map(c => map[c] ?? null);
@@ -1306,6 +1314,8 @@ router.post('/migration/import', (req, res) => {
           'discount_product_id','discount_product_name',
           'discount_product_ids','discount_product_names',
           'kitchen_status','payment_status','uuid','sync_status','device_id',
+          // fix18-10-hotfix26-F4：取餐門市/地址 snapshot（不含敏感資料）
+          'pickup_store_name_snapshot','pickup_address_snapshot','pickup_lat_snapshot','pickup_lng_snapshot',
           'created_at','updated_at'
         ].filter(c => orderCols.has(c));
         const ordPhs = importOrderCandidates.map(()=>'?').join(',');
@@ -1345,6 +1355,11 @@ router.post('/migration/import', (req, res) => {
             discount_product_names: o.discount_product_names||'',
             kitchen_status: o.kitchen_status||'pending', payment_status: o.payment_status||'paid',
             uuid: o.uuid||safeId, sync_status: o.sync_status||'synced', device_id: o.device_id||'',
+            // fix18-10-hotfix26-F4：舊備份沒有這些欄位時 fallback 空字串，import 不報錯
+            pickup_store_name_snapshot: o.pickup_store_name_snapshot||'',
+            pickup_address_snapshot: o.pickup_address_snapshot||'',
+            pickup_lat_snapshot: o.pickup_lat_snapshot||'',
+            pickup_lng_snapshot: o.pickup_lng_snapshot||'',
             created_at: o.created_at||'', updated_at: o.updated_at||''
           };
         }
