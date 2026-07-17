@@ -1655,6 +1655,11 @@ function initTables(w) {
     // fix18-10-hotfix26-F5：取餐說明快照（獨立取餐地址時的補充說明，例如「請從騎樓
     // 入口取餐」）。只在外帶訂單建立當下由後端從 settings 寫入，不信任前端傳入。
     'ALTER TABLE orders ADD COLUMN pickup_address_note_snapshot TEXT DEFAULT NULL',
+    // fix18-10-hotfix26-F7：取餐商家名稱／Google Place ID 快照。搜尋到明確商家後
+    // 「使用此座標」自動填入的商家名稱/Place ID，跟著訂單一起凍結，讓導航能優先用
+    // Place ID（比純座標準確）。外送/宅配訂單維持 NULL。
+    'ALTER TABLE orders ADD COLUMN pickup_place_name_snapshot TEXT DEFAULT NULL',
+    'ALTER TABLE orders ADD COLUMN pickup_place_id_snapshot TEXT DEFAULT NULL',
   ];
   pickupSnapshotMigrations.forEach(sql => { try { w._db.run(sql); w._save(); } catch {} });
 

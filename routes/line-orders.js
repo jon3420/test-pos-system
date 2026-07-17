@@ -486,6 +486,9 @@ router.get('/shop', (req, res) => {
       // 前台只有外帶模式會用到這些欄位。
       'pickup_address_note', 'pickup_lat', 'pickup_lng',
       'pickup_coordinate_mode', 'pickup_coordinate_verified_at',
+      // fix18-10-hotfix26-F7：向下相容新增（需求文件廿六）。搜尋到明確商家後自動填入
+      // 的商家名稱/Place ID；不移除任何既有欄位。
+      'pickup_place_name', 'pickup_place_id', 'store_place_name', 'store_place_id',
     ];
     const settings = {};
     keys.forEach(k => { settings[k] = getSetting(db, storeId, k, ''); });
@@ -1271,7 +1274,7 @@ router.post('/', async (req, res) => {
     // 外送訂單不寫 snapshot（維持既有顧客配送地址欄位，避免誤寫成配送地址）。
     const pickupSnapshot = !isDelivery
       ? buildPickupSnapshot(db, storeId)
-      : { pickup_store_name_snapshot: '', pickup_address_snapshot: '', pickup_address_note_snapshot: '', pickup_lat_snapshot: '', pickup_lng_snapshot: '' };
+      : { pickup_store_name_snapshot: '', pickup_place_name_snapshot: '', pickup_place_id_snapshot: '', pickup_address_snapshot: '', pickup_address_note_snapshot: '', pickup_lat_snapshot: '', pickup_lng_snapshot: '' };
 
     db.run(
       `INSERT INTO orders (
@@ -1281,12 +1284,13 @@ router.post('/', async (req, res) => {
         delivery_platform, platform_order_no,
         delivery_lat, delivery_lng, delivery_distance_km, delivery_maps_url,
         delivery_fee,
-        pickup_store_name_snapshot, pickup_address_snapshot, pickup_address_note_snapshot,
+        pickup_store_name_snapshot, pickup_place_name_snapshot, pickup_place_id_snapshot,
+        pickup_address_snapshot, pickup_address_note_snapshot,
         pickup_lat_snapshot, pickup_lng_snapshot,
         items, payment_method, payment_category, payment_status,
         subtotal, discount_type, discount_amount, original_total, coupon_code, total,
         note, sync_status, device_id, source, created_at, updated_at, line_user_id
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         uuid, uuid, orderNo, storeId, orderMode, 'pending', 'pending',
         customer_name, customer_phone, customer_line_id||'',
@@ -1296,7 +1300,8 @@ router.post('/', async (req, res) => {
         isDelivery ? String(parseFloat(delivery_lng)||'') : '',
         calcDistKm, calcMapsUrl,
         calcDelivFee,
-        pickupSnapshot.pickup_store_name_snapshot, pickupSnapshot.pickup_address_snapshot, pickupSnapshot.pickup_address_note_snapshot,
+        pickupSnapshot.pickup_store_name_snapshot, pickupSnapshot.pickup_place_name_snapshot, pickupSnapshot.pickup_place_id_snapshot,
+        pickupSnapshot.pickup_address_snapshot, pickupSnapshot.pickup_address_note_snapshot,
         pickupSnapshot.pickup_lat_snapshot, pickupSnapshot.pickup_lng_snapshot,
         itemsJson, payment_method||'cash', payment_category, 'pending',
         sub, 'none', discAmt, sub, appliedCouponCode, finalTotal,
@@ -1539,8 +1544,10 @@ function safeOrder(order, db, storeId) {
     note: order.note||'', created_at: order.created_at, source: order.source,
     pickup_location: pickupLocation,
     pickup_store_name: pickupLocation ? pickupLocation.store_name : '',
+    pickup_place_name: pickupLocation ? (pickupLocation.place_name || '') : '',
     pickup_address: pickupLocation ? pickupLocation.address : '',
     pickup_address_note: pickupLocation ? (pickupLocation.address_note || '') : '',
+    pickup_coords_only: pickupLocation ? !!pickupLocation.coords_only : false,
     pickup_lat: pickupLocation ? pickupLocation.lat : null,
     pickup_lng: pickupLocation ? pickupLocation.lng : null,
     pickup_maps_url: pickupLocation ? pickupLocation.maps_url : '',

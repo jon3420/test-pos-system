@@ -10922,6 +10922,11 @@ async function loadDeliveryFeeTab() {
   setVal('set-store_address',               'store_address');
   setVal('set-store_lat',                   'store_lat');
   setVal('set-store_lng',                   'store_lng');
+  // fix18-10-hotfix26-F7：店家商家名稱／Place ID（隱藏）／定位模式
+  setVal('set-store_place_name',             'store_place_name');
+  setVal('set-store_place_id',               'store_place_id');
+  _storeCoordinateMode = (String(settings['store_coordinate_mode'] || 'auto') === 'manual') ? 'manual' : 'auto';
+  renderStoreCoordinateModeLabel();
   setVal('set-delivery_max_distance_km',    'delivery_max_distance_km',  '7');
   setVal('set-delivery_basic_fee',          'delivery_basic_fee',        '50');
   setVal('set-delivery_free_threshold',     'delivery_free_threshold',   '1000');
@@ -10942,6 +10947,9 @@ async function loadDeliveryFeeTab() {
   setVal('set-pickup_address_note', 'pickup_address_note');
   setVal('set-pickup_lat',          'pickup_lat');
   setVal('set-pickup_lng',          'pickup_lng');
+  // fix18-10-hotfix26-F7：取餐商家名稱／Place ID（隱藏）
+  setVal('set-pickup_place_name',   'pickup_place_name');
+  setVal('set-pickup_place_id',     'pickup_place_id');
   setChk('set-pickup_sync_delivery_origin', 'pickup_sync_delivery_origin', false);
   // _pickupCoordinateMode 是「目前已儲存」的定位模式，供 geocodePickupAddress() 判斷
   // 是否需要跳出「將取代手動座標」確認對話框；預設 auto。
@@ -11014,38 +11022,101 @@ async function geocodeStoreAddress() {
 async function saveDeliveryFeeSettings() {
   // 讀取規則並排序
   _deliveryRules.sort((a, b) => a.max_km - b.max_km);
-  const sameAsStoreChecked = document.getElementById('set-pickup_address_same_as_store')?.checked ? '1' : '0';
+  // fix18-10-hotfix26-F7（需求文件廿五）：這個「儲存外送費設定」按鈕現在只負責距離級距
+  // 規則本身，不再送出 store_address/store_lat/store_lng/pickup_* 欄位——那些已經各自
+  // 有獨立的「儲存店家座標設定」／「儲存取餐地點設定」按鈕（saveStoreLocationSettings()／
+  // savePickupLocationSettings()）。這樣「先存 pickup → 再存其他外送設定」不會把 pickup
+  // 用這裡的舊 state 覆蓋回去，因為這裡根本不送 pickup_* 欄位。
   const body = {
-    store_address:                 document.getElementById('set-store_address')?.value || '',
-    store_lat:                     document.getElementById('set-store_lat')?.value     || '',
-    store_lng:                     document.getElementById('set-store_lng')?.value     || '',
     delivery_distance_fee_enabled: document.getElementById('set-delivery_distance_fee_enabled')?.checked ? '1' : '0',
     delivery_max_distance_km:      document.getElementById('set-delivery_max_distance_km')?.value  || '7',
     delivery_basic_fee:            document.getElementById('set-delivery_basic_fee')?.value         || '50',
     delivery_free_threshold:       document.getElementById('set-delivery_free_threshold')?.value    || '1000',
     coupon_apply_to_delivery_fee:  document.getElementById('set-coupon_apply_to_delivery_fee')?.checked ? '1' : '0',
     delivery_distance_fee_rules:   JSON.stringify(_deliveryRules),
-    // fix18-10-hotfix26-F5：取餐地點設定。pickup_coordinate_verified_at 不在這裡送出——
-    // 後端會依「這次是否有動到 pickup_lat/pickup_lng/pickup_coordinate_mode」自動用伺服器
-    // 時間蓋章，前端傳了也會被後端覆寫，這裡乾脆不送，避免誤導。
-    pickup_address_same_as_store:  sameAsStoreChecked,
-    pickup_address:                document.getElementById('set-pickup_address')?.value || '',
-    pickup_address_note:           document.getElementById('set-pickup_address_note')?.value || '',
-    pickup_lat:                    document.getElementById('set-pickup_lat')?.value || '',
-    pickup_lng:                    document.getElementById('set-pickup_lng')?.value || '',
-    pickup_coordinate_mode:        _pickupCoordinateMode || 'auto',
-    pickup_sync_delivery_origin:   document.getElementById('set-pickup_sync_delivery_origin')?.checked ? '1' : '0',
   };
   try {
     const res  = await apiFetch('/api/settings', { method: 'PUT', body: JSON.stringify(body) });
     const json = await res.json();
     if (json.success) {
       settings = { ...settings, ...json.data };
-      // 伺服器蓋章後的 verified_at／實際生效的 coordinate_mode 回寫回本地狀態，
-      // 讓下一次「從地址取得座標」判斷 manual 防覆蓋時用的是伺服器端的真實結果。
+      showToast('✅ 外送費設定已儲存', 'success');
+    } else {
+      showToast('❌ 儲存失敗：' + (json.message || ''), 'error');
+    }
+  } catch (e) {
+    showToast('❌ ' + e.message, 'error');
+  }
+}
+
+// fix18-10-hotfix26-F7：儲存店家座標設定（獨立於「儲存外送費設定」與「儲存取餐地點設定」，
+// 只呼叫 PATCH /api/settings/store-location，只送 store_* 欄位，絕不動 pickup_* 欄位）。
+async function saveStoreLocationSettings() {
+  const body = {
+    store_place_name:  document.getElementById('set-store_place_name')?.value || '',
+    store_place_id:    document.getElementById('set-store_place_id')?.value || '',
+    store_address:     document.getElementById('set-store_address')?.value || '',
+    store_lat:          document.getElementById('set-store_lat')?.value || '',
+    store_lng:          document.getElementById('set-store_lng')?.value || '',
+    store_coordinate_mode: _storeCoordinateMode || 'auto',
+  };
+  try {
+    const res  = await apiFetch('/api/settings/store-location', { method: 'PATCH', body: JSON.stringify(body) });
+    const json = await res.json();
+    if (json.success) {
+      // fix18-10-hotfix26-F7（需求文件廿五）：把後端回傳的「當下完整 settings」整個
+      // merge 進本地 cache，避免其他分頁殘留的舊 state 之後把這次剛存的值蓋掉。
+      settings = { ...settings, ...json.data };
+      _storeCoordinateMode = (String(settings['store_coordinate_mode'] || 'auto') === 'manual') ? 'manual' : 'auto';
+      renderStoreCoordinateModeLabel();
+      showToast('✅ 店家座標設定已儲存', 'success');
+    } else {
+      showToast('❌ 儲存失敗：' + (json.message || ''), 'error');
+    }
+  } catch (e) {
+    showToast('❌ ' + e.message, 'error');
+  }
+}
+
+// fix18-10-hotfix26-F7：儲存取餐地點設定（獨立於「儲存外送費設定」與「儲存店家座標設定」，
+// 只呼叫 PATCH /api/settings/pickup-location，只送 pickup_* 欄位，絕不動 store_* 欄位）。
+async function savePickupLocationSettings() {
+  const sameAsStoreChecked = document.getElementById('set-pickup_address_same_as_store')?.checked ? '1' : '0';
+  const placeName = document.getElementById('set-pickup_place_name')?.value || '';
+  const address   = document.getElementById('set-pickup_address')?.value || '';
+  const lat       = document.getElementById('set-pickup_lat')?.value || '';
+  const lng       = document.getElementById('set-pickup_lng')?.value || '';
+
+  // fix18-10-hotfix26-F7（需求文件十／十二）：前端先做一次 UX 提示（伺服器端
+  // validatePickupLocationSave() 才是最終權威驗證，這裡只是提早給使用者友善訊息）。
+  if (sameAsStoreChecked === '0') {
+    const hasValidCoords = lat.trim() !== '' && lng.trim() !== '' && Number.isFinite(Number(lat)) && Number.isFinite(Number(lng));
+    const hasNameOrAddress = !!(placeName.trim() || address.trim());
+    if (!hasValidCoords || !hasNameOrAddress) {
+      showToast('❌ 目前使用獨立取餐地點，請選擇商家地標或輸入取餐地址。', 'error');
+      return;
+    }
+  }
+
+  const body = {
+    pickup_address_same_as_store: sameAsStoreChecked,
+    pickup_place_name: placeName,
+    pickup_place_id:   document.getElementById('set-pickup_place_id')?.value || '',
+    pickup_address:    address,
+    pickup_address_note: document.getElementById('set-pickup_address_note')?.value || '',
+    pickup_lat: lat,
+    pickup_lng: lng,
+    pickup_coordinate_mode: _pickupCoordinateMode || 'auto',
+    pickup_sync_delivery_origin: document.getElementById('set-pickup_sync_delivery_origin')?.checked ? '1' : '0',
+  };
+  try {
+    const res  = await apiFetch('/api/settings/pickup-location', { method: 'PATCH', body: JSON.stringify(body) });
+    const json = await res.json();
+    if (json.success) {
+      settings = { ...settings, ...json.data };
       _pickupCoordinateMode = (String(settings['pickup_coordinate_mode'] || 'auto') === 'manual') ? 'manual' : 'auto';
       renderPickupCoordinateModeLabel();
-      showToast('✅ 外送費設定已儲存', 'success');
+      showToast('✅ 取餐地點設定已儲存', 'success');
     } else {
       showToast('❌ 儲存失敗：' + (json.message || ''), 'error');
     }
@@ -11062,9 +11133,66 @@ async function saveDeliveryFeeSettings() {
 // geocodePickupAddress() 判斷是否需要跳出「將取代手動座標」確認對話框。
 // 每次儲存成功後，會用後端實際回傳值回寫（見 saveDeliveryFeeSettings()）。
 let _pickupCoordinateMode = 'auto';
+// fix18-10-hotfix26-F7：店家座標的「目前已生效／已儲存」定位模式，跟 _pickupCoordinateMode
+// 完全獨立（Section A 店家座標 vs Section B 取餐地點是兩組互不污染的 state）。
+let _storeCoordinateMode = 'auto';
+// fix18-10-hotfix26-F7：Store／Pickup 共用同一個地圖 Modal 與同一個 Marker 實例，用
+// mapEditorTarget 決定「這次操作的是哪一組」欄位/狀態（'pickup' | 'store'）。
+let mapEditorTarget = 'pickup';
+// fix18-10-hotfix26-F7（需求文件四）：Pickup/Store 的「暫存待確認座標」完全分離，
+// 不因切換 modal target 而互相污染。搜尋/拖曳/GPS 都會同步更新對應那組 draft 值；
+// 只有「使用此座標」才會把 draft 值真正寫進表單（見 confirmPickupMapPin()）。
+let pickupMapDraftLat = null, pickupMapDraftLng = null;
+let storeMapDraftLat = null, storeMapDraftLng = null;
+// fix18-10-hotfix26-F7：店家版的搜尋暫存狀態，跟 pickupMapSearchState（F6，定義於下方）
+// 結構完全相同，但彼此獨立，避免切換 target 時互相污染。
+let storeMapSearchState = { source: null, placeId: null, name: '', formattedAddress: '', lat: null, lng: null };
+
+// fix18-10-hotfix26-F7：target-aware state accessor helpers。所有地圖/搜尋函式都應
+// 透過這幾個 helper 讀寫「目前 mapEditorTarget 對應的那組」state，避免散落各處的
+// if(mapEditorTarget==='store') 判斷、也避免不小心操作到另一個 target 的欄位。
+function getActiveMapSearchState() {
+  return mapEditorTarget === 'store' ? storeMapSearchState : pickupMapSearchState;
+}
+function setActiveMapSearchState(newState) {
+  if (mapEditorTarget === 'store') storeMapSearchState = newState;
+  else pickupMapSearchState = newState;
+}
+function getActiveDraftCoords() {
+  return mapEditorTarget === 'store'
+    ? { lat: storeMapDraftLat, lng: storeMapDraftLng }
+    : { lat: pickupMapDraftLat, lng: pickupMapDraftLng };
+}
+function setActiveDraftCoords(lat, lng) {
+  if (mapEditorTarget === 'store') { storeMapDraftLat = lat; storeMapDraftLng = lng; }
+  else { pickupMapDraftLat = lat; pickupMapDraftLng = lng; }
+}
+// getActiveLocationFields()：目前 target 對應的表單 input id／狀態變數／DOM 元素，
+// 集中在這裡定義一次，其他函式都從這裡取用，不再各自硬寫 id 字串。
+function getActiveLocationFields() {
+  const isStore = mapEditorTarget === 'store';
+  return {
+    isStore,
+    latInputId: isStore ? 'set-store_lat' : 'set-pickup_lat',
+    lngInputId: isStore ? 'set-store_lng' : 'set-pickup_lng',
+    nameInputId: isStore ? 'set-store_place_name' : 'set-pickup_place_name',
+    placeIdInputId: isStore ? 'set-store_place_id' : 'set-pickup_place_id',
+    addressInputId: isStore ? 'set-store_address' : 'set-pickup_address',
+    statusElId: isStore ? 'geocode-status' : 'pickup-geocode-status',
+    saveButtonLabel: isStore ? '儲存店家座標設定' : '儲存取餐地點設定',
+    get modalMode() { return isStore ? _storeModalMode : _pickupModalMode; },
+    set modalMode(v) { if (isStore) _storeModalMode = v; else _pickupModalMode = v; },
+    get coordinateMode() { return isStore ? _storeCoordinateMode : _pickupCoordinateMode; },
+    set coordinateMode(v) {
+      if (isStore) { _storeCoordinateMode = v; renderStoreCoordinateModeLabel(); }
+      else { _pickupCoordinateMode = v; renderPickupCoordinateModeLabel(); }
+    },
+  };
+}
 // 地圖 Modal 內部狀態（google.maps 相關物件與「這次開啟 modal 期間」的暫定模式）。
 let _pickupMap = null, _pickupMarker = null, _pickupMapsReady = false;
 let _pickupModalMode = 'auto'; // 這次 modal 開啟期間，若使用者拖曳 marker 或使用目前位置，會被設為 manual
+let _storeModalMode = 'auto';  // 同上，但給 store target 用（與 _pickupModalMode 分開）
 
 function togglePickupSameAsStore() {
   const checked = document.getElementById('set-pickup_address_same_as_store')?.checked;
@@ -11088,6 +11216,33 @@ function renderPickupCoordinateModeLabel() {
   const el = document.getElementById('pickup-coordinate-mode-label');
   if (!el) return;
   el.textContent = _pickupCoordinateMode === 'manual' ? '● 已手動校正' : '○ 地址自動定位';
+}
+
+// fix18-10-hotfix26-F7：店家座標版的定位模式標籤（跟 renderPickupCoordinateModeLabel 對應，
+// 各自獨立、互不污染）。
+function renderStoreCoordinateModeLabel() {
+  const el = document.getElementById('store-coordinate-mode-label');
+  if (!el) return;
+  el.textContent = _storeCoordinateMode === 'manual' ? '● 已手動校正' : '○ 地址自動定位';
+}
+
+// fix18-10-hotfix26-F7：📡 使用目前位置（Section A 主頁面按鈕：直接更新 store 表單欄位，
+// 不開地圖 modal，跟既有 usePickupCurrentLocation() 對應但寫 store_* 欄位）。
+function useStoreCurrentLocation() {
+  const statusEl = document.getElementById('geocode-status');
+  _geolocateFriendly(
+    (lat, lng) => {
+      const latEl = document.getElementById('set-store_lat');
+      const lngEl = document.getElementById('set-store_lng');
+      if (latEl) latEl.value = lat;
+      if (lngEl) lngEl.value = lng;
+      _storeCoordinateMode = 'manual'; // 尚未寫入 DB，等按「儲存店家座標設定」才真正保存
+      renderStoreCoordinateModeLabel();
+      if (statusEl) { statusEl.textContent = `✅ 已取得目前位置（${lat}, ${lng}）`; statusEl.style.color = '#2e7d32'; }
+      if (_pickupMap && _pickupMarker && mapEditorTarget === 'store') _setPickupMarkerPosition(lat, lng);
+    },
+    (msg) => { if (statusEl) { statusEl.textContent = '❌ ' + msg; statusEl.style.color = '#e53935'; } }
+  );
 }
 
 // 📍 從取餐地址取得座標（主頁面按鈕）。若目前是 manual 模式，先確認是否要取代。
@@ -11169,25 +11324,58 @@ function _geolocateFriendly(onSuccess, onError) {
 }
 
 // ── 🗺 在地圖上手動校正（Modal）────────────────────────────────────────
-async function openPickupMapModal() {
+// fix18-10-hotfix26-F7：Pickup／Store 共用同一個地圖 Modal。target='pickup'（預設，
+// 既有呼叫點 openPickupMapModal() 不用改）或 'store'（新的 openStoreMapModal()）。
+// 開啟時依 target 切換標題／說明／初始座標／搜尋框 quick-fill 按鈕文字／footer 按鈕文字，
+// 並且只清空「這次 target」自己的搜尋狀態，不會污染另一組（clearPickupSearchState()
+// 兩組都清，因為兩組本來就是 modal 關閉時的暫存狀態，重新打開哪一個都該從乾淨狀態開始）。
+async function openPickupMapModal(target) {
+  mapEditorTarget = (target === 'store') ? 'store' : 'pickup';
   const modal = document.getElementById('pickupMapModal');
   if (!modal) return;
   modal.style.display = 'flex';
   const statusEl = document.getElementById('pickup-map-status');
   if (statusEl) statusEl.textContent = '';
-  // fix18-10-hotfix26-F6：每次開啟都先清空上一次殘留的搜尋字串/結果/摘要（不影響表單）。
+  // fix18-10-hotfix26-F6/F7：每次開啟都先清空上一次殘留的搜尋字串/結果/摘要（不影響表單）。
   clearPickupSearchState();
 
-  // 起始座標：目前表單的 pickup_lat/lng → fallback 店家 store_lat/lng → 桃園市中心
-  const curLat = parseFloat(document.getElementById('set-pickup_lat')?.value);
-  const curLng = parseFloat(document.getElementById('set-pickup_lng')?.value);
-  const storeLat = parseFloat(document.getElementById('set-store_lat')?.value);
-  const storeLng = parseFloat(document.getElementById('set-store_lng')?.value);
-  const startLat = Number.isFinite(curLat) ? curLat : (Number.isFinite(storeLat) ? storeLat : 24.9639);
-  const startLng = Number.isFinite(curLng) ? curLng : (Number.isFinite(storeLng) ? storeLng : 121.2248);
-  // 這次 modal 開啟時，本來就是「手動校正」入口，暫定模式先設為 manual；
-  // 若接下來使用者按「重新定位取餐地址」改用地址 Geocode，會再改回 auto。
-  _pickupModalMode = 'manual';
+  const titleEl = document.getElementById('pickupMapModalTitle');
+  const descEl = document.getElementById('pickupMapModalDesc');
+  const relocateBtn = document.getElementById('pickupMapRelocateBtn');
+  const useAddrBtn = document.getElementById('pickupSearchUseAddrBtn');
+  const useNameBtn = document.getElementById('pickupSearchUseNameBtn');
+
+  let startLat, startLng;
+  if (mapEditorTarget === 'store') {
+    if (titleEl) titleEl.textContent = '📍 校正店家／外送起點';
+    if (descEl) descEl.textContent = '請先搜尋店家、地址或地標，再拖曳定位點微調店家實際位置。';
+    if (relocateBtn) relocateBtn.textContent = '重新定位店家地址';
+    if (useAddrBtn) useAddrBtn.textContent = '帶入目前店家地址';
+    if (useNameBtn) useNameBtn.textContent = '帶入店家名稱';
+    const curLat = parseFloat(document.getElementById('set-store_lat')?.value);
+    const curLng = parseFloat(document.getElementById('set-store_lng')?.value);
+    startLat = Number.isFinite(curLat) ? curLat : 24.9639;
+    startLng = Number.isFinite(curLng) ? curLng : 121.2248;
+    // 這次 modal 開啟時，本來就是「手動校正」入口，暫定模式先設為 manual；
+    // 若接下來使用者按「重新定位店家地址」改用地址 Geocode，會再改回 auto。
+    _storeModalMode = 'manual';
+    storeMapDraftLat = startLat; storeMapDraftLng = startLng;
+  } else {
+    if (titleEl) titleEl.textContent = '🗺 校正實際取餐位置';
+    if (descEl) descEl.textContent = '請先搜尋店家、地址或地標，再拖曳定位點微調實際取餐入口。';
+    if (relocateBtn) relocateBtn.textContent = '重新定位取餐地址';
+    if (useAddrBtn) useAddrBtn.textContent = '帶入目前取餐地址';
+    if (useNameBtn) useNameBtn.textContent = '帶入店家名稱';
+    // 起始座標：目前表單的 pickup_lat/lng → fallback 店家 store_lat/lng → 桃園市中心
+    const curLat = parseFloat(document.getElementById('set-pickup_lat')?.value);
+    const curLng = parseFloat(document.getElementById('set-pickup_lng')?.value);
+    const storeLat = parseFloat(document.getElementById('set-store_lat')?.value);
+    const storeLng = parseFloat(document.getElementById('set-store_lng')?.value);
+    startLat = Number.isFinite(curLat) ? curLat : (Number.isFinite(storeLat) ? storeLat : 24.9639);
+    startLng = Number.isFinite(curLng) ? curLng : (Number.isFinite(storeLng) ? storeLng : 121.2248);
+    _pickupModalMode = 'manual';
+    pickupMapDraftLat = startLat; pickupMapDraftLng = startLng;
+  }
 
   // fix18-10-hotfix26-F6：改用共用 ensureGoogleMapsSdk()（含 places library），
   // 取代 F5 的 _ensurePickupMapsLoaded()（仍保留該函式作為向下相容別名，見下方）。
@@ -11201,11 +11389,17 @@ async function openPickupMapModal() {
   initPickupPlaceAutocomplete();
 }
 
+// fix18-10-hotfix26-F7：開啟「校正店家／外送起點」Modal（Section A 用）。
+function openStoreMapModal() {
+  return openPickupMapModal('store');
+}
+
 function closePickupMapModal() {
   const modal = document.getElementById('pickupMapModal');
   if (modal) modal.style.display = 'none';
   clearPickupSearchState();
-  // 關閉／取消不得修改原設定：不動 set-pickup_lat/lng，不動 _pickupCoordinateMode。
+  // 關閉／取消不得修改原設定：不動 set-pickup_lat/lng／set-store_lat/lng，
+  // 不動 _pickupCoordinateMode／_storeCoordinateMode。
 }
 
 async function _ensurePickupMapsLoaded() {
@@ -11242,17 +11436,29 @@ function _initPickupMap(lat, lng) {
   _pickupMarker.addListener('dragend', () => {
     const pos = _pickupMarker.getPosition();
     _updatePickupMapLatLngDisplay(pos.lat(), pos.lng());
-    _pickupModalMode = 'manual'; // 使用者主動拖曳過，確定是手動校正
+    // fix18-10-hotfix26-F7（需求文件十／七）：Marker 已離開原商家位置，不能繼續保留
+    // 舊 Place ID——用 getActiveMapSearchState() 清除「目前 target」對應那組 search
+    // state 的 placeId/name/formattedAddress，source 改成 marker_drag。只影響 modal
+    // 暫存狀態，不動表單、不寫 DB。
+    const state = getActiveMapSearchState();
+    state.placeId = ''; state.name = ''; state.formattedAddress = '';
+    state.source = 'marker_drag';
+    state.lat = pos.lat(); state.lng = pos.lng();
+    setActiveDraftCoords(pos.lat(), pos.lng());
+    getActiveLocationFields().modalMode = 'manual'; // 使用者主動拖曳過，確定是手動校正
   });
   _updatePickupMapLatLngDisplay(lat, lng);
 }
 
+// 共用：移動 Marker + 地圖中心，並同步「目前 target」的 draft lat/lng（不論是拖曳、
+// 搜尋結果套用、重新定位、GPS，最終都走這裡更新畫面與 draft 狀態）。
 function _setPickupMarkerPosition(lat, lng) {
   if (!_pickupMap || !_pickupMarker) return;
   const pos = new google.maps.LatLng(Number(lat), Number(lng));
   _pickupMarker.setPosition(pos);
   _pickupMap.panTo(pos);
   _updatePickupMapLatLngDisplay(Number(lat), Number(lng));
+  setActiveDraftCoords(Number(lat), Number(lng));
 }
 
 function _updatePickupMapLatLngDisplay(lat, lng) {
@@ -11267,14 +11473,17 @@ function setPickupMapType(type) {
   _pickupMap.setMapTypeId(type === 'satellite' ? 'satellite' : 'roadmap');
 }
 
-// Modal 內「重新定位取餐地址」：跟主頁面按鈕邏輯相同（manual 時先確認），只是直接
-// 更新 modal 內的 marker，不影響表單欄位（表單欄位要等「使用此座標」才更新）。
+// Modal 內「重新定位取餐地址／重新定位店家地址」：跟主頁面按鈕邏輯相同（manual 時
+// 先確認），依 mapEditorTarget 讀取正確的地址欄位，只更新 modal 內的 marker 與該
+// target 的 search state，不影響表單欄位（表單欄位要等「使用此座標」才更新）。
+// 這是「地址 Geocode」來源，不是明確 Places 選點，所以清空 placeId/name。
 async function pickupMapRelocateFromAddress() {
-  const addr = (document.getElementById('set-pickup_address')?.value || '').trim();
+  const fields = getActiveLocationFields();
+  const addr = (document.getElementById(fields.addressInputId)?.value || '').trim();
   const statusEl = document.getElementById('pickup-map-status');
-  if (!addr) { if (statusEl) statusEl.textContent = '請先在上方填寫取餐地址'; return; }
+  if (!addr) { if (statusEl) statusEl.textContent = `請先在上方填寫${fields.isStore ? '店家' : '取餐'}地址`; return; }
 
-  if (_pickupModalMode === 'manual') {
+  if (fields.modalMode === 'manual') {
     const proceed = confirm('目前已使用手動校正座標。\n\n重新依地址定位後，原本手動座標將被取代。');
     if (!proceed) return;
   }
@@ -11283,7 +11492,11 @@ async function pickupMapRelocateFromAddress() {
     const res  = await apiFetch('/api/maps/geocode', { method: 'POST', body: JSON.stringify({ address: addr }) });
     const json = await res.json();
     if (json.success) {
-      _pickupModalMode = 'auto';
+      const state = getActiveMapSearchState();
+      state.source = 'geocode'; state.placeId = ''; state.name = '';
+      state.formattedAddress = json.formatted_address || '';
+      state.lat = json.lat; state.lng = json.lng;
+      getActiveLocationFields().modalMode = 'auto';
       _setPickupMarkerPosition(json.lat, json.lng);
       if (statusEl) { statusEl.textContent = `✅ ${json.formatted_address}`; statusEl.style.color = '#2e7d32'; }
     } else {
@@ -11294,12 +11507,16 @@ async function pickupMapRelocateFromAddress() {
   }
 }
 
-// Modal 內「使用目前位置」：更新 marker，mode 改 manual（真實定位視為手動校正的一種）。
+// Modal 內「使用目前位置」：更新 marker，mode 改 manual；GPS 座標不代表任何特定
+// 商家，所以清空 placeId/name（需求文件八/十一：不得自動綁定附近商家）。
 function pickupMapUseCurrentLocation() {
   const statusEl = document.getElementById('pickup-map-status');
   _geolocateFriendly(
     (lat, lng) => {
-      _pickupModalMode = 'manual';
+      const state = getActiveMapSearchState();
+      state.source = 'current_location'; state.placeId = ''; state.name = ''; state.formattedAddress = '';
+      state.lat = lat; state.lng = lng;
+      getActiveLocationFields().modalMode = 'manual';
       _setPickupMarkerPosition(lat, lng);
       if (statusEl) { statusEl.textContent = `✅ 已取得目前位置（${lat.toFixed(6)}, ${lng.toFixed(6)}）`; statusEl.style.color = '#2e7d32'; }
     },
@@ -11313,19 +11530,54 @@ function pickupMapUseCurrentLocation() {
 // 不論來自拖曳、GPS、地址重新定位、Autocomplete、Text Search 或 Geocoder 搜尋——
 // 一律保存為 manual（人工確認過的座標不可再被背景自動 Geocode 覆蓋）。唯一維持
 // auto 的情境是「後台自動背景 Geocode」，也就是主頁面（非 Modal）的
-// geocodePickupAddress() 按鈕，那個流程完全不經過這裡。
+// geocodePickupAddress()/geocodeStoreAddress() 按鈕，那個流程完全不經過這裡。
+//
+// fix18-10-hotfix26-F7（需求文件八／九）：最終座標一律優先取 marker.getPosition()
+// （唯一準則，不使用可能過期的 search state 座標）；若目前 target 的 search state
+// 帶有明確 placeId + formattedAddress（代表這是 Places 選點，不是純拖曳/GPS/地址
+// Geocode），才自動帶入商家名稱／Place ID／地址，店家不用再手動輸入一次。
 function confirmPickupMapPin() {
   if (!_pickupMarker) { closePickupMapModal(); return; }
   const pos = _pickupMarker.getPosition();
   const lat = pos.lat(), lng = pos.lng();
-  const latEl = document.getElementById('set-pickup_lat');
-  const lngEl = document.getElementById('set-pickup_lng');
+  const fields = getActiveLocationFields();
+  const state = getActiveMapSearchState();
+  // Marker 最終座標為唯一準則：同步回 draft 狀態與 search state，確保四者一致
+  // （Marker／draft／search state／表單）。
+  setActiveDraftCoords(lat, lng);
+  state.lat = lat; state.lng = lng;
+
+  const latEl = document.getElementById(fields.latInputId);
+  const lngEl = document.getElementById(fields.lngInputId);
   if (latEl) latEl.value = lat;
   if (lngEl) lngEl.value = lng;
-  _pickupCoordinateMode = 'manual';
-  renderPickupCoordinateModeLabel();
-  const statusEl = document.getElementById('pickup-geocode-status');
-  if (statusEl) { statusEl.textContent = `✅ 已套用地圖校正座標（${lat.toFixed(6)}, ${lng.toFixed(6)}），請記得按下方「儲存外送費設定」`; statusEl.style.color = '#2e7d32'; }
+
+  // 有明確 Places 結果（placeId + formattedAddress）才自動填入商家名稱/地址；
+  // 純拖曳／GPS／Geocoder-only（無 placeId）不覆蓋店家已輸入的名稱/地址，
+  // 避免用空字串洗掉使用者原本手動打的內容。
+  const hasExplicitPlace = !!(state.placeId && state.formattedAddress);
+  if (hasExplicitPlace) {
+    const nameEl = document.getElementById(fields.nameInputId);
+    const placeIdEl = document.getElementById(fields.placeIdInputId);
+    const addrEl = document.getElementById(fields.addressInputId);
+    if (nameEl) nameEl.value = state.name || '';
+    if (placeIdEl) placeIdEl.value = state.placeId || '';
+    if (addrEl) addrEl.value = state.formattedAddress || '';
+  } else {
+    // 純拖曳／GPS／地址 Geocode：清空 place_id（不得誤綁附近商家），name/address 保留原值。
+    const placeIdEl = document.getElementById(fields.placeIdInputId);
+    if (placeIdEl) placeIdEl.value = '';
+  }
+
+  fields.coordinateMode = 'manual';
+
+  const statusEl = document.getElementById(fields.statusElId);
+  if (statusEl) {
+    statusEl.textContent = hasExplicitPlace
+      ? `✅ 已帶入「${state.name || state.formattedAddress}」座標（${lat.toFixed(6)}, ${lng.toFixed(6)}），請記得按下方「${fields.saveButtonLabel}」`
+      : `✅ 已套用地圖校正座標（${lat.toFixed(6)}, ${lng.toFixed(6)}），請記得按下方「${fields.saveButtonLabel}」`;
+    statusEl.style.color = '#2e7d32';
+  }
   closePickupMapModal();
 }
 
@@ -11577,21 +11829,26 @@ function renderPickupSearchResults(results) {
 // applyPickupSearchResult()：套用搜尋結果——地圖中心移動、Marker 跳轉、更新暫存
 // lat/lng、調整 zoom（17～19）、顯示搜尋摘要。不立即寫入表單／DB，要等使用者按
 // 「使用此座標」（confirmPickupMapPin()）才會真正更新表單。
+// fix18-10-hotfix26-F7：套用搜尋結果時，依 mapEditorTarget 更新對應那組 search state
+// 與 draft lat/lng（Marker／地圖中心／zoom 是共用的，因為 modal 共用同一顆 Marker）。
 function applyPickupSearchResult(result) {
   if (!result || result.lat == null || result.lng == null) return;
-  pickupMapSearchState = {
+  const newState = {
     source: result.source || null, placeId: result.placeId || null,
     name: result.name || '', formattedAddress: result.formattedAddress || '',
     lat: result.lat, lng: result.lng,
   };
+  setActiveMapSearchState(newState);
+  setActiveDraftCoords(result.lat, result.lng);
+
   if (_pickupMap && _pickupMarker) {
     _setPickupMarkerPosition(result.lat, result.lng);
     const targetZoom = Math.max(17, Math.min(19, _pickupMap.getZoom() || 18));
     _pickupMap.setZoom(targetZoom);
   }
   // fix18-10-hotfix26-F6（需求文件十）：搜尋確認過的候選座標一律視為 manual；
-  // 這裡只更新 modal 暫存的 _pickupModalMode，實際寫入表單/DB仍要等「使用此座標」。
-  _pickupModalMode = 'manual';
+  // 這裡只更新 modal 暫存的 modalMode，實際寫入表單/DB仍要等「使用此座標」。
+  getActiveLocationFields().modalMode = 'manual';
 
   const summaryEl = document.getElementById('pickupSearchSummary');
   if (summaryEl) {
@@ -11607,43 +11864,60 @@ function applyPickupSearchResult(result) {
   renderPickupSearchResults([]); // 已選定一筆，收合清單
 }
 
-// usePickupAddressAsSearch()：「帶入目前取餐地址」。same_as_store=true 用 store_address，
-// false 用 pickup_address；帶入後自動執行搜尋。
+// usePickupAddressAsSearch()：「帶入目前取餐地址／帶入目前店家地址」（依 mapEditorTarget
+// 切換）。pickup target 時 same_as_store=true 用 store_address，false 用 pickup_address；
+// store target 時固定用 store_address。帶入後自動執行搜尋。
 function usePickupAddressAsSearch() {
-  const sameAsStore = document.getElementById('set-pickup_address_same_as_store')?.checked;
-  const addr = sameAsStore
-    ? (document.getElementById('set-store_address')?.value || '').trim()
-    : (document.getElementById('set-pickup_address')?.value || '').trim();
-  if (!addr) { _setPickupSearchStatus('目前沒有可帶入的地址，請先輸入取餐地址。', true); return; }
+  const fields = getActiveLocationFields();
+  let addr;
+  if (fields.isStore) {
+    addr = (document.getElementById('set-store_address')?.value || '').trim();
+  } else {
+    const sameAsStore = document.getElementById('set-pickup_address_same_as_store')?.checked;
+    addr = sameAsStore
+      ? (document.getElementById('set-store_address')?.value || '').trim()
+      : (document.getElementById(fields.addressInputId)?.value || '').trim();
+  }
+  if (!addr) { _setPickupSearchStatus(`目前沒有可帶入的地址，請先輸入${fields.isStore ? '店家' : '取餐'}地址。`, true); return; }
   const input = document.getElementById('pickupSearchInput');
   if (input) input.value = addr;
-  pickupMapSearchState.source = 'pickup_address';
+  getActiveMapSearchState().source = 'pickup_address';
   searchPickupPlace();
 }
 
-// useStoreNameAsSearch()：「帶入店家名稱」。優先序：店名+取餐地址 → 店名+店家地址 → 只有店名。
+// useStoreNameAsSearch()：「帶入店家名稱」。store target 時直接用店名；pickup target
+// 時優先序：店名+取餐地址 → 店名+店家地址 → 只有店名。
 function useStoreNameAsSearch() {
+  const fields = getActiveLocationFields();
   const storeName = (settings && settings.shop_name) ? String(settings.shop_name).trim() : '';
   if (!storeName) { _setPickupSearchStatus('目前沒有可帶入的店家名稱，請先在基本設定填寫店名。', true); return; }
-  const sameAsStore = document.getElementById('set-pickup_address_same_as_store')?.checked;
-  const pickupAddr = (document.getElementById('set-pickup_address')?.value || '').trim();
-  const storeAddr  = (document.getElementById('set-store_address')?.value || '').trim();
   let query = storeName;
-  if (!sameAsStore && pickupAddr) query = `${storeName} ${pickupAddr}`;
-  else if (storeAddr) query = `${storeName} ${storeAddr}`;
+  if (!fields.isStore) {
+    const sameAsStore = document.getElementById('set-pickup_address_same_as_store')?.checked;
+    const pickupAddr = (document.getElementById('set-pickup_address')?.value || '').trim();
+    const storeAddr  = (document.getElementById('set-store_address')?.value || '').trim();
+    if (!sameAsStore && pickupAddr) query = `${storeName} ${pickupAddr}`;
+    else if (storeAddr) query = `${storeName} ${storeAddr}`;
+  } else {
+    const storeAddr = (document.getElementById('set-store_address')?.value || '').trim();
+    if (storeAddr) query = `${storeName} ${storeAddr}`;
+  }
   const input = document.getElementById('pickupSearchInput');
   if (input) input.value = query;
-  pickupMapSearchState.source = 'pickup_address';
+  getActiveMapSearchState().source = 'pickup_address';
   searchPickupPlace();
 }
 
-// clearPickupSearchState()：Modal 關閉時清除搜尋字串／結果清單／摘要／loading／
-// error／search state，但不清除原始表單設定（set-pickup_* 欄位完全不動）。
+// clearPickupSearchState()：Modal 關閉/開啟時清除搜尋字串／結果清單／摘要／loading／
+// error／search state（pickup 與 store 兩組都清，因為兩組本來就是暫存狀態，不論
+// 上次是哪個 target，重新開啟都該從乾淨狀態開始），但不清除原始表單設定
+// （set-pickup_*／set-store_* 欄位完全不動）。
 function clearPickupSearchState() {
   const input = document.getElementById('pickupSearchInput');
   if (input) input.value = '';
   _pickupSearchResults = [];
   pickupMapSearchState = { source: null, placeId: null, name: '', formattedAddress: '', lat: null, lng: null };
+  storeMapSearchState = { source: null, placeId: null, name: '', formattedAddress: '', lat: null, lng: null };
   const wrap = document.getElementById('pickupSearchResultsList');
   if (wrap) { wrap.style.display = 'none'; wrap.innerHTML = ''; }
   const summaryEl = document.getElementById('pickupSearchSummary');
@@ -11687,6 +11961,11 @@ function clearPickupSearchState() {
   window.searchPickupPlace            = searchPickupPlace;
   window.usePickupAddressAsSearch     = usePickupAddressAsSearch;
   window.useStoreNameAsSearch         = useStoreNameAsSearch;
+  // fix18-10-hotfix26-F7：店家座標獨立設定／共用 Modal target 切換
+  window.openStoreMapModal            = openStoreMapModal;
+  window.useStoreCurrentLocation      = useStoreCurrentLocation;
+  window.saveStoreLocationSettings    = saveStoreLocationSettings;
+  window.savePickupLocationSettings   = savePickupLocationSettings;
 })();
 
 // ═══════════════════════════════════════════════════════════

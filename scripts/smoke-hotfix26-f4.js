@@ -94,9 +94,13 @@ async function main() {
     if (loc && loc.store_name === '脆豬腰｜冷拌麻油腰子' && loc.address === '桃園市中壢區龍東路128號') {
       pass('A：新外帶訂單 resolvePickupLocation() 回傳正確門市/地址（來自 snapshot）');
     } else fail('A：新外帶訂單 pickup_location 內容不符', JSON.stringify(loc));
-    if (loc && loc.maps_url === 'https://www.google.com/maps?q=24.9998,121.2168') {
-      pass('A：有座標時 Maps URL 使用 q=lat,lng 格式');
-    } else fail('A：Maps URL（座標版）不符', loc && loc.maps_url);
+    // fix18-10-hotfix26-F7：Google Maps URL 優先序改成 place_id → name+address → address
+    // → 座標（需求文件十九，「不得只要有座標就永遠優先使用座標」）。這筆訂單只有
+    // 地址快照（沒有 place_id/place_name），所以新的優先序會走「地址搜尋」而不是
+    // 座標——這是 F7 有意調整的行為，本行斷言已同步更新，其餘 A 段斷言不受影響。
+    if (loc && loc.maps_url === 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent('桃園市中壢區龍東路128號')) {
+      pass('A：Maps URL（F7 新優先序：無 place_id/name 時，有地址優先於純座標）');
+    } else fail('A：Maps URL（F7 新優先序）不符', loc && loc.maps_url);
     if (loc && loc.from_snapshot === true) pass('A：pickup_location.from_snapshot=true（確實來自訂單自己的 snapshot）');
     else fail('A：from_snapshot 應為 true');
   }

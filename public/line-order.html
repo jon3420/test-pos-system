@@ -2519,21 +2519,36 @@ async function copyPickupAddressText(addr){
 // 傳 null/undefined 時回傳空字串，不顯示任何取餐門市/地址）。
 function buildPickupLocationRowsHTML(pickupLocation){
   if(!pickupLocation) return '';
+  const placeName=String(pickupLocation.place_name||'').trim();
   const storeName=esc(pickupLocation.store_name||'');
   const address=esc(pickupLocation.address||'');
   const mapsUrl=pickupLocation.maps_url||'';
   const hasAddr=!!pickupLocation.has_address;
+  // fix18-10-hotfix26-F7（問題1／需求文件廿一）：只有座標、沒有商家名稱也沒有地址
+  // 文字時，不得 fallback 顯示店家地址——那會讓顧客誤以為要去店家取餐。改顯示中性
+  // 提示文字「請依 Google Maps 定位前往」，但 Google Maps 按鈕仍然可用（有座標）。
+  const coordsOnly=!!pickupLocation.coords_only;
   const addrJson=JSON.stringify(String(pickupLocation.address||'')).replace(/"/g,'&quot;');
   const mapsJson=JSON.stringify(String(mapsUrl||'')).replace(/"/g,'&quot;');
-  // fix18-10-hotfix26-F5：取餐說明只在有值時顯示，空值時整列隱藏（不留空白列）。
   const note=String(pickupLocation.address_note||'').trim();
   const noteRow=note?`<div class="od-row"><span class="od-label">📝 取餐說明</span><span class="od-val">${esc(note)}</span></div>`:'';
-  return `<div class="od-row"><span class="od-label">🏪 取餐門市</span><span class="od-val">${storeName}</span></div>`
-    + `<div class="od-row"><span class="od-label">📍 取餐地址</span><span class="od-val">${address}</span></div>`
+
+  // fix18-10-hotfix26-F7：🏪 取餐地點——優先顯示搜尋/獨立設定的商家/地標名稱
+  // （pickup_place_name）；沒有獨立商家名稱時 fallback 顯示店家名稱（F4/F5 既有行為，
+  // 例如 same_as_store=true 或尚未搜尋過商家的情境）。都沒有時（coords_only）整列隱藏。
+  const displayPlaceName=placeName||pickupLocation.store_name;
+  const placeRow=displayPlaceName?`<div class="od-row"><span class="od-label">🏪 取餐地點</span><span class="od-val">${esc(displayPlaceName)}</span></div>`:'';
+
+  const addressRow=coordsOnly
+    ? `<div class="od-row"><span class="od-label">📍 取餐位置</span><span class="od-val">請依 Google Maps 定位前往</span></div>`
+    : `<div class="od-row"><span class="od-label">📍 取餐地址</span><span class="od-val">${address}</span></div>`;
+
+  return placeRow
+    + addressRow
     + noteRow
     + `<div class="od-row" style="gap:8px">`
     + `<button type="button" class="btn-detail" ${mapsUrl?'':'disabled style="opacity:.5"'} onclick='openPickupMapsUrl(${mapsJson})'>開啟 Google Maps</button>`
-    + `<button type="button" class="btn-detail" ${hasAddr?'':'disabled style="opacity:.5"'} onclick='copyPickupAddressText(${addrJson})'>複製地址</button>`
+    + (coordsOnly?'':`<button type="button" class="btn-detail" ${hasAddr?'':'disabled style="opacity:.5"'} onclick='copyPickupAddressText(${addrJson})'>複製地址</button>`)
     + `</div>`;
 }
 function buildDetailRows(d){

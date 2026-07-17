@@ -266,16 +266,21 @@ async function main() {
       pickup_lat_snapshot: '24.5', pickup_lng_snapshot: '121.5',
     });
     const g1 = resolvePickupLocation(db.get('SELECT * FROM orders WHERE id=?', ['o_g1']), db, 'store_001');
-    if (g1.address === '舊快照地址' && g1.maps_url === 'https://www.google.com/maps?q=24.5,121.5') {
-      pass('G：有 snapshot 的訂單一律優先使用 snapshot（不受 settings 後續變動影響）');
+    // fix18-10-hotfix26-F7：Google Maps URL 優先序改成 place_id → name+address → address
+    // → 座標（需求文件十九）。這筆快照只有地址、沒有 place_id/place_name，所以新優先序
+    // 走地址搜尋而非純座標——F7 有意調整的行為，本斷言已同步更新。
+    if (g1.address === '舊快照地址' && g1.maps_url === 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent('舊快照地址')) {
+      pass('G：有 snapshot 的訂單一律優先使用 snapshot（不受 settings 後續變動影響；F7 新 URL 優先序）');
     } else fail('G：snapshot 優先序失敗', JSON.stringify(g1));
 
     // G2：無 snapshot，same_as_store=false 且有 pickup_lat/lng → 使用 pickup 座標
     insertOrder({ id: 'o_g2', order_number: 'LINE-G2', store_id: 'store_001', order_mode: 'takeout' });
     const g2 = resolvePickupLocation(db.get('SELECT * FROM orders WHERE id=?', ['o_g2']), db, 'store_001');
-    if (g2.maps_url === 'https://www.google.com/maps?q=24.9111,121.2222') {
-      pass('G：無 snapshot 時，same_as_store=false 優先使用 pickup_lat/pickup_lng');
-    } else fail('G：pickup 座標優先序失敗', JSON.stringify(g2));
+    // 此時 store_001 的 pickup_address 仍是 Section B 設定的「桃園市中壢區龍東路128號騎樓」，
+    // 所以 F7 新優先序（有地址優先於純座標）會走地址搜尋，不是 q=lat,lng。
+    if (g2.maps_url === 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent('桃園市中壢區龍東路128號騎樓')) {
+      pass('G：無 snapshot 時，same_as_store=false 優先使用 pickup 設定（F7 新 URL 優先序：有地址時優先地址）');
+    } else fail('G：pickup 優先序失敗', JSON.stringify(g2));
 
     // G3：清空 pickup_lat/lng（但仍 same_as_store=false 且有 pickup_address）→ fallback store 座標
     setSetting('store_001', 'pickup_lat', '');
@@ -484,12 +489,16 @@ async function main() {
     if (!missingFns.length) pass('前端：app.js 所有 F5 必要函式皆存在');
     else fail('前端：app.js 缺少函式', missingFns.join(', '));
 
-    // saveDeliveryFeeSettings() 送出所有必要 keys
-    const saveFnSrc = appJsSrc.slice(appJsSrc.indexOf('async function saveDeliveryFeeSettings'), appJsSrc.indexOf('async function saveDeliveryFeeSettings') + 2000);
+    // fix18-10-hotfix26-F7（需求文件廿五）：這些 pickup keys 現在改由獨立的
+    // savePickupLocationSettings()（呼叫 PATCH /api/settings/pickup-location）送出，
+    // 不再從 saveDeliveryFeeSettings() 送出——這是 F7 為了避免 stale state 互相覆蓋
+    // 而刻意做的架構調整（需求文件廿五明確要求「先儲存 pickup → 再儲存其他外送設定
+    // → pickup 不得被覆蓋回舊值」），本斷言同步更新以反映這個有意的改動。
+    const saveFnSrc = appJsSrc.slice(appJsSrc.indexOf('async function savePickupLocationSettings'), appJsSrc.indexOf('async function savePickupLocationSettings') + 2000);
     const saveKeys = ['pickup_address_same_as_store', 'pickup_address', 'pickup_address_note', 'pickup_lat', 'pickup_lng', 'pickup_coordinate_mode', 'pickup_sync_delivery_origin'];
     const missingSaveKeys = saveKeys.filter(k => !saveFnSrc.includes(k));
-    if (!missingSaveKeys.length) pass('前端：saveDeliveryFeeSettings() 送出全部 F5 pickup settings keys');
-    else fail('前端：saveDeliveryFeeSettings() 缺少送出的 key', missingSaveKeys.join(', '));
+    if (!missingSaveKeys.length) pass('前端：savePickupLocationSettings()（F7 獨立儲存）送出全部 F5 pickup settings keys');
+    else fail('前端：savePickupLocationSettings() 缺少送出的 key', missingSaveKeys.join(', '));
 
     // 關閉/取消 Modal 不得修改原值
     const closeFnSrc = appJsSrc.slice(appJsSrc.indexOf('function closePickupMapModal'), appJsSrc.indexOf('function closePickupMapModal') + 300);
@@ -498,7 +507,9 @@ async function main() {
     } else fail('前端：closePickupMapModal() 疑似會修改原設定');
 
     // 只有 confirmPickupMapPin() 會寫回表單欄位
-    const confirmFnSrc = appJsSrc.slice(appJsSrc.indexOf('function confirmPickupMapPin'), appJsSrc.indexOf('function confirmPickupMapPin') + 800);
+    // fix18-10-hotfix26-F7：函式本體因為新增 pickup/store 雙 target 分支與自動填入邏輯
+    // 變長了，視窗從 800 放寬到 1800 字元才能涵蓋到 lngEl.value 那行，斷言內容本身不變。
+    const confirmFnSrc = appJsSrc.slice(appJsSrc.indexOf('function confirmPickupMapPin'), appJsSrc.indexOf('function confirmPickupMapPin') + 1800);
     if (/latEl\.value\s*=\s*lat/.test(confirmFnSrc) && /lngEl\.value\s*=\s*lng/.test(confirmFnSrc)) {
       pass('前端：confirmPickupMapPin()（使用此座標）才會把 Marker 座標寫回表單欄位');
     } else fail('前端：confirmPickupMapPin() 未正確寫回表單欄位');
@@ -514,8 +525,11 @@ async function main() {
     } else fail('前端：缺少地圖類型切換邏輯');
 
     // Marker 可拖曳，拖曳後即時更新 lat/lng，且設為 manual
-    if (/draggable: true/.test(appJsSrc) && /dragend['"]?,\s*\(\) => \{[\s\S]{0,200}_pickupModalMode = 'manual'/.test(appJsSrc)) {
-      pass('前端：Marker 可拖曳（draggable:true），dragend 後即時更新顯示並標記為 manual');
+    // fix18-10-hotfix26-F7：dragend handler 改用 getActiveLocationFields().modalMode = 'manual'
+    // 這個 target-aware helper（取代直接寫 _pickupModalMode = 'manual'），因為 Store/Pickup
+    // 現在共用同一個 Marker/dragend，需要依 mapEditorTarget 更新正確的那組狀態。
+    if (/draggable: true/.test(appJsSrc) && /dragend['"]?,\s*\(\) => \{[\s\S]{0,700}getActiveLocationFields\(\)\.modalMode = 'manual'/.test(appJsSrc)) {
+      pass('前端：Marker 可拖曳（draggable:true），dragend 後即時更新顯示並標記為 manual（F7：改用 target-aware helper）');
     } else fail('前端：Marker 拖曳/dragend 邏輯不符預期');
   }
 

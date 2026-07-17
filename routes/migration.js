@@ -392,7 +392,7 @@ router.post('/import/orders', (req, res) => {
       // fix18-10-hotfix26-F4/F5：取餐門市/地址/取餐說明 snapshot（外帶訂單建立當下寫入，
       // 外送為空字串）。snapshot 本身不含敏感資料（門市名稱/地址/說明/座標，本來就是給
       // 顧客看的公開資訊）。
-      'pickup_store_name_snapshot','pickup_address_snapshot','pickup_address_note_snapshot',
+      'pickup_store_name_snapshot','pickup_place_name_snapshot','pickup_place_id_snapshot','pickup_address_snapshot','pickup_address_note_snapshot',
       'pickup_lat_snapshot','pickup_lng_snapshot',
       'created_at','updated_at'
     ].filter(c => validCols.has(c));
@@ -437,6 +437,8 @@ router.post('/import/orders', (req, res) => {
         // fix18-10-hotfix26-F4/F5：舊備份沒有這些欄位時 fallback 空字串，import 不報錯
         pickup_store_name_snapshot: o.pickup_store_name_snapshot||'',
         pickup_address_snapshot: o.pickup_address_snapshot||'',
+        pickup_place_name_snapshot: o.pickup_place_name_snapshot||'',
+        pickup_place_id_snapshot: o.pickup_place_id_snapshot||'',
         pickup_address_note_snapshot: o.pickup_address_note_snapshot||'',
         pickup_lat_snapshot: o.pickup_lat_snapshot||'',
         pickup_lng_snapshot: o.pickup_lng_snapshot||'',
@@ -1318,7 +1320,7 @@ router.post('/migration/import', (req, res) => {
           'discount_product_ids','discount_product_names',
           'kitchen_status','payment_status','uuid','sync_status','device_id',
           // fix18-10-hotfix26-F4/F5：取餐門市/地址/取餐說明 snapshot（不含敏感資料）
-          'pickup_store_name_snapshot','pickup_address_snapshot','pickup_address_note_snapshot',
+          'pickup_store_name_snapshot','pickup_place_name_snapshot','pickup_place_id_snapshot','pickup_address_snapshot','pickup_address_note_snapshot',
           'pickup_lat_snapshot','pickup_lng_snapshot',
           'created_at','updated_at'
         ].filter(c => orderCols.has(c));
@@ -1362,6 +1364,8 @@ router.post('/migration/import', (req, res) => {
             // fix18-10-hotfix26-F4/F5：舊備份沒有這些欄位時 fallback 空字串，import 不報錯
             pickup_store_name_snapshot: o.pickup_store_name_snapshot||'',
             pickup_address_snapshot: o.pickup_address_snapshot||'',
+            pickup_place_name_snapshot: o.pickup_place_name_snapshot||'',
+            pickup_place_id_snapshot: o.pickup_place_id_snapshot||'',
             pickup_address_note_snapshot: o.pickup_address_note_snapshot||'',
             pickup_lat_snapshot: o.pickup_lat_snapshot||'',
             pickup_lng_snapshot: o.pickup_lng_snapshot||'',

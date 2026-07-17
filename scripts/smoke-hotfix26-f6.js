@@ -95,8 +95,11 @@ function main() {
       pass('C：套用搜尋結果時會設定 zoom 落在 17～19 之間（建議範圍）');
     } else fail('C：zoom 調整邏輯不符建議範圍');
 
-    if (/pickupMapSearchState = \{/.test(fn) && /lat: result\.lat, lng: result\.lng/.test(fn)) {
-      pass('C：applyPickupSearchResult() 更新暫存 pickupMapSearchState 的 lat/lng');
+    // fix18-10-hotfix26-F7：applyPickupSearchResult() 改用 setActiveMapSearchState()/
+    // setActiveDraftCoords() helper（取代直接賦值 pickupMapSearchState = {...}），因為
+    // Store/Pickup 現在共用同一個函式，需要依 mapEditorTarget 更新正確的那組狀態。
+    if (/setActiveMapSearchState\(newState\)/.test(fn) && /lat: result\.lat, lng: result\.lng/.test(fn) && /setActiveDraftCoords\(result\.lat, result\.lng\)/.test(fn)) {
+      pass('C：applyPickupSearchResult() 更新暫存 search state 的 lat/lng（F7：改用 target-aware helper）');
     } else fail('C：未正確更新暫存 lat/lng 狀態');
 
     // 不立即寫 DB：applyPickupSearchResult() 不應呼叫 apiFetch('/api/settings' 或直接寫 set-pickup_lat/lng 表單欄位
@@ -180,11 +183,13 @@ function main() {
   // ══════════════════════════════════════════════════════════════
   {
     const fn = slice('function usePickupAddressAsSearch', 800);
-    if (/sameAsStore\s*\?\s*\(document\.getElementById\('set-store_address'\)/.test(fn) && /:\s*\(document\.getElementById\('set-pickup_address'\)/.test(fn)) {
-      pass('I：usePickupAddressAsSearch() same_as_store=true 用 store_address，false 用 pickup_address');
+    // fix18-10-hotfix26-F7：usePickupAddressAsSearch() 改用 getActiveLocationFields()
+    // helper（target-aware），錯誤訊息也改成依 target 動態組字（取餐/店家）。
+    if (/addr = sameAsStore\s*\n\s*\? \(document\.getElementById\('set-store_address'\)/.test(fn) && /: \(document\.getElementById\(fields\.addressInputId\)/.test(fn)) {
+      pass('I：usePickupAddressAsSearch() same_as_store=true 用 store_address，false 用 pickup_address（F7 helper 版）');
     } else fail('I：帶入取餐地址的優先序不符預期');
-    if (/if \(!addr\) \{ _setPickupSearchStatus\('目前沒有可帶入的地址，請先輸入取餐地址。', true\); return; \}/.test(fn)) {
-      pass('I：地址為空時顯示「目前沒有可帶入的地址，請先輸入取餐地址。」且不繼續執行搜尋');
+    if (/if \(!addr\) \{ _setPickupSearchStatus\(`目前沒有可帶入的地址，請先輸入\$\{fields\.isStore \? '店家' : '取餐'\}地址。`, true\); return; \}/.test(fn)) {
+      pass('I：地址為空時顯示「目前沒有可帶入的地址，請先輸入取餐/店家地址。」且不繼續執行搜尋（F7：依 target 動態組字）');
     } else fail('I：缺少地址為空的錯誤訊息');
     if (/searchPickupPlace\(\);/.test(fn)) pass('I：帶入地址後自動執行搜尋');
     else fail('I：帶入地址後未自動搜尋');
@@ -209,15 +214,19 @@ function main() {
   // Section K: 搜尋後確認 — 按「使用此座標」後 mode=manual、verified_at 有值
   // ══════════════════════════════════════════════════════════════
   {
-    const fn = slice('function confirmPickupMapPin', 900);
-    if (/_pickupCoordinateMode = 'manual';/.test(fn)) {
-      pass('K：confirmPickupMapPin()（使用此座標）一律設定 _pickupCoordinateMode=manual，不論座標來源為何（拖曳/GPS/搜尋/重新定位）');
+    const fn = slice('function confirmPickupMapPin', 1600);
+    // fix18-10-hotfix26-F7：confirmPickupMapPin() 改用 fields.coordinateMode = 'manual'
+    // （target-aware helper setter，內部依 mapEditorTarget 設定 _pickupCoordinateMode
+    // 或 _storeCoordinateMode），取代原本直接寫 _pickupCoordinateMode = 'manual'。
+    if (/fields\.coordinateMode = 'manual';/.test(fn)) {
+      pass('K：confirmPickupMapPin()（使用此座標）一律設定 coordinateMode=manual，不論座標來源為何（拖曳/GPS/搜尋/重新定位；F7 helper 版，pickup/store 皆適用）');
     } else fail('K：confirmPickupMapPin() 未統一設為 manual');
-    // verified_at 由後端 buildTaipeiVerifiedAtStamp() 蓋章（沿用 F5 邏輯，本版未變動）；
-    // 前端 saveDeliveryFeeSettings() 送出的 pickup_coordinate_mode 就是這裡確認後的值。
-    const saveFnSrc = appJsSrc.slice(appJsSrc.indexOf('async function saveDeliveryFeeSettings'), appJsSrc.indexOf('async function saveDeliveryFeeSettings') + 2000);
+    // fix18-10-hotfix26-F7（需求文件廿五）：pickup_coordinate_mode 現在由獨立的
+    // savePickupLocationSettings() 送出（不再是 saveDeliveryFeeSettings()），
+    // verified_at 由後端 buildTaipeiVerifiedAtStamp() 蓋章的機制本身沒有變動。
+    const saveFnSrc = appJsSrc.slice(appJsSrc.indexOf('async function savePickupLocationSettings'), appJsSrc.indexOf('async function savePickupLocationSettings') + 2000);
     if (/pickup_coordinate_mode:\s*_pickupCoordinateMode \|\| 'auto'/.test(saveFnSrc)) {
-      pass('K：saveDeliveryFeeSettings() 送出 confirmPickupMapPin() 確認後的 _pickupCoordinateMode（manual），後端會據此蓋章 verified_at（沿用 F5，未變動）');
+      pass('K：savePickupLocationSettings()（F7 獨立儲存）送出 confirmPickupMapPin() 確認後的 _pickupCoordinateMode（manual），後端會據此蓋章 verified_at（沿用 F5，未變動）');
     } else fail('K：儲存流程未正確送出座標模式');
     const settingsSrc = fs.readFileSync(path.join(ROOT, 'routes/settings.js'), 'utf8');
     if (/buildTaipeiVerifiedAtStamp/.test(settingsSrc)) pass('K：後端 verified_at 蓋章機制（buildTaipeiVerifiedAtStamp，F5）維持不變，F6 未重寫');

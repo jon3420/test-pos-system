@@ -8,6 +8,8 @@ const { broadcastToStore } = require('../utils/wssBroadcast');
 const { getStoreLicense }  = require('../middleware/featureGate');
 // fix18-10-hotfix23-E1：line_member_return_url allowlist 驗證
 const { validateLineMemberReturnUrl } = require('../utils/returnUrlValidator');
+// fix18-10-hotfix26-F7：same_as_store 預設值推斷邏輯與 utils/pickupLocation.js 共用一份
+const { resolveSameAsStoreFlag } = require('../utils/pickupLocation');
 
 // LINE 相關設定 key — line_order=false 時不可修改
 const LINE_KEYS = new Set([
@@ -53,12 +55,16 @@ const LINE_KEYS = new Set([
   'pickup_address_same_as_store', 'pickup_address_note',
   'pickup_lat', 'pickup_lng', 'pickup_coordinate_mode', 'pickup_coordinate_verified_at',
   'pickup_sync_delivery_origin',
+  // fix18-10-hotfix26-F7：搜尋到明確 Google 商家後自動填入的商家名稱／Place ID。
+  // place_id 只後端存取、不讓店家直接編輯（前端隱藏欄位保存）。
+  'pickup_place_name', 'pickup_place_id',
 ]);
 
 // fix18-10-hotfix26-F5：上面 LINE_KEYS 內「取餐地點」設定 key 的清單（給 PUT /api/settings
 // 內的專屬驗證/同步邏輯引用，避免驗證程式碼要重複打一次落落長的字串陣列）。
+// fix18-10-hotfix26-F7：新增 pickup_place_name／pickup_place_id。
 const PICKUP_LOCATION_KEYS = [
-  'pickup_address_same_as_store', 'pickup_address', 'pickup_address_note',
+  'pickup_address_same_as_store', 'pickup_place_name', 'pickup_place_id', 'pickup_address', 'pickup_address_note',
   'pickup_lat', 'pickup_lng', 'pickup_coordinate_mode', 'pickup_coordinate_verified_at',
   'pickup_sync_delivery_origin',
 ];
@@ -72,6 +78,16 @@ const DELIVERY_FEE_KEYS = [
   'delivery_basic_fee',
   'delivery_free_threshold',
   'coupon_apply_to_delivery_fee',
+  // fix18-10-hotfix26-F7：店家商家名稱／Google Place ID／定位模式／校正時間。
+  // store_place_id 只後端存取、不讓店家直接編輯（前端隱藏欄位保存）。
+  'store_place_name', 'store_place_id', 'store_coordinate_mode', 'store_coordinate_verified_at',
+];
+
+// fix18-10-hotfix26-F7：PATCH /api/settings/store-location 只接受的欄位清單
+// （避免整頁 settings 儲存互相覆蓋，見需求文件廿四／廿五）。
+const STORE_LOCATION_KEYS = [
+  'store_place_name', 'store_place_id', 'store_address', 'store_lat', 'store_lng',
+  'store_coordinate_mode', 'store_coordinate_verified_at',
 ];
 
 // fix18-10-hotfix18：LINE 冷藏宅配中心 V1 設定 key
@@ -396,6 +412,160 @@ router.__test = {
   buildTaipeiVerifiedAtStamp,
   applyPickupSyncToStoreCoords,
   PICKUP_LOCATION_KEYS,
+  // fix18-10-hotfix26-F7
+  STORE_LOCATION_KEYS,
+  validatePickupLocationSave,
+  getCurrentSettingVal,
 };
+
+// fix18-10-hotfix26-F7：讀取單一 settings 目前值（給下面 PATCH 端點的驗證邏輯用，
+// 判斷「這次請求沒送的欄位」目前資料庫值是什麼，因為 PATCH 可能只送部分欄位）。
+function getCurrentSettingVal(db, storeId, key, def = '') {
+  const row = db.get('SELECT value FROM settings WHERE store_id=? AND key=?', [storeId, key]);
+  return row ? row.value : def;
+}
+
+// fix18-10-hotfix26-F7（需求文件十二）：獨立取餐地點的儲存驗證，抽成純函式方便
+// PATCH /pickup-location 與 smoke test 共用同一份規則。
+// same_as_store=true 時允許 pickup 獨立欄位為空；
+// same_as_store=false 時，要求 pickup_lat/pickup_lng 有效，且 pickup_place_name
+// 或 pickup_address 至少一項有值——不再默默回退顯示店家地址。
+function validatePickupLocationSave(db, storeId, body) {
+  const latErr = validatePickupLatLng('取餐緯度 (pickup_lat)', body.pickup_lat, -90, 90);
+  if (latErr) return { ok: false, message: latErr };
+  const lngErr = validatePickupLatLng('取餐經度 (pickup_lng)', body.pickup_lng, -180, 180);
+  if (lngErr) return { ok: false, message: lngErr };
+
+  const modeRaw = body.pickup_coordinate_mode !== undefined ? String(body.pickup_coordinate_mode).trim() : undefined;
+  if (modeRaw !== undefined && modeRaw !== '' && !['auto', 'manual'].includes(modeRaw)) {
+    return { ok: false, message: 'pickup_coordinate_mode 必須是 auto 或 manual' };
+  }
+
+  const sameAsStoreRaw = body.pickup_address_same_as_store;
+  const sameAsStore = sameAsStoreRaw !== undefined
+    ? (String(sameAsStoreRaw) === '1' || String(sameAsStoreRaw).toLowerCase() === 'true')
+    : resolveSameAsStoreFlag(db, storeId);
+
+  if (!sameAsStore) {
+    const finalLat = body.pickup_lat !== undefined ? body.pickup_lat : getCurrentSettingVal(db, storeId, 'pickup_lat', '');
+    const finalLng = body.pickup_lng !== undefined ? body.pickup_lng : getCurrentSettingVal(db, storeId, 'pickup_lng', '');
+    const finalPlaceName = body.pickup_place_name !== undefined ? body.pickup_place_name : getCurrentSettingVal(db, storeId, 'pickup_place_name', '');
+    const finalAddress = body.pickup_address !== undefined ? body.pickup_address : getCurrentSettingVal(db, storeId, 'pickup_address', '');
+
+    const latN = Number(String(finalLat).trim());
+    const lngN = Number(String(finalLng).trim());
+    const hasValidCoords = String(finalLat).trim() !== '' && String(finalLng).trim() !== '' && Number.isFinite(latN) && Number.isFinite(lngN);
+    const hasNameOrAddress = !!(String(finalPlaceName || '').trim() || String(finalAddress || '').trim());
+
+    if (!hasValidCoords || !hasNameOrAddress) {
+      return { ok: false, message: '目前使用獨立取餐地點，請選擇商家地標或輸入取餐地址。' };
+    }
+  }
+  return { ok: true };
+}
+
+// fix18-10-hotfix26-F7：PATCH /api/settings/pickup-location（需求文件廿四）。
+// 只更新取餐地點相關欄位，絕不觸碰任何 store_* 欄位（唯一例外是
+// pickup_sync_delivery_origin=true 時，透過既有 applyPickupSyncToStoreCoords() 同步
+// store_lat/store_lng——這是 F5 就有的既有規則，不是本端點新增的行為）。
+// 用獨立端點取代「整頁 PUT /api/settings」是為了避免 stale state 互相覆蓋
+// （需求文件廿五）：後台只要送這個表單自己的欄位，不會不小心把其他分頁的舊值也
+// 一起送出去蓋掉剛剛才儲存的新值。
+router.patch('/pickup-location', (req, res) => {
+  try {
+    const db = getDb();
+    const storeId = req.storeId;
+
+    const lic = getStoreLicense(storeId);
+    if (!lic.active) {
+      return res.status(403).json({ success: false, error: 'LICENSE_INACTIVE', message: '此店家授權已停用，請聯絡系統管理員' });
+    }
+    if (!lic.features.line_order) {
+      return res.status(403).json({
+        success: false, error: 'FEATURE_DISABLED', feature: 'line_order',
+        message: '此功能未授權，請聯絡系統管理員升級方案（LINE 點餐設定需 line_order 授權）'
+      });
+    }
+
+    const body = { ...(req.body || {}) };
+
+    const validation = validatePickupLocationSave(db, storeId, body);
+    if (!validation.ok) return res.status(400).json({ success: false, message: validation.message });
+
+    const modeRaw = body.pickup_coordinate_mode !== undefined ? String(body.pickup_coordinate_mode).trim() : undefined;
+    // verified_at 一律由後端蓋章，不信任前端傳入的時間（跟 PUT /api/settings 既有規則一致）。
+    if (body.pickup_lat !== undefined || body.pickup_lng !== undefined || modeRaw !== undefined) {
+      body.pickup_coordinate_verified_at = buildTaipeiVerifiedAtStamp();
+    }
+
+    // 只寫入 PICKUP_LOCATION_KEYS 白名單內、且這次請求有送值的欄位——不寫任何 store_* 欄位。
+    PICKUP_LOCATION_KEYS.forEach((k) => {
+      if (body[k] !== undefined) {
+        const updated = db.run('UPDATE settings SET value=? WHERE store_id=? AND key=?', [String(body[k]), storeId, k]);
+        if (!updated.changes) db.run('INSERT OR IGNORE INTO settings (store_id,key,value) VALUES (?,?,?)', [storeId, k, String(body[k])]);
+      }
+    });
+
+    // fix18-10-hotfix26-F5 既有邏輯：只同步 store_lat/store_lng，絕不覆寫 store_address。
+    try { applyPickupSyncToStoreCoords(db, storeId, body); } catch (e) { console.warn('[settings] pickup_sync_delivery_origin 同步失敗:', e.message); }
+
+    try {
+      const wss = req.app.get('wss');
+      const rows2 = db.all('SELECT key, value FROM settings WHERE store_id=?', [storeId]);
+      const s = {}; rows2.forEach(r => { s[r.key] = r.value; });
+      broadcastToStore(wss, storeId, { type: 'settings_updated', data: s });
+    } catch {}
+
+    // fix18-10-hotfix26-F7（需求文件廿五）：回傳「當下完整 settings」而不是只回傳這次
+    // 寫入的欄位，前端拿這份回應整個 merge 進本地 cache，避免用舊 state 覆蓋新值。
+    const rows = db.all('SELECT key, value FROM settings WHERE store_id=?', [storeId]);
+    const s = {}; rows.forEach(r => { s[r.key] = r.value; });
+    res.json({ success: true, data: s });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+// fix18-10-hotfix26-F7：PATCH /api/settings/store-location（需求文件廿四）。
+// 只更新店家地址／外送起點相關欄位，絕不觸碰任何 pickup_* 欄位（需求文件十八）。
+router.patch('/store-location', (req, res) => {
+  try {
+    const db = getDb();
+    const storeId = req.storeId;
+    const body = { ...(req.body || {}) };
+
+    const latErr = validatePickupLatLng('店家緯度 (store_lat)', body.store_lat, -90, 90);
+    if (latErr) return res.status(400).json({ success: false, message: latErr });
+    const lngErr = validatePickupLatLng('店家經度 (store_lng)', body.store_lng, -180, 180);
+    if (lngErr) return res.status(400).json({ success: false, message: lngErr });
+
+    const modeRaw = body.store_coordinate_mode !== undefined ? String(body.store_coordinate_mode).trim() : undefined;
+    if (modeRaw !== undefined && modeRaw !== '' && !['auto', 'manual'].includes(modeRaw)) {
+      return res.status(400).json({ success: false, message: 'store_coordinate_mode 必須是 auto 或 manual' });
+    }
+
+    // verified_at 一律由後端蓋章，不信任前端傳入的時間。
+    if (body.store_lat !== undefined || body.store_lng !== undefined || modeRaw !== undefined) {
+      body.store_coordinate_verified_at = buildTaipeiVerifiedAtStamp();
+    }
+
+    // 只寫入 STORE_LOCATION_KEYS 白名單內、且這次請求有送值的欄位——不寫任何 pickup_* 欄位。
+    STORE_LOCATION_KEYS.forEach((k) => {
+      if (body[k] !== undefined) {
+        const updated = db.run('UPDATE settings SET value=? WHERE store_id=? AND key=?', [String(body[k]), storeId, k]);
+        if (!updated.changes) db.run('INSERT OR IGNORE INTO settings (store_id,key,value) VALUES (?,?,?)', [storeId, k, String(body[k])]);
+      }
+    });
+
+    try {
+      const wss = req.app.get('wss');
+      const rows2 = db.all('SELECT key, value FROM settings WHERE store_id=?', [storeId]);
+      const s = {}; rows2.forEach(r => { s[r.key] = r.value; });
+      broadcastToStore(wss, storeId, { type: 'settings_updated', data: s });
+    } catch {}
+
+    const rows = db.all('SELECT key, value FROM settings WHERE store_id=?', [storeId]);
+    const s = {}; rows.forEach(r => { s[r.key] = r.value; });
+    res.json({ success: true, data: s });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
 
 module.exports = router;
