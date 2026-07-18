@@ -398,10 +398,15 @@ router.get('/members', requireStaffJwt, (req, res) => {
   try {
     const db = getDb();
     const storeId = req.storeId;
-    const { filter, sort, q, limit = 50, offset = 0, friend_status } = req.query;
+    const { filter, sort, q, limit = 50, offset = 0, friend_status, crm_status } = req.query;
 
     const where = ['store_id=?'];
     const params = [storeId];
+    // fix18-10-hotfix26-F8（需求文件十九）：預設列表不出現已封存會員，
+    // 需明確傳 crm_status=archived 或 all 才會看到（向下相容：舊資料 crm_status
+    // 欄位預設值就是 'active'，既有會員不受影響）。
+    if (crm_status === 'archived') where.push("crm_status='archived'");
+    else if (crm_status !== 'all') where.push("COALESCE(crm_status,'active')='active'");
     if (q && String(q).trim()) {
       where.push('display_name LIKE ?');
       params.push('%' + String(q).trim().slice(0, 100) + '%');
@@ -559,6 +564,21 @@ router.get('/members/:id', requireStaffJwt, (req, res) => {
         avg_order_value: avgOrderValue,
         lifecycle_stage: lifecycle.stage, inactive: lifecycle.inactive,
         timeline: history,
+        // fix18-10-hotfix26-F8（需求文件十七）：好友事件摘要欄位
+        friend_status_f8: row.friend_status || 'unknown',
+        first_follow_at: row.first_follow_at || '',
+        last_follow_at: row.last_follow_at || '',
+        last_unfollow_at: row.last_unfollow_at || '',
+        last_refollow_at: row.last_refollow_at || '',
+        refollow_count: row.refollow_count || 0,
+        last_friend_source: row.last_friend_source || '',
+        last_friend_check_at: row.last_friend_check_at || '',
+        // fix18-10-hotfix26-F8（需求文件十九）：封存狀態
+        crm_status: row.crm_status || 'active',
+        archived_at: row.archived_at || '',
+        archived_reason: row.archived_reason || '',
+        member_source: row.member_source || 'line_login',
+        phone: row.phone || '', email: row.email || '', note: row.note || '', tags: row.tags || '',
       },
     });
   } catch (e) {
@@ -566,6 +586,105 @@ router.get('/members/:id', requireStaffJwt, (req, res) => {
     res.status(500).json({ success: false, message: e.message });
   }
 });
+
+// ── fix18-10-hotfix26-F8（需求文件十八）：手動重新確認好友狀態 ──────────────
+// LINE Messaging API 沒有「查詢任意 userId 好友關係」的公開 API；官方建議做法
+// 是呼叫 GET /v2/bot/profile/{userId}：200 代表目前是好友，403/404 代表非好友
+// 或已封鎖。這裡沿用 utils/lineFriendSync.js 的統一寫入邏輯，來源標記為
+// manual_verify，時間戳仍走「較新優先」規則，不會覆蓋更新的 webhook 事件。
+router.post('/members/:id/reverify', requireStaffJwt, async (req, res) => {
+  try {
+    const db = getDb();
+    const storeId = req.storeId;
+    const row = db.get('SELECT id, line_user_id FROM line_members WHERE store_id=? AND id=?', [storeId, req.params.id]);
+    if (!row) return res.status(404).json({ success: false, message: '找不到會員' });
+    if (!row.line_user_id) return res.status(400).json({ success: false, message: '此會員尚未綁定 LINE，無法驗證好友狀態' });
+
+    const channelToken = getSetting(db, storeId, 'line_channel_token', '');
+    if (!channelToken) return res.status(400).json({ success: false, message: '尚未設定 LINE Channel Access Token' });
+
+    let isFriend = null;
+    try {
+      const resp = await fetch(`https://api.line.me/v2/bot/profile/${encodeURIComponent(row.line_user_id)}`, {
+        headers: { Authorization: `Bearer ${channelToken}` },
+      });
+      if (resp.status === 200) isFriend = true;
+      else if (resp.status === 403 || resp.status === 404) isFriend = false;
+      // 其他狀態碼（如 429/5xx）視為暫時無法確認，不寫入事件、不誤判
+    } catch (e) {
+      console.warn('[line-member] reverify profile fetch failed:', e.message);
+    }
+
+    if (isFriend === null) {
+      return res.status(502).json({ success: false, message: '暫時無法向 LINE 確認好友狀態，請稍後再試' });
+    }
+
+    const { applyFriendEvent } = require('../utils/lineFriendSync');
+    const result = applyFriendEvent(db, storeId, row.line_user_id, {
+      eventType: isFriend ? 'manual_verify_true' : 'manual_verify_false',
+      source: 'manual_verify',
+    });
+    res.json({ success: true, data: { is_friend: isFriend, applied: result.applied } });
+  } catch (e) {
+    console.error('[line-member] reverify error:', e.message);
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+// ── fix18-10-hotfix26-F8（需求文件十九）：封存會員（取代直接刪除）───────────
+router.post('/members/:id/archive', requireStaffJwt, (req, res) => {
+  try {
+    const db = getDb();
+    const storeId = req.storeId;
+    const row = db.get('SELECT id, line_user_id, crm_status FROM line_members WHERE store_id=? AND id=?', [storeId, req.params.id]);
+    if (!row) return res.status(404).json({ success: false, message: '找不到會員' });
+    if (row.crm_status === 'archived') return res.json({ success: true, data: { already_archived: true } });
+
+    const reason = (req.body && req.body.reason) ? String(req.body.reason).slice(0, 500) : '';
+    const operator = (req.staff && req.staff.username) || (req.staff && req.staff.id) || 'admin';
+    const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    db.run(
+      `UPDATE line_members SET crm_status='archived', archived_at=?, archived_reason=?, archived_by=? WHERE store_id=? AND id=?`,
+      [now, reason, String(operator), storeId, req.params.id]
+    );
+    // 不刪訂單、Analytics、優惠券紀錄、好友事件、UID（需求文件十九）——這裡完全不動其他表。
+    db.run(
+      `INSERT INTO line_member_history (store_id, line_user_id, event_name, old_value, new_value, metadata_json)
+       VALUES (?,?,?,?,?,?)`,
+      [storeId, row.line_user_id, 'member_archived', 'active', 'archived', JSON.stringify({ reason, operator })]
+    );
+    res.json({ success: true, data: { crm_status: 'archived', archived_at: now } });
+  } catch (e) {
+    console.error('[line-member] archive error:', e.message);
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+// ── fix18-10-hotfix26-F8（需求文件二十）：恢復會員 ─────────────────────────
+router.post('/members/:id/restore', requireStaffJwt, (req, res) => {
+  try {
+    const db = getDb();
+    const storeId = req.storeId;
+    const row = db.get('SELECT id, line_user_id, crm_status FROM line_members WHERE store_id=? AND id=?', [storeId, req.params.id]);
+    if (!row) return res.status(404).json({ success: false, message: '找不到會員' });
+    if (row.crm_status !== 'archived') return res.json({ success: true, data: { already_active: true } });
+
+    db.run(
+      `UPDATE line_members SET crm_status='active', archived_at='', archived_reason='', archived_by='' WHERE store_id=? AND id=?`,
+      [storeId, req.params.id]
+    );
+    db.run(
+      `INSERT INTO line_member_history (store_id, line_user_id, event_name, old_value, new_value, metadata_json)
+       VALUES (?,?,?,?,?,?)`,
+      [storeId, row.line_user_id, 'member_restored', 'archived', 'active', '{}']
+    );
+    res.json({ success: true, data: { crm_status: 'active' } });
+  } catch (e) {
+    console.error('[line-member] restore error:', e.message);
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
 function round(n) { return Math.round(Number(n || 0) * 100) / 100; }
 
 module.exports = router;

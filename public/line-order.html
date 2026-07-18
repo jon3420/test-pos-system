@@ -527,12 +527,25 @@ function _buildLineMemberGateConfig(d){
   };
 }
 function _gateIds(){ return { visitor_id:_getVisitorId(), session_id:_getSessionId(), cart_id:_getCartId(false), order_mode:currentMode, attribution:_getAnalyticsContext() }; }
+// fix18-10-hotfix26-F8-B（需求文件十一）：Messenger →「到 LINE 完成結帳」的
+// cart_token query string。獨立於既有 gate_enabled 設定——即使商家沒開 LINE
+// 會員 Gate，帶 cart_token 進站一樣要能完成 LIFF 登入＋購物車還原（這是
+// Bot 回覆的連結，商家等於已經選擇要用這個流程收單）。
+function _getCartTokenFromUrl(){
+  try{ return new URLSearchParams(window.location.search).get('cart_token')||''; }catch(e){ return ''; }
+}
 async function _initLineMemberGateFromShopData(d){
   _lineMemberGateConfig=_buildLineMemberGateConfig(d);
-  if(!_lineMemberGateConfig.gate_enabled || _lineMemberGateConfig.gate_mode==='disabled') return;
+  const cartToken=_getCartTokenFromUrl();
+  if(!_lineMemberGateConfig.gate_enabled && !cartToken) return;
+  if(_lineMemberGateConfig.gate_mode==='disabled' && !cartToken) return;
+  if(!_lineMemberGateConfig.liff_id){
+    if(cartToken) toast('商家尚未完成 LINE 結帳設定，請聯絡店家');
+    return;
+  }
   let gateState=null;
   try{ gateState=await LineMemberGate.initLineMemberGate({ store_id:LINE_STORE_ID, liff_id:_lineMemberGateConfig.liff_id }, _gateIds(), _trackEvent); }catch(e){ return; }
-  if(_lineMemberGateConfig.gate_mode==='entry'){
+  if(_lineMemberGateConfig.gate_enabled && _lineMemberGateConfig.gate_mode==='entry'){
     LineMemberGate.requireMemberOnEntry(LINE_STORE_ID, _lineMemberGateConfig, _gateIds(), _trackEvent);
   }
   // fix18-10-hotfix25：checkout 模式下，若剛從 LINE 登入導回並自動完成驗證，
@@ -542,6 +555,94 @@ async function _initLineMemberGateFromShopData(d){
   if(_lineMemberGateConfig.gate_mode==='checkout' && cbResult && cbResult.ok && cbResult.autoVerified){
     try{ if(Object.keys(cart||{}).length) openCartSheet(); }catch(e){}
   }
+  if(cartToken){
+    try{ await _restoreCartFromHandoffToken(cartToken); }catch(e){ console.warn('[cart-handoff] restore failed:', e.message); }
+  }
+}
+
+// fix18-10-hotfix26-F8-B（需求文件十一～十四）：LIFF Restore 流程。
+// LIFF init → 取得 UID（透過既有 member_session，見 _currentMemberSession）
+// → 呼叫 restore API → 還原購物車 → 重新計算價格（後端已做，見 restore API）
+// → 確認好友狀態 → 進入結帳畫面。
+async function _restoreCartFromHandoffToken(cartToken){
+  document.getElementById('loading').style.display='flex';
+  try{
+    let memberSession=_currentMemberSession();
+    // 剛登入完成時 session 可能要等 initLineMemberGate 內部流程真正落地，
+    // 這裡等一輪 microtask 再讀一次，不做無限重試（LIFF 沒登入成功就是沒有）。
+    if(!memberSession){ await new Promise(r=>setTimeout(r,300)); memberSession=_currentMemberSession(); }
+    if(!memberSession){
+      toast('請先完成 LINE 登入後再繼續結帳');
+      return;
+    }
+    // 需求文件十七：LIFF 已成功開啟並取得登入狀態，準備呼叫 restore API。
+    _trackEvent('line_checkout_liff_opened');
+    const res=await apiFetch('/api/line-checkout-handoff/restore',{
+      method:'POST', body:JSON.stringify({ cart_token:cartToken, member_session:memberSession })
+    }).then(r=>r.json());
+
+    if(!res.ok){
+      const msgMap={
+        session_invalid:'尚未登入或登入已過期，請重新透過 LINE 開啟結帳連結。',
+        expired:'此結帳連結已失效。\n\n請重新返回購物車。',
+        consumed:'此結帳連結已完成或已失效。',
+        cancelled:'此結帳連結已取消，請重新返回購物車。',
+        uid_mismatch:'此結帳連結與目前登入的 LINE 帳號不符。',
+        not_found:'找不到此結帳連結，請重新從購物車發起結帳。',
+      };
+      alert(msgMap[res.reason]||res.message||'無法還原購物車，請重新從購物車發起結帳。');
+      return;
+    }
+
+    // 需求文件十三：還原購物車內容——寫回既有 ORDER_CART_KEY 格式，交給既有、
+    // 千錘百鍊的 restoreCart()（商品存在性/價格一律用最新 allProducts 重新查找、
+    // 日期時段/付款方式/顧客資料還原邏輯全部沿用），不重寫第二套還原邏輯。
+    const cartQtyMap={};
+    (res.cart.items||[]).forEach(it=>{ cartQtyMap[it.product_id]=it.qty; });
+    const cc=res.checkout_context||{};
+    let _existingCreatedAt=null;
+    try{ const _prev=JSON.parse(localStorage.getItem(ORDER_CART_KEY)||'null'); _existingCreatedAt=_prev?.cart_created_at||null; }catch(e){}
+    const cartData={
+      version:1, store_id:LINE_STORE_ID,
+      session_id:_getSessionId(), visitor_id:_getVisitorId(),
+      cart_created_at:_existingCreatedAt||Date.now(), cart_updated_at:Date.now(),
+      cart:cartQtyMap,
+      order_mode:(cc.order_type==='delivery'?'delivery':'takeout'),
+      customer:{
+        name:cc.customer_name||'', phone:cc.customer_phone||'',
+        delivery_address:cc.delivery_address||'', delivery_address_note:cc.delivery_note||'',
+      },
+      coupon_code:cc.coupon_code||'',
+      pickup_date:cc.pickup_date||'', pickup_time:cc.pickup_time||'',
+      payment_method:cc.payment_method||'', order_note:'',
+    };
+    localStorage.setItem(ORDER_CART_KEY, JSON.stringify(cartData));
+    await restoreCart();
+    _activeCartHandoffToken=cartToken;
+
+    if(res.has_unavailable_items){
+      toast('部分商品資訊已更新，請確認最新內容後再結帳。');
+    }
+
+    // 需求文件十四：好友要求流程——getFriendship() → false 時 requestFriendship()
+    // → 不支援時 fallback add_friend_url → 重新確認。沿用既有 ensureFriendRequirement，
+    // 與一般送單流程用同一套 Gate，不重寫。
+    if(_lineMemberGateConfig && (_lineMemberGateConfig.require_friend||_lineMemberGateConfig.require_follow)){
+      try{ await LineMemberGate.ensureFriendRequirement(LINE_STORE_ID, _lineMemberGateConfig, _gateIds(), _trackEvent); }catch(e){}
+    }
+
+    // 清掉網址上的 cart_token，避免重整頁面重複觸發 restore／被誤分享
+    try{
+      const cleanUrl=new URL(window.location.href);
+      cleanUrl.searchParams.delete('cart_token');
+      window.history.replaceState({}, '', cleanUrl.toString());
+    }catch(e){}
+
+    openCartSheet();
+    toast('購物車已還原，請確認內容後送出訂單');
+  } finally {
+    document.getElementById('loading').style.display='none';
+  }
 }
 function _currentMemberSession(){
   try{ const s=LineMemberGate.getMemberSession(LINE_STORE_ID); return s?s.member_session:null; }catch(e){ return null; }
@@ -550,6 +651,9 @@ function _currentMemberSession(){
 // ── 全域狀態 ──
 let allProducts=[], categories=[];
 let cart={};
+// fix18-10-hotfix26-F8-B（需求文件十五）：目前這次還原成功的 Cart Handoff full
+// token（若有）。訂單成立時一併送給後端 consume，避免同一 token 被重複下單。
+let _activeCartHandoffToken='';
 // fix18-10-hotfix22D：記錄哪些商品是「今日不可下單、但允許直接加入購物車並自動預約下個營業日」，
 // 供 openCartSheet()/switchMode()/onModeChange() 判斷購物車日期是否要自動預設下個營業日。
 let preorderRequiredIds=new Set();
@@ -2168,8 +2272,10 @@ async function submitOrder(){
         ...delivPayload,
         analytics:_analyticsPayloadForOrder(),
         member_session:_currentMemberSession(),
+        cart_token:_activeCartHandoffToken||undefined,
       })
     }).then(r=>r.json());
+    if(orderRes.success){ _activeCartHandoffToken=''; }
     if(!orderRes.success){
       toast(orderRes.message||'送出失敗');
       // hotfix22-B：外帶/外送「今日最後接單時間」在送單當下才過期（例如顧客瀏覽期間店家臨時調整截止時間），

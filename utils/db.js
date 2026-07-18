@@ -1582,6 +1582,109 @@ function initTables(w) {
   ];
   lineMemberCrmMigrations.forEach(sql => { try { w._db.run(sql); w._save(); } catch {} });
 
+  // ══════════════════════════════════════════════════════════════════
+  // ── fix18-10-hotfix26-F8（需求文件八～二十一）：好友 webhook 即時同步 ×
+  //    CRM 封存/恢復 × 手動新增 × CSV 匯入 的資料表基礎。
+  // 原則不變：safe migration，只用 CREATE TABLE IF NOT EXISTS / ALTER TABLE
+  // ADD COLUMN（皆包 try/catch，可重複執行），不 DROP、不影響既有資料，
+  // 舊欄位（is_friend／friend_since／last_friend_check／friend_source／
+  // friend_status_changed_at）全部保留並持續同步寫入，向下相容。
+  // ══════════════════════════════════════════════════════════════════
+  const lineMemberF8Migrations = [
+    // 好友狀態摘要欄位（新增，與舊 is_friend 並存同步）
+    "ALTER TABLE line_members ADD COLUMN friend_status TEXT DEFAULT 'unknown'",
+    "ALTER TABLE line_members ADD COLUMN last_friend_check_at TEXT DEFAULT ''",
+    "ALTER TABLE line_members ADD COLUMN last_friend_source TEXT DEFAULT ''",
+    "ALTER TABLE line_members ADD COLUMN first_follow_at TEXT DEFAULT ''",
+    "ALTER TABLE line_members ADD COLUMN last_follow_at TEXT DEFAULT ''",
+    "ALTER TABLE line_members ADD COLUMN last_unfollow_at TEXT DEFAULT ''",
+    "ALTER TABLE line_members ADD COLUMN last_refollow_at TEXT DEFAULT ''",
+    "ALTER TABLE line_members ADD COLUMN refollow_count INTEGER DEFAULT 0",
+    // CRM 封存／恢復（需求文件十九／二十）
+    "ALTER TABLE line_members ADD COLUMN crm_status TEXT DEFAULT 'active'",
+    "ALTER TABLE line_members ADD COLUMN archived_at TEXT DEFAULT ''",
+    "ALTER TABLE line_members ADD COLUMN archived_reason TEXT DEFAULT ''",
+    "ALTER TABLE line_members ADD COLUMN archived_by TEXT DEFAULT ''",
+    // 手動新增 / CSV 匯入未綁定會員（需求文件二十二～二十七）
+    "ALTER TABLE line_members ADD COLUMN phone TEXT DEFAULT ''",
+    "ALTER TABLE line_members ADD COLUMN email TEXT DEFAULT ''",
+    "ALTER TABLE line_members ADD COLUMN note TEXT DEFAULT ''",
+    "ALTER TABLE line_members ADD COLUMN tags TEXT DEFAULT ''",
+    "ALTER TABLE line_members ADD COLUMN member_source TEXT DEFAULT 'line_login'",
+    "ALTER TABLE line_members ADD COLUMN merged_into_id INTEGER DEFAULT NULL",
+    // 永久刪除個資（需求文件二十一）
+    "ALTER TABLE line_members ADD COLUMN pii_deleted_at TEXT DEFAULT ''",
+  ];
+  lineMemberF8Migrations.forEach(sql => { try { w._db.run(sql); w._save(); } catch {} });
+  try {
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_line_members_store_friend_status ON line_members(store_id, friend_status)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_line_members_store_crm_status ON line_members(store_id, crm_status)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_line_members_store_phone ON line_members(store_id, phone)');
+    w._save();
+  } catch(e) { console.warn('[DB] line_members F8 index:', e.message); }
+
+  // ── line_friend_events：好友事件流水帳（需求文件十一）。append-only，
+  //    任何後續狀態更新都「不可覆蓋」已寫入的歷史事件列。────────────────
+  w._db.run(`CREATE TABLE IF NOT EXISTS line_friend_events (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    store_id      TEXT NOT NULL,
+    line_user_id  TEXT NOT NULL,
+    member_id     INTEGER DEFAULT NULL,
+    event_type    TEXT NOT NULL,
+    source        TEXT DEFAULT '',
+    event_at      TEXT DEFAULT (datetime('now','localtime')),
+    metadata_json TEXT DEFAULT '',
+    created_at    TEXT DEFAULT (datetime('now','localtime'))
+  )`);
+  w._save();
+  try {
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_lfe_store_user ON line_friend_events(store_id, line_user_id)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_lfe_store_event_at ON line_friend_events(store_id, event_at)');
+    w._save();
+  } catch(e) { console.warn('[DB] line_friend_events index:', e.message); }
+
+  // ── line_cart_handoff_tokens：Messenger →「到 LINE 完成結帳」一次性 cart token
+  //    （需求文件五／六）。與 store_id 綁定，過期／已使用皆可查。────────────
+  w._db.run(`CREATE TABLE IF NOT EXISTS line_cart_handoff_tokens (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    token           TEXT NOT NULL UNIQUE,
+    store_id        TEXT NOT NULL,
+    cart_json       TEXT DEFAULT '',
+    subtotal        REAL DEFAULT 0,
+    delivery_mode   TEXT DEFAULT '',
+    attribution_json TEXT DEFAULT '',
+    line_user_id    TEXT DEFAULT '',
+    used_at         TEXT DEFAULT '',
+    created_at      TEXT DEFAULT (datetime('now','localtime')),
+    expires_at      TEXT NOT NULL
+  )`);
+  w._save();
+  try {
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_lcht_store_token ON line_cart_handoff_tokens(store_id, token)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_lcht_expires ON line_cart_handoff_tokens(expires_at)');
+    w._save();
+  } catch(e) { console.warn('[DB] line_cart_handoff_tokens index:', e.message); }
+
+  // ── fix18-10-hotfix26-F8-B（需求文件四）：Cart Token 狀態機 × 短碼 × Checkout
+  //    Context × 消費紀錄。safe migration，沿用 F8-A 已建立的資料表，只 ADD COLUMN。
+  const cartHandoffF8BMigrations = [
+    "ALTER TABLE line_cart_handoff_tokens ADD COLUMN cart_code TEXT DEFAULT ''",
+    "ALTER TABLE line_cart_handoff_tokens ADD COLUMN status TEXT DEFAULT 'pending'",
+    "ALTER TABLE line_cart_handoff_tokens ADD COLUMN checkout_context_json TEXT DEFAULT ''",
+    "ALTER TABLE line_cart_handoff_tokens ADD COLUMN consumed_at TEXT DEFAULT ''",
+    "ALTER TABLE line_cart_handoff_tokens ADD COLUMN order_id TEXT DEFAULT ''",
+    "ALTER TABLE line_cart_handoff_tokens ADD COLUMN created_ip TEXT DEFAULT ''",
+    "ALTER TABLE line_cart_handoff_tokens ADD COLUMN created_user_agent TEXT DEFAULT ''",
+    "ALTER TABLE line_cart_handoff_tokens ADD COLUMN bound_at TEXT DEFAULT ''",
+    "ALTER TABLE line_cart_handoff_tokens ADD COLUMN opened_at TEXT DEFAULT ''",
+  ];
+  cartHandoffF8BMigrations.forEach(sql => { try { w._db.run(sql); w._save(); } catch {} });
+  try {
+    w._db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_lcht_store_code ON line_cart_handoff_tokens(store_id, cart_code)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_lcht_store_status ON line_cart_handoff_tokens(store_id, status)');
+    w._save();
+  } catch(e) { console.warn('[DB] line_cart_handoff_tokens F8-B index:', e.message); }
+
   // ── line_member_history：CRM Timeline（好友歷程／購買歷程等事件流水帳）───
   w._db.run(`CREATE TABLE IF NOT EXISTS line_member_history (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,

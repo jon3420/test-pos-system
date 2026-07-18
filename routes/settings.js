@@ -58,6 +58,10 @@ const LINE_KEYS = new Set([
   // fix18-10-hotfix26-F7：搜尋到明確 Google 商家後自動填入的商家名稱／Place ID。
   // place_id 只後端存取、不讓店家直接編輯（前端隱藏欄位保存）。
   'pickup_place_name', 'pickup_place_id',
+  // fix18-10-hotfix26-F8（需求文件三／五／十二）：Messenger →「到 LINE 完成結帳」×
+  // follow/unfollow webhook 需要的商家 LINE 官方帳號設定。
+  // line_channel_secret 屬敏感值：一律不在 GET 回傳、不寫入 log／smoke test 輸出。
+  'line_official_basic_id', 'line_add_friend_url', 'line_channel_secret',
 ]);
 
 // fix18-10-hotfix26-F5：上面 LINE_KEYS 內「取餐地點」設定 key 的清單（給 PUT /api/settings
@@ -224,6 +228,12 @@ router.get('/', (req, res) => {
     const rows = db.all('SELECT key, value FROM settings WHERE store_id=?', [storeId]);
     const settings = {};
     rows.forEach(r => { settings[r.key] = r.value; });
+    // fix18-10-hotfix26-F8（需求文件十二）：Channel Secret 是簽章驗證用的敏感憑證，
+    // 只允許寫入，不隨 GET /api/settings 回傳明文；前端用「是否已設定」的布林值顯示。
+    if (Object.prototype.hasOwnProperty.call(settings, 'line_channel_secret')) {
+      settings.line_channel_secret_set = !!(settings.line_channel_secret && settings.line_channel_secret.trim());
+      delete settings.line_channel_secret;
+    }
     res.json({ success: true, data: settings });
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });

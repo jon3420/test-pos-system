@@ -97,7 +97,13 @@ setInterval(() => {
 }, 30000);
 
 app.use(cors());
-app.use(bodyParser.json({ limit: '5mb' }));
+// fix18-10-hotfix26-F8（需求文件十二）：LINE Messaging API webhook 簽章驗證需要
+// 「未經解析的原始 body bytes」，body-parser 內建 verify callback 可在照常解析
+// 之餘，把原始 Buffer 另存到 req.rawBody，不影響其餘既有路由的行為與相容性。
+app.use(bodyParser.json({
+  limit: '5mb',
+  verify: (req, res, buf) => { req.rawBody = buf; },
+}));
 app.use(bodyParser.urlencoded({ extended: true }));
 // fix18-10-hotfix22A：LINE 內建瀏覽器（尤其 iOS）對 .html 進入頁常有過度快取問題，
 // 導致客戶端點開 line-order.html / line-shipping.html 時吃到舊版畫面。
@@ -114,6 +120,10 @@ app.post('/webhook/n8n', (req, res) => {
   console.log('[n8n Webhook]', JSON.stringify(req.body, null, 2));
   res.json({ success: true, message: 'received', data: req.body });
 });
+
+// fix18-10-hotfix26-F8（需求文件八～十五）：LINE Messaging API follow/unfollow
+// webhook，每店家獨立路徑 /webhook/line/:storeId，signature 於 routes/line-webhook.js 內驗證。
+app.use('/webhook/line', require('./routes/line-webhook'));
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', time: new Date().toISOString(), version: '18.0.0-saas-r1' });
@@ -398,6 +408,10 @@ initDb().then((db) => {
   app.use('/api/line-validate-cart', requireStore, requireFeature('line_order'), (req, res, next) => { req.url = '/validate-cart'; lineOrderRouter(req, res, next); });
   app.use('/api/line-orders',  requireStore, requireFeature('line_order'), lineOrderRouter);
   app.use('/api/online-orders', requireStore, requireFeature('line_order'), require('./routes/online-orders'));
+
+  // fix18-10-hotfix26-F8-B（需求文件五／十二）：Messenger →「到 LINE 完成結帳」
+  // Cart Handoff Token create/restore API。
+  app.use('/api/line-checkout-handoff', requireStore, requireFeature('line_order'), require('./routes/line-checkout-handoff'));
 
   // fix18-10-hotfix19：通用圖片上傳 API（商品圖片、公告圖片等共用，避免新增重複 API）
   app.use('/api/uploads', requireStore, require('./routes/uploads'));

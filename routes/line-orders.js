@@ -1066,6 +1066,9 @@ router.post('/', async (req, res) => {
       // member_session」，不再直接信任前端傳入的 line_user_id（見
       // utils/lineMemberSession.js）。舊欄位名稱不再被信任，僅接受 member_session。
       member_session,
+      // fix18-10-hotfix26-F8-B（需求文件十五）：Messenger →「到 LINE 完成結帳」的
+      // cart handoff token；訂單成立後標記 consumed，避免同一 token 重複下單。
+      cart_token,
     } = req.body;
 
     if (!items || !Array.isArray(items) || items.length === 0)
@@ -1429,6 +1432,27 @@ router.post('/', async (req, res) => {
     // 外送/宅配一律回傳 null，不得誤回取餐地址（resolvePickupLocation 內部已判斷
     // order_mode==='delivery' 回傳 null）。
     const pickupLocation = resolvePickupLocation(newOrder, db, storeId);
+
+    // fix18-10-hotfix26-F8-B（需求文件十五）：token 消費是「盡力而為」的收尾動作，
+    // 失敗（token 不存在/已過期/已用過）不得影響訂單本身已經成立這件事，只記 log。
+    if (cart_token) {
+      try {
+        const { consumeCartToken } = require('../utils/lineCheckoutHandoff');
+        const consumeResult = consumeCartToken(db, storeId, String(cart_token), uuid);
+        if (consumeResult && consumeResult.ok) {
+          try {
+            logServerEvent(db, {
+              store_id: storeId,
+              visitor_id: `order_${uuid}`, session_id: `order_${uuid}`,
+              order_id: uuid, event_name: 'line_checkout_handoff_consumed',
+              line_user_id: knownLineUserId || null, metadata: {},
+            });
+          } catch (analyticsErr) { /* Analytics 失敗不影響訂單已成立 */ }
+        }
+      } catch (tokErr) {
+        console.warn('[line-orders] cart_token consume failed:', tokErr.message);
+      }
+    }
 
     res.json({ success: true, data: {
       order_number: orderNo, uuid, total: finalTotal,

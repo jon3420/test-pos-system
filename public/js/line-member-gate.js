@@ -812,7 +812,82 @@
     externalGuideVisible = false;
   }
 
-  // options: { storeId, config, gateStage, environment, onEvent, onClose }
+  // ══════════════════════════════════════════════════════════════════
+  // fix18-10-hotfix26-F8-B（需求文件三～七）：Messenger →「到 LINE 完成結帳」。
+  // 讀取既有 ORDER_CART_KEY（line-order.html 既有購物車 localStorage 機制，見
+  // persistCart()），組成後端 /api/line-checkout-handoff/create 需要的
+  // cart.items + checkout_context，不重寫購物車邏輯、不新增第二套購物車儲存。
+  // 非 line-order.html 頁面（無此 key）會安全回傳 null，呼叫端 fallback 到
+  // 舊有「嘗試使用 LINE 開啟」流程。
+  // ══════════════════════════════════════════════════════════════════
+  function _readStoredCartForHandoff(storeId) {
+    try {
+      const raw = global.localStorage.getItem('line_order_cart_' + storeId);
+      if (!raw) return null;
+      const data = JSON.parse(raw);
+      if (!data || !data.cart || typeof data.cart !== 'object') return null;
+      const items = Object.entries(data.cart)
+        .map(([pid, qty]) => ({ product_id: Number(pid), qty: Number(qty) }))
+        .filter(i => i.product_id && i.qty > 0);
+      if (!items.length) return null;
+      let url;
+      try { url = new URL(global.location.href); } catch (e) { url = null; }
+      const attribution = {
+        utm_source: url ? (url.searchParams.get('utm_source') || '') : '',
+        utm_medium: url ? (url.searchParams.get('utm_medium') || '') : '',
+        utm_campaign: url ? (url.searchParams.get('utm_campaign') || '') : '',
+        utm_content: url ? (url.searchParams.get('utm_content') || '') : '',
+        fbclid: url ? (url.searchParams.get('fbclid') || '') : '',
+        referrer: (global.document && global.document.referrer) || '',
+        landing_url: getSafeCurrentPageUrl(),
+        source_platform: detectBrowserEnvironment().browser,
+      };
+      return {
+        cart: { items },
+        checkout_context: {
+          order_type: data.order_mode || '',
+          pickup_date: data.pickup_date || '',
+          pickup_time: data.pickup_time || '',
+          delivery_address: (data.customer && data.customer.delivery_address) || '',
+          delivery_note: (data.customer && data.customer.delivery_address_note) || '',
+          payment_method: data.payment_method || '',
+          coupon_code: data.coupon_code || '',
+          customer_phone: (data.customer && data.customer.phone) || '',
+        },
+        attribution,
+      };
+    } catch (e) { return null; }
+  }
+
+  // 需求文件五～六：呼叫後端建立 cart token，成功後回傳 line_oa_message_url／cart_code。
+  async function createLineCheckoutHandoff(storeId) {
+    const payload = _readStoredCartForHandoff(storeId);
+    if (!payload) return { ok: false, reason: 'empty_cart' };
+    try {
+      const resp = await global.fetch(`/api/line-checkout-handoff/create?store_id=${encodeURIComponent(storeId)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await resp.json();
+      if (!resp.ok || !data.ok) return { ok: false, reason: data.message || 'create_failed' };
+      return { ok: true, cartCode: data.cart_code, lineOaMessageUrl: data.line_oa_message_url, lineOaConfigured: data.line_oa_configured };
+    } catch (e) {
+      return { ok: false, reason: 'network_error' };
+    }
+  }
+
+  async function copyToClipboard(text) {
+    try {
+      if (global.navigator && global.navigator.clipboard && global.navigator.clipboard.writeText) {
+        await global.navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch (e) {}
+    return false;
+  }
+
+
   function showExternalBrowserLoginGuide(config, options) {
     const storeId = options && options.storeId;
     const gateStage = (options && options.gateStage) || '';
@@ -836,44 +911,36 @@
     const osHintLabel = environment.isIOS ? '如何使用 Safari 開啟'
       : (environment.isAndroid ? '使用 Chrome 開啟' : '如何用瀏覽器開啟');
 
-    // fix18-10-hotfix26-F2（需求文件一）：iOS 上 Messenger/Instagram WebView 對外部
-    // App 喚醒本來就有官方限制，不宜再引導使用者「直接嘗試用 LINE 開啟」當作首選——
-    // 改成官方建議流程（提示改用 Safari 開啟 → 在 Safari 內完成 LINE 登入）。Android
-    // 維持原本文案與流程完全不動（Messenger→Chrome→LINE Login 本來就能自動登入）。
-    const introHtmlLegacy = environment.isIOS
-      ? `您目前正在 Facebook／Instagram 內建瀏覽器中。<br><br>iOS 上的內建瀏覽器可能無法直接完成 LINE 自動登入。<br><br>請點右上角「⋯」，選擇「在 Safari 中開啟」，即可直接使用 LINE 登入。<br><br>購物車內容會為您保留。`
-      : `您目前正在 Facebook／Instagram 內建瀏覽器中。<br><br>直接登入可能會要求輸入 LINE 電子郵件與密碼。<br><br>建議改用 LINE App 開啟，即可更安全、快速地完成會員登入，購物車內容會為您保留。`;
+    // fix18-10-hotfix26-F8-B（需求文件三）：主要按鈕改為「到 LINE 完成結帳」，
+    // Chrome／Safari 降為次要、預設收合於「其他登入方式 ▼」。標題／文案不得
+    // 出現 UID／會員資料／Callback／LIFF／技術驗證等字樣（需求文件三）。
+    const headingText = 'LINE 完成結帳';
+    const introHtml = `目前使用 Facebook／Messenger 內建瀏覽器。<br><br>請前往 LINE 完成結帳。<br><br>購物車內容會自動保留。`;
 
-    // fix18-10-hotfix26-F3（Fix-2）：iOS 專用引導畫面——標題／文案／按鈕改採需求文件
-    // 指定的 Chrome 優先版型（使用 Chrome 開啟／如何使用 Safari 開啟／複製點餐連結），
-    // 不再把「嘗試使用 LINE 開啟」當 iOS 的主要按鈕（LINE / iOS / Messenger WebView
-    // 官方本來就有限制，不宜宣稱這個按鈕會成功）。Android／其他瀏覽器分支完全維持
-    // hotfix26-F2 原本的標題／文案／四個按鈕不變，一個字都不動。
-    const headingText = environment.isIOS ? '請改用外部瀏覽器完成 LINE 登入' : '請使用 LINE 完成會員登入';
-    const introHtml = environment.isIOS
-      ? `目前 Facebook／Messenger／Instagram 內建瀏覽器限制，可能要求重新輸入 LINE 帳號密碼。<br><br>建議改用 Chrome 或 Safari 開啟。<br><br>購物車內容會保留。`
-      : introHtmlLegacy;
-
-    const iosButtonsHtml = `
-        <button id="lmgChromeBtn" style="width:100%;padding:12px;border:0;border-radius:10px;background:#06C755;color:#fff;font-size:15px;font-weight:600;margin-bottom:8px;cursor:pointer">使用 Chrome 開啟</button>
-        <div style="font-size:12px;color:#888;text-align:center;margin-bottom:6px">若 Chrome 仍無法完成登入，請使用 Safari。</div>
-        <button id="lmgSafariBtn" style="width:100%;padding:12px;border:1px solid #06C755;border-radius:10px;background:#fff;color:#06C755;font-size:14px;font-weight:600;cursor:pointer;margin-bottom:8px">如何使用 Safari 開啟</button>
-        <button id="lmgCopyLinkBtn" style="width:100%;padding:12px;border:1px solid #ccc;border-radius:10px;background:#fff;color:#333;font-size:14px;font-weight:600;cursor:pointer;margin-bottom:8px">複製點餐連結</button>
-        <button id="lmgExternalBackBtn" style="width:100%;padding:10px;border:0;background:transparent;color:#999;font-size:13px;cursor:pointer;text-align:center">返回購物車</button>`;
-    // fix18-10-hotfix26-F2 原始版型（Android／其他瀏覽器維持不變，逐字未改）：
-    const legacyButtonsHtml = `
-        <button id="lmgOpenLineBtn" style="width:100%;padding:12px;border:0;border-radius:10px;background:#06C755;color:#fff;font-size:15px;font-weight:600;margin-bottom:8px;cursor:pointer">嘗試使用 LINE 開啟</button>
-        <button id="lmgOsHintBtn" style="width:100%;padding:12px;border:1px solid #06C755;border-radius:10px;background:#fff;color:#06C755;font-size:14px;font-weight:600;cursor:pointer;margin-bottom:8px">${escapeHtml(osHintLabel)}</button>
-        <button id="lmgCopyLinkBtn" style="width:100%;padding:12px;border:1px solid #ccc;border-radius:10px;background:#fff;color:#333;font-size:14px;font-weight:600;cursor:pointer;margin-bottom:8px">複製點餐連結</button>
-        <button id="lmgExternalBackBtn" style="width:100%;padding:10px;border:0;background:transparent;color:#999;font-size:13px;cursor:pointer;text-align:center">返回購物車</button>`;
+    // 需求文件四：Chrome／Safari 收合在「其他登入方式 ▼」內，用原生 <details>
+    // 實作（不需額外 JS 控制展開/收合狀態，預設收合＝沒有 open 屬性）。
+    // iOS／Android 內容不同，沿用 hotfix26-F2/F3 既有文案，只是位置從主按鈕
+    // 降為收合選單內的次要選項。
+    const otherLoginInnerHtml = environment.isIOS
+      ? `<button id="lmgChromeBtn" style="width:100%;padding:12px;border:0;border-radius:10px;background:#06C755;color:#fff;font-size:15px;font-weight:600;margin-bottom:8px;cursor:pointer">使用 Chrome 開啟</button>
+         <div style="font-size:12px;color:#888;text-align:center;margin-bottom:6px">若 Chrome 仍無法完成登入，請使用 Safari。</div>
+         <button id="lmgSafariBtn" style="width:100%;padding:12px;border:1px solid #06C755;border-radius:10px;background:#fff;color:#06C755;font-size:14px;font-weight:600;cursor:pointer">如何使用 Safari 開啟</button>`
+      : `<button id="lmgOpenLineBtn" style="width:100%;padding:12px;border:0;border-radius:10px;background:#06C755;color:#fff;font-size:15px;font-weight:600;margin-bottom:8px;cursor:pointer">嘗試使用 LINE 開啟</button>
+         <button id="lmgOsHintBtn" style="width:100%;padding:12px;border:1px solid #06C755;border-radius:10px;background:#fff;color:#06C755;font-size:14px;font-weight:600;cursor:pointer">${escapeHtml(osHintLabel)}</button>`;
 
     externalGuideEl.innerHTML = `
       <div style="background:#fff;border-radius:16px;max-width:380px;width:100%;padding:24px;text-align:left;font-family:inherit">
         <div style="font-size:40px;line-height:1;margin-bottom:8px;text-align:center">📲</div>
         <h3 style="margin:0 0 8px;font-size:18px;text-align:center">${escapeHtml(headingText)}</h3>
         <p style="margin:0 0 12px;color:#666;font-size:14px;line-height:1.6">${introHtml}</p>
-        <div style="background:#fff7e6;border:1px solid #ffd580;border-radius:8px;padding:8px 10px;margin-bottom:14px;font-size:13px;color:#a15c00">⚠ 不需要在此頁輸入 LINE 帳號密碼。</div>
-        <div id="lmgExternalStatus" style="font-size:13px;color:#888;margin-bottom:10px;text-align:center"></div>${environment.isIOS ? iosButtonsHtml : legacyButtonsHtml}
+        <div id="lmgExternalStatus" style="font-size:13px;color:#888;margin-bottom:10px;text-align:center"></div>
+        <button id="lmgGoLineCheckoutBtn" style="width:100%;padding:13px;border:0;border-radius:10px;background:#06C755;color:#fff;font-size:16px;font-weight:700;margin-bottom:8px;cursor:pointer">💬 到 LINE 完成結帳</button>
+        <button id="lmgCopyLinkBtn" style="width:100%;padding:12px;border:1px solid #ccc;border-radius:10px;background:#fff;color:#333;font-size:14px;font-weight:600;cursor:pointer;margin-bottom:8px">複製結帳連結</button>
+        <button id="lmgExternalBackBtn" style="width:100%;padding:10px;border:0;background:transparent;color:#999;font-size:13px;cursor:pointer;text-align:center;margin-bottom:10px">返回購物車</button>
+        <details id="lmgOtherLoginDetails" style="margin-top:4px">
+          <summary style="cursor:pointer;color:#666;font-size:13px;padding:6px 0;list-style:none;text-align:center">其他登入方式 ▾</summary>
+          <div style="margin-top:10px">${otherLoginInnerHtml}</div>
+        </details>
       </div>`;
     document.body.appendChild(externalGuideEl);
     externalGuideVisible = true;
@@ -953,6 +1020,58 @@
     const safariBtn = externalGuideEl.querySelector('#lmgSafariBtn');
     const copyBtn = externalGuideEl.querySelector('#lmgCopyLinkBtn');
     const backBtn = externalGuideEl.querySelector('#lmgExternalBackBtn');
+    const goLineCheckoutBtn = externalGuideEl.querySelector('#lmgGoLineCheckoutBtn');
+
+    // fix18-10-hotfix26-F8-B（需求文件三／五～七）：主按鈕——建立 Cart Token，
+    // 成功後開啟 LINE 官方帳號聊天室（預填「我要結帳 CART-XXXXXX」）；找不到
+    // 購物車資料或建立失敗時，不誤導使用者，直接顯示錯誤並保留返回購物車按鈕。
+    let goLineCheckoutInProgress = false;
+    if (goLineCheckoutBtn) {
+      goLineCheckoutBtn.addEventListener('click', async () => {
+        if (goLineCheckoutInProgress) return;
+        goLineCheckoutInProgress = true;
+        const originalLabel = goLineCheckoutBtn.textContent;
+        goLineCheckoutBtn.disabled = true;
+        goLineCheckoutBtn.textContent = '正在準備 LINE 結帳…';
+        setExternalStatus('', false);
+        try {
+          const result = await createLineCheckoutHandoff(storeId);
+          if (!result.ok) {
+            trackLineEnvironmentEvent(onEvent, 'line_login_open_line_clicked', environment, gateStage, storeId);
+            setExternalStatus('無法建立 LINE 結帳，請稍後再試，或改用下方「複製結帳連結」。', false);
+            return;
+          }
+          if (!result.lineOaConfigured || !result.lineOaMessageUrl) {
+            setExternalStatus(`商家尚未設定官方帳號結帳連結，請改用下方「複製結帳連結」，或自行到 LINE 官方帳號輸入：我要結帳 ${result.cartCode}`, false);
+            return;
+          }
+          // 需求文件七：無法自動開啟 LINE 時的 fallback 文案與代碼（可點擊複製）
+          setExternalStatus(
+            `無法自動開啟 LINE 時，請複製下方結帳代碼，貼到官方 LINE 對話中：<br><b>${escapeHtml(result.cartCode)}</b> ` +
+            `<a href="#" id="lmgCopyCartCode" style="color:#06C755;text-decoration:underline">複製結帳代碼</a>`,
+            false
+          );
+          const copyCodeLink = document.getElementById('lmgCopyCartCode');
+          if (copyCodeLink) {
+            copyCodeLink.addEventListener('click', async (ev) => {
+              ev.preventDefault();
+              const copied = await copyToClipboard(result.cartCode);
+              const statusEl = document.getElementById('lmgExternalStatus');
+              if (statusEl) statusEl.innerHTML = copied ? `已複製結帳代碼：${escapeHtml(result.cartCode)}` : `請手動複製：${escapeHtml(result.cartCode)}`;
+            });
+          }
+          persistBeforeExternalLogin(storeId, { gate_stage: gateStage });
+          onEvent && onEvent('line_checkout_handoff_opened', { cart_code_masked: result.cartCode ? result.cartCode.slice(0, 8) + '***' : '' });
+          global.location.href = result.lineOaMessageUrl;
+        } catch (e) {
+          setExternalStatus('無法建立 LINE 結帳，請稍後再試。', false);
+        } finally {
+          goLineCheckoutInProgress = false;
+          goLineCheckoutBtn.disabled = false;
+          goLineCheckoutBtn.textContent = originalLabel;
+        }
+      });
+    }
 
     // Android／其他瀏覽器（legacyButtonsHtml）才會有這兩個元素；iOS 版型
     // （iosButtonsHtml）沒有 lmgOpenLineBtn／lmgOsHintBtn，以下沿用 hotfix26-F2
@@ -995,12 +1114,12 @@
     copyBtn.addEventListener('click', async () => {
       trackLineEnvironmentEvent(onEvent, 'line_login_copy_link_clicked', environment, gateStage, storeId);
       const url = getSafeCurrentPageUrl();
-      // fix18-10-hotfix26-F3（Fix-2 Copy Link）：iOS 版複製成功文案改用需求文件
-      // 指定的「貼到 LINE 聊天室／官方帳號圖文選單」說明；Android／其他瀏覽器
-      // 維持 hotfix26-F2 原本的文案不變。
+      // fix18-10-hotfix26-F8-B（需求文件十六／二十）：文案改用「結帳連結」
+      // （原「點餐連結」字樣），行為不變——複製的仍是目前頁面網址（購物車由
+      // 既有 ORDER_CART_KEY 機制保留），貼到瀏覽器或 LINE 對話都能開啟。
       const copiedMsg = environment.isIOS
-        ? '已複製點餐連結。若仍無法登入，請將連結貼到 LINE 聊天室或官方帳號圖文選單，重新開啟即可完成 LINE 登入。'
-        : '已複製點餐連結，請貼到瀏覽器開啟。';
+        ? '已複製結帳連結。若仍無法登入，請將連結貼到 LINE 聊天室或官方帳號圖文選單，重新開啟即可完成 LINE 登入。'
+        : '已複製結帳連結，請貼到瀏覽器開啟。';
       try {
         if (global.navigator && global.navigator.clipboard && global.navigator.clipboard.writeText) {
           await global.navigator.clipboard.writeText(url);
@@ -1342,6 +1461,8 @@
     getSafeCurrentPageUrl, persistBeforeExternalLogin, readExternalLoginPending,
     clearExternalLoginPending, showExternalBrowserLoginGuide, closeExternalBrowserLoginGuide,
     trackLineEnvironmentEvent,
+    // fix18-10-hotfix26-F8-B 新增：Messenger →「到 LINE 完成結帳」
+    createLineCheckoutHandoff, copyToClipboard,
   };
 
 })(window);
