@@ -1982,6 +1982,7 @@ function switchSettingsTab(tab) {
   if (tab === 'line_member')      loadLineMemberGateSettings(); // fix18-10-hotfix23-E
   if (tab === 'line_members_list') { initLineMemberFilterListeners(); loadLineMembersList(true); } // fix18-10-hotfix23-E / hotfix26-C
   if (tab === 'line_analytics') { initLineAnalyticsListeners(); loadLineAnalyticsOverview(); } // fix18-10-hotfix26-E
+  if (tab === 'line_integration') loadLineIntegrationCenter(); // fix18-10-hotfix27
 }
 
 // ===== 設定 =====
@@ -2190,7 +2191,171 @@ async function saveLineMemberGateSettings() {
   } catch { showToast('網路錯誤', 'error'); }
 }
 
-// ===== fix18-10-hotfix26-D：LINE 設定診斷中心 =====
+// ===== fix18-10-hotfix27：LINE Integration Center =====
+// 設定中心 → 第三方整合 → LINE 整合中心。彙整既有 LINE 相關 settings key
+// （沿用 F8-A/F8-B 已建立的 line_official_basic_id／line_add_friend_url／
+// line_channel_secret／line_channel_token／line_member_liff_id 等），
+// 不重複造第二套設定系統；新增欄位只有官方帳號名稱/首頁/Channel ID/
+// Checkout Handoff 開關。
+const LINE_INTEGRATION_KEYS = [
+  'line_official_name', 'line_official_basic_id', 'line_add_friend_url', 'line_official_home_url',
+  'line_messaging_channel_id', 'line_member_liff_id', 'line_checkout_handoff_enabled',
+];
+
+async function loadLineIntegrationCenter() {
+  await loadSettings();
+  ['line_official_name', 'line_official_basic_id', 'line_add_friend_url', 'line_official_home_url',
+   'line_messaging_channel_id', 'line_member_liff_id'].forEach(k => {
+    const el = document.getElementById('li-' + k);
+    if (el) el.value = settings[k] || '';
+  });
+  const handoffEl = document.getElementById('li-line_checkout_handoff_enabled');
+  if (handoffEl) handoffEl.checked = settings.line_checkout_handoff_enabled === '1';
+  // Secret/Token 輸入框永遠留白（不回顯明文）。是否已設定的狀態改用
+  // /api/line-integration/config 的伺服器端布林值判斷（下方 fetch），
+  // 不使用 GET /api/settings 回傳的明文（該端點目前僅遮蔽 line_channel_secret，
+  // line_channel_token 是既有舊版「Bearer Token」欄位沿用的顯示邏輯，這裡不依賴它）。
+  const secretStatus = document.getElementById('liChannelSecretStatus');
+  if (secretStatus) secretStatus.textContent = '載入中…';
+  const tokenStatus = document.getElementById('liChannelTokenStatus');
+  if (tokenStatus) tokenStatus.textContent = '載入中…';
+
+  try {
+    const res = await apiFetch('/api/line-integration/config');
+    const json = await res.json();
+    if (json.success) {
+      const { config, wizard } = json.data;
+      const liffUrlEl = document.getElementById('liLiffUrl'); if (liffUrlEl) liffUrlEl.value = config.liff.liff_url;
+      const cbUrlEl = document.getElementById('liLiffCallbackUrl'); if (cbUrlEl) cbUrlEl.value = config.liff.checkout_callback_url;
+      const whUrlEl = document.getElementById('liWebhookUrl'); if (whUrlEl) whUrlEl.value = config.webhook.url;
+      const secretStatus2 = document.getElementById('liChannelSecretStatus');
+      if (secretStatus2) secretStatus2.textContent = config.messaging_api.channel_secret_set ? `✅ 已設定（${config.messaging_api.channel_secret_masked}，留白儲存＝不變更）` : '⚠️ 尚未設定';
+      const tokenStatus2 = document.getElementById('liChannelTokenStatus');
+      if (tokenStatus2) tokenStatus2.textContent = config.messaging_api.channel_token_set ? `✅ 已設定（${config.messaging_api.channel_token_masked}，留白儲存＝不變更）` : '⚠️ 尚未設定';
+      const hintEl = document.getElementById('liCheckoutHandoffHint');
+      if (hintEl) {
+        hintEl.textContent = config.checkout_handoff.dialog_variant === 'checkout'
+          ? '目前 Dialog 會顯示「💬 到 LINE 完成結帳」（已設定 Basic ID）'
+          : '目前 Dialog 會顯示「加入官方 LINE」＋結帳代碼（尚未設定 Basic ID）';
+      }
+      renderLiWizardSteps(wizard);
+    }
+  } catch (e) { console.warn('[line-integration] load config failed', e); }
+
+  loadLineIntegrationHealth();
+}
+
+function renderLiWizardSteps(steps) {
+  const el = document.getElementById('liWizardSteps');
+  if (!el) return;
+  const icon = { done: '✅', warn: '⚠️', pending: '⏳' };
+  el.innerHTML = steps.map(s => `
+    <div class="li-wizard-step" data-step="${s.step}" style="display:flex;align-items:center;gap:10px;padding:6px 0">
+      <span style="font-size:1.1rem">${icon[s.status] || '⏳'}</span>
+      <span>Step ${s.step}：${escapeHtmlLi(s.title)}</span>
+    </div>`).join('');
+}
+function escapeHtmlLi(s) { return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+async function loadLineIntegrationHealth() {
+  const overallEl = document.getElementById('liHealthOverall');
+  const gridEl = document.getElementById('liHealthGrid');
+  if (overallEl) overallEl.textContent = '檢查中…';
+  try {
+    const res = await apiFetch('/api/line-integration/health');
+    const json = await res.json();
+    if (!json.success) { if (overallEl) overallEl.textContent = '檢查失敗：' + (json.message || ''); return; }
+    const { overall, items } = json.data;
+    const emoji = { green: '🟢', yellow: '🟡', red: '🔴' };
+    if (overallEl) overallEl.innerHTML = `${emoji[overall] || '⚪'} 整體狀態：${overall.toUpperCase()}`;
+    if (gridEl) {
+      gridEl.innerHTML = items.map(i => `
+        <div style="display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.06)">
+          <span style="font-size:1.1rem">${emoji[i.level] || '⚪'}</span>
+          <div><b>${escapeHtmlLi(i.label)}</b><div style="font-size:.82rem;color:var(--text-secondary,#64748b)">${escapeHtmlLi(i.reason)}</div></div>
+        </div>`).join('');
+    }
+    // Step 6（完成測試）依 health 結果動態覆蓋：health 全綠才算 done，
+    // 有任一紅燈算 pending，只有黃燈（尚未設定/需人工確認）算 warn。
+    const step6Row = document.querySelector('.li-wizard-step[data-step="6"]');
+    if (step6Row) {
+      const iconEl = step6Row.querySelector('span');
+      if (iconEl) iconEl.textContent = overall === 'green' ? '✅' : (overall === 'yellow' ? '⚠️' : '⏳');
+    }
+  } catch (e) {
+    if (overallEl) overallEl.textContent = '檢查失敗：網路錯誤';
+  }
+}
+
+async function liTestAction(kind) {
+  const endpointMap = {
+    official_account: null, // 加好友本身沒有後端可測的 API，直接開啟加好友網址
+    messaging_api: '/api/line-integration/test/messaging-api',
+    liff: '/api/line-integration/test/liff',
+    webhook: '/api/line-integration/test/webhook',
+    checkout_handoff: '/api/line-integration/test/checkout-handoff',
+  };
+  if (kind === 'official_account') {
+    const url = document.getElementById('li-line_add_friend_url')?.value || settings.line_add_friend_url || '';
+    if (url) { window.open(url, '_blank'); } else { showToast('請先設定加入好友網址', 'error'); }
+    return;
+  }
+  const endpoint = endpointMap[kind];
+  if (!endpoint) return;
+  try {
+    const res = await apiFetch(endpoint, { method: 'POST' });
+    const json = await res.json();
+    if (json.success && json.data) {
+      showToast(json.data.ok ? `✅ 測試通過：${json.data.reason || ''}` : `⚠️ ${json.data.reason || '測試未通過'}`, json.data.ok ? 'success' : 'error');
+    } else {
+      showToast(json.message || '測試失敗', 'error');
+    }
+  } catch (e) { showToast('網路錯誤', 'error'); }
+  loadLineIntegrationHealth();
+}
+
+function liCopyField(elId) {
+  const el = document.getElementById(elId);
+  if (!el || !el.value) { showToast('尚無內容可複製', 'error'); return; }
+  navigator.clipboard?.writeText(el.value).then(() => showToast('已複製', 'success')).catch(() => showToast('複製失敗', 'error'));
+}
+function liToggleSecretVisibility(elId) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  el.type = el.type === 'password' ? 'text' : 'password';
+}
+
+async function saveLineIntegrationSettings() {
+  const body = {};
+  LINE_INTEGRATION_KEYS.forEach(k => {
+    const el = document.getElementById('li-' + k);
+    if (!el) return;
+    body[k] = el.type === 'checkbox' ? (el.checked ? '1' : '0') : el.value;
+  });
+  // Secret/Token：留白代表不變更，不把空字串蓋掉既有值（需求文件十四：不得意外清空憑證）
+  const secretEl = document.getElementById('li-line_channel_secret');
+  if (secretEl && secretEl.value.trim()) body.line_channel_secret = secretEl.value.trim();
+  const tokenEl = document.getElementById('li-line_channel_token');
+  if (tokenEl && tokenEl.value.trim()) body.line_channel_token = tokenEl.value.trim();
+
+  try {
+    const res = await apiFetch('/api/settings', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+    });
+    const json = await res.json();
+    if (json.success) {
+      settings = json.data;
+      if (secretEl) secretEl.value = '';
+      if (tokenEl) tokenEl.value = '';
+      showToast('LINE 整合設定已儲存', 'success');
+      loadLineIntegrationCenter();
+    } else {
+      showToast(json.message || '儲存失敗', 'error');
+    }
+  } catch (e) { showToast('網路錯誤', 'error'); }
+}
+
+
 // 沿用既有 /api/settings（liff_id/channel_id/basic_id/add_friend_url/gate 設定）
 // 與 Hotfix26-A 已建立的 POST /api/line-member/verify { diagnostic_only:true }
 // 做安全的 Backend Verify 檢查，不新增其他後端 endpoint。

@@ -413,6 +413,10 @@ initDb().then((db) => {
   // Cart Handoff Token create/restore API。
   app.use('/api/line-checkout-handoff', requireStore, requireFeature('line_order'), require('./routes/line-checkout-handoff'));
 
+  // fix18-10-hotfix27：LINE Integration Center（設定中心 → 第三方整合），
+  // requireStaffJwt 已內建店家隔離（req.storeId 來自已驗證的 JWT），不額外掛 requireStore。
+  app.use('/api/line-integration', require('./routes/line-integration'));
+
   // fix18-10-hotfix19：通用圖片上傳 API（商品圖片、公告圖片等共用，避免新增重複 API）
   app.use('/api/uploads', requireStore, require('./routes/uploads'));
 

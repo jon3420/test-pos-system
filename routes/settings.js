@@ -62,6 +62,11 @@ const LINE_KEYS = new Set([
   // follow/unfollow webhook 需要的商家 LINE 官方帳號設定。
   // line_channel_secret 屬敏感值：一律不在 GET 回傳、不寫入 log／smoke test 輸出。
   'line_official_basic_id', 'line_add_friend_url', 'line_channel_secret',
+  // fix18-10-hotfix27（需求文件四／五／八）：LINE Integration Center 新增欄位。
+  // line_messaging_channel_id 只是顯示用途（非機密），line_channel_secret／
+  // line_channel_token 沿用既有欄位，不重複造第二組。
+  'line_official_name', 'line_official_home_url', 'line_messaging_channel_id',
+  'line_checkout_handoff_enabled',
 ]);
 
 // fix18-10-hotfix26-F5：上面 LINE_KEYS 內「取餐地點」設定 key 的清單（給 PUT /api/settings
@@ -220,6 +225,24 @@ function applyPickupSyncToStoreCoords(db, storeId, body) {
   return true;
 }
 
+// fix18-10-hotfix27（需求文件四／十四）：GET／PUT／WebSocket broadcast 三個
+// 出口都會把整份 settings 送到前端，必須共用同一份遮蔽邏輯，避免漏改其中
+//一處造成 Channel Secret／Access Token 明文外洩。
+function redactSensitiveSettings(s) {
+  const out = { ...s };
+  if (Object.prototype.hasOwnProperty.call(out, 'line_channel_secret')) {
+    out.line_channel_secret_set = !!(out.line_channel_secret && out.line_channel_secret.trim());
+    delete out.line_channel_secret;
+  }
+  // line_channel_token：既有（F8 之前就存在）的「Bearer Token」欄位，目前
+  // 基本設定頁的舊版 UI（set-line_channel_token）仍依賴這裡回傳明文才能正常
+  // 運作，這是本輪沿用、非本輪新增的技術債（詳見完成報告誠實揭露），這裡
+  // 暫不動它，只確保「新增」的 LINE Integration Center 走的是 /api/line-integration
+  // /config 的另一組遮蔽欄位（channel_token_set/channel_token_masked），不從
+  // 這裡拿明文。
+  return out;
+}
+
 // GET /api/settings
 router.get('/', (req, res) => {
   try {
@@ -230,11 +253,7 @@ router.get('/', (req, res) => {
     rows.forEach(r => { settings[r.key] = r.value; });
     // fix18-10-hotfix26-F8（需求文件十二）：Channel Secret 是簽章驗證用的敏感憑證，
     // 只允許寫入，不隨 GET /api/settings 回傳明文；前端用「是否已設定」的布林值顯示。
-    if (Object.prototype.hasOwnProperty.call(settings, 'line_channel_secret')) {
-      settings.line_channel_secret_set = !!(settings.line_channel_secret && settings.line_channel_secret.trim());
-      delete settings.line_channel_secret;
-    }
-    res.json({ success: true, data: settings });
+    res.json({ success: true, data: redactSensitiveSettings(settings) });
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
 
@@ -405,13 +424,13 @@ router.put('/', (req, res) => {
       const rows2 = db.all('SELECT key, value FROM settings WHERE store_id=?', [storeId]);
       const s     = {};
       rows2.forEach(r => { s[r.key] = r.value; });
-      broadcastToStore(wss, storeId, { type: 'settings_updated', data: s });
+      broadcastToStore(wss, storeId, { type: 'settings_updated', data: redactSensitiveSettings(s) });
     } catch {}
 
     const rows = db.all('SELECT key, value FROM settings WHERE store_id=?', [storeId]);
     const s = {};
     rows.forEach(r => { s[r.key] = r.value; });
-    res.json({ success: true, data: s });
+    res.json({ success: true, data: redactSensitiveSettings(s) });
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
 
@@ -523,14 +542,14 @@ router.patch('/pickup-location', (req, res) => {
       const wss = req.app.get('wss');
       const rows2 = db.all('SELECT key, value FROM settings WHERE store_id=?', [storeId]);
       const s = {}; rows2.forEach(r => { s[r.key] = r.value; });
-      broadcastToStore(wss, storeId, { type: 'settings_updated', data: s });
+      broadcastToStore(wss, storeId, { type: 'settings_updated', data: redactSensitiveSettings(s) });
     } catch {}
 
     // fix18-10-hotfix26-F7（需求文件廿五）：回傳「當下完整 settings」而不是只回傳這次
     // 寫入的欄位，前端拿這份回應整個 merge 進本地 cache，避免用舊 state 覆蓋新值。
     const rows = db.all('SELECT key, value FROM settings WHERE store_id=?', [storeId]);
     const s = {}; rows.forEach(r => { s[r.key] = r.value; });
-    res.json({ success: true, data: s });
+    res.json({ success: true, data: redactSensitiveSettings(s) });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 });
 
@@ -569,12 +588,12 @@ router.patch('/store-location', (req, res) => {
       const wss = req.app.get('wss');
       const rows2 = db.all('SELECT key, value FROM settings WHERE store_id=?', [storeId]);
       const s = {}; rows2.forEach(r => { s[r.key] = r.value; });
-      broadcastToStore(wss, storeId, { type: 'settings_updated', data: s });
+      broadcastToStore(wss, storeId, { type: 'settings_updated', data: redactSensitiveSettings(s) });
     } catch {}
 
     const rows = db.all('SELECT key, value FROM settings WHERE store_id=?', [storeId]);
     const s = {}; rows.forEach(r => { s[r.key] = r.value; });
-    res.json({ success: true, data: s });
+    res.json({ success: true, data: redactSensitiveSettings(s) });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 });
 

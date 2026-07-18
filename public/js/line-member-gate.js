@@ -911,11 +911,11 @@
     const osHintLabel = environment.isIOS ? '如何使用 Safari 開啟'
       : (environment.isAndroid ? '使用 Chrome 開啟' : '如何用瀏覽器開啟');
 
-    // fix18-10-hotfix26-F8-B（需求文件三）：主要按鈕改為「到 LINE 完成結帳」，
-    // Chrome／Safari 降為次要、預設收合於「其他登入方式 ▼」。標題／文案不得
-    // 出現 UID／會員資料／Callback／LIFF／技術驗證等字樣（需求文件三）。
+    // fix18-10-hotfix27（需求文件九）：文案改版——強調「購物車已保留，不需要
+    // 重新選購」，不再出現「商家尚未設定官方帳號…」這種曝露內部設定狀態的
+    // 字樣（改成引導動作：加入官方 LINE＋貼結帳代碼）。
     const headingText = 'LINE 完成結帳';
-    const introHtml = `目前使用 Facebook／Messenger 內建瀏覽器。<br><br>請前往 LINE 完成結帳。<br><br>購物車內容會自動保留。`;
+    const introHtml = `目前使用 Facebook／Messenger 內建瀏覽器。<br><br>請到 LINE 繼續完成結帳。<br><br>您的購物車已保留，不需要重新選購。`;
 
     // 需求文件四：Chrome／Safari 收合在「其他登入方式 ▼」內，用原生 <details>
     // 實作（不需額外 JS 控制展開/收合狀態，預設收合＝沒有 open 屬性）。
@@ -931,9 +931,14 @@
     externalGuideEl.innerHTML = `
       <div style="background:#fff;border-radius:16px;max-width:380px;width:100%;padding:24px;text-align:left;font-family:inherit">
         <div style="font-size:40px;line-height:1;margin-bottom:8px;text-align:center">📲</div>
-        <h3 style="margin:0 0 8px;font-size:18px;text-align:center">${escapeHtml(headingText)}</h3>
-        <p style="margin:0 0 12px;color:#666;font-size:14px;line-height:1.6">${introHtml}</p>
+        <h3 id="lmgGuideHeading" style="margin:0 0 8px;font-size:18px;text-align:center">${escapeHtml(headingText)}</h3>
+        <p id="lmgGuideIntro" style="margin:0 0 12px;color:#666;font-size:14px;line-height:1.6">${introHtml}</p>
         <div id="lmgExternalStatus" style="font-size:13px;color:#888;margin-bottom:10px;text-align:center"></div>
+        <div id="lmgCartCodeBlock" style="display:none;text-align:center;border:1px dashed #06C755;border-radius:10px;padding:12px;margin-bottom:12px;background:#f4fdf8">
+          <div style="font-size:12px;color:#888;margin-bottom:4px">您的結帳代碼</div>
+          <div id="lmgCartCodeText" style="font-size:20px;font-weight:700;letter-spacing:1px;color:#06C755;font-family:monospace;margin-bottom:8px"></div>
+          <button id="lmgCopyCartCodeBtn" style="padding:8px 16px;border:1px solid #06C755;border-radius:8px;background:#fff;color:#06C755;font-size:13px;font-weight:600;cursor:pointer">📋 複製結帳代碼</button>
+        </div>
         <button id="lmgGoLineCheckoutBtn" style="width:100%;padding:13px;border:0;border-radius:10px;background:#06C755;color:#fff;font-size:16px;font-weight:700;margin-bottom:8px;cursor:pointer">💬 到 LINE 完成結帳</button>
         <button id="lmgCopyLinkBtn" style="width:100%;padding:12px;border:1px solid #ccc;border-radius:10px;background:#fff;color:#333;font-size:14px;font-weight:600;cursor:pointer;margin-bottom:8px">複製結帳連結</button>
         <button id="lmgExternalBackBtn" style="width:100%;padding:10px;border:0;background:transparent;color:#999;font-size:13px;cursor:pointer;text-align:center;margin-bottom:10px">返回購物車</button>
@@ -1021,10 +1026,86 @@
     const copyBtn = externalGuideEl.querySelector('#lmgCopyLinkBtn');
     const backBtn = externalGuideEl.querySelector('#lmgExternalBackBtn');
     const goLineCheckoutBtn = externalGuideEl.querySelector('#lmgGoLineCheckoutBtn');
+    const cartCodeBlock = externalGuideEl.querySelector('#lmgCartCodeBlock');
+    const cartCodeText = externalGuideEl.querySelector('#lmgCartCodeText');
+    const headingEl = externalGuideEl.querySelector('#lmgGuideHeading');
+    const introEl = externalGuideEl.querySelector('#lmgGuideIntro');
 
-    // fix18-10-hotfix26-F8-B（需求文件三／五～七）：主按鈕——建立 Cart Token，
-    // 成功後開啟 LINE 官方帳號聊天室（預填「我要結帳 CART-XXXXXX」）；找不到
-    // 購物車資料或建立失敗時，不誤導使用者，直接顯示錯誤並保留返回購物車按鈕。
+    // fix18-10-hotfix27（需求文件九）：Cart Token 只建立一次，自動開啟與手動
+    // 點擊按鈕共用同一個結果（避免同一次引導產生兩個不同的 cart_code）。
+    let _handoffPromise = null;
+    let _handoffAutoFired = false;
+    function getHandoffResult() {
+      if (!_handoffPromise) _handoffPromise = createLineCheckoutHandoff(storeId);
+      return _handoffPromise;
+    }
+
+    function showCartCode(code) {
+      if (!cartCodeBlock || !cartCodeText || !code) return;
+      cartCodeText.textContent = code;
+      cartCodeBlock.style.display = 'block';
+      const copyCodeBtn = externalGuideEl.querySelector('#lmgCopyCartCodeBtn');
+      if (copyCodeBtn && !copyCodeBtn._wired) {
+        copyCodeBtn._wired = true;
+        copyCodeBtn.addEventListener('click', async () => {
+          const copied = await copyToClipboard(code);
+          setExternalStatus(copied ? `已複製結帳代碼：${escapeHtml(code)}` : `請手動複製：${escapeHtml(code)}`, false);
+        });
+      }
+    }
+
+    // 需求文件九：店家尚未完成一鍵結帳設定時，整個 Dialog 換一套文案／主按鈕，
+    // 不再顯示「商家尚未設定官方帳號…」這種內部狀態字樣。
+    function switchToAddFriendFallback(cartCode) {
+      if (headingEl) headingEl.textContent = '請加入官方 LINE 完成結帳';
+      if (introEl) {
+        introEl.innerHTML = '目前商家尚未完成 LINE 一鍵結帳設定。<br><br>請加入官方 LINE，並將下方結帳代碼貼到聊天室即可繼續完成結帳。';
+      }
+      if (goLineCheckoutBtn) {
+        goLineCheckoutBtn.textContent = '➕ 加入官方 LINE';
+      }
+      showCartCode(cartCode);
+      setExternalStatus('若未自動跳轉，可點擊「複製結帳代碼」，貼到官方 LINE 聊天室即可繼續完成結帳。', false);
+    }
+
+    async function navigateToLineOa(result) {
+      persistBeforeExternalLogin(storeId, { gate_stage: gateStage });
+      onEvent && onEvent('line_checkout_handoff_opened', { cart_code_masked: result.cartCode ? result.cartCode.slice(0, 8) + '***' : '' });
+      global.location.href = result.lineOaMessageUrl;
+    }
+
+    // 需求文件六：自動開啟只能嘗試一次，頁面回到前景（例如使用者切到 LINE
+    // 又切回 Messenger）不得重複觸發——用 sessionStorage 記錄「這個分頁已經
+    // 自動嘗試過」，比單純的記憶體變數更可靠（記憶體變數在 Dialog 被重新
+    // build 時會重置，sessionStorage 不會）。
+    const AUTO_OPEN_SS_KEY = `line_checkout_auto_opened_${storeId}`;
+    (async () => {
+      let alreadyAutoOpened = false;
+      try { alreadyAutoOpened = global.sessionStorage.getItem(AUTO_OPEN_SS_KEY) === '1'; } catch (e) {}
+      const result = await getHandoffResult();
+      if (!externalGuideVisible || _handoffAutoFired) return; // Dialog 已關閉或使用者已手動觸發，不再自動跳轉
+      if (!result.ok) return; // 例如沒有購物車（entry 登入情境）——維持原本手動流程，不特別提示
+      if (result.lineOaConfigured && result.lineOaMessageUrl) {
+        showCartCode(result.cartCode);
+        if (alreadyAutoOpened) {
+          // 這個分頁已經自動嘗試過一次，不再重複跳轉，只留手動按鈕。
+          setExternalStatus('若沒有自動跳轉，請點下方按鈕。', false);
+          return;
+        }
+        setExternalStatus('正在為您開啟 LINE…', false);
+        await new Promise(r => setTimeout(r, 1000));
+        if (!externalGuideVisible || _handoffAutoFired) return;
+        _handoffAutoFired = true;
+        try { global.sessionStorage.setItem(AUTO_OPEN_SS_KEY, '1'); } catch (e) {}
+        await navigateToLineOa(result);
+        setExternalStatus('若沒有自動跳轉，請點下方按鈕。', false);
+      } else {
+        switchToAddFriendFallback(result.cartCode);
+      }
+    })();
+
+    // 主按鈕：一般情況下等同「立即觸發自動開啟」；fallback 情境下改為開啟
+    // 加入好友網址（switchToAddFriendFallback 已把按鈕文字換成「加入官方 LINE」）。
     let goLineCheckoutInProgress = false;
     if (goLineCheckoutBtn) {
       goLineCheckoutBtn.addEventListener('click', async () => {
@@ -1032,37 +1113,21 @@
         goLineCheckoutInProgress = true;
         const originalLabel = goLineCheckoutBtn.textContent;
         goLineCheckoutBtn.disabled = true;
-        goLineCheckoutBtn.textContent = '正在準備 LINE 結帳…';
-        setExternalStatus('', false);
         try {
-          const result = await createLineCheckoutHandoff(storeId);
+          const result = await getHandoffResult();
           if (!result.ok) {
-            trackLineEnvironmentEvent(onEvent, 'line_login_open_line_clicked', environment, gateStage, storeId);
             setExternalStatus('無法建立 LINE 結帳，請稍後再試，或改用下方「複製結帳連結」。', false);
             return;
           }
           if (!result.lineOaConfigured || !result.lineOaMessageUrl) {
-            setExternalStatus(`商家尚未設定官方帳號結帳連結，請改用下方「複製結帳連結」，或自行到 LINE 官方帳號輸入：我要結帳 ${result.cartCode}`, false);
+            // 已經是 fallback 版型：按鈕改為開啟加入好友網址
+            const addFriendUrl = (config && config.add_friend_url) || '';
+            if (addFriendUrl) { global.location.href = addFriendUrl; }
+            else { setExternalStatus(`請至 LINE 搜尋官方帳號並貼上結帳代碼：${result.cartCode}`, false); }
             return;
           }
-          // 需求文件七：無法自動開啟 LINE 時的 fallback 文案與代碼（可點擊複製）
-          setExternalStatus(
-            `無法自動開啟 LINE 時，請複製下方結帳代碼，貼到官方 LINE 對話中：<br><b>${escapeHtml(result.cartCode)}</b> ` +
-            `<a href="#" id="lmgCopyCartCode" style="color:#06C755;text-decoration:underline">複製結帳代碼</a>`,
-            false
-          );
-          const copyCodeLink = document.getElementById('lmgCopyCartCode');
-          if (copyCodeLink) {
-            copyCodeLink.addEventListener('click', async (ev) => {
-              ev.preventDefault();
-              const copied = await copyToClipboard(result.cartCode);
-              const statusEl = document.getElementById('lmgExternalStatus');
-              if (statusEl) statusEl.innerHTML = copied ? `已複製結帳代碼：${escapeHtml(result.cartCode)}` : `請手動複製：${escapeHtml(result.cartCode)}`;
-            });
-          }
-          persistBeforeExternalLogin(storeId, { gate_stage: gateStage });
-          onEvent && onEvent('line_checkout_handoff_opened', { cart_code_masked: result.cartCode ? result.cartCode.slice(0, 8) + '***' : '' });
-          global.location.href = result.lineOaMessageUrl;
+          _handoffAutoFired = true; // 使用者手動點擊，不要再讓自動跳轉搶著執行
+          await navigateToLineOa(result);
         } catch (e) {
           setExternalStatus('無法建立 LINE 結帳，請稍後再試。', false);
         } finally {

@@ -744,6 +744,7 @@
       <button class="settings-tab-btn"        data-stab="ads_attribution" onclick="switchSettingsTab('ads_attribution')">📣 廣告追蹤</button>
       <button class="settings-tab-btn"        data-stab="line_member" onclick="switchSettingsTab('line_member')">👤 LINE 會員登入設定</button>
       <button class="settings-tab-btn"        data-stab="line_analytics" onclick="switchSettingsTab('line_analytics')">📡 LINE 管理</button>
+      <button class="settings-tab-btn"        data-stab="line_integration" onclick="switchSettingsTab('line_integration')">🔌 LINE 整合中心</button>
       <button class="settings-tab-btn"        data-stab="line_members_list" onclick="switchSettingsTab('line_members_list')">👥 LINE 會員</button>
       <button class="settings-tab-btn"        data-stab="migration" onclick="switchSettingsTab('migration')">📦 資料備份/搬家</button>
       <!-- fix10: 店家授權 Tab 已移至 /system-admin，一般店家不可存取 -->
@@ -2041,6 +2042,105 @@
       </div>
     </div>
 
+
+    <!-- fix18-10-hotfix27：LINE Integration Center（設定中心 → 第三方整合 → LINE 整合中心） -->
+    <div class="settings-tab-panel" id="stab-line_integration" style="display:none">
+      <div class="settings-grid">
+
+        <!-- 需求文件三：LINE Setup Wizard -->
+        <div class="settings-card full">
+          <h3>🧭 LINE 整合精靈</h3>
+          <p class="settings-hint">依序完成以下步驟即可完成 LINE 串接，不需要另外閱讀教學文件。</p>
+          <div id="liWizardSteps" class="line-diag-panel">尚未載入</div>
+        </div>
+
+        <!-- 需求文件四：LINE Official Account -->
+        <div class="settings-card">
+          <h3>🏢 LINE Official Account</h3>
+          <label>官方帳號名稱<input type="text" id="li-line_official_name" placeholder="例如：阿義餐車"></label>
+          <label>Official Account Basic ID<input type="text" id="li-line_official_basic_id" placeholder="@abc1234"></label>
+          <label>加入好友網址<input type="text" id="li-line_add_friend_url" placeholder="https://lin.ee/xxxx"></label>
+          <label>官方首頁<input type="text" id="li-line_official_home_url" placeholder="https://page.line.me/abc1234"></label>
+          <div style="margin-top:8px">
+            <button class="btn-secondary" onclick="liTestAction('official_account')">🔍 測試加入好友</button>
+          </div>
+        </div>
+
+        <!-- 需求文件五：Messaging API -->
+        <div class="settings-card">
+          <h3>💬 Messaging API</h3>
+          <label>Channel ID<input type="text" id="li-line_messaging_channel_id" placeholder="例如：1234567890"></label>
+          <label>Channel Secret
+            <div style="display:flex;gap:6px;align-items:center">
+              <input type="password" id="li-line_channel_secret" placeholder="輸入以更新（留白＝不變更）" style="flex:1">
+              <button type="button" class="btn-secondary" style="padding:6px 10px" onclick="liToggleSecretVisibility('li-line_channel_secret')">👁️</button>
+            </div>
+            <div class="settings-hint" id="liChannelSecretStatus">尚未載入</div>
+          </label>
+          <label>Channel Access Token
+            <div style="display:flex;gap:6px;align-items:center">
+              <input type="password" id="li-line_channel_token" placeholder="輸入以更新（留白＝不變更）" style="flex:1">
+              <button type="button" class="btn-secondary" style="padding:6px 10px" onclick="liToggleSecretVisibility('li-line_channel_token')">👁️</button>
+            </div>
+            <div class="settings-hint" id="liChannelTokenStatus">尚未載入</div>
+          </label>
+          <p class="settings-hint">⚠️ 基於安全考量，已設定的 Secret／Token 不會顯示完整內容、不會匯出、不會出現在 Log 中。</p>
+          <div style="margin-top:8px">
+            <button class="btn-secondary" onclick="liTestAction('messaging_api')">🔍 測試 Channel Access Token</button>
+          </div>
+        </div>
+
+        <!-- 需求文件六：LIFF -->
+        <div class="settings-card">
+          <h3>🖼️ LIFF</h3>
+          <label>LIFF ID<input type="text" id="li-line_member_liff_id" placeholder="例如：1234567890-abcdefgh"></label>
+          <label>LIFF URL<input type="text" id="liLiffUrl" readonly></label>
+          <label>Checkout Callback URL<input type="text" id="liLiffCallbackUrl" readonly></label>
+          <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn-secondary" onclick="liCopyField('liLiffUrl')">📋 複製 LIFF URL</button>
+            <button class="btn-secondary" onclick="liCopyField('liLiffCallbackUrl')">📋 複製 Callback URL</button>
+            <button class="btn-secondary" onclick="liTestAction('liff')">🔍 測試 LIFF</button>
+          </div>
+        </div>
+
+        <!-- 需求文件七：Webhook -->
+        <div class="settings-card">
+          <h3>🔗 Webhook</h3>
+          <label>Webhook URL<input type="text" id="liWebhookUrl" readonly></label>
+          <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn-secondary" onclick="liCopyField('liWebhookUrl')">📋 複製</button>
+            <a class="btn-secondary" href="https://developers.line.biz/console/" target="_blank" rel="noopener" style="text-decoration:none;display:inline-flex;align-items:center;padding:8px 14px">↗️ 開啟 LINE Developers Verify</a>
+            <button class="btn-secondary" onclick="liTestAction('webhook')">🔍 檢查 Webhook 設定</button>
+          </div>
+          <p class="settings-hint">ℹ️ 系統可確認網址、Secret 與最近事件；LINE Developers 的「Verify」結果仍需在 LINE 後台操作確認，本系統無法代為完成。</p>
+        </div>
+
+        <!-- 需求文件八：Checkout Handoff -->
+        <div class="settings-card">
+          <h3>💬 Checkout Handoff</h3>
+          <label style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+            <input type="checkbox" id="li-line_checkout_handoff_enabled" style="width:auto">
+            <span>啟用 LINE 一鍵結帳</span>
+          </label>
+          <p class="settings-hint" id="liCheckoutHandoffHint">尚未載入</p>
+          <div style="margin-top:8px">
+            <button class="btn-secondary" onclick="liTestAction('checkout_handoff')">🔍 建立測試 Cart Token</button>
+          </div>
+        </div>
+
+        <!-- 需求文件十一：LINE Integration Health -->
+        <div class="settings-card full">
+          <h3>🩺 LINE Integration Health</h3>
+          <div id="liHealthOverall" class="line-diag-health">尚未測試</div>
+          <div id="liHealthGrid" class="line-diag-panel"></div>
+          <div style="margin-top:8px">
+            <button class="btn-primary" onclick="loadLineIntegrationHealth()">🔄 重新檢查</button>
+          </div>
+        </div>
+
+      </div>
+      <button class="btn-primary" onclick="saveLineIntegrationSettings()">💾 儲存 LINE 整合設定</button>
+    </div>
 
     <!-- fix18-10-hotfix23-E：LINE 會員管理（列表 / 篩選 / CSV 匯出 / 詳情） -->
     <div class="settings-tab-panel" id="stab-line_members_list" style="display:none">

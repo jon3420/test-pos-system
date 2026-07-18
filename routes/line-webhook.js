@@ -22,9 +22,13 @@ const router = express.Router();
 const { getDb } = require('../utils/db');
 const { applyFriendEvent } = require('../utils/lineFriendSync');
 const { bindTokenToLineUser } = require('../utils/lineCheckoutHandoff');
+const { fetchLineApi } = require('../utils/lineApiFetch');
 
-// 需求文件八：辨識「我要結帳 CART-XXXXXX」，regex 嚴格避免誤判其他訊息。
-const CHECKOUT_MESSAGE_RE = /^我要結帳\s+(CART-[A-Z0-9]{6,32})$/i;
+// 需求文件八（F8-A）× 十（hotfix27）× 需求文件七（hotfix27 收尾）：辨識
+// 「我要結帳 CART-XXXXXX」或單獨「CART-XXXXXX」，允許前後空白，但不得接受
+// 夾在長句中間、只是「包含 CART 字樣」的任意文字（^...$ + trim 已經 anchor
+// 頭尾，不會誤判）。
+const CHECKOUT_MESSAGE_RE = /^\s*(?:我要結帳\s+)?(CART-[A-Z0-9]{6,32})\s*$/i;
 
 // 與 routes/line-orders.js 相同慣例（utils/db.js 目前未匯出共用的 getSetting）
 function getSetting(db, storeId, key, def = '') {
@@ -53,7 +57,7 @@ function verifySignature(channelSecret, rawBody, signatureHeader) {
 async function fetchLineProfile(channelToken, userId) {
   if (!channelToken || !userId) return null;
   try {
-    const resp = await fetch(`https://api.line.me/v2/bot/profile/${encodeURIComponent(userId)}`, {
+    const resp = await fetchLineApi(`https://api.line.me/v2/bot/profile/${encodeURIComponent(userId)}`, {
       headers: { Authorization: `Bearer ${channelToken}` },
     });
     if (!resp.ok) return null;
@@ -69,7 +73,7 @@ async function fetchLineProfile(channelToken, userId) {
 async function replyMessage(channelToken, replyToken, text) {
   if (!channelToken || !replyToken) return false;
   try {
-    const resp = await fetch('https://api.line.me/v2/bot/message/reply', {
+    const resp = await fetchLineApi('https://api.line.me/v2/bot/message/reply', {
       method: 'POST',
       headers: { Authorization: `Bearer ${channelToken}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ replyToken, messages: [{ type: 'text', text }] }),
@@ -195,3 +199,4 @@ router.post('/:storeId', async (req, res) => {
 });
 
 module.exports = router;
+module.exports.verifySignature = verifySignature; // fix18-10-hotfix27：供 LINE Integration Center 自我測試重用同一份簽章邏輯

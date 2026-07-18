@@ -135,8 +135,10 @@ const UA = {
   if (html.includes('LINE 完成結帳')) pass('iOS 標題／文案＝「LINE 完成結帳」（F8-B 改版）');
   else fail('iOS 標題文字不符');
 
-  if (html.includes('目前使用 Facebook／Messenger 內建瀏覽器') && html.includes('請前往 LINE 完成結帳') && html.includes('購物車內容會自動保留')) {
-    pass('iOS 說明文字包含內建瀏覽器提示／前往 LINE 完成結帳／購物車保留（F8-B 改版）');
+  // fix18-10-hotfix27（需求文件九收尾）：文案再次調整——強調「購物車已保留，
+  // 不需要重新選購」，取代 F8-B 版的「購物車內容會自動保留」。
+  if (html.includes('目前使用 Facebook／Messenger 內建瀏覽器') && html.includes('請到 LINE 繼續完成結帳') && html.includes('您的購物車已保留，不需要重新選購')) {
+    pass('iOS 說明文字包含內建瀏覽器提示／請到 LINE 繼續完成結帳／購物車已保留（hotfix27 改版）');
   } else fail('iOS 說明文字缺漏', html);
 
   if (html.includes('id="lmgGoLineCheckoutBtn"') && html.includes('到 LINE 完成結帳')) pass('iOS 版有「到 LINE 完成結帳」主按鈕（F8-B 新增）');
