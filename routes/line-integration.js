@@ -63,7 +63,14 @@ function loadIntegrationConfig(db, storeId, req) {
     liff: {
       liff_id: liffId,
       liff_url: liffId ? `https://liff.line.me/${liffId}` : '',
-      checkout_callback_url: liffId ? `https://liff.line.me/${liffId}/checkout` : '',
+      // 需求文件三／十：不得再用 /checkout 當 path suffix（LIFF Endpoint URL
+      // 是固定指向 line-order.html 的，結帳資訊一律用 query string 帶）。
+      // 這裡顯示的是「範例」（demo cart_token），實際 Bot 回覆會用真正的
+      // full token，不是這串範例文字。
+      checkout_callback_url_example: liffId
+        ? `https://liff.line.me/${liffId}?mode=checkout&store_id=${encodeURIComponent(storeId)}&cart_token=FULL_TOKEN`
+        : '',
+      liff_endpoint_url_required: `${baseUrl(req)}/line-order.html`,
       configured: !!liffId,
     },
     messaging_api: {

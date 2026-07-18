@@ -202,8 +202,11 @@ async function main() {
   assert(gateSrc.includes('請加入官方 LINE，並將下方結帳代碼貼到聊天室即可繼續完成結帳'), 'Messenger 未設定版文案：引導加入官方 LINE＋貼代碼');
   assert(gateSrc.includes('📋 複製結帳代碼') && gateSrc.includes('lmgCopyCartCodeBtn'), '「複製結帳代碼」按鈕存在（非「複製結帳連結」）');
   assert(gateSrc.includes('lmgCartCodeBlock') && gateSrc.includes('您的結帳代碼'), 'Cart Code 顯示區塊存在');
-  assert(gateSrc.includes('AUTO_OPEN_SS_KEY') && gateSrc.includes('sessionStorage'), 'Auto Open 使用 sessionStorage 防重複機制');
-  assert(gateSrc.includes('只自動嘗試') || gateSrc.includes('不再重複跳轉'), 'Auto Open 註解／邏輯明確標示只嘗試一次');
+  // fix18-10-hotfix27-CD：session key 從「每店一把」改成「每店+每 cart_code
+  // 一把」（line_checkout_auto_launch:${storeId}:${cartCode}），比舊版更精準
+  // （不同筆結帳各自只自動嘗試一次，而不是整個分頁共用一把鎖）。
+  assert(gateSrc.includes('autoLaunchKey') && gateSrc.includes('line_checkout_auto_launch') && gateSrc.includes('sessionStorage'), 'Auto Open 使用 sessionStorage 防重複機制（依 store_id+cart_code 分別鎖定）');
+  assert(gateSrc.includes('autoLaunchAttempted'), 'Auto Open 邏輯明確標示只嘗試一次（autoLaunchAttempted 旗標）');
 // 需求文件五：只檢查「使用者實際會看到」的字串（Dialog innerHTML 樣板／
 // 動態文案賦值），不檢查程式內部註解或函式名稱（例如既有的
 // handleLineMemberLoginCallback() 函式名稱本來就含「Callback」字樣，那是

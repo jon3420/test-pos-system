@@ -2226,7 +2226,14 @@ async function loadLineIntegrationCenter() {
     if (json.success) {
       const { config, wizard } = json.data;
       const liffUrlEl = document.getElementById('liLiffUrl'); if (liffUrlEl) liffUrlEl.value = config.liff.liff_url;
-      const cbUrlEl = document.getElementById('liLiffCallbackUrl'); if (cbUrlEl) cbUrlEl.value = config.liff.checkout_callback_url;
+      const cbUrlEl = document.getElementById('liLiffCallbackUrl'); if (cbUrlEl) cbUrlEl.value = config.liff.checkout_callback_url_example;
+      const endpointHintEl = document.getElementById('liLiffEndpointHint');
+      if (endpointHintEl) {
+        endpointHintEl.innerHTML = `⚠️ LIFF Endpoint URL 請在 LINE Developers 固定設定為：<br><code>${escapeHtmlLi(config.liff.liff_endpoint_url_required)}</code><br>請勿在 LIFF ID 後方增加 /checkout 或其他路徑。`;
+      }
+      // 需求文件二十：Webhook 已啟用時提醒商家去關閉官方帳號自動回應（避免重複回覆）
+      const autoReplyHintEl = document.getElementById('liAutoReplyHint');
+      if (autoReplyHintEl) autoReplyHintEl.style.display = config.webhook.configured ? 'block' : 'none';
       const whUrlEl = document.getElementById('liWebhookUrl'); if (whUrlEl) whUrlEl.value = config.webhook.url;
       const secretStatus2 = document.getElementById('liChannelSecretStatus');
       if (secretStatus2) secretStatus2.textContent = config.messaging_api.channel_secret_set ? `✅ 已設定（${config.messaging_api.channel_secret_masked}，留白儲存＝不變更）` : '⚠️ 尚未設定';

@@ -151,8 +151,14 @@ const UA = {
   else fail('iOS 版缺少「如何使用 Safari 開啟」按鈕');
   if (html.includes('若 Chrome 仍無法完成登入，請使用 Safari')) pass('iOS 版包含「若 Chrome 仍無法完成登入，請使用 Safari」提示');
   else fail('iOS 版缺少 Chrome→Safari 銜接提示');
-  if (html.includes('id="lmgCopyLinkBtn"') && html.includes('複製結帳連結')) pass('iOS 版保留「複製結帳連結」按鈕（F8-B 文案：點餐連結→結帳連結）');
-  else fail('iOS 版缺少「複製結帳連結」按鈕');
+  // fix18-10-hotfix27-CD（需求文件十七）：「複製結帳連結」按鈕已移除，改為
+  // 「複製結帳代碼」（在 Cart Code 區塊內，且永遠可用，不限 iOS）。
+  if (html.includes('id="lmgCopyCartCodeBtn"') && html.includes('複製結帳代碼') && !html.includes('複製結帳連結')) {
+    pass('iOS 版「複製結帳代碼」按鈕存在，舊版「複製結帳連結」已移除（hotfix27-CD）');
+  } else fail('iOS 版「複製結帳代碼」按鈕缺漏或仍殘留舊版「複製結帳連結」');
+  if (html.includes('id="lmgGoLineCheckoutBtn"') && /<a\s[^>]*id="lmgGoLineCheckoutBtn"/.test(html)) {
+    pass('主按鈕是真正的 <a href>（hotfix27-CD 需求文件十二：保留使用者手勢）');
+  } else fail('主按鈕不是 <a> 元素');
   if (html.includes('id="lmgExternalBackBtn"') && html.includes('返回購物車')) pass('iOS 版保留「返回購物車」按鈕');
   else fail('iOS 版缺少「返回購物車」按鈕');
   if (!html.includes('id="lmgOpenLineBtn"')) pass('iOS 版不再顯示「嘗試使用 LINE 開啟」主按鈕（避免宣稱官方限制下仍會成功）');
@@ -203,11 +209,11 @@ const UA = {
     && html.includes('id="lmgOtherLoginDetails"')
     && html.includes('id="lmgOpenLineBtn"') && html.includes('嘗試使用 LINE 開啟')
     && html.includes('id="lmgOsHintBtn"') && html.includes('使用 Chrome 開啟')
-    && html.includes('id="lmgCopyLinkBtn"') && html.includes('id="lmgExternalBackBtn"')
+    && html.includes('id="lmgCopyCartCodeBtn"') && html.includes('id="lmgExternalBackBtn"')
     && !html.includes('id="lmgChromeBtn"') && !html.includes('id="lmgSafariBtn"')) {
-    pass('Android 版採用 F8-B 統一版型：主按鈕「到 LINE 完成結帳」＋收合的「嘗試使用 LINE 開啟／使用 Chrome 開啟」，未誤用 iOS 專屬的 lmgChromeBtn/lmgSafariBtn');
+    pass('Android 版採用統一版型：主按鈕「到 LINE 完成結帳」（<a>）＋「複製結帳代碼」＋收合的「嘗試使用 LINE 開啟／使用 Chrome 開啟」，未誤用 iOS 專屬的 lmgChromeBtn/lmgSafariBtn（hotfix27-CD）');
   } else {
-    fail('Android 版型與 F8-B 預期不符', html);
+    fail('Android 版型與預期不符', html);
   }
 }
 manual('真實 Android 裝置 Messenger→Chrome→LINE Login 完整流程', '需要真實 Android 裝置與 Messenger/LINE App 才能驗證');

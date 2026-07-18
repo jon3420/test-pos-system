@@ -176,7 +176,12 @@ router.post('/:storeId', async (req, res) => {
             await replyMessage(channelToken, replyToken, '購物車已保留，但商家尚未完成結帳頁設定，請聯絡店家。');
             continue;
           }
-          const liffUrl = `https://liff.line.me/${liffId}/checkout?cart_token=${encodeURIComponent(bindResult.token)}`;
+          // 需求文件三：LIFF Endpoint URL 是固定的（見 LINE Developers 設定，
+          // 對應 https://<domain>/line-order.html），不能在 LIFF ID 後面加
+          // /checkout 這種 path suffix（LINE 會把它當成路由片段處理，導致
+          // 短暫進入顧客頁後又被導回其他頁面）。所有結帳資訊一律用 query
+          // string 傳遞。
+          const liffUrl = `https://liff.line.me/${liffId}?mode=checkout&store_id=${encodeURIComponent(storeId)}&cart_token=${encodeURIComponent(bindResult.token)}`;
           await replyMessage(channelToken, replyToken, `您的購物車已保留。\n\n請點下方連結繼續完成結帳：\n${liffUrl}`);
 
           try {

@@ -2095,7 +2095,8 @@
           <h3>🖼️ LIFF</h3>
           <label>LIFF ID<input type="text" id="li-line_member_liff_id" placeholder="例如：1234567890-abcdefgh"></label>
           <label>LIFF URL<input type="text" id="liLiffUrl" readonly></label>
-          <label>Checkout Callback URL<input type="text" id="liLiffCallbackUrl" readonly></label>
+          <label>Checkout Callback URL（範例，實際會用真正的 cart_token）<input type="text" id="liLiffCallbackUrl" readonly></label>
+          <p class="settings-hint" id="liLiffEndpointHint">尚未載入</p>
           <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
             <button class="btn-secondary" onclick="liCopyField('liLiffUrl')">📋 複製 LIFF URL</button>
             <button class="btn-secondary" onclick="liCopyField('liLiffCallbackUrl')">📋 複製 Callback URL</button>
@@ -2113,6 +2114,7 @@
             <button class="btn-secondary" onclick="liTestAction('webhook')">🔍 檢查 Webhook 設定</button>
           </div>
           <p class="settings-hint">ℹ️ 系統可確認網址、Secret 與最近事件；LINE Developers 的「Verify」結果仍需在 LINE 後台操作確認，本系統無法代為完成。</p>
+          <p class="settings-hint" id="liAutoReplyHint" style="display:none">⚠️ 偵測到 Webhook 已啟用。建議至 LINE Official Account Manager 關閉「自動回應訊息」，避免顧客收到重複回覆（「加入好友歡迎訊息」可以保留）。本系統不會、也不能代為關閉 LINE 後台設定，請自行至 <a href="https://manager.line.biz/" target="_blank" rel="noopener">LINE Official Account Manager</a> 設定。</p>
         </div>
 
         <!-- 需求文件八：Checkout Handoff -->

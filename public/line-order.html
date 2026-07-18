@@ -531,12 +531,35 @@ function _gateIds(){ return { visitor_id:_getVisitorId(), session_id:_getSession
 // cart_token query string。獨立於既有 gate_enabled 設定——即使商家沒開 LINE
 // 會員 Gate，帶 cart_token 進站一樣要能完成 LIFF 登入＋購物車還原（這是
 // Bot 回覆的連結，商家等於已經選擇要用這個流程收單）。
-function _getCartTokenFromUrl(){
-  try{ return new URLSearchParams(window.location.search).get('cart_token')||''; }catch(e){ return ''; }
+// fix18-10-hotfix27-CD（需求文件五）：LIFF Checkout 判斷條件明確化——
+// mode=checkout + store_id + cart_token 三者都在，才視為「這是 Bot 回覆的
+// LIFF 結帳連結」，而不是只看 cart_token 存在。這樣即使未來網址多了其他
+// 用途的 query string，也不會誤判。
+function _getCheckoutParamsFromUrl(){
+  try{
+    const params=new URLSearchParams(window.location.search);
+    const mode=params.get('mode');
+    const storeId=params.get('store_id');
+    const cartToken=params.get('cart_token');
+    return {
+      mode, storeId, cartToken,
+      isLiffCheckout: mode==='checkout' && Boolean(storeId) && Boolean(cartToken),
+    };
+  }catch(e){ return { mode:null, storeId:null, cartToken:null, isLiffCheckout:false }; }
 }
+// 舊名稱保留（其他地方可能還在呼叫），內部改呼叫新函式，行為不變但邏輯集中一處。
+function _getCartTokenFromUrl(){ return _getCheckoutParamsFromUrl().cartToken || ''; }
 async function _initLineMemberGateFromShopData(d){
   _lineMemberGateConfig=_buildLineMemberGateConfig(d);
-  const cartToken=_getCartTokenFromUrl();
+  const checkoutParams=_getCheckoutParamsFromUrl();
+  const cartToken=checkoutParams.cartToken||'';
+  if(checkoutParams.isLiffCheckout && checkoutParams.storeId!==LINE_STORE_ID){
+    // 需求文件七：store_id 不一致（理論上不該發生，因為 LIFF Endpoint 固定
+    // 指向這支頁面、store_id 是 Bot 回覆時原樣帶入的），保守起見視同失效連結，
+    // 不嘗試用錯的 store 去 restore。
+    toast('此結帳連結已失效，請返回點餐頁重新操作。');
+    return;
+  }
   if(!_lineMemberGateConfig.gate_enabled && !cartToken) return;
   if(_lineMemberGateConfig.gate_mode==='disabled' && !cartToken) return;
   if(!_lineMemberGateConfig.liff_id){
@@ -584,13 +607,13 @@ async function _restoreCartFromHandoffToken(cartToken){
     if(!res.ok){
       const msgMap={
         session_invalid:'尚未登入或登入已過期，請重新透過 LINE 開啟結帳連結。',
-        expired:'此結帳連結已失效。\n\n請重新返回購物車。',
-        consumed:'此結帳連結已完成或已失效。',
-        cancelled:'此結帳連結已取消，請重新返回購物車。',
-        uid_mismatch:'此結帳連結與目前登入的 LINE 帳號不符。',
-        not_found:'找不到此結帳連結，請重新從購物車發起結帳。',
+        expired:'此結帳連結已失效，請返回點餐頁重新操作。',
+        consumed:'此結帳連結已失效，請返回點餐頁重新操作。',
+        cancelled:'此結帳連結已失效，請返回點餐頁重新操作。',
+        uid_mismatch:'此結帳連結已失效，請返回點餐頁重新操作。',
+        not_found:'此結帳連結已失效，請返回點餐頁重新操作。',
       };
-      alert(msgMap[res.reason]||res.message||'無法還原購物車，請重新從購物車發起結帳。');
+      _showCheckoutHandoffFailure(msgMap[res.reason]||res.message||'此結帳連結已失效，請返回點餐頁重新操作。');
       return;
     }
 
@@ -639,10 +662,31 @@ async function _restoreCartFromHandoffToken(cartToken){
     }catch(e){}
 
     openCartSheet();
-    toast('購物車已還原，請確認內容後送出訂單');
+    toast('購物車已成功還原，請確認內容後完成結帳。');
   } finally {
     document.getElementById('loading').style.display='none';
   }
+}
+// fix18-10-hotfix27-CD（需求文件七）：Token 失效時顯示的畫面。刻意不呼叫任何
+// 既有 modal/sheet 函式（避免猜錯專案裡實際的函式名稱），用最陽春、零依賴的
+// vanilla DOM 蓋一層全螢幕提示，按鈕只會連到顧客點餐頁本身，不會連到 POS
+// 首頁／店家登入／/admin／/login 任何一個。
+function _showCheckoutHandoffFailure(message){
+  try{
+    const existing=document.getElementById('lineCheckoutHandoffFailureOverlay');
+    if(existing) existing.remove();
+    const overlay=document.createElement('div');
+    overlay.id='lineCheckoutHandoffFailureOverlay';
+    overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px';
+    const backUrl='/line-order.html?store_id='+encodeURIComponent(LINE_STORE_ID);
+    overlay.innerHTML=`
+      <div style="background:#fff;border-radius:16px;max-width:340px;width:100%;padding:24px;text-align:center;font-family:inherit">
+        <div style="font-size:36px;margin-bottom:10px">⚠️</div>
+        <p style="margin:0 0 18px;color:#333;font-size:15px;line-height:1.6">${(message||'').replace(/</g,'&lt;')}</p>
+        <a href="${backUrl}" style="display:block;width:100%;padding:12px;border-radius:10px;background:#06C755;color:#fff;font-size:15px;font-weight:700;text-decoration:none;box-sizing:border-box">返回顧客點餐</a>
+      </div>`;
+    document.body.appendChild(overlay);
+  }catch(e){ console.warn('[cart-handoff] 無法顯示失效提示', e); }
 }
 function _currentMemberSession(){
   try{ const s=LineMemberGate.getMemberSession(LINE_STORE_ID); return s?s.member_session:null; }catch(e){ return null; }
