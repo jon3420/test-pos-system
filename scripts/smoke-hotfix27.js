@@ -200,7 +200,9 @@ async function main() {
   assert(gateSrc.includes('若沒有自動跳轉，請點下方按鈕'), 'Messenger 已設定版文案：「若沒有自動跳轉，請點下方按鈕」存在');
   assert(gateSrc.includes('目前商家尚未完成 LINE 一鍵結帳設定'), 'Messenger 未設定版文案：「目前商家尚未完成 LINE 一鍵結帳設定」存在');
   assert(gateSrc.includes('請加入官方 LINE，並將下方結帳代碼貼到聊天室即可繼續完成結帳'), 'Messenger 未設定版文案：引導加入官方 LINE＋貼代碼');
-  assert(gateSrc.includes('📋 複製結帳代碼') && gateSrc.includes('lmgCopyCartCodeBtn'), '「複製結帳代碼」按鈕存在（非「複製結帳連結」）');
+  // fix18-10-hotfix29：icon+文字排版 helper 把兩者分成不同 <span>，不再是
+  // 連續字串「📋 複製結帳代碼」，分別檢查 icon 與文字都存在即可。
+  assert(gateSrc.includes('📋') && gateSrc.includes('複製結帳代碼') && gateSrc.includes('lmgCopyCartCodeBtn'), '「複製結帳代碼」按鈕存在（非「複製結帳連結」，hotfix29：icon 與文字分開排版）');
   assert(gateSrc.includes('lmgCartCodeBlock') && gateSrc.includes('您的結帳代碼'), 'Cart Code 顯示區塊存在');
   // fix18-10-hotfix27-CD：session key 從「每店一把」改成「每店+每 cart_code
   // 一把」（line_checkout_auto_launch:${storeId}:${cartCode}），比舊版更精準

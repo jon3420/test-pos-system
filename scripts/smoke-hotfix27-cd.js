@@ -96,7 +96,16 @@ async function main() {
   // ═══════════════ 五：Messenger Dialog <a href> 結構與行為（需求文件十一～十九）═══════════════
   const gateSrc = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'line-member-gate.js'), 'utf8');
   assert(/<a\s[^>]*id="lmgGoLineCheckoutBtn"/.test(gateSrc), '主按鈕元素是 <a>（不是 <button>）');
-  assert(gateSrc.includes('aria-disabled="true"') && gateSrc.includes("style=\"display:block;width:100%;padding:13px;border:0;border-radius:10px;background:#06C755"), '主 <a> 初始狀態為 disabled（Token 尚未就緒前不可點）');
+  // fix18-10-hotfix29：主 <a> 的 inline style 字串已改版（icon+文字排版，
+  // height:56px 等新規格），不再是舊版那段 CSS 文字，改成檢查行為本質——
+  // 有 aria-disabled="true" 屬性，且初始 opacity/pointer-events 確實是停用態。
+  assert(gateSrc.includes('id="lmgGoLineCheckoutBtn"') && gateSrc.includes('aria-disabled="true"') && gateSrc.includes("pointer-events:none"), '主 <a> 初始狀態為 disabled（Token 尚未就緒前不可點，hotfix29 新版樣式）');
+  // fix18-10-hotfix29：icon 與文字分開排版，不再是連續字串「📋 複製結帳代碼」。
+  assert(gateSrc.includes('lmgCopyCartCodeBtn') && gateSrc.includes('📋') && gateSrc.includes('複製結帳代碼'), '複製結帳代碼按鈕永遠存在（不限特定版型，hotfix29：icon 與文字分開排版）');
+  // fix18-10-hotfix29（需求文件三）：「無法開啟 LINE？」的 <details> 收合已
+  // 依真機測試結果拆掉，改成永遠展開的區塊（顧客常常不知道要點開）。這裡
+  // 改成驗證「新設計」而不是舊的收合寫法。
+  assert(!gateSrc.includes('lmgCantOpenDetails') && gateSrc.includes('Messenger 無法開啟 LINE'), '「無法開啟 LINE？」已改為永遠展開的區塊，不再是 <details> 收合（hotfix29 真機測試後的設計變更）');
   assert(gateSrc.includes('function prepareHandoff') && gateSrc.includes('(async () => {') && gateSrc.includes('await prepareHandoff()'), 'Token 於 Dialog 初始化時（IIFE）就開始建立，不是等點擊才建立');
   assert(gateSrc.includes('goLineCheckoutBtn.href = result.lineOaMessageUrl') && gateSrc.includes("goLineCheckoutBtn.removeAttribute('aria-disabled')"), 'Token Promise resolve 後才設定 href 並移除 disabled 狀態');
 
@@ -130,8 +139,7 @@ async function main() {
   assert(gateSrc.includes('lmgRegenerateTokenBtn') && gateSrc.includes('autoLaunchAttempted = false'), 'Retry 按鈕存在，且會重置 autoLaunchAttempted 讓新 Token 可以重新自動嘗試');
 
   // Cart Code fallback（需求文件十七）＋ 外部瀏覽器指引（需求文件十六）
-  assert(gateSrc.includes('lmgCopyCartCodeBtn') && gateSrc.includes('📋 複製結帳代碼'), '複製結帳代碼按鈕永遠存在（不限特定版型）');
-  assert(gateSrc.includes('lmgCantOpenDetails') && gateSrc.includes('無法開啟 LINE？'), '「無法開啟 LINE？」收合區塊存在');
+  // （複製結帳代碼／無法開啟 LINE？ 已在上方以 hotfix29 新設計驗證過，不重複斷言）
   assert(gateSrc.includes('在外部瀏覽器開啟') && !gateSrc.includes('請使用 Chrome') , '外部瀏覽器說明使用「在外部瀏覽器開啟」文案，不是只寫「使用 Chrome」');
 
   // OA Message URL encode（需求文件十三，沿用 F8-B 既有邏輯，這裡確認沒有被改壞）

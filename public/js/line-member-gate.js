@@ -914,13 +914,21 @@
     // fix18-10-hotfix27（需求文件九）：文案改版——強調「購物車已保留，不需要
     // 重新選購」，不再出現「商家尚未設定官方帳號…」這種曝露內部設定狀態的
     // 字樣（改成引導動作：加入官方 LINE＋貼結帳代碼）。
+    // fix18-10-hotfix29（需求文件二）：真機測試證實 Messenger WebView 上
+    // 「到 LINE 完成結帳」（<a href> 開 oaMessage 連結）常常沒有反應，真正
+    // 能成功的是「開啟 LINE 官方帳號」（純加好友連結，較不受 WebView 的
+    // scheme/redirect 限制）。iPhone＋Messenger/Instagram 時，把這個方法
+    // 放第一順位、預設展開，不要求顧客自己發現「還有其他辦法」。Android
+    // 「到 LINE 完成結帳」成功率仍高，維持原順位（需求文件六）。
+    const isIphoneMessenger = environment.isIOS && environment.isInAppBrowser;
+
     const headingText = 'LINE 完成結帳';
     const introHtml = `目前使用 Facebook／Messenger 內建瀏覽器。<br><br>請到 LINE 繼續完成結帳。<br><br>您的購物車已保留，不需要重新選購。`;
 
     // 需求文件四：Chrome／Safari 收合在「其他登入方式 ▼」內，用原生 <details>
-    // 實作（不需額外 JS 控制展開/收合狀態，預設收合＝沒有 open 屬性）。
-    // iOS／Android 內容不同，沿用 hotfix26-F2/F3 既有文案，只是位置從主按鈕
-    // 降為收合選單內的次要選項。
+    // 實作（不需額外 JS 控制展開/收合狀態，預設收合＝沒有 open 屬性）。這個
+    // 收合區塊是既有「登入方式」選項，與本次要拆掉的「無法開啟 LINE？」
+    // 結帳 fallback 是不同東西，不受本次需求文件三影響。
     const otherLoginInnerHtml = environment.isIOS
       ? `<button id="lmgChromeBtn" style="width:100%;padding:12px;border:0;border-radius:10px;background:#06C755;color:#fff;font-size:15px;font-weight:600;margin-bottom:8px;cursor:pointer">使用 Chrome 開啟</button>
          <div style="font-size:12px;color:#888;text-align:center;margin-bottom:6px">若 Chrome 仍無法完成登入，請使用 Safari。</div>
@@ -928,30 +936,78 @@
       : `<button id="lmgOpenLineBtn" style="width:100%;padding:12px;border:0;border-radius:10px;background:#06C755;color:#fff;font-size:15px;font-weight:600;margin-bottom:8px;cursor:pointer">嘗試使用 LINE 開啟</button>
          <button id="lmgOsHintBtn" style="width:100%;padding:12px;border:1px solid #06C755;border-radius:10px;background:#fff;color:#06C755;font-size:14px;font-weight:600;cursor:pointer">${escapeHtml(osHintLabel)}</button>`;
 
+    // 需求文件七／十二：Icon 靠左、文字靠右，56px 高、12px 圓角、32px icon、
+    // 100% 寬——所有按鈕統一用這個 helper 產生，不再各寫各的樣式。
+    function iconButtonHtml(id, tag, icon, text, opts) {
+      const o = opts || {};
+      const bg = o.bg || '#fff';
+      const color = o.color || '#111';
+      const border = o.border || '1px solid #ddd';
+      const fontWeight = o.fontWeight || '600';
+      const extraAttrs = o.extraAttrs || '';
+      return `<${tag} id="${id}" ${tag === 'a' ? 'href="#" rel="noopener noreferrer"' : ''} ${extraAttrs}
+        style="display:flex;align-items:center;gap:12px;width:100%;height:56px;padding:0 18px;border-radius:12px;border:${border};background:${bg};color:${color};font-size:16px;font-weight:${fontWeight};text-decoration:none;cursor:pointer;box-sizing:border-box;text-align:left">
+        <span style="font-size:28px;line-height:1;flex-shrink:0;width:32px;text-align:center">${icon}</span>
+        <span style="flex:1">${text}</span>
+      </${tag}>`;
+    }
+
+    // 需求文件四／六：「立即開啟 LINE 官方帳號」是本版真正要推的按鈕（加入
+    // 好友連結，不是 oaMessage 連結），與既有「到 LINE 完成結帳」（Cart Token
+    // 的 <a href>）並列，不互相取代——iPhone+Messenger 時前者排第一。
+    const openOaHtml = iconButtonHtml('lmgOpenOaBtn', 'a', '<span style="color:#06C755;font-weight:900">L</span>', '立即開啟 LINE 官方帳號', { bg: '#06C755', color: '#fff', border: '0', fontWeight: '700' });
+    const goCheckoutHtml = `<a id="lmgGoLineCheckoutBtn" href="#" rel="noopener noreferrer" aria-disabled="true"
+        style="display:flex;align-items:center;gap:12px;width:100%;height:56px;padding:0 18px;border-radius:12px;border:0;background:#06C755;color:#fff;font-size:16px;font-weight:700;text-decoration:none;cursor:pointer;box-sizing:border-box;text-align:left;opacity:.55;pointer-events:none">
+        <span style="font-size:28px;line-height:1;flex-shrink:0;width:32px;text-align:center">💬</span>
+        <span id="lmgGoLineCheckoutBtnText" style="flex:1">到 LINE 完成結帳</span>
+      </a>`;
+    const copyCodeHtml = iconButtonHtml('lmgCopyCartCodeBtn', 'button', '📋', '複製結帳代碼', {});
+    const externalBrowserLabel = environment.isIOS ? '在 Safari 開啟' : '在外部瀏覽器開啟';
+    const externalBrowserHtml = iconButtonHtml('lmgExternalBrowserBtn', 'button', '🌐', externalBrowserLabel, {});
+
+    // 需求文件三／十：拿掉 <details>/<summary> 收合，永遠展開；需求文件五：
+    // 紅色警示區塊放在按鈕上方，第一眼就看到「如果沒反應，點哪一個」。
+    const warningBannerHtml = `
+      <div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:10px;padding:12px;margin-bottom:14px;font-size:13px;color:#991b1b;line-height:1.6">
+        ⚠️ Messenger 可能限制直接開啟 LINE。<br>如果上方按鈕沒有反應，請直接點「立即開啟 LINE 官方帳號」即可完成結帳。
+      </div>`;
+    const fallbackSectionHtml = `
+      <div id="lmgCantOpenSection" style="margin-top:14px">
+        <div style="text-align:center;font-weight:700;font-size:14px;color:#991b1b;margin-bottom:4px">⚠️ Messenger 無法開啟 LINE？</div>
+        <div style="text-align:center;font-size:13px;color:#666;margin-bottom:12px">請直接使用下面的方法完成結帳</div>
+        <div style="display:flex;flex-direction:column;gap:16px">
+          ${isIphoneMessenger ? '' : openOaHtml}
+          ${copyCodeHtml}
+          ${externalBrowserHtml}
+        </div>
+        <div style="margin-top:12px;font-size:12px;color:#888;line-height:1.6;text-align:center">
+          💡 若 Messenger 無法直接開啟 LINE，請直接點【立即開啟 LINE 官方帳號】成功率最高。${environment.isIOS ? '<br>iPhone：建議使用 Safari。' : ''}
+        </div>
+      </div>`;
+
+    // 需求文件六／最後建議：iPhone＋Messenger 時，「立即開啟 LINE 官方帳號」
+    // 排第一順位、最醒目；「到 LINE 完成結帳」仍保留（次要位置）。其他環境
+    // （Android 等）維持「到 LINE 完成結帳」在前，因為那裡成功率仍然最高。
+    const primaryButtonsHtml = isIphoneMessenger
+      ? `<div style="display:flex;flex-direction:column;gap:16px;margin-bottom:14px">${openOaHtml}${goCheckoutHtml}</div>`
+      : `<div style="display:flex;flex-direction:column;gap:16px;margin-bottom:14px">${goCheckoutHtml}</div>`;
+
     externalGuideEl.innerHTML = `
-      <div style="background:#fff;border-radius:16px;max-width:380px;width:100%;padding:24px;text-align:left;font-family:inherit">
+      <div style="background:#fff;border-radius:16px;max-width:380px;width:100%;padding:24px;text-align:left;font-family:inherit;max-height:90vh;overflow-y:auto">
         <div style="font-size:40px;line-height:1;margin-bottom:8px;text-align:center">📲</div>
         <h3 id="lmgGuideHeading" style="margin:0 0 8px;font-size:18px;text-align:center">${escapeHtml(headingText)}</h3>
         <p id="lmgGuideIntro" style="margin:0 0 12px;color:#666;font-size:14px;line-height:1.6">${introHtml}</p>
         <div id="lmgExternalStatus" style="font-size:13px;color:#888;margin-bottom:10px;text-align:center"></div>
         <div id="lmgCartCodeBlock" style="display:none;text-align:center;border:1px dashed #06C755;border-radius:10px;padding:12px;margin-bottom:12px;background:#f4fdf8">
           <div style="font-size:12px;color:#888;margin-bottom:4px">您的結帳代碼</div>
-          <div id="lmgCartCodeText" style="font-size:20px;font-weight:700;letter-spacing:1px;color:#06C755;font-family:monospace;margin-bottom:8px"></div>
-          <button id="lmgCopyCartCodeBtn" style="padding:8px 16px;border:1px solid #06C755;border-radius:8px;background:#fff;color:#06C755;font-size:13px;font-weight:600;cursor:pointer">📋 複製結帳代碼</button>
+          <div id="lmgCartCodeText" style="font-size:20px;font-weight:700;letter-spacing:1px;color:#06C755;font-family:monospace"></div>
         </div>
-        <a id="lmgGoLineCheckoutBtn" href="#" class="lmg-line-primary-link" rel="noopener noreferrer" aria-disabled="true"
-           style="display:block;width:100%;padding:13px;border:0;border-radius:10px;background:#06C755;color:#fff;font-size:16px;font-weight:700;margin-bottom:8px;text-decoration:none;text-align:center;box-sizing:border-box;opacity:.55;pointer-events:none">💬 到 LINE 完成結帳</a>
-        <button id="lmgRegenerateTokenBtn" style="display:none;width:100%;padding:12px;border:1px solid #06C755;border-radius:10px;background:#fff;color:#06C755;font-size:14px;font-weight:600;cursor:pointer;margin-bottom:8px">🔁 重新產生結帳代碼</button>
-        <button id="lmgExternalBackBtn" style="width:100%;padding:10px;border:0;background:transparent;color:#999;font-size:13px;cursor:pointer;text-align:center;margin-bottom:6px">返回購物車</button>
-        <details id="lmgCantOpenDetails" style="margin-top:4px;margin-bottom:4px">
-          <summary style="cursor:pointer;color:#666;font-size:13px;padding:6px 0;list-style:none;text-align:center">無法開啟 LINE？ ▾</summary>
-          <div style="margin-top:8px;font-size:13px;color:#555;line-height:1.7">
-            <div style="margin-bottom:6px">① 複製結帳代碼（見上方按鈕）</div>
-            <div style="margin-bottom:6px">② <a id="lmgAddFriendLink" href="#" style="color:#06C755">開啟官方 LINE</a></div>
-            <div>③ 使用外部瀏覽器開啟：請點 Messenger 右下角「⋯」，選擇「在外部瀏覽器開啟」，再點「到 LINE 完成結帳」。</div>
-          </div>
-        </details>
-        <details id="lmgOtherLoginDetails" style="margin-top:4px">
+        ${warningBannerHtml}
+        ${primaryButtonsHtml}
+        ${fallbackSectionHtml}
+        <button id="lmgRegenerateTokenBtn" style="display:none;width:100%;padding:12px;border:1px solid #06C755;border-radius:10px;background:#fff;color:#06C755;font-size:14px;font-weight:600;cursor:pointer;margin-top:14px">🔁 重新產生結帳代碼</button>
+        <button id="lmgExternalBackBtn" style="width:100%;padding:10px;border:0;background:transparent;color:#999;font-size:13px;cursor:pointer;text-align:center;margin-top:10px">返回購物車</button>
+        <details id="lmgOtherLoginDetails" style="margin-top:8px">
           <summary style="cursor:pointer;color:#666;font-size:13px;padding:6px 0;list-style:none;text-align:center">其他登入方式 ▾</summary>
           <div style="margin-top:10px">${otherLoginInnerHtml}</div>
         </details>
@@ -1062,7 +1118,8 @@
         introEl.innerHTML = '目前商家尚未完成 LINE 一鍵結帳設定。<br><br>請加入官方 LINE，並將下方結帳代碼貼到聊天室即可繼續完成結帳。';
       }
       if (goLineCheckoutBtn) {
-        goLineCheckoutBtn.textContent = '➕ 加入官方 LINE';
+        const goLineCheckoutBtnText = externalGuideEl.querySelector('#lmgGoLineCheckoutBtnText');
+        if (goLineCheckoutBtnText) goLineCheckoutBtnText.textContent = '➕ 加入官方 LINE';
         const addFriendUrl = (config && config.add_friend_url) || '';
         if (addFriendUrl) {
           goLineCheckoutBtn.href = addFriendUrl;
@@ -1125,7 +1182,8 @@
         // 版本文案，避免「重新產生結帳代碼」剛好從 fallback 版型切回正常版型
         // 時，殘留上一次 switchToAddFriendFallback() 改過的「➕ 加入官方 LINE」字樣。
         if (goLineCheckoutBtn) {
-          goLineCheckoutBtn.textContent = '💬 到 LINE 完成結帳';
+          const goLineCheckoutBtnTextEl = externalGuideEl.querySelector('#lmgGoLineCheckoutBtnText');
+          if (goLineCheckoutBtnTextEl) goLineCheckoutBtnTextEl.textContent = '到 LINE 完成結帳';
           goLineCheckoutBtn.href = result.lineOaMessageUrl;
           goLineCheckoutBtn.removeAttribute('aria-disabled');
           goLineCheckoutBtn.style.opacity = '';
@@ -1216,12 +1274,33 @@
       });
     }
 
-    // 需求文件十六③：「無法開啟 LINE？」內的「開啟官方 LINE」連結。
-    const addFriendLink = externalGuideEl.querySelector('#lmgAddFriendLink');
-    if (addFriendLink) {
+    // 需求文件四／六：「立即開啟 LINE 官方帳號」——真機測試證實這個純加好友
+    // 連結（不是 oaMessage 連結）在 Messenger WebView 的成功率最高，所以直接
+    // 給它一個真正的 <a href>（原生連結，保留使用者手勢），不透過 JS 導頁。
+    const openOaBtn = externalGuideEl.querySelector('#lmgOpenOaBtn');
+    if (openOaBtn) {
       const addFriendUrl = (config && config.add_friend_url) || '';
-      if (addFriendUrl) addFriendLink.href = addFriendUrl;
-      else addFriendLink.addEventListener('click', (ev) => { ev.preventDefault(); });
+      if (addFriendUrl) {
+        openOaBtn.href = addFriendUrl;
+        openOaBtn.addEventListener('click', () => {
+          sendBeaconEvent('line_login_open_line_clicked', { trigger: 'open_oa_button' });
+        });
+      } else {
+        openOaBtn.addEventListener('click', (ev) => { ev.preventDefault(); setExternalStatus('商家尚未設定加入好友網址，請改用「複製結帳代碼」。', false); });
+      }
+    }
+
+    // 需求文件十一：「在 Safari 開啟／在外部瀏覽器開啟」——複製目前網址，
+    // 提示貼到外部瀏覽器（無法從 Messenger WebView 用程式強制切換瀏覽器，
+    // 只能靠使用者自己貼上，這裡把「複製」這個唯一能做的動作做到最方便）。
+    const externalBrowserBtn = externalGuideEl.querySelector('#lmgExternalBrowserBtn');
+    if (externalBrowserBtn) {
+      externalBrowserBtn.addEventListener('click', async () => {
+        const url = getSafeCurrentPageUrl();
+        const copied = await copyToClipboard(url);
+        const tip = environment.isIOS ? '請貼到 Safari 開啟。' : '請貼到外部瀏覽器開啟。';
+        setExternalStatus(copied ? `已複製目前網址。${tip}` : `請手動複製此網址：${url}`, false);
+      });
     }
 
     // Android／其他瀏覽器（legacyButtonsHtml）才會有這兩個元素；iOS 版型

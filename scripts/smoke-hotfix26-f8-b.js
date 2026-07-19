@@ -50,7 +50,9 @@ async function main() {
 
   // ═══════════════ A. Messenger UI（結構檢查，沿用既有 F3/F6/F7 慣例）═══════════════
   const gateSrc = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'line-member-gate.js'), 'utf8');
-  assert(gateSrc.includes('lmgGoLineCheckoutBtn') && gateSrc.includes('💬 到 LINE 完成結帳'), 'A-1 主要按鈕為「到 LINE 完成結帳」');
+  // fix18-10-hotfix29：icon 與文字分成不同 <span>（icon+文字排版），不再是
+  // 同一段連續字串「💬 到 LINE 完成結帳」，改成分別檢查兩個部分都存在。
+  assert(gateSrc.includes('lmgGoLineCheckoutBtn') && gateSrc.includes('💬') && gateSrc.includes('到 LINE 完成結帳'), 'A-1 主要按鈕為「到 LINE 完成結帳」（hotfix29：icon 與文字分開排版）');
   assert(gateSrc.includes('lmgOtherLoginDetails') && gateSrc.includes('其他登入方式'), 'A-2 其他登入方式區塊存在');
   assert(gateSrc.includes('<details id="lmgOtherLoginDetails"'), 'A-3 其他登入方式預設收合（<details> 無 open 屬性）');
   assert(!/為了安全取得您的\s*LINE\s*會員資料/.test(gateSrc), 'A-4 不出現「為了安全取得您的 LINE 會員資料」文案');
