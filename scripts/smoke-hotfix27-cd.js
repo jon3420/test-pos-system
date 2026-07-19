@@ -107,7 +107,10 @@ async function main() {
   // 改成驗證「新設計」而不是舊的收合寫法。
   assert(!gateSrc.includes('lmgCantOpenDetails') && gateSrc.includes('Messenger 無法開啟 LINE'), '「無法開啟 LINE？」已改為永遠展開的區塊，不再是 <details> 收合（hotfix29 真機測試後的設計變更）');
   assert(gateSrc.includes('function prepareHandoff') && gateSrc.includes('(async () => {') && gateSrc.includes('await prepareHandoff()'), 'Token 於 Dialog 初始化時（IIFE）就開始建立，不是等點擊才建立');
-  assert(gateSrc.includes('goLineCheckoutBtn.href = result.lineOaMessageUrl') && gateSrc.includes("goLineCheckoutBtn.removeAttribute('aria-disabled')"), 'Token Promise resolve 後才設定 href 並移除 disabled 狀態');
+  // fix18-10-hotfix29-B：href 設定與 disabled 移除已收斂進 enableGoLineCheckoutBtn()
+  // helper（applyHandoffToUi 在 ready 狀態呼叫），行為不變（Token resolve 後才
+  // 設定 href／移除 disabled），只是不再是散落的行內程式碼。
+  assert(gateSrc.includes('function enableGoLineCheckoutBtn') && gateSrc.includes('goLineCheckoutBtn.href = href') && gateSrc.includes("goLineCheckoutBtn.removeAttribute('aria-disabled')") && gateSrc.includes('enableGoLineCheckoutBtn(result.lineOaMessageUrl)'), 'Token Promise resolve 後才設定 href 並移除 disabled 狀態（hotfix29-B 收斂進 enableGoLineCheckoutBtn）');
 
   // click handler 純淨度檢查：抓出 addEventListener('click', ...) 的 callback 本體，確認沒有 await/fetch/create
   const clickHandlerMatch = gateSrc.match(/goLineCheckoutBtn\.addEventListener\('click', \(ev\) => \{[\s\S]*?\n\s{6}\}\);/);
@@ -126,7 +129,10 @@ async function main() {
   assert(preventDefaultOutsideGuard.length === 0, 'click handler 沒有在 disabled-guard 以外的地方攔截原生連結行為', preventDefaultOutsideGuard.join('|'));
 
   // sessionStorage 只鎖自動開啟，不鎖手動點擊
-  assert(gateSrc.includes('autoLaunchAttempted || manualClicked') && gateSrc.includes('async function maybeAutoLaunch'), 'sessionStorage/旗標防重複邏輯只出現在 maybeAutoLaunch（自動開啟），不在 click handler 內');
+  // fix18-10-hotfix29-B：自動開啟函式改名為 scheduleAutoLaunch（狀態機化，
+  // 只有 handoffState==='ready' 才會被呼叫），sessionStorage/旗標防重複邏輯
+  // 依然只在這個函式內，不在 click handler 內。
+  assert(gateSrc.includes('autoLaunchAttempted || manualClicked') && gateSrc.includes('function scheduleAutoLaunch'), 'sessionStorage/旗標防重複邏輯只出現在 scheduleAutoLaunch（自動開啟），不在 click handler 內');
   assert(!clickHandlerBody.includes('sessionStorage') && !clickHandlerBody.includes('autoLaunchAttempted'), '手動 click handler 完全不檢查 session flag（不會被鎖住）');
   assert(clickHandlerBody.includes('manualClicked = true'), '手動點擊會設定 manualClicked，讓「還沒開始跑」的自動開啟提早放棄（不影響本次點擊）');
 

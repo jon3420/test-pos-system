@@ -14,6 +14,106 @@ function getSetting(db, storeId, key, def = '') {
   return row ? row.value : def;
 }
 
+// ── fix18-10-hotfix29-B（需求文件五）：Handoff 診斷回報端點 ───────────────
+// 簡易 in-memory rate limit（同一 store + IP），沿用 routes/line-member.js
+// 的既有手法，不新增共用模組。每 60 秒最多 30 次（診斷事件本來就該遠比
+// 一般 API 呼叫少，30 次已足夠涵蓋「開 Dialog → 重試 → fallback」整條流程）。
+const DIAG_RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const DIAG_RATE_LIMIT_MAX = 30;
+const diagRateBucket = new Map();
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of diagRateBucket.entries()) {
+    if (now - entry.windowStart > DIAG_RATE_LIMIT_WINDOW_MS) diagRateBucket.delete(key);
+  }
+}, 5 * 60 * 1000).unref?.();
+function checkDiagRateLimit(storeId, ip) {
+  const key = `${storeId}|${ip}`;
+  const now = Date.now();
+  let entry = diagRateBucket.get(key);
+  if (!entry || now - entry.windowStart > DIAG_RATE_LIMIT_WINDOW_MS) {
+    entry = { count: 0, windowStart: now };
+    diagRateBucket.set(key, entry);
+  }
+  entry.count += 1;
+  return entry.count <= DIAG_RATE_LIMIT_MAX;
+}
+
+// 需求文件三：合法階段名稱白名單，不接受任意字串（避免塞入無意義/超長資料）。
+const HANDOFF_DIAG_STAGES = new Set([
+  'dialog_opened', 'prepare_started', 'request_started', 'request_completed',
+  'response_parsed', 'response_validated', 'ui_applied', 'auto_launch_scheduled',
+  'auto_launch_attempted', 'fallback_entered', 'retry_started', 'retry_completed',
+]);
+// 需求文件七／十五：合法錯誤碼白名單，對應前端顯示用的 HOF-* 代碼。
+const HANDOFF_DIAG_ERROR_CODES = new Set([
+  'HANDOFF_TIMEOUT', 'HANDOFF_NETWORK', 'HANDOFF_HTTP_4XX', 'HANDOFF_HTTP_5XX',
+  'HANDOFF_INVALID_JSON', 'HANDOFF_MISSING_CART_CODE', 'HANDOFF_MISSING_LINE_URL',
+  'HANDOFF_UI_APPLY_FAILED', 'HANDOFF_EMPTY_CART', 'HANDOFF_UNKNOWN',
+]);
+const HANDOFF_DIAG_DEVICES = new Set(['iphone', 'android', 'other']);
+const HANDOFF_DIAG_BROWSERS = new Set(['messenger_webview', 'instagram_webview', 'line_liff', 'other']);
+
+function sanitizeDiagString(v, maxLen) {
+  if (typeof v !== 'string') return null;
+  const s = v.slice(0, maxLen).replace(/[^a-zA-Z0-9_\-]/g, '');
+  return s || null;
+}
+function sanitizeDiagInt(v, min, max) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return null;
+  const r = Math.trunc(n);
+  if (r < min || r > max) return null;
+  return r;
+}
+
+// POST /api/line-checkout-handoff/diagnostics
+// 需求文件五：payload 僅允許固定欄位，不接受 token／完整 UID／購物車內容／
+// 任意 object；診斷本身失敗絕不可拋出例外阻擋顧客結帳（呼叫端也是
+// fire-and-forget，這裡的 try/catch 是第二道保險）。
+router.post('/diagnostics', (req, res) => {
+  try {
+    const storeId = req.storeId;
+    const ip = req.ip || req.headers['x-forwarded-for'] || '';
+    if (!checkDiagRateLimit(storeId, ip)) {
+      // 需求文件五：不得影響結帳主流程，rate limit 也只回應本端點本身。
+      return res.status(429).json({ ok: false, reason: 'rate_limited' });
+    }
+
+    const body = (req.body && typeof req.body === 'object') ? req.body : {};
+    const stage = HANDOFF_DIAG_STAGES.has(body.stage) ? body.stage : 'unknown';
+    const attempt = sanitizeDiagInt(body.attempt, 1, 5) || 1;
+    const httpStatus = sanitizeDiagInt(body.http_status, 100, 599);
+    const errorCode = HANDOFF_DIAG_ERROR_CODES.has(body.error_code) ? body.error_code : null;
+    const hasCartCode = body.has_cart_code === true;
+    const hasLineOaMessageUrl = body.has_line_oa_message_url === true;
+    const fallbackReason = sanitizeDiagString(body.fallback_reason, 60);
+    const device = HANDOFF_DIAG_DEVICES.has(body.device) ? body.device : 'other';
+    const browser = HANDOFF_DIAG_BROWSERS.has(body.browser) ? body.browser : 'other';
+
+    try {
+      const db = getDb();
+      const { logServerEvent } = require('../utils/analyticsLog');
+      logServerEvent(db, {
+        store_id: storeId,
+        visitor_id: `handoff_diag_${storeId}`,
+        session_id: `handoff_diag_${storeId}_${Date.now()}`,
+        event_name: 'line_checkout_handoff_diagnostics',
+        metadata: {
+          stage, attempt, http_status: httpStatus, error_code: errorCode,
+          has_cart_code: hasCartCode, has_line_oa_message_url: hasLineOaMessageUrl,
+          fallback_reason: fallbackReason, device, browser,
+        },
+      });
+    } catch (e) { /* 診斷寫入失敗不得影響回應 */ }
+
+    res.json({ ok: true });
+  } catch (e) {
+    // 需求文件五：診斷 API 失敗不得阻擋顧客，一律回 200 讓前端 fire-and-forget 收尾。
+    res.json({ ok: false });
+  }
+});
+
 // 需求文件六：組出 https://line.me/R/oaMessage/{basic_id}/?{message}，訊息只放 cart_code。
 function buildOaMessageUrl(basicId, cartCode) {
   if (!basicId) return '';

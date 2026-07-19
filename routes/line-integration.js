@@ -367,4 +367,82 @@ router.get('/friend-sync-diagnostics', requireStaffJwt, (req, res) => {
   }
 });
 
+// ── fix18-10-hotfix29-B（需求文件十六）：Messenger Handoff 診斷 ──────────
+// 讀取來源：
+//   - line_checkout_handoff_diagnostics（前端各階段回報，見
+//     routes/line-checkout-handoff.js 的 /diagnostics 端點，已過白名單）
+//   - line_checkout_handoff_created（後端 /create 成功時寫入）
+// 不顯示完整 Cart Token／完整 Cart Code，只回傳統計數字與最近一筆的遮罩資訊。
+router.get('/handoff-diagnostics', requireStaffJwt, (req, res) => {
+  try {
+    const db = getDb();
+    const storeId = req.storeId;
+
+    const lastDiag = db.get(
+      `SELECT created_at, metadata_json FROM analytics_events
+       WHERE store_id=? AND event_name='line_checkout_handoff_diagnostics'
+       ORDER BY created_at DESC LIMIT 1`,
+      [storeId]
+    );
+    let lastMeta = {};
+    try { lastMeta = lastDiag ? JSON.parse(lastDiag.metadata_json || '{}') : {}; } catch (e) { lastMeta = {}; }
+
+    const lastSuccess = db.get(
+      `SELECT created_at FROM analytics_events
+       WHERE store_id=? AND event_name='line_checkout_handoff_diagnostics'
+         AND metadata_json LIKE '%"error_code":null%' AND metadata_json LIKE '%"stage":"ui_applied"%'
+       ORDER BY created_at DESC LIMIT 1`,
+      [storeId]
+    );
+    const lastFailure = db.get(
+      `SELECT created_at, metadata_json FROM analytics_events
+       WHERE store_id=? AND event_name='line_checkout_handoff_diagnostics'
+         AND metadata_json LIKE '%"stage":"fallback_entered"%'
+       ORDER BY created_at DESC LIMIT 1`,
+      [storeId]
+    );
+    let lastFailureMeta = {};
+    try { lastFailureMeta = lastFailure ? JSON.parse(lastFailure.metadata_json || '{}') : {}; } catch (e) {}
+
+    const sinceIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' ');
+    const rows24h = db.all(
+      `SELECT metadata_json FROM analytics_events
+       WHERE store_id=? AND event_name='line_checkout_handoff_diagnostics' AND created_at >= ?`,
+      [storeId, sinceIso]
+    ) || [];
+
+    let attempts24h = 0, success24h = 0, timeout24h = 0, missingCode24h = 0;
+    for (const row of rows24h) {
+      let m;
+      try { m = JSON.parse(row.metadata_json || '{}'); } catch (e) { continue; }
+      if (m.stage === 'request_started') attempts24h += 1;
+      if (m.stage === 'ui_applied' && !m.error_code) success24h += 1;
+      if (m.error_code === 'HANDOFF_TIMEOUT') timeout24h += 1;
+      if (m.error_code === 'HANDOFF_MISSING_CART_CODE') missingCode24h += 1;
+    }
+    const successRate24h = attempts24h > 0 ? Math.round((success24h / attempts24h) * 1000) / 10 : null;
+
+    res.json({
+      success: true,
+      data: {
+        last_success_at: lastSuccess ? lastSuccess.created_at : '',
+        last_failure_at: lastFailure ? lastFailure.created_at : '',
+        last_error_code: lastFailureMeta.error_code || '',
+        last_device: lastMeta.device || '',
+        last_browser: lastMeta.browser || '',
+        last_http_status: (lastMeta.http_status === undefined || lastMeta.http_status === null) ? null : lastMeta.http_status,
+        last_has_cart_code: !!lastMeta.has_cart_code,
+        last_has_line_oa_message_url: !!lastMeta.has_line_oa_message_url,
+        success_rate_24h: successRate24h,
+        timeout_count_24h: timeout24h,
+        missing_code_count_24h: missingCode24h,
+        attempts_24h: attempts24h,
+      },
+    });
+  } catch (e) {
+    console.error('[line-integration] GET /handoff-diagnostics error:', e.message);
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
 module.exports = router;

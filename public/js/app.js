@@ -2251,6 +2251,7 @@ async function loadLineIntegrationCenter() {
 
   loadLineIntegrationHealth();
   loadFriendSyncDiagnostics();
+  loadHandoffDiagnostics();
 }
 
 // fix18-10-hotfix28（需求文件十九）：好友同步診斷面板。API 失敗時只顯示
@@ -2281,6 +2282,33 @@ async function loadFriendSyncDiagnostics() {
       </div>`;
   } catch (e) {
     el.textContent = '好友同步診斷暫時無法載入';
+  }
+}
+
+// fix18-10-hotfix29-B（需求文件十六）：Messenger Handoff 診斷面板。API 失敗時
+// 只顯示「暫時無法載入」，不讓整頁崩潰、不顯示完整 Cart Token。
+async function loadHandoffDiagnostics() {
+  const el = document.getElementById('liHandoffDiag');
+  if (!el) return;
+  el.textContent = '載入中…';
+  try {
+    const res = await apiFetch('/api/line-integration/handoff-diagnostics');
+    const json = await res.json();
+    if (!json.success) { el.textContent = 'Messenger Handoff 診斷暫時無法載入'; return; }
+    const d = json.data;
+    const fmtTime = (t) => t ? formatTaipeiDateTime(t) : '—';
+    const rate = (d.success_rate_24h === null || d.success_rate_24h === undefined) ? '—' : `${d.success_rate_24h}%`;
+    el.innerHTML = `
+      <div class="li-diag-row">最近成功時間：${fmtTime(d.last_success_at)}</div>
+      <div class="li-diag-row">最近失敗時間：${fmtTime(d.last_failure_at)}${d.last_error_code ? '（錯誤代碼：' + escapeHtmlLi(d.last_error_code) + '）' : ''}</div>
+      <div class="li-diag-row">最近裝置類型：${d.last_device ? escapeHtmlLi(d.last_device) : '—'}　最近瀏覽器類型：${d.last_browser ? escapeHtmlLi(d.last_browser) : '—'}</div>
+      <div class="li-diag-row">最近 HTTP status：${d.last_http_status === null || d.last_http_status === undefined ? '—' : d.last_http_status}</div>
+      <div class="li-diag-row">最近是否取得 Cart Code：${d.last_has_cart_code ? '✅ 是' : '⚠️ 否'}　最近是否取得 LINE URL：${d.last_has_line_oa_message_url ? '✅ 是' : '⚠️ 否'}</div>
+      <div class="li-diag-row" style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.08)">
+        24 小時成功率：${rate}（共 ${d.attempts_24h} 次嘗試）　⏱️ Timeout：${d.timeout_count_24h}　❔ 缺 Cart Code：${d.missing_code_count_24h}
+      </div>`;
+  } catch (e) {
+    el.textContent = 'Messenger Handoff 診斷暫時無法載入';
   }
 }
 
@@ -2352,6 +2380,7 @@ async function liTestAction(kind) {
   } catch (e) { showToast('網路錯誤', 'error'); }
   loadLineIntegrationHealth();
   loadFriendSyncDiagnostics();
+  loadHandoffDiagnostics();
 }
 
 function liCopyField(elId) {

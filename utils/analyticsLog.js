@@ -87,6 +87,11 @@ const EVENT_WHITELIST = [
   'line_checkout_cart_restored',
   'line_checkout_handoff_expired',
   'line_checkout_handoff_consumed',
+  // fix18-10-hotfix29-B（需求文件三～五）：Messenger Handoff 階段診斷事件。
+  // 只允許由 routes/line-checkout-handoff.js 的 /diagnostics 端點寫入
+  // （該端點已對 payload 做過白名單過濾，不含 token／完整 UID／購物車內容），
+  // 供 LINE Integration Center 的「Messenger Handoff 診斷」面板讀取。
+  'line_checkout_handoff_diagnostics',
 ];
 
 const MAX_METADATA_BYTES = 4 * 1024; // 4KB
