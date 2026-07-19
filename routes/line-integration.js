@@ -17,6 +17,7 @@ const router = express.Router();
 const { getDb } = require('../utils/db');
 const { requireStaffJwt } = require('../middleware/storeGuard');
 const { fetchLineApi } = require('../utils/lineApiFetch');
+const { resolveAddFriendUrl } = require('../utils/lineCheckoutHandoff');
 
 function getSetting(db, storeId, key, def = '') {
   const row = db.get('SELECT value FROM settings WHERE store_id=? AND key=?', [storeId, key]);
@@ -40,7 +41,7 @@ function baseUrl(req) {
 function loadIntegrationConfig(db, storeId, req) {
   const s = (k, d = '') => getSetting(db, storeId, k, d);
   const officialBasicId = s('line_official_basic_id') || s('line_member_basic_id');
-  const addFriendUrl = s('line_add_friend_url') || s('line_member_add_friend_url');
+  const addFriendUrl = resolveAddFriendUrl({ line_add_friend_url: s('line_add_friend_url'), line_member_add_friend_url: s('line_member_add_friend_url') });
   const liffId = s('line_member_liff_id');
   const loginChannelId = s('line_member_login_channel_id');
   const messagingChannelId = s('line_messaging_channel_id');
@@ -378,14 +379,22 @@ router.get('/handoff-diagnostics', requireStaffJwt, (req, res) => {
     const db = getDb();
     const storeId = req.storeId;
 
-    const lastDiag = db.get(
+    // fix18-10-hotfix29-C Final（需求文件三／十一）：「最近狀態」一律從最近
+    // 一筆「終結事件」（ui_applied＝成功套用 UI，或 fallback_entered＝確定
+    // 失敗）讀取，不再用「不論哪個 stage 的最新一筆」——後者如果剛好抓到
+    // retry_started／request_started 這種欄位本來就稀疏的中間階段，會讓
+    // http_status／has_cart_code 等看起來永遠空白，即使同一次嘗試其實已經
+    //有完整結果。
+    const lastTerminal = db.get(
       `SELECT created_at, metadata_json FROM analytics_events
        WHERE store_id=? AND event_name='line_checkout_handoff_diagnostics'
+         AND (metadata_json LIKE '%"stage":"ui_applied"%' OR metadata_json LIKE '%"stage":"fallback_entered"%')
        ORDER BY created_at DESC LIMIT 1`,
       [storeId]
     );
     let lastMeta = {};
-    try { lastMeta = lastDiag ? JSON.parse(lastDiag.metadata_json || '{}') : {}; } catch (e) { lastMeta = {}; }
+    try { lastMeta = lastTerminal ? JSON.parse(lastTerminal.metadata_json || '{}') : {}; } catch (e) { lastMeta = {}; }
+    const lastWasSuccess = lastMeta.stage === 'ui_applied' && !lastMeta.error_code;
 
     const lastSuccess = db.get(
       `SELECT created_at FROM analytics_events
@@ -428,11 +437,17 @@ router.get('/handoff-diagnostics', requireStaffJwt, (req, res) => {
         last_success_at: lastSuccess ? lastSuccess.created_at : '',
         last_failure_at: lastFailure ? lastFailure.created_at : '',
         last_error_code: lastFailureMeta.error_code || '',
+        // 需求文件十一：以下全部來自同一筆「最近終結事件」，不再混用不同筆記錄。
         last_device: lastMeta.device || '',
         last_browser: lastMeta.browser || '',
         last_http_status: (lastMeta.http_status === undefined || lastMeta.http_status === null) ? null : lastMeta.http_status,
         last_has_cart_code: !!lastMeta.has_cart_code,
         last_has_line_oa_message_url: !!lastMeta.has_line_oa_message_url,
+        last_response_ok: lastMeta.response_ok === undefined ? null : !!lastMeta.response_ok,
+        last_ui_cart_count: (lastMeta.ui_cart_count === undefined || lastMeta.ui_cart_count === null) ? null : lastMeta.ui_cart_count,
+        last_payload_cart_count: (lastMeta.payload_cart_count === undefined || lastMeta.payload_cart_count === null) ? null : lastMeta.payload_cart_count,
+        last_has_add_friend_url: lastMeta.has_add_friend_url === undefined ? null : !!lastMeta.has_add_friend_url,
+        last_was_success: lastTerminal ? lastWasSuccess : null,
         success_rate_24h: successRate24h,
         timeout_count_24h: timeout24h,
         missing_code_count_24h: missingCode24h,

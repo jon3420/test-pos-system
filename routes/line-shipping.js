@@ -18,6 +18,7 @@ const { v4: uuidv4 } = require('uuid');
 const { logServerEvent, buildTrackingMetadata } = require('../utils/analyticsLog'); // fix18-10-hotfix23-A/D：Analytics Foundation + Ads Attribution
 const { touchMemberOnOrder, recordMemberPurchase } = require('../utils/lineMemberStats'); // fix18-10-hotfix23-E：LINE 會員入口
 const { verifyMemberSession } = require('../utils/lineMemberSession'); // fix18-10-hotfix23-E：安全 Member Session
+const { resolveAddFriendUrl } = require('../utils/lineCheckoutHandoff'); // fix18-10-hotfix29-C：加好友網址單一來源
 // hotfix22-C：冷藏宅配優惠券支援 — 直接共用既有優惠券引擎（routes/coupons.js），
 // 不重做驗證規則（期限／最低消費／每人次數上限／tenant 隔離皆沿用同一份邏輯），
 // 也不影響 routes/line-shipping.js 本來「不共用外帶/外送購物車與驗證流程」的獨立設計。
@@ -88,11 +89,20 @@ function getShippingSettings(db, storeId) {
     'line_member_login_channel_id', 'line_member_liff_id', 'line_member_return_url',
     'line_member_title', 'line_member_description', 'line_member_friend_button_text',
     'line_member_login_button_text', 'line_member_skip_button_text',
+    // fix18-10-hotfix29-C（需求文件三）：與 line-order 頁同一個修正——之前這裡
+    // 沒有讀取 line_add_friend_url，結帳頁永遠讀不到 LINE 整合中心設定的值。
+    'line_add_friend_url',
   ];
   const s = {};
   keys.forEach(k => { s[k] = getSetting(db, storeId, k, ''); });
   s.shipping_enabled            = s.shipping_enabled === '1';
   s.shipping_allow_arrival_date = s.shipping_allow_arrival_date !== '0';
+  // fix18-10-hotfix29-C（需求文件三／四）：與 line-order 頁同一個 resolveAddFriendUrl()，
+  // 確保兩個結帳入口拿到的是同一份正式來源。
+  s.add_friend_url = resolveAddFriendUrl({
+    line_add_friend_url: s.line_add_friend_url,
+    line_member_add_friend_url: s.line_member_add_friend_url,
+  });
   s.shipping_upsell_enabled     = s.shipping_upsell_enabled !== '0';
   s.shipping_fee                = Number(s.shipping_fee || 0) || 0;
   s.shipping_free_threshold     = Number(s.shipping_free_threshold || 0) || 0;

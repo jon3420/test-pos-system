@@ -2298,12 +2298,16 @@ async function loadHandoffDiagnostics() {
     const d = json.data;
     const fmtTime = (t) => t ? formatTaipeiDateTime(t) : '—';
     const rate = (d.success_rate_24h === null || d.success_rate_24h === undefined) ? '—' : `${d.success_rate_24h}%`;
+    const yn = (v) => v === null || v === undefined ? '—' : (v ? '✅ 是' : '⚠️ 否');
+    const cnt = (v) => v === null || v === undefined ? '—' : v;
     el.innerHTML = `
       <div class="li-diag-row">最近成功時間：${fmtTime(d.last_success_at)}</div>
       <div class="li-diag-row">最近失敗時間：${fmtTime(d.last_failure_at)}${d.last_error_code ? '（錯誤代碼：' + escapeHtmlLi(d.last_error_code) + '）' : ''}</div>
       <div class="li-diag-row">最近裝置類型：${d.last_device ? escapeHtmlLi(d.last_device) : '—'}　最近瀏覽器類型：${d.last_browser ? escapeHtmlLi(d.last_browser) : '—'}</div>
-      <div class="li-diag-row">最近 HTTP status：${d.last_http_status === null || d.last_http_status === undefined ? '—' : d.last_http_status}</div>
-      <div class="li-diag-row">最近是否取得 Cart Code：${d.last_has_cart_code ? '✅ 是' : '⚠️ 否'}　最近是否取得 LINE URL：${d.last_has_line_oa_message_url ? '✅ 是' : '⚠️ 否'}</div>
+      <div class="li-diag-row">最近 HTTP status：${d.last_http_status === null || d.last_http_status === undefined ? '—' : d.last_http_status}　最近 response ok：${yn(d.last_response_ok)}</div>
+      <div class="li-diag-row">最近是否取得 Cart Code：${yn(d.last_has_cart_code)}　最近是否取得 LINE URL：${yn(d.last_has_line_oa_message_url)}</div>
+      <div class="li-diag-row">最近 UI 購物車件數：${cnt(d.last_ui_cart_count)}　最近送出購物車件數：${cnt(d.last_payload_cart_count)}</div>
+      <div class="li-diag-row">最近是否有 add_friend_url：${yn(d.last_has_add_friend_url)}</div>
       <div class="li-diag-row" style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.08)">
         24 小時成功率：${rate}（共 ${d.attempts_24h} 次嘗試）　⏱️ Timeout：${d.timeout_count_24h}　❔ 缺 Cart Code：${d.missing_code_count_24h}
       </div>`;

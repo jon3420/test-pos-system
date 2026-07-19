@@ -817,19 +817,29 @@
   // 讀取既有 ORDER_CART_KEY（line-order.html 既有購物車 localStorage 機制，見
   // persistCart()），組成後端 /api/line-checkout-handoff/create 需要的
   // cart.items + checkout_context，不重寫購物車邏輯、不新增第二套購物車儲存。
-  // 非 line-order.html 頁面（無此 key）會安全回傳 null，呼叫端 fallback 到
-  // 舊有「嘗試使用 LINE 開啟」流程。
-  // ══════════════════════════════════════════════════════════════════
+  // 非 line-order.html 頁面（完全沒有這個 key）會安全回傳 null，呼叫端 fallback
+  // 到舊有「嘗試使用 LINE 開啟」流程。
+  //
+  // fix18-10-hotfix29-C（需求文件三／十）：原本「解析出 0 個有效商品」時也會
+  // 回傳 null，導致 createLineCheckoutHandoff() 直接在前端猜測是 empty_cart、
+  // 完全不呼叫 create API——後台診斷因此永遠看不到真正的 http_status（沒有
+  // 送出過請求，本來就不會有），也讓「使用者手機上明明看到購物車有商品，
+  // 但 Handoff 卻回報 empty_cart」這種矛盾無法被診斷出來。現在只有「完全沒有
+  // ORDER_CART_KEY 這個 key」（代表這個頁面根本沒有購物車機制）才回傳 null；
+  // key 存在但商品數為 0，一律照樣送到 create API，讓後端用同一套
+  // HANDOFF_EMPTY_CART 分類回應（真正的 http_status + error_code），不再由
+  // 前端自己短路猜測。
   function _readStoredCartForHandoff(storeId) {
     try {
       const raw = global.localStorage.getItem('line_order_cart_' + storeId);
-      if (!raw) return null;
+      if (!raw) return null; // 這個頁面完全沒有購物車機制，Handoff 不適用
       const data = JSON.parse(raw);
       if (!data || !data.cart || typeof data.cart !== 'object') return null;
       const items = Object.entries(data.cart)
         .map(([pid, qty]) => ({ product_id: Number(pid), qty: Number(qty) }))
         .filter(i => i.product_id && i.qty > 0);
-      if (!items.length) return null;
+      // 需求文件十：items 可能是空陣列（購物車真的是空的）——不在這裡短路，
+      // 讓 create API 用一致的錯誤分類回應，前端才能拿到真正的 http_status。
       let url;
       try { url = new URL(global.location.href); } catch (e) { url = null; }
       const attribution = {
@@ -855,6 +865,13 @@
           customer_phone: (data.customer && data.customer.phone) || '',
         },
         attribution,
+        // 需求文件三：安全前端診斷欄位（不含完整商品明細／電話／地址／token）。
+        _diag: {
+          cart_item_count: items.length,
+          has_store_id: !!storeId,
+          has_valid_product_id: items.every((i) => Number.isFinite(i.product_id) && i.product_id > 0),
+          has_positive_quantity: items.every((i) => Number.isFinite(i.qty) && i.qty > 0),
+        },
       };
     } catch (e) { return null; }
   }
@@ -888,6 +905,9 @@
       cartCode: r.cart_code || r.cartCode || null,
       lineOaMessageUrl: r.line_oa_message_url || r.lineOaMessageUrl || null,
       lineOaConfigured: !!(r.line_oa_configured !== undefined ? r.line_oa_configured : r.lineOaConfigured),
+      // fix18-10-hotfix29-C（需求文件九）：add_friend_url 一併 normalize，讓
+      // create API 的回應成為前端唯一的、最新鮮的 add_friend_url 來源。
+      addFriendUrl: r.add_friend_url || r.addFriendUrl || null,
       expiresAt: r.expires_at || r.expiresAt || null,
       errorCode: r.error_code || r.errorCode || null,
       message: r.message || null,
@@ -913,7 +933,13 @@
   // 需求文件八：只有這幾類錯誤可自動重試，最多重試一次（共兩次嘗試）。
   // store setting missing／Basic ID missing／invalid cart／empty cart／
   // HTTP 400／401／403 都不重試（重試也不會成功，只會拖長等待）。
-  const HANDOFF_RETRYABLE_CODES = { HANDOFF_TIMEOUT: 1, HANDOFF_NETWORK: 1, HANDOFF_HTTP_5XX: 1, HANDOFF_INVALID_JSON: 1 };
+  // 需求文件八：只有暫時性錯誤可重試——網路/timeout/5xx／DB 暫時失敗／內部
+  // 錯誤都可能只是瞬時問題；購物車資料本身有問題（empty/invalid/缺商品ID/
+  // 數量不合法）或 store 設定問題重試也不會變好，不重試。
+  const HANDOFF_RETRYABLE_CODES = {
+    HANDOFF_TIMEOUT: 1, HANDOFF_NETWORK: 1, HANDOFF_HTTP_5XX: 1, HANDOFF_INVALID_JSON: 1,
+    HANDOFF_CREATE_DB_FAILED: 1, HANDOFF_CREATE_INTERNAL_ERROR: 1,
+  };
   // 需求文件八／十一：獨立成小函式方便 smoke test 直接驗證分類規則，不用
   // 每次都跑一整輪 fetch mock。
   function shouldRetryHandoff(errorCode) { return !!HANDOFF_RETRYABLE_CODES[errorCode]; }
@@ -928,6 +954,18 @@
     HANDOFF_MISSING_CART_CODE: 'HOF-MISSING-CODE',
     HANDOFF_MISSING_LINE_URL: 'HOF-MISSING-URL',
     HANDOFF_UI_APPLY_FAILED: 'HOF-UI',
+    // fix18-10-hotfix29-C（需求文件五）：後端 create API 明確錯誤分類，對應
+    // 顯示碼，讓顧客回報的不再只是「HOF-UNKNOWN」。
+    HANDOFF_EMPTY_CART: 'HOF-EMPTY-CART',
+    HANDOFF_INVALID_CART: 'HOF-INVALID-CART',
+    HANDOFF_PRODUCT_ID_MISSING: 'HOF-BAD-PRODUCT',
+    HANDOFF_QUANTITY_INVALID: 'HOF-BAD-QTY',
+    HANDOFF_STORE_ID_MISSING: 'HOF-NO-STORE',
+    HANDOFF_STORE_NOT_FOUND: 'HOF-STORE-404',
+    HANDOFF_BASIC_ID_MISSING: 'HOF-NO-BASIC-ID',
+    HANDOFF_ADD_FRIEND_URL_MISSING: 'HOF-NO-ADD-FRIEND',
+    HANDOFF_CREATE_DB_FAILED: 'HOF-DB',
+    HANDOFF_CREATE_INTERNAL_ERROR: 'HOF-INTERNAL',
   };
   function handoffErrorCodeToDisplay(code) { return HANDOFF_ERROR_DISPLAY_MAP[code] || 'HOF-UNKNOWN'; }
 
@@ -958,13 +996,40 @@
   // errorCode 讓呼叫端能顯示需求文件十五的 HOF-* 代碼。
   async function createLineCheckoutHandoff(storeId, diagCtx) {
     const ctx = diagCtx || { device: 'other', browser: 'other' };
-    const report = (fields) => reportHandoffDiagnostics(storeId, Object.assign({ device: ctx.device, browser: ctx.browser }, fields));
 
     const payload = _readStoredCartForHandoff(storeId);
     if (!payload) {
-      report({ stage: 'request_started', attempt: 1, error_code: 'HANDOFF_EMPTY_CART', has_cart_code: false, has_line_oa_message_url: false });
-      return { ok: false, reason: 'empty_cart', errorCode: null }; // 空購物車不是「Handoff 失敗」，不顯示 HOF-* 代碼
+      // 需求文件三：這個頁面完全沒有 ORDER_CART_KEY（沒有購物車機制），Handoff
+      // 真的不適用，不送出任何請求——但仍回報一次診斷（帶真正的錯誤碼，不再是
+      // null），避免後台完全看不到發生過什麼（fix18-10-hotfix29-C 根因修正）。
+      reportHandoffDiagnostics(storeId, {
+        device: ctx.device, browser: ctx.browser,
+        stage: 'request_started', attempt: 1, error_code: 'HANDOFF_EMPTY_CART',
+        has_cart_code: false, has_line_oa_message_url: false, fallback_reason: 'no_cart_storage_key',
+        response_ok: false, ui_cart_count: 0, payload_cart_count: 0,
+        has_add_friend_url: !!ctx.hasAddFriendUrl,
+      });
+      return { ok: false, reason: 'empty_cart', errorCode: 'HANDOFF_EMPTY_CART', httpStatus: null, uiCartCount: 0, payloadCartCount: 0 };
     }
+
+    // 需求文件十：這個專案的購物車只有一份權威來源——line-order.html／
+    // line-shipping.html 的 in-memory cart 物件在每次變動時同步 persistCart()
+    // 寫入 localStorage（見 public/line-order.html persistCart()），
+    // _readStoredCartForHandoff() 讀的正是同一份資料，因此「畫面顯示的購物車
+    // 件數」與「送進 create API 的件數」在這個架構下永遠是同一個數字，不存在
+    // 兩個分岔來源。這裡誠實回報同一個數字給 ui_cart_count／payload_cart_count
+    // （不偽造一個不會發生的「不一致」），HANDOFF_CART_SNAPSHOT_MISMATCH 這個
+    // 錯誤碼已加入白名單，保留給未來若真的出現第二個購物車來源時使用。
+    const diagCartCount = (payload._diag && payload._diag.cart_item_count) || 0;
+    // 需求文件三：只送 create API 需要的欄位，_diag 是純前端安全診斷用途，
+    // 不隨 payload 送出（不送完整商品明細以外的東西，也不重複塞進 request body）。
+    const requestPayload = { cart: payload.cart, checkout_context: payload.checkout_context, attribution: payload.attribution };
+
+    const report = (fields) => reportHandoffDiagnostics(storeId, Object.assign({
+      device: ctx.device, browser: ctx.browser,
+      ui_cart_count: diagCartCount, payload_cart_count: diagCartCount,
+      has_add_friend_url: !!ctx.hasAddFriendUrl,
+    }, fields));
 
     let lastResult = null;
     for (let attempt = 1; attempt <= 2; attempt++) {
@@ -982,60 +1047,83 @@
         resp = await fetchWithTimeout(`/api/line-checkout-handoff/create?store_id=${encodeURIComponent(storeId)}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
+          body: JSON.stringify(requestPayload),
         }, 8000);
         httpStatus = resp.status;
       } catch (e) {
+        // 需求文件二／三：這個 catch 分支代表 fetch 真的沒有拿到任何 HTTP
+        // response（timeout 被 AbortController 中止，或連線層網路錯誤）——
+        // 這是「HTTP status 為 - 」唯一合理、誠實的情況（可能①②），一定要
+        // 明確標記 response_ok:false，不能讓這筆記錄的其他欄位看起來像是
+        // 「正常收到回應但缺欄位」（那才是可能③：reportDiagnostics 沒帶好）。
         const errorCode = (e && e.name === 'AbortError') ? 'HANDOFF_TIMEOUT' : 'HANDOFF_NETWORK';
         _handoffLog('request_completed', { attempt, error_code: errorCode });
-        report({ stage: 'request_completed', attempt, error_code: errorCode, has_cart_code: false, has_line_oa_message_url: false });
-        lastResult = { ok: false, reason: errorCode === 'HANDOFF_TIMEOUT' ? 'timeout' : 'network_error', errorCode };
+        report({ stage: 'request_completed', attempt, error_code: errorCode, http_status: null, response_ok: false, has_cart_code: false, has_line_oa_message_url: false });
+        lastResult = { ok: false, reason: errorCode === 'HANDOFF_TIMEOUT' ? 'timeout' : 'network_error', errorCode, httpStatus: null, uiCartCount: diagCartCount, payloadCartCount: diagCartCount };
         if (shouldRetryHandoff(errorCode) && attempt < 2) continue;
         break;
       }
 
+      // 需求文件二：這裡代表 fetch 真的送出去、也真的收到 HTTP response 了
+      // （排除了①②）——response_received 階段，httpStatus 從此以後在這次
+      // attempt 的每一筆 report() 都會帶著，不會再變成 null／"-"。
       _handoffLog('request_completed', { attempt, http_status: httpStatus });
-      report({ stage: 'request_completed', attempt, http_status: httpStatus });
+      report({ stage: 'request_completed', attempt, http_status: httpStatus, response_ok: resp.ok });
 
-      if (!resp.ok) {
-        const errorCode = httpStatus >= 500 ? 'HANDOFF_HTTP_5XX' : 'HANDOFF_HTTP_4XX';
-        report({ stage: 'response_validated', attempt, http_status: httpStatus, error_code: errorCode, has_cart_code: false, has_line_oa_message_url: false });
-        lastResult = { ok: false, reason: 'create_failed', errorCode };
-        if (shouldRetryHandoff(errorCode) && attempt < 2) continue;
-        break;
-      }
-
+      // 需求文件九：不論 HTTP 狀態碼是否為 2xx，後端一律回 JSON body（含
+      // error_code／message，見 routes/line-checkout-handoff.js），一律先嘗試
+      // 解析，不再只憑 http status 猜錯誤碼。
       let raw = null;
-      try {
-        raw = await resp.json();
-      } catch (e) {
+      let parseFailed = false;
+      try { raw = await resp.json(); } catch (e) { parseFailed = true; }
+
+      if (parseFailed) {
         _handoffLog('response_parsed', { attempt, error_code: 'HANDOFF_INVALID_JSON' });
-        report({ stage: 'response_validated', attempt, http_status: httpStatus, error_code: 'HANDOFF_INVALID_JSON', has_cart_code: false, has_line_oa_message_url: false });
-        lastResult = { ok: false, reason: 'invalid_json', errorCode: 'HANDOFF_INVALID_JSON' };
+        report({ stage: 'response_parsed', attempt, http_status: httpStatus, response_ok: false, error_code: 'HANDOFF_INVALID_JSON', has_cart_code: false, has_line_oa_message_url: false });
+        lastResult = { ok: false, reason: 'invalid_json', errorCode: 'HANDOFF_INVALID_JSON', httpStatus, uiCartCount: diagCartCount, payloadCartCount: diagCartCount };
         if (attempt < 2) continue;
         break;
       }
 
       const normalized = normalizeHandoffResponse(raw);
       _handoffLog('response_parsed', { attempt, has_cart_code: !!normalized.cartCode });
+      // 需求文件二：response_parsed 階段本身也上報一次（之前只有 console log，
+      // 從未送到後端），確保五個階段 request_started／request_completed
+      // （＝request_sent+response_received）／response_parsed／response_validated
+      // 在後台都能看到，不再「中間憑空消失」。
+      report({ stage: 'response_parsed', attempt, http_status: httpStatus, response_ok: resp.ok, has_cart_code: !!normalized.cartCode, has_line_oa_message_url: !!normalized.lineOaMessageUrl });
 
-      if (!normalized.ok) {
-        // 後端明確回 ok:false（例如購物車驗證失敗）不是暫時性錯誤，不重試。
-        report({ stage: 'response_validated', attempt, http_status: httpStatus, error_code: 'HANDOFF_UNKNOWN', has_cart_code: false, has_line_oa_message_url: false });
-        lastResult = { ok: false, reason: normalized.message || 'create_failed', errorCode: 'HANDOFF_UNKNOWN' };
+      if (!resp.ok || !normalized.ok) {
+        // 需求文件九：優先用後端明確給的 error_code（例如 HANDOFF_EMPTY_CART／
+        // HANDOFF_INVALID_CART），只有後端真的沒給時才退回用 HTTP 狀態碼粗略
+        // 分類——這是本版修正「後台永遠只看到 HOF-UNKNOWN／全部空白」的根因。
+        const errorCode = normalized.errorCode || (httpStatus >= 500 ? 'HANDOFF_HTTP_5XX' : 'HANDOFF_HTTP_4XX');
+        report({ stage: 'response_validated', attempt, http_status: httpStatus, response_ok: false, error_code: errorCode, has_cart_code: false, has_line_oa_message_url: false, fallback_reason: normalized.message ? 'server_message' : null });
+        lastResult = { ok: false, reason: normalized.message || 'create_failed', errorCode, httpStatus, uiCartCount: diagCartCount, payloadCartCount: diagCartCount };
+        if (shouldRetryHandoff(errorCode) && attempt < 2) continue;
         break;
       }
       if (!normalized.cartCode) {
-        report({ stage: 'response_validated', attempt, http_status: httpStatus, error_code: 'HANDOFF_MISSING_CART_CODE', has_cart_code: false, has_line_oa_message_url: !!normalized.lineOaMessageUrl });
-        lastResult = { ok: false, reason: 'missing_cart_code', errorCode: 'HANDOFF_MISSING_CART_CODE' };
+        report({ stage: 'response_validated', attempt, http_status: httpStatus, response_ok: true, error_code: 'HANDOFF_MISSING_CART_CODE', has_cart_code: false, has_line_oa_message_url: !!normalized.lineOaMessageUrl });
+        lastResult = { ok: false, reason: 'missing_cart_code', errorCode: 'HANDOFF_MISSING_CART_CODE', httpStatus, uiCartCount: diagCartCount, payloadCartCount: diagCartCount };
         break;
       }
 
-      report({ stage: 'response_validated', attempt, http_status: httpStatus, has_cart_code: true, has_line_oa_message_url: !!normalized.lineOaMessageUrl });
-      return { ok: true, cartCode: normalized.cartCode, lineOaMessageUrl: normalized.lineOaMessageUrl, lineOaConfigured: normalized.lineOaConfigured };
+      report({ stage: 'response_validated', attempt, http_status: httpStatus, response_ok: true, has_cart_code: true, has_line_oa_message_url: !!normalized.lineOaMessageUrl });
+      // 需求文件九：addFriendUrl 一併帶回——這是後端用同一套 resolveAddFriendUrl()
+      // 解析出來的正式值，取代前端舊有只讀 config.add_friend_url（可能來自
+      // 另一個舊欄位）的做法，修正「後台明明有設定，畫面卻顯示未設定」。
+      return {
+        ok: true,
+        cartCode: normalized.cartCode,
+        lineOaMessageUrl: normalized.lineOaMessageUrl,
+        lineOaConfigured: normalized.lineOaConfigured,
+        addFriendUrl: normalized.addFriendUrl,
+        httpStatus, uiCartCount: diagCartCount, payloadCartCount: diagCartCount,
+      };
     }
 
-    return lastResult || { ok: false, reason: 'create_failed', errorCode: 'HANDOFF_UNKNOWN' };
+    return lastResult || { ok: false, reason: 'create_failed', errorCode: 'HANDOFF_UNKNOWN', httpStatus: null, uiCartCount: diagCartCount, payloadCartCount: diagCartCount };
   }
 
   async function copyToClipboard(text) {
@@ -1332,7 +1420,7 @@
       if (goLineCheckoutBtn) {
         const goLineCheckoutBtnText = externalGuideEl.querySelector('#lmgGoLineCheckoutBtnText');
         if (goLineCheckoutBtnText) goLineCheckoutBtnText.textContent = '➕ 加入官方 LINE';
-        const addFriendUrl = (config && config.add_friend_url) || '';
+        const addFriendUrl = resolvedAddFriendUrl || (config && config.add_friend_url) || '';
         if (addFriendUrl) {
           goLineCheckoutBtn.href = addFriendUrl;
           goLineCheckoutBtn.removeAttribute('aria-disabled');
@@ -1344,10 +1432,29 @@
       setExternalStatus('請加入官方 LINE，並將結帳代碼貼到聊天室即可繼續完成結帳。', false);
     }
 
+    // fix18-10-hotfix29-C（需求文件十二）：setExternalStatus() 會把每個 '<' 都
+    // escape 掉（避免任何動態／伺服器文字被誤判成 HTML），這對一般文字是對的，
+    // 但也代表它不能拿來顯示我們自己寫的 <br> 換行——那樣 <br> 會變成畫面上的
+    // 逐字文字（真機截圖就是這個症狀）。這個 helper 只能傳入「完全固定、不含
+    // 任何動態內插」的程式碼字串（方式 A），絕不可用來顯示使用者輸入或後端
+    // 回傳訊息——那些必須繼續走 setExternalStatus() 的 escaping。
+    function setExternalStatusFixedHtml(fixedHtml) {
+      const el = externalGuideEl.querySelector('#lmgExternalStatus');
+      if (!el) return;
+      el.innerHTML = fixedHtml;
+    }
+
     // 需求文件十：Handoff 兩次建立都失敗時的官方 LINE 引導文案——沒有可用
     // Token 時不得宣稱「購物車已保留，可直接繼續結帳」。
     function showHandoffFailedGuideText() {
-      setExternalStatus('暫時無法建立本次結帳代碼。<br><br>請先加入官方 LINE，<br>再從 LINE 圖文選單重新進入線上點餐。', false);
+      setExternalStatusFixedHtml('暫時無法建立本次結帳代碼。<br><br>請先加入官方 LINE，<br>再從 LINE 圖文選單重新進入線上點餐。');
+    }
+
+    // 需求文件十三：若確認真的沒有 add_friend_url（後端 resolveAddFriendUrl()
+    // 兩個來源都是空的），不得再顯示會誤導的「商家尚未設定加入好友網址」小提示
+    // 而已——要整個停用「立即開啟 LINE 官方帳號」按鈕，並給更明確的說明。
+    function showAddFriendUrlTrulyMissingGuide() {
+      setExternalStatusFixedHtml('商家尚未完成官方 LINE 加入好友網址設定。<br><br>請聯絡商家協助完成訂購。');
     }
 
     // 需求文件十五：偵測「使用者是否真的離開了這個分頁」（切去 LINE），
@@ -1368,6 +1475,52 @@
         const payload = new Blob([JSON.stringify({ event_name: eventName, ...(extra || {}) })], { type: 'application/json' });
         global.navigator.sendBeacon(`/api/analytics/events?store_id=${encodeURIComponent(storeId)}`, payload);
       } catch (e) { /* Analytics 失敗不影響主流程 */ }
+    }
+
+    // 需求文件四／六／九／十三：「立即開啟 LINE 官方帳號」——真機測試證實這個
+    // 純加好友連結（不是 oaMessage 連結）在 Messenger WebView 的成功率最高。
+    // fix18-10-hotfix29-C：href 來源不再只認 config.add_friend_url（那是舊有
+    // line-order.html 設定管道，可能是另一個已經沒在用的欄位）——一開始先用
+    // config 裡的值頂著，但 create API 回應帶回 add_friend_url（後端
+    // resolveAddFriendUrl() 解析出來的正式值）之後，會用同一個函式覆蓋成
+    // 最新鮮的值，兩者共用同一個 click handler，不重複綁定。
+    //
+    // fix18-10-hotfix29-C Final：這個宣告必須放在下面的狀態機 IIFE 之前——
+    // IIFE 會同步呼叫 prepareHandoff()，而 prepareHandoff() 在第一個 await
+    // 之前就會同步讀取 resolvedAddFriendUrl，若宣告寫在 IIFE 後面，會在真實
+    // 瀏覽器與 Node 測試環境兩邊都直接丟出「Cannot access before
+    // initialization」的 TDZ 例外，讓整個 Dialog 初始化中斷（真機上會表現成
+    // 「Messenger Dialog 完全沒有反應」）。
+    const openOaBtn = externalGuideEl.querySelector('#lmgOpenOaBtn');
+    let resolvedAddFriendUrl = (config && config.add_friend_url) || '';
+
+    function applyAddFriendUrlToOpenOaBtn() {
+      if (!openOaBtn) return;
+      if (resolvedAddFriendUrl) {
+        openOaBtn.href = resolvedAddFriendUrl;
+        openOaBtn.removeAttribute('aria-disabled');
+        openOaBtn.style.opacity = '';
+        openOaBtn.style.pointerEvents = '';
+      } else {
+        openOaBtn.href = '#';
+        openOaBtn.setAttribute('aria-disabled', 'true');
+        openOaBtn.style.opacity = '.55';
+        openOaBtn.style.pointerEvents = 'none';
+      }
+    }
+
+    if (openOaBtn) {
+      applyAddFriendUrlToOpenOaBtn();
+      openOaBtn.addEventListener('click', (ev) => {
+        if (!resolvedAddFriendUrl) {
+          // 需求文件十三：真的沒有設定時整個停用（pointer-events:none 已擋大部分
+          // 情況），這裡是鍵盤操作等邊界情況的最後一道防線，不誤導成「請改用複製代碼」。
+          ev.preventDefault();
+          showAddFriendUrlTrulyMissingGuide();
+          return;
+        }
+        sendBeaconEvent('line_login_open_line_clicked', { trigger: 'open_oa_button' });
+      });
     }
 
     // ══════════════════════════════════════════════════════════════════
@@ -1400,6 +1553,12 @@
     // 需求文件四：ready——啟用複製/到LINE按鈕、設定真正的 <a href>、清除錯誤碼
     // 與 failed 文案，保留 Hotfix29 既有 UI（官方 LINE 大按鈕維持原順位規則）。
     function applyHandoffToUi(result) {
+      // fix18-10-hotfix29-C（需求文件九）：create API 回應是 add_friend_url
+      // 最新鮮的來源，只要有給值就採用並重新套用到按鈕（同一函式，不重複綁定）。
+      if (result && result.addFriendUrl) {
+        resolvedAddFriendUrl = result.addFriendUrl;
+        applyAddFriendUrlToOpenOaBtn();
+      }
       showHandoffErrorCode(null);
       const regenBtn = externalGuideEl.querySelector('#lmgRegenerateTokenBtn');
       if (regenBtn) regenBtn.style.display = 'none';
@@ -1418,13 +1577,23 @@
     // 需求文件四／十五：failed——清空舊 Cart Code、停用複製/到LINE按鈕、
     // 顯示 HOF-* 錯誤碼、啟用「立即開啟 LINE 官方帳號」與「重新產生結帳代碼」。
     function applyHandoffFailureToUi(result) {
+      if (result && result.addFriendUrl) {
+        resolvedAddFriendUrl = result.addFriendUrl;
+        applyAddFriendUrlToOpenOaBtn();
+      }
       hideCartCode();
       setCopyButtonEnabled(false);
       disableGoLineCheckoutBtn();
       showHandoffErrorCode(result && result.errorCode ? result.errorCode : null);
       const regenBtn = externalGuideEl.querySelector('#lmgRegenerateTokenBtn');
       if (regenBtn) regenBtn.style.display = 'block';
-      showHandoffFailedGuideText();
+      // 需求文件十三：Handoff 失敗時，若確認兩個來源都真的沒有 add_friend_url，
+      // 顯示更明確的「請聯絡商家」文案，而不是誤導性的一般失敗訊息。
+      if (!resolvedAddFriendUrl) {
+        showAddFriendUrlTrulyMissingGuide();
+      } else {
+        showHandoffFailedGuideText();
+      }
     }
 
     // 需求文件二：idle/failed → preparing → createLineCheckoutHandoff() →
@@ -1437,7 +1606,10 @@
       _handoffLog('prepare_started', { attempt: requestId });
       reportHandoffDiagnostics(storeId, Object.assign({ stage: 'prepare_started' }, handoffDiagCtx));
 
-      const result = await createLineCheckoutHandoff(storeId, handoffDiagCtx);
+      // 需求文件一：has_add_friend_url 一律用目前已知最新鮮的 resolvedAddFriendUrl
+      // （create API 回應會再更新它，但呼叫當下先用現有值），讓每一筆 report()
+      // 都能帶著這個欄位，不再是 null。
+      const result = await createLineCheckoutHandoff(storeId, Object.assign({ hasAddFriendUrl: !!resolvedAddFriendUrl }, handoffDiagCtx));
 
       // 需求文件三：Race Condition 防護——舊請求（例如第一次逾時很晚才回來）
       // 不得覆蓋「重新產生結帳代碼」之後的新結果。
@@ -1451,17 +1623,41 @@
         currentHandoff = result;
         setHandoffState('ready');
         _handoffLog('ui_applied', { has_cart_code: true });
+        // 需求文件二：這裡之前只有 console log（_handoffLog），從未真正回報給
+        // 後端——Integration Center「最近成功時間」的查詢條件是
+        // stage='ui_applied' AND error_code IS NULL，缺了這筆事件，該查詢
+        // 永遠找不到資料，導致成功後台也顯示不出正確狀態。
+        reportHandoffDiagnostics(storeId, Object.assign({
+          stage: 'ui_applied', error_code: null, fallback_reason: null,
+          has_cart_code: true, has_line_oa_message_url: !!result.lineOaMessageUrl,
+          response_ok: true,
+          http_status: (result.httpStatus === undefined ? null : result.httpStatus),
+          ui_cart_count: (result.uiCartCount === undefined ? null : result.uiCartCount),
+          payload_cart_count: (result.payloadCartCount === undefined ? null : result.payloadCartCount),
+          has_add_friend_url: !!(result.addFriendUrl || resolvedAddFriendUrl),
+        }, handoffDiagCtx));
         applyHandoffToUi(result);
       } else {
         currentHandoff = null;
         setHandoffState('failed');
         _handoffLog('ui_applied', { error_code: result && result.errorCode });
+        // 需求文件一／三：這筆 fallback_entered 診斷是 Integration Center「最近
+        // 失敗時間／最近錯誤碼／最近 HTTP status」直接讀取的來源——之前這裡
+        // 完全沒有帶 http_status／response_ok／ui_cart_count／payload_cart_count，
+        // 即使 createLineCheckoutHandoff() 內部其實已經知道真正的 http_status，
+        // 也從未傳到這裡，才會讓後台永遠顯示「HTTP status: -」。現在一律從
+        // result 帶出來（result 本身在每個失敗分支都已經附上這些欄位）。
         reportHandoffDiagnostics(storeId, Object.assign({
           stage: 'fallback_entered',
           error_code: (result && result.errorCode) || null,
           fallback_reason: (result && result.reason) || 'handoff_failed',
           has_cart_code: false,
           has_line_oa_message_url: false,
+          response_ok: false,
+          http_status: (result && result.httpStatus !== undefined) ? result.httpStatus : null,
+          ui_cart_count: (result && result.uiCartCount !== undefined) ? result.uiCartCount : null,
+          payload_cart_count: (result && result.payloadCartCount !== undefined) ? result.payloadCartCount : null,
+          has_add_friend_url: !!resolvedAddFriendUrl,
         }, handoffDiagCtx));
         applyHandoffFailureToUi(result);
         scheduleAddFriendFallback(requestId);
@@ -1515,8 +1711,10 @@
     // 且執行前必須再次確認仍然是 failed，避免使用者這段時間內已經按了
     // 「重新產生結帳代碼」成功轉為 ready。
     function scheduleAddFriendFallback(requestIdAtFailure) {
-      const addFriendUrl = (config && config.add_friend_url) || '';
-      if (!addFriendUrl) return;
+      // 需求文件一：統一用 resolvedAddFriendUrl（create API 回應優先，config
+      // 只是初值），不再散落多個來源各自判斷。
+      const targetUrl = resolvedAddFriendUrl || (config && config.add_friend_url) || '';
+      if (!targetUrl) return;
       const attemptKey = `line_add_friend_fallback:${storeId}:${requestIdAtFailure}`;
       let already = false;
       try { already = global.sessionStorage.getItem(attemptKey) === '1'; } catch (e) {}
@@ -1525,7 +1723,7 @@
         if (!externalGuideVisible || handoffState !== 'failed' || requestIdAtFailure !== handoffRequestId) return;
         try { global.sessionStorage.setItem(attemptKey, '1'); } catch (e) {}
         _handoffLog('auto_launch_attempted', { fallback_reason: 'add_friend_fallback' });
-        try { global.location.assign(addFriendUrl); } catch (e) { /* 保留手動大按鈕 */ }
+        try { global.location.assign(targetUrl); } catch (e) { /* 保留手動大按鈕 */ }
       }, 1000);
     }
 
@@ -1570,22 +1768,6 @@
           regenerateBtn.disabled = false;
         }
       });
-    }
-
-    // 需求文件四／六：「立即開啟 LINE 官方帳號」——真機測試證實這個純加好友
-    // 連結（不是 oaMessage 連結）在 Messenger WebView 的成功率最高，所以直接
-    // 給它一個真正的 <a href>（原生連結，保留使用者手勢），不透過 JS 導頁。
-    const openOaBtn = externalGuideEl.querySelector('#lmgOpenOaBtn');
-    if (openOaBtn) {
-      const addFriendUrl = (config && config.add_friend_url) || '';
-      if (addFriendUrl) {
-        openOaBtn.href = addFriendUrl;
-        openOaBtn.addEventListener('click', () => {
-          sendBeaconEvent('line_login_open_line_clicked', { trigger: 'open_oa_button' });
-        });
-      } else {
-        openOaBtn.addEventListener('click', (ev) => { ev.preventDefault(); setExternalStatus('商家尚未設定加入好友網址，請改用「複製結帳代碼」。', false); });
-      }
     }
 
     // 需求文件十一：「在 Safari 開啟／在外部瀏覽器開啟」——複製目前網址，

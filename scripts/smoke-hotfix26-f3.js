@@ -31,9 +31,15 @@ function makeFakeElement(idRegistry) {
   const listeners = {};
   const el = {
     style: {}, disabled: false, textContent: '', _html: '', children: {}, parentNode: null,
+    attrs: {},
     addEventListener(type, fn) { (listeners[type] = listeners[type] || []).push(fn); },
     dispatchClick() { (listeners.click || []).forEach((fn) => fn()); },
     querySelector(sel) { if (sel[0] === '#') return el.children[sel.slice(1)] || null; return null; },
+    // fix18-10-hotfix29-C：openOaBtn 的 aria-disabled 切換需要這三個方法
+    // （其他較新的 smoke test 已經有，這個較舊、獨立的 mock 補上同一套實作）。
+    setAttribute(k, v) { el.attrs[k] = v; },
+    getAttribute(k) { return el.attrs[k]; },
+    removeAttribute(k) { delete el.attrs[k]; },
   };
   Object.defineProperty(el, 'innerHTML', {
     get() { return el._html; },

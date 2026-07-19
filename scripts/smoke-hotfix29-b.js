@@ -395,7 +395,10 @@ async function main() {
       let parsed = null;
       try { parsed = JSON.parse(c.body); } catch (e) {}
       assert(!!parsed, '每一筆診斷 payload 都是合法 JSON');
-      const allowedKeys = ['stage', 'attempt', 'http_status', 'error_code', 'has_cart_code', 'has_line_oa_message_url', 'fallback_reason', 'device', 'browser'];
+      // fix18-10-hotfix29-C：診斷 payload 白名單擴充（ui_cart_count／
+      // payload_cart_count／has_add_friend_url／response_ok），這裡同步更新
+      // 測試預期欄位，不代表白名單本身變寬鬆（後端仍逐一驗證型別／範圍）。
+      const allowedKeys = ['stage', 'attempt', 'http_status', 'error_code', 'has_cart_code', 'has_line_oa_message_url', 'fallback_reason', 'device', 'browser', 'ui_cart_count', 'payload_cart_count', 'has_add_friend_url', 'response_ok'];
       const extraKeys = parsed ? Object.keys(parsed).filter((k) => !allowedKeys.includes(k)) : [];
       assert(extraKeys.length === 0, '診斷 payload 只含白名單欄位', extraKeys.join(','));
     }
@@ -548,6 +551,28 @@ async function runBackendTests() {
 
   // integration center 聚合端點：直接呼叫 handler，確認查詢語法正確且回傳遮罩後資料。
   {
+    // fix18-10-hotfix29-C（需求文件四）：「最近狀態」只能從 terminal event
+    // （ui_applied／fallback_entered）讀取，不能從中途事件（request_completed
+    // 等）讀取——上面那筆 request_completed 診斷故意不該被當成「最近狀態」，
+    // 這裡額外送一筆 fallback_entered 終結事件，驗證 Integration Center
+    // 確實是從這筆（而不是更早的 request_completed）取得 last_device／
+    // last_browser／last_http_status 等欄位。
+    const db = require('../utils/db').getDb();
+    const { logServerEvent } = require('../utils/analyticsLog');
+    logServerEvent(db, {
+      store_id: 'smoke_diag_store',
+      visitor_id: 'handoff_diag_smoke_diag_store',
+      session_id: 'handoff_diag_smoke_diag_store_terminal',
+      event_name: 'line_checkout_handoff_diagnostics',
+      metadata: {
+        stage: 'fallback_entered', attempt: 2, http_status: 400, error_code: 'HANDOFF_EMPTY_CART',
+        has_cart_code: false, has_line_oa_message_url: false, fallback_reason: 'empty_cart',
+        device: 'iphone', browser: 'messenger_webview',
+        ui_cart_count: 1, payload_cart_count: 1, has_add_friend_url: true, response_ok: false,
+      },
+    });
+  }
+  {
     const integrationRouter = require('../routes/line-integration');
     const layer = integrationRouter.stack.find((l) => l.route && l.route.path === '/handoff-diagnostics');
     assert(!!layer, '找得到 GET /handoff-diagnostics route handler 可供直接測試');
@@ -562,7 +587,12 @@ async function runBackendTests() {
       if (res._json && res._json.data) {
         const data = res._json.data;
         assert(!('cart_token' in data) && !('full_token' in data), 'Integration Center 回應不含完整 Cart Token');
-        assert(data.last_device === 'iphone' && data.last_browser === 'messenger_webview', 'Integration Center 正確回報最近裝置類型／瀏覽器類型', JSON.stringify(data));
+        assert(data.last_device === 'iphone' && data.last_browser === 'messenger_webview', 'Integration Center 正確回報最近裝置類型／瀏覽器類型（來自 fallback_entered 終結事件，不是更早的 request_completed）', JSON.stringify(data));
+        assert(data.last_http_status === 400, 'Integration Center：last_http_status 來自終結事件，不是 null（fix18-10-hotfix29-C 根因修正）', JSON.stringify(data));
+        assert(data.last_error_code === 'HANDOFF_EMPTY_CART', 'Integration Center：last_error_code 正確', JSON.stringify(data));
+        assert(data.last_ui_cart_count === 1 && data.last_payload_cart_count === 1, 'Integration Center：last_ui_cart_count／last_payload_cart_count 有值', JSON.stringify(data));
+        assert(data.last_has_add_friend_url === true, 'Integration Center：last_has_add_friend_url 有值', JSON.stringify(data));
+        assert(data.last_response_ok === false, 'Integration Center：last_response_ok 明確為 false', JSON.stringify(data));
       }
     }
   }

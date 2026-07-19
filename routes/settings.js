@@ -10,6 +10,7 @@ const { getStoreLicense }  = require('../middleware/featureGate');
 const { validateLineMemberReturnUrl } = require('../utils/returnUrlValidator');
 // fix18-10-hotfix26-F7：same_as_store 預設值推斷邏輯與 utils/pickupLocation.js 共用一份
 const { resolveSameAsStoreFlag } = require('../utils/pickupLocation');
+const { resolveAddFriendUrl } = require('../utils/lineCheckoutHandoff'); // fix18-10-hotfix29-C：加好友網址單一來源
 
 // LINE 相關設定 key — line_order=false 時不可修改
 const LINE_KEYS = new Set([
@@ -298,6 +299,21 @@ router.put('/', (req, res) => {
       }
     }
 
+    // ── fix18-10-hotfix29-C（需求文件五）：LINE 整合中心正式欄位驗證 ────────
+    // 與下面 line_member_add_friend_url 用同一套規則（格式＋拒絕 placeholder），
+    // 確保兩個頁面存進資料庫的值都經過同一套檢查，不會一邊寬鬆一邊嚴格。
+    if (req.body.line_add_friend_url !== undefined) {
+      const officialUrl = String(req.body.line_add_friend_url).trim();
+      if (officialUrl) {
+        if (!/^https:\/\/(lin\.ee\/|line\.me\/)/i.test(officialUrl)) {
+          return res.status(400).json({ success: false, message: '加入好友網址格式錯誤（必須是 https://lin.ee/ 或 https://line.me/ 開頭）' });
+        }
+        if (['https://lin.ee/xxxxx', 'https://lin.ee/xxxx', 'https://line.me/xxxxx'].includes(officialUrl.toLowerCase())) {
+          return res.status(400).json({ success: false, message: '請輸入實際的加入好友網址，不要使用範例文字' });
+        }
+      }
+    }
+
     // ── fix18-10-hotfix23-E：LINE 會員入口設定驗證（需求文件四）───────────
     // 只在有實際送值 / 有啟用時才擋，未啟用時允許欄位保留舊值不清除。
     if (Object.keys(req.body).some(k => LINE_MEMBER_KEYS.includes(k))) {
@@ -315,8 +331,23 @@ router.put('/', (req, res) => {
         }
       }
       const friendUrl = merged.line_member_add_friend_url ? String(merged.line_member_add_friend_url).trim() : '';
-      if (friendUrl && !/^https:\/\/(lin\.ee\/|line\.me\/)/i.test(friendUrl)) {
-        return res.status(400).json({ success: false, message: '加好友網址格式錯誤（必須是 https://lin.ee/ 或 https://line.me/ 開頭）' });
+      if (friendUrl) {
+        if (!/^https:\/\/(lin\.ee\/|line\.me\/)/i.test(friendUrl)) {
+          return res.status(400).json({ success: false, message: '加好友網址格式錯誤（必須是 https://lin.ee/ 或 https://line.me/ 開頭）' });
+        }
+        // fix18-10-hotfix29-C（需求文件五）：只驗證前綴會讓表單 placeholder
+        // 文字（例如「https://lin.ee/xxxxx」）被誤判成合法值存入資料庫，
+        // 導致結帳頁顯示一個假的加好友網址。這裡明確拒絕已知 placeholder。
+        if (['https://lin.ee/xxxxx', 'https://lin.ee/xxxx', 'https://line.me/xxxxx'].includes(friendUrl.toLowerCase())) {
+          return res.status(400).json({ success: false, message: '請輸入實際的加好友網址，不要使用範例文字' });
+        }
+        // 需求文件五：只有舊欄位（LINE 會員登入設定頁）有送值、這次請求「沒有」
+        // 同時送新欄位，且資料庫目前的正式欄位是空的時，才鏡射寫入——不覆蓋
+        // 店家已經在 LINE 整合中心設定好的正式值，也不自動清掉舊欄位。
+        if (req.body.line_add_friend_url === undefined) {
+          const existingOfficial = existing.line_add_friend_url ? String(existing.line_add_friend_url).trim() : '';
+          if (!existingOfficial) req.body.line_add_friend_url = friendUrl;
+        }
       }
       const basicId = merged.line_member_basic_id ? String(merged.line_member_basic_id).trim() : '';
       if (basicId && !/^@?[A-Za-z0-9_-]{2,30}$/.test(basicId)) {

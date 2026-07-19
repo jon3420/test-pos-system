@@ -215,8 +215,48 @@ function consumeCartToken(db, storeId, fullToken, orderId) {
   return { ok: true };
 }
 
+/**
+ * fix18-10-hotfix29-C（需求文件二）：加入好友網址的單一真實來源解析。
+ *
+ * 背景：LINE 整合中心與 LINE 會員登入設定歷史上各自存了一個獨立欄位
+ * （line_add_friend_url／line_member_add_friend_url），導致店家在其中一個
+ * 頁面設定好網址，另一個頁面／結帳 Dialog 卻讀不到，誤顯示「商家尚未設定」。
+ *
+ * 優先序：line_add_friend_url（正式欄位）→ line_member_add_friend_url
+ * （舊欄位，相容 fallback）→ official_account_add_friend_url（更舊的別名，
+ * 若專案曾經用過）。不做破壞性 migration，只在讀取時統一解析。
+ *
+ * 同時過濾：
+ *   - 空白／純空格
+ *   - 已知的表單 placeholder 文字（例如 "https://lin.ee/xxxxx"），避免店家
+ *     不小心把輸入框的提示文字存成正式設定
+ *   - 格式不是 https://lin.ee/<id> 或 https://line.me/... 的值
+ */
+const ADD_FRIEND_URL_PLACEHOLDERS = new Set([
+  'https://lin.ee/xxxxx',
+  'https://lin.ee/xxxx',
+  'https://line.me/xxxxx',
+]);
+function resolveAddFriendUrl(settings) {
+  const s = settings || {};
+  const candidates = [
+    s.line_add_friend_url,
+    s.line_member_add_friend_url,
+    s.official_account_add_friend_url,
+  ];
+  for (const raw of candidates) {
+    const value = String(raw || '').trim();
+    if (!value) continue;
+    if (ADD_FRIEND_URL_PLACEHOLDERS.has(value.toLowerCase())) continue;
+    if (!/^https:\/\/(lin\.ee\/[A-Za-z0-9_-]+|line\.me\/[A-Za-z0-9_\-\/.]+)/i.test(value)) continue;
+    return value;
+  }
+  return '';
+}
+
 module.exports = {
   generateFullToken, generateCartCode, maskCartCode, recomputeCart,
   createCartHandoffToken, bindTokenToLineUser, restoreCartToken, consumeCartToken,
+  resolveAddFriendUrl,
   TOKEN_TTL_MINUTES,
 };

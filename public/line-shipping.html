@@ -398,7 +398,7 @@ function _buildLineMemberGateConfig(d){
     gate_mode:d.line_member_gate_mode||'disabled',
     require_friend:d.line_member_require_friend==='1',
     allow_skip:d.line_member_allow_skip==='1',
-    add_friend_url:d.line_member_add_friend_url||'',
+    add_friend_url:d.add_friend_url||d.line_add_friend_url||d.line_member_add_friend_url||'',
     title:d.line_member_title||'LINE 會員登入',
     description:d.line_member_description||'登入 LINE 會員即可享有專屬服務',
     friend_button_text:d.line_member_friend_button_text||'加入官方帳號',

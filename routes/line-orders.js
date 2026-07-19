@@ -13,6 +13,7 @@ const router  = express.Router();
 const { getDb } = require('../utils/db');
 const { toGrams, fromGrams } = require('../utils/unitConvert');
 const { getProductInventoryStatus } = require('../utils/inventoryHelper');
+const { resolveAddFriendUrl } = require('../utils/lineCheckoutHandoff');
 const { broadcastToStore } = require('../utils/wssBroadcast');
 const { v4: uuidv4 } = require('uuid');
 const fetch = require('node-fetch');
@@ -473,6 +474,9 @@ router.get('/shop', (req, res) => {
       'line_member_login_channel_id', 'line_member_liff_id', 'line_member_return_url',
       'line_member_title', 'line_member_description', 'line_member_friend_button_text',
       'line_member_login_button_text', 'line_member_skip_button_text',
+      // fix18-10-hotfix29-C（需求文件三）：LINE 整合中心的正式加好友網址欄位，
+      // 之前這裡完全沒有讀取，導致結帳頁 config 永遠讀不到（見下方 resolveAddFriendUrl()）。
+      'line_add_friend_url',
       // fix18-10-hotfix26-F3：取餐地址（外帶模式顯示用）。store_address／store_lat／
       // store_lng 本來就已存在於既有外送距離費率設定，這裡純粹「額外」讓 GET /shop
       // 一併回傳，不新增資料表、不影響既有外送費率計算邏輯；pickup_address 為新增
@@ -496,6 +500,15 @@ router.get('/shop', (req, res) => {
     // Hotfix16 BUG-003：今日休假狀態改用單一函式判斷，優先序 Business Calendar > 今日臨時休息 > 固定公休
     const todayClosedStatus = getDateClosedStatus(db, storeId, todayStr);
     settings.is_open = settings.line_ordering_enabled === '1' && !todayClosedStatus.closed;
+
+    // fix18-10-hotfix29-C（需求文件三／四）：統一解析加好友網址，回傳一個
+    // 「保證是正式來源」的 add_friend_url 欄位，供前端 _buildLineMemberGateConfig()
+    // 優先使用；同時保留 line_add_friend_url／line_member_add_friend_url 兩個
+    // 原始欄位供相容，但三者永遠是同一個 resolveAddFriendUrl() 結果，不會互相矛盾。
+    settings.add_friend_url = resolveAddFriendUrl({
+      line_add_friend_url: settings.line_add_friend_url,
+      line_member_add_friend_url: settings.line_member_add_friend_url,
+    });
 
     // fix18-10-hotfix26-F5：pickup_address_same_as_store／pickup_sync_delivery_origin
     // 覆寫成真正的 boolean（跟上面 is_open 同樣寫法），且 same_as_store 的預設值推斷

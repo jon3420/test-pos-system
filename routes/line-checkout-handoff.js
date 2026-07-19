@@ -5,7 +5,7 @@ const express = require('express');
 const router = express.Router();
 const { getDb } = require('../utils/db');
 const {
-  createCartHandoffToken, restoreCartToken, maskCartCode,
+  createCartHandoffToken, restoreCartToken, maskCartCode, resolveAddFriendUrl,
 } = require('../utils/lineCheckoutHandoff');
 const { verifyMemberSession } = require('../utils/lineMemberSession');
 
@@ -50,6 +50,12 @@ const HANDOFF_DIAG_ERROR_CODES = new Set([
   'HANDOFF_TIMEOUT', 'HANDOFF_NETWORK', 'HANDOFF_HTTP_4XX', 'HANDOFF_HTTP_5XX',
   'HANDOFF_INVALID_JSON', 'HANDOFF_MISSING_CART_CODE', 'HANDOFF_MISSING_LINE_URL',
   'HANDOFF_UI_APPLY_FAILED', 'HANDOFF_EMPTY_CART', 'HANDOFF_UNKNOWN',
+  // fix18-10-hotfix29-C（需求文件九）：create API 明確錯誤分類，讓後台
+  // Messenger Handoff 診斷不再只看到 error_code 是空值。
+  'HANDOFF_STORE_ID_MISSING', 'HANDOFF_STORE_NOT_FOUND', 'HANDOFF_INVALID_CART',
+  'HANDOFF_PRODUCT_ID_MISSING', 'HANDOFF_QUANTITY_INVALID', 'HANDOFF_BASIC_ID_MISSING',
+  'HANDOFF_ADD_FRIEND_URL_MISSING', 'HANDOFF_CREATE_DB_FAILED', 'HANDOFF_CREATE_INTERNAL_ERROR',
+  'HANDOFF_CART_SNAPSHOT_MISMATCH',
 ]);
 const HANDOFF_DIAG_DEVICES = new Set(['iphone', 'android', 'other']);
 const HANDOFF_DIAG_BROWSERS = new Set(['messenger_webview', 'instagram_webview', 'line_liff', 'other']);
@@ -66,6 +72,7 @@ function sanitizeDiagInt(v, min, max) {
   if (r < min || r > max) return null;
   return r;
 }
+function sanitizeDiagBool(v) { return v === true ? true : (v === false ? false : null); }
 
 // POST /api/line-checkout-handoff/diagnostics
 // 需求文件五：payload 僅允許固定欄位，不接受 token／完整 UID／購物車內容／
@@ -90,6 +97,14 @@ router.post('/diagnostics', (req, res) => {
     const fallbackReason = sanitizeDiagString(body.fallback_reason, 60);
     const device = HANDOFF_DIAG_DEVICES.has(body.device) ? body.device : 'other';
     const browser = HANDOFF_DIAG_BROWSERS.has(body.browser) ? body.browser : 'other';
+    // 需求文件九／十：新增欄位，只接受安全範圍內的數字／布林值——不接受
+    // 完整商品內容，只接受「數量」這種聚合統計。
+    const uiCartCount = sanitizeDiagInt(body.ui_cart_count, 0, 100);
+    const payloadCartCount = sanitizeDiagInt(body.payload_cart_count, 0, 100);
+    const hasStoreId = sanitizeDiagBool(body.has_store_id);
+    const hasBasicId = sanitizeDiagBool(body.has_basic_id);
+    const hasAddFriendUrl = sanitizeDiagBool(body.has_add_friend_url);
+    const responseOk = sanitizeDiagBool(body.response_ok);
 
     try {
       const db = getDb();
@@ -103,6 +118,9 @@ router.post('/diagnostics', (req, res) => {
           stage, attempt, http_status: httpStatus, error_code: errorCode,
           has_cart_code: hasCartCode, has_line_oa_message_url: hasLineOaMessageUrl,
           fallback_reason: fallbackReason, device, browser,
+          ui_cart_count: uiCartCount, payload_cart_count: payloadCartCount,
+          has_store_id: hasStoreId, has_basic_id: hasBasicId,
+          has_add_friend_url: hasAddFriendUrl, response_ok: responseOk,
         },
       });
     } catch (e) { /* 診斷寫入失敗不得影響回應 */ }
@@ -123,22 +141,82 @@ function buildOaMessageUrl(basicId, cartCode) {
 
 // POST /api/line-checkout-handoff/create
 router.post('/create', (req, res) => {
+  const db = getDb();
+  const storeId = req.storeId;
+
+  // 需求文件六：安全摘要 log——只在失敗時記錄，不含完整購物車內容／token／
+  // 顧客資料／Channel Secret／Channel Access Token／ID Token／Access Token。
+  function logFailure(errorCode, httpStatus, cartItemCount, extra) {
+    try {
+      console.info('[LINE_HANDOFF_CREATE]', Object.assign({
+        store_id: storeId,
+        cart_item_count: cartItemCount,
+        result: 'failed',
+        error_code: errorCode,
+        http_status: httpStatus,
+      }, extra || {}));
+    } catch (e) { /* log 失敗不得影響回應 */ }
+  }
+
   try {
-    const db = getDb();
-    const storeId = req.storeId;
+    // 需求文件六：store_id 由 requireStore middleware 保證存在，這裡仍加一層
+    // 防禦性檢查（defense-in-depth），不假設上游一定正確設定。
+    if (!storeId) {
+      logFailure('HANDOFF_STORE_ID_MISSING', 400, 0);
+      return res.status(400).json({ ok: false, error_code: 'HANDOFF_STORE_ID_MISSING', message: '缺少 store_id' });
+    }
+    const storeRow = db.get('SELECT id FROM stores WHERE store_id=?', [storeId]);
+    if (!storeRow) {
+      logFailure('HANDOFF_STORE_NOT_FOUND', 404, 0);
+      return res.status(404).json({ ok: false, error_code: 'HANDOFF_STORE_NOT_FOUND', message: '找不到此店家' });
+    }
+
     const { cart, checkout_context, attribution } = req.body || {};
-
     const cartItems = cart && Array.isArray(cart.items) ? cart.items : [];
-    if (!cartItems.length) return res.status(400).json({ success: false, message: '購物車不能為空' });
-    if (cartItems.length > 100) return res.status(400).json({ success: false, message: '購物車商品數量異常' });
 
-    const result = createCartHandoffToken(db, storeId, {
-      cartQtyItems: cartItems.map(i => ({ product_id: i.product_id, qty: i.qty })),
-      checkoutContext: checkout_context || {},
-      attribution: attribution || {},
-      createdIp: req.ip || req.headers['x-forwarded-for'] || '',
-      createdUserAgent: req.headers['user-agent'] || '',
-    });
+    // 需求文件六（HANDOFF_EMPTY_CART）：這是本版根因修正的核心——前端現在
+    // 一律會送出請求（即使購物車真的是空的），讓這裡用統一格式回應，而不是
+    // 由前端自己短路猜測、吞掉真正的 error_code／http_status。
+    if (!cartItems.length) {
+      logFailure('HANDOFF_EMPTY_CART', 400, 0);
+      return res.status(400).json({ ok: false, error_code: 'HANDOFF_EMPTY_CART', message: '購物車不能為空' });
+    }
+    if (cartItems.length > 100) {
+      logFailure('HANDOFF_INVALID_CART', 400, cartItems.length);
+      return res.status(400).json({ ok: false, error_code: 'HANDOFF_INVALID_CART', message: '購物車商品數量異常' });
+    }
+
+    // 需求文件六（HANDOFF_PRODUCT_ID_MISSING／HANDOFF_QUANTITY_INVALID）：
+    // 結構驗證——不阻擋「部分商品已停售」這種既有、合法的 recomputeCart()
+    // 過濾邏輯，只在「整批商品的 product_id／qty 結構本身就是壞的」時才擋。
+    const structurallyValid = cartItems.filter(i => Number(i && i.product_id) > 0 && Number(i && i.qty) > 0);
+    if (!structurallyValid.length) {
+      const allBadProductId = cartItems.every(i => !(Number(i && i.product_id) > 0));
+      const errorCode = allBadProductId ? 'HANDOFF_PRODUCT_ID_MISSING' : 'HANDOFF_QUANTITY_INVALID';
+      logFailure(errorCode, 400, cartItems.length);
+      return res.status(400).json({
+        ok: false, error_code: errorCode,
+        message: allBadProductId ? '購物車商品 ID 無效' : '購物車商品數量必須大於 0',
+      });
+    }
+
+    let result;
+    try {
+      result = createCartHandoffToken(db, storeId, {
+        cartQtyItems: cartItems.map(i => ({ product_id: i.product_id, qty: i.qty })),
+        checkoutContext: checkout_context || {},
+        attribution: attribution || {},
+        createdIp: req.ip || req.headers['x-forwarded-for'] || '',
+        createdUserAgent: req.headers['user-agent'] || '',
+      });
+    } catch (dbErr) {
+      // 需求文件六：DB 寫入失敗（例如 UNIQUE 衝突、連線問題）與其他未預期的
+      // 內部錯誤分開分類，方便從診斷判斷是資料庫問題還是程式邏輯問題。
+      const isDbError = /SQLITE|database|db\b/i.test(String(dbErr && dbErr.message || ''));
+      const errorCode = isDbError ? 'HANDOFF_CREATE_DB_FAILED' : 'HANDOFF_CREATE_INTERNAL_ERROR';
+      logFailure(errorCode, 500, cartItems.length, { message: dbErr && dbErr.message });
+      return res.status(500).json({ ok: false, error_code: errorCode, message: '建立結帳代碼失敗，請稍後再試' });
+    }
 
     try {
       const { logServerEvent } = require('../utils/analyticsLog');
@@ -153,6 +231,18 @@ router.post('/create', (req, res) => {
 
     const basicId = getSetting(db, storeId, 'line_official_basic_id', '');
     const lineOaMessageUrl = buildOaMessageUrl(basicId, result.cartCode);
+    // 需求文件二／七：single source of truth——用同一個 resolveAddFriendUrl()，
+    // 與 /api/line-shop、LINE Integration Center 共用同一套解析規則與優先序。
+    const addFriendUrl = resolveAddFriendUrl({
+      line_add_friend_url: getSetting(db, storeId, 'line_add_friend_url', ''),
+      line_member_add_friend_url: getSetting(db, storeId, 'line_member_add_friend_url', ''),
+    });
+
+    // 需求文件六「注意」：add_friend_url／Basic ID 缺失都不阻止 Cart Token 建立
+    // 成功——只要 Basic ID 可以組出 OA message URL 就算成功，add_friend_url
+    // 缺失只代表 fallback 按鈕不可用，這是既有 Hotfix29 設計好的行為，不改變。
+    // 這裡只做非阻擋性的診斷 log，方便從後台看出「雖然成功，但缺了什麼」。
+    if (!basicId) logFailure('HANDOFF_BASIC_ID_MISSING', 200, cartItems.length, { result: 'success_with_warning' });
 
     res.json({
       ok: true,
@@ -165,10 +255,13 @@ router.post('/create', (req, res) => {
       line_oa_message_url: lineOaMessageUrl,
       // 需求文件七 fallback：no basic_id 設定時前端只能顯示複製代碼
       line_oa_configured: !!basicId,
+      // 需求文件七：single source of truth 的加好友網址，取代前端舊有只讀
+      // config.add_friend_url（可能是另一個已經沒在用的欄位）的做法。
+      add_friend_url: addFriendUrl,
     });
   } catch (e) {
-    console.error('[line-checkout-handoff] create error:', e.message);
-    res.status(500).json({ ok: false, message: e.message });
+    logFailure('HANDOFF_CREATE_INTERNAL_ERROR', 500, 0, { message: e.message });
+    res.status(500).json({ ok: false, error_code: 'HANDOFF_CREATE_INTERNAL_ERROR', message: e.message });
   }
 });
 
