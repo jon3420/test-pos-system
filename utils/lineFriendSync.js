@@ -40,10 +40,33 @@ function _isFriendFor(eventType) {
 }
 
 function _nowLocal() {
-  // 與既有欄位 default (datetime('now','localtime')) 對齊的字串格式
-  const d = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
-  const p = n => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+  // fix18-10-hotfix28（根因修正）：這裡原本強制轉成 Asia/Taipei 時間，但專案
+  // 其餘所有「無時區資訊的 naive timestamp」（SQL 端 datetime('now','localtime')、
+  // 前端 parseUtcDate()）都是假設系統時區＝UTC（這個部署環境的系統時區確實
+  // 是 UTC，見 `date` 指令輸出），所以前端會把這欄位的字串「當作 UTC」再轉換
+  // 顯示。若這裡塞進 Taipei 時間，會讓「最後確認」「最後加入好友」等時間在
+  // CRM 畫面上多轉了一次時區、多偏移 8 小時。改成直接用 UTC 的
+  // toISOString()，格式仍是無時區字串（去掉毫秒與 T/Z），與其他既有欄位
+  // 完全一致。
+  return new Date().toISOString().slice(0, 19).replace('T', ' ');
+}
+
+// fix18-10-hotfix28（需求文件三／八）：把「YYYY-MM-DD HH:mm:ss」或 ISO 字串
+// 都安全轉成毫秒數再比較，取代原本的純字串比較（兩種格式混用時字串排序
+// 不保證正確）。任一方無法解析就視為「這次事件不算舊」（安全預設：只有
+// 明確拿到比較新/舊的時間才會忽略事件）。
+function _isTimestampNewerOrEqual(incoming, existing) {
+  if (!incoming) return true; // 沒有時間戳可比較，不擋（跟原本行為一致）
+  const toMs = (s) => {
+    if (!s) return NaN;
+    const withT = s.includes('T') ? s : s.replace(' ', 'T');
+    const withZ = /[zZ]|[+-]\d{2}:?\d{2}$/.test(withT) ? withT : withT + 'Z';
+    return Date.parse(withZ);
+  };
+  const incomingMs = toMs(incoming);
+  const existingMs = toMs(existing);
+  if (!Number.isFinite(incomingMs) || !Number.isFinite(existingMs)) return true;
+  return incomingMs >= existingMs;
 }
 
 /**
@@ -93,9 +116,13 @@ function applyFriendEvent(db, storeId, lineUserId, opts) {
   }
   memberId = member.id;
 
-  // 需求文件十五：較新的事件優先，不得用較舊事件覆蓋較新狀態
+  // 需求文件十五（F8-A）× hotfix28 需求文件三／八：較新的事件優先，不得用
+  // 較舊事件覆蓋較新狀態。這裡不能只用字串比較——last_friend_check_at 可能是
+  // 這支函式自己寫的「YYYY-MM-DD HH:mm:ss」，也可能是 utils/lineMemberStats.js
+  // （LIFF 登入路徑）寫的 ISO 字串（含 'T'/'Z'），字串排序在兩種格式混用時
+  // 不保證正確，必須用 Date.parse() 轉毫秒數比較。
   const currentCheckedAt = member.last_friend_check_at || '';
-  const isNewerOrEqual = !currentCheckedAt || String(eventAt) >= String(currentCheckedAt);
+  const isNewerOrEqual = !currentCheckedAt || _isTimestampNewerOrEqual(eventAt, currentCheckedAt);
 
   // follow → refollow 判斷：先前已有 unfollow 紀錄，代表這次是回鍋
   if (eventType === 'follow' && member.last_unfollow_at) {

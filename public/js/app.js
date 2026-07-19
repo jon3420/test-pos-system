@@ -2250,6 +2250,38 @@ async function loadLineIntegrationCenter() {
   } catch (e) { console.warn('[line-integration] load config failed', e); }
 
   loadLineIntegrationHealth();
+  loadFriendSyncDiagnostics();
+}
+
+// fix18-10-hotfix28（需求文件十九）：好友同步診斷面板。API 失敗時只顯示
+// 「暫時無法載入」，不讓整頁崩潰、不外洩 Secret／Token／完整 UID。
+async function loadFriendSyncDiagnostics() {
+  const el = document.getElementById('liFriendSyncDiag');
+  if (!el) return;
+  el.textContent = '載入中…';
+  try {
+    const res = await apiFetch('/api/line-integration/friend-sync-diagnostics');
+    const json = await res.json();
+    if (!json.success) { el.textContent = '好友同步診斷暫時無法載入'; return; }
+    const d = json.data;
+    const yn = (b) => b ? '✅ 是' : '⚠️ 否';
+    const fmtTime = (t) => t ? formatTaipeiDateTime(t) : '—';
+    el.innerHTML = `
+      <div class="li-diag-row">Webhook 是否啟用：${yn(d.webhook_enabled)}</div>
+      <div class="li-diag-row">最近 follow 時間：${fmtTime(d.last_follow_event_at)}</div>
+      <div class="li-diag-row">最近 unfollow 時間：${fmtTime(d.last_unfollow_event_at)}</div>
+      <div class="li-diag-row">最近 LIFF friendship 檢查時間：${fmtTime(d.last_liff_check_at)}</div>
+      <div class="li-diag-row">最近同步來源：${d.last_sync_source ? friendSourceLabel(d.last_sync_source) : '—'}</div>
+      <div class="li-diag-row">LIFF getFriendship 是否可用：${yn(d.liff_get_friendship_available)}（僅代表已設定 LIFF ID，實際呼叫仍需瀏覽器環境）</div>
+      <div class="li-diag-row">Linked Official Account 是否已設定：${yn(d.official_account_linked)}</div>
+      <div class="li-diag-row">require_line_friend 設定：${d.require_line_friend ? '✅ 需要加入好友才能結帳' : '⚠️ 不強制（非好友也可結帳）'}</div>
+      <div class="li-diag-row">最近同步錯誤：${fmtTime(d.last_sync_error_at)}${d.last_sync_error_reason ? '（原因：' + escapeHtmlLi(d.last_sync_error_reason) + '）' : ''}</div>
+      <div class="li-diag-row" style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.08)">
+        🟢 好友會員數：${d.friend_count}　🔴 非好友會員數：${d.not_friend_count}　⚪ 尚未確認會員數：${d.unknown_count}
+      </div>`;
+  } catch (e) {
+    el.textContent = '好友同步診斷暫時無法載入';
+  }
 }
 
 function renderLiWizardSteps(steps) {
@@ -2319,6 +2351,7 @@ async function liTestAction(kind) {
     }
   } catch (e) { showToast('網路錯誤', 'error'); }
   loadLineIntegrationHealth();
+  loadFriendSyncDiagnostics();
 }
 
 function liCopyField(elId) {
@@ -2909,10 +2942,22 @@ function renderFriendStatus(value) {
   if (value === true || value === 1 || value === 'friend') {
     return { text: '好友', icon: '🟢', className: 'friend-status--yes' };
   }
-  if (value === false || value === 0 || value === 'non_friend') {
+  // fix18-10-hotfix28（根因修正）：後端有兩套「非好友」字串——
+  // friendStatusLabel()（routes/line-member.js）回傳 'non_friend'，但
+  // line_members.friend_status 欄位（utils/lineFriendSync.js／
+  // utils/lineMemberStats.js 都寫這欄）存的是 'not_friend'。前端這裡只認
+  // 'non_friend'，導致 friend_status='not_friend' 的會員被誤判成「未知」。
+  // 兩種字串都接受，不去統一改欄位值（改值要動兩支既有寫入邏輯，風險更高）。
+  // fix18-10-hotfix28（根因修正）：後端實際存在三種「非好友」字串——
+  // friendStatusLabel()→'non_friend'；utils/lineMemberStats.js（LIFF 路徑）
+  // →'not_friend'；utils/lineFriendSync.js（Webhook unfollow 路徑）→'blocked'。
+  // 三個都是同一個語意（非好友／已封鎖），這裡全部接受，不去統一改任一支
+  // 既有寫入邏輯的字串值（那樣要動兩套「不要重做」的既有系統，風險更高；
+  // 前端這裡加寬判斷才是最小風險的修正）。
+  if (value === false || value === 0 || value === 'non_friend' || value === 'not_friend' || value === 'blocked') {
     return { text: '非好友', icon: '🔴', className: 'friend-status--no' };
   }
-  return { text: '未知', icon: '⚪', className: 'friend-status--unknown' };
+  return { text: '尚未確認', icon: '⚪', className: 'friend-status--unknown' };
 }
 function friendStatusHtml(value) {
   const s = renderFriendStatus(value);
@@ -2957,6 +3002,16 @@ const LINE_MEMBER_EVENT_LABELS = {
   first_cart: '第一次加入購物車',
   first_purchase: '首次購買',
   repeat_purchase: '回購',
+  // fix18-10-hotfix28（需求文件十三／十五）：Webhook 路徑（utils/lineFriendSync.js）
+  // 寫入 line_member_history 用的是 `friend_${eventType}` 命名，與上面 LIFF
+  // 登入路徑的命名並存（同一份歷史表，兩種來源都要看得懂，不互相取代）。
+  friend_follow: '加入好友（LINE Follow Webhook）',
+  friend_unfollow: '封鎖官方帳號（LINE Unfollow Webhook）',
+  friend_refollow: '重新加入好友（LINE Follow Webhook）',
+  friend_friendship_verify_true: 'LIFF 確認為好友',
+  friend_friendship_verify_false: 'LIFF 確認為非好友／已封鎖',
+  friend_manual_verify_true: '後台手動確認為好友',
+  friend_manual_verify_false: '後台手動確認為非好友／已封鎖',
 };
 function friendEventLabel(eventName) {
   return LINE_MEMBER_EVENT_LABELS[eventName] || eventName;

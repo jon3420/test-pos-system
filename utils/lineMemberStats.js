@@ -54,6 +54,23 @@ function isStaleFriendshipUpdate(existingCheckedAt, incomingCheckedAt) {
   return incomingMs < existingMs;
 }
 
+// fix18-10-hotfix28（需求文件十七）：line_members 目前同時存在兩種好友檢查
+// 時間戳格式——last_friend_check 是 ISO 字串（new Date().toISOString()，
+// UTC），last_friend_check_at 是 utils/lineFriendSync.js 寫入的本地時間字串
+// 「YYYY-MM-DD HH:mm:ss」（Asia/Taipei，無時區資訊）。字串排序無法正確跨
+// 這兩種格式比較（時區不同），必須各自用 Date.parse() 轉成毫秒數再比較。
+// Date.parse('YYYY-MM-DD HH:mm:ss') 在多數 JS engine 會被當成本地時區解析
+// （Node 亦然），恰好符合 last_friend_check_at 原本存的就是本地時間，不需要
+// 額外轉換。
+function _newerTimestamp(a, b) {
+  const aMs = a ? Date.parse(a.includes('T') ? a : a.replace(' ', 'T')) : NaN;
+  const bMs = b ? Date.parse(b.includes('T') ? b : b.replace(' ', 'T')) : NaN;
+  if (!Number.isFinite(aMs) && !Number.isFinite(bMs)) return '';
+  if (!Number.isFinite(aMs)) return b;
+  if (!Number.isFinite(bMs)) return a;
+  return bMs > aMs ? b : a;
+}
+
 // 登入 / 好友狀態查詢完成後呼叫：建立或更新會員基本資料，並依狀態轉換規則
 // 寫入 friend_added / friend_removed / friend_restored 事件（回傳供呼叫端串接
 // analytics_events server-only 事件）。
@@ -77,7 +94,9 @@ function upsertMemberProfile(db, storeId, member, options) {
     const checkedAt = opts.checked_at ? safeStr(opts.checked_at, 40) : checkedAtNow;
 
     const existing = db.get(
-      'SELECT id, is_friend, is_blocked, friend_since, display_name, last_friend_check FROM line_members WHERE store_id=? AND line_user_id=?',
+      `SELECT id, is_friend, is_blocked, friend_since, display_name, last_friend_check,
+              last_friend_check_at, last_follow_at, last_unfollow_at, refollow_count
+       FROM line_members WHERE store_id=? AND line_user_id=?`,
       [storeId, lineUserId]
     );
 
@@ -85,11 +104,21 @@ function upsertMemberProfile(db, storeId, member, options) {
     const nowClause = "datetime('now','localtime')";
 
     if (!existing) {
+      // fix18-10-hotfix28（需求文件三／根因修正）：這裡除了寫既有的
+      // last_friend_check／friend_source／friend_status_changed_at，也要同步
+      // 寫 F8-A 就建立、CRM 會員詳情實際顯示用的 friend_status／
+      // last_friend_check_at／last_friend_source／first_follow_at／
+      // last_follow_at——這兩組欄位語意完全對應，只是命名不同，過去只有
+      // Webhook（applyFriendEvent）在寫後面這組，LIFF 登入路徑（這支函式）
+      // 從未寫過，才會出現「is_friend 其實有值，但 CRM 顯示好友狀態：未知、
+      // 最後確認：—」的現象——不是好友同步邏輯錯，是兩套欄位沒同步。
+      const friendStatusStr = isFriendRaw === 1 ? 'friend' : (isFriendRaw === 0 ? 'not_friend' : 'unknown');
       db.run(
         `INSERT INTO line_members (
            store_id, line_user_id, display_name, picture_url, is_friend, is_blocked,
-           friend_since, last_friend_check, last_login_at, friend_source, friend_status_changed_at
-         ) VALUES (?,?,?,?,?,0,?,?,?,?,?)`,
+           friend_since, last_friend_check, last_login_at, friend_source, friend_status_changed_at,
+           friend_status, last_friend_check_at, last_friend_source, first_follow_at, last_follow_at
+         ) VALUES (?,?,?,?,?,0,?,?,?,?,?,?,?,?,?,?)`,
         [
           storeId, lineUserId, displayName, pictureUrl, isFriendRaw,
           isFriendRaw === 1 ? checkedAtNow : '',
@@ -97,6 +126,11 @@ function upsertMemberProfile(db, storeId, member, options) {
           isLogin ? checkedAtNow : '',
           isFriendRaw === null ? '' : (source || 'unknown'),
           isFriendRaw === null ? '' : checkedAt,
+          isFriendRaw === null ? 'unknown' : friendStatusStr,
+          isFriendRaw === null ? '' : checkedAt,
+          isFriendRaw === null ? '' : (source || 'unknown'),
+          isFriendRaw === 1 ? checkedAtNow : '',
+          isFriendRaw === 1 ? checkedAtNow : '',
         ]
       );
       if (isFriendRaw === 1) friendEvent = 'friend_added';
@@ -116,11 +150,17 @@ function upsertMemberProfile(db, storeId, member, options) {
       return { created: true, isFriend: isFriendRaw === 1, friendEvent, crmFriendEvent, staleIgnored: false };
     }
 
-    // fix18-10-hotfix26-F1（需求文件十六）：時間競爭保護——若這次帶了 checked_at，
-    // 且明確早於 DB 目前的 last_friend_check，代表是晚到的舊事件，直接忽略這次
-    // 好友狀態／來源／時間的變更（display_name／last_seen_at 等與好友狀態無關的
-    // 欄位仍可正常更新，不受影響）。只寫 log，不寫 history（需求文件十六）。
-    const staleIgnored = isFriendRaw !== null && isStaleFriendshipUpdate(existing.last_friend_check, checkedAt);
+    // fix18-10-hotfix26-F1（需求文件十六）× hotfix28（需求文件十七）：時間競爭
+    // 保護——若這次帶了 checked_at，且明確早於 DB 目前「任一組」好友檢查時間
+    // 的較新值，代表是晚到的舊事件，直接忽略這次好友狀態／來源／時間的變更
+    // （display_name／last_seen_at 等與好友狀態無關的欄位仍可正常更新，不受
+    // 影響）。只寫 log，不寫 history（需求文件十六）。
+    // 用「較新的那一個」timestamp 比較，而不是只看 last_friend_check，是因為
+    // Webhook（applyFriendEvent）只更新 last_friend_check_at，若這裡只看
+    // last_friend_check 會誤判「不算 stale」，讓較舊的 LIFF 檢查蓋掉較新的
+    // Webhook follow/unfollow 結果，違反需求文件十七的「較新事件優先」規則。
+    const existingNewestCheckedAt = _newerTimestamp(existing.last_friend_check, existing.last_friend_check_at);
+    const staleIgnored = isFriendRaw !== null && isStaleFriendshipUpdate(existingNewestCheckedAt, checkedAt);
     if (staleIgnored && process.env.LINE_MEMBER_DEBUG === '1') {
       console.log('[lineMemberStats] stale_update_ignored', JSON.stringify({
         store_id: storeId, source: source || 'unknown',
@@ -173,10 +213,33 @@ function upsertMemberProfile(db, storeId, member, options) {
     if (effectiveIsFriendRaw !== null) {
       sets.push('last_friend_check=?'); vals.push(checkedAt);
       sets.push('friend_source=?'); vals.push(source || 'unknown');
+      // fix18-10-hotfix28（根因修正）：F8-A 的顯示欄位（CRM 會員詳情實際讀取
+      // 的是這組，不是上面兩個舊欄位）必須同步更新，否則 LIFF 登入這條路徑
+      // 永遠不會讓「好友狀態」「最後確認」有值。
+      const nextFriendStatusStr = nextIsFriend === 1 ? 'friend' : (nextIsFriend === 0 ? 'not_friend' : 'unknown');
+      sets.push('friend_status=?'); vals.push(nextFriendStatusStr);
+      sets.push('last_friend_check_at=?'); vals.push(checkedAt);
+      sets.push('last_friend_source=?'); vals.push(source || 'unknown');
     }
     if (isLogin) { sets.push('last_login_at=?'); vals.push(checkedAtNow); }
     if (friendSinceSql) { sets.push('friend_since=?'); vals.push(friendSinceSql); }
-    if (friendStateChanged) { sets.push('friend_status_changed_at=?'); vals.push(checkedAt); }
+    if (friendStateChanged) {
+      sets.push('friend_status_changed_at=?'); vals.push(checkedAt);
+      if (effectiveIsFriendRaw === 1) {
+        sets.push('last_follow_at=?'); vals.push(checkedAt);
+        if (!existing.last_follow_at && !existing.first_follow_at) {
+          sets.push('first_follow_at=?'); vals.push(checkedAt);
+        }
+        // 「先前有 unfollow 紀錄」代表這次是回鍋，語意與 utils/lineFriendSync.js
+        // 的 refollow 判斷一致（不論好友狀態變化是透過 LIFF 或 Webhook 得知）。
+        if (existing.last_unfollow_at) {
+          sets.push('last_refollow_at=?'); vals.push(checkedAt);
+          sets.push('refollow_count=?'); vals.push((Number(existing.refollow_count) || 0) + 1);
+        }
+      } else if (effectiveIsFriendRaw === 0) {
+        sets.push('last_unfollow_at=?'); vals.push(checkedAt);
+      }
+    }
 
     db.run(`UPDATE line_members SET ${sets.join(', ')} WHERE store_id=? AND line_user_id=?`, [...vals, storeId, lineUserId]);
 

@@ -2140,6 +2140,12 @@
           </div>
         </div>
 
+        <!-- fix18-10-hotfix28（需求文件十九）：好友同步診斷 -->
+        <div class="settings-card full">
+          <h3>🤝 好友同步診斷</h3>
+          <div id="liFriendSyncDiag" class="line-diag-panel">尚未載入</div>
+        </div>
+
       </div>
       <button class="btn-primary" onclick="saveLineIntegrationSettings()">💾 儲存 LINE 整合設定</button>
     </div>
@@ -2166,7 +2172,7 @@
           <option value="all">好友狀態：全部</option>
           <option value="friend">🟢 好友</option>
           <option value="non_friend">🔴 非好友</option>
-          <option value="unknown">⚪ 未知</option>
+          <option value="unknown">⚪ 尚未確認</option>
         </select>
         <select id="lmSortSelect">
           <option value="last_login">最近登入</option>

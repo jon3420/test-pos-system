@@ -289,4 +289,82 @@ router.post('/test/checkout-handoff', requireStaffJwt, (req, res) => {
   }
 });
 
+// ── fix18-10-hotfix28（需求文件十九）：好友同步診斷 ─────────────────────
+router.get('/friend-sync-diagnostics', requireStaffJwt, (req, res) => {
+  try {
+    const db = getDb();
+    const storeId = req.storeId;
+    const channelSecret = getSetting(db, storeId, 'line_channel_secret', '');
+    const liffId = getSetting(db, storeId, 'line_member_liff_id', '');
+    const requireFriend = getSetting(db, storeId, 'line_member_require_friend') === '1';
+
+    const lastFollow = db.get(
+      "SELECT event_at FROM line_friend_events WHERE store_id=? AND event_type IN ('follow','refollow') ORDER BY event_at DESC LIMIT 1",
+      [storeId]
+    );
+    const lastUnfollow = db.get(
+      "SELECT event_at FROM line_friend_events WHERE store_id=? AND event_type='unfollow' ORDER BY event_at DESC LIMIT 1",
+      [storeId]
+    );
+    const counts = db.get(
+      `SELECT
+         SUM(CASE WHEN is_friend=1 THEN 1 ELSE 0 END) AS friend_count,
+         SUM(CASE WHEN is_friend=0 THEN 1 ELSE 0 END) AS not_friend_count,
+         SUM(CASE WHEN is_friend IS NULL THEN 1 ELSE 0 END) AS unknown_count
+       FROM line_members WHERE store_id=? AND COALESCE(crm_status,'active')='active'`,
+      [storeId]
+    ) || {};
+    const lastSyncFailure = db.get(
+      `SELECT created_at, metadata_json FROM analytics_events
+       WHERE store_id=? AND event_name='line_login_failed' ORDER BY created_at DESC LIMIT 1`,
+      [storeId]
+    );
+    // 需求文件一／四：最近一次 LIFF friendship 檢查時間／來源——取這個店家
+    // line_members 裡 last_friend_check_at 最新的那一筆（不分好友/非好友），
+    // 只要有紀錄就代表「同步曾經跑過」，用來判斷同步是否還在正常運作。
+    const lastSyncRow = db.get(
+      `SELECT last_friend_check_at, last_friend_source FROM line_members
+       WHERE store_id=? AND last_friend_check_at IS NOT NULL AND last_friend_check_at != ''
+       ORDER BY last_friend_check_at DESC LIMIT 1`,
+      [storeId]
+    );
+    const lastLiffCheckRow = db.get(
+      `SELECT last_friend_check_at FROM line_members
+       WHERE store_id=? AND last_friend_source='liff_friendship' AND last_friend_check_at IS NOT NULL AND last_friend_check_at != ''
+       ORDER BY last_friend_check_at DESC LIMIT 1`,
+      [storeId]
+    );
+
+    res.json({
+      success: true,
+      data: {
+        webhook_enabled: !!channelSecret,
+        last_follow_event_at: lastFollow ? lastFollow.event_at : '',
+        last_unfollow_event_at: lastUnfollow ? lastUnfollow.event_at : '',
+        // 只能確認 LIFF 已設定；liff.getFriendship() 是瀏覽器端 SDK API，
+        // 後端無法代替使用者實際呼叫一次，不假裝「已測試通過」。
+        liff_get_friendship_available: !!liffId,
+        official_account_linked: !!liffId,
+        require_line_friend: requireFriend,
+        last_liff_check_at: lastLiffCheckRow ? lastLiffCheckRow.last_friend_check_at : '',
+        last_sync_source: lastSyncRow ? lastSyncRow.last_friend_source : '',
+        last_sync_error_at: lastSyncFailure ? lastSyncFailure.created_at : '',
+        // 錯誤訊息遮罩：只回傳 reason 分類字，不還原任何 token 內容
+        // （metadata_json 本來就不含完整 token，沿用 routes/line-member.js
+        // 的 verify-debug 慣例）。
+        last_sync_error_reason: (() => {
+          if (!lastSyncFailure) return '';
+          try { return JSON.parse(lastSyncFailure.metadata_json || '{}').reason || ''; } catch (e) { return ''; }
+        })(),
+        friend_count: Number(counts.friend_count) || 0,
+        not_friend_count: Number(counts.not_friend_count) || 0,
+        unknown_count: Number(counts.unknown_count) || 0,
+      },
+    });
+  } catch (e) {
+    console.error('[line-integration] GET /friend-sync-diagnostics error:', e.message);
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
 module.exports = router;
