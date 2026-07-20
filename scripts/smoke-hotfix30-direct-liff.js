@@ -51,11 +51,21 @@ function makeFakeElement(idRegistry) {
     set(html) {
       el._html = html;
       el.children = {};
-      const re = /id="([^"]+)"/g;
-      let m;
-      while ((m = re.exec(html))) {
-        const id = m[1];
+      // 需求：真實瀏覽器解析 <a id="x" href="...">，href 屬性字串會立即反映在
+      // 元素的 .href property 上（不需要任何額外 JS 賦值）。這個簡化版 DOM
+      // mock 原本只認得 id，這裡補上同一個標籤內 href="..."／aria-disabled
+      // 的解析，否則像 Entry Login 這種「href 直接寫在 HTML 字串裡、從未
+      // 經過 JS 賦值」的按鈕，在 mock 裡測起來會誤判成「沒有 href」。
+      const tagRe = /<[a-zA-Z][^>]*\sid="([^"]+)"[^>]*>/g;
+      let tm;
+      while ((tm = tagRe.exec(html))) {
+        const id = tm[1];
+        const tagStr = tm[0];
         const child = makeFakeElement(idRegistry);
+        const hrefMatch = tagStr.match(/href="([^"]*)"/);
+        if (hrefMatch) child.href = hrefMatch[1];
+        const disabledMatch = tagStr.match(/aria-disabled="([^"]*)"/);
+        if (disabledMatch) child.attrs['aria-disabled'] = disabledMatch[1];
         el.children[id] = child;
         idRegistry[id] = child;
       }
@@ -539,6 +549,83 @@ async function main() {
     const gateSrc = fs.readFileSync(path.join(ROOT, 'public/js/line-member-gate.js'), 'utf8');
     assert(!/reportHandoffDiagnostics\([^)]*directLiffUrl\)/.test(gateSrc), 'line-member-gate.js：完整 directLiffUrl 字串沒有被直接傳進 reportHandoffDiagnostics()');
     assert(gateSrc.includes('has_direct_liff_url: !!'), 'line-member-gate.js：診斷回報一律用 !!normalized.directLiffUrl 轉布林值，不傳完整網址');
+  }
+
+  // ═══════════════ 十二：Entry Login × Checkout Handoff Dialog 分流隔離 ═══════════════
+  // 對應本輪需求：requireMemberOnEntry()／requireMemberBeforeCheckout() 共用
+  // showExternalBrowserLoginGuide()，必須依 gateStage 正確分流到
+  // showEntryLoginExternalGuide()／showCheckoutHandoffExternalGuide()，
+  // entry 模式絕不建立 Cart Token／顯示結帳文案，checkout 模式的主按鈕絕不
+  // 退回 entry 的 plain LIFF 登入網址。
+  {
+    const storeId = 'store_entry_isolation_30';
+    // entry 模式：不應該打 /create（若打了，代表 entry 被結帳流程污染）。
+    const fetchImpl = async () => ({ ok: false, status: 500, json: async () => { throw new Error('entry 模式不應該呼叫 create API'); } });
+    const { LineMemberGate, idRegistry, createCalls } = loadGateModule({
+      initialHref: `https://example.com/line-order.html?store_id=${storeId}`, ua: UA_IPHONE_MESSENGER, fetchImpl, initialCart: cartFor(storeId),
+    });
+    const environment = LineMemberGate.detectBrowserEnvironment();
+    const config = { liff_id: '2000123456-smoke30', add_friend_url: 'https://lin.ee/testshop' };
+    const guideEl = LineMemberGate.showExternalBrowserLoginGuide(config, { storeId, gateStage: 'entry', environment, onEvent: () => {} });
+    const html = guideEl._html;
+
+    assert(createCalls.length === 0, 'Entry Login：不呼叫 POST /create（不建立 Cart Handoff Token）', JSON.stringify(createCalls));
+    assert(html.includes('id="lmgEntryLoginBtn"'), 'Entry Login：主按鈕元素 lmgEntryLoginBtn 存在');
+    assert(/<a\s[^>]*id="lmgEntryLoginBtn"/.test(html), 'Entry Login：主按鈕是真實 <a> 元素');
+    const entryBtn = idRegistry['lmgEntryLoginBtn'];
+    assert(!!entryBtn.href, 'Entry Login：href 立即（同步）就有值，不需要等待任何 fetch', entryBtn.href);
+    assert(entryBtn.href.startsWith('https://liff.line.me/2000123456-smoke30'), 'Entry Login：href 指向 liff.line.me，使用正確 LIFF ID', entryBtn.href);
+    assert(entryBtn.href.includes(`store_id=${storeId}`), 'Entry Login：href 包含 store_id', entryBtn.href);
+    assert(entryBtn.href.includes('line_gate_return=entry'), 'Entry Login：href 標示 entry 模式（line_gate_return=entry）', entryBtn.href);
+    assert(!entryBtn.href.includes('cart_token'), 'Entry Login：href 不含 cart_token', entryBtn.href);
+    assert(!entryBtn.href.includes('mode=checkout'), 'Entry Login：href 不含 mode=checkout', entryBtn.href);
+    assert(!html.includes('CART-') && !/id="lmgCartCodeBlock"/.test(html), 'Entry Login：畫面不出現 Cart Code 區塊或代碼格式文字');
+    assert(!html.includes('購物車已保留'), 'Entry Login：不顯示「購物車已保留」文案（那是結帳專用文案）');
+    assert(!html.includes('id="lmgGoLineCheckoutBtn"'), 'Entry Login：不包含結帳分支的 lmgGoLineCheckoutBtn（未混用兩個分支的按鈕）');
+    assert(html.includes('使用 LINE 登入'), 'Entry Login：文案為單純「使用 LINE 登入」');
+  }
+
+  {
+    // checkout 模式：正常建立 Cart Token，主按鈕最終應指向 direct_liff_url。
+    const storeId = 'store_checkout_isolation_30';
+    const directLiffUrl = `https://liff.line.me/2000123456-smoke30?mode=checkout&store_id=${storeId}&cart_token=SECRETISOL1`;
+    const fetchImpl = async () => ({
+      ok: true, status: 200,
+      json: async () => ({ ok: true, cart_code: 'CART-ISOL01', direct_liff_url: directLiffUrl, line_oa_message_url: 'https://line.me/oa-isol', line_oa_configured: true, add_friend_url: 'https://lin.ee/testshop' }),
+    });
+    const { LineMemberGate, idRegistry, createCalls } = loadGateModule({
+      initialHref: `https://example.com/line-order.html?store_id=${storeId}`, ua: UA_IPHONE_MESSENGER, fetchImpl, initialCart: cartFor(storeId),
+    });
+    const environment = LineMemberGate.detectBrowserEnvironment();
+    const config = { liff_id: '2000123456-smoke30', add_friend_url: 'https://lin.ee/testshop' };
+    const guideEl = LineMemberGate.showExternalBrowserLoginGuide(config, { storeId, gateStage: 'checkout', environment, onEvent: () => {} });
+    let html = guideEl._html;
+
+    assert(!html.includes('id="lmgEntryLoginBtn"'), 'Checkout Handoff：不包含 entry 分支的 lmgEntryLoginBtn（未混用兩個分支的按鈕）');
+    assert(html.includes('id="lmgGoLineCheckoutBtn"'), 'Checkout Handoff：主按鈕元素 lmgGoLineCheckoutBtn 存在');
+    assert(html.includes('購物車已保留'), 'Checkout Handoff：顯示「購物車已保留」文案');
+    assert(/<details[^>]*id="lmgCantOpenSection"/.test(html), 'Checkout Handoff：fallback 收合區塊存在');
+    assert(html.includes('id="lmgOpenOaBtn"'), 'Checkout Handoff：OA fallback 存在');
+    assert(html.includes('id="lmgGoChatroomBtn"'), 'Checkout Handoff：聊天室 fallback 存在');
+    assert(html.includes('id="lmgCopyCartCodeBtn"'), 'Checkout Handoff：Cart Code fallback 存在');
+    assert(html.includes('id="lmgExternalBrowserBtn"'), 'Checkout Handoff：外部瀏覽器 fallback 存在');
+
+    await wait(30);
+    const mainBtn = idRegistry['lmgGoLineCheckoutBtn'];
+    assert(createCalls.length === 1, 'Checkout Handoff：建立了一次 Cart Handoff Token（呼叫一次 POST /create）', String(createCalls.length));
+    assert(mainBtn.href === directLiffUrl, 'Checkout Handoff：主按鈕最終 href = direct_liff_url，不退回 entry 的 plain LIFF 登入網址', mainBtn.href);
+    assert(mainBtn.href.includes('mode=checkout'), 'Checkout Handoff：href 含 mode=checkout', mainBtn.href);
+    assert(mainBtn.href.includes('cart_token='), 'Checkout Handoff：href 含 cart_token', mainBtn.href);
+    assert(mainBtn.href.includes(`store_id=${storeId}`), 'Checkout Handoff：href 含 store_id', mainBtn.href);
+  }
+
+  {
+    // 靜態原始碼檢查：確認分流本身存在於程式碼中，且四個既有函式完全未被
+    // 本次分流改動觸碰（與 pristine hotfix29-C 逐字節相同，已於對話中以
+    // diff 驗證；這裡額外用原始碼掃描做第二層保險，防止未來被意外改動）。
+    const gateSrc = fs.readFileSync(path.join(ROOT, 'public/js/line-member-gate.js'), 'utf8');
+    assert(gateSrc.includes("if (gateStage !== 'checkout')") && gateSrc.includes('showEntryLoginExternalGuide('), '原始碼：showExternalBrowserLoginGuide() 依 gateStage 分流到 showEntryLoginExternalGuide()');
+    assert(gateSrc.includes('function showCheckoutHandoffExternalGuide'), '原始碼：結帳分支獨立為 showCheckoutHandoffExternalGuide()');
   }
 
   manual('真機 iPhone 13 Pro／iPhone 17 Pro Messenger 實際導流成功率', '需要真實 Messenger WebView + LINE App 環境交叉測試，本測試只能靜態驗證程式邏輯與 DOM 結構，無法測量真實導流成功率。');

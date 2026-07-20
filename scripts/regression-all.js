@@ -44,6 +44,10 @@ const SCRIPTS = [
   // 測試，交給這支 runner 統一、只執行一次每支腳本。
   { file: 'smoke-hotfix29-c.js', args: ['--self-only'], timeoutMs: 3 * 60 * 1000 },
   { file: 'smoke-hotfix30-direct-liff.js', args: [], timeoutMs: 3 * 60 * 1000 },
+  // 風險驗證（requireMemberOnEntry／requireMemberBeforeCheckout 共用
+  // showExternalBrowserLoginGuide()）新增的隔離測試——確保 Entry Login 與
+  // Checkout Handoff 不會互相污染。
+  { file: 'smoke-hotfix30-entry-checkout-isolation.js', args: [], timeoutMs: 60 * 1000 },
 ];
 
 // 這支 runner 涵蓋的所有腳本裡，只有 hotfix30 相關的腳本才算「Hotfix30
@@ -51,7 +55,7 @@ const SCRIPTS = [
 // 若失敗優先視為既有既存問題，不自動歸類成 Hotfix30 造成（除非確實查得
 // 到成因是本版修改所致——這是人工 RCA 的結論，這支腳本只負責忠實列出
 // 「哪些腳本失敗」，不代替 RCA 做判斷）。
-const HOTFIX30_SCRIPTS = new Set(['smoke-hotfix30-direct-liff.js']);
+const HOTFIX30_SCRIPTS = new Set(['smoke-hotfix30-direct-liff.js', 'smoke-hotfix30-entry-checkout-isolation.js']);
 
 function parseSummary(output) {
   const m = output.match(/PASS\s*=\s*(\d+)\s*FAIL\s*=\s*(\d+)\s*MANUAL\s*=\s*(\d+)/);

@@ -747,13 +747,29 @@
     gateEl.style.cssText = `position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.55);
       display:flex;align-items:center;justify-content:center;padding:16px;`;
     const allowSkip = !!(opts && opts.allow_skip);
+    // fix18-10-hotfix30-entry-oneclick（需求文件二／三）：只有呼叫端明確帶
+    // direct_login_href（目前只有 requireMemberOnEntry() 在 in-app browser
+    // 時會帶）才把「使用 LINE 登入」render 成真實 <a href>；其他所有既有呼叫
+    // 端（包含 requireMemberBeforeCheckout()）完全不帶這個參數，維持原本的
+    // <button> 寫法，行為零改動——Checkout Dialog／既有 loginWithLine() 導向
+    // 流程一律不受影響。
+    const directLoginHref = opts && opts.direct_login_href;
+    const loginBtnText = escapeHtml(config.login_button_text || '使用 LINE 登入');
+    // 需求：href 直接插入（與既有 showEntryLoginExternalGuide() 的 liffOpenUrl
+    // 插入方式一致，不對網址本身做 escapeHtml，避免 & 被轉成 &amp; 造成前後
+    // 不一致——buildLiffOpenUrl() 回傳值本身已經是安全的 https://liff.line.me/
+    // 網址，不含任何使用者可控的未跳脫內容）。
+    const loginBtnHtml = directLoginHref
+      ? `<a id="lmgLoginBtn" href="${directLoginHref}" rel="noopener noreferrer"
+           style="display:block;width:100%;padding:12px;border:0;border-radius:10px;background:#06C755;color:#fff;font-size:15px;font-weight:600;margin-bottom:8px;cursor:pointer;text-decoration:none;box-sizing:border-box">${loginBtnText}</a>`
+      : `<button id="lmgLoginBtn" style="width:100%;padding:12px;border:0;border-radius:10px;background:#06C755;color:#fff;font-size:15px;font-weight:600;margin-bottom:8px;cursor:pointer">${loginBtnText}</button>`;
     gateEl.innerHTML = `
       <div style="background:#fff;border-radius:16px;max-width:360px;width:100%;padding:24px;text-align:center;font-family:inherit">
         <div style="font-size:40px;line-height:1;margin-bottom:8px">💬</div>
         <h3 style="margin:0 0 8px;font-size:18px">${escapeHtml(config.title || 'LINE 會員登入')}</h3>
         <p style="margin:0 0 16px;color:#666;font-size:14px">${escapeHtml(config.description || '登入 LINE 會員即可享有專屬服務')}</p>
         <div id="lmgStatus" style="font-size:13px;color:#888;margin-bottom:12px"></div>
-        <button id="lmgLoginBtn" style="width:100%;padding:12px;border:0;border-radius:10px;background:#06C755;color:#fff;font-size:15px;font-weight:600;margin-bottom:8px;cursor:pointer">${escapeHtml(config.login_button_text || '使用 LINE 登入')}</button>
+        ${loginBtnHtml}
         <button id="lmgFriendBtn" style="width:100%;padding:12px;border:1px solid #06C755;border-radius:10px;background:#fff;color:#06C755;font-size:15px;font-weight:600;margin-bottom:8px;cursor:pointer;display:none">${escapeHtml(config.friend_button_text || '加入官方帳號')}</button>
         ${allowSkip ? `<button id="lmgSkipBtn" style="width:100%;padding:10px;border:0;background:transparent;color:#999;font-size:13px;cursor:pointer">${escapeHtml(config.skip_button_text || '略過')}</button>` : ''}
       </div>`;
@@ -1156,6 +1172,128 @@
     // 需求文件十五：同一時間只能存在一個外部登入引導。
     if (externalGuideVisible) return externalGuideEl;
     closeExternalBrowserLoginGuide();
+
+    // fix18-10-hotfix30-entry-isolation（風險驗證後的最小分流）：Hotfix30
+    // 把這個共用 Dialog 改成「建立 Cart Handoff Token → Direct LIFF 還原購物車」
+    // 為核心的結帳流程（見下方 checkout 分支），但 requireMemberOnEntry()
+    // 呼叫這裡時傳入 gateStage:'entry'，代表使用者當下只是要「登入會員」，
+    // 不是要結帳——此時呼叫端根本沒有、也不該有 Cart Token／Cart Code／
+    // direct_liff_url／mode=checkout。若讓 entry 模式沿用下面的結帳分支，
+    // 會發生兩個問題：(1) 購物車為空時會呼叫一次注定失敗的
+    // POST /create（HANDOFF_EMPTY_CART）；(2) 購物車不為空時（例如回訪顧客
+    // 先前留下的購物車）會把「登入」誤變成「開始結帳」，甚至被 Auto Launch
+    // 自動導去結帳頁——使用者根本沒點過「結帳」。
+    // 這裡只做最小分流：gateStage !== 'checkout' 時，顯示原本（Hotfix29-C）
+    // 就有的單純 LINE 登入引導——真實 <a href> 指向 buildLiffOpenUrl()
+    // （不含 cart_token／不含 mode=checkout），不呼叫 createLineCheckoutHandoff()、
+    // 不顯示 Cart Code、不顯示「購物車已保留」文案、沒有 Auto Launch。
+    // 不修改 loginWithLine()／recoverLineLoginSession()／verifyWithBackend()／
+    // handleLineMemberLoginCallback()／requireMemberOnEntry()／
+    // requireMemberBeforeCheckout()，兩個呼叫端完全不需要改動。
+    if (gateStage !== 'checkout') {
+      return showEntryLoginExternalGuide(config, { storeId, gateStage, environment, onEvent, onClose: options && options.onClose });
+    }
+    return showCheckoutHandoffExternalGuide(config, options);
+  }
+
+  // 需求文件一／二／三：Entry Login 專用——沿用 Hotfix29-C 原本的簡單登入
+  // 引導語意，不建立、不查詢、不顯示任何 Cart Token／Cart Code／購物車內容。
+  function showEntryLoginExternalGuide(config, options) {
+    const storeId = options.storeId;
+    const gateStage = options.gateStage || 'entry';
+    const environment = options.environment;
+    const onEvent = options.onEvent;
+
+    trackLineEnvironmentEvent(onEvent, 'line_login_inapp_browser_detected', environment, gateStage, storeId);
+
+    externalGuideEl = document.createElement('div');
+    externalGuideEl.id = 'lineMemberExternalGuide';
+    externalGuideEl.style.cssText = `position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,.6);
+      display:flex;align-items:center;justify-content:center;padding:16px;`;
+
+    // 需求文件二：liffOpenUrl 同步組好（不經過任何 async fetch），保證真實
+    // <a href> 在使用者點擊當下就已經是最終網址，不含 cart_token、不含
+    // mode=checkout，也不需要等待任何網路請求才能點擊（不像 checkout 分支
+    // 需要先建立 Cart Handoff Token）。
+    const liffOpenUrl = buildLiffOpenUrl(storeId, config, { gate_stage: gateStage });
+    const osHintLabel = environment.isIOS ? '如何使用 Safari 開啟'
+      : (environment.isAndroid ? '使用 Chrome 開啟' : '如何用瀏覽器開啟');
+    const otherLoginInnerHtml = environment.isIOS
+      ? `<button id="lmgChromeBtn" style="width:100%;padding:12px;border:0;border-radius:10px;background:#06C755;color:#fff;font-size:15px;font-weight:600;margin-bottom:8px;cursor:pointer">使用 Chrome 開啟</button>
+         <div style="font-size:12px;color:#888;text-align:center;margin-bottom:6px">若 Chrome 仍無法完成登入，請使用 Safari。</div>
+         <button id="lmgSafariBtn" style="width:100%;padding:12px;border:1px solid #06C755;border-radius:10px;background:#fff;color:#06C755;font-size:14px;font-weight:600;cursor:pointer">如何使用 Safari 開啟</button>`
+      : `<button id="lmgOpenLineBtn" style="width:100%;padding:12px;border:0;border-radius:10px;background:#06C755;color:#fff;font-size:15px;font-weight:600;margin-bottom:8px;cursor:pointer">嘗試使用 LINE 開啟</button>
+         <button id="lmgOsHintBtn" style="width:100%;padding:12px;border:1px solid #06C755;border-radius:10px;background:#fff;color:#06C755;font-size:14px;font-weight:600;cursor:pointer">${escapeHtml(osHintLabel)}</button>`;
+
+    externalGuideEl.innerHTML = `
+      <div style="background:#fff;border-radius:16px;max-width:380px;width:100%;padding:24px;text-align:left;font-family:inherit;max-height:90vh;overflow-y:auto">
+        <div style="font-size:40px;line-height:1;margin-bottom:8px;text-align:center">📲</div>
+        <h3 style="margin:0 0 8px;font-size:18px;text-align:center">使用 LINE 登入</h3>
+        <p style="margin:0 0 16px;color:#666;font-size:14px;line-height:1.6;text-align:center">目前使用 Facebook／Messenger 內建瀏覽器。<br><br>請到 LINE 完成登入，登入後會自動返回這個頁面。</p>
+        <a id="lmgEntryLoginBtn" href="${liffOpenUrl || '#'}" rel="noopener noreferrer"
+          style="display:flex;align-items:center;gap:12px;width:100%;height:56px;padding:0 18px;border-radius:12px;border:0;background:#06C755;color:#fff;font-size:16px;font-weight:700;text-decoration:none;cursor:pointer;box-sizing:border-box;text-align:left;margin-bottom:14px;${liffOpenUrl ? '' : 'opacity:.55;pointer-events:none'}">
+          <span style="font-size:28px;line-height:1;flex-shrink:0;width:32px;text-align:center">💬</span>
+          <span style="flex:1">使用 LINE 登入</span>
+        </a>
+        <button id="lmgExternalBackBtn" style="width:100%;padding:10px;border:0;background:transparent;color:#999;font-size:13px;cursor:pointer;text-align:center">返回</button>
+        <details id="lmgOtherLoginDetails" style="margin-top:8px">
+          <summary style="cursor:pointer;color:#666;font-size:13px;padding:6px 0;list-style:none;text-align:center">其他登入方式 ▾</summary>
+          <div style="margin-top:10px">${otherLoginInnerHtml}</div>
+        </details>
+      </div>`;
+
+    document.body.appendChild(externalGuideEl);
+    externalGuideVisible = true;
+    trackLineEnvironmentEvent(onEvent, 'line_login_external_guide_shown', environment, gateStage, storeId);
+
+    const entryLoginBtn = externalGuideEl.querySelector('#lmgEntryLoginBtn');
+    const backBtn = externalGuideEl.querySelector('#lmgExternalBackBtn');
+    const chromeBtn = externalGuideEl.querySelector('#lmgChromeBtn');
+    const safariBtn = externalGuideEl.querySelector('#lmgSafariBtn');
+    const openLineBtn = externalGuideEl.querySelector('#lmgOpenLineBtn');
+    const osHintBtn = externalGuideEl.querySelector('#lmgOsHintBtn');
+
+    if (entryLoginBtn) {
+      entryLoginBtn.addEventListener('click', () => {
+        persistBeforeExternalLogin(storeId, { gate_stage: gateStage });
+        trackLineEnvironmentEvent(onEvent, 'line_login_open_line_clicked', environment, gateStage, storeId);
+        // 不 preventDefault，讓瀏覽器用原生方式開啟真實 <a href>（保留使用者
+        // 手勢資格），與 Direct LIFF Checkout 主按鈕的既有原則一致。
+      });
+    }
+    if (backBtn) {
+      backBtn.addEventListener('click', () => {
+        closeExternalBrowserLoginGuide();
+        options.onClose && options.onClose();
+      });
+    }
+    if (chromeBtn) {
+      chromeBtn.addEventListener('click', () => {
+        trackLineEnvironmentEvent(onEvent, 'line_login_open_chrome_clicked', environment, gateStage, storeId);
+        openInAndroidChrome(getSafeCurrentPageUrl());
+      });
+    }
+    if (openLineBtn) {
+      openLineBtn.addEventListener('click', () => {
+        trackLineEnvironmentEvent(onEvent, 'line_login_open_browser_clicked', environment, gateStage, storeId);
+        openInAndroidChrome(getSafeCurrentPageUrl());
+      });
+    }
+    if (safariBtn || osHintBtn) {
+      const hintBtn = safariBtn || osHintBtn;
+      hintBtn.addEventListener('click', () => {
+        trackLineEnvironmentEvent(onEvent, 'line_login_open_browser_clicked', environment, gateStage, storeId);
+      });
+    }
+
+    return externalGuideEl;
+  }
+
+  function showCheckoutHandoffExternalGuide(config, options) {
+    const storeId = options && options.storeId;
+    const gateStage = (options && options.gateStage) || '';
+    const environment = (options && options.environment) || detectBrowserEnvironment();
+    const onEvent = options && options.onEvent;
 
     trackLineEnvironmentEvent(onEvent, 'line_login_inapp_browser_detected', environment, gateStage, storeId);
 
@@ -2130,42 +2268,74 @@
         return;
       }
       onEvent && onEvent('line_gate_view');
-      const gate = showMemberGate(config, { allow_skip: !!config.allow_skip });
+      // fix18-10-hotfix30-entry-oneclick（需求文件一／二）：environment 在
+      // Gate 一開始 render 時就同步判斷好（detectBrowserEnvironment() 本身
+      // 是純字串比對，不需要等待任何 LIFF SDK 初始化或網路請求）。Messenger／
+      // Facebook／Instagram 內建瀏覽器時，直接把「使用 LINE 登入」render 成
+      // 真實 <a href="buildLiffOpenUrl(...)">，讓瀏覽器在第一次點擊就直接
+      // 跟隨連結離開——不再等使用者點擊後才透過 loginWithLine() 判斷、再
+      // 關閉這個 Gate、再開一個 showEntryLoginExternalGuide() 第二層 Dialog
+      // （那個兩層結構需要兩次點擊才能真正跳轉，違反 Hotfix30「縮短流程」
+      // 的目標）。不呼叫 loginWithLine()／不呼叫 showEntryLoginExternalGuide()。
+      const environment = detectBrowserEnvironment();
+      const directLoginHref = environment.isInAppBrowser
+        ? buildLiffOpenUrl(storeId, config, { gate_stage: 'entry' })
+        : '';
+      const gate = showMemberGate(config, { allow_skip: !!config.allow_skip, direct_login_href: directLoginHref || undefined });
       const loginBtn = gate.querySelector('#lmgLoginBtn');
       const skipBtn = gate.querySelector('#lmgSkipBtn');
-      loginBtn.addEventListener('click', async () => {
-        setGateStatus('登入中…');
-        onEvent && onEvent('line_login_start');
-        if (!isLiffAvailable(storeId)) {
-          setGateStatus('LIFF 尚未就緒，請稍後再試');
-          return;
-        }
-        const loginOpts = { gate_stage: 'entry' };
-        const loginRes = await loginWithLine(storeId, loginOpts);
-        if (loginRes.redirected) return;
-        // fix18-10-hotfix26-I（需求文件十四）：entry 模式也要共用同一套外部
-        // 瀏覽器引導，不可只修 checkout。
-        if (loginRes.externalBrowserRequired) {
-          persistBeforeExternalLogin(storeId, loginOpts);
-          closeMemberGate();
-          showExternalBrowserLoginGuide(config, {
-            storeId, gateStage: 'entry', environment: loginRes.environment, onEvent,
-            onClose: () => {},
-          });
-          resolve({ ok: false, reason: 'external_browser_required', externalBrowserRequired: true });
-          return;
-        }
-        const verifyRes = await verifyWithBackend(storeId, { ...ids, gate_stage: 'entry' });
-        if (verifyRes.success) {
-          closeMemberGate();
-          onEvent && onEvent('friend_gate_passed');
-          // fix18-10-hotfix26-B：登入成功後，再檢查一次是否符合好友要求。
-          const friendRes = await ensureFriendRequirement(storeId, config, ids, onEvent);
-          resolve(friendRes);
-        } else {
-          setGateStatus(verifyRes.message || '登入失敗，請重試');
-        }
-      });
+
+      if (directLoginHref) {
+        // 需求文件二／五：真實 <a href>，同步就有最終網址——不 preventDefault、
+        // 不使用 window.location.assign()、handler 本身不是 async，瀏覽器在
+        // 點擊當下就直接 Follow href，不需要等任何 JS 執行完畢。這裡只做
+        // 輕量的分析／返回狀態記錄，完全不影響瀏覽器的原生導航行為。
+        trackLineEnvironmentEvent(onEvent, 'line_login_inapp_browser_detected', environment, 'entry', storeId);
+        loginBtn.addEventListener('click', () => {
+          persistBeforeExternalLogin(storeId, { gate_stage: 'entry' });
+          onEvent && onEvent('line_login_start');
+          trackLineEnvironmentEvent(onEvent, 'line_login_open_line_clicked', environment, 'entry', storeId);
+          // 不 preventDefault，讓瀏覽器用原生方式開啟 <a href>（保留使用者
+          // 手勢資格，第一次點擊就直接離開頁面前往 LINE）。
+        });
+        resolve({ ok: false, reason: 'external_browser_required', externalBrowserRequired: true });
+      } else {
+        loginBtn.addEventListener('click', async () => {
+          setGateStatus('登入中…');
+          onEvent && onEvent('line_login_start');
+          if (!isLiffAvailable(storeId)) {
+            setGateStatus('LIFF 尚未就緒，請稍後再試');
+            return;
+          }
+          const loginOpts = { gate_stage: 'entry' };
+          const loginRes = await loginWithLine(storeId, loginOpts);
+          if (loginRes.redirected) return;
+          // 這個分支只會在「一開始判斷不是 in-app browser」時走到；若
+          // loginWithLine() 內部判斷結果不一致（理論上不會，因為用的是同一個
+          // detectBrowserEnvironment()），仍保留原本的 fallback 引導，不讓
+          // 使用者卡住。
+          if (loginRes.externalBrowserRequired) {
+            persistBeforeExternalLogin(storeId, loginOpts);
+            closeMemberGate();
+            showExternalBrowserLoginGuide(config, {
+              storeId, gateStage: 'entry', environment: loginRes.environment, onEvent,
+              onClose: () => {},
+            });
+            resolve({ ok: false, reason: 'external_browser_required', externalBrowserRequired: true });
+            return;
+          }
+          const verifyRes = await verifyWithBackend(storeId, { ...ids, gate_stage: 'entry' });
+          if (verifyRes.success) {
+            closeMemberGate();
+            onEvent && onEvent('friend_gate_passed');
+            // fix18-10-hotfix26-B：登入成功後，再檢查一次是否符合好友要求。
+            const friendRes = await ensureFriendRequirement(storeId, config, ids, onEvent);
+            resolve(friendRes);
+          } else {
+            setGateStatus(verifyRes.message || '登入失敗，請重試');
+          }
+        });
+      }
       if (skipBtn) {
         skipBtn.addEventListener('click', () => {
           onEvent && onEvent('line_gate_skipped');
@@ -2226,6 +2396,10 @@
     detectBrowserEnvironment, detectTrafficSource, buildLiffOpenUrl, openInAndroidChrome,
     getSafeCurrentPageUrl, persistBeforeExternalLogin, readExternalLoginPending,
     clearExternalLoginPending, showExternalBrowserLoginGuide, closeExternalBrowserLoginGuide,
+    // fix18-10-hotfix30-entry-isolation 新增：Entry Login／Checkout Handoff
+    // 分流後的兩個薄包裝函式，供測試直接驗證各自的 DOM／href，不影響既有
+    // showExternalBrowserLoginGuide() 對外行為（呼叫端完全不需要改）。
+    showEntryLoginExternalGuide, showCheckoutHandoffExternalGuide,
     trackLineEnvironmentEvent,
     // fix18-10-hotfix26-F8-B 新增：Messenger →「到 LINE 完成結帳」
     createLineCheckoutHandoff, copyToClipboard,
