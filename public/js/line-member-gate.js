@@ -903,6 +903,9 @@
     return {
       ok: r.ok === true,
       cartCode: r.cart_code || r.cartCode || null,
+      // fix18-10-hotfix30（需求文件五）：Direct LIFF Checkout URL——新的主要
+      // 導流網址，缺 LIFF ID 設定時後端回 null，前端 fallback 回 lineOaMessageUrl。
+      directLiffUrl: r.direct_liff_url || r.directLiffUrl || null,
       lineOaMessageUrl: r.line_oa_message_url || r.lineOaMessageUrl || null,
       lineOaConfigured: !!(r.line_oa_configured !== undefined ? r.line_oa_configured : r.lineOaConfigured),
       // fix18-10-hotfix29-C（需求文件九）：add_friend_url 一併 normalize，讓
@@ -966,6 +969,9 @@
     HANDOFF_ADD_FRIEND_URL_MISSING: 'HOF-NO-ADD-FRIEND',
     HANDOFF_CREATE_DB_FAILED: 'HOF-DB',
     HANDOFF_CREATE_INTERNAL_ERROR: 'HOF-INTERNAL',
+    // fix18-10-hotfix30（需求文件四）：LIFF ID 未設定（不是失敗，只是無法
+    // 建立 Direct LIFF URL，仍會 fallback 到 OA／Cart Code，但錯誤碼顯示需要獨立代碼）。
+    HANDOFF_LIFF_ID_MISSING: 'HOF-NO-LIFF-ID',
   };
   function handoffErrorCodeToDisplay(code) { return HANDOFF_ERROR_DISPLAY_MAP[code] || 'HOF-UNKNOWN'; }
 
@@ -1091,7 +1097,7 @@
       // 從未送到後端），確保五個階段 request_started／request_completed
       // （＝request_sent+response_received）／response_parsed／response_validated
       // 在後台都能看到，不再「中間憑空消失」。
-      report({ stage: 'response_parsed', attempt, http_status: httpStatus, response_ok: resp.ok, has_cart_code: !!normalized.cartCode, has_line_oa_message_url: !!normalized.lineOaMessageUrl });
+      report({ stage: 'response_parsed', attempt, http_status: httpStatus, response_ok: resp.ok, has_cart_code: !!normalized.cartCode, has_line_oa_message_url: !!normalized.lineOaMessageUrl, has_direct_liff_url: !!normalized.directLiffUrl });
 
       if (!resp.ok || !normalized.ok) {
         // 需求文件九：優先用後端明確給的 error_code（例如 HANDOFF_EMPTY_CART／
@@ -1109,13 +1115,17 @@
         break;
       }
 
-      report({ stage: 'response_validated', attempt, http_status: httpStatus, response_ok: true, has_cart_code: true, has_line_oa_message_url: !!normalized.lineOaMessageUrl });
+      report({ stage: 'response_validated', attempt, http_status: httpStatus, response_ok: true, has_cart_code: true, has_line_oa_message_url: !!normalized.lineOaMessageUrl, has_direct_liff_url: !!normalized.directLiffUrl });
+      // fix18-10-hotfix30（需求文件十二）：direct_liff_url_created——只回報
+      // 「有沒有值」，不把完整網址（含 cart_token）送進診斷 log。
+      report({ stage: 'direct_liff_url_created', attempt, http_status: httpStatus, response_ok: true, has_cart_code: true, has_direct_liff_url: !!normalized.directLiffUrl });
       // 需求文件九：addFriendUrl 一併帶回——這是後端用同一套 resolveAddFriendUrl()
       // 解析出來的正式值，取代前端舊有只讀 config.add_friend_url（可能來自
       // 另一個舊欄位）的做法，修正「後台明明有設定，畫面卻顯示未設定」。
       return {
         ok: true,
         cartCode: normalized.cartCode,
+        directLiffUrl: normalized.directLiffUrl,
         lineOaMessageUrl: normalized.lineOaMessageUrl,
         lineOaConfigured: normalized.lineOaConfigured,
         addFriendUrl: normalized.addFriendUrl,
@@ -1163,13 +1173,9 @@
     // fix18-10-hotfix27（需求文件九）：文案改版——強調「購物車已保留，不需要
     // 重新選購」，不再出現「商家尚未設定官方帳號…」這種曝露內部設定狀態的
     // 字樣（改成引導動作：加入官方 LINE＋貼結帳代碼）。
-    // fix18-10-hotfix29（需求文件二）：真機測試證實 Messenger WebView 上
-    // 「到 LINE 完成結帳」（<a href> 開 oaMessage 連結）常常沒有反應，真正
-    // 能成功的是「開啟 LINE 官方帳號」（純加好友連結，較不受 WebView 的
-    // scheme/redirect 限制）。iPhone＋Messenger/Instagram 時，把這個方法
-    // 放第一順位、預設展開，不要求顧客自己發現「還有其他辦法」。Android
-    // 「到 LINE 完成結帳」成功率仍高，維持原順位（需求文件六）。
-    const isIphoneMessenger = environment.isIOS && environment.isInAppBrowser;
+    // fix18-10-hotfix30（需求文件六）：iPhone＋Messenger 不再有特殊分支——
+    // Direct LIFF URL 統一是唯一主按鈕，不需要再依裝置判斷排序（原
+    // isIphoneMessenger 分支已隨 Hotfix29-C 的雙主按鈕設計一起移除）。
 
     const headingText = 'LINE 完成結帳';
     const introHtml = `目前使用 Facebook／Messenger 內建瀏覽器。<br><br>請到 LINE 繼續完成結帳。<br><br>您的購物車已保留，不需要重新選購。`;
@@ -1201,45 +1207,55 @@
       </${tag}>`;
     }
 
-    // 需求文件四／六：「立即開啟 LINE 官方帳號」是本版真正要推的按鈕（加入
-    // 好友連結，不是 oaMessage 連結），與既有「到 LINE 完成結帳」（Cart Token
-    // 的 <a href>）並列，不互相取代——iPhone+Messenger 時前者排第一。
-    const openOaHtml = iconButtonHtml('lmgOpenOaBtn', 'a', '<span style="color:#06C755;font-weight:900">L</span>', '立即開啟 LINE 官方帳號', { bg: '#06C755', color: '#fff', border: '0', fontWeight: '700' });
+    // fix18-10-hotfix30（需求文件四／六）：「立即開啟 LINE 官方帳號」（加好友
+    // 連結）／「使用聊天室完成結帳」（舊 oaMessage Cart Code 連結）／「複製
+    // 結帳代碼」全部降為 fallback，收在「無法開啟 LINE？」收合區塊內；不再是
+    // iPhone+Messenger 時搶主要視覺的按鈕（本版根因：Direct LIFF URL 是 LINE
+    // 官方註冊的 universal link，成功率取代了過去用 OA 加好友連結墊檔的做法）。
+    const openOaHtml = iconButtonHtml('lmgOpenOaBtn', 'a', '<span style="color:#06C755;font-weight:900">L</span>', '開啟 LINE 官方帳號', { bg: '#fff', color: '#06C755', border: '1px solid #06C755', fontWeight: '600' });
+    // 需求文件七：主要按鈕必須是真實 <a href>，不可用 button+async navigation
+    // （async 之後會失去使用者手勢資格）。ready 前 disabled，ready 後才寫入 href。
     const goCheckoutHtml = `<a id="lmgGoLineCheckoutBtn" href="#" rel="noopener noreferrer" aria-disabled="true"
         style="display:flex;align-items:center;gap:12px;width:100%;height:56px;padding:0 18px;border-radius:12px;border:0;background:#06C755;color:#fff;font-size:16px;font-weight:700;text-decoration:none;cursor:pointer;box-sizing:border-box;text-align:left;opacity:.55;pointer-events:none">
         <span style="font-size:28px;line-height:1;flex-shrink:0;width:32px;text-align:center">💬</span>
         <span id="lmgGoLineCheckoutBtnText" style="flex:1">到 LINE 完成結帳</span>
       </a>`;
+    // 需求文件十三：舊聊天室 Cart Code 流程（「我要結帳 CART-XXXXXX」）仍保留，
+    // 只是降為 fallback——href 指向既有 lineOaMessageUrl（oaMessage 深連結）。
+    const goChatroomHtml = iconButtonHtml('lmgGoChatroomBtn', 'a', '💬', '使用聊天室完成結帳', {});
     const copyCodeHtml = iconButtonHtml('lmgCopyCartCodeBtn', 'button', '📋', '複製結帳代碼', {});
     const externalBrowserLabel = environment.isIOS ? '在 Safari 開啟' : '在外部瀏覽器開啟';
     const externalBrowserHtml = iconButtonHtml('lmgExternalBrowserBtn', 'button', '🌐', externalBrowserLabel, {});
 
-    // 需求文件三／十：拿掉 <details>/<summary> 收合，永遠展開；需求文件五：
-    // 紅色警示區塊放在按鈕上方，第一眼就看到「如果沒反應，點哪一個」。
-    const warningBannerHtml = `
-      <div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:10px;padding:12px;margin-bottom:14px;font-size:13px;color:#991b1b;line-height:1.6">
-        ⚠️ Messenger 可能限制直接開啟 LINE。<br>如果上方按鈕沒有反應，請直接點「立即開啟 LINE 官方帳號」即可完成結帳。
-      </div>`;
-    const fallbackSectionHtml = `
-      <div id="lmgCantOpenSection" style="margin-top:14px">
-        <div style="text-align:center;font-weight:700;font-size:14px;color:#991b1b;margin-bottom:4px">⚠️ Messenger 無法開啟 LINE？</div>
-        <div style="text-align:center;font-size:13px;color:#666;margin-bottom:12px">請直接使用下面的方法完成結帳</div>
-        <div style="display:flex;flex-direction:column;gap:16px">
-          ${isIphoneMessenger ? '' : openOaHtml}
-          ${copyCodeHtml}
-          ${externalBrowserHtml}
-        </div>
-        <div style="margin-top:12px;font-size:12px;color:#888;line-height:1.6;text-align:center">
-          💡 若 Messenger 無法直接開啟 LINE，請直接點【立即開啟 LINE 官方帳號】成功率最高。${environment.isIOS ? '<br>iPhone：建議使用 Safari。' : ''}
-        </div>
+    // 需求文件六：主要按鈕永遠只有「到 LINE 完成結帳」一個，不再讓顧客在
+    // 兩顆綠色按鈕之間猜該按哪一個。
+    const primaryButtonsHtml = `<div style="display:flex;flex-direction:column;gap:16px;margin-bottom:14px">${goCheckoutHtml}</div>`;
+
+    // 需求文件六／十三：Cart Code 不再放在主要視覺中央，改收進「無法開啟
+    // LINE？」收合區塊——一般顧客用 Direct LIFF 全程不需要看到／輸入代碼，
+    // 只有真的要走舊聊天室流程時才會看到自己的代碼。
+    const cartCodeBlockHtml = `
+      <div id="lmgCartCodeBlock" style="display:none;text-align:center;border:1px dashed #06C755;border-radius:10px;padding:12px;margin:12px 0;background:#f4fdf8">
+        <div style="font-size:12px;color:#888;margin-bottom:4px">您的結帳代碼</div>
+        <div id="lmgCartCodeText" style="font-size:20px;font-weight:700;letter-spacing:1px;color:#06C755;font-family:monospace"></div>
       </div>`;
 
-    // 需求文件六／最後建議：iPhone＋Messenger 時，「立即開啟 LINE 官方帳號」
-    // 排第一順位、最醒目；「到 LINE 完成結帳」仍保留（次要位置）。其他環境
-    // （Android 等）維持「到 LINE 完成結帳」在前，因為那裡成功率仍然最高。
-    const primaryButtonsHtml = isIphoneMessenger
-      ? `<div style="display:flex;flex-direction:column;gap:16px;margin-bottom:14px">${openOaHtml}${goCheckoutHtml}</div>`
-      : `<div style="display:flex;flex-direction:column;gap:16px;margin-bottom:14px">${goCheckoutHtml}</div>`;
+    // 需求文件六／十三：「無法開啟 LINE？」——預設收合（<details> 沒有 open
+    // 屬性），展開後才看到官方帳號／複製代碼／聊天室三個 fallback 選項。
+    const fallbackSectionHtml = `
+      <details id="lmgCantOpenSection" style="margin-top:6px">
+        <summary style="cursor:pointer;color:#991b1b;font-weight:700;font-size:14px;padding:8px 0;list-style:none;text-align:center">⚠️ 無法開啟 LINE？</summary>
+        <div style="margin-top:10px">
+          <div style="text-align:center;font-size:13px;color:#666;margin-bottom:12px">請直接使用下面的方法完成結帳</div>
+          ${cartCodeBlockHtml}
+          <div style="display:flex;flex-direction:column;gap:16px">
+            ${openOaHtml}
+            ${goChatroomHtml}
+            ${copyCodeHtml}
+            ${externalBrowserHtml}
+          </div>
+        </div>
+      </details>`;
 
     externalGuideEl.innerHTML = `
       <div style="background:#fff;border-radius:16px;max-width:380px;width:100%;padding:24px;text-align:left;font-family:inherit;max-height:90vh;overflow-y:auto">
@@ -1247,12 +1263,7 @@
         <h3 id="lmgGuideHeading" style="margin:0 0 8px;font-size:18px;text-align:center">${escapeHtml(headingText)}</h3>
         <p id="lmgGuideIntro" style="margin:0 0 12px;color:#666;font-size:14px;line-height:1.6">${introHtml}</p>
         <div id="lmgExternalStatus" style="font-size:13px;color:#888;margin-bottom:10px;text-align:center"></div>
-        <div id="lmgCartCodeBlock" style="display:none;text-align:center;border:1px dashed #06C755;border-radius:10px;padding:12px;margin-bottom:12px;background:#f4fdf8">
-          <div style="font-size:12px;color:#888;margin-bottom:4px">您的結帳代碼</div>
-          <div id="lmgCartCodeText" style="font-size:20px;font-weight:700;letter-spacing:1px;color:#06C755;font-family:monospace"></div>
-        </div>
         <div id="lmgHandoffErrorCode" style="display:none;text-align:center;font-size:12px;color:#991b1b;margin-bottom:10px;font-family:monospace"></div>
-        ${warningBannerHtml}
         ${primaryButtonsHtml}
         ${fallbackSectionHtml}
         <button id="lmgRegenerateTokenBtn" style="display:none;width:100%;padding:12px;border:1px solid #06C755;border-radius:10px;background:#fff;color:#06C755;font-size:14px;font-weight:600;cursor:pointer;margin-top:14px">🔁 重新產生結帳代碼</button>
@@ -1340,6 +1351,8 @@
     const safariBtn = externalGuideEl.querySelector('#lmgSafariBtn');
     const backBtn = externalGuideEl.querySelector('#lmgExternalBackBtn');
     const goLineCheckoutBtn = externalGuideEl.querySelector('#lmgGoLineCheckoutBtn');
+    // fix18-10-hotfix30（需求文件十三）：舊聊天室 Cart Code fallback 按鈕。
+    const goChatroomBtn = externalGuideEl.querySelector('#lmgGoChatroomBtn');
     const cartCodeBlock = externalGuideEl.querySelector('#lmgCartCodeBlock');
     const cartCodeText = externalGuideEl.querySelector('#lmgCartCodeText');
     const headingEl = externalGuideEl.querySelector('#lmgGuideHeading');
@@ -1365,6 +1378,14 @@
     function hideCartCode() {
       if (cartCodeBlock) cartCodeBlock.style.display = 'none';
       if (cartCodeText) cartCodeText.textContent = '';
+    }
+
+    // fix18-10-hotfix30（需求文件六／九）：「無法開啟 LINE？」預設收合，但在
+    // 真正需要 fallback 的情境（Direct LIFF／OA 都不可用、或已進入 failed
+    // 狀態）要自動展開，不能讓顧客多點一次才看到唯一能用的操作。
+    function expandCantOpenSection() {
+      const section = externalGuideEl.querySelector('#lmgCantOpenSection');
+      if (section) section.open = true;
     }
 
     // 需求文件五：接上 #lmgHandoffErrorCode——只顯示 HOF-* 短碼，不顯示技術堆疊。
@@ -1429,6 +1450,9 @@
         }
       }
       if (cartCode) showCartCode(cartCode);
+      // 需求文件九：這種情境下 Cart Code／加好友按鈕都是必要操作，不能藏在
+      // 收合區塊裡讓顧客要多點一次才看到。
+      expandCantOpenSection();
       setExternalStatus('請加入官方 LINE，並將結帳代碼貼到聊天室即可繼續完成結帳。', false);
     }
 
@@ -1564,12 +1588,37 @@
       if (regenBtn) regenBtn.style.display = 'none';
       setCopyButtonEnabled(true);
       showCartCode(result.cartCode);
-      if (result.lineOaConfigured && result.lineOaMessageUrl) {
+      // fix18-10-hotfix30（需求文件四／八）：主按鈕優先使用 Direct LIFF URL；
+      // 只有店家沒有設定 LIFF ID（result.directLiffUrl 為 null）時才退回舊有
+      // OA Message 深連結——direct_liff_url 不依賴 basic_id 設定，因此即使
+      // lineOaConfigured 為 false，仍可能有 directLiffUrl 可用。
+      if (goChatroomBtn) {
+        if (result.lineOaConfigured && result.lineOaMessageUrl) {
+          goChatroomBtn.href = result.lineOaMessageUrl;
+          goChatroomBtn.removeAttribute('aria-disabled');
+          goChatroomBtn.style.opacity = '';
+          goChatroomBtn.style.pointerEvents = '';
+        } else {
+          goChatroomBtn.href = '#';
+          goChatroomBtn.setAttribute('aria-disabled', 'true');
+          goChatroomBtn.style.opacity = '.55';
+          goChatroomBtn.style.pointerEvents = 'none';
+        }
+      }
+      if (result.directLiffUrl) {
+        enableGoLineCheckoutBtn(result.directLiffUrl);
+        setExternalStatus('若沒有自動跳轉，請點下方按鈕。', false);
+      } else if (result.lineOaConfigured && result.lineOaMessageUrl) {
+        // 需求文件四：缺 LIFF ID 設定時的降級——主按鈕直接改指到舊有 OA
+        // Message 連結（等於直接把 Direct LIFF 這版整個退回 Hotfix29-C 行為）。
         enableGoLineCheckoutBtn(result.lineOaMessageUrl);
         setExternalStatus('若沒有自動跳轉，請點下方按鈕。', false);
+        // 需求文件四／六：Direct LIFF 不可用時，顧客手上唯一能用的其他選項
+        // （聊天室／複製代碼／外部瀏覽器）不能藏在收合區塊裡。
+        expandCantOpenSection();
       } else {
-        // 需求文件九：ok:true 但店家尚未設定 Basic ID——這不是失敗，是既有的
-        // 「尚未完成一鍵結帳設定」情境，維持原有 fallback 文案／按鈕配置。
+        // 需求文件九：ok:true 但店家尚未設定 Basic ID／LIFF ID——這不是失敗，
+        // 是既有的「尚未完成一鍵結帳設定」情境，維持原有 fallback 文案／按鈕配置。
         switchToAddFriendFallback(result.cartCode);
       }
     }
@@ -1587,6 +1636,7 @@
       showHandoffErrorCode(result && result.errorCode ? result.errorCode : null);
       const regenBtn = externalGuideEl.querySelector('#lmgRegenerateTokenBtn');
       if (regenBtn) regenBtn.style.display = 'block';
+      expandCantOpenSection();
       // 需求文件十三：Handoff 失敗時，若確認兩個來源都真的沒有 add_friend_url，
       // 顯示更明確的「請聯絡商家」文案，而不是誤導性的一般失敗訊息。
       if (!resolvedAddFriendUrl) {
@@ -1665,11 +1715,18 @@
       return result;
     }
 
-    // 需求文件六：自動開啟——同一個 store_id+cart_code 只嘗試一次（用
-    // sessionStorage，不是記憶體變數，才能跨「Dialog 被重新 build」仍然有效）。
-    // 只有 handoffState === 'ready' 才可能被呼叫到這裡（由 prepareHandoff 保證）。
+    // fix18-10-hotfix30（需求文件八）：自動開啟目標改為 Direct LIFF URL；只有
+    // 店家沒有設定 LIFF ID（result.directLiffUrl 為 null）時才退回舊有 OA
+    // Message 連結（等同 Hotfix29-C 原行為）。同一個 store_id+cart_code 只
+    // 嘗試一次（用 sessionStorage，不是記憶體變數，才能跨「Dialog 被重新
+    // build」仍然有效）。只有 handoffState === 'ready' 才可能被呼叫到這裡
+    // （由 prepareHandoff 保證，對應需求文件八「requestId === currentRequestId」
+    // 的防護——prepareHandoff 內已經做過 requestId 檢查才會呼叫這裡）。
     function scheduleAutoLaunch(result) {
-      if (handoffState !== 'ready' || !result || !result.cartCode || !result.lineOaMessageUrl) return;
+      if (handoffState !== 'ready' || !result || !result.cartCode) return;
+      const launchUrl = result.directLiffUrl || result.lineOaMessageUrl;
+      const launchTarget = result.directLiffUrl ? 'direct_liff' : 'oa_message';
+      if (!launchUrl) return;
       if (autoLaunchAttempted || manualClicked) return;
       const autoLaunchKey = `line_checkout_auto_launch:${storeId}:${result.cartCode}`;
       let already = false;
@@ -1678,32 +1735,33 @@
         setExternalStatus('若沒有自動跳轉，請點下方按鈕。', false);
         return;
       }
-      _handoffLog('auto_launch_scheduled', {});
-      reportHandoffDiagnostics(storeId, Object.assign({ stage: 'auto_launch_scheduled', has_cart_code: true, has_line_oa_message_url: true }, handoffDiagCtx));
+      _handoffLog('auto_launch_scheduled', { launch_target: launchTarget });
+      reportHandoffDiagnostics(storeId, Object.assign({ stage: 'direct_liff_auto_launch_scheduled', has_cart_code: true, has_direct_liff_url: !!result.directLiffUrl, launch_target: launchTarget }, handoffDiagCtx));
       setTimeout(() => {
         if (!externalGuideVisible || handoffState !== 'ready' || autoLaunchAttempted || manualClicked) return;
         autoLaunchAttempted = true;
         try { global.sessionStorage.setItem(autoLaunchKey, '1'); } catch (e) {}
-        _handoffLog('auto_launch_attempted', {});
-        reportHandoffDiagnostics(storeId, Object.assign({ stage: 'auto_launch_attempted', has_cart_code: true, has_line_oa_message_url: true }, handoffDiagCtx));
-        sendBeaconEvent('line_checkout_handoff_opened', { cart_code_masked: result.cartCode ? result.cartCode.slice(0, 8) + '***' : '', trigger: 'auto' });
+        _handoffLog('auto_launch_attempted', { launch_target: launchTarget });
+        reportHandoffDiagnostics(storeId, Object.assign({ stage: 'direct_liff_open_attempted', has_cart_code: true, has_direct_liff_url: !!result.directLiffUrl, launch_target: launchTarget }, handoffDiagCtx));
+        sendBeaconEvent('line_checkout_handoff_opened', { cart_code_masked: result.cartCode ? result.cartCode.slice(0, 8) + '***' : '', trigger: 'auto', launch_target: launchTarget });
         persistBeforeExternalLogin(storeId, { gate_stage: gateStage });
         launchLikelySucceeded = false;
         // 需求文件六：Auto Launch 失敗（同步 assign 本身丟例外）絕不能把狀態
         // 改成 failed、不清除 Cart Code、不停用按鈕——只保留 Dialog 讓使用者
         // 自己點手動按鈕。
-        try { global.location.assign(result.lineOaMessageUrl); } catch (e) { /* 保留 Dialog 與所有手動按鈕 */ }
+        try { global.location.assign(launchUrl); } catch (e) { /* 保留 Dialog 與所有手動按鈕 */ }
         // 需求文件七：1500~2000ms 後頁面仍可見 → 判斷自動開啟大概沒成功。
         // 不隱藏 Dialog、不鎖住手動連結、不清 Cart Code、不切 failed，只更新提示文字。
         setTimeout(() => {
           if (!externalGuideVisible || handoffState !== 'ready') return;
           if (!launchLikelySucceeded && !document.hidden) {
-            setExternalStatus('Messenger 未能自動開啟 LINE。<br>請直接點「立即開啟 LINE 官方帳號」，或使用「複製結帳代碼」。', false);
+            reportHandoffDiagnostics(storeId, Object.assign({ stage: 'fallback_to_oa', has_cart_code: true, has_direct_liff_url: !!result.directLiffUrl, launch_target: launchTarget }, handoffDiagCtx));
+            setExternalStatus('Messenger 未能自動開啟 LINE。<br>請點下方「無法開啟 LINE？」展開更多方式。', false);
           } else {
             setExternalStatus('若沒有自動跳轉，請點下方按鈕。', false);
           }
         }, 1800);
-      }, 1000); // 需求文件六：800~1200ms，固定 1000ms
+      }, 1000); // 需求文件八：800～1200ms，固定 1000ms
     }
 
     // 需求文件八：兩次建立都失敗後，自動嘗試開啟加好友連結——同一次失敗
@@ -1743,12 +1801,31 @@
         manualClicked = true; // 純粹用來讓「還沒開始跑」的自動開啟 timer 提早放棄，不影響這次點擊本身
         launchLikelySucceeded = false;
         persistBeforeExternalLogin(storeId, { gate_stage: gateStage });
-        const isFallback = !(currentHandoff && currentHandoff.lineOaConfigured);
+        // fix18-10-hotfix30（需求文件十二）：手動點擊時的 launch_target 依
+        // 目前主按鈕實際指向哪個網址而定（direct_liff／oa_message／
+        // add_friend_fallback），不是猜測值。
+        const usedDirectLiff = !!(currentHandoff && currentHandoff.directLiffUrl);
+        const isFallback = !usedDirectLiff && !(currentHandoff && currentHandoff.lineOaConfigured);
+        const launchTarget = usedDirectLiff ? 'direct_liff' : (isFallback ? 'cart_code' : 'oa_message');
+        reportHandoffDiagnostics(storeId, Object.assign({ stage: 'direct_liff_manual_clicked', has_cart_code: true, has_direct_liff_url: usedDirectLiff, launch_target: launchTarget }, handoffDiagCtx));
         sendBeaconEvent(isFallback ? 'line_login_open_line_clicked' : 'line_checkout_handoff_opened', {
-          cart_code_masked: currentHandoff && currentHandoff.cartCode ? currentHandoff.cartCode.slice(0, 8) + '***' : '', trigger: 'manual',
+          cart_code_masked: currentHandoff && currentHandoff.cartCode ? currentHandoff.cartCode.slice(0, 8) + '***' : '', trigger: 'manual', launch_target: launchTarget,
         });
         // 不 preventDefault，讓瀏覽器用原生方式開啟 <a href>（保留使用者手勢，
         // 這正是 iOS Messenger 能不能喚起 LINE 的關鍵）。
+      });
+    }
+
+    // fix18-10-hotfix30（需求文件十三）：「使用聊天室完成結帳」——舊流程
+    // fallback，純粹的原生 <a href>，不攔截 navigation，只回報診斷。
+    if (goChatroomBtn) {
+      goChatroomBtn.addEventListener('click', (ev) => {
+        if (goChatroomBtn.getAttribute('aria-disabled') === 'true') { ev.preventDefault(); return; }
+        manualClicked = true;
+        reportHandoffDiagnostics(storeId, Object.assign({ stage: 'fallback_to_oa', has_cart_code: true, launch_target: 'oa_message' }, handoffDiagCtx));
+        sendBeaconEvent('line_checkout_handoff_opened', {
+          cart_code_masked: currentHandoff && currentHandoff.cartCode ? currentHandoff.cartCode.slice(0, 8) + '***' : '', trigger: 'manual', launch_target: 'oa_message',
+        });
       });
     }
 

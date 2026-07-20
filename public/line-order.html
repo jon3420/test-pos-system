@@ -583,12 +583,75 @@ async function _initLineMemberGateFromShopData(d){
   }
 }
 
+// fix18-10-hotfix30 Final（需求文件三）：Restore 成功後立即清除網址上的
+// cart_token／mode=checkout——不等待使用者下一個操作、不重整頁面、保留
+// store_id 與其他既有安全參數（例如既有的 UTM／fbclid 早在頁面初始化時
+// 就讀取完畢，這裡移除不影響已經處理過的邏輯）。
+function _cleanHandoffUrlParams(){
+  try{
+    const cleanUrl=new URL(window.location.href);
+    cleanUrl.searchParams.delete('cart_token');
+    cleanUrl.searchParams.delete('mode');
+    window.history.replaceState({}, document.title, cleanUrl.toString());
+  }catch(e){}
+}
+
+// fix18-10-hotfix30（需求文件十）：token 的短識別碼——只用來做 sessionStorage
+// key，絕不是完整 token 本身（完整 token 只活在記憶體變數與這次 HTTPS
+// 請求裡，不落地存到任何 storage）。用簡單同步 hash 即可，不需要密碼學強度
+// （這裡只是拿來判斷「這次瀏覽器分頁是不是已經成功還原過同一個 token」）。
+// fix18-10-hotfix30 Final（需求文件四）：明確用途邊界——
+//   - only for same-session duplicate restore suppression（同一分頁、同一次
+//     瀏覽 session 判斷「這個 token 是不是已經成功還原過」，純粹避免重整/
+//     返回鍵造成假性失效或覆蓋購物車）。
+//   - NOT for authentication or authorization（真正的身分驗證與授權，一律
+//     由後端 /restore API 的 member_session 簽章驗證 + 完整 secret token
+//     比對負責，這個 hash 本身完全不具備、也從未被當成安全憑證使用）。
+//   - 不跨 session／跨分頁取代後端驗證：sessionStorage 清空、換分頁、換裝置
+//     都會讓這個 marker 失效，屆時會直接退回正常呼叫 /restore API 的路徑。
+function _handoffTokenShortHash(token){
+  let h=5381;
+  const s=String(token||'');
+  for(let i=0;i<s.length;i++){ h=((h<<5)+h+s.charCodeAt(i))|0; }
+  return (h>>>0).toString(36);
+}
+// fix18-10-hotfix30（需求文件十二）：Direct LIFF Restore 診斷——fire-and-forget，
+// 絕不因失敗擋住結帳主流程，payload 只放白名單欄位（見
+// routes/line-checkout-handoff.js /diagnostics）。
+function _reportRestoreDiag(stage, extra){
+  try{
+    let ctx={device:'other',browser:'other'};
+    try{ ctx=LineMemberGate.classifyHandoffDeviceBrowser(LineMemberGate.detectBrowserEnvironment()); }catch(e){}
+    const p=apiFetch('/api/line-checkout-handoff/diagnostics',{
+      method:'POST', body:JSON.stringify(Object.assign({ stage, device:ctx.device, browser:ctx.browser }, extra||{}))
+    });
+    if(p && typeof p.catch==='function') p.catch(()=>{});
+  }catch(e){ /* 診斷回報失敗不得影響結帳主流程 */ }
+}
+
 // fix18-10-hotfix26-F8-B（需求文件十一～十四）：LIFF Restore 流程。
 // LIFF init → 取得 UID（透過既有 member_session，見 _currentMemberSession）
 // → 呼叫 restore API → 還原購物車 → 重新計算價格（後端已做，見 restore API）
 // → 確認好友狀態 → 進入結帳畫面。
 async function _restoreCartFromHandoffToken(cartToken){
+  // fix18-10-hotfix30（需求文件十：情境 A／C）：這個 token 這個 session 已經
+  // 成功還原過一次——多半是網址重整、或瀏覽器返回鍵又帶回了還沒被
+  // history.replaceState() 清掉的舊網址。不要再打一次 restore API（token
+  // 這時通常已是 'opened'，重打也不會錯，但沒必要），更重要的是「不要用
+  // 伺服器快照覆蓋掉顧客這次重整後可能已經調整過的購物車」（情境 C）。
+  // 直接把目前畫面上的購物車視為已還原完成，打開結帳面板即可。
+  const tokenHash=_handoffTokenShortHash(cartToken);
+  const restoredMarkerKey=`handoff_restored_${tokenHash}`;
+  let alreadyRestoredThisSession=false;
+  try{ alreadyRestoredThisSession=sessionStorage.getItem(restoredMarkerKey)==='1'; }catch(e){}
+  if(alreadyRestoredThisSession){
+    _cleanHandoffUrlParams();
+    openCartSheet();
+    return;
+  }
+
   document.getElementById('loading').style.display='flex';
+  _reportRestoreDiag('cart_restore_started', {});
   try{
     let memberSession=_currentMemberSession();
     // 剛登入完成時 session 可能要等 initLineMemberGate 內部流程真正落地，
@@ -600,6 +663,7 @@ async function _restoreCartFromHandoffToken(cartToken){
     }
     // 需求文件十七：LIFF 已成功開啟並取得登入狀態，準備呼叫 restore API。
     _trackEvent('line_checkout_liff_opened');
+    _reportRestoreDiag('liff_checkout_loaded', {});
     const res=await apiFetch('/api/line-checkout-handoff/restore',{
       method:'POST', body:JSON.stringify({ cart_token:cartToken, member_session:memberSession })
     }).then(r=>r.json());
@@ -613,6 +677,9 @@ async function _restoreCartFromHandoffToken(cartToken){
         uid_mismatch:'此結帳連結已失效，請返回點餐頁重新操作。',
         not_found:'此結帳連結已失效，請返回點餐頁重新操作。',
       };
+      // 需求文件十：情境 B——這裡才是真正過期／已被其他 session 使用／
+      // 找不到，才顯示失效提示。
+      _reportRestoreDiag('cart_restore_failed', { restore_result:'failed', restore_error_code:res.reason||null });
       _showCheckoutHandoffFailure(msgMap[res.reason]||res.message||'此結帳連結已失效，請返回點餐頁重新操作。');
       return;
     }
@@ -642,6 +709,15 @@ async function _restoreCartFromHandoffToken(cartToken){
     localStorage.setItem(ORDER_CART_KEY, JSON.stringify(cartData));
     await restoreCart();
     _activeCartHandoffToken=cartToken;
+    // 需求文件十：標記這個 token 這次 session 已成功還原過——之後若同一
+    // 分頁再次帶著這個 cart_token 進來（重整／返回鍵），不再視為失效，也不
+    // 再拿伺服器快照覆蓋顧客這次重整後可能已調整過的購物車。
+    try{ sessionStorage.setItem(restoredMarkerKey, '1'); }catch(e){}
+    _reportRestoreDiag('cart_restore_success', { restore_result:'success', token_consumed:false });
+    // 需求文件三：Restore 成功後立刻清除網址上的 cart_token／mode=checkout，
+    // 不等待使用者下一個操作（例如下面的好友確認流程可能需要等待網路或
+    // 使用者互動）、不重整頁面、不清掉 store_id。
+    _cleanHandoffUrlParams();
 
     if(res.has_unavailable_items){
       toast('部分商品資訊已更新，請確認最新內容後再結帳。');
@@ -653,13 +729,6 @@ async function _restoreCartFromHandoffToken(cartToken){
     if(_lineMemberGateConfig && (_lineMemberGateConfig.require_friend||_lineMemberGateConfig.require_follow)){
       try{ await LineMemberGate.ensureFriendRequirement(LINE_STORE_ID, _lineMemberGateConfig, _gateIds(), _trackEvent); }catch(e){}
     }
-
-    // 清掉網址上的 cart_token，避免重整頁面重複觸發 restore／被誤分享
-    try{
-      const cleanUrl=new URL(window.location.href);
-      cleanUrl.searchParams.delete('cart_token');
-      window.history.replaceState({}, '', cleanUrl.toString());
-    }catch(e){}
 
     openCartSheet();
     toast('購物車已成功還原，請確認內容後完成結帳。');

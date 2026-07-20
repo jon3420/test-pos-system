@@ -126,23 +126,31 @@ async function main() {
     );
     const html = guideEl._html;
 
-    assert(html.includes('id="lmgOpenOaBtn"') && html.includes('立即開啟 LINE 官方帳號'), '「立即開啟 LINE 官方帳號」按鈕存在');
+    assert(html.includes('id="lmgOpenOaBtn"') && html.includes('開啟 LINE 官方帳號'), '「開啟 LINE 官方帳號」按鈕存在（fix18-10-hotfix30：文案拿掉「立即」，因為已降為 fallback，不再是搶眼的主按鈕）');
     assert(html.includes('id="lmgCopyCartCodeBtn"') && html.includes('複製結帳代碼'), '「複製結帳代碼」按鈕存在');
     assert(html.includes('id="lmgExternalBrowserBtn"') && html.includes('在 Safari 開啟'), '「外部瀏覽器開啟」按鈕存在（iOS 文案為「在 Safari 開啟」）');
     assert(html.includes('id="lmgGoLineCheckoutBtn"'), '「到 LINE 完成結帳」按鈕仍保留（需求文件六：不移除）');
 
-    assert(!/<details[^>]*id="lmgCantOpenDetails"/.test(html), '不再有 id="lmgCantOpenDetails" 這個收合容器（舊版 <details> 已移除）');
-    assert(!/<summary[^>]*>\s*無法開啟 LINE/.test(html), '不使用 <summary>無法開啟 LINE... 的收合寫法');
-    assert(html.includes('Messenger 無法開啟 LINE'), '「⚠️ Messenger 無法開啟 LINE？」提示存在且預設可見（需求文件十）');
+    // fix18-10-hotfix30（需求文件六／十三，Baseline Isolation 判定為
+    // PRE-EXISTING TEST ASSUMPTION）：hotfix29 當時把「無法開啟 LINE？」從
+    // <details> 收合改成永遠展開＋紅色警示банner，是因為那個版本主要結帳
+    // 手段就是這個 fallback 區塊本身（OA 加好友連結）。Hotfix30 導入 Direct
+    // LIFF 之後，這個區塊變回真正的 fallback（顧客正常情況完全不會用到），
+    // 因此依 hotfix30 明確需求改回 <details> 收合，並拿掉紅色警示 banner。
+    assert(!/<details[^>]*id="lmgCantOpenDetails"/.test(html), '不再有舊的 id="lmgCantOpenDetails" 收合容器命名（hotfix30 用的是 id="lmgCantOpenSection"）');
+    assert(/<details[^>]*id="lmgCantOpenSection"/.test(html), 'hotfix30：「無法開啟 LINE？」改回 <details id="lmgCantOpenSection"> 收合寫法');
+    assert(/<summary[^>]*>\s*⚠️\s*無法開啟 LINE/.test(html), 'hotfix30：收合區塊的 <summary> 文案為「⚠️ 無法開啟 LINE？」（不再限定 Messenger，且不再有紅色警示 banner 常駐畫面）');
+    assert(!html.includes('background:#fef2f2'), 'hotfix30：常駐紅色警示 banner 已移除（Direct LIFF 為主流程時不需要一開始就嚇顧客）');
+    assert(html.includes('⚠️'), '警示 icon 仍存在（現在放在收合 <summary> 裡）');
 
-    assert(/#fef2f2|#fca5a5/.test(html), '紅色／淡紅色警示區塊存在（需求文件五）');
-    assert(html.includes('⚠️'), '警示 icon 存在');
-
+    // fix18-10-hotfix30（需求文件六）：不再有 iPhone+Messenger 特殊排序——
+    // 主按鈕永遠只有「到 LINE 完成結帳」（Direct LIFF），openOaBtn 只存在於
+    // 收合的 fallback 區塊裡，理論上一定排在主按鈕之後。
     const idxOpenOa = html.indexOf('id="lmgOpenOaBtn"');
     const idxGoCheckout = html.indexOf('id="lmgGoLineCheckoutBtn"');
-    assert(idxOpenOa > -1 && idxGoCheckout > -1 && idxOpenOa < idxGoCheckout, 'iPhone+Messenger：「立即開啟 LINE 官方帳號」排在「到 LINE 完成結帳」之前（第一順位）');
+    assert(idxOpenOa > -1 && idxGoCheckout > -1 && idxGoCheckout < idxOpenOa, 'hotfix30：「到 LINE 完成結帳」（主按鈕）永遠排在「開啟 LINE 官方帳號」（fallback）之前，不再有 iPhone+Messenger 特例');
 
-    assert(/<a[^>]*id="lmgOpenOaBtn"/.test(html), '「立即開啟 LINE 官方帳號」是真正的 <a> 元素（可點擊）');
+    assert(/<a[^>]*id="lmgOpenOaBtn"/.test(html), '「開啟 LINE 官方帳號」是真正的 <a> 元素（可點擊）');
     assert(/<button[^>]*id="lmgCopyCartCodeBtn"/.test(html), '「複製結帳代碼」是真正的 <button> 元素（可點擊）');
     assert(/<button[^>]*id="lmgExternalBrowserBtn"/.test(html), '「外部瀏覽器開啟」是真正的 <button> 元素（可點擊）');
     assert(/<a[^>]*id="lmgGoLineCheckoutBtn"/.test(html), '「到 LINE 完成結帳」是真正的 <a> 元素（可點擊）');
@@ -152,11 +160,13 @@ async function main() {
     assert(html.includes('width:32px'), 'Icon 寬度 32px（需求文件十二）');
     assert(html.includes('gap:16px'), '按鈕間距 16px（需求文件十二）');
 
-    assert(html.includes('成功率最高'), '底部「成功率最高」說明存在');
-    assert(html.includes('建議使用 Safari'), 'iPhone 額外顯示「建議使用 Safari」（需求文件八）');
+    // fix18-10-hotfix30：舊版 fallback 區塊底部的「💡 成功率最高／iPhone
+    // 建議使用 Safari」說明文字，是專門為「OA 加好友連結是主要手段」這個
+    // 已被取代的設計寫的，隨著該區塊收合為單純 fallback 一併移除，不再斷言存在。
+    assert(!html.includes('成功率最高'), 'hotfix30：舊版「成功率最高」說明文字已隨紅色警示 banner 一起移除（不再需要說服顧客哪個按鈕比較準）');
 
     const openOaEl = guideEl.children['lmgOpenOaBtn'];
-    assert(openOaEl && openOaEl.href === 'https://lin.ee/testshop', '「立即開啟 LINE 官方帳號」href 正確指向 add_friend_url', openOaEl && openOaEl.href);
+    assert(openOaEl && openOaEl.href === 'https://lin.ee/testshop', '「開啟 LINE 官方帳號」href 正確指向 add_friend_url', openOaEl && openOaEl.href);
   }
 
   {
@@ -172,10 +182,10 @@ async function main() {
     const html = guideEl._html;
 
     assert(html.includes('id="lmgGoLineCheckoutBtn"'), 'Android：「到 LINE 完成結帳」按鈕仍存在');
-    assert(html.includes('id="lmgOpenOaBtn"'), 'Android：「立即開啟 LINE 官方帳號」按鈕仍存在（功能不移除，只是順位不同）');
+    assert(html.includes('id="lmgOpenOaBtn"'), 'Android：「開啟 LINE 官方帳號」按鈕仍存在（fix18-10-hotfix30：功能不移除，只是文案拿掉「立即」並收進 fallback）');
     const idxOpenOa = html.indexOf('id="lmgOpenOaBtn"');
     const idxGoCheckout = html.indexOf('id="lmgGoLineCheckoutBtn"');
-    assert(idxGoCheckout < idxOpenOa, 'Android：「到 LINE 完成結帳」仍排在「立即開啟 LINE 官方帳號」之前（維持既有較高成功率的順位，需求文件六）');
+    assert(idxGoCheckout < idxOpenOa, 'Android：「到 LINE 完成結帳」仍排在「開啟 LINE 官方帳號」之前（fix18-10-hotfix30：兩平台統一沒有特例）');
     assert(html.includes('id="lmgExternalBrowserBtn"') && html.includes('在外部瀏覽器開啟'), 'Android：外部瀏覽器按鈕文案為「在外部瀏覽器開啟」（非「在 Safari 開啟」）');
     assert(html.includes('id="lmgOtherLoginDetails"'), 'Android：其他登入方式（Chrome/嘗試開啟 LINE）收合區塊仍存在（未受影響，屬不同功能）');
   }

@@ -1461,6 +1461,20 @@ router.post('/', async (req, res) => {
               line_user_id: knownLineUserId || null, metadata: {},
             });
           } catch (analyticsErr) { /* Analytics 失敗不影響訂單已成立 */ }
+          // fix18-10-hotfix30 Final（需求文件二）：訂單送出、Cart Token 正式
+          // 被消耗——回報一筆終端診斷事件，只帶白名單欄位（has_cart_token／
+          // token_consumed／restore_result），絕不記錄完整 cart_token。
+          try {
+            logServerEvent(db, {
+              store_id: storeId,
+              visitor_id: `order_${uuid}`, session_id: `order_${uuid}`,
+              event_name: 'line_checkout_handoff_diagnostics',
+              metadata: {
+                stage: 'cart_token_consumed', has_cart_token: true,
+                token_consumed: true, restore_result: 'success', store_id: storeId,
+              },
+            });
+          } catch (diagErr) { /* 診斷寫入失敗不得影響訂單已成立 */ }
         }
       } catch (tokErr) {
         console.warn('[line-orders] cart_token consume failed:', tokErr.message);

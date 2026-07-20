@@ -6,6 +6,7 @@ const router = express.Router();
 const { getDb } = require('../utils/db');
 const {
   createCartHandoffToken, restoreCartToken, maskCartCode, resolveAddFriendUrl,
+  buildDirectLiffCheckoutUrl,
 } = require('../utils/lineCheckoutHandoff');
 const { verifyMemberSession } = require('../utils/lineMemberSession');
 
@@ -44,6 +45,17 @@ const HANDOFF_DIAG_STAGES = new Set([
   'dialog_opened', 'prepare_started', 'request_started', 'request_completed',
   'response_parsed', 'response_validated', 'ui_applied', 'auto_launch_scheduled',
   'auto_launch_attempted', 'fallback_entered', 'retry_started', 'retry_completed',
+  // fix18-10-hotfix30（需求文件十二）：Direct LIFF Checkout 新增觀測階段——
+  // 從「後端建好 direct_liff_url」一路到「LIFF 頁面真正還原購物車成功/失敗」，
+  // 讓後台能看出使用者卡在哪一段（建立網址／自動或手動開啟／LIFF 載入／還原）。
+  'direct_liff_url_created', 'direct_liff_auto_launch_scheduled', 'direct_liff_manual_clicked',
+  'direct_liff_open_attempted', 'liff_checkout_loaded', 'cart_restore_started',
+  'cart_restore_success', 'cart_restore_failed', 'fallback_to_oa',
+  // fix18-10-hotfix30 Final（需求文件二）：訂單送出、Cart Token 正式被消耗
+  // 時的終端事件——與 cart_restore_success（只代表「購物車已還原」）分開，
+  // 因為 restore 成功之後顧客仍可能放棄結帳，token 要到訂單真的送出才算
+  // 「consumed」。
+  'cart_token_consumed',
 ]);
 // 需求文件七／十五：合法錯誤碼白名單，對應前端顯示用的 HOF-* 代碼。
 const HANDOFF_DIAG_ERROR_CODES = new Set([
@@ -56,9 +68,19 @@ const HANDOFF_DIAG_ERROR_CODES = new Set([
   'HANDOFF_PRODUCT_ID_MISSING', 'HANDOFF_QUANTITY_INVALID', 'HANDOFF_BASIC_ID_MISSING',
   'HANDOFF_ADD_FRIEND_URL_MISSING', 'HANDOFF_CREATE_DB_FAILED', 'HANDOFF_CREATE_INTERNAL_ERROR',
   'HANDOFF_CART_SNAPSHOT_MISMATCH',
+  // fix18-10-hotfix30（需求文件四）：LIFF ID 未設定，Direct LIFF URL 無法
+  // 建立（不是 Basic ID 缺失，兩者是獨立設定，不能混用同一個代碼）。
+  'HANDOFF_LIFF_ID_MISSING',
 ]);
 const HANDOFF_DIAG_DEVICES = new Set(['iphone', 'android', 'other']);
 const HANDOFF_DIAG_BROWSERS = new Set(['messenger_webview', 'instagram_webview', 'line_liff', 'other']);
+// fix18-10-hotfix30（需求文件十二）：Direct LIFF 新增欄位的白名單列舉值——
+// 只接受固定字串，不接受任意文字（與既有 stage／error_code 白名單同一套規則）。
+const HANDOFF_DIAG_LAUNCH_TARGETS = new Set(['direct_liff', 'oa_message', 'cart_code']);
+const HANDOFF_DIAG_RESTORE_RESULTS = new Set(['success', 'failed']);
+const HANDOFF_DIAG_RESTORE_ERROR_CODES = new Set([
+  'not_found', 'expired', 'consumed', 'cancelled', 'uid_mismatch', 'invalid_state', 'session_invalid',
+]);
 
 function sanitizeDiagString(v, maxLen) {
   if (typeof v !== 'string') return null;
@@ -105,6 +127,16 @@ router.post('/diagnostics', (req, res) => {
     const hasBasicId = sanitizeDiagBool(body.has_basic_id);
     const hasAddFriendUrl = sanitizeDiagBool(body.has_add_friend_url);
     const responseOk = sanitizeDiagBool(body.response_ok);
+    // fix18-10-hotfix30（需求文件十二）：Direct LIFF 新增欄位——一律白名單
+    // 檢查，不接受任意字串／完整網址／完整 token（見檔案開頭的白名單常數）。
+    const hasDirectLiffUrl = sanitizeDiagBool(body.has_direct_liff_url);
+    const launchTarget = HANDOFF_DIAG_LAUNCH_TARGETS.has(body.launch_target) ? body.launch_target : null;
+    const restoreResult = HANDOFF_DIAG_RESTORE_RESULTS.has(body.restore_result) ? body.restore_result : null;
+    const restoreErrorCode = HANDOFF_DIAG_RESTORE_ERROR_CODES.has(body.restore_error_code) ? body.restore_error_code : null;
+    const tokenConsumed = sanitizeDiagBool(body.token_consumed);
+    // fix18-10-hotfix30 Final（需求文件二）：只回報「有沒有 cart_token」這個
+    // 布林值，絕不接受／記錄完整 token 字串本身。
+    const hasCartToken = sanitizeDiagBool(body.has_cart_token);
 
     try {
       const db = getDb();
@@ -121,6 +153,9 @@ router.post('/diagnostics', (req, res) => {
           ui_cart_count: uiCartCount, payload_cart_count: payloadCartCount,
           has_store_id: hasStoreId, has_basic_id: hasBasicId,
           has_add_friend_url: hasAddFriendUrl, response_ok: responseOk,
+          has_direct_liff_url: hasDirectLiffUrl, launch_target: launchTarget,
+          restore_result: restoreResult, restore_error_code: restoreErrorCode,
+          token_consumed: tokenConsumed, has_cart_token: hasCartToken,
         },
       });
     } catch (e) { /* 診斷寫入失敗不得影響回應 */ }
@@ -238,6 +273,20 @@ router.post('/create', (req, res) => {
       line_member_add_friend_url: getSetting(db, storeId, 'line_member_add_friend_url', ''),
     });
 
+    // fix18-10-hotfix30（需求文件三／四）：Direct LIFF Checkout URL——只在
+    // store 有設定 LIFF ID 時才建得出來；缺 LIFF ID 不能讓整個 Handoff
+    // 失敗（維持既有 Bot Handoff 降級路徑），只回傳 direct_liff_url:null +
+    // fallback_reason，交給前端決定要不要顯示提示。這裡刻意不把
+    // result.token／組好的完整網址寫進任何 log（見需求文件三：不在 log
+    // 紀錄完整 Token，不在 diagnostics 顯示完整 URL）。
+    const liffId = getSetting(db, storeId, 'line_member_liff_id', '');
+    const directLiffUrl = liffId
+      ? buildDirectLiffCheckoutUrl({ liffId, storeId, cartToken: result.token })
+      : null;
+    if (!liffId) {
+      logFailure('HANDOFF_LIFF_ID_MISSING', 200, cartItems.length, { result: 'success_with_warning', fallback_reason: 'LIFF_ID_MISSING' });
+    }
+
     // 需求文件六「注意」：add_friend_url／Basic ID 缺失都不阻止 Cart Token 建立
     // 成功——只要 Basic ID 可以組出 OA message URL 就算成功，add_friend_url
     // 缺失只代表 fallback 按鈕不可用，這是既有 Hotfix29 設計好的行為，不改變。
@@ -252,6 +301,10 @@ router.post('/create', (req, res) => {
       discount: result.discount,
       total: result.total,
       has_unavailable_items: result.hasUnavailableItems,
+      // fix18-10-hotfix30（需求文件四）：Direct LIFF Checkout——新的主要導流
+      // 網址；缺 LIFF ID 設定時為 null，前端 fallback 回舊有 OA／Cart Code 流程。
+      direct_liff_url: directLiffUrl,
+      fallback_reason: directLiffUrl ? null : 'LIFF_ID_MISSING',
       line_oa_message_url: lineOaMessageUrl,
       // 需求文件七 fallback：no basic_id 設定時前端只能顯示複製代碼
       line_oa_configured: !!basicId,
