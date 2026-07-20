@@ -42,6 +42,8 @@ const {
   getAdsAttribution,
   // fix18-10-hotfix23-E（LINE 會員漏斗 × Customer Journey × CRM Health，附加運算）
   getLineMemberFunnel, getLineCrmKpi, getLineCrmHealth,
+  // fix18-10-hotfix30-B（取餐方式衝突 Analytics × 規則式建議，沿用既有 Dashboard API）
+  getFulfillmentConflicts, getFulfillmentConflictRecommendations,
 } = require('../utils/dashboardAnalytics');
 // fix18-10-hotfix24-A（POS Analytics V2：不新增 API 端點，只掛在既有 dashboard 底下）
 const {
@@ -93,6 +95,44 @@ function checkRateLimit(storeId, sessionId) {
   }
   entry.count += 1;
   return entry.count <= RATE_LIMIT_MAX;
+}
+
+// fix18-10-hotfix30-B 第八點：fulfillment_method_* / mode_conflict 的 metadata
+// 欄位級白名單——不信任前端傳來的任意 metadata 結構，只挑出允許的欄位，並對
+// affected_products 做數量上限（20 項）與 product_name 長度截斷，且明確排除
+// 電話／地址／姓名／Token／LINE User ID 等個資欄位（即使前端不小心夾帶也會被丟棄）。
+const FULFILLMENT_EVENTS = new Set([
+  'fulfillment_method_view', 'fulfillment_method_selected',
+  'fulfillment_method_unavailable', 'fulfillment_method_auto_switched', 'mode_conflict',
+]);
+const MAX_AFFECTED_PRODUCTS = 20;
+const MAX_PRODUCT_NAME_LEN = 60;
+function sanitizeFulfillmentMetadata(eventName, metadata) {
+  if (!FULFILLMENT_EVENTS.has(eventName)) return metadata; // 其他事件維持既有行為，不受影響
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return null;
+  const out = {};
+  if (metadata.cart_id !== undefined) out.cart_id = String(metadata.cart_id).slice(0, 100);
+  if (metadata.reason !== undefined) out.reason = String(metadata.reason).slice(0, 60);
+  if (metadata.from_mode === 'takeout' || metadata.from_mode === 'delivery') out.from_mode = metadata.from_mode;
+  if (metadata.to_mode === 'takeout' || metadata.to_mode === 'delivery') out.to_mode = metadata.to_mode;
+  if (metadata.current_mode === 'takeout' || metadata.current_mode === 'delivery') out.current_mode = metadata.current_mode;
+  if (Array.isArray(metadata.affected_products)) {
+    out.affected_products = metadata.affected_products.slice(0, MAX_AFFECTED_PRODUCTS).map(item => {
+      if (!item || typeof item !== 'object') return null;
+      const pid = Number(item.product_id);
+      const safe = {};
+      if (Number.isFinite(pid) && pid > 0) safe.product_id = Math.trunc(pid);
+      if (item.product_name !== undefined) safe.product_name = String(item.product_name).slice(0, MAX_PRODUCT_NAME_LEN);
+      // available_modes 只接受布林值形式的 takeout/delivery 摘要，不接受其他任意欄位
+      if (typeof item.takeout === 'boolean' || typeof item.delivery === 'boolean') {
+        safe.available_modes = { takeout: !!item.takeout, delivery: !!item.delivery };
+      } else if (item.available_modes && typeof item.available_modes === 'object') {
+        safe.available_modes = { takeout: !!item.available_modes.takeout, delivery: !!item.available_modes.delivery };
+      }
+      return Object.keys(safe).length ? safe : null;
+    }).filter(Boolean);
+  }
+  return out;
 }
 
 // ── POST /api/analytics/events ──────────────────────────────────
@@ -190,7 +230,7 @@ router.post('/events', (req, res) => {
       landing_page: landing_page || null,
       fbclid: fbclid || null,
       gclid: gclid || null,
-      metadata: metadata || null,
+      metadata: sanitizeFulfillmentMetadata(event_name, metadata) || null,
       // fix18-10-hotfix24-A3：Identity × Channel × Page Type（需求文件四／六／七）
       line_user_id: knownLineUserId || null,
       // 前台一般事件只可能來自 LINE 點餐／宅配頁面（POS 收銀端本身不呼叫這支 API，
@@ -383,6 +423,22 @@ router.get('/dashboard', (req, res) => {
       identity_basis = { identity_basis: null, identity_is_estimated: null, sample_size: 0 };
     }
 
+    // ── fix18-10-hotfix30-B（需求文件第一、二點）：取餐方式衝突 Analytics ──────
+    // 沿用同一個 range（不新增第二套日期邏輯），沿用同一支 GET /dashboard（不新增 API）。
+    let fulfillment_conflicts, fulfillment_recommendations;
+    try {
+      fulfillment_conflicts = getFulfillmentConflicts(db, storeId, range);
+      fulfillment_recommendations = getFulfillmentConflictRecommendations(fulfillment_conflicts);
+    } catch (fcErr) {
+      console.error('[analytics] fulfillment_conflicts computation failed:', fcErr.message);
+      fulfillment_conflicts = {
+        insufficient_data: true, message: '取餐方式衝突資料計算失敗',
+        total_conflicts: 0, affected_carts: 0, resolved_carts: 0, unresolved_carts: 0,
+        conversion_rate: null, top_products: [], top_reasons: [],
+      };
+      fulfillment_recommendations = [];
+    }
+
     res.json({
       success: true,
       range: {
@@ -451,6 +507,11 @@ router.get('/dashboard', (req, res) => {
         available: ['all', ...ORDER_CHANNELS.filter(c => c !== 'unknown')],
         labels: { all: '全部', ...ORDER_CHANNEL_LABELS },
       },
+
+      // fix18-10-hotfix30-B（取餐方式衝突 Analytics × 規則式建議）—— 新增欄位，
+      // 既有欄位結構完全不變。
+      fulfillment_conflicts,
+      fulfillment_recommendations,
     });
   } catch (e) {
     console.error('[analytics] GET /dashboard error:', e.message, e.stack);

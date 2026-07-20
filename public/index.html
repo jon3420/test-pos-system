@@ -3445,6 +3445,24 @@
         </label>
       </div>
 
+      <!-- fix18-10-hotfix30-B 第二點：LINE 點餐販售模式（僅影響 line-order.html，
+           與冷藏宅配 shipping_* 設定完全獨立，不共用勾選框）-->
+      <label style="margin-top:8px;display:block">LINE 點餐販售模式
+        <div style="display:flex;gap:16px;margin-top:4px">
+          <label class="checkbox-label">
+            <input type="checkbox" id="lineTakeoutEnabled" checked>
+            <span>🛍️ 外帶可販售</span>
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" id="lineDeliveryEnabled" checked>
+            <span>🛵 外送可販售</span>
+          </label>
+        </div>
+        <span id="lineModeWarning" style="font-size:12px;color:#e53935;margin-top:4px;display:none">
+          ⚠️ LINE 點餐商品至少必須啟用外帶或外送其中一種販售方式。
+        </span>
+      </label>
+
       <!-- 隔日自動恢復 -->
       <label class="checkbox-label" style="margin-top:8px">
         <input type="checkbox" id="lineAutoRestore" checked>

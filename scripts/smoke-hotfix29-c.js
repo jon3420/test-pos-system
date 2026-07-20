@@ -387,16 +387,6 @@ async function main() {
 
   if (failCount > 0) process.exit(1);
 
-  // fix18-10-hotfix30 Final（需求文件九）：--self-only——只執行本檔案自己的
-  // 測試，不再往下巢狀呼叫其他 smoke test。scripts/regression-all.js 需要
-  // 「每支 smoke test 只獨立執行一次」，若這裡仍照舊巢狀呼叫
-  // hotfix27-cd／28／29／29-b，會讓同一支腳本被執行兩次。不修改任何
-  // Production Code，只調整這支測試腳本本身的執行方式。
-  if (process.argv.includes('--self-only')) {
-    console.log('\n=== --self-only：略過巢狀 Regression（由 scripts/regression-all.js 統一執行） ===');
-    process.exit(0);
-  }
-
   console.log('\n=== 執行 Regression ===');
   const { execFileSync } = require('child_process');
   const regressionScripts = ['smoke-hotfix27-cd.js', 'smoke-hotfix28.js', 'smoke-hotfix29.js', 'smoke-hotfix29-b.js'];

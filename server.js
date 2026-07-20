@@ -97,13 +97,29 @@ setInterval(() => {
 }, 30000);
 
 app.use(cors());
+
+// fix18-10-hotfix29-C2：「資料備份／搬家」匯入 JSON 可能達 10~25MB 以上，
+// 遠超過全站其他 API 慣用的 5MB body 上限。這兩條路徑改由
+// routes/migration.js 自己掛專用的 express.json({limit}) parser（可透過
+// MIGRATION_UPLOAD_LIMIT_MB 環境變數調整，詳見 utils/migrationUploadLimit.js），
+// 這裡的全域 parser 需要「跳過」這兩條路徑，讓 body 留給後面的專用 parser
+// 處理 —— 否則 body 會被這裡先讀掉／先擋在 5MB，路由端的 parser 完全沒機會。
+// 除了這兩條路徑以外，全站其餘 API 的 5MB 限制完全不變。
+const { isMigrationImportPath } = require('./utils/migrationUploadLimit');
+
 // fix18-10-hotfix26-F8（需求文件十二）：LINE Messaging API webhook 簽章驗證需要
 // 「未經解析的原始 body bytes」，body-parser 內建 verify callback 可在照常解析
 // 之餘，把原始 Buffer 另存到 req.rawBody，不影響其餘既有路由的行為與相容性。
-app.use(bodyParser.json({
+const defaultJsonParser = bodyParser.json({
   limit: '5mb',
   verify: (req, res, buf) => { req.rawBody = buf; },
-}));
+});
+app.use((req, res, next) => {
+  if (req.method === 'POST' && isMigrationImportPath(req)) {
+    return next(); // 交給 routes/migration.js 內的搬家專用 parser 處理
+  }
+  return defaultJsonParser(req, res, next);
+});
 app.use(bodyParser.urlencoded({ extended: true }));
 // fix18-10-hotfix22A：LINE 內建瀏覽器（尤其 iOS）對 .html 進入頁常有過度快取問題，
 // 導致客戶端點開 line-order.html / line-shipping.html 時吃到舊版畫面。
@@ -269,6 +285,15 @@ function scheduleDailyQuotaReset() {
 }
 
 initDb().then((db) => {
+  // fix18-10-hotfix30-B 第十二點：server 啟動時就安全補上 line_takeout_enabled /
+  // line_delivery_enabled 欄位，不依賴管理員手動執行 migration script 或先編輯過一次商品，
+  // 避免正式環境只跑過 script 才會有欄位、其他環境仍缺欄位的落差。可重複呼叫，不影響既有資料。
+  try {
+    const { ensureProductModeColumns } = require('./routes/products');
+    if (typeof ensureProductModeColumns === 'function') ensureProductModeColumns(db);
+  } catch (e) {
+    console.error('[boot] ensureProductModeColumns 補欄位失敗（不影響其他功能啟動）：', e.message);
+  }
   autoResetTodayClosed();
   autoResetSoldOutToday(); // hotfix13-BUG2：啟動時先跑一次，避免伺服器重啟後錯過午夜排程
   scheduleDailyQuotaReset();
@@ -544,6 +569,48 @@ initDb().then((db) => {
   app.get('/system-admin/*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'system-admin.html')));
 
   app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+
+  // fix18-10-hotfix29-C2：統一錯誤處理 middleware，必須放在所有路由之後。
+  // 目的：body-parser／multer 等在解析階段丟出的錯誤（例如超過大小上限的
+  // 413、格式錯誤的 400）預設會被 Express 轉成純文字／HTML 錯誤頁回傳，
+  // 前端若用 response.json() 解析會炸出「Unexpected token '<'」。
+  // 這裡統一攔截，確保「任何」錯誤都以 JSON 格式回傳，不會讓 Proxy 或
+  // Express 預設錯誤頁把 HTML 丟給前端解析。
+  app.use((err, req, res, next) => {
+    if (!err) return next();
+
+    const isPayloadTooLarge =
+      err.type === 'entity.too.large' ||
+      err.status === 413 ||
+      err.statusCode === 413 ||
+      err.code === 'LIMIT_FILE_SIZE';
+
+    if (isPayloadTooLarge) {
+      const { MIGRATION_UPLOAD_LIMIT_MB, isMigrationImportPath } = require('./utils/migrationUploadLimit');
+      const maxMb = isMigrationImportPath(req) ? MIGRATION_UPLOAD_LIMIT_MB : 5;
+      return res.status(413).json({
+        success: false,
+        code: 'MIGRATION_FILE_TOO_LARGE',
+        message: `檔案過大，目前最多接受 ${maxMb}MB`,
+        max_size_mb: maxMb,
+      });
+    }
+
+    if (err.type === 'entity.parse.failed' || err instanceof SyntaxError) {
+      return res.status(400).json({
+        success: false,
+        code: 'INVALID_JSON_BODY',
+        message: '請求內容不是有效的 JSON',
+      });
+    }
+
+    console.error('[unhandled error]', err);
+    return res.status(err.status || err.statusCode || 500).json({
+      success: false,
+      code: 'INTERNAL_ERROR',
+      message: err.message || '伺服器發生未預期的錯誤',
+    });
+  });
 
   server.on('error', (e) => {
     if (e.code === 'EACCES') {

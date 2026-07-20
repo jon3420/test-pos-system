@@ -425,6 +425,7 @@ function renderDashboardV2(data) {
   html += renderDashboardLineMemberFunnel(data.line_member_funnel);
   html += renderDashboardLineCrmKpi(data.line_crm_kpi);
   html += renderDashboardLineCrmHealth(data.line_crm_health);
+  html += renderDashboardFulfillmentConflicts(data.fulfillment_conflicts, data.fulfillment_recommendations);
   html += renderDashboardRepeatCustomers(data.repeat_customers);
   html += renderDashboardIncomplete(data.incomplete);
   html += renderDashboardRecommendations(data.recommendations);
@@ -1142,6 +1143,47 @@ function renderDashboardLineCrmHealth(h) {
     `<div style="font-size:1.6rem;font-weight:700;margin-bottom:4px">${h.score} 分　<span style="color:#f59e0b">${stars}</span></div>
      ${breakdown}
      ${suggestions ? `<h4 style="margin:14px 0 6px;font-size:.85rem">📋 LINE CRM 建議</h4><ul style="margin:0;padding-left:18px;font-size:.8rem">${suggestions}</ul>` : ''}`);
+}
+
+// fix18-10-hotfix30-B（需求文件第三、四點）：🚦 取餐方式衝突（沿用既有 Dashboard V2
+// 版面元件 _card()/_section()，Dark Theme 沿用既有 CSS 變數，不新增樣式系統）
+function renderDashboardFulfillmentConflicts(fc, recs) {
+  if (!fc || fc.insufficient_data) {
+    return _section('🚦 取餐方式衝突', `<div style="color:var(--text-secondary,#64748b);font-size:.875rem">目前沒有取餐方式衝突資料。</div>`);
+  }
+  const kpis = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:12px">
+    ${_card('發生衝突', (fc.total_conflicts||0) + ' 次', '', '#f59e0b')}
+    ${_card('受影響購物車', (fc.affected_carts||0) + ' 個', '', '#f59e0b')}
+    ${_card('已成交', (fc.resolved_carts||0) + ' 個', '', '#10b981')}
+    ${_card('未成交', (fc.unresolved_carts||0) + ' 個', '', '#ef4444')}
+    ${_card('衝突後成交率', _fmtPct(fc.conversion_rate), '', '#6366f1')}
+  </div>`;
+  const productRows = (fc.top_products||[]).map((p,i) =>
+    `<tr><td style="padding:5px 0">${i+1}. ${escHtml(p.product_name)}</td>
+      <td style="padding:5px 0;text-align:right">${p.count} 次</td></tr>`
+  ).join('');
+  const reasonRows = (fc.top_reasons||[]).map((r,i) =>
+    `<tr><td style="padding:5px 0">${i+1}. ${escHtml(r.reason)}</td>
+      <td style="padding:5px 0;text-align:right">${r.count} 次</td></tr>`
+  ).join('');
+  const productsBlock = `<h4 style="margin:14px 0 6px;font-size:.85rem">🍱 最常造成衝突商品</h4>` +
+    (productRows ? `<div style="overflow-x:auto"><table style="width:100%;min-width:260px;border-collapse:collapse;font-size:.875rem">
+      <thead><tr style="color:var(--text-secondary,#64748b);font-size:.75rem">
+        <th style="text-align:left;padding-bottom:6px">商品</th>
+        <th style="text-align:right;padding-bottom:6px">次數</th></tr></thead>
+      <tbody>${productRows}</tbody></table></div>`
+      : `<div style="color:var(--text-secondary,#64748b);font-size:.8rem">目前沒有取餐方式衝突資料。</div>`);
+  const reasonsBlock = `<h4 style="margin:14px 0 6px;font-size:.85rem">📋 衝突原因排行</h4>` +
+    (reasonRows ? `<div style="overflow-x:auto"><table style="width:100%;min-width:260px;border-collapse:collapse;font-size:.875rem">
+      <thead><tr style="color:var(--text-secondary,#64748b);font-size:.75rem">
+        <th style="text-align:left;padding-bottom:6px">原因</th>
+        <th style="text-align:right;padding-bottom:6px">次數</th></tr></thead>
+      <tbody>${reasonRows}</tbody></table></div>`
+      : `<div style="color:var(--text-secondary,#64748b);font-size:.8rem">目前沒有取餐方式衝突資料。</div>`);
+  const recsBlock = (recs && recs.length)
+    ? `<h4 style="margin:14px 0 6px;font-size:.85rem">💡 建議</h4><ul style="margin:0;padding-left:18px;font-size:.8rem">${recs.map(r=>`<li style="margin-bottom:4px">${escHtml(r.message)}</li>`).join('')}</ul>`
+    : '';
+  return _section('🚦 取餐方式衝突', kpis + productsBlock + reasonsBlock + recsBlock);
 }
 
 function renderDashboardRepeatCustomers(rc) {
@@ -5648,11 +5690,19 @@ function renderProductsTable(products) {
     const saleBadge   = { sold_out_today:'<span class="order-status status-modified" style="margin-left:4px;display:inline-block;font-size:11px">今日完售</span>',
         paused:'<span class="order-status status-void" style="margin-left:4px;display:inline-block;font-size:11px">暫停販售</span>',
         sold_out_indefinitely:'<span class="order-status status-void" style="margin-left:4px;display:inline-block;font-size:11px">長期下架</span>' }[saleStatus] || '';
+    // fix18-10-hotfix30-B 第五點：LINE 點餐販售模式膠囊（外帶＋外送／僅外帶／僅外送），
+    // 只影響 line-order.html 的顯示邏輯，與冷藏宅配設定無關，這裡只是唯讀顯示，不做篩選。
+    const _lineTo = p.line_takeout_enabled  != null ? Number(p.line_takeout_enabled)  : 1;
+    const _lineDl = p.line_delivery_enabled != null ? Number(p.line_delivery_enabled) : 1;
+    const modeBadge = (_lineTo && _lineDl)
+      ? '<span class="order-status status-completed" style="margin-left:4px;display:inline-block;font-size:11px">外帶＋外送</span>'
+      : (_lineTo ? '<span class="order-status status-modified" style="margin-left:4px;display:inline-block;font-size:11px">僅外帶</span>'
+        : (_lineDl ? '<span class="order-status status-modified" style="margin-left:4px;display:inline-block;font-size:11px">僅外送</span>' : ''));
     return `
       <tr>
         <td style="text-align:center"><input type="checkbox" class="product-row-check" data-product-id="${p.id}" onchange="updateProductsSelectedCount()"></td>
         <td>${thumbHtml}</td>
-        <td style="font-weight:600">${escHtml(p.name)}${invBadge}${lineBadge}${saleBadge}</td>
+        <td style="font-weight:600">${escHtml(p.name)}${invBadge}${lineBadge}${saleBadge}${modeBadge}</td>
         <td>${catEmoji[p.category] || ''} ${p.category}</td>
         <td style="font-family:monospace;color:#f5a623;font-weight:700">$${p.price}</td>
         <td><span class="status-badge ${p.enabled ? 'status-on' : 'status-off'}">${p.enabled ? '販售中' : '已停用'}</span></td>
@@ -5869,6 +5919,11 @@ async function openLineSettingsModal(id) {
     document.getElementById('linePromo').checked       = !!Number(p.line_promo);
     document.getElementById('lineSoldOut').checked     = !!Number(p.line_sold_out);
     document.getElementById('lineAutoRestore').checked = p.auto_restore_next_day != null ? !!Number(p.auto_restore_next_day) : true;
+    // fix18-10-hotfix30-B 第二點：LINE 點餐販售模式，零設定時預設皆勾選（與資料庫預設 1/1 一致）
+    document.getElementById('lineTakeoutEnabled').checked  = p.line_takeout_enabled  != null ? !!Number(p.line_takeout_enabled)  : true;
+    document.getElementById('lineDeliveryEnabled').checked = p.line_delivery_enabled != null ? !!Number(p.line_delivery_enabled) : true;
+    const _lineModeWarn = document.getElementById('lineModeWarning');
+    if (_lineModeWarn) _lineModeWarn.style.display = 'none';
 
     // ── LINE 可售份數（v1）────────────────────────────
     const qEnabled = !!Number(p.line_quota_enabled);
@@ -5985,6 +6040,17 @@ async function saveLineSettings() {
   const line_promo         = document.getElementById('linePromo').checked ? 1 : 0;
   const line_sold_out      = document.getElementById('lineSoldOut').checked ? 1 : 0;
   const auto_restore_next_day = document.getElementById('lineAutoRestore').checked ? 1 : 0;
+  // fix18-10-hotfix30-B 第二點：LINE 點餐販售模式（外帶/外送），前端先擋一次，
+  // 後端 PATCH /:id/line-settings 仍會再驗證一次（不得只信任前端）。
+  const line_takeout_enabled  = document.getElementById('lineTakeoutEnabled').checked  ? 1 : 0;
+  const line_delivery_enabled = document.getElementById('lineDeliveryEnabled').checked ? 1 : 0;
+  const _lineModeWarnEl = document.getElementById('lineModeWarning');
+  if (!line_takeout_enabled && !line_delivery_enabled) {
+    if (_lineModeWarnEl) _lineModeWarnEl.style.display = 'block';
+    showToast('LINE 點餐商品至少必須啟用外帶或外送其中一種販售方式。', 'error');
+    return;
+  }
+  if (_lineModeWarnEl) _lineModeWarnEl.style.display = 'none';
   // LINE 可售份數欄位不在這裡宣告，直接在 body 裡讀取
 
   try {
@@ -5995,6 +6061,7 @@ async function saveLineSettings() {
         show_on_line, sale_status, line_name, line_price, line_spec,
         line_description, line_image_url, line_category_id,
         line_hot, line_promo, line_sold_out, auto_restore_next_day,
+        line_takeout_enabled, line_delivery_enabled,
         // LINE 可售份數（v1）
         line_quota_enabled:        document.getElementById('lineQuotaEnabled')?.value === '1' ? 1 : 0,
         line_quota_daily:          Number(document.getElementById('lineQuotaDaily')?.value   || 0),
@@ -13080,6 +13147,72 @@ function renderMigrationExportSummaryHtml(s) {
     </div>`;
 }
 
+// ── E-0. 搬家上傳上限設定（fix18-10-hotfix29-C2）────────────────────────
+// 上限數字改由後端 /api/migration/config 提供，前端不再把 25MB 寫死。
+// 快取在記憶體即可，取得失敗則退回保守預設值 25MB（僅影響前端「提早
+// 提示」的體驗，實際限制仍以後端為準，不影響安全性）。
+let _migrationConfigCache = null;
+async function getMigrationConfig() {
+  if (_migrationConfigCache) return _migrationConfigCache;
+  try {
+    const res  = await apiFetch('/api/migration/config');
+    const json = await parseMigrationApiResponse(res);
+    if (json && json.success) {
+      _migrationConfigCache = {
+        uploadLimitMb: Number(json.upload_limit_mb) || 25,
+        supportedExtensions: json.supported_extensions || ['.json'],
+      };
+      return _migrationConfigCache;
+    }
+  } catch (e) { /* 取得失敗，使用預設值 */ }
+  return { uploadLimitMb: 25, supportedExtensions: ['.json'] };
+}
+
+// ── 選檔當下先做大小 / 副檔名預檢，避免明知會被 413 擋掉還是送出一次請求 ──
+function validateMigrationFile(file, uploadLimitMb) {
+  if (!file) return { ok: false, message: '請先選擇搬家 JSON 檔案' };
+  if (!String(file.name || '').toLowerCase().endsWith('.json')) {
+    return { ok: false, message: '僅允許選擇 JSON 搬家檔' };
+  }
+  const limitBytes = uploadLimitMb * 1024 * 1024;
+  if (file.size > limitBytes) {
+    return {
+      ok: false,
+      message: `搬家檔案為 ${(file.size / 1024 / 1024).toFixed(2)}MB，`
+        + `目前系統上限為 ${uploadLimitMb}MB，請改用精簡備份或分批搬家。`,
+    };
+  }
+  return { ok: true };
+}
+
+// ── 安全解析 API 回應（fix18-10-hotfix29-C2）─────────────────────────────
+// 問題：後端／中介層（例如 Zeabur Proxy）在 413 或其他錯誤情況下可能回傳
+// HTML 錯誤頁而不是 JSON。直接 response.json() 會丟出：
+//   Unexpected token '<', "<!DOCTYPE "... is not valid JSON
+// 這裡改成先讀 text，再嘗試 JSON.parse，非 JSON 內容一律轉成清楚的中文
+// 錯誤訊息，不讓原始例外訊息透出給使用者。
+async function parseMigrationApiResponse(response) {
+  const rawText = await response.text();
+  let data = null;
+  if (rawText) {
+    try { data = JSON.parse(rawText); } catch { data = null; }
+  }
+
+  // 呼叫端（preview / import）本來就會依 json.success / json.cross_store
+  // 自行分流處理各種「非 2xx 但仍是合法錯誤回應」的情況，所以這裡不對
+  // !response.ok 拋例外，只在「完全不是 JSON」（例如 Proxy 回傳的 HTML
+  // 413 錯誤頁）時，合成一個帶清楚中文訊息的 success:false 物件，
+  // 避免呼叫端因為 data 是 null 而直接對 undefined 欄位炸掉。
+  if (!data) {
+    return {
+      success: false,
+      code: response.ok ? 'MIGRATION_EMPTY_RESPONSE' : 'MIGRATION_NON_JSON_RESPONSE',
+      message: `伺服器未回傳有效 JSON，HTTP ${response.status}`,
+    };
+  }
+  return data;
+}
+
 async function exportMigrationFile() {
   const statusEl  = document.getElementById('migrationExportStatus');
   const previewEl = document.getElementById('migrationExportPreview');
@@ -13149,6 +13282,20 @@ async function onMigrationFileSelected(input) {
   if (statusEl)    statusEl.textContent      = '';
 
   try {
+    // fix18-10-hotfix29-C2：選檔當下先做大小 / 副檔名預檢，超過上限就不送出
+    // preview 請求（避免明知會被 413 擋掉還是打一次 API）。
+    const migCfg = await getMigrationConfig();
+    const fileCheck = validateMigrationFile(file, migCfg.uploadLimitMb);
+    if (!fileCheck.ok) {
+      previewBox.style.display = 'block';
+      previewSum.innerHTML = `<span style="color:#f87171">❌ ${escHtml(fileCheck.message)}</span>
+        <div style="margin-top:6px;font-size:12px;color:var(--text-muted,#64748b)">
+          檔案大小：${(file.size/1024/1024).toFixed(2)}MB ／ 系統上限：${migCfg.uploadLimitMb}MB
+        </div>`;
+      crossWarn.style.display  = 'none';
+      return;
+    }
+
     const json = await readJsonFile(file);
     if (!json || json.type !== 'pos_migration_backup') {
       previewBox.style.display = 'block';
@@ -13164,7 +13311,9 @@ async function onMigrationFileSelected(input) {
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify(json)
     });
-    const prev = await res.json();
+    // fix18-10-hotfix29-C2：改用安全解析，避免後端／Proxy 回傳 HTML 錯誤頁
+    // 時出現「Unexpected token '<'」，改顯示清楚的中文錯誤訊息。
+    const prev = await parseMigrationApiResponse(res);
     if (!prev.success) throw new Error(prev.message || 'preview 失敗');
     _migrationPreviewData = prev;
 
@@ -13198,6 +13347,9 @@ async function onMigrationFileSelected(input) {
         備份店家：${escHtml(prev.store_name || prev.file_store_id || '—')} ／
         版本：${escHtml(prev.version||'—')} ／
         匯出時間：${escHtml((prev.exported_at||'').slice(0,19).replace('T',' '))}
+      </div>
+      <div style="margin-top:4px;font-size:12px;color:var(--text-muted,#64748b)">
+        檔案大小：${(file.size/1024/1024).toFixed(2)}MB ／ 系統上限：${migCfg.uploadLimitMb}MB
       </div>`;
 
     // 跨店警告：顯示勾選框，預設不允許
@@ -13305,7 +13457,9 @@ async function executeMigrationImport() {
         allowCrossStoreImport: allowCrossStore
       })
     });
-    const json = await res.json();
+    // fix18-10-hotfix29-C2：改用安全解析，避免 HTML 錯誤頁造成
+    // 「Unexpected token '<'」，且不影響下方既有的 cross_store 分流邏輯。
+    const json = await parseMigrationApiResponse(res);
 
     if (json.success) {
       const r = json.results || {};

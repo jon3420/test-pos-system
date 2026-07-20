@@ -169,19 +169,6 @@ function bindTokenToLineUser(db, storeId, cartCode, lineUserId) {
 
 /**
  * 需求文件十二：LIFF Restore——完整 secret token + store_id + line_user_id 三者一致才能還原。
- *
- * fix18-10-hotfix30（需求文件九）：Direct LIFF Checkout 跳過了「進聊天室輸入
- * 我要結帳 CART-XXXXXX」這一步，代表 token 在使用者第一次點擊 Direct LIFF
- * 連結、進到這裡時，狀態機仍停在建立當下的 'pending'（過去只有 Bot Webhook
- * 收到訊息才會呼叫 bindTokenToLineUser() 把 pending→bound）。這裡補上「第一次
- * restore 時，若 token 還是 pending，直接綁定目前這個已通過 LIFF/member_session
- * 驗證的 line_user_id」，讓 Direct LIFF 與舊有聊天室 Bot Handoff 共用同一套
- * 狀態機、同一個 restore 函式——不新增第二套驗證邏輯。信任等級與舊流程一致：
- * 舊流程信任「知道完整 cart_code＋能在 LINE 官方帳號聊天室收到訊息的人」；
- * 這裡信任「知道完整 secret token（>=128-bit，只存在於 Direct LIFF URL）＋
- * 通過伺服器簽章 member_session 驗證的人」，安全性不低於舊流程。
- * 已經綁定過的 token（bound／opened，來自舊聊天室流程或本流程已跑過一次）
- * 完全不受影響，行為與 Hotfix26-F8-B 原版一致。
  */
 function restoreCartToken(db, storeId, fullToken, lineUserId) {
   const row = db.get('SELECT * FROM line_cart_handoff_tokens WHERE store_id=? AND token=?', [storeId, fullToken]);
@@ -193,15 +180,6 @@ function restoreCartToken(db, storeId, fullToken, lineUserId) {
   }
   if (row.status === 'consumed') return { ok: false, reason: 'consumed' };
   if (row.status === 'cancelled') return { ok: false, reason: 'cancelled' };
-
-  if (row.status === 'pending' && !row.line_user_id) {
-    // 需求文件九：Direct LIFF 第一次進站——原地把 pending 綁定成 bound，
-    // 不需要先經過聊天室 Bot Webhook。
-    db.run("UPDATE line_cart_handoff_tokens SET line_user_id=?, status='bound', bound_at=? WHERE id=?", [lineUserId, now, row.id]);
-    row.line_user_id = lineUserId;
-    row.status = 'bound';
-  }
-
   if (!row.line_user_id || row.line_user_id !== lineUserId) return { ok: false, reason: 'uid_mismatch' };
   if (!['bound', 'opened'].includes(row.status)) return { ok: false, reason: 'invalid_state' };
 
@@ -276,34 +254,9 @@ function resolveAddFriendUrl(settings) {
   return '';
 }
 
-/**
- * fix18-10-hotfix30（需求文件三）：Direct LIFF Checkout URL——單一組裝點。
- * 後端統一建立，前端不自行拼接（避免 liffId／store_id／cart_token 三者裡
- * 任何一個被前端用錯誤來源覆蓋）。
- *
- * 要求（需求文件三）：
- *   - liffId 由呼叫端從 store 正式設定（settings.line_member_liff_id）取得
- *   - storeId 由呼叫端傳入已驗證的店家 ID（req.storeId，不是前端可任意帶的值）
- *   - cartToken 是後端剛建立的完整 secret token（不是 cart_code 短碼）
- * 三者缺一即回傳 null，呼叫端負責決定 fallback（見需求文件四
- * fallback_reason: 'LIFF_ID_MISSING'）。
- */
-function buildDirectLiffCheckoutUrl({ liffId, storeId, cartToken }) {
-  if (!liffId || !storeId || !cartToken) return null;
-  try {
-    const url = new URL(`https://liff.line.me/${liffId}`);
-    url.searchParams.set('mode', 'checkout');
-    url.searchParams.set('store_id', storeId);
-    url.searchParams.set('cart_token', cartToken);
-    return url.toString();
-  } catch (e) {
-    return null;
-  }
-}
-
 module.exports = {
   generateFullToken, generateCartCode, maskCartCode, recomputeCart,
   createCartHandoffToken, bindTokenToLineUser, restoreCartToken, consumeCartToken,
-  resolveAddFriendUrl, buildDirectLiffCheckoutUrl,
+  resolveAddFriendUrl,
   TOKEN_TTL_MINUTES,
 };

@@ -102,17 +102,10 @@ async function main() {
   assert(gateSrc.includes('id="lmgGoLineCheckoutBtn"') && gateSrc.includes('aria-disabled="true"') && gateSrc.includes("pointer-events:none"), '主 <a> 初始狀態為 disabled（Token 尚未就緒前不可點，hotfix29 新版樣式）');
   // fix18-10-hotfix29：icon 與文字分開排版，不再是連續字串「📋 複製結帳代碼」。
   assert(gateSrc.includes('lmgCopyCartCodeBtn') && gateSrc.includes('📋') && gateSrc.includes('複製結帳代碼'), '複製結帳代碼按鈕永遠存在（不限特定版型，hotfix29：icon 與文字分開排版）');
-  // fix18-10-hotfix30（需求文件六／十三）：Baseline Isolation 判定為
-  // PRE-EXISTING TEST ASSUMPTION，非 Hotfix30 regression——hotfix29 當時把
-  // 「無法開啟 LINE？」從 <details> 收合改成永遠展開，是因為當時 Messenger
-  // 主要靠 OA 加好友連結墊檔，怕顧客不知道要點開。Hotfix30 導入 Direct LIFF
-  // 之後，OA／聊天室／複製代碼／外部瀏覽器全部退回單純 fallback，顧客正常
-  // 使用時完全不需要看到這些選項，因此依 hotfix30 需求文件六／十三的明確
-  // 要求，改回 <details> 收合（id="lmgCantOpenSection"，預設無 open 屬性），
-  // 文案也從「⚠️ Messenger 無法開啟 LINE？」簡化成「⚠️ 無法開啟 LINE？」
-  // （不再限定 Messenger，因為 Direct LIFF 失敗的引導同樣適用其他瀏覽器）。
-  // 這裡改成驗證 hotfix30 的新設計，不是舊的「永遠展開」假設。
-  assert(gateSrc.includes('id="lmgCantOpenSection"') && gateSrc.includes('<details') && gateSrc.includes('無法開啟 LINE'), '「無法開啟 LINE？」已依 hotfix30 需求改回 <details> 收合，預設收合、缺 Direct LIFF 時才自動展開');
+  // fix18-10-hotfix29（需求文件三）：「無法開啟 LINE？」的 <details> 收合已
+  // 依真機測試結果拆掉，改成永遠展開的區塊（顧客常常不知道要點開）。這裡
+  // 改成驗證「新設計」而不是舊的收合寫法。
+  assert(!gateSrc.includes('lmgCantOpenDetails') && gateSrc.includes('Messenger 無法開啟 LINE'), '「無法開啟 LINE？」已改為永遠展開的區塊，不再是 <details> 收合（hotfix29 真機測試後的設計變更）');
   assert(gateSrc.includes('function prepareHandoff') && gateSrc.includes('(async () => {') && gateSrc.includes('await prepareHandoff()'), 'Token 於 Dialog 初始化時（IIFE）就開始建立，不是等點擊才建立');
   // fix18-10-hotfix29-B：href 設定與 disabled 移除已收斂進 enableGoLineCheckoutBtn()
   // helper（applyHandoffToUi 在 ready 狀態呼叫），行為不變（Token resolve 後才

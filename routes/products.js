@@ -17,6 +17,14 @@ const { getDb } = require('../utils/db');
 const { requireFeature } = require('../middleware/featureGate');
 const { calcUnits } = require('./inventory');
 
+// fix18-10-hotfix30-B 第三點：正規化任意輸入為 0/1，不信任任意字串
+// （只接受布林、0/1、"0"/"1"/"true"/"false"，其餘一律視為安全預設 1）
+function _toModeBit(val) {
+  if (val === true || val === 1 || val === '1' || val === 'true') return 1;
+  if (val === false || val === 0 || val === '0' || val === 'false') return 0;
+  return 1;
+}
+
 function enrichProduct(p) {
   if (!p) return null;
   const hasFormula = !!p._has_formula;
@@ -49,6 +57,9 @@ function enrichProduct(p) {
     product_barcode: p.product_barcode || '',
     line_hot: Number(p.line_hot) || 0, line_promo: Number(p.line_promo) || 0,
     line_sold_out: Number(p.line_sold_out) || 0,
+    // fix18-10-hotfix30-B：LINE 點餐販售模式（外帶/外送），零設定時預設皆啟用（與舊版行為一致）
+    line_takeout_enabled:  p.line_takeout_enabled  != null ? Number(p.line_takeout_enabled)  : 1,
+    line_delivery_enabled: p.line_delivery_enabled != null ? Number(p.line_delivery_enabled) : 1,
     sale_status: saleStatus, sale_status_label: saleStatusLabel,
     sold_out_until: p.sold_out_until || '',
     auto_restore_next_day: Number(p.auto_restore_next_day) ?? 1,
@@ -295,6 +306,45 @@ function ensureProductPreorderColumns(db) {
   }
 }
 
+/* fix18-10-hotfix30-B 第十二點：line_takeout_enabled / line_delivery_enabled 的
+   runtime-safe 補欄位（與 ensureProductPreorderColumns 相同模式）——確保正式環境
+   即使沒有手動跑過 scripts/migrate-hotfix30-a-product-mode.js，第一次呼叫商品
+   相關 API 時仍會自動補上欄位，不會出現 "no such column" 錯誤。可重複呼叫。 */
+function ensureProductModeColumns(db) {
+  const COLS = [
+    ['line_takeout_enabled',  'INTEGER DEFAULT 1'],
+    ['line_delivery_enabled', 'INTEGER DEFAULT 1'],
+  ];
+  try {
+    let existCols;
+    if (typeof db.all === 'function') {
+      existCols = db.all('PRAGMA table_info(products)').map(r => r.name);
+    } else if (typeof db.exec === 'function') {
+      const result = db.exec('PRAGMA table_info(products)');
+      existCols = (result && result[0] && result[0].values)
+        ? result[0].values.map(row => row[1])
+        : [];
+    } else {
+      console.error('[products] ensureProductModeColumns: db 不支援 all/exec');
+      return;
+    }
+    for (const [col, def] of COLS) {
+      if (existCols.includes(col)) continue;
+      try {
+        db.run(`ALTER TABLE products ADD COLUMN ${col} ${def}`);
+        if (typeof db.save === 'function') db.save();
+        console.log(`[products] ✅ ALTER TABLE products ADD COLUMN ${col}`);
+      } catch (e2) {
+        if (!/already exists/i.test(e2.message)) {
+          console.error(`[products] ❌ ALTER TABLE 失敗 ${col}:`, e2.message);
+        }
+      }
+    }
+  } catch (e) {
+    console.error('[products] ensureProductModeColumns 失敗:', e.message);
+  }
+}
+
 /* PATCH /api/products/:id/line-settings */
 router.patch('/:id/line-settings', requireFeature('line_order'), (req, res) => {
   try {
@@ -302,6 +352,7 @@ router.patch('/:id/line-settings', requireFeature('line_order'), (req, res) => {
     // BUG-001 修正：確保 line_preorder_* 欄位存在，防止 Zeabur 舊 DB 出現
     //   "no such column: line_preorder_enabled"
     ensureProductPreorderColumns(db);
+    ensureProductModeColumns(db);
     const storeId = req.storeId;
     const id = req.params.id;
     const ex = db.get('SELECT id FROM products WHERE id=? AND store_id=?', [id, storeId]);
@@ -315,7 +366,18 @@ router.patch('/:id/line-settings', requireFeature('line_order'), (req, res) => {
       line_quota_enabled, line_quota_daily, line_quota_sold,
       line_quota_low_threshold, line_quota_high_threshold,
       line_sell_start, line_sell_end,
+      // fix18-10-hotfix30-B 第二、三點：LINE 點餐販售模式（外帶/外送），只影響 line-order.html，
+      // 不得與宅配設定（shipping_*）混用。未傳入時保持既有值，不強制覆蓋。
+      line_takeout_enabled, line_delivery_enabled,
     } = req.body;
+    // 至少必須啟用一種模式——用「更新後的最終值」判斷，未傳入的欄位視為沿用現有資料庫值。
+    if (line_takeout_enabled !== undefined || line_delivery_enabled !== undefined) {
+      const finalTakeout  = line_takeout_enabled  !== undefined ? _toModeBit(line_takeout_enabled)  : Number(ex.line_takeout_enabled  ?? 1);
+      const finalDelivery = line_delivery_enabled !== undefined ? _toModeBit(line_delivery_enabled) : Number(ex.line_delivery_enabled ?? 1);
+      if (finalTakeout === 0 && finalDelivery === 0) {
+        return res.status(400).json({ success: false, message: 'LINE 點餐商品至少必須啟用外帶或外送其中一種販售方式。' });
+      }
+    }
     const sets = []; const vals = [];
     const add = (col, val) => { if (val !== undefined) { sets.push(`${col}=?`); vals.push(val); } };
     add('show_on_line',          show_on_line          != null ? Number(show_on_line)          : undefined);
@@ -340,6 +402,9 @@ router.patch('/:id/line-settings', requireFeature('line_order'), (req, res) => {
     add('line_quota_high_threshold', line_quota_high_threshold != null ? Number(line_quota_high_threshold) : undefined);
     add('line_sell_start',           line_sell_start);
     add('line_sell_end',             line_sell_end);
+    // fix18-10-hotfix30-B：LINE 點餐販售模式（外帶/外送），正規化為 0/1，不信任任意字串
+    add('line_takeout_enabled',  line_takeout_enabled  !== undefined ? _toModeBit(line_takeout_enabled)  : undefined);
+    add('line_delivery_enabled', line_delivery_enabled !== undefined ? _toModeBit(line_delivery_enabled) : undefined);
     // LINE 預購數量欄位
     const { line_preorder_enabled, line_preorder_daily, line_preorder_sold,
             line_preorder_low_threshold, line_preorder_high_threshold } = req.body;
@@ -511,5 +576,9 @@ router.patch('/batch-inventory-settings', (req, res) => {
     });
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
+
+// fix18-10-hotfix30-B：附掛在 router 上供 server.js 開機時呼叫（router 本身是函式，
+// 掛屬性不影響 Express 掛載行為）
+router.ensureProductModeColumns = ensureProductModeColumns;
 
 module.exports = router;

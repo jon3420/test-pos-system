@@ -40,12 +40,30 @@ img{max-width:100%;display:block}
 .announce-banner-title{font-size:15px;font-weight:700;margin-bottom:4px}
 .announce-banner-msg{font-size:13px;line-height:1.6;white-space:pre-line;margin-top:4px}
 .announce-banner-btn{margin-top:10px;width:100%;padding:9px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;border:none}
-/* 模式標籤列 */
-.mode-tabs{display:flex;gap:8px;padding:12px 12px 0;margin-bottom:4px}
-.mode-tab{flex:1;padding:10px 4px;border-radius:var(--r);border:2px solid var(--bd);background:#fff;font-size:14px;font-weight:600;color:var(--sub);text-align:center;cursor:pointer;transition:.15s;position:relative}
-.mode-tab.active{border-color:var(--g);color:var(--g);background:#f0faf4}
-.mode-tab.disabled{opacity:.45;pointer-events:none}
-.mode-tab .mode-badge{position:absolute;top:-6px;right:8px;background:#e53935;color:#fff;font-size:10px;padding:1px 6px;border-radius:10px}
+/* fix18-10-hotfix30-A：今日服務狀態列（純資訊提示，取代舊版可點擊的外帶/外送頁籤，
+   不再讓「先選模式」成為瀏覽商品的前提）*/
+.service-status-bar{margin:10px 12px 0;padding:10px 14px;border-radius:10px;font-size:13px;font-weight:600;line-height:1.6}
+.service-status-bar.both-open{background:#f0faf4;color:#2e7d32;border:1px solid #c8e6c9}
+.service-status-bar.only-takeout,.service-status-bar.only-delivery{background:#fff3e0;color:#e65100;border:1px solid #ffe0b2}
+.service-status-bar.all-closed{background:#ffebee;color:#c62828;border:1px solid #ffcdd2}
+/* fix18-10-hotfix30-A 第二點：購物車取餐方式改為大按鈕（單選），不用 select */
+.fulfill-btns{display:flex;flex-direction:column;gap:8px}
+.fulfill-btn{width:100%;min-height:48px;display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:10px;border:2px solid var(--bd);background:#fff;font-size:14px;font-weight:600;color:#333;text-align:left;cursor:pointer;transition:.15s}
+.fulfill-btn.active{border-color:var(--g);background:#f0faf4;color:var(--gd)}
+.fulfill-btn.disabled,.fulfill-btn:disabled{opacity:.5;background:#f5f5f5;color:#999;cursor:not-allowed;border-color:var(--bd)}
+.fulfill-radio{font-size:18px;line-height:1;flex-shrink:0}
+.fulfill-label{flex:1}
+.fulfill-reason{font-size:11px;font-weight:700;color:#e65100;background:#fff3e0;padding:2px 8px;border-radius:10px;flex-shrink:0}
+.fulfill-btn.disabled .fulfill-reason{color:#c62828;background:#ffebee}
+/* fix18-10-hotfix30-A 第三點：購物車無共同取餐方式時，列出衝突商品清單 */
+.conflict-box{display:none;margin:0 0 14px;padding:12px 14px;border-radius:10px;background:#ffebee;border:1px solid #ffcdd2}
+.conflict-title{font-size:13px;font-weight:700;color:#c62828;margin-bottom:8px}
+.conflict-row{display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px dashed #ffcdd2}
+.conflict-row:first-of-type{border-top:none}
+.conflict-name{flex:1;font-size:13px;font-weight:600;color:#444}
+.conflict-tag{font-size:11px;font-weight:700;color:#fff;background:#e65100;padding:2px 8px;border-radius:10px;flex-shrink:0}
+.conflict-remove{flex-shrink:0;font-size:12px;font-weight:700;color:#c62828;background:#fff;border:1px solid #ef9a9a;border-radius:8px;padding:5px 10px;cursor:pointer}
+.conflict-hint{font-size:12px;color:#8d6e63;margin-top:8px}
 /* 售完警告橫幅 */
 .cutoff-banner{background:#fff3cd;border:1px solid #ffc107;border-radius:8px;padding:10px 14px;margin:0 12px;font-size:13px;color:#856404;display:none}
 .cat-bar{display:flex;overflow-x:auto;padding:10px 8px 4px;gap:8px;scrollbar-width:none;position:sticky;top:0;background:#fff;z-index:10;border-bottom:1px solid var(--bd)}
@@ -224,11 +242,8 @@ img{max-width:100%;display:block}
   <div id="holidayBanner" style="display:none;margin:10px 12px 0;border-radius:10px;overflow:hidden;border:1px solid #ffccbc;background:#fff3e0"></div>
   <div class="announce" id="bizCalBanner" style="display:none"></div>
   <div id="lastOrderCard" style="display:none"></div>
-  <!-- 外帶/外送模式分頁 -->
-  <div class="mode-tabs" id="modeTabs" style="display:none">
-    <button class="mode-tab active" id="tabTakeout" onclick="switchMode('takeout')">🛍️ 外帶</button>
-    <button class="mode-tab" id="tabDelivery" onclick="switchMode('delivery')">🛵 外送</button>
-  </div>
+  <!-- fix18-10-hotfix30-A：今日服務狀態（純資訊提示，不可點擊，不再阻擋商品瀏覽）-->
+  <div class="service-status-bar" id="serviceStatusBar" style="display:none"></div>
   <div class="cutoff-banner" id="cutoffBanner"></div>
   <!-- hotfix22-F 補正：目前選擇的模式（外帶/外送）被店家關閉時顯示，不清空購物車，只擋送單 -->
   <div class="cutoff-banner" id="modeUnavailableBanner" style="display:none;background:#ffebee;color:#c62828;border-color:#ffcdd2"></div>
@@ -284,14 +299,13 @@ img{max-width:100%;display:block}
       <span>應付金額</span><span id="orderTotal">$0</span>
     </div>
     <div class="fg"><label class="fl">姓名 <span class="req">*</span></label><input class="fi" id="cName" placeholder="您的姓名" type="text" oninput="debouncedPersistCart()"></div>
-    <div class="fr">
-      <div class="fg"><label class="fl">電話 <span class="req">*</span></label><input class="fi" id="cPhone" placeholder="聯絡電話" type="tel" oninput="debouncedPersistCart()"></div>
-      <div class="fg"><label class="fl">取餐方式</label>
-        <select class="fi" id="oType" onchange="onModeChange()">
-          <option value="takeout">🛍️ 外帶</option>
-          <option value="delivery">🛵 外送</option>
-        </select>
-      </div>
+    <div class="fg"><label class="fl">電話 <span class="req">*</span></label><input class="fi" id="cPhone" placeholder="聯絡電話" type="tel" oninput="debouncedPersistCart()"></div>
+    <!-- fix18-10-hotfix30-A 第三點：購物車內商品沒有共同取餐方式時，列出衝突商品清單 -->
+    <div class="conflict-box" id="modeConflictBox"></div>
+    <!-- fix18-10-hotfix30-A 第二點：取餐方式改為大按鈕單選，不使用 select -->
+    <div class="fg"><label class="fl">取餐方式 <span class="req">*</span></label>
+      <div class="fulfill-btns" id="fulfillBtns"></div>
+      <input type="hidden" id="oType" value="takeout">
     </div>
     <div class="fg"><label class="fl">取餐日期 <span class="req">*</span></label>
       <div id="pDateCalWarning" style="display:none;font-size:12px;color:#e65100;background:#fff3e0;border-radius:6px;padding:6px 10px;margin-bottom:6px"></div>
@@ -583,75 +597,12 @@ async function _initLineMemberGateFromShopData(d){
   }
 }
 
-// fix18-10-hotfix30 Final（需求文件三）：Restore 成功後立即清除網址上的
-// cart_token／mode=checkout——不等待使用者下一個操作、不重整頁面、保留
-// store_id 與其他既有安全參數（例如既有的 UTM／fbclid 早在頁面初始化時
-// 就讀取完畢，這裡移除不影響已經處理過的邏輯）。
-function _cleanHandoffUrlParams(){
-  try{
-    const cleanUrl=new URL(window.location.href);
-    cleanUrl.searchParams.delete('cart_token');
-    cleanUrl.searchParams.delete('mode');
-    window.history.replaceState({}, document.title, cleanUrl.toString());
-  }catch(e){}
-}
-
-// fix18-10-hotfix30（需求文件十）：token 的短識別碼——只用來做 sessionStorage
-// key，絕不是完整 token 本身（完整 token 只活在記憶體變數與這次 HTTPS
-// 請求裡，不落地存到任何 storage）。用簡單同步 hash 即可，不需要密碼學強度
-// （這裡只是拿來判斷「這次瀏覽器分頁是不是已經成功還原過同一個 token」）。
-// fix18-10-hotfix30 Final（需求文件四）：明確用途邊界——
-//   - only for same-session duplicate restore suppression（同一分頁、同一次
-//     瀏覽 session 判斷「這個 token 是不是已經成功還原過」，純粹避免重整/
-//     返回鍵造成假性失效或覆蓋購物車）。
-//   - NOT for authentication or authorization（真正的身分驗證與授權，一律
-//     由後端 /restore API 的 member_session 簽章驗證 + 完整 secret token
-//     比對負責，這個 hash 本身完全不具備、也從未被當成安全憑證使用）。
-//   - 不跨 session／跨分頁取代後端驗證：sessionStorage 清空、換分頁、換裝置
-//     都會讓這個 marker 失效，屆時會直接退回正常呼叫 /restore API 的路徑。
-function _handoffTokenShortHash(token){
-  let h=5381;
-  const s=String(token||'');
-  for(let i=0;i<s.length;i++){ h=((h<<5)+h+s.charCodeAt(i))|0; }
-  return (h>>>0).toString(36);
-}
-// fix18-10-hotfix30（需求文件十二）：Direct LIFF Restore 診斷——fire-and-forget，
-// 絕不因失敗擋住結帳主流程，payload 只放白名單欄位（見
-// routes/line-checkout-handoff.js /diagnostics）。
-function _reportRestoreDiag(stage, extra){
-  try{
-    let ctx={device:'other',browser:'other'};
-    try{ ctx=LineMemberGate.classifyHandoffDeviceBrowser(LineMemberGate.detectBrowserEnvironment()); }catch(e){}
-    const p=apiFetch('/api/line-checkout-handoff/diagnostics',{
-      method:'POST', body:JSON.stringify(Object.assign({ stage, device:ctx.device, browser:ctx.browser }, extra||{}))
-    });
-    if(p && typeof p.catch==='function') p.catch(()=>{});
-  }catch(e){ /* 診斷回報失敗不得影響結帳主流程 */ }
-}
-
 // fix18-10-hotfix26-F8-B（需求文件十一～十四）：LIFF Restore 流程。
 // LIFF init → 取得 UID（透過既有 member_session，見 _currentMemberSession）
 // → 呼叫 restore API → 還原購物車 → 重新計算價格（後端已做，見 restore API）
 // → 確認好友狀態 → 進入結帳畫面。
 async function _restoreCartFromHandoffToken(cartToken){
-  // fix18-10-hotfix30（需求文件十：情境 A／C）：這個 token 這個 session 已經
-  // 成功還原過一次——多半是網址重整、或瀏覽器返回鍵又帶回了還沒被
-  // history.replaceState() 清掉的舊網址。不要再打一次 restore API（token
-  // 這時通常已是 'opened'，重打也不會錯，但沒必要），更重要的是「不要用
-  // 伺服器快照覆蓋掉顧客這次重整後可能已經調整過的購物車」（情境 C）。
-  // 直接把目前畫面上的購物車視為已還原完成，打開結帳面板即可。
-  const tokenHash=_handoffTokenShortHash(cartToken);
-  const restoredMarkerKey=`handoff_restored_${tokenHash}`;
-  let alreadyRestoredThisSession=false;
-  try{ alreadyRestoredThisSession=sessionStorage.getItem(restoredMarkerKey)==='1'; }catch(e){}
-  if(alreadyRestoredThisSession){
-    _cleanHandoffUrlParams();
-    openCartSheet();
-    return;
-  }
-
   document.getElementById('loading').style.display='flex';
-  _reportRestoreDiag('cart_restore_started', {});
   try{
     let memberSession=_currentMemberSession();
     // 剛登入完成時 session 可能要等 initLineMemberGate 內部流程真正落地，
@@ -663,7 +614,6 @@ async function _restoreCartFromHandoffToken(cartToken){
     }
     // 需求文件十七：LIFF 已成功開啟並取得登入狀態，準備呼叫 restore API。
     _trackEvent('line_checkout_liff_opened');
-    _reportRestoreDiag('liff_checkout_loaded', {});
     const res=await apiFetch('/api/line-checkout-handoff/restore',{
       method:'POST', body:JSON.stringify({ cart_token:cartToken, member_session:memberSession })
     }).then(r=>r.json());
@@ -677,9 +627,6 @@ async function _restoreCartFromHandoffToken(cartToken){
         uid_mismatch:'此結帳連結已失效，請返回點餐頁重新操作。',
         not_found:'此結帳連結已失效，請返回點餐頁重新操作。',
       };
-      // 需求文件十：情境 B——這裡才是真正過期／已被其他 session 使用／
-      // 找不到，才顯示失效提示。
-      _reportRestoreDiag('cart_restore_failed', { restore_result:'failed', restore_error_code:res.reason||null });
       _showCheckoutHandoffFailure(msgMap[res.reason]||res.message||'此結帳連結已失效，請返回點餐頁重新操作。');
       return;
     }
@@ -709,15 +656,6 @@ async function _restoreCartFromHandoffToken(cartToken){
     localStorage.setItem(ORDER_CART_KEY, JSON.stringify(cartData));
     await restoreCart();
     _activeCartHandoffToken=cartToken;
-    // 需求文件十：標記這個 token 這次 session 已成功還原過——之後若同一
-    // 分頁再次帶著這個 cart_token 進來（重整／返回鍵），不再視為失效，也不
-    // 再拿伺服器快照覆蓋顧客這次重整後可能已調整過的購物車。
-    try{ sessionStorage.setItem(restoredMarkerKey, '1'); }catch(e){}
-    _reportRestoreDiag('cart_restore_success', { restore_result:'success', token_consumed:false });
-    // 需求文件三：Restore 成功後立刻清除網址上的 cart_token／mode=checkout，
-    // 不等待使用者下一個操作（例如下面的好友確認流程可能需要等待網路或
-    // 使用者互動）、不重整頁面、不清掉 store_id。
-    _cleanHandoffUrlParams();
 
     if(res.has_unavailable_items){
       toast('部分商品資訊已更新，請確認最新內容後再結帳。');
@@ -729,6 +667,13 @@ async function _restoreCartFromHandoffToken(cartToken){
     if(_lineMemberGateConfig && (_lineMemberGateConfig.require_friend||_lineMemberGateConfig.require_follow)){
       try{ await LineMemberGate.ensureFriendRequirement(LINE_STORE_ID, _lineMemberGateConfig, _gateIds(), _trackEvent); }catch(e){}
     }
+
+    // 清掉網址上的 cart_token，避免重整頁面重複觸發 restore／被誤分享
+    try{
+      const cleanUrl=new URL(window.location.href);
+      cleanUrl.searchParams.delete('cart_token');
+      window.history.replaceState({}, '', cleanUrl.toString());
+    }catch(e){}
 
     openCartSheet();
     toast('購物車已成功還原，請確認內容後完成結帳。');
@@ -793,6 +738,161 @@ function _peekSavedOrderMode(){
     const d=JSON.parse(raw);
     return d?.order_mode||d?.cartMode||'';
   }catch(e){ return ''; }
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// fix18-10-hotfix30-A：單一商品入口 × 結帳選擇外帶外送
+// 商品可購買判斷不得只看 currentMode（否則「今日外帶截止/外送仍開」時，
+// 只要 currentMode 停留在外帶，畫面就會誤判全部商品都不可買）。
+// 一律同時計算 takeout / delivery 兩種模式的可購買狀態，供商品卡與
+// 加入購物車使用「任一模式可買即可買」的規則；currentMode 只用於
+// 購物車結帳時「目前選擇要用哪個模式送單」，不再是瀏覽/加入購物車的前提。
+// ══════════════════════════════════════════════════════════════════════
+function _productModeStatus(p, mode){
+  const storeEnabled = mode==='delivery' ? deliveryEnabled : takeoutEnabled;
+  const soldOutReason = mode==='delivery' ? p.delivery_sold_out_reason : p.takeout_sold_out_reason;
+  const canNextDay = mode==='delivery' ? p.delivery_can_next_day : p.takeout_can_next_day;
+  const ss=p.sale_status||'available';
+  if(!storeEnabled) return {enabled:false, reason:'mode_closed', canNextDay:false};
+  if(ss!=='available') return {enabled:false, reason: ss==='paused'?'paused':'sold_out_today', canNextDay:false};
+  if(soldOutReason){
+    if(canNextDay) return {enabled:true, reason:soldOutReason, canNextDay:true};
+    return {enabled:false, reason:soldOutReason, canNextDay:false};
+  }
+  if(Number(p.line_sold_out)===1){
+    if(canNextDay) return {enabled:true, reason:'real_sold_out', canNextDay:true};
+    return {enabled:false, reason:'real_sold_out', canNextDay:false};
+  }
+  return {enabled:true, reason:null, canNextDay:false};
+}
+// getProductAvailableModes(product) → { takeout:{enabled,reason}, delivery:{enabled,reason} }
+function getProductAvailableModes(p){
+  return { takeout:_productModeStatus(p,'takeout'), delivery:_productModeStatus(p,'delivery') };
+}
+// 挑一個「用來顯示狀態文字」的代表模式：currentMode 若可買就用它，否則用另一個可買的模式，
+// 兩者都不可買時，仍用 currentMode 的原因文字（兩模式都不可買時文案會統一改成「今日不可購買」）。
+function _representativeMode(avail){
+  if(avail[currentMode]?.enabled) return currentMode;
+  const other = currentMode==='delivery' ? 'takeout' : 'delivery';
+  if(avail[other]?.enabled) return other;
+  return currentMode;
+}
+// getCartAvailableModes() → 購物車內所有商品可用模式的交集
+function getCartAvailableModes(){
+  const items=Object.values(cart);
+  const result={ takeout:true, delivery:true, reasons:{ takeout:[], delivery:[] } };
+  items.forEach(({product:p})=>{
+    const avail=getProductAvailableModes(p);
+    ['takeout','delivery'].forEach(m=>{
+      if(!avail[m].enabled){
+        result[m]=false;
+        result.reasons[m].push({ product_id:p.id, product_name:p.effective_line_name||p.name, reason:avail[m].reason });
+      }
+    });
+  });
+  return result;
+}
+// fix18-10-hotfix30-A 第三點：購物車內商品沒有共同取餐方式時，明確列出「哪些商品造成
+// 衝突、各自僅支援哪個模式」，不是只禁止送單。兩種模式都不可用時（含店家整店關閉）
+// 也走這裡，統一用「該商品在兩個模式各自的可購買狀態」判斷要不要出現在清單。
+function renderModeConflict(show){
+  const box=document.getElementById('modeConflictBox');
+  if(!box) return;
+  if(!show){ box.style.display='none'; box.innerHTML=''; return; }
+  const rows=Object.values(cart).map(({product:p})=>{
+    const avail=getProductAvailableModes(p);
+    const onlyTakeout = avail.takeout.enabled && !avail.delivery.enabled;
+    const onlyDelivery = avail.delivery.enabled && !avail.takeout.enabled;
+    const bothBlocked = !avail.takeout.enabled && !avail.delivery.enabled;
+    let tag=null;
+    if(onlyTakeout) tag='僅外帶';
+    else if(onlyDelivery) tag='僅外送';
+    else if(bothBlocked) tag='今日不可購買';
+    if(!tag) return null;
+    return { id:p.id, name:p.effective_line_name||p.name, tag };
+  }).filter(Boolean);
+  if(!rows.length){ box.style.display='none'; box.innerHTML=''; return; }
+  box.style.display='block';
+  box.innerHTML = `<div class="conflict-title">⚠️ 購物車內商品沒有共同的取餐方式</div>`
+    + rows.map(r=>`<div class="conflict-row"><span class="conflict-name">${esc(r.name)}</span><span class="conflict-tag">${esc(r.tag)}</span><button type="button" class="conflict-remove" onclick="removeCartItem(${r.id})">移除</button></div>`).join('')
+    + `<div class="conflict-hint">請移除其中一項商品，購物車才能選擇取餐方式並送出訂單。</div>`;
+}
+// fix18-10-hotfix30-A 第五點：Analytics — mode_conflict（供 Dashboard 分析購物車衝突原因），
+// 同一衝突組合（同一批受影響商品 + 原因）只送一次，避免每次開購物車都重複觸發。
+let _lastModeConflictKey='';
+function _trackModeConflict(cartModes){
+  try{
+    const affected=Object.values(cart).map(({product:p})=>{
+      const avail=getProductAvailableModes(p);
+      return { product_id:p.id, product_name:p.effective_line_name||p.name, takeout:avail.takeout.enabled, delivery:avail.delivery.enabled };
+    });
+    const bothStoreClosed = !takeoutEnabled && !deliveryEnabled;
+    const reason = bothStoreClosed ? 'store_closed_both' : 'product_incompatible';
+    const key = reason+'|'+_getCartId(false)+'|'+JSON.stringify(affected.map(a=>a.product_id).sort());
+    if(key===_lastModeConflictKey) return;
+    _lastModeConflictKey=key;
+    _trackEvent('mode_conflict',{ cart_id:_getCartId(false), reason, affected_products:affected });
+  }catch(e){ /* 追蹤失敗不影響購物車功能 */ }
+}
+// fix18-10-hotfix30-A 第三點：從衝突清單直接移除該商品
+function removeCartItem(id){
+  if(!cart[id]) return;
+  const qty=cart[id].qty;
+  _trackRemoveFromCart(id, qty);
+  delete cart[id]; preorderRequiredIds.delete(Number(id));
+  updateBar(); updateProductCard(id);
+  reconcileFulfillmentMode();
+  if(document.getElementById('cartSheet')?.classList.contains('show')) renderCartItems();
+  persistCart();
+}
+// fix18-10-hotfix30-A：購物車開啟／內容變動時呼叫，依「店家模式開關 × 購物車商品相容性」
+// 交集後的結果，決定是否需要提示或自動切換 currentMode。
+// 規則（需求文件第七、九點）：
+//   - 只剩一種模式可用 → 自動切換並明確提示（不靜默切換）
+//   - 兩種都可用 → 尊重使用者已選（或保留的）模式，不主動變更
+//   - 兩種都不可用 → 停用送出訂單，列出衝突商品清單（不是只禁止送單）
+function reconcileFulfillmentMode(opts){
+  const silent = !!(opts && opts.silent);
+  const cartModes=getCartAvailableModes();
+  const combined={
+    takeout: takeoutEnabled && cartModes.takeout,
+    delivery: deliveryEnabled && cartModes.delivery
+  };
+  const banner=document.getElementById('modeUnavailableBanner');
+  const subBtn=document.getElementById('subBtn');
+  if(!combined.takeout && !combined.delivery){
+    renderModeConflict(true);
+    if(banner){ banner.style.display='block'; banner.textContent='🔴 目前沒有可使用的取餐方式，請參考下方衝突商品清單調整購物車。'; }
+    if(subBtn){ subBtn.disabled=true; subBtn.textContent='目前無法送出訂單'; }
+    _trackEvent('fulfillment_method_unavailable',{ cart_id:_getCartId(false) });
+    _trackModeConflict(cartModes);
+    buildFulfillmentOptions();
+    return;
+  }
+  renderModeConflict(false);
+  if(!combined[currentMode]){
+    const toMode = combined.takeout ? 'takeout' : 'delivery';
+    const fromMode = currentMode;
+    currentMode = toMode;
+    const oType=document.getElementById('oType'); if(oType) oType.value=toMode;
+    if(!silent){
+      const reasonIsStoreClosed = fromMode==='takeout' ? !takeoutEnabled : !deliveryEnabled;
+      const msg = reasonIsStoreClosed
+        ? `今日${fromMode==='takeout'?'外帶':'外送'}未開放，已為您改為${toMode==='takeout'?'外帶':'外送'}。`
+        : `購物車內部分商品不支援${fromMode==='takeout'?'外帶':'外送'}，已為您改為${toMode==='takeout'?'外帶':'外送'}。`;
+      toast(msg);
+    }
+    _trackEvent('fulfillment_method_auto_switched',{ from_mode:fromMode, to_mode:toMode, reason: !takeoutEnabled||!deliveryEnabled?'mode_closed':'product_incompatible', cart_id:_getCartId(false) });
+    if(typeof updateDeliveryAddressVisibility==='function') updateDeliveryAddressVisibility();
+    if(typeof updatePickupAddressVisibility==='function') updatePickupAddressVisibility();
+    if(typeof buildPaymentButtons==='function') buildPaymentButtons(shopData);
+    if(typeof refreshDateSelectorForCart==='function') refreshDateSelectorForCart();
+    if(typeof updateCartTotals==='function') updateCartTotals();
+    persistCart();
+  }
+  if(banner) banner.style.display='none';
+  if(subBtn && subBtn.textContent==='目前無法送出訂單'){ subBtn.disabled=false; subBtn.textContent='確認送出訂單'; }
+  buildFulfillmentOptions();
 }
 
 // fix18-06: 外送地址與費用狀態
@@ -1000,7 +1100,7 @@ async function init(){
       const _oTypeInit=document.getElementById('oType');
       if(_oTypeInit) _oTypeInit.value=currentMode;
 
-      buildModeTabsUI();
+      buildServiceStatusBar();
       buildPaymentButtons(d);
       buildDateSelector();
       // fix18-08: 初始化時同步外送地址顯示狀態
@@ -1241,31 +1341,40 @@ function shouldSkipHolidayBannerForAnnouncement(a){
   return !!(a && a.active && a.source==='auto_holiday');
 }
 
-// ── 模式切換 UI ────────────────────────────────────────
-function buildModeTabsUI(){
-  const tabs=document.getElementById('modeTabs');
-  const btnTo=document.getElementById('tabTakeout');
-  const btnDl=document.getElementById('tabDelivery');
-  if(!takeoutEnabled && !deliveryEnabled){tabs.style.display='none';return;}
-  // hotfix22-F 補正：只有在「沒有被強制保留模式」的情況下，才會在只剩一種模式開放時
-  // 隱藏頁籤並強制切換；一旦 modeForcedVisible=true（代表使用者/購物車保留的模式目前
-  // 被關閉），頁籤必須保持顯示，讓使用者能看到「未開放」狀態並自行切換，不得自動代為切換。
-  if(!modeForcedVisible){
-    if(takeoutEnabled && !deliveryEnabled){tabs.style.display='none';currentMode='takeout';return;}
-    if(!takeoutEnabled && deliveryEnabled){tabs.style.display='none';currentMode='delivery';return;}
+// ── fix18-10-hotfix30-A：今日服務狀態（純資訊提示）──────────
+// 不再是「必須先選才能瀏覽商品」的頁籤，只負責告知客人今日狀態；
+// 只有一種模式開放時，仍先幫忙把 currentMode 設成該模式（作為購物車的預設值），
+// 但不會因此隱藏或阻擋任何商品瀏覽（buildCard/addCart 已改用任一模式可買即可買）。
+function buildServiceStatusBar(){
+  const bar=document.getElementById('serviceStatusBar');
+  if(!bar) return;
+  if(!takeoutEnabled && !deliveryEnabled){
+    bar.style.display='block'; bar.className='service-status-bar all-closed';
+    bar.textContent='📢 今日暫停接單（外帶／外送皆已關閉）';
+    return;
   }
-  tabs.style.display='flex';
-  // 截止但仍顯示 / 目前未開放（優先顯示「未開放」，比截止售完更明確）
-  // fix18-10-hotfix26-F2：改用 modeLabelSuffix()，選到未來日期時不再誤顯示「已截止」。
+  // hotfix22-F 補正保留：若使用者/購物車保留的模式目前被關閉（modeForcedVisible=true），
+  // 不主動把 currentMode 改回另一個模式的預設值，交由 reconcileFulfillmentMode() 統一
+  // 在購物車開啟時決定是否要「自動切換並提示」，避免兩處各自改寫 currentMode 互相打架。
+  if(!modeForcedVisible){
+    if(takeoutEnabled && !deliveryEnabled) currentMode='takeout';
+    else if(!takeoutEnabled && deliveryEnabled) currentMode='delivery';
+  }
+  if(takeoutEnabled && !deliveryEnabled){
+    bar.style.display='block'; bar.className='service-status-bar only-takeout';
+    bar.textContent='📢 今日僅提供外帶服務';
+    return;
+  }
+  if(!takeoutEnabled && deliveryEnabled){
+    bar.style.display='block'; bar.className='service-status-bar only-delivery';
+    bar.textContent='📢 今日僅提供外送服務';
+    return;
+  }
+  // 兩者皆開放：顯示簡短「今日服務」狀態（含各自截止/預約提示），純資訊、不可點擊
   const _toSuf=modeLabelSuffix('takeout',takeoutEnabled);
   const _dlSuf=modeLabelSuffix('delivery',deliveryEnabled);
-  btnTo.innerHTML='🛍️ 外帶'+(_toSuf?`<span class="mode-badge">${_toSuf}</span>`:'');
-  btnDl.innerHTML='🛵 外送'+(_dlSuf?`<span class="mode-badge">${_dlSuf}</span>`:'');
-  updateModeTabActive();
-}
-function updateModeTabActive(){
-  document.getElementById('tabTakeout')?.classList.toggle('active',currentMode==='takeout');
-  document.getElementById('tabDelivery')?.classList.toggle('active',currentMode==='delivery');
+  bar.style.display='block'; bar.className='service-status-bar both-open';
+  bar.innerHTML=`今日服務　🛍️ 外帶${_toSuf?`（${_toSuf}）`:'（開放中）'}　·　🛵 外送${_dlSuf?`（${_dlSuf}）`:'（開放中）'}`;
 }
 // fix18-08: 統一控制外送地址區塊顯示/隱藏
 function updateDeliveryAddressVisibility(){
@@ -1371,33 +1480,18 @@ async function copyPickupAddress(){
     toast('複製失敗，請手動複製：'+addr);
   }
 }
-function switchMode(mode){
-  currentMode=mode;
-  updateModeTabActive();
-  renderMenu();
-  refreshModeCutoffUI();
-  updateModeAvailabilityUI();
-  // 同步購物車 sheet 的模式選擇
-  const oType=document.getElementById('oType');
-  if(oType) oType.value=mode;
-  // fix18-10-hotfix22D：改用 refreshDateSelectorForCart()，避免切換模式後把已預約的下個營業日覆蓋回今天
-  refreshDateSelectorForCart();
-  // fix18-08: 統一顯示/隱藏外送地址
-  updateDeliveryAddressVisibility();
-  updatePickupAddressVisibility();
-  updateCartTotals();
-  // fix18-10-hotfix22A：外帶/外送付款方式可能不同，切換模式時重建付款按鈕
-  buildPaymentButtons(shopData);
-  persistCart();
-}
+// fix18-10-hotfix30-A：頂部頁籤已移除，改由 selectFulfillmentMode() 驅動購物車內的
+// 取餐方式大按鈕；onModeChange() 保留給 hidden input #oType 的邏輯進入點使用。
 function onModeChange(){
   const oType=document.getElementById('oType');
   if(!oType) return;
+  const _from=currentMode;
   currentMode=oType.value;
-  updateModeTabActive();
+  if(_from!==currentMode) _trackEvent('fulfillment_method_selected',{ from_mode:_from, to_mode:currentMode, cart_id:_getCartId(false) });
   renderMenu();
   refreshModeCutoffUI();
   updateModeAvailabilityUI();
+  buildFulfillmentOptions();
   // fix18-10-hotfix22D：改用 refreshDateSelectorForCart()，避免切換模式後把已預約的下個營業日覆蓋回今天
   refreshDateSelectorForCart();
   // fix18-08: 統一顯示/隱藏外送地址
@@ -1408,8 +1502,15 @@ function onModeChange(){
   buildPaymentButtons(shopData);
   persistCart();
 }
+// fix18-10-hotfix30-A 第二點：取餐方式大按鈕的點擊入口（取代 <select> 的 onchange）
+function selectFulfillmentMode(mode){
+  const oType=document.getElementById('oType');
+  if(!oType || oType.value===mode) return;
+  oType.value=mode;
+  onModeChange();
+}
 
-// ── 截止售完橫幅 ──────────────────────────────────────
+// fix18-10-hotfix30-A：截止售完橫幅 ──────────────────────────────────────
 // fix18-10-hotfix26-F2（需求文件二）：根因修正——takeoutCutoffPassed／
 // deliveryCutoffPassed 這兩個旗標來自 GET /shop，永遠只代表「今天」是否已過截止
 // 時間，本身完全沒有日期概念。過去所有畫面（模式頁籤、購物車取餐方式下拉、
@@ -1457,24 +1558,52 @@ function modeLabelSuffix(mode, enabled){
   if(!isSelectedDateToday()) return '預約';
   return '';
 }
+// fix18-10-hotfix30-A 第二、六點：購物車取餐方式改為大按鈕單選（不用 select），
+// 需同時反映「店家模式開關」與「購物車商品相容性」兩層原因；不可用時仍保留該按鈕
+// （維持 hotfix22-F 的可見性原則），只是變灰 + disabled + 顯示原因文字。
+function buildFulfillmentOptions(){
+  const holder=document.getElementById('fulfillBtns');
+  const oType=document.getElementById('oType');
+  if(!holder || !oType) return;
+  const cur=oType.value||currentMode;
+  const cartModes=getCartAvailableModes();
+  const REASON_TEXT={
+    mode_closed:'今日未開放', product_mode_disabled:'商品不支援', calendar_closed:'休假中',
+    today_closed:'今日臨時休息', weekly_closed:'固定公休', calendar_mode_closed:'今日未開放',
+    cutoff_sold_out:'已截止', real_sold_out:'今日售完', product_time_ended:'今日售完',
+    product_not_started:'尚未開賣', paused:'暫停販售', sold_out_today:'今日完售',
+  };
+  const render=(mode)=>{
+    const storeEnabled = mode==='delivery'?deliveryEnabled:takeoutEnabled;
+    const suf=modeLabelSuffix(mode, storeEnabled);
+    const label = mode==='delivery' ? '🛵 外送' : '🛍️ 外帶';
+    let disabled=false, reason='';
+    if(!storeEnabled){ disabled=true; reason='今日未開放'; }
+    else if(!cartModes[mode]){
+      disabled=true;
+      const rs=cartModes.reasons[mode]||[];
+      const firstReason=rs[0]?.reason;
+      reason = rs.length>1 ? '商品不支援' : (REASON_TEXT[firstReason]||'商品不支援');
+    }
+    else if(suf){ reason=suf; }
+    const isActive = cur===mode && !disabled;
+    const radio = isActive ? '◉' : '○';
+    return `<button type="button" class="fulfill-btn${isActive?' active':''}${disabled?' disabled':''}" ${disabled?'disabled':`onclick="selectFulfillmentMode('${mode}')"`}>`
+      +`<span class="fulfill-radio">${radio}</span><span class="fulfill-label">${label}</span>`
+      +(reason?`<span class="fulfill-reason">${esc(reason)}</span>`:'')
+      +`</button>`;
+  };
+  holder.innerHTML = render('takeout') + render('delivery');
+  if(oType.value!==cur) oType.value=cur;
+}
 // fix18-10-hotfix26-F2：任何會改變「目前選擇日期」或「目前模式」的地方都呼叫這個
 // 函式，統一重新計算頁籤／橫幅／購物車下拉的文字，取代過去各自零星呼叫、
 // 且切換日期時完全沒有重新計算的舊行為。
 function refreshModeCutoffUI(){
-  buildModeTabsUI();
+  buildServiceStatusBar();
   updateCutoffBanner();
-  const oType=document.getElementById('oType');
   const cartOpen=document.getElementById('cartSheet')?.classList.contains('show');
-  if(oType && cartOpen){
-    const cur=oType.value||currentMode;
-    oType.innerHTML='';
-    const _mkOpt=(val,label)=>{const o=document.createElement('option');o.value=val;o.textContent=label;return o;};
-    const toSuffix=modeLabelSuffix('takeout',takeoutEnabled);
-    const dlSuffix=modeLabelSuffix('delivery',deliveryEnabled);
-    oType.appendChild(_mkOpt('takeout','🛍️ 外帶'+(toSuffix?` (${toSuffix})`:'')));
-    oType.appendChild(_mkOpt('delivery','🛵 外送'+(dlSuffix?` (${dlSuffix})`:'')));
-    oType.value=cur;
-  }
+  if(cartOpen) buildFulfillmentOptions();
 }
 function updateCutoffBanner(){
   const banner=document.getElementById('cutoffBanner');
@@ -1656,7 +1785,7 @@ function renderMenu(){
   const area=document.getElementById('menuArea');
   const prods=currentCat==='all'?allProducts:allProducts.filter(p=>String(p.display_cat_id||0)===String(currentCat));
   if(!prods.length){area.innerHTML='<p style="text-align:center;padding:40px;color:#888">此分類目前沒有商品</p>';return;}
-  area.innerHTML=`<div class="grid">${prods.map(p=>buildCard(p,currentMode)).join('')}</div>`;
+  area.innerHTML=`<div class="grid">${prods.map(p=>buildCard(p)).join('')}</div>`;
   _setupViewProductObserver();
 }
 // fix18-10-hotfix23-A：view_product — 商品卡真正進入視窗時記錄一次（同一 session +
@@ -1688,8 +1817,8 @@ function _setupViewProductObserver(){
   }catch(e){ /* 追蹤失敗不影響商品渲染 */ }
 }
 
-// ── 商品卡片（外帶/外送獨立售完判斷）──────────────────
-function buildCard(p, mode){
+// ── 商品卡片（fix18-10-hotfix30-A：任一模式可買即顯示可買，不再要求先選外帶/外送）──
+function buildCard(p){
   const name=p.effective_line_name||p.line_name||p.name;
   const price=p.effective_line_price||p.price;
   const img=p.line_image_url||p.image||'';
@@ -1699,6 +1828,14 @@ function buildCard(p, mode){
   const ss=p.sale_status||'available';
   // Hotfix16 BUG-002：尚未開賣但允許預購今天稍後時段（後端已判斷，前台不重複判斷）
   const preSaleAvailable=!!p.pre_sale_available;
+
+  // fix18-10-hotfix30-A：先算出兩種模式各自的可購買狀態，商品卡「任一模式可買」即視為可買，
+  // 不再單獨依賴 currentMode，避免「目前模式今日停用」時商品卡誤判為全部不可購買。
+  const modeAvail=getProductAvailableModes(p);
+  const anyModeEnabled = modeAvail.takeout.enabled || modeAvail.delivery.enabled;
+  const onlyTakeout = modeAvail.takeout.enabled && !modeAvail.delivery.enabled;
+  const onlyDelivery = modeAvail.delivery.enabled && !modeAvail.takeout.enabled;
+  const mode=_representativeMode(modeAvail);
 
   // ══════════════════════════════════════════════════════
   // LINE 接單規則優先順序（前台顯示層，與後端 /api/line-menu 一致）
@@ -1711,14 +1848,18 @@ function buildCard(p, mode){
 
   const soldOutReason=mode==='delivery'?p.delivery_sold_out_reason:p.takeout_sold_out_reason;
   const canNextDay=mode==='delivery'?p.delivery_can_next_day:p.takeout_can_next_day;
-  const isSoldOut=!!soldOutReason || Number(p.line_sold_out)===1 || ss!=='available';
+  // fix18-10-hotfix30-A：只有兩種模式都不可買時，商品才算「不可購買」；
+  // 任一模式可買，即便 currentMode 本身不可用，也不得整卡灰掉。
+  const isSoldOut = anyModeEnabled ? false : (!!soldOutReason || Number(p.line_sold_out)===1 || ss!=='available');
   const isDayClosed = soldOutReason==='calendar_closed' || soldOutReason==='today_closed' || soldOutReason==='weekly_closed';
 
   // LINE quota 優先（食材控管不適用 LINE 點餐，ingredient_available 不影響前台顯示）
   const quota=p.line_quota||{hasQuota:false};
 
   // canPreorderNextDay：今日售完（任何位階）且允許預約明日
-  const canPreorderNextDay = isSoldOut && !!canNextDay && soldOutReason !== 'mode_closed';
+  // fix18-10-hotfix30-A：isSoldOut 現在只代表「兩種模式都不可買」，但代表模式（mode）本身
+  // 若是靠 canNextDay 才 enabled（今日已售完、明日可預購），仍要顯示「可預購」徽章。
+  const canPreorderNextDay = (isSoldOut || !!soldOutReason) && !!canNextDay && soldOutReason !== 'mode_closed';
   const quotaRealSoldOut = quota.hasQuota && Number(quota.remaining??0) <= 0;
   const unavailFully = (isSoldOut && !canPreorderNextDay) || (quotaRealSoldOut && !canPreorderNextDay);
 
@@ -1797,18 +1938,30 @@ function buildCard(p, mode){
   if(isHot)   marketingTags.push({cls:'tag-ribbon-hot',label:'🔥 熱銷'});
   const ribbonHtml  = marketingTags[0] ? `<div class="tag-ribbon ${marketingTags[0].cls}">${marketingTags[0].label}</div>` : '';
   const capsuleHtml = marketingTags[1] ? `<div class="tag-capsule ${marketingTags[1].cls}">${marketingTags[1].label}</div>` : '';
+  // fix18-10-hotfix30-A 第十一點：兩種模式皆可買時不顯示模式標籤；只有一種可買時，
+  // 照片右下角顯示小膠囊「僅外送」/「僅外帶」，讓客人在還沒選取餐方式前就知道限制。
+  const modeOnlyCapsuleHtml = (!isSoldOut && (onlyTakeout || onlyDelivery))
+    ? `<div class="tag-capsule" style="bottom:6px;right:6px;top:auto;background:#607d8b">${onlyTakeout?'僅外帶':'僅外送'}</div>` : '';
 
-  return `<div class="prod-card" id="pc-${p.id}"><div class="prod-img-wrap${imgDimmed?' img-dimmed':''}">${imgHtml}<div class="prod-ph" ${img?'style="display:none"':''}>🍽️</div>${ribbonHtml}${capsuleHtml}</div><div class="prod-body"><div class="prod-name">${esc(name)}</div>${spec?`<div class="prod-spec">${esc(spec)}</div>`:''}<div class="status-row">${statusRowHtml}</div>${stockBadge}<div class="prod-desc">${esc(desc)}</div><div class="prod-footer"><span class="prod-price">$${price}</span>${footer}</div></div></div>`;
+  return `<div class="prod-card" id="pc-${p.id}"><div class="prod-img-wrap${imgDimmed?' img-dimmed':''}">${imgHtml}<div class="prod-ph" ${img?'style="display:none"':''}>🍽️</div>${ribbonHtml}${capsuleHtml}${modeOnlyCapsuleHtml}</div><div class="prod-body"><div class="prod-name">${esc(name)}</div>${spec?`<div class="prod-spec">${esc(spec)}</div>`:''}<div class="status-row">${statusRowHtml}</div>${stockBadge}<div class="prod-desc">${esc(desc)}</div><div class="prod-footer"><span class="prod-price">$${price}</span>${footer}</div></div></div>`;
 }
 
 // ── 購物車操作 ─────────────────────────────────────────
 function addCart(id,evt){
   const p=allProducts.find(x=>x.id==id);if(!p)return;
-  const mode=currentMode;
+  // fix18-10-hotfix30-A：不再要求顧客先選外帶/外送才能加入購物車。
+  // 只要「任一模式」可買，就用該模式的規則放行；currentMode 本身不可用時，
+  // 改用另一個可用模式的判斷依據（並在加入後由 reconcileFulfillmentMode() 決定
+  // 是否需要提示切換購物車目前的取餐方式）。兩種模式都不可用才擋下。
+  const modeAvail=getProductAvailableModes(p);
+  if(!modeAvail.takeout.enabled && !modeAvail.delivery.enabled){
+    const bothClosed = !takeoutEnabled && !deliveryEnabled;
+    alert(bothClosed ? '今日暫停接單，無法加入購物車' : '此商品今日不可購買');
+    return;
+  }
+  const mode=_representativeMode(modeAvail);
   const soldOutReason=mode==='delivery'?p.delivery_sold_out_reason:p.takeout_sold_out_reason;
   const canNextDay=mode==='delivery'?p.delivery_can_next_day:p.takeout_can_next_day;
-  // 完全關閉
-  if(soldOutReason==='mode_closed'){alert('此模式已關閉');return;}
   // 任何售完原因：若允許預約則直接加入購物車（不再要求先按預約按鈕）；否則拒絕
   if(soldOutReason){
     if(canNextDay){ addPreorderToCart(id,evt,p); return; }
@@ -1857,6 +2010,7 @@ function addCart(id,evt){
   _trackAddToCart(id,1);
   if(evt){const fly=document.createElement('div');fly.className='fly-item';fly.textContent='🛒';fly.style.cssText=`left:${evt.clientX}px;top:${evt.clientY}px`;document.body.appendChild(fly);setTimeout(()=>fly.remove(),700);}
   updateBar();updateProductCard(id);
+  reconcileFulfillmentMode();
   persistCart();
 }
 
@@ -1991,19 +2145,22 @@ function chgQty(id,d){
     delete cart[id]; preorderRequiredIds.delete(Number(id));
   }
   updateBar();updateProductCard(id);
+  reconcileFulfillmentMode();
   if(document.getElementById('cartSheet').classList.contains('show'))renderCartItems();
   persistCart();
 }
 function updateProductCard(id){
   const p=allProducts.find(x=>x.id==id);if(!p)return;
   const card=document.getElementById(`pc-${id}`);if(!card)return;
-  const mode=currentMode;
+  const modeAvail=getProductAvailableModes(p);
+  const anyModeEnabled=modeAvail.takeout.enabled||modeAvail.delivery.enabled;
+  const mode=_representativeMode(modeAvail);
   const soldOutReason=mode==='delivery'?p.delivery_sold_out_reason:p.takeout_sold_out_reason;
   const canNextDay=mode==='delivery'?p.delivery_can_next_day:p.takeout_can_next_day;
-  const isSoldOutFlag=!!soldOutReason||Number(p.line_sold_out)===1||(p.sale_status||'available')!=='available';
+  const isSoldOutFlag=anyModeEnabled?false:(!!soldOutReason||Number(p.line_sold_out)===1||(p.sale_status||'available')!=='available');
   // fix18-10-hotfix22D：canPreorderNextDay 商品現在footer照樣顯示 [-] qty [+]，
   // 故只有「真的完全不可預購」時才提早 return（維持遮罩，不更新 footer）。
-  const canPreorderNextDay=isSoldOutFlag && !!canNextDay && soldOutReason!=='mode_closed';
+  const canPreorderNextDay=(isSoldOutFlag||!!soldOutReason) && !!canNextDay && soldOutReason!=='mode_closed';
   const preorderInfo=p.line_preorder||{hasPreorder:false};
   const preorderFullBlocked=canPreorderNextDay && preorderInfo.hasPreorder && Number(preorderInfo.remaining??0)<=0;
   if(isSoldOutFlag && !(canPreorderNextDay && !preorderFullBlocked)) return;
@@ -2185,7 +2342,6 @@ async function restoreCart(){
   // 這裡只是保險再套用一次，確保 restoreCart() 單獨被呼叫時行為一致）。
   const savedMode=data.order_mode;
   if(savedMode==='takeout' || savedMode==='delivery') currentMode=savedMode;
-  updateModeTabActive();
   const oTypeSel=document.getElementById('oType');
   if(oTypeSel) oTypeSel.value=currentMode;
   updateDeliveryAddressVisibility();
@@ -2280,20 +2436,13 @@ function openCartSheet(){
   // 移除舊的預約提示
   const hint=document.getElementById('preorder-hint');
   if(hint) hint.remove();
-  // 同步購物車 sheet 模式
-  const oType=document.getElementById('oType');
-  if(oType){
-    oType.innerHTML='';
-    // hotfix22-F 補正：即使目前模式被關閉，也要保留該選項讓使用者看到「未開放」並停留在原模式，
-    // 不能因為 enabled=false 就把選項整個拿掉（否則使用者根本看不到自己原本選的是外送）。
-    const _mkOpt=(val,label)=>{const o=document.createElement('option');o.value=val;o.textContent=label;return o;};
-    // fix18-10-hotfix26-F2：改用 modeLabelSuffix()，選到未來日期時不再誤顯示「已截止」。
-    const _toSuf=modeLabelSuffix('takeout',takeoutEnabled);
-    const _dlSuf=modeLabelSuffix('delivery',deliveryEnabled);
-    oType.appendChild(_mkOpt('takeout','🛍️ 外帶'+(_toSuf?` (${_toSuf})`:'')));
-    oType.appendChild(_mkOpt('delivery','🛵 外送'+(_dlSuf?` (${_dlSuf})`:'')));
-    oType.value=currentMode;
-  }
+  // fix18-10-hotfix30-A 第七、九點：打開購物車時，先依「店家模式開關 × 購物車商品相容性」
+  // 重新計算一次，若目前模式已不可用且只剩一種模式可用，自動切換並提示；
+  // 兩種都不可用則停用送出訂單。
+  reconcileFulfillmentMode();
+  // 同步購物車 sheet 模式（含 disabled/原因文字，需求文件第六點）
+  buildFulfillmentOptions();
+  _trackEvent('fulfillment_method_view',{ cart_id:_getCartId(false) });
   renderCartItems();openSheet('cartSheet');
   // hotfix22-B：開啟購物車時重新查詢日期/時段（即時打 API，避免使用頁面載入當下的快取狀態；
   // 例如店家在顧客瀏覽期間才設定「今日臨時最後接單時間」，此時應立即反映，而非等下次整頁重整）
@@ -2325,6 +2474,14 @@ async function submitOrder(){
   // 与 updateModeAvailabilityUI()/buildDateSelector() 的 UI 層限制互為保險。
   if((type==='takeout' && !takeoutEnabled) || (type==='delivery' && !deliveryEnabled)){
     toast((type==='delivery'?'外送':'外帶')+'目前未開放，請切換模式或稍後再試');return;
+  }
+  // fix18-10-hotfix30-A 第九點：購物車商品相容性——即使模式本身開放，若購物車內有商品
+  // 不支援目前選擇的模式，也要擋下並指出哪些商品衝突，不得直接刪除商品或悄悄送單。
+  const _cartModes=getCartAvailableModes();
+  if(!_cartModes[type]){
+    const conflictNames=(_cartModes.reasons[type]||[]).map(r=>r.product_name).join('、');
+    toast(`購物車內「${conflictNames}」不支援${type==='delivery'?'外送':'外帶'}，請移除該商品或切換取餐方式`);
+    return;
   }
   if(!selectedPay){toast('請選擇付款方式');return;}
   if(!pickupDate){toast('請選擇日期');return;}

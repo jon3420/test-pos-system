@@ -34,6 +34,36 @@
 const express = require('express');
 const router  = express.Router();
 const { getDb } = require('../utils/db');
+const {
+  MIGRATION_UPLOAD_LIMIT_MB,
+  MIGRATION_UPLOAD_LIMIT_BYTES,
+} = require('../utils/migrationUploadLimit');
+
+// ══════════════════════════════════════════════════════════════════════════
+//  fix18-10-hotfix29-C2：搬家匯入專用 body parser
+//
+//  server.js 的全域 body parser 已經對 '/api/migration/import/preview' 與
+//  '/api/migration/import' 這兩條路徑放行（不搶先解析），body 會原封不動
+//  留到這裡，改用可透過 MIGRATION_UPLOAD_LIMIT_MB 環境變數調整的上限解析。
+//  這個 parser 只掛在下面這兩條路由上，不影響搬家路由以外的任何 API。
+// ══════════════════════════════════════════════════════════════════════════
+const migrationJsonParser = express.json({
+  limit: `${MIGRATION_UPLOAD_LIMIT_MB}mb`,
+});
+
+// ── 原型污染防護 ─────────────────────────────────────────────────────────
+// 搬家檔案是使用者可自由上傳的 JSON，遞迴檢查是否含有危險 key
+// （__proto__ / prototype / constructor），有就直接拒絕整份檔案，
+// 不嘗試「清掉危險 key 後繼續」，避免遺漏巢狀結構。
+const DANGEROUS_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
+function containsDangerousKeys(value, depth = 0) {
+  if (depth > 50 || value === null || typeof value !== 'object') return false;
+  for (const key of Object.keys(value)) {
+    if (DANGEROUS_KEYS.has(key)) return true;
+    if (containsDangerousKeys(value[key], depth + 1)) return true;
+  }
+  return false;
+}
 
 // ── CSV helpers ────────────────────────────────────────────────────────────
 function toCsvCell(v) {
@@ -602,6 +632,21 @@ router.post('/import/preorders', (req, res) => {
 //                    ingredient_logs / ingredient_batches /
 //                    ingredient_thaw_batches / inventory_logs
 // ══════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════
+//  搬家設定  GET /api/migration/config
+//  fix18-10-hotfix29-C2：前端需要知道目前上傳大小上限，才能在選檔當下就
+//  提示「檔案過大」，不需要真的送出請求才發現被 413 擋掉。上限數字只從這
+//  一個地方讀，前端不再把 25MB 寫死在多個地方。
+// ══════════════════════════════════════════════════════════════════════════
+router.get('/migration/config', (req, res) => {
+  res.json({
+    success: true,
+    upload_limit_mb: MIGRATION_UPLOAD_LIMIT_MB,
+    upload_limit_bytes: MIGRATION_UPLOAD_LIMIT_BYTES,
+    supported_extensions: ['.json'],
+  });
+});
+
 router.get('/migration/export', (req, res) => {
   try {
     const db      = getDb();
@@ -911,7 +956,7 @@ router.get('/migration/export/preview', (req, res) => {
 //  Preview  POST /api/migration/import/preview
 //  hotfix9：新增 ingredients / formulas / logs 統計
 // ══════════════════════════════════════════════════════════════════════════
-router.post('/migration/import/preview', (req, res) => {
+router.post('/migration/import/preview', migrationJsonParser, (req, res) => {
   try {
     const db      = getDb();
     const storeId = req.storeId;
@@ -919,6 +964,14 @@ router.post('/migration/import/preview', (req, res) => {
 
     if (!payload || payload.type !== 'pos_migration_backup') {
       return res.status(400).json({ success: false, message: '無效的備份檔格式（type 不符）' });
+    }
+    // store_id 沿用既有相容行為：舊版搬家檔可能沒有這個欄位，缺少時視為同店匯入，
+    // 不當成錯誤擋掉（見下方 fileStoreId = payload.store_id || storeId）。
+    if (payload.data != null && typeof payload.data !== 'object') {
+      return res.status(400).json({ success: false, code: 'MIGRATION_INVALID_DATA', message: '無效的備份檔：data 區塊格式錯誤' });
+    }
+    if (containsDangerousKeys(payload)) {
+      return res.status(400).json({ success: false, code: 'MIGRATION_UNSAFE_PAYLOAD', message: '備份檔內容含有不允許的欄位名稱（__proto__ / prototype / constructor）' });
     }
 
     const fileStoreId = payload.store_id || '';
@@ -984,15 +1037,21 @@ router.post('/migration/import/preview', (req, res) => {
 //  快速搬家檔匯入  POST /api/migration/import
 //  hotfix9：完整支援 ingredients / formulas / logs，含 ID remap
 // ══════════════════════════════════════════════════════════════════════════
-router.post('/migration/import', (req, res) => {
+router.post('/migration/import', migrationJsonParser, (req, res) => {
   try {
     const db      = getDb();
     const storeId = req.storeId;
     console.log('[migration/import] HOTFIX10 ACTIVE', new Date().toISOString(), 'storeId=', storeId);
-    const { payload, mode = 'skip', allowCrossStoreImport = false } = req.body;
+    const { payload, mode = 'skip', allowCrossStoreImport = false } = req.body || {};
 
     if (!payload || payload.type !== 'pos_migration_backup') {
       return res.status(400).json({ success: false, message: '無效的備份檔格式（type 不符）' });
+    }
+    if (payload.data != null && typeof payload.data !== 'object') {
+      return res.status(400).json({ success: false, code: 'MIGRATION_INVALID_DATA', message: '無效的備份檔：data 區塊格式錯誤' });
+    }
+    if (containsDangerousKeys(req.body)) {
+      return res.status(400).json({ success: false, code: 'MIGRATION_UNSAFE_PAYLOAD', message: '備份檔內容含有不允許的欄位名稱（__proto__ / prototype / constructor）' });
     }
 
     const fileStoreId  = payload.store_id || storeId;

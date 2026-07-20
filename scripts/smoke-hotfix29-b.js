@@ -398,18 +398,7 @@ async function main() {
       // fix18-10-hotfix29-C：診斷 payload 白名單擴充（ui_cart_count／
       // payload_cart_count／has_add_friend_url／response_ok），這裡同步更新
       // 測試預期欄位，不代表白名單本身變寬鬆（後端仍逐一驗證型別／範圍）。
-      // fix18-10-hotfix30（Baseline Isolation：PRE-EXISTING TEST ASSUMPTION，
-      // 非 regression）：Direct LIFF Checkout 新增的欄位（has_direct_liff_url／
-      // launch_target／restore_result／restore_error_code／token_consumed／
-      // has_cart_token）已經在後端 routes/line-checkout-handoff.js 逐一白名單
-      // 驗證型別／列舉值（見 HANDOFF_DIAG_LAUNCH_TARGETS 等常數），這裡只是
-      // 同步測試的預期欄位清單，不是放寬驗證。
-      const allowedKeys = [
-        'stage', 'attempt', 'http_status', 'error_code', 'has_cart_code', 'has_line_oa_message_url',
-        'fallback_reason', 'device', 'browser', 'ui_cart_count', 'payload_cart_count', 'has_add_friend_url',
-        'response_ok', 'has_direct_liff_url', 'launch_target', 'restore_result', 'restore_error_code',
-        'token_consumed', 'has_cart_token',
-      ];
+      const allowedKeys = ['stage', 'attempt', 'http_status', 'error_code', 'has_cart_code', 'has_line_oa_message_url', 'fallback_reason', 'device', 'browser', 'ui_cart_count', 'payload_cart_count', 'has_add_friend_url', 'response_ok'];
       const extraKeys = parsed ? Object.keys(parsed).filter((k) => !allowedKeys.includes(k)) : [];
       assert(extraKeys.length === 0, '診斷 payload 只含白名單欄位', extraKeys.join(','));
     }

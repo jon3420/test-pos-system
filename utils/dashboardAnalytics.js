@@ -1462,6 +1462,125 @@ function getLineCrmHealth(crmKpi) {
   };
 }
 
+// ══════════════════════════════════════════════════════════════════
+// fix18-10-hotfix30-B（需求文件第一、四點）：取餐方式衝突 Analytics
+// 沿用既有 mode_conflict 事件（routes/analytics.js 已白名單 + 欄位級過濾），
+// 沿用 Dashboard 既有日期範圍（A_LOCAL / range.startLocal~endLocal），
+// 不新增第二套日期邏輯，不新增 API、不新增資料表。
+// metadata_json 一律 try/catch 解析，失敗只跳過該筆，絕不讓整支 API 500。
+// ══════════════════════════════════════════════════════════════════
+function getFulfillmentConflicts(db, storeId, range) {
+  try {
+    const rows = db.all(
+      `SELECT cart_id, metadata_json FROM analytics_events
+       WHERE store_id=? AND event_name='mode_conflict' AND ${A_LOCAL} BETWEEN ? AND ?`,
+      [storeId, range.startLocal, range.endLocal]
+    ) || [];
+
+    const total_conflicts = rows.length;
+    const cartIds = new Set();
+    const reasonCount = {};
+    const productCount = {};
+
+    rows.forEach(r => {
+      if (r.cart_id) cartIds.add(String(r.cart_id));
+      let meta = null;
+      try {
+        meta = r.metadata_json ? JSON.parse(r.metadata_json) : null;
+      } catch (e) {
+        meta = null; // JSON 解析失敗只跳過這一筆的 metadata 統計，不影響 total_conflicts 計數
+      }
+      if (!meta || typeof meta !== 'object') return;
+      if (meta.reason) {
+        const rs = String(meta.reason).slice(0, 60);
+        reasonCount[rs] = (reasonCount[rs] || 0) + 1;
+      }
+      if (Array.isArray(meta.affected_products)) {
+        meta.affected_products.forEach(p => {
+          if (!p || typeof p !== 'object') return;
+          const name = p.product_name ? String(p.product_name).slice(0, 60)
+            : (p.product_id ? `#${p.product_id}` : null);
+          if (!name) return;
+          productCount[name] = (productCount[name] || 0) + 1;
+        });
+      }
+    });
+
+    const affected_carts = cartIds.size;
+
+    // resolved_carts：發生 mode_conflict 後，同一 cart_id（同一 store）最終有
+    // submit_order 或 purchase（不限制在同一日期範圍內，因為顧客可能隔一段時間才結帳）。
+    // store_id 隔離；分批查詢避免 IN 子句過長。
+    let resolved_carts = 0;
+    if (affected_carts > 0) {
+      const cartIdList = Array.from(cartIds);
+      const BATCH = 200;
+      const resolvedSet = new Set();
+      for (let i = 0; i < cartIdList.length; i += BATCH) {
+        const batch = cartIdList.slice(i, i + BATCH);
+        const placeholders = batch.map(() => '?').join(',');
+        let found = [];
+        try {
+          found = db.all(
+            `SELECT DISTINCT cart_id FROM analytics_events
+             WHERE store_id=? AND event_name IN ('submit_order','purchase') AND cart_id IN (${placeholders})`,
+            [storeId, ...batch]
+          ) || [];
+        } catch (e) {
+          found = []; // 查詢失敗只影響這一批的 resolved 計算，不得讓整支 API 500
+        }
+        found.forEach(f => resolvedSet.add(String(f.cart_id)));
+      }
+      resolved_carts = resolvedSet.size;
+    }
+    const unresolved_carts = Math.max(0, affected_carts - resolved_carts);
+
+    const top_products = Object.entries(productCount)
+      .sort((a, b) => b[1] - a[1]).slice(0, 10)
+      .map(([product_name, count]) => ({ product_name, count }));
+    const top_reasons = Object.entries(reasonCount)
+      .sort((a, b) => b[1] - a[1]).slice(0, 10)
+      .map(([reason, count]) => ({ reason, count }));
+
+    return {
+      insufficient_data: total_conflicts === 0,
+      total_conflicts, affected_carts, resolved_carts, unresolved_carts,
+      conversion_rate: affected_carts > 0 ? round2(resolved_carts / affected_carts * 100) : null,
+      top_products, top_reasons,
+    };
+  } catch (e) {
+    console.error('[dashboardAnalytics] getFulfillmentConflicts failed:', e.message);
+    return {
+      insufficient_data: true, message: '取餐方式衝突資料計算失敗',
+      total_conflicts: 0, affected_carts: 0, resolved_carts: 0, unresolved_carts: 0,
+      conversion_rate: null, top_products: [], top_reasons: [],
+    };
+  }
+}
+
+// fix18-10-hotfix30-B（需求文件第四點）：規則式建議（不呼叫 AI API），只依賴
+// getFulfillmentConflicts() 已算好的統計，附加在既有 recommendations 陣列使用方式之外，
+// 由呼叫端（routes/analytics.js）自行決定要不要併入既有 recommendations。
+function getFulfillmentConflictRecommendations(conflicts) {
+  const recs = [];
+  if (!conflicts || conflicts.insufficient_data) return recs;
+  // Rule A：衝突事件量偏高 → 建議檢查商品販售模式
+  if (conflicts.total_conflicts >= 5) {
+    recs.push({
+      type: 'fulfillment_conflict_high', severity: 'warning',
+      message: '近期有較多顧客因商品販售模式不同而無法結帳，建議檢查熱門商品是否可同時開放外帶與外送。',
+    });
+  }
+  // Rule B：特定商品衝突次數最高 → 建議調整該商品的外帶/外送設定
+  if (conflicts.top_products && conflicts.top_products[0] && conflicts.top_products[0].count >= 3) {
+    recs.push({
+      type: 'fulfillment_conflict_product', severity: 'info',
+      message: `商品「${conflicts.top_products[0].product_name}」經常造成外帶／外送模式衝突，建議調整其販售模式或商品說明。`,
+    });
+  }
+  return recs;
+}
+
 module.exports = {
   getKpi, getFixedWeekMonth, getFunnel, getRealtime, getCartAnalysis, getProductRanking,
   getPayments, getSources, getRepeatCustomers, getIncomplete,
@@ -1476,4 +1595,6 @@ module.exports = {
   ORDERS_PAID_EXPR, ORDERS_BASE_WHERE,
   // fix18-10-hotfix24-A3（Identity Resolver × Channel Dimensions × Funnel Accuracy）
   getFunnelSummary, getIdentityBasis,
+  // fix18-10-hotfix30-B（取餐方式衝突 Analytics × 規則式建議）
+  getFulfillmentConflicts, getFulfillmentConflictRecommendations,
 };

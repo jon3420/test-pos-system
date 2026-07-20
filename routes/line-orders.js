@@ -846,34 +846,46 @@ router.get('/menu', (req, res) => {
       const realSoldOut = quota.hasQuota && quota.remaining <= 0;
 
       // ── 外帶/外送各自的今日售完原因（僅描述今日狀態）─────
-      // 優先順序：模式關閉 > 今日休假(整店) > Business Calendar 單一模式關閉(新) > 第二位階截止 > 第三位階商品時段 > 第四位階份數
-      const takeoutSoldOutReason = !takeoutMode.enabled ? 'mode_closed'
+      // 優先順序：商品自身模式開關(新，hotfix30-A) > 模式關閉(店家) > 今日休假(整店)
+      //           > Business Calendar 單一模式關閉 > 第二位階截止 > 第三位階商品時段 > 第四位階份數
+      // fix18-10-hotfix30-A 第五點：商品是否啟用外帶/外送，屬於商品自身設定（預設皆啟用，
+      // 零設定時行為與舊版完全相同），優先序高於店家模式開關，因為即使店家兩種模式都開放，
+      // 商家仍可能把單一商品設定為「僅外帶」或「僅外送」。
+      const productTakeoutDisabled  = Number(p.line_takeout_enabled  ?? 1) === 0;
+      const productDeliveryDisabled = Number(p.line_delivery_enabled ?? 1) === 0;
+      const takeoutSoldOutReason = productTakeoutDisabled ? 'product_mode_disabled'
+        : (!takeoutMode.enabled ? 'mode_closed'
         : (dayClosedReason ? dayClosedReason
           : (takeoutCalendarModeClosed ? 'calendar_mode_closed'
             : (toCutoff ? 'cutoff_sold_out'
               : (productTimeReason === 'time_ended'   ? 'product_time_ended'
                 : (productTimeReason === 'not_started' ? 'product_not_started'
-                  : (realSoldOut ? 'real_sold_out' : null))))));
+                  : (realSoldOut ? 'real_sold_out' : null)))))));
 
-      const deliverySoldOutReason = !deliveryMode.enabled ? 'mode_closed'
+      const deliverySoldOutReason = productDeliveryDisabled ? 'product_mode_disabled'
+        : (!deliveryMode.enabled ? 'mode_closed'
         : (dayClosedReason ? dayClosedReason
           : (deliveryCalendarModeClosed ? 'calendar_mode_closed'
             : (dlCutoff ? 'cutoff_sold_out'
               : (productTimeReason === 'time_ended'   ? 'product_time_ended'
                 : (productTimeReason === 'not_started' ? 'product_not_started'
-                  : (realSoldOut ? 'real_sold_out' : null))))));
+                  : (realSoldOut ? 'real_sold_out' : null)))))));
 
       // ── 可預約明日旗標 ────────────────────────────────────
-      // 條件：今日有售完原因（非模式關閉，非尚未開賣） + 該模式允許次日預購
+      // 條件：今日有售完原因（非模式關閉，非尚未開賣，非商品自身停用該模式） + 該模式允許次日預購
       // BUG-003 修正：product_not_started 不應觸發「預約明日」
       //   今日尚未開賣 ≠ 今日售完；商品只是還沒到販售時間，稍後仍可購買
       //   只有真正的售完/截止/販售結束/今日休假才允許預約明日（或恢復營業日）
+      // fix18-10-hotfix30-A：product_mode_disabled 是商家對該商品的永久性通路設定，
+      // 不屬於「今日」限制，不得提供「預約明日」（明日該商品仍然不支援該模式）。
       const todayTrulySoldOutForTakeout = !!takeoutSoldOutReason
         && takeoutSoldOutReason !== 'mode_closed'
-        && takeoutSoldOutReason !== 'product_not_started';
+        && takeoutSoldOutReason !== 'product_not_started'
+        && takeoutSoldOutReason !== 'product_mode_disabled';
       const todayTrulySoldOutForDelivery = !!deliverySoldOutReason
         && deliverySoldOutReason !== 'mode_closed'
-        && deliverySoldOutReason !== 'product_not_started';
+        && deliverySoldOutReason !== 'product_not_started'
+        && deliverySoldOutReason !== 'product_mode_disabled';
       const takeoutCanNextDay  = todayTrulySoldOutForTakeout  && takeoutMode.allowNextDay;
       const deliveryCanNextDay = todayTrulySoldOutForDelivery && deliveryMode.allowNextDay;
 
@@ -899,6 +911,9 @@ router.get('/menu', (req, res) => {
         delivery_sold_out_reason: deliverySoldOutReason,
         takeout_can_next_day:  takeoutCanNextDay,
         delivery_can_next_day: deliveryCanNextDay,
+        // fix18-10-hotfix30-A：商品自身通路開關（預設皆 1，供前台商品卡/購物車模式交集判斷）
+        line_takeout_enabled:  productTakeoutDisabled  ? 0 : 1,
+        line_delivery_enabled: productDeliveryDisabled ? 0 : 1,
         // Hotfix16 BUG-002/006：尚未開賣但允許預約今天稍後時段（前台顯示 🟢 可預約）
         pre_sale_available: preSaleAvailable,
       };
@@ -971,6 +986,11 @@ router.get('/validate-cart', (req, res) => {
     const productResults = productIds.map(pid => {
       const p = db.get('SELECT * FROM products WHERE id=? AND store_id=?', [pid, storeId]);
       if (!p) return { product_id: pid, ok: false, reason: 'not_found' };
+      // fix18-10-hotfix30-A：商品自身通路開關優先於份數/預購檢查
+      const modeEnabledField = mode === 'delivery' ? 'line_delivery_enabled' : 'line_takeout_enabled';
+      if (Number(p[modeEnabledField] ?? 1) === 0) {
+        return { product_id: pid, ok: false, reason: 'product_mode_not_supported', name: p.name, mode };
+      }
       if (isPreorder) {
         // BUG-002 修正：預購訂單用 line_preorder_*，不用 line_quota_*
         const preorder = getLinePreorderStatus(p);
@@ -1119,6 +1139,19 @@ router.post('/', async (req, res) => {
       const prod = pid ? db.get('SELECT * FROM products WHERE id=? AND store_id=?', [pid, storeId]) : null;
       if (!prod || !prod.enabled || !prod.show_on_line)
         return res.status(400).json({ success: false, message: `商品「${item.name}」已下架` });
+      // fix18-10-hotfix30-A 第五、十四點：商品是否支援目前選擇的取餐方式（外帶/外送），
+      // 不得只信任前端 UI 的 disabled 狀態；商品自身通路開關優先於其他售完原因判斷。
+      const modeEnabledField = mode === 'delivery' ? 'line_delivery_enabled' : 'line_takeout_enabled';
+      if (Number(prod[modeEnabledField] ?? 1) === 0) {
+        return res.status(400).json({
+          success: false,
+          message: `「${prod.name}」不支援${mode === 'delivery' ? '外送' : '外帶'}，請調整購物車後再送出`,
+          reason: 'product_mode_not_supported',
+          product_id: prod.id,
+          product_name: prod.name,
+          mode,
+        });
+      }
       if (prod.sale_status === 'sold_out_today')
         return res.status(400).json({ success: false, message: `「${prod.name}」今日完售` });
       if (prod.sale_status !== 'available')
@@ -1461,20 +1494,6 @@ router.post('/', async (req, res) => {
               line_user_id: knownLineUserId || null, metadata: {},
             });
           } catch (analyticsErr) { /* Analytics 失敗不影響訂單已成立 */ }
-          // fix18-10-hotfix30 Final（需求文件二）：訂單送出、Cart Token 正式
-          // 被消耗——回報一筆終端診斷事件，只帶白名單欄位（has_cart_token／
-          // token_consumed／restore_result），絕不記錄完整 cart_token。
-          try {
-            logServerEvent(db, {
-              store_id: storeId,
-              visitor_id: `order_${uuid}`, session_id: `order_${uuid}`,
-              event_name: 'line_checkout_handoff_diagnostics',
-              metadata: {
-                stage: 'cart_token_consumed', has_cart_token: true,
-                token_consumed: true, restore_result: 'success', store_id: storeId,
-              },
-            });
-          } catch (diagErr) { /* 診斷寫入失敗不得影響訂單已成立 */ }
         }
       } catch (tokErr) {
         console.warn('[line-orders] cart_token consume failed:', tokErr.message);

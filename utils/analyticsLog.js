@@ -92,6 +92,14 @@ const EVENT_WHITELIST = [
   // （該端點已對 payload 做過白名單過濾，不含 token／完整 UID／購物車內容），
   // 供 LINE Integration Center 的「Messenger Handoff 診斷」面板讀取。
   'line_checkout_handoff_diagnostics',
+  // fix18-10-hotfix30-A/B（LINE 點餐單一商品入口 × 商品模式管理）：取餐方式相關事件，
+  // 純顯示/操作類事件（不含金額、付款、個資），可由前端直接送出；metadata 另在
+  // routes/analytics.js 做欄位級白名單過濾（見 sanitizeFulfillmentMetadata()）。
+  'fulfillment_method_view',
+  'fulfillment_method_selected',
+  'fulfillment_method_unavailable',
+  'fulfillment_method_auto_switched',
+  'mode_conflict',
 ];
 
 const MAX_METADATA_BYTES = 4 * 1024; // 4KB

@@ -421,9 +421,6 @@ router.get('/handoff-diagnostics', requireStaffJwt, (req, res) => {
     ) || [];
 
     let attempts24h = 0, success24h = 0, timeout24h = 0, missingCode24h = 0;
-    // fix18-10-hotfix30 Final（需求文件二／九）：Direct LIFF Checkout 上線後
-    // 新增的統計——與既有「建立 Handoff 是否成功」統計分開，不覆蓋既有欄位。
-    let directLiffCreated24h = 0, cartRestoreSuccess24h = 0, cartRestoreFailed24h = 0, tokenConsumed24h = 0;
     for (const row of rows24h) {
       let m;
       try { m = JSON.parse(row.metadata_json || '{}'); } catch (e) { continue; }
@@ -431,20 +428,8 @@ router.get('/handoff-diagnostics', requireStaffJwt, (req, res) => {
       if (m.stage === 'ui_applied' && !m.error_code) success24h += 1;
       if (m.error_code === 'HANDOFF_TIMEOUT') timeout24h += 1;
       if (m.error_code === 'HANDOFF_MISSING_CART_CODE') missingCode24h += 1;
-      if (m.stage === 'direct_liff_url_created' && m.has_direct_liff_url) directLiffCreated24h += 1;
-      if (m.stage === 'cart_restore_success') cartRestoreSuccess24h += 1;
-      if (m.stage === 'cart_restore_failed') cartRestoreFailed24h += 1;
-      if (m.stage === 'cart_token_consumed' && m.token_consumed) tokenConsumed24h += 1;
     }
     const successRate24h = attempts24h > 0 ? Math.round((success24h / attempts24h) * 1000) / 10 : null;
-
-    const lastTokenConsumed = db.get(
-      `SELECT created_at FROM analytics_events
-       WHERE store_id=? AND event_name='line_checkout_handoff_diagnostics'
-         AND metadata_json LIKE '%"stage":"cart_token_consumed"%'
-       ORDER BY created_at DESC LIMIT 1`,
-      [storeId]
-    );
 
     res.json({
       success: true,
@@ -467,13 +452,6 @@ router.get('/handoff-diagnostics', requireStaffJwt, (req, res) => {
         timeout_count_24h: timeout24h,
         missing_code_count_24h: missingCode24h,
         attempts_24h: attempts24h,
-        // fix18-10-hotfix30 Final：Direct LIFF Checkout 摘要——不影響任何
-        // 既有欄位的計算方式或意義。
-        direct_liff_created_count_24h: directLiffCreated24h,
-        cart_restore_success_count_24h: cartRestoreSuccess24h,
-        cart_restore_failed_count_24h: cartRestoreFailed24h,
-        token_consumed_count_24h: tokenConsumed24h,
-        last_token_consumed_at: lastTokenConsumed ? lastTokenConsumed.created_at : '',
       },
     });
   } catch (e) {

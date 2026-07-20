@@ -320,3 +320,30 @@ const printer = new ThermalPrinter({
 - 記憶體：最低 256MB
 - 儲存：100MB 以上
 - 瀏覽器：Chrome / Safari / Edge（平板友善）
+
+## 十一、資料備份／搬家 JSON 上傳大小上限（fix18-10-hotfix29-C2）
+
+`POST /api/migration/import/preview` 與 `POST /api/migration/import` 這兩條「資料備份／搬家」匯入路由，body size 上限可透過環境變數調整，不需要改程式碼：
+
+```bash
+# 預設 25MB，最低 1MB，最高硬性上限 100MB
+# 未設定、或設定成非數字／超出範圍的值時，一律回退為預設值 25MB
+MIGRATION_UPLOAD_LIMIT_MB=25
+```
+
+此設定只影響上述兩條搬家路由，**不影響**全站其他 API（仍固定 5MB）。目前的搬家 JSON 上限判斷、實際運算規則見 `utils/migrationUploadLimit.js`；前端可呼叫 `GET /api/migration/config` 取得目前實際生效的上限值與支援的副檔名，不需要把數字寫死在前端。
+
+### Zeabur 部署設定方式
+
+1. 進入 Zeabur 專案
+2. 選擇對應的 Service
+3. 進入 **Variables**
+4. 新增變數 `MIGRATION_UPLOAD_LIMIT_MB`，值設定為例如 `25`（或依需求調整，最高 `100`）
+5. 儲存後 **Redeploy**（重新部署／重新啟動服務）
+
+> ⚠️ 修改環境變數後，通常需要重新部署或重新啟動服務才會生效；改完變數但沒有重啟，程式仍會沿用啟動當下讀到的舊值。
+
+### 已知限制：上游 Proxy 層限制
+
+應用程式層（Express／body-parser）已支援可設定的上限（預設 25MB）。但 Zeabur 平台本身或其上游 reverse proxy／CDN，若另外設有更低的 body size 限制，仍可能在請求抵達 Node.js process 之前就先回應 413 —— 這屬於平台層設定，無法從應用程式程式碼層面確認或覆蓋，需要在實際部署環境用真實大小的搬家檔案（例如 9.92MB）實測才能確認。
+
