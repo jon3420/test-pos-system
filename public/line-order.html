@@ -46,6 +46,8 @@ img{max-width:100%;display:block}
 .service-status-bar.both-open{background:#f0faf4;color:#2e7d32;border:1px solid #c8e6c9}
 .service-status-bar.only-takeout,.service-status-bar.only-delivery{background:#fff3e0;color:#e65100;border:1px solid #ffe0b2}
 .service-status-bar.all-closed{background:#ffebee;color:#c62828;border:1px solid #ffcdd2}
+.service-status-bar.cutoff{background:#fff3e0;color:#e65100;border:1px solid #ffe0b2}
+.service-status-bar.mixed{background:#fff8e1;color:#f57f17;border:1px solid #ffecb3}
 /* fix18-10-hotfix30-A 第二點：購物車取餐方式改為大按鈕（單選），不用 select */
 .fulfill-btns{display:flex;flex-direction:column;gap:8px}
 .fulfill-btn{width:100%;min-height:48px;display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:10px;border:2px solid var(--bd);background:#fff;font-size:14px;font-weight:600;color:#333;text-align:left;cursor:pointer;transition:.15s}
@@ -851,6 +853,58 @@ function getFulfillmentStatus(mode, options){
   return result;
 }
 
+// fix18-10-hotfix30-B2 第二、四、五點：首頁停業 Gate 單一評估函式。
+// 不得只判斷 takeout.enabled||delivery.enabled——not_started 的 enabled 雖然是 false，
+// 但代表「今天稍後仍會營業」，不是「今日無服務」，兩者語意不同，必須分開判斷。
+// shopRequestSucceeded=false（API 失敗/JSON 解析失敗/缺欄位）時，一律回傳 blockType='api_error'，
+// 絕不偽裝成「今日停業」。
+function evaluateHomepageFulfillmentGate(shopRequestSucceeded){
+  const toStatus = shopRequestSucceeded ? getFulfillmentStatus('takeout')  : null;
+  const dlStatus = shopRequestSucceeded ? getFulfillmentStatus('delivery') : null;
+  let shouldBlock, reason, blockType;
+
+  if(!shopRequestSucceeded || !shopData || !shopData.takeout_status || !shopData.delivery_status){
+    shouldBlock = true; reason = 'api_error'; blockType = 'api_error';
+  } else {
+    // 需求文件第四、五點：狀態矩陣
+    const OK_STATES = ['open','not_started'];
+    const todayHasService = OK_STATES.includes(toStatus.state) || OK_STATES.includes(dlStatus.state);
+    if(todayHasService){
+      shouldBlock=false; reason='has_service_today'; blockType=null;
+    } else if(toStatus.state==='cutoff' && dlStatus.state==='cutoff'){
+      shouldBlock=false; reason='cutoff_both'; blockType='cutoff_both';
+    } else if(toStatus.state==='holiday' && dlStatus.state==='holiday'){
+      shouldBlock=true; reason='holiday_both'; blockType='holiday';
+    } else {
+      // today_not_open + today_not_open，或其他「兩者皆非 open/not_started」的混合組合
+      // （例如 cutoff+holiday、cutoff+today_not_open），一律視為「今日暫停接單」。
+      shouldBlock=true; reason='no_service_today'; blockType='today_not_open';
+    }
+  }
+
+  const result = {
+    shouldBlock, reason, blockType,
+    takeout: toStatus, delivery: dlStatus,
+    storeId: LINE_STORE_ID,
+    apiStoreId: (shopData && shopData.store_id) || null,
+    buildVersion: (shopData && shopData.build_version) || null,
+    shopRequestSucceeded,
+  };
+  if(window.__FULFILLMENT_DEBUG__===true){
+    console.debug('[Homepage Gate]', {
+      storeId: LINE_STORE_ID,
+      buildVersion: (shopData && shopData.build_version) || null,
+      shopRequestSucceeded,
+      takeoutStatusRaw: shopData && shopData.takeout_status,
+      deliveryStatusRaw: shopData && shopData.delivery_status,
+      takeoutResolved: toStatus,
+      deliveryResolved: dlStatus,
+      shouldBlock, reason,
+    });
+  }
+  return result;
+}
+
 function getProductAvailableModes(p){
   return { takeout:_productModeStatus(p,'takeout'), delivery:_productModeStatus(p,'delivery') };
 }
@@ -1095,15 +1149,32 @@ async function init(){
     // hotfix22-F：付款失敗同樣不得清空購物車
     setTimeout(()=>toast('LINE Pay 付款失敗，請重新嘗試或選擇其他付款方式'),600);
   }
+  let _shopRequestSucceeded=false;
   try{
+    // fix18-10-hotfix30-B2 第七點：營業狀態不得被瀏覽器快取（避免舊的 today_open/today_state
+    // 快取結果被誤用），只對這一支 API 加 cache:'no-store'，不影響商品圖片等靜態資源快取。
     const[sr,mr,bcr]=await Promise.all([
-      apiFetch('/api/line-shop').then(r=>r.json()),
+      apiFetch('/api/line-shop',{cache:'no-store'}).then(r=>r.json()),
       apiFetch('/api/line-menu').then(r=>r.json()),
       apiFetch('/api/settings/business-calendar').then(r=>r.json()).catch(()=>({success:false}))
     ]);
     bizCalendarList = (bcr && bcr.success && Array.isArray(bcr.data)) ? bcr.data : [];
+    _shopRequestSucceeded = !!(sr && sr.success && sr.data);
     if(sr.success){
       shopData=sr.data;
+      // fix18-10-hotfix30-B2 第一點：非敏感版本診斷欄位，供確認正式環境實際載入的版本，
+      // 不得在一般畫面長期顯示，只寫入 dataset 並在 debug 模式下印出。
+      try{
+        document.documentElement.dataset.buildVersion = shopData.build_version || 'unknown';
+        if(window.__FULFILLMENT_DEBUG__===true) console.debug('[Build Version]', shopData.build_version || 'unknown');
+      }catch(e){}
+      // fix18-10-hotfix30-B2 第六點：確認前台 URL 使用的 store_id 與 API 實際解析出的
+      // store_id 一致；不一致時不得顯示「今日暫停接單」（那會誤導成「店家真的休息」），
+      // 改顯示「店家資料載入異常」。
+      if(shopData.store_id && LINE_STORE_ID && shopData.store_id!==LINE_STORE_ID){
+        showSystemError('店家資料載入異常','目前頁面使用的店家資訊與伺服器回傳的不一致，請重新整理後再試。');
+        return;
+      }
       // fix18-10-hotfix23-D：依店家設定初始化 Meta Pixel／GA4（沒啟用或沒有 ID 時
       // AnalyticsPlatforms.init() 內部什麼都不會載入）
       try{ AnalyticsPlatforms.init(shopData); }catch(e){}
@@ -1170,9 +1241,20 @@ async function init(){
       takeoutEnabled  = _toStatusInit.enabled;
       deliveryEnabled = _dlStatusInit.enabled;
 
-      // 兩者都關閉
-      if(!takeoutEnabled && !deliveryEnabled){
-        showClosed('⏰ 今日暫停接單','外帶與外送目前皆已關閉，請稍後再試。');return;
+      // fix18-10-hotfix30-B2 第二、四、五點：首頁停業 Gate 改用單一評估函式，
+      // not_started/cutoff 不再被誤判成「今日暫停接單」（Zeabur 正式環境回報的 bug：
+      // 外帶／外送皆為「接單中」，卻仍顯示今日暫停接單——若真的重現，代表 shouldBlock
+      // 判斷本身或其輸入資料有問題，這裡的 debug log 可用來現場診斷，而不是只能臆測）。
+      const _gate = evaluateHomepageFulfillmentGate(_shopRequestSucceeded);
+      if(_gate.shouldBlock){
+        if(_gate.blockType==='holiday'){
+          showClosed('🏖️ 今日未營業','店家今日公休，請至其他日期再來，或稍後查看是否恢復營業。');
+        } else if(_gate.blockType==='api_error'){
+          showSystemError('系統暫時無法取得營業狀態','請重新整理後再試。');
+        } else {
+          showClosed('⏰ 今日暫停接單','外帶與外送目前皆已關閉，請稍後再試。');
+        }
+        return;
       }
 
       // 決定預設模式
@@ -1200,6 +1282,12 @@ async function init(){
       updateDeliveryAddressVisibility();
   updatePickupAddressVisibility();
       updateModeAvailabilityUI();
+    } else {
+      // fix18-10-hotfix30-B2 第三點：GET /shop 回傳 success:false 時，先前完全沒有處理，
+      // 會靜默帶著空的 shopData 繼續往下跑，畫面看起來像壞掉但沒有明確訊息。
+      // 絕不能因此顯示「今日暫停接單」（那代表營業狀態確定不可用，不是資料根本沒讀到）。
+      showSystemError('系統暫時無法取得營業狀態','請重新整理後再試。');
+      return;
     }
     if(mr.success){categories=mr.data.categories||[];allProducts=mr.data.products||[];}
     buildCats();renderMenu();
@@ -1221,7 +1309,10 @@ async function init(){
     // 定時重新整理（每60秒）
     setInterval(refreshShopStatus, 60000);
   }catch(e){
-    document.getElementById('loading').innerHTML=`<p style="color:#e53935">載入失敗：${esc(e.message)}</p>`;
+    // fix18-10-hotfix30-B2 第三點：網路失敗／JSON 解析失敗等真正的系統錯誤，一律走
+    // showSystemError()（附「重新整理」按鈕），絕不能被誤會成「今日暫停接單」。
+    try{ showSystemError('系統暫時無法取得營業狀態','請重新整理後再試。'); }
+    catch(e2){ document.getElementById('loading').innerHTML=`<p style="color:#e53935">載入失敗：${esc(e.message)}</p>`; }
   }
 }
 
@@ -1231,6 +1322,14 @@ function showClosed(title,msg){
   document.getElementById('loading').style.display='none';
   const el=document.getElementById('content');el.style.display='block';
   el.innerHTML=`<div class="closed-screen"><div class="ei">${title.split(' ')[0]}</div><h2>${title.split(' ').slice(1).join(' ')}</h2><p>${msg.replace(/\n/g,'<br>')}</p></div>`;
+}
+// fix18-10-hotfix30-B2 第三點：系統讀取失敗，絕對不能偽裝成「今日停業」——
+// API 失敗／JSON 解析失敗／缺欄位／store_id 不一致，一律走這裡，附「重新整理」按鈕。
+function showSystemError(title,msg){
+  document.getElementById('loading').style.display='none';
+  const el=document.getElementById('content');el.style.display='block';
+  el.innerHTML=`<div class="closed-screen"><div class="ei">⚠️</div><h2>${esc(title)}</h2><p>${esc(msg).replace(/\n/g,'<br>')}</p>`
+    +`<button type="button" onclick="location.reload()" style="margin-top:16px;padding:10px 24px;border-radius:10px;border:none;background:#6366f1;color:#fff;font-weight:600;font-size:14px;cursor:pointer">🔄 重新整理</button></div>`;
 }
 
 // ── 🏖️ 休假公告 Banner（Hotfix16）──────────────────────
@@ -1445,14 +1544,26 @@ function buildServiceStatusBar(){
   // 改變；文案一律來自 getFulfillmentStatus()，不再自行拼字串（modeLabelSuffix 不再用於此處）。
   const toStatus=getFulfillmentStatus('takeout');
   const dlStatus=getFulfillmentStatus('delivery');
-  if(!toStatus.enabled && !dlStatus.enabled && toStatus.state==='holiday' && dlStatus.state==='holiday'){
+  // fix18-10-hotfix30-B2 第四、五點 root cause fix：先前這裡只判斷 `!enabled`，沒有分辨
+  // state，導致 not_started（今天稍後會開始營業）被誤判成跟 today_not_open/holiday 一樣的
+  // 「今日暫停接單」文案——這正是 Zeabur 正式環境回報「後台顯示接單中，前台卻顯示暫停接單」
+  // 最可能的根因之一（this bar 與首頁 Gate 用同一份 evaluateHomepageFulfillmentGate() 矩陣邏輯，
+  // 避免兩處各自判斷又對不上）。
+  if(toStatus.state==='holiday' && dlStatus.state==='holiday'){
     bar.style.display='block'; bar.className='service-status-bar all-closed';
     bar.textContent='📢 今日未營業';
     return;
   }
-  if(!toStatus.enabled && !dlStatus.enabled){
-    bar.style.display='block'; bar.className='service-status-bar all-closed';
-    bar.textContent='📢 今日暫停接單（外帶／外送皆已關閉）';
+  const OK_STATES=['open','not_started'];
+  const todayHasService = OK_STATES.includes(toStatus.state) || OK_STATES.includes(dlStatus.state);
+  if(!todayHasService){
+    if(toStatus.state==='cutoff' && dlStatus.state==='cutoff'){
+      bar.style.display='block'; bar.className='service-status-bar cutoff';
+      bar.textContent='⏰ 今日接單已截止';
+    } else {
+      bar.style.display='block'; bar.className='service-status-bar all-closed';
+      bar.textContent='📢 今日暫停接單（外帶／外送皆已關閉）';
+    }
     return;
   }
   // hotfix22-F 補正保留：若使用者/購物車保留的模式目前被關閉（modeForcedVisible=true），
@@ -1465,9 +1576,13 @@ function buildServiceStatusBar(){
   // 需求文件第五、九、十八～廿二點：一律同時顯示兩個模式各自的今日狀態文字，不得用
   // 「僅提供 X 服務」的簡化句子蓋掉另一個模式「為什麼不能用」的具體原因
   // （今日未開放／今日已截止／尚未開始／今日未營業 都要如實顯示）。
+  // fix18-10-hotfix30-B2 第四點：兩個模式都還在 not_started 時，額外加上「⏰ 尚未開始接單」
+  // 前綴，避免使用者誤以為畫面卡住或今天完全不能點。
+  const bothNotStarted = toStatus.state==='not_started' && dlStatus.state==='not_started';
+  const prefix = bothNotStarted ? '⏰ 尚未開始接單　' : '';
   bar.style.display='block';
   bar.className = (toStatus.enabled && dlStatus.enabled) ? 'service-status-bar both-open' : 'service-status-bar mixed';
-  bar.innerHTML=`今日服務　🛍️ 外帶（${toStatus.label}）　・　🛵 外送（${dlStatus.label}）`;
+  bar.innerHTML=`${prefix}今日服務　🛍️ 外帶（${toStatus.label}）　・　🛵 外送（${dlStatus.label}）`;
 }
 // fix18-08: 統一控制外送地址區塊顯示/隱藏
 function updateDeliveryAddressVisibility(){
@@ -2783,7 +2898,7 @@ async function submitOrder(){
 // ── 定時刷新店家狀態 ──────────────────────────────────
 async function refreshShopStatus(){
   try{
-    const res=await apiFetch('/api/line-shop').then(r=>r.json());
+    const res=await apiFetch('/api/line-shop',{cache:'no-store'}).then(r=>r.json());
     if(!res.success)return;
     shopData=res.data;
     const ts=res.data.takeout_status||{};
