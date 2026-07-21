@@ -301,6 +301,10 @@ function resolveFulfillmentState(mode, schedule, modeSettings, closedInfo, nowMi
   if (closedInfo.closed) {
     return {
       mode, state: 'holiday', reason: 'business_calendar_closed',
+      // fix18-10-hotfix30-B5：附加 holidaySource（不影響既有 state/reason/label 判斷邏輯），
+      // 供前端在「今日臨時休息」（today_closed）與「今日公休日」（calendar/weekly/specific）
+      // 之間選擇正確文案，不需要新增第二套判斷或修改優先序本身。
+      holidaySource: closedInfo.source || null,
       enabled: false, selectable: false, canOrderToday: false, canPreorder: !!modeSettings.allowNextDay,
       startTime: null, cutoffTime: null, label: '今日未營業', shortLabel: '今日未營業',
     };
@@ -605,7 +609,7 @@ router.get('/shop', (req, res) => {
     // 外帶/外送獨立狀態
     const takeoutMode   = getModeSettings(db, storeId, 'takeout');
     const deliveryMode  = getModeSettings(db, storeId, 'delivery');
-    const closedInfo    = { closed: todayClosedStatus.closed, isWeekly: todayClosedStatus.isWeekly, calendar: todayClosedStatus.calendar };
+    const closedInfo    = { closed: todayClosedStatus.closed, isWeekly: todayClosedStatus.isWeekly, calendar: todayClosedStatus.calendar, source: todayClosedStatus.source };
 
     // fix18-10-hotfix22E：統一來源 getEffectiveModeSchedule()，取得「今日」該模式最終生效時段。
     // 修正 root cause：先前 is_closed_day 只看整店休假（closedInfo.closed），沒有涵蓋「Business Calendar
@@ -645,6 +649,7 @@ router.get('/shop', (req, res) => {
       today_label:  takeoutFulfillState.label,
       today_start_time:  takeoutFulfillState.startTime,
       today_cutoff_time: takeoutFulfillState.cutoffTime,
+      today_holiday_source: takeoutFulfillState.holidaySource || null,
     };
     settings.delivery_status = {
       enabled:        deliveryMode.enabled,
@@ -663,6 +668,7 @@ router.get('/shop', (req, res) => {
       today_label:  deliveryFulfillState.label,
       today_start_time:  deliveryFulfillState.startTime,
       today_cutoff_time: deliveryFulfillState.cutoffTime,
+      today_holiday_source: deliveryFulfillState.holidaySource || null,
     };
 
     // fix18-10-hotfix22A：外帶/外送付款方式（通路獨立開關，未設定時 fallback 沿用全域設定）

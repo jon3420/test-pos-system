@@ -267,6 +267,9 @@ img{max-width:100%;display:block}
   <div id="lastOrderCard" style="display:none"></div>
   <!-- fix18-10-hotfix30-A：今日服務狀態（純資訊提示，不可點擊，不再阻擋商品瀏覽）-->
   <div class="service-status-bar" id="serviceStatusBar" style="display:none"></div>
+  <!-- fix18-10-hotfix30-B5：今天完全不能下單但仍可預約未來日期時的提示（不得整頁擋住），
+       與 #serviceStatusBar（永遠只描述今天真實狀態）分開，避免混用 -->
+  <div id="holidayPreorderBanner" style="display:none;margin:10px 12px 0;padding:10px 14px;border-radius:10px;font-size:13px;font-weight:600;background:#eef2ff;color:#3730a3;border:1px solid #c7d2fe"></div>
   <div class="cutoff-banner" id="cutoffBanner"></div>
   <!-- hotfix22-F 補正：目前選擇的模式（外帶/外送）被店家關閉時顯示，不清空購物車，只擋送單 -->
   <div class="cutoff-banner" id="modeUnavailableBanner" style="display:none;background:#ffebee;color:#c62828;border-color:#ffcdd2"></div>
@@ -894,6 +897,10 @@ function getFulfillmentStatus(mode, options){
     nextAvailableDate,
     startTime: src.today_start_time || null,
     cutoffTime: src.today_cutoff_time || null,
+    // fix18-10-hotfix30-B5：holidaySource 只在 state==='holiday' 時有意義，供區分
+    // 「今日臨時休息」（today_closed）與「今日公休日」（calendar/weekly/specific），
+    // 不影響既有狀態判斷本身。
+    holidaySource: src.today_holiday_source || null,
     label,
     shortLabel: label,
     cartLabel,
@@ -928,19 +935,33 @@ function evaluateHomepageFulfillmentGate(shopRequestSucceeded){
   if(!shopRequestSucceeded || !shopData || !shopData.takeout_status || !shopData.delivery_status){
     shouldBlock = true; reason = 'api_error'; blockType = 'api_error';
   } else {
-    // 需求文件第四、五點：狀態矩陣
+    // 需求文件第一項：狀態矩陣，且今天不能立即下單／不能今天稍後預約時，
+    // 不得直接整頁擋住——只要還有任何未來可預約日期（canPreorderFutureDays），
+    // 就必須讓使用者正常進入商品頁，只在上方提示「今日公休／今日臨時休息，可預約其他
+    // 營業日」，改由 buildDateSelector() 既有的 _skipToday 邏輯自動跳到下一個可預約日期
+    // （canOrderNow=false 且 canScheduleToday=false 時已經會跳過今天，見 Hotfix30-B3）。
+    // 只有在「連未來日期都完全不能預約」時，才允許 showClosed() 整頁擋住。
     const OK_STATES = ['open','not_started'];
     const todayHasService = OK_STATES.includes(toStatus.state) || OK_STATES.includes(dlStatus.state);
+    const canPreorderAnyFutureDay = toStatus.canPreorderFutureDays || dlStatus.canPreorderFutureDays;
     if(todayHasService){
       shouldBlock=false; reason='has_service_today'; blockType=null;
     } else if(toStatus.state==='cutoff' && dlStatus.state==='cutoff'){
       shouldBlock=false; reason='cutoff_both'; blockType='cutoff_both';
+    } else if(canPreorderAnyFutureDay){
+      // 今天完全不能下單（holiday／today_not_open／混合），但明天以後仍可預約——
+      // 不得 showClosed()，正常進入商品頁，只顯示提示 banner。
+      shouldBlock=false;
+      reason='no_service_today_but_preorderable';
+      const bothHoliday = toStatus.state==='holiday' && dlStatus.state==='holiday';
+      blockType = bothHoliday ? 'holiday_preorder' : 'today_not_open_preorder';
     } else if(toStatus.state==='holiday' && dlStatus.state==='holiday'){
-      shouldBlock=true; reason='holiday_both'; blockType='holiday';
+      shouldBlock=true; reason='holiday_both_no_preorder'; blockType='holiday';
     } else {
       // today_not_open + today_not_open，或其他「兩者皆非 open/not_started」的混合組合
-      // （例如 cutoff+holiday、cutoff+today_not_open），一律視為「今日暫停接單」。
-      shouldBlock=true; reason='no_service_today'; blockType='today_not_open';
+      // （例如 cutoff+holiday、cutoff+today_not_open），且完全沒有可預約的未來日期，
+      // 才視為「今日暫停接單」整頁擋住。
+      shouldBlock=true; reason='no_service_today_no_preorder'; blockType='today_not_open';
     }
   }
 
@@ -965,6 +986,27 @@ function evaluateHomepageFulfillmentGate(shopRequestSucceeded){
     });
   }
   return result;
+}
+
+// fix18-10-hotfix30-B5 第二、三項：今天完全不能下單、但仍可預約未來日期時的提示文案。
+// 依 holidaySource 區分「今日臨時休息」（today_closed）與「今日公休日」（calendar/weekly/
+// specific），today_not_open 則顯示「今日暫停接單」但可預約的說法。與 #serviceStatusBar
+// （永遠只描述今天真實狀態，不得因可預約而改寫）完全分開，不混用同一個元素。
+function renderHolidayPreorderBanner(gate){
+  const el=document.getElementById('holidayPreorderBanner');
+  if(!el) return;
+  if(!gate || (gate.blockType!=='holiday_preorder' && gate.blockType!=='today_not_open_preorder')){
+    el.style.display='none'; el.innerHTML=''; return;
+  }
+  let title;
+  if(gate.blockType==='holiday_preorder'){
+    const src = (gate.takeout && gate.takeout.holidaySource) || (gate.delivery && gate.delivery.holidaySource);
+    title = src==='today_closed' ? '📅 今日臨時休息' : '📅 今日公休日';
+  } else {
+    title = '📢 今日暫停接單';
+  }
+  el.style.display='block';
+  el.innerHTML = `${esc(title)}<br><span style="font-weight:400;font-size:12px">今天無法下單，可預約其他營業日，商品可正常瀏覽與加入購物車。</span>`;
 }
 
 function getProductAvailableModes(p){
@@ -1382,6 +1424,9 @@ async function init(){
         }
         return;
       }
+      // fix18-10-hotfix30-B5 第一～三項：今天完全不能下單，但至少一種模式仍可預約未來
+      // 日期時，不得 showClosed()，正常進入商品頁，只在上方顯示提示 banner。
+      renderHolidayPreorderBanner(_gate);
 
       // 決定預設模式
       // hotfix22-F 補正：若 localStorage 有保存過 order_mode，一律優先沿用該模式——
@@ -2338,6 +2383,12 @@ function buildCard(p){
   const anyModeEnabled = modeAvail.takeout.enabled || modeAvail.delivery.enabled;
   const onlyTakeout = modeAvail.takeout.enabled && !modeAvail.delivery.enabled;
   const onlyDelivery = modeAvail.delivery.enabled && !modeAvail.takeout.enabled;
+  // fix18-10-hotfix30-B5 root cause fix（第六項）：「任一模式現在就能立即下單」與「任一模式
+  // 只能透過預約明日才 enabled」必須分開判斷，否則像「外帶現在開放、外送要靠 Business
+  // Calendar 的預約明日才 enabled」這種情境，會被誤判成「今日售完、可預購」，明明外帶現在
+  // 就能正常買。reason===null 代表該模式沒有任何售完/關閉原因，是「現在就能買」的唯一判斷式。
+  const anyImmediate = (modeAvail.takeout.enabled && !modeAvail.takeout.reason)
+    || (modeAvail.delivery.enabled && !modeAvail.delivery.reason);
   const mode=_representativeMode(modeAvail);
 
   // ══════════════════════════════════════════════════════
@@ -2360,9 +2411,10 @@ function buildCard(p){
   const quota=p.line_quota||{hasQuota:false};
 
   // canPreorderNextDay：今日售完（任何位階）且允許預約明日
-  // fix18-10-hotfix30-A：isSoldOut 現在只代表「兩種模式都不可買」，但代表模式（mode）本身
-  // 若是靠 canNextDay 才 enabled（今日已售完、明日可預購），仍要顯示「可預購」徽章。
-  const canPreorderNextDay = (isSoldOut || !!soldOutReason) && !!canNextDay && soldOutReason !== 'mode_closed';
+  // fix18-10-hotfix30-B5 root cause fix（第六項）：加上 !anyImmediate——只要還有任何模式
+  // 「現在」就能買，商品卡一律顯示正常販售，不得同時冒出「今日售完」＋「可預購」徽章
+  // （這正是 Business Calendar 只關閉單一模式時，商品卡被誤判成「今日售完 可預購」的根因）。
+  const canPreorderNextDay = !anyImmediate && (isSoldOut || !!soldOutReason) && !!canNextDay && soldOutReason !== 'mode_closed';
   const quotaRealSoldOut = quota.hasQuota && Number(quota.remaining??0) <= 0;
   const unavailFully = (isSoldOut && !canPreorderNextDay) || (quotaRealSoldOut && !canPreorderNextDay);
 
@@ -2370,6 +2422,9 @@ function buildCard(p){
   let soldLbl='今日售完', soldCls='badge-sold';
   if(soldOutReason==='mode_closed'){          soldLbl='未開放';       soldCls='badge-sold'; }
   else if(isDayClosed){                       soldLbl='休假中';       soldCls='badge-holiday'; }
+  // fix18-10-hotfix30-B5 第七項：Business Calendar 造成的單一模式關閉，永遠不得顯示
+  // 「今日售完」字樣（那個字眼只能用於庫存售完／商品停售），改顯示「暫停販售」。
+  else if(soldOutReason==='calendar_mode_closed'){ soldLbl='暫停販售';   soldCls='badge-sold'; }
   else if(soldOutReason==='product_not_started'){ soldLbl='尚未開始販售'; soldCls='badge-orange'; }
   else if(soldOutReason==='product_time_ended'){  soldLbl='今日售完';   soldCls='badge-soldout-today'; }
   else if(soldOutReason==='real_sold_out'){       soldLbl='今日售完';   soldCls='badge-soldout-today'; }
@@ -2658,13 +2713,17 @@ function updateProductCard(id){
   const card=document.getElementById(`pc-${id}`);if(!card)return;
   const modeAvail=getProductAvailableModes(p);
   const anyModeEnabled=modeAvail.takeout.enabled||modeAvail.delivery.enabled;
+  // fix18-10-hotfix30-B5 root cause fix（第六項）：與 buildCard() 一致，任一模式現在就能
+  // 立即下單時，不得顯示「今日售完/可預購」。
+  const anyImmediate = (modeAvail.takeout.enabled && !modeAvail.takeout.reason)
+    || (modeAvail.delivery.enabled && !modeAvail.delivery.reason);
   const mode=_representativeMode(modeAvail);
   const soldOutReason=mode==='delivery'?p.delivery_sold_out_reason:p.takeout_sold_out_reason;
   const canNextDay=mode==='delivery'?p.delivery_can_next_day:p.takeout_can_next_day;
   const isSoldOutFlag=anyModeEnabled?false:(!!soldOutReason||Number(p.line_sold_out)===1||(p.sale_status||'available')!=='available');
   // fix18-10-hotfix22D：canPreorderNextDay 商品現在footer照樣顯示 [-] qty [+]，
   // 故只有「真的完全不可預購」時才提早 return（維持遮罩，不更新 footer）。
-  const canPreorderNextDay=(isSoldOutFlag||!!soldOutReason) && !!canNextDay && soldOutReason!=='mode_closed';
+  const canPreorderNextDay=!anyImmediate && (isSoldOutFlag||!!soldOutReason) && !!canNextDay && soldOutReason!=='mode_closed';
   const preorderInfo=p.line_preorder||{hasPreorder:false};
   const preorderFullBlocked=canPreorderNextDay && preorderInfo.hasPreorder && Number(preorderInfo.remaining??0)<=0;
   if(isSoldOutFlag && !(canPreorderNextDay && !preorderFullBlocked)) return;
@@ -3215,6 +3274,9 @@ async function refreshShopStatus(){
     if(shouldSkipHolidayBannerForAnnouncement(announcement)) hideHolidayBanner();
     else renderHolidayBanner(holidayBanner);
     if(prevToCP!==takeoutCutoffPassed||prevDlCP!==deliveryCutoffPassed||prevTodayClosed!==todayClosed||prevToEn!==takeoutEnabled||prevDlEn!==deliveryEnabled){
+      // fix18-10-hotfix30-B5：店家狀態改變時，一併重新評估首頁 Gate 的「今日不能下單但
+      // 可預約未來日期」banner（不觸發整頁 showClosed()，只是更新提示文字/顯示與否）。
+      try{ renderHolidayPreorderBanner(evaluateHomepageFulfillmentGate(true)); }catch(e){}
       // 重新載入菜單（休假狀態改變會影響商品卡的售完原因/預約明日等顯示）
       try{
         const mr=await apiFetch('/api/line-menu').then(r=>r.json());
