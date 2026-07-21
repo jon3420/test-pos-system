@@ -42,12 +42,30 @@ img{max-width:100%;display:block}
 .announce-banner-btn{margin-top:10px;width:100%;padding:9px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;border:none}
 /* fix18-10-hotfix30-A：今日服務狀態列（純資訊提示，取代舊版可點擊的外帶/外送頁籤，
    不再讓「先選模式」成為瀏覽商品的前提）*/
-.service-status-bar{margin:10px 12px 0;padding:10px 14px;border-radius:10px;font-size:13px;font-weight:600;line-height:1.6}
-.service-status-bar.both-open{background:#f0faf4;color:#2e7d32;border:1px solid #c8e6c9}
-.service-status-bar.only-takeout,.service-status-bar.only-delivery{background:#fff3e0;color:#e65100;border:1px solid #ffe0b2}
+.service-status-bar{margin:10px 12px 0;padding:10px 14px;border-radius:10px;font-size:13px;font-weight:600;line-height:1.6;background:#f8fafc;border:1px solid #e2e8f0;color:#334155}
+.service-status-bar.both-open{background:#f0faf4;border:1px solid #c8e6c9}
+.service-status-bar.only-takeout,.service-status-bar.only-delivery{background:#fff3e0;border:1px solid #ffe0b2}
 .service-status-bar.all-closed{background:#ffebee;color:#c62828;border:1px solid #ffcdd2}
 .service-status-bar.cutoff{background:#fff3e0;color:#e65100;border:1px solid #ffe0b2}
-.service-status-bar.mixed{background:#fff8e1;color:#f57f17;border:1px solid #ffecb3}
+.service-status-bar.mixed{background:#fff8e1;border:1px solid #ffecb3}
+/* fix18-10-hotfix30-B4 第九、十點：每個模式獨立依 state 上色，不依 mode 寫死顏色。
+   淺色/Dark Theme 皆需可讀，顏色本身選用對比度足夠的色階，不倚賴背景色差異。*/
+.service-title{font-weight:700;margin-right:6px}
+.service-mode{font-weight:700}
+.service-separator{margin:0 6px;opacity:.6}
+.service-open{color:#15803d}
+.service-not-started{color:#d97706}
+.service-cutoff{color:#ea580c}
+.service-closed,.service-holiday{color:#dc2626}
+.service-unavailable{color:#6b7280}
+@media (prefers-color-scheme: dark){
+  .service-status-bar{background:#1e293b;border-color:#334155;color:#e2e8f0}
+  .service-open{color:#4ade80}
+  .service-not-started{color:#fbbf24}
+  .service-cutoff{color:#fb923c}
+  .service-closed,.service-holiday{color:#f87171}
+  .service-unavailable{color:#9ca3af}
+}
 /* fix18-10-hotfix30-A 第二點：購物車取餐方式改為大按鈕（單選），不用 select */
 .fulfill-btns{display:flex;flex-direction:column;gap:8px}
 .fulfill-btn{width:100%;min-height:48px;display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:10px;border:2px solid var(--bd);background:#fff;font-size:14px;font-weight:600;color:#333;text-align:left;cursor:pointer;transition:.15s}
@@ -1064,7 +1082,12 @@ function reconcileFulfillmentMode(opts){
   if(!combined[currentMode]){
     const toMode = combined.takeout ? 'takeout' : 'delivery';
     const fromMode = currentMode;
+    // fix18-10-hotfix30-B4 第四點：不得在這裡各自零散修改地址/日期/時段，改用
+    // applyFulfillmentMode() 的安全子流程（save→switch→restore），確保這條「自動切換」
+    // 路徑與使用者手動切換（selectFulfillmentMode()）共用同一套表單狀態隔離機制。
+    saveCurrentModeFormState(fromMode);
     currentMode = toMode;
+    restoreModeFormState(toMode);
     const oType=document.getElementById('oType'); if(oType) oType.value=toMode;
     if(!silent){
       const reasonIsStoreClosed = fromMode==='takeout' ? !toStatus.selectable : !dlStatus.selectable;
@@ -1074,11 +1097,8 @@ function reconcileFulfillmentMode(opts){
       toast(msg);
     }
     _trackEvent('fulfillment_method_auto_switched',{ from_mode:fromMode, to_mode:toMode, reason: !toStatus.selectable||!dlStatus.selectable?'mode_closed':'product_incompatible', cart_id:_getCartId(false) });
-    if(typeof updateDeliveryAddressVisibility==='function') updateDeliveryAddressVisibility();
-    if(typeof updatePickupAddressVisibility==='function') updatePickupAddressVisibility();
-    if(typeof buildPaymentButtons==='function') buildPaymentButtons(shopData);
+    renderFulfillmentMode(toMode);
     if(typeof refreshDateSelectorForCart==='function') refreshDateSelectorForCart();
-    if(typeof updateCartTotals==='function') updateCartTotals();
     persistCart();
   }
   if(banner) banner.style.display='none';
@@ -1091,6 +1111,64 @@ let mapsAutocomplete = null;
 let deliveryLatLng = { lat: null, lng: null };
 let calcDeliveryFee = 0;  // 後端核准的外送費
 let deliveryFeeCalculated = false;  // 是否已成功取得外送費
+// fix18-10-hotfix30-B4 第九、十點：免運提示需要「原因」，不是只顯示「免運 🎉」。
+// 沿用既有後端 /api/delivery/calculate-fee 回傳的 raw_fee/message（已包含「滿額免運」
+// 等文字），不新增外送費公式，只是把這兩個既有欄位保存下來供 UI／Context 顯示。
+let _lastDeliveryRawFee = null;
+let _lastFreeShippingReason = null;
+
+// fix18-10-hotfix30-B4 第三點：外帶／外送表單狀態必須獨立保存，不得共用同一份日期/時段/
+// 地址狀態。沿用既有變數（deliveryLatLng/calcDeliveryFee/deliveryFeeCalculated/
+// deliveryDistKm）作為「目前正在編輯中」的即時狀態，這個物件是「切換模式時的快照」，
+// 不平行新增第二套即時狀態——見 saveCurrentModeFormState()/restoreModeFormState()。
+let fulfillmentFormState = {
+  takeout:  { date:'', time:'' },
+  delivery: { date:'', time:'', address:'', addressNote:'', lat:null, lng:null, distanceKm:null, deliveryFee:null },
+};
+
+// fix18-10-hotfix30-B4（Context 隔離補強）：單一狀態來源。fulfillmentFormState 已被多處
+// 使用，這裡不平行維護第二套會失去同步的資料——.form 直接是同一個物件參照（不是複製），
+// 寫入 fulfillmentContext.takeout.form.date 等同寫入 fulfillmentFormState.takeout.date。
+// .availability／.ui 是本輪新增的部分，只透過 syncFulfillmentContext(mode) 寫入，
+// 且該函式對每個 mode 只讀取「該 mode 自己的」getFulfillmentStatus() 與 shopData 欄位，
+// 結構上就不可能讀到另一個模式的資料（沒有共用的中介變數可以誤用）。
+const fulfillmentContext = {
+  takeout:  { form: fulfillmentFormState.takeout,  availability: { timeslots: [] }, ui: { storeAddress:'', mapsUrl:'' } },
+  delivery: { form: fulfillmentFormState.delivery, availability: { timeslots: [] }, ui: { distanceKm:null, deliveryFee:null, rawDeliveryFee:null, freeShippingReason:null, mapsUrl:'' } },
+};
+// fix18-10-hotfix30-B4：模式切換 race condition 防護——快速連點外帶/外送時，較慢的前一次
+// timeslots 請求完成時，不得覆蓋使用者已經切到的最新模式畫面（Case AN）。
+let fulfillmentRenderToken = 0;
+
+// fix18-10-hotfix30-B4 第二點：單一模式 Context 更新入口，只從既有真實資料源讀取，
+// 不得讓外帶 Context 讀到 delivery_status，反之亦然；不得共用單一 earliestToday/
+// nextDates 全域值——這裡每次都是「用 mode 這個參數去查對應欄位」，沒有中間共用變數。
+function syncFulfillmentContext(mode){
+  const ctx = fulfillmentContext[mode]; if(!ctx) return;
+  const fs = getFulfillmentStatus(mode); // 內部已經是 mode-scoped（讀 shopData.takeout_status 或 delivery_status）
+  const src = mode==='delivery' ? (shopData.delivery_status||{}) : (shopData.takeout_status||{});
+  const nextDatesArr = mode==='delivery' ? (shopData.delivery_next_dates||[]) : (shopData.takeout_next_dates||[]);
+  // fix18-10-hotfix30-B4-RC 第十四點：timeslots 由 buildTimeSelector() 獨立寫入
+  // ctx.availability.timeslots，這裡重建 availability 時必須保留，不得整個物件覆蓋掉。
+  const _prevTimeslots = ctx.availability && Array.isArray(ctx.availability.timeslots) ? ctx.availability.timeslots : [];
+  ctx.availability = {
+    state: fs.state, reason: fs.reason, label: fs.label,
+    canOrderNow: fs.canOrderNow, canScheduleToday: fs.canScheduleToday,
+    canPreorderFutureDays: fs.canPreorderFutureDays, selectable: fs.selectable,
+    earliestToday: src.earliest_today ?? null,
+    nextDates: nextDatesArr,
+    timeslots: _prevTimeslots,
+  };
+  if(mode==='takeout'){
+    ctx.ui.storeAddress = resolvePickupAddressText();
+    ctx.ui.mapsUrl = buildPickupMapsUrl();
+  } else {
+    ctx.ui.distanceKm = deliveryFeeCalculated ? deliveryDistKm : null;
+    ctx.ui.deliveryFee = deliveryFeeCalculated ? calcDeliveryFee : null;
+    ctx.ui.rawDeliveryFee = deliveryFeeCalculated ? _lastDeliveryRawFee : null;
+    ctx.ui.freeShippingReason = deliveryFeeCalculated ? _lastFreeShippingReason : null;
+  }
+}
 
 const PAYMENT_OPTIONS=[
   {code:'cash',label:'💵 現金',key:'line_payment_cash_enabled'},
@@ -1585,6 +1663,19 @@ function shouldSkipHolidayBannerForAnnouncement(a){
 // 不再是「必須先選才能瀏覽商品」的頁籤，只負責告知客人今日狀態；
 // 只有一種模式開放時，仍先幫忙把 currentMode 設成該模式（作為購物車的預設值），
 // 但不會因此隱藏或阻擋任何商品瀏覽（buildCard/addCart 已改用任一模式可買即可買）。
+// fix18-10-hotfix30-B4 第九、十點：state → CSS class 對照表（不得依 mode 寫死顏色，
+// 一律依 state 決定，一個模式一個 span，Dark Theme／淺色背景皆需可讀）。
+function _serviceStateClass(state){
+  const MAP={
+    open:'service-open',
+    not_started:'service-not-started',
+    cutoff:'service-cutoff',
+    holiday:'service-holiday',
+    today_not_open:'service-closed',
+    unavailable:'service-unavailable',
+  };
+  return MAP[state]||'service-unavailable';
+}
 function buildServiceStatusBar(){
   const bar=document.getElementById('serviceStatusBar');
   if(!bar) return;
@@ -1594,23 +1685,23 @@ function buildServiceStatusBar(){
   const dlStatus=getFulfillmentStatus('delivery');
   // fix18-10-hotfix30-B2 第四、五點 root cause fix：先前這裡只判斷 `!enabled`，沒有分辨
   // state，導致 not_started（今天稍後會開始營業）被誤判成跟 today_not_open/holiday 一樣的
-  // 「今日暫停接單」文案——這正是 Zeabur 正式環境回報「後台顯示接單中，前台卻顯示暫停接單」
-  // 最可能的根因之一（this bar 與首頁 Gate 用同一份 evaluateHomepageFulfillmentGate() 矩陣邏輯，
-  // 避免兩處各自判斷又對不上）。
+  // 「今日暫停接單」文案（this bar 與首頁 Gate 用同一份 evaluateHomepageFulfillmentGate() 矩陣
+  // 邏輯，避免兩處各自判斷又對不上；本輪只調整渲染方式為逐模式上色，判斷邏輯本身未變動）。
+  bar.style.display='block';
   if(toStatus.state==='holiday' && dlStatus.state==='holiday'){
-    bar.style.display='block'; bar.className='service-status-bar all-closed';
-    bar.textContent='📢 今日未營業';
+    bar.className='service-status-bar all-closed';
+    bar.innerHTML=`<span class="service-title">📢 今日未營業</span>`;
     return;
   }
   const OK_STATES=['open','not_started'];
   const todayHasService = OK_STATES.includes(toStatus.state) || OK_STATES.includes(dlStatus.state);
   if(!todayHasService){
     if(toStatus.state==='cutoff' && dlStatus.state==='cutoff'){
-      bar.style.display='block'; bar.className='service-status-bar cutoff';
-      bar.textContent='⏰ 今日接單已截止';
+      bar.className='service-status-bar cutoff';
+      bar.innerHTML=`<span class="service-title">⏰ 今日接單已截止</span>`;
     } else {
-      bar.style.display='block'; bar.className='service-status-bar all-closed';
-      bar.textContent='📢 今日暫停接單（外帶／外送皆已關閉）';
+      bar.className='service-status-bar all-closed';
+      bar.innerHTML=`<span class="service-title">📢 今日暫停接單（外帶／外送皆已關閉）</span>`;
     }
     return;
   }
@@ -1622,15 +1713,16 @@ function buildServiceStatusBar(){
     else if(!toStatus.enabled && dlStatus.enabled) currentMode='delivery';
   }
   // 需求文件第五、九、十八～廿二點：一律同時顯示兩個模式各自的今日狀態文字，不得用
-  // 「僅提供 X 服務」的簡化句子蓋掉另一個模式「為什麼不能用」的具體原因
-  // （今日未開放／今日已截止／尚未開始／今日未營業 都要如實顯示）。
-  // fix18-10-hotfix30-B2 第四點：兩個模式都還在 not_started 時，額外加上「⏰ 尚未開始接單」
-  // 前綴，避免使用者誤以為畫面卡住或今天完全不能點。
+  // 「僅提供 X 服務」的簡化句子蓋掉另一個模式「為什麼不能用」的具體原因；
+  // fix18-10-hotfix30-B4 第九、十點：每個模式獨立包 span、依 state 決定顏色 class，
+  // 不是整條 bar 只有單一顏色。
   const bothNotStarted = toStatus.state==='not_started' && dlStatus.state==='not_started';
-  const prefix = bothNotStarted ? '⏰ 尚未開始接單　' : '';
-  bar.style.display='block';
-  bar.className = (toStatus.enabled && dlStatus.enabled) ? 'service-status-bar both-open' : 'service-status-bar mixed';
-  bar.innerHTML=`${prefix}今日服務　🛍️ 外帶（${toStatus.label}）　・　🛵 外送（${dlStatus.label}）`;
+  const prefix = bothNotStarted ? '<span class="service-title">⏰ 尚未開始接單</span> ' : '';
+  bar.className = 'service-status-bar ' + ((toStatus.enabled && dlStatus.enabled) ? 'both-open' : 'mixed');
+  bar.innerHTML = `${prefix}<span class="service-title">今日服務</span>`
+    + `<span class="service-mode ${_serviceStateClass(toStatus.state)}">🛍️ 外帶（${esc(toStatus.label)}）</span>`
+    + `<span class="service-separator">・</span>`
+    + `<span class="service-mode ${_serviceStateClass(dlStatus.state)}">🛵 外送（${esc(dlStatus.label)}）</span>`;
 }
 // fix18-08: 統一控制外送地址區塊顯示/隱藏
 function updateDeliveryAddressVisibility(){
@@ -1641,10 +1733,16 @@ function updateDeliveryAddressVisibility(){
     wrap.classList.remove('hidden');
     wrap.classList.add('visible');
   } else {
+    // fix18-10-hotfix30-B4 root cause fix：先前這裡切到外帶／離開外送時會呼叫
+    // resetDeliveryFee()，把 #deliveryAddress 輸入框的值直接清空（不只是隱藏）。
+    // 這正是「外送輸入地址後切回外帶、再切回外送地址卻不見了」的根因（Case AI）。
+    // 外送地址／座標／運費現在改保存在 fulfillmentFormState.delivery（見
+    // saveCurrentModeFormState()），這裡只負責隱藏 UI，不得清空已保存的狀態；
+    // 真正的「使用者主動清空」或「訂單送出後重置」情境，resetDeliveryFee() 仍在
+    // submitOrder() 的另外兩處（maps_unavailable/out_of_range 失敗、下單成功後）呼叫。
     wrap.style.display='none';
     wrap.classList.remove('visible');
     wrap.classList.add('hidden');
-    if(typeof resetDeliveryFee==='function') resetDeliveryFee();
   }
 }
 
@@ -1736,34 +1834,107 @@ async function copyPickupAddress(){
     toast('複製失敗，請手動複製：'+addr);
   }
 }
+// fix18-10-hotfix30-B4 第三點：切換模式前，把「目前模式」的日期/時段（及外送模式的
+// 地址/座標/運費）存進 fulfillmentFormState，離開外送模式時不得清空即時狀態
+// （deliveryLatLng/calcDeliveryFee/deliveryFeeCalculated 只是「目前顯示中」的值，
+// 真正的持久保存靠這裡）。
+function saveCurrentModeFormState(mode){
+  const s=fulfillmentFormState[mode]; if(!s) return;
+  s.date = document.getElementById('pDate')?.value || '';
+  s.time = document.getElementById('pTime')?.value || '';
+  if(mode==='delivery'){
+    s.address = document.getElementById('deliveryAddress')?.value || '';
+    s.addressNote = document.getElementById('deliveryAddressNote')?.value || '';
+    s.lat = deliveryLatLng.lat;
+    s.lng = deliveryLatLng.lng;
+    s.distanceKm = deliveryFeeCalculated ? deliveryDistKm : null;
+    s.deliveryFee = deliveryFeeCalculated ? calcDeliveryFee : null;
+  }
+}
+// fix18-10-hotfix30-B4 第三、六點：切換到目標模式後，還原該模式保存的表單狀態。
+// 外送地址「重新計算」距離/運費（不沿用可能過期的快取金額——購物車內容在切換模式期間
+// 可能已經改變，免運門檻/運費需要重算才準確），但地址文字本身完整保留、不清空、不需要
+// 使用者重新輸入。外帶不需要還原地址（取餐地址是唯讀的店家地址，見
+// updatePickupAddressVisibility()），只保留日期/時段的還原交給 buildDateSelector()。
+function restoreModeFormState(mode){
+  if(mode==='delivery'){
+    const s=fulfillmentFormState.delivery;
+    const addrEl=document.getElementById('deliveryAddress');
+    if(addrEl) addrEl.value = s.address || '';
+    const noteEl=document.getElementById('deliveryAddressNote');
+    if(noteEl) noteEl.value = s.addressNote || '';
+    deliveryLatLng = { lat: s.lat||null, lng: s.lng||null };
+    if(s.lat && s.lng){
+      fetchDeliveryFee();
+    } else {
+      deliveryDistKm = 0; calcDeliveryFee = 0; deliveryFeeCalculated = false;
+      const feeRow=document.getElementById('deliveryFeeRow'); if(feeRow) feeRow.style.display='none';
+    }
+  }
+}
+// fix18-10-hotfix30-B4 第二、三點：外帶／外送欄位互斥顯示＋Context 同步，統一由這裡
+// 處理一次，不得讓其他函式各自判斷 currentMode 來顯示/隱藏地址相關欄位或重算 Context。
+function renderModeSpecificFields(){
+  updateDeliveryAddressVisibility();
+  updatePickupAddressVisibility();
+}
+// fix18-10-hotfix30-B4（Context 隔離補強）第三點：統一渲染入口，集中處理日期/時段以外
+// 「同一組 UI」該做的事——地址區塊、Google Maps、距離、外送費、免運提示、付款方式、
+// 送單可用狀態。updateDeliveryAddressVisibility()/updateModeAvailabilityUI() 等既有函式
+// 保留，但只做各自單一明確子工作，最終都由這裡統一調度。
+function renderFulfillmentMode(mode){
+  syncFulfillmentContext(mode);
+  renderModeSpecificFields();
+  updateCartTotals();
+  buildPaymentButtons(shopData);
+  updateSubmitAvailability();
+}
+function updateSubmitAvailability(){
+  updateModeAvailabilityUI();
+}
+// fix18-10-hotfix30-B4 第四點：外帶／外送切換唯一入口。onModeChange()/restoreCart()/
+// openCartSheet()/refreshShopStatus() 都必須透過這裡（或其安全子流程：
+// saveCurrentModeFormState()/restoreModeFormState()/syncFulfillmentContext()），不得
+// 各自零散修改地址/日期/時段/標籤。改為 async 並加入 render token 防護：快速連點
+// 外帶/外送時，較慢的前一次呼叫在 await 之後若發現 token 已經過期（代表使用者又切了
+// 一次模式），就不再繼續往下寫入畫面，避免 Case AN（快速連點）的畫面錯亂。
+async function applyFulfillmentMode(mode, opts){
+  const silent = !!(opts && opts.silent);
+  const myToken = ++fulfillmentRenderToken;
+  const fromMode = currentMode;
+  if(fromMode && fromMode!==mode) saveCurrentModeFormState(fromMode);
+  currentMode = mode;
+  const oType=document.getElementById('oType'); if(oType) oType.value=mode;
+  restoreModeFormState(mode);
+  renderMenu();
+  refreshModeCutoffUI();
+  renderFulfillmentMode(mode);
+  // fix18-10-hotfix22D：改用 refreshDateSelectorForCart()（沿用既有邏輯，處理購物車內
+  // 「需自動預約下個營業日」商品的特殊情況），內部會呼叫 buildDateSelector()（本輪已更新
+  // 為正確處理今日/明日的 selectable 判斷）與 buildTimeSelector()（已加入 render token
+  // 防護），不得改回單純的 buildDateSelector() 而漏掉這個既有分支。
+  await refreshDateSelectorForCart();
+  if(myToken!==fulfillmentRenderToken) return; // 使用者在等待期間又切換了模式，這次到此為止
+  buildPreorderInfo();
+  buildFulfillmentOptions();
+  if(!silent && fromMode && fromMode!==mode){
+    _trackEvent('fulfillment_method_selected',{ from_mode:fromMode, to_mode:mode, cart_id:_getCartId(false) });
+  }
+  persistCart();
+}
 // fix18-10-hotfix30-A：頂部頁籤已移除，改由 selectFulfillmentMode() 驅動購物車內的
-// 取餐方式大按鈕；onModeChange() 保留給 hidden input #oType 的邏輯進入點使用。
+// 取餐方式大按鈕；onModeChange() 保留給 hidden input #oType 的邏輯進入點使用，
+// 本輪起完全委派給 applyFulfillmentMode()，不再自行零散處理。
 function onModeChange(){
   const oType=document.getElementById('oType');
   if(!oType) return;
-  const _from=currentMode;
-  currentMode=oType.value;
-  if(_from!==currentMode) _trackEvent('fulfillment_method_selected',{ from_mode:_from, to_mode:currentMode, cart_id:_getCartId(false) });
-  renderMenu();
-  refreshModeCutoffUI();
-  updateModeAvailabilityUI();
-  buildFulfillmentOptions();
-  // fix18-10-hotfix22D：改用 refreshDateSelectorForCart()，避免切換模式後把已預約的下個營業日覆蓋回今天
-  refreshDateSelectorForCart();
-  // fix18-08: 統一顯示/隱藏外送地址
-  updateDeliveryAddressVisibility();
-  updatePickupAddressVisibility();
-  updateCartTotals();
-  // fix18-10-hotfix22A：外帶/外送付款方式可能不同，切換模式時重建付款按鈕
-  buildPaymentButtons(shopData);
-  persistCart();
+  applyFulfillmentMode(oType.value);
 }
 // fix18-10-hotfix30-A 第二點：取餐方式大按鈕的點擊入口（取代 <select> 的 onchange）
 function selectFulfillmentMode(mode){
   const oType=document.getElementById('oType');
   if(!oType || oType.value===mode) return;
-  oType.value=mode;
-  onModeChange();
+  applyFulfillmentMode(mode);
 }
 
 // fix18-10-hotfix30-A：截止售完橫幅 ──────────────────────────────────────
@@ -1945,27 +2116,26 @@ function getPreorderDaysLimit(){
 }
 
 // ── 日期選擇器（依模式篩選公休日；日期範圍統一由 line_preorder_days_limit 控制）──
-function buildDateSelector(forceNextDay=false){
+// fix18-10-hotfix30-B4-RC 第十三點：補齊明確 mode 參數（forceNextDay 維持第一個參數
+// 不改順序，避免破壞既有呼叫點 buildDateSelector(true) 的既有語意；mode 是新增的第二個
+// 參數，預設值 currentMode 在「呼叫當下」求值並鎖定，之後這個函式內都只用這個區域變數，
+// 不再讀取可能於期間被改變的全域 currentMode，滿足「不得依賴 request 完成時 currentMode
+// 仍是原值」的要求）。
+function buildDateSelector(forceNextDay=false, mode=currentMode){
   const sel=document.getElementById('pDate');if(!sel)return;
   sel.innerHTML='';
   // hotfix22-F 補正：目前模式（外帶/外送）整個被店家關閉時，不得產生任何可送單的日期／時段選項，
   // 但商品/顧客資料仍完整保留，只是擋住送單；等使用者切到有開放的模式才恢復正常選單。
-  if(!isCurrentModeAvailable()){
+  if(mode===currentMode ? !isCurrentModeAvailable() : !getFulfillmentStatus(mode).selectable){
     const opt=document.createElement('option');opt.value='';opt.disabled=true;
-    opt.textContent=(currentMode==='delivery'?'外送':'外帶')+'目前未開放';
+    opt.textContent=(mode==='delivery'?'外送':'外帶')+'目前未開放';
     sel.appendChild(opt);
     const pTimeUnavail=document.getElementById('pTime');
-    if(pTimeUnavail) pTimeUnavail.innerHTML=`<option value="" disabled>${currentMode==='delivery'?'外送':'外帶'}目前未開放</option>`;
+    if(pTimeUnavail) pTimeUnavail.innerHTML=`<option value="" disabled>${mode==='delivery'?'外送':'外帶'}目前未開放</option>`;
     updateModeAvailabilityUI();
     return;
   }
   const now=twNow();
-  // hotfix22-B ROOT CAUSE FIX：外帶/外送模式必須只有 currentMode 這一個單一來源。
-  // 舊版讀取 oType.value 作為主要依據，但 oType 這個 <select> 只有在使用者手動切換
-  // 或購物車開啟時才會被同步；頁面剛載入、或行事曆/今日截止讓某模式被關閉時，
-  // oType 仍停留在 HTML 預設值（'外帶'），導致用「錯誤的模式」去查時段，
-  // 出現「外送已關閉」「今日截止」等錯誤訊息（即使該模式其實是開啟的）。
-  const mode=currentMode;
   // fix18-10-hotfix30-B3 第六點＋補充修正：今天要不要被排除，不能只看 forceNextDay 這個
   // 外部旗標。若今天 canOrderNow 或 canScheduleToday（今天稍後仍有排程/時段），今天必須
   // 保留為可選、且應該是預設選項——「允許明日預購」只影響明天以後，不得拿來跳過今天稍後
@@ -1979,6 +2149,11 @@ function buildDateSelector(forceNextDay=false){
   const bizHours=(() => { try { return JSON.parse(shopData[bizHoursKey]||'{}'); } catch { return {}; } })();
   const bizEmpty=Object.keys(bizHours).length===0;
   let first=null;
+  // fix18-10-hotfix30-B4 第五點：外帶／外送日期不得共用同一個值——若該模式先前保存過日期
+  // （fulfillmentFormState[mode].date）且在新建立的清單中仍是合法（非 disabled）選項，
+  // 優先沿用；不合法（例如切換模式後已超出可預訂範圍或變成公休日）才落回第一個合法日期。
+  const _savedDate = fulfillmentFormState[mode] ? fulfillmentFormState[mode].date : '';
+  let _savedDateValid=false;
   // 統一日期範圍：0（今天）～ line_preorder_days_limit 天後；forceNextDay 時排除今天（今日已售完/不可下單，從明天起選）
   const limit=getPreorderDaysLimit();
   const startOffset=(forceNextDay||_skipToday)?1:0;
@@ -1998,6 +2173,7 @@ function buildDateSelector(forceNextDay=false){
     const opt=document.createElement('option');opt.value=ds;opt.disabled=disabled;
     opt.textContent=`${lbl} ${mm}/${dd2}(${WD_NAMES[d.getDay()]})${suffix}`;
     if(!disabled&&!first)first=ds;
+    if(_savedDate && ds===_savedDate && !disabled) _savedDateValid=true;
     sel.appendChild(opt);
   }
   const warnEl=document.getElementById('pDateCalWarning');
@@ -2006,8 +2182,9 @@ function buildDateSelector(forceNextDay=false){
     warnEl.textContent=warnTxt;
     warnEl.style.display=warnTxt?'block':'none';
   }
-  if(first)sel.value=first;
-  if(!forceNextDay) buildTimeSelector();
+  if(_savedDateValid) sel.value=_savedDate;
+  else if(first) sel.value=first;
+  if(!forceNextDay) buildTimeSelector(mode);
 }
 function onDateChange(){buildTimeSelector().then(()=>{refreshModeCutoffUI();persistCart();});}
 
@@ -2035,18 +2212,32 @@ function buildPreorderInfo(){
 }
 
 // ── 時間選擇器（呼叫後端 API，依模式計算）────────────────
-async function buildTimeSelector(){
+// fix18-10-hotfix30-B4-RC 第十三、十四點：明確 mode/date 參數（預設值在呼叫當下鎖定
+// currentMode／#pDate 目前值，向下相容所有既有零參數呼叫點），並把時段結果寫進
+// fulfillmentContext[mode].availability.timeslots——DOM 的 #pTime 只在 mode 仍是目前
+// 使用中的模式時才更新，避免非目前模式的背景查詢意外覆蓋畫面。
+async function buildTimeSelector(mode=currentMode, dateOverride=null){
   const dateSel=document.getElementById('pDate'),sel=document.getElementById('pTime');
   if(!sel)return;
-  sel.innerHTML='<option value="">載入中…</option>';
-  const sd=dateSel?.value;if(!sd){sel.innerHTML='<option value="">請先選擇日期</option>';return;}
-  // hotfix22-B ROOT CAUSE FIX：同上，改用單一來源 currentMode，避免用到未同步的 oType.value
-  const mode=currentMode;
+  // fix18-10-hotfix30-B4 第四點：模式切換 race-guard——快速連點外帶/外送時，較慢的前一次
+  // timeslots 請求完成時，不得覆蓋使用者已經切到的最新模式畫面（Case AN）。
+  const myToken = ++fulfillmentRenderToken;
+  const modeSnapshot = mode; // 明確鎖定，await 之後一律用這個，不再讀取可能已變動的 currentMode
+  const isActiveMode = () => modeSnapshot===currentMode;
+  if(isActiveMode()) sel.innerHTML='<option value="">載入中…</option>';
+  const sd=dateOverride || dateSel?.value;
+  if(!sd){ if(isActiveMode()) sel.innerHTML='<option value="">請先選擇日期</option>'; return; }
   const lbl=document.getElementById('timeLabel');
-  if(lbl) lbl.childNodes[0].textContent=mode==='delivery'?'外送時間 ':'取餐時間 ';
+  if(lbl && isActiveMode()) lbl.childNodes[0].textContent=modeSnapshot==='delivery'?'外送時間 ':'取餐時間 ';
+  const ctx = fulfillmentContext[modeSnapshot];
   try{
-    const res=await apiFetch(`/api/line-orders/timeslots?mode=${mode}&date=${sd}`).then(r=>r.json());
+    const res=await apiFetch(`/api/line-orders/timeslots?mode=${modeSnapshot}&date=${sd}`).then(r=>r.json());
+    // 這次請求開始後，若又有更新的一次呼叫（token 已前進），這次結果就是「已過期」，
+    // Context 仍可以安全寫入（各模式互不影響），但不得再寫回 DOM。
+    const stale = myToken!==fulfillmentRenderToken;
     if(!res.success||!res.slots||res.slots.length===0){
+      if(ctx) ctx.availability.timeslots=[];
+      if(stale || !isActiveMode()) return;
       const reasons={
         cutoff_passed:'今日接單已截止',
         no_slots_today:'今日已無可預約時段',
@@ -2060,15 +2251,27 @@ async function buildTimeSelector(){
       sel.innerHTML=`<option value="" disabled>${msg}</option>`;
       return;
     }
+    // fix18-10-hotfix30-B4-RC 第十四點：timeslots 先寫入 Context（單一模式各自的陣列），
+    // 不論這次是否仍是目前使用中的模式，Context 本身的更新永遠安全（各模式互不影響）。
+    if(ctx) ctx.availability.timeslots = res.slots.slice();
+    if(stale || !isActiveMode()) return; // 已過期或非目前模式，不寫回 DOM
     sel.innerHTML='';
     res.slots.forEach((t,i)=>{
       const h=Number(t.split(':')[0]);
       const lbl2=h<12?`上午 ${t}`:h===12?`中午 ${t}`:`下午 ${t}`;
       const o=document.createElement('option');o.value=t;o.textContent=lbl2;sel.appendChild(o);
     });
+    // fix18-10-hotfix30-B4 第五點：外帶／外送時段不得共用同一個值。若此模式先前保存過
+    // 時段（fulfillmentFormState[mode].time）且仍在這次（依正確模式）取得的合法時段清單
+    // 內，保留它；否則（不合法，例如切到另一模式後原本的時間點根本不存在）落回第一個
+    // （最早）合法時段——沿用瀏覽器 <select> 預設行為，不需要額外程式碼。
+    const _savedTime = fulfillmentFormState[modeSnapshot] ? fulfillmentFormState[modeSnapshot].time : '';
+    if(_savedTime && res.slots.includes(_savedTime)) sel.value=_savedTime;
     // 提示最早時間
     if(res.earliest) toast(`最早可選 ${res.earliest}`);
+    syncFulfillmentContext(modeSnapshot);
   }catch{
+    if(myToken!==fulfillmentRenderToken || !isActiveMode()) return;
     sel.innerHTML='<option value="" disabled>載入失敗，請重試</option>';
   }
 }
@@ -2364,19 +2567,19 @@ function addPreorderToCart(id,evt,p){
 //    forceNextDay=true（從明天起算），並自動選中下個可訂日；否則維持原本今天起算的選單。
 //    hotfix22-B 既有慣例：每次開啟/切換都即時重算，避免使用頁面載入當下的快取狀態。
 async function refreshDateSelectorForCart(){
-  const mode=currentMode;
+  const mode=currentMode; // 明確鎖定，往下都用這個區域變數，不再散落讀取可能變動的 currentMode
   const needsNextDay=Object.keys(cart).some(id=>preorderRequiredIds.has(Number(id)));
   if(needsNextDay){
-    buildDateSelector(true); // forceNextDay=true：從明天起算，範圍到 line_preorder_days_limit
+    buildDateSelector(true, mode); // forceNextDay=true：從明天起算，範圍到 line_preorder_days_limit
     const nextDate=findNextAvailableDate(mode);
     const pDate=document.getElementById('pDate');
     if(pDate&&nextDate){
       const targetOpt=Array.from(pDate.options).find(o=>o.value===nextDate&&!o.disabled);
       if(targetOpt) pDate.value=nextDate;
     }
-    await buildTimeSelector(); // forceNextDay=true 時 buildDateSelector 不會自動呼叫，這裡手動載入時段
+    await buildTimeSelector(mode); // forceNextDay=true 時 buildDateSelector 不會自動呼叫，這裡手動載入時段
   } else {
-    buildDateSelector();
+    buildDateSelector(false, mode);
   }
   refreshModeCutoffUI();
   persistCart();
@@ -2572,6 +2775,12 @@ function persistCart(){
         phone:document.getElementById('cPhone')?.value||'',
         delivery_address:document.getElementById('deliveryAddress')?.value||'',
         delivery_address_note:document.getElementById('deliveryAddressNote')?.value||'',
+        // fix18-10-hotfix30-B4 第十二點：一併保存外送座標/距離/運費，F5 後才能完整還原
+        // delivery Context（舊版只存地址文字，座標/距離/運費遺失，重開後需要重新計算）。
+        delivery_lat: deliveryLatLng.lat,
+        delivery_lng: deliveryLatLng.lng,
+        delivery_distance_km: deliveryFeeCalculated ? deliveryDistKm : null,
+        delivery_fee: deliveryFeeCalculated ? calcDeliveryFee : null,
       },
       coupon_code:appliedCoupon?.code||'', // 只存 code，還原時一律重新驗證
       pickup_date:document.getElementById('pDate')?.value||'',
@@ -2679,6 +2888,20 @@ async function restoreCart(){
     else if(Object.keys(cart).length) _timeChanged=true;
   }
   if((_dateChanged||_timeChanged) && isCurrentModeAvailable()) toast('⏰ 原預約日期或時段已失效，已更新為下一個可用時段');
+  // fix18-10-hotfix30-B4 第十二點：localStorage 向下相容 migration——舊格式只有單一
+  // date/time/address（綁在 order_mode 那一個模式），這裡把還原出來的值放進
+  // fulfillmentFormState[savedMode]，不複製到另一個模式（另一個模式維持空白，等使用者
+  // 切過去時自然是全新輸入，不會被舊資料污染）。lat/lng/distance/fee 是本輪新增欄位，
+  // 舊資料沒有這些欄位時自然是 undefined/null，不影響還原流程。
+  if(currentMode==='delivery'){
+    deliveryLatLng = { lat: ci.delivery_lat||null, lng: ci.delivery_lng||null };
+    if(deliveryLatLng.lat && deliveryLatLng.lng){
+      // 重新計算而非直接沿用快取金額——重開頁面期間購物車金額可能已經不同，免運門檻需要重算。
+      fetchDeliveryFee();
+    }
+  }
+  saveCurrentModeFormState(currentMode); // 把剛還原好的值收進 fulfillmentFormState[currentMode]
+  syncFulfillmentContext(currentMode);
   // fix18-10-hotfix30-B1 第六點：還原購物車後，依還原出來的日期同步顯示/隱藏預約資訊區塊。
   buildPreorderInfo();
 
@@ -2743,6 +2966,10 @@ function openCartSheet(){
   // 重新計算一次，若目前模式已不可用且只剩一種模式可用，自動切換並提示；
   // 兩種都不可用則停用送出訂單。
   reconcileFulfillmentMode();
+  // fix18-10-hotfix30-B4（Context 隔離補強）第十一點：確保購物車開啟當下，目前模式的
+  // Context（availability/ui）是最新的，不需要等到下次切換模式才更新——只同步當前模式，
+  // 不觸碰另一個模式的 Context，也不重設地址/外送費。
+  syncFulfillmentContext(currentMode);
   // 同步購物車 sheet 模式（含 disabled/原因文字，需求文件第六點）
   buildFulfillmentOptions();
   // fix18-10-hotfix30-B1 第六點：purchases 開啟時若日期仍停留在先前選過的未來日期，
@@ -2974,6 +3201,10 @@ async function refreshShopStatus(){
     // 全域開關／排班／截止時間），不是純粹的全域功能開關 .enabled。
     takeoutEnabled  = ts.today_open  !== undefined ? !!ts.today_open  : !!ts.enabled;
     deliveryEnabled = ds2.today_open !== undefined ? !!ds2.today_open : !!ds2.enabled;
+    // fix18-10-hotfix30-B4 第十三點：只更新兩個模式各自的 availability（不觸碰 form/ui 的
+    // 地址/日期/時段——那些只能透過 saveCurrentModeFormState()/restoreModeFormState() 改變）。
+    syncFulfillmentContext('takeout');
+    syncFulfillmentContext('delivery');
     // Hotfix16 BUG-004：休假 Banner 隨定時刷新自動更新／消失（恢復營業日到達後自動不再顯示）
     const prevTodayClosed=todayClosed;
     const holidayBanner=res.data.holiday_banner||{active:false};
@@ -3314,6 +3545,9 @@ function resetDeliveryFee(){
 // 呼叫後端計算外送費
 async function fetchDeliveryFee(){
   if(!deliveryLatLng.lat||!deliveryLatLng.lng) return;
+  // fix18-10-hotfix30-B4：race-guard——快速切換模式時，較慢的前一次外送費請求完成時，
+  // 不得覆蓋使用者已經切走之後的畫面（若目前已經不是外送模式，直接放棄這次寫入）。
+  const myToken = ++fulfillmentRenderToken;
   const subtotal=Object.values(cart).reduce((s,{product:p,qty})=>s+(p.effective_line_price||p.price)*qty,0);
   const feeMsg=document.getElementById('deliveryFeeMsg');
   const feeRow=document.getElementById('deliveryFeeRow');
@@ -3331,17 +3565,28 @@ async function fetchDeliveryFee(){
         delivery_lng: deliveryLatLng.lng,
       })
     }).then(r=>r.json());
+    if(myToken!==fulfillmentRenderToken || currentMode!=='delivery') return; // 已過期或已切走，作廢
     if(res.success){
       calcDeliveryFee = res.delivery_fee||0;
       deliveryDistKm  = res.distance_km||0;
       deliveryFeeCalculated = true;
+      // fix18-10-hotfix30-B4 第九、十點：保留 raw_fee／免運原因，供 Context 與畫面顯示
+      // 「為什麼免運」，不新增外送費公式，全部沿用既有 API 回傳欄位。
+      _lastDeliveryRawFee = (res.raw_fee!=null) ? res.raw_fee : res.delivery_fee||0;
+      _lastFreeShippingReason = res.is_free_delivery
+        ? (typeof res.message==='string' && res.message.includes('滿額') ? '滿額免運' : (res.message||'免運'))
+        : null;
       if(feeRow) feeRow.style.display='flex';
       if(distBadge) distBadge.textContent=`${res.distance_km}km`;
-      if(feeDisplay) feeDisplay.textContent= res.is_free_delivery ? '免運 🎉' : `NT$${res.delivery_fee}`;
+      if(feeDisplay) feeDisplay.textContent = res.is_free_delivery
+        ? `免運 🎉（${_lastFreeShippingReason}）`
+        : `NT$${res.delivery_fee}`;
       if(feeMsg) feeMsg.textContent=res.message||'';
+      syncFulfillmentContext('delivery');
     } else {
       calcDeliveryFee=0;
       deliveryFeeCalculated=false;
+      _lastDeliveryRawFee=null; _lastFreeShippingReason=null;
       if(feeRow) feeRow.style.display='none';
       if(feeMsg) feeMsg.innerHTML=`<span style="color:#e53935">⚠️ ${res.message||'無法計算外送費'}</span>`;
     }
