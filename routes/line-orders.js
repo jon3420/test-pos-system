@@ -265,6 +265,90 @@ function getDayOpenClose(db, storeId, mode, dateStr, modeSettings) {
   return { openMins: timeToMins(sched.start), closeMins: timeToMins(sched.end) };
 }
 
+// fix18-10-hotfix30-B1 第廿四點：安全布林解析，SQLite/JSON 的布林值可能是
+// 0/1、"0"/"1"、false/true、null，不得直接用 Boolean(value)（Boolean("0")===true 是陷阱）。
+function toBooleanFlag(value, defaultValue) {
+  if (value === true || value === 1 || value === '1' || value === 'true') return true;
+  if (value === false || value === 0 || value === '0' || value === 'false') return false;
+  return defaultValue;
+}
+
+// fix18-10-hotfix30-B1 第九、廿二點：「今日臨時截止」只能讓視窗變短，不能延長超過
+// schedule 本身（已含 Business Calendar 覆蓋）的結束時間——修正 root cause：先前
+// cutoff_passed 一律拿「全域 cutoffTime 設定」比較，若店家主要靠 Business Calendar
+// 設定特殊時段、卻沒有另外設定全域 cutoff_time，isCutoffPassed('', nowMins) 永遠回傳
+// false，導致「已超過 Calendar 設定的截止時間，前台仍顯示開放中/接單中」。
+function getEffectiveCutoffMins(schedule, todayCutoff) {
+  if (!schedule.enabled || !schedule.end) return null;
+  const scheduleEndMins = timeToMins(schedule.end);
+  if (todayCutoff) {
+    const todayCutoffMins = timeToMins(todayCutoff);
+    return Math.min(scheduleEndMins, todayCutoffMins);
+  }
+  return scheduleEndMins;
+}
+
+// fix18-10-hotfix30-B1 第二、三點：單一狀態解析器（後端版本）。取代先前「GET /shop 只看
+// 全域開關」與「GET /menu 只看全域 cutoffTime」各自判斷、彼此不一致的問題。優先序（需求
+// 文件十九）：① 休假（Business Calendar 全休 or 今日臨時休息 or 固定公休/指定店休，見
+// getDateClosedStatus 既有優先序）→ holiday；② Business Calendar 命中且該模式被該日設定
+// 關閉 → today_not_open/special_schedule_disabled；③ 未命中 Calendar 時，若店家全域開關
+// 關閉 → today_not_open/global_disabled；④ 當天無排班（每週營業時間該天未啟用）→
+// today_not_open/no_schedule；⑤ 尚未到開始時間 → not_started；⑥ 已超過「有效截止時間」
+// （schedule 結束時間與今日臨時截止取較早者）→ cutoff；⑦ 開放中 → open。
+// 回傳物件盡量貼合需求文件第二點指定的 getFulfillmentStatus() 介面欄位。
+function resolveFulfillmentState(mode, schedule, modeSettings, closedInfo, nowMins) {
+  if (closedInfo.closed) {
+    return {
+      mode, state: 'holiday', reason: 'business_calendar_closed',
+      enabled: false, selectable: false, canOrderToday: false, canPreorder: !!modeSettings.allowNextDay,
+      startTime: null, cutoffTime: null, label: '今日未營業', shortLabel: '今日未營業',
+    };
+  }
+  if (!schedule.enabled) {
+    const reason = schedule.source === 'business_calendar'
+      ? 'special_schedule_disabled'
+      : (!toBooleanFlag(modeSettings.enabled, true) ? 'global_disabled' : 'no_schedule');
+    return {
+      mode, state: 'today_not_open', reason,
+      enabled: false, selectable: false, canOrderToday: false, canPreorder: !!modeSettings.allowNextDay,
+      startTime: null, cutoffTime: null, label: '今日未開放', shortLabel: '今日未開放',
+    };
+  }
+  // schedule.enabled === true：若這一天並非命中 Business Calendar（也就是回退每週營業時間），
+  // 仍必須套用店家全域開關（Calendar 命中時，getEffectiveModeSchedule 內已用該日 Calendar 自己
+  // 的 takeout_enabled/delivery_enabled 判斷過，不重複套用全域開關，符合需求文件十九的優先序）。
+  if (schedule.source !== 'business_calendar' && !toBooleanFlag(modeSettings.enabled, true)) {
+    return {
+      mode, state: 'today_not_open', reason: 'global_disabled',
+      enabled: false, selectable: false, canOrderToday: false, canPreorder: !!modeSettings.allowNextDay,
+      startTime: null, cutoffTime: null, label: '今日未開放', shortLabel: '今日未開放',
+    };
+  }
+  const startMins = timeToMins(schedule.start);
+  const cutoffMins = getEffectiveCutoffMins(schedule, modeSettings.todayCutoff);
+  const cutoffTimeStr = cutoffMins != null ? minsToTime(cutoffMins) : null;
+  if (nowMins < startMins) {
+    return {
+      mode, state: 'not_started', reason: 'before_start',
+      enabled: false, selectable: false, canOrderToday: false, canPreorder: !!modeSettings.allowNextDay,
+      startTime: schedule.start, cutoffTime: cutoffTimeStr, label: '尚未開始', shortLabel: '尚未開始',
+    };
+  }
+  if (cutoffMins != null && nowMins > cutoffMins) {
+    return {
+      mode, state: 'cutoff', reason: 'after_cutoff',
+      enabled: false, selectable: false, canOrderToday: false, canPreorder: !!modeSettings.allowNextDay,
+      startTime: schedule.start, cutoffTime: cutoffTimeStr, label: '今日已截止', shortLabel: '今日已截止',
+    };
+  }
+  return {
+    mode, state: 'open', reason: null,
+    enabled: true, selectable: true, canOrderToday: true, canPreorder: !!modeSettings.allowNextDay,
+    startTime: schedule.start, cutoffTime: cutoffTimeStr, label: '開放中', shortLabel: '開放中',
+  };
+}
+
 // ── 模式（外帶 takeout / 外送 delivery）設定讀取 ─────────
 // fix18-10-hotfix22A：外帶/外送付款方式改為與冷藏宅配一致的「通路獨立開關」架構。
 // 若店家尚未設定新版 JSON 陣列（takeout_payment_methods / delivery_payment_methods），
@@ -530,9 +614,19 @@ router.get('/shop', (req, res) => {
     const takeoutSchedule  = getEffectiveModeSchedule(db, storeId, 'takeout',  todayStr, takeoutMode);
     const deliverySchedule = getEffectiveModeSchedule(db, storeId, 'delivery', todayStr, deliveryMode);
 
+    // fix18-10-hotfix30-B1：單一狀態解析器，供 today_open/today_state/today_reason/
+    // today_label 使用；.enabled（全域開關原始值）與 .is_closed_day 保持既有語意不變
+    // （後台「LINE 營業狀態」面板明確依賴 .enabled 表示「功能是否開啟」，不得混用今日營業判斷），
+    // 新增欄位供 line-order.html 的 getFulfillmentStatus() 作為唯一資料來源。
+    const takeoutFulfillState  = resolveFulfillmentState('takeout',  takeoutSchedule,  takeoutMode,  closedInfo, nowMins);
+    const deliveryFulfillState = resolveFulfillmentState('delivery', deliverySchedule, deliveryMode, closedInfo, nowMins);
+
     settings.takeout_status = {
       enabled:        takeoutMode.enabled,
-      cutoff_passed:  takeoutMode.enabled && isCutoffPassed(takeoutMode.cutoffTime, nowMins),
+      // fix18-10-hotfix30-B1：cutoff_passed 改用「有效截止時間」（Business Calendar 覆蓋時段
+      // 的結束時間 與 今日臨時截止 取較早者），修正「Calendar 設定了特殊時段但沒設全域
+      // cutoff_time，導致永遠判斷不到已截止」的 root cause（需求文件第九點）。
+      cutoff_passed:  takeoutFulfillState.state === 'cutoff',
       allow_next_day: takeoutMode.allowNextDay,
       is_closed_day:  closedInfo.closed || !takeoutSchedule.enabled,
       earliest_today: takeoutMode.enabled && !closedInfo.closed
@@ -543,10 +637,18 @@ router.get('/shop', (req, res) => {
       // fix18-10-hotfix22E：今日最終生效時段來源，前台用來判斷是否要顯示「特殊營業」而非每週固定時段
       schedule_source: takeoutSchedule.source,
       today_schedule:  takeoutSchedule,
+      // fix18-10-hotfix30-B1：單一狀態解析器輸出，line-order.html 的 getFulfillmentStatus()
+      // 「今日快照」（useTodaySnapshot）唯一資料來源，不得再自行拼狀態。
+      today_open:   takeoutFulfillState.enabled,
+      today_state:  takeoutFulfillState.state,
+      today_reason: takeoutFulfillState.reason,
+      today_label:  takeoutFulfillState.label,
+      today_start_time:  takeoutFulfillState.startTime,
+      today_cutoff_time: takeoutFulfillState.cutoffTime,
     };
     settings.delivery_status = {
       enabled:        deliveryMode.enabled,
-      cutoff_passed:  deliveryMode.enabled && isCutoffPassed(deliveryMode.cutoffTime, nowMins),
+      cutoff_passed:  deliveryFulfillState.state === 'cutoff',
       allow_next_day: deliveryMode.allowNextDay,
       is_closed_day:  closedInfo.closed || !deliverySchedule.enabled,
       earliest_today: deliveryMode.enabled && !closedInfo.closed
@@ -555,6 +657,12 @@ router.get('/shop', (req, res) => {
       today_cutoff:   deliveryMode.todayCutoff || '',
       schedule_source: deliverySchedule.source,
       today_schedule:  deliverySchedule,
+      today_open:   deliveryFulfillState.enabled,
+      today_state:  deliveryFulfillState.state,
+      today_reason: deliveryFulfillState.reason,
+      today_label:  deliveryFulfillState.label,
+      today_start_time:  deliveryFulfillState.startTime,
+      today_cutoff_time: deliveryFulfillState.cutoffTime,
     };
 
     // fix18-10-hotfix22A：外帶/外送付款方式（通路獨立開關，未設定時 fallback 沿用全域設定）
@@ -720,8 +828,6 @@ router.get('/menu', (req, res) => {
     // 模式截止狀態（外帶/外送獨立）
     const takeoutMode  = getModeSettings(db, storeId, 'takeout');
     const deliveryMode = getModeSettings(db, storeId, 'delivery');
-    const toCutoff = isCutoffPassed(takeoutMode.cutoffTime, nowMins);
-    const dlCutoff = isCutoffPassed(deliveryMode.cutoffTime, nowMins);
 
     // fix18-10-hotfix22E ROOT CAUSE FIX：先前這裡完全沒有檢查 Business Calendar 對「單一模式」
     // 的關閉設定（只有整店休假 mode='closed' 才會被 dayClosedReason 攔截）。導致特殊營業日
@@ -732,6 +838,15 @@ router.get('/menu', (req, res) => {
     const deliverySchedule = getEffectiveModeSchedule(db, storeId, 'delivery', todayStr, deliveryMode);
     const takeoutCalendarModeClosed  = takeoutSchedule.source  === 'business_calendar' && !takeoutSchedule.enabled;
     const deliveryCalendarModeClosed = deliverySchedule.source === 'business_calendar' && !deliverySchedule.enabled;
+
+    // fix18-10-hotfix30-B1 第九點 root cause fix：cutoff 判斷改用「有效截止時間」
+    // （getEffectiveCutoffMins：Business Calendar 覆蓋時段的結束時間 與 今日臨時截止 取較早者），
+    // 不再只比對全域 cutoffTime 設定。修正「店家主要靠 Business Calendar 設定特殊時段，
+    // 卻沒另外設定全域截止時間，導致已超過 Calendar 時段仍判斷成『尚未截止』」的問題。
+    const toCutoff = takeoutSchedule.enabled
+      && (() => { const m = getEffectiveCutoffMins(takeoutSchedule, takeoutMode.todayCutoff); return m != null && nowMins > m; })();
+    const dlCutoff = deliverySchedule.enabled
+      && (() => { const m = getEffectiveCutoffMins(deliverySchedule, deliveryMode.todayCutoff); return m != null && nowMins > m; })();
 
     // ── Hotfix16 BUG-003/006：今日休假狀態（優先序 Business Calendar > 今日臨時休息 > 固定公休），
     //    命中時所有商品當天皆視為休假（今日售完原因統一顯示為休假，不再各別顯示販售時段/份數狀態）
@@ -853,19 +968,27 @@ router.get('/menu', (req, res) => {
       // 商家仍可能把單一商品設定為「僅外帶」或「僅外送」。
       const productTakeoutDisabled  = Number(p.line_takeout_enabled  ?? 1) === 0;
       const productDeliveryDisabled = Number(p.line_delivery_enabled ?? 1) === 0;
+      // fix18-10-hotfix30-B1 第十九、廿一點：優先序修正——Business Calendar 命中時，該日
+      // 該模式的開放與否完全由 Calendar 自己的設定決定（takeoutCalendarModeClosed／
+      // takeoutSchedule.enabled），不得被「店家全域開關」蓋掉；全域開關只在「當天並未命中
+      // Calendar」時才生效。先前寫法是 !takeoutMode.enabled 一律最先判斷，導致「Calendar
+      // 當天有開放外帶，但店家全域開關剛好是關閉」時，仍被錯誤判斷成 mode_closed。
+      const takeoutGlobalClosed  = takeoutSchedule.source  !== 'business_calendar' && !takeoutMode.enabled;
+      const deliveryGlobalClosed = deliverySchedule.source !== 'business_calendar' && !deliveryMode.enabled;
+
       const takeoutSoldOutReason = productTakeoutDisabled ? 'product_mode_disabled'
-        : (!takeoutMode.enabled ? 'mode_closed'
         : (dayClosedReason ? dayClosedReason
-          : (takeoutCalendarModeClosed ? 'calendar_mode_closed'
+        : (takeoutCalendarModeClosed ? 'calendar_mode_closed'
+          : (takeoutGlobalClosed ? 'mode_closed'
             : (toCutoff ? 'cutoff_sold_out'
               : (productTimeReason === 'time_ended'   ? 'product_time_ended'
                 : (productTimeReason === 'not_started' ? 'product_not_started'
                   : (realSoldOut ? 'real_sold_out' : null)))))));
 
       const deliverySoldOutReason = productDeliveryDisabled ? 'product_mode_disabled'
-        : (!deliveryMode.enabled ? 'mode_closed'
         : (dayClosedReason ? dayClosedReason
-          : (deliveryCalendarModeClosed ? 'calendar_mode_closed'
+        : (deliveryCalendarModeClosed ? 'calendar_mode_closed'
+          : (deliveryGlobalClosed ? 'mode_closed'
             : (dlCutoff ? 'cutoff_sold_out'
               : (productTimeReason === 'time_ended'   ? 'product_time_ended'
                 : (productTimeReason === 'not_started' ? 'product_not_started'
@@ -1064,9 +1187,15 @@ function validateOrderConditions(db, storeId, mode, dateStr, pickupTime, nowMins
     return { ok: false, reason: 'mode_closed', message: `目前${mode==='takeout'?'外帶':'外送'}服務已關閉` };
 
   // 5. 今日截止時間（只針對今天的訂單，明日以後不受此限制）
-  if (orderDate === todayStr && isCutoffPassed(modeSettings.cutoffTime, nowMins)) {
-    return { ok: false, reason: 'cutoff_sold_out',
-      message: `${mode==='takeout'?'外帶':'外送'}已超過今日最後接單時間（${modeSettings.cutoffTime}）` };
+  // fix18-10-hotfix30-B1 第九點 root cause fix：改用「有效截止時間」（Business Calendar
+  // 覆蓋時段的結束時間 與 今日臨時截止 取較早者），不再只比對全域 cutoffTime 設定，
+  // 與 GET /menu、GET /shop 的判斷邏輯一致（見 getEffectiveCutoffMins()）。
+  if (orderDate === todayStr) {
+    const effCutoffMins = getEffectiveCutoffMins(effSchedule, modeSettings.todayCutoff);
+    if (effCutoffMins != null && nowMins > effCutoffMins) {
+      return { ok: false, reason: 'cutoff_sold_out',
+        message: `${mode==='takeout'?'外帶':'外送'}已超過今日最後接單時間（${minsToTime(effCutoffMins)}）` };
+    }
   }
 
   // 6. 取餐時間有效性
