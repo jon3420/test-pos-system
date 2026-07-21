@@ -1070,7 +1070,19 @@ router.get('/timeslots', (req, res) => {
     const todayStr = twDateStr(now);
 
     const modeSettings = getModeSettings(db, storeId, mode);
-    if (!modeSettings.enabled) return res.json({ success: true, slots: [], reason: 'mode_closed' });
+
+    // fix18-10-hotfix30-B5-R2 root cause fix：先前這裡先檢查全域開關（modeSettings.enabled），
+    // 完全沒有給 Business Calendar 覆蓋的機會——若店家把外帶/外送全域關閉，但當天有特殊營業
+    // 開放該模式，這裡會在特殊營業判斷之前就先擋下來，回傳 mode_closed，導致
+    // 「特殊營業已開放，但 timeslots 卻是空的」。改成：先檢查是否為整店休假（優先權最高，
+    // 與 resolveFulfillmentState() 一致），再用 getEffectiveModeSchedule()（Business
+    // Calendar 特殊營業 > 全域開關 > 每週營業，同一套既有單一來源，未新增規則）判斷這個模式
+    // 今天是否開放，不再只看全域開關。
+    const closedInfo = isClosedDate(db, storeId, dateStr);
+    if (closedInfo.closed) return res.json({ success: true, slots: [], reason: 'closed_day' });
+
+    const effSchedule = getEffectiveModeSchedule(db, storeId, mode, dateStr, modeSettings);
+    if (!effSchedule.enabled) return res.json({ success: true, slots: [], reason: 'mode_closed' });
 
     // Hotfix15 V3：顧客可提前預訂天數上限
     const preorderLimit = getPreorderDaysLimit(db, storeId);
@@ -1078,12 +1090,17 @@ router.get('/timeslots', (req, res) => {
       return res.json({ success: true, slots: [], reason: 'preorder_limit_exceeded' });
     }
 
-    const closedInfo = isClosedDate(db, storeId, dateStr);
-    if (closedInfo.closed) return res.json({ success: true, slots: [], reason: 'closed_day' });
-
     // 截止判斷（今日才判斷 cutoff）
-    if (dateStr === todayStr && isCutoffPassed(modeSettings.cutoffTime, nowMins)) {
-      return res.json({ success: true, slots: [], reason: 'cutoff_passed' });
+    // fix18-10-hotfix30-B5-R2 root cause fix：改用「有效截止時間」（Business Calendar
+    // 特殊營業時段的結束時間 與 今日臨時截止 取較早者，與 resolveFulfillmentState()/
+    // validateOrderConditions() 同一套 getEffectiveCutoffMins()），不再只比對全域
+    // cutoffTime 設定——否則特殊營業設定的時段（例如 17:57–23:57）會被無關的全域截止
+    // 時間錯誤攔截，或反過來在特殊時段已過後仍誤判成尚未截止。
+    if (dateStr === todayStr) {
+      const effCutoffMins = getEffectiveCutoffMins(effSchedule, modeSettings.todayCutoff);
+      if (effCutoffMins != null && nowMins > effCutoffMins) {
+        return res.json({ success: true, slots: [], reason: 'cutoff_passed' });
+      }
     }
 
     const earliestMins = getEarliestMins(db, storeId, mode, modeSettings, dateStr, nowMins);
