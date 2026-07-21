@@ -757,14 +757,15 @@ function _peekSavedOrderMode(){
 // 購物車結帳時「目前選擇要用哪個模式送單」，不再是瀏覽/加入購物車的前提。
 // ══════════════════════════════════════════════════════════════════════
 function _productModeStatus(p, mode){
-  // fix18-10-hotfix30-B1：不得自行再讀 takeoutEnabled/deliveryEnabled 這兩個全域變數判斷
-  // 「今天是否開放」，一律經由 getFulfillmentStatus() 這個唯一入口取得（內部已含 Business
-  // Calendar／全域開關／排班／截止時間），確保商品卡與今日服務列/購物車看到同一個答案。
-  const storeEnabled = getFulfillmentStatus(mode).enabled;
+  // fix18-10-hotfix30-B3 root cause fix：商品模式交集只能處理「商品是否支援外帶/外送」，
+  // 不得把「店家現在不能立即下單，但可預約（今天稍後或明天）」誤判成模式關閉。
+  // 這裡改用 .selectable（= canOrderNow || canPreorder），不再只看 .enabled（= canOrderNow）。
+  const fs = getFulfillmentStatus(mode);
+  const storeSelectable = fs.selectable;
   const soldOutReason = mode==='delivery' ? p.delivery_sold_out_reason : p.takeout_sold_out_reason;
   const canNextDay = mode==='delivery' ? p.delivery_can_next_day : p.takeout_can_next_day;
   const ss=p.sale_status||'available';
-  if(!storeEnabled) return {enabled:false, reason:'mode_closed', canNextDay:false};
+  if(!storeSelectable) return {enabled:false, reason:'mode_closed', canNextDay:false};
   if(ss!=='available') return {enabled:false, reason: ss==='paused'?'paused':'sold_out_today', canNextDay:false};
   if(soldOutReason){
     if(canNextDay) return {enabled:true, reason:soldOutReason, canNextDay:true};
@@ -774,7 +775,9 @@ function _productModeStatus(p, mode){
     if(canNextDay) return {enabled:true, reason:'real_sold_out', canNextDay:true};
     return {enabled:false, reason:'real_sold_out', canNextDay:false};
   }
-  return {enabled:true, reason:null, canNextDay:false};
+  // fix18-10-hotfix30-B3：店家現在不能立即下單、只能預約時，商品本身沒有其他售完原因的話
+  // 仍視為可加入購物車，並標記 preorderOnly 供商品卡顯示「可預約」而不是「今日不可購買」。
+  return {enabled:true, reason:null, canNextDay:false, preorderOnly:!fs.canOrderNow};
 }
 // getProductAvailableModes(product) → { takeout:{enabled,reason}, delivery:{enabled,reason} }
 // fix18-10-hotfix30-B1 第廿四點：安全布林解析（Boolean("0")===true 是陷阱，不得使用）。
@@ -822,21 +825,60 @@ function getFulfillmentStatus(mode, options){
   const src = mode==='delivery' ? (shopData.delivery_status||{}) : (shopData.takeout_status||{});
   const state = src.today_state || (toBooleanFlag(src.today_open, !!src.enabled) ? 'open' : 'today_not_open');
   const reason = src.today_reason!==undefined ? src.today_reason : null;
-  const enabled = toBooleanFlag(src.today_open, !!src.enabled);
+  const canOrderNow = toBooleanFlag(src.today_open, !!src.enabled);
   const label = src.today_label || FULFILLMENT_STATE_LABEL[state] || '目前不可使用';
   const source = src.schedule_source || null; // 'business_calendar' | 'weekly_schedule' | null
+
+  // ══════════════════════════════════════════════════════════════════
+  // fix18-10-hotfix30-B3：能力三分——不再只用單一 enabled 布林值判斷「這個模式能不能用」。
+  //   canOrderNow          現在能否立即下單（= 舊版 enabled，語意不變，service bar/gate 沿用）
+  //   canScheduleToday     今天稍後是否可預約（state==='not_started' 且今天還有剩餘時段；
+  //                        不受「允許明日預購」開關影響——這是「今天」本身的排班，見補充修正）
+  //   canPreorderFutureDays 明天／未來日期是否可預約（依賴 allow_next_day 且確實有可預約日期）
+  //   canPreorder          canScheduleToday || canPreorderFutureDays（綜合旗標，供舊呼叫端相容）
+  //   selectable           canOrderNow || canPreorder（購物車取餐方式是否可選的唯一依據）
+  // 資料全部沿用既有欄位，不新增後端欄位：
+  //   src.earliest_today（今日最早可選時段分鐘數，getEarliestMins() 已算好，今日已無時段時為 null）
+  //   src.allow_next_day（既有欄位，「允許明日預購」開關）
+  //   shopData.takeout_next_dates / delivery_next_dates（既有欄位，Business-Calendar-aware
+  //   的未來可預約日期清單，從明天起算，見 routes/line-orders.js nextAvailableDates()）
+  // ══════════════════════════════════════════════════════════════════
+  const allowNextDay = !!src.allow_next_day;
+  const nextDatesArr = mode==='delivery' ? (shopData.delivery_next_dates||[]) : (shopData.takeout_next_dates||[]);
+  const nextAvailableDate = nextDatesArr.length ? nextDatesArr[0] : null;
+  const canPreorderFutureDays = allowNextDay && !!nextAvailableDate;
+  // 「今天稍後可預約」只在 state==='not_started' 時才有意義（open 代表已經能立即下單，
+  // cutoff/holiday/today_not_open 代表今天不會再有時段），且必須今日確實還有剩餘時段
+  // （src.earliest_today !== null/undefined，null 代表 getEarliestMins() 判斷今日已無時段）。
+  const canScheduleToday = state==='not_started' && src.earliest_today!=null;
+  const canPreorder = canScheduleToday || canPreorderFutureDays;
+  const selectable = canOrderNow || canPreorder;
+
+  // fix18-10-hotfix30-B3 第五、八點：購物車按鈕文案需要跟「今日服務列」分開——
+  // #serviceStatusBar 永遠只顯示 today_label（例如「尚未開始」），不得因為可預約就改寫；
+  // 購物車按鈕在可預約時要改顯示「今日可預約」/「可預約」，兩者是不同用途的文字，
+  // 所以另開一個 cartLabel 欄位，不覆蓋原本的 label/shortLabel。
+  let cartLabel = label;
+  if(!canOrderNow && canPreorder){
+    cartLabel = canScheduleToday ? '今日可預約' : '可預約';
+  }
+
   const result = {
     mode,
     state,
     reason,
-    enabled,
-    selectable: enabled,
-    canOrderToday: enabled,
-    canPreorder: !!src.allow_next_day,
+    enabled: canOrderNow, // 保留舊欄位名稱與語意（= canOrderNow），避免影響既有呼叫端
+    canOrderNow,
+    canScheduleToday,
+    canPreorderFutureDays,
+    canPreorder,
+    selectable,
+    nextAvailableDate,
     startTime: src.today_start_time || null,
     cutoffTime: src.today_cutoff_time || null,
     label,
     shortLabel: label,
+    cartLabel,
   };
   // debug 只在 window.__FULFILLMENT_DEBUG__===true 時輸出，正式版預設 false，不影響效能。
   if(window.__FULFILLMENT_DEBUG__===true){
@@ -846,6 +888,8 @@ function getFulfillmentStatus(mode, options){
       specialSchedule: source==='business_calendar',
       businessCalendar: source==='business_calendar',
       globalEnabled: !!src.enabled,
+      canOrderNow, canScheduleToday, canPreorderFutureDays, canPreorder, selectable,
+      nextAvailableDate,
       startTime: result.startTime,
       cutoffTime: result.cutoffTime,
     });
@@ -997,9 +1041,13 @@ function reconcileFulfillmentMode(opts){
   // 演算法本身（combined = 店家今天是否開放 AND 購物車商品是否相容）完全不變。
   const toStatus=getFulfillmentStatus('takeout');
   const dlStatus=getFulfillmentStatus('delivery');
+  // fix18-10-hotfix30-B3 root cause fix：combined 的店家層級判斷改用 .selectable
+  // （= canOrderNow || canPreorder），不再只看 .enabled（= canOrderNow）。not_started 但
+  // 可預約時，.enabled 是 false，若沿用舊版會被誤判成「無法使用」，購物車模式交集演算法
+  // 本身（下面的 cartModes 計算、自動切換提示邏輯）完全不變。
   const combined={
-    takeout: toStatus.enabled && cartModes.takeout,
-    delivery: dlStatus.enabled && cartModes.delivery
+    takeout: toStatus.selectable && cartModes.takeout,
+    delivery: dlStatus.selectable && cartModes.delivery
   };
   const banner=document.getElementById('modeUnavailableBanner');
   const subBtn=document.getElementById('subBtn');
@@ -1019,13 +1067,13 @@ function reconcileFulfillmentMode(opts){
     currentMode = toMode;
     const oType=document.getElementById('oType'); if(oType) oType.value=toMode;
     if(!silent){
-      const reasonIsStoreClosed = fromMode==='takeout' ? !toStatus.enabled : !dlStatus.enabled;
+      const reasonIsStoreClosed = fromMode==='takeout' ? !toStatus.selectable : !dlStatus.selectable;
       const msg = reasonIsStoreClosed
         ? `今日${fromMode==='takeout'?'外帶':'外送'}未開放，已為您改為${toMode==='takeout'?'外帶':'外送'}。`
         : `購物車內部分商品不支援${fromMode==='takeout'?'外帶':'外送'}，已為您改為${toMode==='takeout'?'外帶':'外送'}。`;
       toast(msg);
     }
-    _trackEvent('fulfillment_method_auto_switched',{ from_mode:fromMode, to_mode:toMode, reason: !toStatus.enabled||!dlStatus.enabled?'mode_closed':'product_incompatible', cart_id:_getCartId(false) });
+    _trackEvent('fulfillment_method_auto_switched',{ from_mode:fromMode, to_mode:toMode, reason: !toStatus.selectable||!dlStatus.selectable?'mode_closed':'product_incompatible', cart_id:_getCartId(false) });
     if(typeof updateDeliveryAddressVisibility==='function') updateDeliveryAddressVisibility();
     if(typeof updatePickupAddressVisibility==='function') updatePickupAddressVisibility();
     if(typeof buildPaymentButtons==='function') buildPaymentButtons(shopData);
@@ -1785,18 +1833,22 @@ function buildFulfillmentOptions(){
     product_not_started:'尚未開賣', paused:'暫停販售', sold_out_today:'今日完售',
   };
   const render=(mode)=>{
-    // fix18-10-hotfix30-B1 第三點：不得自行再判斷 delivery_open/takeout_open/
-    // businessOpen/delivery_enabled/takeout_enabled，一律經由 getFulfillmentStatus()。
+    // fix18-10-hotfix30-B3 root cause fix：不得只用 .enabled（= canOrderNow）判斷按鈕
+    // 是否 disabled。not_started/cutoff 但可預約時，.enabled 是 false 但 .selectable 是
+    // true，按鈕必須維持可選，並用 cartLabel（「今日可預約」/「可預約」）取代原本的
+    // 「尚未開始」/「今日已截止」灰色文字（那兩個字眼專屬於 #serviceStatusBar，不得混用）。
     const status=getFulfillmentStatus(mode);
-    const storeEnabled=status.enabled;
+    const storeSelectable=status.selectable;
     const label = mode==='delivery' ? '🛵 外送' : '🛍️ 外帶';
     let disabled=false, reason='';
-    if(!storeEnabled){ disabled=true; reason=status.label; }
+    if(!storeSelectable){ disabled=true; reason=status.label; }
     else if(!cartModes[mode]){
       disabled=true;
       const rs=cartModes.reasons[mode]||[];
       const firstReason=rs[0]?.reason;
       reason = rs.length>1 ? '商品不支援' : (REASON_TEXT[firstReason]||'商品不支援');
+    } else if(!status.canOrderNow){
+      reason = status.cartLabel; // 「今日可預約」或「可預約」，按鈕仍是 enabled
     }
     const isActive = cur===mode && !disabled;
     const radio = isActive ? '◉' : '○';
@@ -1845,10 +1897,12 @@ function updateCutoffBanner(){
 // 只顯示「未開放」提示、擋住日期時段產生可送單選項、停用送單按鈕；使用者自行切換到另一個
 // 有開放的模式後才恢復可下單（並在切換時更新、保存新的 order_mode，見 switchMode()/onModeChange()）。
 function isCurrentModeAvailable(){
-  // fix18-10-hotfix30-B1：不得自行再判斷 takeoutEnabled/deliveryEnabled，一律經由
-  // getFulfillmentStatus()（此函式廣泛被 buildDateSelector()/submitOrder() 等引用，
-  // 修正這裡即可讓所有引用點自動得到正確答案）。
-  return getFulfillmentStatus(currentMode).enabled;
+  // fix18-10-hotfix30-B3 root cause fix：不得只用 .enabled（= canOrderNow，只代表「現在能否
+  // 立即下單」）判斷購物車能不能用這個模式。not_started 但今天稍後可預約、或允許明日預購時，
+  // .enabled 是 false 但 .selectable 是 true——這裡改用 .selectable，才是「購物車取餐方式
+  // 是否可選」的正確依據（此函式同時被 buildDateSelector()/updateModeAvailabilityUI() 引用，
+  // 修正這裡即可讓兩處呼叫點自動得到正確答案，不必個別修改）。
+  return getFulfillmentStatus(currentMode).selectable;
 }
 function updateModeAvailabilityUI(){
   const banner=document.getElementById('modeUnavailableBanner');
@@ -1912,6 +1966,13 @@ function buildDateSelector(forceNextDay=false){
   // oType 仍停留在 HTML 預設值（'外帶'），導致用「錯誤的模式」去查時段，
   // 出現「外送已關閉」「今日截止」等錯誤訊息（即使該模式其實是開啟的）。
   const mode=currentMode;
+  // fix18-10-hotfix30-B3 第六點＋補充修正：今天要不要被排除，不能只看 forceNextDay 這個
+  // 外部旗標。若今天 canOrderNow 或 canScheduleToday（今天稍後仍有排程/時段），今天必須
+  // 保留為可選、且應該是預設選項——「允許明日預購」只影響明天以後，不得拿來跳過今天稍後
+  // 仍可預約的時段。只有「今天完全不可能再有服務」時才跳到明天（沿用既有 forceNextDay 機制，
+  // 不新增第二套日期邏輯）。
+  const _fsForDate=getFulfillmentStatus(mode);
+  const _skipToday = !_fsForDate.canOrderNow && !_fsForDate.canScheduleToday;
   const closedWds=(() => { try { return JSON.parse(shopData.line_closed_weekdays||'[]'); } catch { return []; } })();
   const closedDts=(() => { try { return JSON.parse(shopData.line_closed_dates||'[]'); } catch { return []; } })();
   const bizHoursKey=mode==='takeout'?'takeout_business_hours':'delivery_business_hours';
@@ -1920,7 +1981,7 @@ function buildDateSelector(forceNextDay=false){
   let first=null;
   // 統一日期範圍：0（今天）～ line_preorder_days_limit 天後；forceNextDay 時排除今天（今日已售完/不可下單，從明天起選）
   const limit=getPreorderDaysLimit();
-  const startOffset=forceNextDay?1:0;
+  const startOffset=(forceNextDay||_skipToday)?1:0;
   const endOffset=limit;
   const _dsListForWarning=[];
   for(let offset=startOffset;offset<=endOffset;offset++){
@@ -2717,11 +2778,13 @@ async function submitOrder(){
   if(!type){toast('請選擇取餐方式');return;}
   // hotfix22-F 補正：目前模式被店家關閉時一律擋下送單（不清空購物車），
   // 与 updateModeAvailabilityUI()/buildDateSelector() 的 UI 層限制互為保險。
-  // fix18-10-hotfix30-B1：不得自行再判斷 takeoutEnabled/deliveryEnabled，一律經由
-  // getFulfillmentStatus() 取得（今日快照，未來日期由後端 validateOrderConditions 另外驗證）。
+  // fix18-10-hotfix30-B3 root cause fix：這裡改用 .selectable（= canOrderNow || canPreorder），
+  // 不再只看 .enabled（= canOrderNow）——否則今天稍後可預約、或明日預購的合法訂單，會在
+  // 送出的最後一步被誤擋下來（cutoff 檢查仍在下面用 .state==='cutoff'，只針對「今天訂單」
+  // 生效，不受這裡影響）。
   const _submitToStatus=getFulfillmentStatus('takeout');
   const _submitDlStatus=getFulfillmentStatus('delivery');
-  if((type==='takeout' && !_submitToStatus.enabled) || (type==='delivery' && !_submitDlStatus.enabled)){
+  if((type==='takeout' && !_submitToStatus.selectable) || (type==='delivery' && !_submitDlStatus.selectable)){
     toast((type==='delivery'?'外送':'外帶')+'目前未開放，請切換模式或稍後再試');return;
   }
   // fix18-10-hotfix30-A 第九點：購物車商品相容性——即使模式本身開放，若購物車內有商品
