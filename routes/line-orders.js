@@ -956,17 +956,37 @@ router.get('/menu', (req, res) => {
       const allowPreorderBeforeStart = Number(p.line_preorder_enabled) === 1;
 
       // ── 第三位階：商品自身販售時段（只影響今日）──────────
-      let productTimeReason = null; // 'not_started' | 'time_ended'（均僅限今日）
-      let preSaleAvailable = false; // BUG-002：尚未開賣但允許預購今天稍後時段
-      if (p.line_sell_end && nowHHMM >= p.line_sell_end) {
-        productTimeReason = 'time_ended';   // 今日販售已結束，不影響明日
-      } else if (p.line_sell_start && nowHHMM < p.line_sell_start) {
-        if (allowPreorderBeforeStart) {
-          preSaleAvailable = true;          // 不阻擋加入購物車，前台顯示「🟢 可預約」
-        } else {
-          productTimeReason = 'not_started';  // 今日尚未開賣，不影響明日
+      // fix18-10-hotfix30-B5-R3 root cause fix：先前這裡只有「一份」productTimeReason，
+      // 拿商品自己的 line_sell_start/line_sell_end 跟現在時間比較，完全沒有考慮「今天這個
+      // 模式其實是被 Business Calendar 特殊營業另外設定時段」——導致特殊營業已經開放外送
+      // 00:10~22:10，但商品自己的 LINE 販售時段（例如 15:30~19:50）仍然生效，把明明可以買
+      // 的商品判斷成「尚未販售」/「今日售完」。
+      // 規則（需求文件第二、三、四點）：當天某模式命中 Business Calendar 特殊營業時，
+      // 該模式當天「完全不套用」商品自己的 line_sell_start/line_sell_end（特殊營業時段本身
+      // 已經由 takeoutSchedule/deliverySchedule.enabled、toCutoff/dlCutoff 等既有邏輯決定
+      // 是否開放/截止，商品層級不需要也不應該再疊加一層自己的時段限制）；只有在「當天沒有
+      // 命中特殊營業、回退每週營業時段」時，才套用商品自己的 LINE 販售時段（既有行為，
+      // 完全不變）。庫存／人工停售／商品模式不支援等既有判斷完全不受影響，這裡只處理
+      // 「今天幾點可以賣」這一件事。
+      function _computeProductTimeReason(schedule, sellStart, sellEnd) {
+        if (schedule.source === 'business_calendar') {
+          // 特殊營業覆蓋商品自身 LINE 販售時段：今天這個模式不套用 line_sell_start/line_sell_end。
+          return { reason: null, preSale: false };
         }
+        if (sellEnd && nowHHMM >= sellEnd) return { reason: 'time_ended', preSale: false };
+        if (sellStart && nowHHMM < sellStart) {
+          if (allowPreorderBeforeStart) return { reason: null, preSale: true };
+          return { reason: 'not_started', preSale: false };
+        }
+        return { reason: null, preSale: false };
       }
+      const _toTimeCheck = _computeProductTimeReason(takeoutSchedule,  p.line_sell_start, p.line_sell_end);
+      const _dlTimeCheck = _computeProductTimeReason(deliverySchedule, p.line_sell_start, p.line_sell_end);
+      const productTimeReasonTakeout  = _toTimeCheck.reason;
+      const productTimeReasonDelivery = _dlTimeCheck.reason;
+      // pre_sale_available 維持既有單一欄位（供前台「🟢 可預約」徽章使用），任一模式符合即為 true，
+      // 不新增 API 欄位、不改變既有回應結構。
+      const preSaleAvailable = _toTimeCheck.preSale || _dlTimeCheck.preSale;
 
       // ── 第四位階：LINE 可售份數（只影響今日額度）─────────
       const realSoldOut = quota.hasQuota && quota.remaining <= 0;
@@ -992,8 +1012,8 @@ router.get('/menu', (req, res) => {
         : (takeoutCalendarModeClosed ? 'calendar_mode_closed'
           : (takeoutGlobalClosed ? 'mode_closed'
             : (toCutoff ? 'cutoff_sold_out'
-              : (productTimeReason === 'time_ended'   ? 'product_time_ended'
-                : (productTimeReason === 'not_started' ? 'product_not_started'
+              : (productTimeReasonTakeout === 'time_ended'   ? 'product_time_ended'
+                : (productTimeReasonTakeout === 'not_started' ? 'product_not_started'
                   : (realSoldOut ? 'real_sold_out' : null)))))));
 
       const deliverySoldOutReason = productDeliveryDisabled ? 'product_mode_disabled'
@@ -1001,8 +1021,8 @@ router.get('/menu', (req, res) => {
         : (deliveryCalendarModeClosed ? 'calendar_mode_closed'
           : (deliveryGlobalClosed ? 'mode_closed'
             : (dlCutoff ? 'cutoff_sold_out'
-              : (productTimeReason === 'time_ended'   ? 'product_time_ended'
-                : (productTimeReason === 'not_started' ? 'product_not_started'
+              : (productTimeReasonDelivery === 'time_ended'   ? 'product_time_ended'
+                : (productTimeReasonDelivery === 'not_started' ? 'product_not_started'
                   : (realSoldOut ? 'real_sold_out' : null)))))));
 
       // ── 可預約明日旗標 ────────────────────────────────────
