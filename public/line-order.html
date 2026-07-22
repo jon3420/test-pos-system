@@ -2659,7 +2659,24 @@ function addPreorderToCart(id,evt,p){
 //    hotfix22-B 既有慣例：每次開啟/切換都即時重算，避免使用頁面載入當下的快取狀態。
 async function refreshDateSelectorForCart(){
   const mode=currentMode; // 明確鎖定，往下都用這個區域變數，不再散落讀取可能變動的 currentMode
-  const needsNextDay=Object.keys(cart).some(id=>preorderRequiredIds.has(Number(id)));
+  // fix18-10-hotfix30-B5-R5 root cause fix：preorderRequiredIds 是加入購物車「當下那一刻
+  // 的 currentMode」判斷出來的標記（例如商品當時是在外送模式下，因外送被特殊營業關閉、
+  // 只能靠預約明日才能買，因而被 addPreorderToCart() 標記）。這個標記不分模式、加入後
+  // 不會因為切換模式而重新評估——導致切到「完全不需要預約明日」的外帶（今天 not_started
+  // 但今天稍後就有合法時段）時，仍沿用外送當初留下的舊標記，把外帶也錯誤 forceNextDay，
+  // 跳過今天（這正是使用者回報的兩個 bug：特殊營業今日時段被跳過、一般營業尚未開始被
+  // 誤判成要跳明天）。修正為：對「目前這個模式」重新檢查購物車內每個商品是否真的需要
+  // 強制預約明日——判斷依據跟 addCart() 用來決定要不要呼叫 addPreorderToCart() 的
+  // 依據完全一致（soldOutReason 存在且 canNextDay=true，且不是 mode_closed／
+  // product_mode_disabled 這種本來就不該觸發預約明日的原因），不再單純沿用可能是「別的
+  // 模式」留下的舊標記，才是真正符合 Mode Isolation 的做法（外帶只看外帶自己的資料，
+  // 外送只看外送自己的資料）。
+  const needsNextDay = Object.values(cart).some(({product:p}) => {
+    if(!p) return false;
+    const soldOutReason = mode==='delivery' ? p.delivery_sold_out_reason : p.takeout_sold_out_reason;
+    const canNextDay    = mode==='delivery' ? p.delivery_can_next_day    : p.takeout_can_next_day;
+    return !!soldOutReason && !!canNextDay && soldOutReason!=='mode_closed' && soldOutReason!=='product_mode_disabled';
+  });
   if(needsNextDay){
     buildDateSelector(true, mode); // forceNextDay=true：從明天起算，範圍到 line_preorder_days_limit
     const nextDate=findNextAvailableDate(mode);
