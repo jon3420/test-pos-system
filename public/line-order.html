@@ -989,22 +989,22 @@ function evaluateHomepageFulfillmentGate(shopRequestSucceeded){
 }
 
 // fix18-10-hotfix30-B5 第二、三項：今天完全不能下單、但仍可預約未來日期時的提示文案。
-// 依 holidaySource 區分「今日臨時休息」（today_closed）與「今日公休日」（calendar/weekly/
-// specific），today_not_open 則顯示「今日暫停接單」但可預約的說法。與 #serviceStatusBar
-// （永遠只描述今天真實狀態，不得因可預約而改寫）完全分開，不混用同一個元素。
+// fix18-10-hotfix30-B5-R7 BUG-1 root cause fix：gate.blockType==='holiday_preorder' 代表
+// 今天整店休假（today_closed／Business Calendar 全休／固定公休皆屬此類，見
+// evaluateHomepageFulfillmentGate()），這種情況下 #holidayBanner（renderHolidayBanner()）
+// 已經依 holiday_banner.type 顯示了同一件事（🌙 今日臨時休息／🏖️ 目前休假中／🌙 今日固定
+// 公休，文案已包含「可預約其他營業日期」），這裡若再顯示第二份「📅 今日臨時休息」／
+// 「📅 今日公休日」，會造成同一頁面同時出現兩份意思相同的提示（需求文件 R7 BUG-1）。
+// 只有 blockType==='today_not_open_preorder'（店家今天並非整店休假，只是外帶/外送「模式」
+// 今天沒開，但允許預約——這種情況 #holidayBanner 完全不會顯示任何內容）才需要這個獨立
+// 藍色框，維持原本文案不變。
 function renderHolidayPreorderBanner(gate){
   const el=document.getElementById('holidayPreorderBanner');
   if(!el) return;
-  if(!gate || (gate.blockType!=='holiday_preorder' && gate.blockType!=='today_not_open_preorder')){
+  if(!gate || gate.blockType!=='today_not_open_preorder'){
     el.style.display='none'; el.innerHTML=''; return;
   }
-  let title;
-  if(gate.blockType==='holiday_preorder'){
-    const src = (gate.takeout && gate.takeout.holidaySource) || (gate.delivery && gate.delivery.holidaySource);
-    title = src==='today_closed' ? '📅 今日臨時休息' : '📅 今日公休日';
-  } else {
-    title = '📢 今日暫停接單';
-  }
+  const title = '📢 今日暫停接單';
   el.style.display='block';
   el.innerHTML = `${esc(title)}<br><span style="font-weight:400;font-size:12px">今天無法下單，可預約其他營業日，商品可正常瀏覽與加入購物車。</span>`;
 }
@@ -1383,14 +1383,21 @@ async function init(){
       else renderHolidayBanner(holidayBanner);
 
       // 營業行事曆：特殊營業／全天營業（不阻擋下單，僅顯示提示 banner）
+      // fix18-10-hotfix30-B5-R7 BUG-1 root cause fix：todayClosed 為 true 時（今日臨時休息／
+      // Business Calendar 全休／固定公休，見 getDateClosedStatus() 優先序），#holidayBanner
+      // （renderHolidayBanner()，上面已呼叫）已經是唯一一份「今天不能下單」的提示。這裡若
+      // todayClosed 仍照樣獨立判斷 calToday.matched 顯示「🟡 今日特殊營業」，會跟
+      // #holidayBanner 同時出現、甚至互相矛盾（例如今日臨時休息時，Business Calendar 當天
+      // 若剛好也有 custom_hours 記錄，仍會顯示「今日特殊營業」，但實際上今天完全不營業）。
+      // 修正：todayClosed 時完全不 render 這份 banner，只有 todayClosed=false 才恢復顯示。
       const bizBanner=document.getElementById('bizCalBanner');
-      if(calToday.matched && calToday.mode==='custom_hours'){
+      if(!todayClosed && calToday.matched && calToday.mode==='custom_hours'){
         const parts=[];
         if(calToday.takeout_enabled && calToday.takeout_start_time) parts.push(`外帶：${calToday.takeout_start_time}～${calToday.takeout_end_time}`);
         if(calToday.delivery_enabled && calToday.delivery_start_time) parts.push(`外送：${calToday.delivery_start_time}～${calToday.delivery_end_time}`);
         bizBanner.textContent = `🟡 今日特殊營業${parts.length?('\n'+parts.join('\n')):''}`;
         bizBanner.style.display='block';
-      } else if(calToday.matched && calToday.mode==='open_all_day'){
+      } else if(!todayClosed && calToday.matched && calToday.mode==='open_all_day'){
         bizBanner.textContent = '🟢 今日全天營業';
         bizBanner.style.display='block';
       } else if(bizBanner){
@@ -1724,6 +1731,18 @@ function _serviceStateClass(state){
 function buildServiceStatusBar(){
   const bar=document.getElementById('serviceStatusBar');
   if(!bar) return;
+  // fix18-10-hotfix30-B5-R7 BUG-1 root cause fix：todayClosed 為 true 時（今日臨時休息／
+  // Business Calendar 全休／固定公休，來源與 #holidayBanner 完全相同的 holiday_banner.active），
+  // #holidayBanner 已經是頁面上唯一一份「今天不能下單」的提示，這裡不得再顯示「📢 今日未
+  // 營業」或「今日服務」文字，避免與 #holidayBanner 重複/矛盾（需求文件 R7 BUG-1）。
+  // 注意：todayClosed 為 true 時，toStatus.state/dlStatus.state 必定同時是 'holiday'
+  // （resolveFulfillmentState() 對整店休假是不分模式的），下面完全隱藏這個元素即可，
+  // 不需要另外重新判斷一次。
+  if(typeof todayClosed!=='undefined' && todayClosed){
+    bar.style.display='none';
+    bar.innerHTML='';
+    return;
+  }
   // fix18-10-hotfix30-B1 第五點：#serviceStatusBar 永遠只描述「今天」，不得依 selectedDate
   // 改變；文案一律來自 getFulfillmentStatus()，不再自行拼字串（modeLabelSuffix 不再用於此處）。
   const toStatus=getFulfillmentStatus('takeout');
@@ -2654,11 +2673,70 @@ function addPreorderToCart(id,evt,p){
   toast('✅ 已加入購物車，將自動預約下個營業日');
 }
 
+// ── fix18-10-hotfix30-B5-R7 BUG-2 root cause fix：Cart 商品快照同步 ──────────
+// Root Cause：加入購物車時，cart[id].product 保存的是「加入當下」那一次 /menu 回應的
+// 商品物件快照（takeout_sold_out_reason／delivery_sold_out_reason／takeout_can_next_day／
+// delivery_can_next_day 皆包含在內）。之後店家取消今日臨時休息、Business Calendar 更新、
+// today_state 改變時，這份快照不會自動更新——refreshDateSelectorForCart() 若直接沿用這份
+// 舊快照判斷 needsNextDay，會用「今日臨時休息時」算出的 can_next_day/sold_out_reason，
+// 即使現在其實已經恢復營業、今天有合法時段，仍錯誤地把日期跳到明天。問題不在 Timeslot
+// Builder，也不在 Business Calendar 本身（兩者皆未修改），而是購物車商品快照過期。
+// 用途：重新抓取最新 /api/line-menu，用最新資料整份覆蓋購物車內每個商品的 cart[id].product
+// （不得只挑幾個欄位合併，避免遺漏其他欄位），同時更新全域 allProducts/categories，讓商品卡
+// 等其他讀取 allProducts 的地方也拿到最新資料，避免購物車與商品卡出現兩份不同步的商品狀態。
+// 呼叫時機（依需求文件第五節）：refreshDateSelectorForCart() 內部（涵蓋「重新開啟 Cart」與
+// 「切換外帶/外送」——兩者皆會呼叫 refreshDateSelectorForCart()）、以及 refreshShopStatus()
+// 偵測到店家狀態改變時（today_closed／Business Calendar／today_open 改變）。
+// 可傳入已經抓取好的 products 陣列（例如 refreshShopStatus() 剛呼叫過 /menu），避免同一次
+// 更新內重複打兩次 API；不傳入時自行呼叫 /api/line-menu。
+// fix18-10-hotfix30-B5-R7 第十節 Race Condition 修正：實測確認（快速連續呼叫、較舊的
+// /menu 回應較慢、較新的回應較快先回來時）若無任何 request 順序保護，較舊的回應會在
+// 較新的回應已經寫入 cart 之後才 resolve，把 cart[id].product 蓋回舊值。這裡加入最小的
+// 呼叫序號保護（不引入 AbortController／取消機制等大改動）：每次呼叫遞增 _cartSyncSeq，
+// 若這次呼叫在等待 fetch 期間，已經有更新一次的呼叫發生（seq 不再是最新），代表這次拿到
+// 的是較舊、較慢的回應，直接放棄寫入——永遠以「呼叫時間最新的一次」為準，不論哪個先
+// resolve，避免 refreshShopStatus()／refreshDateSelectorForCart() 快速交錯呼叫時互相
+// 覆蓋成不一致的購物車商品狀態。
+let _cartSyncSeq = 0;
+async function refreshCartProductsFromLatestMenu(latestProducts){
+  const ids=Object.keys(cart);
+  if(!ids.length) return; // 購物車是空的，沒有需要同步的商品快照
+  const mySeq = ++_cartSyncSeq;
+  let products=latestProducts;
+  if(!products){
+    try{
+      const mr=await apiFetch('/api/line-menu').then(r=>r.json());
+      if(!mr.success) return;
+      categories=mr.data.categories||[];
+      allProducts=mr.data.products||[];
+      products=allProducts;
+    }catch(e){
+      // fix18-10-hotfix30-B5-R7（需求文件第九節第10點）：API 失敗時不得清空購物車，
+      // 保留現有 cart 快照原樣，只記錄安全 warning（不含任何個資／訂單內容）供除錯，
+      // 不得中斷呼叫端（refreshDateSelectorForCart()/refreshShopStatus()）的後續流程。
+      try{ console.warn('[cart-sync] refreshCartProductsFromLatestMenu() 讀取 /api/line-menu 失敗，保留現有購物車商品快照：', e && e.message); }catch(_e){}
+      return;
+    }
+  }
+  if(mySeq !== _cartSyncSeq) return; // 這次是較舊、較慢的回應，已有更新的呼叫發生，放棄寫入
+  const latestById=new Map(products.map(p=>[String(p.id),p]));
+  ids.forEach(id=>{
+    const latest=latestById.get(String(id));
+    // 找不到（商品已被下架/刪除）時保留原本快照，交由既有「商品不存在」相關流程處理
+    // （restoreCart() 已有的下架偵測邏輯），不在這裡額外新增刪除購物車項目的邏輯。
+    if(latest) cart[id].product=latest;
+  });
+}
 // ── 依購物車內容重新計算日期選擇器：若購物車內有任何商品需要自動預約下個營業日，
 //    forceNextDay=true（從明天起算），並自動選中下個可訂日；否則維持原本今天起算的選單。
 //    hotfix22-B 既有慣例：每次開啟/切換都即時重算，避免使用頁面載入當下的快取狀態。
 async function refreshDateSelectorForCart(){
   const mode=currentMode; // 明確鎖定，往下都用這個區域變數，不再散落讀取可能變動的 currentMode
+  // fix18-10-hotfix30-B5-R7 root cause fix（BUG-2）：先同步購物車商品快照到最新 /menu 資料，
+  // 不得直接使用可能是「今日臨時休息時」留下的舊 takeout_can_next_day/delivery_can_next_day
+  // /sold_out_reason 快照來判斷要不要跳到明天——這是需求文件第六節「不得使用 local cart
+  // snapshot 作為唯一來源」的具體實作。
+  await refreshCartProductsFromLatestMenu();
   // fix18-10-hotfix30-B5-R5 root cause fix：preorderRequiredIds 是加入購物車「當下那一刻
   // 的 currentMode」判斷出來的標記（例如商品當時是在外送模式下，因外送被特殊營業關閉、
   // 只能靠預約明日才能買，因而被 addPreorderToCart() 標記）。這個標記不分模式、加入後
@@ -3331,9 +3409,10 @@ async function refreshShopStatus(){
       // 可預約未來日期」banner（不觸發整頁 showClosed()，只是更新提示文字/顯示與否）。
       try{ renderHolidayPreorderBanner(evaluateHomepageFulfillmentGate(true)); }catch(e){}
       // 重新載入菜單（休假狀態改變會影響商品卡的售完原因/預約明日等顯示）
+      let _latestMenuProducts=null;
       try{
         const mr=await apiFetch('/api/line-menu').then(r=>r.json());
-        if(mr.success){categories=mr.data.categories||[];allProducts=mr.data.products||[];buildCats();}
+        if(mr.success){categories=mr.data.categories||[];allProducts=mr.data.products||[];buildCats();_latestMenuProducts=allProducts;}
       }catch{}
       // hotfix22-F 補正：enabled 狀態改變時，若目前選擇的模式（currentMode）變成關閉，
       // 一律維持在原模式並顯示「未開放」，不自動切換；只重建頁籤/日期時段/送單按鈕的顯示狀態。
@@ -3342,6 +3421,19 @@ async function refreshShopStatus(){
         buildDateSelector();
       }
       renderMenu();refreshModeCutoffUI();updateModeAvailabilityUI();
+      // fix18-10-hotfix30-B5-R7 BUG-2 root cause fix：店家狀態（today_closed／Business
+      // Calendar／today_open）改變時，購物車內每個商品的 sold_out_reason/can_next_day
+      // 快照也必須跟著更新，否則之後 refreshDateSelectorForCart() 被呼叫時（例如使用者
+      // 打開購物車）會沿用改變前的舊快照，錯誤地把日期跳到明天。傳入剛剛已經抓到的
+      // _latestMenuProducts，避免同一次刷新內重複呼叫兩次 /api/line-menu。若購物車正
+      // 開著，這裡放在上面 buildDateSelector() 之後執行，確保購物車最終顯示的日期/時段
+      // 一定是「用最新快照重新判斷過」的結果，不會被上面單純的 buildDateSelector() 覆蓋回去。
+      try{
+        await refreshCartProductsFromLatestMenu(_latestMenuProducts);
+        if(document.getElementById('cartSheet')?.classList.contains('show')) await refreshDateSelectorForCart();
+      }catch(e){
+        try{ console.warn('[cart-sync] refreshShopStatus() 內的購物車同步失敗，保留現有購物車商品快照：', e && e.message); }catch(_e){}
+      }
     }
   }catch{}
 }
