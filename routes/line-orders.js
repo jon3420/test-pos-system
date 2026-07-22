@@ -179,24 +179,32 @@ function getCalendarDateInfo(db, storeId, dateStr) {
   catch { return { matched: false }; }
 }
 
-// ── Hotfix16 BUG-003：日期休假狀態單一判斷函式 ──────────────
-// 優先序（由高到低，命中即回傳，不再往下判斷）：
-//   1. Business Calendar（mode=closed → closed:true；custom_hours/open_all_day → closed:false，且完全覆蓋今日臨時休息與固定公休）
-//   2. 今日臨時休息（line_today_closed，僅在 dateStr 為「今天」時才可能命中；Business Calendar 命中時一律不檢查此項）
+// ── Hotfix16 BUG-003／Hotfix30-B5-R6 root cause fix：日期休假狀態單一判斷函式 ──
+// fix18-10-hotfix30-B5-R6：舊版優先序（Business Calendar > 今日臨時休息 > 固定公休）
+// 會讓「今日臨時休息」被同一天的 Business Calendar 特殊營業覆蓋掉——只要店家當天剛好
+// 也設定了特殊營業（custom_hours/open_all_day），今日臨時休息就會形同虛設，這正是
+// 需求文件第四項要修正的 Root Cause。本次改為需求文件第一項規定的正確優先序（由高到低，
+// 命中即回傳，不再往下判斷）：
+//   1. 今日臨時休息（line_today_closed，僅在 dateStr 為「今天」時才可能命中；一旦命中，
+//      不論當天是否另有 Business Calendar 特殊營業設定，一律不再檢查 Business Calendar，
+//      當天完全視為休假——這是本次修正的核心：今日臨時休息高於 Business Calendar）
+//   2. Business Calendar（mode=closed → closed:true；custom_hours/open_all_day → closed:false，
+//      且覆蓋固定公休；只有在今日臨時休息未命中，或 dateStr 不是今天時，才會走到這裡）
 //   3. 固定公休（line_closed_weekdays）/ 指定店休日（line_closed_dates）
 // 回傳：{ closed, source: 'calendar'|'today_closed'|'weekly'|'specific'|null, isWeekly, calendar }
 function getDateClosedStatus(db, storeId, dateStr) {
-  const cal = getCalendarDateInfo(db, storeId, dateStr);
-  if (cal.matched) {
-    return { closed: cal.mode === 'closed', source: 'calendar', isWeekly: false, calendar: cal };
-  }
   const todayStr = twDateStr();
   if (dateStr === todayStr) {
     const todayClosed = getSetting(db, storeId, 'line_today_closed', '0') === '1'
       && getSetting(db, storeId, 'line_today_closed_date', '') === todayStr;
     if (todayClosed) {
+      // 今日臨時休息命中：最高優先，直接回傳，不再讀取／套用 Business Calendar 當天設定。
       return { closed: true, source: 'today_closed', isWeekly: false, calendar: null };
     }
+  }
+  const cal = getCalendarDateInfo(db, storeId, dateStr);
+  if (cal.matched) {
+    return { closed: cal.mode === 'closed', source: 'calendar', isWeekly: false, calendar: cal };
   }
   const dow = WD_KEYS[parseLocalDate(dateStr).getDay()];  // 安全解析
   const closedWds = (() => { try { return JSON.parse(getSetting(db, storeId, 'line_closed_weekdays', '[]')); } catch { return []; } })();
@@ -211,7 +219,7 @@ function getDateClosedStatus(db, storeId, dateStr) {
 }
 
 // ── 公休/店休日判斷（向後相容包裝，維持原本 {closed,isWeekly,calendar} 介面）──
-// 內部已改用 getDateClosedStatus()，自動套用 Hotfix16 的優先序（Business Calendar > 今日臨時休息 > 固定公休）
+// 內部已改用 getDateClosedStatus()，自動套用 Hotfix30-B5-R6 的優先序（今日臨時休息 > Business Calendar > 固定公休）
 function isClosedDate(db, storeId, dateStr) {
   const r = getDateClosedStatus(db, storeId, dateStr);
   return { closed: r.closed, isWeekly: r.isWeekly, calendar: r.calendar };
@@ -585,7 +593,7 @@ router.get('/shop', (req, res) => {
     const settings = {};
     keys.forEach(k => { settings[k] = getSetting(db, storeId, k, ''); });
 
-    // Hotfix16 BUG-003：今日休假狀態改用單一函式判斷，優先序 Business Calendar > 今日臨時休息 > 固定公休
+    // Hotfix16 BUG-003：今日休假狀態改用單一函式判斷，優先序改為 fix18-10-hotfix30-B5-R6：今日臨時休息 > Business Calendar > 固定公休
     const todayClosedStatus = getDateClosedStatus(db, storeId, todayStr);
     settings.is_open = settings.line_ordering_enabled === '1' && !todayClosedStatus.closed;
 
@@ -859,7 +867,7 @@ router.get('/menu', (req, res) => {
     const dlCutoff = deliverySchedule.enabled
       && (() => { const m = getEffectiveCutoffMins(deliverySchedule, deliveryMode.todayCutoff); return m != null && nowMins > m; })();
 
-    // ── Hotfix16 BUG-003/006：今日休假狀態（優先序 Business Calendar > 今日臨時休息 > 固定公休），
+    // ── Hotfix16 BUG-003/006：今日休假狀態（優先序改為 fix18-10-hotfix30-B5-R6：今日臨時休息 > Business Calendar > 固定公休），
     //    命中時所有商品當天皆視為休假（今日售完原因統一顯示為休假，不再各別顯示販售時段/份數狀態）
     const todayDayClosed = getDateClosedStatus(db, storeId, todayStr);
     const dayClosedReason = !todayDayClosed.closed ? null
@@ -939,7 +947,7 @@ router.get('/menu', (req, res) => {
       // ══════════════════════════════════════════════════════
       // Hotfix16 LINE 接單規則優先順序：
       //   第零位階：模式關閉（外帶/外送總開關）
-      //   第一位階：今日休假（Business Calendar > 今日臨時休息 > 固定公休，見 getDateClosedStatus）
+      //   第一位階：今日休假（今日臨時休息 > Business Calendar > 固定公休，見 getDateClosedStatus）
       //   第二位階：今日最後接單時間（臨時提前結束今日接單）
       //   第三位階：商品販售時段（商品級行銷設定，只限今日）
       //   第四位階：LINE 可售份數（今日額度）
@@ -1200,7 +1208,7 @@ function validateOrderConditions(db, storeId, mode, dateStr, pickupTime, nowMins
       message: `此日期超出可預訂範圍（最多可預訂 ${preorderLimit} 天內）` };
   }
 
-  // 2/3. 店休/休假判斷（Hotfix16 BUG-003：優先序改為 Business Calendar > 今日臨時休息 > 固定公休，
+  // 2/3. 店休/休假判斷（Hotfix16 BUG-003：優先序改為 fix18-10-hotfix30-B5-R6：今日臨時休息 > Business Calendar > 固定公休，
   //      getDateClosedStatus() 內部已整合此優先序，一次判斷完成）
   const closedStatus = getDateClosedStatus(db, storeId, orderDate);
   if (closedStatus.closed) {
