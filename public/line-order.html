@@ -1750,13 +1750,18 @@ function buildServiceStatusBar(){
     }
     return;
   }
-  // hotfix22-F 補正保留：若使用者/購物車保留的模式目前被關閉（modeForcedVisible=true），
-  // 不主動把 currentMode 改回另一個模式的預設值，交由 reconcileFulfillmentMode() 統一
-  // 在購物車開啟時決定是否要「自動切換並提示」，避免兩處各自改寫 currentMode 互相打架。
-  if(!modeForcedVisible){
-    if(toStatus.enabled && !dlStatus.enabled) currentMode='takeout';
-    else if(!toStatus.enabled && dlStatus.enabled) currentMode='delivery';
-  }
+  // fix18-10-hotfix30-B5-R4 root cause fix：先前這裡會在「只有一種模式現在能立即下單」時
+  // 主動把 currentMode 改成那個模式——但 buildServiceStatusBar() 是純顯示函式，會在每次
+  // applyFulfillmentMode() 切換模式後、由 refreshModeCutoffUI() 呼叫，導致使用者才剛切到
+  // 「不能立即下單、但可預約」的模式（例如外帶被特殊營業關閉，可預約明天），這裡又立刻把
+  // currentMode 改回目前唯一「能立即下單」的模式（外送），使用者的明確選擇被無聲蓋掉，
+  // 購物車卻仍顯示 oType.value=使用者選的模式，造成「畫面顯示外帶，但日期/時段/資料其實是
+  // 外送的」表單錯位（即 Mode Isolation 的 Bug-1）。
+  // 「只有一種模式開放時，預設選哪個模式」這件事，只在頁面初次載入時（init()，尚未有任何
+  // 使用者操作）才需要決定一次，該邏輯已經獨立存在於 init() 自己的流程裡；「使用者操作後
+  // 模式是否需要改變」則完全交給 reconcileFulfillmentMode()（有正確的 Analytics 記錄、
+  // toast 提示、且只在購物車商品衝突或店家狀態改變時才動作），不得由這個純顯示函式重複、
+  // 甚至互相打架地再改一次 currentMode。
   // 需求文件第五、九、十八～廿二點：一律同時顯示兩個模式各自的今日狀態文字，不得用
   // 「僅提供 X 服務」的簡化句子蓋掉另一個模式「為什麼不能用」的具體原因；
   // fix18-10-hotfix30-B4 第九、十點：每個模式獨立包 span、依 state 決定顏色 class，
@@ -1945,7 +1950,18 @@ function updateSubmitAvailability(){
 // 一次模式），就不再繼續往下寫入畫面，避免 Case AN（快速連點）的畫面錯亂。
 async function applyFulfillmentMode(mode, opts){
   const silent = !!(opts && opts.silent);
-  const myToken = ++fulfillmentRenderToken;
+  // fix18-10-hotfix30-B5-R4 root cause fix（Bug-1 附帶發現的第二個問題）：先前這裡也會
+  // ++fulfillmentRenderToken 並在 await 之後比對 myToken !== fulfillmentRenderToken——
+  // 但 await 的 refreshDateSelectorForCart() 內部會呼叫 buildTimeSelector()，那裡「也」
+  // 會 ++fulfillmentRenderToken（同一個全域計數器）。結果是：只要 buildTimeSelector()
+  // 成功執行過一次（幾乎每次切換模式都會），這裡的 myToken 必定已經跟目前的
+  // fulfillmentRenderToken 不一致，導致這個檢查永遠判斷「已過期」而提早 return，
+  // buildPreorderInfo()／buildFulfillmentOptions()／Analytics／persistCart() 全部
+  // 被跳過不執行——這正是購物車取餐方式按鈕（fulfillBtns）切換後一直停留在舊模式、
+  // 不會反映使用者剛選的新模式的根因。改用「目前 currentMode 是否還是我被要求套用的
+  // mode」來判斷是否過期：若在等待期間有更新的一次 applyFulfillmentMode() 呼叫進來，
+  // 它會把 currentMode 設成「它自己的」mode，與這裡捕捉到的 mode 不同，才代表真的過期；
+  // 不受 buildTimeSelector()/fetchDeliveryFee() 內部各自的 token 递增影響。
   const fromMode = currentMode;
   if(fromMode && fromMode!==mode) saveCurrentModeFormState(fromMode);
   currentMode = mode;
@@ -1959,8 +1975,14 @@ async function applyFulfillmentMode(mode, opts){
   // 為正確處理今日/明日的 selectable 判斷）與 buildTimeSelector()（已加入 render token
   // 防護），不得改回單純的 buildDateSelector() 而漏掉這個既有分支。
   await refreshDateSelectorForCart();
-  if(myToken!==fulfillmentRenderToken) return; // 使用者在等待期間又切換了模式，這次到此為止
-  buildPreorderInfo();
+  if(currentMode!==mode) return; // 使用者在等待期間又切換了模式，這次到此為止
+  // fix18-10-hotfix30-B5-R4（Bug-2）：這裡不再呼叫 buildPreorderInfo()——
+  // refreshDateSelectorForCart() 在一般情況下不會 await buildTimeSelector() 的
+  // timeslots 請求（只有「購物車內含需強制預約明日的商品」那個分支才會 await），
+  // 所以這個時間點呼叫 buildPreorderInfo() 讀到的 #pTime 常常還是「載入中…」的暫時
+  // 空狀態，會誤顯示「此日暫無可預約時段」。改由 buildTimeSelector() 自己在時段真正
+  // 載入完成的當下呼叫 buildPreorderInfo()（見該函式內的呼叫點），確保顯示的永遠是
+  // 實際載入結果，不是呼叫當下的暫時狀態。
   buildFulfillmentOptions();
   if(!silent && fromMode && fromMode!==mode){
     _trackEvent('fulfillment_method_selected',{ from_mode:fromMode, to_mode:mode, cart_id:_getCartId(false) });
@@ -2294,6 +2316,16 @@ async function buildTimeSelector(mode=currentMode, dateOverride=null){
       const nowDate = fmtD(twNow());
       if(res.reason==='no_slots_today'&&sd===nowDate) msg='今日時段已過，請選擇其他日期';
       sel.innerHTML=`<option value="" disabled>${msg}</option>`;
+      // fix18-10-hotfix30-B5-R4 root cause fix（Bug-2）：先前 buildPreorderInfo() 是在
+      // applyFulfillmentMode() 的呼叫鏈裡、buildTimeSelector() 這個 async 請求「還沒解析
+      // 完成」之前就先執行一次（因為 buildDateSelector() 最後呼叫 buildTimeSelector() 時
+      // 沒有 await，refreshDateSelectorForCart() 的非 forceNextDay 分支也沒有 await），
+      // 讀到的是 #pTime 當下還是「載入中…」的暫時狀態（0 個有值的 option），因而誤判成
+      // 「此日暫無可預約時段」；但實際上系統早就已經自動切到下一個可預約日期，稍後這裡的
+      // API 回應一到，真正的時段就會出現，畫面卻沒有跟著更新，讓使用者誤以為不能預約。
+      // 修正方式：在這裡（timeslots API 真正回應之後）才呼叫 buildPreorderInfo()，
+      // 讓預約提示永遠反映「目前實際載入的時段」，而不是呼叫當下的暫時空狀態。
+      buildPreorderInfo();
       return;
     }
     // fix18-10-hotfix30-B4-RC 第十四點：timeslots 先寫入 Context（單一模式各自的陣列），
@@ -2315,6 +2347,10 @@ async function buildTimeSelector(mode=currentMode, dateOverride=null){
     // 提示最早時間
     if(res.earliest) toast(`最早可選 ${res.earliest}`);
     syncFulfillmentContext(modeSnapshot);
+    // fix18-10-hotfix30-B5-R4（Bug-2 同一根因修正）：時段真正載入完成後才刷新預約提示，
+    // 理由同上一段註解——確保「目前正在預約」顯示的最早時段，是這次真的拿到的時段，
+    // 不是呼叫當下 #pTime 還沒載入完成的暫時空狀態。
+    buildPreorderInfo();
   }catch{
     if(myToken!==fulfillmentRenderToken || !isActiveMode()) return;
     sel.innerHTML='<option value="" disabled>載入失敗，請重試</option>';
