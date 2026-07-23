@@ -407,6 +407,10 @@
       </div>
 
       <!-- ══ 今日販售管理：批量操作（Tab=today 時顯示）══ -->
+      <!-- fix18-10-hotfix30-C1-回退：依回退指令恢復為單一「販售時段」設計，移除
+           外帶／外送商品販售時間區分。商品只保留一組 line_sell_start/line_sell_end，
+           同時適用外帶與外送；外帶／外送各自能否下單仍由店鋪通路開放狀態判斷
+           （見 routes/line-orders.js getEffectiveProductSaleWindow()）。 -->
       <div id="lpm-today-controls">
         <!-- 輸入區 + 套用設定主按鈕 -->
         <div style="display:flex;gap:10px;align-items:flex-end;margin-bottom:10px;flex-wrap:wrap">
@@ -426,47 +430,24 @@
               <input type="number" id="lpm-today-high" min="0" placeholder="0"
                 style="width:80px;padding:6px 8px;border:1px solid var(--border,#334155);border-radius:6px;font-size:13px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
             </div>
+            <div>
+              <div style="font-size:10px;color:var(--text-muted,#64748b);margin-bottom:3px" title="商品共同販售時段：同時適用外帶與外送，留空代表不限販售時間；實際能否下單仍依店家該通路營業時間判斷">販售時段</div>
+              <div style="display:flex;gap:4px;align-items:center">
+                <input type="time" id="lpm-today-sell-start" title="開始時間" lang="en-GB"
+                  style="width:110px;min-width:100px;padding:6px 8px;border:1px solid var(--border,#334155);border-radius:6px;font-size:13px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9);box-sizing:border-box;overflow:visible;flex-shrink:0">
+                <span style="font-size:11px;color:var(--text-muted,#64748b)">~</span>
+                <input type="time" id="lpm-today-sell-end" title="結束時間" lang="en-GB"
+                  style="width:110px;min-width:100px;padding:6px 8px;border:1px solid var(--border,#334155);border-radius:6px;font-size:13px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9);box-sizing:border-box;overflow:visible;flex-shrink:0">
+              </div>
+            </div>
+            <button class="btn-secondary" onclick="lpmResetSaleWindow()" title="清除商品共同販售開始／結束時間，恢復為不限販售時段" style="font-size:12px;padding:6px 10px;white-space:nowrap;color:#ff6d00;border-color:#ff6d00;align-self:flex-end">取消設定（重置）</button>
           </div>
           <button onclick="lpmApplyAll()" style="padding:10px 20px;background:#06C755;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;white-space:nowrap;box-shadow:0 2px 8px rgba(6,199,85,.35);flex-shrink:0">
             💾 套用今日設定
           </button>
         </div>
-        <!-- fix18-10-hotfix30-C1（需求文件第十點）：外帶/外送商品販售時段批次設定拆開為
-             兩個獨立區塊，禁止共用同一組輸入，避免誤更新未選擇的模式。 -->
-        <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:10px;padding-top:10px;border-top:1px solid var(--border,#334155)">
-          <div style="display:flex;gap:8px;align-items:flex-end">
-            <div>
-              <div style="font-size:10px;color:var(--text-muted,#64748b);margin-bottom:3px" title="外帶商品販售時間：只影響此商品在「外帶」模式下何時可販售，不代表店家外帶是否營業">🛍️ 外帶商品販售時間</div>
-              <div style="display:flex;gap:4px;align-items:center">
-                <input type="time" id="lpm-to-sell-start" title="外帶起"
-                  style="width:140px;min-width:130px;padding:6px 8px;border:1px solid var(--border,#334155);border-radius:6px;font-size:13px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
-                <span style="font-size:11px;color:var(--text-muted,#64748b)">~</span>
-                <input type="time" id="lpm-to-sell-end" title="外帶迄"
-                  style="width:140px;min-width:130px;padding:6px 8px;border:1px solid var(--border,#334155);border-radius:6px;font-size:13px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
-              </div>
-            </div>
-            <button class="btn-secondary" onclick="lpmBatch('sell_time_takeout')" style="font-size:12px;padding:6px 10px;white-space:nowrap">套用至勾選商品</button>
-            <button class="btn-secondary" onclick="lpmResetSaleWindow('takeout')" title="清除外帶販售開始／結束時間，恢復為不限販售時間" style="font-size:12px;padding:6px 10px;white-space:nowrap;color:#ff6d00;border-color:#ff6d00">取消設定（重置）</button>
-          </div>
-          <div style="display:flex;gap:8px;align-items:flex-end">
-            <div>
-              <div style="font-size:10px;color:var(--text-muted,#64748b);margin-bottom:3px" title="外送商品販售時間：只影響此商品在「外送」模式下何時可販售，不代表店家外送是否營業">🛵 外送商品販售時間</div>
-              <div style="display:flex;gap:4px;align-items:center">
-                <input type="time" id="lpm-dl-sell-start" title="外送起"
-                  style="width:140px;min-width:130px;padding:6px 8px;border:1px solid var(--border,#334155);border-radius:6px;font-size:13px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
-                <span style="font-size:11px;color:var(--text-muted,#64748b)">~</span>
-                <input type="time" id="lpm-dl-sell-end" title="外送迄"
-                  style="width:140px;min-width:130px;padding:6px 8px;border:1px solid var(--border,#334155);border-radius:6px;font-size:13px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
-              </div>
-            </div>
-            <button class="btn-secondary" onclick="lpmBatch('sell_time_delivery')" style="font-size:12px;padding:6px 10px;white-space:nowrap">套用至勾選商品</button>
-            <button class="btn-secondary" onclick="lpmResetSaleWindow('delivery')" title="清除外送販售開始／結束時間，恢復為不限販售時間" style="font-size:12px;padding:6px 10px;white-space:nowrap;color:#ff6d00;border-color:#ff6d00">取消設定（重置）</button>
-          </div>
-        </div>
-        <!-- fix18-10-hotfix30-C1-hotfix：提示「套用今日設定」主按鈕現在也會一併套用下方的
-             外帶／外送販售時間，不需要再另外按「套用至勾選商品」。 -->
         <div style="font-size:11px;color:var(--text-muted,#64748b);margin-top:-4px;margin-bottom:6px">
-          💡 上方「💾 套用今日設定」按下後，會將目前輸入的外帶／外送販售時間一併套用到所有已勾選商品；若不需要限制時間，請先按「取消設定（重置）」清空欄位再套用。
+          💡 按下「💾 套用今日設定」會將今日開放份數、快售完／供應充足門檻與販售時段一次套用到所有已勾選商品。
         </div>
         <!-- 單項操作 -->
         <div style="display:flex;gap:6px;flex-wrap:wrap;padding-top:10px;border-top:1px solid var(--border,#334155)">
@@ -474,9 +455,7 @@
           <button class="btn-secondary" onclick="lpmBatch('daily')" style="font-size:11px;padding:4px 8px;white-space:nowrap">只更新份數</button>
           <button class="btn-secondary" onclick="lpmBatch('low')" style="font-size:11px;padding:4px 8px;white-space:nowrap">只更新快售完門檻</button>
           <button class="btn-secondary" onclick="lpmBatch('high')" style="font-size:11px;padding:4px 8px;white-space:nowrap">只更新充足門檻</button>
-          <button class="btn-secondary" onclick="lpmBatch('sell_time_takeout')" style="font-size:11px;padding:4px 8px;white-space:nowrap">只更新外帶販售時段</button>
-          <button class="btn-secondary" onclick="lpmBatch('sell_time_delivery')" style="font-size:11px;padding:4px 8px;white-space:nowrap">只更新外送販售時段</button>
-          <button class="btn-secondary" onclick="lpmBatch('sell_time_both')" style="font-size:11px;padding:4px 8px;white-space:nowrap">同時更新外帶+外送時段</button>
+          <button class="btn-secondary" onclick="lpmBatch('sell_time')" style="font-size:11px;padding:4px 8px;white-space:nowrap">只更新販售時段</button>
           <button class="btn-secondary" onclick="lpmBatch('reset_sold')" style="font-size:11px;padding:4px 8px;background:#ff6d00;border-color:#ff6d00;color:#fff;white-space:nowrap">⟳ 重置已售</button>
           <button class="btn-secondary" onclick="lpmBatch('enable')" style="font-size:11px;padding:4px 8px;background:#06C755;border-color:#06C755;color:#fff;white-space:nowrap">✅ 開啟 LINE 販售</button>
           <button class="btn-secondary" onclick="lpmBatch('disable')" style="font-size:11px;padding:4px 8px;background:#e53935;border-color:#e53935;color:#fff;white-space:nowrap">❌ 關閉 LINE 販售</button>
@@ -576,16 +555,14 @@
             <th style="padding:10px 8px;text-align:center;width:70px">剩餘</th>
             <th style="padding:10px 8px;text-align:center;width:72px">快售完</th>
             <th style="padding:10px 8px;text-align:center;width:72px">充足門檻</th>
-            <th style="padding:10px 8px;text-align:center;width:72px" title="外帶商品販售開始時間（留空＝跟隨店家外帶營業時間，或沿用舊版共用販售時段）">外帶起</th>
-            <th style="padding:10px 8px;text-align:center;width:72px" title="外帶商品販售結束時間（到時間後該商品外帶顯示今日完售，其他商品不受影響）">外帶迄</th>
-            <th style="padding:10px 8px;text-align:center;width:72px" title="外送商品販售開始時間（留空＝跟隨店家外送營業時間，或沿用舊版共用販售時段）">外送起</th>
-            <th style="padding:10px 8px;text-align:center;width:72px" title="外送商品販售結束時間（到時間後該商品外送顯示今日完售，其他商品不受影響）">外送迄</th>
+            <th style="padding:10px 8px;text-align:center;width:80px" title="商品販售開始時間（留空＝不限販售時間，同時適用外帶／外送，實際能否下單仍依店家該通路營業時間判斷）">販售開始</th>
+            <th style="padding:10px 8px;text-align:center;width:80px" title="商品販售結束時間（到時間後不論外帶或外送皆顯示今日完售，其他商品不受影響）">販售結束</th>
             <th style="padding:10px 8px;text-align:center;width:90px">目前狀態</th>
             <th style="padding:10px 8px;text-align:center;width:130px">操作</th>
           </tr>
         </thead>
         <tbody id="lpm-tbody">
-          <tr><td colspan="16" style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">載入中…</td></tr>
+          <tr><td colspan="14" style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">載入中…</td></tr>
         </tbody>
       </table>
     </div>
@@ -3571,42 +3548,30 @@
               <span style="font-size:11px;color:#aaa">剩餘 ≥ 此數顯示「供應充足」</span>
             </label>
           </div>
-          <!-- fix18-10-hotfix30-C1（需求文件第一、六、八點）：外帶/外送商品販售時間
-               獨立設定，禁止再共用同一組 lineSellStart/lineSellEnd 輸入框，避免商家
-               誤以為兩個取餐方式共用同一個「販售時段」。留空 = fallback 舊版共用欄位
-               （line_sell_start/line_sell_end，本輪保留、不刪除、不強制搬移），舊欄位
-               也空才代表「不額外限制商品販售時間，只跟隨店家該模式營業時間」。 -->
+          <!-- fix18-10-hotfix30-C1-回退（回退指令第一節）：商品只保留一組共同販售
+               時段，同時適用外帶與外送；不再提供獨立的外帶/外送商品販售時間欄位，
+               避免同一商品因商品時段造成「外帶可買、外送不可買」的不一致情況。
+               外帶／外送個別能否下單，完全交由店鋪通路開放狀態與營業時間判斷
+               （本次未修改半行相關邏輯）。 -->
           <div style="margin-top:4px;padding:10px;background:#f7fff9;border:1px solid #bfe8cc;border-radius:8px">
-            <div style="font-size:13px;font-weight:700;color:#0a7a3d;margin-bottom:6px">🛍️ 外帶商品販售時間</div>
+            <div style="font-size:13px;font-weight:700;color:#0a7a3d;margin-bottom:6px">🕒 商品販售時段</div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
               <label style="font-size:13px;color:#555">
-                外帶開始
-                <input type="time" id="lineTakeoutSellStart" style="width:100%;margin-top:4px;padding:8px;border:1px solid #ddd;border-radius:6px;font-size:14px">
+                開始時間
+                <input type="time" id="lineSellStart" lang="en-GB" style="width:100%;margin-top:4px;padding:8px;border:1px solid #ddd;border-radius:6px;font-size:14px;box-sizing:border-box;overflow:visible;flex-shrink:0">
               </label>
               <label style="font-size:13px;color:#555">
-                外帶結束
-                <input type="time" id="lineTakeoutSellEnd" style="width:100%;margin-top:4px;padding:8px;border:1px solid #ddd;border-radius:6px;font-size:14px">
+                結束時間
+                <input type="time" id="lineSellEnd" lang="en-GB" style="width:100%;margin-top:4px;padding:8px;border:1px solid #ddd;border-radius:6px;font-size:14px;box-sizing:border-box;overflow:visible;flex-shrink:0">
               </label>
             </div>
-            <p id="lineTakeoutSellFallbackHint" style="font-size:11px;color:#e65100;margin-top:6px;display:none"></p>
-          </div>
-          <div style="margin-top:10px;padding:10px;background:#f5f9ff;border:1px solid #bfd6f2;border-radius:8px">
-            <div style="font-size:13px;font-weight:700;color:#0b5fa8;margin-bottom:6px">🛵 外送商品販售時間</div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-              <label style="font-size:13px;color:#555">
-                外送開始
-                <input type="time" id="lineDeliverySellStart" style="width:100%;margin-top:4px;padding:8px;border:1px solid #ddd;border-radius:6px;font-size:14px">
-              </label>
-              <label style="font-size:13px;color:#555">
-                外送結束
-                <input type="time" id="lineDeliverySellEnd" style="width:100%;margin-top:4px;padding:8px;border:1px solid #ddd;border-radius:6px;font-size:14px">
-              </label>
+            <div style="margin-top:8px">
+              <button type="button" onclick="resetLineSellWindow()" style="padding:6px 10px;background:#fff3e0;color:#e65100;border:1px solid #ffcc80;border-radius:6px;font-size:12px;cursor:pointer">取消設定（重置）</button>
             </div>
-            <p id="lineDeliverySellFallbackHint" style="font-size:11px;color:#e65100;margin-top:6px;display:none"></p>
+            <p style="font-size:11px;color:#aaa;margin-top:8px">
+              留空代表不限販售時間，同時適用外帶與外送。實際能否下單仍依店鋪外帶／外送是否開放、正常或特殊營業階段、可取餐／配送時段判斷。
+            </p>
           </div>
-          <p style="font-size:11px;color:#aaa;margin-top:8px">
-            外帶／外送販售時間各自獨立，互不影響。留空時沿用舊版共用販售時段；若舊版時段也為空，則跟隨店家該模式營業時間（不額外限制）。
-          </p>
         </div>
       </div>
 

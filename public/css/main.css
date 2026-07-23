@@ -2438,34 +2438,45 @@ input[type="time"]::selection {
 }
 
 /* ===================================================
-   fix18-10-hotfix30-C1-hotfix（需求文件第三點）：
-   LINE 商品管理－外帶/外送販售時間 Time Picker 寬度不足，
-   導致「上午 06:00」等格式被裁切成「上午 06:」。
-   涵蓋批次操作區（lpm-to-sell-*／lpm-dl-sell-*）與表格內
-   逐行編輯（lpm-ed-to-start-*／lpm-ed-to-end-*／
-   lpm-ed-dl-start-*／lpm-ed-dl-end-*），統一給足寬度，
-   不受父層 overflow:hidden／table 欄寬影響（父層
-   #lpm-table-wrap 已是 overflow-x:auto，可安全放寬）。
+   fix18-10-hotfix30-C1-回退（回退指令第七點）：
+   LINE 商品管理－商品共同販售時段 Time Picker 寬度不足，
+   導致「上午 06:00」等 12 小時制格式被裁切成「上午 06:」。
+   涵蓋批次操作區（lpm-today-sell-start／lpm-today-sell-end）
+   與表格內逐行編輯（lpm-ed-sell-start-*／lpm-ed-sell-end-*）。
+   同時在這些輸入框加上 lang="en-GB"（見 index.html／app.js），
+   強制瀏覽器以 24 小時制渲染，從根本避免「上午/下午」佔用額外
+   寬度；此處 CSS 寬度為雙重保險。不受父層 overflow:hidden／
+   table 欄寬影響（父層 #lpm-table-wrap 已是 overflow-x:auto，
+   可安全放寬）。
    =================================================== */
-#lpm-to-sell-start, #lpm-to-sell-end,
-#lpm-dl-sell-start,  #lpm-dl-sell-end {
-  min-width: 130px !important;
-  width: 140px !important;
+#lpm-today-sell-start, #lpm-today-sell-end {
+  min-width: 120px !important;
+  width: 120px !important;
   box-sizing: border-box;
+  overflow: visible;
+  flex-shrink: 0;
 }
-[id^="lpm-ed-to-start-"], [id^="lpm-ed-to-end-"],
-[id^="lpm-ed-dl-start-"], [id^="lpm-ed-dl-end-"] {
-  min-width: 130px !important;
-  width: 140px !important;
+[id^="lpm-ed-sell-start-"], [id^="lpm-ed-sell-end-"] {
+  min-width: 100px !important;
+  width: 100px !important;
   box-sizing: border-box;
+  overflow: visible;
+  flex-shrink: 0;
 }
 
 /* ── LINE 商品設定 Modal 內的 time input ── */
+/* 回退指令第五節：Modal 單一販售時段欄位也套用時間寬度修正，避免
+   「上午 12:」「下午 02:」被裁切；欄位另有 lang="en-GB" 強制 24 小時制顯示。 */
 #lineSellStart,
 #lineSellEnd {
   color: #222 !important;
   background: #fff !important;
   border: 1px solid #ccc !important;
+  width: 120px !important;
+  min-width: 120px !important;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  overflow: visible;
 }
 #lineSellStart::-webkit-calendar-picker-indicator,
 #lineSellEnd::-webkit-calendar-picker-indicator {

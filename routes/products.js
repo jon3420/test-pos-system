@@ -433,17 +433,30 @@ router.patch('/:id/line-settings', requireFeature('line_order'), (req, res) => {
         return res.status(400).json({ success: false, message: 'LINE 點餐商品至少必須啟用外帶或外送其中一種販售方式。' });
       }
     }
-    // fix18-10-hotfix30-C1（需求文件第三節）：外帶/外送商品販售時段格式驗證。
+    // fix18-10-hotfix30-C1-回退（回退指令第六節）：時間欄位正規化——
+    //   undefined = 本次未修改（不覆蓋既有值）
+    //   null 或空字串 = 使用者明確清除設定，寫入 DB 為 null（不限販售時間）
+    //   其餘字串 = 使用者輸入的 HH:mm 值，原樣寫入
+    // 不可把 undefined 與 null 混為一談，否則批次操作或單項編輯只想更新其他欄位時，
+    // 會不小心把使用者原本設定好的販售時段一併清空。
+    function normalizeOptionalTime(value) {
+      if (value === undefined) return undefined;
+      if (value === null || value === '') return null;
+      return value;
+    }
+    // fix18-10-hotfix30-C1（需求文件第三節）：外帶/外送商品販售時段格式驗證（舊欄位，
+    // 本次不再由管理頁主動寫入，但 API 仍相容接受，格式驗證維持不變）。
     // 空字串代表「清空自訂時段、fallback 舊欄位或不限」，允許；有值時必須是 HH:mm，
     // 不合法格式直接 400 拒絕，避免壞資料寫進 DB 後在 GET /menu 的時間比較邏輯裡
     // 產生無法預期的行為（例如 "25:99" 這種字串比較仍會「成立」但完全沒有意義）。
     const _HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
     const _saleWindowFields = {
+      line_sell_start, line_sell_end,
       line_takeout_sell_start, line_takeout_sell_end,
       line_delivery_sell_start, line_delivery_sell_end,
     };
     for (const [fieldName, fieldVal] of Object.entries(_saleWindowFields)) {
-      if (fieldVal !== undefined && fieldVal !== '' && !_HHMM.test(fieldVal)) {
+      if (fieldVal !== undefined && fieldVal !== '' && fieldVal !== null && !_HHMM.test(fieldVal)) {
         return res.status(400).json({ success: false, message: `${fieldName} 時間格式錯誤，必須是 HH:mm（例如 09:30）` });
       }
     }
@@ -469,15 +482,18 @@ router.patch('/:id/line-settings', requireFeature('line_order'), (req, res) => {
     add('line_quota_sold',           line_quota_sold           != null ? Number(line_quota_sold)           : undefined);
     add('line_quota_low_threshold',  line_quota_low_threshold  != null ? Number(line_quota_low_threshold)  : undefined);
     add('line_quota_high_threshold', line_quota_high_threshold != null ? Number(line_quota_high_threshold) : undefined);
-    add('line_sell_start',           line_sell_start);
-    add('line_sell_end',             line_sell_end);
-    // fix18-10-hotfix30-C1：外帶/外送分開儲存，未傳入的欄位不覆蓋既有值（沿用既有 add()
-    // 慣例：undefined 就跳過，讓「只更新外帶」「只更新外送」「同時更新兩者」三種批次
-    // 情境都只需要傳入要更新的那幾個欄位，不會誤動未選擇的模式）。
-    add('line_takeout_sell_start',   line_takeout_sell_start);
-    add('line_takeout_sell_end',     line_takeout_sell_end);
-    add('line_delivery_sell_start',  line_delivery_sell_start);
-    add('line_delivery_sell_end',    line_delivery_sell_end);
+    // fix18-10-hotfix30-C1-回退：商品只保留一組共同販售時段作為主要寫入來源，
+    // 空字串正規化為 null（明確清除＝不限販售時間），undefined 則整欄跳過不覆蓋。
+    add('line_sell_start',           normalizeOptionalTime(line_sell_start));
+    add('line_sell_end',             normalizeOptionalTime(line_sell_end));
+    // 回退指令第七節：舊版外帶/外送雙時段欄位保留在資料庫中（不刪除、不做破壞性
+    // migration），僅作相容讀取來源；管理頁（批次面板／商品列表／單項 Modal）本次
+    // 起不再主動寫入這四個欄位。API 仍相容接受，若呼叫端仍明確傳入則原樣寫入，
+    // 但不會由本次修改的前端流程觸發。
+    add('line_takeout_sell_start',   normalizeOptionalTime(line_takeout_sell_start));
+    add('line_takeout_sell_end',     normalizeOptionalTime(line_takeout_sell_end));
+    add('line_delivery_sell_start',  normalizeOptionalTime(line_delivery_sell_start));
+    add('line_delivery_sell_end',    normalizeOptionalTime(line_delivery_sell_end));
     // fix18-10-hotfix30-B：LINE 點餐販售模式（外帶/外送），正規化為 0/1，不信任任意字串
     add('line_takeout_enabled',  line_takeout_enabled  !== undefined ? _toModeBit(line_takeout_enabled)  : undefined);
     add('line_delivery_enabled', line_delivery_enabled !== undefined ? _toModeBit(line_delivery_enabled) : undefined);

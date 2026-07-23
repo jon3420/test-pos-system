@@ -5940,33 +5940,14 @@ async function openLineSettingsModal(id) {
     setQV('lineQuotaHighThreshold',  qHigh);
     if (qEnabled) updateLineQuotaStatusBar(qDaily, qSold, qLow, qHigh);
 
-    // fix18-10-hotfix30-C1（需求文件一、七、八點）：外帶/外送商品販售時間獨立載入。
-    // 輸入框只顯示「實際自訂值」（新欄位本身的值），空白就是空白，絕不把 fallback
-    // 後的舊欄位值填進輸入框——避免使用者以為那是「已經幫他填好的自訂設定」，儲存時
-    // 不小心把 fallback 值當成新的自訂值寫回去（需求文件第一節第 2、4 點）。新欄位為
-    // 空、但舊共用欄位（line_sell_start/line_sell_end）有值時，改用下方提示文字清楚
-    // 告知「目前沿用舊版設定」，讓使用者能區分「實際自訂值」與「舊欄位 fallback」。
-    const legacyStart = p.line_sell_start || '';
-    const legacyEnd   = p.line_sell_end   || '';
-    const legacyLabel = (legacyStart || legacyEnd)
-      ? `目前沿用舊版共用販售時段：${legacyStart||'不限'}～${legacyEnd||'不限'}（未另外設定此模式的自訂時段）`
-      : '';
-    setQV('lineTakeoutSellStart',  p.line_takeout_sell_start  || '');
-    setQV('lineTakeoutSellEnd',    p.line_takeout_sell_end    || '');
-    setQV('lineDeliverySellStart', p.line_delivery_sell_start || '');
-    setQV('lineDeliverySellEnd',   p.line_delivery_sell_end   || '');
-    const toHint = document.getElementById('lineTakeoutSellFallbackHint');
-    if (toHint) {
-      const toCustom = !!(p.line_takeout_sell_start || p.line_takeout_sell_end);
-      toHint.style.display = (!toCustom && legacyLabel) ? 'block' : 'none';
-      toHint.textContent = legacyLabel;
-    }
-    const dlHint = document.getElementById('lineDeliverySellFallbackHint');
-    if (dlHint) {
-      const dlCustom = !!(p.line_delivery_sell_start || p.line_delivery_sell_end);
-      dlHint.style.display = (!dlCustom && legacyLabel) ? 'block' : 'none';
-      dlHint.textContent = legacyLabel;
-    }
+    // fix18-10-hotfix30-C1-回退（回退指令第二節）：商品只保留一組共同販售時段，
+    // 使用與商品總表相同的共用 helper _lpmEffectiveSaleWindow()，不在 Modal 另寫
+    // 一套不同的解析邏輯。解析規則：優先用 line_sell_start/line_sell_end；若共同
+    // 欄位皆空，僅在舊版外帶/外送欄位兩者完全相同時才 fallback，兩者不同一律視為
+    // 未設定，不可自行挑選其中一組。
+    const effectiveWindow = _lpmEffectiveSaleWindow(p);
+    setQV('lineSellStart', effectiveWindow.start || '');
+    setQV('lineSellEnd',   effectiveWindow.end   || '');
 
     // ── LINE 顯示分類（客人端）設定 ──
     // 邏輯：優先用 line_category_id；若未設定，預設帶入 category_id（第一次設定時自動帶）
@@ -6049,6 +6030,17 @@ function closeLineSettingsModal() {
   if (shipModal) shipModal.classList.remove('open');
 }
 
+// 回退指令第四節：Modal「取消設定（重置）」——只清空畫面欄位，不直接呼叫 API。
+// 使用者仍需按下「💾 儲存 LINE 設定」才會正式寫入 line_sell_start/line_sell_end = ''
+// （後端正規化為 null，見 routes/products.js normalizeOptionalTime()）。
+function resetLineSellWindow() {
+  const s = document.getElementById('lineSellStart');
+  const e = document.getElementById('lineSellEnd');
+  if (s) s.value = '';
+  if (e) e.value = '';
+  showToast('已清空販售時段，請記得按「💾 儲存 LINE 設定」才會生效', 'success');
+}
+
 async function saveLineSettings() {
   const id          = document.getElementById('lineSettingsProductId').value;
   const show_on_line       = document.getElementById('lineShowOnLine').checked ? 1 : 0;
@@ -6091,16 +6083,13 @@ async function saveLineSettings() {
         line_quota_daily:          Number(document.getElementById('lineQuotaDaily')?.value   || 0),
         line_quota_low_threshold:  Number(document.getElementById('lineQuotaLowThreshold')?.value  || 2),
         line_quota_high_threshold: Number(document.getElementById('lineQuotaHighThreshold')?.value || 10),
-        // fix18-10-hotfix30-C1（需求文件第一節第 3 點）：只寫入使用者在「新欄位」輸入框
-        // 實際打的值（可能是空字串＝使用者主動清空／從未填過，代表「fallback 舊欄位」），
-        // 完全不讀取／不寫回 line_sell_start/line_sell_end 這兩個舊欄位——它們只在
-        // openLineSettingsModal() 載入時讀取用來顯示 fallback 提示文字，本 Modal 的
-        // 儲存動作永遠不會修改到舊欄位本身（需求文件第一節第 5 點：不得刪除或改寫
-        // line_sell_start/line_sell_end）。
-        line_takeout_sell_start:   document.getElementById('lineTakeoutSellStart')?.value  || '',
-        line_takeout_sell_end:     document.getElementById('lineTakeoutSellEnd')?.value    || '',
-        line_delivery_sell_start:  document.getElementById('lineDeliverySellStart')?.value || '',
-        line_delivery_sell_end:    document.getElementById('lineDeliverySellEnd')?.value   || '',
+        // fix18-10-hotfix30-C1-回退（回退指令第三節）：商品只保留一組共同販售時段，
+        // Modal 儲存時只寫入 line_sell_start/line_sell_end，不再從 Modal 寫入
+        // line_takeout_sell_*／line_delivery_sell_*（舊版雙時段欄位保留在資料庫中
+        // 供相容讀取，見 _lpmEffectiveSaleWindow()，本次儲存動作不會主動同步覆蓋
+        // 這四個欄位）。空字串交由後端正規化為「不限販售時間」。
+        line_sell_start: document.getElementById('lineSellStart')?.value || '',
+        line_sell_end:   document.getElementById('lineSellEnd')?.value   || '',
       })
     });
     const json = await res.json();
@@ -9318,6 +9307,30 @@ function lpmSwitchTab(tab) {
   }
 }
 
+// ── 商品共同販售時段（fix18-10-hotfix30-C1-回退，回退指令第六節）──────────
+// 讀取優先順序：
+//   1. 優先讀取舊版共同欄位 line_sell_start / line_sell_end。
+//   2. 若共同欄位皆空，但新版外帶/外送欄位（line_takeout_sell_*／
+//      line_delivery_sell_*）已有資料：兩者相同才轉回共同時間顯示；
+//      兩者不同時無法武斷選一組，一律視為「待確認」，暫時顯示不限
+//      （等同保留舊共同時間為空）。
+// 與 routes/line-orders.js 的 getEffectiveProductSaleWindow() 使用同一套規則，
+// 確保管理頁看到的「目前生效時段」與 GET /menu 實際計算結果一致。
+function _lpmEffectiveSaleWindow(p) {
+  if (p.line_sell_start || p.line_sell_end) {
+    return { start: p.line_sell_start || '', end: p.line_sell_end || '' };
+  }
+  const toS = p.line_takeout_sell_start  || '';
+  const toE = p.line_takeout_sell_end    || '';
+  const dlS = p.line_delivery_sell_start || '';
+  const dlE = p.line_delivery_sell_end   || '';
+  if (toS || toE || dlS || dlE) {
+    if (toS === dlS && toE === dlE) return { start: toS, end: toE };
+    return { start: '', end: '' }; // 兩模式時間不同，待確認，暫不顯示限制時段
+  }
+  return { start: '', end: '' };
+}
+
 // ── LINE 商品狀態計算 ──────────────────────────────────────
 function calcLpmStatus(p) {
   if (!p.show_on_line) return { label:'未上架', cls:'#94a3b8', bg:'rgba(148,163,184,.12)' };
@@ -9337,29 +9350,15 @@ function calcLpmStatus(p) {
     return { label:`可預購(剩${remaining})`, cls:'#3b82f6', bg:'rgba(59,130,246,.12)' };
   }
 
-  // 今日販售 Tab：fix18-10-hotfix30-C1（需求文件第九、十四點）：外帶／外送商品販售
-  // 時段已分開設定，這裡改成分別檢查兩個模式各自的「有效販售時間」（新欄位優先，
-  // 皆空才 fallback 共用舊欄位 line_sell_start/line_sell_end，與後端
-  // getEffectiveProductSaleWindow() 同一套 fallback 規則），管理頁狀態欄採「任一
-  // 模式仍在販售視窗內即視為可販售」（union-of-modes，與顧客端商品卡判斷原則一致，
-  // 見需求文件第十四點），只有兩個模式都已結束/都還沒開始時才顯示「今日售完」／
-  // 「尚未開賣」；未啟用的模式（line_takeout_enabled/line_delivery_enabled=0）不計入。
-  const toActive = Number(p.line_takeout_enabled  ?? 1) === 1;
-  const dlActive = Number(p.line_delivery_enabled ?? 1) === 1;
-  const toStart = p.line_takeout_sell_start  || p.line_sell_start || '';
-  const toEnd   = p.line_takeout_sell_end    || p.line_sell_end   || '';
-  const dlStart = p.line_delivery_sell_start || p.line_sell_start || '';
-  const dlEnd   = p.line_delivery_sell_end   || p.line_sell_end   || '';
-  const toEnded      = toActive && toEnd   && hhmm >= toEnd;
-  const dlEnded      = dlActive && dlEnd   && hhmm >= dlEnd;
-  const toNotStarted = toActive && toStart && hhmm <  toStart;
-  const dlNotStarted = dlActive && dlStart && hhmm <  dlStart;
-  const toUsableNow = toActive && !toEnded && !toNotStarted;
-  const dlUsableNow = dlActive && !dlEnded && !dlNotStarted;
-  if (!toUsableNow && !dlUsableNow) {
-    if ((toActive && toEnded) || (dlActive && dlEnded)) return { label:'今日售完', cls:'#ef4444', bg:'rgba(239,68,68,.12)' };
-    if ((toActive && toNotStarted) || (dlActive && dlNotStarted)) return { label:'尚未開賣', cls:'#ff6d00', bg:'rgba(255,109,0,.12)' };
-  }
+  // 今日販售 Tab：fix18-10-hotfix30-C1-回退（回退指令第二節）：商品只保留一組
+  // 共同販售時段，同時適用外帶與外送，不再分開判斷兩個模式。管理頁狀態欄直接用
+  // _lpmEffectiveSaleWindow() 取得目前生效的共同時段，與後端
+  // getEffectiveProductSaleWindow() 使用同一套規則（優先舊版共同欄位，見六節）。
+  const _sw = _lpmEffectiveSaleWindow(p);
+  const saleEnded      = _sw.end   && hhmm >= _sw.end;
+  const saleNotStarted = _sw.start && hhmm <  _sw.start;
+  if (saleEnded)      return { label:'今日售完', cls:'#ef4444', bg:'rgba(239,68,68,.12)' };
+  if (saleNotStarted) return { label:'尚未開賣', cls:'#ff6d00', bg:'rgba(255,109,0,.12)' };
   if (!Number(p.line_quota_enabled)) return { label:'販售中（未限額）', cls:'#06C755', bg:'rgba(6,199,85,.12)' };
   const remaining = Number(p.line_quota_remaining ?? Math.max(0, p.line_quota_daily - p.line_quota_sold));
   const low  = Number(p.line_quota_low_threshold  || 2);
@@ -9377,7 +9376,7 @@ function renderLpmTable(products) {
   document.getElementById('lpm-check-all').checked = false;
   document.getElementById('lpm-selected-count').textContent = '（未選取商品）';
   if (!products.length) {
-    tbody.innerHTML = '<tr><td colspan="16" style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">尚無商品</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="14" style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">尚無商品</td></tr>';
     return;
   }
   tbody.innerHTML = products.map(p => {
@@ -9393,14 +9392,14 @@ function renderLpmTable(products) {
     const high      = isPreorderTab
       ? Number(p.line_preorder_high_threshold || 10)
       : Number(p.line_quota_high_threshold    || 10);
-    // fix18-10-hotfix30-C1（需求文件第九、二十一點）：外帶/外送商品販售時段獨立顯示。
-    // 顯示值＝新欄位（有值就優先用）、皆空才 fallback 舊欄位，與後端
-    // getEffectiveProductSaleWindow() 同一套規則，確保管理頁看到的「目前生效時段」
-    // 與實際 GET /menu 計算結果一致。
-    const toStart   = p.line_takeout_sell_start  || p.line_sell_start || '';
-    const toEnd     = p.line_takeout_sell_end    || p.line_sell_end   || '';
-    const dlStart   = p.line_delivery_sell_start || p.line_sell_start || '';
-    const dlEnd     = p.line_delivery_sell_end   || p.line_sell_end   || '';
+    // fix18-10-hotfix30-C1-回退（回退指令第六點）：商品只保留一組共同販售時段，
+    // 顯示值一律呼叫 _lpmEffectiveSaleWindow()：優先用舊版共同欄位
+    // line_sell_start/line_sell_end；若共同欄位皆空但新版外帶/外送欄位有資料，
+    // 兩者相同才轉回共同時間顯示，兩者不同則視為待確認、暫時顯示「不限」，
+    // 與後端 getEffectiveProductSaleWindow() 使用同一套規則。
+    const _sw       = _lpmEffectiveSaleWindow(p);
+    const sellStart = _sw.start;
+    const sellEnd   = _sw.end;
     const imgSrc    = p.image || '';
     const thumbHtml = imgSrc
       ? `<img src="${escAttr(imgSrc)}" style="width:38px;height:38px;border-radius:6px;object-fit:cover" onerror="this.style.display='none'">`
@@ -9445,17 +9444,11 @@ function renderLpmTable(products) {
       <td style="${tdStyle}">
         ${ed ? `<input type="number" id="lpm-ed-high-${p.id}" value="${high}" min="0" style="width:56px;padding:4px 6px;border:1px solid var(--border,#334155);border-radius:4px;font-size:13px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9);text-align:center">` : `<span>${high}</span>`}
       </td>
-      <td style="${tdStyle}" title="外帶商品販售開始時間">
-        ${ed ? `<input type="time" id="lpm-ed-to-start-${p.id}" value="${toStart}" style="width:78px;padding:4px 6px;border:1px solid var(--border,#334155);border-radius:4px;font-size:12px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">` : `<span style="font-size:12px">${toStart||'不限'}</span>`}
+      <td style="${tdStyle}" title="商品販售開始時間（同時適用外帶／外送）">
+        ${ed ? `<input type="time" id="lpm-ed-sell-start-${p.id}" value="${sellStart}" lang="en-GB" style="width:100px;min-width:100px;box-sizing:border-box;padding:4px 6px;border:1px solid var(--border,#334155);border-radius:4px;font-size:12px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">` : `<span style="font-size:12px">${sellStart||'不限'}</span>`}
       </td>
-      <td style="${tdStyle}" title="外帶商品販售結束時間">
-        ${ed ? `<input type="time" id="lpm-ed-to-end-${p.id}" value="${toEnd}" style="width:78px;padding:4px 6px;border:1px solid var(--border,#334155);border-radius:4px;font-size:12px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">` : `<span style="font-size:12px">${toEnd||'不限'}</span>`}
-      </td>
-      <td style="${tdStyle}" title="外送商品販售開始時間">
-        ${ed ? `<input type="time" id="lpm-ed-dl-start-${p.id}" value="${dlStart}" style="width:78px;padding:4px 6px;border:1px solid var(--border,#334155);border-radius:4px;font-size:12px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">` : `<span style="font-size:12px">${dlStart||'不限'}</span>`}
-      </td>
-      <td style="${tdStyle}" title="外送商品販售結束時間">
-        ${ed ? `<input type="time" id="lpm-ed-dl-end-${p.id}" value="${dlEnd}" style="width:78px;padding:4px 6px;border:1px solid var(--border,#334155);border-radius:4px;font-size:12px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">` : `<span style="font-size:12px">${dlEnd||'不限'}</span>`}
+      <td style="${tdStyle}" title="商品販售結束時間（同時適用外帶／外送）">
+        ${ed ? `<input type="time" id="lpm-ed-sell-end-${p.id}" value="${sellEnd}" lang="en-GB" style="width:100px;min-width:100px;box-sizing:border-box;padding:4px 6px;border:1px solid var(--border,#334155);border-radius:4px;font-size:12px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">` : `<span style="font-size:12px">${sellEnd||'不限'}</span>`}
       </td>
       <td style="${tdStyle}">
         <span style="display:inline-block;padding:3px 8px;border-radius:12px;font-size:11px;font-weight:700;color:${st.cls};background:${st.bg}">${st.label}</span>
@@ -9530,12 +9523,12 @@ async function lpmSaveRow(id) {
   const daily  = Number(document.getElementById(`lpm-ed-daily-${id}`)?.value  || 0);
   const low    = Number(document.getElementById(`lpm-ed-low-${id}`)?.value    || 0);
   const high   = Number(document.getElementById(`lpm-ed-high-${id}`)?.value   || 0);
-  // fix18-10-hotfix30-C1（需求文件第九、二十一點）：外帶/外送商品販售時段分開讀取、
-  // 分開儲存，不再共用同一組 start/end 輸入框。
-  const toStart = document.getElementById(`lpm-ed-to-start-${id}`)?.value || '';
-  const toEnd   = document.getElementById(`lpm-ed-to-end-${id}`)?.value   || '';
-  const dlStart = document.getElementById(`lpm-ed-dl-start-${id}`)?.value || '';
-  const dlEnd   = document.getElementById(`lpm-ed-dl-end-${id}`)?.value   || '';
+  // fix18-10-hotfix30-C1-回退（回退指令第一、六點）：商品只保留一組共同販售時段，
+  // 逐行編輯改回讀取單一 start/end 輸入框，寫入舊版共同欄位
+  // line_sell_start/line_sell_end；不再寫入 line_takeout_sell_*／line_delivery_sell_*，
+  // 新欄位保留在資料庫中但後續管理頁不再主動寫入（相容處理，見六節）。
+  const sellStart = document.getElementById(`lpm-ed-sell-start-${id}`)?.value || '';
+  const sellEnd   = document.getElementById(`lpm-ed-sell-end-${id}`)?.value   || '';
   // 讀取「限額管理」勾選框；若份數 > 0 則強制啟用
   const qEnCb  = document.getElementById(`lpm-ed-qen-${id}`);
   const qEnabled = daily > 0 ? 1 : (qEnCb?.checked ? 1 : 0);
@@ -9551,10 +9544,8 @@ async function lpmSaveRow(id) {
       line_quota_daily:          daily,
       line_quota_low_threshold:  low,
       line_quota_high_threshold: high,
-      line_takeout_sell_start:   toStart,
-      line_takeout_sell_end:     toEnd,
-      line_delivery_sell_start:  dlStart,
-      line_delivery_sell_end:    dlEnd,
+      line_sell_start:           sellStart,
+      line_sell_end:             sellEnd,
     };
     const res  = await apiFetch(`/api/products/${id}/line-settings`, {
       method:'PATCH', headers:{'Content-Type':'application/json'},
@@ -9642,20 +9633,20 @@ async function resetAllLineQuota() {
 // ── 今日販售：套用設定（主按鈕）──────────────────────────
 async function lpmApplyAll() {
   const ids = lpmGetSelected();
-  if (!ids.length) { showToast('請先選擇商品', 'error'); return; }
+  // 回退指令第四點：未勾選商品時阻止送出，提示文字採用回退指令指定文案
+  if (!ids.length) { showToast('請先勾選要套用設定的商品', 'error'); return; }
 
   // 讀今日販售專屬 input（id: lpm-today-*）
   const daily    = document.getElementById('lpm-today-daily')?.value?.trim();
   const low      = document.getElementById('lpm-today-low')?.value?.trim();
   const high     = document.getElementById('lpm-today-high')?.value?.trim();
-  // fix18-10-hotfix30-C1-hotfix（需求文件第一點）：外帶／外送販售開始/結束時間現在
-  // 也納入「套用今日設定」主按鈕流程，一併寫入所有勾選商品，不需要再另外按
-  // 「套用至勾選商品」。空字串代表「不限販售時間」，後端 PATCH /line-settings 會將
-  // 對應欄位清空（沿用既有 sell_time_takeout/sell_time_delivery 的清空邏輯）。
-  const toStart  = document.getElementById('lpm-to-sell-start')?.value || '';
-  const toEnd    = document.getElementById('lpm-to-sell-end')?.value   || '';
-  const dlStart  = document.getElementById('lpm-dl-sell-start')?.value || '';
-  const dlEnd    = document.getElementById('lpm-dl-sell-end')?.value   || '';
+  // fix18-10-hotfix30-C1-回退（回退指令第一、四點）：商品只保留一組共同販售時段，
+  // 「套用今日設定」主按鈕一次讀取共同販售開始/結束時間，與今日開放份數、快售完/
+  // 供應充足門檻一起寫入所有勾選商品，不需要再另外按其他時間套用按鈕。空字串代表
+  // 「不限販售時間」，後端 PATCH /line-settings 會將 line_sell_start/line_sell_end
+  // 欄位清空。
+  const sellStart = document.getElementById('lpm-today-sell-start')?.value || '';
+  const sellEnd   = document.getElementById('lpm-today-sell-end')?.value   || '';
 
   if (!daily && daily !== '0') { showToast('請輸入今日開放份數', 'error'); return; }
 
@@ -9674,8 +9665,7 @@ async function lpmApplyAll() {
     lowNum  !== null ? `快售完門檻：${lowNum}`   : null,
     highNum !== null ? `供應充足門檻：${highNum}` : null,
     `啟用份數管理：是`,
-    `外帶販售時間：${toStart || '不限'}～${toEnd || '不限'}`,
-    `外送販售時間：${dlStart || '不限'}～${dlEnd || '不限'}`,
+    `販售時段：${sellStart || '不限'}～${sellEnd || '不限'}`,
     `確定套用？`,
   ].filter(l => l !== null).join('\n');
 
@@ -9683,33 +9673,26 @@ async function lpmApplyAll() {
 
   const body = {
     line_quota_enabled: 1, line_quota_daily: dailyNum,
-    line_takeout_sell_start: toStart,   line_takeout_sell_end: toEnd,
-    line_delivery_sell_start: dlStart,  line_delivery_sell_end: dlEnd,
+    line_sell_start: sellStart, line_sell_end: sellEnd,
   };
   if (lowNum  !== null) body.line_quota_low_threshold  = lowNum;
   if (highNum !== null) body.line_quota_high_threshold = highNum;
 
-  await _lpmBatchSend(ids, body, '今日販售');
+  // 回退指令第四點：套用成功後顯示「已將今日設定套用至 X 項商品」
+  await _lpmBatchSend(ids, body, '今日販售', (n) => `✅ 已將今日設定套用至 ${n} 項商品`);
 }
 
-// ── 外帶／外送販售時間：取消設定（重置為不限販售時間）─────────
-// fix18-10-hotfix30-C1-hotfix（需求文件第二點）：清空對應輸入欄位後，直接重用既有
-// lpmBatch('sell_time_takeout' / 'sell_time_delivery') 邏輯送出空字串，讓後端把該
-// 模式的開始/結束時間欄位清空（等同「不限販售時間」），且不影響另一模式。
-function lpmResetSaleWindow(mode) {
-  if (mode === 'takeout') {
-    const s = document.getElementById('lpm-to-sell-start');
-    const e = document.getElementById('lpm-to-sell-end');
-    if (s) s.value = '';
-    if (e) e.value = '';
-    lpmBatch('sell_time_takeout');
-  } else if (mode === 'delivery') {
-    const s = document.getElementById('lpm-dl-sell-start');
-    const e = document.getElementById('lpm-dl-sell-end');
-    if (s) s.value = '';
-    if (e) e.value = '';
-    lpmBatch('sell_time_delivery');
-  }
+// ── 商品共同販售時段：取消設定（重置為不限販售時間）───────────
+// 回退指令第五點：清空共同販售時段輸入框後，直接重用既有 lpmBatch('sell_time')
+// 邏輯送出空字串，讓後端把 line_sell_start/line_sell_end 清空（等同「不限販售
+// 時段」）。重置後，商品是否能購買仍需服從店鋪的外帶／外送營業時間，不代表全天候
+// 皆可下單。
+function lpmResetSaleWindow() {
+  const s = document.getElementById('lpm-today-sell-start');
+  const e = document.getElementById('lpm-today-sell-end');
+  if (s) s.value = '';
+  if (e) e.value = '';
+  lpmBatch('sell_time');
 }
 
 // ── 預購數量：套用設定（主按鈕）──────────────────────────
@@ -9754,7 +9737,7 @@ async function lpmApplyPreorder() {
 }
 
 // ── 共用批量發送邏輯 ──────────────────────────────────────
-async function _lpmBatchSend(ids, body, label) {
+async function _lpmBatchSend(ids, body, label, successMsg) {
   let successCount = 0, failCount = 0, firstFailReason = '';
   const chunks = [];
   for (let i = 0; i < ids.length; i += 5) chunks.push(ids.slice(i, i+5));
@@ -9794,7 +9777,7 @@ async function _lpmBatchSend(ids, body, label) {
   }
   renderLpmTable(_lpmProducts);
   if (!failCount) {
-    showToast(`✅ 已更新 ${successCount} 個商品的 LINE ${label}設定`, 'success');
+    showToast(successMsg ? successMsg(successCount) : `✅ 已更新 ${successCount} 個商品的 LINE ${label}設定`, 'success');
   } else if (!successCount) {
     showToast(`⚠️ 全部 ${failCount} 個失敗。原因：${firstFailReason || '未知'}`, 'error');
   } else {
@@ -9813,13 +9796,11 @@ async function lpmBatch(type) {
     reset_sold: 'LINE 已售份數重置為 0',
     enable:     'LINE 販售開啟',
     disable:    'LINE 販售關閉',
-    sell_time_takeout:  '外帶商品販售時段',
-    sell_time_delivery: '外送商品販售時段',
-    sell_time_both:     '外帶／外送商品販售時段（同時更新兩者）',
+    sell_time:  '商品販售時段',
   };
 
   let body = {};
-  let val, startVal, endVal, toStartVal, toEndVal, dlStartVal, dlEndVal;
+  let val, startVal, endVal;
   if (type === 'daily') {
     val = Number(document.getElementById('lpm-today-daily')?.value);
     if (isNaN(val) || val < 0) { showToast('請輸入有效的開放份數（今日販售區塊）', 'error'); return; }
@@ -9837,29 +9818,12 @@ async function lpmBatch(type) {
     if (isNaN(val) || val < 0) { showToast('請輸入有效的門檻值（今日販售區塊）', 'error'); return; }
     if (!confirm(`確定要將已選 ${ids.length} 個商品的「供應充足門檻」設定為 ${val} 嗎？`)) return;
     body = { line_quota_high_threshold: val, line_quota_enabled: 1 };
-  } else if (type === 'sell_time_takeout') {
-    // fix18-10-hotfix30-C1（需求文件第十點）：只更新外帶販售時段，不得誤動外送欄位
-    // （PATCH /line-settings 的 add() 只寫入 body 內實際出現的欄位，未傳入的欄位
-    // 不會被覆蓋，因此這裡完全不放 line_delivery_sell_*，外送資料原樣保留）。
-    toStartVal = document.getElementById('lpm-to-sell-start')?.value || '';
-    toEndVal   = document.getElementById('lpm-to-sell-end')?.value   || '';
-    if (!confirm(`確定要將已選 ${ids.length} 個商品的「外帶」LINE 販售時段設定為 ${toStartVal||'不限'}～${toEndVal||'不限'} 嗎？（不影響外送）`)) return;
-    body = { line_takeout_sell_start: toStartVal, line_takeout_sell_end: toEndVal };
-  } else if (type === 'sell_time_delivery') {
-    dlStartVal = document.getElementById('lpm-dl-sell-start')?.value || '';
-    dlEndVal   = document.getElementById('lpm-dl-sell-end')?.value   || '';
-    if (!confirm(`確定要將已選 ${ids.length} 個商品的「外送」LINE 販售時段設定為 ${dlStartVal||'不限'}～${dlEndVal||'不限'} 嗎？（不影響外帶）`)) return;
-    body = { line_delivery_sell_start: dlStartVal, line_delivery_sell_end: dlEndVal };
-  } else if (type === 'sell_time_both') {
-    toStartVal = document.getElementById('lpm-to-sell-start')?.value || '';
-    toEndVal   = document.getElementById('lpm-to-sell-end')?.value   || '';
-    dlStartVal = document.getElementById('lpm-dl-sell-start')?.value || '';
-    dlEndVal   = document.getElementById('lpm-dl-sell-end')?.value   || '';
-    if (!confirm(`確定要將已選 ${ids.length} 個商品的「外帶」販售時段設定為 ${toStartVal||'不限'}～${toEndVal||'不限'}，\n「外送」販售時段設定為 ${dlStartVal||'不限'}～${dlEndVal||'不限'} 嗎？`)) return;
-    body = {
-      line_takeout_sell_start: toStartVal, line_takeout_sell_end: toEndVal,
-      line_delivery_sell_start: dlStartVal, line_delivery_sell_end: dlEndVal,
-    };
+  } else if (type === 'sell_time') {
+    // 回退指令：商品只保留一組共同販售時段，同時適用外帶／外送，不再分開設定。
+    startVal = document.getElementById('lpm-today-sell-start')?.value || '';
+    endVal   = document.getElementById('lpm-today-sell-end')?.value   || '';
+    if (!confirm(`確定要將已選 ${ids.length} 個商品的販售時段設定為 ${startVal||'不限'}～${endVal||'不限'} 嗎？（同時適用外帶／外送）`)) return;
+    body = { line_sell_start: startVal, line_sell_end: endVal };
   } else if (type === 'reset_sold') {
     if (!confirm(`確定要重置已選 ${ids.length} 個商品的 LINE 已售份數為 0 嗎？此操作不影響主庫存。`)) return;
     body = { line_quota_sold: 0 };
