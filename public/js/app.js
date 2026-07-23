@@ -9648,10 +9648,14 @@ async function lpmApplyAll() {
   const daily    = document.getElementById('lpm-today-daily')?.value?.trim();
   const low      = document.getElementById('lpm-today-low')?.value?.trim();
   const high     = document.getElementById('lpm-today-high')?.value?.trim();
-  // fix18-10-hotfix30-C1（需求文件第七、十點）：販售時段已拆成外帶/外送兩組獨立輸入
-  // 與獨立按鈕（lpmBatch('sell_time_takeout')/('sell_time_delivery')/('sell_time_both')），
-  // 這裡的「套用今日設定」主按鈕不再讀取／送出共用的販售時段欄位，避免誤更新其中一個
-  // 模式（該共用輸入框本身已從畫面移除）。
+  // fix18-10-hotfix30-C1-hotfix（需求文件第一點）：外帶／外送販售開始/結束時間現在
+  // 也納入「套用今日設定」主按鈕流程，一併寫入所有勾選商品，不需要再另外按
+  // 「套用至勾選商品」。空字串代表「不限販售時間」，後端 PATCH /line-settings 會將
+  // 對應欄位清空（沿用既有 sell_time_takeout/sell_time_delivery 的清空邏輯）。
+  const toStart  = document.getElementById('lpm-to-sell-start')?.value || '';
+  const toEnd    = document.getElementById('lpm-to-sell-end')?.value   || '';
+  const dlStart  = document.getElementById('lpm-dl-sell-start')?.value || '';
+  const dlEnd    = document.getElementById('lpm-dl-sell-end')?.value   || '';
 
   if (!daily && daily !== '0') { showToast('請輸入今日開放份數', 'error'); return; }
 
@@ -9670,16 +9674,42 @@ async function lpmApplyAll() {
     lowNum  !== null ? `快售完門檻：${lowNum}`   : null,
     highNum !== null ? `供應充足門檻：${highNum}` : null,
     `啟用份數管理：是`,
+    `外帶販售時間：${toStart || '不限'}～${toEnd || '不限'}`,
+    `外送販售時間：${dlStart || '不限'}～${dlEnd || '不限'}`,
     `確定套用？`,
   ].filter(l => l !== null).join('\n');
 
   if (!confirm(confirmLines)) return;
 
-  const body = { line_quota_enabled: 1, line_quota_daily: dailyNum };
+  const body = {
+    line_quota_enabled: 1, line_quota_daily: dailyNum,
+    line_takeout_sell_start: toStart,   line_takeout_sell_end: toEnd,
+    line_delivery_sell_start: dlStart,  line_delivery_sell_end: dlEnd,
+  };
   if (lowNum  !== null) body.line_quota_low_threshold  = lowNum;
   if (highNum !== null) body.line_quota_high_threshold = highNum;
 
   await _lpmBatchSend(ids, body, '今日販售');
+}
+
+// ── 外帶／外送販售時間：取消設定（重置為不限販售時間）─────────
+// fix18-10-hotfix30-C1-hotfix（需求文件第二點）：清空對應輸入欄位後，直接重用既有
+// lpmBatch('sell_time_takeout' / 'sell_time_delivery') 邏輯送出空字串，讓後端把該
+// 模式的開始/結束時間欄位清空（等同「不限販售時間」），且不影響另一模式。
+function lpmResetSaleWindow(mode) {
+  if (mode === 'takeout') {
+    const s = document.getElementById('lpm-to-sell-start');
+    const e = document.getElementById('lpm-to-sell-end');
+    if (s) s.value = '';
+    if (e) e.value = '';
+    lpmBatch('sell_time_takeout');
+  } else if (mode === 'delivery') {
+    const s = document.getElementById('lpm-dl-sell-start');
+    const e = document.getElementById('lpm-dl-sell-end');
+    if (s) s.value = '';
+    if (e) e.value = '';
+    lpmBatch('sell_time_delivery');
+  }
 }
 
 // ── 預購數量：套用設定（主按鈕）──────────────────────────

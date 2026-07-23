@@ -439,27 +439,34 @@
               <div style="font-size:10px;color:var(--text-muted,#64748b);margin-bottom:3px" title="外帶商品販售時間：只影響此商品在「外帶」模式下何時可販售，不代表店家外帶是否營業">🛍️ 外帶商品販售時間</div>
               <div style="display:flex;gap:4px;align-items:center">
                 <input type="time" id="lpm-to-sell-start" title="外帶起"
-                  style="width:100px;padding:6px 8px;border:1px solid var(--border,#334155);border-radius:6px;font-size:13px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
+                  style="width:140px;min-width:130px;padding:6px 8px;border:1px solid var(--border,#334155);border-radius:6px;font-size:13px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
                 <span style="font-size:11px;color:var(--text-muted,#64748b)">~</span>
                 <input type="time" id="lpm-to-sell-end" title="外帶迄"
-                  style="width:100px;padding:6px 8px;border:1px solid var(--border,#334155);border-radius:6px;font-size:13px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
+                  style="width:140px;min-width:130px;padding:6px 8px;border:1px solid var(--border,#334155);border-radius:6px;font-size:13px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
               </div>
             </div>
             <button class="btn-secondary" onclick="lpmBatch('sell_time_takeout')" style="font-size:12px;padding:6px 10px;white-space:nowrap">套用至勾選商品</button>
+            <button class="btn-secondary" onclick="lpmResetSaleWindow('takeout')" title="清除外帶販售開始／結束時間，恢復為不限販售時間" style="font-size:12px;padding:6px 10px;white-space:nowrap;color:#ff6d00;border-color:#ff6d00">取消設定（重置）</button>
           </div>
           <div style="display:flex;gap:8px;align-items:flex-end">
             <div>
               <div style="font-size:10px;color:var(--text-muted,#64748b);margin-bottom:3px" title="外送商品販售時間：只影響此商品在「外送」模式下何時可販售，不代表店家外送是否營業">🛵 外送商品販售時間</div>
               <div style="display:flex;gap:4px;align-items:center">
                 <input type="time" id="lpm-dl-sell-start" title="外送起"
-                  style="width:100px;padding:6px 8px;border:1px solid var(--border,#334155);border-radius:6px;font-size:13px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
+                  style="width:140px;min-width:130px;padding:6px 8px;border:1px solid var(--border,#334155);border-radius:6px;font-size:13px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
                 <span style="font-size:11px;color:var(--text-muted,#64748b)">~</span>
                 <input type="time" id="lpm-dl-sell-end" title="外送迄"
-                  style="width:100px;padding:6px 8px;border:1px solid var(--border,#334155);border-radius:6px;font-size:13px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
+                  style="width:140px;min-width:130px;padding:6px 8px;border:1px solid var(--border,#334155);border-radius:6px;font-size:13px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
               </div>
             </div>
             <button class="btn-secondary" onclick="lpmBatch('sell_time_delivery')" style="font-size:12px;padding:6px 10px;white-space:nowrap">套用至勾選商品</button>
+            <button class="btn-secondary" onclick="lpmResetSaleWindow('delivery')" title="清除外送販售開始／結束時間，恢復為不限販售時間" style="font-size:12px;padding:6px 10px;white-space:nowrap;color:#ff6d00;border-color:#ff6d00">取消設定（重置）</button>
           </div>
+        </div>
+        <!-- fix18-10-hotfix30-C1-hotfix：提示「套用今日設定」主按鈕現在也會一併套用下方的
+             外帶／外送販售時間，不需要再另外按「套用至勾選商品」。 -->
+        <div style="font-size:11px;color:var(--text-muted,#64748b);margin-top:-4px;margin-bottom:6px">
+          💡 上方「💾 套用今日設定」按下後，會將目前輸入的外帶／外送販售時間一併套用到所有已勾選商品；若不需要限制時間，請先按「取消設定（重置）」清空欄位再套用。
         </div>
         <!-- 單項操作 -->
         <div style="display:flex;gap:6px;flex-wrap:wrap;padding-top:10px;border-top:1px solid var(--border,#334155)">

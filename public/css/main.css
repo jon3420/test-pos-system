@@ -2437,6 +2437,29 @@ input[type="time"]::selection {
   border: 1px solid var(--border, #334155) !important;
 }
 
+/* ===================================================
+   fix18-10-hotfix30-C1-hotfix（需求文件第三點）：
+   LINE 商品管理－外帶/外送販售時間 Time Picker 寬度不足，
+   導致「上午 06:00」等格式被裁切成「上午 06:」。
+   涵蓋批次操作區（lpm-to-sell-*／lpm-dl-sell-*）與表格內
+   逐行編輯（lpm-ed-to-start-*／lpm-ed-to-end-*／
+   lpm-ed-dl-start-*／lpm-ed-dl-end-*），統一給足寬度，
+   不受父層 overflow:hidden／table 欄寬影響（父層
+   #lpm-table-wrap 已是 overflow-x:auto，可安全放寬）。
+   =================================================== */
+#lpm-to-sell-start, #lpm-to-sell-end,
+#lpm-dl-sell-start,  #lpm-dl-sell-end {
+  min-width: 130px !important;
+  width: 140px !important;
+  box-sizing: border-box;
+}
+[id^="lpm-ed-to-start-"], [id^="lpm-ed-to-end-"],
+[id^="lpm-ed-dl-start-"], [id^="lpm-ed-dl-end-"] {
+  min-width: 130px !important;
+  width: 140px !important;
+  box-sizing: border-box;
+}
+
 /* ── LINE 商品設定 Modal 內的 time input ── */
 #lineSellStart,
 #lineSellEnd {
