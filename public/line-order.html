@@ -1148,8 +1148,8 @@ function removeCartItem(id){
   delete cart[id]; preorderRequiredIds.delete(Number(id));
   updateBar(); updateProductCard(id);
   reconcileFulfillmentMode();
-  if(document.getElementById('cartSheet')?.classList.contains('show')) renderCartItems();
   persistCart();
+  refreshCartAfterMutation();
 }
 // fix18-10-hotfix30-A：購物車開啟／內容變動時呼叫，依「店家模式開關 × 購物車商品相容性」
 // 交集後的結果，決定是否需要提示或自動切換 currentMode。
@@ -2700,6 +2700,7 @@ function addCart(id,evt){
   updateBar();updateProductCard(id);
   reconcileFulfillmentMode();
   persistCart();
+  refreshCartAfterMutation();
 }
 
 // ── B: 預約明日 — 完整流程 ────────────────────────────────
@@ -2744,6 +2745,7 @@ function addPreorderToCart(id,evt,p){
   if(evt){const fly=document.createElement('div');fly.className='fly-item';fly.textContent='🛒';fly.style.cssText=`left:${evt.clientX}px;top:${evt.clientY}px`;document.body.appendChild(fly);setTimeout(()=>fly.remove(),700);}
   updateBar();updateProductCard(id);
   persistCart();
+  refreshCartAfterMutation();
   toast('✅ 已加入購物車，將自動預約下個營業日');
 }
 
@@ -2910,8 +2912,8 @@ function chgQty(id,d){
   }
   updateBar();updateProductCard(id);
   reconcileFulfillmentMode();
-  if(document.getElementById('cartSheet').classList.contains('show'))renderCartItems();
   persistCart();
+  refreshCartAfterMutation();
 }
 function updateProductCard(id){
   const p=allProducts.find(x=>x.id==id);if(!p)return;
@@ -3102,6 +3104,12 @@ function clearCartByUser(){
   cart={};preorderRequiredIds.clear();
   clearCoupon();
   clearCartStorage();
+  // C4 收尾：購物車已清空，沒有商品就沒有金額可算，不需要為了 subtotal=0 再打一次
+  // /api/delivery/calculate-fee——直接取消尚未送出的重算 debounce，並清除舊的
+  // _deliveryFeeResult/deliveryFeeCalculated，避免殘留清空前的「已達免運」結果。
+  clearTimeout(_cartDeliveryRefreshTimer);
+  _deliveryFeeResult = null;
+  deliveryFeeCalculated = false;
   updateBar();renderMenu();renderCartItems();
   closeSheet('cartSheet');
   toast('🗑️ 已清空購物車');
@@ -3871,6 +3879,62 @@ function resetDeliveryFee(){
   const feeMsg = document.getElementById('deliveryFeeMsg');
   if(feeMsg) feeMsg.textContent='';
   updateCartTotals(); // = updateBar()，內部會呼叫 updateDeliveryFreeProgress()，避免地址殘留舊結果
+}
+
+// ── C4：商品增加／減少／推薦加購後即時重算滿額外送優惠 ──────────────────────
+// 根因（需求文件二）：addCart()/chgQty()/removeCartItem() 原本只更新 cart 陣列、
+// localStorage、部分小計 DOM，但沒有在每次異動後重新 render 購物車列表、也沒有
+// 重新呼叫 /api/delivery/calculate-fee，導致：
+//   Bug 1：商品減少後，_deliveryFeeResult 仍是「減少前」那次 API 算出來的舊結果，
+//          reached/finalFee 都是舊的，必須送出訂單或重開購物車才會更新。
+//   Bug 2：推薦商品用 addCart() 加入後，購物車 modal 內的商品列表（renderCartItems()）
+//          從未被呼叫，只有購物車角標數字變動，必須關閉重開才看得到新商品。
+// 修正：建立單一同步入口 refreshCartAfterMutation()，往下所有「真正改變 cart 資料」的
+// 函式（addCart／addPreorderToCart／chgQty／removeCartItem）都改成呼叫這個入口，
+// 不再各自零散判斷要不要 renderCartItems()／要不要重打 API。
+function hasValidDeliveryLocation(){
+  return !!(deliveryLatLng && deliveryLatLng.lat!=null && deliveryLatLng.lng!=null);
+}
+// 外送費重算期間，暫時清空 _deliveryFeeResult，讓 updateDeliveryFreeProgress() 落回
+// 「地址尚未確認座標」那個 fallback 分支（feeResolved 強制 false）：不得繼續沿用
+// 上一筆 _deliveryFeeResult 裡「已達免運」的舊結果（需求文件九）。
+function setDeliveryFeePending(){
+  _deliveryFeeResult = null;
+  deliveryFeeCalculated = false;
+  updateCartTotals();
+}
+let _cartDeliveryRefreshTimer = null;
+// 統一外送費重算排程入口：商品增減／推薦加購都呼叫這裡，取代各自散落呼叫
+// fetchDeliveryFee() 造成的競態。fetchDeliveryFee() 內部已有 fulfillmentRenderToken
+// 序號保護（見該函式），較舊、較慢的回應不會覆蓋較新的結果（需求文件五）。
+// 加入 150ms debounce（需求文件十五），避免顧客快速連點 ＋／－ 時每次都打一次 API；
+// 但商品列表／小計一律由呼叫端立即更新，不受 debounce 影響。
+function scheduleDeliveryFeeRefresh(){
+  if(currentMode!=='delivery'){
+    // 外帶模式：getDeliveryFreeProgressState() 對非 delivery 一律 visible:false，
+    // 不需要、也不應該去動已保存的外送地址／座標（那是切回外送時要沿用的資料）。
+    updateCartTotals();
+    return;
+  }
+  if(!hasValidDeliveryLocation()){
+    // 外送模式但地址還沒選好座標：沒有後端結果可用，只用最新 subtotal 算出的
+    // fallback 門檻顯示，不呼叫 API。防禦性清除任何殘留的舊結果，避免沿用
+    // 「地址失效前」算出的 finalFee／已達免運（需求文件五）。
+    _deliveryFeeResult = null;
+    deliveryFeeCalculated = false;
+    updateCartTotals();
+    return;
+  }
+  setDeliveryFeePending();
+  clearTimeout(_cartDeliveryRefreshTimer);
+  _cartDeliveryRefreshTimer = setTimeout(()=>{ fetchDeliveryFee(); }, 150);
+}
+// 單一購物車同步入口（需求文件三）：商品異動函式在完成 cart 資料修改、updateBar()、
+// persistCart() 之後，一律呼叫這裡，取代原本「部分函式會 renderCartItems()、部分不會」
+// 的散落狀態。
+function refreshCartAfterMutation(){
+  if(document.getElementById('cartSheet')?.classList.contains('show')) renderCartItems();
+  scheduleDeliveryFeeRefresh();
 }
 
 // ═══════════════════════════════════════════════════════
