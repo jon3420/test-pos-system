@@ -801,6 +801,22 @@ let cart={};
 function getCartProductSubtotal(){
   return Object.values(cart).reduce((s,{product:p,qty})=>s+(p.effective_line_price||p.price)*qty,0);
 }
+// ── C5（需求文件七）：折抵金額防呆 ──────────────────────────────────────
+// 統一物件 _deliveryFeeResult.discount 一律優先採用後端明確回傳的 delivery_discount；
+// 但即使後端這次漏回傳（explicitDiscount 為 undefined/null/空字串/非數字），也不得讓
+// 畫面直接顯示「折抵 NT$0」——改由 rawFee - finalFee 的差額安全推導，永遠介於
+// [0, rawFee] 之間。所有寫入 _deliveryFeeResult.discount 的地方都必須呼叫這裡，
+// 不得各自重複實作一次「Number(x||0)」這種會把「缺欄位」與「明確 0」混為一談的寫法。
+function deriveDeliveryDiscount(rawFee, finalFee, explicitDiscount){
+  const normalizedRawFee = Math.max(Number(rawFee) || 0, 0);
+  const normalizedFinalFee = Math.max(Number(finalFee) || 0, 0);
+  const hasExplicitValue = explicitDiscount !== undefined && explicitDiscount !== null && explicitDiscount !== '';
+  const parsedExplicit = Number(explicitDiscount);
+  if (hasExplicitValue && Number.isFinite(parsedExplicit)) {
+    return Math.min(Math.max(parsedExplicit, 0), normalizedRawFee);
+  }
+  return Math.max(normalizedRawFee - normalizedFinalFee, 0);
+}
 // fix18-10-hotfix26-F8-B（需求文件十五）：目前這次還原成功的 Cart Handoff full
 // token（若有）。訂單成立時一併送給後端 consume，避免同一 token 被重複下單。
 let _activeCartHandoffToken='';
@@ -1232,6 +1248,11 @@ let _deliveryOutOfRange = false;
 // 不新增後端沒有回傳過的虛構欄位；discount 為前端依實際數值算出（Math.max(rawFee-finalFee,0)）。
 // null 表示外送費尚未算出。
 let _deliveryFeeResult = null;
+// C5（需求文件五）：記住「最近一次成功解析」的距離級距門檻/優惠模式，供商品異動、
+// API 尚未回來的 pending 期間沿用——不得在那段空窗期改用 shopData 的舊版全店
+// delivery_free_threshold（例如 11.94km 級距門檻其實是 NT$1,500，商品異動後 pending
+// 期間絕不能閃成 NT$1,000）。null 表示這次瀏覽階段還沒有任何成功解析過的距離級距。
+let _lastResolvedDeliveryTier = null;
 
 // fix18-10-hotfix30-B4 第三點：外帶／外送表單狀態必須獨立保存，不得共用同一份日期/時段/
 // 地址狀態。沿用既有變數（deliveryLatLng/calcDeliveryFee/deliveryFeeCalculated/
@@ -2058,6 +2079,9 @@ async function applyFulfillmentMode(mode, opts){
   const fromMode = currentMode;
   if(fromMode && fromMode!==mode) saveCurrentModeFormState(fromMode);
   currentMode = mode;
+  // C5（需求文件三）：切換到外帶模式時，最近一次命中的外送距離級距不再相關，清除掉，
+  // 避免之後切回外送時，商品異動的 pending 畫面誤用「上一次外送地址」留下的舊 tier。
+  if(fromMode!==mode && mode==='takeout'){ _lastResolvedDeliveryTier = null; }
   const oType=document.getElementById('oType'); if(oType) oType.value=mode;
   restoreModeFormState(mode);
   renderMenu();
@@ -3110,6 +3134,9 @@ function clearCartByUser(){
   clearTimeout(_cartDeliveryRefreshTimer);
   _deliveryFeeResult = null;
   deliveryFeeCalculated = false;
+  // C5（需求文件三）：購物車清空後，最近一次命中的距離級距門檻也一併作廢——
+  // 下次重新加入商品時應該重新解析，不得沿用清空前那次已經不相關的舊級距。
+  _lastResolvedDeliveryTier = null;
   updateBar();renderMenu();renderCartItems();
   closeSheet('cartSheet');
   toast('🗑️ 已清空購物車');
@@ -3414,7 +3441,7 @@ async function submitOrder(){
         _deliveryFeeResult = {
           rawFee:            Number(dfr.raw_fee||0),
           finalFee:          Number(dfr.delivery_fee!=null?dfr.delivery_fee:orderRes.delivery_fee||0),
-          discount:          Number(dfr.delivery_discount||0),
+          discount:          deriveDeliveryDiscount(dfr.raw_fee, dfr.delivery_fee!=null?dfr.delivery_fee:orderRes.delivery_fee, dfr.delivery_discount),
           isFreeDelivery:    Boolean(dfr.is_free_delivery),
           mode:              dfr.free_rule_type||'none',
           threshold:         Number(dfr.free_threshold||0),
@@ -3872,6 +3899,10 @@ function resetDeliveryFee(){
   _lastIsFreeDelivery = null;
   _deliveryOutOfRange = false;
   _deliveryFeeResult = null;
+  // C5（需求文件三）：地址被整個清掉／作廢時（超距離、Maps 失敗、訂單成立後重置…），
+  // 最近一次命中的距離級距門檻也一併作廢，避免下次還沒解析出新距離前，pending 畫面
+  // 誤用一個其實已經不相關的舊地址級距。
+  _lastResolvedDeliveryTier = null;
   const addrEl = document.getElementById('deliveryAddress');
   if(addrEl) addrEl.value = '';
   const feeRow = document.getElementById('deliveryFeeRow');
@@ -4075,18 +4106,107 @@ function renderDeliveryFreeRecommendations(state) {
 // 只有在還沒有後端結果時（地址尚未確認座標），才 fallback 用店家舊版全店設定
 // 顯示一個「大概門檻」，且 feeResolved 強制為 false（不得宣告已免運/已折抵，
 // 見 getDeliveryFreeProgressState() 的 feeResolved 語意）。
+// C5（需求文件二）：與後端 utils/deliveryFeeCalc.js 的 hasTierPromotionConfiguration()
+// 邏輯完全一致的前端版本——只要 shopData.delivery_distance_fee_rules 中「任一筆」
+// 曾經設定過 free_mode/free_threshold/free_discount（即使值不合法），就代表店家已經
+// 啟用新版「每級距自己的促銷設定」模式，pending 畫面不得再猜測性地使用舊版全店
+// delivery_free_threshold。前端沒有 require()，維持一份內容相同的小型 helper。
+function hasTierPromotionConfigurationClient(rules) {
+  return Array.isArray(rules) && rules.some(rule => rule && typeof rule === 'object' && (
+    Object.prototype.hasOwnProperty.call(rule, 'free_mode') ||
+    Object.prototype.hasOwnProperty.call(rule, 'free_threshold') ||
+    Object.prototype.hasOwnProperty.call(rule, 'free_discount')
+  ));
+}
+function _parseShopDeliveryDistanceFeeRules(){
+  try{
+    const raw = shopData ? shopData.delivery_distance_fee_rules : '';
+    if(!raw) return null;
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : null;
+  }catch(e){ return null; }
+}
+// C5：pending 期間「有最近一次已解析級距」時的畫面（不宣告已達標/已折抵成立，
+// 但門檻／百分比使用真實的 _lastResolvedDeliveryTier，不得倒退回 shopData 的舊全店門檻）。
+function renderDeliveryFreePendingWithTier(tier, subtotal){
+  const section = document.getElementById('deliveryFreeProgress');
+  if(!section) return;
+  const threshold = Number(tier.threshold) || 0;
+  if (threshold <= 0) { section.hidden = true; return; }
+  section.hidden = false;
+  section.classList.remove('reached'); // pending 期間不得宣告已達標
+  const remaining = Math.max(threshold - subtotal, 0);
+  const progressPercent = Math.round(Math.min(Math.max((subtotal / threshold) * 100, 0), 100));
+  const statusText = document.getElementById('deliveryFreeStatusText');
+  const remainingText = document.getElementById('deliveryFreeRemainingText');
+  const bar = document.getElementById('deliveryFreeProgressBar');
+  const track = document.getElementById('deliveryFreeProgressTrack');
+  const curAmt = document.getElementById('deliveryFreeCurrentAmount');
+  const thAmt = document.getElementById('deliveryFreeThresholdAmount');
+  const savingText = document.getElementById('deliveryFreeSavingText');
+  const fmt = (n) => `NT$${Math.round(Number(n) || 0).toLocaleString('en-US')}`;
+  if(statusText) statusText.textContent = `${progressPercent}%`;
+  const promoLine = tier.mode === 'fixed'
+    ? `滿 ${fmt(threshold)} 折抵 ${fmt(tier.fixedDiscountValue)} 外送費`
+    : `滿 ${fmt(threshold)} 享免運`;
+  remainingText && (remainingText.textContent = `正在依最新購物車重新計算外送優惠…\n${promoLine}\n${remaining > 0 ? `再消費 ${fmt(remaining)} 即可達成` : ''}`);
+  if(bar) bar.style.width = `${progressPercent}%`;
+  if(track) track.setAttribute('aria-valuenow', String(progressPercent));
+  if(curAmt) curAmt.textContent = fmt(subtotal);
+  if(thAmt) thAmt.textContent = fmt(threshold);
+  if(savingText){ savingText.style.display='none'; savingText.textContent=''; } // pending 不得宣告「已省下」
+  try { renderDeliveryFreeRecommendations({ visible:true, reached:remaining<=0, isOutOfRange:false, remaining }); } catch(e){ /* 附加功能，失敗不可影響主流程 */ }
+}
+// C5：pending 期間「這次瀏覽階段還沒有任何成功解析過的級距」，但店家確實已啟用新版
+// 距離促銷模式——不得使用舊全店門檻猜測，只顯示中性的等待文案。
+function renderDeliveryFreeWaitingForAddress(){
+  const section = document.getElementById('deliveryFreeProgress');
+  if(!section) return;
+  section.hidden = false;
+  section.classList.remove('reached');
+  const statusText = document.getElementById('deliveryFreeStatusText');
+  const remainingText = document.getElementById('deliveryFreeRemainingText');
+  const bar = document.getElementById('deliveryFreeProgressBar');
+  const track = document.getElementById('deliveryFreeProgressTrack');
+  const curAmt = document.getElementById('deliveryFreeCurrentAmount');
+  const thAmt = document.getElementById('deliveryFreeThresholdAmount');
+  const savingText = document.getElementById('deliveryFreeSavingText');
+  if(statusText) statusText.textContent = '…';
+  if(remainingText) remainingText.textContent = '正在依地址計算滿額外送優惠…';
+  if(bar) bar.style.width = '0%';
+  if(track) track.setAttribute('aria-valuenow', '0');
+  if(curAmt) curAmt.textContent = '';
+  if(thAmt) thAmt.textContent = '';
+  if(savingText){ savingText.style.display='none'; savingText.textContent=''; }
+}
 function updateDeliveryFreeProgress(knownSubtotal) {
   const isDelivery = currentMode === 'delivery';
   const subtotal = (typeof knownSubtotal === 'number') ? knownSubtotal : getCartProductSubtotal();
-  const fr = _deliveryFeeResult; // 統一物件；null = 外送費尚未算出（地址還沒確認座標）
+  const fr = _deliveryFeeResult; // 統一物件；null = 外送費尚未算出（地址還沒確認座標／pending）
+
+  const hasBackendResult = !!(fr && fr.threshold != null && fr.threshold > 0 && !fr.outOfRange);
+  const hasResolvedTier = !hasBackendResult && !(fr && fr.outOfRange) && isDelivery &&
+    _lastResolvedDeliveryTier && Number(_lastResolvedDeliveryTier.threshold) > 0;
+
+  // C5（需求文件二）：pending（沒有最新 API 結果、也不是超距離）且有最近一次已解析
+  // 級距時，直接用專用的 pending 畫面呈現，不落回下面的 shopData legacy 判斷。
+  if (hasResolvedTier) {
+    renderDeliveryFreePendingWithTier(_lastResolvedDeliveryTier, subtotal);
+    return;
+  }
 
   let threshold, mode, rawDeliveryFee, finalDeliveryFee, reached, remaining, isOutOfRange, feeResolved;
 
-  if (fr && fr.threshold != null && fr.threshold > 0 && !fr.outOfRange) {
+  if (hasBackendResult) {
     // 後端已經算出「這次距離命中的級距」真實結果：直接使用，不再自己猜門檻。
     threshold = fr.threshold;
     mode = (fr.mode === 'full' || fr.mode === 'fixed') ? fr.mode : 'none';
-    rawDeliveryFee = fr.mode === 'fixed' ? fr.fixedDiscountValue : fr.rawFee;
+    // C5 根因修正：只有「尚未達標」的預覽文案（滿 NT$1,500 折抵 NT$100 外送費）需要用
+    // 設定的 fixedDiscountValue 取代 rawFee 顯示；一旦已達標（fr.reached），shared engine
+    // 的 savedAmount 是用 rawFee - finalFee 算出來的，這裡必須傳入真正的 rawFee（210），
+    // 不能再誤用設定值（100）——否則 210 這個真正原始外送費永遠讀不到，變成
+    // 100(設定值) - 110(finalFee) 被 clamp 成 0，這正是「本次折抵 NT$0」的根因。
+    rawDeliveryFee = (fr.mode === 'fixed' && !fr.reached) ? fr.fixedDiscountValue : fr.rawFee;
     finalDeliveryFee = fr.finalFee;
     reached = !!fr.reached;
     remaining = fr.remaining;
@@ -4100,8 +4220,21 @@ function updateDeliveryFreeProgress(knownSubtotal) {
     isOutOfRange = true;
     feeResolved = false;
   } else {
-    // 地址尚未確認座標，還沒有後端結果：fallback 用店家舊版全店設定顯示大概門檻，
-    // 相容既有正式環境（只有 delivery_free_threshold 真的會被設定）。
+    // C5：沒有最新 API 結果、也沒有任何「這次瀏覽階段已解析過」的級距——先判斷這個
+    // 店家是否已經啟用新版距離促銷模式（只要 distanceRules 任一筆碰過 free_mode/
+    // free_threshold/free_discount 就算數，與後端 hasTierPromotionConfiguration()
+    // 判斷邏輯一致）。已啟用新版模式時，絕不能用舊版全店 delivery_free_threshold
+    // 猜門檻（那可能跟這個店家實際的級距門檻完全對不上），只能顯示中性等待文案。
+    const tierRules = _parseShopDeliveryDistanceFeeRules();
+    const isNewTierModeShop = hasTierPromotionConfigurationClient(tierRules);
+    if (isDelivery && isNewTierModeShop) {
+      renderDeliveryFreeWaitingForAddress();
+      try { renderDeliveryFreeRecommendations({ visible:false }); } catch(e){}
+      return;
+    }
+    // 真正舊店（尚未設定任何新版距離促銷）：沿用既有 legacy fallback 行為，顯示店家
+    // 舊版全店設定的大概門檻（相容既有正式環境，只有 delivery_free_threshold 真的
+    // 會被設定），feeResolved 強制為 false（不得宣告已免運/已折抵）。
     const rawThreshold = shopData ? shopData.delivery_free_threshold : '';
     threshold = (rawThreshold === '' || rawThreshold == null || isNaN(parseFloat(rawThreshold)))
       ? 1000 : parseFloat(rawThreshold);
@@ -4163,7 +4296,7 @@ async function fetchDeliveryFee(){
       _deliveryFeeResult = {
         rawFee:              Number(res.raw_fee||0),
         finalFee:            Number(res.delivery_fee||0),
-        discount:             Number(res.delivery_discount||0),
+        discount:             deriveDeliveryDiscount(res.raw_fee, res.delivery_fee, res.delivery_discount),
         isFreeDelivery:       Boolean(res.is_free_delivery),
         mode:                 res.free_rule_type || 'none',
         threshold:            Number(res.free_threshold||0),
@@ -4177,6 +4310,15 @@ async function fetchDeliveryFee(){
       calcDeliveryFee = _deliveryFeeResult.finalFee;
       deliveryDistKm  = _deliveryFeeResult.distanceKm;
       deliveryFeeCalculated = true;
+      // C5（需求文件五）：記住這次成功解析出的真實距離級距門檻/優惠模式，供之後商品
+      // 異動、API 尚未回來的 pending 期間沿用（見 updateDeliveryFreeProgress()），
+      // 不再讓 pending 畫面倒退回 shopData 的舊版全店門檻。
+      _lastResolvedDeliveryTier = {
+        threshold:          _deliveryFeeResult.threshold,
+        mode:               _deliveryFeeResult.mode,
+        fixedDiscountValue: _deliveryFeeResult.fixedDiscountValue,
+        matchedMaxKm:       _deliveryFeeResult.matchedMaxKm,
+      };
       // fix18-10-hotfix30-B4 第九、十點：保留 raw_fee／免運原因，供 Context 與畫面顯示
       // 「為什麼免運」，不新增外送費公式，全部沿用既有 API 回傳欄位。
       _lastDeliveryRawFee = _deliveryFeeResult.rawFee;
@@ -4203,6 +4345,9 @@ async function fetchDeliveryFee(){
         distanceKm: res.distance_km!=null?res.distance_km:null, matchedMaxKm: null,
         outOfRange: res.reason==='out_of_range',
       };
+      // C5（需求文件三）：這次距離解析失敗／超距離，最近一次命中的級距不再適用，
+      // 一併清除，避免下次商品異動的 pending 畫面誤用舊地址的級距門檻。
+      _lastResolvedDeliveryTier = null;
       if(feeRow) feeRow.style.display='none';
       if(feeMsg) feeMsg.innerHTML=`<span style="color:#e53935">⚠️ ${res.message||'無法計算外送費'}</span>`;
     }
@@ -4211,6 +4356,8 @@ async function fetchDeliveryFee(){
     deliveryFeeCalculated=false;
     _lastIsFreeDelivery=null;
     _deliveryFeeResult=null;
+    // C5（需求文件三）：計算失敗（含網路錯誤）同樣視為地址/距離解析失敗，清除舊 tier。
+    _lastResolvedDeliveryTier=null;
     if(feeRow) feeRow.style.display='none';
     if(feeMsg) feeMsg.innerHTML=`<span style="color:#e53935">⚠️ 外送費計算失敗，請重試</span>`;
   }
@@ -4271,6 +4418,7 @@ function initGoogleMaps(){
       deliveryLatLng={lat:null,lng:null};
       deliveryFeeCalculated=false;
       _lastIsFreeDelivery=null; _deliveryOutOfRange=false; _deliveryFeeResult=null;
+      _lastResolvedDeliveryTier=null; // C5（需求文件三）：地址失效，清除舊 tier
       updateCartTotals();
       return;
     }
@@ -4289,6 +4437,7 @@ function initGoogleMaps(){
     deliveryFeeCalculated=false;
     calcDeliveryFee=0;
     _lastIsFreeDelivery=null; _deliveryOutOfRange=false; _deliveryFeeResult=null;
+    _lastResolvedDeliveryTier=null; // C5（需求文件三）：地址正在被改寫，清除舊 tier
     const feeRow=document.getElementById('deliveryFeeRow');
     if(feeRow) feeRow.style.display='none';
     updateCartTotals();

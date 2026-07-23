@@ -11380,7 +11380,8 @@ async function loadDeliveryFeeTab() {
   renderStoreCoordinateModeLabel();
   setVal('set-delivery_max_distance_km',    'delivery_max_distance_km',  '7');
   setVal('set-delivery_basic_fee',          'delivery_basic_fee',        '50');
-  setVal('set-delivery_free_threshold',     'delivery_free_threshold',   '1000');
+  // C5：set-delivery_free_threshold 輸入欄位已從後台移除，不再載入這個值到 UI
+  // （delivery_free_threshold 資料庫欄位保留，只供舊店 legacy fallback 使用）。
   setChk('set-delivery_distance_fee_enabled', 'delivery_distance_fee_enabled', true);
   setChk('set-coupon_apply_to_delivery_fee',  'coupon_apply_to_delivery_fee',  false);
 
@@ -11421,11 +11422,15 @@ async function loadDeliveryFeeTab() {
 function renderDeliveryRules() {
   const cont = document.getElementById('delivery-rules-editor');
   if (!cont) return;
-  const modeLabel = { legacy: '沿用全店舊規則', none: '不優惠', full: '滿額全免', fixed: '滿額固定折抵' };
+  // C5（需求文件五）：不再提供「沿用全店設定／legacy」選項——新模式只保留三種明確
+  // 優惠模式。載入舊裸規則 { max_km, fee }（還沒有 free_mode）時，畫面先顯示「不優惠」
+  // 讓店家看得懂目前狀態，但在使用者實際互動或按下「儲存」之前，不會回頭改寫 DB
+  // （saveDeliveryFeeSettings() 才會把它正規化成明確的 free_mode:'none' 寫入）。
+  const modeLabel = { none: '不優惠', full: '滿額全免', fixed: '滿額固定折抵' };
   cont.innerHTML = _deliveryRules.map((r, i) => {
-    const mode = (r.free_mode === 'full' || r.free_mode === 'fixed' || r.free_mode === 'none') ? r.free_mode : 'legacy';
-    const thresholdDisabled = mode === 'legacy';
-    const discountDisabled = mode === 'legacy' || mode === 'none' || mode === 'full';
+    const mode = (r.free_mode === 'full' || r.free_mode === 'fixed' || r.free_mode === 'none') ? r.free_mode : 'none';
+    const thresholdDisabled = mode === 'none';
+    const discountDisabled = mode === 'none' || mode === 'full';
     const thresholdVal = r.free_threshold != null ? r.free_threshold : '';
     const discountVal = r.free_discount != null ? r.free_discount : '';
     const dimStyle = 'background:#f5f5f5;color:#aaa';
@@ -11443,7 +11448,7 @@ function renderDeliveryRules() {
       <span style="font-size:13px;color:#555">NT$</span>
       <span style="font-size:13px;color:#555;margin-left:8px">優惠模式</span>
       <select onchange="_onDeliveryRuleModeChange(${i}, this.value)" style="padding:6px;border:1px solid #ddd;border-radius:6px;font-size:13px">
-        ${['legacy', 'none', 'full', 'fixed'].map(m => `<option value="${m}" ${m === mode ? 'selected' : ''}>${modeLabel[m]}</option>`).join('')}
+        ${['none', 'full', 'fixed'].map(m => `<option value="${m}" ${m === mode ? 'selected' : ''}>${modeLabel[m]}</option>`).join('')}
       </select>
       <span style="font-size:13px;color:#555">滿額門檻</span>
       <input type="number" value="${thresholdVal}" min="0" step="50" ${thresholdDisabled ? 'disabled' : ''}
@@ -11461,16 +11466,14 @@ function renderDeliveryRules() {
   }).join('');
 }
 
-// C3：切換某一列的優惠模式。legacy → 直接刪掉 free_mode/free_threshold/free_discount
-// 三個欄位（不可存字串 "legacy" 到正式規則 JSON，交給後端 legacy fallback）；
-// none/full/fixed → 補上合理預設值，避免使用者切換模式後欄位是空的就直接儲存。
+// C5：切換某一列的優惠模式。不再有 legacy 選項——none/full/fixed 都補上合理預設值，
+// 避免使用者切換模式後欄位是空的就直接儲存；none 明確寫入 free_threshold:0/
+// free_discount:0（不再是「刪掉三個欄位」的空殼寫法）。
 function _onDeliveryRuleModeChange(i, mode) {
   const r = _deliveryRules[i];
-  if (mode === 'legacy') {
-    delete r.free_mode; delete r.free_threshold; delete r.free_discount;
-  } else if (mode === 'none') {
+  if (mode === 'none') {
     r.free_mode = 'none';
-    if (r.free_threshold == null || r.free_threshold === '') r.free_threshold = 0;
+    r.free_threshold = 0;
     r.free_discount = 0;
   } else if (mode === 'full') {
     r.free_mode = 'full';
@@ -11537,6 +11540,18 @@ async function geocodeStoreAddress() {
 async function saveDeliveryFeeSettings() {
   // 讀取規則並排序
   _deliveryRules.sort((a, b) => a.max_km - b.max_km);
+  // C5（需求文件三、六）：儲存前，把每一列「還沒選過優惠模式」的規則正規化成明確的
+  // free_mode:'none'（不優惠），不再讓 { max_km, fee } 這種空欄位格式被存進 DB——
+  // 後端 normalizeDeliveryDistanceFeeRules() 現在也會做一樣的正規化，這裡先在前端
+  // 做一次是為了讓「儲存後在畫面上重新渲染」時，下拉選單能立刻顯示明確的「不優惠」，
+  // 不會等下次重新載入頁面才變成明確值。
+  _deliveryRules = _deliveryRules.map(r => {
+    const mode = (r.free_mode === 'full' || r.free_mode === 'fixed' || r.free_mode === 'none') ? r.free_mode : 'none';
+    if (mode === 'none' && r.free_mode !== 'none') {
+      return { max_km: r.max_km, fee: r.fee, free_mode: 'none', free_threshold: 0, free_discount: 0 };
+    }
+    return r;
+  });
   // fix18-10-hotfix26-F7（需求文件廿五）：這個「儲存外送費設定」按鈕現在只負責距離級距
   // 規則本身，不再送出 store_address/store_lat/store_lng/pickup_* 欄位——那些已經各自
   // 有獨立的「儲存店家座標設定」／「儲存取餐地點設定」按鈕（saveStoreLocationSettings()／
@@ -11546,7 +11561,9 @@ async function saveDeliveryFeeSettings() {
     delivery_distance_fee_enabled: document.getElementById('set-delivery_distance_fee_enabled')?.checked ? '1' : '0',
     delivery_max_distance_km:      document.getElementById('set-delivery_max_distance_km')?.value  || '7',
     delivery_basic_fee:            document.getElementById('set-delivery_basic_fee')?.value         || '50',
-    delivery_free_threshold:       document.getElementById('set-delivery_free_threshold')?.value    || '1000',
+    // C5：不再送出 delivery_free_threshold——舊全店滿額門檻不再由後台這個表單編輯，
+    // 未送出這個 key 時，PUT /api/settings 既有規則是「未送值的 key 完全不動」，
+    // 不會清空既有店家已經存在的舊值（沒有破壞性 migration）。
     coupon_apply_to_delivery_fee:  document.getElementById('set-coupon_apply_to_delivery_fee')?.checked ? '1' : '0',
     delivery_distance_fee_rules:   JSON.stringify(_deliveryRules),
   };

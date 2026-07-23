@@ -12,13 +12,34 @@
 // 級距規則資料結構（delivery_distance_fee_rules，JSON array，需按 max_km 升序）：
 //   { max_km, fee, free_threshold, free_mode: 'none'|'full'|'fixed', free_discount }
 //
-// 舊資料相容（見需求文件七）：
-//   若命中的級距沒有完整 free_mode/free_threshold 欄位 → fallback 使用店家舊版全店
+// 舊資料相容（見需求文件七；C5 已限縮見下）：
+//   若命中的級距沒有完整 free_mode/free_threshold 欄位，且店家「整組」distanceRules
+//   都還是純 { max_km, fee }（真正尚未升級到新版的舊店）→ fallback 使用店家舊版全店
 //   設定（delivery_free_enabled/delivery_free_threshold/delivery_free_mode/delivery_basic_fee）。
 //   新舊規則都未啟用 → 不套用滿額優惠（discount = 0）。
+//
+// C5：只要 distanceRules 中「任一筆」曾經設定過 free_mode/free_threshold/free_discount
+//   （即使值不合法），代表店家已啟用新版「每級距自己的促銷設定」模式——此時未設定
+//   優惠的其他級距一律視為 free_mode='none'，禁止 fallback 舊全店門檻，避免同一個店家
+//   同時混用新舊兩種門檻（見 hasTierPromotionConfiguration()／resolvePromotion()）。
 'use strict';
 
 const VALID_MODES = new Set(['none', 'full', 'fixed']);
+
+// ── C5：新規則存在時禁止 legacy fallback（需求文件二）────────────────────
+// 只要 distanceRules 中「任一筆」存在 free_mode/free_threshold/free_discount 屬性
+// （不論值是否合法），就代表店家已經在使用新版「每級距自己的促銷設定」模式。
+// 這個判斷刻意用 hasOwnProperty 而非驗證合法性——即使某一筆填壞了，只要店家碰過
+// 這三個欄位其中之一，就不該讓其他「還沒設定」的級距悄悄 fallback 回舊全店門檻，
+// 否則會出現「部分級距用新門檻、部分用舊門檻」的不一致（C5 根因）。
+function hasTierPromotionConfiguration(rules) {
+  const list = Array.isArray(rules) ? rules : [];
+  return list.some((rule) => rule && typeof rule === 'object' && (
+    Object.prototype.hasOwnProperty.call(rule, 'free_mode') ||
+    Object.prototype.hasOwnProperty.call(rule, 'free_threshold') ||
+    Object.prototype.hasOwnProperty.call(rule, 'free_discount')
+  ));
+}
 
 // 由小到大找第一個 distanceKm <= max_km 的級距（呼叫前 rules 需已升序排列，這裡仍保險排序一次）
 function pickDistanceRule(rules, distanceKm) {
@@ -50,10 +71,12 @@ function toBool(v, defaultVal) {
   return defaultVal;
 }
 
-// 解析「這個級距實際適用」的滿額優惠設定（rule 自帶優先，否則 fallback 舊版全店設定）
+// 解析「這個級距實際適用」的滿額優惠設定（rule 自帶優先，否則 fallback 舊版全店設定——
+// 但僅限「店家尚未啟用新版距離促銷模式」時，見需求文件二）
 // 回傳 { threshold, mode, fixedDiscount, source }
-//   source: 'rule'（用該級距自己的設定）| 'legacy'（fallback 舊版全店設定）| 'none'（都沒有）
-function resolvePromotion(rule, legacySettings) {
+//   source: 'rule'（用該級距自己的設定）| 'legacy'（fallback 舊版全店設定，僅真正舊店資料）
+//         | 'none'（都沒有，或新模式下這一列沒設定優惠）
+function resolvePromotion(rule, legacySettings, isTierPromotionMode) {
   const legacy = legacySettings || {};
 
   if (ruleHasOwnPromotion(rule)) {
@@ -65,8 +88,16 @@ function resolvePromotion(rule, legacySettings) {
     };
   }
 
+  // C5：店家已經在使用新版「每級距自己的促銷設定」模式時，這一列沒有自己的促銷設定
+  // 就是「這一列沒有優惠」（free_mode=none 的語意），不得再 fallback 舊全店門檻——
+  // 否則會出現同一個店家、不同級距分別使用新舊兩種不同門檻的干擾（C5 根因）。
+  if (isTierPromotionMode) {
+    return { threshold: 0, mode: 'none', fixedDiscount: 0, source: 'none' };
+  }
+
   // fallback 舊版全店規則：delivery_free_enabled 未設定時視為啟用（沿用既有正式環境行為，
-  // 目前只有 delivery_free_threshold 真的被設定過，見需求文件七）
+  // 目前只有 delivery_free_threshold 真的被設定過，見需求文件七）。只有在整組
+  // distanceRules 都還是純 { max_km, fee }（真正尚未升級到新版的舊店）才會走到這裡。
   const legacyEnabled = toBool(legacy.delivery_free_enabled, true);
   const legacyThreshold = Math.max(Number(legacy.delivery_free_threshold) || 0, 0);
   if (legacyEnabled && legacyThreshold > 0) {
@@ -118,7 +149,8 @@ function calculateDeliveryFeeWithPromotion({ distanceKm, eligibleSubtotal, dista
   }
 
   const rawFee = Math.max(Number(matchedRule.fee) || 0, 0);
-  const promo = resolvePromotion(matchedRule, legacySettings);
+  const isTierPromotionMode = hasTierPromotionConfiguration(distanceRules);
+  const promo = resolvePromotion(matchedRule, legacySettings, isTierPromotionMode);
   const threshold = promo.threshold;
   const mode = promo.mode;
   const reached = threshold > 0 && sub >= threshold;
@@ -140,6 +172,9 @@ function calculateDeliveryFeeWithPromotion({ distanceKm, eligibleSubtotal, dista
     matchedRule, rawFee, threshold, promotionMode: mode,
     discount, finalFee, reached, remaining, outOfRange: false,
     promotionSource: promo.source,
+    // C5：這個店家整體是否已啟用新版「每級距自己的促銷設定」模式（供上層/前端判斷
+    // 是否還需要顧慮舊全店門檻，不需要另外重新計算一次 hasTierPromotionConfiguration）。
+    isTierPromotionMode,
     // 設定值本身（未受 reached/rawFee 上限影響），供 API 顯示「這個級距設定的折抵值」用，
     // 例如 full 模式即使尚未達標，也能告訴前台「達標後折多少」。
     configuredFixedDiscount: promo.fixedDiscount,
@@ -151,9 +186,10 @@ function calculateDeliveryFeeWithPromotion({ distanceKm, eligibleSubtotal, dista
 // 呼叫，避免前後端各自亂判斷格式（需求文件四）。
 //
 // 允許每筆輸入：{ max_km, fee, free_threshold?, free_mode?, free_discount? }
-//   - free_mode 不存在／為空字串／為 'legacy' → 視為「這個級距沒有自己的促銷設定」，
-//     只保留 { max_km, fee }，計算時交給 calculateDeliveryFeeWithPromotion() 的
-//     legacy fallback（沿用全店 delivery_free_threshold 等舊設定）。
+//   - C5：free_mode 不存在／為空字串／為舊值 'legacy' → 不再原樣保留成純 { max_km, fee }
+//     （那是舊版「沿用全店設定」的存法）。一律正規化成明確的 free_mode:'none'、
+//     free_threshold:0、free_discount:0，即「這一列沒有優惠」，往後計算時不會再
+//     fallback 舊全店 delivery_free_threshold（需求文件三）。
 //   - free_mode === 'none'  → free_threshold 可為 0，free_discount 強制正規化為 0。
 //   - free_mode === 'full'  → free_threshold 必須 > 0，free_discount 正規化為 0
 //     （full 模式實際折抵永遠是 rawFee，不使用這個欄位，見 resolvePromotion()）。
@@ -196,9 +232,15 @@ function normalizeDeliveryDistanceFeeRules(input) {
     const entry = { max_km, fee };
 
     const rawMode = raw.free_mode;
-    const isLegacySlot = rawMode === undefined || rawMode === null || rawMode === '' || rawMode === 'legacy';
+    // C5：'legacy' 與空值同樣視為「這一列還沒選過優惠模式」，不再是可長期保留的合法值——
+    // 一律正規化成明確的 free_mode:'none'，不再原樣寫回 { max_km, fee }。
+    const isUnsetSlot = rawMode === undefined || rawMode === null || rawMode === '' || rawMode === 'legacy';
 
-    if (!isLegacySlot) {
+    if (isUnsetSlot) {
+      entry.free_mode = 'none';
+      entry.free_threshold = 0;
+      entry.free_discount = 0;
+    } else {
       if (!VALID_MODES.has(rawMode)) {
         return { ok: false, message: `第 ${idx} 筆優惠模式不合法（${rawMode}）` };
       }
@@ -228,8 +270,8 @@ function normalizeDeliveryDistanceFeeRules(input) {
         entry.free_discount = disc;
       }
     }
-    // isLegacySlot：不寫入 free_mode/free_threshold/free_discount，保持純 { max_km, fee }，
-    // 交給 legacy fallback（需求文件七）。
+    // 每一筆現在都保證明確帶有 free_mode/free_threshold/free_discount 三個欄位，
+    // 不再有「保持純 { max_km, fee }」的 legacy 空欄位模式（需求文件三）。
 
     normalized.push(entry);
   }
@@ -250,5 +292,6 @@ module.exports = {
   pickDistanceRule,
   resolvePromotion,
   ruleHasOwnPromotion,
+  hasTierPromotionConfiguration,
   normalizeDeliveryDistanceFeeRules,
 };

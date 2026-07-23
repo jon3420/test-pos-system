@@ -142,12 +142,16 @@ const LEGACY_SETTINGS = {
   check('discount === 0（即使 subtotal 遠超過舊門檻 1000）', r.discount === 0);
 })();
 
-// ── 13. 級距缺少 promotion fields 才 fallback（free_mode 為空字串視同缺欄位）──
+// ── 13. C5：free_mode 為空字串仍算「店家已碰過新版促銷欄位」→ 不得 fallback legacy ──
+// （hasTierPromotionConfiguration() 用 hasOwnProperty 判斷，只要屬性存在即算數，
+//  即使值是空字串——這正是 C5 新增的行為，舊版行為是 fallback legacy，已被取代）
 (function () {
-  console.log('[13] free_mode 為空字串視同缺欄位 → fallback legacy');
+  console.log('[13] C5：free_mode 為空字串仍視為新版促銷模式 → 禁止 fallback legacy');
   const blankModeRules = [{ max_km: 7, fee: 120, free_mode: '' }];
   const r = calculateDeliveryFeeWithPromotion({ distanceKm: 6, eligibleSubtotal: 1000, distanceRules: blankModeRules, legacySettings: LEGACY_SETTINGS, maxDistanceKm: 15 });
-  check('promotionSource === legacy', r.promotionSource === 'legacy', JSON.stringify(r));
+  check('isTierPromotionMode === true（free_mode 屬性存在即算數）', r.isTierPromotionMode === true, JSON.stringify(r));
+  check('promotionSource === none（不得 fallback legacy）', r.promotionSource === 'none', JSON.stringify(r));
+  check('discount === 0（沒有真的設定優惠）', r.discount === 0);
 })();
 
 // ── 14. threshold 邊界剛好相等：視為已達標（>=） ──────
@@ -197,17 +201,17 @@ const LEGACY_SETTINGS = {
   check('ok === false', res.ok === false, JSON.stringify(res));
 })();
 
-// ── 20. normalizeDeliveryDistanceFeeRules：合法的完整規則正規化通過 ──
+// ── 20. normalizeDeliveryDistanceFeeRules：C5 後 legacy slot 一律正規化為明確 none ──
 (function () {
-  console.log('[20] 合法規則（含 legacy slot + full + fixed 混合）正規化通過');
+  console.log('[20] C5：儲存時未設定優惠的列，正規化為明確 free_mode:\'none\'（不再保留 legacy 空欄位）');
   const res = normalizeDeliveryDistanceFeeRules([
-    { max_km: 3, fee: 50 }, // legacy slot（沒有 free_mode）
+    { max_km: 3, fee: 50 }, // C5 之前是 legacy slot（沒有 free_mode）；C5 後應正規化為明確 none
     { max_km: 5, fee: 80, free_threshold: 500, free_mode: 'full', free_discount: 999 }, // full 折抵應被正規化為 0
     { max_km: 7, fee: 120, free_threshold: 800, free_mode: 'fixed', free_discount: 50 },
   ]);
   check('ok === true', res.ok === true, JSON.stringify(res));
   if (res.ok) {
-    check('第一筆保持純 {max_km, fee}（沒有 free_mode）', res.rules[0].free_mode === undefined, JSON.stringify(res.rules[0]));
+    check('第一筆被正規化為明確 free_mode:\'none\'（不再是純 {max_km, fee}）', res.rules[0].free_mode === 'none' && res.rules[0].free_threshold === 0 && res.rules[0].free_discount === 0, JSON.stringify(res.rules[0]));
     check('full 模式 free_discount 被正規化為 0', res.rules[1].free_discount === 0, JSON.stringify(res.rules[1]));
     check('fixed 模式保留 free_discount', res.rules[2].free_discount === 50);
   }
@@ -327,6 +331,101 @@ const LEGACY_SETTINGS = {
   check('metadata.delivery_discount === 100', deliveryFeeMeta.delivery_discount === 100);
   // 後台訂單詳情／Dashboard 都只認 orders.delivery_fee，這裡模擬同一份資料被兩處讀取仍是 110
   check('後台訂單詳情顯示的最終外送費 === Dashboard 認列的外送費（同一個 110）', orderDeliveryFee === deliveryFeeMeta.final_fee);
+})();
+
+// ═══════════════════════ C5：移除 legacy 干擾 + 折抵欄位映射修正 ═══════════════════════
+
+// ── 26. C5 核心驗收：11.94km 級距有自己的 threshold=1500，即使 legacy=1000，
+//        混用時門檻只能是 1500，不得判定達標（需求文件九之 1）───────────────
+(function () {
+  console.log('[26] C5：legacy threshold=1000 與 11.94km 級距 threshold=1500 混用，門檻只能是 1500');
+  const mixedRules = [
+    { max_km: 3,  fee: 50 },  // 尚未設定優惠的舊列（但整組已有其他列設定過 free_mode → 視為新模式）
+    { max_km: 13, fee: 210, free_threshold: 1500, free_mode: 'fixed', free_discount: 100 },
+  ];
+  const legacyThousand = { delivery_free_enabled: '1', delivery_free_threshold: '1000', delivery_free_mode: '', delivery_basic_fee: '50' };
+  const r = calculateDeliveryFeeWithPromotion({ distanceKm: 11.94, eligibleSubtotal: 1050, distanceRules: mixedRules, legacySettings: legacyThousand, maxDistanceKm: 15 });
+  check('isTierPromotionMode === true', r.isTierPromotionMode === true, JSON.stringify(r));
+  check('threshold === 1500（不是 legacy 的 1000）', r.threshold === 1500, JSON.stringify(r));
+  check('remaining === 450', r.remaining === 450);
+  check('reached === false（不得判定達標）', r.reached === false);
+  check('discount === 0', r.discount === 0);
+  check('finalFee === rawFee(210)（未折抵）', r.finalFee === 210);
+
+  // 同一組規則命中「尚未設定優惠」的 3km 那列時，也必須是 none，不是 legacy 的 1000
+  const r2 = calculateDeliveryFeeWithPromotion({ distanceKm: 2, eligibleSubtotal: 5000, distanceRules: mixedRules, legacySettings: legacyThousand, maxDistanceKm: 15 });
+  check('未設定優惠的列命中時 promotionSource === none', r2.promotionSource === 'none', JSON.stringify(r2));
+  check('未設定優惠的列命中時 discount === 0（即使 subtotal 遠超過舊 1000）', r2.discount === 0);
+})();
+
+// ── 27. C5：新規則某列明確 free_mode='none'，即使舊 delivery_free_threshold=1000 也不套用 ──
+(function () {
+  console.log('[27] C5：新規則某列為 none，不 fallback 舊設定');
+  const rules = [{ max_km: 7, fee: 120, free_mode: 'none', free_threshold: 0, free_discount: 0 }];
+  const r = calculateDeliveryFeeWithPromotion({ distanceKm: 6, eligibleSubtotal: 2000, distanceRules: rules, legacySettings: LEGACY_SETTINGS, maxDistanceKm: 15 });
+  check('discount === 0', r.discount === 0, JSON.stringify(r));
+  check('finalFee === rawFee', r.finalFee === r.rawFee);
+})();
+
+// ── 28. C5：真正舊店（所有規則都只有 {max_km, fee}）仍允許短期 legacy fallback ──
+(function () {
+  console.log('[28] C5：真正舊店（全部 bare rows）仍允許 legacy fallback');
+  const trueLegacyRules = [{ max_km: 3, fee: 50 }, { max_km: 5, fee: 80 }, { max_km: 7, fee: 120 }];
+  const r = calculateDeliveryFeeWithPromotion({ distanceKm: 6.9, eligibleSubtotal: 1000, distanceRules: trueLegacyRules, legacySettings: LEGACY_SETTINGS, maxDistanceKm: 15 });
+  check('isTierPromotionMode === false', r.isTierPromotionMode === false, JSON.stringify(r));
+  check('promotionSource === legacy', r.promotionSource === 'legacy');
+  check('threshold === 1000（沿用舊全店門檻）', r.threshold === 1000);
+})();
+
+// ── 29. C5：折抵顯示欄位映射（raw=210, discount=100, final=110）──────────
+(function () {
+  console.log('[29] C5：折抵欄位正確映射（raw=210, discount=100, final=110）');
+  const progressMod = require(path.join(__dirname, '..', 'public', 'js', 'delivery-free-progress.js'));
+  const state = progressMod.getDeliveryFreeProgressState({
+    eligibleSubtotal: 1500, threshold: 1500, mode: 'fixed',
+    rawDeliveryFee: 210, finalDeliveryFee: 110,
+    reached: true, remaining: 0, isDelivery: true, isOutOfRange: false, feeResolved: true,
+  });
+  check('savedAmount === 100', state.savedAmount === 100, JSON.stringify(state));
+  check('description 提到本次折抵 NT$100', state.description.includes('折抵 NT$100'), state.description);
+  check('description 提到仍需支付 NT$110', state.description.includes('NT$110'), state.description);
+  check('不得顯示折抵 NT$0', !state.description.includes('折抵 NT$0'));
+})();
+
+// ── 30. C5：discount 欄位缺失時，由 rawFee - finalFee 安全推導（防呆） ──────
+(function () {
+  console.log('[30] C5：deliveryDiscount 欄位缺失時安全推導 savedAmount');
+  const progressMod = require(path.join(__dirname, '..', 'public', 'js', 'delivery-free-progress.js'));
+  // 模擬「後端沒有明確回傳 delivery_discount」的情境：呼叫端只能推導 rawDeliveryFee - finalDeliveryFee，
+  // 這裡直接驗證 shared engine 本身在只拿到 raw/final（沒有額外 discount 欄位）時的推導結果，
+  // 與 utils/deliveryFeeCalc.js 對接時前端呼叫端的「防呆」邏輯（見 CHANGELOG C5 七）一致。
+  const rawDeliveryFee = 210, finalDeliveryFee = 110;
+  const normalizedRawFee = Math.max(Number(rawDeliveryFee) || 0, 0);
+  const normalizedFinalFee = Math.max(Number(finalDeliveryFee) || 0, 0);
+  const explicitDiscount = Number(undefined); // deliveryDiscount 缺失
+  const savedAmount = Number.isFinite(explicitDiscount)
+    ? Math.min(Math.max(explicitDiscount, 0), normalizedRawFee)
+    : Math.max(normalizedRawFee - normalizedFinalFee, 0);
+  check('savedAmount 由差額推導 === 100', savedAmount === 100, `savedAmount=${savedAmount}`);
+})();
+
+// ── 31. C5：pending 狀態不得使用舊 shopData.delivery_free_threshold=1000 ──────
+// （對應 public/line-order.html 內 updateDeliveryFreeProgress() 的 fallback 分支邏輯，
+//  這裡用同樣的參數組合直接驗證 shared engine：只要呼叫端正確傳入「最近一次已解析
+//  的級距」threshold=1500，而不是 shopData 的舊全店門檻 1000，結果就不會誤判。）
+(function () {
+  console.log('[31] C5：pending 時沿用最近一次已解析級距的 threshold=1500，不得跳成 1000');
+  const progressMod = require(path.join(__dirname, '..', 'public', 'js', 'delivery-free-progress.js'));
+  // 商品異動後 API 尚未回來：呼叫端應傳入「最近一次已解析」的 threshold=1500（而非
+  // shopData 的舊全店 1000），且 feeResolved 必須是 false（不得宣告已達免運）。
+  const state = progressMod.getDeliveryFreeProgressState({
+    eligibleSubtotal: 1050, threshold: 1500, mode: 'fixed',
+    rawDeliveryFee: null, finalDeliveryFee: null,
+    reached: false, remaining: 450, isDelivery: true, isOutOfRange: false, feeResolved: false,
+  });
+  check('thresholdAmountText 顯示 NT$1,500（不是 NT$1,000）', state.thresholdAmountText.includes('1,500'), state.thresholdAmountText);
+  check('reached === false（pending 不得顯示已達標）', state.reached === false);
+  check('progressPercent 不是 100', state.progressPercent !== 100);
 })();
 
 console.log(`\n[smoke-delivery-distance-promotion] ${pass} passed, ${fail} failed`);

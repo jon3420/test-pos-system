@@ -49,6 +49,21 @@ const cartDeliverySyncSrc = extractBlock(
 );
 const fetchDeliveryFeeSrc = extractBlock(SRC, 'async function fetchDeliveryFee(){', '\n// 使用目前位置');
 
+// ── C5：pending 狀態 / tier promotion mode 相關程式碼抽取 ──────────────────
+// updateDeliveryFreeProgress() 依賴 toBooleanFlag()、renderDeliveryFreeProgress()、
+// renderDeliveryFreeRecommendations()（含其內部依賴 _getRecommendPrice/
+// _isRecommendableForFreeDelivery）、hasTierPromotionConfigurationClient()、
+// _parseShopDeliveryDistanceFeeRules()、renderDeliveryFreePendingWithTier()、
+// renderDeliveryFreeWaitingForAddress() 本身。全部從真實檔案抽取，不重寫簡化版。
+const toBooleanFlagSrc = extractBlock(SRC, 'function toBooleanFlag(value, defaultValue){', '\n// fix18-10-hotfix30-B1');
+const progressAndRecoSrc = extractBlock(SRC, 'function renderDeliveryFreeProgress(state) {', '\n// 統一調度入口');
+const tierPendingSrc = extractBlock(SRC, 'function hasTierPromotionConfigurationClient(rules) {', '\n// 呼叫後端計算外送費');
+
+['function hasTierPromotionConfigurationClient(rules) {', 'function _parseShopDeliveryDistanceFeeRules(){', 'function renderDeliveryFreePendingWithTier(tier, subtotal){', 'function renderDeliveryFreeWaitingForAddress(){', 'function updateDeliveryFreeProgress(knownSubtotal) {']
+  .forEach((marker) => {
+    if (!tierPendingSrc.includes(marker)) throw new Error(`C5 抽取範圍未包含預期函式：${marker}`);
+  });
+
 ['function hasValidDeliveryLocation(){', 'function setDeliveryFeePending(){', 'function scheduleDeliveryFeeRefresh(){', 'function refreshCartAfterMutation(){']
   .forEach((marker) => {
     if (!cartDeliverySyncSrc.includes(marker)) throw new Error(`抽取範圍未包含預期函式：${marker}`);
@@ -111,6 +126,246 @@ function makeSandbox({ fetchImpl } = {}) {
     },
   };
 }
+
+// ── C5：pending/tier promotion mode 測試用 DOM 元素 mock ──────────────────
+function makeFakeProgressElement() {
+  const el = { style: {}, hidden: false, textContent: '', innerHTML: '', attrs: {} };
+  const classes = new Set();
+  el.classList = {
+    add: (c) => classes.add(c),
+    remove: (c) => classes.delete(c),
+    toggle: (c, force) => { if (force === undefined) { classes.has(c) ? classes.delete(c) : classes.add(c); } else if (force) { classes.add(c); } else { classes.delete(c); } },
+    contains: (c) => classes.has(c),
+  };
+  el.setAttribute = (k, v) => { el.attrs[k] = v; };
+  el.getAttribute = (k) => el.attrs[k];
+  return el;
+}
+const PROGRESS_DOM_IDS = [
+  'deliveryFreeProgress', 'deliveryFreeStatusText', 'deliveryFreeRemainingText',
+  'deliveryFreeProgressBar', 'deliveryFreeProgressTrack', 'deliveryFreeCurrentAmount',
+  'deliveryFreeThresholdAmount', 'deliveryFreeSavingText', 'deliveryFreeOutOfRangeText',
+  'deliveryFreeReco', 'deliveryFreeRecoList',
+];
+function makeProgressSandbox() {
+  const els = {};
+  PROGRESS_DOM_IDS.forEach((id) => { els[id] = makeFakeProgressElement(); });
+  const progressModule = require(path.join(ROOT, 'public', 'js', 'delivery-free-progress.js'));
+  if (typeof progressModule.getDeliveryFreeProgressState !== 'function') {
+    throw new Error('無法載入 public/js/delivery-free-progress.js 的 getDeliveryFreeProgressState()');
+  }
+  const sandbox = {
+    console,
+    cart: {},
+    currentMode: 'delivery',
+    shopData: {},
+    _deliveryFeeResult: null,
+    _lastResolvedDeliveryTier: null,
+    allProducts: [],
+    esc: (s) => s,
+    document: { getElementById: (id) => els[id] || null },
+    getDeliveryFreeProgressState: progressModule.getDeliveryFreeProgressState,
+  };
+  sandbox.global = sandbox;
+  vm.createContext(sandbox);
+  vm.runInContext(getCartProductSubtotalSrc, sandbox);
+  vm.runInContext(toBooleanFlagSrc, sandbox);
+  vm.runInContext(progressAndRecoSrc, sandbox);
+  vm.runInContext(tierPendingSrc, sandbox);
+  return { sandbox, els };
+}
+
+// ═══════════════════════ C5：pending 使用最近命中級距 / 折抵防呆 ═══════════════════════
+
+// ── C5-1. Pending 使用最近命中級距（不得閃回 legacy 1000）───────────────
+(function () {
+  console.log('\n[C5-1] Pending 使用 _lastResolvedDeliveryTier（threshold=1500），不得 fallback legacy 1000');
+  const { sandbox, els } = makeProgressSandbox();
+  sandbox.shopData = { delivery_free_threshold: '1000', delivery_free_enabled: '1' }; // legacy 殘留
+  sandbox._deliveryFeeResult = null; // pending：還沒有最新 API 結果
+  sandbox._lastResolvedDeliveryTier = { threshold: 1500, mode: 'fixed', fixedDiscountValue: 100, matchedMaxKm: 13 };
+  sandbox.cart = { 1: { product: { id: 1, price: 1050 }, qty: 1 } }; // subtotal = 1050
+
+  vm.runInContext('updateDeliveryFreeProgress()', sandbox);
+
+  assert(!els.deliveryFreeProgress.hidden, 'pending 期間仍顯示滿額進度區塊');
+  assert(!els.deliveryFreeProgress.classList.contains('reached'), 'pending 不得標記為已達標（reached class）');
+  assert(els.deliveryFreeThresholdAmount.textContent.includes('1,500'), `門檻顯示必須是 NT$1,500，不是 1,000：實際「${els.deliveryFreeThresholdAmount.textContent}」`);
+  assert(!els.deliveryFreeThresholdAmount.textContent.includes('1,000'), '門檻文字不得出現 1,000');
+  assert(els.deliveryFreeStatusText.textContent === '70%', `進度應為 70%（1050/1500）：實際「${els.deliveryFreeStatusText.textContent}」`, els.deliveryFreeStatusText.textContent);
+  assert(els.deliveryFreeRemainingText.textContent.includes('450'), 'remaining 文案提到 450');
+  assert(els.deliveryFreeSavingText.style.display === 'none', 'pending 不得顯示「已折抵/已省下」');
+})();
+
+// ── C5-2. 新版 tier mode、尚未解析地址：不得 fallback legacy 1000 ─────────
+(function () {
+  console.log('\n[C5-2] 新版 tier mode 但尚未解析過任何地址：顯示等待地址，不 fallback 1000');
+  const { sandbox, els } = makeProgressSandbox();
+  sandbox.shopData = {
+    delivery_free_threshold: '1000', delivery_free_enabled: '1',
+    delivery_distance_fee_rules: JSON.stringify([{ max_km: 13, fee: 210, free_threshold: 1500, free_mode: 'fixed', free_discount: 100 }]),
+  };
+  sandbox._deliveryFeeResult = null;
+  sandbox._lastResolvedDeliveryTier = null; // 這次瀏覽階段還沒解析過任何地址
+  sandbox.cart = { 1: { product: { id: 1, price: 1050 }, qty: 1 } };
+
+  vm.runInContext('updateDeliveryFreeProgress()', sandbox);
+
+  assert(!els.deliveryFreeProgress.hidden, '顯示等待地址提示（不隱藏整個區塊）');
+  assert(els.deliveryFreeRemainingText.textContent.includes('正在依地址計算滿額外送優惠'), `應顯示等待地址文案：實際「${els.deliveryFreeRemainingText.textContent}」`);
+  assert(!els.deliveryFreeThresholdAmount.textContent.includes('1,000'), '不得顯示舊全店門檻 1,000');
+  assert(!els.deliveryFreeProgress.classList.contains('reached'), '不得標記已達標');
+  assert(els.deliveryFreeStatusText.textContent !== '100%', '不得顯示 100%');
+})();
+
+// ── C5-3. 真正 legacy 店（全部裸規則）：允許 fallback 1000 ────────────────
+(function () {
+  console.log('\n[C5-3] 真正舊店（distance_fee_rules 全部是裸 {max_km,fee}）：允許 fallback legacy 1000');
+  const { sandbox, els } = makeProgressSandbox();
+  sandbox.shopData = {
+    delivery_free_threshold: '1000', delivery_free_enabled: '1',
+    delivery_distance_fee_rules: JSON.stringify([{ max_km: 3, fee: 50 }, { max_km: 7, fee: 120 }]),
+  };
+  sandbox._deliveryFeeResult = null;
+  sandbox._lastResolvedDeliveryTier = null;
+  sandbox.cart = { 1: { product: { id: 1, price: 500 }, qty: 1 } }; // subtotal = 500
+
+  vm.runInContext('updateDeliveryFreeProgress()', sandbox);
+
+  assert(!els.deliveryFreeProgress.hidden, '真正舊店仍顯示滿額進度（fallback legacy）');
+  assert(els.deliveryFreeThresholdAmount.textContent.includes('1,000'), `真正舊店允許顯示 legacy 門檻 1,000：實際「${els.deliveryFreeThresholdAmount.textContent}」`);
+})();
+
+// ── C5-4. 折抵顯示使用明確 discount（raw=210, discount=100, final=110）───
+(function () {
+  console.log('\n[C5-4] 已解析結果：明確 delivery_discount=100 時，savedAmount=100');
+  const { sandbox, els } = makeProgressSandbox();
+  sandbox._deliveryFeeResult = {
+    rawFee: 210, finalFee: 110, discount: 100, threshold: 1500, mode: 'fixed',
+    fixedDiscountValue: 100, remaining: 0, reached: true, outOfRange: false,
+  };
+  sandbox.cart = { 1: { product: { id: 1, price: 1500 }, qty: 1 } };
+
+  vm.runInContext('updateDeliveryFreeProgress()', sandbox);
+
+  assert(els.deliveryFreeProgress.classList.contains('reached'), '已達標時標記 reached class');
+  assert(els.deliveryFreeSavingText.textContent.includes('100'), `已省下文案應提到 100：實際「${els.deliveryFreeSavingText.textContent}」`);
+  assert(els.deliveryFreeRemainingText.textContent.includes('折抵 NT$100'), '文案提到折抵 NT$100');
+  assert(els.deliveryFreeRemainingText.textContent.includes('NT$110'), '文案提到仍需支付 NT$110');
+  assert(!els.deliveryFreeRemainingText.textContent.includes('折抵 NT$0'), '不得顯示折抵 NT$0');
+})();
+
+// ── C5-5. 折抵欄位缺失時安全推導（deriveDeliveryDiscount 已在 fetchDeliveryFee 內接入，
+//          這裡直接驗證抽取出來的真實 deriveDeliveryDiscount() 函式本身）──────────
+(function () {
+  console.log('\n[C5-5] deriveDeliveryDiscount()：discount 欄位缺失時由 raw-final 差額安全推導');
+  const fnStart = SRC.indexOf('function deriveDeliveryDiscount(rawFee, finalFee, explicitDiscount){');
+  if (fnStart === -1) throw new Error('找不到 deriveDeliveryDiscount() 定義');
+  const fnEnd = SRC.indexOf('\n}', fnStart) + 2;
+  const realDeriveSrc = SRC.slice(fnStart, fnEnd);
+  const sandbox2 = { console };
+  vm.createContext(sandbox2);
+  vm.runInContext(realDeriveSrc, sandbox2);
+  const savedAmount = vm.runInContext('deriveDeliveryDiscount(210, 110, undefined)', sandbox2);
+  assert(savedAmount === 100, `discount 缺失時應推導出 100：實際 ${savedAmount}`, String(savedAmount));
+  const savedAmountExplicit = vm.runInContext('deriveDeliveryDiscount(210, 110, 100)', sandbox2);
+  assert(savedAmountExplicit === 100, '明確提供 discount=100 時直接採用（且與推導值一致）');
+})();
+
+// ── C5-6. 地址改變／模式切換／API 失敗時必須清除 _lastResolvedDeliveryTier ─────
+(function () {
+  console.log('\n[C5-6] 地址改變/切外帶/API失敗等情境會清除 _lastResolvedDeliveryTier（靜態驗證真實程式碼片段）');
+  const cases = [
+    { label: '手動輸入地址（input 事件）清除舊 tier', marker: "addrEl.addEventListener('input', ()=>{", endMarker: '});', mustInclude: '_lastResolvedDeliveryTier=null' },
+    { label: "Autocomplete 選到沒有座標的地點清除舊 tier", marker: "if(!place.geometry){", endMarker: 'return;\n    }', mustInclude: '_lastResolvedDeliveryTier=null' },
+    { label: 'resetDeliveryFee()（超距離/Maps失敗/訂單完成後）清除舊 tier', marker: 'function resetDeliveryFee(){', endMarker: '\n}', mustInclude: '_lastResolvedDeliveryTier = null' },
+    { label: '切換到外帶模式清除舊 tier（applyFulfillmentMode）', marker: 'async function applyFulfillmentMode(mode, opts){', endMarker: 'restoreModeFormState(mode);', mustInclude: "_lastResolvedDeliveryTier = null" },
+  ];
+  cases.forEach(({ label, marker, endMarker, mustInclude }) => {
+    const s = SRC.indexOf(marker);
+    assert(s !== -1, `找到程式碼片段起點：${label}`);
+    if (s === -1) return;
+    const e = SRC.indexOf(endMarker, s + marker.length);
+    assert(e !== -1, `找到程式碼片段終點：${label}`);
+    if (e === -1) return;
+    const snippet = SRC.slice(s, e);
+    assert(snippet.includes(mustInclude), label, `未在片段中找到「${mustInclude}」`);
+  });
+  // fetchDeliveryFee() 失敗分支（res.success===false 與 catch）也必須清除
+  assert(fetchDeliveryFeeSrc.includes('_lastResolvedDeliveryTier = null;'), 'fetchDeliveryFee() 失敗分支清除 _lastResolvedDeliveryTier');
+  assert(fetchDeliveryFeeSrc.includes('_lastResolvedDeliveryTier=null;'), 'fetchDeliveryFee() catch 分支清除 _lastResolvedDeliveryTier');
+})();
+
+// ── C5-7. Cart mutation（addCart/chgQty/removeCartItem）保留 _lastResolvedDeliveryTier ──
+(function () {
+  console.log('\n[C5-7] 商品加減/移除同步流程不得清除 _lastResolvedDeliveryTier（靜態驗證真實程式碼）');
+  const fns = [
+    { name: 'addCart', body: extractBlock(SRC, 'function addCart(id,evt){', 'function addPreorderToCart') },
+    { name: 'chgQty', body: extractBlock(SRC, 'function chgQty(id,d){', 'function updateProductCard') },
+    { name: 'removeCartItem', body: extractBlock(SRC, 'function removeCartItem(id){', 'function reconcileFulfillmentMode') },
+    { name: 'scheduleDeliveryFeeRefresh', body: extractBlock(SRC, 'function scheduleDeliveryFeeRefresh(){', 'function refreshCartAfterMutation(){') },
+    { name: 'setDeliveryFeePending', body: extractBlock(SRC, 'function setDeliveryFeePending(){', 'let _cartDeliveryRefreshTimer') },
+  ];
+  fns.forEach(({ name, body }) => {
+    assert(!body.includes('_lastResolvedDeliveryTier'), `${name}() 完全不觸碰 _lastResolvedDeliveryTier（保留最近命中的級距，只重算 finalFee）`);
+  });
+  // 動態驗證：實際跑一次商品減少的 pending 流程，確認 tier 真的原封不動
+  const { sandbox } = makeSandbox();
+  sandbox.deliveryLatLng = { lat: 25.03, lng: 121.56 };
+  sandbox._lastResolvedDeliveryTier = { threshold: 1500, mode: 'fixed', fixedDiscountValue: 100, matchedMaxKm: 13 };
+  sandbox.cart = { 1: { product: { id: 1, price: 1050 }, qty: 1 } };
+  vm.runInContext('scheduleDeliveryFeeRefresh()', sandbox);
+  assert(
+    sandbox._lastResolvedDeliveryTier && sandbox._lastResolvedDeliveryTier.threshold === 1500,
+    '商品異動觸發 scheduleDeliveryFeeRefresh() 後，_lastResolvedDeliveryTier.threshold 仍是 1500（未被清除）'
+  );
+})();
+
+// ── C5-8. C5 原始畫面案例：11.94km/13km 級距/threshold=1500/fixed=100，
+//          subtotal 1050→未達標，1500→達標，全程使用真實 shared engine + 前端 render ──
+(function () {
+  console.log('\n[C5-8] C5 原始案例：11.94km 命中 13km 級距，subtotal 1050 與 1500 兩種情境');
+  const { calculateDeliveryFeeWithPromotion } = require(path.join(ROOT, 'utils', 'deliveryFeeCalc.js'));
+  const rules = [{ max_km: 13, fee: 210, free_threshold: 1500, free_mode: 'fixed', free_discount: 100 }];
+  const legacySettings = { delivery_free_enabled: '1', delivery_free_threshold: '1000', delivery_free_mode: '', delivery_basic_fee: '50' };
+
+  // 情境一：subtotal = 1050（未達標）
+  const calc1050 = calculateDeliveryFeeWithPromotion({ distanceKm: 11.94, eligibleSubtotal: 1050, distanceRules: rules, legacySettings, maxDistanceKm: 15 });
+  assert(calc1050.threshold === 1500, 'subtotal=1050：門檻是 1500（不是 1000）', JSON.stringify(calc1050));
+  assert(calc1050.remaining === 450, 'subtotal=1050：remaining === 450');
+  assert(calc1050.reached === false, 'subtotal=1050：reached === false');
+  assert(calc1050.finalFee === 210, 'subtotal=1050：finalFee === 210（未折抵）');
+
+  // 前端 render：把後端結果組成 _deliveryFeeResult，驗證畫面顯示
+  const { sandbox: sb1, els: els1 } = makeProgressSandbox();
+  sb1._deliveryFeeResult = {
+    rawFee: calc1050.rawFee, finalFee: calc1050.finalFee, discount: calc1050.discount,
+    threshold: calc1050.threshold, mode: calc1050.promotionMode, fixedDiscountValue: calc1050.configuredFixedDiscount,
+    remaining: calc1050.remaining, reached: calc1050.reached, outOfRange: false,
+  };
+  sb1.cart = { 1: { product: { id: 1, price: 1050 }, qty: 1 } };
+  vm.runInContext('updateDeliveryFreeProgress()', sb1);
+  assert(els1.deliveryFreeThresholdAmount.textContent.includes('1,500'), 'subtotal=1050 畫面門檻顯示 NT$1,500');
+  assert(!els1.deliveryFreeProgress.classList.contains('reached'), 'subtotal=1050 畫面不得標記已達標');
+
+  // 情境二：subtotal = 1500（達標）
+  const calc1500 = calculateDeliveryFeeWithPromotion({ distanceKm: 11.94, eligibleSubtotal: 1500, distanceRules: rules, legacySettings, maxDistanceKm: 15 });
+  assert(calc1500.discount === 100, 'subtotal=1500：discount === 100', JSON.stringify(calc1500));
+  assert(calc1500.finalFee === 110, 'subtotal=1500：finalFee === 110');
+
+  const { sandbox: sb2, els: els2 } = makeProgressSandbox();
+  sb2._deliveryFeeResult = {
+    rawFee: calc1500.rawFee, finalFee: calc1500.finalFee, discount: calc1500.discount,
+    threshold: calc1500.threshold, mode: calc1500.promotionMode, fixedDiscountValue: calc1500.configuredFixedDiscount,
+    remaining: calc1500.remaining, reached: calc1500.reached, outOfRange: false,
+  };
+  sb2.cart = { 1: { product: { id: 1, price: 1500 }, qty: 1 } };
+  vm.runInContext('updateDeliveryFreeProgress()', sb2);
+  assert(els2.deliveryFreeProgress.classList.contains('reached'), 'subtotal=1500 畫面標記已達標');
+  assert(els2.deliveryFreeSavingText.textContent.includes('100'), 'subtotal=1500 畫面 savedAmount 顯示 100');
+})();
+
+// ═══════════════════════ MANUAL REQUIRED ═══════════════════════
 
 // ── 1. 減少後失去免運：_deliveryFeeResult 必須被清空進入 pending，不得沿用舊 reached ──
 (function () {

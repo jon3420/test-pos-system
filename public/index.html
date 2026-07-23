@@ -985,15 +985,15 @@
             <input type="number" id="set-delivery_basic_fee" min="0" step="10" style="width:100px">
           </div>
           <div class="settings-row">
-            <label>滿額免基本外送費 (NT$)</label>
-            <input type="number" id="set-delivery_free_threshold" min="0" step="50"
-              placeholder="0=停用" style="width:100px">
-          </div>
-          <div class="settings-row">
             <label>優惠券可折抵外送費</label>
             <label class="toggle"><input type="checkbox" id="set-coupon_apply_to_delivery_fee"><span class="slider"></span></label>
           </div>
         </div>
+
+        <!-- C5：移除「滿額免基本外送費（NT$）」輸入欄位——舊版全店滿額門檻不再從後台
+             編輯，新設定一律由下方「距離級距外送費」每列自己的優惠模式控制。
+             delivery_free_threshold 資料庫欄位保留，僅供尚未儲存過新版級距規則的
+             舊店 fallback 使用（見 utils/deliveryFeeCalc.js hasTierPromotionConfiguration()）。 -->
 
         <div class="settings-card" style="grid-column:1/-1">
           <h3>📏 距離級距外送費</h3>

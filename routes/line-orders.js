@@ -650,6 +650,12 @@ router.get('/shop', (req, res) => {
       'delivery_free_enabled', 'delivery_free_threshold', 'delivery_free_mode',
       'delivery_free_distance_km', 'delivery_basic_fee', 'delivery_distance_fee_enabled',
       'delivery_max_distance_km', 'coupon_apply_to_delivery_fee',
+      // C5：額外回傳距離級距規則本身（JSON 字串），讓前台可以判斷「這個店家是否已經
+      // 啟用新版每級距自己的促銷設定」（hasTierPromotionConfigurationClient()），藉此
+      // 決定 pending 畫面能不能使用舊版全店 delivery_free_threshold 當作暫時估計值——
+      // 純粹額外回傳既有設定值本身，不新增資料表欄位、不改變 routes/delivery.js 既有
+      // 計算公式（真正的計算仍然只發生在後端 utils/deliveryFeeCalc.js）。
+      'delivery_distance_fee_rules',
     ];
     const settings = {};
     keys.forEach(k => { settings[k] = getSetting(db, storeId, k, ''); });
