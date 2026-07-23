@@ -289,8 +289,11 @@ initDb().then((db) => {
   // line_delivery_enabled 欄位，不依賴管理員手動執行 migration script 或先編輯過一次商品，
   // 避免正式環境只跑過 script 才會有欄位、其他環境仍缺欄位的落差。可重複呼叫，不影響既有資料。
   try {
-    const { ensureProductModeColumns } = require('./routes/products');
+    const { ensureProductModeColumns, ensureProductSaleWindowColumns } = require('./routes/products');
     if (typeof ensureProductModeColumns === 'function') ensureProductModeColumns(db);
+    // fix18-10-hotfix30-C1：外帶/外送商品販售時段欄位同樣在開機時安全補上，
+    // 不依賴管理員手動執行 migration script 或先編輯過一次商品；可重複呼叫，不影響既有資料。
+    if (typeof ensureProductSaleWindowColumns === 'function') ensureProductSaleWindowColumns(db);
   } catch (e) {
     console.error('[boot] ensureProductModeColumns 補欄位失敗（不影響其他功能啟動）：', e.message);
   }

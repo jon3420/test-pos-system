@@ -445,6 +445,31 @@ function getEarliestMins(db, storeId, mode, modeSettings, dateStr, nowMins) {
   }
 }
 
+// ── fix18-10-hotfix30-C1（需求文件第七、十二點）：商品「LINE 商品販售時間」單一來源 ──
+// 這是「第二層：商品販售層」專用的時間解析，跟「第一層：店家營業時間」
+// （getEffectiveModeSchedule()/resolveFulfillmentState()，本輪未修改一行）完全獨立、
+// 不得互相改寫。用途：決定「這個商品在這個取餐模式下，今天幾點到幾點可以賣」，
+// 屬於店家自訂的限時販售／提前完銷／稀缺行銷策略，不代表店家本身是否營業。
+// 規則（需求文件第十二點）：
+//   mode='takeout'：優先用 line_takeout_sell_start/end，皆為空才 fallback 舊欄位
+//     line_sell_start/end；mode='delivery' 同理使用 line_delivery_sell_start/end。
+//   若最終 start/end 仍是 null（新舊欄位都沒設定），代表不額外限制商品販售時間，
+//   只跟隨店家該模式的有效營業時間（由呼叫端自行處理，這裡只負責回傳 null）。
+// 向下相容：新欄位（line_takeout_sell_start 等）在還沒跑過本輪 migration 或商家
+// 從未編輯過的舊資料上會是 undefined/null，此時自動 fallback 舊欄位，舊商家資料
+// 行為完全不變（Case R8-6）；新欄位一旦有值就優先使用，舊欄位只作 fallback，
+// 不會互相覆蓋（Case R8-7）。
+function getEffectiveProductSaleWindow(product, mode) {
+  const p = product || {};
+  const start = mode === 'delivery'
+    ? (p.line_delivery_sell_start || p.line_sell_start || null)
+    : (p.line_takeout_sell_start  || p.line_sell_start || null);
+  const end = mode === 'delivery'
+    ? (p.line_delivery_sell_end || p.line_sell_end || null)
+    : (p.line_takeout_sell_end  || p.line_sell_end || null);
+  return { start: start || null, end: end || null };
+}
+
 // ── LINE 今日可售份數（現貨）──────────────────────────────
 function getLineQuotaStatus(product) {
   if (!Number(product.line_quota_enabled)) {
@@ -964,23 +989,22 @@ router.get('/menu', (req, res) => {
       const allowPreorderBeforeStart = Number(p.line_preorder_enabled) === 1;
 
       // ── 第三位階：商品自身販售時段（只影響今日）──────────
-      // fix18-10-hotfix30-B5-R3 root cause fix：先前這裡只有「一份」productTimeReason，
-      // 拿商品自己的 line_sell_start/line_sell_end 跟現在時間比較，完全沒有考慮「今天這個
-      // 模式其實是被 Business Calendar 特殊營業另外設定時段」——導致特殊營業已經開放外送
-      // 00:10~22:10，但商品自己的 LINE 販售時段（例如 15:30~19:50）仍然生效，把明明可以買
-      // 的商品判斷成「尚未販售」/「今日售完」。
-      // 規則（需求文件第二、三、四點）：當天某模式命中 Business Calendar 特殊營業時，
-      // 該模式當天「完全不套用」商品自己的 line_sell_start/line_sell_end（特殊營業時段本身
-      // 已經由 takeoutSchedule/deliverySchedule.enabled、toCutoff/dlCutoff 等既有邏輯決定
-      // 是否開放/截止，商品層級不需要也不應該再疊加一層自己的時段限制）；只有在「當天沒有
-      // 命中特殊營業、回退每週營業時段」時，才套用商品自己的 LINE 販售時段（既有行為，
-      // 完全不變）。庫存／人工停售／商品模式不支援等既有判斷完全不受影響，這裡只處理
-      // 「今天幾點可以賣」這一件事。
-      function _computeProductTimeReason(schedule, sellStart, sellEnd) {
-        if (schedule.source === 'business_calendar') {
-          // 特殊營業覆蓋商品自身 LINE 販售時段：今天這個模式不套用 line_sell_start/line_sell_end。
-          return { reason: null, preSale: false };
-        }
+      // fix18-10-hotfix30-C1 root cause 規則變更（需求文件第六節，明確反轉 R3 規則）：
+      // R3～R7 的規則是「特殊營業 > 商品 LINE 販售時間」——只要當天命中 Business Calendar
+      // 特殊營業，就完全不套用商品自己的 line_sell_start/line_sell_end。本版需求文件
+      // 第五、六節明確要求反轉：特殊營業只決定「店家這個模式今天的營業區間」（由
+      // takeoutSchedule/deliverySchedule.enabled、toCutoff/dlCutoff 等既有邏輯決定，
+      // 本輪未改一行），商品自己的 LINE 販售時間在該區間內仍然獨立生效，用來實現「提前
+      // 完銷」「限時販售」等行銷策略（例如特殊營業開到 23:00，但商品自訂只賣到 19:00，
+      // 19:00 後該商品仍應顯示完售，其他商品不受影響）。因此這裡不再讀取 schedule.source，
+      // 一律呼叫 getEffectiveProductSaleWindow(p, mode) 取得「該模式的有效商品販售時間」
+      // （新欄位 line_takeout_sell_start/end、line_delivery_sell_start/end，皆空才
+      // fallback 舊欄位 line_sell_start/end，見該函式），跟現在時間比較。
+      // 店家是否營業（today_state/cutoff/holiday）完全由上面既有的 dayClosedReason／
+      // calendarModeClosed／globalClosed／cutoff 判斷式把關（見下方 takeoutSoldOutReason／
+      // deliverySoldOutReason 組成順序，這裡的商品時段判斷排在它們之後，商品時段不得、
+      // 也不會反過來改寫店家營業狀態）。
+      function _computeProductTimeReason(sellStart, sellEnd) {
         if (sellEnd && nowHHMM >= sellEnd) return { reason: 'time_ended', preSale: false };
         if (sellStart && nowHHMM < sellStart) {
           if (allowPreorderBeforeStart) return { reason: null, preSale: true };
@@ -988,8 +1012,10 @@ router.get('/menu', (req, res) => {
         }
         return { reason: null, preSale: false };
       }
-      const _toTimeCheck = _computeProductTimeReason(takeoutSchedule,  p.line_sell_start, p.line_sell_end);
-      const _dlTimeCheck = _computeProductTimeReason(deliverySchedule, p.line_sell_start, p.line_sell_end);
+      const _toSaleWindow = getEffectiveProductSaleWindow(p, 'takeout');
+      const _dlSaleWindow = getEffectiveProductSaleWindow(p, 'delivery');
+      const _toTimeCheck = _computeProductTimeReason(_toSaleWindow.start, _toSaleWindow.end);
+      const _dlTimeCheck = _computeProductTimeReason(_dlSaleWindow.start, _dlSaleWindow.end);
       const productTimeReasonTakeout  = _toTimeCheck.reason;
       const productTimeReasonDelivery = _dlTimeCheck.reason;
       // pre_sale_available 維持既有單一欄位（供前台「🟢 可預約」徽章使用），任一模式符合即為 true，

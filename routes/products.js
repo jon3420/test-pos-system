@@ -74,6 +74,14 @@ function enrichProduct(p) {
     line_quota_high_threshold: Number(p.line_quota_high_threshold) || 10,
     line_sell_start:           p.line_sell_start || '',
     line_sell_end:             p.line_sell_end   || '',
+    // fix18-10-hotfix30-C1（需求文件第二十點）：GET 商品／LINE 商品管理 API 必須回傳新欄位。
+    // 空值一律回傳空字串（與既有 line_sell_start/line_sell_end 的既有慣例一致），管理頁
+    // 欄位留空即代表「fallback 舊欄位／不限時段」，由 getEffectiveProductSaleWindow()
+    // （routes/line-orders.js）在 GET /menu 實際計算時處理 fallback，這裡只是原樣回傳。
+    line_takeout_sell_start:   p.line_takeout_sell_start  || '',
+    line_takeout_sell_end:     p.line_takeout_sell_end    || '',
+    line_delivery_sell_start:  p.line_delivery_sell_start || '',
+    line_delivery_sell_end:    p.line_delivery_sell_end   || '',
     line_quota_remaining: Number(p.line_quota_enabled)
       ? Math.max(0, Number(p.line_quota_daily||0) - Number(p.line_quota_sold||0))
       : null,
@@ -345,6 +353,48 @@ function ensureProductModeColumns(db) {
   }
 }
 
+/* fix18-10-hotfix30-C1（需求文件第八點）：外帶/外送商品販售時段獨立化的安全 migration，
+   與 ensureProductPreorderColumns/ensureProductModeColumns 完全相同的模式（runtime-safe，
+   可重複呼叫，缺欄位時才 ALTER TABLE，不重建整張表，舊資料不需要批量寫入——新欄位預設
+   NULL，讀取時由 getEffectiveProductSaleWindow()（routes/line-orders.js）自動 fallback
+   到既有 line_sell_start/line_sell_end，舊商家資料完全不受影響）。 */
+function ensureProductSaleWindowColumns(db) {
+  const COLS = [
+    ['line_takeout_sell_start',  'TEXT'],
+    ['line_takeout_sell_end',    'TEXT'],
+    ['line_delivery_sell_start', 'TEXT'],
+    ['line_delivery_sell_end',   'TEXT'],
+  ];
+  try {
+    let existCols;
+    if (typeof db.all === 'function') {
+      existCols = db.all('PRAGMA table_info(products)').map(r => r.name);
+    } else if (typeof db.exec === 'function') {
+      const result = db.exec('PRAGMA table_info(products)');
+      existCols = (result && result[0] && result[0].values)
+        ? result[0].values.map(row => row[1])
+        : [];
+    } else {
+      console.error('[products] ensureProductSaleWindowColumns: db 不支援 all/exec');
+      return;
+    }
+    for (const [col, def] of COLS) {
+      if (existCols.includes(col)) continue;
+      try {
+        db.run(`ALTER TABLE products ADD COLUMN ${col} ${def}`);
+        if (typeof db.save === 'function') db.save();
+        console.log(`[products] ✅ ALTER TABLE products ADD COLUMN ${col}`);
+      } catch (e2) {
+        if (!/already exists/i.test(e2.message)) {
+          console.error(`[products] ❌ ALTER TABLE 失敗 ${col}:`, e2.message);
+        }
+      }
+    }
+  } catch (e) {
+    console.error('[products] ensureProductSaleWindowColumns 失敗:', e.message);
+  }
+}
+
 /* PATCH /api/products/:id/line-settings */
 router.patch('/:id/line-settings', requireFeature('line_order'), (req, res) => {
   try {
@@ -353,6 +403,7 @@ router.patch('/:id/line-settings', requireFeature('line_order'), (req, res) => {
     //   "no such column: line_preorder_enabled"
     ensureProductPreorderColumns(db);
     ensureProductModeColumns(db);
+    ensureProductSaleWindowColumns(db); // fix18-10-hotfix30-C1
     const storeId = req.storeId;
     const id = req.params.id;
     const ex = db.get('SELECT id FROM products WHERE id=? AND store_id=?', [id, storeId]);
@@ -366,6 +417,10 @@ router.patch('/:id/line-settings', requireFeature('line_order'), (req, res) => {
       line_quota_enabled, line_quota_daily, line_quota_sold,
       line_quota_low_threshold, line_quota_high_threshold,
       line_sell_start, line_sell_end,
+      // fix18-10-hotfix30-C1（需求文件第七點）：外帶/外送商品販售時段獨立欄位。
+      // line_sell_start/line_sell_end 保留作為舊資料向下相容 fallback，不刪除、不強制搬移。
+      line_takeout_sell_start, line_takeout_sell_end,
+      line_delivery_sell_start, line_delivery_sell_end,
       // fix18-10-hotfix30-B 第二、三點：LINE 點餐販售模式（外帶/外送），只影響 line-order.html，
       // 不得與宅配設定（shipping_*）混用。未傳入時保持既有值，不強制覆蓋。
       line_takeout_enabled, line_delivery_enabled,
@@ -376,6 +431,20 @@ router.patch('/:id/line-settings', requireFeature('line_order'), (req, res) => {
       const finalDelivery = line_delivery_enabled !== undefined ? _toModeBit(line_delivery_enabled) : Number(ex.line_delivery_enabled ?? 1);
       if (finalTakeout === 0 && finalDelivery === 0) {
         return res.status(400).json({ success: false, message: 'LINE 點餐商品至少必須啟用外帶或外送其中一種販售方式。' });
+      }
+    }
+    // fix18-10-hotfix30-C1（需求文件第三節）：外帶/外送商品販售時段格式驗證。
+    // 空字串代表「清空自訂時段、fallback 舊欄位或不限」，允許；有值時必須是 HH:mm，
+    // 不合法格式直接 400 拒絕，避免壞資料寫進 DB 後在 GET /menu 的時間比較邏輯裡
+    // 產生無法預期的行為（例如 "25:99" 這種字串比較仍會「成立」但完全沒有意義）。
+    const _HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+    const _saleWindowFields = {
+      line_takeout_sell_start, line_takeout_sell_end,
+      line_delivery_sell_start, line_delivery_sell_end,
+    };
+    for (const [fieldName, fieldVal] of Object.entries(_saleWindowFields)) {
+      if (fieldVal !== undefined && fieldVal !== '' && !_HHMM.test(fieldVal)) {
+        return res.status(400).json({ success: false, message: `${fieldName} 時間格式錯誤，必須是 HH:mm（例如 09:30）` });
       }
     }
     const sets = []; const vals = [];
@@ -402,6 +471,13 @@ router.patch('/:id/line-settings', requireFeature('line_order'), (req, res) => {
     add('line_quota_high_threshold', line_quota_high_threshold != null ? Number(line_quota_high_threshold) : undefined);
     add('line_sell_start',           line_sell_start);
     add('line_sell_end',             line_sell_end);
+    // fix18-10-hotfix30-C1：外帶/外送分開儲存，未傳入的欄位不覆蓋既有值（沿用既有 add()
+    // 慣例：undefined 就跳過，讓「只更新外帶」「只更新外送」「同時更新兩者」三種批次
+    // 情境都只需要傳入要更新的那幾個欄位，不會誤動未選擇的模式）。
+    add('line_takeout_sell_start',   line_takeout_sell_start);
+    add('line_takeout_sell_end',     line_takeout_sell_end);
+    add('line_delivery_sell_start',  line_delivery_sell_start);
+    add('line_delivery_sell_end',    line_delivery_sell_end);
     // fix18-10-hotfix30-B：LINE 點餐販售模式（外帶/外送），正規化為 0/1，不信任任意字串
     add('line_takeout_enabled',  line_takeout_enabled  !== undefined ? _toModeBit(line_takeout_enabled)  : undefined);
     add('line_delivery_enabled', line_delivery_enabled !== undefined ? _toModeBit(line_delivery_enabled) : undefined);
@@ -580,5 +656,7 @@ router.patch('/batch-inventory-settings', (req, res) => {
 // fix18-10-hotfix30-B：附掛在 router 上供 server.js 開機時呼叫（router 本身是函式，
 // 掛屬性不影響 Express 掛載行為）
 router.ensureProductModeColumns = ensureProductModeColumns;
+// fix18-10-hotfix30-C1：同樣模式，供 server.js 開機時安全補上外帶/外送商品販售時段欄位。
+router.ensureProductSaleWindowColumns = ensureProductSaleWindowColumns;
 
 module.exports = router;
