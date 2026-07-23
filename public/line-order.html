@@ -240,6 +240,29 @@ img{max-width:100%;display:block}
 .delivery-fee-row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;font-size:14px;font-weight:500;color:#e65100;border-top:1px dashed #ffe0b2;margin-top:6px}
 .delivery-fee-label{color:#888;font-size:13px}
 .delivery-distance-badge{background:#fff3e0;color:#e65100;border-radius:6px;padding:2px 8px;font-size:12px;font-weight:700;margin-left:6px}
+/* ── 外送滿額免運進度提示（purely additive；只在外送模式顯示，見 renderDeliveryFreeProgress）── */
+.delivery-free-progress{margin-top:10px;padding:12px 14px;border-radius:10px;background:#fff8f0;border:1px solid #ffe0b2;max-width:100%;overflow:hidden;box-sizing:border-box}
+.delivery-free-progress.reached{background:#f0faf4;border-color:#c8e6c9}
+.delivery-free-progress__header{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13.5px;font-weight:700;color:#e65100;flex-wrap:wrap}
+.delivery-free-progress.reached .delivery-free-progress__header{color:#15803d}
+.delivery-free-progress__header strong{font-size:13px;font-weight:700}
+.delivery-free-progress__remaining{font-size:12.5px;color:#8a5a00;margin-top:4px;line-height:1.6;white-space:pre-line}
+.delivery-free-progress.reached .delivery-free-progress__remaining{color:#256029}
+.delivery-free-progress__bar{margin-top:8px;height:8px;border-radius:5px;background:#ffe0b2;overflow:hidden;width:100%}
+.delivery-free-progress.reached .delivery-free-progress__bar{background:#c8e6c9}
+.delivery-free-progress__bar-fill{height:100%;border-radius:5px;background:#ff9800;transition:width .25s ease;width:0%}
+.delivery-free-progress.reached .delivery-free-progress__bar-fill{background:#43a047}
+.delivery-free-progress__amounts{display:flex;justify-content:space-between;font-size:11.5px;color:#999;margin-top:4px}
+.delivery-free-progress__saving{font-size:12.5px;font-weight:600;color:#2e7d32;margin-top:6px}
+.delivery-free-progress__outofrange{font-size:12px;color:#c62828;margin-top:6px;font-weight:600}
+/* 湊免運推薦（第七項，簡易版）*/
+.delivery-free-reco{margin-top:10px;padding-top:10px;border-top:1px dashed #ffe0b2}
+.delivery-free-reco__title{font-size:12.5px;font-weight:700;color:#8a5a00;margin-bottom:6px}
+.delivery-free-reco__list{display:flex;gap:8px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:2px}
+.delivery-free-reco__item{flex:0 0 auto;min-width:104px;max-width:120px;background:#fff;border:1px solid #ffe0b2;border-radius:8px;padding:8px;font-size:12px;color:#333;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.delivery-free-reco__item:active{opacity:.8}
+.delivery-free-reco__item-name{font-weight:600;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.4;min-height:2.8em}
+.delivery-free-reco__item-price{color:#e65100;font-weight:700;margin-top:4px}
 </style>
 </head>
 <body>
@@ -367,6 +390,28 @@ img{max-width:100%;display:block}
       <div id="deliveryFeeMsg" style="font-size:12px;color:#888;margin-top:2px;min-height:16px"></div>
     </div>
     <!-- end delivery -->
+    <!-- 外送滿額免運進度提示（新增，僅外送模式顯示；純顯示用途，實際外送費仍以後端 /api/delivery/calculate-fee
+         與下單時 recalcDeliveryFee() 重算結果為準，見 getDeliveryFreeProgressState()/renderDeliveryFreeProgress()）-->
+    <section id="deliveryFreeProgress" class="delivery-free-progress" hidden>
+      <div class="delivery-free-progress__header">
+        <span>🎁 滿額外送優惠</span>
+        <strong id="deliveryFreeStatusText"></strong>
+      </div>
+      <div id="deliveryFreeRemainingText" class="delivery-free-progress__remaining"></div>
+      <div class="delivery-free-progress__bar" id="deliveryFreeProgressTrack" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+        <div id="deliveryFreeProgressBar" class="delivery-free-progress__bar-fill"></div>
+      </div>
+      <div class="delivery-free-progress__amounts">
+        <span id="deliveryFreeCurrentAmount"></span>
+        <span id="deliveryFreeThresholdAmount"></span>
+      </div>
+      <div id="deliveryFreeSavingText" class="delivery-free-progress__saving" style="display:none"></div>
+      <div id="deliveryFreeOutOfRangeText" class="delivery-free-progress__outofrange" style="display:none">⚠️ 滿額優惠不適用於超出配送範圍的地址</div>
+      <div id="deliveryFreeReco" class="delivery-free-reco" style="display:none">
+        <div class="delivery-free-reco__title">🧺 湊免運推薦</div>
+        <div id="deliveryFreeRecoList" class="delivery-free-reco__list"></div>
+      </div>
+    </section>
     <div class="fg"><label class="fl">付款方式</label><div class="pay-btns" id="payBtns"></div></div>
     <div class="fg"><label class="fl">備註</label><input class="fi" id="oNote" placeholder="特殊需求…" oninput="debouncedPersistCart()"></div>
     <button class="sub-btn" id="subBtn" onclick="submitOrder()">確認送出訂單</button>
@@ -419,6 +464,7 @@ img{max-width:100%;display:block}
 <script src="/js/analytics-attribution.js"></script>
 <script src="/js/analytics-platforms.js"></script>
 <script src="/js/line-member-gate.js"></script>
+<script src="/js/delivery-free-progress.js"></script>
 <script>
 'use strict';
 // ── SaaS store_id 綁定 ──
@@ -738,6 +784,14 @@ function _currentMemberSession(){
 // ── 全域狀態 ──
 let allProducts=[], categories=[];
 let cart={};
+// 統一「商品小計」計算：coupon 驗證、外送費計算(/api/delivery/calculate-fee)、購物車還原、
+// 滿額免運進度提示皆呼叫同一函式，確保口徑完全一致（不得各自重複實作 reduce）。
+// 口徑：商品單價（沿用既有 effective_line_price||price 慣例） × 數量，不含外送費／
+// 優惠券折抵／小費——與後端 routes/line-orders.js 送單重算時使用的 subtotal 口徑相同
+// （後端同樣是「優惠券折扣前」的商品金額，見 recalcDeliveryFee(db, storeId, ..., sub)）。
+function getCartProductSubtotal(){
+  return Object.values(cart).reduce((s,{product:p,qty})=>s+(p.effective_line_price||p.price)*qty,0);
+}
 // fix18-10-hotfix26-F8-B（需求文件十五）：目前這次還原成功的 Cart Handoff full
 // token（若有）。訂單成立時一併送給後端 consume，避免同一 token 被重複下單。
 let _activeCartHandoffToken='';
@@ -1158,6 +1212,17 @@ let deliveryFeeCalculated = false;  // 是否已成功取得外送費
 // 等文字），不新增外送費公式，只是把這兩個既有欄位保存下來供 UI／Context 顯示。
 let _lastDeliveryRawFee = null;
 let _lastFreeShippingReason = null;
+// 滿額免運進度提示（新增）：外送費計算成功/失敗時一併記錄，供
+// getDeliveryFreeProgressState() 判斷「已達門檻但只折抵部分外送費」與「距離超限」。
+let _lastIsFreeDelivery = null; // true|false|null(尚未算出)
+let _deliveryOutOfRange = false;
+// 統一物件：updateDeliveryFreeProgress() 只讀這個物件，不再各自散落讀取
+// deliveryFeeCalculated/_lastDeliveryRawFee/_lastIsFreeDelivery/_deliveryOutOfRange。
+// 欄位直接對應 /api/delivery/calculate-fee 實際回傳欄位（rawFee←raw_fee，
+// finalFee←delivery_fee，isFreeDelivery←is_free_delivery，distanceKm←distance_km），
+// 不新增後端沒有回傳過的虛構欄位；discount 為前端依實際數值算出（Math.max(rawFee-finalFee,0)）。
+// null 表示外送費尚未算出。
+let _deliveryFeeResult = null;
 
 // fix18-10-hotfix30-B4 第三點：外帶／外送表單狀態必須獨立保存，不得共用同一份日期/時段/
 // 地址狀態。沿用既有變數（deliveryLatLng/calcDeliveryFee/deliveryFeeCalculated/
@@ -2865,7 +2930,7 @@ function updateProductCard(id){
   else last.outerHTML=`<button class="add-btn" id="ab-${id}" onclick="addCart(${id},event)">+</button>`;
 }
 function updateBar(){
-  const subtotal=Object.values(cart).reduce((s,{product:p,qty})=>s+(p.effective_line_price||p.price)*qty,0);
+  const subtotal=getCartProductSubtotal();
   const cnt=Object.values(cart).reduce((s,{qty})=>s+qty,0);
   document.getElementById('cartCnt').textContent=cnt;
   // fix18-05: 套用優惠折扣
@@ -2891,6 +2956,10 @@ function updateBar(){
   document.getElementById('cartBarTotal').textContent=`$${subtotal-discAmt}`; // bar 只顯示商品合計（外送費確認後才納入）
   // 若購物車清空，清除優惠券
   if(cnt===0&&appliedCoupon){ clearCoupon(); }
+  // 外送滿額免運進度提示：updateBar() 是既有系統中，購物車增減／優惠券套用移除／外帶外送
+  // 切換／外送費重新計算／購物車還原後都會呼叫的單一入口（見 updateCartTotals()==updateBar()
+  // 的所有呼叫點），故在此統一觸發，不需要在每個事件處理器各自重複註冊監聽。
+  try{ updateDeliveryFreeProgress(subtotal); }catch(e){ console.warn('[deliveryFreeProgress]', e); }
 }
 // fix18-06: 共用 updateCartTotals（供外送費確認後刷新）
 function updateCartTotals(){ updateBar(); }
@@ -2900,7 +2969,7 @@ async function applyCoupon(){
   const msgEl=document.getElementById('couponMsg');
   if(!code){if(msgEl)msgEl.innerHTML='<span style="color:#e53935">請輸入優惠券代碼</span>';return;}
   // 計算目前小計
-  const subtotal=Object.values(cart).reduce((s,{product:p,qty})=>s+(p.effective_line_price||p.price)*qty,0);
+  const subtotal=getCartProductSubtotal();
   if(!subtotal){if(msgEl)msgEl.innerHTML='<span style="color:#e53935">購物車是空的，無法套用優惠券</span>';return;}
   // 取得目前電話（可能尚未填寫，validate 後端允許空值但受 max_usage_per_phone 限制）
   const phone=(document.getElementById('cPhone')?.value||'').trim();
@@ -3113,7 +3182,7 @@ async function restoreCart(){
   const restoredCode=data.coupon_code?String(data.coupon_code).trim().toUpperCase():'';
   if(restoredCode && Object.keys(cart).length){
     try{
-      const subtotal=Object.values(cart).reduce((s,{product:p,qty})=>s+(p.effective_line_price||p.price)*qty,0);
+      const subtotal=getCartProductSubtotal();
       const phone=document.getElementById('cPhone')?.value||'';
       const res=await apiFetch('/api/coupons/validate',{
         method:'POST',
@@ -3740,13 +3809,183 @@ function resetDeliveryFee(){
   deliveryDistKm  = 0;
   deliveryFeeCalculated = false;
   deliveryLatLng = { lat: null, lng: null };
+  _lastIsFreeDelivery = null;
+  _deliveryOutOfRange = false;
+  _deliveryFeeResult = null;
   const addrEl = document.getElementById('deliveryAddress');
   if(addrEl) addrEl.value = '';
   const feeRow = document.getElementById('deliveryFeeRow');
   if(feeRow) feeRow.style.display='none';
   const feeMsg = document.getElementById('deliveryFeeMsg');
   if(feeMsg) feeMsg.textContent='';
-  updateCartTotals();
+  updateCartTotals(); // = updateBar()，內部會呼叫 updateDeliveryFreeProgress()，避免地址殘留舊結果
+}
+
+// ═══════════════════════════════════════════════════════
+// 外送滿額免運進度提示（新增，純顯示）
+// ═══════════════════════════════════════════════════════
+// 純計算函式 getDeliveryFreeProgressState() 已抽出至 public/js/delivery-free-progress.js
+// （由上方 <script src="/js/delivery-free-progress.js"> 載入），Node regression test
+// 透過 require() 載入同一份檔案，UI 與測試邏輯保證不漂移。這裡只保留 DOM 相關函式。
+
+// 依 view model 更新 DOM（DOM 更新與計算邏輯分離，方便測試 getDeliveryFreeProgressState()）
+function renderDeliveryFreeProgress(state) {
+  const section = document.getElementById('deliveryFreeProgress');
+  if (!section) return;
+  if (!state || !state.visible) {
+    section.hidden = true;
+    return;
+  }
+  section.hidden = false;
+  section.classList.toggle('reached', !!state.reached);
+
+  const statusText = document.getElementById('deliveryFreeStatusText');
+  const remainingText = document.getElementById('deliveryFreeRemainingText');
+  const bar = document.getElementById('deliveryFreeProgressBar');
+  const track = document.getElementById('deliveryFreeProgressTrack');
+  const curAmt = document.getElementById('deliveryFreeCurrentAmount');
+  const thAmt = document.getElementById('deliveryFreeThresholdAmount');
+  const savingText = document.getElementById('deliveryFreeSavingText');
+  const outOfRangeText = document.getElementById('deliveryFreeOutOfRangeText');
+
+  if (statusText) statusText.textContent = state.isOutOfRange ? '超距離' : (state.reached ? '已達標' : `${state.progressPercent}%`);
+  if (remainingText) remainingText.textContent = state.headline + (state.headline && state.description ? '\n' : '') + state.description;
+  if (bar) bar.style.width = `${state.progressPercent}%`;
+  if (track) track.setAttribute('aria-valuenow', String(state.progressPercent));
+  if (curAmt) curAmt.textContent = state.currentAmountText;
+  if (thAmt) thAmt.textContent = state.thresholdAmountText;
+  if (savingText) {
+    if (!state.isOutOfRange && state.savedAmount != null && state.savedAmount > 0) {
+      savingText.style.display = '';
+      savingText.textContent = `💰 已省下 NT$${state.savedAmount} 外送費`;
+    } else {
+      savingText.style.display = 'none';
+      savingText.textContent = '';
+    }
+  }
+  // 超距離狀態一律用 section 本身的警示文案（headline/description）呈現，不得額外疊加
+  // 「已達免運」相關的綠色成功樣式；這裡只保留欄位本身顯示，不再重複附加一次超距離文字。
+  if (outOfRangeText) outOfRangeText.style.display = 'none';
+}
+
+// 湊免運推薦（第七項）：只在「未達門檻、非超距離」且目前是外送模式時顯示，最多 3 項，
+// 依「售價與尚差金額差距」排序。完全沿用既有商品可售判斷（getProductAvailableModes()／
+// anyImmediate 慣例／line_quota／line_preorder），不自建簡化版條件；點擊後直接沿用既有
+// onclick="addCart(id,event)" 呼叫方式，不新增第二套加入購物車邏輯、不自動加入商品。
+function _getRecommendPrice(p) {
+  // 目前專案商品沒有規格(spec)/加料系統，購物車、金額明細等既有畫面全部統一用這個口徑
+  // （見 getCartProductSubtotal()），這裡沿用同一慣例，不假設 product.price 一定存在。
+  const price = Number(p && (p.effective_line_price || p.price));
+  return Number.isFinite(price) ? price : 0;
+}
+function _isRecommendableForFreeDelivery(p) {
+  if (!p) return false;
+  if (!Number.isFinite(Number(p.id))) return false;
+  if (!p.show_on_line) return false; // LINE 未上架商品（與 reorder() 既有判斷一致）
+  if ((p.sale_status || 'available') !== 'available') return false; // 售完/未上架
+  if (Number(p.line_sold_out) === 1) return false; // 今日已售完
+  if (typeof getProductAvailableModes !== 'function') return false;
+  const avail = getProductAvailableModes(p);
+  // 只推薦「外送 + 現在就能立即加入」的商品；avail.delivery.reason 有值代表只能預約
+  // 未來營業日（沿用 updateProductCard() 既有的 anyImmediate 判斷慣例），推薦「湊免運」
+  // 時不應該把顧客導去改成預約明天的商品。
+  if (!avail.delivery.enabled || avail.delivery.reason) return false;
+  // 今日/預購份數是否已滿（沿用 addCart() 既有的今日 quota / 預購 remaining 判斷）
+  const selectedDate = document.getElementById('pDate')?.value || '';
+  const todayStr = fmtD(twNow());
+  const isPreorderCart = !!(selectedDate && selectedDate > todayStr);
+  const inCart = cart[p.id]?.qty || 0;
+  if (isPreorderCart) {
+    const info = p.line_preorder || { hasPreorder: false };
+    if (info.hasPreorder && inCart >= Number(info.remaining ?? 0)) return false;
+  } else {
+    if (p.line_quota?.hasQuota) {
+      if (Number(p.line_quota.remaining) <= 0) return false;
+      if (inCart >= (p.line_quota.remaining || 0)) return false;
+    }
+  }
+  const price = _getRecommendPrice(p);
+  return price > 0;
+}
+function renderDeliveryFreeRecommendations(state) {
+  const wrap = document.getElementById('deliveryFreeReco');
+  const list = document.getElementById('deliveryFreeRecoList');
+  if (!wrap || !list) return;
+  if (!state || !state.visible || state.reached || state.isOutOfRange || !Array.isArray(allProducts) || !allProducts.length) {
+    wrap.style.display = 'none';
+    list.innerHTML = '';
+    return;
+  }
+  const remaining = state.remaining;
+  const candidates = allProducts
+    .filter(_isRecommendableForFreeDelivery)
+    .sort((a, b) => Math.abs(_getRecommendPrice(a) - remaining) - Math.abs(_getRecommendPrice(b) - remaining))
+    .slice(0, 3);
+
+  if (!candidates.length) {
+    // 尚差金額很小但沒有符合商品時，不顯示推薦，不顯示不實文案（第七項）。
+    wrap.style.display = 'none';
+    list.innerHTML = '';
+    return;
+  }
+
+  wrap.style.display = '';
+  // inline onclick 沿用既有 addCart(id,event) 呼叫慣例（與商品卡「+」按鈕完全相同的流程：
+  // 可售驗證／今日份數／預購／購物車動畫／updateBar()／Analytics 事件皆會自動觸發），
+  // 不新增另一套加購邏輯；每次 render 直接整段重建 innerHTML，不額外疊加 addEventListener，
+  // 避免重複綁定事件。
+  list.innerHTML = candidates.map(p => {
+    const price = _getRecommendPrice(p);
+    // products.id 在本專案 schema 中一律是 INTEGER PRIMARY KEY AUTOINCREMENT（與其餘既有
+    // onclick="addCart(${p.id},event)" 呼叫點的假設完全相同）；這裡仍多一層 Number()
+    // 防呆，避免任何非預期的字串值被原樣插入 inline onclick。商品名稱一律沿用專案既有
+    // esc() escape helper，不使用未轉義的字串插值。
+    const safeId = Number(p.id);
+    return `<button type="button" class="delivery-free-reco__item" onclick="addCart(${safeId},event)">
+      <div class="delivery-free-reco__item-name">${esc(p.effective_line_name || p.name || '')}</div>
+      <div class="delivery-free-reco__item-price">NT$${price}</div>
+    </button>`;
+  }).join('');
+}
+
+// 統一調度入口：組出目前狀態並交給 renderDeliveryFreeProgress()。由 updateBar() 呼叫，
+// 涵蓋第十二點要求的所有觸發時機（購物車開關/增減、優惠券套用移除、外帶外送切換、
+// 外送費重新計算、購物車還原、LINE Login/LIFF 回跳後恢復皆會呼叫到 updateBar()）。
+// 本函式只讀 _deliveryFeeResult 這個統一物件與 shopData／cart／currentMode，
+// 絕不呼叫 updateBar()/updateCartTotals()，避免與呼叫端形成遞迴。
+function updateDeliveryFreeProgress(knownSubtotal) {
+  const isDelivery = currentMode === 'delivery';
+  // 相容既有正式環境：只有 delivery_free_threshold 真的會被設定，預設值與
+  // routes/delivery.js 的 getSetting(...,'delivery_free_threshold','1000') 完全一致。
+  const rawThreshold = shopData ? shopData.delivery_free_threshold : '';
+  const threshold = (rawThreshold === '' || rawThreshold == null || isNaN(parseFloat(rawThreshold)))
+    ? 1000
+    : parseFloat(rawThreshold);
+  // enabled 判斷：若店家設定明確存在 delivery_free_enabled 值就用它（沿用既有
+  // toBooleanFlag() 安全布林解析，Boolean("0")===true 是陷阱，不得直接用 Boolean()）；
+  // 目前正式環境沒有這個欄位（getSetting 預設回傳 ''），此時完全 fallback 成
+  // 「threshold > 0 即視為啟用」，不會因為新增這個欄位就讓既有已設定門檻的店家看不到功能。
+  const enabledRaw = shopData ? shopData.delivery_free_enabled : '';
+  const explicitEnabledValueExists = enabledRaw === '0' || enabledRaw === '1' || enabledRaw === 0 || enabledRaw === 1 || enabledRaw === true || enabledRaw === false;
+  const enabled = (explicitEnabledValueExists ? toBooleanFlag(enabledRaw, true) : true) && threshold > 0;
+  const freeMode = (shopData && shopData.delivery_free_mode === 'distance_only') ? 'distance_only' : 'full';
+
+  const subtotal = (typeof knownSubtotal === 'number') ? knownSubtotal : getCartProductSubtotal();
+
+  const fr = _deliveryFeeResult; // 統一物件；null = 外送費尚未算出
+  const state = getDeliveryFreeProgressState({
+    eligibleSubtotal: subtotal,
+    threshold,
+    enabled,
+    isFreeDelivery: fr ? fr.isFreeDelivery : null,
+    rawDeliveryFee: fr ? fr.rawFee : null,
+    finalDeliveryFee: fr ? fr.finalFee : null,
+    isDelivery,
+    isOutOfRange: fr ? !!fr.outOfRange : false,
+    mode: freeMode,
+  });
+  renderDeliveryFreeProgress(state);
+  try { renderDeliveryFreeRecommendations(state); } catch (e) { /* 推薦區塊為附加功能，失敗不可影響主流程 */ }
 }
 
 // 呼叫後端計算外送費
@@ -3755,7 +3994,7 @@ async function fetchDeliveryFee(){
   // fix18-10-hotfix30-B4：race-guard——快速切換模式時，較慢的前一次外送費請求完成時，
   // 不得覆蓋使用者已經切走之後的畫面（若目前已經不是外送模式，直接放棄這次寫入）。
   const myToken = ++fulfillmentRenderToken;
-  const subtotal=Object.values(cart).reduce((s,{product:p,qty})=>s+(p.effective_line_price||p.price)*qty,0);
+  const subtotal=getCartProductSubtotal();
   const feeMsg=document.getElementById('deliveryFeeMsg');
   const feeRow=document.getElementById('deliveryFeeRow');
   const distBadge=document.getElementById('deliveryDistBadge');
@@ -3783,6 +4022,21 @@ async function fetchDeliveryFee(){
       _lastFreeShippingReason = res.is_free_delivery
         ? (typeof res.message==='string' && res.message.includes('滿額') ? '滿額免運' : (res.message||'免運'))
         : null;
+      _lastIsFreeDelivery = !!res.is_free_delivery;
+      _deliveryOutOfRange = false;
+      {
+        const rf = (res.raw_fee!=null) ? Math.max(Number(res.raw_fee)||0,0) : Math.max(Number(res.delivery_fee)||0,0);
+        const ff = Math.max(Number(res.delivery_fee)||0,0);
+        _deliveryFeeResult = {
+          rawFee: rf,
+          finalFee: ff,
+          discount: Math.max(rf-ff,0),
+          isFreeDelivery: !!res.is_free_delivery,
+          mode: res.is_free_delivery ? 'full' : (ff<rf ? 'distance_only' : 'full'),
+          distanceKm: res.distance_km!=null?res.distance_km:null,
+          outOfRange: false,
+        };
+      }
       if(feeRow) feeRow.style.display='flex';
       if(distBadge) distBadge.textContent=`${res.distance_km}km`;
       if(feeDisplay) feeDisplay.textContent = res.is_free_delivery
@@ -3793,13 +4047,21 @@ async function fetchDeliveryFee(){
     } else {
       calcDeliveryFee=0;
       deliveryFeeCalculated=false;
-      _lastDeliveryRawFee=null; _lastFreeShippingReason=null;
+      _lastDeliveryRawFee=null; _lastFreeShippingReason=null; _lastIsFreeDelivery=null;
+      _deliveryOutOfRange = res.reason==='out_of_range';
+      _deliveryFeeResult = {
+        rawFee: null, finalFee: null, discount: 0, isFreeDelivery: null, mode: null,
+        distanceKm: res.distance_km!=null?res.distance_km:null,
+        outOfRange: res.reason==='out_of_range',
+      };
       if(feeRow) feeRow.style.display='none';
       if(feeMsg) feeMsg.innerHTML=`<span style="color:#e53935">⚠️ ${res.message||'無法計算外送費'}</span>`;
     }
   } catch(e){
     calcDeliveryFee=0;
     deliveryFeeCalculated=false;
+    _lastIsFreeDelivery=null;
+    _deliveryFeeResult=null;
     if(feeRow) feeRow.style.display='none';
     if(feeMsg) feeMsg.innerHTML=`<span style="color:#e53935">⚠️ 外送費計算失敗，請重試</span>`;
   }
@@ -3859,6 +4121,8 @@ function initGoogleMaps(){
       toast('請從下拉選單選擇地址');
       deliveryLatLng={lat:null,lng:null};
       deliveryFeeCalculated=false;
+      _lastIsFreeDelivery=null; _deliveryOutOfRange=false; _deliveryFeeResult=null;
+      updateCartTotals();
       return;
     }
     deliveryLatLng={
@@ -3875,6 +4139,7 @@ function initGoogleMaps(){
     deliveryLatLng={lat:null,lng:null};
     deliveryFeeCalculated=false;
     calcDeliveryFee=0;
+    _lastIsFreeDelivery=null; _deliveryOutOfRange=false; _deliveryFeeResult=null;
     const feeRow=document.getElementById('deliveryFeeRow');
     if(feeRow) feeRow.style.display='none';
     updateCartTotals();

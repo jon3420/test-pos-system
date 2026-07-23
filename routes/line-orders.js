@@ -624,6 +624,14 @@ router.get('/shop', (req, res) => {
       // fix18-10-hotfix26-F7：向下相容新增（需求文件廿六）。搜尋到明確商家後自動填入
       // 的商家名稱/Place ID；不移除任何既有欄位。
       'pickup_place_name', 'pickup_place_id', 'store_place_name', 'store_place_id',
+      // 滿額免運進度提示（購物車 UI）：純粹把既有外送費／免運相關設定「額外」回傳給前台，
+      // 不新增任何資料表欄位、不新增後台設定 UI、也不改變 routes/delivery.js 既有計算公式。
+      // 目前正式環境只有 delivery_free_threshold 真的會被設定（其餘欄位保留是為了未來若
+      // 後台真的新增對應設定時可以直接生效，沒設定時 getSetting() 一律回傳 '' 預設值，
+      // 前端會安全地當作「沿用預設(啟用/full)」處理，不影響任何既有行為）。
+      'delivery_free_enabled', 'delivery_free_threshold', 'delivery_free_mode',
+      'delivery_free_distance_km', 'delivery_basic_fee', 'delivery_distance_fee_enabled',
+      'delivery_max_distance_km', 'coupon_apply_to_delivery_fee',
     ];
     const settings = {};
     keys.forEach(k => { settings[k] = getSetting(db, storeId, k, ''); });
