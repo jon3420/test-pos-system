@@ -1,8 +1,12 @@
-// scripts/smoke-delivery-free-progress.js
+// scripts/smoke-delivery-free-progress.js — C3
 // Regression test for getDeliveryFreeProgressState()（外送滿額免運進度提示）。
 // 直接 require() public/js/delivery-free-progress.js —— 與瀏覽器 <script src="/js/
 // delivery-free-progress.js"> 載入的是同一份檔案，不是另外複製一份邏輯，避免測試與
 // UI 行為漂移。
+//
+// C3：函式簽章改為直接吃後端 calculateDeliveryFeeWithPromotion() 算好的
+// threshold/mode/rawDeliveryFee/finalDeliveryFee/reached/feeResolved，不再自己假設
+// 「全店只有一個滿額門檻」。
 'use strict';
 const path = require('path');
 const modPath = path.join(__dirname, '..', 'public', 'js', 'delivery-free-progress.js');
@@ -35,148 +39,97 @@ function check(name, cond, detail) {
 (function () {
   console.log('[1] 外帶模式');
   const s = getDeliveryFreeProgressState({
-    eligibleSubtotal: 1500, threshold: 1000, enabled: true, isDelivery: false,
+    eligibleSubtotal: 1500, threshold: 1000, mode: 'full', isDelivery: false,
   });
   check('visible === false', s.visible === false, JSON.stringify(s));
 })();
 
-// ── 2. 未啟用 ────────────────────────────────────────
+// ── 2. mode === 'none'：完全隱藏 ─────────────────────
 (function () {
-  console.log('[2] 未啟用 (enabled=false)');
+  console.log("[2] mode === 'none'");
   const s = getDeliveryFreeProgressState({
-    eligibleSubtotal: 500, threshold: 1000, enabled: false, isDelivery: true,
+    eligibleSubtotal: 500, threshold: 1000, mode: 'none', isDelivery: true,
   });
   check('visible === false', s.visible === false, JSON.stringify(s));
 })();
 
-// ── 3. 門檻無效 (threshold<=0) ───────────────────────
+// ── 3. full 未達 ──────────────────────────────────────
 (function () {
-  console.log('[3] 門檻無效 (threshold=0)');
+  console.log('[3] full 未達');
   const s = getDeliveryFreeProgressState({
-    eligibleSubtotal: 500, threshold: 0, enabled: true, isDelivery: true,
+    eligibleSubtotal: 700, threshold: 1000, mode: 'full', isDelivery: true, reached: false, remaining: 300,
   });
-  check('visible === false', s.visible === false, JSON.stringify(s));
+  check('visible === true', s.visible === true);
+  check('reached === false', s.reached === false);
+  check('description 提到「享免運」或「即可免運」', /免運/.test(s.description), s.description);
 })();
 
-// ── 4. 未達門檻 ──────────────────────────────────────
+// ── 4. full 已達且 feeResolved：顯示已免運＋折抵金額 ──
 (function () {
-  console.log('[4] 未達門檻 (650/1000)');
+  console.log('[4] full 已達且 feeResolved');
   const s = getDeliveryFreeProgressState({
-    eligibleSubtotal: 650, threshold: 1000, enabled: true, isDelivery: true,
-    rawDeliveryFee: 80, finalDeliveryFee: 80,
+    eligibleSubtotal: 1200, threshold: 1000, mode: 'full', isDelivery: true, reached: true,
+    feeResolved: true, rawDeliveryFee: 120, finalDeliveryFee: 0,
   });
-  check('remaining === 350', s.remaining === 350, `got ${s.remaining}`);
-  check('progressPercent === 65', s.progressPercent === 65, `got ${s.progressPercent}`);
-  check('reached === false', s.reached === false, JSON.stringify(s));
+  check('reached === true', s.reached === true);
+  check('headline 提到「已達免運資格」', s.headline.includes('已達免運資格'), s.headline);
+  check('description 提到本次已免 NT$120', s.description.includes('120'), s.description);
 })();
 
-// ── 5. 接近門檻 ──────────────────────────────────────
+// ── 5. full 已達但 feeResolved=false：只能說已達門檻，不能宣告已免運 ──
 (function () {
-  console.log('[5] 接近門檻 (930/1000)');
+  console.log('[5] full 已達但外送費尚未算出（feeResolved=false）');
   const s = getDeliveryFreeProgressState({
-    eligibleSubtotal: 930, threshold: 1000, enabled: true, isDelivery: true,
+    eligibleSubtotal: 1200, threshold: 1000, mode: 'full', isDelivery: true, reached: true,
+    feeResolved: false, rawDeliveryFee: null, finalDeliveryFee: null,
   });
-  check('remaining === 70', s.remaining === 70, `got ${s.remaining}`);
-  check('nearThreshold === true', s.nearThreshold === true, JSON.stringify(s));
+  check('headline 為「已達滿額門檻」（不是已達免運資格）', s.headline.includes('已達滿額門檻'), s.headline);
+  check('不得出現「免運資格」字樣', !s.headline.includes('免運資格') && !s.description.includes('免運資格'));
 })();
 
-// ── 6. 已達 full ─────────────────────────────────────
+// ── 6. fixed 未達 ─────────────────────────────────────
 (function () {
-  console.log('[6] 已達門檻 full (1080/1000, raw=80, final=0)');
+  console.log('[6] fixed 未達');
   const s = getDeliveryFreeProgressState({
-    eligibleSubtotal: 1080, threshold: 1000, enabled: true, isDelivery: true,
-    isFreeDelivery: true, rawDeliveryFee: 80, finalDeliveryFee: 0, mode: 'full',
+    eligibleSubtotal: 700, threshold: 1000, mode: 'fixed', isDelivery: true, reached: false, remaining: 300,
+    rawDeliveryFee: 100, // 設定的折抵值，供文案顯示
   });
-  check('reached === true', s.reached === true, JSON.stringify(s));
-  check('savedAmount === 80', s.savedAmount === 80, `got ${s.savedAmount}`);
-  check('progressPercent === 100', s.progressPercent === 100, `got ${s.progressPercent}`);
+  check('description 提到折抵 NT$100', s.description.includes('100'), s.description);
 })();
 
-// ── 7. 已達 distance_only（部分折抵） ─────────────────
+// ── 7. fixed 已達且 feeResolved：顯示折抵與仍需支付 ──
 (function () {
-  console.log('[7] 已達門檻 distance_only (raw=120, final=70)');
+  console.log('[7] fixed 已達且 feeResolved');
   const s = getDeliveryFreeProgressState({
-    eligibleSubtotal: 1080, threshold: 1000, enabled: true, isDelivery: true,
-    isFreeDelivery: false, rawDeliveryFee: 120, finalDeliveryFee: 70, mode: 'distance_only',
+    eligibleSubtotal: 1500, threshold: 1500, mode: 'fixed', isDelivery: true, reached: true,
+    feeResolved: true, rawDeliveryFee: 210, finalDeliveryFee: 110,
   });
-  check('savedAmount === 50', s.savedAmount === 50, `got ${s.savedAmount}`);
-  check('finalDeliveryFee === 70', s.finalDeliveryFee === 70, `got ${s.finalDeliveryFee}`);
-  check('description mentions 仍需支付', /仍需支付/.test(s.description), s.description);
-  check('headline 不含「免運」字樣（避免誤導）', !s.headline.includes('免運'), s.headline);
+  check('headline 提到「已達滿額外送優惠」', s.headline.includes('已達滿額外送優惠'), s.headline);
+  check('description 提到本次折抵 NT$100', s.description.includes('100'), s.description);
+  check('description 提到仍需支付 NT$110', s.description.includes('110'), s.description);
 })();
 
-// ── 8. 原始外送費為 0：不得出現「已折抵 NT$0」 ─────────
+// ── 8. 超距離：優先序最高，reached 強制 false ─────────
 (function () {
-  console.log('[8] 原始外送費為 0');
+  console.log('[8] 超距離');
   const s = getDeliveryFreeProgressState({
-    eligibleSubtotal: 1200, threshold: 1000, enabled: true, isDelivery: true,
-    isFreeDelivery: false, rawDeliveryFee: 0, finalDeliveryFee: 0, mode: 'full',
+    eligibleSubtotal: 2000, threshold: 1000, mode: 'full', isDelivery: true,
+    reached: true, feeResolved: true, isOutOfRange: true,
   });
-  check('reached === true', s.reached === true, JSON.stringify(s));
-  check('savedAmount 為 null（不顯示已折抵）', s.savedAmount === null, `got ${s.savedAmount}`);
-  check('不包含「已折抵 NT$0」', !/已折抵 NT\$0/.test(s.description), s.description);
+  check('reached === false（即使金額已達標）', s.reached === false, JSON.stringify(s));
+  check('headline 提到超出配送範圍', s.headline.includes('超出配送範圍'), s.headline);
+  check('description 提到「滿額優惠不適用於超出配送範圍的地址」', s.description.includes('滿額優惠不適用於超出配送範圍的地址'));
 })();
 
-// ── 9. 商品金額為 0 ──────────────────────────────────
+// ── 9. rawFee === 0：不得顯示「已折抵 NT$0」 ──────────
 (function () {
-  console.log('[9] 商品金額為 0');
+  console.log('[9] rawFee 本來就是 0');
   const s = getDeliveryFreeProgressState({
-    eligibleSubtotal: 0, threshold: 1000, enabled: true, isDelivery: true,
+    eligibleSubtotal: 1200, threshold: 1000, mode: 'full', isDelivery: true, reached: true,
+    feeResolved: true, rawDeliveryFee: 0, finalDeliveryFee: 0,
   });
-  check('remaining === threshold(1000)', s.remaining === 1000, `got ${s.remaining}`);
-  check('progressPercent === 0', s.progressPercent === 0, `got ${s.progressPercent}`);
+  check('不得出現 NT$0 字樣', !s.description.includes('NT$0'), s.description);
 })();
 
-// ── 10. 商品金額高於門檻：進度不得超過 100 ─────────────
-(function () {
-  console.log('[10] 商品金額遠高於門檻 (5000/1000)');
-  const s = getDeliveryFreeProgressState({
-    eligibleSubtotal: 5000, threshold: 1000, enabled: true, isDelivery: true,
-  });
-  check('progressPercent === 100（不得超過）', s.progressPercent === 100, `got ${s.progressPercent}`);
-  check('reached === true', s.reached === true, JSON.stringify(s));
-})();
-
-// ── 11. 超距離：優先顯示，不得回傳成功免運 headline ────
-(function () {
-  console.log('[11] 超距離 (isOutOfRange=true)，即使商品金額已達門檻');
-  const s = getDeliveryFreeProgressState({
-    eligibleSubtotal: 1500, threshold: 1000, enabled: true, isDelivery: true,
-    isFreeDelivery: true, rawDeliveryFee: 80, finalDeliveryFee: 0, mode: 'full',
-    isOutOfRange: true,
-  });
-  check('isOutOfRange === true', s.isOutOfRange === true, JSON.stringify(s));
-  check('reached === false（不得顯示可送單狀態）', s.reached === false, JSON.stringify(s));
-  check('headline 不含「已達免運」等成功文案', !/已達免運|已達滿額/.test(s.headline), s.headline);
-  check('description 提及超出配送範圍', /超出配送範圍/.test(s.description), s.description);
-})();
-
-// ── 12. 費用防負數 ───────────────────────────────────
-(function () {
-  console.log('[12] 費用防負數 (rawFee=50, finalFee=-10)');
-  const s = getDeliveryFreeProgressState({
-    eligibleSubtotal: 1200, threshold: 1000, enabled: true, isDelivery: true,
-    isFreeDelivery: false, rawDeliveryFee: 50, finalDeliveryFee: -10, mode: 'distance_only',
-  });
-  check('finalDeliveryFee >= 0', s.finalDeliveryFee >= 0, `got ${s.finalDeliveryFee}`);
-  check('savedAmount <= rawDeliveryFee(50)', s.savedAmount <= 50, `got ${s.savedAmount}`);
-})();
-
-// ── 13. 已達門檻但外送費尚未算出：不得提前宣告「已達免運資格」───
-(function () {
-  console.log('[13] 已達金額門檻但外送費尚未算出 (地址未確認)');
-  const s = getDeliveryFreeProgressState({
-    eligibleSubtotal: 1200, threshold: 1000, enabled: true, isDelivery: true,
-    isFreeDelivery: null, rawDeliveryFee: null, finalDeliveryFee: null,
-  });
-  check('reached === true（金額已達門檻）', s.reached === true, JSON.stringify(s));
-  check('headline 不含「已達免運資格」（費用尚未確認，不得提前宣告成功）', !s.headline.includes('已達免運資格'), s.headline);
-  check('savedAmount 為 null（沒有實際折抵金額可顯示）', s.savedAmount === null, `got ${s.savedAmount}`);
-})();
-
-console.log(`\n${pass}/${pass + fail} PASS`);
-if (fail > 0) {
-  console.error(`${fail} test(s) FAILED`);
-  process.exit(1);
-}
-process.exit(0);
+console.log(`\n[smoke-delivery-free-progress] ${pass} passed, ${fail} failed`);
+process.exit(fail > 0 ? 1 : 0);

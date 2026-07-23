@@ -1,11 +1,14 @@
-// routes/delivery.js — fix18-06
-// 外送費後端計算（Google Routes API computeRoutes）
-// 前端傳來的 delivery_fee 完全不信任，一律後端重算。
+// routes/delivery.js — C3：距離級距滿額免運
+// 外送費後端計算（Google Routes API computeRoutes）。
+// 前端傳來的 delivery_fee 完全不信任，一律後端重算；本檔案與 routes/line-orders.js
+// 的 recalcDeliveryFee() 共用同一份 utils/deliveryFeeCalc.js 計算引擎，避免兩處各自
+// 實作導致「前台顯示折抵、購物車/訂單金額卻沒扣除」的不一致 Bug（C2 版根因）。
 'use strict';
 const express  = require('express');
 const router   = express.Router();
 const fetch    = require('node-fetch');
 const { getDb } = require('../utils/db');
+const { calculateDeliveryFeeWithPromotion } = require('../utils/deliveryFeeCalc');
 
 const SERVER_KEY = () => process.env.GOOGLE_MAPS_SERVER_KEY || '';
 
@@ -60,31 +63,35 @@ async function getDrivingDistanceKm(originLat, originLng, destLat, destLng) {
   return Math.round(distMeters / 10) / 100; // 公尺 → 公里，保留兩位小數
 }
 
-// ── 依級距規則計算外送費 ──────────────────────────────
-// rules: [{ max_km, fee }, ...] 須按 max_km 升序排列
-// 回傳 { rawFee, deliveryFee, isFreeDelivery }
-function calcFee({ distKm, subtotal, rules, basicFee, freeThreshold }) {
-  // 找第一個 max_km >= distKm 的級距
-  const matched = rules.find(r => distKm <= r.max_km);
-  if (!matched) return null; // 超過最遠級距（呼叫前已用 max_distance 擋）
+// ── 讀取店家距離級距規則（升序） ────────────────────────
+function loadDistanceRules(db, storeId) {
+  let rulesRaw = getSetting(db, storeId, 'delivery_distance_fee_rules', '');
+  let rules = [];
+  try {
+    rules = JSON.parse(rulesRaw);
+    if (!Array.isArray(rules)) rules = [];
+    rules.sort((a, b) => Number(a.max_km) - Number(b.max_km));
+  } catch { rules = []; }
+  return rules;
+}
 
-  const rawFee = matched.fee;
-
-  // 滿額免基本外送費
-  let deliveryFee = rawFee;
-  let isFreeDelivery = false;
-  if (freeThreshold > 0 && subtotal >= freeThreshold) {
-    const reduced = rawFee - basicFee;
-    deliveryFee = reduced > 0 ? reduced : 0;
-    isFreeDelivery = deliveryFee === 0;
-  }
-
-  return { rawFee, deliveryFee, isFreeDelivery };
+function loadLegacySettings(db, storeId) {
+  return {
+    delivery_free_enabled:    getSetting(db, storeId, 'delivery_free_enabled', ''),
+    delivery_free_threshold:  getSetting(db, storeId, 'delivery_free_threshold', '1000'),
+    delivery_free_mode:       getSetting(db, storeId, 'delivery_free_mode', ''),
+    delivery_basic_fee:       getSetting(db, storeId, 'delivery_basic_fee', '50'),
+  };
 }
 
 // ── POST /api/delivery/calculate-fee ─────────────────
 // body: { order_mode, subtotal, delivery_address, delivery_lat, delivery_lng }
-// resp: { success, distance_km, delivery_fee, raw_fee, is_free_delivery, message }
+//
+// resp（統一契約，見需求文件二）：
+//   { success, ok, distance_km, raw_fee, delivery_discount, delivery_fee,
+//     is_free_delivery, free_rule_applied, free_rule_type, free_threshold,
+//     free_discount_value, remaining_for_free_delivery, out_of_range, reason,
+//     matched_max_km, maps_url, message }
 router.post('/calculate-fee', async (req, res) => {
   try {
     const db      = getDb();
@@ -94,14 +101,21 @@ router.post('/calculate-fee', async (req, res) => {
 
     // 非外送模式：直接免費
     if (order_mode !== 'delivery') {
-      return res.json({ success: true, distance_km: 0, delivery_fee: 0, raw_fee: 0, is_free_delivery: true, message: '非外送模式，無外送費' });
+      return res.json({
+        success: true, ok: true, distance_km: 0,
+        delivery_fee: 0, raw_fee: 0, delivery_discount: 0,
+        is_free_delivery: true, free_rule_applied: false, free_rule_type: 'none',
+        free_threshold: 0, free_discount_value: 0, remaining_for_free_delivery: 0,
+        out_of_range: false, reason: null,
+        message: '非外送模式，無外送費',
+      });
     }
 
     // 必須有客戶座標
     const destLat = parseFloat(delivery_lat);
     const destLng = parseFloat(delivery_lng);
     if (isNaN(destLat) || isNaN(destLng)) {
-      return res.status(400).json({ success: false, message: '請提供有效的外送地址座標' });
+      return res.status(400).json({ success: false, ok: false, message: '請提供有效的外送地址座標' });
     }
 
     // 讀取店家設定
@@ -110,30 +124,25 @@ router.post('/calculate-fee', async (req, res) => {
     const storeLng  = parseFloat(getSetting(db, storeId, 'store_lng', ''));
     const maxDistKm = parseFloat(getSetting(db, storeId, 'delivery_max_distance_km', '7'));
     const basicFee  = parseFloat(getSetting(db, storeId, 'delivery_basic_fee', '50'));
-    const freeThr   = parseFloat(getSetting(db, storeId, 'delivery_free_threshold', '1000'));
     const sub       = parseFloat(subtotal) || 0;
+    const rules     = loadDistanceRules(db, storeId);
+    const legacySettings = loadLegacySettings(db, storeId);
 
-    let rulesRaw = getSetting(db, storeId, 'delivery_distance_fee_rules', '');
-    let rules = [];
-    try {
-      rules = JSON.parse(rulesRaw);
-      if (!Array.isArray(rules)) rules = [];
-      // 確保升序排列
-      rules.sort((a, b) => a.max_km - b.max_km);
-    } catch { rules = []; }
-
-    // 若未啟用距離計費，直接用基本費
+    // 若未啟用距離計費，直接用基本費（不套用滿額優惠，維持既有固定費行為）
     if (!distanceFeeEnabled) {
       return res.json({
-        success: true, distance_km: 0, delivery_fee: basicFee,
-        raw_fee: basicFee, is_free_delivery: false,
+        success: true, ok: true, distance_km: 0,
+        delivery_fee: basicFee, raw_fee: basicFee, delivery_discount: 0,
+        is_free_delivery: false, free_rule_applied: false, free_rule_type: 'none',
+        free_threshold: 0, free_discount_value: 0, remaining_for_free_delivery: 0,
+        out_of_range: false, reason: null,
         message: `固定外送費 NT$${basicFee}`,
       });
     }
 
     // 必須有店家座標才能計算
     if (isNaN(storeLat) || isNaN(storeLng) || !storeLat || !storeLng) {
-      return res.status(503).json({ success: false, message: '店家座標尚未設定，無法計算外送費，請聯絡店家' });
+      return res.status(503).json({ success: false, ok: false, message: '店家座標尚未設定，無法計算外送費，請聯絡店家' });
     }
 
     // 呼叫 Google Routes API
@@ -143,55 +152,75 @@ router.post('/calculate-fee', async (req, res) => {
     } catch (gErr) {
       console.error('[delivery/calculate-fee] Routes API 失敗:', gErr.message);
       return res.status(503).json({
-        success: false,
+        success: false, ok: false,
         message: '外送距離計算暫時無法使用，請稍後再試或改選外帶取餐',
         reason: 'maps_unavailable',
       });
     }
 
-    // 檢查最大外送距離
+    // 檢查最大外送距離（滿額優惠不得解除此限制）
     if (distKm > maxDistKm) {
       return res.status(400).json({
-        success: false,
+        success: false, ok: false,
         message: `距離 ${distKm} 公里，超過本店外送範圍（最遠 ${maxDistKm} 公里），請改選外帶取餐`,
-        reason: 'out_of_range',
+        reason: 'out_of_range', out_of_range: true,
         distance_km: distKm,
       });
     }
 
-    // 計算費用
-    const feeResult = calcFee({ distKm, subtotal: sub, rules, basicFee, freeThreshold: freeThr });
-    if (!feeResult) {
+    // ── 統一計算引擎 ──────────────────────────────────
+    const calc = calculateDeliveryFeeWithPromotion({
+      distanceKm: distKm, eligibleSubtotal: sub, distanceRules: rules,
+      legacySettings, maxDistanceKm: maxDistKm,
+    });
+
+    if (calc.outOfRange || !calc.matchedRule) {
       return res.status(400).json({
-        success: false,
+        success: false, ok: false,
         message: `距離 ${distKm} 公里，超過外送費級距設定範圍，請改選外帶取餐`,
-        reason: 'out_of_range',
+        reason: 'out_of_range', out_of_range: true,
         distance_km: distKm,
       });
     }
 
-    // 組成 Google Maps 導航連結
+    const isFreeDelivery = calc.finalFee === 0 && calc.rawFee > 0;
     const mapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${storeLat},${storeLng}&destination=${destLat},${destLng}&travelmode=driving`;
 
-    const feeMsg = feeResult.isFreeDelivery
+    const feeMsg = isFreeDelivery
       ? `距離 ${distKm} 公里，滿額免運！`
-      : feeResult.deliveryFee < feeResult.rawFee
-        ? `距離 ${distKm} 公里，外送費 NT$${feeResult.deliveryFee}（滿額折抵 NT$${feeResult.rawFee - feeResult.deliveryFee}）`
-        : `距離 ${distKm} 公里，外送費 NT$${feeResult.deliveryFee}`;
+      : calc.discount > 0
+        ? `距離 ${distKm} 公里，外送費 NT$${calc.finalFee}（滿額折抵 NT$${calc.discount}）`
+        : `距離 ${distKm} 公里，外送費 NT$${calc.finalFee}`;
+
+    // free_discount_value：這個級距「設定上」的折抵值（full=原始外送費 / fixed=設定的固定折抵金額），
+    // 不受是否已達標影響，供前台「達標後折多少」文案使用（需求文件十二）。
+    const freeDiscountValue = calc.promotionMode === 'full'
+      ? calc.rawFee
+      : (calc.promotionMode === 'fixed' ? calc.configuredFixedDiscount : 0);
 
     return res.json({
       success:         true,
+      ok:              true,
       distance_km:     distKm,
-      delivery_fee:    feeResult.deliveryFee,
-      raw_fee:         feeResult.rawFee,
-      is_free_delivery: feeResult.isFreeDelivery,
+      raw_fee:               calc.rawFee,
+      delivery_discount:     calc.discount,
+      delivery_fee:          calc.finalFee,
+      is_free_delivery:      isFreeDelivery,
+      free_rule_applied:     calc.reached,
+      free_rule_type:        calc.promotionMode,
+      free_threshold:        calc.threshold,
+      free_discount_value:   freeDiscountValue,
+      remaining_for_free_delivery: calc.remaining,
+      out_of_range:    false,
+      reason:          null,
+      matched_max_km:  calc.matchedRule ? Number(calc.matchedRule.max_km) : null,
       maps_url:        mapsUrl,
       message:         feeMsg,
     });
 
   } catch (e) {
     console.error('[delivery/calculate-fee]', e.message);
-    return res.status(500).json({ success: false, message: e.message });
+    return res.status(500).json({ success: false, ok: false, message: e.message });
   }
 });
 

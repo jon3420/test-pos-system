@@ -1170,14 +1170,19 @@ function initTables(w) {
   try { w._db.run('ALTER TABLE orders ADD COLUMN delivery_lng TEXT DEFAULT ""'); w._save(); } catch {}
   try { w._db.run('ALTER TABLE orders ADD COLUMN delivery_distance_km REAL DEFAULT 0'); w._save(); } catch {}
   try { w._db.run('ALTER TABLE orders ADD COLUMN delivery_maps_url TEXT DEFAULT ""'); w._save(); } catch {}
+  // ── C3：距離級距滿額免運 metadata（非破壞性新增；欄位已存在時 catch 吞掉即可，
+  // 不重建 orders 表、不改變既有 delivery_fee 欄位語意——delivery_fee 依然只存
+  // 最終實收外送費，delivery_fee_meta 是額外的 JSON 明細快照，供後台顯示用）──
+  try { w._db.run('ALTER TABLE orders ADD COLUMN delivery_fee_meta TEXT DEFAULT ""'); w._save(); } catch {}
   // delivery_address & delivery_fee 已在 orderMigrations 中，不重複新增
 
-  // ── fix18-06：settings seed（外送距離費率設定）──────────
-  const deliveryFeeRulesDefault = JSON.stringify([
-    { max_km: 3, fee: 50 },
-    { max_km: 5, fee: 80 },
-    { max_km: 7, fee: 120 },
-  ]);
+  // ── fix18-06 → C3：settings seed（外送距離費率設定）──────────
+  // C3：新店/尚未設定過規則的店，預設改用新版「距離級距＋各級距獨立滿額免運」schema
+  // （需求文件三）。這裡沿用既有 deliverySeeds.forEach()「只在 key 完全不存在時才寫入」
+  // 的邏輯（見下方 if (!existing)），因此绝不會覆蓋任何已經設定過規則的既有店家；
+  // 「套用建議級距」按鈕（後台 UI）使用同一份預設值，見 DELIVERY_FEE_SUGGESTED_RULES。
+  const DELIVERY_FEE_SUGGESTED_RULES = require('./deliveryFeeSuggestedRules');
+  const deliveryFeeRulesDefault = JSON.stringify(DELIVERY_FEE_SUGGESTED_RULES);
   const deliverySeeds = [
     ['store_address',                 ''],
     ['store_lat',                     ''],

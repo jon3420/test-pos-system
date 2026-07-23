@@ -25,6 +25,7 @@ const { logServerEvent, buildTrackingMetadata } = require('../utils/analyticsLog
 const { touchMemberOnOrder, recordMemberPurchase } = require('../utils/lineMemberStats'); // fix18-10-hotfix23-E：LINE 會員入口
 const { verifyMemberSession } = require('../utils/lineMemberSession'); // fix18-10-hotfix23-E：安全 Member Session
 const { buildPickupSnapshot, resolvePickupLocation, resolveSameAsStoreFlag } = require('../utils/pickupLocation'); // fix18-10-hotfix26-F4/F5：取餐門市/地址/取餐地點設定共用 helper
+const { calculateDeliveryFeeWithPromotion } = require('../utils/deliveryFeeCalc'); // C3：距離級距滿額免運（與 routes/delivery.js 共用同一份計算引擎）
 
 // ── fix18-06：外送費後端重算 helper ──────────────────
 const SERVER_KEY = () => process.env.GOOGLE_MAPS_SERVER_KEY || '';
@@ -34,6 +35,11 @@ function getSettingVal(db, storeId, key, def = '') {
   return row ? row.value : def;
 }
 
+// C3：改為呼叫 utils/deliveryFeeCalc.js 的統一計算引擎，與 routes/delivery.js
+// 前台試算 API 共用同一份公式（rawFee/discount/finalFee），避免兩處各自實作而
+// 漂移，這正是 C2 版「前台顯示折抵、購物車/訂單金額卻沒扣除」的根因。
+// 回傳值新增 discount/promotionMode/threshold/matchedMaxKm/reached，供送單時
+// 寫入 delivery_fee_meta（需求文件十七）與價格一致性檢查（需求文件十五）使用。
 async function recalcDeliveryFee(db, storeId, destLat, destLng, subtotal) {
   const key = SERVER_KEY();
   if (!key) throw Object.assign(new Error('GOOGLE_MAPS_SERVER_KEY 未設定'), { reason: 'maps_unavailable' });
@@ -45,16 +51,21 @@ async function recalcDeliveryFee(db, storeId, destLat, destLng, subtotal) {
   }
 
   const maxDistKm = parseFloat(getSettingVal(db, storeId, 'delivery_max_distance_km', '7'));
-  const basicFee  = parseFloat(getSettingVal(db, storeId, 'delivery_basic_fee', '50'));
-  const freeThr   = parseFloat(getSettingVal(db, storeId, 'delivery_free_threshold', '1000'));
   const sub       = parseFloat(subtotal) || 0;
 
   let rules = [];
   try {
     const raw = getSettingVal(db, storeId, 'delivery_distance_fee_rules', '');
     const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) { rules = parsed; rules.sort((a, b) => a.max_km - b.max_km); }
+    if (Array.isArray(parsed)) { rules = parsed; rules.sort((a, b) => Number(a.max_km) - Number(b.max_km)); }
   } catch {}
+
+  const legacySettings = {
+    delivery_free_enabled:   getSettingVal(db, storeId, 'delivery_free_enabled', ''),
+    delivery_free_threshold: getSettingVal(db, storeId, 'delivery_free_threshold', '1000'),
+    delivery_free_mode:      getSettingVal(db, storeId, 'delivery_free_mode', ''),
+    delivery_basic_fee:      getSettingVal(db, storeId, 'delivery_basic_fee', '50'),
+  };
 
   // Google Routes API
   const routesBody = {
@@ -94,23 +105,30 @@ async function recalcDeliveryFee(db, storeId, destLat, destLng, subtotal) {
     );
   }
 
-  const matched = rules.find(r => distKm <= r.max_km);
-  if (!matched) {
+  const calc = calculateDeliveryFeeWithPromotion({
+    distanceKm: distKm, eligibleSubtotal: sub, distanceRules: rules,
+    legacySettings, maxDistanceKm: maxDistKm,
+  });
+
+  if (calc.outOfRange || !calc.matchedRule) {
     throw Object.assign(
       new Error(`距離 ${distKm} 公里，超過外送費級距設定範圍`),
       { reason: 'out_of_range', distance_km: distKm }
     );
   }
 
-  const rawFee = matched.fee;
-  let deliveryFee = rawFee;
-  if (freeThr > 0 && sub >= freeThr) {
-    const reduced = rawFee - basicFee;
-    deliveryFee = reduced > 0 ? reduced : 0;
-  }
-
   const mapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${storeLat},${storeLng}&destination=${destLat},${destLng}&travelmode=driving`;
-  return { distKm, deliveryFee, rawFee, mapsUrl };
+  return {
+    distKm,
+    deliveryFee:    calc.finalFee,
+    rawFee:         calc.rawFee,
+    discount:       calc.discount,
+    promotionMode:  calc.promotionMode,
+    threshold:      calc.threshold,
+    reached:        calc.reached,
+    matchedMaxKm:   calc.matchedRule ? Number(calc.matchedRule.max_km) : null,
+    mapsUrl,
+  };
 }
 
 function orderNumber() {
@@ -1479,9 +1497,13 @@ router.post('/', async (req, res) => {
     }
 
     // ── fix18-06：外送費後端重算（不信任前端）────────────
+    // C3：即使前端已試算（delivery_fee_preview 只作參考／log 比對），送單時一律以這裡
+    // 重新計算出的結果為準（需求文件十五），並把命中的級距/優惠模式寫入
+    // delivery_fee_meta（需求文件十七）。
     let calcDelivFee    = 0;
     let calcDistKm      = 0;
     let calcMapsUrl     = '';
+    let deliveryFeeMeta = null;
     const couponApplyToDelivery = getSettingVal(db, storeId, 'coupon_apply_to_delivery_fee', '0') === '1';
 
     if (isDelivery) {
@@ -1489,9 +1511,46 @@ router.post('/', async (req, res) => {
       const destLng = parseFloat(delivery_lng);
       try {
         const feeResult = await recalcDeliveryFee(db, storeId, destLat, destLng, sub);
-        calcDelivFee = feeResult.deliveryFee;
+        calcDelivFee = feeResult.deliveryFee; // = finalFee，never rawFee
         calcDistKm   = feeResult.distKm;
         calcMapsUrl  = feeResult.mapsUrl;
+        const isFreeDelivery = feeResult.deliveryFee === 0 && feeResult.rawFee > 0;
+        deliveryFeeMeta = {
+          raw_fee:              feeResult.rawFee,
+          delivery_discount:    feeResult.discount,
+          final_fee:            feeResult.deliveryFee,
+          distance_km:          feeResult.distKm,
+          matched_max_km:       feeResult.matchedMaxKm,
+          free_threshold:       feeResult.threshold,
+          free_rule_type:       feeResult.promotionMode,
+          free_discount_value:  feeResult.discount,
+          is_free_delivery:     isFreeDelivery,
+        };
+        // 價格一致性檢查：前端試算值（delivery_fee_preview）若與後端剛重算出的最終外送費
+        // 有明顯落差（例如顧客瀏覽期間店家調整了級距設定），不得悄悄用舊金額成立訂單，
+        // 一律請前端重新確認（需求文件十五）。只有前端「確實有傳」且是合法數字時才比較，
+        // 不因舊版前端沒有傳 preview 就拒單；容許 0.01 元以內視為浮點誤差。
+        const rawPreview = req.body.delivery_fee_preview;
+        const hasPreview = rawPreview !== undefined && rawPreview !== null && rawPreview !== ''
+          && Number.isFinite(Number(rawPreview));
+        if (hasPreview && Math.abs(Number(rawPreview) - calcDelivFee) > 0.01) {
+          return res.status(409).json({
+            success: false,
+            message: '外送費已更新，請重新確認訂單',
+            reason:  'price_changed',
+            delivery_fee: calcDelivFee,
+            delivery_fee_result: {
+              raw_fee:           feeResult.rawFee,
+              delivery_discount: feeResult.discount,
+              delivery_fee:      feeResult.deliveryFee,
+              distance_km:       calcDistKm,
+              matched_max_km:    feeResult.matchedMaxKm,
+              free_threshold:    feeResult.threshold,
+              free_rule_type:    feeResult.promotionMode,
+              is_free_delivery:  isFreeDelivery,
+            },
+          });
+        }
       } catch (delivErr) {
         return res.status(delivErr.reason === 'out_of_range' ? 400 : 503).json({
           success: false,
@@ -1555,14 +1614,14 @@ router.post('/', async (req, res) => {
         pickup_time, delivery_address, delivery_address_note,
         delivery_platform, platform_order_no,
         delivery_lat, delivery_lng, delivery_distance_km, delivery_maps_url,
-        delivery_fee,
+        delivery_fee, delivery_fee_meta,
         pickup_store_name_snapshot, pickup_place_name_snapshot, pickup_place_id_snapshot,
         pickup_address_snapshot, pickup_address_note_snapshot,
         pickup_lat_snapshot, pickup_lng_snapshot,
         items, payment_method, payment_category, payment_status,
         subtotal, discount_type, discount_amount, original_total, coupon_code, total,
         note, sync_status, device_id, source, created_at, updated_at, line_user_id
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         uuid, uuid, orderNo, storeId, orderMode, 'pending', 'pending',
         customer_name, customer_phone, customer_line_id||'',
@@ -1571,7 +1630,7 @@ router.post('/', async (req, res) => {
         isDelivery ? String(parseFloat(delivery_lat)||'') : '',
         isDelivery ? String(parseFloat(delivery_lng)||'') : '',
         calcDistKm, calcMapsUrl,
-        calcDelivFee,
+        calcDelivFee, deliveryFeeMeta ? JSON.stringify(deliveryFeeMeta) : '',
         pickupSnapshot.pickup_store_name_snapshot, pickupSnapshot.pickup_place_name_snapshot, pickupSnapshot.pickup_place_id_snapshot,
         pickupSnapshot.pickup_address_snapshot, pickupSnapshot.pickup_address_note_snapshot,
         pickupSnapshot.pickup_lat_snapshot, pickupSnapshot.pickup_lng_snapshot,

@@ -339,6 +339,15 @@ img{max-width:100%;display:block}
       <span style="color:#06C755;font-size:14px;font-weight:600">🎟️ 優惠折扣</span>
       <span id="discountDisplay" style="color:#06C755;font-size:14px;font-weight:600">-$0</span>
     </div>
+    <!-- C3：外送費原價／滿額折抵明細（只有折抵 > 0 時才顯示，見 updateBar()） -->
+    <div id="cartDelivRawFeeRow" class="ot" style="display:none;border-top:none;padding-top:2px;padding-bottom:2px">
+      <span style="color:#999;font-size:13px">原始外送費</span>
+      <span id="cartDelivRawFeeDisplay" style="color:#999;font-size:13px">$0</span>
+    </div>
+    <div id="cartDelivDiscountRow" class="ot" style="display:none;border-top:none;padding-top:2px;padding-bottom:2px">
+      <span style="color:#06C755;font-size:13px">滿額折抵</span>
+      <span id="cartDelivDiscountDisplay" style="color:#06C755;font-size:13px">-$0</span>
+    </div>
     <!-- fix18-06：外送費明細行 -->
     <div id="cartDelivFeeRow" class="ot" style="display:none;border-top:none;padding-top:2px;padding-bottom:2px">
       <span style="color:#e65100;font-size:14px;font-weight:500">🛵 外送費</span>
@@ -2944,13 +2953,30 @@ function updateBar(){
   if(subtotalEl) subtotalEl.textContent=`$${subtotal}`;
   if(discRowEl) discRowEl.style.display=discAmt>0?'flex':'none';
   if(discEl) discEl.textContent=`-$${discAmt}`;
-  // fix18-06: 外送費納入應付金額
+  // C3：外送費/應付金額一律以 _deliveryFeeResult.finalFee（後端 calculateDeliveryFeeWithPromotion()
+  // 算出的最終外送費）為單一來源，不得再用 calcDeliveryFee 以外的任何「自算」金額。
+  // calcDeliveryFee 本身也是直接指派自 _deliveryFeeResult.finalFee（見 fetchDeliveryFee()），
+  // 這裡改成直接讀 _deliveryFeeResult，即使日後 calcDeliveryFee 這個舊變數被其他地方誤改，
+  // 購物車金額也不會跟著漂移。
   const cartDelivRow=document.getElementById('cartDelivFeeRow');
   const cartDelivEl=document.getElementById('cartDelivFeeDisplay');
+  const cartDelivRawRow=document.getElementById('cartDelivRawFeeRow');
+  const cartDelivRawEl=document.getElementById('cartDelivRawFeeDisplay');
+  const cartDelivDiscRow=document.getElementById('cartDelivDiscountRow');
+  const cartDelivDiscEl=document.getElementById('cartDelivDiscountDisplay');
   const isDelivMode=currentMode==='delivery';
-  const shownDelivFee=isDelivMode&&deliveryFeeCalculated?calcDeliveryFee:0;
-  if(cartDelivRow) cartDelivRow.style.display=shownDelivFee>0?'flex':'none';
+  const fr=_deliveryFeeResult;
+  const shownDelivFee=(isDelivMode&&deliveryFeeCalculated&&fr&&fr.finalFee!=null)?Math.max(Number(fr.finalFee)||0,0):0;
+  const shownDelivDiscount=(isDelivMode&&deliveryFeeCalculated&&fr&&fr.discount!=null)?Math.max(Number(fr.discount)||0,0):0;
+  const shownDelivRawFee=(isDelivMode&&deliveryFeeCalculated&&fr&&fr.rawFee!=null)?Math.max(Number(fr.rawFee)||0,0):0;
+  if(cartDelivRow) cartDelivRow.style.display=(isDelivMode&&deliveryFeeCalculated)?'flex':'none';
   if(cartDelivEl) cartDelivEl.textContent=`$${shownDelivFee}`;
+  // 只有折抵 > 0 時才顯示「原始外送費」與「滿額折抵」兩列，避免沒有優惠的店家看到多餘資訊。
+  const showBreakdown=isDelivMode&&deliveryFeeCalculated&&shownDelivDiscount>0;
+  if(cartDelivRawRow) cartDelivRawRow.style.display=showBreakdown?'flex':'none';
+  if(cartDelivRawEl) cartDelivRawEl.textContent=`$${shownDelivRawFee}`;
+  if(cartDelivDiscRow) cartDelivDiscRow.style.display=showBreakdown?'flex':'none';
+  if(cartDelivDiscEl) cartDelivDiscEl.textContent=`-$${shownDelivDiscount}`;
   const payable=subtotal-discAmt+shownDelivFee;
   if(orderTotalEl) orderTotalEl.textContent=`$${payable}`;
   document.getElementById('cartBarTotal').textContent=`$${subtotal-discAmt}`; // bar 只顯示商品合計（外送費確認後才納入）
@@ -3315,7 +3341,7 @@ async function submitOrder(){
     delivery_address_note: (document.getElementById('deliveryAddressNote')?.value||'').trim(),
     delivery_lat:          deliveryLatLng.lat,
     delivery_lng:          deliveryLatLng.lng,
-    delivery_fee_preview:      calcDeliveryFee,       // 前端預估，後端重算為準
+    delivery_fee_preview:      _deliveryFeeResult ? _deliveryFeeResult.finalFee : calcDeliveryFee, // 純價格一致性檢查用，不是後端信任來源
     delivery_distance_km_preview: deliveryDistKm,     // 前端預估，後端重算為準
   } : {};
 
@@ -3371,6 +3397,32 @@ async function submitOrder(){
       if(orderRes.reason==='real_sold_out') setTimeout(()=>location.reload(),2000);
       if(orderRes.reason==='maps_unavailable'||orderRes.reason==='out_of_range'){
         resetDeliveryFee();
+      }
+      // C3：price_changed — 外送費在瀏覽期間被店家調整過。不關閉購物車、不清空購物車、
+      // 不自動再送單；用後端剛重算出的權威結果更新 _deliveryFeeResult 與畫面金額，
+      // 讓顧客看到新的外送費/應付金額後自行決定是否重新送出。
+      if(orderRes.reason==='price_changed'){
+        const dfr = orderRes.delivery_fee_result || {};
+        _deliveryFeeResult = {
+          rawFee:            Number(dfr.raw_fee||0),
+          finalFee:          Number(dfr.delivery_fee!=null?dfr.delivery_fee:orderRes.delivery_fee||0),
+          discount:          Number(dfr.delivery_discount||0),
+          isFreeDelivery:    Boolean(dfr.is_free_delivery),
+          mode:              dfr.free_rule_type||'none',
+          threshold:         Number(dfr.free_threshold||0),
+          fixedDiscountValue:0,
+          remaining:         0,
+          reached:           false,
+          distanceKm:        Number(dfr.distance_km||0),
+          matchedMaxKm:      Number(dfr.matched_max_km||0),
+          outOfRange:        false,
+        };
+        calcDeliveryFee = _deliveryFeeResult.finalFee;
+        deliveryDistKm  = _deliveryFeeResult.distanceKm;
+        deliveryFeeCalculated = true;
+        const feeDisplayEl=document.getElementById('deliveryFeeDisplay');
+        if(feeDisplayEl) feeDisplayEl.textContent=`NT$${_deliveryFeeResult.finalFee}`;
+        updateCartTotals();
       }
       return;
     }
@@ -3953,36 +4005,65 @@ function renderDeliveryFreeRecommendations(state) {
 // 外送費重新計算、購物車還原、LINE Login/LIFF 回跳後恢復皆會呼叫到 updateBar()）。
 // 本函式只讀 _deliveryFeeResult 這個統一物件與 shopData／cart／currentMode，
 // 絕不呼叫 updateBar()/updateCartTotals()，避免與呼叫端形成遞迴。
+//
+// C3：threshold/mode/rawFee/finalFee/reached/remaining 一律優先採用後端
+// _deliveryFeeResult（routes/delivery.js 這次距離命中的級距算出來的真實結果），
+// 只有在還沒有後端結果時（地址尚未確認座標），才 fallback 用店家舊版全店設定
+// 顯示一個「大概門檻」，且 feeResolved 強制為 false（不得宣告已免運/已折抵，
+// 見 getDeliveryFreeProgressState() 的 feeResolved 語意）。
 function updateDeliveryFreeProgress(knownSubtotal) {
   const isDelivery = currentMode === 'delivery';
-  // 相容既有正式環境：只有 delivery_free_threshold 真的會被設定，預設值與
-  // routes/delivery.js 的 getSetting(...,'delivery_free_threshold','1000') 完全一致。
-  const rawThreshold = shopData ? shopData.delivery_free_threshold : '';
-  const threshold = (rawThreshold === '' || rawThreshold == null || isNaN(parseFloat(rawThreshold)))
-    ? 1000
-    : parseFloat(rawThreshold);
-  // enabled 判斷：若店家設定明確存在 delivery_free_enabled 值就用它（沿用既有
-  // toBooleanFlag() 安全布林解析，Boolean("0")===true 是陷阱，不得直接用 Boolean()）；
-  // 目前正式環境沒有這個欄位（getSetting 預設回傳 ''），此時完全 fallback 成
-  // 「threshold > 0 即視為啟用」，不會因為新增這個欄位就讓既有已設定門檻的店家看不到功能。
-  const enabledRaw = shopData ? shopData.delivery_free_enabled : '';
-  const explicitEnabledValueExists = enabledRaw === '0' || enabledRaw === '1' || enabledRaw === 0 || enabledRaw === 1 || enabledRaw === true || enabledRaw === false;
-  const enabled = (explicitEnabledValueExists ? toBooleanFlag(enabledRaw, true) : true) && threshold > 0;
-  const freeMode = (shopData && shopData.delivery_free_mode === 'distance_only') ? 'distance_only' : 'full';
-
   const subtotal = (typeof knownSubtotal === 'number') ? knownSubtotal : getCartProductSubtotal();
+  const fr = _deliveryFeeResult; // 統一物件；null = 外送費尚未算出（地址還沒確認座標）
 
-  const fr = _deliveryFeeResult; // 統一物件；null = 外送費尚未算出
+  let threshold, mode, rawDeliveryFee, finalDeliveryFee, reached, remaining, isOutOfRange, feeResolved;
+
+  if (fr && fr.threshold != null && fr.threshold > 0 && !fr.outOfRange) {
+    // 後端已經算出「這次距離命中的級距」真實結果：直接使用，不再自己猜門檻。
+    threshold = fr.threshold;
+    mode = (fr.mode === 'full' || fr.mode === 'fixed') ? fr.mode : 'none';
+    rawDeliveryFee = fr.mode === 'fixed' ? fr.fixedDiscountValue : fr.rawFee;
+    finalDeliveryFee = fr.finalFee;
+    reached = !!fr.reached;
+    remaining = fr.remaining;
+    isOutOfRange = false;
+    feeResolved = true;
+  } else if (fr && fr.outOfRange) {
+    threshold = fr.threshold || 0;
+    mode = 'full';
+    rawDeliveryFee = null; finalDeliveryFee = null;
+    reached = false; remaining = 0;
+    isOutOfRange = true;
+    feeResolved = false;
+  } else {
+    // 地址尚未確認座標，還沒有後端結果：fallback 用店家舊版全店設定顯示大概門檻，
+    // 相容既有正式環境（只有 delivery_free_threshold 真的會被設定）。
+    const rawThreshold = shopData ? shopData.delivery_free_threshold : '';
+    threshold = (rawThreshold === '' || rawThreshold == null || isNaN(parseFloat(rawThreshold)))
+      ? 1000 : parseFloat(rawThreshold);
+    const enabledRaw = shopData ? shopData.delivery_free_enabled : '';
+    const explicitEnabledValueExists = enabledRaw === '0' || enabledRaw === '1' || enabledRaw === 0 || enabledRaw === 1 || enabledRaw === true || enabledRaw === false;
+    const enabled = (explicitEnabledValueExists ? toBooleanFlag(enabledRaw, true) : true) && threshold > 0;
+    mode = !enabled ? 'none' : ((shopData && shopData.delivery_free_mode === 'distance_only') ? 'fixed' : 'full');
+    rawDeliveryFee = (mode === 'fixed' && shopData) ? parseFloat(shopData.delivery_basic_fee || '0') || 0 : null;
+    finalDeliveryFee = null;
+    reached = threshold > 0 && subtotal >= threshold;
+    remaining = threshold > 0 ? Math.max(threshold - subtotal, 0) : 0;
+    isOutOfRange = false;
+    feeResolved = false; // 還沒有後端真實外送費結果，不得宣告已免運/已折抵
+  }
+
   const state = getDeliveryFreeProgressState({
     eligibleSubtotal: subtotal,
     threshold,
-    enabled,
-    isFreeDelivery: fr ? fr.isFreeDelivery : null,
-    rawDeliveryFee: fr ? fr.rawFee : null,
-    finalDeliveryFee: fr ? fr.finalFee : null,
+    mode,
+    rawDeliveryFee,
+    finalDeliveryFee,
+    reached,
+    remaining,
     isDelivery,
-    isOutOfRange: fr ? !!fr.outOfRange : false,
-    mode: freeMode,
+    isOutOfRange,
+    feeResolved,
   });
   renderDeliveryFreeProgress(state);
   try { renderDeliveryFreeRecommendations(state); } catch (e) { /* 推薦區塊為附加功能，失敗不可影響主流程 */ }
@@ -4013,35 +4094,38 @@ async function fetchDeliveryFee(){
     }).then(r=>r.json());
     if(myToken!==fulfillmentRenderToken || currentMode!=='delivery') return; // 已過期或已切走，作廢
     if(res.success){
-      calcDeliveryFee = res.delivery_fee||0;
-      deliveryDistKm  = res.distance_km||0;
+      // C3：_deliveryFeeResult 直接對應 routes/delivery.js 實際回傳欄位，購物車/應付金額/
+      // 送單 preview 全部只認 _deliveryFeeResult.finalFee，不得另外自算。
+      _deliveryFeeResult = {
+        rawFee:              Number(res.raw_fee||0),
+        finalFee:            Number(res.delivery_fee||0),
+        discount:             Number(res.delivery_discount||0),
+        isFreeDelivery:       Boolean(res.is_free_delivery),
+        mode:                 res.free_rule_type || 'none',
+        threshold:            Number(res.free_threshold||0),
+        fixedDiscountValue:   Number(res.free_discount_value||0),
+        remaining:            Number(res.remaining_for_free_delivery||0),
+        reached:              Boolean(res.free_rule_applied),
+        distanceKm:           Number(res.distance_km||0),
+        matchedMaxKm:         Number(res.matched_max_km||0),
+        outOfRange:           Boolean(res.out_of_range),
+      };
+      calcDeliveryFee = _deliveryFeeResult.finalFee;
+      deliveryDistKm  = _deliveryFeeResult.distanceKm;
       deliveryFeeCalculated = true;
       // fix18-10-hotfix30-B4 第九、十點：保留 raw_fee／免運原因，供 Context 與畫面顯示
       // 「為什麼免運」，不新增外送費公式，全部沿用既有 API 回傳欄位。
-      _lastDeliveryRawFee = (res.raw_fee!=null) ? res.raw_fee : res.delivery_fee||0;
+      _lastDeliveryRawFee = _deliveryFeeResult.rawFee;
       _lastFreeShippingReason = res.is_free_delivery
         ? (typeof res.message==='string' && res.message.includes('滿額') ? '滿額免運' : (res.message||'免運'))
         : null;
-      _lastIsFreeDelivery = !!res.is_free_delivery;
+      _lastIsFreeDelivery = _deliveryFeeResult.isFreeDelivery;
       _deliveryOutOfRange = false;
-      {
-        const rf = (res.raw_fee!=null) ? Math.max(Number(res.raw_fee)||0,0) : Math.max(Number(res.delivery_fee)||0,0);
-        const ff = Math.max(Number(res.delivery_fee)||0,0);
-        _deliveryFeeResult = {
-          rawFee: rf,
-          finalFee: ff,
-          discount: Math.max(rf-ff,0),
-          isFreeDelivery: !!res.is_free_delivery,
-          mode: res.is_free_delivery ? 'full' : (ff<rf ? 'distance_only' : 'full'),
-          distanceKm: res.distance_km!=null?res.distance_km:null,
-          outOfRange: false,
-        };
-      }
       if(feeRow) feeRow.style.display='flex';
       if(distBadge) distBadge.textContent=`${res.distance_km}km`;
       if(feeDisplay) feeDisplay.textContent = res.is_free_delivery
         ? `免運 🎉（${_lastFreeShippingReason}）`
-        : `NT$${res.delivery_fee}`;
+        : `NT$${_deliveryFeeResult.finalFee}`;
       if(feeMsg) feeMsg.textContent=res.message||'';
       syncFulfillmentContext('delivery');
     } else {
@@ -4051,7 +4135,8 @@ async function fetchDeliveryFee(){
       _deliveryOutOfRange = res.reason==='out_of_range';
       _deliveryFeeResult = {
         rawFee: null, finalFee: null, discount: 0, isFreeDelivery: null, mode: null,
-        distanceKm: res.distance_km!=null?res.distance_km:null,
+        threshold: 0, fixedDiscountValue: 0, remaining: 0, reached: false,
+        distanceKm: res.distance_km!=null?res.distance_km:null, matchedMaxKm: null,
         outOfRange: res.reason==='out_of_range',
       };
       if(feeRow) feeRow.style.display='none';

@@ -5498,6 +5498,50 @@ async function changeDeliveryStatus(orderId, newStatus) {
   } catch { showToast('網路錯誤', 'error'); }
 }
 
+// ── C3：訂單詳情頁「距離級距滿額免運」metadata 顯示 ──────────────────────
+// delivery_fee_meta 是 JSON 字串（見 routes/line-orders.js 送單時寫入），舊訂單
+// 沒有這個欄位或格式壞掉時一律安全 fallback，不可讓整個訂單詳情頁報錯。
+function parseDeliveryFeeMeta(value) {
+  if (!value) return null;
+  if (typeof value === 'object') return value;
+  try { return JSON.parse(value); } catch { return null; }
+}
+
+function _deliveryFeeMetaModeLabel(mode) {
+  const map = { legacy: '沿用全店設定', none: '不優惠', full: '滿額全免', fixed: '滿額固定折抵' };
+  return map[mode] || '沿用全店設定';
+}
+
+// 組出訂單詳情頁「距離／命中級距／原始外送費／滿額門檻／優惠模式／滿額折抵／最終外送費」
+// 明細；有 metadata 就顯示完整明細（最終外送費只顯示一次，不與舊版簡單行重複），
+// 沒有 metadata（舊訂單）則 fallback 回既有「距離 X km ｜ 外送費 NT$Y」單行顯示。
+function buildDeliveryFeeMetaHtml(o) {
+  const meta = parseDeliveryFeeMeta(o.delivery_fee_meta);
+  const distKm = Number(o.delivery_distance_km) || 0;
+  if (meta) {
+    const lines = [];
+    const metaDistKm = (meta.distance_km != null && meta.distance_km !== '') ? Number(meta.distance_km) : distKm;
+    if (metaDistKm > 0) lines.push(`配送距離：${metaDistKm} km`);
+    if (meta.matched_max_km != null && meta.matched_max_km !== '' && Number(meta.matched_max_km) > 0) {
+      lines.push(`命中級距：≤ ${Number(meta.matched_max_km)} km`);
+    }
+    if (meta.raw_fee != null && meta.raw_fee !== '') lines.push(`原始外送費：NT$${Math.round(Number(meta.raw_fee) || 0)}`);
+    const threshold = meta.free_threshold != null ? Number(meta.free_threshold) : 0;
+    if (threshold > 0) lines.push(`滿額門檻：NT$${Math.round(threshold)}`);
+    lines.push(`優惠模式：${_deliveryFeeMetaModeLabel(meta.free_rule_type || meta.mode)}`);
+    const discount = meta.delivery_discount != null ? Number(meta.delivery_discount) : (meta.discount != null ? Number(meta.discount) : 0);
+    if (discount > 0) lines.push(`滿額折抵：-NT$${Math.round(discount)}`);
+    const finalFee = meta.final_fee != null ? Number(meta.final_fee) : Number(o.delivery_fee || 0);
+    lines.push(`最終外送費：NT$${Math.round(finalFee)}`);
+    return `<div style="color:#94a3b8;font-size:12px;line-height:1.7">${lines.join('<br>')}</div>`;
+  }
+  // 舊訂單沒有 metadata：維持既有簡單顯示，不報錯、不新增假資料
+  if (distKm > 0) {
+    return `<div style="color:#94a3b8;font-size:12px">距離：${distKm} km ｜ 外送費：NT$${o.delivery_fee || 0}</div>`;
+  }
+  return '';
+}
+
 async function showOrderDetail(orderId) {
   try {
     const [orderRes, logsRes] = await Promise.all([
@@ -5578,7 +5622,7 @@ async function showOrderDetail(orderId) {
         <div style="background:#0f1f2f;border:1px solid #334155;border-radius:6px;padding:8px 12px;margin-bottom:12px;font-size:13px">
           <div>📍 外送地址：${escHtml(o.delivery_address)}</div>
           ${o.delivery_address_note ? `<div style="color:#94a3b8;font-size:12px">備註：${escHtml(o.delivery_address_note)}</div>` : ''}
-          ${Number(o.delivery_distance_km)>0 ? `<div style="color:#94a3b8;font-size:12px">距離：${o.delivery_distance_km} km ｜ 外送費：NT$${o.delivery_fee||0}</div>` : ''}
+          ${buildDeliveryFeeMetaHtml(o)}
           ${o.delivery_maps_url ? `<div><a href="${escHtml(o.delivery_maps_url)}" target="_blank" rel="noopener" style="color:#60a5fa">🧭 開啟導航</a></div>` : ''}
         </div>` : ''}
         <div class="receipt-body" style="margin:0;padding:0;border-bottom:1px dashed #333;padding-bottom:12px;margin-bottom:12px">
@@ -11377,22 +11421,67 @@ async function loadDeliveryFeeTab() {
 function renderDeliveryRules() {
   const cont = document.getElementById('delivery-rules-editor');
   if (!cont) return;
-  cont.innerHTML = _deliveryRules.map((r, i) => `
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-      <span style="color:#888;font-size:13px;min-width:32px">${i + 1}.</span>
+  const modeLabel = { legacy: '沿用全店舊規則', none: '不優惠', full: '滿額全免', fixed: '滿額固定折抵' };
+  cont.innerHTML = _deliveryRules.map((r, i) => {
+    const mode = (r.free_mode === 'full' || r.free_mode === 'fixed' || r.free_mode === 'none') ? r.free_mode : 'legacy';
+    const thresholdDisabled = mode === 'legacy';
+    const discountDisabled = mode === 'legacy' || mode === 'none' || mode === 'full';
+    const thresholdVal = r.free_threshold != null ? r.free_threshold : '';
+    const discountVal = r.free_discount != null ? r.free_discount : '';
+    const dimStyle = 'background:#f5f5f5;color:#aaa';
+    return `
+    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:10px;padding:8px 10px;border:1px solid #eee;border-radius:8px">
+      <span style="color:#888;font-size:13px;min-width:20px">${i + 1}.</span>
       <span style="font-size:13px;color:#555">距離 ≤</span>
       <input type="number" value="${r.max_km}" min="0.1" step="0.5"
-        style="width:80px;padding:6px;border:1px solid #ddd;border-radius:6px"
+        style="width:70px;padding:6px;border:1px solid #ddd;border-radius:6px"
         onchange="_deliveryRules[${i}].max_km=parseFloat(this.value)||0">
       <span style="font-size:13px;color:#555">km，外送費</span>
       <input type="number" value="${r.fee}" min="0" step="10"
-        style="width:80px;padding:6px;border:1px solid #ddd;border-radius:6px"
+        style="width:70px;padding:6px;border:1px solid #ddd;border-radius:6px"
         onchange="_deliveryRules[${i}].fee=parseInt(this.value)||0">
       <span style="font-size:13px;color:#555">NT$</span>
+      <span style="font-size:13px;color:#555;margin-left:8px">優惠模式</span>
+      <select onchange="_onDeliveryRuleModeChange(${i}, this.value)" style="padding:6px;border:1px solid #ddd;border-radius:6px;font-size:13px">
+        ${['legacy', 'none', 'full', 'fixed'].map(m => `<option value="${m}" ${m === mode ? 'selected' : ''}>${modeLabel[m]}</option>`).join('')}
+      </select>
+      <span style="font-size:13px;color:#555">滿額門檻</span>
+      <input type="number" value="${thresholdVal}" min="0" step="50" ${thresholdDisabled ? 'disabled' : ''}
+        style="width:80px;padding:6px;border:1px solid #ddd;border-radius:6px;${thresholdDisabled ? dimStyle : ''}"
+        onchange="_deliveryRules[${i}].free_threshold=parseFloat(this.value)||0">
+      <span style="font-size:13px;color:#555">折抵</span>
+      <input type="number" value="${discountVal}" min="0" step="10" ${discountDisabled ? 'disabled' : ''}
+        placeholder="${mode === 'full' ? '全免' : ''}"
+        style="width:70px;padding:6px;border:1px solid #ddd;border-radius:6px;${discountDisabled ? dimStyle : ''}"
+        onchange="_deliveryRules[${i}].free_discount=parseInt(this.value)||0">
       <button onclick="_deliveryRules.splice(${i},1);renderDeliveryRules()"
         style="background:#ffebee;color:#e53935;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:13px">✕</button>
     </div>
-  `).join('');
+  `;
+  }).join('');
+}
+
+// C3：切換某一列的優惠模式。legacy → 直接刪掉 free_mode/free_threshold/free_discount
+// 三個欄位（不可存字串 "legacy" 到正式規則 JSON，交給後端 legacy fallback）；
+// none/full/fixed → 補上合理預設值，避免使用者切換模式後欄位是空的就直接儲存。
+function _onDeliveryRuleModeChange(i, mode) {
+  const r = _deliveryRules[i];
+  if (mode === 'legacy') {
+    delete r.free_mode; delete r.free_threshold; delete r.free_discount;
+  } else if (mode === 'none') {
+    r.free_mode = 'none';
+    if (r.free_threshold == null || r.free_threshold === '') r.free_threshold = 0;
+    r.free_discount = 0;
+  } else if (mode === 'full') {
+    r.free_mode = 'full';
+    if (!r.free_threshold) r.free_threshold = Math.max((Number(r.fee) || 50) * 6, 100);
+    r.free_discount = 0;
+  } else { // fixed
+    r.free_mode = 'fixed';
+    if (!r.free_threshold) r.free_threshold = Math.max((Number(r.fee) || 50) * 8, 500);
+    if (!r.free_discount) r.free_discount = Number(r.fee) || 50;
+  }
+  renderDeliveryRules();
 }
 
 function addDeliveryRule() {
@@ -11400,6 +11489,25 @@ function addDeliveryRule() {
   _deliveryRules.push({ max_km: (last ? last.max_km + 2 : 3), fee: (last ? last.fee + 30 : 50) });
   renderDeliveryRules();
 }
+
+// C3：套用建議級距（需求文件八）。點擊須先確認會覆蓋目前設定；套用後仍停留在編輯狀態，
+// 不會自動送出，店家仍需按「儲存外送費設定」才會真正生效——與 utils/deliveryFeeSuggestedRules.js
+// 內容保持一致（前端無法 require() 後端模組，這裡維持一份相同內容，調整建議值時兩處都要同步）。
+function applySuggestedDeliveryRules() {
+  if (!confirm('將覆蓋目前距離級距設定，是否繼續？')) return;
+  _deliveryRules = [
+    { max_km: 3,  fee: 50,  free_threshold: 300,  free_mode: 'full',  free_discount: 0 },
+    { max_km: 5,  fee: 80,  free_threshold: 500,  free_mode: 'full',  free_discount: 0 },
+    { max_km: 7,  fee: 120, free_threshold: 800,  free_mode: 'full',  free_discount: 0 },
+    { max_km: 9,  fee: 150, free_threshold: 1000, free_mode: 'fixed', free_discount: 100 },
+    { max_km: 11, fee: 180, free_threshold: 1200, free_mode: 'fixed', free_discount: 100 },
+    { max_km: 13, fee: 210, free_threshold: 1500, free_mode: 'fixed', free_discount: 100 },
+    { max_km: 15, fee: 240, free_threshold: 1800, free_mode: 'fixed', free_discount: 100 },
+  ];
+  renderDeliveryRules();
+  showToast('已套用建議級距，請確認內容後按下方「儲存外送費設定」', 'success');
+}
+
 
 async function geocodeStoreAddress() {
   const addr = (document.getElementById('set-store_address')?.value || '').trim();

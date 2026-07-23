@@ -11,6 +11,7 @@ const { validateLineMemberReturnUrl } = require('../utils/returnUrlValidator');
 // fix18-10-hotfix26-F7：same_as_store 預設值推斷邏輯與 utils/pickupLocation.js 共用一份
 const { resolveSameAsStoreFlag } = require('../utils/pickupLocation');
 const { resolveAddFriendUrl } = require('../utils/lineCheckoutHandoff'); // fix18-10-hotfix29-C：加好友網址單一來源
+const { normalizeDeliveryDistanceFeeRules } = require('../utils/deliveryFeeCalc'); // C3：距離級距滿額免運設定驗證單一來源
 
 // LINE 相關設定 key — line_order=false 時不可修改
 const LINE_KEYS = new Set([
@@ -87,6 +88,11 @@ const DELIVERY_FEE_KEYS = [
   'delivery_max_distance_km',
   'delivery_basic_fee',
   'delivery_free_threshold',
+  // C3：舊版全店滿額免運欄位（legacy fallback 用）。目前後台沒有專屬 UI 修改
+  // delivery_free_enabled / delivery_free_mode，但既然 utils/deliveryFeeCalc.js
+  // 的 legacy fallback 會讀取它們，這裡先開放允許儲存，避免未來要補後台 UI 時
+  // 還要再改一次允許清單。
+  'delivery_free_enabled', 'delivery_free_mode',
   'coupon_apply_to_delivery_fee',
   // fix18-10-hotfix26-F7：店家商家名稱／Google Place ID／定位模式／校正時間。
   // store_place_id 只後端存取、不讓店家直接編輯（前端隱藏欄位保存）。
@@ -426,6 +432,29 @@ router.put('/', (req, res) => {
       }
     }
 
+    // ── C3：距離級距＋各級距滿額免運設定驗證（需求文件四）───────────────
+    // 只在這次請求有實際送出 delivery_distance_fee_rules 時才驗證/正規化；未送出時
+    // 完全不動作（沿用既有 PUT /api/settings「只更新有送值的 key」慣例）。normalize
+    // 邏輯集中在 utils/deliveryFeeCalc.js 的 normalizeDeliveryDistanceFeeRules()，
+    // 前後端（送單重算 / 前台試算 / 這裡的設定驗證）都不可各自重寫一份判斷規則。
+    if (req.body.delivery_distance_fee_rules !== undefined) {
+      let parsedRules;
+      try {
+        parsedRules = typeof req.body.delivery_distance_fee_rules === 'string'
+          ? JSON.parse(req.body.delivery_distance_fee_rules)
+          : req.body.delivery_distance_fee_rules;
+      } catch (e) {
+        return res.status(400).json({ success: false, message: '距離級距規則不是合法的 JSON' });
+      }
+      const normResult = normalizeDeliveryDistanceFeeRules(parsedRules);
+      if (!normResult.ok) {
+        return res.status(400).json({ success: false, message: normResult.message });
+      }
+      // 正規化後的結果（例如 fixed/full 模式強制歸零的 free_discount）才是真正落地儲存的值，
+      // 避免前端送來的原始字串裡帶有未經正規化的雜訊欄位。
+      req.body.delivery_distance_fee_rules = JSON.stringify(normResult.rules);
+    }
+
     // ── 寫入允許的 key ─────────────────────────────────────
     ALL_ALLOWED.forEach(k => {
       if (req.body[k] !== undefined) {
@@ -476,6 +505,8 @@ router.__test = {
   STORE_LOCATION_KEYS,
   validatePickupLocationSave,
   getCurrentSettingVal,
+  // C3
+  normalizeDeliveryDistanceFeeRules,
 };
 
 // fix18-10-hotfix26-F7：讀取單一 settings 目前值（給下面 PATCH 端點的驗證邏輯用，
