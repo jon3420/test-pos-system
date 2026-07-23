@@ -1581,6 +1581,140 @@ function getFulfillmentConflictRecommendations(conflicts) {
   return recs;
 }
 
+// ══════════════════════════════════════════════════════════════════
+// fix18-10-hotfix30-B5-R5｜⏰ 訂單時段分析（需求文件二十二）
+//
+// 統計口徑：客人「實際送出／成立訂單的時間」= orders.created_at 的 Asia/Taipei
+// 小時（orders.created_at 本身已是應用層寫入時換算好的 Asia/Taipei 本地時間
+// 字串——見 utils/dashboardDate.js 開頭註解，因此這裡直接用 strftime('%H', ...)，
+// 不再額外 +8 小時，否則會偏移；不重用 analytics_events 那套 UTC→本地換算）。
+// 只統計有效訂單（沿用既有 ORDERS_BASE_WHERE／ORDERS_PAID_EXPR，同一份口徑，
+// 不另外定義），並沿用同一個 range（不新增第二套日期邏輯）與同一個 channel
+// 篩選（_channelWhereClause，同一份既有渠道判斷）。
+// ══════════════════════════════════════════════════════════════════
+const MEAL_PERIODS = [
+  { key: 'late_night', label: '深夜 00:00–05:59', startHour: 0, endHour: 5 },
+  { key: 'breakfast', label: '早餐 06:00–10:59', startHour: 6, endHour: 10 },
+  { key: 'lunch', label: '午餐 11:00–13:59', startHour: 11, endHour: 13 },
+  { key: 'afternoon', label: '下午 14:00–16:59', startHour: 14, endHour: 16 },
+  { key: 'dinner', label: '晚餐 17:00–19:59', startHour: 17, endHour: 19 },
+  { key: 'late_snack', label: '宵夜 20:00–23:59', startHour: 20, endHour: 23 },
+];
+
+function _pctSafe(part, whole) {
+  if (!whole || !Number.isFinite(whole) || whole <= 0) return 0;
+  const v = Math.round((part / whole) * 1000) / 10; // 到小數 1 位
+  return Number.isFinite(v) ? v : 0;
+}
+
+function getOrderHourAnalysis(db, storeId, range, channel) {
+  const ch = _channelWhereClause(channel);
+  const where = `${ORDERS_BASE_WHERE} AND ${ORDERS_PAID_EXPR} AND created_at BETWEEN ? AND ?${ch.sql}`;
+  const params = [storeId, range.startLocal, range.endLocal, ...ch.params];
+
+  const hourlyRaw = db.all(
+    `SELECT CAST(strftime('%H', created_at) AS INTEGER) as hour,
+            COUNT(*) as orders, COALESCE(SUM(total),0) as revenue
+     FROM orders WHERE ${where}
+     GROUP BY hour`,
+    params
+  );
+  const hourMap = {};
+  hourlyRaw.forEach(r => { hourMap[Number(r.hour)] = r; });
+
+  const totals = db.get(
+    `SELECT COUNT(*) as orders, COALESCE(SUM(total),0) as revenue FROM orders WHERE ${where}`,
+    params
+  ) || { orders: 0, revenue: 0 };
+  const totalOrders = Number(totals.orders || 0);
+  const totalRevenue = Number(totals.revenue || 0);
+
+  const rows = Array.from({ length: 24 }, (_, h) => {
+    const found = hourMap[h];
+    const orders = found ? Number(found.orders || 0) : 0;
+    const revenue = found ? Number(found.revenue || 0) : 0;
+    return {
+      hour: h,
+      label: `${String(h).padStart(2, '0')}:00–${String(h).padStart(2, '0')}:59`,
+      orders,
+      revenue,
+      avg_order_value: orders > 0 ? round2(revenue / orders) : 0,
+      order_share: _pctSafe(orders, totalOrders),
+      revenue_share: _pctSafe(revenue, totalRevenue),
+    };
+  });
+
+  // 生意高峰判斷：訂單數最高 → 同訂單數比營收 → 再相同比較早時段（固定結果，需求文件 Hour R5-8）
+  let peakHour = null;
+  if (totalOrders > 0) {
+    let best = null;
+    rows.forEach(r => {
+      if (r.orders <= 0) return;
+      if (!best || r.orders > best.orders || (r.orders === best.orders && r.revenue > best.revenue)) {
+        best = r;
+      }
+    });
+    if (best) peakHour = { hour: best.hour, label: best.label, orders: best.orders, revenue: best.revenue };
+  }
+
+  // 高峰時段（peak_period）：以 peak_hour 為中心的 ±1 小時窗口（同一天內，若在邊界則縮窗），
+  // 直觀對應「17:00–19:59」這種店家常說的尖峰概念。
+  let peakPeriod = null;
+  if (peakHour) {
+    const centerHour = peakHour.hour;
+    const lo = Math.max(0, centerHour - 1);
+    const hi = Math.min(23, centerHour + 1);
+    const windowRows = rows.slice(lo, hi + 1);
+    const orders = windowRows.reduce((s, r) => s + r.orders, 0);
+    const revenue = windowRows.reduce((s, r) => s + r.revenue, 0);
+    peakPeriod = {
+      label: `${String(lo).padStart(2, '0')}:00–${String(hi).padStart(2, '0')}:59`,
+      orders, revenue,
+    };
+  }
+
+  return {
+    basis: 'order_created_at',
+    basis_label: '訂單成立時間',
+    timezone: 'Asia/Taipei',
+    total_orders: totalOrders,
+    total_revenue: totalRevenue,
+    peak_hour: peakHour,
+    peak_period: peakPeriod,
+    rows,
+  };
+}
+
+// 餐飲時段摘要（需求文件二十二）：同一批 hourly rows 依固定時段窗口彙總，
+// 不重新查詢資料庫，避免口徑不一致。
+function getOrderPeriodAnalysis(hourAnalysis) {
+  const rows = (hourAnalysis && hourAnalysis.rows) || [];
+  const totalOrders = (hourAnalysis && hourAnalysis.total_orders) || 0;
+  const periods = MEAL_PERIODS.map(p => {
+    const windowRows = rows.filter(r => r.hour >= p.startHour && r.hour <= p.endHour);
+    const orders = windowRows.reduce((s, r) => s + r.orders, 0);
+    const revenue = windowRows.reduce((s, r) => s + r.revenue, 0);
+    return {
+      key: p.key,
+      label: p.label,
+      orders,
+      revenue,
+      avg_order_value: orders > 0 ? round2(revenue / orders) : 0,
+      order_share: _pctSafe(orders, totalOrders),
+      is_peak: false,
+    };
+  });
+  if (totalOrders > 0) {
+    let best = null;
+    periods.forEach(p => {
+      if (p.orders <= 0) return;
+      if (!best || p.orders > best.orders || (p.orders === best.orders && p.revenue > best.revenue)) best = p;
+    });
+    if (best) best.is_peak = true;
+  }
+  return periods;
+}
+
 module.exports = {
   getKpi, getFixedWeekMonth, getFunnel, getRealtime, getCartAnalysis, getProductRanking,
   getPayments, getSources, getRepeatCustomers, getIncomplete,
@@ -1597,4 +1731,6 @@ module.exports = {
   getFunnelSummary, getIdentityBasis,
   // fix18-10-hotfix30-B（取餐方式衝突 Analytics × 規則式建議）
   getFulfillmentConflicts, getFulfillmentConflictRecommendations,
+  // fix18-10-hotfix30-B5-R5（⏰ 訂單時段分析 × 餐飲時段摘要）
+  getOrderHourAnalysis, getOrderPeriodAnalysis, MEAL_PERIODS,
 };

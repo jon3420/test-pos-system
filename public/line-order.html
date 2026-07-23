@@ -3061,11 +3061,94 @@ function clearCoupon(){
   persistCart();
 }
 
+// ── fix18-10-hotfix30-B5-R5：Accurate Cart Snapshot ─────────────────────
+// 每次購物車內容「有實質變動」時，記錄一筆 cart_updated 事件，保存目前完整
+// 快照（商品名稱／數量／當下單價／小計／優惠券折抵／外送費／總計／取餐方式），
+// 取代舊版只靠 SUM(add_to_cart.quantity) 回推內容的估算法（需求文件「Accurate
+// Cart Snapshot」）。单價一律取「現在」的 p.effective_line_price||p.price，
+// 也就是「這次異動當下的價格」，寫進事件當下就凍結，之後商品即使調價也不影響
+// 這筆歷史快照（不得用讀取當下的商品售價回推歷史金額）。
+// 所有呼叫都經過同一個函式，避免各呼叫點各自組出不一致的 metadata 格式；
+// Analytics 寫入本身沿用既有 _trackEvent() 的 fire-and-forget + try/catch，
+// 寫入失敗絕不影響購物車操作或下單流程（fail-open）。
+function _buildCartTrackingItems(){
+  return Object.entries(cart).map(([pid,c])=>{
+    const p=(c&&c.product)||{};
+    const unit=Number(p.effective_line_price||p.price||0);
+    const qty=Number((c&&c.qty)||0);
+    return {
+      product_id: Number(pid),
+      name: p.name || ('商品#'+pid),
+      qty,
+      unit_price: unit,
+      subtotal: Math.round(unit*qty*100)/100,
+      variant: null,
+    };
+  });
+}
+function _buildCartTrackingMetadata(statusOverride, correctionReason){
+  const items=_buildCartTrackingItems();
+  const subtotal=items.reduce((s,i)=>s+i.subtotal,0);
+  const discount=appliedCoupon?Math.max(0,Number(appliedCoupon.discount_amount||0)):0;
+  const deliveryFee=(currentMode==='delivery' && deliveryFeeCalculated && _deliveryFeeResult && _deliveryFeeResult.finalFee!=null)
+    ? Math.max(Number(_deliveryFeeResult.finalFee)||0,0) : 0;
+  const total=Math.max(0, Math.round((subtotal-discount+deliveryFee)*100)/100);
+  const meta={
+    items, subtotal, discount, delivery_fee:deliveryFee, total,
+    order_mode: (currentMode==='takeout'||currentMode==='delivery') ? currentMode : 'unknown',
+    item_count: items.reduce((s,i)=>s+i.qty,0),
+  };
+  if(statusOverride) meta.status=statusOverride;
+  // fix18-10-hotfix30-B5-R5（Debounce R5-5）：購物車恢復後，若因商品售完／優惠券失效
+  // 等原因被系統自動校正，附上簡短原因字串，讓 Timeline 能區分「系統恢復」與
+  // 「內容校正」，不是使用者自己動手改的（見 utils/cartSnapshot.js 的 Timeline 標籤）。
+  if(correctionReason) meta.correction_reason=String(correctionReason).slice(0,80);
+  return meta;
+}
+let _lastCartTrackSignature=null;
+let _cartTrackDebounceTimer=null;
+function _cartTrackSignature(meta){
+  try{
+    return JSON.stringify({
+      items:(meta.items||[]).map(i=>[i.product_id,i.qty,i.unit_price]),
+      discount:meta.discount, delivery_fee:meta.delivery_fee,
+      order_mode:meta.order_mode, status:meta.status||null,
+      correction_reason:meta.correction_reason||null,
+    });
+  }catch(e){ return 'sig_'+Date.now()+'_'+Math.random(); }
+}
+function _trackCartUpdated(eventName, statusOverride, correctionReason){
+  try{
+    const meta=_buildCartTrackingMetadata(statusOverride, correctionReason);
+    const sig=_cartTrackSignature(meta);
+    // 內容跟上一次送出的完全一樣（且不是明確的清空/校正事件）就不重複送出，避免每次
+    // 打字（姓名/電話等 debouncedPersistCart）都送一筆一模一樣的購物車快照。
+    if(eventName==='cart_updated' && !statusOverride && !correctionReason && sig===_lastCartTrackSignature) return;
+    // 從未加過商品、也不是清空事件時，不需要送一筆空的快照。
+    if(!meta.items.length && eventName==='cart_updated' && !statusOverride) return;
+    _lastCartTrackSignature=sig;
+    _trackEvent(eventName, { metadata: meta });
+  }catch(e){ /* Analytics 追蹤失敗絕不影響購物車/結帳流程（fail-open） */ }
+}
+// fix18-10-hotfix30-B5-R5（Stage 5 稽核修正）：一般性 cart_updated（加減數量/套用優惠券/
+// 切換模式/外送費重算……）用 600ms trailing debounce 送出，避免使用者快速連續點擊
+// +/- 造成事件量暴增；debounce 只延後「送出時間」，最終一定會送出當下最新的完整快照
+// （不會遺失最終狀態）。明確事件（cleared／cart_restored／校正）一律立即送出、不進
+// debounce，且會先取消任何等待中的一般性 debounce，避免延遲送出的舊快照事後蓋掉這些
+// 明確事件。
+function _scheduleCartUpdatedTrack(){
+  clearTimeout(_cartTrackDebounceTimer);
+  _cartTrackDebounceTimer=setTimeout(()=>{ _trackCartUpdated('cart_updated'); }, 600);
+}
+function _trackCartUpdatedImmediate(eventName, statusOverride, correctionReason){
+  clearTimeout(_cartTrackDebounceTimer);
+  _trackCartUpdated(eventName, statusOverride, correctionReason);
+}
 // ── hotfix22-F：購物車 localStorage 永久保留（不設 expires_at / 24hr 判斷，
 //    與冷藏宅配 line-shipping.html 使用統一資料格式，但各用獨立 key）────────
 // 清空條件只有：①訂單成立 ②LINE Pay 付款成功 ③使用者按「清空購物車」
 //              ④商品已下架（只移除該商品）⑤商家手動清除
-function persistCart(){
+function persistCart(cartTrackStatus){
   try{
     const cartQtyMap={};
     Object.entries(cart).forEach(([pid,c])=>{ cartQtyMap[pid]=c.qty; });
@@ -3100,6 +3183,15 @@ function persistCart(){
       order_note:document.getElementById('oNote')?.value||'',
     };
     localStorage.setItem(ORDER_CART_KEY,JSON.stringify(data));
+    // fix18-10-hotfix30-B5-R5：purchased/cleared 的購物車不得再被沿用——若目前
+    // 已經沒有 cart_id（訂單成立或清空後被 _resetCartId() 清掉），且這次呼叫又
+    // 不是明確的清空快照，就不要另外建立新的追蹤事件（避免用舊快照污染下一台
+    // 尚未真正開始的新購物車；新購物車會在下次 _trackAddToCart() 時自然建立 cart_id）。
+    if(cartTrackStatus){
+      _trackCartUpdatedImmediate('cart_updated', cartTrackStatus); // 明確事件（清空）立即送出，不進 debounce
+    } else if(_getCartId(false)){
+      _scheduleCartUpdatedTrack(); // 一般異動：debounce 後送出最新快照，避免快速連續操作洪水式送出
+    }
   }catch(e){ /* localStorage 不可用時安靜略過，不影響下單流程 */ }
 }
 function _debounce(fn,ms){ let t=null; return function(...args){ clearTimeout(t); t=setTimeout(()=>fn.apply(this,args),ms); }; }
@@ -3127,6 +3219,13 @@ function clearCartByUser(){
   }catch(e){}
   cart={};preorderRequiredIds.clear();
   clearCoupon();
+  // fix18-10-hotfix30-B5-R5：明確記錄一筆 items=[] 、status=cleared 的快照，
+  // 讓後端能把這台購物車標示為「已清空」，不繼續列入未完成金額；必須在
+  // clearCartStorage()（會呼叫 _resetCartId()）之前呼叫，否則這筆事件會遺失
+  // 對應的 cart_id。clearCoupon() 內部已呼叫過一次 persistCart()（一般
+  // cart_updated，前面已含 items=[]），這裡再送一次帶 status=cleared 的版本，
+  // 稽核用的「最後一筆 cart_updated」就會是這筆有 cleared 標記的版本。
+  persistCart('cleared');
   clearCartStorage();
   // C4 收尾：購物車已清空，沒有商品就沒有金額可算，不需要為了 subtotal=0 再打一次
   // /api/delivery/calculate-fee——直接取消尚未送出的重算 debounce，並清除舊的
@@ -3158,6 +3257,7 @@ async function restoreCart(){
   // 商品不存在／已下架／已停用／LINE 未上架時，allProducts 裡就已經沒有這個 id，
   // 直接跳過該項即可，其餘商品全部保留（不清空整台購物車）。
   cart={};
+  let _restoreCorrectionReason=null; // fix18-10-hotfix30-B5-R5（Debounce R5-5）
   const savedCartMap=data.cart||{};
   Object.entries(savedCartMap).forEach(([pid,qty])=>{
     const p=allProducts.find(x=>String(x.id)===String(pid));
@@ -3165,7 +3265,10 @@ async function restoreCart(){
     if(p && q>0) cart[pid]={product:p,qty:q};
   });
   const _droppedCount=Object.keys(savedCartMap).length-Object.keys(cart).length;
-  if(_droppedCount>0) toast(`⚠️ 有 ${_droppedCount} 件商品已下架，已自動從購物車移除`);
+  if(_droppedCount>0){
+    toast(`⚠️ 有 ${_droppedCount} 件商品已下架，已自動從購物車移除`);
+    _restoreCorrectionReason='商品已下架，系統自動移除';
+  }
 
   // 還原外帶/外送模式：一律沿用 order_mode（即使目前該模式被關閉，也不得自動切回另一個
   // 開放中的模式——已在 init() 內的 _peekSavedOrderMode() 提前套用並設定 modeForcedVisible，
@@ -3256,12 +3359,24 @@ async function restoreCart(){
         if(msgEl) msgEl.innerHTML=`<span style="color:#06C755">✅ ${res.coupon.name}：折扣 -$${res.discount_amount}</span>`;
       }else{
         toast('原優惠券目前已失效，購物車商品已保留');
+        _restoreCorrectionReason=_restoreCorrectionReason||'優惠券已失效，系統自動移除';
       }
     }catch(e){ /* 網路錯誤：安全起見不恢復優惠券顯示，客人可自行重新套用 */ }
   }
 
   updateBar();renderMenu();
   if(document.getElementById('cartSheet')?.classList.contains('show')) renderCartItems();
+  // fix18-10-hotfix30-B5-R5：購物車內容有效時記錄一次 cart_restored（不得因此增加
+  // add_to_cart 人數——本函式全程直接操作 cart 物件、從未呼叫 _trackAddToCart()，
+  // getCartAnalysis() 也只統計 add_to_cart 事件名稱，cart_restored 不會被計入）。
+  if(Object.keys(cart).length){
+    _trackCartUpdatedImmediate('cart_restored');
+    // Debounce R5-5：如果還原過程中系統自動校正了內容（商品下架被移除／優惠券失效被
+    // 清除），額外立即補一筆帶 correction_reason 的 cart_updated，跟純粹的「系統恢復」
+    // 明確分開，Timeline 上會顯示為「購物車內容校正（系統自動）」。單純恢復、內容完全
+    // 沒變動時不會有這筆多餘事件（見 _restoreCorrectionReason 只在真的發生校正時才賦值）。
+    if(_restoreCorrectionReason){ _trackCartUpdatedImmediate('cart_updated', undefined, _restoreCorrectionReason); }
+  }
   // 還原過程中可能捨棄了失效優惠券/下架商品，寫回一份乾淨的狀態，避免下次整頁重整又嘗試恢復同一批失效資料
   persistCart();
 }

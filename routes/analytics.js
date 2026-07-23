@@ -21,6 +21,7 @@
 const express = require('express');
 const router = express.Router();
 const { getDb } = require('../utils/db');
+const { requireFeature } = require('../middleware/featureGate'); // fix18-10-hotfix30-B5-R5：新端點需 reports 授權
 const {
   EVENT_WHITELIST,
   isValidEventName,
@@ -44,7 +45,13 @@ const {
   getLineMemberFunnel, getLineCrmKpi, getLineCrmHealth,
   // fix18-10-hotfix30-B（取餐方式衝突 Analytics × 規則式建議，沿用既有 Dashboard API）
   getFulfillmentConflicts, getFulfillmentConflictRecommendations,
+  // fix18-10-hotfix30-B5-R5（⏰ 訂單時段分析 × 餐飲時段摘要）
+  getOrderHourAnalysis, getOrderPeriodAnalysis,
 } = require('../utils/dashboardAnalytics');
+// fix18-10-hotfix30-B5-R5（Cart Detail × Accurate Cart Snapshot）
+const {
+  sanitizeCartSnapshotMetadata, getOpenCartRows, getCartDetail, AGE_BUCKET_QUERY_MAP,
+} = require('../utils/cartSnapshot');
 // fix18-10-hotfix24-A（POS Analytics V2：不新增 API 端點，只掛在既有 dashboard 底下）
 const {
   getProductFunnel, getCartAbandonmentByProduct, getProductRankings,
@@ -230,7 +237,9 @@ router.post('/events', (req, res) => {
       landing_page: landing_page || null,
       fbclid: fbclid || null,
       gclid: gclid || null,
-      metadata: sanitizeFulfillmentMetadata(event_name, metadata) || null,
+      // fix18-10-hotfix30-B5-R5：cart_updated / cart_restored 的 metadata 欄位級白名單
+      // （sanitizeFulfillmentMetadata 對其他事件維持既有行為，兩者互不影響對方事件）。
+      metadata: sanitizeCartSnapshotMetadata(event_name, sanitizeFulfillmentMetadata(event_name, metadata)) || null,
       // fix18-10-hotfix24-A3：Identity × Channel × Page Type（需求文件四／六／七）
       line_user_id: knownLineUserId || null,
       // 前台一般事件只可能來自 LINE 點餐／宅配頁面（POS 收銀端本身不呼叫這支 API，
@@ -423,6 +432,35 @@ router.get('/dashboard', (req, res) => {
       identity_basis = { identity_basis: null, identity_is_estimated: null, sample_size: 0 };
     }
 
+    // ── fix18-10-hotfix30-B5-R5（需求文件二十二）：⏰ 訂單時段分析 × 餐飲時段摘要 ──
+    // 沿用同一個 range／channel（不新增第二套日期或渠道邏輯，不新增 API 端點）。
+    let order_hour_analysis, order_period_analysis;
+    try {
+      order_hour_analysis = getOrderHourAnalysis(db, storeId, range, channel);
+      order_period_analysis = getOrderPeriodAnalysis(order_hour_analysis);
+    } catch (ohErr) {
+      console.error('[analytics] order_hour_analysis computation failed:', ohErr.message);
+      order_hour_analysis = {
+        basis: 'order_created_at', basis_label: '訂單成立時間', timezone: 'Asia/Taipei',
+        total_orders: 0, total_revenue: 0, peak_hour: null, peak_period: null,
+        rows: Array.from({ length: 24 }, (_, h) => ({ hour: h, label: `${String(h).padStart(2,'0')}:00–${String(h).padStart(2,'0')}:59`, orders: 0, revenue: 0, avg_order_value: 0, order_share: 0, revenue_share: 0 })),
+      };
+      order_period_analysis = [];
+    }
+
+    // ── fix18-10-hotfix30-B5-R5（需求文件「Cart Detail × Accurate Cart Snapshot」）：
+    // 【B. 目前未完成購物車】KPI 摘要（獨立於「所選期間」）。詳細逐筆清單走
+    // 下面新增的分頁端點 GET /api/analytics/cart-abandonment，這裡只附加彙總
+    // 數字到既有 cart 物件裡（保留 cart 原欄位，只新增 current_open_summary）。
+    let cartOpenSummary;
+    try {
+      cartOpenSummary = getOpenCartRows(db, storeId, { page: 1, limit: 1 }).current_open_summary;
+    } catch (cartErr) {
+      console.error('[analytics] cart current_open_summary computation failed:', cartErr.message);
+      cartOpenSummary = { open_carts: 0, open_amount: 0, over_24h: 0, line_identified: 0 };
+    }
+    if (cart && typeof cart === 'object') cart.current_open_summary = cartOpenSummary;
+
     // ── fix18-10-hotfix30-B（需求文件第一、二點）：取餐方式衝突 Analytics ──────
     // 沿用同一個 range（不新增第二套日期邏輯），沿用同一支 GET /dashboard（不新增 API）。
     let fulfillment_conflicts, fulfillment_recommendations;
@@ -512,6 +550,11 @@ router.get('/dashboard', (req, res) => {
       // 既有欄位結構完全不變。
       fulfillment_conflicts,
       fulfillment_recommendations,
+
+      // fix18-10-hotfix30-B5-R5（⏰ 訂單時段分析 × 餐飲時段摘要）—— 新增欄位，
+      // 既有欄位結構完全不變。cart.current_open_summary 也是新增欄位（見上方）。
+      order_hour_analysis,
+      order_period_analysis,
     });
   } catch (e) {
     console.error('[analytics] GET /dashboard error:', e.message, e.stack);
@@ -540,6 +583,70 @@ router.get('/health', (req, res) => {
     res.json({ success: true, ...report });
   } catch (e) {
     console.error('[analytics] GET /health error:', e.message, e.stack);
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════
+// fix18-10-hotfix30-B5-R5｜【未完成購物車明細】分頁 API
+// GET /api/analytics/cart-abandonment?status=&age_bucket=&identity=&order_mode=&page=&limit=
+//
+// 獨立於「所選期間」（見 utils/cartSnapshot.js getOpenCartRows() 註解）：
+// 只看「目前」未完成、最近 30 天內仍有活動的購物車，不受今天有沒有新的
+// add_to_cart 影響。requireFeature('reports') 保護，同一組 store guard。
+// 所有查詢一律以 store_id 隔離；cart_id 一律參數化查詢，不做字串拼接。
+// ══════════════════════════════════════════════════════════════════
+const ORDER_MODE_FILTERS = new Set(['all', 'takeout', 'delivery', 'shipping']);
+const IDENTITY_FILTERS = new Set(['all', 'line', 'visitor']);
+const STATUS_FILTERS = new Set(['all', 'active', 'checkout', 'abandoned']);
+
+router.get('/cart-abandonment', requireFeature('reports'), (req, res) => {
+  try {
+    const db = getDb();
+    const storeId = req.storeId;
+    const q = req.query || {};
+
+    const orderMode = ORDER_MODE_FILTERS.has(q.order_mode) ? q.order_mode : 'all';
+    const identity = IDENTITY_FILTERS.has(q.identity) ? q.identity : 'all';
+    const status = STATUS_FILTERS.has(q.status) ? q.status : 'all';
+    const ageBucket = (q.age_bucket && Object.prototype.hasOwnProperty.call(AGE_BUCKET_QUERY_MAP, q.age_bucket)) ? q.age_bucket : 'all';
+    // limit 最大 100（需求文件）
+    const limit = Math.min(100, Math.max(1, parseInt(q.limit, 10) || 20));
+    const page = Math.max(1, parseInt(q.page, 10) || 1);
+
+    const result = getOpenCartRows(db, storeId, { page, limit, status, age_bucket: ageBucket, identity, order_mode: orderMode });
+    res.json({
+      success: true,
+      page: result.page,
+      limit: result.limit,
+      total: result.total,
+      total_pages: Math.max(1, Math.ceil(result.total / result.limit)),
+      current_open_summary: result.current_open_summary,
+      rows: result.rows,
+      filters: { status, age_bucket: ageBucket, identity, order_mode: orderMode },
+    });
+  } catch (e) {
+    console.error('[analytics] GET /cart-abandonment error:', e.message, e.stack);
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+// GET /api/analytics/cart-abandonment/:cartId — 單一購物車詳情 + 完整事件時間軸。
+// cart_id 透過 db.all/db.get 的參數化查詢傳入（見 utils/cartSnapshot.js），不拼字串。
+// 完整 LINE UID 預設不回傳（line_uid_full 只在權限允許時附上，本版預留擴充點，
+// 尚未接上實際角色權限判斷，先保守回傳 undefined，前端一律走遮罩顯示）。
+router.get('/cart-abandonment/:cartId', requireFeature('reports'), (req, res) => {
+  try {
+    const db = getDb();
+    const storeId = req.storeId;
+    const cartId = String(req.params.cartId || '').slice(0, 200);
+    if (!cartId) return res.status(400).json({ success: false, message: '缺少 cartId' });
+
+    const detail = getCartDetail(db, storeId, cartId, { includeFullUid: false });
+    if (!detail) return res.status(404).json({ success: false, message: '找不到這個購物車（可能不存在或不屬於此店家）' });
+    res.json({ success: true, cart: detail });
+  } catch (e) {
+    console.error('[analytics] GET /cart-abandonment/:cartId error:', e.message, e.stack);
     res.status(500).json({ success: false, message: e.message });
   }
 });

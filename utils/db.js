@@ -1785,6 +1785,24 @@ function initTables(w) {
     w._db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_lm_tags_unique ON line_member_tags(store_id, line_user_id, tag_code)');
     w._save();
   } catch(e) { console.warn('[DB] line_member_tags index:', e.message); }
+
+  // ══════════════════════════════════════════════════════════════════
+  // fix18-10-hotfix30-B5-R5｜Cart Detail × Accurate Cart Snapshot × Order Hour Analysis
+  //
+  // 只新增索引（CREATE INDEX IF NOT EXISTS），不新增資料表、不修改任何既有欄位：
+  //   - orders(store_id, created_at)：目前完全沒有這個索引（稽核發現，見
+  //     CHANGELOG_HOTFIX30_B5_R5_CART_DETAIL_ORDER_HOURS.md），訂單時段分析／
+  //     KPI／Funnel 等所有依日期區間查 orders 表的既有功能都會受益，不是本版
+  //     新建立的查詢模式。
+  //   - analytics_events(store_id, cart_id, created_at)：既有索引只有
+  //     (store_id, cart_id)，這裡補上 created_at 讓「找出某購物車最後一筆
+  //     cart_updated 快照」「候選購物車最後活動時間」等查詢可以吃到索引。
+  // ══════════════════════════════════════════════════════════════════
+  try {
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_orders_store_created ON orders(store_id, created_at)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_analytics_store_cart_created ON analytics_events(store_id, cart_id, created_at)');
+    w._save();
+  } catch(e) { console.warn('[DB] hotfix30-B5-R5 index:', e.message); }
 }
 
 module.exports = { getDb, initDb };

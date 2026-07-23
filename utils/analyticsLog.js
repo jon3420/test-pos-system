@@ -33,6 +33,14 @@ const EVENT_WHITELIST = [
   'submit_order',
   'payment_started',
   'purchase',
+  // fix18-10-hotfix30-B5-R5（需求文件「Accurate Cart Snapshot」）：購物車內容
+  // 每次變動（加入/增減數量/移除/清空/套用或移除優惠券/切換取餐方式/外送費
+  // 重新計算）時記錄完整快照，取代單純加總 add_to_cart 數量的估算法。
+  // metadata 欄位級白名單見 utils/cartSnapshot.js sanitizeCartSnapshotMetadata()。
+  'cart_updated',
+  // 恢復 localStorage 購物車：只在內容仍有效時記錄一次，不得造成 add_to_cart
+  // 人數重複增加（本事件不計入轉換漏斗，getCartAnalysis() 只統計 add_to_cart）。
+  'cart_restored',
   // fix18-10-hotfix23-E：LINE 會員入口 × LIFF 登入 × 好友狀態綁定
   // 純顯示/操作類事件，沒有安全疑慮，可由前端直接送出。
   'line_gate_view',

@@ -619,9 +619,76 @@ function renderShop() {
   dateInput.value = d.earliest_date;
 }
 
+// ── fix18-10-hotfix30-B5-R5：Accurate Cart Snapshot（冷藏宅配版，與 line-order.html
+// 邏輯一致，只是商品單價欄位是 c.product.price、運費用既有 calcFee() 算好的固定運費，
+// 不是外帶/外送那種依距離計算的外送費）。寫入失敗絕不影響購物車操作或下單流程。
+function _buildCartTrackingItems(){
+  return Object.entries(cart).map(([pid,c])=>{
+    const p=(c&&c.product)||{};
+    const unit=Number(p.price||0);
+    const qty=Number((c&&c.qty)||0);
+    return {
+      product_id: Number(pid),
+      name: p.name || ('商品#'+pid),
+      qty,
+      unit_price: unit,
+      subtotal: Math.round(unit*qty*100)/100,
+      variant: null,
+    };
+  });
+}
+function _buildCartTrackingMetadata(statusOverride, correctionReason){
+  const items=_buildCartTrackingItems();
+  const fee=calcFee();
+  const meta={
+    items,
+    subtotal: Math.round((fee.sub||0)*100)/100,
+    discount: Math.round((fee.discount||0)*100)/100,
+    delivery_fee: Math.round((fee.fee||0)*100)/100,
+    total: Math.round((fee.total||0)*100)/100,
+    order_mode: 'shipping',
+    item_count: items.reduce((s,i)=>s+i.qty,0),
+  };
+  if(statusOverride) meta.status=statusOverride;
+  if(correctionReason) meta.correction_reason=String(correctionReason).slice(0,80);
+  return meta;
+}
+let _lastCartTrackSignature=null;
+let _cartTrackDebounceTimer=null;
+function _cartTrackSignature(meta){
+  try{
+    return JSON.stringify({
+      items:(meta.items||[]).map(i=>[i.product_id,i.qty,i.unit_price]),
+      discount:meta.discount, delivery_fee:meta.delivery_fee,
+      order_mode:meta.order_mode, status:meta.status||null,
+      correction_reason:meta.correction_reason||null,
+    });
+  }catch(e){ return 'sig_'+Date.now()+'_'+Math.random(); }
+}
+function _trackCartUpdated(eventName, statusOverride, correctionReason){
+  try{
+    const meta=_buildCartTrackingMetadata(statusOverride, correctionReason);
+    const sig=_cartTrackSignature(meta);
+    if(eventName==='cart_updated' && !statusOverride && !correctionReason && sig===_lastCartTrackSignature) return;
+    if(!meta.items.length && eventName==='cart_updated' && !statusOverride) return;
+    _lastCartTrackSignature=sig;
+    _trackEvent(eventName, { metadata: meta });
+  }catch(e){ /* Analytics 追蹤失敗絕不影響購物車/結帳流程（fail-open） */ }
+}
+// fix18-10-hotfix30-B5-R5（Stage 5 稽核修正）：與 line-order.html 一致，一般性
+// cart_updated 用 600ms trailing debounce 送出，明確事件（cleared／cart_restored／校正）
+// 立即送出並取消任何等待中的一般性 debounce。
+function _scheduleCartUpdatedTrack(){
+  clearTimeout(_cartTrackDebounceTimer);
+  _cartTrackDebounceTimer=setTimeout(()=>{ _trackCartUpdated('cart_updated'); }, 600);
+}
+function _trackCartUpdatedImmediate(eventName, statusOverride, correctionReason){
+  clearTimeout(_cartTrackDebounceTimer);
+  _trackCartUpdated(eventName, statusOverride, correctionReason);
+}
 // hotfix22-F：購物車 + 表單 localStorage 完整暫存，永久保留（不設有效期），下單成功/付款成功/
 // 使用者清空/商品下架/商家清除才會異動。與外帶/外送使用統一基礎格式，但獨立 key，互不共用。
-function persistCart() {
+function persistCart(cartTrackStatus) {
   try {
     const cartQtyMap = {};
     Object.entries(cart).forEach(([pid, c]) => { cartQtyMap[pid] = c.qty; });
@@ -654,6 +721,13 @@ function persistCart() {
       address_note: document.getElementById('rAddressNote')?.value || '',
     };
     localStorage.setItem(SHIP_CART_KEY, JSON.stringify(data));
+    // fix18-10-hotfix30-B5-R5：purchased/cleared 的購物車不得再被沿用——見
+    // line-order.html persistCart() 同一段註解，原則一致。
+    if (cartTrackStatus) {
+      _trackCartUpdatedImmediate('cart_updated', cartTrackStatus);
+    } else if (_getCartId(false)) {
+      _scheduleCartUpdatedTrack();
+    }
   } catch (e) { /* localStorage 不可用時安靜略過，不影響下單流程 */ }
 }
 function _debounce(fn, ms) { let t = null; return function (...args) { clearTimeout(t); t = setTimeout(() => fn.apply(this, args), ms); }; }
@@ -681,6 +755,9 @@ function clearCartByUser() {
   }catch(e){}
   cart = {};
   appliedCoupon = null;
+  // fix18-10-hotfix30-B5-R5：與 line-order.html 一致，清空前先記一筆
+  // items=[]、status=cleared 的快照，必須在 clearCartStorage()（會重置 cart_id）之前呼叫。
+  persistCart('cleared');
   clearCartStorage();
   updateCartBar();
   renderProductGrid('prodGrid', SHOP_DATA?.products || []);
@@ -707,6 +784,7 @@ async function restoreCart() {
   // 圖片全部採最新資料，localStorage 只提供 id → 數量。商品不存在/已下架/已刪除/已停用時，
   // findProduct() 就會找不到，直接跳過該項，其餘商品全部保留（不清空整台購物車）。
   cart = {};
+  let _restoreCorrectionReason = null; // fix18-10-hotfix30-B5-R5（Debounce R5-5）
   const savedCartMap = data.cart || {};
   Object.entries(savedCartMap).forEach(([pid, qty]) => {
     const p = findProduct(Number(pid));
@@ -714,7 +792,10 @@ async function restoreCart() {
     if (p && q > 0) cart[pid] = { product: p, qty: q };
   });
   const _droppedCount = Object.keys(savedCartMap).length - Object.keys(cart).length;
-  if (_droppedCount > 0) toast(`⚠️ 有 ${_droppedCount} 件商品已下架，已自動從購物車移除`);
+  if (_droppedCount > 0) {
+    toast(`⚠️ 有 ${_droppedCount} 件商品已下架，已自動從購物車移除`);
+    _restoreCorrectionReason = '商品已下架，系統自動移除';
+  }
 
   // 還原收件資料/備註（相容新舊欄位命名）
   const cu = data.customer || {};
@@ -781,6 +862,7 @@ async function restoreCart() {
         if (appliedRow) appliedRow.style.display = 'flex';
       } else {
         toast('原優惠券目前已失效，購物車商品已保留');
+        _restoreCorrectionReason = _restoreCorrectionReason || '優惠券已失效，系統自動移除';
       }
     } catch (e) {
       // 網路錯誤：安全起見不恢復優惠券顯示，避免顯示未經驗證的折扣，使用者可自行重新套用
@@ -791,6 +873,14 @@ async function restoreCart() {
   renderProductGrid('prodGrid', SHOP_DATA.products);
   if (SHOP_DATA.upsell_products && SHOP_DATA.upsell_products.length) renderProductGrid('upsellGrid', SHOP_DATA.upsell_products);
   updateCartBar();
+  // fix18-10-hotfix30-B5-R5：與 line-order.html 一致，購物車內容有效時記一次
+  // cart_restored（不會增加 add_to_cart 人數——本函式全程直接操作 cart 物件）。
+  if (Object.keys(cart).length) {
+    _trackCartUpdatedImmediate('cart_restored');
+    // Debounce R5-5：系統自動校正（商品下架／優惠券失效）時，額外補一筆帶
+    // correction_reason 的 cart_updated，跟純粹的「系統恢復」明確分開。
+    if (_restoreCorrectionReason) { _trackCartUpdatedImmediate('cart_updated', undefined, _restoreCorrectionReason); }
+  }
   // 若優惠券還原失敗而被清除、或商品下架被移除，重新寫回一份乾淨的狀態，避免下次整頁重整
   // 又嘗試恢復同一批失效資料
   persistCart();

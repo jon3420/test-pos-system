@@ -232,6 +232,9 @@ function hasFeature(key) {
 // 統一日期篩選狀態，所有 KPI／漏斗／購物車／商品／付款／來源／回購／未完成／健康度／建議
 // 一律共用這一個 state，不得各區塊自行算日期。
 let dashboardDateState = { preset: 'today', start_date: '', end_date: '', timezone: 'Asia/Taipei' };
+// fix18-10-hotfix30-B5-R5：新增渠道篩選狀態，供「⏰ 訂單時段分析」與（未來擴充）
+// 其他區塊同步套用；不影響既有 Analytics V2 頁面自己的渠道篩選（那邊維持獨立）。
+let dashboardChannelState = 'all';
 let _dashboardLastData = null;      // 保留最後一次成功資料，API 失敗時不讓整頁白屏
 let _dashboardProductsCache = [];   // 商品轉換排行原始資料（排序在前端做，不重打 API）
 let _dashboardProductSort = 'cart';
@@ -258,6 +261,7 @@ function loadReportsPage() {
 
   container.innerHTML = _dashboardSkeletonV2();
   renderDashboardDateControls();
+  renderDashboardChannelControls();
   loadDashboardV2();
 }
 
@@ -272,7 +276,8 @@ function _dashboardSkeletonV2() {
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
       <h2 style="margin:0;font-size:1.2rem">📊 老闆儀表板</h2>
     </div>
-    <div id="db-date-controls" style="margin-bottom:20px"></div>
+    <div id="db-date-controls" style="margin-bottom:12px"></div>
+    <div id="db-channel-controls" style="margin-bottom:20px"></div>
     <div id="db-body-v2"><div style="color:var(--text-secondary,#64748b);padding:20px">載入中...</div></div>
   </div>`;
 }
@@ -305,6 +310,32 @@ function renderDashboardDateControls() {
     <div style="font-size:.72rem;color:var(--text-secondary,#64748b);margin-top:6px">
       目前查詢區間：${escHtml(dashboardDateState.start_date||'—')} ～ ${escHtml(dashboardDateState.end_date||'—')}（Asia/Taipei）
     </div>`;
+}
+
+// fix18-10-hotfix30-B5-R5：渠道篩選（全部／內用／外帶／外送／宅配…），套用到
+// 「⏰ 訂單時段分析」與「訂單成立時段」KPI／圖表／餐飲時段摘要／高峰時段——
+// 這些全部沿用同一個 GET /api/analytics/dashboard?channel=，不是第二套渠道邏輯。
+// 選項清單優先取用後端回傳的 channel_filter（與 Analytics V2 共用同一份渠道定義），
+// 尚未載入過資料時用固定 fallback，兩者標籤內容一致。
+const _DASHBOARD_CHANNEL_FALLBACK = {
+  available: ['all', 'pos', 'line_takeout', 'line_delivery', 'shipping', 'reservation'],
+  labels: { all: '全部', pos: '內用／店內', line_takeout: '外帶', line_delivery: '外送', shipping: '宅配', reservation: '預訂' },
+};
+function renderDashboardChannelControls() {
+  const el = document.getElementById('db-channel-controls');
+  if (!el) return;
+  const cf = (_dashboardLastData && _dashboardLastData.channel_filter) || _DASHBOARD_CHANNEL_FALLBACK;
+  const btnStyle = (active) => `padding:5px 12px;border-radius:99px;border:1px solid var(--border,#2a2d3e);font-size:.78rem;cursor:pointer;white-space:nowrap;background:${active?'#10b981':'transparent'};color:${active?'#fff':'var(--text-secondary,#64748b)'}`;
+  el.innerHTML = `
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+      <span style="font-size:.72rem;color:var(--text-secondary,#64748b)">渠道：</span>
+      ${cf.available.map(k => `<button onclick="setDashboardChannel('${k}')" style="${btnStyle(dashboardChannelState===k)}">${escHtml(cf.labels[k]||k)}</button>`).join('')}
+    </div>`;
+}
+function setDashboardChannel(ch) {
+  dashboardChannelState = ch;
+  renderDashboardChannelControls();
+  loadDashboardV2();
 }
 
 function setDashboardPreset(preset) {
@@ -350,7 +381,7 @@ async function loadDashboardV2() {
   if (!body) return;
   if (!_dashboardLastData) body.innerHTML = '<div style="color:var(--text-secondary,#64748b);padding:20px">載入中...</div>';
 
-  const params = new URLSearchParams({ preset: dashboardDateState.preset, timezone: 'Asia/Taipei' });
+  const params = new URLSearchParams({ preset: dashboardDateState.preset, timezone: 'Asia/Taipei', channel: dashboardChannelState });
   if (dashboardDateState.start_date) params.set('start_date', dashboardDateState.start_date);
   if (dashboardDateState.end_date) params.set('end_date', dashboardDateState.end_date);
 
@@ -363,7 +394,11 @@ async function loadDashboardV2() {
     const json = await res.json();
     if (!json.success) { renderDashboardLoadError(json.message || '載入失敗'); return; }
     _dashboardLastData = json;
+    // 後端可能因不合法的 channel 值而退回 'all'（見 channel_filter.current），保持前端狀態同步。
+    if (json.channel_filter && json.channel_filter.current) dashboardChannelState = json.channel_filter.current;
+    renderDashboardChannelControls();
     renderDashboardV2(json);
+    loadCartAbandonment(); // fix18-10-hotfix30-B5-R5：獨立於期間篩選，但頁面刷新時一併重新整理
   } catch (e) {
     renderDashboardLoadError(e.message);
   }
@@ -384,6 +419,22 @@ function _fmtPct(v) {
   return (v === null || v === undefined || typeof v !== 'number' || !isFinite(v)) ? '—' : (v + '%');
 }
 
+// fix18-10-hotfix30-B5-R5：共用時長格式化——取代原本 Math.round(seconds/60)+' 分'
+// 這種在數字大時會顯示「1060 分」的不直覺寫法。原 API 欄位（avg_dwell_seconds 等）
+// 本身不變，只是顯示時一律經過這個函式。
+function formatDuration(seconds) {
+  if (seconds === null || seconds === undefined || typeof seconds !== 'number' || !isFinite(seconds)) return '—';
+  const s = Math.max(0, Math.floor(seconds));
+  if (s < 60) return `${s} 秒`;
+  if (s < 3600) return `${Math.floor(s / 60)} 分`;
+  if (s < 86400) {
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+    return m > 0 ? `${h} 小時 ${m} 分` : `${h} 小時`;
+  }
+  const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600);
+  return h > 0 ? `${d} 天 ${h} 小時` : `${d} 天`;
+}
+
 function _nt(n) { return 'NT$' + Number(n||0).toLocaleString('zh-TW',{minimumFractionDigits:0,maximumFractionDigits:0}); }
 function _pct(a, b) { return b > 0 ? Math.round(a/b*100) + '%' : '—'; }
 
@@ -392,6 +443,14 @@ function _card(label, value, sub, color) {
     <div style="font-size:.75rem;color:var(--text-secondary,#64748b);margin-bottom:6px">${label}</div>
     <div style="font-size:1.5rem;font-weight:700;color:${color||'var(--text-primary,#e2e8f0)'}">${value}</div>
     ${sub ? `<div style="font-size:.75rem;color:var(--text-secondary,#64748b);margin-top:4px">${sub}</div>` : ''}
+  </div>`;
+}
+// fix18-10-hotfix30-B5-R5：帶 title 屬性（滑鼠停留顯示說明）的 KPI 卡片，用於容易被
+// 誤解的指標（例如「加入購物車人數」是去重人數、「未完成商品金額」不含優惠券/外送費等）。
+function _cardTip(label, value, tip, color) {
+  return `<div title="${escHtml(tip||'')}" style="background:var(--bg-card,#1a1d27);border:1px solid var(--border,#2a2d3e);border-radius:12px;padding:16px 20px;min-width:140px;cursor:help">
+    <div style="font-size:.75rem;color:var(--text-secondary,#64748b);margin-bottom:6px">${label} <span style="opacity:.6">ⓘ</span></div>
+    <div style="font-size:1.5rem;font-weight:700;color:${color||'var(--text-primary,#e2e8f0)'}">${value}</div>
   </div>`;
 }
 
@@ -414,10 +473,12 @@ function renderDashboardV2(data) {
   html += renderDashboardKpiV3(data.kpi, data.kpi_comparison, data.range);
   html += renderDashboardHealthV2(data.health_score_v2, data.range);
   html += renderDashboardTrend30d(data.trend_30d);
-  html += `<div style="font-size:.72rem;color:var(--text-secondary,#64748b);margin:-8px 0 12px 2px">🔎 目前：全部渠道（渠道篩選請至「營運分析 V2」）</div>`;
+  html += `<div style="font-size:.72rem;color:var(--text-secondary,#64748b);margin:-8px 0 12px 2px">🔎 目前渠道：${escHtml(((_dashboardLastData&&_dashboardLastData.channel_filter&&_dashboardLastData.channel_filter.labels)||_DASHBOARD_CHANNEL_FALLBACK.labels)[dashboardChannelState]||'全部')}（可於上方切換，會同步套用到下方「訂單成立時段分析」）</div>`;
   html += renderDashboardFunnelV2(data.funnel, data.funnel_summary);
   html += renderDashboardRealtime(data.realtime);
   html += renderDashboardCart(data.cart);
+  html += renderDashboardOpenCartsSection();
+  html += renderDashboardOrderHours(data.order_hour_analysis, data.order_period_analysis);
   html += renderDashboardProductsV2(data.products, data.product_tiers);
   html += renderDashboardPayments(data.payments);
   html += renderDashboardSources(data.sources);
@@ -864,18 +925,320 @@ function renderDashboardCart(cart) {
       <span style="width:26px;text-align:right">${count}</span>
     </div>`;
   }).join('');
-  return _section('🛒 購物車分析',
+  return _section('🛒 購物車分析（所選期間轉換口徑）',
     `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px;margin-bottom:16px">
-      ${_card('加入購物車人數', cart.add_to_cart_visitors + ' 人', '', '')}
-      ${_card('已完成購買', cart.completed_carts + ' 個', '', '#10b981')}
+      ${_cardTip('加入購物車人數', cart.add_to_cart_visitors + ' 人', '依訪客／會員身分去重，不是點擊加入購物車的總次數。', '')}
+      ${_card('完成購買購物車', cart.completed_carts + ' 個', '', '#10b981')}
       ${_card('未完成購物車', cart.incomplete_carts + ' 個', '', '#f59e0b')}
       ${_card('放棄率', _fmtPct(cart.abandonment_rate), '', '#ef4444')}
-      ${_card('未完成估計金額', _nt(cart.estimated_abandoned_amount), '', '')}
-      ${_card('平均停留時間', cart.avg_dwell_seconds !== null && cart.avg_dwell_seconds !== undefined ? Math.round(cart.avg_dwell_seconds/60) + ' 分' : '—', '', '')}
+      ${_cardTip('預估未完成商品金額', _nt(cart.estimated_abandoned_amount), '此金額為尚未完成購物車中的商品金額；不代表實際損失營業額，也不一定包含外送費與折扣。', '')}
+      ${_card('平均停留時間', formatDuration(cart.avg_dwell_seconds), '', '')}
     </div>
+    <div style="font-size:.72rem;color:var(--text-secondary,#64748b);margin:-10px 0 14px 2px">👇「目前未完成商品金額」（獨立於期間篩選、依購物車快照精確計算）請見下方「📋 未完成購物車明細」區塊</div>
     <div style="font-size:.8rem;color:var(--text-secondary,#64748b);margin-bottom:8px;font-weight:600">放棄時間分布（購物車永久保留，但不代表永遠算活躍——僅分類，不刪除資料）</div>
     ${bucketHtml}`
   );
+}
+
+// ══════════════════════════════════════════════════════════════════
+// fix18-10-hotfix30-B5-R5｜📋 未完成購物車明細（獨立於「所選期間」，
+// 使用 GET /api/analytics/cart-abandonment，見 utils/cartSnapshot.js）
+// ══════════════════════════════════════════════════════════════════
+let _cartAbandonState = { status: 'all', age_bucket: 'all', identity: 'all', order_mode: 'all', page: 1, limit: 20 };
+let _cartAbandonLastResult = null;
+
+function _orderModeLabel(m) {
+  return { takeout: '外帶', delivery: '外送', shipping: '宅配', dine_in: '內用' }[m] || '未知';
+}
+// 上方渠道篩選（pos/line_takeout/line_delivery/shipping/reservation）跟這裡的
+// order_mode 篩選（takeout/delivery/shipping）是兩套不同分類，只在能明確對應時
+// 才同步，避免用不精確的猜測覆蓋使用者手動選的篩選（使用者若自己在本區塊選了
+// 特定模式，一律以那個選擇優先，見 loadCartAbandonment()）。
+function _cartOrderModeFromChannel(ch) {
+  if (ch === 'line_takeout') return 'takeout';
+  if (ch === 'line_delivery') return 'delivery';
+  if (ch === 'shipping') return 'shipping';
+  return 'all';
+}
+
+function renderDashboardOpenCartsSection() {
+  const summary = (_dashboardLastData && _dashboardLastData.cart && _dashboardLastData.cart.current_open_summary)
+    || { open_carts: 0, open_amount: 0, over_24h: 0, line_identified: 0 };
+  return _section('📋 未完成購物車明細',
+    `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-bottom:16px">
+      ${_cardTip('目前未完成購物車', summary.open_carts + ' 個', '獨立於上方日期篩選，統計最近 30 天內仍未完成的購物車（不受今天有沒有新的加入購物車事件影響）。', '#f59e0b')}
+      ${_cardTip('目前未完成商品金額', _nt(summary.open_amount), '優先使用購物車快照精確計算；沒有快照的舊資料會標示「舊資料估計」。', '')}
+      ${_card('超過 24 小時未完成', summary.over_24h + ' 個', '', '#ef4444')}
+      ${_card('具 LINE 身分未完成', summary.line_identified + ' 個', '', '#6366f1')}
+    </div>
+    <div id="db-open-cart-filters">${_renderOpenCartFilters()}</div>
+    <div id="db-open-carts-body"><div style="color:var(--text-secondary,#64748b);font-size:.82rem;padding:10px 0">載入中...</div></div>`
+  );
+}
+
+function _renderOpenCartFilters() {
+  const st = _cartAbandonState;
+  const statusOpts = [['all', '全部'], ['active', '活躍中'], ['checkout', '結帳中'], ['abandoned', '可能已放棄']];
+  const ageOpts = [['all', '全部'], ['30m', '30分內'], ['30m_1h', '30分~1時'], ['1h_24h', '1~24時'], ['1d_3d', '1~3天'], ['3d_7d', '3~7天'], ['7d_plus', '7天以上']];
+  const idOpts = [['all', '全部'], ['line', 'LINE 會員'], ['visitor', '訪客']];
+  const modeOpts = [['all', '全部'], ['takeout', '外帶'], ['delivery', '外送'], ['shipping', '宅配']];
+  const mkBtns = (opts, cur, setter) => opts.map(([k, l]) =>
+    `<button onclick="${setter}('${k}')" style="font-size:11px;padding:3px 9px;border-radius:99px;border:1px solid var(--border,#2a2d3e);background:${cur === k ? '#6366f1' : 'transparent'};color:${cur === k ? '#fff' : 'var(--text-secondary,#64748b)'};cursor:pointer;white-space:nowrap">${l}</button>`
+  ).join('');
+  return `<div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:12px">
+    <div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center"><span style="font-size:11px;color:var(--text-secondary,#64748b)">狀態</span>${mkBtns(statusOpts, st.status, 'setOpenCartStatus')}</div>
+    <div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center"><span style="font-size:11px;color:var(--text-secondary,#64748b)">放置時間</span>${mkBtns(ageOpts, st.age_bucket, 'setOpenCartAgeBucket')}</div>
+    <div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center"><span style="font-size:11px;color:var(--text-secondary,#64748b)">身分</span>${mkBtns(idOpts, st.identity, 'setOpenCartIdentity')}</div>
+    <div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center"><span style="font-size:11px;color:var(--text-secondary,#64748b)">模式</span>${mkBtns(modeOpts, st.order_mode, 'setOpenCartOrderMode')}</div>
+  </div>`;
+}
+function _refreshOpenCartFilterBar() {
+  const el = document.getElementById('db-open-cart-filters');
+  if (el) el.innerHTML = _renderOpenCartFilters();
+}
+function setOpenCartStatus(v) { _cartAbandonState.status = v; _cartAbandonState.page = 1; _refreshOpenCartFilterBar(); loadCartAbandonment(); }
+function setOpenCartAgeBucket(v) { _cartAbandonState.age_bucket = v; _cartAbandonState.page = 1; _refreshOpenCartFilterBar(); loadCartAbandonment(); }
+function setOpenCartIdentity(v) { _cartAbandonState.identity = v; _cartAbandonState.page = 1; _refreshOpenCartFilterBar(); loadCartAbandonment(); }
+function setOpenCartOrderMode(v) { _cartAbandonState.order_mode = v; _cartAbandonState.page = 1; _refreshOpenCartFilterBar(); loadCartAbandonment(); }
+function goOpenCartPage(delta) {
+  const totalPages = (_cartAbandonLastResult && _cartAbandonLastResult.total_pages) || 1;
+  const next = Math.min(totalPages, Math.max(1, _cartAbandonState.page + delta));
+  if (next === _cartAbandonState.page) return;
+  _cartAbandonState.page = next;
+  loadCartAbandonment();
+}
+
+// 只有 db-open-carts-body 這個容器存在（表示「老闆儀表板」分頁已經渲染過本區塊）才會
+// 實際打 API；找不到就安靜跳過，不影響 Dashboard 其他部分（例如頁面切走時的殘留呼叫）。
+async function loadCartAbandonment() {
+  const wrap = document.getElementById('db-open-carts-body');
+  if (!wrap) return;
+  const st = _cartAbandonState;
+  const effectiveOrderMode = st.order_mode !== 'all' ? st.order_mode : _cartOrderModeFromChannel(dashboardChannelState);
+  const params = new URLSearchParams({
+    status: st.status, age_bucket: st.age_bucket, identity: st.identity,
+    order_mode: effectiveOrderMode, page: String(st.page), limit: String(st.limit),
+  });
+  wrap.innerHTML = '<div style="color:var(--text-secondary,#64748b);font-size:.82rem;padding:10px 0">載入中...</div>';
+  try {
+    const res = await apiFetch('/api/analytics/cart-abandonment?' + params.toString());
+    if (!res || res.status === 403) { renderDashboardOpenCartsError('無法載入未完成購物車（功能未授權）'); return; }
+    const json = await res.json();
+    if (!json.success) { renderDashboardOpenCartsError(json.message || '載入失敗'); return; }
+    _cartAbandonLastResult = json;
+    renderDashboardOpenCartsTable(json);
+  } catch (e) {
+    // API 失敗只影響這個子區塊，顯示安全空狀態，不得讓整個 Dashboard 中斷。
+    renderDashboardOpenCartsError((e && e.message) || '網路錯誤，請稍後再試');
+  }
+}
+function renderDashboardOpenCartsError(msg) {
+  const el = document.getElementById('db-open-carts-body');
+  if (el) el.innerHTML = `<div style="color:#ef4444;font-size:.82rem;padding:10px 0">❌ ${escHtml(msg || '載入失敗')}</div>`;
+}
+function renderDashboardOpenCartsTable(json) {
+  const el = document.getElementById('db-open-carts-body');
+  if (!el) return;
+  const rows = json.rows || [];
+  if (!rows.length) {
+    el.innerHTML = `<div style="color:var(--text-secondary,#64748b);font-size:.82rem;padding:10px 0">目前沒有符合篩選條件的未完成購物車。</div>`;
+    return;
+  }
+  const statusLabels = { active: '活躍中', checkout: '結帳中', abandoned: '可能已放棄' };
+  const trs = rows.map(r => {
+    const customer = r.identity_type === 'line'
+      ? `${escHtml(r.display_name || 'LINE 會員')}<br><span style="font-size:10px;color:var(--text-secondary,#64748b)">${escHtml(r.line_uid_masked || '')}</span>`
+      : `訪客<br><span style="font-size:10px;color:var(--text-secondary,#64748b)">${escHtml(r.visitor_id_short || '')}</span>`;
+    const itemNames = (r.items || []).slice(0, 3).map(i => `${i.name}×${i.qty}`).join('、');
+    const itemsSummary = itemNames + ((r.items || []).length > 3 ? ` 等 ${r.items.length} 項` : '');
+    const estimatedBadge = r.estimated ? '<span style="color:#f59e0b;font-size:10px;display:block">（舊資料估計）</span>' : '';
+    return `<tr>
+      <td style="padding:6px 8px;font-size:11px;white-space:nowrap;font-family:monospace">${escHtml(r.cart_id_short || '')}</td>
+      <td style="padding:6px 8px;font-size:12px;white-space:nowrap">${customer}</td>
+      <td style="padding:6px 8px;font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(itemsSummary)}">${escHtml(itemsSummary) || '—'}${estimatedBadge}</td>
+      <td style="padding:6px 8px;font-size:12px;white-space:nowrap">${_orderModeLabel(r.order_mode)}</td>
+      <td style="padding:6px 8px;font-size:12px;white-space:nowrap;max-width:100px;overflow:hidden;text-overflow:ellipsis">${escHtml(r.source || 'Direct')}</td>
+      <td style="padding:6px 8px;font-size:12px;white-space:nowrap">${escHtml(r.last_stage || '')}</td>
+      <td style="padding:6px 8px;font-size:12px;white-space:nowrap">${escHtml(r.age_label || '—')}</td>
+      <td style="padding:6px 8px;font-size:12px;white-space:nowrap">${statusLabels[r.status] || escHtml(r.status || '')}</td>
+      <td style="padding:6px 8px;font-size:12px;text-align:right;white-space:nowrap">${_nt(r.total)}</td>
+      <td style="padding:6px 8px;font-size:12px;white-space:nowrap"><button onclick="openCartDetailModal('${String(r.cart_id).replace(/'/g, "\\'")}')" style="font-size:11px;padding:3px 8px;border-radius:6px;border:1px solid var(--border,#2a2d3e);background:transparent;color:#6366f1;cursor:pointer">查看詳情</button></td>
+    </tr>`;
+  }).join('');
+  const totalPages = json.total_pages || 1;
+  el.innerHTML = `<div style="overflow-x:auto">
+    <table style="width:100%;min-width:760px;border-collapse:collapse;font-size:.8rem">
+      <thead><tr style="color:var(--text-secondary,#64748b);font-size:.7rem;text-align:left">
+        <th style="padding:6px 8px">購物車</th><th style="padding:6px 8px">客人</th><th style="padding:6px 8px">商品</th>
+        <th style="padding:6px 8px">模式</th><th style="padding:6px 8px">來源</th><th style="padding:6px 8px">最後階段</th>
+        <th style="padding:6px 8px">放置時間</th><th style="padding:6px 8px">狀態</th><th style="padding:6px 8px;text-align:right">金額</th><th style="padding:6px 8px">操作</th>
+      </tr></thead>
+      <tbody>${trs}</tbody>
+    </table>
+  </div>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;font-size:.75rem;color:var(--text-secondary,#64748b);flex-wrap:wrap;gap:8px">
+    <span>共 ${json.total} 筆，第 ${json.page} / ${totalPages} 頁</span>
+    <div style="display:flex;gap:6px">
+      <button onclick="goOpenCartPage(-1)" ${json.page <= 1 ? 'disabled' : ''} style="padding:3px 10px;border-radius:6px;border:1px solid var(--border,#2a2d3e);background:transparent;color:var(--text-secondary,#64748b);cursor:${json.page <= 1 ? 'default' : 'pointer'};opacity:${json.page <= 1 ? '.4' : '1'}">← 上一頁</button>
+      <button onclick="goOpenCartPage(1)" ${json.page >= totalPages ? 'disabled' : ''} style="padding:3px 10px;border-radius:6px;border:1px solid var(--border,#2a2d3e);background:transparent;color:var(--text-secondary,#64748b);cursor:${json.page >= totalPages ? 'default' : 'pointer'};opacity:${json.page >= totalPages ? '.4' : '1'}">下一頁 →</button>
+    </div>
+  </div>`;
+}
+
+// ── 購物車詳情 Modal／Drawer ─────────────────────────────────────
+async function openCartDetailModal(cartId) {
+  _showOpenCartModalShell();
+  try {
+    const res = await apiFetch('/api/analytics/cart-abandonment/' + encodeURIComponent(cartId));
+    if (!res || res.status === 403) { _renderOpenCartModalError('無法載入購物車詳情（功能未授權）'); return; }
+    if (res.status === 404) { _renderOpenCartModalError('找不到這個購物車（可能不存在或不屬於此店家）'); return; }
+    const json = await res.json();
+    if (!json.success) { _renderOpenCartModalError(json.message || '載入失敗'); return; }
+    _renderOpenCartModalContent(json.cart);
+  } catch (e) {
+    _renderOpenCartModalError((e && e.message) || '網路錯誤，請稍後再試');
+  }
+}
+function closeCartDetailModal() {
+  const el = document.getElementById('db-cart-detail-modal');
+  if (el) el.remove();
+}
+function _showOpenCartModalShell() {
+  closeCartDetailModal(); // 避免重複點擊「查看詳情」疊出多個 modal
+  const overlay = document.createElement('div');
+  overlay.id = 'db-cart-detail-modal';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;display:flex;align-items:flex-start;justify-content:center;padding:16px;overflow-y:auto;box-sizing:border-box';
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) closeCartDetailModal(); });
+  overlay.innerHTML = `<div style="background:var(--bg-card,#1a1d27);border:1px solid var(--border,#2a2d3e);border-radius:14px;max-width:520px;width:100%;padding:18px;box-sizing:border-box;margin-top:24px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <h3 style="margin:0;font-size:1rem">🛒 購物車詳情</h3>
+      <button onclick="closeCartDetailModal()" style="background:none;border:none;color:var(--text-secondary,#64748b);font-size:1.3rem;cursor:pointer;line-height:1;padding:0 4px">✕</button>
+    </div>
+    <div id="db-cart-detail-body"><div style="color:var(--text-secondary,#64748b);padding:20px 0;text-align:center">載入中...</div></div>
+  </div>`;
+  document.body.appendChild(overlay);
+}
+function _renderOpenCartModalError(msg) {
+  const el = document.getElementById('db-cart-detail-body');
+  if (el) el.innerHTML = `<div style="color:#ef4444;padding:12px 0;font-size:.85rem">❌ 載入失敗：${escHtml(msg || '')}</div>`;
+}
+function _renderOpenCartModalContent(c) {
+  const el = document.getElementById('db-cart-detail-body');
+  if (!el || !c) return;
+  const itemsHtml = (c.items || []).map(i => `<div style="display:flex;justify-content:space-between;gap:8px;font-size:.82rem;padding:4px 0;border-bottom:1px dashed var(--border,#2a2d3e)">
+    <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:65%">${escHtml(i.name)}${i.variant ? ` <span style="color:var(--text-secondary,#64748b)">(${escHtml(i.variant)})</span>` : ''} × ${i.qty}</span>
+    <span style="white-space:nowrap">${_nt(i.subtotal)}</span>
+  </div>`).join('') || '<div style="color:var(--text-secondary,#64748b);font-size:.8rem">（沒有商品內容）</div>';
+  const timelineHtml = (c.timeline || []).map(t => `<div style="font-size:.78rem;padding:3px 0;display:flex;gap:8px">
+    <span style="color:var(--text-secondary,#64748b);width:44px;flex-shrink:0">${escHtml(t.time || '')}</span>
+    <span style="word-break:break-word">${escHtml(t.event_name_zh || '')}${t.detail ? `：${escHtml(t.detail)}` : ''}</span>
+  </div>`).join('') || '<div style="color:var(--text-secondary,#64748b);font-size:.8rem">（沒有事件記錄）</div>';
+  const customerLine = c.identity_type === 'line'
+    ? `${escHtml(c.display_name || 'LINE 會員')}（${escHtml(c.line_uid_masked || '')}）`
+    : `訪客 ${escHtml(c.visitor_id_short || '')}`;
+  el.innerHTML = `
+    <div style="font-size:.82rem;line-height:1.8;word-break:break-word">
+      <div><b>客戶：</b>${customerLine}${c.other_device_cart_count ? ` <span style="color:var(--text-secondary,#64748b);font-size:.72rem">（此會員另有 ${c.other_device_cart_count} 個其他裝置購物車）</span>` : ''}</div>
+      <div><b>cart_id：</b><span style="font-family:monospace">${escHtml(c.cart_id_short || '')}</span>　<b>visitor：</b>${escHtml(c.visitor_id_short || '—')}</div>
+      <div><b>加入時間：</b>${escHtml(c.first_added_at || '—')}</div>
+      <div><b>最後活動：</b>${escHtml(c.last_activity_at || '—')}</div>
+      <div><b>來源／活動：</b>${escHtml(c.source || 'Direct')} / ${escHtml(c.campaign || '(No Campaign)')}</div>
+      <div><b>訂單模式：</b>${_orderModeLabel(c.order_mode)}</div>
+    </div>
+    <div style="margin:12px 0 4px;font-weight:600;font-size:.85rem">商品內容 ${c.estimated ? '<span style="color:#f59e0b;font-size:.72rem;font-weight:400">（舊資料估計）</span>' : ''}</div>
+    ${itemsHtml}
+    <div style="margin-top:8px;font-size:.85rem;display:flex;flex-direction:column;gap:2px">
+      <div style="display:flex;justify-content:space-between"><span>商品合計</span><span>${_nt(c.subtotal)}</span></div>
+      <div style="display:flex;justify-content:space-between"><span>優惠折抵</span><span>-${_nt(c.discount)}</span></div>
+      <div style="display:flex;justify-content:space-between"><span>外送費</span><span>${_nt(c.delivery_fee)}</span></div>
+      <div style="display:flex;justify-content:space-between;font-weight:700;border-top:1px solid var(--border,#2a2d3e);padding-top:4px;margin-top:2px">
+        <span>${c.estimated ? '商品估計金額' : '最終估計金額'}</span><span>${_nt(c.total)}</span>
+      </div>
+    </div>
+    <div style="margin:14px 0 6px;font-weight:600;font-size:.85rem">事件時間軸</div>
+    <div style="max-height:220px;overflow-y:auto;padding-right:4px">${timelineHtml}</div>
+  `;
+}
+
+// ══════════════════════════════════════════════════════════════════
+// fix18-10-hotfix30-B5-R5｜⏰ 訂單成立時段分析（GET /api/analytics/dashboard
+// 既有回應新增的 order_hour_analysis / order_period_analysis 欄位）
+// 用純 CSS/DIV 長條圖繪製，沒有另外建立畫布/圖表函式庫實例，因此切換
+// 訂單數／營業額或日期/channel 變動時，用 outerHTML 整段換掉即可，沒有需要
+// 額外清理的圖表物件或事件監聽器殘留。
+// ══════════════════════════════════════════════════════════════════
+let _orderHourMetric = 'orders'; // 'orders' | 'revenue'
+
+function _pctOf(part, whole) {
+  const p = Number(part) || 0, w = Number(whole) || 0;
+  if (!w || !isFinite(w) || w <= 0) return 0;
+  const v = Math.round((p / w) * 1000) / 10;
+  return isFinite(v) ? v : 0;
+}
+
+function renderDashboardOrderHours(hourData, periodData) {
+  hourData = hourData || {
+    basis_label: '訂單成立時間', timezone: 'Asia/Taipei', total_orders: 0, total_revenue: 0,
+    peak_hour: null, peak_period: null,
+    rows: Array.from({ length: 24 }, (_, h) => ({ hour: h, label: `${String(h).padStart(2,'0')}:00–${String(h).padStart(2,'0')}:59`, orders: 0, revenue: 0, avg_order_value: 0, order_share: 0, revenue_share: 0 })),
+  };
+  periodData = periodData || [];
+  const rows = hourData.rows || [];
+  const metric = _orderHourMetric;
+  const values = rows.map(r => Number(r[metric]) || 0);
+  const maxVal = Math.max(...values, 1);
+
+  const bars = rows.map(r => {
+    const val = Number(r[metric]) || 0;
+    let pct = maxVal > 0 ? Math.round((val / maxVal) * 100) : 0;
+    if (!isFinite(pct) || pct < 0) pct = 0;
+    const tip = `${r.label} ｜ 訂單數 ${r.orders} ｜ 營業額 ${_nt(r.revenue)} ｜ 平均客單 ${_nt(r.avg_order_value)} ｜ 佔比 ${_fmtPct(r.order_share)}`;
+    return `<div title="${escHtml(tip)}" style="display:flex;flex-direction:column;align-items:center;gap:3px;flex:1;min-width:14px">
+      <div style="width:100%;height:100px;display:flex;align-items:flex-end;background:transparent">
+        <div style="width:100%;background:${metric === 'orders' ? '#6366f1' : '#10b981'};border-radius:3px 3px 0 0;height:${pct}%;min-height:${val > 0 ? '2px' : '0'}"></div>
+      </div>
+      <span style="font-size:8px;color:var(--text-secondary,#64748b)">${String(r.hour).padStart(2, '0')}</span>
+    </div>`;
+  }).join('');
+
+  const peak = hourData.peak_hour;
+  const peakPeriod = hourData.peak_period;
+
+  const periodCards = periodData.map(p => `<div style="background:${p.is_peak ? 'rgba(245,158,11,.12)' : 'var(--bg-card,#1a1d27)'};border:1px solid ${p.is_peak ? '#f59e0b' : 'var(--border,#2a2d3e)'};border-radius:10px;padding:10px 12px;flex:1;min-width:120px;box-sizing:border-box">
+    <div style="font-size:.72rem;color:var(--text-secondary,#64748b);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.is_peak ? '🔥 ' : ''}${escHtml(p.label)}</div>
+    <div style="font-size:1rem;font-weight:700;margin-top:2px">${p.orders} 筆</div>
+    <div style="font-size:.7rem;color:var(--text-secondary,#64748b)">${_nt(p.revenue)}</div>
+  </div>`).join('');
+
+  const inner = `
+    <div style="font-size:.72rem;color:var(--text-secondary,#64748b);margin-bottom:12px">統計依據：${escHtml(hourData.basis_label || '訂單成立時間')}（${escHtml(hourData.timezone || 'Asia/Taipei')}）；只計算有效訂單（排除作廢／取消）</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px;margin-bottom:16px">
+      ${_card('生意最多時段', peak ? escHtml(peak.label) : '—', '', '#f59e0b')}
+      ${_card('該時段訂單數', (peak ? peak.orders : 0) + ' 筆', '', '')}
+      ${_card('該時段營業額', _nt(peak ? peak.revenue : 0), '', '#10b981')}
+      ${_card('該時段訂單占比', peak ? _fmtPct(_pctOf(peak.orders, hourData.total_orders)) : '—', '', '')}
+    </div>
+    <div style="display:flex;gap:6px;margin-bottom:10px">
+      <button onclick="setOrderHourMetric('orders')" style="font-size:12px;padding:3px 10px;border-radius:99px;border:1px solid var(--border,#2a2d3e);background:${metric === 'orders' ? '#6366f1' : 'transparent'};color:${metric === 'orders' ? '#fff' : 'var(--text-secondary,#64748b)'};cursor:pointer">訂單數</button>
+      <button onclick="setOrderHourMetric('revenue')" style="font-size:12px;padding:3px 10px;border-radius:99px;border:1px solid var(--border,#2a2d3e);background:${metric === 'revenue' ? '#6366f1' : 'transparent'};color:${metric === 'revenue' ? '#fff' : 'var(--text-secondary,#64748b)'};cursor:pointer">營業額</button>
+    </div>
+    <div style="display:flex;gap:2px;align-items:flex-end;overflow-x:auto;padding-bottom:4px">${bars}</div>
+    <div style="font-size:.78rem;color:var(--text-secondary,#64748b);margin:16px 0 8px;font-weight:600">🍽️ 餐飲時段摘要${peakPeriod ? `（尖峰約 ${escHtml(peakPeriod.label)}）` : ''}</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">${periodCards || '<div style="color:var(--text-secondary,#64748b);font-size:.8rem">此區間無訂單資料</div>'}</div>`;
+
+  return `<div id="db-order-hours-section" style="background:var(--bg-card,#1a1d27);border:1px solid var(--border,#2a2d3e);border-radius:12px;padding:20px;margin-bottom:20px;width:100%;box-sizing:border-box">
+    <h3 style="margin:0 0 14px;font-size:.95rem;color:var(--text-primary,#e2e8f0)">⏰ 訂單成立時段分析</h3>
+    ${inner}
+  </div>`;
+}
+function setOrderHourMetric(m) {
+  _orderHourMetric = m;
+  const container = document.getElementById('db-order-hours-section');
+  if (container && _dashboardLastData) {
+    // 整段用 outerHTML 換掉，舊的 DOM 節點（含 title tooltip）會一併被瀏覽器捨棄，
+    // 不會有殘留的舊圖表節點或事件監聽器。
+    container.outerHTML = renderDashboardOrderHours(_dashboardLastData.order_hour_analysis, _dashboardLastData.order_period_analysis);
+  }
 }
 
 // ── G. 商品轉換排行 ─────────────────────────────────────────────
