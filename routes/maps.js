@@ -8,6 +8,34 @@ const fetch    = require('node-fetch');
 
 const SERVER_KEY = () => process.env.GOOGLE_MAPS_SERVER_KEY || '';
 
+// fix18-10-hotfix30-B5-R5.1-B（第四階段：Google 結構化地址）——
+// R5.1-A 盤點發現這支 API 只回傳 { lat, lng, formatted_address }，Google 原始
+// response 其實已經有 address_components，只是後端沒有整理。這裡安全擷取
+// country/region/city/district/postal_code，不把完整 address_components
+// 陣列回傳給呼叫端（避免多餘欄位外流／未來被誤用當 Analytics 原始輸入）。
+//
+// 台灣行政區 fallback 優先順序（依需求文件第四階段）：
+//   district: administrative_area_level_3 → sublocality_level_1 → sublocality
+//   city:     administrative_area_level_2 → locality
+//   region:   administrative_area_level_1
+function extractSafeGeoComponents(components) {
+  if (!Array.isArray(components)) return { country: '', region: '', city: '', district: '', postal_code: '' };
+  const byType = (types) => {
+    for (const t of types) {
+      const hit = components.find((c) => Array.isArray(c.types) && c.types.includes(t));
+      if (hit && hit.long_name) return hit.long_name;
+    }
+    return '';
+  };
+  return {
+    country: byType(['country']),
+    region: byType(['administrative_area_level_1']),
+    city: byType(['administrative_area_level_2', 'locality']),
+    district: byType(['administrative_area_level_3', 'sublocality_level_1', 'sublocality']),
+    postal_code: byType(['postal_code']),
+  };
+}
+
 // ── POST /api/maps/geocode ─────────────────────────────
 // body: { address: string }
 // resp: { success, lat, lng, formatted_address }
@@ -34,6 +62,10 @@ router.post('/geocode', async (req, res) => {
       lat:               loc.lat,
       lng:               loc.lng,
       formatted_address: result.formatted_address,
+      // fix18-10-hotfix30-B5-R5.1-B：向後相容新增，既有欄位（lat/lng/
+      // formatted_address）完全保留，不破壞既有前端流程。address_components
+      // 原始陣列不整包回傳，只給安全整理過的行政區欄位。
+      geo: extractSafeGeoComponents(result.address_components),
     });
   } catch (e) {
     console.error('[maps/geocode]', e.message);
@@ -67,6 +99,7 @@ router.post('/reverse-geocode', async (req, res) => {
       lat,
       lng,
       formatted_address: result.formatted_address,
+      geo: extractSafeGeoComponents(result.address_components),
     });
   } catch (e) {
     console.error('[maps/reverse-geocode]', e.message);

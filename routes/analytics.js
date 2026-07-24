@@ -72,6 +72,14 @@ const { getTrackingPeriodInfo } = require('../utils/dashboardDate');
 // fix18-10-hotfix24-A3（Identity Resolver × Channel Dimensions）
 const { ORDER_CHANNELS, ORDER_CHANNEL_LABELS } = require('../utils/channelResolver');
 const { getFunnelSummary, getIdentityBasis } = require('../utils/dashboardAnalytics');
+// fix18-10-hotfix30-B5-R5.1-B：Geo Event Wiring —— Visitor Geo 只用於這支端點
+// 收到的一般前台事件（page_view/view_product/add_to_cart/begin_checkout 等，
+// 見需求文件七之 1；「view_item」是需求文件用詞，本專案實際事件名稱是
+// view_product，詳見 CHANGELOG_HOTFIX30_B5_R5_1_B）。
+const { resolveVisitorGeoCached } = require('../utils/geoResolver');
+const { GEO_CONTEXT } = require('../utils/geoConstants');
+const { getGeoFeatureFlags } = require('../utils/geoFeatureFlags');
+const { getGeoDashboardSummary } = require('../utils/geoAnalyticsQueries');
 
 // 前台一般事件端點不接受 submit_order / purchase，以及 LINE 會員入口中「真實性
 // 只能由後端確認」的事件（登入結果、好友狀態、CRM 購買事件）：這些只能由後端在
@@ -83,6 +91,10 @@ const SERVER_ONLY_EVENTS = new Set([
   'friend_added', 'friend_removed', 'friend_restored',
   'member_login', 'member_profile_updated', 'member_first_cart',
   'member_first_purchase', 'member_repeat_purchase', 'member_source_updated',
+  // fix18-10-hotfix30-B5-R5.1-B：只能由 routes/delivery.js 在真正完成地址/
+  // 費用/距離解析後寫入，前端不可宣稱自己已經解析完成。
+  'delivery_address_resolved', 'delivery_fee_calculated',
+  'delivery_out_of_range', 'delivery_geo_failed',
 ]);
 
 // ── 簡易 in-memory rate limit（同一 session_id）───────────────────
@@ -151,7 +163,7 @@ function sanitizeFulfillmentMetadata(eventName, metadata) {
 }
 
 // ── POST /api/analytics/events ──────────────────────────────────
-router.post('/events', (req, res) => {
+router.post('/events', async (req, res) => {
   try {
     const db = getDb();
     const storeId = req.storeId; // requireStore middleware 已驗證 store 存在且啟用
@@ -228,6 +240,25 @@ router.post('/events', (req, res) => {
       try { knownLineUserId = verifyMemberSession(member_session, storeId); } catch (e2) { knownLineUserId = null; }
     }
 
+    // fix18-10-hotfix30-B5-R5.1-B：Visitor Geo（需求文件七之 1）——
+    //   - GEO_ANALYTICS_ENABLED=false 時完全不解析（連 unknown 物件都不算，
+    //     直接不傳 geo 給 insertEvent，等同 R5.1-A 之前的行為）。
+    //   - GEO_VISITOR_IP_ENABLED=false（目前正式環境預設）時
+    //     resolveVisitorGeoCached() 內部會直接安全回傳 unknown，不觸碰任何
+    //     IP header，這裡不需要另外判斷。
+    //   - provider 逾時/錯誤一律 fail-open（resolveVisitorGeoCached 內部已
+    //     try/catch），絕不阻擋事件寫入或延誤回應超過 provider 本身的邏輯。
+    //   - 同一 store+session 15 分鐘內只解析一次（見 geoResolver.js
+    //     resolveVisitorGeoCached 的 TTL cache，key 是不可逆雜湊，不存明文
+    //     session_id 或任何 IP）。
+    const geoFlags = getGeoFeatureFlags();
+    let visitorGeo = null;
+    if (geoFlags.GEO_ANALYTICS_ENABLED) {
+      visitorGeo = await resolveVisitorGeoCached(req, {
+        storeId, sessionKey: session_id.trim(), flags: geoFlags,
+      });
+    }
+
     const ok = insertEvent(db, {
       store_id: storeId,
       visitor_id: visitor_id.trim(),
@@ -253,6 +284,9 @@ router.post('/events', (req, res) => {
       // 前台一般事件只可能來自 LINE 點餐／宅配頁面（POS 收銀端本身不呼叫這支 API，
       // 見需求文件十一），因此渠道判斷以 'line' 為訂單來源基準。
       channel_source: 'line',
+      // fix18-10-hotfix30-B5-R5.1-B：Visitor Geo（見上方）。未啟用時為 null，
+      // insertEvent 內部的 _sanitizeGeoForWrite 會安全退回 UNKNOWN_GEO。
+      geo: visitorGeo,
     });
 
     if (!ok) {
@@ -497,6 +531,28 @@ router.get('/dashboard', (req, res) => {
       fulfillment_recommendations = [];
     }
 
+    // ── fix18-10-hotfix30-B5-R5.1-B（第十階段）：Geo Intelligence 精簡摘要 ──
+    // 沿用同一個 range/channel（不新增第二套日期邏輯，不新增 API），Geo 查詢
+    // 失敗或 GEO_ANALYTICS_ENABLED=false 都必須 fail-open，回安全空結構，
+    // 絕不能讓整支 Dashboard API 500（見需求文件 Stage 10）。
+    const EMPTY_GEO_SUMMARY = {
+      top_intent_areas: [],
+      high_traffic_low_conversion: [],
+      fulfillment_summary: {},
+      data_quality: { status: 'disabled' },
+    };
+    let geo_summary = EMPTY_GEO_SUMMARY;
+    try {
+      const geoFlags = getGeoFeatureFlags();
+      if (geoFlags.GEO_ANALYTICS_ENABLED) {
+        const geoFilters = { range, channel, page: 1, limit: 100, offset: 0, source: null, medium: null, campaign: null, geo_context: null, geo_source: null, geo_confidence: null, city: null, district: null };
+        geo_summary = getGeoDashboardSummary(db, storeId, geoFilters);
+      }
+    } catch (geoErr) {
+      console.error('[analytics] geo_summary computation failed:', geoErr.message);
+      geo_summary = EMPTY_GEO_SUMMARY;
+    }
+
     res.json({
       success: true,
       range: {
@@ -505,6 +561,7 @@ router.get('/dashboard', (req, res) => {
         end_date: range.end_date,
         timezone: range.timezone,
       },
+      geo_summary,
       kpi: {
         revenue: kpi.revenue,
         orders: kpi.orders,

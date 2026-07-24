@@ -21,6 +21,49 @@
 // 呼叫點的邏輯（需求文件九：「所有事件寫入路徑必須統一補充」）。
 const { resolveIdentity } = require('./analyticsIdentity');
 const { resolveOrderChannel, resolvePageType } = require('./channelResolver');
+// fix18-10-hotfix30-B5-R5.1-A：Geo Intelligence × Area Funnel — Geo Data Foundation。
+// insertEvent() 維持同步、fail-open：IP／地址解析可能是非同步外部呼叫，不能
+// 塞進這個既有的同步函式，改由呼叫端先用 utils/geoResolver.js 的
+// resolveVisitorGeo()（IP 推定，async）或 normalizeDeliveryGeo()（正式地址，
+// sync）算好一個 plain geo 物件，再透過 `geo` 參數帶入。insertEvent 只負責
+// 防禦性驗證/清洗並寫入，不主動觸發任何外部解析；未提供 `geo` 時安全退回
+// UNKNOWN_GEO，不影響事件寫入本身。
+const {
+  UNKNOWN_GEO, isValidGeoSource, isValidGeoConfidence, isValidGeoResolution,
+  isValidGeoContext, normalizeGeoVersion, DISTANCE_ALLOWED_CONTEXTS,
+} = require('./geoConstants');
+
+// 防禦性清洗：只接受 geoConstants 允許的列舉值，其餘一律退回 unknown/null，
+// 絕不信任呼叫端傳入的任意字串（尤其禁止把前端傳來的資料未經驗證直接寫入）。
+// fix18-10-hotfix30-B5-R5.1-B：新增 geo_context 驗證，並強制規則——只有
+// geo_context 為 fulfillment/shipping 時才允許寫入距離欄位，其餘一律清成
+// NULL（見需求文件三：「不得用 IP 座標或推定位置計算配送距離」）。
+function _sanitizeGeoForWrite(geo) {
+  if (!geo || typeof geo !== 'object') {
+    return { ...UNKNOWN_GEO, geo_distance_km: null, geo_distance_band: null, geo_delivery_zone: null };
+  }
+  const source = isValidGeoSource(geo.geo_source) ? geo.geo_source : UNKNOWN_GEO.geo_source;
+  const confidence = isValidGeoConfidence(geo.geo_confidence) ? geo.geo_confidence : UNKNOWN_GEO.geo_confidence;
+  const resolution = isValidGeoResolution(geo.geo_resolution) ? geo.geo_resolution : UNKNOWN_GEO.geo_resolution;
+  const context = isValidGeoContext(geo.geo_context) ? geo.geo_context : UNKNOWN_GEO.geo_context;
+  const distanceAllowed = DISTANCE_ALLOWED_CONTEXTS.includes(context);
+  const distKm = Number(geo.geo_distance_km);
+  return {
+    geo_country: geo.geo_country ? safeStr(geo.geo_country, 100) : null,
+    geo_region: geo.geo_region ? safeStr(geo.geo_region, 100) : null,
+    geo_city: geo.geo_city ? safeStr(geo.geo_city, 100) : null,
+    geo_district: geo.geo_district ? safeStr(geo.geo_district, 100) : null,
+    geo_postal_code: geo.geo_postal_code ? safeStr(geo.geo_postal_code, 20) : null,
+    geo_source: source,
+    geo_confidence: confidence,
+    geo_resolution: resolution,
+    geo_context: context,
+    geo_version: normalizeGeoVersion(geo.geo_version),
+    geo_distance_km: distanceAllowed && Number.isFinite(distKm) ? distKm : null,
+    geo_distance_band: distanceAllowed && geo.geo_distance_band ? safeStr(geo.geo_distance_band, 20) : null,
+    geo_delivery_zone: distanceAllowed && geo.geo_delivery_zone ? safeStr(geo.geo_delivery_zone, 100) : null,
+  };
+}
 
 // 本期（Hotfix23-A）事件白名單，只有這 8 種可經由前台一般 API 寫入。
 // purchase 不開放前台一般 API 直接寫入（見 routes/analytics.js）。
@@ -108,6 +151,14 @@ const EVENT_WHITELIST = [
   'fulfillment_method_unavailable',
   'fulfillment_method_auto_switched',
   'mode_conflict',
+  // fix18-10-hotfix30-B5-R5.1-B（需求文件三之 delivery.js 履約事件）：外送地址/
+  // 費用/距離解析的里程碑事件。只能由 routes/delivery.js 在真正解析/計算完成
+  // 後用 logServerEvent() 寫入，前端不可直接送出（見 routes/analytics.js
+  // SERVER_ONLY_EVENTS）。metadata 只允許安全錯誤分類，不含地址/座標/stack。
+  'delivery_address_resolved',
+  'delivery_fee_calculated',
+  'delivery_out_of_range',
+  'delivery_geo_failed',
 ];
 
 const MAX_METADATA_BYTES = 4 * 1024; // 4KB
@@ -176,6 +227,9 @@ function insertEvent(db, fields) {
       channel_source = null,        // 'pos' | 'line'，訂單建立來源（供 resolveOrderChannel 判斷）
       fulfillment_type = null, order_source = null, // 宅配相關既有欄位，供渠道判斷
       page_name = null,             // 呼叫端已知的標準 page_type 值時可直接指定
+      // fix18-10-hotfix30-B5-R5.1-A：呼叫端預先算好的 Geo 物件（見上方說明），
+      // 未提供時安全退回 UNKNOWN_GEO，完全不影響既有呼叫端。
+      geo = null,
     } = fields;
 
     if (!store_id || !visitor_id || !session_id || !event_name) return false;
@@ -203,14 +257,20 @@ function insertEvent(db, fields) {
       pageType = resolvePageType({ page_name, event_name, order_mode, page_url: landing_page });
     } catch (e2) { /* 保守退回 'unknown' */ }
 
+    const g = _sanitizeGeoForWrite(geo);
+
     db.run(
       `INSERT INTO analytics_events (
         store_id, visitor_id, session_id, cart_id, order_id,
         event_name, product_id, quantity, order_mode,
         source, medium, campaign, referrer, landing_page,
         fbclid, gclid, metadata_json,
-        identity_key, identity_type, is_estimated_identity, order_channel, page_type
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        identity_key, identity_type, is_estimated_identity, order_channel, page_type,
+        geo_country, geo_region, geo_city, geo_district, geo_postal_code,
+        geo_source, geo_confidence, geo_resolution,
+        geo_distance_km, geo_distance_band, geo_delivery_zone,
+        geo_context, geo_version
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         safeStr(store_id, 100), safeStr(visitor_id, 200), safeStr(session_id, 200),
         cart_id ? safeStr(cart_id, 200) : null, order_id ? safeStr(order_id, 200) : null,
@@ -222,6 +282,10 @@ function insertEvent(db, fields) {
         normalizeMetadata(metadata),
         identity.identity_key, identity.identity_type, identity.is_estimated ? 1 : 0,
         orderChannel, pageType,
+        g.geo_country, g.geo_region, g.geo_city, g.geo_district, g.geo_postal_code,
+        g.geo_source, g.geo_confidence, g.geo_resolution,
+        g.geo_distance_km, g.geo_distance_band, g.geo_delivery_zone,
+        g.geo_context, g.geo_version,
       ]
     );
     return true;

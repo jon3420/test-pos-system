@@ -26,6 +26,14 @@ const { touchMemberOnOrder, recordMemberPurchase } = require('../utils/lineMembe
 const { verifyMemberSession } = require('../utils/lineMemberSession'); // fix18-10-hotfix23-E：安全 Member Session
 const { buildPickupSnapshot, resolvePickupLocation, resolveSameAsStoreFlag } = require('../utils/pickupLocation'); // fix18-10-hotfix26-F4/F5：取餐門市/地址/取餐地點設定共用 helper
 const { calculateDeliveryFeeWithPromotion } = require('../utils/deliveryFeeCalc'); // C3：距離級距滿額免運（與 routes/delivery.js 共用同一份計算引擎）
+// fix18-10-hotfix30-B5-R5.1-B：Geo Event Wiring —— 外送訂單履約區域（geo_context=
+// fulfillment，geo_source=delivery_address）。本檔案目前只有 delivery_address
+// 字串 + 已驗證過的 delivery_lat/delivery_lng 數字座標，沒有 Google
+// address_components（見 CHANGELOG_HOTFIX30_B5_R5_1_B 六、Google Maps 結構化
+// 地址接線的 Known Limitation），因此走 normalizeDeliveryGeo() 的
+// formattedAddress 字串 fallback（confidence=medium），不臆測 high。
+const { normalizeDeliveryGeo, buildFulfillmentEventGeo } = require('../utils/geoResolver');
+const { GEO_SOURCE, GEO_CONTEXT } = require('../utils/geoConstants');
 
 // ── fix18-06：外送費後端重算 helper ──────────────────
 const SERVER_KEY = () => process.env.GOOGLE_MAPS_SERVER_KEY || '';
@@ -1613,6 +1621,19 @@ router.post('/', async (req, res) => {
       ? buildPickupSnapshot(db, storeId)
       : { pickup_store_name_snapshot: '', pickup_place_name_snapshot: '', pickup_place_id_snapshot: '', pickup_address_snapshot: '', pickup_address_note_snapshot: '', pickup_lat_snapshot: '', pickup_lng_snapshot: '' };
 
+    // fix18-10-hotfix30-B5-R5.1-B：履約區域（需求文件七之 4）——只有外送訂單
+    // 才寫入 fulfillment_geo_*，外帶訂單一律保持 NULL/unknown（不得用店家地址
+    // 或猜測代替顧客實際履約地址）。distanceKm 沿用同一次 recalcDeliveryFee()
+    // 算出的 calcDistKm，不重複呼叫 Google API。
+    const orderGeo = isDelivery
+      ? normalizeDeliveryGeo({
+          source: GEO_SOURCE.DELIVERY_ADDRESS,
+          geoContext: GEO_CONTEXT.FULFILLMENT,
+          formattedAddress: delivery_address,
+          distanceKm: calcDistKm,
+        })
+      : null;
+
     db.run(
       `INSERT INTO orders (
         id, uuid, order_number, store_id, order_mode, order_status, kitchen_status,
@@ -1626,8 +1647,10 @@ router.post('/', async (req, res) => {
         pickup_lat_snapshot, pickup_lng_snapshot,
         items, payment_method, payment_category, payment_status,
         subtotal, discount_type, discount_amount, original_total, coupon_code, total,
-        note, sync_status, device_id, source, created_at, updated_at, line_user_id
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        note, sync_status, device_id, source, created_at, updated_at, line_user_id,
+        fulfillment_geo_city, fulfillment_geo_district, fulfillment_geo_source,
+        fulfillment_geo_confidence, fulfillment_geo_resolution, fulfillment_distance_band
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         uuid, uuid, orderNo, storeId, orderMode, 'pending', 'pending',
         customer_name, customer_phone, customer_line_id||'',
@@ -1642,7 +1665,10 @@ router.post('/', async (req, res) => {
         pickupSnapshot.pickup_lat_snapshot, pickupSnapshot.pickup_lng_snapshot,
         itemsJson, payment_method||'cash', payment_category, 'pending',
         sub, 'none', discAmt, sub, appliedCouponCode, finalTotal,
-        note||'', 'synced', 'LINE', 'line', nowStr, nowStr, knownLineUserId||''
+        note||'', 'synced', 'LINE', 'line', nowStr, nowStr, knownLineUserId||'',
+        orderGeo ? orderGeo.geo_city : null, orderGeo ? orderGeo.geo_district : null,
+        orderGeo ? orderGeo.geo_source : null, orderGeo ? orderGeo.geo_confidence : null,
+        orderGeo ? orderGeo.geo_resolution : null, orderGeo ? orderGeo.geo_distance_band : null,
       ]
     );
 
@@ -1743,6 +1769,12 @@ router.post('/', async (req, res) => {
         // 這裡的訂單一律來自 LINE 點餐頁面，channel_source 固定為 'line'。
         line_user_id: knownLineUserId || null,
         channel_source: 'line',
+        // fix18-10-hotfix30-B5-R5.1-B：外送訂單附上履約 Geo（geo_context=
+        // fulfillment），外帶訂單一律 unknown（buildFulfillmentEventGeo(null)），
+        // 不得用店家地址或猜測代替顧客實際履約地址。Visitor Geo（page_view 等
+        // 事件已寫入的 geo_context=visitor）完全不會覆蓋這裡——這是另一次
+        // insertEvent() 呼叫、另一組獨立欄位，兩者互不干涉。
+        geo: buildFulfillmentEventGeo(orderGeo),
       };
       logServerEvent(db, { ...evtBase, event_name: 'submit_order' });
       // fix18-10-hotfix23-E：訂單成立就更新 order_count/first_order_at/last_order_at

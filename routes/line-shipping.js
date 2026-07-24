@@ -27,6 +27,12 @@ const { getStoreFeatures } = require('../middleware/featureGate');
 // fix18-10-hotfix22D：冷藏宅配公告的「自動休假公告」唯讀共用 routes/line-orders.js 已匯出的
 // Business Calendar 查詢函式（不修改 Business Calendar 本身、不影響 LINE 點餐公告既有邏輯）。
 const { getCalendarDateInfo } = require('./line-orders');
+// fix18-10-hotfix30-B5-R5.1-B：Geo Event Wiring —— 宅配已有結構化 city/
+// district（前端下拉選單填入，見上方 req.body 解構），confidence 直接視為
+// high，不需要（也不應該）再重新解析完整地址字串。宅配沒有店家外送距離的
+// 概念（走郵寄/貨運，不是店家自派），因此 distanceKm 一律不提供。
+const { normalizeDeliveryGeo, buildFulfillmentEventGeo } = require('../utils/geoResolver');
+const { GEO_SOURCE, GEO_CONTEXT } = require('../utils/geoConstants');
 
 // ── helpers（獨立於 line-orders.js，避免耦合既有外帶/外送邏輯）──────────
 function getSetting(db, storeId, key, def = '') {
@@ -520,6 +526,18 @@ router.post('/', (req, res) => {
     const itemsJson = JSON.stringify(finalItems);
     const total = finalTotal;
 
+    // fix18-10-hotfix30-B5-R5.1-B：宅配履約區域——直接用結構化 city/district
+    // （見上方說明），confidence=high、resolution 依是否有 district 決定。
+    // 郵遞區號只在既有欄位存在時帶入，沒有就是 null，不猜測。
+    const shippingGeo = normalizeDeliveryGeo({
+      source: GEO_SOURCE.SHIPPING_ADDRESS,
+      geoContext: GEO_CONTEXT.SHIPPING,
+      city: city || null,
+      district: district || null,
+      postalCode: postal_code || null,
+      distanceKm: null, // 宅配走貨運，沒有店家外送距離，不得拿外送距離代替
+    });
+
     db.run(
       `INSERT INTO orders (
         id, uuid, order_number, store_id, order_mode, order_status, kitchen_status,
@@ -531,8 +549,10 @@ router.post('/', (req, res) => {
         shipping_recipient_name, shipping_phone, shipping_postal_code, shipping_city,
         shipping_district, shipping_address, shipping_address_note,
         shipping_arrival_type, shipping_arrival_date, shipping_fee, shipping_free_discount,
-        shipping_carrier_name, shipping_status, line_user_id
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        shipping_carrier_name, shipping_status, line_user_id,
+        fulfillment_geo_city, fulfillment_geo_district, fulfillment_geo_source,
+        fulfillment_geo_confidence, fulfillment_geo_resolution, fulfillment_distance_band
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         uuid, uuid, orderNo, storeId, 'shipping', 'pending', 'pending',
         recipient_name, phone,
@@ -544,6 +564,8 @@ router.post('/', (req, res) => {
         district || '', address, address_note || '',
         finalArrivalType, finalArrivalType === 'date' ? (arrival_date || '') : '', feeResult.shipping_fee, feeResult.free_discount,
         settings.shipping_carrier_name || '', 'pending', knownLineUserId || '',
+        shippingGeo.geo_city, shippingGeo.geo_district, shippingGeo.geo_source,
+        shippingGeo.geo_confidence, shippingGeo.geo_resolution, shippingGeo.geo_distance_band,
       ]
     );
 
@@ -615,6 +637,10 @@ router.post('/', (req, res) => {
         line_user_id: knownLineUserId || null,
         channel_source: 'line',
         fulfillment_type: 'shipping',
+        // fix18-10-hotfix30-B5-R5.1-B：宅配履約 Geo（geo_context=shipping），
+        // 與外送的 geo_context=fulfillment 分開，Analytics 才能區分「店家外送」
+        // 與「宅配寄送」兩種履約模式（見需求文件三之 3）。
+        geo: buildFulfillmentEventGeo(shippingGeo),
       };
       logServerEvent(db, { ...evtBase, event_name: 'submit_order' });
       if (knownLineUserId) touchMemberOnOrder(db, storeId, knownLineUserId);

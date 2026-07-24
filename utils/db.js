@@ -1526,6 +1526,137 @@ function initTables(w) {
   } catch(e) { console.warn('[DB] analytics_events identity/channel index:', e.message); }
 
   // ══════════════════════════════════════════════════════════════════
+  // ── fix18-10-hotfix30-B5-R5.1-A：Geo Intelligence — Geo Data Foundation ──
+  // safe migration：同上一段 identity/channel 欄位的慣例——只用 PRAGMA
+  // table_info 檢查後的 ALTER TABLE ADD COLUMN，絕不 DROP／重建
+  // analytics_events，不新增平行的第二套事件系統。舊資料列這些欄位一律是
+  // NULL，讀取端一律當作 geo_source='unknown' / geo_confidence='unknown' /
+  // geo_resolution='unknown' 處理（見 utils/geoConstants.js UNKNOWN_GEO 與
+  // utils/analyticsLog.js insertEvent()）。
+  //
+  // 決策記錄（十六、資料庫與索引 — 「metadata 擴充 vs 新增專用 dimension
+  // table」）：本輪選擇在 analytics_events / orders 上直接擴充欄位，不建立
+  // analytics_geo_dimensions 平行表。理由：(1) 這批欄位都是低基數字串
+  // （縣市/區/來源/信心/距離帶），不是需要另外正規化的長文字或高頻寫入的
+  // 巢狀結構；(2) 直接擴充可用既有的 (store_id, created_at) 系列索引查詢
+  // 模式，不需額外 JOIN；(3) 完全比照 hotfix24-A3 identity/channel 欄位已
+  // 驗證過的 safe-migration 慣例，回滾方式相同（欄位保留、忽略即可）。
+  // 若未來查詢量證明需要專用表，可再評估、不影響本輪。
+  // ══════════════════════════════════════════════════════════════════
+  const _geoColDefs = [
+    ['geo_country',       'TEXT'],
+    ['geo_region',        'TEXT'],
+    ['geo_city',          'TEXT'],
+    ['geo_district',      'TEXT'],
+    ['geo_postal_code',   'TEXT'],
+    ['geo_source',        'TEXT'],
+    ['geo_confidence',    'TEXT'],
+    ['geo_resolution',    'TEXT'],
+    ['geo_distance_km',   'REAL'],
+    ['geo_distance_band', 'TEXT'],
+    ['geo_delivery_zone', 'TEXT'],
+  ];
+  try {
+    const _aeGeoExistCols = w.all('PRAGMA table_info(analytics_events)').map(r => r.name);
+    let _aeGeoAdded = 0;
+    for (const [col, def] of _geoColDefs) {
+      if (!_aeGeoExistCols.includes(col)) {
+        try {
+          w._db.run(`ALTER TABLE analytics_events ADD COLUMN ${col} ${def}`);
+          w._save();
+          _aeGeoAdded++;
+          console.log(`[DB] ✅ analytics_events 補建 Geo 欄位: ${col}`);
+        } catch (e2) {
+          console.error(`[DB] ❌ analytics_events Geo 欄位補建失敗 ${col}:`, e2.message);
+        }
+      }
+    }
+    if (_aeGeoAdded === 0) console.log('[DB] ✅ analytics_events Geo 欄位均已存在');
+  } catch (e) {
+    console.error('[DB] ❌ PRAGMA table_info(analytics_events) (geo) 失敗:', e.message);
+  }
+  try {
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_analytics_store_district_created ON analytics_events(store_id, geo_district, created_at)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_analytics_store_geosource_created ON analytics_events(store_id, geo_source, created_at)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_analytics_store_distanceband_created ON analytics_events(store_id, geo_distance_band, created_at)');
+    w._save();
+  } catch(e) { console.warn('[DB] analytics_events geo index:', e.message); }
+
+  // orders 表：履約區域（正式外送/宅配地址解析結果），與上面 analytics_events
+  // 的 Visitor Geo 完全分開的欄位（避免二者混用），供 R5.1-B 履約區域分析／
+  // 距離分析直接讀取，不必每次查詢重新解析地址字串。
+  const _orderGeoColDefs = [
+    ['fulfillment_geo_city',       'TEXT'],
+    ['fulfillment_geo_district',   'TEXT'],
+    ['fulfillment_geo_source',     'TEXT'],
+    ['fulfillment_geo_confidence', 'TEXT'],
+    ['fulfillment_geo_resolution', 'TEXT'],
+    ['fulfillment_distance_band',  'TEXT'],
+  ];
+  try {
+    const _ordersGeoExistCols = w.all('PRAGMA table_info(orders)').map(r => r.name);
+    let _ordersGeoAdded = 0;
+    for (const [col, def] of _orderGeoColDefs) {
+      if (!_ordersGeoExistCols.includes(col)) {
+        try {
+          w._db.run(`ALTER TABLE orders ADD COLUMN ${col} ${def}`);
+          w._save();
+          _ordersGeoAdded++;
+          console.log(`[DB] ✅ orders 補建 Geo 欄位: ${col}`);
+        } catch (e2) {
+          console.error(`[DB] ❌ orders Geo 欄位補建失敗 ${col}:`, e2.message);
+        }
+      }
+    }
+    if (_ordersGeoAdded === 0) console.log('[DB] ✅ orders Geo 欄位均已存在');
+  } catch (e) {
+    console.error('[DB] ❌ PRAGMA table_info(orders) (geo) 失敗:', e.message);
+  }
+  try {
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_orders_store_fulfillment_district ON orders(store_id, fulfillment_geo_district, created_at)');
+    w._save();
+  } catch(e) { console.warn('[DB] orders fulfillment geo index:', e.message); }
+
+  // ══════════════════════════════════════════════════════════════════
+  // ── fix18-10-hotfix30-B5-R5.1-B：Geo Event Wiring — Schema 補強 ──────
+  // 向後相容加法修正，不 DROP／不重建／不刪除 R5.1-A 已建立的任何欄位
+  // （見需求文件三）。新增：
+  //   geo_context — 這筆 Geo 代表的用途（visitor/fulfillment/shipping/gps/
+  //                 unknown），跟 geo_source（資料怎麼來）是不同維度。
+  //   geo_version — Geo 解析邏輯版本號，供未來升級時分辨資料版本；
+  //                 舊資料（R5.1-A 已寫入、沒有這個欄位時的資料）一律是
+  //                 NULL，讀取端統一用 utils/geoConstants.js
+  //                 normalizeGeoVersion() 視為版本 1，不強制回填。
+  // ══════════════════════════════════════════════════════════════════
+  const _geoContextColDefs = [
+    ['geo_context', 'TEXT'],
+    ['geo_version', 'INTEGER'],
+  ];
+  try {
+    const _aeCtxExistCols = w.all('PRAGMA table_info(analytics_events)').map(r => r.name);
+    let _aeCtxAdded = 0;
+    for (const [col, def] of _geoContextColDefs) {
+      if (!_aeCtxExistCols.includes(col)) {
+        try {
+          w._db.run(`ALTER TABLE analytics_events ADD COLUMN ${col} ${def}`);
+          w._save();
+          _aeCtxAdded++;
+          console.log(`[DB] ✅ analytics_events 補建 Geo Context 欄位: ${col}`);
+        } catch (e2) {
+          console.error(`[DB] ❌ analytics_events Geo Context 欄位補建失敗 ${col}:`, e2.message);
+        }
+      }
+    }
+    if (_aeCtxAdded === 0) console.log('[DB] ✅ analytics_events Geo Context 欄位均已存在');
+  } catch (e) {
+    console.error('[DB] ❌ PRAGMA table_info(analytics_events) (geo context) 失敗:', e.message);
+  }
+  try {
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_analytics_store_geocontext_created ON analytics_events(store_id, geo_context, created_at)');
+    w._save();
+  } catch(e) { console.warn('[DB] analytics_events geo_context index:', e.message); }
+
+  // ══════════════════════════════════════════════════════════════════
   // ── fix18-10-hotfix23-E：LINE 會員入口 × LIFF 登入 × 好友狀態綁定 ──────
   // 原則同 Hotfix23-A：safe migration，只用 CREATE TABLE IF NOT EXISTS /
   // CREATE INDEX IF NOT EXISTS，全新獨立資料表，不影響既有 POS / Android /

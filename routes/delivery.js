@@ -9,6 +9,45 @@ const router   = express.Router();
 const fetch    = require('node-fetch');
 const { getDb } = require('../utils/db');
 const { calculateDeliveryFeeWithPromotion } = require('../utils/deliveryFeeCalc');
+// fix18-10-hotfix30-B5-R5.1-B：Geo Event Wiring —— 這支端點是外送地址/費用/
+// 距離「真正解析完成」的地方（見需求文件三之 delivery.js 履約事件）。
+// visitor_id/session_id/cart_id 是新增的「可選」欄位（向後相容）：目前前端
+// 呼叫這支 API 時還沒有帶這些欄位（見 CHANGELOG 的 Known Limitation），所以
+// 在前端更新之前這裡實際上不會寫入任何事件——這是預期行為，不是 bug。
+const { logServerEvent } = require('../utils/analyticsLog');
+const { normalizeDeliveryGeo, buildFulfillmentEventGeo } = require('../utils/geoResolver');
+const { GEO_SOURCE, GEO_CONTEXT } = require('../utils/geoConstants');
+const crypto = require('crypto');
+
+// ── 去重（七之 2：避免使用者每輸入一個字就產生事件）─────────────────
+// 以 store_id + 不可逆地址指紋（rounded 座標 sha256）+ 事件類型 為 key，短 TTL
+// 內只寫一次，不保存原始地址/座標本身，只用來當作 dedup key 的雜湊輸入。
+const _deliveryEventDedupCache = new Map(); // key -> expiresAt
+const DELIVERY_EVENT_DEDUP_TTL_MS = 30 * 1000; // 30 秒：同一次結帳流程內的重複試算不重複寫入
+function _deliveryDedupKey(storeId, eventName, destLat, destLng) {
+  const roundedLat = Number(destLat).toFixed(3); // ~110m 精度，不可逆回原始地址
+  const roundedLng = Number(destLng).toFixed(3);
+  const fingerprint = crypto.createHash('sha256').update(`${roundedLat},${roundedLng}`).digest('hex');
+  return `${storeId}:${eventName}:${fingerprint}`;
+}
+function _shouldWriteDeliveryEvent(storeId, eventName, destLat, destLng) {
+  const key = _deliveryDedupKey(storeId, eventName, destLat, destLng);
+  const now = Date.now();
+  const expiresAt = _deliveryEventDedupCache.get(key);
+  if (expiresAt && expiresAt > now) return false;
+  if (_deliveryEventDedupCache.size > 5000) _deliveryEventDedupCache.clear(); // fail-safe 上限
+  _deliveryEventDedupCache.set(key, now + DELIVERY_EVENT_DEDUP_TTL_MS);
+  return true;
+}
+
+// 從 req.body 取出可選的 Analytics 追蹤欄位；三者都沒有時回傳 null，
+// 呼叫端據此完全跳過事件寫入（fail-open，不影響原本的費用計算流程）。
+function _optionalTrackingContext(body) {
+  const visitor_id = body.visitor_id ? String(body.visitor_id).trim() : '';
+  const session_id = body.session_id ? String(body.session_id).trim() : '';
+  if (!visitor_id || !session_id) return null;
+  return { visitor_id, session_id, cart_id: body.cart_id ? String(body.cart_id).trim() : null };
+}
 
 const SERVER_KEY = () => process.env.GOOGLE_MAPS_SERVER_KEY || '';
 
@@ -97,7 +136,15 @@ router.post('/calculate-fee', async (req, res) => {
     const db      = getDb();
     const storeId = req.storeId;
 
-    const { order_mode, subtotal, delivery_lat, delivery_lng } = req.body;
+    const {
+      order_mode, subtotal, delivery_lat, delivery_lng,
+      // fix18-10-hotfix30-B5-R5.1-B：以下都是「可選」新增欄位，向後相容——
+      // 目前前端呼叫這支 API 時還不會送出，這裡先把接線做好（見 changelog
+      // Known Limitation：實際事件要等前端更新才會真的產生）。
+      delivery_address, // 有提供才能解析出 geo_city/geo_district；沒有就只有距離，沒有行政區
+      visitor_id, session_id, cart_id,
+    } = req.body;
+    const trackingCtx = _optionalTrackingContext(req.body);
 
     // 非外送模式：直接免費
     if (order_mode !== 'delivery') {
@@ -151,6 +198,17 @@ router.post('/calculate-fee', async (req, res) => {
       distKm = await getDrivingDistanceKm(storeLat, storeLng, destLat, destLng);
     } catch (gErr) {
       console.error('[delivery/calculate-fee] Routes API 失敗:', gErr.message);
+      // fix18-10-hotfix30-B5-R5.1-B：delivery_geo_failed —— 距離解析失敗。
+      // metadata 只允許安全錯誤分類，不含 Google 原始 response / stack / 地址。
+      if (trackingCtx && _shouldWriteDeliveryEvent(storeId, 'delivery_geo_failed', destLat, destLng)) {
+        try {
+          logServerEvent(db, {
+            store_id: storeId, ...trackingCtx, event_name: 'delivery_geo_failed',
+            order_mode: 'delivery', metadata: { failure_type: 'distance_failed' },
+            geo: buildFulfillmentEventGeo(null),
+          });
+        } catch (evtErr) { /* Analytics 失敗不影響費用計算流程 */ }
+      }
       return res.status(503).json({
         success: false, ok: false,
         message: '外送距離計算暫時無法使用，請稍後再試或改選外帶取餐',
@@ -160,6 +218,19 @@ router.post('/calculate-fee', async (req, res) => {
 
     // 檢查最大外送距離（滿額優惠不得解除此限制）
     if (distKm > maxDistKm) {
+      if (trackingCtx && _shouldWriteDeliveryEvent(storeId, 'delivery_out_of_range', destLat, destLng)) {
+        try {
+          const oorGeo = normalizeDeliveryGeo({
+            source: GEO_SOURCE.DELIVERY_ADDRESS, geoContext: GEO_CONTEXT.FULFILLMENT,
+            formattedAddress: delivery_address, distanceKm: distKm,
+          });
+          logServerEvent(db, {
+            store_id: storeId, ...trackingCtx, event_name: 'delivery_out_of_range',
+            order_mode: 'delivery', metadata: { failure_type: 'max_distance_exceeded' },
+            geo: buildFulfillmentEventGeo(oorGeo),
+          });
+        } catch (evtErr) { /* Analytics 失敗不影響費用計算流程 */ }
+      }
       return res.status(400).json({
         success: false, ok: false,
         message: `距離 ${distKm} 公里，超過本店外送範圍（最遠 ${maxDistKm} 公里），請改選外帶取餐`,
@@ -175,6 +246,19 @@ router.post('/calculate-fee', async (req, res) => {
     });
 
     if (calc.outOfRange || !calc.matchedRule) {
+      if (trackingCtx && _shouldWriteDeliveryEvent(storeId, 'delivery_out_of_range', destLat, destLng)) {
+        try {
+          const oorGeo2 = normalizeDeliveryGeo({
+            source: GEO_SOURCE.DELIVERY_ADDRESS, geoContext: GEO_CONTEXT.FULFILLMENT,
+            formattedAddress: delivery_address, distanceKm: distKm,
+          });
+          logServerEvent(db, {
+            store_id: storeId, ...trackingCtx, event_name: 'delivery_out_of_range',
+            order_mode: 'delivery', metadata: { failure_type: 'distance_rule_exceeded' },
+            geo: buildFulfillmentEventGeo(oorGeo2),
+          });
+        } catch (evtErr) { /* Analytics 失敗不影響費用計算流程 */ }
+      }
       return res.status(400).json({
         success: false, ok: false,
         message: `距離 ${distKm} 公里，超過外送費級距設定範圍，請改選外帶取餐`,
@@ -197,6 +281,33 @@ router.post('/calculate-fee', async (req, res) => {
     const freeDiscountValue = calc.promotionMode === 'full'
       ? calc.rawFee
       : (calc.promotionMode === 'fixed' ? calc.configuredFixedDiscount : 0);
+
+    // fix18-10-hotfix30-B5-R5.1-B：成功算出距離與費用 —— delivery_fee_calculated
+    // （距離/費用一律有值，不需要 delivery_address 就能算，只有 geo_city/
+    // geo_district 需要 delivery_address 才解析得出來）。若呼叫端也提供了
+    // delivery_address 且能解析出行政區，額外補寫一次 delivery_address_resolved
+    // （沿用同一個 geo 物件，不重複計算）。
+    if (trackingCtx && _shouldWriteDeliveryEvent(storeId, 'delivery_fee_calculated', destLat, destLng)) {
+      try {
+        const feeGeo = normalizeDeliveryGeo({
+          source: GEO_SOURCE.DELIVERY_ADDRESS, geoContext: GEO_CONTEXT.FULFILLMENT,
+          formattedAddress: delivery_address, distanceKm: distKm,
+          deliveryZone: calc.matchedRule ? String(calc.matchedRule.max_km) : null,
+        });
+        logServerEvent(db, {
+          store_id: storeId, ...trackingCtx, event_name: 'delivery_fee_calculated',
+          order_mode: 'delivery', metadata: { is_free_delivery: isFreeDelivery },
+          geo: buildFulfillmentEventGeo(feeGeo),
+        });
+        if (feeGeo.geo_district || feeGeo.geo_city) {
+          logServerEvent(db, {
+            store_id: storeId, ...trackingCtx, event_name: 'delivery_address_resolved',
+            order_mode: 'delivery', metadata: {},
+            geo: buildFulfillmentEventGeo(feeGeo),
+          });
+        }
+      } catch (evtErr) { /* Analytics 失敗不影響費用計算流程 */ }
+    }
 
     return res.json({
       success:         true,

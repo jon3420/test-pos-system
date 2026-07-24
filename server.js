@@ -14,6 +14,16 @@ const fetch = require('node-fetch'); // AI Marketing Center reverse proxy 用（
 const app  = express();
 const PORT = process.env.PORT || 5000;
 
+// fix18-10-hotfix30-B5-R5.1-B：Express trust proxy 設定（四、修正 Proxy 與
+// 來源 IP 信任模型）。R5.1-A changelog 指出這裡從未設定過，導致 utils/
+// geoSanitizer.js 只能靠「header 存在就相信」的不安全方式取得來源 IP。
+// 這裡改用 TRUST_PROXY env 控制（見 utils/geoSanitizer.js
+// computeTrustProxySetting() 的完整規則與預設值 false），刻意不硬寫
+// `app.set('trust proxy', true)`，避免任何客戶端偽造的 X-Forwarded-For 被
+// 全盤信任。部署 Zeabur 時再依實際反向代理層數調整 TRUST_PROXY。
+const { computeTrustProxySetting } = require('./utils/geoSanitizer');
+app.set('trust proxy', computeTrustProxySetting(process.env.TRUST_PROXY));
+
 const server = http.createServer(app);
 
 const wss = new WebSocketServer({ server, path: '/orders' });
@@ -470,6 +480,11 @@ initDb().then((db) => {
   // fix18-10-hotfix23-A：Analytics Foundation（前台轉換事件收集，獨立路由，不掛 feature gate，
   // 與既有 dashboard/reports 系統各自獨立，僅需 store 存在即可寫入事件）
   app.use('/api/analytics', requireStore, require('./routes/analytics'));
+  // fix18-10-hotfix30-B5-R5.1-B：Geo Analytics API —— 沿用同一組
+  // requireStore（store_id 解析/驗證），reports 授權在 routes/analytics-geo.js
+  // 內每條 route 各自套用 requireFeature('reports')，與既有
+  // /api/analytics/cart-abandonment 等端點同一套保護，不另創新的權限系統。
+  app.use('/api/analytics/geo', requireStore, require('./routes/analytics-geo'));
 
   // fix18-10-hotfix31-R1：CRM Action Center（分群/動作管理），沿用 Operation Analytics
   // 同一組 reports 授權（分群/動作都是「深度分析」的延伸操作，不是獨立的付費功能）。

@@ -4402,6 +4402,13 @@ async function fetchDeliveryFee(){
         subtotal,
         delivery_lat: deliveryLatLng.lat,
         delivery_lng: deliveryLatLng.lng,
+        // fix18-10-hotfix30-B5-R5.1-B（第十一階段）：只新增，不改動任何既有欄位/
+        // 回應處理。這幾個追蹤欄位都是「可選」——後端沒收到也完全不影響外送費
+        // 計算本身（見 routes/delivery.js _optionalTrackingContext()）。
+        // delivery_address 只用於當次 Geo 事件解析與去重指紋，不會被拿去
+        // 覆蓋既有的 delivery_lat/delivery_lng 距離計算邏輯。
+        visitor_id:_getVisitorId(), session_id:_getSessionId(), cart_id:_getCartId(false)||null,
+        delivery_address:(document.getElementById('deliveryAddress')?.value||'').trim()||undefined,
       })
     }).then(r=>r.json());
     if(myToken!==fulfillmentRenderToken || currentMode!=='delivery') return; // 已過期或已切走，作廢
