@@ -23,6 +23,28 @@ const { getDrilldownRows, resolveMemberKeys, countDrilldownMatches } = require('
 const {
   ACTION_TYPES, executeAction, cancelAction, validateCouponForAction, nowStr, safeJsonParse,
 } = require('../utils/crmActions');
+// fix18-10-hotfix31-R4（需求文件 J：Segment Integration）—— Visitor 360 Audience
+// 篩選也要能建立分群，不新增第二套分群儲存邏輯，只是「解析 filter → member_keys」
+// 這一步依 filter 來源分派給不同的 resolver，分群本身的儲存/預覽/靜態快照邏輯
+// （crm_segments / crm_segment_members 資料表與下面既有流程）完全不變。
+const {
+  resolveVisitorAudienceMemberKeys, countVisitorAudienceMatches,
+} = require('../utils/visitorAudience');
+
+// filter.__source === 'visitor_audience' 代表這個 filter 是從 Visitor 360 Audience
+// 頁面存下來的（前端建立分群時附上這個標記），其餘 filter（沒有這個標記，或標記
+// 是其他值）一律視為既有 Drill Down 維度 filter，行為與 R1~R3 完全相同、向下相容。
+function _isVisitorAudienceFilter(filter) { return filter && filter.__source === 'visitor_audience'; }
+function _resolveSegmentMembers(db, storeId, filter, opts) {
+  return _isVisitorAudienceFilter(filter)
+    ? resolveVisitorAudienceMemberKeys(db, storeId, filter, opts)
+    : resolveMemberKeys(db, storeId, filter, opts);
+}
+function _countSegmentMembers(db, storeId, filter) {
+  return _isVisitorAudienceFilter(filter)
+    ? countVisitorAudienceMatches(db, storeId, filter)
+    : countDrilldownMatches(db, storeId, filter);
+}
 
 const SEGMENT_TYPES = new Set(['dynamic', 'static']);
 
@@ -74,7 +96,7 @@ router.post('/segments', (req, res) => {
               });
             return [...seen.values()];
           })()
-        : resolveMemberKeys(db, storeId, filter, { limit: 2000 });
+        : _resolveSegmentMembers(db, storeId, filter, { limit: 2000 });
       members.forEach((m) => {
         try {
           db.run(
@@ -91,7 +113,7 @@ router.post('/segments', (req, res) => {
       // 需求文件 B/C：dynamic 分群人數是「預覽」，即時計算，不快取成靜態數字
       // （member_count_cache 這裡仍然寫一份，純粹當作「上次建立時的參考值」，
       // 讀取端一律優先呼叫 countDrilldownMatches 取得當下即時人數）。
-      memberCount = countDrilldownMatches(db, storeId, filter);
+      memberCount = _countSegmentMembers(db, storeId, filter);
       db.run('UPDATE crm_segments SET member_count_cache=?, cache_updated_at=? WHERE store_id=? AND id=?', [memberCount, now, storeId, segmentId]);
     }
 
@@ -119,7 +141,7 @@ router.get('/segments', (req, res) => {
       if (s.segment_type !== 'dynamic') return s;
       try {
         const filter = safeJsonParse(db.get('SELECT filter_json FROM crm_segments WHERE store_id=? AND id=?', [storeId, s.id]).filter_json, {});
-        return { ...s, member_count_cache: countDrilldownMatches(db, storeId, filter) };
+        return { ...s, member_count_cache: _countSegmentMembers(db, storeId, filter) };
       } catch (e) { return s; }
     });
     res.json({ success: true, segments });
@@ -149,7 +171,7 @@ router.get('/segments/:id', (req, res) => {
     } else {
       // 需求文件 B：dynamic 分群「預覽時即時解析」，資料變動後下次查詢立刻反映
       const filter = safeJsonParse(segment.filter_json, {});
-      members = resolveMemberKeys(db, storeId, filter, { limit: 500 });
+      members = _resolveSegmentMembers(db, storeId, filter, { limit: 500 });
     }
 
     res.json({
@@ -246,7 +268,7 @@ router.post('/actions', (req, res) => {
       );
     } else {
       const filter = safeJsonParse(segment.filter_json, {});
-      members = resolveMemberKeys(db, storeId, filter, { limit: 2000 });
+      members = _resolveSegmentMembers(db, storeId, filter, { limit: 2000 });
     }
 
     const now = nowStr();

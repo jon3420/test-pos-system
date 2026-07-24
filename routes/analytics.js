@@ -55,6 +55,11 @@ const {
 // fix18-10-hotfix31-R1（Operation Analytics Drill Down × Visitor 360，Backend Foundation）
 const { getDrilldownRows, DIMENSION_COLUMN_MAP, SORT_FIELD_MAP } = require('../utils/drilldown');
 const { getVisitorProfile } = require('../utils/visitor360');
+// fix18-10-hotfix31-R4（Visitor 360 Audience List × Revisit Score × Customer Status）
+const {
+  getVisitorAudienceList,
+  SORT_FIELD_MAP: AUDIENCE_SORT_FIELD_MAP,
+} = require('../utils/visitorAudience');
 // fix18-10-hotfix24-A（POS Analytics V2：不新增 API 端點，只掛在既有 dashboard 底下）
 const {
   getProductFunnel, getCartAbandonmentByProduct, getProductRankings,
@@ -308,12 +313,16 @@ router.get('/dashboard', (req, res) => {
     const fixedWeekMonth = getFixedWeekMonth(db, storeId);
     const funnel = getFunnel(db, storeId, range, channel);
     const realtime = getRealtime(db, storeId);
-    const cart = getCartAnalysis(db, storeId, range);
-    const products = getProductRanking(db, storeId, range);
-    const payments = getPayments(db, storeId, range);
-    const sources = getSources(db, storeId, range, kpi);
-    const repeat_customers = getRepeatCustomers(db, storeId, range);
-    const incomplete = getIncomplete(db, storeId, range);
+    // fix18-10-hotfix31-R4（需求文件 B/C，Channel Count Consistency 根因修正）：
+    // 這幾個區塊過去沒有接住 channel 參數，導致選了「LINE 外送」之後 KPI／Funnel
+    // 換成外送數字，但 Cart Abandonment／商品排行／付款分析／來源／回購／未完成訂單
+    // 仍然顯示全渠道數字——這是「渠道資料只出現在『全部』底下」這個回報問題的根因。
+    const cart = getCartAnalysis(db, storeId, range, channel);
+    const products = getProductRanking(db, storeId, range, channel);
+    const payments = getPayments(db, storeId, range, channel);
+    const sources = getSources(db, storeId, range, kpi, channel);
+    const repeat_customers = getRepeatCustomers(db, storeId, range, channel);
+    const incomplete = getIncomplete(db, storeId, range, channel);
     const health_score = getHealthScore(kpi, funnel, cart, repeat_customers, payments);
     const recommendations = getRecommendations(funnel, cart, payments, repeat_customers);
 
@@ -374,12 +383,20 @@ router.get('/dashboard', (req, res) => {
     // 全部沿用上面已算好的資料／同一個 db，任何一段失敗都不得讓整支 API 500。
     let analytics_v2;
     try {
-      const productFunnel = getProductFunnel(db, storeId, range);
+      // fix18-10-hotfix31-R4（需求文件 B/C）：同上，analytics_v2 底下的商品漏斗／
+      // 來源分析／Campaign 分析也要接住同一個 channel，跟 KPI/Funnel 保持一致。
+      const productFunnel = getProductFunnel(db, storeId, range, channel);
       const cartAbandonment = getCartAbandonmentByProduct(productFunnel);
       const productRankings = getProductRankings(productFunnel);
-      const sourcePerformance = getSourcePerformance(db, storeId, range);
-      const campaigns = getCampaignPerformance(db, storeId, range);
+      const sourcePerformance = getSourcePerformance(db, storeId, range, channel);
+      const campaigns = getCampaignPerformance(db, storeId, range, channel);
       const adsDashboard = getAdsDashboard(sourcePerformance);
+      // fix18-10-hotfix31-R4 已知限制：CRM Dashboard（getCrmOverview）彙總的是
+      // 「LINE 會員本身」（line_members 表），不是「某個渠道底下的事件」——同一位
+      // 會員可能同時透過 LINE 外帶與 LINE 外送下單，「這個會員屬於哪個渠道」沒有
+      // 單一答案，因此本輪刻意不對 CRM Dashboard 套用 channel 篩選（沿用需求文件
+      // 十九「新增欄位不得破壞既有欄位語意」的同一個保守原則），並在 CHANGELOG
+      // 明確記錄為已知限制，而不是假裝套用了篩選。
       const crm = getCrmOverview(db, storeId, range);
       const aiInsights = getAiInsightsV2(cartAbandonment, sourcePerformance, productFunnel, crm);
       // 需求文件十一：資料量不足時顯示固定訊息，而不是空陣列或報錯
@@ -716,6 +733,49 @@ router.get('/visitor/:key', requireFeature('reports'), (req, res) => {
     res.json({ success: true, visitor: profile });
   } catch (e) {
     console.error('[analytics] GET /visitor/:key error:', e.message, e.stack);
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════
+// fix18-10-hotfix31-R4｜Visitor 360 Audience List（需求文件 G/H/I/J）
+// GET /api/analytics/visitor-360?identity=&friend_status=&visit_frequency=
+//   &purchase_behavior=&activity=&min_visit_count=&max_visit_count=&min_cart_count=
+//   &max_cart_count=&min_order_count=&max_order_count=&min_revenue=&max_revenue=
+//   &min_aov=&max_aov=&min_revisit_score=&max_revisit_score=&source=&campaign=
+//   &channel=&order_mode=&sort_by=&sort_dir=&page=&limit=
+//
+// 每一列是一個「人」（canonical visitor/member），不是一筆事件、不是一張購物車。
+// Server-side 分頁（需求文件 G：不得把整店訪客都撈到瀏覽器）。點任何一列的
+// 「詳情」按鈕，前端應直接重用既有 GET /api/analytics/visitor/:key。
+// ══════════════════════════════════════════════════════════════════
+router.get('/visitor-360', requireFeature('reports'), (req, res) => {
+  try {
+    const db = getDb();
+    const storeId = req.storeId;
+    const q = req.query || {};
+
+    const filters = {
+      identity: q.identity, friend_status: q.friend_status,
+      visit_frequency: q.visit_frequency, purchase_behavior: q.purchase_behavior,
+      activity: q.activity,
+      min_visit_count: q.min_visit_count, max_visit_count: q.max_visit_count,
+      min_cart_count: q.min_cart_count, max_cart_count: q.max_cart_count,
+      min_order_count: q.min_order_count, max_order_count: q.max_order_count,
+      min_revenue: q.min_revenue, max_revenue: q.max_revenue,
+      min_aov: q.min_aov, max_aov: q.max_aov,
+      min_revisit_score: q.min_revisit_score, max_revisit_score: q.max_revisit_score,
+      source: q.source, campaign: q.campaign, channel: q.channel, order_mode: q.order_mode,
+    };
+    const limit = Math.min(100, Math.max(1, parseInt(q.limit, 10) || 20));
+    const page = Math.max(1, parseInt(q.page, 10) || 1);
+    const sortBy = AUDIENCE_SORT_FIELD_MAP[q.sort_by] ? q.sort_by : undefined;
+    const sortDir = q.sort_dir;
+
+    const result = getVisitorAudienceList(db, storeId, filters, { page, limit, sort_by: sortBy, sort_dir: sortDir });
+    res.json({ success: true, ...result });
+  } catch (e) {
+    console.error('[analytics] GET /visitor-360 error:', e.message, e.stack);
     res.status(500).json({ success: false, message: e.message });
   }
 });

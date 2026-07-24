@@ -81,6 +81,7 @@ function resolveOrderChannel(input) {
 const ORDER_CHANNEL_SQL_EXPR = `
   CASE
     WHEN COALESCE(fulfillment_type,'')='shipping' OR COALESCE(order_source,'')='line_shipping' OR COALESCE(order_mode,'')='shipping' THEN 'shipping'
+    WHEN COALESCE(order_mode,'')='reservation' OR COALESCE(fulfillment_type,'')='reservation' OR COALESCE(order_source,'')='reservation' THEN 'reservation'
     WHEN COALESCE(order_mode,'')='dine_in' THEN 'pos'
     WHEN COALESCE(order_mode,'') IN ('takeout','delivery') THEN
       CASE WHEN COALESCE(source,'pos')='pos' THEN 'pos'

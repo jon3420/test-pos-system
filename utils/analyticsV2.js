@@ -16,7 +16,7 @@
 'use strict';
 
 const { ANALYTICS_CREATED_AT_LOCAL_EXPR: A_LOCAL } = require('./dashboardDate');
-const { round2, getProductRanking } = require('./dashboardAnalytics');
+const { round2, getProductRanking, channelEventsWhereClause } = require('./dashboardAnalytics');
 
 // ────────────────────────────────────────────────────────────────
 // 來源分類：把 utm_source / source / referer 正規化成報表用的固定分類。
@@ -55,17 +55,20 @@ function classifySource(rawSource, referrer) {
 //      （事件本身沒有存價格），商品若之後改價或下架，估計值會與實際情況有落差；
 //      所有回傳欄位一律加上 estimated_ 前綴 / is_estimate 旗標，前端必須標示「估計值」。
 // ────────────────────────────────────────────────────────────────
-function getProductFunnel(db, storeId, range) {
-  const ranking = getProductRanking(db, storeId, range); // 沿用既有函式，不重算 view/cart/purchase
+function getProductFunnel(db, storeId, range, channel) {
+  // fix18-10-hotfix31-R4（需求文件 B/C）：Product Funnel／Cart Abandonment by Product
+  // 必須跟頂層 channel 選擇器用同一個定義，否則選了「LINE 外送」看到的還是全渠道商品排行。
+  const ranking = getProductRanking(db, storeId, range, channel); // 沿用既有函式，不重算 view/cart/purchase
   if (!ranking.length) return [];
 
-  const p = [storeId, range.startLocal, range.endLocal];
+  const chClause = channelEventsWhereClause(channel);
+  const p = [storeId, range.startLocal, range.endLocal, ...chClause.params];
 
   // 每個商品的 add_to_cart cart_id 清單
   const cartRows = db.all(
     `SELECT product_id, cart_id FROM analytics_events
      WHERE store_id=? AND event_name='add_to_cart' AND product_id IS NOT NULL
-       AND cart_id IS NOT NULL AND cart_id != '' AND ${A_LOCAL} BETWEEN ? AND ?`, p
+       AND cart_id IS NOT NULL AND cart_id != '' AND ${A_LOCAL} BETWEEN ? AND ?${chClause.sql}`, p
   );
   const productCarts = {}; // product_id -> Set(cart_id)
   cartRows.forEach(r => {
@@ -77,7 +80,7 @@ function getProductFunnel(db, storeId, range) {
   const checkoutCartIds = new Set(db.all(
     `SELECT DISTINCT cart_id FROM analytics_events
      WHERE store_id=? AND event_name='begin_checkout' AND cart_id IS NOT NULL AND cart_id != ''
-       AND ${A_LOCAL} BETWEEN ? AND ?`, p
+       AND ${A_LOCAL} BETWEEN ? AND ?${chClause.sql}`, p
   ).map(r => r.cart_id));
 
   // 目前售價（已下架商品沒有 price，revenue 以 0 計，不報錯）
@@ -179,20 +182,22 @@ function getProductRankings(funnel) {
 // 依 analytics_events 的 page_view（sessions）+ purchase（orders/revenue）整合，
 // 沿用既有 getSources() 的 UTM/source 欄位，不新增欄位。
 // ────────────────────────────────────────────────────────────────
-function getSourcePerformance(db, storeId, range) {
-  const p = [storeId, range.startLocal, range.endLocal];
+function getSourcePerformance(db, storeId, range, channel) {
+  // fix18-10-hotfix31-R4（需求文件 B/C）：Source Performance 必須跟頂層 channel 選擇器一致。
+  const chClause = channelEventsWhereClause(channel);
+  const p = [storeId, range.startLocal, range.endLocal, ...chClause.params];
 
   const sessionRows = db.all(
     `SELECT COALESCE(NULLIF(source,''),'') as source, COALESCE(NULLIF(referrer,''),'') as referrer,
             COUNT(DISTINCT session_id) as sessions
      FROM analytics_events
-     WHERE store_id=? AND event_name='page_view' AND ${A_LOCAL} BETWEEN ? AND ?
+     WHERE store_id=? AND event_name='page_view' AND ${A_LOCAL} BETWEEN ? AND ?${chClause.sql}
      GROUP BY source, referrer`, p
   );
 
   const purchaseRows = db.all(
     `SELECT DISTINCT order_id, source, referrer FROM analytics_events
-     WHERE store_id=? AND event_name='purchase' AND order_id IS NOT NULL AND ${A_LOCAL} BETWEEN ? AND ?`, p
+     WHERE store_id=? AND event_name='purchase' AND order_id IS NOT NULL AND ${A_LOCAL} BETWEEN ? AND ?${chClause.sql}`, p
   );
 
   const buckets = {
@@ -234,12 +239,14 @@ function getSourcePerformance(db, storeId, range) {
 // ────────────────────────────────────────────────────────────────
 // 三、Campaign 分析（utm_campaign）—— 若無資料，誠實顯示「尚未取得 Campaign」，不報錯
 // ────────────────────────────────────────────────────────────────
-function getCampaignPerformance(db, storeId, range) {
-  const p = [storeId, range.startLocal, range.endLocal];
+function getCampaignPerformance(db, storeId, range, channel) {
+  // fix18-10-hotfix31-R4（需求文件 B/C）：Campaign 分析必須跟頂層 channel 選擇器一致。
+  const chClause = channelEventsWhereClause(channel);
+  const p = [storeId, range.startLocal, range.endLocal, ...chClause.params];
   const campaignRows = db.all(
     `SELECT campaign, COUNT(DISTINCT session_id) as visitors FROM analytics_events
      WHERE store_id=? AND event_name='page_view' AND campaign IS NOT NULL AND campaign != ''
-       AND ${A_LOCAL} BETWEEN ? AND ? GROUP BY campaign`, p
+       AND ${A_LOCAL} BETWEEN ? AND ?${chClause.sql} GROUP BY campaign`, p
   );
   if (!campaignRows.length) {
     return { available: false, message: '尚未取得 Campaign 資料', rows: [] };
@@ -248,7 +255,7 @@ function getCampaignPerformance(db, storeId, range) {
   const purchaseRows = db.all(
     `SELECT DISTINCT order_id, campaign FROM analytics_events
      WHERE store_id=? AND event_name='purchase' AND order_id IS NOT NULL AND campaign IS NOT NULL AND campaign != ''
-       AND ${A_LOCAL} BETWEEN ? AND ?`, p
+       AND ${A_LOCAL} BETWEEN ? AND ?${chClause.sql}`, p
   );
   const orderIds = [...new Set(purchaseRows.map(r => r.order_id))];
   let orderRevenue = {};

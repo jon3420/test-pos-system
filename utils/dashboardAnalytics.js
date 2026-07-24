@@ -28,6 +28,13 @@ function _channelWhereClause(channel) {
   return { sql: ` AND ${ORDER_CHANNEL_SQL_EXPR} = ?`, params: [channel] };
 }
 
+// fix18-10-hotfix31-R4（需求文件 B/C：Channel Count Consistency）
+// 曝露上面兩個 clause builder 給 utils/analyticsV2.js 與其他呼叫端共用，
+// 不得各自重寫一套 channel WHERE 判斷邏輯——這是全系統唯一的 channel SQL 篩選來源，
+// 與 utils/channelResolver.js 的 resolveOrderChannel()/ORDER_CHANNEL_SQL_EXPR 保持同步。
+function channelOrdersWhereClause(channel) { return _channelWhereClause(channel); }
+function channelEventsWhereClause(channel) { return _eventChannelWhereClause(channel); }
+
 function getKpi(db, storeId, range, channel) {
   const ch = _channelWhereClause(channel);
   const where = `${ORDERS_BASE_WHERE} AND created_at BETWEEN ? AND ?${ch.sql}`;
@@ -267,20 +274,23 @@ function getRealtime(db, storeId) {
 // ────────────────────────────────────────────────────────────────
 // 4. 購物車分析
 // ────────────────────────────────────────────────────────────────
-function getCartAnalysis(db, storeId, range) {
+function getCartAnalysis(db, storeId, range, channel) {
+  // fix18-10-hotfix31-R4（需求文件 B/C）：channel 篩選必須跟 KPI/Funnel 用同一套
+  // 定義（event 層級用 order_channel 欄位，COALESCE 'unknown'，見 channelResolver.js）。
+  const chClause = _eventChannelWhereClause(channel);
   // 加入購物車人數（distinct visitor）
   const addToCartVisitors = Number((db.get(
     `SELECT COUNT(DISTINCT visitor_id) c FROM analytics_events
-     WHERE store_id=? AND event_name='add_to_cart' AND ${A_LOCAL} BETWEEN ? AND ?`,
-    [storeId, range.startLocal, range.endLocal]
+     WHERE store_id=? AND event_name='add_to_cart' AND ${A_LOCAL} BETWEEN ? AND ?${chClause.sql}`,
+    [storeId, range.startLocal, range.endLocal, ...chClause.params]
   ) || {}).c || 0);
 
   // 有效 cart_id 清單（該區間內有 add_to_cart 且 cart_id 非空）
   const carts = db.all(
     `SELECT DISTINCT cart_id FROM analytics_events
      WHERE store_id=? AND event_name='add_to_cart' AND cart_id IS NOT NULL AND cart_id != ''
-       AND ${A_LOCAL} BETWEEN ? AND ?`,
-    [storeId, range.startLocal, range.endLocal]
+       AND ${A_LOCAL} BETWEEN ? AND ?${chClause.sql}`,
+    [storeId, range.startLocal, range.endLocal, ...chClause.params]
   ).map(r => r.cart_id);
 
   if (!carts.length) {
@@ -388,23 +398,25 @@ function emptyBuckets() {
 // ────────────────────────────────────────────────────────────────
 // 5. 商品轉換排行
 // ────────────────────────────────────────────────────────────────
-function getProductRanking(db, storeId, range) {
-  const p = [storeId, range.startLocal, range.endLocal];
+function getProductRanking(db, storeId, range, channel) {
+  // fix18-10-hotfix31-R4（需求文件 B/C）：與 KPI/Funnel/Cart 使用同一個 channel 定義。
+  const chClause = _eventChannelWhereClause(channel);
+  const p = [storeId, range.startLocal, range.endLocal, ...chClause.params];
   const viewRows = db.all(
     `SELECT product_id, COUNT(DISTINCT visitor_id) c FROM analytics_events
-     WHERE store_id=? AND event_name='view_product' AND product_id IS NOT NULL AND ${A_LOCAL} BETWEEN ? AND ?
+     WHERE store_id=? AND event_name='view_product' AND product_id IS NOT NULL AND ${A_LOCAL} BETWEEN ? AND ?${chClause.sql}
      GROUP BY product_id`, p
   );
   const cartRows = db.all(
     `SELECT product_id, COUNT(DISTINCT visitor_id) people, SUM(quantity) qty FROM analytics_events
-     WHERE store_id=? AND event_name='add_to_cart' AND product_id IS NOT NULL AND ${A_LOCAL} BETWEEN ? AND ?
+     WHERE store_id=? AND event_name='add_to_cart' AND product_id IS NOT NULL AND ${A_LOCAL} BETWEEN ? AND ?${chClause.sql}
      GROUP BY product_id`, p
   );
   // 成交：透過 purchase 事件的 order_id 反查該訂單 items（analytics_events 本身 purchase
   // 不帶 product_id 明細，商品層級成交要從 orders.items 反查，避免修改事件定義）
   const purchaseOrderIds = db.all(
     `SELECT DISTINCT order_id FROM analytics_events
-     WHERE store_id=? AND event_name='purchase' AND order_id IS NOT NULL AND ${A_LOCAL} BETWEEN ? AND ?`, p
+     WHERE store_id=? AND event_name='purchase' AND order_id IS NOT NULL AND ${A_LOCAL} BETWEEN ? AND ?${chClause.sql}`, p
   ).map(r => r.order_id);
 
   const purchaseMap = {}; // product_id(by name match) -> {people:Set, qty}
@@ -468,13 +480,15 @@ function getProductRanking(db, storeId, range) {
 // payment_started 事件本身不帶 payment_method（Hotfix23-A 事件定義未收集這個欄位，本期
 // 不修改事件定義），因此用 cart_id 當橋樑：payment_started.cart_id === submit_order.cart_id
 // （同一次結帳流程 cart_id 不變），再從 submit_order.order_id 查 orders.payment_method。
-function getPayments(db, storeId, range) {
-  const p = [storeId, range.startLocal, range.endLocal];
+function getPayments(db, storeId, range, channel) {
+  // fix18-10-hotfix31-R4（需求文件 B/C）：與其他區塊使用同一個 channel 定義。
+  const chClause = _eventChannelWhereClause(channel);
+  const p = [storeId, range.startLocal, range.endLocal, ...chClause.params];
 
   const startedCarts = db.all(
     `SELECT DISTINCT cart_id FROM analytics_events
      WHERE store_id=? AND event_name='payment_started' AND cart_id IS NOT NULL AND cart_id != ''
-       AND ${A_LOCAL} BETWEEN ? AND ?`, p
+       AND ${A_LOCAL} BETWEEN ? AND ?${chClause.sql}`, p
   ).map(r => r.cart_id);
 
   if (!startedCarts.length) {
@@ -523,18 +537,22 @@ function getPayments(db, storeId, range) {
 // ────────────────────────────────────────────────────────────────
 // 7. 訂單來源分析（既有來源 + Analytics UTM 來源）
 // ────────────────────────────────────────────────────────────────
-function getSources(db, storeId, range, kpi) {
-  // 既有來源（沿用 orders.order_mode/delivery_platform，已在 getKpi 內算過，這裡直接複用）
+function getSources(db, storeId, range, kpi, channel) {
+  // 既有來源（沿用 orders.order_mode/delivery_platform，已在 getKpi 內算過，這裡直接複用——
+  // kpi 本身已經是用同一個 channel 算出來的，這裡不用再算一次 channel where）。
   const existingSources = kpi.sourceStats;
 
+  // fix18-10-hotfix31-R4（需求文件 B/C）：Analytics 來源必須跟其他區塊用同一個 channel 定義，
+  // 否則「選了 LINE 外送」卻看到全渠道的來源分佈，數字對不起來。
+  const chClause = _eventChannelWhereClause(channel);
   // Analytics 來源：以 page_view 的 distinct visitor 為準（沒有 UTM 時 source 已是
   // 'direct'/'unknown'，由 Hotfix23-A 前端 _deriveSource() 決定，這裡不偽造）
   const analyticsSources = db.all(
     `SELECT COALESCE(NULLIF(source,''),'unknown') as source, COUNT(DISTINCT visitor_id) as visitors
      FROM analytics_events
-     WHERE store_id=? AND event_name='page_view' AND ${A_LOCAL} BETWEEN ? AND ?
+     WHERE store_id=? AND event_name='page_view' AND ${A_LOCAL} BETWEEN ? AND ?${chClause.sql}
      GROUP BY source ORDER BY visitors DESC`,
-    [storeId, range.startLocal, range.endLocal]
+    [storeId, range.startLocal, range.endLocal, ...chClause.params]
   );
   return { order_sources: existingSources, analytics_sources: analyticsSources };
 }
@@ -542,11 +560,14 @@ function getSources(db, storeId, range, kpi) {
 // ────────────────────────────────────────────────────────────────
 // 8. 回購分析（以電話辨識，同店不跨店合併）
 // ────────────────────────────────────────────────────────────────
-function getRepeatCustomers(db, storeId, range) {
-  const where = `${ORDERS_BASE_WHERE} AND ${ORDERS_PAID_EXPR} AND created_at BETWEEN ? AND ? AND customer_phone IS NOT NULL AND customer_phone != ''`;
+function getRepeatCustomers(db, storeId, range, channel) {
+  // fix18-10-hotfix31-R4（需求文件 B/C）：回購分析是 orders 表統計，channel 篩選
+  // 沿用 KPI 同一個 orders 層級 SQL CASE（_channelWhereClause），不是 event 層級的。
+  const chClause = _channelWhereClause(channel);
+  const where = `${ORDERS_BASE_WHERE} AND ${ORDERS_PAID_EXPR} AND created_at BETWEEN ? AND ? AND customer_phone IS NOT NULL AND customer_phone != ''${chClause.sql}`;
   const rows = db.all(
     `SELECT customer_phone, DATE(created_at) as d FROM orders WHERE ${where}`,
-    [storeId, range.startLocal, range.endLocal]
+    [storeId, range.startLocal, range.endLocal, ...chClause.params]
   );
   if (!rows.length) {
     return {
@@ -584,21 +605,23 @@ function getRepeatCustomers(db, storeId, range) {
 // ────────────────────────────────────────────────────────────────
 // 9. 未完成訂單分析
 // ────────────────────────────────────────────────────────────────
-function getIncomplete(db, storeId, range) {
-  const p = [storeId, range.startLocal, range.endLocal];
+function getIncomplete(db, storeId, range, channel) {
+  // fix18-10-hotfix31-R4（需求文件 B/C）：event 層級一律用同一個 channel 定義。
+  const chClause = _eventChannelWhereClause(channel);
+  const p = [storeId, range.startLocal, range.endLocal, ...chClause.params];
 
   // 購物車未結帳：有 add_to_cart，但同一 cart_id 沒有 begin_checkout
   const cartsWithAdd = new Set(db.all(
     `SELECT DISTINCT cart_id FROM analytics_events WHERE store_id=? AND event_name='add_to_cart'
-       AND cart_id IS NOT NULL AND cart_id!='' AND ${A_LOCAL} BETWEEN ? AND ?`, p
+       AND cart_id IS NOT NULL AND cart_id!='' AND ${A_LOCAL} BETWEEN ? AND ?${chClause.sql}`, p
   ).map(r => r.cart_id));
   const cartsWithCheckout = new Set(db.all(
     `SELECT DISTINCT cart_id FROM analytics_events WHERE store_id=? AND event_name='begin_checkout'
-       AND cart_id IS NOT NULL AND cart_id!='' AND ${A_LOCAL} BETWEEN ? AND ?`, p
+       AND cart_id IS NOT NULL AND cart_id!='' AND ${A_LOCAL} BETWEEN ? AND ?${chClause.sql}`, p
   ).map(r => r.cart_id));
   const cartsWithSubmit = new Set(db.all(
     `SELECT DISTINCT cart_id FROM analytics_events WHERE store_id=? AND event_name='submit_order'
-       AND cart_id IS NOT NULL AND cart_id!='' AND ${A_LOCAL} BETWEEN ? AND ?`, p
+       AND cart_id IS NOT NULL AND cart_id!='' AND ${A_LOCAL} BETWEEN ? AND ?${chClause.sql}`, p
   ).map(r => r.cart_id));
 
   const cartNotCheckedOut = [...cartsWithAdd].filter(c => !cartsWithCheckout.has(c)).length;
@@ -607,11 +630,11 @@ function getIncomplete(db, storeId, range) {
   // 已送單等待付款：submit_order 有，但 purchase 沒有（同一 order_id）
   const submittedOrderIds = new Set(db.all(
     `SELECT DISTINCT order_id FROM analytics_events WHERE store_id=? AND event_name='submit_order'
-       AND order_id IS NOT NULL AND ${A_LOCAL} BETWEEN ? AND ?`, p
+       AND order_id IS NOT NULL AND ${A_LOCAL} BETWEEN ? AND ?${chClause.sql}`, p
   ).map(r => r.order_id));
   const purchasedOrderIds = new Set(db.all(
     `SELECT DISTINCT order_id FROM analytics_events WHERE store_id=? AND event_name='purchase'
-       AND order_id IS NOT NULL AND ${A_LOCAL} BETWEEN ? AND ?`, p
+       AND order_id IS NOT NULL AND ${A_LOCAL} BETWEEN ? AND ?${chClause.sql}`, p
   ).map(r => r.order_id));
   const awaitingPaymentIds = [...submittedOrderIds].filter(id => !purchasedOrderIds.has(id));
   const awaitingPayment = awaitingPaymentIds.length;
@@ -626,12 +649,15 @@ function getIncomplete(db, storeId, range) {
     ) || {}).c || 0);
   }
 
-  // 待確認宅配訂單：order_mode='shipping'，order_status 仍是 pending（尚未人工確認/出貨）
-  const pendingShipping = Number((db.get(
+  // 待確認宅配訂單：order_mode='shipping'，order_status 仍是 pending（尚未人工確認/出貨）。
+  // fix18-10-hotfix31-R4：這個指標定義上只屬於「宅配」渠道——選擇其他渠道（例如
+  // 店內 POS）時應該回 0，不能悄悄顯示全渠道數字（需求文件 C：單位/口徑必須一致）。
+  const pendingShippingApplies = !channel || channel === 'all' || channel === 'shipping';
+  const pendingShipping = pendingShippingApplies ? Number((db.get(
     `SELECT COUNT(*) c FROM orders WHERE store_id=? AND order_mode='shipping'
        AND (order_status IS NULL OR order_status='pending') AND created_at BETWEEN ? AND ?`,
     [storeId, range.startLocal, range.endLocal]
-  ) || {}).c || 0);
+  ) || {}).c || 0) : 0;
 
   return {
     cart_not_checked_out: cartNotCheckedOut,
@@ -1733,4 +1759,6 @@ module.exports = {
   getFulfillmentConflicts, getFulfillmentConflictRecommendations,
   // fix18-10-hotfix30-B5-R5（⏰ 訂單時段分析 × 餐飲時段摘要）
   getOrderHourAnalysis, getOrderPeriodAnalysis, MEAL_PERIODS,
+  // fix18-10-hotfix31-R4（Channel Count Consistency：唯一的 channel WHERE clause 來源）
+  channelOrdersWhereClause, channelEventsWhereClause,
 };

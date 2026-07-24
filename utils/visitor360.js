@@ -88,6 +88,153 @@ function buildJourney(events) {
 }
 
 /**
+ * fix18-10-hotfix31-R4（需求文件 E：Customer Journey）
+ *
+ * 把低階事件流水帳（raw timeline，仍完整保留、不刪除）轉換成「有business意義的
+ * 里程碑」摘要，供 Visitor 360 detail 顯示在 Session Timeline 之上。
+ *
+ * 原則：
+ *   - 完全 runtime 運算，不建立 customer_journey 資料表、不持久化。
+ *   - 只用既有資料組裝（analytics_events／orders／line_members／
+ *     line_member_sessions／utils/analyticsIdentity.js 的身份解析結果），
+ *     不新增第二套事件定義。
+ *   - 每個里程碑一律標示 inferred:true/false——inferred=false 代表直接對應
+ *     某一筆真實事件（1:1），inferred=true 代表由多筆同類事件「合併」而成
+ *     （例如同一次來訪裡連續瀏覽 3 個商品，合併成一則「商品瀏覽」）。
+ *   - 目前沒有優惠券相關的 analytics 事件或欄位可查（見 CHANGELOG 已知限制），
+ *     因此不產生「套用優惠券」里程碑——沒有真實資料就不假裝有這個里程碑
+ *     （需求文件 E.12：Do not invent missing milestones）。
+ *   - 時間一律使用事件既有的 Asia/Taipei 本地時間字串（created_at_local），
+ *     不重新計算時區、不竄改原始時間戳。
+ */
+function _daysBetween(aLocal, bLocal) {
+  if (!aLocal || !bLocal) return null;
+  const a = new Date(String(aLocal).replace(' ', 'T'));
+  const b = new Date(String(bLocal).replace(' ', 'T'));
+  const diff = (b - a) / 86400000;
+  return Number.isFinite(diff) ? diff : null;
+}
+function _revisitLabel(daysGap) {
+  if (daysGap === null) return '再次來訪';
+  if (daysGap < 1) return '同日再次來訪';
+  if (daysGap < 2) return '隔日再次來訪';
+  const d = Math.round(daysGap);
+  return `${d} 天後回訪`;
+}
+
+function buildCustomerJourney(events, { lineRow, identity } = {}) {
+  const milestones = [];
+  const push = (type, label, at, inferred, extra = {}) => {
+    milestones.push({ type, label, at: at || null, inferred: !!inferred, ...extra });
+  };
+
+  let sessionSeen = new Set();
+  let lastSessionId = undefined;
+  let firstVisitDone = false;
+  let prevEventAt = null; // 前一筆事件的時間，用來算「距離上次來訪幾天」
+  let pendingGroup = null; // { type, label, count, firstAt }
+  let purchaseCount = 0;
+  let anyCartMilestoneEver = false;
+  let loginMilestoneEmitted = false;
+  let upgradeMilestoneEmitted = false;
+
+  function flushGroup() {
+    if (!pendingGroup) return;
+    const label = pendingGroup.count > 1 ? `${pendingGroup.label}（${pendingGroup.count} 次）` : pendingGroup.label;
+    push(pendingGroup.type, label, pendingGroup.firstAt, pendingGroup.count > 1, { event_count: pendingGroup.count });
+    pendingGroup = null;
+  }
+  function addToGroup(type, label, at) {
+    if (pendingGroup && pendingGroup.type === type) { pendingGroup.count += 1; return; }
+    flushGroup();
+    pendingGroup = { type, label, count: 1, firstAt: at };
+  }
+
+  events.forEach((e) => {
+    const sid = e.session_id || null;
+    const isNewSession = sid && sid !== lastSessionId && !sessionSeen.has(sid);
+    if (isNewSession) {
+      sessionSeen.add(sid);
+      flushGroup();
+      if (!firstVisitDone) {
+        firstVisitDone = true;
+        push('first_visit', `${e.source || 'Direct'} 首次來訪`, e.created_at_local, false);
+      } else {
+        const gap = _daysBetween(prevEventAt, e.created_at_local);
+        push('revisit', `${_revisitLabel(gap)}（${e.source || 'Direct'}）`, e.created_at_local, true, { days_since_previous: gap });
+      }
+    }
+    lastSessionId = sid || lastSessionId;
+    prevEventAt = e.created_at_local || prevEventAt;
+
+    switch (e.event_name) {
+      case 'view_product':
+        addToGroup('product_view', '商品瀏覽', e.created_at_local);
+        break;
+      case 'add_to_cart':
+        addToGroup('add_to_cart', anyCartMilestoneEver ? '再次加入購物車' : '加入購物車', e.created_at_local);
+        anyCartMilestoneEver = true;
+        break;
+      case 'begin_checkout':
+        flushGroup();
+        push('begin_checkout', '開始結帳', e.created_at_local, false);
+        break;
+      case 'line_login_success':
+      case 'member_login':
+        if (!loginMilestoneEmitted) {
+          flushGroup();
+          push('line_login', 'LINE Login', e.created_at_local, false);
+          loginMilestoneEmitted = true;
+        }
+        break;
+      case 'friend_added':
+        flushGroup();
+        push('friend_added', '加入 LINE 好友', e.created_at_local, false);
+        break;
+      case 'purchase':
+        flushGroup();
+        purchaseCount += 1;
+        push(purchaseCount === 1 ? 'first_purchase' : 'repeat_purchase',
+          purchaseCount === 1 ? '完成首購' : '完成回購', e.created_at_local, false, { order_id: e.order_id || null });
+        break;
+      default:
+        break;
+    }
+  });
+  flushGroup();
+
+  // 匿名訪客升級為 LINE 會員：不是一筆單一事件，是「身份解析結果」本身
+  // （utils/analyticsIdentity.js resolveCanonicalVisitor 的 resolution_method）。
+  // 插入時間點：找不到更精準的時間就用第一筆「已知歸屬這位 LINE 會員」事件的時間。
+  if (identity && identity.canonical_type === 'line_user_id' && identity.resolution_method === 'visitor_session_link' && !upgradeMilestoneEmitted) {
+    const firstLineEvt = events.find((e) => e.event_name && e.event_name !== 'purchase') || events[0];
+    milestones.push({
+      type: 'anonymous_upgraded', label: '匿名訪客升級為 LINE 會員',
+      at: (firstLineEvt && firstLineEvt.created_at_local) || null,
+      inferred: true, // 這是由身份解析結果推導出的里程碑，不是單一事件
+    });
+    upgradeMilestoneEmitted = true;
+  }
+
+  // 加入 LINE 好友：如果事件流水帳裡沒有 friend_added 事件，但 line_members 有
+  // friend_since，仍然揭露這個真實已知的里程碑（來自既有 friend tracking 基礎設施）。
+  if (lineRow && lineRow.friend_since && !milestones.some((m) => m.type === 'friend_added')) {
+    milestones.push({ type: 'friend_added', label: '加入 LINE 好友', at: lineRow.friend_since, inferred: false });
+  }
+
+  // 依時間排序（大部分本來就是照事件順序，身份升級/好友補充可能是事後插入的，統一排序一次）
+  milestones.sort((a, b) => String(a.at || '').localeCompare(String(b.at || '')));
+
+  // 最近活動：最後一筆事件本身（即使跟上面某個里程碑重複，這裡是明確標示「目前狀態」用）
+  if (events.length) {
+    const last = events[events.length - 1];
+    milestones.push({ type: 'recent_activity', label: '最近活動', at: last.created_at_local, inferred: false, event_name: last.event_name });
+  }
+
+  return milestones;
+}
+
+/**
  * 訂單/購買歷程——直接讀既有 orders 表（正式訂單資料，不重新計算），
  * 只用 analytics_events 的 purchase 事件找出這個人的 order_id 清單，
  * 再用 store_id + order_id 去 orders 表查真正的訂單金額/時間/狀態。
@@ -206,6 +353,15 @@ function getVisitorProfile(db, storeId, key, { includeFullUid = false } = {}) {
     last_seen_at: lineRow ? (lineRow.last_seen_at || null) : (journey.length ? journey[journey.length - 1].first_seen_at : null),
     total_visits: journey.length,
     journey,
+    // fix18-10-hotfix31-R4（需求文件 E：Customer Journey）——raw_timeline 是完整保留
+    // 的低階事件流水帳（Session Timeline 的資料來源，不刪除、不取代），customer_journey
+    // 是在它之上組出的「有business意義的里程碑」摘要，供 Visitor 360 detail 優先顯示。
+    raw_timeline: events.map((e) => ({
+      event_name: e.event_name, source: e.source || null, campaign: e.campaign || null,
+      medium: e.medium || null, session_id: e.session_id || null, cart_id: e.cart_id || null,
+      order_id: e.order_id || null, product_id: e.product_id || null, at: e.created_at_local,
+    })),
+    customer_journey: buildCustomerJourney(events, { lineRow, identity }),
     cart_history: cartHistory,
     purchase_history: purchaseHistory.orders,
     ltv,
@@ -218,4 +374,5 @@ function getVisitorProfile(db, storeId, key, { includeFullUid = false } = {}) {
 module.exports = {
   getVisitorProfile,
   buildJourney,
+  buildCustomerJourney,
 };
