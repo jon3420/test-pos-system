@@ -52,6 +52,9 @@ const {
 const {
   sanitizeCartSnapshotMetadata, getOpenCartRows, getCartDetail, AGE_BUCKET_QUERY_MAP,
 } = require('../utils/cartSnapshot');
+// fix18-10-hotfix31-R1（Operation Analytics Drill Down × Visitor 360，Backend Foundation）
+const { getDrilldownRows, DIMENSION_COLUMN_MAP, SORT_FIELD_MAP } = require('../utils/drilldown');
+const { getVisitorProfile } = require('../utils/visitor360');
 // fix18-10-hotfix24-A（POS Analytics V2：不新增 API 端點，只掛在既有 dashboard 底下）
 const {
   getProductFunnel, getCartAbandonmentByProduct, getProductRankings,
@@ -647,6 +650,72 @@ router.get('/cart-abandonment/:cartId', requireFeature('reports'), (req, res) =>
     res.json({ success: true, cart: detail });
   } catch (e) {
     console.error('[analytics] GET /cart-abandonment/:cartId error:', e.message, e.stack);
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════
+// fix18-10-hotfix31-R1｜Operation Analytics Drill Down
+// GET /api/analytics/drilldown?event_name=&source=&campaign=&medium=&order_mode=
+//   &identity_type=&order_channel=&page_type=&date_from=&date_to=&page=&limit=
+//   &include_purchased=
+//
+// 需求文件四：「所有圖表皆為 Filter」——點任何 KPI／圖表區塊都能查出符合條件的
+// 訪客/會員/Session/購物車清單。這裡只接受白名單維度（見 DIMENSION_COLUMN_MAP），
+// 不接受任意欄位名稱。與 /cart-abandonment 的差異：這裡不排除已購買的購物車
+// （Drill Down 需要能看到「已成交」的人），/cart-abandonment 仍維持原本只看
+// 未完成購物車的行為，兩者互不影響。
+// ══════════════════════════════════════════════════════════════════
+router.get('/drilldown', requireFeature('reports'), (req, res) => {
+  try {
+    const db = getDb();
+    const storeId = req.storeId;
+    const q = req.query || {};
+
+    const filters = {};
+    Object.keys(DIMENSION_COLUMN_MAP).forEach((key) => {
+      if (q[key] !== undefined && q[key] !== '') filters[key] = String(q[key]).slice(0, 200);
+    });
+    if (q.date_from) filters.date_from = String(q.date_from).slice(0, 32);
+    if (q.date_to) filters.date_to = String(q.date_to).slice(0, 32);
+    if (q.product_id) filters.product_id = q.product_id;
+    if (q.min_amount) filters.min_amount = q.min_amount;
+    if (q.max_amount) filters.max_amount = q.max_amount;
+    if (q.cart_status) filters.cart_status = q.cart_status;
+    if (q.identity_state) filters.identity_state = q.identity_state;
+    if (q.friend_status) filters.friend_status = q.friend_status;
+    if (q.age_bucket) filters.age_bucket = q.age_bucket;
+
+    const limit = Math.min(100, Math.max(1, parseInt(q.limit, 10) || 20));
+    const page = Math.max(1, parseInt(q.page, 10) || 1);
+    const includePurchased = q.include_purchased !== 'false';
+    const sortBy = SORT_FIELD_MAP[q.sort_by] ? q.sort_by : undefined;
+    const sortDir = q.sort_dir;
+
+    const result = getDrilldownRows(db, storeId, filters, { page, limit, include_purchased: includePurchased, sort_by: sortBy, sort_dir: sortDir });
+    res.json({ success: true, ...result });
+  } catch (e) {
+    console.error('[analytics] GET /drilldown error:', e.message, e.stack);
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════
+// fix18-10-hotfix31-R1｜Visitor 360（會員360）
+// GET /api/analytics/visitor/:key — key 可以是 line_user_id 或 visitor_id
+// ══════════════════════════════════════════════════════════════════
+router.get('/visitor/:key', requireFeature('reports'), (req, res) => {
+  try {
+    const db = getDb();
+    const storeId = req.storeId;
+    const key = String(req.params.key || '').slice(0, 200);
+    if (!key) return res.status(400).json({ success: false, message: '缺少 key' });
+
+    const profile = getVisitorProfile(db, storeId, key, { includeFullUid: false });
+    if (!profile) return res.status(404).json({ success: false, message: '找不到這位訪客/會員（可能不存在或不屬於此店家）' });
+    res.json({ success: true, visitor: profile });
+  } catch (e) {
+    console.error('[analytics] GET /visitor/:key error:', e.message, e.stack);
     res.status(500).json({ success: false, message: e.message });
   }
 });

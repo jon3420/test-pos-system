@@ -1803,6 +1803,154 @@ function initTables(w) {
     w._db.run('CREATE INDEX IF NOT EXISTS idx_analytics_store_cart_created ON analytics_events(store_id, cart_id, created_at)');
     w._save();
   } catch(e) { console.warn('[DB] hotfix30-B5-R5 index:', e.message); }
+
+  // ══════════════════════════════════════════════════════════════════
+  // fix18-10-hotfix31-R1｜CRM Action Center × Operation Analytics Drill Down
+  // （Backend Foundation：資料庫 schema + 讀取 API 基礎）
+  //
+  // 原則同前面所有 Analytics/CRM 擴充：safe migration，只用
+  // CREATE TABLE IF NOT EXISTS / CREATE INDEX IF NOT EXISTS，全新獨立資料表，
+  // 不 DROP、不修改既有 analytics_events／line_members／coupons 等任何既有
+  // 欄位或資料，不建立第二套 Analytics/CRM 系統——這四張表只是「篩選條件的
+  // 儲存」與「執行動作的紀錄」，實際的訪客/會員/購物車資料仍然全部讀自既有
+  // analytics_events／line_members（見 utils/drilldown.js、utils/visitor360.js）。
+  //
+  // - crm_segments：儲存「分群」定義。segment_type='dynamic' 時 filter_json
+  //   是即時篩選條件（每次讀取都重新查詢 analytics_events/line_members，
+  //   人數會隨資料變動而變動）；segment_type='static' 時建立當下就把符合條件
+  //   的名單快照進 crm_segment_members，之後不再變動（除非重新建立）。
+  // - crm_segment_members：static 分群的快照名單。member_key 依 member_type
+  //   可能是 line_user_id 或 visitor_id（因為並非所有訪客都有 LINE 身分）。
+  // - crm_actions：CRM 執行動作的紀錄（發送優惠券／LINE 推播／建立再行銷名單）。
+  //   本版（Backend Foundation）尚未串接 LINE Messaging API 推播與 Meta CAPI／
+  //   GA4 Audience／LINE OA Segment 匯出（專案目前完全沒有 LINE Channel Access
+  //   Token 設定與推播基礎設施，屬全新第三方整合，不在本版範圍），因此
+  //   action_type='line_push' / 'retargeting_export' 建立後 status 固定回傳
+  //   'not_configured'，明確告知尚未串接，不假裝已送出。action_type=
+  //   'coupon_grant' 沿用既有 coupons 表驗證優惠券是否存在/啟用，可以真實記錄
+  //   「這個名單預計核發哪張優惠券」，但實際派送（LINE 推播/簡訊/email）
+  //   同樣需要等對應管道串接後才能真正送達，本版誠實記錄為 'recorded'。
+  // - crm_action_targets：每個 action 底下每一位名單成員的個別狀態，供後續
+  //   接上真實推播/發送管道時，可以逐一更新每個人的成功/失敗狀態，不需要
+  //   重新設計資料表。
+  // ══════════════════════════════════════════════════════════════════
+  w._db.run(`CREATE TABLE IF NOT EXISTS crm_segments (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    store_id            TEXT NOT NULL,
+    name                TEXT NOT NULL,
+    description         TEXT DEFAULT '',
+    segment_type        TEXT NOT NULL DEFAULT 'dynamic',
+    filter_json         TEXT NOT NULL DEFAULT '{}',
+    member_count_cache  INTEGER DEFAULT 0,
+    cache_updated_at    TEXT DEFAULT '',
+    created_by          TEXT DEFAULT '',
+    created_at          TEXT DEFAULT (datetime('now','localtime')),
+    updated_at          TEXT DEFAULT (datetime('now','localtime'))
+  )`);
+  w._save();
+  try {
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_crm_segments_store ON crm_segments(store_id)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_crm_segments_store_created ON crm_segments(store_id, created_at)');
+    w._save();
+  } catch(e) { console.warn('[DB] crm_segments index:', e.message); }
+
+  w._db.run(`CREATE TABLE IF NOT EXISTS crm_segment_members (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    store_id      TEXT NOT NULL,
+    segment_id    INTEGER NOT NULL,
+    member_key    TEXT NOT NULL,
+    member_type   TEXT NOT NULL,
+    display_name  TEXT DEFAULT '',
+    snapshot_json TEXT DEFAULT '',
+    added_at      TEXT DEFAULT (datetime('now','localtime'))
+  )`);
+  w._save();
+  try {
+    w._db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_crm_segment_members_unique ON crm_segment_members(store_id, segment_id, member_key)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_crm_segment_members_store_segment ON crm_segment_members(store_id, segment_id)');
+    w._save();
+  } catch(e) { console.warn('[DB] crm_segment_members index:', e.message); }
+
+  w._db.run(`CREATE TABLE IF NOT EXISTS crm_actions (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    store_id        TEXT NOT NULL,
+    action_type     TEXT NOT NULL,
+    name            TEXT DEFAULT '',
+    segment_id      INTEGER DEFAULT NULL,
+    payload_json    TEXT DEFAULT '{}',
+    status          TEXT NOT NULL DEFAULT 'pending',
+    target_count    INTEGER DEFAULT 0,
+    success_count   INTEGER DEFAULT 0,
+    fail_count      INTEGER DEFAULT 0,
+    result_message  TEXT DEFAULT '',
+    created_by      TEXT DEFAULT '',
+    created_at      TEXT DEFAULT (datetime('now','localtime')),
+    started_at      TEXT DEFAULT '',
+    completed_at    TEXT DEFAULT ''
+  )`);
+  w._save();
+  try {
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_crm_actions_store_created ON crm_actions(store_id, created_at)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_crm_actions_store_segment ON crm_actions(store_id, segment_id)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_crm_actions_store_status ON crm_actions(store_id, status)');
+    w._save();
+  } catch(e) { console.warn('[DB] crm_actions index:', e.message); }
+
+  w._db.run(`CREATE TABLE IF NOT EXISTS crm_action_targets (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    store_id      TEXT NOT NULL,
+    action_id     INTEGER NOT NULL,
+    member_key    TEXT NOT NULL,
+    member_type   TEXT NOT NULL,
+    status        TEXT NOT NULL DEFAULT 'pending',
+    error         TEXT DEFAULT '',
+    sent_at       TEXT DEFAULT ''
+  )`);
+  w._save();
+  try {
+    w._db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_crm_action_targets_unique ON crm_action_targets(store_id, action_id, member_key)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_crm_action_targets_store_action ON crm_action_targets(store_id, action_id)');
+    w._save();
+  } catch(e) { console.warn('[DB] crm_action_targets index:', e.message); }
+
+  // ══════════════════════════════════════════════════════════════════
+  // fix18-10-hotfix31-R2｜CRM Action 生命週期硬化（Architecture Correction）
+  //
+  // 需求文件 C／F／G／H／L：
+  //   - segment 需要 enabled/archived 狀態（軟刪除，不得真的 DELETE 掉歷史分群）。
+  //   - action 需要 idempotency_key（同一個 key 重複呼叫 POST /actions 不得
+  //     建立第二筆動作，見 routes/crm.js）、cancelled_at、error_code、
+  //     skipped_count（獨立於 fail_count，區分「執行失敗」與「不符資格被跳過」）。
+  //   - target 需要 dedup_key（同一位會員在不同 action 之間是否已經拿過同一張
+  //     優惠券的判斷依據，見 utils/crmActions.js）、error_code、updated_at
+  //     （retry 需要知道哪些 target 是「這次」被更新的）。
+  //
+  // 全部只用 ALTER TABLE ADD COLUMN（try/catch，可重複執行、不破壞既有資料），
+  // 不 DROP、不重建任何一張表。
+  // ══════════════════════════════════════════════════════════════════
+  const crmR2Migrations = [
+    "ALTER TABLE crm_segments ADD COLUMN enabled INTEGER DEFAULT 1",
+    "ALTER TABLE crm_actions ADD COLUMN idempotency_key TEXT DEFAULT ''",
+    "ALTER TABLE crm_actions ADD COLUMN cancelled_at TEXT DEFAULT ''",
+    "ALTER TABLE crm_actions ADD COLUMN error_code TEXT DEFAULT ''",
+    "ALTER TABLE crm_actions ADD COLUMN skipped_count INTEGER DEFAULT 0",
+    "ALTER TABLE crm_action_targets ADD COLUMN dedup_key TEXT DEFAULT ''",
+    "ALTER TABLE crm_action_targets ADD COLUMN error_code TEXT DEFAULT ''",
+    "ALTER TABLE crm_action_targets ADD COLUMN updated_at TEXT DEFAULT ''",
+  ];
+  crmR2Migrations.forEach(sql => { try { w._db.run(sql); w._save(); } catch {} });
+  try {
+    // 需求文件 L：store_id + status／store_id + action_type／store_id + idempotency_key／
+    // store_id + target identity 等常用查詢組合的索引。
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_crm_actions_store_type ON crm_actions(store_id, action_type)');
+    // idempotency_key 只在非空字串時要求唯一（同店家內），沿用既有 partial unique index
+    // 慣例（見上面 idx_analytics_order_event_unique）。
+    w._db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_crm_actions_store_idempotency
+      ON crm_actions(store_id, idempotency_key) WHERE idempotency_key != ''`);
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_crm_action_targets_store_member_dedup ON crm_action_targets(store_id, member_key, dedup_key, status)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_crm_segments_store_enabled ON crm_segments(store_id, enabled)');
+    w._save();
+  } catch(e) { console.warn('[DB] crm R2 hardening index:', e.message); }
 }
 
 module.exports = { getDb, initDb };

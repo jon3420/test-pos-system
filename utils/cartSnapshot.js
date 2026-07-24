@@ -386,16 +386,36 @@ function getMemberDisplayNameMap(db, storeId, lineUserIds) {
   return map;
 }
 
+// fix31-r3：友善好友狀態批次查詢——供 Drill Down 篩選（LINE好友狀態）與訪客
+// 資訊顯示共用，同一批次查詢時機（跟 getMemberDisplayNameMap 一起呼叫），
+// 不對每一列另外查一次。查不到/非 LINE 會員一律回傳 'unknown'，不臆測。
+function getMemberFriendStatusMap(db, storeId, lineUserIds) {
+  const map = {};
+  if (!lineUserIds.length) return map;
+  try {
+    db.all(
+      `SELECT line_user_id, friend_status FROM line_members WHERE store_id=? AND line_user_id IN (${_inParams(lineUserIds)})`,
+      [storeId, ...lineUserIds]
+    ).forEach(r => { map[r.line_user_id] = r.friend_status || 'unknown'; });
+  } catch (e) { /* line_members 表不存在或查詢失敗：略過，friend_status 一律 unknown */ }
+  return map;
+}
+
 // ────────────────────────────────────────────────────────────────
 // B. 目前未完成購物車（不受「今天是否有新的 add_to_cart」限制，獨立於期間篩選）
 // ────────────────────────────────────────────────────────────────
 const OPEN_CART_WINDOW_DAYS = 30;
 
-function _buildRowFromCandidate(c, ctx) {
+function _buildRowFromCandidate(c, ctx, opts = {}) {
   const { purchasedSet, snapshotMap, firstAddMap, firstTouchMap, lastEventMap,
     legacyItemsMap, productsInfoMap, memberNameMap, nowMs } = ctx;
   const cartId = c.cart_id;
-  if (purchasedSet.has(cartId)) return null; // 已完成購買，不列入未完成清單
+  const isPurchased = purchasedSet.has(cartId);
+  // fix31-r1：新增 includePurchased 選項供 utils/drilldown.js 重用同一套批次查詢與
+  // 欄位組裝邏輯（Drill Down 需要看到「已成交」的人，不只是未完成購物車）。
+  // opts 預設為 {}，既有呼叫端（getOpenCartRows）沒有傳第三個參數，行為完全不變：
+  // 已購買一律 return null，不列入未完成清單。
+  if (isPurchased && !opts.includePurchased) return null; // 已完成購買，不列入未完成清單
 
   const snap = snapshotMap[cartId];
   let estimated = true, items = [], subtotal = 0, discount = 0, deliveryFee = 0, total = 0, orderMode = 'unknown';
@@ -435,7 +455,8 @@ function _buildRowFromCandidate(c, ctx) {
   const lastEventName = lastEventMap[cartId] || 'add_to_cart';
   const stage = stageLabel(lastEventName);
   let statusVal = 'abandoned';
-  if (ageSeconds !== null && ageSeconds <= 30 * 60) statusVal = 'active';
+  if (isPurchased) statusVal = 'purchased';
+  else if (ageSeconds !== null && ageSeconds <= 30 * 60) statusVal = 'active';
   else if (CHECKOUT_STAGE_EVENTS.has(lastEventName)) statusVal = 'checkout';
 
   const isLine = ft.identity_type === 'line_user_id';
@@ -452,6 +473,7 @@ function _buildRowFromCandidate(c, ctx) {
     cart_id: cartId,
     cart_id_short: shortId(cartId),
     visitor_id_short: visitorShort,
+    _visitor_id_raw: ft.visitor_id || null, // 內部用（同 _line_uid_raw 慣例）：CRM/Drill Down 需要真實可再查詢的 key，不能只有顯示用短碼
     line_uid_masked: lineUidMasked,
     _line_uid_raw: lineUidRaw, // 內部用，供權限判斷/複製 UID 使用；一般 JSON 回應會被 routes 層剔除
     display_name: displayName,
@@ -549,7 +571,7 @@ function getOpenCartRows(db, storeId, opts = {}) {
   const total = rows.length;
   const start = (safePage - 1) * safeLimit;
   const pageRows = rows.slice(start, start + safeLimit).map(r => {
-    const { _age_bucket, _line_uid_raw, ...pub } = r;
+    const { _age_bucket, _line_uid_raw, _visitor_id_raw, ...pub } = r;
     return pub;
   });
 
@@ -711,4 +733,19 @@ module.exports = {
   round2,
   shortId,
   maskAttemptId,
+  // fix31-r1：供 utils/drilldown.js 重用（Operation Analytics Drill Down ×
+  // CRM Action Center 需要對「任意 KPI／維度」而非只有「未完成購物車」組出同一種
+  // 列格式，重用既有批次查詢，不建立第二套購物車/會員查詢邏輯）。
+  getPurchasedCartIdSet,
+  getLatestSnapshotMap,
+  getFirstAddToCartMap,
+  getFirstTouchMap,
+  getLastEventMap,
+  getLegacyCartItemsMap,
+  getProductsInfoMap,
+  getMemberDisplayNameMap,
+  getMemberFriendStatusMap,
+  buildRowFromCandidate: _buildRowFromCandidate,
+  emptySummary,
+  computeOpenSummary,
 };

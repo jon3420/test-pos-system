@@ -471,6 +471,10 @@ initDb().then((db) => {
   // 與既有 dashboard/reports 系統各自獨立，僅需 store 存在即可寫入事件）
   app.use('/api/analytics', requireStore, require('./routes/analytics'));
 
+  // fix18-10-hotfix31-R1：CRM Action Center（分群/動作管理），沿用 Operation Analytics
+  // 同一組 reports 授權（分群/動作都是「深度分析」的延伸操作，不是獨立的付費功能）。
+  app.use('/api/crm', requireStore, requireFeature('reports'), require('./routes/crm'));
+
   app.get('/api/printers/list', async (req, res) => {
     try {
       const ps   = require('./services/printService');

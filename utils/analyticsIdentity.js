@@ -121,6 +121,129 @@ function summarizeIdentityBasis(rows) {
   };
 }
 
+// ══════════════════════════════════════════════════════════════════
+// fix18-10-hotfix31-R2｜Read-time 身份合併（Visitor 360 / Drill Down 專用）
+//
+// 上面的 resolveIdentity() 是「寫入當下」用 fields 直接算出 identity_key
+// （給 analyticsLog.js 寫入 analytics_events 用）。這裡新增的
+// resolveCanonicalVisitor() 是「讀取當下」的合併查詢：給一個任意 key
+// （可能是 visitor_id／session_id／cart_id／line_user_id 其中一種，呼叫端
+// 不需要事先知道是哪一種），找出這個 key 背後「最可靠」對應到的身份。
+//
+// 這不是第二套身份系統——合併規則完全建立在上面 IDENTITY_TYPES／
+// KEY_PREFIX／ESTIMATED_TYPES 已定義的同一套優先順序之上，只是額外查詢
+// line_members／line_member_sessions（這兩張表本來就是既有 LINE CRM 基礎
+// 設施，見 fix18-10-hotfix23-E），把「同一人跨裝置／匿名轉會員」的既有
+// 資料串起來，不新建任何身份判斷邏輯或資料表。
+//
+// 合併規則（需求文件 D，僅使用「決定性」連結，不臆測）：
+//   1. key 本身就是已知的 line_user_id（line_members 有這筆會員）
+//      → 直接視為該 LINE 會員，confidence='high'。
+//   2. key 是曾經被記錄過「這個 visitor_id／session_id／cart_id 屬於某個
+//      LINE 會員」的匿名識別碼（line_member_sessions，在真正的 LINE 登入
+//      當下寫入，不是事後猜測）→ 視為該 LINE 會員，confidence='high'。
+//   3. key 在 analytics_events 出現過，但沒有任何 LINE 連結紀錄
+//      → 保持匿名，回推出真正的 visitor_id（key 可能傳進來的是
+//      session_id／cart_id），confidence='unresolved'，明確不合併。
+//   4. key 完全查無任何紀錄 → found=false（呼叫端應回 404，不得猜測）。
+//
+// 絕對不做的事（需求文件 D.4／D.5）：不使用 IP 做任何合併判斷、不因為
+// 「看起來像同一人」的弱假設（例如同商品/同時段）就合併——只走上面 1/2
+// 兩種有實際資料庫紀錄佐證的決定性連結。
+//
+// Store 隔離：storeId 為必要參數，所有查詢一律 WHERE store_id=?，不同店家
+// 的 line_user_id／visitor_id 就算字串相同也絕不互相合併或讀取。
+// ══════════════════════════════════════════════════════════════════
+
+function _getLinkedVisitorIds(db, storeId, lineUserId) {
+  try {
+    const rows = db.all(
+      "SELECT DISTINCT visitor_id FROM line_member_sessions WHERE store_id=? AND line_user_id=? AND visitor_id != ''",
+      [storeId, lineUserId]
+    );
+    return rows.map((r) => r.visitor_id);
+  } catch (e) { return []; }
+}
+
+function resolveCanonicalVisitor(db, storeId, rawKey) {
+  const key = _clean(rawKey);
+  if (!db || !storeId || !key) return { found: false };
+
+  // 規則 1：key 本身就是已知的 LINE 會員
+  let lm = null;
+  try { lm = db.get('SELECT line_user_id FROM line_members WHERE store_id=? AND line_user_id=?', [storeId, key]); } catch (e) { lm = null; }
+  if (lm && lm.line_user_id) {
+    return {
+      found: true,
+      canonical_type: 'line_user_id',
+      line_user_id: key,
+      visitor_id: null,
+      resolution_method: 'direct_line_member',
+      confidence: 'high',
+      linked_visitor_ids: _getLinkedVisitorIds(db, storeId, key),
+    };
+  }
+
+  // 規則 2：key（可能是 visitor_id／session_id／cart_id）曾在 LINE 登入當下
+  // 被記錄與某個 line_user_id 綁定（line_member_sessions，決定性連結）
+  let link = null;
+  try {
+    link = db.get(
+      `SELECT line_user_id FROM line_member_sessions
+       WHERE store_id=? AND (visitor_id=? OR session_id=? OR cart_id=?)
+       ORDER BY last_seen_at DESC LIMIT 1`,
+      [storeId, key, key, key]
+    );
+  } catch (e) { link = null; }
+  if (link && link.line_user_id) {
+    const lm2 = db.get('SELECT line_user_id FROM line_members WHERE store_id=? AND line_user_id=?', [storeId, link.line_user_id]);
+    if (lm2) {
+      return {
+        found: true,
+        canonical_type: 'line_user_id',
+        line_user_id: link.line_user_id,
+        visitor_id: null,
+        resolution_method: 'visitor_session_link',
+        confidence: 'high',
+        linked_visitor_ids: _getLinkedVisitorIds(db, storeId, link.line_user_id),
+      };
+    }
+  }
+
+  // 規則 3：沒有任何 LINE 連結——保持匿名。key 可能傳進來的是 session_id／
+  // cart_id，回推真正的 visitor_id（同一張 analytics_events，不新建查詢對象）。
+  let visitorId = key;
+  let resolutionMethod = 'anonymous_no_link';
+  let foundAny = false;
+  try {
+    const row = db.get(
+      `SELECT visitor_id FROM analytics_events
+       WHERE store_id=? AND (visitor_id=? OR session_id=? OR cart_id=?) AND visitor_id IS NOT NULL AND visitor_id != ''
+       ORDER BY id ASC LIMIT 1`,
+      [storeId, key, key, key]
+    );
+    if (row && row.visitor_id) {
+      foundAny = true;
+      if (row.visitor_id !== key) { visitorId = row.visitor_id; resolutionMethod = 'session_or_cart_lookup'; }
+    }
+  } catch (e) { foundAny = false; }
+
+  if (!foundAny) {
+    // key 完全查無任何紀錄（既非 LINE 會員、也不是任何已知 session/cart/visitor）
+    return { found: false };
+  }
+
+  return {
+    found: true,
+    canonical_type: 'visitor_id',
+    line_user_id: null,
+    visitor_id: visitorId,
+    resolution_method: resolutionMethod,
+    confidence: 'unresolved', // 匿名訪客：明確標示「未解析成可靠身份」，不臆測合併
+    linked_visitor_ids: [visitorId],
+  };
+}
+
 module.exports = {
   IDENTITY_TYPES,
   ESTIMATED_TYPES,
@@ -129,4 +252,5 @@ module.exports = {
   IDENTITY_TYPE_LABELS,
   identityBasisLabel,
   summarizeIdentityBasis,
+  resolveCanonicalVisitor,
 };
