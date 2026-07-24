@@ -3041,3 +3041,31 @@ input[type="time"]::selection {
   background: rgba(99, 102, 241, .16);
   box-shadow: inset 3px 0 0 0 var(--accent, #6366f1);
 }
+
+/* fix18-10-hotfix30-B5-R5.1-C — Geo Intelligence Center：skeleton loading /
+   coming-soon badge / drilldown drawer。全部新增 scoped class，不更動既有
+   規則（十四、十九、十一）。*/
+.geo-skeleton { display: flex; flex-direction: column; gap: 8px; }
+.geo-skeleton-row {
+  height: 18px; border-radius: 6px;
+  background: linear-gradient(90deg, rgba(255,255,255,.04) 25%, rgba(255,255,255,.09) 37%, rgba(255,255,255,.04) 63%);
+  background-size: 400% 100%;
+  animation: geo-skeleton-shimmer 1.4s ease infinite;
+}
+@keyframes geo-skeleton-shimmer { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
+
+.geo-coming-soon {
+  display: inline-block; font-size: .68rem; padding: 2px 8px; border-radius: 999px;
+  background: rgba(148,163,184,.15); color: var(--text-secondary, #64748b);
+  border: 1px dashed var(--border, #2a2d3e); vertical-align: middle;
+}
+
+.geo-drawer-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 998;
+}
+.geo-drawer {
+  position: fixed; top: 0; right: 0; height: 100%; width: min(380px, 90vw);
+  background: var(--bg-card, #1a1d27); border-left: 1px solid var(--border, #2a2d3e);
+  box-shadow: -8px 0 24px rgba(0,0,0,.35); padding: 20px; z-index: 999; overflow-y: auto;
+}
+@media (max-width: 640px) { .geo-drawer { width: 100vw; } }

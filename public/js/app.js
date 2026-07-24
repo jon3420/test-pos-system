@@ -470,6 +470,14 @@ function renderDashboardV2(data) {
   let html = '';
   html += renderDashboardTodo(data.todo_list);
   html += renderDashboardHome(data);
+  // fix18-10-hotfix30-B5-R5.1-C：Geo Intelligence——完全讀取 R5.1-B 已經
+  // 隨這支 API 回來的 data.geo_summary，不新增任何 API 呼叫；函式定義在
+  // public/js/geo-intelligence.js（於本檔案之後載入，見 index.html）。
+  // typeof 防禦：若該檔案因故未載入，不得讓整個 Dashboard V2 崩潰。
+  if (typeof renderDashboardGeoIntelligence === 'function') {
+    try { html += renderDashboardGeoIntelligence(data); }
+    catch (geoErr) { console.error('[dashboard] geo intelligence render failed:', geoErr); }
+  }
   html += renderDashboardKpiV3(data.kpi, data.kpi_comparison, data.range);
   html += renderDashboardHealthV2(data.health_score_v2, data.range);
   html += renderDashboardTrend30d(data.trend_30d);

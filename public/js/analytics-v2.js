@@ -210,6 +210,10 @@ const AV2_TABS = [
   ['ai', '🤖 AI Insights'],
   ['visitor360', '🧑‍🤝‍🧑 Visitor 360'],
   ['crm_action_center', '🎯 CRM Action Center'],
+  // fix18-10-hotfix30-B5-R5.1-C：Geo Intelligence Center — 完全沿用
+  // R5.1-B 的 /api/analytics/geo/* API，本檔案（analytics-v2.js）只負責
+  // 頁籤註冊與 dispatch，實際渲染邏輯在 public/js/geo-intelligence.js。
+  ['geo', '🌍 Geo Analytics'],
 ];
 function _av2RenderTabs() {
   const el = document.getElementById('av2-tabs');
@@ -289,6 +293,7 @@ function av2Render(data) {
   else if (av2Tab === 'ai') html = _av2Safe(() => _av2RenderAiInsights(v2), 'AI Insights');
   else if (av2Tab === 'visitor360') html = _av2Safe(() => _av2RenderVisitor360Audience(), 'Visitor 360');
   else if (av2Tab === 'crm_action_center') html = _av2Safe(() => _av2RenderCrmActionCenter(), 'CRM Action Center');
+  else if (av2Tab === 'geo') html = _av2Safe(() => _av2RenderGeoTab(), 'Geo Analytics');
   body.innerHTML = html;
   // fix18-10-hotfix31-R4：_av2AudienceEnsureLoaded() 必須在 body.innerHTML 真的
   // 寫入 #av2-audience-body 之後才呼叫——先前寫在 body.innerHTML 賦值「之前」，
@@ -296,6 +301,9 @@ function av2Render(data) {
   // 於 DOM 的舊容器參照，非同步回應回來時永遠找不到目標節點、畫面卡在「載入中」
   // 不會更新（見 scripts/smoke-hotfix31-r4-visitor360-ui.js #26 抓到的真實 bug）。
   if (av2Tab === 'visitor360') _av2AudienceEnsureLoaded();
+  // fix18-10-hotfix30-B5-R5.1-C：同樣的教訓——Geo 分頁的 lazy load 也必須在
+  // body.innerHTML 真正掛載 #av2-geo-body/#av2-geo-alerts-body 之後才觸發。
+  if (av2Tab === 'geo') _av2GeoEnsureLoaded();
 }
 
 // ── 共用元件 ─────────────────────────────────────────────────────────
