@@ -17,6 +17,11 @@
 'use strict';
 
 const { ANALYTICS_CREATED_AT_LOCAL_EXPR: A_LOCAL } = require('./dashboardDate');
+// fix18-10-hotfix31-R4.1（需求文件 B）：唯一的渠道分類/標籤來源，不得另建第二套
+// order_mode → 中文標籤的對照表。渠道值本身在事件寫入當下就已經由
+// utils/channelResolver.js resolveOrderChannel() 算好、存進 analytics_events.order_channel，
+// 這裡只是讀出既有欄位，不重新分類。
+const { ORDER_CHANNELS, ORDER_CHANNEL_LABELS } = require('./channelResolver');
 let maskLineUserId;
 try {
   ({ maskLineUserId } = require('./lineMemberStats'));
@@ -307,7 +312,7 @@ function getFirstTouchMap(db, storeId, cartIds) {
   const map = {};
   if (!cartIds.length) return map;
   const rows = db.all(
-    `SELECT cart_id, visitor_id, session_id, source, campaign, order_mode, identity_key, identity_type, id
+    `SELECT cart_id, visitor_id, session_id, source, campaign, order_mode, order_channel, identity_key, identity_type, id
      FROM analytics_events
      WHERE store_id=? AND cart_id IN (${_inParams(cartIds)})
      ORDER BY id ASC`,
@@ -479,6 +484,12 @@ function _buildRowFromCandidate(c, ctx, opts = {}) {
     display_name: displayName,
     identity_type: isLine ? 'line' : 'visitor',
     order_mode: ['takeout', 'delivery', 'shipping'].includes(orderMode) ? orderMode : (orderMode === 'dine_in' ? 'takeout' : 'unknown'),
+    // fix18-10-hotfix31-R4.1（需求文件 B）：渠道一律讀既有 analytics_events.order_channel
+    // 欄位（寫入當下已由 resolveOrderChannel() 算好），不得在這裡重新用 order_mode
+    // 猜測渠道——這正是「明細顯示外帶/外送，但跟頂層渠道選擇器對不起來」的根因。
+    // 沒有可靠值時一律 'unknown'，不得悄悄併入 line_takeout/line_delivery。
+    channel: (ft.order_channel && ORDER_CHANNELS.includes(ft.order_channel)) ? ft.order_channel : 'unknown',
+    channel_label: ORDER_CHANNEL_LABELS[(ft.order_channel && ORDER_CHANNELS.includes(ft.order_channel)) ? ft.order_channel : 'unknown'],
     source: ft.source || 'Direct',
     campaign: ft.campaign || '(No Campaign)',
     first_added_at: firstAddedLocal,
@@ -584,7 +595,7 @@ function getOpenCartRows(db, storeId, opts = {}) {
 function getCartDetail(db, storeId, cartId, { includeFullUid = false } = {}) {
   if (!cartId) return null;
   const events = db.all(
-    `SELECT id, event_name, product_id, quantity, metadata_json, source, campaign, order_mode,
+    `SELECT id, event_name, product_id, quantity, metadata_json, source, campaign, order_mode, order_channel,
             visitor_id, session_id, identity_key, identity_type, ${A_LOCAL} as created_at_local
      FROM analytics_events
      WHERE store_id=? AND cart_id=?
@@ -700,6 +711,10 @@ function getCartDetail(db, storeId, cartId, { includeFullUid = false } = {}) {
     source: first.source || 'Direct',
     campaign: first.campaign || '(No Campaign)',
     order_mode: orderMode,
+    // fix18-10-hotfix31-R4.1（需求文件 B）：渠道同樣一律讀既有 order_channel 欄位
+    // （用第一筆事件的值，跟 buildRowFromCandidate() 同一套規則），不猜測。
+    channel: (first.order_channel && ORDER_CHANNELS.includes(first.order_channel)) ? first.order_channel : 'unknown',
+    channel_label: ORDER_CHANNEL_LABELS[(first.order_channel && ORDER_CHANNELS.includes(first.order_channel)) ? first.order_channel : 'unknown'],
     items,
     subtotal: round2(subtotal),
     discount: round2(discount),

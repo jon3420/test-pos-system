@@ -19,7 +19,7 @@ const ORDER_CHANNEL_LABELS = {
   pos: '店內 POS',
   line_takeout: 'LINE 外帶',
   line_delivery: 'LINE 外送',
-  shipping: '冷藏宅配',
+  shipping: '宅配',
   reservation: '預訂',
   unknown: '未知',
 };

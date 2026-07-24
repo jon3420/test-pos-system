@@ -2995,3 +2995,49 @@ input[type="time"]::selection {
    既有 Modal（.modal-overlay z-index:99999），否則搜尋建議下拉會被 Modal 蓋住。
    只提高 z-index，不動 .pac-container 其他預設樣式，不影響其他頁面/Modal 外觀。 */
 .pac-container { z-index: 100000 !important; }
+
+/* fix18-10-hotfix31-R4.1（需求文件 D：Dropdown Readability）
+   Visitor 360 Audience 篩選下拉選單（identity/friend_status/visit_frequency/
+   purchase_behavior/activity/sort_by）scoped 樣式。
+
+   根因：原本的 inline style 用了 var(--bg-secondary)，但這個 CSS 變數整份
+   main.css 從未定義過，等於背景色沒有實際生效；深色主題下「文字近白色 +
+   背景未定義（近白/透明）」造成選單展開/反白時文字與背景幾乎同色，看不清楚。
+
+   這裡只 scoped 給 .av2-select，不更動其他頁面既有的 select 樣式（避免
+   影響 Boss Dashboard 或其他既有頁面的下拉選單外觀）。 */
+.av2-select {
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-size: .78rem;
+}
+.av2-select:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+/* option 本身的背景/文字色——瀏覽器對原生 <select> 彈出選單的樣式支援程度
+   因瀏覽器而異（見 CHANGELOG 已知限制／MANUAL REQUIRED 項目），這裡設定
+   規格允許的最大範圍：一般選項、選取中的選項、停用選項。 */
+.av2-select option {
+  background: var(--bg-card);
+  color: var(--text-primary);
+}
+.av2-select option:checked {
+  background: var(--accent);
+  color: #111;
+}
+.av2-select option:disabled {
+  color: var(--text-muted);
+  background: var(--bg-card);
+}
+
+/* fix18-10-hotfix31-R4.1（需求文件 C：Visitor 360 Selected Row Highlight）
+   選取列的視覺樣式改用實際 class（避免深色模式下「只變文字色」不夠明顯），
+   整列背景 + 左側指示條，文字顏色保持不變、仍然可讀。 */
+.av2-audience-row-selected {
+  background: rgba(99, 102, 241, .16);
+  box-shadow: inset 3px 0 0 0 var(--accent, #6366f1);
+}

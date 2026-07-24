@@ -487,14 +487,19 @@ async function main() {
     assert(drawer.includes('—') && !drawer.includes('undefined') && !drawer.includes('NaN'), '56. 缺漏欄位顯示「—」，沒有出現 undefined/NaN 字面字串', drawer.slice(0, 300));
   }
 
-  // 57~58. 關閉重開不重複節點 / 換人清除舊內容
+  // 57~58. 開啟不同訪客不會疊加重複節點 / 換人清除舊內容
+  // fix18-10-hotfix31-R4.1（需求文件 C.5）：再次點擊「同一位」已開啟的訪客現在會
+  // 觸發收合（toggle close），這是本輪刻意新增的行為，不是本測試原本要驗證的
+  // 「不重複疊加節點」問題——改用「開啟另一位、再開回第一位」的情境驗證同一時間
+  // 永遠只有一個「訪客 360」區塊，不會疊加。
   {
     const { dom } = await setupAudiencePage();
     await dom.window.av2AudienceOpenDetail('U_line_member_1');
     const count1 = (dom.window.document.getElementById('av2-audience-drawer').innerHTML.match(/訪客 360/g) || []).length;
-    await dom.window.av2AudienceOpenDetail('U_line_member_1');
+    await dom.window.av2AudienceOpenDetail('v_legacy_unknown'); // 開啟另一位訪客
+    await dom.window.av2AudienceOpenDetail('U_line_member_1'); // 再開回第一位（不是連續點同一位，不會觸發 toggle close）
     const count2 = (dom.window.document.getElementById('av2-audience-drawer').innerHTML.match(/訪客 360/g) || []).length;
-    assert(count1 === 1 && count2 === 1, '57. 重複開啟同一位訪客詳情不會疊加重複的區塊', `count1=${count1} count2=${count2}`);
+    assert(count1 === 1 && count2 === 1, '57. 重複開啟不同訪客詳情不會疊加重複的區塊（同一時間永遠只有一個）', `count1=${count1} count2=${count2}`);
 
     await dom.window.av2AudienceOpenDetail('v_legacy_unknown');
     const drawer2 = dom.window.document.getElementById('av2-audience-drawer').innerHTML;

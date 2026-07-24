@@ -853,8 +853,15 @@ function _av2ExplorerRenderError(msg) {
   </div>`;
 }
 
-// ── 明細表（需求文件 F/G）────────────────────────────────────────────
-const AV2_ORDER_MODE_LABEL = { takeout: '外帶', delivery: '外送', shipping: '宅配', unknown: '—' };
+// ── 明細表（需求文件 F/G；fix18-10-hotfix31-R4.1 需求文件 B：渠道欄位改用
+//    唯一的渠道分類來源，不再用 order_mode 猜測渠道）─────────────────────
+// 共用渠道標籤 helper：一律讀取後端隨 GET /dashboard 一起回傳的
+// channel_filter.labels（來自 utils/channelResolver.js ORDER_CHANNEL_LABELS，
+// 全站唯一來源），不在前端另外硬編一份可能失準的中文對照表。
+function _av2ChannelLabel(channelValue) {
+  const labels = (_av2LastData && _av2LastData.channel_filter && _av2LastData.channel_filter.labels) || {};
+  return labels[channelValue] || labels.unknown || '未知';
+}
 function _av2ExplorerItemsSummary(items) {
   if (!items || !items.length) return '—';
   return items.map(i => `${i.name}${i.variant ? `(${i.variant})` : ''}×${i.qty}`).join('、');
@@ -892,7 +899,7 @@ function _av2ExplorerRenderTable(json) {
       <td style="padding:6px 8px;font-size:12px;white-space:nowrap;max-width:90px;overflow:hidden;text-overflow:ellipsis">${escHtml(r.source||'Direct')}</td>
       <td style="padding:6px 8px;font-size:12px;white-space:nowrap;max-width:100px;overflow:hidden;text-overflow:ellipsis">${escHtml(r.campaign||'—')}</td>
       <td style="padding:6px 8px;font-size:12px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(_av2ExplorerItemsSummary(r.items))}">${escHtml(_av2ExplorerItemsSummary(r.items))}</td>
-      <td style="padding:6px 8px;font-size:12px;white-space:nowrap">${AV2_ORDER_MODE_LABEL[r.order_mode]||'—'}</td>
+      <td style="padding:6px 8px;font-size:12px;white-space:nowrap">${escHtml(r.channel_label || _av2ChannelLabel(r.channel))}</td>
       <td style="padding:6px 8px;font-size:12px;white-space:nowrap">${_nt(r.total)}${r.estimated?'<span style="font-size:9px;color:#f59e0b" title="舊資料估計值，非實際快照">估</span>':''}</td>
       <td style="padding:6px 8px;font-size:12px;white-space:nowrap">${escHtml(r.last_stage||'—')}</td>
       <td style="padding:6px 8px;font-size:12px;white-space:nowrap">${escHtml(r.last_activity_at||'—')}</td>
@@ -905,7 +912,7 @@ function _av2ExplorerRenderTable(json) {
     <thead><tr style="color:var(--text-secondary);font-size:.7rem;text-align:left">
       <th style="padding:6px 8px"><input type="checkbox" onchange="av2ExplorerToggleAll(this.checked)"></th>
       <th style="padding:6px 8px">訪客／會員</th><th style="padding:6px 8px">身份狀態</th><th style="padding:6px 8px">來源</th>
-      <th style="padding:6px 8px">Campaign</th><th style="padding:6px 8px">商品摘要</th><th style="padding:6px 8px">模式</th>
+      <th style="padding:6px 8px">Campaign</th><th style="padding:6px 8px">商品摘要</th><th style="padding:6px 8px">渠道</th>
       <th style="padding:6px 8px">購物車金額</th><th style="padding:6px 8px">最後階段</th><th style="padding:6px 8px">最後活動時間</th>
       <th style="padding:6px 8px">未活動時間</th><th style="padding:6px 8px">目前狀態</th><th style="padding:6px 8px">操作</th>
     </tr></thead><tbody>${trs}</tbody></table></div>`;
@@ -1055,7 +1062,7 @@ function _av2ExplorerDrawerHtml(c, cartId) {
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px">
       <div>
         <div style="font-weight:700;margin-bottom:6px">🛒 購物車內容</div>
-        <div style="font-size:.82rem;color:var(--text-secondary);margin-bottom:6px">${who}　·　模式：${AV2_ORDER_MODE_LABEL[c.order_mode]||'—'}${c.estimated?'　·　<span style="color:#f59e0b">⚠️ 舊資料估計值，非實際快照</span>':''}</div>
+        <div style="font-size:.82rem;color:var(--text-secondary);margin-bottom:6px">${who}　·　渠道：${escHtml(c.channel_label || _av2ChannelLabel(c.channel))}${c.estimated?'　·　<span style="color:#f59e0b">⚠️ 舊資料估計值，非實際快照</span>':''}</div>
         ${itemsHtml}
         <div style="margin-top:8px;font-size:.85rem;display:flex;flex-direction:column;gap:2px">
           <div style="display:flex;justify-content:space-between"><span>小計</span><span>${_nt(c.subtotal)}</span></div>
@@ -1393,8 +1400,13 @@ function _av2AudienceEnsureLoaded() {
 
 function _av2AudienceFilterBarHtml() {
   const f = av2AudienceState.filters;
-  const sel = (id, options, current) => `<select id="${id}" onchange="av2AudienceApplyFilter('${id}', this.value)"
-      style="padding:5px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg-secondary);color:var(--text-primary);font-size:.78rem">
+  // fix18-10-hotfix31-R4.1（需求文件 D）：原本的 inline style 用了
+  // var(--bg-secondary)——這個 CSS 變數在 public/css/main.css 裡從未定義過，
+  // 等於沒有背景色，瀏覽器對 <select>/<option> 彈出選單的預設呈現在深色主題下
+  // 會變成「文字近白色＋背景未定義（近白/透明）」，這正是「選單反白時看不清楚」
+  // 的根因。改用有實際定義、且有完整 option/:checked/:focus 規則的 av2-select
+  // scoped class（見 main.css），不是另外發明一套跟全站選單不同的樣式系統。
+  const sel = (id, options, current) => `<select id="${id}" class="av2-select" onchange="av2AudienceApplyFilter('${id}', this.value)">
       ${options.map(([v, label]) => `<option value="${v}" ${current === v ? 'selected' : ''}>${escHtml(label)}</option>`).join('')}
     </select>`;
   return `<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px">
@@ -1440,6 +1452,9 @@ function av2AudienceSetLimit(n) {
 
 async function av2AudienceFetchAndRender() {
   const mySeq = ++_av2AudienceReqSeq;
+  // 需求文件 C.6/C.23/C.24：篩選/排序/分頁/渠道切換都會走到這裡重新查詢，
+  // 一律先清除選取狀態與已開啟的詳情，避免殘留指向新結果集裡不存在的訪客。
+  _av2AudienceClearSelection();
   const initialBody = document.getElementById('av2-audience-body');
   if (initialBody) initialBody.innerHTML = '<div style="color:var(--text-secondary);padding:14px">載入中...</div>';
 
@@ -1480,13 +1495,29 @@ const AV2_AUDIENCE_TAG_COLOR = {
   '首購客': '#10b981', '回購客': '#10b981', '高價值顧客': '#a855f7', '久未回訪顧客': '#ef4444', '身份未解析': '#94a3b8',
 };
 
+let _av2AudienceOpenKey = null; // 目前開啟詳情的 canonical_key（fix18-10-hotfix31-R4.1 需求文件 C）
+
+// 篩選/排序/分頁/渠道切換時，一律清除選取狀態與已開啟的詳情，避免殘留指向
+// 「已經不在目前結果集裡」的訪客（需求文件 C.6/C.23/C.24）。
+function _av2AudienceClearSelection() {
+  _av2AudienceOpenKey = null;
+  const drawer = document.getElementById('av2-audience-drawer');
+  if (drawer) drawer.innerHTML = '';
+}
+
 function _av2AudienceRowHtml(r) {
   const checked = _av2AudienceSelected.has(r.canonical_key);
+  const isOpen = _av2AudienceOpenKey === r.canonical_key;
   const tags = (r.customer_status_tags || []).map((t) =>
     `<span style="font-size:.68rem;padding:1px 7px;border-radius:99px;background:${(AV2_AUDIENCE_TAG_COLOR[t]||'#64748b')}22;color:${AV2_AUDIENCE_TAG_COLOR[t]||'#64748b'}">${escHtml(t)}</span>`
   ).join(' ');
   const friendLabel = { friend: '好友', not_friend: '非好友', unknown: '未知' }[r.friend_status] || '—';
-  return `<tr>
+  // 需求文件 C：整列可視化選取狀態——不只靠文字顏色，用背景色＋左側指示條，
+  // 深色模式下仍要保持文字可讀（背景用低透明度的 accent 色疊加，不換文字色）。
+  const rowAttrs = isOpen
+    ? ` class="av2-audience-row-selected" aria-selected="true" style="background:rgba(99,102,241,.16);box-shadow:inset 3px 0 0 0 var(--accent, #6366f1)"`
+    : ` aria-selected="false"`;
+  return `<tr${rowAttrs}>
     <td><input type="checkbox" ${checked?'checked':''} onchange="av2AudienceToggleSelect('${escHtml(r.canonical_key)}','${r.member_type}','${escHtml(r.display_name||r.display_key||'')}',this.checked)"></td>
     <td>${escHtml(r.identity_label || r.identity)}</td>
     <td>${escHtml(r.display_name || r.display_key || r.line_uid_masked || '—')}</td>
@@ -1502,7 +1533,7 @@ function _av2AudienceRowHtml(r) {
     <td>${escHtml(r.recent_channel || '—')}</td>
     <td><b title="回訪分數是分析用參考分數，不代表營收或購買機率">${r.revisit_score ?? 0}</b></td>
     <td>${tags}</td>
-    <td><button onclick="av2AudienceOpenDetail('${escHtml(r.canonical_key)}')" style="padding:3px 10px;border-radius:6px;background:var(--info);border:none;color:#fff;cursor:pointer;font-size:.72rem">詳情</button></td>
+    <td><button onclick="av2AudienceOpenDetail('${escHtml(r.canonical_key)}')" style="padding:3px 10px;border-radius:6px;background:${isOpen?'var(--accent, #6366f1)':'var(--info)'};border:none;color:${isOpen?'#111':'#fff'};cursor:pointer;font-size:.72rem;font-weight:${isOpen?'700':'400'}">${isOpen?'查看中':'詳情'}</button></td>
   </tr>`;
 }
 
@@ -1538,6 +1569,15 @@ function _av2AudienceRenderBody() {
     </div>
     <div id="av2-audience-drawer" style="margin-top:12px"></div>`;
 }
+// 只重繪表格列（用於「開啟/收合詳情」造成的選取狀態變化），不動 #av2-audience-drawer
+// 目前顯示的內容——若整個 #av2-audience-body 重繪，會把已經開啟的詳情面板清空。
+function _av2AudienceRerenderRowsOnly() {
+  const box = document.getElementById('av2-audience-body');
+  if (!box) return;
+  const tbody = box.querySelector('table tbody');
+  if (!tbody || !_av2AudienceLastResult) return;
+  tbody.innerHTML = (_av2AudienceLastResult.rows || []).map(_av2AudienceRowHtml).join('');
+}
 
 function av2AudienceToggleSelect(key, memberType, displayName, checked) {
   if (checked) _av2AudienceSelected.set(key, { member_key: key, member_type: memberType, display_name: displayName });
@@ -1558,17 +1598,29 @@ function _av2AudienceScoreBreakdownHtml(row) {
 async function av2AudienceOpenDetail(key) {
   const el = document.getElementById('av2-audience-drawer');
   if (!el) return;
+  // 需求文件 C：再次點擊同一位已「查看中」的訪客 → 收合詳情、清除選取狀態。
+  if (_av2AudienceOpenKey === key) { av2AudienceCloseDetail(); return; }
+  _av2AudienceOpenKey = key;
+  _av2AudienceRerenderRowsOnly(); // 立即反映整列選取樣式，不等 API 回應
   el.innerHTML = `<div class="analytics-card"><div style="color:var(--text-secondary);font-size:.85rem">載入中...</div></div>`;
   const row = ((_av2AudienceLastResult && _av2AudienceLastResult.rows) || []).find((r) => r.canonical_key === key);
   const scoreHtml = _av2AudienceScoreBreakdownHtml(row);
   try {
     const res = await apiFetch('/api/analytics/visitor/' + encodeURIComponent(key));
     const json = await res.json();
+    if (_av2AudienceOpenKey !== key) return; // 這段等待期間使用者已經切換到別的訪客，不覆蓋畫面
     if (!json.success) { el.innerHTML = `<div class="analytics-card">${scoreHtml}<div style="color:var(--text-secondary);font-size:.85rem">找不到這位訪客/會員的詳細資料。</div></div>`; return; }
     el.innerHTML = `<div class="analytics-card">${scoreHtml}${_av2Visitor360Html(json.visitor)}</div>`;
   } catch (e) {
+    if (_av2AudienceOpenKey !== key) return;
     el.innerHTML = `<div class="analytics-card">${scoreHtml}<div style="color:var(--danger);font-size:.85rem">資料載入失敗，請稍後重試。</div></div>`;
   }
+}
+function av2AudienceCloseDetail() {
+  _av2AudienceOpenKey = null;
+  const el = document.getElementById('av2-audience-drawer');
+  if (el) el.innerHTML = '';
+  _av2AudienceRerenderRowsOnly();
 }
 
 // ── Visitor 360 Audience → CRM 分群整合（需求文件 J/K）────────────────
