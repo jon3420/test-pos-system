@@ -243,6 +243,12 @@ async function main() {
     { type: 'delivery_cost_risk', city: '桃園市', district: '八德區', metrics: {}, message: '距離較遠、外送費較高，可能影響轉換', suggestion: '建議檢查外送費是否合理' },
   ], rule_thresholds: {} } };
   const GEO_QUALITY_FIXTURE = { success: true, data: { total_events: 100, identified_events: 90, unknown_events: 10, identified_rate: 0.9, high_count: 60, medium_count: 20, low_count: 10, unknown_confidence_count: 10, high_rate: 0.6, medium_rate: 0.2, low_rate: 0.1, unknown_rate: 0.1, status: 'healthy' } };
+  // R5.2-B1-1 architecture update: Dashboard home now calls /county-summary
+  // via loadGeoDashboardData(). Shape matches the real backend contract
+  // (utils/geoAnalyticsQueries.js:getCountySummary — { ok, rows, unknown }).
+  const GEO_COUNTY_SUMMARY_FIXTURE = { ok: true, rows: [
+    { county_code: '68000', county_name: '桃園市', visitor_count: 42, product_view_visitor_count: 30, cart_visitor_count: 20, checkout_visitor_count: 15, purchase_visitor_count: 12, order_count: 12, revenue: 6000, visitor_to_cart_rate: 47.62, cart_to_purchase_rate: 60, visitor_to_purchase_rate: 28.57, resolved_subdivision_count: 1, unknown_subdivision_visitor_count: 0 },
+  ], unknown: { visitor_count: 5, percentage: 10.64 } };
 
   function buildFetchMock(fetchCalls, opts = {}) {
     return (url, fetchOpts) => {
@@ -254,7 +260,7 @@ async function main() {
       const matchFail = failing.find((f) => u.includes(`/api/analytics/geo/${f}`));
       if (matchFail) { status = 500; body = { success: false, error: '無法讀取區域分析資料' }; }
       else if (u.includes('/api/analytics/dashboard')) body = opts.dashboardFixture || DASHBOARD_FIXTURE_BASE;
-      else if (u.includes('/api/analytics/geo/overview')) body = GEO_OVERVIEW_FIXTURE;
+      else if (u.includes('/api/analytics/geo/overview')) body = opts.overviewFixture || GEO_OVERVIEW_FIXTURE;
       else if (u.includes('/api/analytics/geo/funnel')) body = GEO_FUNNEL_FIXTURE;
       else if (u.includes('/api/analytics/geo/fulfillment')) body = GEO_FULFILLMENT_FIXTURE;
       else if (u.includes('/api/analytics/geo/distance')) body = GEO_DISTANCE_FIXTURE;
@@ -265,6 +271,11 @@ async function main() {
       }
       else if (u.includes('/api/analytics/geo/alerts')) body = GEO_ALERTS_FIXTURE;
       else if (u.includes('/api/analytics/geo/quality')) body = GEO_QUALITY_FIXTURE;
+      // R5.2-B1-1: Dashboard home now calls /county-summary too — must not
+      // silently fall through to the generic `{success:true}` default below
+      // (that shape has no `.data`, which would make the real
+      // loadGeoDashboardData() treat it as a failed call).
+      else if (u.includes('/api/analytics/geo/county-summary')) body = opts.countySummaryFixture || GEO_COUNTY_SUMMARY_FIXTURE;
       else body = { success: true };
       return Promise.resolve({ ok: status === 200, status, json: async () => body });
     };
@@ -336,10 +347,15 @@ async function main() {
     assert(body.includes('Healthy'), 'dashboard: quality status "healthy" rendered with label');
     assert(caughtErrors.length === 0, 'dashboard: no uncaught window errors during initial render', JSON.stringify(caughtErrors));
   }
+  // R5.2-B1-1 architecture update:
+  // Geo Quality is now rendered from live /overview data_quality.status
+  // (see renderGeoQualityBlock() in geo-intelligence.js), not from the old
+  // geo_summary.data_quality — vary the /overview mock fixture per status
+  // instead of the legacy summary object.
   for (const [status, label] of [['degraded', 'Degraded'], ['insufficient_data', 'Insufficient Data'], ['disabled', 'Disabled']]) {
-    const fixture = JSON.parse(JSON.stringify(DASHBOARD_FIXTURE_BASE));
-    fixture.geo_summary.data_quality = { status };
-    const { dom } = await setupDashboard({ dashboardFixture: fixture });
+    const overviewFixture = JSON.parse(JSON.stringify(GEO_OVERVIEW_FIXTURE));
+    overviewFixture.data.data_quality = { status };
+    const { dom } = await setupDashboard({ overviewFixture });
     const body = dom.window.document.getElementById('db-body-v2').innerHTML;
     assert(body.includes(label), `dashboard quality: status=${status} renders label "${label}"`);
   }
@@ -417,23 +433,34 @@ async function main() {
   }
 
   // ── J. Geo Analytics Tab: lazy load + cache ──
+  // R5.2-B1-1 architecture update:
+  // Dashboard home now intentionally loads overview, funnel, alerts, and
+  // county-summary via loadGeoDashboardData(). Dashboard home and the Geo
+  // Analytics tab are two independent, legitimate consumers of
+  // /api/analytics/geo/overview — the old assertions here assumed
+  // Dashboard home never touched /overview at all, so a *lifetime* call
+  // count (===1) is no longer meaningful. Rewritten as delta counts around
+  // just the tab-switch actions, which is what this test actually cares
+  // about (does opening/reopening the Geo tab itself cache correctly).
   {
     const { dom, fetchCalls } = await setupDashboard();
+    const countOverviewCalls = () => fetchCalls.filter(c => c.url.includes('/api/analytics/geo/overview')).length;
+    const beforeOpen = countOverviewCalls(); // includes Dashboard home's own loadGeoDashboardData() call, that's expected now
     await switchToGeoTab(dom);
     const tabsHtml = dom.window.document.getElementById('av2-tabs').innerHTML;
     assert(tabsHtml.includes('Geo Analytics'), 'geo tab: registered in main tab bar');
-    const callsAfterFirstSwitch = fetchCalls.filter(c => c.url.includes('/api/analytics/geo/overview')).length;
-    assert(callsAfterFirstSwitch === 1, 'geo tab: first switch triggers exactly one fetch to overview endpoint');
+    const afterFirstOpen = countOverviewCalls();
+    assert(afterFirstOpen - beforeOpen === 1, 'geo tab: first switch triggers exactly one NEW fetch to overview endpoint (delta, not lifetime total)', `before=${beforeOpen} after=${afterFirstOpen}`);
     dom.window.av2SwitchTab('dashboard');
     await new Promise((r) => setTimeout(r, 10));
     dom.window.av2SwitchTab('geo');
     await new Promise((r) => setTimeout(r, 10));
-    const callsAfterSecondSwitch = fetchCalls.filter(c => c.url.includes('/api/analytics/geo/overview')).length;
-    assert(callsAfterSecondSwitch === 1, 'geo tab: switching away and back uses cache, does not re-fetch');
+    const afterSecondOpen = countOverviewCalls();
+    assert(afterSecondOpen - afterFirstOpen === 0, 'geo tab: switching away and back uses cache, does not re-fetch (delta === 0)');
     dom.window.av2GeoFetchAndRender('overview');
     await new Promise((r) => setTimeout(r, 10));
-    const callsAfterManualReload = fetchCalls.filter(c => c.url.includes('/api/analytics/geo/overview')).length;
-    assert(callsAfterManualReload === 2, 'geo tab: explicit manual reload re-fetches');
+    const afterManualReload = countOverviewCalls();
+    assert(afterManualReload - afterSecondOpen === 1, 'geo tab: explicit manual reload re-fetches (delta === 1)');
     const subTabsHtml = dom.window.document.getElementById('av2-geo-body').innerHTML;
     ['總覽', 'Visitor Funnel', 'Fulfillment', 'Distance', 'Source × Area', 'Geo Quality'].forEach((label) => {
       assert(subTabsHtml.includes(label), `geo tab: sub-tab "${label}" present`);
@@ -660,7 +687,42 @@ async function main() {
     assert(geoBody.includes('總覽') || geoBody.includes('Overview') || geoBody.length > 0, 'error isolation: alerts failure does not block the rest of the Geo tab from rendering');
   }
 
-  // ── R. Promise.all (dashboard lazy widgets fire concurrently) ──
+  // ── J2. Dashboard home KPI: county-summary partial failure ──
+  // R5.2-B1-1 architecture update (robustness fix, not just a test fixture
+  // change): loadGeoDashboardData() only requires overview+funnel to
+  // succeed. county-summary (and alerts) are allowed to fail independently
+  // — their failure must not blank out the KPI cards or Top 3 areas that
+  // come from overview/funnel.
+  {
+    const { dom } = await setupDashboard({ failEndpoints: ['county-summary'] });
+    const body = dom.window.document.getElementById('db-body-v2').innerHTML;
+    assert(body.includes('進站訪客') && body.includes('加入購物車') && body.includes('開始結帳') && body.includes('完成訂單') && body.includes('整體成交率'),
+      'partial failure: county-summary failing still renders all core KPI labels (sourced from overview/funnel, unaffected)');
+    assert(body.includes('高意願區域') && body.includes('高流量低轉換'),
+      'partial failure: county-summary failing still renders the Top 3 sections that depend on funnel, not county-summary');
+    assert(!body.includes('Geo 分析載入失敗'), 'partial failure: county-summary failing alone does NOT trigger the fatal dashboard-wide error state');
+    assert(body.includes('外送成交（依訪客來源縣市）Top 3暫時無法載入') || body.includes('暫時無法載入'),
+      'partial failure: the specific county-summary-dependent section discloses that it failed to load, rather than silently showing nothing');
+  }
+  {
+    // 對照組：overview（必要 API）失敗時，仍必須是 fatal error（不能連這個都變成 partial）。
+    const { dom } = await setupDashboard({ failEndpoints: ['overview'] });
+    const body = dom.window.document.getElementById('db-body-v2').innerHTML;
+    assert(body.includes('Geo 分析載入失敗'), 'partial failure control: overview (a required API) failing still produces the fatal error state, unlike county-summary');
+  }
+
+  // R5.2-B1-1 architecture update:
+  // Dashboard home now intentionally loads overview, funnel, alerts, and
+  // county-summary via loadGeoDashboardData(), *in addition to* the
+  // pre-existing legacy lazy-widget group (source-area/fulfillment/
+  // distance/funnel) fired by _geoIntelLazyLoad(). Both groups are
+  // legitimate concurrent consumers triggered by the same
+  // renderDashboardGeoIntelligence() call. funnel is the one endpoint both
+  // groups call independently (different query params/purpose) — that is
+  // two real callers, not an accidental duplicate fetch. Assertions below
+  // validate bounded requests per group and continued same-tick
+  // concurrency, instead of a single flat "exactly 4" count that predates
+  // this round's architecture.
   {
     const timestamps = [];
     const { dom } = await setupDashboard({
@@ -678,20 +740,53 @@ async function main() {
     dom.window.loadDashboardV2();
     await new Promise((r) => setTimeout(r, 50));
     const geoCalls = timestamps.filter(t => t.url.includes('/geo/'));
-    assert(geoCalls.length === 4, 'promise.all: exactly 4 lazy geo endpoints called on dashboard home (source-area/fulfillment/distance/funnel)');
+    const LEGACY_ONLY = ['source-area', 'fulfillment', 'distance'];
+    const NEW_KPI_ONLY = ['overview', 'alerts', 'county-summary'];
+    const legacyOnlyCalls = geoCalls.filter(c => LEGACY_ONLY.some(ep => c.url.includes(`/geo/${ep}`)));
+    const newKpiOnlyCalls = geoCalls.filter(c => NEW_KPI_ONLY.some(ep => c.url.includes(`/geo/${ep}`)));
+    const funnelCalls = geoCalls.filter(c => c.url.includes('/geo/funnel'));
+    assert(legacyOnlyCalls.length === 3, 'promise.all: legacy lazy widget group fires its 3 unique-to-it endpoints (source-area/fulfillment/distance) exactly once each', `got ${legacyOnlyCalls.length}`);
+    assert(newKpiOnlyCalls.length === 3, 'promise.all: new KPI block group fires its 3 unique-to-it endpoints (overview/alerts/county-summary) exactly once each', `got ${newKpiOnlyCalls.length}`);
+    assert(funnelCalls.length === 2, 'promise.all: /funnel is called exactly twice — once by the legacy lazy widget group, once by loadGeoDashboardData() — two independent real consumers, not a duplicate-fetch bug', `got ${funnelCalls.length}`);
+    assert(geoCalls.length === 8, 'promise.all: 8 total geo calls this render cycle (3 legacy-only + 3 new-KPI-only + 2×funnel)', `got ${geoCalls.length}`);
     if (geoCalls.length >= 2) {
       const spread = Math.max(...geoCalls.map(c => c.t)) - Math.min(...geoCalls.map(c => c.t));
-      assert(spread <= 5, 'promise.all: all 4 lazy calls fired within the same tick (concurrent, not sequential await)');
+      // 兩組各自用獨立的 setTimeout(fn,0) 排程（legacy widgets 與新 KPI block
+      // 互不等待對方），彼此是兩個獨立的 macrotask，不保證落在同一個
+      // microtask tick，但仍應該在幾十毫秒內都送出（不是「等一組完全結束
+      // 才開始下一組」的循序 await）。5ms 對單一 Promise.all 群組合理，但
+      // 兩個獨立群組疊加後门檻太緊，這裡放寬到 30ms，仍足以抓出真的循序
+      // await 的回歸（那種情況 spread 會是幾百 ms 以上）。
+      assert(spread <= 30, 'promise.all: both groups (legacy widgets + new KPI block) fire within roughly the same tick (concurrent macrotasks, not sequential await)', `spread=${spread}ms`);
     }
   }
 
-  // ── S. Lazy Load (dashboard does not eagerly call all 7 geo APIs) ──
+  // ── S. Lazy Load (dashboard bounds its geo API surface, per-endpoint) ──
+  // R5.2-B1-1 architecture update: see comment on block R above. Dashboard
+  // home is now allowed to call overview/funnel/alerts/county-summary (via
+  // loadGeoDashboardData()) in addition to the legacy widget group — what
+  // must still hold is that each individual endpoint is called a bounded,
+  // predictable number of times per render (no runaway/duplicate fetching),
+  // and that Dashboard home still never touches the standalone /quality
+  // endpoint (that one remains Geo-tab-only, untouched by this round).
   {
     const { dom, fetchCalls } = await setupDashboard();
     const geoApiCalls = fetchCalls.filter(c => c.url.includes('/api/analytics/geo/'));
+    const countOf = (ep) => geoApiCalls.filter(c => c.url.includes(`/geo/${ep}`)).length;
+    assert(countOf('quality') === 0, 'lazy load: dashboard home never calls the standalone /quality endpoint (Geo Quality is now derived from /overview\'s data_quality field instead)');
+    assert(countOf('overview') <= 1, 'lazy load: dashboard home calls /overview at most once per render');
+    assert(countOf('alerts') <= 1, 'lazy load: dashboard home calls /alerts at most once per render');
+    assert(countOf('county-summary') <= 1, 'lazy load: dashboard home calls /county-summary at most once per render');
+    assert(countOf('source-area') <= 1 && countOf('fulfillment') <= 1 && countOf('distance') <= 1, 'lazy load: legacy widget endpoints still called at most once per render each');
+    assert(countOf('funnel') <= 2, 'lazy load: /funnel called at most twice per render (once per legitimate consumer group), not more');
+    // R5.2-B1-2 architecture update: Dashboard home now also calls
+    // /administrative-areas once per render to populate the two-tier
+    // county/subdivision filter dropdown (see _geoEnsureAdminAreasLoaded()
+    // in geo-intelligence.js). This is a legitimate 8th endpoint type,
+    // bounded the same way as the others below — not an unbounded surface.
+    assert(countOf('administrative-areas') <= 1, 'lazy load: dashboard home calls /administrative-areas at most once per render (populates the county/subdivision filter)');
     const distinctEndpoints = new Set(geoApiCalls.map(c => c.url.split('/api/analytics/geo/')[1].split('?')[0]));
-    assert(!distinctEndpoints.has('alerts') && !distinctEndpoints.has('quality'), 'lazy load: dashboard home does not eagerly call alerts/quality endpoints (only on Geo tab)');
-    assert(distinctEndpoints.size <= 4, 'lazy load: dashboard home calls at most the 4 lazy widget endpoints, not all 7');
+    assert(distinctEndpoints.size <= 8, 'lazy load: dashboard home touches at most 8 distinct geo endpoint types (the full authorized set plus administrative-areas, minus /quality), not an unbounded surface');
   }
 
   // ── T. Accessibility ──

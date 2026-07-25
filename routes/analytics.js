@@ -539,6 +539,10 @@ router.get('/dashboard', (req, res) => {
     // 沿用同一個 range/channel（不新增第二套日期邏輯，不新增 API），Geo 查詢
     // 失敗或 GEO_ANALYTICS_ENABLED=false 都必須 fail-open，回安全空結構，
     // 絕不能讓整支 Dashboard API 500（見需求文件 Stage 10）。
+    // @deprecated fix18-10-hotfix30-B5-R5.2-B1-1 — Dashboard 前端已換線到
+    // GET /api/analytics/geo/*，不再以這個欄位驅動任何畫面數字。這裡刻意
+    // 保留欄位與計算不變（PRESERVED，非 REMOVED），避免不確定是否還有其他
+    // 呼叫端依賴它時貿然砍掉造成回歸。
     const EMPTY_GEO_SUMMARY = {
       top_intent_areas: [],
       high_traffic_low_conversion: [],

@@ -704,6 +704,14 @@ function getGeoAlerts(db, storeId, filters) {
 
 // ────────────────────────────────────────────────────────────────
 // /dashboard geo_summary（十七、老闆儀表板精簡摘要，最多 3 筆）
+//
+// @deprecated fix18-10-hotfix30-B5-R5.2-B1-1 — Dashboard 首頁的 KPI／
+// Geo Quality／Top 3 區塊已換線到 GET /api/analytics/geo/*（見
+// public/js/geo-intelligence.js:loadGeoDashboardData()），不再讀取這支
+// 函式的回傳值。保留本函式與 GET /api/analytics/dashboard 的
+// data.geo_summary 欄位本身（不刪除、不變更回傳格式），因為尚未逐一確認
+// 是否還有其他頁面／既有 regression 依賴這個欄位；若之後確認完全沒有其他
+// 呼叫端使用，才可以在未來一輪安全移除。
 // ────────────────────────────────────────────────────────────────
 function getGeoDashboardSummary(db, storeId, filters) {
   const funnel = getGeoFunnel(db, storeId, { ...filters, limit: 100, offset: 0, page: 1 });

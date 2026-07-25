@@ -1,5 +1,78 @@
 # CHANGELOG — POS Web Online
 
+## fix18-10-hotfix30-B5-R5.2-B1-2（2026-07-25）
+
+Geo Intelligence 行政區排行榜 + 區域 Funnel + Drill Down。基準版本：`fix18-10-hotfix30-B5-R5.2-B1-1`。
+
+### New
+
+- 行政區排行榜（Dashboard「Geo Intelligence」區塊內新增，欄位：行政區／訪客／加入購物車／開始結帳／完成訂單／成交率，資料全部沿用既有 `/overview` `/funnel` `/county-summary`，不重新查 SQL、不建新 API）
+- 縣市／行政區雙層篩選（資料來源 `/administrative-areas`；縣市變更會自動清除不相容的行政區篩選）
+- 排序（訪客／加入購物車／開始結帳／完成訂單／成交率，升冪／降冪；Unknown 永遠排最後，不受排序方向影響）
+- 搜尋（依行政區名稱子字串比對，純前端，不重新 fetch）
+- 分頁（>20 筆時顯示上一頁／下一頁，純前端切片已載入的 `funnel.areas`）
+- 行政區 Funnel 展開／收合（每列可展開看訪客→加購→結帳→完成訂單四步驟，用已載入資料，不重新 request）
+- 行政區 Drawer（Drill Down：點擊行政區開啟側邊詳情，含訪客數據、Geo Quality、對應 Recommended Actions，同樣不重新 request）
+- Dashboard KPI／Top3／Recommended Actions 同步（切換縣市／行政區會觸發同一次 `loadGeoDashboardData()` 重新載入，KPI、Top 3、排行榜、建議一起更新，不維護第二份資料）
+- Admin Areas Cache（依 county_code 快取行政區清單；store 切換或 county_code 改變才重新抓取）
+- `_geoExposeWindowState()`：把 Dashboard Geo 區塊的內部狀態（篩選、排行榜排序狀態、快取、最近一次載入結果）明確掛到 `window` 上，供除錯與測試觀察（沿用既有 `window.__geoDashboardLegacyDisabled` 的模式）
+
+### Fixed
+
+- **API Response Contract Bug**：`/county-summary`、`/administrative-areas`、`/available-areas` 回傳的是 raw `{ok:true, ...}`，不是其他 Geo API 用的 `{success:true, data:{...}}`。B1-1 原本用同一套 `readJson()` 解析全部端點，導致 `county-summary` 在真的接正式後端時無論成功與否都會被誤判為失敗（`county_partial` 永遠是 true）。新增 `readOkJson()` 專門解析這三支端點，`readJson()` 維持給 `/overview` `/funnel` `/alerts` 用
+- `loadGeoDashboardData()`：`county-summary` 改為允許局部失敗（只有 `/overview` `/funnel` 是必要 API），失敗時只讓「行政區排行榜」與「外送成交 Top 3」顯示暫時無法載入，KPI／其餘 Top 3 仍正常
+- `_geoFilterAreasBySearch(null, ...)` 原本會直接丟出 TypeError（沒有防呆 null 陣列），修正為安全回傳空陣列
+- Drawer「建議動作」原本用 city 或 district 任一相符就算數（OR），導致同一縣市底下所有行政區的 Drawer 互相顯示到不相關的 alert；改成要求 city 與 district「同時」相符
+- Drawer 的 dialog wrapper 補上 `geo-drawer` class（配合既有 a11y 規則：只有背景遮罩／dialog wrapper 這類非互動控制項的 `<div onclick>` 允許不進 Tab 順序）
+
+### Tests
+
+```
+B1-2 Smoke   150/150 PASS
+B1-1 Smoke   100/100 PASS（回歸驗證，含 Response Parser 修正後）
+Stage 7      140/140 PASS
+Stage 8       90/90  PASS
+Stage 9       62/62  PASS
+Stage 10     230/230 PASS
+R5.1-A        76/76  PASS
+R5.1-B       111/111 PASS
+R5.1-C       196/196 PASS（新增 8 endpoint 上限與 drawer class 對應調整後）
+R5.1-D1      164/164 PASS
+Dashboard UI  20/20  PASS
+0 new regressions
+```
+
+### Known Limitations（本輪未做，留給後續）
+
+- 尚無 Cart Attribution 詳情頁、Source/Campaign 詳情頁
+- 尚無地圖（Leaflet／Heatmap／Marker／Polygon）
+- 尚無 AI 分析／ROI 地圖預測
+
+## fix18-10-hotfix30-B5-R5.2-B1-1（2026-07-25）
+
+Geo Intelligence Dashboard API 換線。基準版本：`fix18-10-hotfix30-B5-R5.2-A-RC1`。
+
+### Changed
+
+- `renderDashboardGeoIntelligence()` 的 KPI／Geo Quality／Top 3 區塊換線到統一 Geo Analytics API（`/overview` `/funnel` `/alerts` `/county-summary`），不再以 `data.geo_summary` 驅動任何數字
+- 新增 Geo Dashboard API Client（`getGeoOverview` / `getGeoFunnel` / `getGeoAlerts` / `getGeoCountySummary`）、AbortController、聚合載入 `loadGeoDashboardData()`
+- 舊 `getGeoDashboardSummary()` 與 `data.geo_summary` 欄位保留（標記 `@deprecated`），不刪除，避免其他既有呼叫端受影響
+
+### Tests
+
+```
+B1-1 Smoke   100/100 PASS
+Stage 7      140/140 PASS
+Stage 8       90/90  PASS
+Stage 9       62/62  PASS
+Stage 10     230/230 PASS
+R5.1-A        76/76  PASS
+R5.1-B       111/111 PASS
+R5.1-C       195/195 PASS
+R5.1-D1      164/164 PASS
+0 new regressions
+```
+
 ## fix18-10-hotfix30-B5-R5.2-A-RC1（2026-07-25）
 
 Release Candidate 1 — Taiwan Administrative Area Intelligence 正式封版。
