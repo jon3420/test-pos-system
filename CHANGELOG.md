@@ -1,6 +1,53 @@
 # CHANGELOG — POS Web Online
 
-## pos-v18-web-online-r1（2026-05-29）
+## fix18-10-hotfix30-B5-R5.2-A-RC1（2026-07-25）
+
+Release Candidate 1 — Taiwan Administrative Area Intelligence 正式封版。
+
+### New
+
+- Taiwan Administrative Dataset（22 縣市／368 鄉鎮市區，含 manifest 與 SHA-256 checksum）
+- County/Subdivision Normalization（`normalizeCounty()` / `normalizeSubdivision()` / `resolveTaiwanAdministrativeArea()`，含台/臺別名、離島覆蓋）
+- Unified Area Enrichment（`resolveStoredArea()` × `_enrichAreaFields()`，acquisition/fulfillment context 完全隔離）
+- Overview Area Filtering（county/subdivision 篩選真正影響全部 KPI，非只篩 top_areas）
+- Funnel Area Filtering
+- Fulfillment Geo Analytics（履約行政區獨立於 Visitor IP Geo）
+- County Summary API（`GET /api/analytics/geo/county-summary`）
+- Administrative Areas / Available Areas API
+- Mixed Context Alerts（acquisition + fulfillment 同時存在、互不覆蓋）
+- Order Fulfillment Geo Write（`routes/line-orders.js` 外送、`routes/line-shipping.js` 宅配）
+- Business Area Reserved Columns（`business_area_code` / `business_area_name`，nullable，本輪僅保留欄位，未啟用）
+- Privacy Scan（遞迴掃描所有 Geo API response，確認無 raw IP／完整地址／電話／secret）
+- Store Isolation（`/overview` / `/funnel` / `/fulfillment` / `/alerts` / `/county-summary` 皆已驗證跨店隔離）
+- Legacy Compatibility（read-time normalization，舊事件無官方代碼時仍可正確解析）
+
+詳見 `docs/R5.2-A-completion.md`、`docs/RC1-release-notes.md`。
+
+### Tests
+
+```
+Stage 7    140/140 PASS
+Stage 8     90/90  PASS
+Stage 9     62/62  PASS
+Stage 10   230/230 PASS
+
+R5.1-A、R5.1-B（111/111）、R5.1-C、R5.1-D1（164/164）
+13 suites PASS
+0 new regressions
+```
+
+### Known Limitations
+
+- `routes/orders.js` / `routes/sync.js` 未寫入履約行政區代碼（僅有原始地址字串／第三方 payload，本輪不猜測地址）
+- Business Area 欄位僅保留（reserved），尚未啟用任何 writer/reader/API/UI
+- 無明確多語句 transaction 包裹訂單建立
+- `orders.items` 為 JSON blob，非獨立資料表
+- 郵遞區號輔助解析：NOT IMPLEMENTED
+- 地圖視覺化：尚未實作（規劃於 R5.2-B）
+
+---
+
+
 
 ### 新增
 - 雲端授權系統（`routes/license.js`）

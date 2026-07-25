@@ -63,6 +63,28 @@ function _commonEventFilterClause(filters) {
   if (filters.geo_confidence) { clauses.push('geo_confidence = ?'); params.push(filters.geo_confidence); }
   if (filters.city) { clauses.push('geo_city = ?'); params.push(filters.city); }
   if (filters.district) { clauses.push('geo_district = ?'); params.push(filters.district); }
+  // fix18-10-hotfix30-B5-R5.2-A（Stage 6.3：county/subdivision 篩選，SQL 必須
+  // parameterized，且必須同時支援新事件的官方代碼欄位與舊事件只有中文名稱的
+  // 情況）——優先用 geo_county_code/geo_subdivision_code 比對（新事件），
+  // 該欄位為 NULL 時 fallback 用 geo_city/geo_district 中文名稱比對（舊事件，
+  // read-time 相容）。filters.countyCode/subdivisionCode 已經在
+  // parseGeoAnalyticsFilters() 用 validateAreaFilters() 驗證過是資料集裡真實
+  // 存在的代碼，這裡只需要查回對應中文名稱即可安全比對，不接受任意字串。
+  if (filters.subdivisionCode) {
+    const { getSubdivisionByCode } = require('./taiwanGeoNormalize');
+    const sub = getSubdivisionByCode(filters.subdivisionCode);
+    if (sub) {
+      clauses.push('(geo_subdivision_code = ? OR (geo_subdivision_code IS NULL AND geo_district = ?))');
+      params.push(sub.subdivision_code, sub.subdivision_name);
+    }
+  } else if (filters.countyCode) {
+    const { getCountyByCode } = require('./taiwanGeoNormalize');
+    const county = getCountyByCode(filters.countyCode);
+    if (county) {
+      clauses.push('(geo_county_code = ? OR (geo_county_code IS NULL AND geo_city = ?))');
+      params.push(county.county_code, county.county_name);
+    }
+  }
   return { sql: clauses.length ? ' AND ' + clauses.join(' AND ') : '', params };
 }
 
@@ -84,7 +106,7 @@ function _visitorGeoAttributionCTE(storeId, range) {
       GROUP BY identity_key
     ),
     visitor_geo_attributed AS (
-      SELECT ae.identity_key, ae.geo_city, ae.geo_district
+      SELECT ae.identity_key, ae.geo_city, ae.geo_district, ae.geo_county_code, ae.geo_subdivision_code
       FROM analytics_events ae
       JOIN visitor_geo_earliest e
         ON e.identity_key = ae.identity_key AND e.first_seen = ${A_LOCAL}
@@ -96,6 +118,33 @@ function _visitorGeoAttributionCTE(storeId, range) {
   return { sql, params };
 }
 
+// fix18-10-hotfix30-B5-R5.2-A（Stage 7.9）：對 visitor_geo_attributed CTE（別名
+// vga）套用 county/subdivision 篩選，用同一個「新事件用代碼、代碼為 NULL 時
+// fallback 中文名稱」的 hybrid 規則（見 _commonEventFilterClause 同一套邏輯，
+// 這裡欄位改成帶 vga. 前綴，因為呼叫端都是以 CTE 別名 vga 查詢）。
+function _vgaAreaFilterClause(filters) {
+  if (filters.subdivisionCode) {
+    const { getSubdivisionByCode } = require('./taiwanGeoNormalize');
+    const sub = getSubdivisionByCode(filters.subdivisionCode);
+    if (sub) {
+      return {
+        sql: ' AND (vga.geo_subdivision_code = ? OR (vga.geo_subdivision_code IS NULL AND vga.geo_district = ?))',
+        params: [sub.subdivision_code, sub.subdivision_name],
+      };
+    }
+  } else if (filters.countyCode) {
+    const { getCountyByCode } = require('./taiwanGeoNormalize');
+    const county = getCountyByCode(filters.countyCode);
+    if (county) {
+      return {
+        sql: ' AND (vga.geo_county_code = ? OR (vga.geo_county_code IS NULL AND vga.geo_city = ?))',
+        params: [county.county_code, county.county_name],
+      };
+    }
+  }
+  return { sql: '', params: [] };
+}
+
 // ────────────────────────────────────────────────────────────────
 // /overview
 // ────────────────────────────────────────────────────────────────
@@ -103,6 +152,8 @@ function getGeoOverview(db, storeId, filters) {
   const { range, channel } = filters;
   const chEvt = _channelEventsClause(channel);
   const chOrd = _channelOrdersClause(channel);
+  const hasAreaFilter = !!(filters.countyCode || filters.subdivisionCode);
+  const vgaArea = _vgaAreaFilterClause(filters);
 
   const attribution = _visitorGeoAttributionCTE(storeId, range);
   const visitorRow = db.get(
@@ -110,20 +161,41 @@ function getGeoOverview(db, storeId, filters) {
      SELECT
        COUNT(DISTINCT CASE WHEN vga.geo_city IS NOT NULL OR vga.geo_district IS NOT NULL THEN vga.identity_key END) AS identified,
        COUNT(DISTINCT vga.identity_key) AS total
-     FROM visitor_geo_attributed vga`,
-    attribution.params
+     FROM visitor_geo_attributed vga
+     WHERE 1=1${vgaArea.sql}`,
+    [...attribution.params, ...vgaArea.params]
   ) || { identified: 0, total: 0 };
 
-  const totalVisitorsRow = db.get(
-    `SELECT COUNT(DISTINCT identity_key) c FROM analytics_events
-     WHERE store_id=? AND geo_context='visitor' AND event_name=? AND ${A_LOCAL} BETWEEN ? AND ?${chEvt.sql}`,
-    [storeId, GEO_FUNNEL_EVENTS.visit, range.startLocal, range.endLocal, ...chEvt.params]
-  ) || { c: 0 };
+  // fix18-10-hotfix30-B5-R5.2-A（Stage 7.9.1／7.9.6）：有行政區篩選時，
+  // 「總訪客數」改成「這個縣市/行政區內識別到的訪客數」（也就是
+  // visitorRow.identified），而不是全店訪客數——否則會出現「top_areas 已經
+  // 篩選中壢區，但 visitor_count 還是全店」這種不一致。沒有篩選時，維持
+  // 既有行為：totalVisitorsRow 是全店訪客數（含未知），unknown 正常顯示。
+  let identifiedVisitors;
+  let totalVisitors;
+  let unknownVisitors;
+  if (hasAreaFilter) {
+    identifiedVisitors = Number(visitorRow.identified) || 0;
+    totalVisitors = identifiedVisitors; // 篩選生效時，分母就是篩選後的資料集本身
+    unknownVisitors = 0; // Stage 7.9.6：篩選特定行政區時，unknown 不計入
+  } else {
+    const totalVisitorsRow = db.get(
+      `SELECT COUNT(DISTINCT identity_key) c FROM analytics_events
+       WHERE store_id=? AND geo_context='visitor' AND event_name=? AND ${A_LOCAL} BETWEEN ? AND ?${chEvt.sql}`,
+      [storeId, GEO_FUNNEL_EVENTS.visit, range.startLocal, range.endLocal, ...chEvt.params]
+    ) || { c: 0 };
+    identifiedVisitors = Number(visitorRow.identified) || 0;
+    totalVisitors = Number(totalVisitorsRow.c) || 0;
+    unknownVisitors = Math.max(0, totalVisitors - identifiedVisitors);
+  }
 
-  const identifiedVisitors = Number(visitorRow.identified) || 0;
-  const totalVisitors = Number(totalVisitorsRow.c) || 0;
-  const unknownVisitors = Math.max(0, totalVisitors - identifiedVisitors);
-
+  // fix18-10-hotfix30-B5-R5.2-A（Stage 7.9.5）：/overview 是 acquisition
+  // context，fulfillment_geo 這個區塊本來就是「全店履約 Geo 覆蓋率」的獨立
+  // 統計（跟 visitor acquisition geo 是不同資料來源），不套用 county/
+  // subdivision 篩選——套用的話等於要把某張訂單「用哪個 visitor 的 acquisition
+  // geo 下的單」反查回來才能過濾，這是 /county-summary 在
+  // geo_context=fulfillment 分支要做的事，不在這裡重做一次。誠實記錄於
+  // CHANGELOG Known Limitations。
   const fulfillmentRow = db.get(
     `SELECT
        SUM(CASE WHEN order_mode IN ('delivery','shipping') AND fulfillment_geo_source IS NOT NULL THEN 1 ELSE 0 END) AS with_geo,
@@ -135,16 +207,20 @@ function getGeoOverview(db, storeId, filters) {
     [storeId, range.startLocal, range.endLocal, ...chOrd.params]
   ) || {};
 
+  // fix18-10-hotfix30-B5-R5.2-A（Stage 7.9.7）：county filter 生效時，
+  // top_areas 只回該縣市底下的 subdivisions；subdivision filter 生效時，
+  // 最多只會有一列（就是那個 subdivision 自己）。未知區域（geo_city/
+  // geo_district 皆 NULL）本來就被 WHERE 排除，不會進熱門排行。
   const topAreasRows = db.all(
     `${attribution.sql}
      SELECT COALESCE(vga.geo_city,'') AS city, COALESCE(vga.geo_district,'') AS district,
             COUNT(DISTINCT vga.identity_key) AS visitors
      FROM visitor_geo_attributed vga
-     WHERE vga.geo_city IS NOT NULL OR vga.geo_district IS NOT NULL
+     WHERE (vga.geo_city IS NOT NULL OR vga.geo_district IS NOT NULL)${vgaArea.sql}
      GROUP BY vga.geo_city, vga.geo_district
      ORDER BY visitors DESC
      LIMIT 10`,
-    attribution.params
+    [...attribution.params, ...vgaArea.params]
   ) || [];
 
   return {
@@ -258,6 +334,27 @@ function getGeoFulfillment(db, storeId, filters) {
   const districtClause = filters.district ? ' AND fulfillment_geo_district = ?' : '';
   const sourceClause = filters.geo_source ? ' AND fulfillment_geo_source = ?' : '';
   const confClause = filters.geo_confidence ? ' AND fulfillment_geo_confidence = ?' : '';
+  // fix18-10-hotfix30-B5-R5.2-A（Stage 6.3）：履約 context 用
+  // fulfillment_geo_county_code/fulfillment_geo_subdivision_code，跟 Visitor
+  // context 的 geo_county_code 完全分開的欄位（禁止用 acquisition 覆蓋
+  // fulfillment，反之亦然）。同樣是「新欄位優先、NULL 時 fallback 中文名稱」。
+  let areaClause = '';
+  const areaParams = [];
+  if (filters.subdivisionCode) {
+    const { getSubdivisionByCode } = require('./taiwanGeoNormalize');
+    const sub = getSubdivisionByCode(filters.subdivisionCode);
+    if (sub) {
+      areaClause = ' AND (fulfillment_geo_subdivision_code = ? OR (fulfillment_geo_subdivision_code IS NULL AND fulfillment_geo_district = ?))';
+      areaParams.push(sub.subdivision_code, sub.subdivision_name);
+    }
+  } else if (filters.countyCode) {
+    const { getCountyByCode } = require('./taiwanGeoNormalize');
+    const county = getCountyByCode(filters.countyCode);
+    if (county) {
+      areaClause = ' AND (fulfillment_geo_county_code = ? OR (fulfillment_geo_county_code IS NULL AND fulfillment_geo_city = ?))';
+      areaParams.push(county.county_code, county.county_name);
+    }
+  }
   const extraParams = [
     ...(filters.city ? [filters.city] : []),
     ...(filters.district ? [filters.district] : []),
@@ -278,11 +375,11 @@ function getGeoFulfillment(db, storeId, filters) {
      FROM orders
      WHERE ${ORDERS_BASE_WHERE} AND created_at BETWEEN ? AND ?
        AND order_mode IN ('delivery','shipping') AND fulfillment_geo_source IS NOT NULL
-       ${cityClause}${districtClause}${sourceClause}${confClause}${chOrd.sql}
+       ${cityClause}${districtClause}${sourceClause}${confClause}${areaClause}${chOrd.sql}
      GROUP BY fulfillment_geo_city, fulfillment_geo_district
      ORDER BY revenue DESC
      LIMIT ? OFFSET ?`,
-    [storeId, range.startLocal, range.endLocal, ...extraParams, ...chOrd.params, limit, offset]
+    [storeId, range.startLocal, range.endLocal, ...extraParams, ...areaParams, ...chOrd.params, limit, offset]
   ) || [];
 
   const oorRows = db.all(
@@ -552,7 +649,7 @@ function getGeoAlerts(db, storeId, filters) {
     if (area.visitors < rules.GEO_ALERT_MIN_VISITORS) continue;
     if (area.visit_to_cart_rate < rules.GEO_ALERT_LOW_CART_RATE && area.submitted_order_visitors === 0) {
       alerts.push({
-        type: 'traffic_waste', severity: 'warning', city: area.city, district: area.district,
+        type: 'traffic_waste', severity: 'warning', geo_context: 'acquisition', city: area.city, district: area.district,
         metrics: { visitors: area.visitors, add_to_cart_visitors: area.add_to_cart_visitors, submitted_order_visitors: area.submitted_order_visitors },
         message: `${area.district || area.city || '此區域'}進站流量不低，但幾乎沒有加入購物車或送出訂單，趨勢顯示轉換可能不理想。`,
         suggestion: '建議檢查此區域的廣告受眾設定或商品是否符合當地需求。',
@@ -561,7 +658,7 @@ function getGeoAlerts(db, storeId, filters) {
     }
     if (area.begin_checkout_visitors > 0 && _rate(area.submitted_order_visitors, area.begin_checkout_visitors) < rules.GEO_ALERT_LOW_ORDER_RATE) {
       alerts.push({
-        type: 'checkout_drop', severity: 'warning', city: area.city, district: area.district,
+        type: 'checkout_drop', severity: 'warning', geo_context: 'acquisition', city: area.city, district: area.district,
         metrics: { begin_checkout_visitors: area.begin_checkout_visitors, submitted_order_visitors: area.submitted_order_visitors },
         message: `${area.district || area.city || '此區域'}開始結帳的人數中，實際送出訂單的比例偏低，可能與外送費、配送範圍或付款方式有關。`,
         suggestion: '建議檢查結帳流程與外送費用是否讓此區域顧客卻步。',
@@ -572,7 +669,7 @@ function getGeoAlerts(db, storeId, filters) {
   for (const area of fulfillment.areas) {
     if (area.average_distance_km > 0 && area.average_delivery_fee > 0 && _rate(area.completed_orders, area.submitted_orders) < rules.GEO_ALERT_LOW_ORDER_RATE) {
       alerts.push({
-        type: 'delivery_cost_risk', severity: 'info', city: area.city, district: area.district,
+        type: 'delivery_cost_risk', severity: 'info', geo_context: 'fulfillment', city: area.city, district: area.district,
         metrics: { average_distance_km: area.average_distance_km, average_delivery_fee: area.average_delivery_fee, conversion_rate: _rate(area.completed_orders, area.submitted_orders) },
         message: `${area.district || area.city || '此區域'}距離較遠、外送費較高，完成付款的比例可能偏低。`,
         suggestion: '建議檢查此距離區間的外送費是否合理，或評估是否需要調整配送範圍。',
@@ -581,7 +678,7 @@ function getGeoAlerts(db, storeId, filters) {
     }
     if (area.out_of_range_attempts >= rules.GEO_ALERT_MIN_VISITORS) {
       alerts.push({
-        type: 'out_of_range_demand', severity: 'info', city: area.city, district: area.district,
+        type: 'out_of_range_demand', severity: 'info', geo_context: 'fulfillment', city: area.city, district: area.district,
         metrics: { out_of_range_attempts: area.out_of_range_attempts },
         message: `${area.district || area.city || '此區域'}有多次嘗試外送但超出配送範圍的紀錄，趨勢顯示此區域可能有未滿足的需求。`,
         suggestion: '建議檢查是否值得擴大此方向的配送範圍。',
@@ -592,6 +689,7 @@ function getGeoAlerts(db, storeId, filters) {
   if (quality.status !== 'healthy') {
     alerts.push({
       type: 'data_quality', severity: quality.status === 'insufficient_data' ? 'info' : 'warning',
+      geo_context: null, scope: 'store', // 全店層級，不屬於任何單一區域，enrichment 略過（見 _enrichAreaFields），即使目前有 county/subdivision 篩選也保留顯示，避免使用者誤以為 Geo Quality 只評估篩選出來的那個區域（Stage 7.10.6）
       city: null, district: null,
       metrics: { unknown_rate: quality.unknown_rate, total_events: quality.total_events, status: quality.status },
       message: quality.status === 'insufficient_data'
@@ -644,6 +742,192 @@ function getGeoDashboardSummary(db, storeId, filters) {
   };
 }
 
+// ══════════════════════════════════════════════════════════════════
+// fix18-10-hotfix30-B5-R5.2-A：GET /api/analytics/geo/county-summary
+// ══════════════════════════════════════════════════════════════════
+// geo_context=acquisition（預設）：以「進站來源」（Visitor Geo，見
+// _visitorGeoAttributionCTE 的最早有效 geo_city/geo_district）為準，沿用
+// getGeoFunnel() 完全同一套 identity_key 去重／attribution 邏輯，不建立
+//第二套去重規則（需求文件二）。
+//
+// 縣市層級是「讀取時」在 Node.js 端把既有 geo_city/geo_district 聚合結果
+// 用 resolveTaiwanAdministrativeArea() 轉成 county_code，再依 county_code
+// SUM 起來——SQL 本身仍是既有 GROUP BY city/district 的聚合（小結果集，
+// 通常遠小於原始事件數），JS 端只是多一層「按縣市再折疊」，不是把整張表
+// 讀進記憶體分組（見需求文件十八效能原則）。
+function _resolveAreaCodesForRow(city, district) {
+  const { resolveTaiwanAdministrativeArea } = require('./taiwanGeoNormalize');
+  try {
+    return resolveTaiwanAdministrativeArea({ city, district });
+  } catch (e) {
+    return { resolution: 'unknown' };
+  }
+}
+
+function getCountySummary(db, storeId, filters) {
+  const { range, channel } = filters;
+  const chEvt = _channelEventsClause(channel);
+  const common = _commonEventFilterClause(filters);
+  const attribution = _visitorGeoAttributionCTE(storeId, range);
+  // purchase_revenue CTE 需要 JOIN analytics_events × orders，兩張表都有
+  // created_at 欄位，直接用未限定的 A_LOCAL 會產生 SQLite "ambiguous column
+  // name" 錯誤。這裡從同一個canonical 字串（ANALYTICS_CREATED_AT_LOCAL_EXPR）
+  // 動態代換成 `ae.created_at`，而不是另外手寫一份時區規則，維持「不重寫時區
+  // 邏輯」的既有原則（見檔案頂端註解）。
+  const A_LOCAL_AE = A_LOCAL.replace(/\bcreated_at\b/, 'ae.created_at');
+
+  function stepCTE(eventName, alias) {
+    return `
+      ${alias} AS (
+        SELECT DISTINCT identity_key
+        FROM analytics_events
+        WHERE store_id = ? AND event_name = ? AND ${A_LOCAL} BETWEEN ? AND ?${chEvt.sql}${common.sql}
+      )`;
+  }
+  const evtParams = (evt) => [storeId, evt, range.startLocal, range.endLocal, ...chEvt.params, ...common.params];
+
+  const sql = `
+    ${attribution.sql},
+    ${stepCTE(GEO_FUNNEL_EVENTS.visit, 'step_visit')},
+    ${stepCTE(GEO_FUNNEL_EVENTS.productView, 'step_view')},
+    ${stepCTE(GEO_FUNNEL_EVENTS.cart, 'step_cart')},
+    ${stepCTE(GEO_FUNNEL_EVENTS.checkout, 'step_checkout')},
+    ${stepCTE(GEO_FUNNEL_EVENTS.purchase, 'step_purchase')},
+    purchase_revenue AS (
+      SELECT ae.identity_key, COUNT(DISTINCT ae.order_id) AS orders, COALESCE(SUM(o.total), 0) AS revenue
+      FROM analytics_events ae
+      JOIN orders o ON o.id = ae.order_id AND o.store_id = ae.store_id
+      WHERE ae.store_id = ? AND ae.event_name = ? AND ${A_LOCAL_AE} BETWEEN ? AND ?
+      GROUP BY ae.identity_key
+    )
+    SELECT
+      vga.geo_city AS city, vga.geo_district AS district,
+      COUNT(DISTINCT step_visit.identity_key) AS visitors,
+      COUNT(DISTINCT step_view.identity_key) AS product_view_visitors,
+      COUNT(DISTINCT step_cart.identity_key) AS cart_visitors,
+      COUNT(DISTINCT step_checkout.identity_key) AS checkout_visitors,
+      COUNT(DISTINCT step_purchase.identity_key) AS purchase_visitors,
+      COALESCE(SUM(pr.orders), 0) AS order_count,
+      COALESCE(SUM(pr.revenue), 0) AS revenue
+    FROM visitor_geo_attributed vga
+    LEFT JOIN step_visit ON step_visit.identity_key = vga.identity_key
+    LEFT JOIN step_view ON step_view.identity_key = vga.identity_key
+    LEFT JOIN step_cart ON step_cart.identity_key = vga.identity_key
+    LEFT JOIN step_checkout ON step_checkout.identity_key = vga.identity_key
+    LEFT JOIN step_purchase ON step_purchase.identity_key = vga.identity_key
+    LEFT JOIN purchase_revenue pr ON pr.identity_key = vga.identity_key
+    GROUP BY vga.geo_city, vga.geo_district
+    HAVING visitors > 0
+  `;
+  const params = [
+    ...attribution.params,
+    ...evtParams(GEO_FUNNEL_EVENTS.visit),
+    ...evtParams(GEO_FUNNEL_EVENTS.productView),
+    ...evtParams(GEO_FUNNEL_EVENTS.cart),
+    ...evtParams(GEO_FUNNEL_EVENTS.checkout),
+    ...evtParams(GEO_FUNNEL_EVENTS.purchase),
+    storeId, GEO_FUNNEL_EVENTS.purchase, range.startLocal, range.endLocal,
+  ];
+  const districtRows = db.all(sql, params) || [];
+
+  // 未辨識訪客（有 visitor-context 事件，但完全沒有 geo_city/geo_district）——
+  // 獨立查詢，不跟上面已經篩過「至少有 geo」的 attribution CTE 混用。
+  const unknownRow = db.get(
+    `SELECT COUNT(DISTINCT identity_key) AS c FROM analytics_events
+     WHERE store_id=? AND geo_context='visitor' AND geo_city IS NULL AND geo_district IS NULL
+       AND ${A_LOCAL} BETWEEN ? AND ? AND identity_key IS NOT NULL
+       AND event_name IN (?,?,?,?)`,
+    [storeId, range.startLocal, range.endLocal, GEO_FUNNEL_EVENTS.visit, GEO_FUNNEL_EVENTS.productView, GEO_FUNNEL_EVENTS.cart, GEO_FUNNEL_EVENTS.checkout]
+  ) || { c: 0 };
+  const unknownVisitorCount = Number(unknownRow.c) || 0;
+
+  // ── 依 county_code 折疊（district row → county 累加）─────────────────
+  const countyMap = new Map(); // county_code -> aggregated row + set of resolved subdivision_codes
+  let unknownSubdivisionAcrossAll = 0;
+
+  districtRows.forEach((r) => {
+    const resolved = _resolveAreaCodesForRow(r.city, r.district);
+    const visitors = Number(r.visitors) || 0;
+    if (resolved.resolution !== 'subdivision' && resolved.resolution !== 'county') {
+      // 完全無法辨識縣市：這些訪客不計入任何 county 列，但仍計入回應層級的
+      // unknown（跟上面「完全沒有 geo」的 unknownVisitorCount 概念不同——這裡
+      // 是「有 geo_city/geo_district 字串，但無法對到本專案的行政區資料集」，
+      // 例如國外 IP 或資料髒污）。
+      unknownSubdivisionAcrossAll += visitors;
+      return;
+    }
+    const key = resolved.county_code;
+    if (!countyMap.has(key)) {
+      countyMap.set(key, {
+        county_code: resolved.county_code, county_name: resolved.county_name,
+        visitor_count: 0, product_view_visitor_count: 0, cart_visitor_count: 0,
+        checkout_visitor_count: 0, purchase_visitor_count: 0, order_count: 0, revenue: 0,
+        _subdivisionCodes: new Set(), unknown_subdivision_visitor_count: 0,
+      });
+    }
+    const c = countyMap.get(key);
+    c.visitor_count += visitors;
+    c.product_view_visitor_count += Number(r.product_view_visitors) || 0;
+    c.cart_visitor_count += Number(r.cart_visitors) || 0;
+    c.checkout_visitor_count += Number(r.checkout_visitors) || 0;
+    c.purchase_visitor_count += Number(r.purchase_visitors) || 0;
+    c.order_count += Number(r.order_count) || 0;
+    c.revenue += Number(r.revenue) || 0;
+    if (resolved.resolution === 'subdivision') c._subdivisionCodes.add(resolved.subdivision_code);
+    else c.unknown_subdivision_visitor_count += visitors; // 縣市已知，但這一列沒有明確 subdivision
+  });
+
+  let rows = [...countyMap.values()].map((c) => ({
+    county_code: c.county_code, county_name: c.county_name,
+    visitor_count: c.visitor_count,
+    product_view_visitor_count: c.product_view_visitor_count,
+    cart_visitor_count: c.cart_visitor_count,
+    checkout_visitor_count: c.checkout_visitor_count,
+    purchase_visitor_count: c.purchase_visitor_count,
+    order_count: c.order_count,
+    revenue: round2(c.revenue),
+    visitor_to_cart_rate: _percent(c.cart_visitor_count, c.visitor_count),
+    cart_to_purchase_rate: _percent(c.purchase_visitor_count, c.cart_visitor_count),
+    visitor_to_purchase_rate: _percent(c.purchase_visitor_count, c.visitor_count),
+    resolved_subdivision_count: c._subdivisionCodes.size,
+    unknown_subdivision_visitor_count: c.unknown_subdivision_visitor_count,
+  }));
+
+  // fix18-10-hotfix30-B5-R5.2-A（六、county_code 篩選）：篩選發生在聚合之後
+  // ——total/unknown 統計仍反映整店全部縣市（誠實記錄於 CHANGELOG，不偷偷
+  // 把 unknown 也窄化到單一縣市，避免「縣市已篩選」跟「未知比例」兩個數字
+  // 語意打架）。
+  if (filters.countyCode) {
+    rows = rows.filter((r) => r.county_code === filters.countyCode);
+  }
+
+  const totalVisitorsAllRows = rows.reduce((s, r) => s + r.visitor_count, 0) + unknownVisitorCount + unknownSubdivisionAcrossAll;
+  const totalUnknown = unknownVisitorCount + unknownSubdivisionAcrossAll;
+
+  const sortKey = (filters.sort && rows[0] && Object.prototype.hasOwnProperty.call(rows[0], filters.sort)) ? filters.sort : 'cart_visitor_count';
+  const order = filters.order === 'asc' ? 1 : -1;
+  rows.sort((a, b) => order * ((a[sortKey] || 0) - (b[sortKey] || 0)));
+  const limited = filters.limit ? rows.slice(0, filters.limit) : rows;
+
+  return {
+    ok: true,
+    rows: limited,
+    unknown: {
+      visitor_count: totalUnknown,
+      percentage: _percent(totalUnknown, totalVisitorsAllRows),
+    },
+  };
+}
+
+function _percent(numerator, denominator) {
+  const n = Number(numerator) || 0;
+  const d = Number(denominator) || 0;
+  if (d <= 0) return 0;
+  const r = (n / d) * 100;
+  return Number.isFinite(r) ? Math.round(r * 100) / 100 : 0;
+}
+function round2(n) { return Math.round((Number(n) || 0) * 100) / 100; }
+
 module.exports = {
   GEO_FUNNEL_EVENTS,
   getGeoOverview,
@@ -654,4 +938,5 @@ module.exports = {
   getGeoAlerts,
   getGeoQuality,
   getGeoDashboardSummary,
+  getCountySummary,
 };

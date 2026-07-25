@@ -20,7 +20,18 @@ const { ORDER_CHANNELS } = require('./channelResolver');
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
 
-class GeoAnalyticsFilterError extends Error {}
+class GeoAnalyticsFilterError extends Error {
+  // fix18-10-hotfix30-B5-R5.2-A（Stage 6.1：統一錯誤格式）——code 是固定的
+  // 錯誤代碼（unknown_county_code / unknown_subdivision_code /
+  // subdivision_not_in_county / invalid_county_code / invalid_subdivision_code），
+  // 給前端判斷用；message 是給人看的中文說明。code 未提供時（既有非行政區
+  // 篩選錯誤，例如日期格式錯誤）維持 undefined，呼叫端 fallback 用
+  // error.message 當作 code，不影響既有行為。
+  constructor(message, code) {
+    super(message);
+    this.code = code;
+  }
+}
 
 function _sanitizeEnum(value, allowedValues) {
   if (value === undefined || value === null || value === '') return null;
@@ -65,6 +76,16 @@ function parseGeoAnalyticsFilters(query = {}) {
 
   const channel = _sanitizeEnum(query.channel, [...ORDER_CHANNELS, 'all']);
 
+  // fix18-10-hotfix30-B5-R5.2-A（Stage 6：county_code/subdivision_code 篩選）
+  // ——用同一個共用 validateAreaFilters()，不在這裡另外寫一套規則。延遲
+  // require 避免 utils/taiwanGeoNormalize.js × utils/geoAnalyticsFilters.js
+  // 之間出現不必要的頂層循環相依。
+  const { validateAreaFilters } = require('./taiwanGeoNormalize');
+  const areaValidation = validateAreaFilters({ countyCode: query.county_code, subdivisionCode: query.subdivision_code });
+  if (!areaValidation.ok) {
+    throw new GeoAnalyticsFilterError(areaValidation.message, areaValidation.error);
+  }
+
   return {
     range,
     page,
@@ -79,6 +100,12 @@ function parseGeoAnalyticsFilters(query = {}) {
     geo_confidence: _sanitizeEnum(query.geo_confidence, GEO_CONFIDENCE_VALUES),
     city: _sanitizeStr(query.city, 100),
     district: _sanitizeStr(query.district, 100),
+    // fix18-10-hotfix30-B5-R5.2-A：驗證通過後的官方代碼（可能是 null＝未篩選，
+    // 或已通過 unknown_county_code/unknown_subdivision_code/
+    // subdivision_not_in_county 檢查的合法組合，含 subdivision_code 反查出的
+    // county_code）。
+    countyCode: areaValidation.county_code,
+    subdivisionCode: areaValidation.subdivision_code,
   };
 }
 

@@ -12,27 +12,54 @@
 'use strict';
 
 const {
-  GEO_SOURCE, GEO_CONFIDENCE, GEO_RESOLUTION, GEO_CONTEXT, GEO_VERSION_CURRENT,
+  GEO_SOURCE, GEO_CONFIDENCE, GEO_RESOLUTION, GEO_CONTEXT, GEO_ACCURACY, GEO_VERSION_CURRENT,
   UNKNOWN_GEO, distanceBandFor,
 } = require('./geoConstants');
-const { getTrustedClientIp, truncateIpForResolution } = require('./geoSanitizer');
+const { getTrustedClientIp, truncateIpForResolution, isPrivateOrLocalIp } = require('./geoSanitizer');
 const { getGeoFeatureFlags } = require('./geoFeatureFlags');
+// fix18-10-hotfix30-B5-R5.2-A：官方行政區代碼（geo_county_code/
+// geo_subdivision_code）在兩條路徑（Visitor / Delivery）都用同一個解析引擎
+// 算出來，禁止因為代碼解析失敗就阻擋事件或訂單寫入（見需求文件八）——失敗
+// 時 code 一律 null，已消毒的 city/district 字串仍照舊保存。
+const { resolveTaiwanAdministrativeArea } = require('./taiwanGeoNormalize');
 
-// ── IP → 行政區 provider（可插拔，本輪預設無 provider）───────────────────
-// 專案盤點結論：目前 package.json 沒有任何 IP geolocation 套件/服務設定
-// （無 GEO_IP_PROVIDER、無對應 API key），且 sandbox/部署網路清單也未包含
-// 任何 IP geolocation 供應商網域。本輪 R5.1-A 的責任是把「介面、隱私規則、
-// unknown fallback、欄位模型」建好且可回滾；實際要串接哪一家 IP geolocation
-// 服務（MaxMind GeoLite2 本地資料庫、ipapi、廠商 API…）需要另外決定供應商與
-// 授權方式，不在本輪臆測。預設 provider 一律回傳 unknown，不影響任何既有流程。
-let _ipGeoProvider = async function _defaultIpGeoProvider(_truncatedIp) {
-  return null; // 尚未設定 provider → 一律視為無法判定
+// 安全包裝：resolveTaiwanAdministrativeArea() 理論上不會拋例外（純資料查表），
+// 但這裡是「絕不能因為 Geo 代碼解析而讓事件/訂單寫入失敗」的最後一道防線。
+function _safeResolveAreaCodes(city, district) {
+  try {
+    const resolved = resolveTaiwanAdministrativeArea({ city, district });
+    if (resolved.resolution === 'subdivision') {
+      return { geo_county_code: resolved.county_code, geo_subdivision_code: resolved.subdivision_code };
+    }
+    if (resolved.resolution === 'county') {
+      return { geo_county_code: resolved.county_code, geo_subdivision_code: null };
+    }
+    return { geo_county_code: null, geo_subdivision_code: null };
+  } catch (e) {
+    return { geo_county_code: null, geo_subdivision_code: null };
+  }
+}
+
+// ── IP → 行政區 provider ──────────────────────────────────────────────
+// fix18-10-hotfix30-B5-R5.1-D：R5.1-A/B 遺留的「一律回傳 null」預設 provider
+// 正是「已辨識區域：0、未知比例：100%」的根本原因——事件層 wiring（見
+// routes/analytics.js）從一開始就正確呼叫 resolveVisitorGeoCached()，只是
+// 從未接上一個真正會回傳結果的 provider。本輪預設改為委派給
+// utils/geoProviders/index.js 的 Provider Registry（依 GEO_VISITOR_IP_PROVIDER
+// env 決定要不要真的查詢、查哪一家），取代原本寫死的 `return null`。
+// GEO_VISITOR_IP_PROVIDER 未設定或設為 'disabled' 時，Registry 內部一律回傳
+// null，行為與舊版預設完全相同（不影響任何既有安裝）。
+const geoProviderRegistry = require('./geoProviders');
+
+let _ipGeoProvider = async function _defaultIpGeoProvider(_truncatedIp, rawIp) {
+  return geoProviderRegistry.lookupViaConfiguredProvider(rawIp);
 };
 
-// 供未來（R5.1-B 或部署設定階段）注入真正的 provider，例如：
-//   setIpGeoProvider(async (truncatedIpCidr) => ({ country, region, city, confidence }));
-// provider 只會收到已截斷、不可定位單一使用者的 IP/CIDR（見 truncateIpForResolution），
-// 絕對不會收到完整原始 IP。
+// 供測試或未來替換 Provider Registry 時覆寫，例如：
+//   setIpGeoProvider(async (truncatedIpCidr, rawIp) => ({ country, region, city, district, accuracy }));
+// 覆寫函式會同時收到 truncated（向後相容 R5.1-A 既有測試）與 rawIp
+// （R5.1-D 新增，供需要真實 IP 精度的實作使用；呼叫端仍必須遵守隱私原則，
+// 不得把 rawIp 儲存或外流）。
 function setIpGeoProvider(fn) {
   if (typeof fn === 'function') _ipGeoProvider = fn;
 }
@@ -51,31 +78,51 @@ async function resolveVisitorGeo(req, flagsOverride) {
     const rawIp = getTrustedClientIp(req);
     if (!rawIp) return { ...UNKNOWN_GEO, geo_context: GEO_CONTEXT.VISITOR };
 
-    const truncated = truncateIpForResolution(rawIp);
-    if (!truncated) return { ...UNKNOWN_GEO, geo_context: GEO_CONTEXT.VISITOR };
+    // fix18-10-hotfix30-B5-R5.1-D（九、禁止查詢特殊 IP）：loopback／私有網段／
+    // link-local 等 IP 不送 Provider，直接視為 unknown，不消耗任何 Provider 額度。
+    if (isPrivateOrLocalIp(rawIp)) return { ...UNKNOWN_GEO, geo_context: GEO_CONTEXT.VISITOR };
 
-    const resolved = await _ipGeoProvider(truncated);
+    const truncated = truncateIpForResolution(rawIp);
+
+    // fix18-10-hotfix30-B5-R5.1-D：rawIp 只在這次函式呼叫堆疊內短暫傳給
+    // Provider（見 utils/geoProviders/index.js 隱私守門說明），呼叫結束後
+    // 這裡的區域變數即失去所有參照，不會被儲存、不會被回傳給前端。
+    const resolved = await _ipGeoProvider(truncated, rawIp);
     if (!resolved || (!resolved.city && !resolved.region && !resolved.country)) {
       return { ...UNKNOWN_GEO, geo_context: GEO_CONTEXT.VISITOR };
     }
 
-    // IP 縣市 → medium；IP 只到行政區/國家層級 → low（建議規則，見需求文件三）
-    const resolution = resolved.city ? GEO_RESOLUTION.CITY
+    // fix18-10-hotfix30-B5-R5.1-D（十三、Provider Accuracy）：resolution 欄位
+    // 現在允許到 district（Provider 若真的給了行政區字串，不再刻意丟棄），
+    // 但 accuracy 語意上仍只承諾到 city 等級（見下方 accuracy 計算），避免
+    // 前端誤以為「精確定位到某個行政區的哪一戶」。
+    const resolution = resolved.district ? GEO_RESOLUTION.DISTRICT
+      : resolved.city ? GEO_RESOLUTION.CITY
       : resolved.region ? GEO_RESOLUTION.REGION
       : resolved.country ? GEO_RESOLUTION.COUNTRY
       : GEO_RESOLUTION.UNKNOWN;
-    const confidence = resolved.city ? GEO_CONFIDENCE.MEDIUM
+    const confidence = (resolved.city || resolved.district) ? GEO_CONFIDENCE.MEDIUM
       : GEO_CONFIDENCE.LOW;
+    // IP Geo 通常只標記到 city 等級的可信範圍；即使 Provider 回傳 district，
+    // accuracy 仍標示為 city（見需求文件十三：「即使 Provider 回傳 district，
+    // 也要標示約略」），不得因為多了一個 district 字串就假裝定位更精確。
+    const accuracy = (resolved.city || resolved.district) ? GEO_ACCURACY.CITY
+      : resolved.region ? GEO_ACCURACY.REGION
+      : resolved.country ? GEO_ACCURACY.COUNTRY
+      : GEO_ACCURACY.UNKNOWN;
 
     return {
       geo_country: resolved.country || null,
       geo_region: resolved.region || null,
       geo_city: resolved.city || null,
-      geo_district: null, // IP 推定不承諾到區級，避免假裝比實際更精確
-      geo_postal_code: null,
+      geo_district: resolved.district || null,
+      geo_postal_code: resolved.postal_code || null,
       geo_source: GEO_SOURCE.IP,
       geo_confidence: confidence,
       geo_resolution: resolution,
+      geo_accuracy: accuracy,
+      geo_provider: resolved.provider || null,
+      ..._safeResolveAreaCodes(resolved.city, resolved.district),
       // fix18-10-hotfix30-B5-R5.1-B：Visitor Geo 一律 geo_context='visitor'，
       // 且 Visitor Geo 絕不帶距離欄位（三、資料模型補強——不得用 IP 座標/推定
       // 位置計算店家距離）。
@@ -178,6 +225,7 @@ function normalizeDeliveryGeo({
     geo_resolution: resolution,
     geo_context: context,
     geo_version: GEO_VERSION_CURRENT,
+    ..._safeResolveAreaCodes(city, district),
     geo_distance_km: Number.isFinite(geo_distance_km) ? geo_distance_km : null,
     geo_distance_band,
     geo_delivery_zone: deliveryZone || null,
@@ -194,6 +242,7 @@ const FULFILLMENT_EVENT_GEO_FIELDS = [
   'geo_country', 'geo_region', 'geo_city', 'geo_district', 'geo_postal_code',
   'geo_source', 'geo_confidence', 'geo_resolution', 'geo_context', 'geo_version',
   'geo_distance_km', 'geo_distance_band', 'geo_delivery_zone',
+  'geo_county_code', 'geo_subdivision_code',
 ];
 function buildFulfillmentEventGeo(geo) {
   if (!geo || typeof geo !== 'object') {

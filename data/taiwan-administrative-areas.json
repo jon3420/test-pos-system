@@ -1,0 +1,5638 @@
+{
+  "counties": [
+    {
+      "county_code": "09007",
+      "county_name": "連江縣",
+      "county_name_en": "Lienchiang County"
+    },
+    {
+      "county_code": "09020",
+      "county_name": "金門縣",
+      "county_name_en": "Kinmen County"
+    },
+    {
+      "county_code": "10002",
+      "county_name": "宜蘭縣",
+      "county_name_en": "Yilan County"
+    },
+    {
+      "county_code": "10004",
+      "county_name": "新竹縣",
+      "county_name_en": "Hsinchu County"
+    },
+    {
+      "county_code": "10005",
+      "county_name": "苗栗縣",
+      "county_name_en": "Miaoli County"
+    },
+    {
+      "county_code": "10007",
+      "county_name": "彰化縣",
+      "county_name_en": "Changhua County"
+    },
+    {
+      "county_code": "10008",
+      "county_name": "南投縣",
+      "county_name_en": "Nantou County"
+    },
+    {
+      "county_code": "10009",
+      "county_name": "雲林縣",
+      "county_name_en": "Yunlin County"
+    },
+    {
+      "county_code": "10010",
+      "county_name": "嘉義縣",
+      "county_name_en": "Chiayi County"
+    },
+    {
+      "county_code": "10013",
+      "county_name": "屏東縣",
+      "county_name_en": "Pingtung County"
+    },
+    {
+      "county_code": "10014",
+      "county_name": "臺東縣",
+      "county_name_en": "Taitung County"
+    },
+    {
+      "county_code": "10015",
+      "county_name": "花蓮縣",
+      "county_name_en": "Hualien County"
+    },
+    {
+      "county_code": "10016",
+      "county_name": "澎湖縣",
+      "county_name_en": "Penghu County"
+    },
+    {
+      "county_code": "10017",
+      "county_name": "基隆市",
+      "county_name_en": "Keelung City"
+    },
+    {
+      "county_code": "10018",
+      "county_name": "新竹市",
+      "county_name_en": "Hsinchu City"
+    },
+    {
+      "county_code": "10020",
+      "county_name": "嘉義市",
+      "county_name_en": "Chiayi City"
+    },
+    {
+      "county_code": "63000",
+      "county_name": "臺北市",
+      "county_name_en": "Taipei City"
+    },
+    {
+      "county_code": "64000",
+      "county_name": "高雄市",
+      "county_name_en": "Kaohsiung City"
+    },
+    {
+      "county_code": "65000",
+      "county_name": "新北市",
+      "county_name_en": "New Taipei City"
+    },
+    {
+      "county_code": "66000",
+      "county_name": "臺中市",
+      "county_name_en": "Taichung City"
+    },
+    {
+      "county_code": "67000",
+      "county_name": "臺南市",
+      "county_name_en": "Tainan City"
+    },
+    {
+      "county_code": "68000",
+      "county_name": "桃園市",
+      "county_name_en": "Taoyuan City"
+    }
+  ],
+  "subdivisions": [
+    {
+      "county_code": "09007",
+      "county_name": "連江縣",
+      "county_name_en": "Lienchiang County",
+      "subdivision_code": "09007010",
+      "subdivision_name": "南竿鄉",
+      "subdivision_name_en": "Nangan Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "南竿鄉",
+        "南竿",
+        "Nangan Township",
+        "Nangan"
+      ]
+    },
+    {
+      "county_code": "09007",
+      "county_name": "連江縣",
+      "county_name_en": "Lienchiang County",
+      "subdivision_code": "09007020",
+      "subdivision_name": "北竿鄉",
+      "subdivision_name_en": "Beigan Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "北竿鄉",
+        "北竿",
+        "Beigan Township",
+        "Beigan"
+      ]
+    },
+    {
+      "county_code": "09007",
+      "county_name": "連江縣",
+      "county_name_en": "Lienchiang County",
+      "subdivision_code": "09007030",
+      "subdivision_name": "莒光鄉",
+      "subdivision_name_en": "Juguang Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "莒光鄉",
+        "莒光",
+        "Juguang Township",
+        "Juguang"
+      ]
+    },
+    {
+      "county_code": "09007",
+      "county_name": "連江縣",
+      "county_name_en": "Lienchiang County",
+      "subdivision_code": "09007040",
+      "subdivision_name": "東引鄉",
+      "subdivision_name_en": "Dongyin Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "東引鄉",
+        "東引",
+        "Dongyin Township",
+        "Dongyin"
+      ]
+    },
+    {
+      "county_code": "09020",
+      "county_name": "金門縣",
+      "county_name_en": "Kinmen County",
+      "subdivision_code": "09020010",
+      "subdivision_name": "金城鎮",
+      "subdivision_name_en": "Jincheng Township",
+      "subdivision_type": "鎮",
+      "aliases": [
+        "金城鎮",
+        "金城",
+        "Jincheng Township",
+        "Jincheng"
+      ]
+    },
+    {
+      "county_code": "09020",
+      "county_name": "金門縣",
+      "county_name_en": "Kinmen County",
+      "subdivision_code": "09020020",
+      "subdivision_name": "金沙鎮",
+      "subdivision_name_en": "Jinsha Township",
+      "subdivision_type": "鎮",
+      "aliases": [
+        "金沙鎮",
+        "金沙",
+        "Jinsha Township",
+        "Jinsha"
+      ]
+    },
+    {
+      "county_code": "09020",
+      "county_name": "金門縣",
+      "county_name_en": "Kinmen County",
+      "subdivision_code": "09020030",
+      "subdivision_name": "金湖鎮",
+      "subdivision_name_en": "Jinhu Township",
+      "subdivision_type": "鎮",
+      "aliases": [
+        "金湖鎮",
+        "金湖",
+        "Jinhu Township",
+        "Jinhu"
+      ]
+    },
+    {
+      "county_code": "09020",
+      "county_name": "金門縣",
+      "county_name_en": "Kinmen County",
+      "subdivision_code": "09020040",
+      "subdivision_name": "金寧鄉",
+      "subdivision_name_en": "Jinning Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "金寧鄉",
+        "金寧",
+        "Jinning Township",
+        "Jinning"
+      ]
+    },
+    {
+      "county_code": "09020",
+      "county_name": "金門縣",
+      "county_name_en": "Kinmen County",
+      "subdivision_code": "09020050",
+      "subdivision_name": "烈嶼鄉",
+      "subdivision_name_en": "Lieyu Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "烈嶼鄉",
+        "烈嶼",
+        "Lieyu Township",
+        "Lieyu"
+      ]
+    },
+    {
+      "county_code": "09020",
+      "county_name": "金門縣",
+      "county_name_en": "Kinmen County",
+      "subdivision_code": "09020060",
+      "subdivision_name": "烏坵鄉",
+      "subdivision_name_en": "Wuqiu Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "烏坵鄉",
+        "烏坵",
+        "Wuqiu Township",
+        "Wuqiu"
+      ]
+    },
+    {
+      "county_code": "10002",
+      "county_name": "宜蘭縣",
+      "county_name_en": "Yilan County",
+      "subdivision_code": "10002010",
+      "subdivision_name": "宜蘭市",
+      "subdivision_name_en": "Yilan City",
+      "subdivision_type": "市",
+      "aliases": [
+        "宜蘭市",
+        "宜蘭",
+        "Yilan City",
+        "Yilan"
+      ]
+    },
+    {
+      "county_code": "10002",
+      "county_name": "宜蘭縣",
+      "county_name_en": "Yilan County",
+      "subdivision_code": "10002020",
+      "subdivision_name": "羅東鎮",
+      "subdivision_name_en": "Luodong Township",
+      "subdivision_type": "鎮",
+      "aliases": [
+        "羅東鎮",
+        "羅東",
+        "Luodong Township",
+        "Luodong"
+      ]
+    },
+    {
+      "county_code": "10002",
+      "county_name": "宜蘭縣",
+      "county_name_en": "Yilan County",
+      "subdivision_code": "10002030",
+      "subdivision_name": "蘇澳鎮",
+      "subdivision_name_en": "Su'ao Township",
+      "subdivision_type": "鎮",
+      "aliases": [
+        "蘇澳鎮",
+        "蘇澳",
+        "Su'ao Township",
+        "Su'ao"
+      ]
+    },
+    {
+      "county_code": "10002",
+      "county_name": "宜蘭縣",
+      "county_name_en": "Yilan County",
+      "subdivision_code": "10002040",
+      "subdivision_name": "頭城鎮",
+      "subdivision_name_en": "Toucheng Township",
+      "subdivision_type": "鎮",
+      "aliases": [
+        "頭城鎮",
+        "頭城",
+        "Toucheng Township",
+        "Toucheng"
+      ]
+    },
+    {
+      "county_code": "10002",
+      "county_name": "宜蘭縣",
+      "county_name_en": "Yilan County",
+      "subdivision_code": "10002050",
+      "subdivision_name": "礁溪鄉",
+      "subdivision_name_en": "Jiaoxi Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "礁溪鄉",
+        "礁溪",
+        "Jiaoxi Township",
+        "Jiaoxi"
+      ]
+    },
+    {
+      "county_code": "10002",
+      "county_name": "宜蘭縣",
+      "county_name_en": "Yilan County",
+      "subdivision_code": "10002060",
+      "subdivision_name": "壯圍鄉",
+      "subdivision_name_en": "Zhuangwei Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "壯圍鄉",
+        "壯圍",
+        "Zhuangwei Township",
+        "Zhuangwei"
+      ]
+    },
+    {
+      "county_code": "10002",
+      "county_name": "宜蘭縣",
+      "county_name_en": "Yilan County",
+      "subdivision_code": "10002070",
+      "subdivision_name": "員山鄉",
+      "subdivision_name_en": "Yuanshan Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "員山鄉",
+        "員山",
+        "Yuanshan Township",
+        "Yuanshan"
+      ]
+    },
+    {
+      "county_code": "10002",
+      "county_name": "宜蘭縣",
+      "county_name_en": "Yilan County",
+      "subdivision_code": "10002080",
+      "subdivision_name": "冬山鄉",
+      "subdivision_name_en": "Dongshan Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "冬山鄉",
+        "冬山",
+        "Dongshan Township",
+        "Dongshan"
+      ]
+    },
+    {
+      "county_code": "10002",
+      "county_name": "宜蘭縣",
+      "county_name_en": "Yilan County",
+      "subdivision_code": "10002090",
+      "subdivision_name": "五結鄉",
+      "subdivision_name_en": "Wujie Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "五結鄉",
+        "五結",
+        "Wujie Township",
+        "Wujie"
+      ]
+    },
+    {
+      "county_code": "10002",
+      "county_name": "宜蘭縣",
+      "county_name_en": "Yilan County",
+      "subdivision_code": "10002100",
+      "subdivision_name": "三星鄉",
+      "subdivision_name_en": "Sanxing Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "三星鄉",
+        "三星",
+        "Sanxing Township",
+        "Sanxing"
+      ]
+    },
+    {
+      "county_code": "10002",
+      "county_name": "宜蘭縣",
+      "county_name_en": "Yilan County",
+      "subdivision_code": "10002110",
+      "subdivision_name": "大同鄉",
+      "subdivision_name_en": "Datong Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "大同鄉",
+        "大同",
+        "Datong Township",
+        "Datong"
+      ]
+    },
+    {
+      "county_code": "10002",
+      "county_name": "宜蘭縣",
+      "county_name_en": "Yilan County",
+      "subdivision_code": "10002120",
+      "subdivision_name": "南澳鄉",
+      "subdivision_name_en": "Nan'ao Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "南澳鄉",
+        "南澳",
+        "Nan'ao Township",
+        "Nan'ao"
+      ]
+    },
+    {
+      "county_code": "10004",
+      "county_name": "新竹縣",
+      "county_name_en": "Hsinchu County",
+      "subdivision_code": "10004010",
+      "subdivision_name": "竹北市",
+      "subdivision_name_en": "Zhubei City",
+      "subdivision_type": "市",
+      "aliases": [
+        "竹北市",
+        "竹北",
+        "Zhubei City",
+        "Zhubei"
+      ]
+    },
+    {
+      "county_code": "10004",
+      "county_name": "新竹縣",
+      "county_name_en": "Hsinchu County",
+      "subdivision_code": "10004020",
+      "subdivision_name": "竹東鎮",
+      "subdivision_name_en": "Zhudong Township",
+      "subdivision_type": "鎮",
+      "aliases": [
+        "竹東鎮",
+        "竹東",
+        "Zhudong Township",
+        "Zhudong"
+      ]
+    },
+    {
+      "county_code": "10004",
+      "county_name": "新竹縣",
+      "county_name_en": "Hsinchu County",
+      "subdivision_code": "10004030",
+      "subdivision_name": "新埔鎮",
+      "subdivision_name_en": "Xinpu Township",
+      "subdivision_type": "鎮",
+      "aliases": [
+        "新埔鎮",
+        "新埔",
+        "Xinpu Township",
+        "Xinpu"
+      ]
+    },
+    {
+      "county_code": "10004",
+      "county_name": "新竹縣",
+      "county_name_en": "Hsinchu County",
+      "subdivision_code": "10004040",
+      "subdivision_name": "關西鎮",
+      "subdivision_name_en": "Guanxi Township",
+      "subdivision_type": "鎮",
+      "aliases": [
+        "關西鎮",
+        "關西",
+        "Guanxi Township",
+        "Guanxi"
+      ]
+    },
+    {
+      "county_code": "10004",
+      "county_name": "新竹縣",
+      "county_name_en": "Hsinchu County",
+      "subdivision_code": "10004050",
+      "subdivision_name": "湖口鄉",
+      "subdivision_name_en": "Hukou Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "湖口鄉",
+        "湖口",
+        "Hukou Township",
+        "Hukou"
+      ]
+    },
+    {
+      "county_code": "10004",
+      "county_name": "新竹縣",
+      "county_name_en": "Hsinchu County",
+      "subdivision_code": "10004060",
+      "subdivision_name": "新豐鄉",
+      "subdivision_name_en": "Xinfeng Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "新豐鄉",
+        "新豐",
+        "Xinfeng Township",
+        "Xinfeng"
+      ]
+    },
+    {
+      "county_code": "10004",
+      "county_name": "新竹縣",
+      "county_name_en": "Hsinchu County",
+      "subdivision_code": "10004070",
+      "subdivision_name": "芎林鄉",
+      "subdivision_name_en": "Qionglin Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "芎林鄉",
+        "芎林",
+        "Qionglin Township",
+        "Qionglin"
+      ]
+    },
+    {
+      "county_code": "10004",
+      "county_name": "新竹縣",
+      "county_name_en": "Hsinchu County",
+      "subdivision_code": "10004080",
+      "subdivision_name": "橫山鄉",
+      "subdivision_name_en": "Hengshan Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "橫山鄉",
+        "橫山",
+        "Hengshan Township",
+        "Hengshan"
+      ]
+    },
+    {
+      "county_code": "10004",
+      "county_name": "新竹縣",
+      "county_name_en": "Hsinchu County",
+      "subdivision_code": "10004090",
+      "subdivision_name": "北埔鄉",
+      "subdivision_name_en": "Beipu Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "北埔鄉",
+        "北埔",
+        "Beipu Township",
+        "Beipu"
+      ]
+    },
+    {
+      "county_code": "10004",
+      "county_name": "新竹縣",
+      "county_name_en": "Hsinchu County",
+      "subdivision_code": "10004100",
+      "subdivision_name": "寶山鄉",
+      "subdivision_name_en": "Baoshan Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "寶山鄉",
+        "寶山",
+        "Baoshan Township",
+        "Baoshan"
+      ]
+    },
+    {
+      "county_code": "10004",
+      "county_name": "新竹縣",
+      "county_name_en": "Hsinchu County",
+      "subdivision_code": "10004110",
+      "subdivision_name": "峨眉鄉",
+      "subdivision_name_en": "Emei Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "峨眉鄉",
+        "峨眉",
+        "Emei Township",
+        "Emei"
+      ]
+    },
+    {
+      "county_code": "10004",
+      "county_name": "新竹縣",
+      "county_name_en": "Hsinchu County",
+      "subdivision_code": "10004120",
+      "subdivision_name": "尖石鄉",
+      "subdivision_name_en": "Jianshi Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "尖石鄉",
+        "尖石",
+        "Jianshi Township",
+        "Jianshi"
+      ]
+    },
+    {
+      "county_code": "10004",
+      "county_name": "新竹縣",
+      "county_name_en": "Hsinchu County",
+      "subdivision_code": "10004130",
+      "subdivision_name": "五峰鄉",
+      "subdivision_name_en": "Wufeng Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "五峰鄉",
+        "五峰",
+        "Wufeng Township",
+        "Wufeng"
+      ]
+    },
+    {
+      "county_code": "10005",
+      "county_name": "苗栗縣",
+      "county_name_en": "Miaoli County",
+      "subdivision_code": "10005010",
+      "subdivision_name": "苗栗市",
+      "subdivision_name_en": "Miaoli City",
+      "subdivision_type": "市",
+      "aliases": [
+        "苗栗市",
+        "苗栗",
+        "Miaoli City",
+        "Miaoli"
+      ]
+    },
+    {
+      "county_code": "10005",
+      "county_name": "苗栗縣",
+      "county_name_en": "Miaoli County",
+      "subdivision_code": "10005020",
+      "subdivision_name": "苑裡鎮",
+      "subdivision_name_en": "Yuanli Township",
+      "subdivision_type": "鎮",
+      "aliases": [
+        "苑裡鎮",
+        "苑裡",
+        "Yuanli Township",
+        "Yuanli"
+      ]
+    },
+    {
+      "county_code": "10005",
+      "county_name": "苗栗縣",
+      "county_name_en": "Miaoli County",
+      "subdivision_code": "10005030",
+      "subdivision_name": "通霄鎮",
+      "subdivision_name_en": "Tongxiao Township",
+      "subdivision_type": "鎮",
+      "aliases": [
+        "通霄鎮",
+        "通霄",
+        "Tongxiao Township",
+        "Tongxiao"
+      ]
+    },
+    {
+      "county_code": "10005",
+      "county_name": "苗栗縣",
+      "county_name_en": "Miaoli County",
+      "subdivision_code": "10005040",
+      "subdivision_name": "竹南鎮",
+      "subdivision_name_en": "Zhunan Township",
+      "subdivision_type": "鎮",
+      "aliases": [
+        "竹南鎮",
+        "竹南",
+        "Zhunan Township",
+        "Zhunan"
+      ]
+    },
+    {
+      "county_code": "10005",
+      "county_name": "苗栗縣",
+      "county_name_en": "Miaoli County",
+      "subdivision_code": "10005050",
+      "subdivision_name": "頭份市",
+      "subdivision_name_en": "Toufen City",
+      "subdivision_type": "市",
+      "aliases": [
+        "頭份市",
+        "頭份",
+        "Toufen City",
+        "Toufen"
+      ]
+    },
+    {
+      "county_code": "10005",
+      "county_name": "苗栗縣",
+      "county_name_en": "Miaoli County",
+      "subdivision_code": "10005060",
+      "subdivision_name": "後龍鎮",
+      "subdivision_name_en": "Houlong Township",
+      "subdivision_type": "鎮",
+      "aliases": [
+        "後龍鎮",
+        "後龍",
+        "Houlong Township",
+        "Houlong"
+      ]
+    },
+    {
+      "county_code": "10005",
+      "county_name": "苗栗縣",
+      "county_name_en": "Miaoli County",
+      "subdivision_code": "10005070",
+      "subdivision_name": "卓蘭鎮",
+      "subdivision_name_en": "Zhuolan Township",
+      "subdivision_type": "鎮",
+      "aliases": [
+        "卓蘭鎮",
+        "卓蘭",
+        "Zhuolan Township",
+        "Zhuolan"
+      ]
+    },
+    {
+      "county_code": "10005",
+      "county_name": "苗栗縣",
+      "county_name_en": "Miaoli County",
+      "subdivision_code": "10005080",
+      "subdivision_name": "大湖鄉",
+      "subdivision_name_en": "Dahu Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "大湖鄉",
+        "大湖",
+        "Dahu Township",
+        "Dahu"
+      ]
+    },
+    {
+      "county_code": "10005",
+      "county_name": "苗栗縣",
+      "county_name_en": "Miaoli County",
+      "subdivision_code": "10005090",
+      "subdivision_name": "公館鄉",
+      "subdivision_name_en": "Gongguan Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "公館鄉",
+        "公館",
+        "Gongguan Township",
+        "Gongguan"
+      ]
+    },
+    {
+      "county_code": "10005",
+      "county_name": "苗栗縣",
+      "county_name_en": "Miaoli County",
+      "subdivision_code": "10005100",
+      "subdivision_name": "銅鑼鄉",
+      "subdivision_name_en": "Tongluo Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "銅鑼鄉",
+        "銅鑼",
+        "Tongluo Township",
+        "Tongluo"
+      ]
+    },
+    {
+      "county_code": "10005",
+      "county_name": "苗栗縣",
+      "county_name_en": "Miaoli County",
+      "subdivision_code": "10005110",
+      "subdivision_name": "南庄鄉",
+      "subdivision_name_en": "Nanzhuang Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "南庄鄉",
+        "南庄",
+        "Nanzhuang Township",
+        "Nanzhuang"
+      ]
+    },
+    {
+      "county_code": "10005",
+      "county_name": "苗栗縣",
+      "county_name_en": "Miaoli County",
+      "subdivision_code": "10005120",
+      "subdivision_name": "頭屋鄉",
+      "subdivision_name_en": "Touwu Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "頭屋鄉",
+        "頭屋",
+        "Touwu Township",
+        "Touwu"
+      ]
+    },
+    {
+      "county_code": "10005",
+      "county_name": "苗栗縣",
+      "county_name_en": "Miaoli County",
+      "subdivision_code": "10005130",
+      "subdivision_name": "三義鄉",
+      "subdivision_name_en": "Sanyi Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "三義鄉",
+        "三義",
+        "Sanyi Township",
+        "Sanyi"
+      ]
+    },
+    {
+      "county_code": "10005",
+      "county_name": "苗栗縣",
+      "county_name_en": "Miaoli County",
+      "subdivision_code": "10005140",
+      "subdivision_name": "西湖鄉",
+      "subdivision_name_en": "Xihu Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "西湖鄉",
+        "西湖",
+        "Xihu Township",
+        "Xihu"
+      ]
+    },
+    {
+      "county_code": "10005",
+      "county_name": "苗栗縣",
+      "county_name_en": "Miaoli County",
+      "subdivision_code": "10005150",
+      "subdivision_name": "造橋鄉",
+      "subdivision_name_en": "Zaoqiao Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "造橋鄉",
+        "造橋",
+        "Zaoqiao Township",
+        "Zaoqiao"
+      ]
+    },
+    {
+      "county_code": "10005",
+      "county_name": "苗栗縣",
+      "county_name_en": "Miaoli County",
+      "subdivision_code": "10005160",
+      "subdivision_name": "三灣鄉",
+      "subdivision_name_en": "Sanwan Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "三灣鄉",
+        "三灣",
+        "Sanwan Township",
+        "Sanwan"
+      ]
+    },
+    {
+      "county_code": "10005",
+      "county_name": "苗栗縣",
+      "county_name_en": "Miaoli County",
+      "subdivision_code": "10005170",
+      "subdivision_name": "獅潭鄉",
+      "subdivision_name_en": "Shitan Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "獅潭鄉",
+        "獅潭",
+        "Shitan Township",
+        "Shitan"
+      ]
+    },
+    {
+      "county_code": "10005",
+      "county_name": "苗栗縣",
+      "county_name_en": "Miaoli County",
+      "subdivision_code": "10005180",
+      "subdivision_name": "泰安鄉",
+      "subdivision_name_en": "Tai'an Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "泰安鄉",
+        "泰安",
+        "Tai'an Township",
+        "Tai'an"
+      ]
+    },
+    {
+      "county_code": "10007",
+      "county_name": "彰化縣",
+      "county_name_en": "Changhua County",
+      "subdivision_code": "10007010",
+      "subdivision_name": "彰化市",
+      "subdivision_name_en": "Changhua City",
+      "subdivision_type": "市",
+      "aliases": [
+        "彰化市",
+        "彰化",
+        "Changhua City",
+        "Changhua"
+      ]
+    },
+    {
+      "county_code": "10007",
+      "county_name": "彰化縣",
+      "county_name_en": "Changhua County",
+      "subdivision_code": "10007020",
+      "subdivision_name": "鹿港鎮",
+      "subdivision_name_en": "Lukang Township",
+      "subdivision_type": "鎮",
+      "aliases": [
+        "鹿港鎮",
+        "鹿港",
+        "Lukang Township",
+        "Lukang"
+      ]
+    },
+    {
+      "county_code": "10007",
+      "county_name": "彰化縣",
+      "county_name_en": "Changhua County",
+      "subdivision_code": "10007030",
+      "subdivision_name": "和美鎮",
+      "subdivision_name_en": "Hemei Township",
+      "subdivision_type": "鎮",
+      "aliases": [
+        "和美鎮",
+        "和美",
+        "Hemei Township",
+        "Hemei"
+      ]
+    },
+    {
+      "county_code": "10007",
+      "county_name": "彰化縣",
+      "county_name_en": "Changhua County",
+      "subdivision_code": "10007040",
+      "subdivision_name": "線西鄉",
+      "subdivision_name_en": "Xianxi Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "線西鄉",
+        "線西",
+        "Xianxi Township",
+        "Xianxi"
+      ]
+    },
+    {
+      "county_code": "10007",
+      "county_name": "彰化縣",
+      "county_name_en": "Changhua County",
+      "subdivision_code": "10007050",
+      "subdivision_name": "伸港鄉",
+      "subdivision_name_en": "Shengang Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "伸港鄉",
+        "伸港",
+        "Shengang Township",
+        "Shengang"
+      ]
+    },
+    {
+      "county_code": "10007",
+      "county_name": "彰化縣",
+      "county_name_en": "Changhua County",
+      "subdivision_code": "10007060",
+      "subdivision_name": "福興鄉",
+      "subdivision_name_en": "Fuxing Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "福興鄉",
+        "福興",
+        "Fuxing Township",
+        "Fuxing"
+      ]
+    },
+    {
+      "county_code": "10007",
+      "county_name": "彰化縣",
+      "county_name_en": "Changhua County",
+      "subdivision_code": "10007070",
+      "subdivision_name": "秀水鄉",
+      "subdivision_name_en": "Xiushui Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "秀水鄉",
+        "秀水",
+        "Xiushui Township",
+        "Xiushui"
+      ]
+    },
+    {
+      "county_code": "10007",
+      "county_name": "彰化縣",
+      "county_name_en": "Changhua County",
+      "subdivision_code": "10007080",
+      "subdivision_name": "花壇鄉",
+      "subdivision_name_en": "Huatan Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "花壇鄉",
+        "花壇",
+        "Huatan Township",
+        "Huatan"
+      ]
+    },
+    {
+      "county_code": "10007",
+      "county_name": "彰化縣",
+      "county_name_en": "Changhua County",
+      "subdivision_code": "10007090",
+      "subdivision_name": "芬園鄉",
+      "subdivision_name_en": "Fenyuan Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "芬園鄉",
+        "芬園",
+        "Fenyuan Township",
+        "Fenyuan"
+      ]
+    },
+    {
+      "county_code": "10007",
+      "county_name": "彰化縣",
+      "county_name_en": "Changhua County",
+      "subdivision_code": "10007100",
+      "subdivision_name": "員林市",
+      "subdivision_name_en": "Yuanlin City",
+      "subdivision_type": "市",
+      "aliases": [
+        "員林市",
+        "員林",
+        "Yuanlin City",
+        "Yuanlin"
+      ]
+    },
+    {
+      "county_code": "10007",
+      "county_name": "彰化縣",
+      "county_name_en": "Changhua County",
+      "subdivision_code": "10007110",
+      "subdivision_name": "溪湖鎮",
+      "subdivision_name_en": "Xihu Township",
+      "subdivision_type": "鎮",
+      "aliases": [
+        "溪湖鎮",
+        "溪湖",
+        "Xihu Township",
+        "Xihu"
+      ]
+    },
+    {
+      "county_code": "10007",
+      "county_name": "彰化縣",
+      "county_name_en": "Changhua County",
+      "subdivision_code": "10007120",
+      "subdivision_name": "田中鎮",
+      "subdivision_name_en": "Tianzhong Township",
+      "subdivision_type": "鎮",
+      "aliases": [
+        "田中鎮",
+        "田中",
+        "Tianzhong Township",
+        "Tianzhong"
+      ]
+    },
+    {
+      "county_code": "10007",
+      "county_name": "彰化縣",
+      "county_name_en": "Changhua County",
+      "subdivision_code": "10007130",
+      "subdivision_name": "大村鄉",
+      "subdivision_name_en": "Dacun Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "大村鄉",
+        "大村",
+        "Dacun Township",
+        "Dacun"
+      ]
+    },
+    {
+      "county_code": "10007",
+      "county_name": "彰化縣",
+      "county_name_en": "Changhua County",
+      "subdivision_code": "10007140",
+      "subdivision_name": "埔鹽鄉",
+      "subdivision_name_en": "Puyan Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "埔鹽鄉",
+        "埔鹽",
+        "Puyan Township",
+        "Puyan"
+      ]
+    },
+    {
+      "county_code": "10007",
+      "county_name": "彰化縣",
+      "county_name_en": "Changhua County",
+      "subdivision_code": "10007150",
+      "subdivision_name": "埔心鄉",
+      "subdivision_name_en": "Puxin Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "埔心鄉",
+        "埔心",
+        "Puxin Township",
+        "Puxin"
+      ]
+    },
+    {
+      "county_code": "10007",
+      "county_name": "彰化縣",
+      "county_name_en": "Changhua County",
+      "subdivision_code": "10007160",
+      "subdivision_name": "永靖鄉",
+      "subdivision_name_en": "Yongjing Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "永靖鄉",
+        "永靖",
+        "Yongjing Township",
+        "Yongjing"
+      ]
+    },
+    {
+      "county_code": "10007",
+      "county_name": "彰化縣",
+      "county_name_en": "Changhua County",
+      "subdivision_code": "10007170",
+      "subdivision_name": "社頭鄉",
+      "subdivision_name_en": "Shetou Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "社頭鄉",
+        "社頭",
+        "Shetou Township",
+        "Shetou"
+      ]
+    },
+    {
+      "county_code": "10007",
+      "county_name": "彰化縣",
+      "county_name_en": "Changhua County",
+      "subdivision_code": "10007180",
+      "subdivision_name": "二水鄉",
+      "subdivision_name_en": "Ershui Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "二水鄉",
+        "二水",
+        "Ershui Township",
+        "Ershui"
+      ]
+    },
+    {
+      "county_code": "10007",
+      "county_name": "彰化縣",
+      "county_name_en": "Changhua County",
+      "subdivision_code": "10007190",
+      "subdivision_name": "北斗鎮",
+      "subdivision_name_en": "Beidou Township",
+      "subdivision_type": "鎮",
+      "aliases": [
+        "北斗鎮",
+        "北斗",
+        "Beidou Township",
+        "Beidou"
+      ]
+    },
+    {
+      "county_code": "10007",
+      "county_name": "彰化縣",
+      "county_name_en": "Changhua County",
+      "subdivision_code": "10007200",
+      "subdivision_name": "二林鎮",
+      "subdivision_name_en": "Erlin Township",
+      "subdivision_type": "鎮",
+      "aliases": [
+        "二林鎮",
+        "二林",
+        "Erlin Township",
+        "Erlin"
+      ]
+    },
+    {
+      "county_code": "10007",
+      "county_name": "彰化縣",
+      "county_name_en": "Changhua County",
+      "subdivision_code": "10007210",
+      "subdivision_name": "田尾鄉",
+      "subdivision_name_en": "Tianwei Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "田尾鄉",
+        "田尾",
+        "Tianwei Township",
+        "Tianwei"
+      ]
+    },
+    {
+      "county_code": "10007",
+      "county_name": "彰化縣",
+      "county_name_en": "Changhua County",
+      "subdivision_code": "10007220",
+      "subdivision_name": "埤頭鄉",
+      "subdivision_name_en": "Pitou Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "埤頭鄉",
+        "埤頭",
+        "Pitou Township",
+        "Pitou"
+      ]
+    },
+    {
+      "county_code": "10007",
+      "county_name": "彰化縣",
+      "county_name_en": "Changhua County",
+      "subdivision_code": "10007230",
+      "subdivision_name": "芳苑鄉",
+      "subdivision_name_en": "Fangyuan Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "芳苑鄉",
+        "芳苑",
+        "Fangyuan Township",
+        "Fangyuan"
+      ]
+    },
+    {
+      "county_code": "10007",
+      "county_name": "彰化縣",
+      "county_name_en": "Changhua County",
+      "subdivision_code": "10007240",
+      "subdivision_name": "大城鄉",
+      "subdivision_name_en": "Dacheng Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "大城鄉",
+        "大城",
+        "Dacheng Township",
+        "Dacheng"
+      ]
+    },
+    {
+      "county_code": "10007",
+      "county_name": "彰化縣",
+      "county_name_en": "Changhua County",
+      "subdivision_code": "10007250",
+      "subdivision_name": "竹塘鄉",
+      "subdivision_name_en": "Zhutang Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "竹塘鄉",
+        "竹塘",
+        "Zhutang Township",
+        "Zhutang"
+      ]
+    },
+    {
+      "county_code": "10007",
+      "county_name": "彰化縣",
+      "county_name_en": "Changhua County",
+      "subdivision_code": "10007260",
+      "subdivision_name": "溪州鄉",
+      "subdivision_name_en": "Xizhou Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "溪州鄉",
+        "溪州",
+        "Xizhou Township",
+        "Xizhou"
+      ]
+    },
+    {
+      "county_code": "10008",
+      "county_name": "南投縣",
+      "county_name_en": "Nantou County",
+      "subdivision_code": "10008010",
+      "subdivision_name": "南投市",
+      "subdivision_name_en": "Nantou City",
+      "subdivision_type": "市",
+      "aliases": [
+        "南投市",
+        "南投",
+        "Nantou City",
+        "Nantou"
+      ]
+    },
+    {
+      "county_code": "10008",
+      "county_name": "南投縣",
+      "county_name_en": "Nantou County",
+      "subdivision_code": "10008020",
+      "subdivision_name": "埔里鎮",
+      "subdivision_name_en": "Puli Township",
+      "subdivision_type": "鎮",
+      "aliases": [
+        "埔里鎮",
+        "埔里",
+        "Puli Township",
+        "Puli"
+      ]
+    },
+    {
+      "county_code": "10008",
+      "county_name": "南投縣",
+      "county_name_en": "Nantou County",
+      "subdivision_code": "10008030",
+      "subdivision_name": "草屯鎮",
+      "subdivision_name_en": "Caotun Township",
+      "subdivision_type": "鎮",
+      "aliases": [
+        "草屯鎮",
+        "草屯",
+        "Caotun Township",
+        "Caotun"
+      ]
+    },
+    {
+      "county_code": "10008",
+      "county_name": "南投縣",
+      "county_name_en": "Nantou County",
+      "subdivision_code": "10008040",
+      "subdivision_name": "竹山鎮",
+      "subdivision_name_en": "Zhushan Township",
+      "subdivision_type": "鎮",
+      "aliases": [
+        "竹山鎮",
+        "竹山",
+        "Zhushan Township",
+        "Zhushan"
+      ]
+    },
+    {
+      "county_code": "10008",
+      "county_name": "南投縣",
+      "county_name_en": "Nantou County",
+      "subdivision_code": "10008050",
+      "subdivision_name": "集集鎮",
+      "subdivision_name_en": "Jiji Township",
+      "subdivision_type": "鎮",
+      "aliases": [
+        "集集鎮",
+        "集集",
+        "Jiji Township",
+        "Jiji"
+      ]
+    },
+    {
+      "county_code": "10008",
+      "county_name": "南投縣",
+      "county_name_en": "Nantou County",
+      "subdivision_code": "10008060",
+      "subdivision_name": "名間鄉",
+      "subdivision_name_en": "Mingjian Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "名間鄉",
+        "名間",
+        "Mingjian Township",
+        "Mingjian"
+      ]
+    },
+    {
+      "county_code": "10008",
+      "county_name": "南投縣",
+      "county_name_en": "Nantou County",
+      "subdivision_code": "10008070",
+      "subdivision_name": "鹿谷鄉",
+      "subdivision_name_en": "Lugu Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "鹿谷鄉",
+        "鹿谷",
+        "Lugu Township",
+        "Lugu"
+      ]
+    },
+    {
+      "county_code": "10008",
+      "county_name": "南投縣",
+      "county_name_en": "Nantou County",
+      "subdivision_code": "10008080",
+      "subdivision_name": "中寮鄉",
+      "subdivision_name_en": "Zhongliao Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "中寮鄉",
+        "中寮",
+        "Zhongliao Township",
+        "Zhongliao"
+      ]
+    },
+    {
+      "county_code": "10008",
+      "county_name": "南投縣",
+      "county_name_en": "Nantou County",
+      "subdivision_code": "10008090",
+      "subdivision_name": "魚池鄉",
+      "subdivision_name_en": "Yuchi Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "魚池鄉",
+        "魚池",
+        "Yuchi Township",
+        "Yuchi"
+      ]
+    },
+    {
+      "county_code": "10008",
+      "county_name": "南投縣",
+      "county_name_en": "Nantou County",
+      "subdivision_code": "10008100",
+      "subdivision_name": "國姓鄉",
+      "subdivision_name_en": "Guoxing Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "國姓鄉",
+        "國姓",
+        "Guoxing Township",
+        "Guoxing"
+      ]
+    },
+    {
+      "county_code": "10008",
+      "county_name": "南投縣",
+      "county_name_en": "Nantou County",
+      "subdivision_code": "10008110",
+      "subdivision_name": "水里鄉",
+      "subdivision_name_en": "Shuili Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "水里鄉",
+        "水里",
+        "Shuili Township",
+        "Shuili"
+      ]
+    },
+    {
+      "county_code": "10008",
+      "county_name": "南投縣",
+      "county_name_en": "Nantou County",
+      "subdivision_code": "10008120",
+      "subdivision_name": "信義鄉",
+      "subdivision_name_en": "Xinyi Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "信義鄉",
+        "信義",
+        "Xinyi Township",
+        "Xinyi"
+      ]
+    },
+    {
+      "county_code": "10008",
+      "county_name": "南投縣",
+      "county_name_en": "Nantou County",
+      "subdivision_code": "10008130",
+      "subdivision_name": "仁愛鄉",
+      "subdivision_name_en": "Ren'ai Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "仁愛鄉",
+        "仁愛",
+        "Ren'ai Township",
+        "Ren'ai"
+      ]
+    },
+    {
+      "county_code": "10009",
+      "county_name": "雲林縣",
+      "county_name_en": "Yunlin County",
+      "subdivision_code": "10009010",
+      "subdivision_name": "斗六市",
+      "subdivision_name_en": "Douliu City",
+      "subdivision_type": "市",
+      "aliases": [
+        "斗六市",
+        "斗六",
+        "Douliu City",
+        "Douliu"
+      ]
+    },
+    {
+      "county_code": "10009",
+      "county_name": "雲林縣",
+      "county_name_en": "Yunlin County",
+      "subdivision_code": "10009020",
+      "subdivision_name": "斗南鎮",
+      "subdivision_name_en": "Dounan Township",
+      "subdivision_type": "鎮",
+      "aliases": [
+        "斗南鎮",
+        "斗南",
+        "Dounan Township",
+        "Dounan"
+      ]
+    },
+    {
+      "county_code": "10009",
+      "county_name": "雲林縣",
+      "county_name_en": "Yunlin County",
+      "subdivision_code": "10009030",
+      "subdivision_name": "虎尾鎮",
+      "subdivision_name_en": "Huwei Township",
+      "subdivision_type": "鎮",
+      "aliases": [
+        "虎尾鎮",
+        "虎尾",
+        "Huwei Township",
+        "Huwei"
+      ]
+    },
+    {
+      "county_code": "10009",
+      "county_name": "雲林縣",
+      "county_name_en": "Yunlin County",
+      "subdivision_code": "10009040",
+      "subdivision_name": "西螺鎮",
+      "subdivision_name_en": "Xiluo Township",
+      "subdivision_type": "鎮",
+      "aliases": [
+        "西螺鎮",
+        "西螺",
+        "Xiluo Township",
+        "Xiluo"
+      ]
+    },
+    {
+      "county_code": "10009",
+      "county_name": "雲林縣",
+      "county_name_en": "Yunlin County",
+      "subdivision_code": "10009050",
+      "subdivision_name": "土庫鎮",
+      "subdivision_name_en": "Tuku Township",
+      "subdivision_type": "鎮",
+      "aliases": [
+        "土庫鎮",
+        "土庫",
+        "Tuku Township",
+        "Tuku"
+      ]
+    },
+    {
+      "county_code": "10009",
+      "county_name": "雲林縣",
+      "county_name_en": "Yunlin County",
+      "subdivision_code": "10009060",
+      "subdivision_name": "北港鎮",
+      "subdivision_name_en": "Beigang Township",
+      "subdivision_type": "鎮",
+      "aliases": [
+        "北港鎮",
+        "北港",
+        "Beigang Township",
+        "Beigang"
+      ]
+    },
+    {
+      "county_code": "10009",
+      "county_name": "雲林縣",
+      "county_name_en": "Yunlin County",
+      "subdivision_code": "10009070",
+      "subdivision_name": "古坑鄉",
+      "subdivision_name_en": "Gukeng Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "古坑鄉",
+        "古坑",
+        "Gukeng Township",
+        "Gukeng"
+      ]
+    },
+    {
+      "county_code": "10009",
+      "county_name": "雲林縣",
+      "county_name_en": "Yunlin County",
+      "subdivision_code": "10009080",
+      "subdivision_name": "大埤鄉",
+      "subdivision_name_en": "Dapi Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "大埤鄉",
+        "大埤",
+        "Dapi Township",
+        "Dapi"
+      ]
+    },
+    {
+      "county_code": "10009",
+      "county_name": "雲林縣",
+      "county_name_en": "Yunlin County",
+      "subdivision_code": "10009090",
+      "subdivision_name": "莿桐鄉",
+      "subdivision_name_en": "Cihtong Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "莿桐鄉",
+        "莿桐",
+        "Cihtong Township",
+        "Cihtong"
+      ]
+    },
+    {
+      "county_code": "10009",
+      "county_name": "雲林縣",
+      "county_name_en": "Yunlin County",
+      "subdivision_code": "10009100",
+      "subdivision_name": "林內鄉",
+      "subdivision_name_en": "Linnei Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "林內鄉",
+        "林內",
+        "Linnei Township",
+        "Linnei"
+      ]
+    },
+    {
+      "county_code": "10009",
+      "county_name": "雲林縣",
+      "county_name_en": "Yunlin County",
+      "subdivision_code": "10009110",
+      "subdivision_name": "二崙鄉",
+      "subdivision_name_en": "Erlun Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "二崙鄉",
+        "二崙",
+        "Erlun Township",
+        "Erlun"
+      ]
+    },
+    {
+      "county_code": "10009",
+      "county_name": "雲林縣",
+      "county_name_en": "Yunlin County",
+      "subdivision_code": "10009120",
+      "subdivision_name": "崙背鄉",
+      "subdivision_name_en": "Lunbei Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "崙背鄉",
+        "崙背",
+        "Lunbei Township",
+        "Lunbei"
+      ]
+    },
+    {
+      "county_code": "10009",
+      "county_name": "雲林縣",
+      "county_name_en": "Yunlin County",
+      "subdivision_code": "10009130",
+      "subdivision_name": "麥寮鄉",
+      "subdivision_name_en": "Mailiao Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "麥寮鄉",
+        "麥寮",
+        "Mailiao Township",
+        "Mailiao"
+      ]
+    },
+    {
+      "county_code": "10009",
+      "county_name": "雲林縣",
+      "county_name_en": "Yunlin County",
+      "subdivision_code": "10009140",
+      "subdivision_name": "東勢鄉",
+      "subdivision_name_en": "Dongshi Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "東勢鄉",
+        "東勢",
+        "Dongshi Township",
+        "Dongshi"
+      ]
+    },
+    {
+      "county_code": "10009",
+      "county_name": "雲林縣",
+      "county_name_en": "Yunlin County",
+      "subdivision_code": "10009150",
+      "subdivision_name": "褒忠鄉",
+      "subdivision_name_en": "Baozhong Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "褒忠鄉",
+        "褒忠",
+        "Baozhong Township",
+        "Baozhong"
+      ]
+    },
+    {
+      "county_code": "10009",
+      "county_name": "雲林縣",
+      "county_name_en": "Yunlin County",
+      "subdivision_code": "10009160",
+      "subdivision_name": "臺西鄉",
+      "subdivision_name_en": "Taixi Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "臺西鄉",
+        "臺西",
+        "Taixi Township",
+        "Taixi"
+      ]
+    },
+    {
+      "county_code": "10009",
+      "county_name": "雲林縣",
+      "county_name_en": "Yunlin County",
+      "subdivision_code": "10009170",
+      "subdivision_name": "元長鄉",
+      "subdivision_name_en": "Yuanchang Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "元長鄉",
+        "元長",
+        "Yuanchang Township",
+        "Yuanchang"
+      ]
+    },
+    {
+      "county_code": "10009",
+      "county_name": "雲林縣",
+      "county_name_en": "Yunlin County",
+      "subdivision_code": "10009180",
+      "subdivision_name": "四湖鄉",
+      "subdivision_name_en": "Sihu Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "四湖鄉",
+        "四湖",
+        "Sihu Township",
+        "Sihu"
+      ]
+    },
+    {
+      "county_code": "10009",
+      "county_name": "雲林縣",
+      "county_name_en": "Yunlin County",
+      "subdivision_code": "10009190",
+      "subdivision_name": "口湖鄉",
+      "subdivision_name_en": "Kouhu Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "口湖鄉",
+        "口湖",
+        "Kouhu Township",
+        "Kouhu"
+      ]
+    },
+    {
+      "county_code": "10009",
+      "county_name": "雲林縣",
+      "county_name_en": "Yunlin County",
+      "subdivision_code": "10009200",
+      "subdivision_name": "水林鄉",
+      "subdivision_name_en": "Shuilin Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "水林鄉",
+        "水林",
+        "Shuilin Township",
+        "Shuilin"
+      ]
+    },
+    {
+      "county_code": "10010",
+      "county_name": "嘉義縣",
+      "county_name_en": "Chiayi County",
+      "subdivision_code": "10010010",
+      "subdivision_name": "太保市",
+      "subdivision_name_en": "Taibao City",
+      "subdivision_type": "市",
+      "aliases": [
+        "太保市",
+        "太保",
+        "Taibao City",
+        "Taibao"
+      ]
+    },
+    {
+      "county_code": "10010",
+      "county_name": "嘉義縣",
+      "county_name_en": "Chiayi County",
+      "subdivision_code": "10010020",
+      "subdivision_name": "朴子市",
+      "subdivision_name_en": "Puzi City",
+      "subdivision_type": "市",
+      "aliases": [
+        "朴子市",
+        "朴子",
+        "Puzi City",
+        "Puzi"
+      ]
+    },
+    {
+      "county_code": "10010",
+      "county_name": "嘉義縣",
+      "county_name_en": "Chiayi County",
+      "subdivision_code": "10010030",
+      "subdivision_name": "布袋鎮",
+      "subdivision_name_en": "Budai Township",
+      "subdivision_type": "鎮",
+      "aliases": [
+        "布袋鎮",
+        "布袋",
+        "Budai Township",
+        "Budai"
+      ]
+    },
+    {
+      "county_code": "10010",
+      "county_name": "嘉義縣",
+      "county_name_en": "Chiayi County",
+      "subdivision_code": "10010040",
+      "subdivision_name": "大林鎮",
+      "subdivision_name_en": "Dalin Township",
+      "subdivision_type": "鎮",
+      "aliases": [
+        "大林鎮",
+        "大林",
+        "Dalin Township",
+        "Dalin"
+      ]
+    },
+    {
+      "county_code": "10010",
+      "county_name": "嘉義縣",
+      "county_name_en": "Chiayi County",
+      "subdivision_code": "10010050",
+      "subdivision_name": "民雄鄉",
+      "subdivision_name_en": "Minxiong Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "民雄鄉",
+        "民雄",
+        "Minxiong Township",
+        "Minxiong"
+      ]
+    },
+    {
+      "county_code": "10010",
+      "county_name": "嘉義縣",
+      "county_name_en": "Chiayi County",
+      "subdivision_code": "10010060",
+      "subdivision_name": "溪口鄉",
+      "subdivision_name_en": "Xikou Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "溪口鄉",
+        "溪口",
+        "Xikou Township",
+        "Xikou"
+      ]
+    },
+    {
+      "county_code": "10010",
+      "county_name": "嘉義縣",
+      "county_name_en": "Chiayi County",
+      "subdivision_code": "10010070",
+      "subdivision_name": "新港鄉",
+      "subdivision_name_en": "Xingang Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "新港鄉",
+        "新港",
+        "Xingang Township",
+        "Xingang"
+      ]
+    },
+    {
+      "county_code": "10010",
+      "county_name": "嘉義縣",
+      "county_name_en": "Chiayi County",
+      "subdivision_code": "10010080",
+      "subdivision_name": "六腳鄉",
+      "subdivision_name_en": "Lioujiao Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "六腳鄉",
+        "六腳",
+        "Lioujiao Township",
+        "Lioujiao"
+      ]
+    },
+    {
+      "county_code": "10010",
+      "county_name": "嘉義縣",
+      "county_name_en": "Chiayi County",
+      "subdivision_code": "10010090",
+      "subdivision_name": "東石鄉",
+      "subdivision_name_en": "Dongshi Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "東石鄉",
+        "東石",
+        "Dongshi Township",
+        "Dongshi"
+      ]
+    },
+    {
+      "county_code": "10010",
+      "county_name": "嘉義縣",
+      "county_name_en": "Chiayi County",
+      "subdivision_code": "10010100",
+      "subdivision_name": "義竹鄉",
+      "subdivision_name_en": "Yizhu Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "義竹鄉",
+        "義竹",
+        "Yizhu Township",
+        "Yizhu"
+      ]
+    },
+    {
+      "county_code": "10010",
+      "county_name": "嘉義縣",
+      "county_name_en": "Chiayi County",
+      "subdivision_code": "10010110",
+      "subdivision_name": "鹿草鄉",
+      "subdivision_name_en": "Lucao Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "鹿草鄉",
+        "鹿草",
+        "Lucao Township",
+        "Lucao"
+      ]
+    },
+    {
+      "county_code": "10010",
+      "county_name": "嘉義縣",
+      "county_name_en": "Chiayi County",
+      "subdivision_code": "10010120",
+      "subdivision_name": "水上鄉",
+      "subdivision_name_en": "Shuishang Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "水上鄉",
+        "水上",
+        "Shuishang Township",
+        "Shuishang"
+      ]
+    },
+    {
+      "county_code": "10010",
+      "county_name": "嘉義縣",
+      "county_name_en": "Chiayi County",
+      "subdivision_code": "10010130",
+      "subdivision_name": "中埔鄉",
+      "subdivision_name_en": "Zhongpu Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "中埔鄉",
+        "中埔",
+        "Zhongpu Township",
+        "Zhongpu"
+      ]
+    },
+    {
+      "county_code": "10010",
+      "county_name": "嘉義縣",
+      "county_name_en": "Chiayi County",
+      "subdivision_code": "10010140",
+      "subdivision_name": "竹崎鄉",
+      "subdivision_name_en": "Zhuqi Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "竹崎鄉",
+        "竹崎",
+        "Zhuqi Township",
+        "Zhuqi"
+      ]
+    },
+    {
+      "county_code": "10010",
+      "county_name": "嘉義縣",
+      "county_name_en": "Chiayi County",
+      "subdivision_code": "10010150",
+      "subdivision_name": "梅山鄉",
+      "subdivision_name_en": "Meishan Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "梅山鄉",
+        "梅山",
+        "Meishan Township",
+        "Meishan"
+      ]
+    },
+    {
+      "county_code": "10010",
+      "county_name": "嘉義縣",
+      "county_name_en": "Chiayi County",
+      "subdivision_code": "10010160",
+      "subdivision_name": "番路鄉",
+      "subdivision_name_en": "Fanlu Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "番路鄉",
+        "番路",
+        "Fanlu Township",
+        "Fanlu"
+      ]
+    },
+    {
+      "county_code": "10010",
+      "county_name": "嘉義縣",
+      "county_name_en": "Chiayi County",
+      "subdivision_code": "10010170",
+      "subdivision_name": "大埔鄉",
+      "subdivision_name_en": "Dapu Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "大埔鄉",
+        "大埔",
+        "Dapu Township",
+        "Dapu"
+      ]
+    },
+    {
+      "county_code": "10010",
+      "county_name": "嘉義縣",
+      "county_name_en": "Chiayi County",
+      "subdivision_code": "10010180",
+      "subdivision_name": "阿里山鄉",
+      "subdivision_name_en": "Alishan Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "阿里山鄉",
+        "阿里山",
+        "Alishan Township",
+        "Alishan"
+      ]
+    },
+    {
+      "county_code": "10013",
+      "county_name": "屏東縣",
+      "county_name_en": "Pingtung County",
+      "subdivision_code": "10013010",
+      "subdivision_name": "屏東市",
+      "subdivision_name_en": "Pingtung City",
+      "subdivision_type": "市",
+      "aliases": [
+        "屏東市",
+        "屏東",
+        "Pingtung City",
+        "Pingtung"
+      ]
+    },
+    {
+      "county_code": "10013",
+      "county_name": "屏東縣",
+      "county_name_en": "Pingtung County",
+      "subdivision_code": "10013020",
+      "subdivision_name": "潮州鎮",
+      "subdivision_name_en": "Chaozhou Township",
+      "subdivision_type": "鎮",
+      "aliases": [
+        "潮州鎮",
+        "潮州",
+        "Chaozhou Township",
+        "Chaozhou"
+      ]
+    },
+    {
+      "county_code": "10013",
+      "county_name": "屏東縣",
+      "county_name_en": "Pingtung County",
+      "subdivision_code": "10013030",
+      "subdivision_name": "東港鎮",
+      "subdivision_name_en": "Donggang Township",
+      "subdivision_type": "鎮",
+      "aliases": [
+        "東港鎮",
+        "東港",
+        "Donggang Township",
+        "Donggang"
+      ]
+    },
+    {
+      "county_code": "10013",
+      "county_name": "屏東縣",
+      "county_name_en": "Pingtung County",
+      "subdivision_code": "10013040",
+      "subdivision_name": "恆春鎮",
+      "subdivision_name_en": "Hengchun Township",
+      "subdivision_type": "鎮",
+      "aliases": [
+        "恆春鎮",
+        "恆春",
+        "Hengchun Township",
+        "Hengchun"
+      ]
+    },
+    {
+      "county_code": "10013",
+      "county_name": "屏東縣",
+      "county_name_en": "Pingtung County",
+      "subdivision_code": "10013050",
+      "subdivision_name": "萬丹鄉",
+      "subdivision_name_en": "Wandan Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "萬丹鄉",
+        "萬丹",
+        "Wandan Township",
+        "Wandan"
+      ]
+    },
+    {
+      "county_code": "10013",
+      "county_name": "屏東縣",
+      "county_name_en": "Pingtung County",
+      "subdivision_code": "10013060",
+      "subdivision_name": "長治鄉",
+      "subdivision_name_en": "Changzhi Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "長治鄉",
+        "長治",
+        "Changzhi Township",
+        "Changzhi"
+      ]
+    },
+    {
+      "county_code": "10013",
+      "county_name": "屏東縣",
+      "county_name_en": "Pingtung County",
+      "subdivision_code": "10013070",
+      "subdivision_name": "麟洛鄉",
+      "subdivision_name_en": "Linluo Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "麟洛鄉",
+        "麟洛",
+        "Linluo Township",
+        "Linluo"
+      ]
+    },
+    {
+      "county_code": "10013",
+      "county_name": "屏東縣",
+      "county_name_en": "Pingtung County",
+      "subdivision_code": "10013080",
+      "subdivision_name": "九如鄉",
+      "subdivision_name_en": "Jiuru Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "九如鄉",
+        "九如",
+        "Jiuru Township",
+        "Jiuru"
+      ]
+    },
+    {
+      "county_code": "10013",
+      "county_name": "屏東縣",
+      "county_name_en": "Pingtung County",
+      "subdivision_code": "10013090",
+      "subdivision_name": "里港鄉",
+      "subdivision_name_en": "Ligang Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "里港鄉",
+        "里港",
+        "Ligang Township",
+        "Ligang"
+      ]
+    },
+    {
+      "county_code": "10013",
+      "county_name": "屏東縣",
+      "county_name_en": "Pingtung County",
+      "subdivision_code": "10013100",
+      "subdivision_name": "鹽埔鄉",
+      "subdivision_name_en": "Yanpu Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "鹽埔鄉",
+        "鹽埔",
+        "Yanpu Township",
+        "Yanpu"
+      ]
+    },
+    {
+      "county_code": "10013",
+      "county_name": "屏東縣",
+      "county_name_en": "Pingtung County",
+      "subdivision_code": "10013110",
+      "subdivision_name": "高樹鄉",
+      "subdivision_name_en": "Gaoshu Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "高樹鄉",
+        "高樹",
+        "Gaoshu Township",
+        "Gaoshu"
+      ]
+    },
+    {
+      "county_code": "10013",
+      "county_name": "屏東縣",
+      "county_name_en": "Pingtung County",
+      "subdivision_code": "10013120",
+      "subdivision_name": "萬巒鄉",
+      "subdivision_name_en": "Wanluan Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "萬巒鄉",
+        "萬巒",
+        "Wanluan Township",
+        "Wanluan"
+      ]
+    },
+    {
+      "county_code": "10013",
+      "county_name": "屏東縣",
+      "county_name_en": "Pingtung County",
+      "subdivision_code": "10013130",
+      "subdivision_name": "內埔鄉",
+      "subdivision_name_en": "Neipu Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "內埔鄉",
+        "內埔",
+        "Neipu Township",
+        "Neipu"
+      ]
+    },
+    {
+      "county_code": "10013",
+      "county_name": "屏東縣",
+      "county_name_en": "Pingtung County",
+      "subdivision_code": "10013140",
+      "subdivision_name": "竹田鄉",
+      "subdivision_name_en": "Zhutian Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "竹田鄉",
+        "竹田",
+        "Zhutian Township",
+        "Zhutian"
+      ]
+    },
+    {
+      "county_code": "10013",
+      "county_name": "屏東縣",
+      "county_name_en": "Pingtung County",
+      "subdivision_code": "10013150",
+      "subdivision_name": "新埤鄉",
+      "subdivision_name_en": "Xinpi Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "新埤鄉",
+        "新埤",
+        "Xinpi Township",
+        "Xinpi"
+      ]
+    },
+    {
+      "county_code": "10013",
+      "county_name": "屏東縣",
+      "county_name_en": "Pingtung County",
+      "subdivision_code": "10013160",
+      "subdivision_name": "枋寮鄉",
+      "subdivision_name_en": "Fangliao Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "枋寮鄉",
+        "枋寮",
+        "Fangliao Township",
+        "Fangliao"
+      ]
+    },
+    {
+      "county_code": "10013",
+      "county_name": "屏東縣",
+      "county_name_en": "Pingtung County",
+      "subdivision_code": "10013170",
+      "subdivision_name": "新園鄉",
+      "subdivision_name_en": "Xinyuan Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "新園鄉",
+        "新園",
+        "Xinyuan Township",
+        "Xinyuan"
+      ]
+    },
+    {
+      "county_code": "10013",
+      "county_name": "屏東縣",
+      "county_name_en": "Pingtung County",
+      "subdivision_code": "10013180",
+      "subdivision_name": "崁頂鄉",
+      "subdivision_name_en": "Kanding Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "崁頂鄉",
+        "崁頂",
+        "Kanding Township",
+        "Kanding"
+      ]
+    },
+    {
+      "county_code": "10013",
+      "county_name": "屏東縣",
+      "county_name_en": "Pingtung County",
+      "subdivision_code": "10013190",
+      "subdivision_name": "林邊鄉",
+      "subdivision_name_en": "Linbian Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "林邊鄉",
+        "林邊",
+        "Linbian Township",
+        "Linbian"
+      ]
+    },
+    {
+      "county_code": "10013",
+      "county_name": "屏東縣",
+      "county_name_en": "Pingtung County",
+      "subdivision_code": "10013200",
+      "subdivision_name": "南州鄉",
+      "subdivision_name_en": "Nanzhou Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "南州鄉",
+        "南州",
+        "Nanzhou Township",
+        "Nanzhou"
+      ]
+    },
+    {
+      "county_code": "10013",
+      "county_name": "屏東縣",
+      "county_name_en": "Pingtung County",
+      "subdivision_code": "10013210",
+      "subdivision_name": "佳冬鄉",
+      "subdivision_name_en": "Jiadong Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "佳冬鄉",
+        "佳冬",
+        "Jiadong Township",
+        "Jiadong"
+      ]
+    },
+    {
+      "county_code": "10013",
+      "county_name": "屏東縣",
+      "county_name_en": "Pingtung County",
+      "subdivision_code": "10013220",
+      "subdivision_name": "琉球鄉",
+      "subdivision_name_en": "Liuqiu Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "琉球鄉",
+        "琉球",
+        "Liuqiu Township",
+        "Liuqiu"
+      ]
+    },
+    {
+      "county_code": "10013",
+      "county_name": "屏東縣",
+      "county_name_en": "Pingtung County",
+      "subdivision_code": "10013230",
+      "subdivision_name": "車城鄉",
+      "subdivision_name_en": "Checheng Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "車城鄉",
+        "車城",
+        "Checheng Township",
+        "Checheng"
+      ]
+    },
+    {
+      "county_code": "10013",
+      "county_name": "屏東縣",
+      "county_name_en": "Pingtung County",
+      "subdivision_code": "10013240",
+      "subdivision_name": "滿州鄉",
+      "subdivision_name_en": "Manzhou Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "滿州鄉",
+        "滿州",
+        "Manzhou Township",
+        "Manzhou"
+      ]
+    },
+    {
+      "county_code": "10013",
+      "county_name": "屏東縣",
+      "county_name_en": "Pingtung County",
+      "subdivision_code": "10013250",
+      "subdivision_name": "枋山鄉",
+      "subdivision_name_en": "Fangshan Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "枋山鄉",
+        "枋山",
+        "Fangshan Township",
+        "Fangshan"
+      ]
+    },
+    {
+      "county_code": "10013",
+      "county_name": "屏東縣",
+      "county_name_en": "Pingtung County",
+      "subdivision_code": "10013260",
+      "subdivision_name": "三地門鄉",
+      "subdivision_name_en": "Sandimen Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "三地門鄉",
+        "三地門",
+        "Sandimen Township",
+        "Sandimen"
+      ]
+    },
+    {
+      "county_code": "10013",
+      "county_name": "屏東縣",
+      "county_name_en": "Pingtung County",
+      "subdivision_code": "10013270",
+      "subdivision_name": "霧臺鄉",
+      "subdivision_name_en": "Wutai Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "霧臺鄉",
+        "霧臺",
+        "Wutai Township",
+        "Wutai"
+      ]
+    },
+    {
+      "county_code": "10013",
+      "county_name": "屏東縣",
+      "county_name_en": "Pingtung County",
+      "subdivision_code": "10013280",
+      "subdivision_name": "瑪家鄉",
+      "subdivision_name_en": "Majia Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "瑪家鄉",
+        "瑪家",
+        "Majia Township",
+        "Majia"
+      ]
+    },
+    {
+      "county_code": "10013",
+      "county_name": "屏東縣",
+      "county_name_en": "Pingtung County",
+      "subdivision_code": "10013290",
+      "subdivision_name": "泰武鄉",
+      "subdivision_name_en": "Taiwu Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "泰武鄉",
+        "泰武",
+        "Taiwu Township",
+        "Taiwu"
+      ]
+    },
+    {
+      "county_code": "10013",
+      "county_name": "屏東縣",
+      "county_name_en": "Pingtung County",
+      "subdivision_code": "10013300",
+      "subdivision_name": "來義鄉",
+      "subdivision_name_en": "Laiyi Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "來義鄉",
+        "來義",
+        "Laiyi Township",
+        "Laiyi"
+      ]
+    },
+    {
+      "county_code": "10013",
+      "county_name": "屏東縣",
+      "county_name_en": "Pingtung County",
+      "subdivision_code": "10013310",
+      "subdivision_name": "春日鄉",
+      "subdivision_name_en": "Chunri Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "春日鄉",
+        "春日",
+        "Chunri Township",
+        "Chunri"
+      ]
+    },
+    {
+      "county_code": "10013",
+      "county_name": "屏東縣",
+      "county_name_en": "Pingtung County",
+      "subdivision_code": "10013320",
+      "subdivision_name": "獅子鄉",
+      "subdivision_name_en": "Shizi Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "獅子鄉",
+        "獅子",
+        "Shizi Township",
+        "Shizi"
+      ]
+    },
+    {
+      "county_code": "10013",
+      "county_name": "屏東縣",
+      "county_name_en": "Pingtung County",
+      "subdivision_code": "10013330",
+      "subdivision_name": "牡丹鄉",
+      "subdivision_name_en": "Mudan Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "牡丹鄉",
+        "牡丹",
+        "Mudan Township",
+        "Mudan"
+      ]
+    },
+    {
+      "county_code": "10014",
+      "county_name": "臺東縣",
+      "county_name_en": "Taitung County",
+      "subdivision_code": "10014010",
+      "subdivision_name": "臺東市",
+      "subdivision_name_en": "Taitung City",
+      "subdivision_type": "市",
+      "aliases": [
+        "臺東市",
+        "臺東",
+        "Taitung City",
+        "Taitung"
+      ]
+    },
+    {
+      "county_code": "10014",
+      "county_name": "臺東縣",
+      "county_name_en": "Taitung County",
+      "subdivision_code": "10014020",
+      "subdivision_name": "成功鎮",
+      "subdivision_name_en": "Chenggong Township",
+      "subdivision_type": "鎮",
+      "aliases": [
+        "成功鎮",
+        "成功",
+        "Chenggong Township",
+        "Chenggong"
+      ]
+    },
+    {
+      "county_code": "10014",
+      "county_name": "臺東縣",
+      "county_name_en": "Taitung County",
+      "subdivision_code": "10014030",
+      "subdivision_name": "關山鎮",
+      "subdivision_name_en": "Guanshan Township",
+      "subdivision_type": "鎮",
+      "aliases": [
+        "關山鎮",
+        "關山",
+        "Guanshan Township",
+        "Guanshan"
+      ]
+    },
+    {
+      "county_code": "10014",
+      "county_name": "臺東縣",
+      "county_name_en": "Taitung County",
+      "subdivision_code": "10014040",
+      "subdivision_name": "卑南鄉",
+      "subdivision_name_en": "Beinan Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "卑南鄉",
+        "卑南",
+        "Beinan Township",
+        "Beinan"
+      ]
+    },
+    {
+      "county_code": "10014",
+      "county_name": "臺東縣",
+      "county_name_en": "Taitung County",
+      "subdivision_code": "10014050",
+      "subdivision_name": "鹿野鄉",
+      "subdivision_name_en": "Luye Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "鹿野鄉",
+        "鹿野",
+        "Luye Township",
+        "Luye"
+      ]
+    },
+    {
+      "county_code": "10014",
+      "county_name": "臺東縣",
+      "county_name_en": "Taitung County",
+      "subdivision_code": "10014060",
+      "subdivision_name": "池上鄉",
+      "subdivision_name_en": "Chishang Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "池上鄉",
+        "池上",
+        "Chishang Township",
+        "Chishang"
+      ]
+    },
+    {
+      "county_code": "10014",
+      "county_name": "臺東縣",
+      "county_name_en": "Taitung County",
+      "subdivision_code": "10014070",
+      "subdivision_name": "東河鄉",
+      "subdivision_name_en": "Donghe Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "東河鄉",
+        "東河",
+        "Donghe Township",
+        "Donghe"
+      ]
+    },
+    {
+      "county_code": "10014",
+      "county_name": "臺東縣",
+      "county_name_en": "Taitung County",
+      "subdivision_code": "10014080",
+      "subdivision_name": "長濱鄉",
+      "subdivision_name_en": "Changbin Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "長濱鄉",
+        "長濱",
+        "Changbin Township",
+        "Changbin"
+      ]
+    },
+    {
+      "county_code": "10014",
+      "county_name": "臺東縣",
+      "county_name_en": "Taitung County",
+      "subdivision_code": "10014090",
+      "subdivision_name": "太麻里鄉",
+      "subdivision_name_en": "Taimali Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "太麻里鄉",
+        "太麻里",
+        "Taimali Township",
+        "Taimali"
+      ]
+    },
+    {
+      "county_code": "10014",
+      "county_name": "臺東縣",
+      "county_name_en": "Taitung County",
+      "subdivision_code": "10014100",
+      "subdivision_name": "大武鄉",
+      "subdivision_name_en": "Dawu Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "大武鄉",
+        "大武",
+        "Dawu Township",
+        "Dawu"
+      ]
+    },
+    {
+      "county_code": "10014",
+      "county_name": "臺東縣",
+      "county_name_en": "Taitung County",
+      "subdivision_code": "10014110",
+      "subdivision_name": "綠島鄉",
+      "subdivision_name_en": "Lüdao Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "綠島鄉",
+        "綠島",
+        "Lüdao Township",
+        "Lüdao"
+      ]
+    },
+    {
+      "county_code": "10014",
+      "county_name": "臺東縣",
+      "county_name_en": "Taitung County",
+      "subdivision_code": "10014120",
+      "subdivision_name": "海端鄉",
+      "subdivision_name_en": "Haiduan Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "海端鄉",
+        "海端",
+        "Haiduan Township",
+        "Haiduan"
+      ]
+    },
+    {
+      "county_code": "10014",
+      "county_name": "臺東縣",
+      "county_name_en": "Taitung County",
+      "subdivision_code": "10014130",
+      "subdivision_name": "延平鄉",
+      "subdivision_name_en": "Yanping Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "延平鄉",
+        "延平",
+        "Yanping Township",
+        "Yanping"
+      ]
+    },
+    {
+      "county_code": "10014",
+      "county_name": "臺東縣",
+      "county_name_en": "Taitung County",
+      "subdivision_code": "10014140",
+      "subdivision_name": "金峰鄉",
+      "subdivision_name_en": "Jinfeng Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "金峰鄉",
+        "金峰",
+        "Jinfeng Township",
+        "Jinfeng"
+      ]
+    },
+    {
+      "county_code": "10014",
+      "county_name": "臺東縣",
+      "county_name_en": "Taitung County",
+      "subdivision_code": "10014150",
+      "subdivision_name": "達仁鄉",
+      "subdivision_name_en": "Daren Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "達仁鄉",
+        "達仁",
+        "Daren Township",
+        "Daren"
+      ]
+    },
+    {
+      "county_code": "10014",
+      "county_name": "臺東縣",
+      "county_name_en": "Taitung County",
+      "subdivision_code": "10014160",
+      "subdivision_name": "蘭嶼鄉",
+      "subdivision_name_en": "Lanyu Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "蘭嶼鄉",
+        "蘭嶼",
+        "Lanyu Township",
+        "Lanyu"
+      ]
+    },
+    {
+      "county_code": "10015",
+      "county_name": "花蓮縣",
+      "county_name_en": "Hualien County",
+      "subdivision_code": "10015010",
+      "subdivision_name": "花蓮市",
+      "subdivision_name_en": "Hualien City",
+      "subdivision_type": "市",
+      "aliases": [
+        "花蓮市",
+        "花蓮",
+        "Hualien City",
+        "Hualien"
+      ]
+    },
+    {
+      "county_code": "10015",
+      "county_name": "花蓮縣",
+      "county_name_en": "Hualien County",
+      "subdivision_code": "10015020",
+      "subdivision_name": "鳳林鎮",
+      "subdivision_name_en": "Fenglin Township",
+      "subdivision_type": "鎮",
+      "aliases": [
+        "鳳林鎮",
+        "鳳林",
+        "Fenglin Township",
+        "Fenglin"
+      ]
+    },
+    {
+      "county_code": "10015",
+      "county_name": "花蓮縣",
+      "county_name_en": "Hualien County",
+      "subdivision_code": "10015030",
+      "subdivision_name": "玉里鎮",
+      "subdivision_name_en": "Yuli Township",
+      "subdivision_type": "鎮",
+      "aliases": [
+        "玉里鎮",
+        "玉里",
+        "Yuli Township",
+        "Yuli"
+      ]
+    },
+    {
+      "county_code": "10015",
+      "county_name": "花蓮縣",
+      "county_name_en": "Hualien County",
+      "subdivision_code": "10015040",
+      "subdivision_name": "新城鄉",
+      "subdivision_name_en": "Xincheng Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "新城鄉",
+        "新城",
+        "Xincheng Township",
+        "Xincheng"
+      ]
+    },
+    {
+      "county_code": "10015",
+      "county_name": "花蓮縣",
+      "county_name_en": "Hualien County",
+      "subdivision_code": "10015050",
+      "subdivision_name": "吉安鄉",
+      "subdivision_name_en": "Ji'an Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "吉安鄉",
+        "吉安",
+        "Ji'an Township",
+        "Ji'an"
+      ]
+    },
+    {
+      "county_code": "10015",
+      "county_name": "花蓮縣",
+      "county_name_en": "Hualien County",
+      "subdivision_code": "10015060",
+      "subdivision_name": "壽豐鄉",
+      "subdivision_name_en": "Shoufeng Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "壽豐鄉",
+        "壽豐",
+        "Shoufeng Township",
+        "Shoufeng"
+      ]
+    },
+    {
+      "county_code": "10015",
+      "county_name": "花蓮縣",
+      "county_name_en": "Hualien County",
+      "subdivision_code": "10015070",
+      "subdivision_name": "光復鄉",
+      "subdivision_name_en": "Guangfu Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "光復鄉",
+        "光復",
+        "Guangfu Township",
+        "Guangfu"
+      ]
+    },
+    {
+      "county_code": "10015",
+      "county_name": "花蓮縣",
+      "county_name_en": "Hualien County",
+      "subdivision_code": "10015080",
+      "subdivision_name": "豐濱鄉",
+      "subdivision_name_en": "Fengbin Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "豐濱鄉",
+        "豐濱",
+        "Fengbin Township",
+        "Fengbin"
+      ]
+    },
+    {
+      "county_code": "10015",
+      "county_name": "花蓮縣",
+      "county_name_en": "Hualien County",
+      "subdivision_code": "10015090",
+      "subdivision_name": "瑞穗鄉",
+      "subdivision_name_en": "Ruisui Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "瑞穗鄉",
+        "瑞穗",
+        "Ruisui Township",
+        "Ruisui"
+      ]
+    },
+    {
+      "county_code": "10015",
+      "county_name": "花蓮縣",
+      "county_name_en": "Hualien County",
+      "subdivision_code": "10015100",
+      "subdivision_name": "富里鄉",
+      "subdivision_name_en": "Fuli Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "富里鄉",
+        "富里",
+        "Fuli Township",
+        "Fuli"
+      ]
+    },
+    {
+      "county_code": "10015",
+      "county_name": "花蓮縣",
+      "county_name_en": "Hualien County",
+      "subdivision_code": "10015110",
+      "subdivision_name": "秀林鄉",
+      "subdivision_name_en": "Xiulin Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "秀林鄉",
+        "秀林",
+        "Xiulin Township",
+        "Xiulin"
+      ]
+    },
+    {
+      "county_code": "10015",
+      "county_name": "花蓮縣",
+      "county_name_en": "Hualien County",
+      "subdivision_code": "10015120",
+      "subdivision_name": "萬榮鄉",
+      "subdivision_name_en": "Wanrong Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "萬榮鄉",
+        "萬榮",
+        "Wanrong Township",
+        "Wanrong"
+      ]
+    },
+    {
+      "county_code": "10015",
+      "county_name": "花蓮縣",
+      "county_name_en": "Hualien County",
+      "subdivision_code": "10015130",
+      "subdivision_name": "卓溪鄉",
+      "subdivision_name_en": "Zhuoxi Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "卓溪鄉",
+        "卓溪",
+        "Zhuoxi Township",
+        "Zhuoxi"
+      ]
+    },
+    {
+      "county_code": "10016",
+      "county_name": "澎湖縣",
+      "county_name_en": "Penghu County",
+      "subdivision_code": "10016010",
+      "subdivision_name": "馬公市",
+      "subdivision_name_en": "Magong City",
+      "subdivision_type": "市",
+      "aliases": [
+        "馬公市",
+        "馬公",
+        "Magong City",
+        "Magong"
+      ]
+    },
+    {
+      "county_code": "10016",
+      "county_name": "澎湖縣",
+      "county_name_en": "Penghu County",
+      "subdivision_code": "10016020",
+      "subdivision_name": "湖西鄉",
+      "subdivision_name_en": "Huxi Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "湖西鄉",
+        "湖西",
+        "Huxi Township",
+        "Huxi"
+      ]
+    },
+    {
+      "county_code": "10016",
+      "county_name": "澎湖縣",
+      "county_name_en": "Penghu County",
+      "subdivision_code": "10016030",
+      "subdivision_name": "白沙鄉",
+      "subdivision_name_en": "Baisha Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "白沙鄉",
+        "白沙",
+        "Baisha Township",
+        "Baisha"
+      ]
+    },
+    {
+      "county_code": "10016",
+      "county_name": "澎湖縣",
+      "county_name_en": "Penghu County",
+      "subdivision_code": "10016040",
+      "subdivision_name": "西嶼鄉",
+      "subdivision_name_en": "Xiyu Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "西嶼鄉",
+        "西嶼",
+        "Xiyu Township",
+        "Xiyu"
+      ]
+    },
+    {
+      "county_code": "10016",
+      "county_name": "澎湖縣",
+      "county_name_en": "Penghu County",
+      "subdivision_code": "10016050",
+      "subdivision_name": "望安鄉",
+      "subdivision_name_en": "Wangan Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "望安鄉",
+        "望安",
+        "Wangan Township",
+        "Wangan"
+      ]
+    },
+    {
+      "county_code": "10016",
+      "county_name": "澎湖縣",
+      "county_name_en": "Penghu County",
+      "subdivision_code": "10016060",
+      "subdivision_name": "七美鄉",
+      "subdivision_name_en": "Cimei Township",
+      "subdivision_type": "鄉",
+      "aliases": [
+        "七美鄉",
+        "七美",
+        "Cimei Township",
+        "Cimei"
+      ]
+    },
+    {
+      "county_code": "10017",
+      "county_name": "基隆市",
+      "county_name_en": "Keelung City",
+      "subdivision_code": "10017010",
+      "subdivision_name": "中正區",
+      "subdivision_name_en": "Zhongzheng District",
+      "subdivision_type": "區",
+      "aliases": [
+        "中正區",
+        "中正",
+        "Zhongzheng District",
+        "Zhongzheng"
+      ]
+    },
+    {
+      "county_code": "10017",
+      "county_name": "基隆市",
+      "county_name_en": "Keelung City",
+      "subdivision_code": "10017020",
+      "subdivision_name": "七堵區",
+      "subdivision_name_en": "Qidu District",
+      "subdivision_type": "區",
+      "aliases": [
+        "七堵區",
+        "七堵",
+        "Qidu District",
+        "Qidu"
+      ]
+    },
+    {
+      "county_code": "10017",
+      "county_name": "基隆市",
+      "county_name_en": "Keelung City",
+      "subdivision_code": "10017030",
+      "subdivision_name": "暖暖區",
+      "subdivision_name_en": "Nuannuan District",
+      "subdivision_type": "區",
+      "aliases": [
+        "暖暖區",
+        "暖暖",
+        "Nuannuan District",
+        "Nuannuan"
+      ]
+    },
+    {
+      "county_code": "10017",
+      "county_name": "基隆市",
+      "county_name_en": "Keelung City",
+      "subdivision_code": "10017040",
+      "subdivision_name": "仁愛區",
+      "subdivision_name_en": "Ren'ai District",
+      "subdivision_type": "區",
+      "aliases": [
+        "仁愛區",
+        "仁愛",
+        "Ren'ai District",
+        "Ren'ai"
+      ]
+    },
+    {
+      "county_code": "10017",
+      "county_name": "基隆市",
+      "county_name_en": "Keelung City",
+      "subdivision_code": "10017050",
+      "subdivision_name": "中山區",
+      "subdivision_name_en": "Zhongshan District",
+      "subdivision_type": "區",
+      "aliases": [
+        "中山區",
+        "中山",
+        "Zhongshan District",
+        "Zhongshan"
+      ]
+    },
+    {
+      "county_code": "10017",
+      "county_name": "基隆市",
+      "county_name_en": "Keelung City",
+      "subdivision_code": "10017060",
+      "subdivision_name": "安樂區",
+      "subdivision_name_en": "Anle District",
+      "subdivision_type": "區",
+      "aliases": [
+        "安樂區",
+        "安樂",
+        "Anle District",
+        "Anle"
+      ]
+    },
+    {
+      "county_code": "10017",
+      "county_name": "基隆市",
+      "county_name_en": "Keelung City",
+      "subdivision_code": "10017070",
+      "subdivision_name": "信義區",
+      "subdivision_name_en": "Xinyi District",
+      "subdivision_type": "區",
+      "aliases": [
+        "信義區",
+        "信義",
+        "Xinyi District",
+        "Xinyi"
+      ]
+    },
+    {
+      "county_code": "10018",
+      "county_name": "新竹市",
+      "county_name_en": "Hsinchu City",
+      "subdivision_code": "10018010",
+      "subdivision_name": "東區",
+      "subdivision_name_en": "East District",
+      "subdivision_type": "區",
+      "aliases": [
+        "東區",
+        "東",
+        "East District",
+        "East"
+      ]
+    },
+    {
+      "county_code": "10018",
+      "county_name": "新竹市",
+      "county_name_en": "Hsinchu City",
+      "subdivision_code": "10018020",
+      "subdivision_name": "北區",
+      "subdivision_name_en": "North District",
+      "subdivision_type": "區",
+      "aliases": [
+        "北區",
+        "北",
+        "North District",
+        "North"
+      ]
+    },
+    {
+      "county_code": "10018",
+      "county_name": "新竹市",
+      "county_name_en": "Hsinchu City",
+      "subdivision_code": "10018030",
+      "subdivision_name": "香山區",
+      "subdivision_name_en": "Xiangshan District",
+      "subdivision_type": "區",
+      "aliases": [
+        "香山區",
+        "香山",
+        "Xiangshan District",
+        "Xiangshan"
+      ]
+    },
+    {
+      "county_code": "10020",
+      "county_name": "嘉義市",
+      "county_name_en": "Chiayi City",
+      "subdivision_code": "10020010",
+      "subdivision_name": "東區",
+      "subdivision_name_en": "East District",
+      "subdivision_type": "區",
+      "aliases": [
+        "東區",
+        "東",
+        "East District",
+        "East"
+      ]
+    },
+    {
+      "county_code": "10020",
+      "county_name": "嘉義市",
+      "county_name_en": "Chiayi City",
+      "subdivision_code": "10020020",
+      "subdivision_name": "西區",
+      "subdivision_name_en": "West District",
+      "subdivision_type": "區",
+      "aliases": [
+        "西區",
+        "西",
+        "West District",
+        "West"
+      ]
+    },
+    {
+      "county_code": "63000",
+      "county_name": "臺北市",
+      "county_name_en": "Taipei City",
+      "subdivision_code": "63000010",
+      "subdivision_name": "松山區",
+      "subdivision_name_en": "Songshan District",
+      "subdivision_type": "區",
+      "aliases": [
+        "松山區",
+        "松山",
+        "Songshan District",
+        "Songshan"
+      ]
+    },
+    {
+      "county_code": "63000",
+      "county_name": "臺北市",
+      "county_name_en": "Taipei City",
+      "subdivision_code": "63000020",
+      "subdivision_name": "信義區",
+      "subdivision_name_en": "Xinyi District",
+      "subdivision_type": "區",
+      "aliases": [
+        "信義區",
+        "信義",
+        "Xinyi District",
+        "Xinyi"
+      ]
+    },
+    {
+      "county_code": "63000",
+      "county_name": "臺北市",
+      "county_name_en": "Taipei City",
+      "subdivision_code": "63000030",
+      "subdivision_name": "大安區",
+      "subdivision_name_en": "Daan District",
+      "subdivision_type": "區",
+      "aliases": [
+        "大安區",
+        "大安",
+        "Daan District",
+        "Daan",
+        "Da'an District",
+        "Da'an"
+      ]
+    },
+    {
+      "county_code": "63000",
+      "county_name": "臺北市",
+      "county_name_en": "Taipei City",
+      "subdivision_code": "63000040",
+      "subdivision_name": "中山區",
+      "subdivision_name_en": "Zhongshan District",
+      "subdivision_type": "區",
+      "aliases": [
+        "中山區",
+        "中山",
+        "Zhongshan District",
+        "Zhongshan"
+      ]
+    },
+    {
+      "county_code": "63000",
+      "county_name": "臺北市",
+      "county_name_en": "Taipei City",
+      "subdivision_code": "63000050",
+      "subdivision_name": "中正區",
+      "subdivision_name_en": "Zhongzheng District",
+      "subdivision_type": "區",
+      "aliases": [
+        "中正區",
+        "中正",
+        "Zhongzheng District",
+        "Zhongzheng"
+      ]
+    },
+    {
+      "county_code": "63000",
+      "county_name": "臺北市",
+      "county_name_en": "Taipei City",
+      "subdivision_code": "63000060",
+      "subdivision_name": "大同區",
+      "subdivision_name_en": "Datong District",
+      "subdivision_type": "區",
+      "aliases": [
+        "大同區",
+        "大同",
+        "Datong District",
+        "Datong"
+      ]
+    },
+    {
+      "county_code": "63000",
+      "county_name": "臺北市",
+      "county_name_en": "Taipei City",
+      "subdivision_code": "63000070",
+      "subdivision_name": "萬華區",
+      "subdivision_name_en": "Wanhua District",
+      "subdivision_type": "區",
+      "aliases": [
+        "萬華區",
+        "萬華",
+        "Wanhua District",
+        "Wanhua"
+      ]
+    },
+    {
+      "county_code": "63000",
+      "county_name": "臺北市",
+      "county_name_en": "Taipei City",
+      "subdivision_code": "63000080",
+      "subdivision_name": "文山區",
+      "subdivision_name_en": "Wenshan District",
+      "subdivision_type": "區",
+      "aliases": [
+        "文山區",
+        "文山",
+        "Wenshan District",
+        "Wenshan"
+      ]
+    },
+    {
+      "county_code": "63000",
+      "county_name": "臺北市",
+      "county_name_en": "Taipei City",
+      "subdivision_code": "63000090",
+      "subdivision_name": "南港區",
+      "subdivision_name_en": "Nangang District",
+      "subdivision_type": "區",
+      "aliases": [
+        "南港區",
+        "南港",
+        "Nangang District",
+        "Nangang"
+      ]
+    },
+    {
+      "county_code": "63000",
+      "county_name": "臺北市",
+      "county_name_en": "Taipei City",
+      "subdivision_code": "63000100",
+      "subdivision_name": "內湖區",
+      "subdivision_name_en": "Neihu District",
+      "subdivision_type": "區",
+      "aliases": [
+        "內湖區",
+        "內湖",
+        "Neihu District",
+        "Neihu"
+      ]
+    },
+    {
+      "county_code": "63000",
+      "county_name": "臺北市",
+      "county_name_en": "Taipei City",
+      "subdivision_code": "63000110",
+      "subdivision_name": "士林區",
+      "subdivision_name_en": "Shilin District",
+      "subdivision_type": "區",
+      "aliases": [
+        "士林區",
+        "士林",
+        "Shilin District",
+        "Shilin"
+      ]
+    },
+    {
+      "county_code": "63000",
+      "county_name": "臺北市",
+      "county_name_en": "Taipei City",
+      "subdivision_code": "63000120",
+      "subdivision_name": "北投區",
+      "subdivision_name_en": "Beitou District",
+      "subdivision_type": "區",
+      "aliases": [
+        "北投區",
+        "北投",
+        "Beitou District",
+        "Beitou"
+      ]
+    },
+    {
+      "county_code": "64000",
+      "county_name": "高雄市",
+      "county_name_en": "Kaohsiung City",
+      "subdivision_code": "64000010",
+      "subdivision_name": "鹽埕區",
+      "subdivision_name_en": "Yancheng District",
+      "subdivision_type": "區",
+      "aliases": [
+        "鹽埕區",
+        "鹽埕",
+        "Yancheng District",
+        "Yancheng"
+      ]
+    },
+    {
+      "county_code": "64000",
+      "county_name": "高雄市",
+      "county_name_en": "Kaohsiung City",
+      "subdivision_code": "64000020",
+      "subdivision_name": "鼓山區",
+      "subdivision_name_en": "Gushan District",
+      "subdivision_type": "區",
+      "aliases": [
+        "鼓山區",
+        "鼓山",
+        "Gushan District",
+        "Gushan"
+      ]
+    },
+    {
+      "county_code": "64000",
+      "county_name": "高雄市",
+      "county_name_en": "Kaohsiung City",
+      "subdivision_code": "64000030",
+      "subdivision_name": "左營區",
+      "subdivision_name_en": "Zuoying District",
+      "subdivision_type": "區",
+      "aliases": [
+        "左營區",
+        "左營",
+        "Zuoying District",
+        "Zuoying"
+      ]
+    },
+    {
+      "county_code": "64000",
+      "county_name": "高雄市",
+      "county_name_en": "Kaohsiung City",
+      "subdivision_code": "64000040",
+      "subdivision_name": "楠梓區",
+      "subdivision_name_en": "Nanzih District",
+      "subdivision_type": "區",
+      "aliases": [
+        "楠梓區",
+        "楠梓",
+        "Nanzih District",
+        "Nanzih"
+      ]
+    },
+    {
+      "county_code": "64000",
+      "county_name": "高雄市",
+      "county_name_en": "Kaohsiung City",
+      "subdivision_code": "64000050",
+      "subdivision_name": "三民區",
+      "subdivision_name_en": "Sanmin District",
+      "subdivision_type": "區",
+      "aliases": [
+        "三民區",
+        "三民",
+        "Sanmin District",
+        "Sanmin"
+      ]
+    },
+    {
+      "county_code": "64000",
+      "county_name": "高雄市",
+      "county_name_en": "Kaohsiung City",
+      "subdivision_code": "64000060",
+      "subdivision_name": "新興區",
+      "subdivision_name_en": "Sinsing District",
+      "subdivision_type": "區",
+      "aliases": [
+        "新興區",
+        "新興",
+        "Sinsing District",
+        "Sinsing"
+      ]
+    },
+    {
+      "county_code": "64000",
+      "county_name": "高雄市",
+      "county_name_en": "Kaohsiung City",
+      "subdivision_code": "64000070",
+      "subdivision_name": "前金區",
+      "subdivision_name_en": "Qianjin District",
+      "subdivision_type": "區",
+      "aliases": [
+        "前金區",
+        "前金",
+        "Qianjin District",
+        "Qianjin"
+      ]
+    },
+    {
+      "county_code": "64000",
+      "county_name": "高雄市",
+      "county_name_en": "Kaohsiung City",
+      "subdivision_code": "64000080",
+      "subdivision_name": "苓雅區",
+      "subdivision_name_en": "Lingya District",
+      "subdivision_type": "區",
+      "aliases": [
+        "苓雅區",
+        "苓雅",
+        "Lingya District",
+        "Lingya"
+      ]
+    },
+    {
+      "county_code": "64000",
+      "county_name": "高雄市",
+      "county_name_en": "Kaohsiung City",
+      "subdivision_code": "64000090",
+      "subdivision_name": "前鎮區",
+      "subdivision_name_en": "Cianjhen District",
+      "subdivision_type": "區",
+      "aliases": [
+        "前鎮區",
+        "前鎮",
+        "Cianjhen District",
+        "Cianjhen"
+      ]
+    },
+    {
+      "county_code": "64000",
+      "county_name": "高雄市",
+      "county_name_en": "Kaohsiung City",
+      "subdivision_code": "64000100",
+      "subdivision_name": "旗津區",
+      "subdivision_name_en": "Cijin District",
+      "subdivision_type": "區",
+      "aliases": [
+        "旗津區",
+        "旗津",
+        "Cijin District",
+        "Cijin"
+      ]
+    },
+    {
+      "county_code": "64000",
+      "county_name": "高雄市",
+      "county_name_en": "Kaohsiung City",
+      "subdivision_code": "64000110",
+      "subdivision_name": "小港區",
+      "subdivision_name_en": "Siaogang District",
+      "subdivision_type": "區",
+      "aliases": [
+        "小港區",
+        "小港",
+        "Siaogang District",
+        "Siaogang"
+      ]
+    },
+    {
+      "county_code": "64000",
+      "county_name": "高雄市",
+      "county_name_en": "Kaohsiung City",
+      "subdivision_code": "64000120",
+      "subdivision_name": "鳳山區",
+      "subdivision_name_en": "Fongshan District",
+      "subdivision_type": "區",
+      "aliases": [
+        "鳳山區",
+        "鳳山",
+        "Fongshan District",
+        "Fongshan"
+      ]
+    },
+    {
+      "county_code": "64000",
+      "county_name": "高雄市",
+      "county_name_en": "Kaohsiung City",
+      "subdivision_code": "64000130",
+      "subdivision_name": "林園區",
+      "subdivision_name_en": "Linyuan District",
+      "subdivision_type": "區",
+      "aliases": [
+        "林園區",
+        "林園",
+        "Linyuan District",
+        "Linyuan"
+      ]
+    },
+    {
+      "county_code": "64000",
+      "county_name": "高雄市",
+      "county_name_en": "Kaohsiung City",
+      "subdivision_code": "64000140",
+      "subdivision_name": "大寮區",
+      "subdivision_name_en": "Daliao District",
+      "subdivision_type": "區",
+      "aliases": [
+        "大寮區",
+        "大寮",
+        "Daliao District",
+        "Daliao"
+      ]
+    },
+    {
+      "county_code": "64000",
+      "county_name": "高雄市",
+      "county_name_en": "Kaohsiung City",
+      "subdivision_code": "64000150",
+      "subdivision_name": "大樹區",
+      "subdivision_name_en": "Dashu District",
+      "subdivision_type": "區",
+      "aliases": [
+        "大樹區",
+        "大樹",
+        "Dashu District",
+        "Dashu"
+      ]
+    },
+    {
+      "county_code": "64000",
+      "county_name": "高雄市",
+      "county_name_en": "Kaohsiung City",
+      "subdivision_code": "64000160",
+      "subdivision_name": "大社區",
+      "subdivision_name_en": "Dashe District",
+      "subdivision_type": "區",
+      "aliases": [
+        "大社區",
+        "大社",
+        "Dashe District",
+        "Dashe"
+      ]
+    },
+    {
+      "county_code": "64000",
+      "county_name": "高雄市",
+      "county_name_en": "Kaohsiung City",
+      "subdivision_code": "64000170",
+      "subdivision_name": "仁武區",
+      "subdivision_name_en": "Renwu District",
+      "subdivision_type": "區",
+      "aliases": [
+        "仁武區",
+        "仁武",
+        "Renwu District",
+        "Renwu"
+      ]
+    },
+    {
+      "county_code": "64000",
+      "county_name": "高雄市",
+      "county_name_en": "Kaohsiung City",
+      "subdivision_code": "64000180",
+      "subdivision_name": "鳥松區",
+      "subdivision_name_en": "Niaosong District",
+      "subdivision_type": "區",
+      "aliases": [
+        "鳥松區",
+        "鳥松",
+        "Niaosong District",
+        "Niaosong"
+      ]
+    },
+    {
+      "county_code": "64000",
+      "county_name": "高雄市",
+      "county_name_en": "Kaohsiung City",
+      "subdivision_code": "64000190",
+      "subdivision_name": "岡山區",
+      "subdivision_name_en": "Gangshan District",
+      "subdivision_type": "區",
+      "aliases": [
+        "岡山區",
+        "岡山",
+        "Gangshan District",
+        "Gangshan"
+      ]
+    },
+    {
+      "county_code": "64000",
+      "county_name": "高雄市",
+      "county_name_en": "Kaohsiung City",
+      "subdivision_code": "64000200",
+      "subdivision_name": "橋頭區",
+      "subdivision_name_en": "Ciaotou District",
+      "subdivision_type": "區",
+      "aliases": [
+        "橋頭區",
+        "橋頭",
+        "Ciaotou District",
+        "Ciaotou"
+      ]
+    },
+    {
+      "county_code": "64000",
+      "county_name": "高雄市",
+      "county_name_en": "Kaohsiung City",
+      "subdivision_code": "64000210",
+      "subdivision_name": "燕巢區",
+      "subdivision_name_en": "Yanchao District",
+      "subdivision_type": "區",
+      "aliases": [
+        "燕巢區",
+        "燕巢",
+        "Yanchao District",
+        "Yanchao"
+      ]
+    },
+    {
+      "county_code": "64000",
+      "county_name": "高雄市",
+      "county_name_en": "Kaohsiung City",
+      "subdivision_code": "64000220",
+      "subdivision_name": "田寮區",
+      "subdivision_name_en": "Tianliao District",
+      "subdivision_type": "區",
+      "aliases": [
+        "田寮區",
+        "田寮",
+        "Tianliao District",
+        "Tianliao"
+      ]
+    },
+    {
+      "county_code": "64000",
+      "county_name": "高雄市",
+      "county_name_en": "Kaohsiung City",
+      "subdivision_code": "64000230",
+      "subdivision_name": "阿蓮區",
+      "subdivision_name_en": "Alian District",
+      "subdivision_type": "區",
+      "aliases": [
+        "阿蓮區",
+        "阿蓮",
+        "Alian District",
+        "Alian"
+      ]
+    },
+    {
+      "county_code": "64000",
+      "county_name": "高雄市",
+      "county_name_en": "Kaohsiung City",
+      "subdivision_code": "64000240",
+      "subdivision_name": "路竹區",
+      "subdivision_name_en": "Lujhu District",
+      "subdivision_type": "區",
+      "aliases": [
+        "路竹區",
+        "路竹",
+        "Lujhu District",
+        "Lujhu"
+      ]
+    },
+    {
+      "county_code": "64000",
+      "county_name": "高雄市",
+      "county_name_en": "Kaohsiung City",
+      "subdivision_code": "64000250",
+      "subdivision_name": "湖內區",
+      "subdivision_name_en": "Hunei District",
+      "subdivision_type": "區",
+      "aliases": [
+        "湖內區",
+        "湖內",
+        "Hunei District",
+        "Hunei"
+      ]
+    },
+    {
+      "county_code": "64000",
+      "county_name": "高雄市",
+      "county_name_en": "Kaohsiung City",
+      "subdivision_code": "64000260",
+      "subdivision_name": "茄萣區",
+      "subdivision_name_en": "Qieding District",
+      "subdivision_type": "區",
+      "aliases": [
+        "茄萣區",
+        "茄萣",
+        "Qieding District",
+        "Qieding"
+      ]
+    },
+    {
+      "county_code": "64000",
+      "county_name": "高雄市",
+      "county_name_en": "Kaohsiung City",
+      "subdivision_code": "64000270",
+      "subdivision_name": "永安區",
+      "subdivision_name_en": "Yong'an District",
+      "subdivision_type": "區",
+      "aliases": [
+        "永安區",
+        "永安",
+        "Yong'an District",
+        "Yong'an"
+      ]
+    },
+    {
+      "county_code": "64000",
+      "county_name": "高雄市",
+      "county_name_en": "Kaohsiung City",
+      "subdivision_code": "64000280",
+      "subdivision_name": "彌陀區",
+      "subdivision_name_en": "Mituo District",
+      "subdivision_type": "區",
+      "aliases": [
+        "彌陀區",
+        "彌陀",
+        "Mituo District",
+        "Mituo"
+      ]
+    },
+    {
+      "county_code": "64000",
+      "county_name": "高雄市",
+      "county_name_en": "Kaohsiung City",
+      "subdivision_code": "64000290",
+      "subdivision_name": "梓官區",
+      "subdivision_name_en": "Ziguan District",
+      "subdivision_type": "區",
+      "aliases": [
+        "梓官區",
+        "梓官",
+        "Ziguan District",
+        "Ziguan"
+      ]
+    },
+    {
+      "county_code": "64000",
+      "county_name": "高雄市",
+      "county_name_en": "Kaohsiung City",
+      "subdivision_code": "64000300",
+      "subdivision_name": "旗山區",
+      "subdivision_name_en": "Cishan District",
+      "subdivision_type": "區",
+      "aliases": [
+        "旗山區",
+        "旗山",
+        "Cishan District",
+        "Cishan"
+      ]
+    },
+    {
+      "county_code": "64000",
+      "county_name": "高雄市",
+      "county_name_en": "Kaohsiung City",
+      "subdivision_code": "64000310",
+      "subdivision_name": "美濃區",
+      "subdivision_name_en": "Meinong District",
+      "subdivision_type": "區",
+      "aliases": [
+        "美濃區",
+        "美濃",
+        "Meinong District",
+        "Meinong"
+      ]
+    },
+    {
+      "county_code": "64000",
+      "county_name": "高雄市",
+      "county_name_en": "Kaohsiung City",
+      "subdivision_code": "64000320",
+      "subdivision_name": "六龜區",
+      "subdivision_name_en": "Liouguei District",
+      "subdivision_type": "區",
+      "aliases": [
+        "六龜區",
+        "六龜",
+        "Liouguei District",
+        "Liouguei"
+      ]
+    },
+    {
+      "county_code": "64000",
+      "county_name": "高雄市",
+      "county_name_en": "Kaohsiung City",
+      "subdivision_code": "64000330",
+      "subdivision_name": "甲仙區",
+      "subdivision_name_en": "Jiasian District",
+      "subdivision_type": "區",
+      "aliases": [
+        "甲仙區",
+        "甲仙",
+        "Jiasian District",
+        "Jiasian"
+      ]
+    },
+    {
+      "county_code": "64000",
+      "county_name": "高雄市",
+      "county_name_en": "Kaohsiung City",
+      "subdivision_code": "64000340",
+      "subdivision_name": "杉林區",
+      "subdivision_name_en": "Shanlin District",
+      "subdivision_type": "區",
+      "aliases": [
+        "杉林區",
+        "杉林",
+        "Shanlin District",
+        "Shanlin"
+      ]
+    },
+    {
+      "county_code": "64000",
+      "county_name": "高雄市",
+      "county_name_en": "Kaohsiung City",
+      "subdivision_code": "64000350",
+      "subdivision_name": "內門區",
+      "subdivision_name_en": "Neimen District",
+      "subdivision_type": "區",
+      "aliases": [
+        "內門區",
+        "內門",
+        "Neimen District",
+        "Neimen"
+      ]
+    },
+    {
+      "county_code": "64000",
+      "county_name": "高雄市",
+      "county_name_en": "Kaohsiung City",
+      "subdivision_code": "64000360",
+      "subdivision_name": "茂林區",
+      "subdivision_name_en": "Maolin District",
+      "subdivision_type": "區",
+      "aliases": [
+        "茂林區",
+        "茂林",
+        "Maolin District",
+        "Maolin"
+      ]
+    },
+    {
+      "county_code": "64000",
+      "county_name": "高雄市",
+      "county_name_en": "Kaohsiung City",
+      "subdivision_code": "64000370",
+      "subdivision_name": "桃源區",
+      "subdivision_name_en": "Taoyuan District",
+      "subdivision_type": "區",
+      "aliases": [
+        "桃源區",
+        "桃源",
+        "Taoyuan District",
+        "Taoyuan"
+      ]
+    },
+    {
+      "county_code": "64000",
+      "county_name": "高雄市",
+      "county_name_en": "Kaohsiung City",
+      "subdivision_code": "64000380",
+      "subdivision_name": "那瑪夏區",
+      "subdivision_name_en": "Namasia District",
+      "subdivision_type": "區",
+      "aliases": [
+        "那瑪夏區",
+        "那瑪夏",
+        "Namasia District",
+        "Namasia"
+      ]
+    },
+    {
+      "county_code": "65000",
+      "county_name": "新北市",
+      "county_name_en": "New Taipei City",
+      "subdivision_code": "65000010",
+      "subdivision_name": "板橋區",
+      "subdivision_name_en": "Banqiao District",
+      "subdivision_type": "區",
+      "aliases": [
+        "板橋區",
+        "板橋",
+        "Banqiao District",
+        "Banqiao"
+      ]
+    },
+    {
+      "county_code": "65000",
+      "county_name": "新北市",
+      "county_name_en": "New Taipei City",
+      "subdivision_code": "65000020",
+      "subdivision_name": "三重區",
+      "subdivision_name_en": "Sanchong District",
+      "subdivision_type": "區",
+      "aliases": [
+        "三重區",
+        "三重",
+        "Sanchong District",
+        "Sanchong"
+      ]
+    },
+    {
+      "county_code": "65000",
+      "county_name": "新北市",
+      "county_name_en": "New Taipei City",
+      "subdivision_code": "65000030",
+      "subdivision_name": "中和區",
+      "subdivision_name_en": "Zhonghe District",
+      "subdivision_type": "區",
+      "aliases": [
+        "中和區",
+        "中和",
+        "Zhonghe District",
+        "Zhonghe"
+      ]
+    },
+    {
+      "county_code": "65000",
+      "county_name": "新北市",
+      "county_name_en": "New Taipei City",
+      "subdivision_code": "65000040",
+      "subdivision_name": "永和區",
+      "subdivision_name_en": "Yonghe District",
+      "subdivision_type": "區",
+      "aliases": [
+        "永和區",
+        "永和",
+        "Yonghe District",
+        "Yonghe"
+      ]
+    },
+    {
+      "county_code": "65000",
+      "county_name": "新北市",
+      "county_name_en": "New Taipei City",
+      "subdivision_code": "65000050",
+      "subdivision_name": "新莊區",
+      "subdivision_name_en": "Xinzhuang District",
+      "subdivision_type": "區",
+      "aliases": [
+        "新莊區",
+        "新莊",
+        "Xinzhuang District",
+        "Xinzhuang"
+      ]
+    },
+    {
+      "county_code": "65000",
+      "county_name": "新北市",
+      "county_name_en": "New Taipei City",
+      "subdivision_code": "65000060",
+      "subdivision_name": "新店區",
+      "subdivision_name_en": "Xindian District",
+      "subdivision_type": "區",
+      "aliases": [
+        "新店區",
+        "新店",
+        "Xindian District",
+        "Xindian"
+      ]
+    },
+    {
+      "county_code": "65000",
+      "county_name": "新北市",
+      "county_name_en": "New Taipei City",
+      "subdivision_code": "65000070",
+      "subdivision_name": "樹林區",
+      "subdivision_name_en": "Shulin District",
+      "subdivision_type": "區",
+      "aliases": [
+        "樹林區",
+        "樹林",
+        "Shulin District",
+        "Shulin"
+      ]
+    },
+    {
+      "county_code": "65000",
+      "county_name": "新北市",
+      "county_name_en": "New Taipei City",
+      "subdivision_code": "65000080",
+      "subdivision_name": "鶯歌區",
+      "subdivision_name_en": "Yingge District",
+      "subdivision_type": "區",
+      "aliases": [
+        "鶯歌區",
+        "鶯歌",
+        "Yingge District",
+        "Yingge"
+      ]
+    },
+    {
+      "county_code": "65000",
+      "county_name": "新北市",
+      "county_name_en": "New Taipei City",
+      "subdivision_code": "65000090",
+      "subdivision_name": "三峽區",
+      "subdivision_name_en": "Sanxia District",
+      "subdivision_type": "區",
+      "aliases": [
+        "三峽區",
+        "三峽",
+        "Sanxia District",
+        "Sanxia"
+      ]
+    },
+    {
+      "county_code": "65000",
+      "county_name": "新北市",
+      "county_name_en": "New Taipei City",
+      "subdivision_code": "65000100",
+      "subdivision_name": "淡水區",
+      "subdivision_name_en": "Tamsui District",
+      "subdivision_type": "區",
+      "aliases": [
+        "淡水區",
+        "淡水",
+        "Tamsui District",
+        "Tamsui"
+      ]
+    },
+    {
+      "county_code": "65000",
+      "county_name": "新北市",
+      "county_name_en": "New Taipei City",
+      "subdivision_code": "65000110",
+      "subdivision_name": "汐止區",
+      "subdivision_name_en": "Xizhi District",
+      "subdivision_type": "區",
+      "aliases": [
+        "汐止區",
+        "汐止",
+        "Xizhi District",
+        "Xizhi"
+      ]
+    },
+    {
+      "county_code": "65000",
+      "county_name": "新北市",
+      "county_name_en": "New Taipei City",
+      "subdivision_code": "65000120",
+      "subdivision_name": "瑞芳區",
+      "subdivision_name_en": "Ruifang District",
+      "subdivision_type": "區",
+      "aliases": [
+        "瑞芳區",
+        "瑞芳",
+        "Ruifang District",
+        "Ruifang"
+      ]
+    },
+    {
+      "county_code": "65000",
+      "county_name": "新北市",
+      "county_name_en": "New Taipei City",
+      "subdivision_code": "65000130",
+      "subdivision_name": "土城區",
+      "subdivision_name_en": "Tucheng District",
+      "subdivision_type": "區",
+      "aliases": [
+        "土城區",
+        "土城",
+        "Tucheng District",
+        "Tucheng"
+      ]
+    },
+    {
+      "county_code": "65000",
+      "county_name": "新北市",
+      "county_name_en": "New Taipei City",
+      "subdivision_code": "65000140",
+      "subdivision_name": "蘆洲區",
+      "subdivision_name_en": "Luzhou District",
+      "subdivision_type": "區",
+      "aliases": [
+        "蘆洲區",
+        "蘆洲",
+        "Luzhou District",
+        "Luzhou"
+      ]
+    },
+    {
+      "county_code": "65000",
+      "county_name": "新北市",
+      "county_name_en": "New Taipei City",
+      "subdivision_code": "65000150",
+      "subdivision_name": "五股區",
+      "subdivision_name_en": "Wugu District",
+      "subdivision_type": "區",
+      "aliases": [
+        "五股區",
+        "五股",
+        "Wugu District",
+        "Wugu"
+      ]
+    },
+    {
+      "county_code": "65000",
+      "county_name": "新北市",
+      "county_name_en": "New Taipei City",
+      "subdivision_code": "65000160",
+      "subdivision_name": "泰山區",
+      "subdivision_name_en": "Taishan District",
+      "subdivision_type": "區",
+      "aliases": [
+        "泰山區",
+        "泰山",
+        "Taishan District",
+        "Taishan"
+      ]
+    },
+    {
+      "county_code": "65000",
+      "county_name": "新北市",
+      "county_name_en": "New Taipei City",
+      "subdivision_code": "65000170",
+      "subdivision_name": "林口區",
+      "subdivision_name_en": "Linkou District",
+      "subdivision_type": "區",
+      "aliases": [
+        "林口區",
+        "林口",
+        "Linkou District",
+        "Linkou"
+      ]
+    },
+    {
+      "county_code": "65000",
+      "county_name": "新北市",
+      "county_name_en": "New Taipei City",
+      "subdivision_code": "65000180",
+      "subdivision_name": "深坑區",
+      "subdivision_name_en": "Shenkeng District",
+      "subdivision_type": "區",
+      "aliases": [
+        "深坑區",
+        "深坑",
+        "Shenkeng District",
+        "Shenkeng"
+      ]
+    },
+    {
+      "county_code": "65000",
+      "county_name": "新北市",
+      "county_name_en": "New Taipei City",
+      "subdivision_code": "65000190",
+      "subdivision_name": "石碇區",
+      "subdivision_name_en": "Shiding District",
+      "subdivision_type": "區",
+      "aliases": [
+        "石碇區",
+        "石碇",
+        "Shiding District",
+        "Shiding"
+      ]
+    },
+    {
+      "county_code": "65000",
+      "county_name": "新北市",
+      "county_name_en": "New Taipei City",
+      "subdivision_code": "65000200",
+      "subdivision_name": "坪林區",
+      "subdivision_name_en": "Pinglin District",
+      "subdivision_type": "區",
+      "aliases": [
+        "坪林區",
+        "坪林",
+        "Pinglin District",
+        "Pinglin"
+      ]
+    },
+    {
+      "county_code": "65000",
+      "county_name": "新北市",
+      "county_name_en": "New Taipei City",
+      "subdivision_code": "65000210",
+      "subdivision_name": "三芝區",
+      "subdivision_name_en": "Sanzhi District",
+      "subdivision_type": "區",
+      "aliases": [
+        "三芝區",
+        "三芝",
+        "Sanzhi District",
+        "Sanzhi"
+      ]
+    },
+    {
+      "county_code": "65000",
+      "county_name": "新北市",
+      "county_name_en": "New Taipei City",
+      "subdivision_code": "65000220",
+      "subdivision_name": "石門區",
+      "subdivision_name_en": "Shimen District",
+      "subdivision_type": "區",
+      "aliases": [
+        "石門區",
+        "石門",
+        "Shimen District",
+        "Shimen"
+      ]
+    },
+    {
+      "county_code": "65000",
+      "county_name": "新北市",
+      "county_name_en": "New Taipei City",
+      "subdivision_code": "65000230",
+      "subdivision_name": "八里區",
+      "subdivision_name_en": "Bali District",
+      "subdivision_type": "區",
+      "aliases": [
+        "八里區",
+        "八里",
+        "Bali District",
+        "Bali"
+      ]
+    },
+    {
+      "county_code": "65000",
+      "county_name": "新北市",
+      "county_name_en": "New Taipei City",
+      "subdivision_code": "65000240",
+      "subdivision_name": "平溪區",
+      "subdivision_name_en": "Pingxi District",
+      "subdivision_type": "區",
+      "aliases": [
+        "平溪區",
+        "平溪",
+        "Pingxi District",
+        "Pingxi"
+      ]
+    },
+    {
+      "county_code": "65000",
+      "county_name": "新北市",
+      "county_name_en": "New Taipei City",
+      "subdivision_code": "65000250",
+      "subdivision_name": "雙溪區",
+      "subdivision_name_en": "Shuangxi District",
+      "subdivision_type": "區",
+      "aliases": [
+        "雙溪區",
+        "雙溪",
+        "Shuangxi District",
+        "Shuangxi"
+      ]
+    },
+    {
+      "county_code": "65000",
+      "county_name": "新北市",
+      "county_name_en": "New Taipei City",
+      "subdivision_code": "65000260",
+      "subdivision_name": "貢寮區",
+      "subdivision_name_en": "Gongliao District",
+      "subdivision_type": "區",
+      "aliases": [
+        "貢寮區",
+        "貢寮",
+        "Gongliao District",
+        "Gongliao"
+      ]
+    },
+    {
+      "county_code": "65000",
+      "county_name": "新北市",
+      "county_name_en": "New Taipei City",
+      "subdivision_code": "65000270",
+      "subdivision_name": "金山區",
+      "subdivision_name_en": "Jinshan District",
+      "subdivision_type": "區",
+      "aliases": [
+        "金山區",
+        "金山",
+        "Jinshan District",
+        "Jinshan"
+      ]
+    },
+    {
+      "county_code": "65000",
+      "county_name": "新北市",
+      "county_name_en": "New Taipei City",
+      "subdivision_code": "65000280",
+      "subdivision_name": "萬里區",
+      "subdivision_name_en": "Wanli District",
+      "subdivision_type": "區",
+      "aliases": [
+        "萬里區",
+        "萬里",
+        "Wanli District",
+        "Wanli"
+      ]
+    },
+    {
+      "county_code": "65000",
+      "county_name": "新北市",
+      "county_name_en": "New Taipei City",
+      "subdivision_code": "65000290",
+      "subdivision_name": "烏來區",
+      "subdivision_name_en": "Wulai District",
+      "subdivision_type": "區",
+      "aliases": [
+        "烏來區",
+        "烏來",
+        "Wulai District",
+        "Wulai"
+      ]
+    },
+    {
+      "county_code": "66000",
+      "county_name": "臺中市",
+      "county_name_en": "Taichung City",
+      "subdivision_code": "66000010",
+      "subdivision_name": "中區",
+      "subdivision_name_en": "Central District",
+      "subdivision_type": "區",
+      "aliases": [
+        "中區",
+        "中",
+        "Central District",
+        "Central"
+      ]
+    },
+    {
+      "county_code": "66000",
+      "county_name": "臺中市",
+      "county_name_en": "Taichung City",
+      "subdivision_code": "66000020",
+      "subdivision_name": "東區",
+      "subdivision_name_en": "East District",
+      "subdivision_type": "區",
+      "aliases": [
+        "東區",
+        "東",
+        "East District",
+        "East"
+      ]
+    },
+    {
+      "county_code": "66000",
+      "county_name": "臺中市",
+      "county_name_en": "Taichung City",
+      "subdivision_code": "66000030",
+      "subdivision_name": "南區",
+      "subdivision_name_en": "South District",
+      "subdivision_type": "區",
+      "aliases": [
+        "南區",
+        "南",
+        "South District",
+        "South"
+      ]
+    },
+    {
+      "county_code": "66000",
+      "county_name": "臺中市",
+      "county_name_en": "Taichung City",
+      "subdivision_code": "66000040",
+      "subdivision_name": "西區",
+      "subdivision_name_en": "West District",
+      "subdivision_type": "區",
+      "aliases": [
+        "西區",
+        "西",
+        "West District",
+        "West"
+      ]
+    },
+    {
+      "county_code": "66000",
+      "county_name": "臺中市",
+      "county_name_en": "Taichung City",
+      "subdivision_code": "66000050",
+      "subdivision_name": "北區",
+      "subdivision_name_en": "North District",
+      "subdivision_type": "區",
+      "aliases": [
+        "北區",
+        "北",
+        "North District",
+        "North"
+      ]
+    },
+    {
+      "county_code": "66000",
+      "county_name": "臺中市",
+      "county_name_en": "Taichung City",
+      "subdivision_code": "66000060",
+      "subdivision_name": "西屯區",
+      "subdivision_name_en": "Xitun District",
+      "subdivision_type": "區",
+      "aliases": [
+        "西屯區",
+        "西屯",
+        "Xitun District",
+        "Xitun"
+      ]
+    },
+    {
+      "county_code": "66000",
+      "county_name": "臺中市",
+      "county_name_en": "Taichung City",
+      "subdivision_code": "66000070",
+      "subdivision_name": "南屯區",
+      "subdivision_name_en": "Nantun District",
+      "subdivision_type": "區",
+      "aliases": [
+        "南屯區",
+        "南屯",
+        "Nantun District",
+        "Nantun"
+      ]
+    },
+    {
+      "county_code": "66000",
+      "county_name": "臺中市",
+      "county_name_en": "Taichung City",
+      "subdivision_code": "66000080",
+      "subdivision_name": "北屯區",
+      "subdivision_name_en": "Beitun District",
+      "subdivision_type": "區",
+      "aliases": [
+        "北屯區",
+        "北屯",
+        "Beitun District",
+        "Beitun"
+      ]
+    },
+    {
+      "county_code": "66000",
+      "county_name": "臺中市",
+      "county_name_en": "Taichung City",
+      "subdivision_code": "66000090",
+      "subdivision_name": "豐原區",
+      "subdivision_name_en": "Fengyuan District",
+      "subdivision_type": "區",
+      "aliases": [
+        "豐原區",
+        "豐原",
+        "Fengyuan District",
+        "Fengyuan"
+      ]
+    },
+    {
+      "county_code": "66000",
+      "county_name": "臺中市",
+      "county_name_en": "Taichung City",
+      "subdivision_code": "66000100",
+      "subdivision_name": "東勢區",
+      "subdivision_name_en": "Dongshi District",
+      "subdivision_type": "區",
+      "aliases": [
+        "東勢區",
+        "東勢",
+        "Dongshi District",
+        "Dongshi"
+      ]
+    },
+    {
+      "county_code": "66000",
+      "county_name": "臺中市",
+      "county_name_en": "Taichung City",
+      "subdivision_code": "66000110",
+      "subdivision_name": "大甲區",
+      "subdivision_name_en": "Dajia District",
+      "subdivision_type": "區",
+      "aliases": [
+        "大甲區",
+        "大甲",
+        "Dajia District",
+        "Dajia"
+      ]
+    },
+    {
+      "county_code": "66000",
+      "county_name": "臺中市",
+      "county_name_en": "Taichung City",
+      "subdivision_code": "66000120",
+      "subdivision_name": "清水區",
+      "subdivision_name_en": "Qingshui District",
+      "subdivision_type": "區",
+      "aliases": [
+        "清水區",
+        "清水",
+        "Qingshui District",
+        "Qingshui"
+      ]
+    },
+    {
+      "county_code": "66000",
+      "county_name": "臺中市",
+      "county_name_en": "Taichung City",
+      "subdivision_code": "66000130",
+      "subdivision_name": "沙鹿區",
+      "subdivision_name_en": "Shalu District",
+      "subdivision_type": "區",
+      "aliases": [
+        "沙鹿區",
+        "沙鹿",
+        "Shalu District",
+        "Shalu"
+      ]
+    },
+    {
+      "county_code": "66000",
+      "county_name": "臺中市",
+      "county_name_en": "Taichung City",
+      "subdivision_code": "66000140",
+      "subdivision_name": "梧棲區",
+      "subdivision_name_en": "Wuqi District",
+      "subdivision_type": "區",
+      "aliases": [
+        "梧棲區",
+        "梧棲",
+        "Wuqi District",
+        "Wuqi"
+      ]
+    },
+    {
+      "county_code": "66000",
+      "county_name": "臺中市",
+      "county_name_en": "Taichung City",
+      "subdivision_code": "66000150",
+      "subdivision_name": "后里區",
+      "subdivision_name_en": "Houli District",
+      "subdivision_type": "區",
+      "aliases": [
+        "后里區",
+        "后里",
+        "Houli District",
+        "Houli"
+      ]
+    },
+    {
+      "county_code": "66000",
+      "county_name": "臺中市",
+      "county_name_en": "Taichung City",
+      "subdivision_code": "66000160",
+      "subdivision_name": "神岡區",
+      "subdivision_name_en": "Shengang District",
+      "subdivision_type": "區",
+      "aliases": [
+        "神岡區",
+        "神岡",
+        "Shengang District",
+        "Shengang"
+      ]
+    },
+    {
+      "county_code": "66000",
+      "county_name": "臺中市",
+      "county_name_en": "Taichung City",
+      "subdivision_code": "66000170",
+      "subdivision_name": "潭子區",
+      "subdivision_name_en": "Tanzi District",
+      "subdivision_type": "區",
+      "aliases": [
+        "潭子區",
+        "潭子",
+        "Tanzi District",
+        "Tanzi"
+      ]
+    },
+    {
+      "county_code": "66000",
+      "county_name": "臺中市",
+      "county_name_en": "Taichung City",
+      "subdivision_code": "66000180",
+      "subdivision_name": "大雅區",
+      "subdivision_name_en": "Daya District",
+      "subdivision_type": "區",
+      "aliases": [
+        "大雅區",
+        "大雅",
+        "Daya District",
+        "Daya"
+      ]
+    },
+    {
+      "county_code": "66000",
+      "county_name": "臺中市",
+      "county_name_en": "Taichung City",
+      "subdivision_code": "66000190",
+      "subdivision_name": "新社區",
+      "subdivision_name_en": "Xinshe District",
+      "subdivision_type": "區",
+      "aliases": [
+        "新社區",
+        "新社",
+        "Xinshe District",
+        "Xinshe"
+      ]
+    },
+    {
+      "county_code": "66000",
+      "county_name": "臺中市",
+      "county_name_en": "Taichung City",
+      "subdivision_code": "66000200",
+      "subdivision_name": "石岡區",
+      "subdivision_name_en": "Shigang District",
+      "subdivision_type": "區",
+      "aliases": [
+        "石岡區",
+        "石岡",
+        "Shigang District",
+        "Shigang"
+      ]
+    },
+    {
+      "county_code": "66000",
+      "county_name": "臺中市",
+      "county_name_en": "Taichung City",
+      "subdivision_code": "66000210",
+      "subdivision_name": "外埔區",
+      "subdivision_name_en": "Waipu District",
+      "subdivision_type": "區",
+      "aliases": [
+        "外埔區",
+        "外埔",
+        "Waipu District",
+        "Waipu"
+      ]
+    },
+    {
+      "county_code": "66000",
+      "county_name": "臺中市",
+      "county_name_en": "Taichung City",
+      "subdivision_code": "66000220",
+      "subdivision_name": "大安區",
+      "subdivision_name_en": "Daan District",
+      "subdivision_type": "區",
+      "aliases": [
+        "大安區",
+        "大安",
+        "Daan District",
+        "Daan"
+      ]
+    },
+    {
+      "county_code": "66000",
+      "county_name": "臺中市",
+      "county_name_en": "Taichung City",
+      "subdivision_code": "66000230",
+      "subdivision_name": "烏日區",
+      "subdivision_name_en": "Wuri District",
+      "subdivision_type": "區",
+      "aliases": [
+        "烏日區",
+        "烏日",
+        "Wuri District",
+        "Wuri"
+      ]
+    },
+    {
+      "county_code": "66000",
+      "county_name": "臺中市",
+      "county_name_en": "Taichung City",
+      "subdivision_code": "66000240",
+      "subdivision_name": "大肚區",
+      "subdivision_name_en": "Dadu District",
+      "subdivision_type": "區",
+      "aliases": [
+        "大肚區",
+        "大肚",
+        "Dadu District",
+        "Dadu"
+      ]
+    },
+    {
+      "county_code": "66000",
+      "county_name": "臺中市",
+      "county_name_en": "Taichung City",
+      "subdivision_code": "66000250",
+      "subdivision_name": "龍井區",
+      "subdivision_name_en": "Longjing District",
+      "subdivision_type": "區",
+      "aliases": [
+        "龍井區",
+        "龍井",
+        "Longjing District",
+        "Longjing"
+      ]
+    },
+    {
+      "county_code": "66000",
+      "county_name": "臺中市",
+      "county_name_en": "Taichung City",
+      "subdivision_code": "66000260",
+      "subdivision_name": "霧峰區",
+      "subdivision_name_en": "Wufeng District",
+      "subdivision_type": "區",
+      "aliases": [
+        "霧峰區",
+        "霧峰",
+        "Wufeng District",
+        "Wufeng"
+      ]
+    },
+    {
+      "county_code": "66000",
+      "county_name": "臺中市",
+      "county_name_en": "Taichung City",
+      "subdivision_code": "66000270",
+      "subdivision_name": "太平區",
+      "subdivision_name_en": "Taiping District",
+      "subdivision_type": "區",
+      "aliases": [
+        "太平區",
+        "太平",
+        "Taiping District",
+        "Taiping"
+      ]
+    },
+    {
+      "county_code": "66000",
+      "county_name": "臺中市",
+      "county_name_en": "Taichung City",
+      "subdivision_code": "66000280",
+      "subdivision_name": "大里區",
+      "subdivision_name_en": "Dali District",
+      "subdivision_type": "區",
+      "aliases": [
+        "大里區",
+        "大里",
+        "Dali District",
+        "Dali"
+      ]
+    },
+    {
+      "county_code": "66000",
+      "county_name": "臺中市",
+      "county_name_en": "Taichung City",
+      "subdivision_code": "66000290",
+      "subdivision_name": "和平區",
+      "subdivision_name_en": "Heping District",
+      "subdivision_type": "區",
+      "aliases": [
+        "和平區",
+        "和平",
+        "Heping District",
+        "Heping"
+      ]
+    },
+    {
+      "county_code": "67000",
+      "county_name": "臺南市",
+      "county_name_en": "Tainan City",
+      "subdivision_code": "67000010",
+      "subdivision_name": "新營區",
+      "subdivision_name_en": "Xinying District",
+      "subdivision_type": "區",
+      "aliases": [
+        "新營區",
+        "新營",
+        "Xinying District",
+        "Xinying"
+      ]
+    },
+    {
+      "county_code": "67000",
+      "county_name": "臺南市",
+      "county_name_en": "Tainan City",
+      "subdivision_code": "67000020",
+      "subdivision_name": "鹽水區",
+      "subdivision_name_en": "Yanshuei District",
+      "subdivision_type": "區",
+      "aliases": [
+        "鹽水區",
+        "鹽水",
+        "Yanshuei District",
+        "Yanshuei"
+      ]
+    },
+    {
+      "county_code": "67000",
+      "county_name": "臺南市",
+      "county_name_en": "Tainan City",
+      "subdivision_code": "67000030",
+      "subdivision_name": "白河區",
+      "subdivision_name_en": "Baihe District",
+      "subdivision_type": "區",
+      "aliases": [
+        "白河區",
+        "白河",
+        "Baihe District",
+        "Baihe"
+      ]
+    },
+    {
+      "county_code": "67000",
+      "county_name": "臺南市",
+      "county_name_en": "Tainan City",
+      "subdivision_code": "67000040",
+      "subdivision_name": "柳營區",
+      "subdivision_name_en": "Liouying District",
+      "subdivision_type": "區",
+      "aliases": [
+        "柳營區",
+        "柳營",
+        "Liouying District",
+        "Liouying"
+      ]
+    },
+    {
+      "county_code": "67000",
+      "county_name": "臺南市",
+      "county_name_en": "Tainan City",
+      "subdivision_code": "67000050",
+      "subdivision_name": "後壁區",
+      "subdivision_name_en": "Houbi District",
+      "subdivision_type": "區",
+      "aliases": [
+        "後壁區",
+        "後壁",
+        "Houbi District",
+        "Houbi"
+      ]
+    },
+    {
+      "county_code": "67000",
+      "county_name": "臺南市",
+      "county_name_en": "Tainan City",
+      "subdivision_code": "67000060",
+      "subdivision_name": "東山區",
+      "subdivision_name_en": "Dongshan District",
+      "subdivision_type": "區",
+      "aliases": [
+        "東山區",
+        "東山",
+        "Dongshan District",
+        "Dongshan"
+      ]
+    },
+    {
+      "county_code": "67000",
+      "county_name": "臺南市",
+      "county_name_en": "Tainan City",
+      "subdivision_code": "67000070",
+      "subdivision_name": "麻豆區",
+      "subdivision_name_en": "Madou District",
+      "subdivision_type": "區",
+      "aliases": [
+        "麻豆區",
+        "麻豆",
+        "Madou District",
+        "Madou"
+      ]
+    },
+    {
+      "county_code": "67000",
+      "county_name": "臺南市",
+      "county_name_en": "Tainan City",
+      "subdivision_code": "67000080",
+      "subdivision_name": "下營區",
+      "subdivision_name_en": "Xiaying District",
+      "subdivision_type": "區",
+      "aliases": [
+        "下營區",
+        "下營",
+        "Xiaying District",
+        "Xiaying"
+      ]
+    },
+    {
+      "county_code": "67000",
+      "county_name": "臺南市",
+      "county_name_en": "Tainan City",
+      "subdivision_code": "67000090",
+      "subdivision_name": "六甲區",
+      "subdivision_name_en": "Lioujia District",
+      "subdivision_type": "區",
+      "aliases": [
+        "六甲區",
+        "六甲",
+        "Lioujia District",
+        "Lioujia"
+      ]
+    },
+    {
+      "county_code": "67000",
+      "county_name": "臺南市",
+      "county_name_en": "Tainan City",
+      "subdivision_code": "67000100",
+      "subdivision_name": "官田區",
+      "subdivision_name_en": "Guantian District",
+      "subdivision_type": "區",
+      "aliases": [
+        "官田區",
+        "官田",
+        "Guantian District",
+        "Guantian"
+      ]
+    },
+    {
+      "county_code": "67000",
+      "county_name": "臺南市",
+      "county_name_en": "Tainan City",
+      "subdivision_code": "67000110",
+      "subdivision_name": "大內區",
+      "subdivision_name_en": "Danei District",
+      "subdivision_type": "區",
+      "aliases": [
+        "大內區",
+        "大內",
+        "Danei District",
+        "Danei"
+      ]
+    },
+    {
+      "county_code": "67000",
+      "county_name": "臺南市",
+      "county_name_en": "Tainan City",
+      "subdivision_code": "67000120",
+      "subdivision_name": "佳里區",
+      "subdivision_name_en": "Jiali District",
+      "subdivision_type": "區",
+      "aliases": [
+        "佳里區",
+        "佳里",
+        "Jiali District",
+        "Jiali"
+      ]
+    },
+    {
+      "county_code": "67000",
+      "county_name": "臺南市",
+      "county_name_en": "Tainan City",
+      "subdivision_code": "67000130",
+      "subdivision_name": "學甲區",
+      "subdivision_name_en": "Syuejia District",
+      "subdivision_type": "區",
+      "aliases": [
+        "學甲區",
+        "學甲",
+        "Syuejia District",
+        "Syuejia"
+      ]
+    },
+    {
+      "county_code": "67000",
+      "county_name": "臺南市",
+      "county_name_en": "Tainan City",
+      "subdivision_code": "67000140",
+      "subdivision_name": "西港區",
+      "subdivision_name_en": "Sigang District",
+      "subdivision_type": "區",
+      "aliases": [
+        "西港區",
+        "西港",
+        "Sigang District",
+        "Sigang"
+      ]
+    },
+    {
+      "county_code": "67000",
+      "county_name": "臺南市",
+      "county_name_en": "Tainan City",
+      "subdivision_code": "67000150",
+      "subdivision_name": "七股區",
+      "subdivision_name_en": "Cigu District",
+      "subdivision_type": "區",
+      "aliases": [
+        "七股區",
+        "七股",
+        "Cigu District",
+        "Cigu"
+      ]
+    },
+    {
+      "county_code": "67000",
+      "county_name": "臺南市",
+      "county_name_en": "Tainan City",
+      "subdivision_code": "67000160",
+      "subdivision_name": "將軍區",
+      "subdivision_name_en": "Jiangjun District",
+      "subdivision_type": "區",
+      "aliases": [
+        "將軍區",
+        "將軍",
+        "Jiangjun District",
+        "Jiangjun"
+      ]
+    },
+    {
+      "county_code": "67000",
+      "county_name": "臺南市",
+      "county_name_en": "Tainan City",
+      "subdivision_code": "67000170",
+      "subdivision_name": "北門區",
+      "subdivision_name_en": "Beimen District",
+      "subdivision_type": "區",
+      "aliases": [
+        "北門區",
+        "北門",
+        "Beimen District",
+        "Beimen"
+      ]
+    },
+    {
+      "county_code": "67000",
+      "county_name": "臺南市",
+      "county_name_en": "Tainan City",
+      "subdivision_code": "67000180",
+      "subdivision_name": "新化區",
+      "subdivision_name_en": "Xinhua District",
+      "subdivision_type": "區",
+      "aliases": [
+        "新化區",
+        "新化",
+        "Xinhua District",
+        "Xinhua"
+      ]
+    },
+    {
+      "county_code": "67000",
+      "county_name": "臺南市",
+      "county_name_en": "Tainan City",
+      "subdivision_code": "67000190",
+      "subdivision_name": "善化區",
+      "subdivision_name_en": "Shanhua District",
+      "subdivision_type": "區",
+      "aliases": [
+        "善化區",
+        "善化",
+        "Shanhua District",
+        "Shanhua"
+      ]
+    },
+    {
+      "county_code": "67000",
+      "county_name": "臺南市",
+      "county_name_en": "Tainan City",
+      "subdivision_code": "67000200",
+      "subdivision_name": "新市區",
+      "subdivision_name_en": "Sinshih District",
+      "subdivision_type": "區",
+      "aliases": [
+        "新市區",
+        "新市",
+        "Sinshih District",
+        "Sinshih"
+      ]
+    },
+    {
+      "county_code": "67000",
+      "county_name": "臺南市",
+      "county_name_en": "Tainan City",
+      "subdivision_code": "67000210",
+      "subdivision_name": "安定區",
+      "subdivision_name_en": "Anding District",
+      "subdivision_type": "區",
+      "aliases": [
+        "安定區",
+        "安定",
+        "Anding District",
+        "Anding"
+      ]
+    },
+    {
+      "county_code": "67000",
+      "county_name": "臺南市",
+      "county_name_en": "Tainan City",
+      "subdivision_code": "67000220",
+      "subdivision_name": "山上區",
+      "subdivision_name_en": "Shanshang District",
+      "subdivision_type": "區",
+      "aliases": [
+        "山上區",
+        "山上",
+        "Shanshang District",
+        "Shanshang"
+      ]
+    },
+    {
+      "county_code": "67000",
+      "county_name": "臺南市",
+      "county_name_en": "Tainan City",
+      "subdivision_code": "67000230",
+      "subdivision_name": "玉井區",
+      "subdivision_name_en": "Yujing District",
+      "subdivision_type": "區",
+      "aliases": [
+        "玉井區",
+        "玉井",
+        "Yujing District",
+        "Yujing"
+      ]
+    },
+    {
+      "county_code": "67000",
+      "county_name": "臺南市",
+      "county_name_en": "Tainan City",
+      "subdivision_code": "67000240",
+      "subdivision_name": "楠西區",
+      "subdivision_name_en": "Nansi District",
+      "subdivision_type": "區",
+      "aliases": [
+        "楠西區",
+        "楠西",
+        "Nansi District",
+        "Nansi"
+      ]
+    },
+    {
+      "county_code": "67000",
+      "county_name": "臺南市",
+      "county_name_en": "Tainan City",
+      "subdivision_code": "67000250",
+      "subdivision_name": "南化區",
+      "subdivision_name_en": "Nanhua District",
+      "subdivision_type": "區",
+      "aliases": [
+        "南化區",
+        "南化",
+        "Nanhua District",
+        "Nanhua"
+      ]
+    },
+    {
+      "county_code": "67000",
+      "county_name": "臺南市",
+      "county_name_en": "Tainan City",
+      "subdivision_code": "67000260",
+      "subdivision_name": "左鎮區",
+      "subdivision_name_en": "Zuojhen District",
+      "subdivision_type": "區",
+      "aliases": [
+        "左鎮區",
+        "左鎮",
+        "Zuojhen District",
+        "Zuojhen"
+      ]
+    },
+    {
+      "county_code": "67000",
+      "county_name": "臺南市",
+      "county_name_en": "Tainan City",
+      "subdivision_code": "67000270",
+      "subdivision_name": "仁德區",
+      "subdivision_name_en": "Rende District",
+      "subdivision_type": "區",
+      "aliases": [
+        "仁德區",
+        "仁德",
+        "Rende District",
+        "Rende"
+      ]
+    },
+    {
+      "county_code": "67000",
+      "county_name": "臺南市",
+      "county_name_en": "Tainan City",
+      "subdivision_code": "67000280",
+      "subdivision_name": "歸仁區",
+      "subdivision_name_en": "Gueiren District",
+      "subdivision_type": "區",
+      "aliases": [
+        "歸仁區",
+        "歸仁",
+        "Gueiren District",
+        "Gueiren"
+      ]
+    },
+    {
+      "county_code": "67000",
+      "county_name": "臺南市",
+      "county_name_en": "Tainan City",
+      "subdivision_code": "67000290",
+      "subdivision_name": "關廟區",
+      "subdivision_name_en": "Guanmiao District",
+      "subdivision_type": "區",
+      "aliases": [
+        "關廟區",
+        "關廟",
+        "Guanmiao District",
+        "Guanmiao"
+      ]
+    },
+    {
+      "county_code": "67000",
+      "county_name": "臺南市",
+      "county_name_en": "Tainan City",
+      "subdivision_code": "67000300",
+      "subdivision_name": "龍崎區",
+      "subdivision_name_en": "Longci District",
+      "subdivision_type": "區",
+      "aliases": [
+        "龍崎區",
+        "龍崎",
+        "Longci District",
+        "Longci"
+      ]
+    },
+    {
+      "county_code": "67000",
+      "county_name": "臺南市",
+      "county_name_en": "Tainan City",
+      "subdivision_code": "67000310",
+      "subdivision_name": "永康區",
+      "subdivision_name_en": "Yongkang District",
+      "subdivision_type": "區",
+      "aliases": [
+        "永康區",
+        "永康",
+        "Yongkang District",
+        "Yongkang"
+      ]
+    },
+    {
+      "county_code": "67000",
+      "county_name": "臺南市",
+      "county_name_en": "Tainan City",
+      "subdivision_code": "67000320",
+      "subdivision_name": "東區",
+      "subdivision_name_en": "East District",
+      "subdivision_type": "區",
+      "aliases": [
+        "東區",
+        "東",
+        "East District",
+        "East"
+      ]
+    },
+    {
+      "county_code": "67000",
+      "county_name": "臺南市",
+      "county_name_en": "Tainan City",
+      "subdivision_code": "67000330",
+      "subdivision_name": "南區",
+      "subdivision_name_en": "South District",
+      "subdivision_type": "區",
+      "aliases": [
+        "南區",
+        "南",
+        "South District",
+        "South"
+      ]
+    },
+    {
+      "county_code": "67000",
+      "county_name": "臺南市",
+      "county_name_en": "Tainan City",
+      "subdivision_code": "67000340",
+      "subdivision_name": "北區",
+      "subdivision_name_en": "North District",
+      "subdivision_type": "區",
+      "aliases": [
+        "北區",
+        "北",
+        "North District",
+        "North"
+      ]
+    },
+    {
+      "county_code": "67000",
+      "county_name": "臺南市",
+      "county_name_en": "Tainan City",
+      "subdivision_code": "67000350",
+      "subdivision_name": "安南區",
+      "subdivision_name_en": "Annan District",
+      "subdivision_type": "區",
+      "aliases": [
+        "安南區",
+        "安南",
+        "Annan District",
+        "Annan"
+      ]
+    },
+    {
+      "county_code": "67000",
+      "county_name": "臺南市",
+      "county_name_en": "Tainan City",
+      "subdivision_code": "67000360",
+      "subdivision_name": "安平區",
+      "subdivision_name_en": "Anping District",
+      "subdivision_type": "區",
+      "aliases": [
+        "安平區",
+        "安平",
+        "Anping District",
+        "Anping"
+      ]
+    },
+    {
+      "county_code": "67000",
+      "county_name": "臺南市",
+      "county_name_en": "Tainan City",
+      "subdivision_code": "67000370",
+      "subdivision_name": "中西區",
+      "subdivision_name_en": "West Central District",
+      "subdivision_type": "區",
+      "aliases": [
+        "中西區",
+        "中西",
+        "West Central District",
+        "West Central"
+      ]
+    },
+    {
+      "county_code": "68000",
+      "county_name": "桃園市",
+      "county_name_en": "Taoyuan City",
+      "subdivision_code": "68000010",
+      "subdivision_name": "桃園區",
+      "subdivision_name_en": "Taoyuan District",
+      "subdivision_type": "區",
+      "aliases": [
+        "桃園區",
+        "桃園",
+        "Taoyuan District",
+        "Taoyuan"
+      ]
+    },
+    {
+      "county_code": "68000",
+      "county_name": "桃園市",
+      "county_name_en": "Taoyuan City",
+      "subdivision_code": "68000020",
+      "subdivision_name": "中壢區",
+      "subdivision_name_en": "Zhongli District",
+      "subdivision_type": "區",
+      "aliases": [
+        "中壢區",
+        "中壢",
+        "Zhongli District",
+        "Zhongli"
+      ]
+    },
+    {
+      "county_code": "68000",
+      "county_name": "桃園市",
+      "county_name_en": "Taoyuan City",
+      "subdivision_code": "68000030",
+      "subdivision_name": "大溪區",
+      "subdivision_name_en": "Daxi District",
+      "subdivision_type": "區",
+      "aliases": [
+        "大溪區",
+        "大溪",
+        "Daxi District",
+        "Daxi"
+      ]
+    },
+    {
+      "county_code": "68000",
+      "county_name": "桃園市",
+      "county_name_en": "Taoyuan City",
+      "subdivision_code": "68000040",
+      "subdivision_name": "楊梅區",
+      "subdivision_name_en": "Yangmei District",
+      "subdivision_type": "區",
+      "aliases": [
+        "楊梅區",
+        "楊梅",
+        "Yangmei District",
+        "Yangmei"
+      ]
+    },
+    {
+      "county_code": "68000",
+      "county_name": "桃園市",
+      "county_name_en": "Taoyuan City",
+      "subdivision_code": "68000050",
+      "subdivision_name": "蘆竹區",
+      "subdivision_name_en": "Luzhu District",
+      "subdivision_type": "區",
+      "aliases": [
+        "蘆竹區",
+        "蘆竹",
+        "Luzhu District",
+        "Luzhu"
+      ]
+    },
+    {
+      "county_code": "68000",
+      "county_name": "桃園市",
+      "county_name_en": "Taoyuan City",
+      "subdivision_code": "68000060",
+      "subdivision_name": "大園區",
+      "subdivision_name_en": "Dayuan District",
+      "subdivision_type": "區",
+      "aliases": [
+        "大園區",
+        "大園",
+        "Dayuan District",
+        "Dayuan"
+      ]
+    },
+    {
+      "county_code": "68000",
+      "county_name": "桃園市",
+      "county_name_en": "Taoyuan City",
+      "subdivision_code": "68000070",
+      "subdivision_name": "龜山區",
+      "subdivision_name_en": "Guishan District",
+      "subdivision_type": "區",
+      "aliases": [
+        "龜山區",
+        "龜山",
+        "Guishan District",
+        "Guishan"
+      ]
+    },
+    {
+      "county_code": "68000",
+      "county_name": "桃園市",
+      "county_name_en": "Taoyuan City",
+      "subdivision_code": "68000080",
+      "subdivision_name": "八德區",
+      "subdivision_name_en": "Bade District",
+      "subdivision_type": "區",
+      "aliases": [
+        "八德區",
+        "八德",
+        "Bade District",
+        "Bade"
+      ]
+    },
+    {
+      "county_code": "68000",
+      "county_name": "桃園市",
+      "county_name_en": "Taoyuan City",
+      "subdivision_code": "68000090",
+      "subdivision_name": "龍潭區",
+      "subdivision_name_en": "Longtan District",
+      "subdivision_type": "區",
+      "aliases": [
+        "龍潭區",
+        "龍潭",
+        "Longtan District",
+        "Longtan"
+      ]
+    },
+    {
+      "county_code": "68000",
+      "county_name": "桃園市",
+      "county_name_en": "Taoyuan City",
+      "subdivision_code": "68000100",
+      "subdivision_name": "平鎮區",
+      "subdivision_name_en": "Pingzhen District",
+      "subdivision_type": "區",
+      "aliases": [
+        "平鎮區",
+        "平鎮",
+        "Pingzhen District",
+        "Pingzhen"
+      ]
+    },
+    {
+      "county_code": "68000",
+      "county_name": "桃園市",
+      "county_name_en": "Taoyuan City",
+      "subdivision_code": "68000110",
+      "subdivision_name": "新屋區",
+      "subdivision_name_en": "Xinwu District",
+      "subdivision_type": "區",
+      "aliases": [
+        "新屋區",
+        "新屋",
+        "Xinwu District",
+        "Xinwu"
+      ]
+    },
+    {
+      "county_code": "68000",
+      "county_name": "桃園市",
+      "county_name_en": "Taoyuan City",
+      "subdivision_code": "68000120",
+      "subdivision_name": "觀音區",
+      "subdivision_name_en": "Guanyin District",
+      "subdivision_type": "區",
+      "aliases": [
+        "觀音區",
+        "觀音",
+        "Guanyin District",
+        "Guanyin"
+      ]
+    },
+    {
+      "county_code": "68000",
+      "county_name": "桃園市",
+      "county_name_en": "Taoyuan City",
+      "subdivision_code": "68000130",
+      "subdivision_name": "復興區",
+      "subdivision_name_en": "Fuxing District",
+      "subdivision_type": "區",
+      "aliases": [
+        "復興區",
+        "復興",
+        "Fuxing District",
+        "Fuxing"
+      ]
+    }
+  ]
+}

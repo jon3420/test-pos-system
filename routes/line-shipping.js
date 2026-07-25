@@ -551,8 +551,9 @@ router.post('/', (req, res) => {
         shipping_arrival_type, shipping_arrival_date, shipping_fee, shipping_free_discount,
         shipping_carrier_name, shipping_status, line_user_id,
         fulfillment_geo_city, fulfillment_geo_district, fulfillment_geo_source,
-        fulfillment_geo_confidence, fulfillment_geo_resolution, fulfillment_distance_band
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        fulfillment_geo_confidence, fulfillment_geo_resolution, fulfillment_distance_band,
+        fulfillment_geo_county_code, fulfillment_geo_subdivision_code
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         uuid, uuid, orderNo, storeId, 'shipping', 'pending', 'pending',
         recipient_name, phone,
@@ -566,6 +567,9 @@ router.post('/', (req, res) => {
         settings.shipping_carrier_name || '', 'pending', knownLineUserId || '',
         shippingGeo.geo_city, shippingGeo.geo_district, shippingGeo.geo_source,
         shippingGeo.geo_confidence, shippingGeo.geo_resolution, shippingGeo.geo_distance_band,
+        // fix18-10-hotfix30-B5-R5.2-A（Stage 8）：重用 normalizeDeliveryGeo()
+        // 已算好的 geo_county_code/geo_subdivision_code，不重新解析。
+        shippingGeo.geo_county_code, shippingGeo.geo_subdivision_code,
       ]
     );
 

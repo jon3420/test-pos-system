@@ -1,7 +1,7 @@
 {
   "name": "foodtruck-pos",
-  "version": "18.1.15",
-  "description": "POS SaaS Foundation R1 — 多店隔離 + Super Admin",
+  "version": "18.30.0-R5.2-A-RC1",
+  "description": "POS SaaS Foundation R1 — 多店隔離 + Super Admin + Taiwan Administrative Area Intelligence (fix18-10-hotfix30-B5-R5.2-A-RC1)",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

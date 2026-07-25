@@ -742,7 +742,18 @@ function _av2GeoRenderSubTab(tab, data) {
     ]) + _av2GeoPagination(data);
   }
   if (tab === 'quality') {
+    // fix18-10-hotfix30-B5-R5.1-D1（十九、Geo Quality Diagnostics）：改成
+    // 使用者可理解文案，而不是只顯示 status:'degraded' 這種工程師字眼。
+    // data.visitor_ip_geo_status_label / data.provider 由後端
+    // routes/analytics-geo.js 的 /quality handler 疊加，向後相容——舊版後端
+    // 沒有這兩個欄位時，這裡安全地不顯示該區塊，不影響既有畫面。
+    const providerBlock = data.visitor_ip_geo_status_label ? `
+    <div style="margin:10px 0;padding:10px 12px;border:1px solid var(--border-color,#e2e8f0);border-radius:8px;font-size:.85rem">
+      <div style="font-weight:700;margin-bottom:4px">${escHtml(data.visitor_ip_geo_status_label)}</div>
+      ${data.provider ? `<div style="color:var(--text-secondary,#64748b)">Cache Hit ${data.provider.cache_hits ?? 0} / Miss ${data.provider.cache_misses ?? 0}　最近成功：${data.provider.last_success_at ? escHtml(data.provider.last_success_at) : '—'}　最近錯誤：${data.provider.last_error_code ? escHtml(data.provider.last_error_code) : '—'}</div>` : ''}
+    </div>` : '';
     return `<div style="margin-bottom:10px">狀態：${geoQualityBadge(data.status)}</div>
+    ${providerBlock}
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px">
       ${_card('High', data.high_count ?? 0, _geoFmtVal(data.high_rate), '#10b981')}
       ${_card('Medium', data.medium_count ?? 0, _geoFmtVal(data.medium_rate), '#f59e0b')}

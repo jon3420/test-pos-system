@@ -116,6 +116,45 @@ function truncateIpForResolution(ip) {
   return null;
 }
 
+// fix18-10-hotfix30-B5-R5.1-D（九、禁止查詢特殊 IP）——
+// 這些 IP 對應 loopback／私有網段／link-local／未指定位址，送 Provider 查詢
+// 沒有意義，且可能洩漏內部網路拓樸給第三方 Provider。一律在送出 Provider
+// 之前擋下，直接視為 unknown（code=PRIVATE_OR_LOCAL_IP），不計入 Provider
+// 呼叫次數。
+function isPrivateOrLocalIp(ip) {
+  if (!ip || typeof ip !== 'string') return true; // 無法判斷的輸入，保守視為不可查詢
+  let v = ip.trim();
+  if (!v) return true;
+
+  // IPv4-mapped IPv6（::ffff:a.b.c.d）先還原成純 IPv4 再判斷
+  const mapped = v.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i);
+  if (mapped) v = mapped[1];
+
+  if (v.includes('.') && !v.includes(':')) {
+    const parts = v.split('.').map((p) => Number(p));
+    if (parts.length !== 4 || parts.some((p) => !Number.isInteger(p) || p < 0 || p > 255)) return true; // 格式不合法，保守擋下
+    const [a, b] = parts;
+    if (a === 127) return true; // 127.0.0.0/8 loopback
+    if (a === 10) return true; // 10.0.0.0/8
+    if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12
+    if (a === 192 && b === 168) return true; // 192.168.0.0/16
+    if (a === 169 && b === 254) return true; // 169.254.0.0/16 link-local
+    if (a === 0) return true; // 0.0.0.0
+    return false;
+  }
+
+  if (v.includes(':')) {
+    const low = v.toLowerCase();
+    if (low === '::1') return true; // loopback
+    if (low === '::') return true; // unspecified
+    if (/^f[cd][0-9a-f]{2}:/.test(low)) return true; // fc00::/7 unique local
+    if (/^fe[89ab][0-9a-f]:/.test(low)) return true; // fe80::/10 link-local
+    return false;
+  }
+
+  return true; // 未知格式，保守擋下
+}
+
 // 一般 Analytics API／前端絕不可見的欄位。任何要對外（API、前端、一般商家
 // 後台）回傳的 geo 紀錄，一律先過這個函式。
 const FORBIDDEN_OUTPUT_FIELDS = [
@@ -141,4 +180,5 @@ module.exports = {
   FORBIDDEN_OUTPUT_FIELDS,
   computeTrustProxySetting,
   _legacyHeaderScan,
+  isPrivateOrLocalIp,
 };

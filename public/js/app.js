@@ -980,8 +980,103 @@ function renderDashboardOpenCartsSection() {
       ${_card('具 LINE 身分未完成', summary.line_identified + ' 個', '', '#6366f1')}
     </div>
     <div id="db-open-cart-filters">${_renderOpenCartFilters()}</div>
+    <div id="db-open-cart-geo-summary" style="margin-bottom:14px"></div>
     <div id="db-open-carts-body"><div style="color:var(--text-secondary,#64748b);font-size:.82rem;padding:10px 0">載入中...</div></div>`
   );
+}
+
+// fix18-10-hotfix30-B5-R5.1-D1（Regression Cleanup）——原本這裡會另外呼叫
+// GET /api/analytics/geo/cart-attribution，導致 Dashboard 初始化流程多了一支
+// /api/analytics/geo/* fetch，打破既有 R5.1-C 「Dashboard 首頁固定只觸發 4 支
+// lazy geo endpoint」的既有測試（見 scripts/smoke-hotfix30-b5-r5-1-c-geo-ui.js
+// 「promise.all」「Lazy Load」兩組測試）。修正為：完全不再呼叫任何
+// /api/analytics/geo/* API，改成直接重用 loadCartAbandonment() 已經拿到的
+// rows（GET /api/analytics/cart-abandonment 這支既有 API 本來就已經在拿了，
+// 不是新增呼叫），在瀏覽器端就地聚合。
+//
+// 已知取捨（誠實記錄，見 CHANGELOG「Known Limitations」）：
+//   - GET /api/analytics/cart-abandonment 預設不包含「已完成購買」的購物車
+//     （見 utils/cartSnapshot.js getOpenCartRows() / _buildRowFromCandidate()：
+//     isPurchased 且未指定 includePurchased 時直接 return null）。因此這裡
+//     算出來的只是「目前未完成購物車」依區域的分布，不包含完成訂單數與成交率
+//     ——這兩欄故意不做在這個精簡區塊裡，避免顯示一個恆為 0、容易被誤解成
+//     「這個區域成交率是 0%」的假訊號。真正含「完成訂單／成交率」的區域轉換
+//     數據，既有 Geo Analytics（Analytics Center → 區域分析 → Visitor Funnel）
+//     分頁本來就有完整口徑，這裡不重複做一份。
+//   - 這裡的「訪客」欄位是「未完成購物車數」的近似值（1 個 cart_id 視為 1
+//     筆），不是跨 cart_id 用 identity_key 去重後的真人數（那個去重版本在
+//     GET /api/analytics/geo/cart-attribution，本輪刻意不在 Dashboard 首頁
+///    自動呼叫它，只有未來若該端點被其他頁面明確使用者操作觸發時才會呼叫）。
+function computeCartGeoSummaryFromRows(rows) {
+  const groups = new Map(); // area -> { carts, checkouts, abandon, cartValue }
+  rows.forEach((r) => {
+    const area = r.geo_district || r.geo_city || '未知';
+    if (!groups.has(area)) groups.set(area, { carts: 0, checkouts: 0, abandon: 0, cartValue: 0 });
+    const g = groups.get(area);
+    g.carts += 1;
+    if (r.checkout_attempt_count > 0) g.checkouts += 1;
+    if (r.status === 'abandoned') g.abandon += 1;
+    g.cartValue += Number(r.total || 0);
+  });
+
+  const ranking = [...groups.entries()].map(([area, g]) => ({
+    area, carts: g.carts, begin_checkout: g.checkouts, abandon: g.abandon, cart_value: g.cartValue,
+  })).sort((a, b) => b.carts - a.carts);
+
+  const summary = {
+    cart_count: rows.length,
+    begin_checkout_count: rows.filter((r) => r.checkout_attempt_count > 0).length,
+    abandon_count: rows.filter((r) => r.status === 'abandoned').length,
+    estimated_cart_value: rows.reduce((s, r) => s + Number(r.total || 0), 0),
+  };
+  const topAreas = ranking.slice(0, 5).map((a) => ({ area: a.area, carts: a.carts }));
+  return { summary, ranking, topAreas };
+}
+
+// 沒有任何 fetch——純粹讀 loadCartAbandonment() 已經拿到的 rows 就地渲染。
+// 容器不存在（例如頁面切走）就安靜跳過，不影響其他區塊。
+function renderCartGeoSummaryFromRows(rows) {
+  const wrap = document.getElementById('db-open-cart-geo-summary');
+  if (!wrap) return;
+  if (!rows.length) {
+    wrap.innerHTML = `<div style="font-size:.8rem;color:var(--text-secondary,#64748b)">📍 未完成購物車區域分布：目前尚無足夠資料</div>`;
+    return;
+  }
+  const { summary, ranking, topAreas } = computeCartGeoSummaryFromRows(rows);
+  renderCartGeoSummary(wrap, { summary, ranking, topAreas });
+}
+
+function renderCartGeoSummary(wrap, { summary, ranking, topAreas }) {
+  const topList = topAreas.map((a) =>
+    `<span style="display:inline-block;margin:2px 8px 2px 0;font-size:.78rem;padding:2px 8px;border-radius:99px;background:var(--bg-secondary,#1e2130);color:var(--text-secondary,#94a3b8)">${escHtml(a.area)} ${a.carts} 個</span>`
+  ).join('');
+
+  const convRows = ranking.map((a) => `<tr>
+    <td style="padding:5px 8px;font-size:12px">${escHtml(a.area)}</td>
+    <td style="padding:5px 8px;font-size:12px;text-align:right">${a.carts}</td>
+    <td style="padding:5px 8px;font-size:12px;text-align:right">${a.begin_checkout}</td>
+    <td style="padding:5px 8px;font-size:12px;text-align:right" title="購物車金額：${escHtml(_nt(a.cart_value))}">${a.abandon}</td>
+  </tr>`).join('');
+
+  wrap.innerHTML = `
+    <div style="font-size:.8rem;font-weight:700;margin-bottom:6px">📍 未完成購物車區域分布</div>
+    <div style="margin-bottom:8px">${topList}</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;margin-bottom:10px;font-size:.75rem;color:var(--text-secondary,#64748b)">
+      <div>購物車 <b style="color:var(--text-primary,#e2e8f0)">${summary.cart_count ?? 0}</b></div>
+      <div>結帳中 <b style="color:var(--text-primary,#e2e8f0)">${summary.begin_checkout_count ?? 0}</b></div>
+      <div>可能已放棄 <b style="color:var(--text-primary,#e2e8f0)">${summary.abandon_count ?? 0}</b></div>
+      <div>金額 <b style="color:var(--text-primary,#e2e8f0)">${_nt(summary.estimated_cart_value)}</b></div>
+    </div>
+    <div style="font-size:.78rem;font-weight:700;margin-bottom:4px">區域購物車分布（完成訂單／成交率請見「區域分析」分頁）</div>
+    <div style="overflow-x:auto">
+      <table style="width:100%;min-width:400px;border-collapse:collapse;font-size:.78rem">
+        <thead><tr style="color:var(--text-secondary,#64748b);text-align:left;font-size:.68rem">
+          <th style="padding:5px 8px">區域</th><th style="padding:5px 8px;text-align:right">購物車</th>
+          <th style="padding:5px 8px;text-align:right">開始結帳</th><th style="padding:5px 8px;text-align:right">可能已放棄</th>
+        </tr></thead>
+        <tbody>${convRows}</tbody>
+      </table>
+    </div>`;
 }
 
 function _renderOpenCartFilters() {
@@ -1035,6 +1130,10 @@ async function loadCartAbandonment() {
     if (!json.success) { renderDashboardOpenCartsError(json.message || '載入失敗'); return; }
     _cartAbandonLastResult = json;
     renderDashboardOpenCartsTable(json);
+    // fix18-10-hotfix30-B5-R5.1-D1（Regression Cleanup）：不額外呼叫任何
+    // /api/analytics/geo/* API，直接重用上面這支既有 API 已經回傳的 rows
+    // 就地在瀏覽器端聚合（見 renderCartGeoSummaryFromRows() 註解）。
+    renderCartGeoSummaryFromRows(json.rows || []);
   } catch (e) {
     // API 失敗只影響這個子區塊，顯示安全空狀態，不得讓整個 Dashboard 中斷。
     renderDashboardOpenCartsError((e && e.message) || '網路錯誤，請稍後再試');
@@ -1053,6 +1152,17 @@ function renderDashboardOpenCartsTable(json) {
     return;
   }
   const statusLabels = { active: '活躍中', checkout: '結帳中', abandoned: '可能已放棄' };
+  // fix18-10-hotfix30-B5-R5.1-D1（Cart Geo UI）——顯示規則：geo_district 有值
+  // 顯示 district；沒有 district 但有 city 顯示 city；都沒有顯示「未知」。
+  // 來源/精度一律用後端已經算好的中文文案（r.geo_context_label / r.geo_accuracy_label），
+  // 絕不直接顯示 provider 技術名稱（如 'ipapi'）或任何原始 IP/座標。
+  const geoAreaCell = (r) => {
+    const area = r.geo_district || r.geo_city || '未知';
+    const sourceLabel = r.geo_context_label || '無法辨識';
+    const accuracyLabel = r.geo_accuracy_label || '—';
+    const tip = `${sourceLabel}・${accuracyLabel}`;
+    return `<span title="${escHtml(tip)}">${escHtml(area)}</span>`;
+  };
   const trs = rows.map(r => {
     const customer = r.identity_type === 'line'
       ? `${escHtml(r.display_name || 'LINE 會員')}<br><span style="font-size:10px;color:var(--text-secondary,#64748b)">${escHtml(r.line_uid_masked || '')}</span>`
@@ -1066,6 +1176,7 @@ function renderDashboardOpenCartsTable(json) {
       <td style="padding:6px 8px;font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(itemsSummary)}">${escHtml(itemsSummary) || '—'}${estimatedBadge}</td>
       <td style="padding:6px 8px;font-size:12px;white-space:nowrap">${_orderModeLabel(r.order_mode)}</td>
       <td style="padding:6px 8px;font-size:12px;white-space:nowrap;max-width:100px;overflow:hidden;text-overflow:ellipsis">${escHtml(r.source || 'Direct')}</td>
+      <td style="padding:6px 8px;font-size:12px;white-space:nowrap">${geoAreaCell(r)}</td>
       <td style="padding:6px 8px;font-size:12px;white-space:nowrap">${escHtml(r.last_stage || '')}</td>
       <td style="padding:6px 8px;font-size:12px;white-space:nowrap">${escHtml(r.age_label || '—')}</td>
       <td style="padding:6px 8px;font-size:12px;white-space:nowrap">${statusLabels[r.status] || escHtml(r.status || '')}</td>
@@ -1078,7 +1189,7 @@ function renderDashboardOpenCartsTable(json) {
     <table style="width:100%;min-width:760px;border-collapse:collapse;font-size:.8rem">
       <thead><tr style="color:var(--text-secondary,#64748b);font-size:.7rem;text-align:left">
         <th style="padding:6px 8px">購物車</th><th style="padding:6px 8px">客人</th><th style="padding:6px 8px">商品</th>
-        <th style="padding:6px 8px">模式</th><th style="padding:6px 8px">來源</th><th style="padding:6px 8px">最後階段</th>
+        <th style="padding:6px 8px">模式</th><th style="padding:6px 8px">來源</th><th style="padding:6px 8px">訪客區域</th><th style="padding:6px 8px">最後階段</th>
         <th style="padding:6px 8px">放置時間</th><th style="padding:6px 8px">狀態</th><th style="padding:6px 8px;text-align:right">金額</th><th style="padding:6px 8px">操作</th>
       </tr></thead>
       <tbody>${trs}</tbody>

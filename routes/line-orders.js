@@ -1649,8 +1649,9 @@ router.post('/', async (req, res) => {
         subtotal, discount_type, discount_amount, original_total, coupon_code, total,
         note, sync_status, device_id, source, created_at, updated_at, line_user_id,
         fulfillment_geo_city, fulfillment_geo_district, fulfillment_geo_source,
-        fulfillment_geo_confidence, fulfillment_geo_resolution, fulfillment_distance_band
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        fulfillment_geo_confidence, fulfillment_geo_resolution, fulfillment_distance_band,
+        fulfillment_geo_county_code, fulfillment_geo_subdivision_code
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         uuid, uuid, orderNo, storeId, orderMode, 'pending', 'pending',
         customer_name, customer_phone, customer_line_id||'',
@@ -1669,6 +1670,14 @@ router.post('/', async (req, res) => {
         orderGeo ? orderGeo.geo_city : null, orderGeo ? orderGeo.geo_district : null,
         orderGeo ? orderGeo.geo_source : null, orderGeo ? orderGeo.geo_confidence : null,
         orderGeo ? orderGeo.geo_resolution : null, orderGeo ? orderGeo.geo_distance_band : null,
+        // fix18-10-hotfix30-B5-R5.2-A（Stage 8：Fulfillment Code 寫入）——
+        // 純新增、nullable，重用 normalizeDeliveryGeo() 早已算好的
+        // geo_county_code/geo_subdivision_code（geoResolver.js 內部已經有
+        // _safeResolveAreaCodes() 包一層 try/catch，解析失敗一律 null，不會
+        // 讓這裡的訂單建立失敗；不需要再疊一層一樣的 safe wrapper）。
+        // 只有外送（isDelivery）訂單才有 orderGeo；外帶訂單 orderGeo 為 null，
+        // 兩個 code 欄位維持 NULL，符合需求文件「外帶／現場不需強行新增」。
+        orderGeo ? orderGeo.geo_county_code : null, orderGeo ? orderGeo.geo_subdivision_code : null,
       ]
     );
 

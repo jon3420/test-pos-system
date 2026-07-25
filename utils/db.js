@@ -1657,6 +1657,176 @@ function initTables(w) {
   } catch(e) { console.warn('[DB] analytics_events geo_context index:', e.message); }
 
   // ══════════════════════════════════════════════════════════════════
+  // ── fix18-10-hotfix30-B5-R5.1-D：Visitor Geo Provider × Taiwan District
+  //    Heatmap — geo_accuracy 欄位 ──────────────────────────────────────
+  // safe migration，同上方所有 Geo 欄位同一慣例：只用 PRAGMA table_info 檢查
+  // 後 ALTER TABLE ADD COLUMN，絕不 DROP／重建 analytics_events。舊資料一律
+  // NULL，讀取端當作 geo_accuracy='unknown' 處理（見 geoConstants.js
+  // UNKNOWN_GEO）。geo_accuracy 跟既有 geo_confidence／geo_resolution 是不同
+  // 維度（見需求文件十三、geoConstants.js GEO_ACCURACY 註解），不合併欄位。
+  // ══════════════════════════════════════════════════════════════════
+  try {
+    const _aeAccExistCols = w.all('PRAGMA table_info(analytics_events)').map(r => r.name);
+    if (!_aeAccExistCols.includes('geo_accuracy')) {
+      try {
+        w._db.run('ALTER TABLE analytics_events ADD COLUMN geo_accuracy TEXT');
+        w._save();
+        console.log('[DB] ✅ analytics_events 補建欄位: geo_accuracy');
+      } catch (e2) {
+        console.error('[DB] ❌ analytics_events 補建失敗 geo_accuracy:', e2.message);
+      }
+    } else {
+      console.log('[DB] ✅ analytics_events geo_accuracy 欄位已存在');
+    }
+  } catch (e) {
+    console.error('[DB] ❌ PRAGMA table_info(analytics_events) (geo_accuracy) 失敗:', e.message);
+  }
+
+  // ══════════════════════════════════════════════════════════════════
+  // ── fix18-10-hotfix30-B5-R5.1-D1：Visitor Geo Data Foundation ────────
+  // geo_provider — 哪一個 Provider 解析出這筆 Visitor Geo（例如 'ipapi'），
+  // 供 Provider Status／Cart Geo Attribution 顯示「Geo 來源」使用，跟
+  // geo_source（IP 推定 vs 正式地址，資料怎麼來的大分類）是不同維度，也跟
+  // geo_confidence/geo_resolution/geo_accuracy 不同（那些是「解析到多細」，
+  // 這個是「誰解析的」）。同一套安全 migration 慣例，不需要額外索引
+  // （見需求文件十一：本輪不需要為 geo_accuracy 單獨新增索引，同理套用在
+  // geo_provider——目前查詢量不需要，未來若證明需要可再評估）。
+  // ══════════════════════════════════════════════════════════════════
+  try {
+    const _aeProvExistCols = w.all('PRAGMA table_info(analytics_events)').map(r => r.name);
+    if (!_aeProvExistCols.includes('geo_provider')) {
+      try {
+        w._db.run('ALTER TABLE analytics_events ADD COLUMN geo_provider TEXT');
+        w._save();
+        console.log('[DB] ✅ analytics_events 補建欄位: geo_provider');
+      } catch (e2) {
+        console.error('[DB] ❌ analytics_events 補建失敗 geo_provider:', e2.message);
+      }
+    } else {
+      console.log('[DB] ✅ analytics_events geo_provider 欄位已存在');
+    }
+  } catch (e) {
+    console.error('[DB] ❌ PRAGMA table_info(analytics_events) (geo_provider) 失敗:', e.message);
+  }
+
+  // ══════════════════════════════════════════════════════════════════
+  // ── fix18-10-hotfix30-B5-R5.2-A：Taiwan Administrative Area Intelligence ──
+  // geo_county_code / geo_subdivision_code —— 官方行政區代碼（見
+  // data/taiwan-administrative-areas.json / utils/taiwanGeoNormalize.js）。
+  // 同一套安全 migration 慣例：只用 PRAGMA table_info 檢查後 ALTER TABLE ADD
+  // COLUMN，絕不 DROP／重建。舊資料一律 NULL，查詢端用 read-time
+  // normalization（resolveTaiwanAdministrativeArea() 對 geo_city/geo_district
+  // 現算）回推county/subdivision，不強制回填舊資料（見需求文件九）。
+  // 本輪不為這兩個新欄位另外建索引——縣市/鄉鎮市區彙總目前資料量不需要，
+  // 且大多數彙總仍是 read-time normalize 現算，不是直接對這兩欄位做
+  // WHERE/GROUP BY（未來若查詢量證明需要，可再評估）。
+  // ══════════════════════════════════════════════════════════════════
+  const _geoCodeColDefs = [
+    ['geo_county_code', 'TEXT'],
+    ['geo_subdivision_code', 'TEXT'],
+  ];
+  try {
+    const _aeCodeExistCols = w.all('PRAGMA table_info(analytics_events)').map(r => r.name);
+    let _aeCodeAdded = 0;
+    for (const [col, def] of _geoCodeColDefs) {
+      if (!_aeCodeExistCols.includes(col)) {
+        try {
+          w._db.run(`ALTER TABLE analytics_events ADD COLUMN ${col} ${def}`);
+          w._save();
+          _aeCodeAdded++;
+          console.log(`[DB] ✅ analytics_events 補建欄位: ${col}`);
+        } catch (e2) {
+          console.error(`[DB] ❌ analytics_events 補建失敗 ${col}:`, e2.message);
+        }
+      }
+    }
+    if (_aeCodeAdded === 0) console.log('[DB] ✅ analytics_events geo_county_code/geo_subdivision_code 欄位均已存在');
+  } catch (e) {
+    console.error('[DB] ❌ PRAGMA table_info(analytics_events) (geo county/subdivision code) 失敗:', e.message);
+  }
+
+  // orders 表：履約行政區官方代碼（與上面 analytics_events 的 Visitor/Acquisition
+  // 代碼完全分開，比照既有 fulfillment_geo_city/fulfillment_geo_district 慣例）。
+  const _orderCodeColDefs = [
+    ['fulfillment_geo_county_code', 'TEXT'],
+    ['fulfillment_geo_subdivision_code', 'TEXT'],
+  ];
+  try {
+    const _ordersCodeExistCols = w.all('PRAGMA table_info(orders)').map(r => r.name);
+    let _ordersCodeAdded = 0;
+    for (const [col, def] of _orderCodeColDefs) {
+      if (!_ordersCodeExistCols.includes(col)) {
+        try {
+          w._db.run(`ALTER TABLE orders ADD COLUMN ${col} ${def}`);
+          w._save();
+          _ordersCodeAdded++;
+          console.log(`[DB] ✅ orders 補建欄位: ${col}`);
+        } catch (e2) {
+          console.error(`[DB] ❌ orders 補建失敗 ${col}:`, e2.message);
+        }
+      }
+    }
+    if (_ordersCodeAdded === 0) console.log('[DB] ✅ orders geo_county_code/geo_subdivision_code 欄位均已存在');
+  } catch (e) {
+    console.error('[DB] ❌ PRAGMA table_info(orders) (geo county/subdivision code) 失敗:', e.message);
+  }
+
+  // ══════════════════════════════════════════════════════════════════
+  // ── fix18-10-hotfix30-B5-R5.2-A Stage 9：Business Area Reserved Fields ──
+  // 商圈欄位「只保留 DB 欄位」，本輪刻意不做任何商圈判定／統計／API／UI
+  // （見需求文件 Stage 9 開頭：避免後續版本再做破壞性 migration，先把欄位
+  // 佔好位置）。四個欄位全部 nullable、預設 NULL，本輪程式碼裡沒有任何一處
+  // 會寫入非 NULL 值——之後如果要做「自動判斷商圈」的功能，屆時再另外開一輪
+  // 需求規格，這裡不預先假設判定邏輯長什麼樣子。
+  //
+  // 同一套安全 migration 慣例：只用 PRAGMA table_info 檢查後 ALTER TABLE ADD
+  // COLUMN，絕不 DROP／重建、不改 PRIMARY KEY／INDEX／UNIQUE／FOREIGN KEY／
+  // 既有欄位 DEFAULT。四個欄位獨立檢查，不假設「全有或全無」（可能只補齊
+  // 其中缺的那幾個）。
+  // ══════════════════════════════════════════════════════════════════
+  try {
+    const _aeBizExistCols = w.all('PRAGMA table_info(analytics_events)').map(r => r.name);
+    const _aeBizCols = [['business_area_code', 'TEXT DEFAULT NULL'], ['business_area_name', 'TEXT DEFAULT NULL']];
+    let _aeBizAdded = 0;
+    for (const [col, def] of _aeBizCols) {
+      if (!_aeBizExistCols.includes(col)) {
+        try {
+          w._db.run(`ALTER TABLE analytics_events ADD COLUMN ${col} ${def}`);
+          w._save();
+          _aeBizAdded++;
+          console.log(`[DB] ✅ analytics_events 補建欄位（保留，未使用）: ${col}`);
+        } catch (e2) {
+          console.error(`[DB] ❌ analytics_events 補建失敗 ${col}:`, e2.message);
+        }
+      }
+    }
+    if (_aeBizAdded === 0) console.log('[DB] ✅ analytics_events business_area_code/business_area_name 欄位均已存在');
+  } catch (e) {
+    console.error('[DB] ❌ PRAGMA table_info(analytics_events) (business area) 失敗:', e.message);
+  }
+
+  try {
+    const _ordersBizExistCols = w.all('PRAGMA table_info(orders)').map(r => r.name);
+    const _ordersBizCols = [['business_area_code', 'TEXT DEFAULT NULL'], ['business_area_name', 'TEXT DEFAULT NULL']];
+    let _ordersBizAdded = 0;
+    for (const [col, def] of _ordersBizCols) {
+      if (!_ordersBizExistCols.includes(col)) {
+        try {
+          w._db.run(`ALTER TABLE orders ADD COLUMN ${col} ${def}`);
+          w._save();
+          _ordersBizAdded++;
+          console.log(`[DB] ✅ orders 補建欄位（保留，未使用）: ${col}`);
+        } catch (e2) {
+          console.error(`[DB] ❌ orders 補建失敗 ${col}:`, e2.message);
+        }
+      }
+    }
+    if (_ordersBizAdded === 0) console.log('[DB] ✅ orders business_area_code/business_area_name 欄位均已存在');
+  } catch (e) {
+    console.error('[DB] ❌ PRAGMA table_info(orders) (business area) 失敗:', e.message);
+  }
+
+  // ══════════════════════════════════════════════════════════════════
   // ── fix18-10-hotfix23-E：LINE 會員入口 × LIFF 登入 × 好友狀態綁定 ──────
   // 原則同 Hotfix23-A：safe migration，只用 CREATE TABLE IF NOT EXISTS /
   // CREATE INDEX IF NOT EXISTS，全新獨立資料表，不影響既有 POS / Android /

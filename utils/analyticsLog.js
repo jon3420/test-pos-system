@@ -30,7 +30,7 @@ const { resolveOrderChannel, resolvePageType } = require('./channelResolver');
 // UNKNOWN_GEO，不影響事件寫入本身。
 const {
   UNKNOWN_GEO, isValidGeoSource, isValidGeoConfidence, isValidGeoResolution,
-  isValidGeoContext, normalizeGeoVersion, DISTANCE_ALLOWED_CONTEXTS,
+  isValidGeoContext, isValidGeoAccuracy, normalizeGeoVersion, DISTANCE_ALLOWED_CONTEXTS,
 } = require('./geoConstants');
 
 // 防禦性清洗：只接受 geoConstants 允許的列舉值，其餘一律退回 unknown/null，
@@ -46,6 +46,7 @@ function _sanitizeGeoForWrite(geo) {
   const confidence = isValidGeoConfidence(geo.geo_confidence) ? geo.geo_confidence : UNKNOWN_GEO.geo_confidence;
   const resolution = isValidGeoResolution(geo.geo_resolution) ? geo.geo_resolution : UNKNOWN_GEO.geo_resolution;
   const context = isValidGeoContext(geo.geo_context) ? geo.geo_context : UNKNOWN_GEO.geo_context;
+  const accuracy = isValidGeoAccuracy(geo.geo_accuracy) ? geo.geo_accuracy : UNKNOWN_GEO.geo_accuracy;
   const distanceAllowed = DISTANCE_ALLOWED_CONTEXTS.includes(context);
   const distKm = Number(geo.geo_distance_km);
   return {
@@ -58,6 +59,13 @@ function _sanitizeGeoForWrite(geo) {
     geo_confidence: confidence,
     geo_resolution: resolution,
     geo_context: context,
+    geo_accuracy: accuracy,
+    geo_provider: geo.geo_provider ? safeStr(geo.geo_provider, 50) : null,
+    // fix18-10-hotfix30-B5-R5.2-A：官方行政區代碼，純字串安全清洗（不驗證是否
+    // 真的存在於 data/taiwan-administrative-areas.json——那是寫入前
+    // resolveTaiwanAdministrativeArea() 的責任，這裡只負責防禦性長度/型別）。
+    geo_county_code: geo.geo_county_code ? safeStr(geo.geo_county_code, 20) : null,
+    geo_subdivision_code: geo.geo_subdivision_code ? safeStr(geo.geo_subdivision_code, 20) : null,
     geo_version: normalizeGeoVersion(geo.geo_version),
     geo_distance_km: distanceAllowed && Number.isFinite(distKm) ? distKm : null,
     geo_distance_band: distanceAllowed && geo.geo_distance_band ? safeStr(geo.geo_distance_band, 20) : null,
@@ -269,8 +277,8 @@ function insertEvent(db, fields) {
         geo_country, geo_region, geo_city, geo_district, geo_postal_code,
         geo_source, geo_confidence, geo_resolution,
         geo_distance_km, geo_distance_band, geo_delivery_zone,
-        geo_context, geo_version
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        geo_context, geo_version, geo_accuracy, geo_provider, geo_county_code, geo_subdivision_code
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         safeStr(store_id, 100), safeStr(visitor_id, 200), safeStr(session_id, 200),
         cart_id ? safeStr(cart_id, 200) : null, order_id ? safeStr(order_id, 200) : null,
@@ -285,7 +293,7 @@ function insertEvent(db, fields) {
         g.geo_country, g.geo_region, g.geo_city, g.geo_district, g.geo_postal_code,
         g.geo_source, g.geo_confidence, g.geo_resolution,
         g.geo_distance_km, g.geo_distance_band, g.geo_delivery_zone,
-        g.geo_context, g.geo_version,
+        g.geo_context, g.geo_version, g.geo_accuracy, g.geo_provider, g.geo_county_code, g.geo_subdivision_code,
       ]
     );
     return true;

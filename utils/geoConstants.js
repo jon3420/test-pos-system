@@ -34,6 +34,20 @@ const GEO_RESOLUTION = Object.freeze({
 });
 const GEO_RESOLUTION_VALUES = Object.freeze(Object.values(GEO_RESOLUTION));
 
+// fix18-10-hotfix30-B5-R5.1-D（十三、Provider Accuracy）——
+// geo_accuracy 描述「這筆 Geo 實際定位到哪個層級」，跟 geo_confidence（信心
+// 高低）、geo_resolution（欄位填到哪一級）三者刻意分開：resolution 是欄位
+// 填寫深度、accuracy 是語意上該相信到哪個顆粒度（IP 推定即使拿到 district
+// 字串，語意上仍只等同 city 等級的可信範圍，見需求文件十三）。
+const GEO_ACCURACY = Object.freeze({
+  COUNTRY: 'country',
+  REGION: 'region',
+  CITY: 'city',
+  DISTRICT: 'district',
+  UNKNOWN: 'unknown',
+});
+const GEO_ACCURACY_VALUES = Object.freeze(Object.values(GEO_ACCURACY));
+
 // fix18-10-hotfix30-B5-R5.1-B：geo_context —— 這筆 Geo「代表什麼用途」，
 // 跟 geo_source（「資料怎麼來」）是兩個不同維度，不得混用。
 // visitor    = 進站 IP 推定區域（page_view/view_product/add_to_cart/begin_checkout）
@@ -74,6 +88,7 @@ function isValidGeoSource(v) { return GEO_SOURCE_VALUES.includes(v); }
 function isValidGeoConfidence(v) { return GEO_CONFIDENCE_VALUES.includes(v); }
 function isValidGeoResolution(v) { return GEO_RESOLUTION_VALUES.includes(v); }
 function isValidGeoContext(v) { return GEO_CONTEXT_VALUES.includes(v); }
+function isValidGeoAccuracy(v) { return GEO_ACCURACY_VALUES.includes(v); }
 
 // 安全預設值：任何 resolver 失敗或資訊不足時一律退回這組值，
 // 絕不臆測（不得依店家地址／訂單 channel／referrer／瀏覽器語言猜測區域）。
@@ -88,6 +103,10 @@ const UNKNOWN_GEO = Object.freeze({
   geo_resolution: GEO_RESOLUTION.UNKNOWN,
   geo_context: GEO_CONTEXT.UNKNOWN,
   geo_version: GEO_VERSION_CURRENT,
+  geo_accuracy: GEO_ACCURACY.UNKNOWN,
+  geo_provider: null,
+  geo_county_code: null,
+  geo_subdivision_code: null,
 });
 
 // 讀取端正規化：舊資料 geo_version 可能是 NULL（R5.1-A 建欄位時尚未寫版本號），
@@ -113,8 +132,9 @@ module.exports = {
   GEO_CONFIDENCE, GEO_CONFIDENCE_VALUES,
   GEO_RESOLUTION, GEO_RESOLUTION_VALUES,
   GEO_CONTEXT, GEO_CONTEXT_VALUES, DISTANCE_ALLOWED_CONTEXTS,
+  GEO_ACCURACY, GEO_ACCURACY_VALUES,
   GEO_VERSION_CURRENT,
   DISTANCE_BANDS, DISTANCE_BAND_UNKNOWN,
-  isValidGeoSource, isValidGeoConfidence, isValidGeoResolution, isValidGeoContext,
+  isValidGeoSource, isValidGeoConfidence, isValidGeoResolution, isValidGeoContext, isValidGeoAccuracy,
   UNKNOWN_GEO, distanceBandFor, normalizeGeoVersion,
 };

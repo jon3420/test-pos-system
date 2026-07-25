@@ -347,3 +347,35 @@ MIGRATION_UPLOAD_LIMIT_MB=25
 
 應用程式層（Express／body-parser）已支援可設定的上限（預設 25MB）。但 Zeabur 平台本身或其上游 reverse proxy／CDN，若另外設有更低的 body size 限制，仍可能在請求抵達 Node.js process 之前就先回應 413 —— 這屬於平台層設定，無法從應用程式程式碼層面確認或覆蓋，需要在實際部署環境用真實大小的搬家檔案（例如 9.92MB）實測才能確認。
 
+## 十二、Geo Intelligence — 全台行政區智慧分析（fix18-10-hotfix30-B5-R5.2-A）
+
+自 `fix18-10-hotfix30-B5-R5.2-A` 起，Geo Analytics 全面支援全台 22 縣市／
+368 鄉鎮市區（不只六都、不只桃園），核心模組：
+
+- **行政區 Dataset**：`data/taiwan-administrative-areas.json` +
+  `data/taiwan-administrative-areas.manifest.json`（來源、抓取日期、
+  SHA-256 checksum，見 manifest 內 `notes` 欄位完整說明）。
+- **County Code / Subdivision Code**：`utils/taiwanGeoNormalize.js` 提供
+  `resolveTaiwanAdministrativeArea()`、`normalizeCounty()`、
+  `normalizeSubdivision()`，把中文全形／台臺別名／英文名稱一律正規化成
+  官方縣市代碼（`county_code`）與鄉鎮市區代碼（`subdivision_code`）。
+- **Overview / Funnel / Fulfillment**：`GET /api/analytics/geo/overview`、
+  `/funnel`、`/fulfillment` 皆支援 `county_code`／`subdivision_code`
+  篩選，篩選後所有統計數字（不只是清單）都會一併重新計算。
+- **Alerts**：`GET /api/analytics/geo/alerts` 同時包含「進站來源」
+  （acquisition，例如 `traffic_waste`）與「履約」（fulfillment，例如
+  `delivery_cost_risk`）兩種類型的警示，每筆明確標記
+  `geo_context`，兩者不會互相覆蓋。
+- **Store Isolation**：所有 Geo API 皆已驗證跨店隔離，一家店永遠看不到另一
+  家店的資料。
+- **Business Area（商圈）**：`analytics_events` / `orders` 已預留
+  `business_area_code` / `business_area_name` 欄位（nullable，預設
+  NULL），**目前尚未正式啟用**——沒有 writer、沒有 reader、沒有 API、
+  沒有 UI，只是先佔位避免未來版本需要破壞性 migration。
+
+完整功能清單、API 支援矩陣、已知限制見：
+
+- `docs/R5.2-A-completion.md`（完整驗收文件）
+- `docs/RC1-release-notes.md`（RC1 封版說明）
+
+

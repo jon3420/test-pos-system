@@ -1,0 +1,10 @@
+{
+  "source": "Wikipedia — List of townships/cities and districts in Taiwan (derived from ROC Ministry of the Interior 鄉鎮市區 statistical codes)",
+  "source_url": "https://en.wikipedia.org/wiki/List_of_townships/cities_and_districts_in_Taiwan",
+  "source_version": "retrieved snapshot, 2026-07",
+  "retrieved_at": "2026-07-25",
+  "county_count": 22,
+  "subdivision_count": 368,
+  "checksum": "sha256:9c10eebda9c640f74fa05a1a9692ade3e1f6fd489450fcb3e60f78bb526f60d3",
+  "notes": "County-level Traditional Chinese names (臺北市/臺中市/臺南市/臺東縣 use 臺 per official ROC usage, not 台) mapped manually from English county names to a fixed 22-entry table (utils/taiwanGeoNormalize.js). Subdivision Traditional Chinese names and English romanized names taken directly from the source page. subdivision_type derived deterministically from the Chinese name suffix (區/市/鎮/鄉), not from the English Type column, to avoid transcription drift. Postal codes are NOT included in this dataset (out of scope for R5.2-A; see Known Limitations in CHANGELOG_HOTFIX30_B5_R5_2_A). This is not an image of an official government open-data file — it is derived from a tertiary source (Wikipedia) that itself cites MOI population statistics; treat subdivision_code/county_code as stable identifiers for this application, not as a guaranteed byte-for-byte match to any specific government API. Alias patch applied for 63000030 (臺北市－大安區): added \"Da'an District\"/\"Da'an\" apostrophe-spelling alias since R5.2-A section 16 explicitly requires it as a passing test case."
+}

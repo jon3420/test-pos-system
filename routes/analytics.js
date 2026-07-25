@@ -80,6 +80,10 @@ const { resolveVisitorGeoCached } = require('../utils/geoResolver');
 const { GEO_CONTEXT } = require('../utils/geoConstants');
 const { getGeoFeatureFlags } = require('../utils/geoFeatureFlags');
 const { getGeoDashboardSummary } = require('../utils/geoAnalyticsQueries');
+// fix18-10-hotfix30-B5-R5.1-D1：Cart Geo Attribution（需求文件十三、十四）——
+// 只用來把「最早有效 Visitor Geo」併進既有 Cart Abandonment 分頁列，不改變
+// getOpenCartRows() 既有的分頁/篩選/彙總邏輯本身。
+const { getCartVisitorGeoMap, geoContextLabel, geoAccuracyLabel } = require('../utils/cartGeoAttribution');
 
 // 前台一般事件端點不接受 submit_order / purchase，以及 LINE 會員入口中「真實性
 // 只能由後端確認」的事件（登入結果、好友狀態、CRM 購買事件）：這些只能由後端在
@@ -692,6 +696,29 @@ router.get('/cart-abandonment', requireFeature('reports'), (req, res) => {
     const page = Math.max(1, parseInt(q.page, 10) || 1);
 
     const result = getOpenCartRows(db, storeId, { page, limit, status, age_bucket: ageBucket, identity, order_mode: orderMode });
+
+    // fix18-10-hotfix30-B5-R5.1-D1（十三、十四：Cart Geo Attribution）——
+    // 只對「這一頁」實際回傳的 cart_id 查 Visitor Geo，不影響上面既有的
+    // 篩選/分頁/彙總邏輯（那些沿用 getOpenCartRows() 原本的行為，未改動）。
+    const pageCartIds = result.rows.map((r) => r.cart_id).filter(Boolean);
+    const geoMap = getCartVisitorGeoMap(db, storeId, pageCartIds);
+    const rowsWithGeo = result.rows.map((r) => {
+      const g = geoMap[r.cart_id];
+      const context = g ? g.geo_context : 'unknown';
+      const accuracy = g ? (g.geo_accuracy || 'unknown') : 'unknown';
+      return {
+        ...r,
+        geo_city: g ? (g.geo_city || null) : null,
+        geo_district: g ? (g.geo_district || null) : null,
+        geo_area_label: g ? (g.geo_district || g.geo_city || '未知') : '未知',
+        geo_context: context,
+        geo_context_label: geoContextLabel(context),
+        geo_accuracy: accuracy,
+        geo_accuracy_label: geoAccuracyLabel(accuracy),
+        geo_provider: g ? (g.geo_provider || null) : null,
+      };
+    });
+
     res.json({
       success: true,
       page: result.page,
@@ -699,7 +726,7 @@ router.get('/cart-abandonment', requireFeature('reports'), (req, res) => {
       total: result.total,
       total_pages: Math.max(1, Math.ceil(result.total / result.limit)),
       current_open_summary: result.current_open_summary,
-      rows: result.rows,
+      rows: rowsWithGeo,
       filters: { status, age_bucket: ageBucket, identity, order_mode: orderMode },
     });
   } catch (e) {
