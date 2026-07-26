@@ -386,7 +386,13 @@ async function main() {
       else if (u.includes('/geo/alerts')) body = o.alertsFixture || GEO_ALERTS_FIXTURE;
       else if (u.includes('/geo/county-summary')) body = GEO_COUNTY_SUMMARY_FIXTURE;
       else if (u.includes('/geo/administrative-areas')) body = { ok: true, counties: [] };
-      else body = { success: true };
+      // 舊版 _geoIntelLazyLoad()（renderDashboardGeoIntelligence 內部排程）
+      // 會另外打這三支，補上安全的空殼回應，避免測試環境下這個獨立分支
+      // crash（跟本輪修的 bug 無關，只是要讓整合測試能跑到底）。
+      else if (u.includes('source-area')) body = { success: true, data: { rows: [] } };
+      else if (u.includes('fulfillment')) body = { success: true, data: { areas: [] } };
+      else if (u.includes('distance')) body = { success: true, data: { bands: [] } };
+      else body = { success: true, data: {} };
       const delay = o.delayMs || 0;
       return delay
         ? new Promise((resolve) => setTimeout(() => resolve({ ok: status === 200, status, json: async () => body }), delay))
@@ -1632,6 +1638,81 @@ async function main() {
       assert(!/-?\d{1,3}\.\d{4,},-?\d{1,3}\.\d{4,}/.test(fullSerialized), `AX-COMBINED-${i}-10 不洩漏完整 GPS 座標格式`);
       dom.window.close();
     });
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // 補足缺口 14（Manual Visual 發現的真實 bug 迴歸測試）：
+  // renderDashboardGeoIntelligence() 在 data.geo_summary 缺失時，不得整段
+  // 回傳空字串——即使 rows=[]，.geo-map-root 仍必須被建立、geoInitMap()
+  // 仍必須被呼叫、GeoJSON 仍必須載入、13 個 feature 仍必須建立。
+  // ══════════════════════════════════════════════════════════════
+  {
+    const { dom, fetchCalls } = setupDom({ funnelFixture: { success: true, data: { areas: [] } }, alertsFixture: { success: true, data: { alerts: [], recommendation_view_models: [], quality_view_models: [], rule_context: {}, meta: {} } } });
+    const { document, window } = dom.window;
+    const mock = createLeafletMock();
+    window.L = mock.L;
+    dom.window.addEventListener('error', () => {}); // 舊版 lazy-load 分支的非本輪相關錯誤不應該中斷整個測試
+
+    // 完全模擬使用者實測情境：透過真實入口 renderDashboardGeoIntelligence()
+    // 呼叫，且 data.geo_summary 完全缺失（不是 undefined 造成的 crash，是
+    // 舊版判斷邏輯本身的 bug）。
+    let renderThrew = false;
+    let html = '';
+    try { html = window.renderDashboardGeoIntelligence({}); } catch (e) { renderThrew = true; }
+    assert(!renderThrew, 'AY-REALBUG-1 renderDashboardGeoIntelligence({}) 不拋出例外');
+    assert(html.length > 0, 'AY-REALBUG-2 data.geo_summary 缺失時，renderDashboardGeoIntelligence() 不再整段回傳空字串（修正前的真實 bug：回傳長度為 0）');
+    assert(window.__geoDashboardLegacyDisabled === false, 'AY-REALBUG-3 summary 缺失不等於 disabled，旗標正確設為 false（不是被誤判成功能停用）');
+
+    document.body.innerHTML += `<div id="realbug-host">${html}</div>`;
+    await sleep(120); // 等待 setTimeout(0) 排程的 refreshGeoDashboardKpiBlock() 與 lazy load 都執行完
+
+    // 1. .geo-map-root 存在
+    const mapRoot = document.querySelector('.geo-map-root');
+    assert(!!mapRoot, 'AY-REALBUG-4 .geo-map-root 確實被建立（修正前：document.querySelector 回傳 null）');
+
+    // 2. geoInitMap() 被呼叫（可觀察結果：L.map() 確實被呼叫過一次）
+    assert(mock.calls.mapInit >= 1, 'AY-REALBUG-5 geoInitMap() 確實被呼叫（L.map() 呼叫次數 >= 1）');
+
+    // 3. GeoJSON request 被發出
+    const geojsonCall = fetchCalls.find((c) => c.url.includes('taiwan-districts.geojson'));
+    assert(!!geojsonCall, 'AY-REALBUG-6 GeoJSON fetch 請求確實被發出');
+
+    // 4. 13 個 feature 被建立（沿用真實 GeoJSON 檔案，不是精簡測試 fixture）
+    const realGeojson = JSON.parse(fs.readFileSync(path.join(ROOT, 'public/data/geo/taiwan-districts.geojson'), 'utf8'));
+    assert(realGeojson.features.length === 13, 'AY-REALBUG-7 真實 GeoJSON 檔案確實包含 13 個行政區 feature');
+    assert(mock.calls.geoJSON >= 1, 'AY-REALBUG-7B L.geoJSON() 確實被呼叫（建立 polygon layer，不是略過）');
+
+    // 5. instance 不為 null
+    assert(window.geoMapState.instance !== null, 'AY-REALBUG-8 geoMapState.instance 不為 null（修正前：null）');
+
+    // 6. no-data legend 顯示
+    const legendEl = mapRoot.querySelector('.geo-map-legend');
+    assert(!!legendEl && legendEl.innerHTML.includes(window.geoMapStatusText ? window.geoMapStatusText('no_data_label') : '暫無資料'), 'AY-REALBUG-9 rows=[] 時 legend 正確顯示暫無資料項目');
+
+    // 7. summary 顯示 valid count = 0
+    const summaryEl = mapRoot.querySelector('.geo-map-summary');
+    assert(!!summaryEl && summaryEl.innerHTML.length > 0, 'AY-REALBUG-10 rows=[] 時 summary 區塊仍正確渲染（不是空白）');
+
+    // 8. 無資料行政區是灰色
+    const anyLayer = mock.layers[0];
+    assert(!!anyLayer && anyLayer.getStyle().fillColor === M.GEO_MAP_PALETTE.no_data, 'AY-REALBUG-11 rows=[] 時所有行政區 polygon 正確顯示無資料灰色');
+
+    // 9. 不顯示 0 當成真實 metric（灰色樣式本身就是證明——如果被誤當成 0，
+    // 顏色會落在數值色階的最低一段，不會是 no_data 灰色）
+    assert(anyLayer.getStyle().fillColor !== M.GEO_MAP_PALETTE.scale[0], 'AY-REALBUG-12 無資料不會被誤判成數值 0（顏色跟「真正數值為 0」的最低色階不同）');
+
+    // 10. tab 切換離開再返回仍會 re-init 或 invalidateSize
+    document.getElementById('realbug-host').remove();
+    // 模擬使用者切換到別的 tab 又切回來：容器整個被拿掉又重新插入
+    document.body.innerHTML += `<div id="realbug-host2">${window.geoRenderMapBlock ? '' : ''}</div>`;
+    const mapInitCountBefore = mock.calls.mapInit;
+    let html2 = '';
+    try { html2 = window.renderDashboardGeoIntelligence({}); } catch (e) { /* 不應該發生 */ }
+    document.getElementById('realbug-host2').innerHTML = html2;
+    await sleep(120);
+    assert(mock.calls.mapInit > mapInitCountBefore, 'AY-REALBUG-13 tab 切換離開再返回（容器重建）後，地圖確實重新 init（不是維持在銷毀前的殭屍狀態）');
+    assert(!!document.querySelector('.geo-map-root'), 'AY-REALBUG-14 重新進入後 .geo-map-root 再次存在');
+    dom.window.close();
   }
 
   printSummary();

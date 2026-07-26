@@ -487,7 +487,7 @@ async function main() {
     assert(!/getGeoDashboardSummary\s*\(/.test(codeOnly), 'source (code, not comments): geo-intelligence.js (frontend) never calls getGeoDashboardSummary() itself — that is a backend-only function');
     const dataGeoSummaryCodeRefs = (codeOnly.match(/data\.geo_summary/g) || []).length;
     assert(dataGeoSummaryCodeRefs === 1, 'source (code, not comments): data.geo_summary is read in exactly one place — the legacy-compat guard (`const summary = data && data.geo_summary`) that still feeds opportunities/RA-partial — not spread across the new KPI path', `found ${dataGeoSummaryCodeRefs} references`);
-    assert(codeOnly.includes('const summary = data && data.geo_summary;'), 'source: the one remaining data.geo_summary read is exactly the documented legacy-compat guard line');
+    assert(codeOnly.includes('const summary = (data && data.geo_summary) || {};'), 'source: the one remaining data.geo_summary read is exactly the documented legacy-compat guard line (fix18-10-hotfix30-B5-R5.2-B2: now defaults to {} instead of returning \'\' early when summary is falsy, which was blocking the entire Geo Intelligence section — including the map container — from ever rendering)');
   }
   {
     const backendSrc = fs.readFileSync(path.join(ROOT, 'utils/geoAnalyticsQueries.js'), 'utf8');

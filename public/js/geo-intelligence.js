@@ -1539,8 +1539,20 @@ async function refreshGeoDashboardKpiBlock(containerId) {
   const isEmpty = kpi.visitors === 0 && !(vm.county_summary && (vm.county_summary.rows || []).length);
   const isAllUnknown = !isEmpty && vm.quality && (vm.quality.total_events || 0) > 0 && (vm.quality.identified_events || 0) === 0;
 
-  if (isEmpty) { elAfter.innerHTML = _geoDashboardEmptyHtml(geoBuildEmptyStateMessage(vm)); return; }
-  if (isAllUnknown) { elAfter.innerHTML = _geoDashboardAllUnknownHtml(); return; }
+  // fix18-10-hotfix30-B5-R5.2-B2（Manual Visual 發現的真實 bug）：這裡原本在
+  // isEmpty/isAllUnknown 時直接 `elAfter.innerHTML = 簡短訊息; return;`，
+  // 導致整個函式在還沒跑到下面「建立 mapHtml／呼叫 geoInitMap()」之前就
+  // return 掉——Leaflet 跟 geo-intelligence-map.js 都載入成功，但
+  // `.geo-map-root` 從來沒有被建立過，`geoInitMap()` 也從來沒被呼叫。
+  // 需求：即使 rows=[]，也必須建立完整地圖區塊（顯示 13 個行政區灰色邊界＋
+  // No Data 狀態），不得因為沒有分析資料就整段不 render。修正方式：不再對
+  // 整個函式提早 return，改成只有「Decision Center／Ranking」這兩個區段
+  // 被對應的空狀態訊息取代，KPI 卡片與地圖區塊永遠會被建立、永遠會呼叫
+  // geoInitMap()（rows 可以是空陣列，但地圖本身、GeoJSON、Legend、Summary、
+  // Metric Switcher、鍵盤清單一律要出現）。
+  const emptyStateNotice = isEmpty
+    ? _geoDashboardEmptyHtml(geoBuildEmptyStateMessage(vm))
+    : (isAllUnknown ? _geoDashboardAllUnknownHtml() : null);
 
   // fix18-10-hotfix30-B5-R5.2-B1-5（需求文件六）：KPI 卡片升級成 8 張、含
   // helper_text/status，取代原本 5 張陽春卡片；文案仍保留「進站訪客」等
@@ -1570,23 +1582,21 @@ async function refreshGeoDashboardKpiBlock(containerId) {
   const updatedLabel = vm.updated_at ? new Date(vm.updated_at).toLocaleTimeString('zh-TW', { hour12: false }) : '—';
   // fix18-10-hotfix30-B5-R5.2-B1-5：Decision Center——直接讀 vm.recommendation_view_models
   // /vm.quality_view_models（同一次 /alerts 請求，不重新 fetch），不重新判斷
-  // classification/confidence/severity（需求文件三）。
-  const decisionCenterHtml = `<div class="geo-decision-center">
+  // classification/confidence/severity（需求文件三）。isEmpty/isAllUnknown
+  // 時這一段整個被 emptyStateNotice 取代（沒有分析資料就不硬湊 Decision
+  // Center，但地圖跟 KPI 仍照常建立，見上方修正說明）。
+  const decisionCenterHtml = emptyStateNotice ? '' : `<div class="geo-decision-center">
     <div class="geo-section-heading">🧭 營運決策中心</div>
     ${geoRenderDecisionCenter(vm)}
   </div>`;
   // fix18-10-hotfix30-B5-R5.2-B2：Geo Intelligence Map——additive，沿用同一份
   // vm.funnel.areas，不重新 fetch、不建立第二套 filter state。geoRenderMapBlock()
   // 定義在 public/js/geo-intelligence-map.js（若該檔案未載入則安全略過整個
-  // 地圖區塊，不影響 Dashboard 其他部分）。
+  // 地圖區塊，不影響 Dashboard 其他部分）。無論 isEmpty/isAllUnknown 與否，
+  // 這一段都要建立（地圖本身不依賴有沒有分析資料才能顯示行政區邊界）。
   const mapContainerId = `${containerId}-map`;
   const mapHtml = (typeof geoRenderMapBlock === 'function') ? geoRenderMapBlock(mapContainerId) : '';
-  elAfter.innerHTML = `
-    ${kpiCards}
-    ${fulfillmentLine}
-    ${renderGeoQualityBlock(vm.quality)}
-    ${decisionCenterHtml}
-    ${mapHtml}
+  const rankingSectionHtml = emptyStateNotice ? '' : `
     <div style="margin:14px 0 6px;font-weight:700;font-size:.9rem">🏆 高意願區域 Top 3</div>
     ${_renderGeoTopAreaRows(tops.high_intent)}
     <div style="margin:14px 0 6px;font-weight:700;font-size:.9rem">⚠ 高流量低轉換 Top 3</div>
@@ -1597,10 +1607,22 @@ async function refreshGeoDashboardKpiBlock(containerId) {
     ${_renderGeoFilterBarHtml()}
     <div id="${containerId}-ranking">${_renderGeoAreaRankingTable(vm)}</div>
     <div id="${containerId}-drawer"></div>
-    ${partialLabels.length ? `<div style="font-size:.72rem;color:var(--text-secondary,#64748b);margin-top:8px">${escHtml(partialLabels.join('、'))}暫時無法載入</div>` : ''}
+    ${partialLabels.length ? `<div style="font-size:.72rem;color:var(--text-secondary,#64748b);margin-top:8px">${escHtml(partialLabels.join('、'))}暫時無法載入</div>` : ''}`;
+  elAfter.innerHTML = `
+    ${kpiCards}
+    ${fulfillmentLine}
+    ${renderGeoQualityBlock(vm.quality)}
+    ${decisionCenterHtml}
+    ${mapHtml}
+    ${emptyStateNotice || ''}
+    ${rankingSectionHtml}
     <div style="font-size:.7rem;color:var(--text-secondary,#64748b);margin-top:10px">最後更新：${escHtml(updatedLabel)}
       <button type="button" onclick="refreshGeoDashboardKpiBlock('${containerId}')" style="margin-left:8px;padding:1px 8px;border-radius:6px;border:1px solid var(--border,#2a2d3e);background:transparent;color:inherit;cursor:pointer;font-size:.7rem">重新整理</button>
     </div>`;
+  // 無論是否 isEmpty/isAllUnknown，地圖初始化流程一律執行：先確認 DOM
+  // 已經插入（上面 elAfter.innerHTML 已經完成），再載入 GeoJSON，再呼叫
+  // geoInitMap()——即使 rows 是空陣列，polygon 仍要建立、metric 顯示
+  // No Data，不得顯示 0（需求文件：初始化順序）。
   if (typeof geoInitMap === 'function' && typeof geoLoadBoundaryData === 'function') {
     geoLoadBoundaryData().then(() => {
       const mapRows = (vm.funnel && vm.funnel.areas) || [];
@@ -1613,8 +1635,24 @@ async function refreshGeoDashboardKpiBlock(containerId) {
 // 二、Dashboard 首頁 — Geo Intelligence 區塊
 // ════════════════════════════════════════════════════════════════
 function renderDashboardGeoIntelligence(data) {
-  const summary = data && data.geo_summary;
-  if (!summary) return '';
+  // fix18-10-hotfix30-B5-R5.2-B2（Manual Visual 發現的真實 bug）：這裡原本
+  // `if (!summary) return '';`——只要舊版 geo_summary 欄位是 falsy（例如
+  // 第一次載入還沒有快取、或伺服器這次回應剛好沒帶這個舊欄位），就整段
+  // 回傳空字串，導致下面 `${kpiContainerId}` 容器連同其中的
+  // `setTimeout(() => refreshGeoDashboardKpiBlock(...))` 完全沒有機會執行
+  // ——Leaflet 跟 geo-intelligence-map.js 都能正常載入，但 .geo-map-root
+  // 從來沒有被建立，因為連「建立容器」這一步都被跳過了。修正：summary
+  // 缺失時用空物件安全代打（下面每個消費者本來就已經對缺欄位做過防呆，
+  // 見 geoComputeOpportunities()/geoComputeRecommendedActions()），一律
+  // 繼續往下建立容器、排程 refreshGeoDashboardKpiBlock()（rows 是空陣列
+  // 時，地圖仍要顯示灰色行政區邊界＋No Data，不是整段不 render）。
+  //
+  // 注意：disabled（功能被明確停用）跟 summary 缺失是兩個不同語意，不得
+  // 混用同一個判斷——disabled 從一開始就不是靠這個函式提早 return 來處理
+  // 的（下面維持既有設計：只設定旗標，交給稍後 setTimeout 排程執行的
+  // refreshGeoDashboardKpiBlock() 自己的快捷路徑去顯示「Geo Analytics
+  // 未啟用」，這裡如果提早 return 反而會讓那個快捷路徑永遠沒機會執行到）。
+  const summary = (data && data.geo_summary) || {};
   const disabled = summary.data_quality && summary.data_quality.status === 'disabled';
   // 供 refreshGeoDashboardKpiBlock() 快捷路徑使用（十一、避免對已知停用的
   // 功能重複打 4 支必定 403 的新 API）。
