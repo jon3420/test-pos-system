@@ -7,6 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/main.css?v=fix18-10-hotfix24-UI">
+  <link rel="stylesheet" href="/css/geo-intelligence.css?v=fix18-10-hotfix30-B5-R5-2-B1-5">
 </head>
 <body>
 
@@ -3364,6 +3365,13 @@
 <script src="/js/app.js?v=fix18-10-hotfix22"></script>
 <script src="/js/analytics-v2.js?v=fix18-10-hotfix24-UI"></script>
 <script src="/js/geo-intelligence.js?v=fix18-10-hotfix30-B5-R5-1-C"></script>
+<!-- fix18-10-hotfix30-B5-R5.2-B2: Leaflet（CDN，含 integrity；載入失敗時 geo-intelligence-map.js 的
+     typeof L === 'undefined' 檢查會安全顯示「地圖元件載入中」，不會讓整個 Dashboard 崩潰） -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+  integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script src="/js/geo-intelligence-map.js?v=fix18-10-hotfix30-B5-R5-2-B2"></script>
 <script src="/js/coupons.js?v=fix18-06"></script>
 <script src="/js/qrcode.min.js?v=fix18-09F-h2"></script>
 <script src="/license.js?v=fix18-06"></script>

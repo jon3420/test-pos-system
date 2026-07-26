@@ -25,6 +25,7 @@ const {
 // fix18-10-hotfix30-B5-R5.1-D1：Cart Geo Attribution × Provider Status
 const {
   buildCartRowsWithGeo, buildGeoDistrictRanking, buildSourceAreaTable, buildGeoSummary, topAreas,
+  buildAbandonProductsByArea,
 } = require('../utils/cartGeoAttribution');
 const { getProviderStatus } = require('../utils/geoProviders');
 // fix18-10-hotfix30-B5-R5.2-A：Taiwan Administrative Area Intelligence
@@ -150,7 +151,81 @@ router.get('/funnel', requireFeature('reports'), requireGeoAnalyticsEnabled, _sa
 router.get('/fulfillment', requireFeature('reports'), requireGeoAnalyticsEnabled, _safeHandler(getGeoFulfillment, 'fulfillment'));
 router.get('/distance', requireFeature('reports'), requireGeoAnalyticsEnabled, _safeHandler(getGeoDistance));
 router.get('/source-area', requireFeature('reports'), requireGeoAnalyticsEnabled, _safeHandler(getGeoSourceArea, 'acquisition'));
-router.get('/alerts', requireFeature('reports'), requireGeoAnalyticsEnabled, _safeHandler(getGeoAlerts, (item) => item.geo_context || null));
+// fix18-10-hotfix30-B5-R5.2-B1-4（Geo 行為規則引擎 × Recommended Actions）——
+// 擴充既有 GET /alerts，不新增 endpoint（需求文件十四）。既有 alerts/
+// rule_thresholds 欄位完全保留、不改格式；新增 behavior_recommendations/
+// rule_context/quality_recommendations 三個欄位。全部只吃 Phase 1.1 已完成
+// 的 getGeoFunnel()/getGeoQuality() 聚合結果，不另查 raw events（需求文件
+// 十三）。
+function getGeoAlertsAndRecommendations(db, storeId, filters) {
+  const base = getGeoAlerts(db, storeId, filters); // { alerts, rule_thresholds } — 完全不動
+  const funnel = getGeoFunnel(db, storeId, { ...filters, limit: 100, offset: 0, page: 1 });
+  const quality = getGeoQuality(db, storeId, filters, { skipDistribution: true });
+  const {
+    buildGeoBehaviorRuleContext, buildGeoBehaviorRecommendations, buildGeoQualityRecommendations,
+    GEO_EXPLAINABILITY_VERSION,
+  } = require('../utils/geoAlertRules');
+
+  const ruleContext = buildGeoBehaviorRuleContext(funnel.areas, {
+    quality,
+    dateScope: { start: filters.range.startLocal, end: filters.range.endLocal },
+    channelScope: filters.channel || 'all',
+  });
+  // 需求文件十五：Scope 必須帶上 store/date/channel/county/subdivision/
+  // source/medium/campaign。county/subdivision/source/medium/campaign
+  // 目前 /alerts 本身透過 parseGeoAnalyticsFilters() 已支援解析（沿用既有
+  // filters 物件），這裡誠實記錄：filters.source/medium/campaign 目前確實
+  // 存在於 parseGeoAnalyticsFilters() 回傳值，一併帶入 scope。
+  ruleContext.storeId = storeId;
+  ruleContext.countyCode = filters.countyCode || null;
+  ruleContext.subdivisionCode = filters.subdivisionCode || null;
+  ruleContext.source = filters.source || null;
+  ruleContext.medium = filters.medium || null;
+  ruleContext.campaign = filters.campaign || null;
+
+  const scope = {
+    store_id: storeId,
+    channel: filters.channel || 'all',
+    date_range: ruleContext.dateScope,
+    county_code: ruleContext.countyCode,
+    subdivision_code: ruleContext.subdivisionCode,
+    source: ruleContext.source,
+    medium: ruleContext.medium,
+    campaign: ruleContext.campaign,
+  };
+
+  const behaviorRecommendations = buildGeoBehaviorRecommendations(funnel.areas, ruleContext);
+  const qualityRecommendations = buildGeoQualityRecommendations(ruleContext, scope);
+
+  // fix18-10-hotfix30-B5-R5.2-B1-4.6（需求文件三之 3.2：Single source of
+  // truth）——ViewModel 只從上面已經算好的 behaviorRecommendations/
+  // qualityRecommendations/ruleContext 組成，不重查 SQL、不重算
+  // classification/confidence。
+  const {
+    buildGeoRecommendationViewModels, buildGeoQualityViewModels, buildGeoRecommendationsMeta,
+    SCHEMA_VERSION,
+  } = require('../utils/geoRecommendationViewModel');
+  const recommendationViewModels = buildGeoRecommendationViewModels(behaviorRecommendations);
+  const qualityViewModels = buildGeoQualityViewModels(qualityRecommendations);
+
+  return {
+    ...base,
+    behavior_recommendations: behaviorRecommendations,
+    rule_context: ruleContext,
+    quality_recommendations: qualityRecommendations,
+    // fix18-10-hotfix30-B5-R5.2-B1-4.5（需求文件十七）：additive 新增，version
+    // 字串，供前端判斷 explanation 結構版本，不影響任何既有欄位。
+    explainability_version: GEO_EXPLAINABILITY_VERSION,
+    // fix18-10-hotfix30-B5-R5.2-B1-4.6（需求文件四、五、十三、十四）：
+    // additive 新增——schema_version 是「API response contract 版本」，跟
+    // explainability_version（解釋層結構版本）語意刻意分開，不混用。
+    schema_version: SCHEMA_VERSION,
+    recommendation_view_models: recommendationViewModels,
+    quality_view_models: qualityViewModels,
+    meta: buildGeoRecommendationsMeta(recommendationViewModels, qualityViewModels, scope),
+  };
+}
+router.get('/alerts', requireFeature('reports'), requireGeoAnalyticsEnabled, _safeHandler(getGeoAlertsAndRecommendations, (item) => item.geo_context || null));
 // fix18-10-hotfix30-B5-R5.1-D1（十九、Geo Quality Diagnostics）——在既有
 // getGeoQuality() 的統計數字之上，疊加「Visitor IP Geo 現在到底是什麼狀態」
 // 的白話文案，取代單純顯示 status:'degraded' 這種只有工程師看得懂的字眼。
@@ -205,13 +280,26 @@ router.get('/quality', requireFeature('reports'), requireGeoAnalyticsEnabled, (r
 function getCartGeoAttributionSummary(db, storeId, filters) {
   const { rows, firstTouchMap, truncated } = buildCartRowsWithGeo(db, storeId, filters);
   const districtRanking = buildGeoDistrictRanking(rows, firstTouchMap);
-  return {
+  const result = {
     summary: buildGeoSummary(rows, firstTouchMap),
     district_ranking: districtRanking,
     top_areas: topAreas(districtRanking, 5),
     source_area: buildSourceAreaTable(rows, firstTouchMap),
     truncated, // MAX_CANDIDATE_CARTS 被截斷時明確告知，不悄悄回傳不完整結果
   };
+  // fix18-10-hotfix30-B5-R5.2-B1-3（需求文件十：Drawer「該行政區 Top Abandon
+  // Products」）——只擴充既有 /cart-attribution，不新增 endpoint（需求文件
+  // 十九）。重用既有 filters.district/filters.city（parseGeoAnalyticsFilters()
+  // 已經驗證過），沒有指定行政區時完全不計算、不回傳 abandon_products，
+  // 既有呼叫端行為不變。geo_area_label 的比對規則沿用
+  // utils/cartGeoAttribution.js 的既有慣例（district 優先於 city，兩者皆無
+  // 則「未知」）。
+  const areaLabel = filters.district || filters.city || null;
+  if (areaLabel) {
+    result.abandon_products = buildAbandonProductsByArea(rows, firstTouchMap, areaLabel, { limit: 10 });
+    result.abandon_products_area = areaLabel;
+  }
+  return result;
 }
 router.get('/cart-attribution', requireFeature('reports'), requireGeoAnalyticsEnabled, _safeHandler(getCartGeoAttributionSummary, 'acquisition'));
 

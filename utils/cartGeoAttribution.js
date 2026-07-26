@@ -97,6 +97,25 @@ function _geoLabelFor(geoRow) {
   return { geo_city: geoRow.geo_city || null, geo_district: geoRow.geo_district || null, geo_area_label: label };
 }
 
+// fix18-10-hotfix30-B5-R5.2-B1-3（需求文件九 Phase 1 修正）——盤點發現既有
+// checkout_attempt_count（utils/cartSnapshot.js）只在購物車快照
+// metadata.attempt_id 存在時才 >0（LINE 結帳轉接流程專用的窄定義），跟
+// utils/geoAnalyticsQueries.js getGeoFunnel() 的「開始結帳人數」（任何 raw
+// begin_checkout 事件即算數）是兩個不同定義，本來就已經存在於程式庫裡，不是
+// 這輪新造出來的。這裡新增一個獨立查詢，回答「這個 cart_id 有沒有發生過
+// begin_checkout 事件」，跟 checkout_attempt_count 並存、不覆蓋、不混用，
+// 供 buildGeoDistrictRanking() 的新欄位使用同一套「開始結帳」定義為
+// getGeoFunnel()（見下方 CHANGELOG Known Difference 說明）。
+function _getBeginCheckoutCartIdSet(db, storeId, cartIds) {
+  if (!cartIds.length) return new Set();
+  const rows = db.all(
+    `SELECT DISTINCT cart_id FROM analytics_events
+     WHERE store_id=? AND event_name='begin_checkout' AND cart_id IN (${_inParams(cartIds)})`,
+    [storeId, ...cartIds]
+  );
+  return new Set(rows.map((r) => r.cart_id));
+}
+
 // 建立「已套用 Visitor Geo」的購物車列（供 Cart Abandonment API 附加 geo 欄位、
 // 也供下面的彙總函式共用同一份資料，不重複查詢兩次）。
 // includePurchased=true：本函式同時服務「未完成購物車清單＋geo」與「彙總／
@@ -114,6 +133,7 @@ function buildCartRowsWithGeo(db, storeId, filters) {
   const firstAddMap = getFirstAddToCartMap(db, storeId, cartIds);
   const firstTouchMap = getFirstTouchMap(db, storeId, cartIds);
   const lastEventMap = getLastEventMap(db, storeId, cartIds);
+  const beginCheckoutEventSet = _getBeginCheckoutCartIdSet(db, storeId, cartIds);
   const cartIdsNeedingLegacy = cartIds.filter((id) => !snapshotMap[id]);
   const legacyItemsMap = getLegacyCartItemsMap(db, storeId, cartIdsNeedingLegacy);
   const legacyProductIds = [...new Set(Object.values(legacyItemsMap).flat().map((i) => i.product_id))];
@@ -147,6 +167,10 @@ function buildCartRowsWithGeo(db, storeId, filters) {
         geo_accuracy: geoAccuracy,
         geo_accuracy_label: geoAccuracyLabel(geoAccuracy),
         geo_provider: geoRow ? (geoRow.geo_provider || null) : null,
+        // fix18-10-hotfix30-B5-R5.2-B1-3：raw begin_checkout 事件是否發生過，
+        // 與既有 checkout_attempt_count（attempt_id-based）刻意分開欄位，
+        // 不覆蓋、不混用（見上方 _getBeginCheckoutCartIdSet 註解）。
+        began_checkout_event: beginCheckoutEventSet.has(r.cart_id),
       };
     });
 
@@ -178,9 +202,9 @@ function buildCartRowsWithGeo(db, storeId, filters) {
 // 全部依 identity_key 去重（同一 visitor 多次 add_to_cart／多個 cart_id 只算
 // 1 人於 visitors 欄位；cart_count 可以 > visitor_count）。
 function buildGeoDistrictRanking(rows, firstTouchMap) {
-  const groups = new Map(); // label -> {visitors:Set, carts:Set, checkouts:Set, purchases:Set, cartValue:number}
+  const groups = new Map(); // label -> {visitors:Set, carts:Set, checkouts:Set, beganCheckoutEvent:Set, purchases:Set, cartValue:number}
   const ensure = (map, key) => {
-    if (!map.has(key)) map.set(key, { visitors: new Set(), carts: new Set(), checkouts: new Set(), purchases: new Set(), cartValue: 0, city: null, district: null });
+    if (!map.has(key)) map.set(key, { visitors: new Set(), carts: new Set(), checkouts: new Set(), beganCheckoutEvent: new Set(), purchases: new Set(), cartValue: 0, abandonValue: 0, city: null, district: null });
     return map.get(key);
   };
 
@@ -191,7 +215,9 @@ function buildGeoDistrictRanking(rows, firstTouchMap) {
     g.visitors.add(identityKey);
     g.carts.add(r.cart_id);
     if (r.checkout_attempt_count > 0) g.checkouts.add(identityKey);
+    if (r.began_checkout_event) g.beganCheckoutEvent.add(identityKey);
     if (r.status === 'purchased') g.purchases.add(identityKey);
+    else g.abandonValue += Number(r.total || 0); // fix18-10-hotfix30-B5-R5.2-B1-3（需求文件九）：估算放棄金額只計未成交的購物車，沿用既有 status 欄位判斷，不另造一套
     g.cartValue += Number(r.total || 0);
     // fix18-10-hotfix30-B5-R5.2-A（Stage 5：統一行政區格式）——額外記錄
     // city/district，供 routes/analytics-geo.js 的通用 _enrichAreaFields()
@@ -203,17 +229,34 @@ function buildGeoDistrictRanking(rows, firstTouchMap) {
 
   return [...groups.entries()].map(([area, g]) => {
     const cartCount = g.carts.size;
+    const visitorCount = g.visitors.size;
+    const checkoutCount = g.checkouts.size;
+    const beganCheckoutEventCount = g.beganCheckoutEvent.size;
+    const purchaseCount = g.purchases.size;
     // 成交率除數為 0 時固定回 0，不得顯示 Infinity/NaN（見需求文件十六）。
-    const conversionRate = cartCount > 0 ? round2((g.purchases.size / cartCount) * 100) : 0;
+    const conversionRate = cartCount > 0 ? round2((purchaseCount / cartCount) * 100) : 0;
     return {
       area, city: g.city, district: g.district,
-      visitors: g.visitors.size,
+      visitors: visitorCount,
       add_to_cart: cartCount,
-      begin_checkout: g.checkouts.size,
-      orders: g.purchases.size,
-      abandon: Math.max(0, cartCount - g.purchases.size),
+      begin_checkout: checkoutCount, // 舊欄位保留（attempt_id-based，向下相容，語意不變——見 CHANGELOG Known Difference）
+      orders: purchaseCount,
+      abandon: Math.max(0, cartCount - purchaseCount), // 舊欄位保留（cart 層級，向下相容，不變更語意）
       cart_value: round2(g.cartValue),
       conversion_rate: conversionRate,
+      // fix18-10-hotfix30-B5-R5.2-B1-3：與 getGeoFunnel()「開始結帳人數」
+      // 同一定義（raw begin_checkout 事件），刻意跟上面 begin_checkout
+      // （attempt_id-based）分開命名，不混成同一欄位（見需求文件九-6：不得
+      // 混成同一欄位）。
+      begin_checkout_event_visitors: beganCheckoutEventCount,
+      // fix18-10-hotfix30-B5-R5.2-B1-3（需求文件九）：新增以「人數」為準的
+      // 購物車放棄／結帳放棄，公式沿用需求文件明訂定義（加入購物車人數 -
+      // 完成購買人數 / 開始結帳人數 - 完成購買人數），與上面既有的
+      // cart-based `abandon` 欄位並存，不覆蓋、不刪除舊欄位。
+      purchase_visitors: purchaseCount,
+      cart_abandon_visitors: Math.max(0, visitorCount - purchaseCount),
+      checkout_abandon_visitors: Math.max(0, beganCheckoutEventCount - purchaseCount),
+      estimated_abandon_value: round2(g.abandonValue),
     };
   }).sort((a, b) => b.add_to_cart - a.add_to_cart); // 預設排序：加入購物車人數 DESC（需求文件十六）
 }
@@ -258,28 +301,99 @@ function buildSourceAreaTable(rows, firstTouchMap) {
 function buildGeoSummary(rows, firstTouchMap) {
   const visitorSet = new Set();
   const checkoutVisitorSet = new Set();
+  const beganCheckoutEventSet = new Set(); // fix18-10-hotfix30-B5-R5.2-B1-3：與 getGeoFunnel() 同一定義（raw begin_checkout 事件），跟下面 checkoutVisitorSet（attempt_id-based）分開，不混用
   const purchaseVisitorSet = new Set();
   let abandonCount = 0;
   let cartValue = 0;
+  let abandonValue = 0; // fix18-10-hotfix30-B5-R5.2-B1-3：未成交（status !== 'purchased'）購物車估算金額，沿用既有 status 欄位
 
   rows.forEach((r) => {
     const ft = firstTouchMap[r.cart_id] || {};
     const identityKey = ft.identity_key || `cart:${r.cart_id}`;
     visitorSet.add(identityKey);
     if (r.checkout_attempt_count > 0) checkoutVisitorSet.add(identityKey);
+    if (r.began_checkout_event) beganCheckoutEventSet.add(identityKey);
     if (r.status === 'purchased') purchaseVisitorSet.add(identityKey);
     if (r.status === 'abandoned') abandonCount += 1;
+    if (r.status !== 'purchased') abandonValue += Number(r.total || 0);
     cartValue += Number(r.total || 0);
   });
 
+  const visitorCount = visitorSet.size;
+  const checkoutCount = checkoutVisitorSet.size;
+  const beganCheckoutEventCount = beganCheckoutEventSet.size;
+  const purchaseCount = purchaseVisitorSet.size;
   return {
-    visitor_count: visitorSet.size,
+    visitor_count: visitorCount,
     cart_count: rows.length,
-    begin_checkout_count: checkoutVisitorSet.size,
-    purchase_count: purchaseVisitorSet.size,
-    abandon_count: abandonCount,
+    begin_checkout_count: checkoutCount, // 舊欄位保留（attempt_id-based，向下相容，語意不變）
+    begin_checkout_event_count: beganCheckoutEventCount, // 新欄位：raw begin_checkout 事件，與 getGeoFunnel() 同定義
+    purchase_count: purchaseCount,
+    abandon_count: abandonCount, // 舊欄位保留（cart 層級 status==='abandoned' 筆數，向下相容）
     estimated_cart_value: round2(cartValue),
+    // fix18-10-hotfix30-B5-R5.2-B1-3（需求文件九）：以人數為準的購物車/結帳
+    // 放棄，公式 = 加入購物車人數 - 完成購買人數 / 開始結帳人數(event-based) - 完成購買人數。
+    cart_abandon_visitors: Math.max(0, visitorCount - purchaseCount),
+    checkout_abandon_visitors: Math.max(0, beganCheckoutEventCount - purchaseCount),
+    estimated_abandon_value: round2(abandonValue),
   };
+}
+
+// 需求文件十：行政區 × 商品放棄分析（Drawer「該行政區 Top Abandon
+// Products」）。完全重用 buildCartRowsWithGeo() 已經批次組好、含
+// items（商品明細）與 status（沿用既有 cart_id/status 定義）的列，不重新
+// 查詢，也不建立第二套去識別化去重規則。
+//
+// 隱私（需求文件十）：只回傳商品層級聚合數字（人數/金額），不回傳
+// visitor_id/LINE UID/電話/完整購物車明細——本函式輸出物件裡完全沒有
+// _visitor_id_raw／_line_uid_raw／cart_id 等欄位，呼叫端無法從回傳值反查
+// 任何個人身份。
+function buildAbandonProductsByArea(rows, firstTouchMap, areaLabel, opts = {}) {
+  const limit = Number.isFinite(opts.limit) && opts.limit > 0 ? Math.min(Math.floor(opts.limit), 50) : 10;
+  const scoped = areaLabel ? rows.filter((r) => r.geo_area_label === areaLabel) : rows;
+  const productMap = new Map(); // product_key -> { product_id, name, cartVisitors, purchaseVisitors, abandonVisitors, abandonValue }
+
+  scoped.forEach((r) => {
+    const ft = firstTouchMap[r.cart_id] || {};
+    const identityKey = ft.identity_key || `cart:${r.cart_id}`;
+    const isPurchased = r.status === 'purchased';
+    (r.items || []).forEach((item) => {
+      const productKey = item.product_id !== null && item.product_id !== undefined ? `id:${item.product_id}` : `name:${item.name || '未知商品'}`;
+      if (!productMap.has(productKey)) {
+        productMap.set(productKey, {
+          product_id: item.product_id !== null && item.product_id !== undefined ? item.product_id : null,
+          name: item.name || '未知商品',
+          cartVisitors: new Set(), purchaseVisitors: new Set(), abandonVisitors: new Set(), abandonValue: 0,
+        });
+      }
+      const p = productMap.get(productKey);
+      p.cartVisitors.add(identityKey);
+      if (isPurchased) {
+        p.purchaseVisitors.add(identityKey);
+      } else {
+        p.abandonVisitors.add(identityKey);
+        p.abandonValue += Number(item.subtotal || 0);
+      }
+    });
+  });
+
+  return [...productMap.values()]
+    .map((p) => {
+      const cartCount = p.cartVisitors.size;
+      const abandonCount = p.abandonVisitors.size;
+      return {
+        product_id: p.product_id,
+        name: p.name,
+        add_to_cart_visitors: cartCount,
+        purchase_visitors: p.purchaseVisitors.size,
+        abandon_visitors: abandonCount,
+        // 放棄率除數為 0 時固定回 0，不得顯示 Infinity/NaN（同需求文件十六原則）
+        abandon_rate: cartCount > 0 ? round2((abandonCount / cartCount) * 100) : 0,
+        estimated_abandon_value: round2(p.abandonValue),
+      };
+    })
+    .sort((a, b) => b.abandon_visitors - a.abandon_visitors)
+    .slice(0, limit);
 }
 
 // Top N 區域排行（需求文件十五：Top 5，預設依加入購物車人數 DESC，未知墊底
@@ -294,6 +408,7 @@ module.exports = {
   buildGeoDistrictRanking,
   buildSourceAreaTable,
   buildGeoSummary,
+  buildAbandonProductsByArea,
   topAreas,
   geoContextLabel,
   geoAccuracyLabel,

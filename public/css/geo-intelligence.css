@@ -1,0 +1,269 @@
+/* public/css/geo-intelligence.css — fix18-10-hotfix30-B5-R5.2-B1-5
+ * Geo Dashboard UI & Decision Center
+ *
+ * 命名原則（需求文件四之 4.1）：所有選擇器一律 .geo- 開頭，不使用泛用
+ * 選擇器（.card{} table{} button{} .modal{}），避免污染全站其他頁面。
+ * 桌面 ≥1200px／平板 768~1199px／手機 <768px 三個斷點（需求文件四、
+ * 十九）。所有顏色搭配文字/圖示，不單靠顏色表達風險（需求文件二十）。
+ */
+
+.geo-dashboard-shell {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 0 16px;
+  box-sizing: border-box;
+}
+
+/* ── KPI Summary ─────────────────────────────────────────────── */
+.geo-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(140px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.geo-kpi-card {
+  padding: 12px 14px;
+  border: 1px solid var(--border, #2a2d3e);
+  border-radius: 10px;
+  background: var(--panel-bg, transparent);
+}
+.geo-kpi-card[data-geo-status="positive"] { border-left: 3px solid #10b981; }
+.geo-kpi-card[data-geo-status="warning"] { border-left: 3px solid #f59e0b; }
+.geo-kpi-card[data-geo-status="danger"] { border-left: 3px solid #ef4444; }
+.geo-kpi-label { font-size: .74rem; color: var(--text-secondary, #64748b); }
+.geo-kpi-value { font-size: 1.3rem; font-weight: 700; margin: 2px 0; }
+.geo-kpi-helper { font-size: .72rem; color: var(--text-secondary, #64748b); }
+
+/* ── Decision Center ─────────────────────────────────────────── */
+.geo-decision-center { margin: 16px 0; }
+.geo-section-heading { font-weight: 700; font-size: .95rem; margin: 14px 0 8px; }
+.geo-decision-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(280px, 1fr));
+  gap: 14px;
+}
+.geo-decision-card {
+  border: 1px solid var(--border, #2a2d3e);
+  border-radius: 12px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.geo-decision-card[data-geo-severity="high"] { border-top: 3px solid #ef4444; }
+.geo-decision-card[data-geo-severity="medium"] { border-top: 3px solid #f59e0b; }
+.geo-decision-card[data-geo-severity="low"] { border-top: 3px solid #10b981; }
+.geo-card-badge {
+  display: inline-block;
+  font-size: .7rem;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--chip-bg, rgba(129,140,248,.15));
+  color: var(--accent, #818cf8);
+  width: fit-content;
+}
+.geo-card-title { font-size: 1rem; font-weight: 700; overflow-wrap: break-word; }
+.geo-card-subtitle { font-size: .78rem; color: var(--text-secondary, #64748b); }
+.geo-card-summary { font-size: .84rem; line-height: 1.5; overflow-wrap: break-word; }
+.geo-card-metric { font-size: .84rem; }
+.geo-card-comparison { font-size: .8rem; color: var(--text-secondary, #64748b); overflow-wrap: break-word; }
+.geo-card-status-row { display: flex; gap: 10px; flex-wrap: wrap; font-size: .76rem; margin-top: 4px; }
+.geo-card-confidence::before { content: "🔎 "; }
+.geo-card-sample::before { content: "🧪 "; }
+.geo-card-actions { font-size: .8rem; color: var(--text-secondary, #64748b); }
+.geo-card-drawer-btn, .geo-action-btn {
+  align-self: flex-start;
+  margin-top: 6px;
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border, #2a2d3e);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: .78rem;
+}
+.geo-card-drawer-btn:hover, .geo-action-btn:hover { background: var(--hover-bg, rgba(255,255,255,.05)); }
+
+/* ── Recommended Actions ─────────────────────────────────────── */
+.geo-recommended-actions-section { margin-top: 16px; }
+.geo-actions-panel { display: flex; flex-direction: column; gap: 8px; }
+.geo-action-item {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  border: 1px solid var(--border, #2a2d3e);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.geo-action-priority {
+  flex: 0 0 auto;
+  font-weight: 700;
+  font-size: .74rem;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--chip-bg, rgba(129,140,248,.15));
+}
+.geo-action-body { flex: 1; min-width: 0; }
+.geo-action-title { font-weight: 700; font-size: .86rem; }
+.geo-action-desc { font-size: .8rem; color: var(--text-secondary, #64748b); overflow-wrap: break-word; }
+.geo-action-meta { font-size: .72rem; color: var(--text-secondary, #64748b); margin-top: 2px; }
+.geo-action-buttons { flex: 0 0 auto; }
+
+/* ── Estimated Impact ────────────────────────────────────────── */
+.geo-impact-card {
+  border: 1px dashed var(--border, #2a2d3e);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-top: 8px;
+  font-size: .8rem;
+}
+.geo-impact-title { font-weight: 700; margin-bottom: 4px; }
+.geo-impact-value { font-size: 1.4rem; font-weight: 700; color: var(--accent, #818cf8); }
+.geo-impact-headline { font-size: .8rem; font-weight: 600; }
+.geo-impact-message { color: var(--text-secondary, #64748b); overflow-wrap: break-word; }
+.geo-impact-caveat { color: #f59e0b; margin-top: 4px; }
+
+/* ── Area Ranking ─────────────────────────────────────────────── */
+.geo-ranking-wrapper { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.geo-status-badge {
+  display: inline-block;
+  font-size: .72rem;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--chip-bg, rgba(129,140,248,.15));
+}
+
+/* ── Funnel ───────────────────────────────────────────────────── */
+.geo-funnel { display: flex; flex-direction: column; gap: 4px; }
+.geo-funnel-step { display: flex; justify-content: space-between; font-size: .82rem; }
+
+/* ── Quality ──────────────────────────────────────────────────── */
+.geo-quality-card { border: 1px solid var(--border, #2a2d3e); border-radius: 10px; padding: 10px 12px; }
+.geo-quality-decision-card { border-style: dashed; }
+
+/* ── Explainability ───────────────────────────────────────────── */
+.geo-explainability, .geo-drawer-explainability { font-size: .82rem; }
+.geo-confidence-bar { overflow: hidden; }
+
+/* ── Drawer ───────────────────────────────────────────────────── */
+.geo-drawer-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 999;
+}
+.geo-drawer {
+  position: fixed; top: 0; right: 0; bottom: 0;
+  width: 420px; max-width: 92vw;
+  background: var(--panel-bg, #14161f);
+  border-left: 1px solid var(--border, #2a2d3e);
+  padding: 20px; overflow-y: auto; z-index: 1000;
+}
+.geo-drawer-close-btn {
+  float: right; background: none; border: none;
+  color: var(--text-secondary, #64748b); cursor: pointer; font-size: 1rem;
+}
+
+/* ── Empty / Error / Loading ──────────────────────────────────── */
+.geo-empty-state, .geo-error-state, .analytics-empty-state {
+  padding: 16px; text-align: center; color: var(--text-secondary, #64748b);
+  font-size: .85rem; border: 1px dashed var(--border, #2a2d3e); border-radius: 10px;
+}
+.geo-error-state { color: #ef4444; border-color: #ef4444; }
+.geo-loading-state[aria-busy="true"] { opacity: .7; }
+
+/* ════════════════════════════════════════════════════════════════
+ * 平板 768px～1199px（需求文件四、四之 4.3）
+ * ════════════════════════════════════════════════════════════════ */
+@media (max-width: 1199px) {
+  .geo-kpi-grid { grid-template-columns: repeat(3, minmax(120px, 1fr)); }
+  .geo-decision-cards { grid-template-columns: repeat(2, minmax(240px, 1fr)); }
+  .geo-drawer { width: 360px; }
+}
+
+/* ════════════════════════════════════════════════════════════════
+ * 手機 <768px（需求文件四、四之 4.4）
+ * ════════════════════════════════════════════════════════════════ */
+@media (max-width: 767px) {
+  .geo-dashboard-shell { padding: 0 8px; }
+  .geo-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .geo-decision-cards { grid-template-columns: 1fr; }
+  .geo-actions-panel { gap: 6px; }
+  .geo-action-item { flex-direction: column; }
+  .geo-filter-bar { flex-direction: column; align-items: stretch; }
+  .geo-filter-bar select, .geo-filter-input { width: 100%; min-width: 0; }
+  .geo-drawer {
+    width: 100vw; max-width: 100vw; top: 0; right: 0; left: 0; bottom: 0;
+    border-left: none;
+  }
+  .geo-card-drawer-btn, .geo-action-btn { width: 100%; text-align: center; }
+}
+
+/* ════════════════════════════════════════════════════════════════
+ * fix18-10-hotfix30-B5-R5.2-B1-6 — Geo Drill-down & Customer Explorer
+ * 全部使用 .geo-explorer- namespace，不污染 .card/table/button。
+ * ════════════════════════════════════════════════════════════════ */
+.geo-explorer-extras { margin-top: 14px; border-top: 1px solid var(--border, #2a2d3e); padding-top: 10px; }
+.geo-explorer-section { margin-bottom: 14px; }
+.geo-explorer-section-title { font-weight: 700; font-size: .85rem; margin-bottom: 6px; }
+.geo-explorer-products { display: flex; flex-direction: column; gap: 4px; }
+.geo-explorer-product-row { display: flex; justify-content: space-between; font-size: .82rem; padding: 4px 0; border-bottom: 1px solid var(--border, #2a2d3e); }
+.geo-explorer-product-name { overflow-wrap: break-word; }
+.geo-explorer-product-count { font-weight: 700; }
+.geo-explorer-cart-abandonment { font-size: .82rem; display: flex; flex-direction: column; gap: 3px; }
+.geo-explorer-source-table { display: flex; flex-direction: column; gap: 4px; font-size: .8rem; }
+.geo-explorer-source-row { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; padding: 3px 0; border-bottom: 1px solid var(--border, #2a2d3e); }
+.geo-explorer-empty { font-size: .8rem; color: var(--text-secondary, #64748b); padding: 8px 0; }
+.geo-explorer-error { font-size: .82rem; color: #ef4444; padding: 8px 0; }
+.geo-explorer-error-retry-btn { margin-top: 6px; padding: 4px 10px; border-radius: 6px; border: 1px solid #ef4444; background: transparent; color: #ef4444; cursor: pointer; }
+.geo-explorer-skeleton { display: flex; flex-direction: column; gap: 6px; }
+.geo-explorer-skeleton-row { height: 14px; border-radius: 6px; background: var(--border, #2a2d3e); opacity: .4; animation: geo-explorer-pulse 1.2s ease-in-out infinite; }
+@keyframes geo-explorer-pulse { 0%, 100% { opacity: .25; } 50% { opacity: .55; } }
+
+@media (max-width: 767px) {
+  .geo-explorer-source-row { grid-template-columns: 1fr; }
+}
+
+/* ════════════════════════════════════════════════════════════════
+ * fix18-10-hotfix30-B5-R5.2-B2 — Leaflet Geo Intelligence Map
+ * 全部使用 .geo-map- namespace，不污染 .card/table/button/.leaflet-container。
+ * Leaflet 覆寫一律包在 .geo-map-root 底下。
+ * ════════════════════════════════════════════════════════════════ */
+.geo-map-root { margin: 16px 0; border: 1px solid var(--border, #2a2d3e); border-radius: 12px; padding: 14px; }
+.geo-map-header { margin-bottom: 8px; }
+.geo-map-title { font-weight: 700; font-size: .95rem; }
+.geo-map-subtitle { font-size: .78rem; color: var(--text-secondary, #64748b); }
+.geo-map-metrics { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.geo-map-metric-btn {
+  padding: 5px 12px; border-radius: 999px; border: 1px solid var(--border, #2a2d3e);
+  background: transparent; color: inherit; cursor: pointer; font-size: .78rem;
+}
+.geo-map-metric-btn[aria-pressed="true"] { background: var(--accent, #818cf8); color: #111; font-weight: 700; }
+.geo-map-canvas { width: 100%; height: 560px; border-radius: 10px; overflow: hidden; background: #e5e7eb; }
+.geo-map-legend { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; font-size: .76rem; align-items: center; }
+.geo-map-legend-title { font-weight: 700; margin-right: 4px; }
+.geo-map-legend-item { display: inline-flex; align-items: center; gap: 4px; }
+.geo-map-legend-swatch { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+.geo-map-summary { margin-top: 8px; font-size: .8rem; color: var(--text-secondary, #64748b); display: flex; flex-direction: column; gap: 2px; }
+.geo-map-summary-empty { color: var(--text-secondary, #64748b); }
+.geo-map-empty, .geo-map-error, .geo-map-loading {
+  padding: 16px; text-align: center; font-size: .85rem; color: var(--text-secondary, #64748b);
+}
+.geo-map-error { color: #ef4444; }
+.geo-map-retry-btn {
+  margin-top: 6px; padding: 4px 12px; border-radius: 6px; border: 1px solid #ef4444;
+  background: transparent; color: #ef4444; cursor: pointer;
+}
+.geo-map-area-list { display: none; } /* 鍵盤可操作的行政區清單備援，見需求文件二十一 */
+.geo-map-selected { outline: 2px solid #111827; }
+
+/* Leaflet 覆寫，全部包在 .geo-map-root 底下，不污染全站 .leaflet-container */
+.geo-map-root .leaflet-container { font-family: inherit; background: #e5e7eb; }
+.geo-map-root .leaflet-control-attribution { font-size: .65rem; }
+
+@media (max-width: 1199px) {
+  .geo-map-canvas { height: 500px; }
+}
+@media (max-width: 767px) {
+  .geo-map-canvas { height: 440px; }
+  .geo-map-metrics { overflow-x: auto; flex-wrap: nowrap; -webkit-overflow-scrolling: touch; }
+  .geo-map-legend { flex-direction: column; align-items: flex-start; }
+}

@@ -389,7 +389,7 @@ function geoQualityBadge(status) {
 // x-store-id header 決定，後端 requireStore 明確拒絕 req.query.store_id
 // （見 routes/analytics-geo.js 檔頭註解），前端也不重複傳送。
 // 沿用現有 apiFetch() 這一套 HTTP wrapper，不建立第二套 client。
-const GEO_DASHBOARD_PARAM_KEYS = ['date_from', 'date_to', 'county_code', 'subdivision_code', 'channel', 'source'];
+const GEO_DASHBOARD_PARAM_KEYS = ['date_from', 'date_to', 'county_code', 'subdivision_code', 'channel', 'source', 'medium', 'campaign'];
 
 function _buildGeoDashboardParams(params) {
   const qs = new URLSearchParams();
@@ -515,6 +515,14 @@ async function loadGeoDashboardData(params) {
     vm.county_partial = !county;
     vm.alerts = (alerts && alerts.alerts) || [];
     vm.alerts_partial = !alerts; // alerts 失敗時允許局部顯示（需求文件六、十二）
+    // fix18-10-hotfix30-B5-R5.2-B1-5（需求文件三：Single source of truth）——
+    // Decision Center 直接重用這裡「已經發出去的」/alerts 請求結果，不另外
+    // 再打一次 /alerts。純 additive 欄位，不動上面 vm.alerts 的既有語意。
+    vm.recommendation_view_models = (alerts && alerts.recommendation_view_models) || [];
+    vm.quality_view_models = (alerts && alerts.quality_view_models) || [];
+    vm.rule_context = (alerts && alerts.rule_context) || null;
+    vm.alerts_meta = (alerts && alerts.meta) || null;
+    vm.schema_version = (alerts && alerts.schema_version) || null;
     vm.quality = overview.data_quality || null;
     // API 未回傳 updated_at；改用「前端成功完成載入的時間」，避免使用未成功
     // 請求（例如被 abort）的時間（需求文件十三）。
@@ -610,7 +618,7 @@ function renderGeoQualityBlock(quality) {
 const GEO_RANKING_PAGE_SIZE = 20;
 // 篩選（觸發真的重新 fetch，見上方說明）與純前端 UI 狀態（不重新 fetch）
 // 刻意分成兩個變數，避免「改篩選」跟「換頁/排序」混用同一套 reset 邏輯。
-let geoDashboardFilters = { county_code: null, subdivision_code: null };
+let geoDashboardFilters = { county_code: null, subdivision_code: null, source: null, medium: null, campaign: null };
 let geoRankingState = { sortKey: 'visitors', sortDir: 'desc', search: '', page: 1 };
 let geoExpandedAreaKeys = new Set();
 let geoLastVm = null; // 最近一次成功（ready/partial）的 loadGeoDashboardData() 結果，供 Drawer/展開/排序/搜尋重用
@@ -685,6 +693,30 @@ async function geoDashboardSetCounty(countyCode) {
 }
 async function geoDashboardSetSubdivision(subdivisionCode) {
   geoDashboardFilters.subdivision_code = subdivisionCode || null;
+  geoRankingState.page = 1;
+  geoExpandedAreaKeys.clear();
+  _geoExposeWindowState();
+  if (geoLastContainerId) await refreshGeoDashboardKpiBlock(geoLastContainerId);
+}
+// fix18-10-hotfix30-B5-R5.2-B1-5（需求文件三）：source/medium/campaign 篩選
+// ——完全沿用上面 county/subdivision 的既有慣例（改 state → reset page/展開
+// → 呼叫同一個 refreshGeoDashboardKpiBlock()，不是另建一套同步機制）。
+async function geoDashboardSetSource(value) {
+  geoDashboardFilters.source = value || null;
+  geoRankingState.page = 1;
+  geoExpandedAreaKeys.clear();
+  _geoExposeWindowState();
+  if (geoLastContainerId) await refreshGeoDashboardKpiBlock(geoLastContainerId);
+}
+async function geoDashboardSetMedium(value) {
+  geoDashboardFilters.medium = value || null;
+  geoRankingState.page = 1;
+  geoExpandedAreaKeys.clear();
+  _geoExposeWindowState();
+  if (geoLastContainerId) await refreshGeoDashboardKpiBlock(geoLastContainerId);
+}
+async function geoDashboardSetCampaign(value) {
+  geoDashboardFilters.campaign = value || null;
   geoRankingState.page = 1;
   geoExpandedAreaKeys.clear();
   _geoExposeWindowState();
@@ -766,7 +798,13 @@ function _renderGeoFilterBarHtml() {
   const selectedCounty = geoDashboardFilters.county_code || '';
   const subdivisions = selectedCounty ? (geoSubdivisionsCache.get(selectedCounty) || []) : [];
   const selectedSubdivision = geoDashboardFilters.subdivision_code || '';
-  return `<div role="search" aria-label="行政區篩選" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:10px 0">
+  // fix18-10-hotfix30-B5-R5.2-B1-5（需求文件三之 3.2）：source/medium/
+  // campaign 目前沒有獨立的 options 清單 API，用自由文字輸入（空值＝全部，
+  // 不會因為沒有資料而讓 select 消失或整支 JS 中斷；日期/通路已經是
+  // Dashboard 全域共用的篩選，這裡不重複建立）。
+  const textFilter = (label, key, setter) => `<input type="text" aria-label="${escHtml(label)}" placeholder="${escHtml(label)}（全部）" value="${escHtml(geoDashboardFilters[key] || '')}"
+    onchange="${setter}(this.value)" class="geo-filter-input" style="padding:5px 8px;border-radius:6px;border:1px solid var(--border,#2a2d3e);background:transparent;color:inherit;min-width:100px">`;
+  return `<div role="search" aria-label="行政區篩選" class="geo-filter-bar" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:10px 0">
     <select aria-label="縣市" onchange="geoDashboardSetCounty(this.value)" style="padding:5px 8px;border-radius:6px;border:1px solid var(--border,#2a2d3e);background:transparent;color:inherit">
       <option value="" ${!selectedCounty ? 'selected' : ''}>全部縣市</option>
       ${counties.map((c) => `<option value="${escHtml(c.county_code)}" ${c.county_code === selectedCounty ? 'selected' : ''}>${escHtml(c.county_name)}</option>`).join('')}
@@ -775,6 +813,9 @@ function _renderGeoFilterBarHtml() {
       <option value="" ${!selectedSubdivision ? 'selected' : ''}>全部行政區</option>
       ${subdivisions.map((s) => `<option value="${escHtml(s.subdivision_code)}" ${s.subdivision_code === selectedSubdivision ? 'selected' : ''}>${escHtml(s.subdivision_name)}</option>`).join('')}
     </select>
+    ${textFilter('來源', 'source', 'geoDashboardSetSource')}
+    ${textFilter('媒介', 'medium', 'geoDashboardSetMedium')}
+    ${textFilter('活動', 'campaign', 'geoDashboardSetCampaign')}
     <input type="search" aria-label="搜尋行政區" placeholder="搜尋行政區（例如：中壢）" value="${escHtml(geoRankingState.search)}"
       oninput="geoRankingSetSearch(this.value)" style="padding:5px 10px;border-radius:6px;border:1px solid var(--border,#2a2d3e);background:transparent;color:inherit;min-width:160px">
   </div>`;
@@ -784,6 +825,48 @@ function _renderGeoFilterBarHtml() {
 const GEO_RANKING_COLUMNS = [
   ['visitors', '訪客'], ['cart', '加入購物車'], ['checkout', '開始結帳'], ['orders', '完成訂單'], ['conversion', '成交率'],
 ];
+// fix18-10-hotfix30-B5-R5.2-B1-5（需求文件十二）：Area Ranking 狀態徽章
+// ——純顯示用的靜態標籤映射，跟後端 utils/geoRecommendationViewModel.js 的
+// GEO_BADGE_MAP 語意一致（同一組五種分類＋樣本不足＋資料品質），但這裡
+// 完全不判斷任何門檻、不算任何比例——狀態本身一律來自
+// data.recommendation_view_models 的 classification 欄位（後端已經判斷好），
+// 前端只是把 code 換成中文短標籤，不是「重新判斷 classification」。
+const GEO_AREA_STATUS_BADGE_MAP = {
+  high_traffic_high_conversion: '表現良好',
+  high_traffic_low_cart: '商品吸引力',
+  high_cart_low_checkout: '結帳入口',
+  high_checkout_low_purchase: '付款流失',
+  high_conversion_low_traffic: '成長機會',
+  insufficient_sample: '資料不足',
+  data_quality: '資料品質',
+};
+// 同一區有多個分類時，只顯示 primary，其餘用「+N」表示（需求文件十二）；
+// 不重新判斷，只讀 recommendation_view_models 既有的 classification/
+// secondary_classifications。
+function geoDeriveAreaStatusFromViewModels(recommendationViewModels) {
+  const map = new Map(); // "city|district" -> { label, code, extraCount }
+  (recommendationViewModels || []).forEach((m) => {
+    if (!m || !m.location) return;
+    const key = `${m.location.city || ''}|${m.location.district || ''}`;
+    if (map.has(key)) return; // 已排序過的陣列，第一筆遇到的就是該區域的最高優先建議
+    map.set(key, {
+      code: m.classification,
+      label: GEO_AREA_STATUS_BADGE_MAP[m.classification] || null,
+      extraCount: (m.secondary_classifications || []).length,
+    });
+  });
+  return map;
+}
+function _geoAreaStatusBadgeHtml(statusMap, area) {
+  if (!statusMap || _geoIsUnknownArea(area)) return '<span style="color:var(--text-secondary,#64748b)">—</span>';
+  const key = `${area.city || ''}|${area.district || ''}`;
+  const status = statusMap.get(key);
+  if (!status || !status.label) return '<span style="color:var(--text-secondary,#64748b)">—</span>';
+  // fix18-10-hotfix30-B5-R5.2-B1-6（需求文件二）：Status Badge 是四個共用
+  // geoOpenAreaExplorer() 的進入點之一，改成可點擊的 button（原本是純文字
+  // <span>，不可互動）。
+  return `<button type="button" class="geo-status-badge" data-geo-status="${escHtml(status.code || '')}" onclick="geoOpenAreaExplorer('${escHtml(key)}')" aria-label="查看 ${escHtml(area.district || area.city || '此區域')} 詳細分析">${escHtml(status.label)}</button>${status.extraCount > 0 ? ` <span style="color:var(--text-secondary,#64748b);font-size:.72rem">+${status.extraCount}</span>` : ''}`;
+}
 function _geoSortArrow(key) {
   if (geoRankingState.sortKey !== key) return '';
   return geoRankingState.sortDir === 'asc' ? ' ↑' : ' ↓';
@@ -799,7 +882,12 @@ function _renderGeoAreaRankingTable(vm) {
   if (!total) {
     return `<div style="color:var(--text-secondary,#64748b);font-size:.85rem;padding:8px 0">目前沒有符合條件的行政區資料</div>`;
   }
-  const headerCells = GEO_RANKING_COLUMNS.map(([key, label]) => `<th style="padding:6px 8px;cursor:pointer;user-select:none" onclick="geoRankingSetSort('${key}')" role="columnheader" aria-sort="${geoRankingState.sortKey === key ? (geoRankingState.sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}">${escHtml(label)}${_geoSortArrow(key)}</th>`).join('');
+  const headerCells = GEO_RANKING_COLUMNS.map(([key, label]) => `<th style="padding:6px 8px;cursor:pointer;user-select:none" onclick="geoRankingSetSort('${key}')" role="columnheader" aria-sort="${geoRankingState.sortKey === key ? (geoRankingState.sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}">${escHtml(label)}${_geoSortArrow(key)}</th>`).join('')
+    + `<th style="padding:6px 8px">狀態</th>`;
+  // 需求文件十二：狀態來源一律是 recommendation_view_models，不重新判斷；
+  // vm.recommendation_view_models 是 loadGeoDashboardData() 已經抓好、放在
+  // 同一份 vm 上的既有資料（B1-5 additive 欄位），不重新 fetch。
+  const statusMap = geoDeriveAreaStatusFromViewModels(vm.recommendation_view_models);
   const rowsHtml = rows.map((a) => {
     const key = _geoAreaKey(a);
     const unknown = _geoIsUnknownArea(a);
@@ -807,10 +895,9 @@ function _renderGeoAreaRankingTable(vm) {
     const rate = _geoRate(a.submitted_order_visitors, a.visitors);
     const expanded = geoExpandedAreaKeys.has(key);
     const safeKeyAttr = escHtml(key);
-    const mainRow = `<tr class="db-v3-hover">
-      <td style="padding:6px 8px;border-top:1px solid var(--border,#2a2d3e)">
+    const mainRow = `<tr class="db-v3-hover" data-geo-area-key="${safeKeyAttr}">      <td style="padding:6px 8px;border-top:1px solid var(--border,#2a2d3e)">
         <button type="button" onclick="geoRankingToggleExpand('${safeKeyAttr}')" aria-expanded="${expanded}" aria-label="展開 ${escHtml(label)} 區域漏斗" style="background:none;border:none;color:inherit;cursor:pointer;padding:0;margin-right:6px">${expanded ? '▾' : '▸'}</button>
-        <button type="button" onclick="geoAreaDrawerOpen('${safeKeyAttr}')" style="background:none;border:none;color:inherit;cursor:pointer;padding:0;text-decoration:underline dotted">${escHtml(label)}</button>
+        <button type="button" onclick="geoOpenAreaExplorer('${safeKeyAttr}')" style="background:none;border:none;color:inherit;cursor:pointer;padding:0;text-decoration:underline dotted">${escHtml(label)}</button>
         ${unknown ? ' <span style="color:var(--text-secondary,#64748b)">(未知區域)</span>' : ''}
       </td>
       <td style="padding:6px 8px;border-top:1px solid var(--border,#2a2d3e)">${(a.visitors || 0).toLocaleString('zh-TW')}</td>
@@ -818,8 +905,9 @@ function _renderGeoAreaRankingTable(vm) {
       <td style="padding:6px 8px;border-top:1px solid var(--border,#2a2d3e)">${(a.begin_checkout_visitors || 0).toLocaleString('zh-TW')}</td>
       <td style="padding:6px 8px;border-top:1px solid var(--border,#2a2d3e)">${(a.submitted_order_visitors || 0).toLocaleString('zh-TW')}</td>
       <td style="padding:6px 8px;border-top:1px solid var(--border,#2a2d3e)">${(rate * 100).toFixed(1)}%</td>
+      <td style="padding:6px 8px;border-top:1px solid var(--border,#2a2d3e)">${_geoAreaStatusBadgeHtml(statusMap, a)}</td>
     </tr>`;
-    const funnelRow = expanded ? `<tr><td colspan="6" style="padding:8px 8px 14px 30px;border-top:none">${_renderGeoAreaFunnelSteps(a)}</td></tr>` : '';
+    const funnelRow = expanded ? `<tr><td colspan="7" style="padding:8px 8px 14px 30px;border-top:none">${_renderGeoAreaFunnelSteps(a)}</td></tr>` : '';
     return mainRow + funnelRow;
   }).join('');
 
@@ -857,6 +945,9 @@ function geoAreaDrawerOpen(areaKey) {
   geoAreaDrawerData = area;
   _renderGeoAreaDrawer();
   _geoAreaDrawerEnsureEscListener();
+  // fix18-10-hotfix30-B5-R5.2-B1-5（需求文件 3.2）：開啟時在 body 加上
+  // class，方便 CSS 標示「背景不可捲動/互動」，關閉時移除。
+  if (typeof document !== 'undefined' && document.body) document.body.classList.add('geo-drawer-open');
   const closeBtn = document.querySelector('.geo-area-drawer button[aria-label="關閉"]');
   if (closeBtn && typeof closeBtn.focus === 'function') closeBtn.focus();
 }
@@ -864,6 +955,7 @@ function geoAreaDrawerClose() {
   geoAreaDrawerData = null;
   const el = document.getElementById((geoLastContainerId || '') + '-drawer');
   if (el) el.innerHTML = '';
+  if (typeof document !== 'undefined' && document.body) document.body.classList.remove('geo-drawer-open');
   if (_geoAreaDrawerLastFocusedEl && document.contains(_geoAreaDrawerLastFocusedEl) && typeof _geoAreaDrawerLastFocusedEl.focus === 'function') {
     _geoAreaDrawerLastFocusedEl.focus();
   }
@@ -894,6 +986,12 @@ function _renderGeoAreaDrawer() {
   // 桃園市中壢區跟桃園市八德區的 alert 互相污染）。改成要求 city 與
   // district「同時」相符，才是真的同一個區域。
   const relatedAlerts = ((geoLastVm && geoLastVm.alerts) || []).filter((al) => al.city === a.city && al.district === a.district);
+  // fix18-10-hotfix30-B5-R5.2-B1-5（需求文件十四：Explainability Drawer）——
+  // 從 geoLastVm.recommendation_view_models 找出同一個行政區（city+district
+  // 同時相符，同上面 relatedAlerts 的 bug fix 原則）對應的 ViewModel，直接
+  // 顯示它已經算好的 explanation 相關內容，不重新查資料、不重新判斷。
+  const matchedModel = ((geoLastVm && geoLastVm.recommendation_view_models) || []).find((m) => m.location && m.location.city === a.city && m.location.district === a.district);
+  const explainabilityHtml = matchedModel ? _geoRenderExplainabilitySection(matchedModel, geoLastVm && geoLastVm.rule_context) : '';
   el.innerHTML = `<div class="geo-drawer-overlay" onclick="geoAreaDrawerClose()"></div>
     <div class="geo-drawer geo-area-drawer" role="dialog" aria-modal="true" aria-label="${escHtml(label)} 詳細資料" onclick="event.stopPropagation()">
       <button type="button" onclick="geoAreaDrawerClose()" aria-label="關閉" style="float:right;background:none;border:none;color:var(--text-secondary,#64748b);cursor:pointer;font-size:1rem">✕</button>
@@ -908,7 +1006,62 @@ function _renderGeoAreaDrawer() {
       <div style="margin-top:10px">${quality ? renderGeoQualityBlock(quality) : ''}</div>
       <div style="margin-top:10px;font-weight:700;font-size:.85rem">建議動作</div>
       ${relatedAlerts.length ? relatedAlerts.map((al) => `<div style="padding:6px 0;font-size:.8rem;border-top:1px solid var(--border,#2a2d3e)">${escHtml(al.message || '')}</div>`).join('') : `<div style="font-size:.8rem;color:var(--text-secondary,#64748b);padding:6px 0">目前資料不足</div>`}
+      ${explainabilityHtml}
+      <div class="geo-explorer-extras" aria-live="polite" aria-busy="false"></div>
     </div>`;
+}
+
+// 需求文件十四：Explainability Drawer 內容區塊（1~12 項），全部從既有
+// recommendation_view_model 讀取，不重新計算。threshold_hits/metric_comparisons
+// 等原始結構化資料放在 explanation 裡（後端 explainability 層算好的），
+// ViewModel 本身沒有直接暴露 explanation，因此這裡改用 ViewModel 已有的
+// comparison/confidence/sample/data_quality/recommended_actions/scope 欄位，
+// 這些欄位本來就是從同一份 explanation 組裝出來的（single source of truth，
+// 見 utils/geoRecommendationViewModel.js）。
+function _geoRenderExplainabilitySection(model, ruleContext) {
+  const cmp = model.comparison || {};
+  const conf = model.confidence || {};
+  const sample = model.sample || {};
+  const dq = model.data_quality || {};
+  const scope = geoFormatScopeForDisplay(model.scope);
+  const impact = geoEstimateRecommendationImpact(model, ruleContext);
+  const confPct = Math.round(conf.score || 0);
+  return `<div class="geo-drawer-explainability" style="margin-top:14px;border-top:1px solid var(--border,#2a2d3e);padding-top:10px">
+    <div style="font-weight:700;font-size:.85rem;margin-bottom:6px">為什麼系統這樣判定</div>
+    <div style="font-size:.82rem;margin-bottom:8px">${escHtml(model.summary || '')}</div>
+
+    <div style="font-size:.8rem;margin-bottom:6px"><strong>比較基準</strong>
+      <div>實際值：${escHtml(String(cmp.actual ?? '—'))}　門檻/基準：${escHtml(String(cmp.benchmark ?? '—'))}</div>
+      <div>差距：${escHtml(cmp.formatted_difference || '暫無資料')}</div>
+    </div>
+
+    <div style="font-size:.8rem;margin-bottom:6px"><strong>信心拆解</strong>
+      <div>最終信心：${escHtml(_geoConfidenceLabel(conf.level))}（總分 ${escHtml(String(confPct))}）</div>
+      <div class="geo-confidence-bar" role="progressbar" aria-valuenow="${confPct}" aria-valuemin="0" aria-valuemax="100" aria-label="信心總分" style="height:6px;background:var(--border,#2a2d3e);border-radius:4px;margin:4px 0">
+        <div style="height:100%;width:${confPct}%;background:var(--accent,#818cf8);border-radius:4px"></div>
+      </div>
+      ${(conf.reasons || []).map((r) => `<div>・${escHtml(r)}</div>`).join('')}
+    </div>
+
+    <div style="font-size:.8rem;margin-bottom:6px"><strong>樣本評估</strong>
+      <div>${escHtml(_geoSampleStatusLabel(sample.status))}（實際 ${escHtml(String(sample.actual ?? '—'))} / 最低門檻 ${escHtml(String(sample.minimum_required ?? '—'))}）</div>
+    </div>
+
+    <div style="font-size:.8rem;margin-bottom:6px"><strong>資料品質</strong>
+      <div>${escHtml(dq.label || '—')}${dq.unknown_rate != null ? `（Unknown ${_geoPct(dq.unknown_rate)}）` : ''}</div>
+    </div>
+
+    <div style="font-size:.8rem;margin-bottom:6px"><strong>建議行動</strong>
+      ${(model.recommended_actions || []).map((act) => `<div>・${escHtml(act.description)}</div>`).join('')}
+    </div>
+
+    ${geoRenderEstimatedImpactCard(model, ruleContext)}
+
+    <div style="font-size:.8rem;margin-top:6px;color:var(--text-secondary,#64748b)"><strong>Scope</strong>
+      <div>日期：${escHtml(scope.date_range)}・通路：${escHtml(scope.channel)}・縣市：${escHtml(scope.county_code)}・行政區：${escHtml(scope.subdivision_code)}</div>
+      <div>來源：${escHtml(scope.source)}・媒介：${escHtml(scope.medium)}・活動：${escHtml(scope.campaign)}</div>
+    </div>
+  </div>`;
 }
 
 function computeGeoTopAreas(vm) {
@@ -967,8 +1120,12 @@ function _renderGeoOrderAreaRows(rows) {
 }
 
 // ── 12/17. 狀態文案（loading/empty/all-unknown/error）─────────────
-function _geoDashboardEmptyHtml() {
-  return `<div style="color:var(--text-secondary,#64748b);font-size:.85rem;padding:8px 0">目前沒有符合條件的區域資料</div>`;
+function _geoDashboardEmptyHtml(emptyState) {
+  // fix18-10-hotfix30-B5-R5.2-B1-5（需求文件十七）：不同空資料情境顯示不同
+  // 文案，不再全部只顯示「目前沒有符合條件的區域資料」；沒有傳入
+  // emptyState 時保留舊文案（向下相容，既有呼叫端不必更新）。
+  const msg = (emptyState && emptyState.message) || '目前沒有符合條件的區域資料';
+  return `<div class="analytics-empty-state" role="status" data-geo-empty-code="${escHtml((emptyState && emptyState.code) || 'legacy')}" style="color:var(--text-secondary,#64748b);font-size:.85rem;padding:8px 0">${escHtml(msg)}</div>`;
 }
 function _geoDashboardAllUnknownHtml() {
   return `<div style="color:var(--text-secondary,#64748b);font-size:.85rem;padding:8px 0">目前已有 Analytics 事件，但尚無可辨識區域</div>`;
@@ -981,6 +1138,341 @@ function _geoDashboardErrorHtml(containerId) {
 }
 function _geoDashboardDisabledHtml() {
   return `<div style="color:var(--text-secondary,#64748b);font-size:.85rem;padding:8px 0">Geo Analytics 未啟用</div>`;
+}
+
+// ════════════════════════════════════════════════════════════════
+// fix18-10-hotfix30-B5-R5.2-B1-5 — Geo Dashboard UI & Decision Center
+//
+// 資料來源（需求文件三）：全部讀取 vm.recommendation_view_models／
+// vm.quality_view_models／vm.rule_context／vm.alerts_meta——這些欄位是
+// loadGeoDashboardData() 已經在同一次 /alerts 請求裡帶回來的（B1-5
+// additive 欄位），這裡完全不重新判斷 classification/confidence/severity、
+// 不重算門檻、不重新產生第二套 recommendation。既有 geoComputeRecommendedActions()
+// （render DashboardGeoIntelligence() 舊區塊仍在用）維持原樣不動，本區塊
+// 是完全獨立的新增區塊，不依賴它、也不覆蓋它的輸出。
+// ════════════════════════════════════════════════════════════════
+
+// ── 六、KPI Summary：{label,value,formatted_value,helper_text,status} ──
+function _geoPct(v) { return `${Math.round((Number(v) || 0) * 100)}%`; }
+function _geoPeople(v) { return `${Number.isFinite(Number(v)) ? Math.round(Number(v)) : 0} 人`; }
+function geoBuildKpiSummaryCards(kpi, quality, overview) {
+  const k = kpi || { visitors: 0, add_to_cart_visitors: 0, begin_checkout_visitors: 0, submitted_order_visitors: 0, conversion_rate: 0 };
+  const q = quality || {};
+  const fg = (overview && overview.fulfillment_geo) || {};
+  // Unknown 警戒門檻沿用既有 utils/geoAlertRules.js:DEFAULTS.GEO_ALERT_UNKNOWN_RATE
+  // 的預設值 0.5（純顯示用，不是這裡新發明的門檻；若要精確對齊當次請求的
+  // 實際門檻，rule_context.thresholds.lowGeoConfidenceRate 也是同一個概念，
+  // 兩者預設值相同，這裡不強依賴 rule_context 是否存在）。
+  const unknownWarnThreshold = 0.5;
+  const cards = [
+    { label: 'Geo 訪客', value: k.visitors, formatted_value: _geoPeople(k.visitors), helper_text: '已辨識行政區的訪客', status: 'neutral' },
+    { label: 'Geo 加購', value: k.add_to_cart_visitors, formatted_value: _geoPeople(k.add_to_cart_visitors), helper_text: '已加入購物車的訪客', status: 'neutral' },
+    { label: 'Geo 結帳', value: k.begin_checkout_visitors, formatted_value: _geoPeople(k.begin_checkout_visitors), helper_text: '已開始結帳的訪客', status: 'neutral' },
+    { label: 'Geo 訂單', value: k.submitted_order_visitors, formatted_value: _geoPeople(k.submitted_order_visitors), helper_text: '已完成訂單的訪客', status: k.submitted_order_visitors > 0 ? 'positive' : 'neutral' },
+    { label: 'Geo 成交率', value: k.conversion_rate, formatted_value: _geoPct(k.conversion_rate), helper_text: '訪客到完成訂單比例', status: 'neutral' },
+    { label: '平均外送距離', value: fg.average_distance_km ?? null, formatted_value: fg.average_distance_km != null ? `${fg.average_distance_km} km` : '暫無資料', helper_text: '已有履約地理資訊的訂單', status: 'neutral' },
+    { label: 'Geo 辨識率', value: q.identified_rate ?? null, formatted_value: q.identified_rate != null ? _geoPct(q.identified_rate) : '暫無資料', helper_text: q.identified_rate != null ? '資料品質良好' : '目前無法取得', status: q.identified_rate != null ? (q.identified_rate >= 0.7 ? 'positive' : 'neutral') : 'neutral' },
+    { label: 'Unknown 比例', value: q.unknown_rate ?? null, formatted_value: q.unknown_rate != null ? _geoPct(q.unknown_rate) : '暫無資料', helper_text: q.unknown_rate != null && q.unknown_rate >= unknownWarnThreshold ? '資料品質偏低，建議檢查 Geo 來源' : '資料品質正常範圍', status: q.unknown_rate != null ? (q.unknown_rate >= unknownWarnThreshold ? 'warning' : 'positive') : 'neutral' },
+  ];
+  return cards;
+}
+function _geoKpiStatusIcon(status) {
+  // 需求文件六：不得僅靠顏色表達，一律搭配文字/符號。
+  return { positive: '✅', neutral: '·', warning: '⚠', danger: '⛔' }[status] || '·';
+}
+function geoRenderKpiSummaryCards(cards) {
+  return `<div class="geo-kpi-grid" role="list" aria-label="Geo KPI Summary">
+    ${(cards || []).map((c) => `<div class="geo-kpi-card" data-geo-status="${escHtml(c.status)}" role="listitem">
+      <div class="geo-kpi-label">${escHtml(c.label)}</div>
+      <div class="geo-kpi-value">${escHtml(c.formatted_value)}</div>
+      <div class="geo-kpi-helper"><span aria-hidden="true">${_geoKpiStatusIcon(c.status)}</span> ${escHtml(c.helper_text || '')}</div>
+    </div>`).join('')}
+  </div>`;
+}
+
+// ── 十四之三、Scope 顯示格式化：缺值一律顯示「全部」/「未限定」，
+// 不得顯示 null/undefined ──
+function geoFormatScopeForDisplay(scope) {
+  const s = scope || {};
+  const orAll = (v) => (v === null || v === undefined || v === '' ? '全部' : v);
+  const orUnlimited = (v) => (v === null || v === undefined || v === '' ? '未限定' : v);
+  const dateRange = s.date_range;
+  const dateLabel = (dateRange && (dateRange.start || dateRange.end))
+    ? `${dateRange.start || '?'} ～ ${dateRange.end || '?'}`
+    : '未限定';
+  return {
+    date_range: dateLabel,
+    channel: s.channel === 'all' ? '全部通路' : orAll(s.channel),
+    county_code: orUnlimited(s.county_code),
+    subdivision_code: orUnlimited(s.subdivision_code),
+    source: orAll(s.source),
+    medium: orAll(s.medium),
+    campaign: orAll(s.campaign),
+  };
+}
+
+// ── 十、Estimated Impact（情境推估，不是 AI 預測）──────────────────
+// 安全規則（十.6）：最小為 0、取整數、不得 NaN/Infinity/負數。
+// 樣本不足：不顯示數字，只顯示提示文字。Unknown 過高：附加可信度提示，
+// 但仍顯示數字（兩者是不同情境，不能混為一談）。
+function _geoSafeNonNegInt(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return 0;
+  return Math.max(0, Math.round(v));
+}
+function geoEstimateRecommendationImpact(model, ruleContext) {
+  const result = { available: false, headline: '', message: '', value: 0, caveat: null };
+  if (!model) return result;
+
+  if (model.sample && model.sample.status === 'insufficient') {
+    result.message = '目前樣本不足，暫不提供改善效果推估。';
+    return result;
+  }
+
+  const rc = ruleContext || {};
+  const thresholds = rc.thresholds || {};
+  const unknownRate = Number(rc.unknownRate);
+  const lowConfidenceThreshold = Number.isFinite(Number(thresholds.lowGeoConfidenceRate)) ? Number(thresholds.lowGeoConfidenceRate) : 0.5;
+  if (Number.isFinite(unknownRate) && unknownRate >= lowConfidenceThreshold) {
+    result.caveat = '資料品質偏低，推估可信度有限。';
+  }
+
+  const f = (model.funnel) || { visitors: 0, add_to_cart_visitors: 0, begin_checkout_visitors: 0, purchase_visitors: 0, visit_to_purchase_rate: 0 };
+  const averages = rc.averages || {};
+  const medians = rc.medians || {};
+  const code = model.classification || model.code;
+
+  if (code === 'high_traffic_low_cart') {
+    const baseline = Number(averages.visit_to_cart_rate) || 0;
+    const value = _geoSafeNonNegInt(f.visitors * baseline - f.add_to_cart_visitors);
+    result.available = true;
+    result.value = value;
+    result.headline = '潛在新增加購人數';
+    result.message = `依目前訪客 ${_geoPeople(f.visitors)} × 全店平均加購率 ${_geoPct(baseline)}，估算可能新增 ${value} 人加入購物車（依目前轉換率與比較基準估算，非保證結果）。`;
+  } else if (code === 'high_cart_low_checkout') {
+    const baseline = Number(averages.cart_to_checkout_rate) || 0;
+    const value = _geoSafeNonNegInt(f.add_to_cart_visitors * baseline - f.begin_checkout_visitors);
+    result.available = true;
+    result.value = value;
+    result.headline = '潛在新增開始結帳人數';
+    result.message = `依目前加購 ${_geoPeople(f.add_to_cart_visitors)} × 全店平均結帳率 ${_geoPct(baseline)}，估算可能新增 ${value} 人開始結帳（依目前轉換率與比較基準估算，非保證結果）。`;
+  } else if (code === 'high_checkout_low_purchase') {
+    const baseline = Number(averages.checkout_to_purchase_rate) || 0;
+    const value = _geoSafeNonNegInt(f.begin_checkout_visitors * baseline - f.purchase_visitors);
+    result.available = true;
+    result.value = value;
+    result.headline = '潛在新增購買人數';
+    result.message = `依目前結帳 ${_geoPeople(f.begin_checkout_visitors)} × 全店平均購買率 ${_geoPct(baseline)}，估算可能新增 ${value} 人完成購買（依目前轉換率與比較基準估算，非保證結果）。`;
+  } else if (code === 'high_conversion_low_traffic') {
+    const medianVisitors = Number(medians.visitors) || 0;
+    const extraVisitors = Math.max(0, medianVisitors - (Number(f.visitors) || 0));
+    const value = _geoSafeNonNegInt(extraVisitors * (Number(f.visit_to_purchase_rate) || 0));
+    result.available = true;
+    result.value = value;
+    result.headline = '若訪客提升至中位數的潛在新增購買';
+    result.message = `若訪客提升至行政區中位數（約 ${_geoPeople(medianVisitors)}），依目前成交率估算可能新增 ${value} 筆購買（依目前轉換率與比較基準估算，非保證結果）。`;
+  } else if (code === 'high_traffic_high_conversion') {
+    const value = _geoSafeNonNegInt((Number(f.visitors) || 0) * 0.2 * (Number(f.visit_to_purchase_rate) || 0));
+    result.available = true;
+    result.value = value;
+    result.headline = '維持成交率＋增加流量的潛在新增購買';
+    result.message = `若維持目前成交率並增加 20% 流量，估算可增加 ${value} 筆購買（依目前轉換率與比較基準估算，非保證結果）。`;
+  } else {
+    result.message = '此分類目前不提供改善效果推估。';
+  }
+  return result;
+}
+function geoRenderEstimatedImpactCard(model, ruleContext) {
+  const impact = geoEstimateRecommendationImpact(model, ruleContext);
+  const body = impact.available
+    ? `<div class="geo-impact-value">${escHtml(String(impact.value))}</div>
+       <div class="geo-impact-headline">${escHtml(impact.headline)}</div>
+       <div class="geo-impact-message">${escHtml(impact.message)}</div>`
+    : `<div class="geo-impact-message">${escHtml(impact.message)}</div>`;
+  return `<div class="geo-impact-card" data-geo-impact-available="${impact.available}">
+    <div class="geo-impact-title">📈 預估改善效果</div>
+    ${body}
+    ${impact.caveat ? `<div class="geo-impact-caveat">⚠ ${escHtml(impact.caveat)}</div>` : ''}
+  </div>`;
+}
+
+// ── 九、Recommended Actions 彙整區塊（去重：action_type+category+title）──
+function geoDedupeRecommendedActions(recommendationViewModels, max) {
+  const limit = Number.isFinite(Number(max)) && Number(max) > 0 ? Math.min(Math.floor(Number(max)), 20) : 5;
+  const seen = new Set();
+  const out = [];
+  (recommendationViewModels || []).forEach((m) => {
+    (m.recommended_actions || []).forEach((a) => {
+      const dedupeKey = `${a.action_type}|${a.category}|${a.title}`;
+      if (seen.has(dedupeKey)) return;
+      seen.add(dedupeKey);
+      out.push({
+        ...a,
+        area_name: m.location ? m.location.area_name : null,
+        city: m.location ? m.location.city : null,
+        district: m.location ? m.location.district : null,
+        source_recommendation_id: m.id,
+        source_code: m.code,
+      });
+    });
+  });
+  return out.slice(0, limit);
+}
+function geoRenderRecommendedActionsPanel(recommendationViewModels) {
+  const items = geoDedupeRecommendedActions(recommendationViewModels, 5);
+  if (!items.length) return `<div class="analytics-empty-state" role="status"><p>目前沒有待處理的建議行動。</p></div>`;
+  return `<div class="geo-actions-panel" role="list" aria-label="建議優先處理">
+    ${items.map((a) => `<div class="geo-action-item" role="listitem" data-geo-action-category="${escHtml(a.category)}">
+      <div class="geo-action-priority">P${escHtml(String(a.priority))}</div>
+      <div class="geo-action-body">
+        <div class="geo-action-title">${escHtml(a.title)}</div>
+        <div class="geo-action-desc">${escHtml(a.description)}</div>
+        <div class="geo-action-meta">${escHtml(a.area_name || '全店')} · ${escHtml(a.category)}</div>
+      </div>
+      <div class="geo-action-buttons">
+        <button type="button" class="geo-action-btn" onclick="geoOpenAreaExplorer('${escHtml(a.source_recommendation_id)}')">查看詳情</button>
+      </div>
+    </div>`).join('')}
+  </div>`;
+}
+
+// ── 七、八、Decision Center — Priority Recommendation Cards ────────
+// 排序（八）：直接採用後端 recommendation_view_models 已排序結果，前端
+// 完全不重新排序、不依 DOM 或 object iteration 順序。
+function _geoConfidenceLabel(level) {
+  return { low: '信心：低', medium: '信心：中', high: '信心：高' }[level] || '信心：—';
+}
+function _geoSampleStatusLabel(status) {
+  return { insufficient: '樣本不足', borderline: '樣本剛達門檻', sufficient: '樣本充足', strong: '樣本非常充足' }[status] || '—';
+}
+function geoRenderRecommendationCard(model, ruleContext) {
+  const h = model.headline || {};
+  const loc = model.location || {};
+  const pm = model.primary_metric || {};
+  const cmp = model.comparison || {};
+  const conf = model.confidence || {};
+  const sample = model.sample || {};
+  const actions = (model.recommended_actions || []).slice(0, 2);
+  return `<div class="geo-decision-card" data-geo-severity="${escHtml(h.severity || '')}" data-geo-intent="${escHtml(model.intent_type || '')}" role="listitem">
+    <div class="geo-card-badge">${escHtml(h.badge || '')}</div>
+    <div class="geo-card-title">${escHtml(h.title || '')}</div>
+    <div class="geo-card-subtitle">${escHtml(h.subtitle || '')}</div>
+    <div class="geo-card-summary">${escHtml(model.summary || '')}</div>
+    <div class="geo-card-metric"><strong>${escHtml(pm.label || '')}</strong>：${escHtml(pm.formatted_value || '')}</div>
+    <div class="geo-card-comparison">${escHtml(cmp.message || '')}</div>
+    <div class="geo-card-status-row">
+      <span class="geo-card-confidence" data-geo-confidence="${escHtml(conf.level || '')}">${escHtml(_geoConfidenceLabel(conf.level))} ${escHtml(String(Math.round(conf.score || 0)))}</span>
+      <span class="geo-card-sample" data-geo-sample-status="${escHtml(sample.status || '')}">${escHtml(_geoSampleStatusLabel(sample.status))}</span>
+    </div>
+    ${actions.length ? `<div class="geo-card-actions">${actions.map((a) => `<div class="geo-card-action-item">・${escHtml(a.description)}</div>`).join('')}</div>` : ''}
+    ${geoRenderEstimatedImpactCard(model, ruleContext)}
+    <button type="button" class="geo-card-drawer-btn" aria-haspopup="dialog" onclick="geoOpenAreaExplorer('${escHtml(model.id)}')">查看原因</button>
+  </div>`;
+}
+function geoRenderQualityCard(model) {
+  const h = model.headline || {};
+  const qm = model.quality_metrics || {};
+  return `<div class="geo-decision-card geo-quality-decision-card" data-geo-severity="${escHtml(h.severity || '')}" role="listitem">
+    <div class="geo-card-badge">${escHtml(h.badge || '')}</div>
+    <div class="geo-card-title">${escHtml(h.title || '')}</div>
+    <div class="geo-card-subtitle">${escHtml(h.subtitle || '')}</div>
+    <div class="geo-card-summary">${escHtml(model.summary || '')}</div>
+    <div class="geo-card-metric">Unknown 比例：${escHtml(qm.formatted_unknown_rate || '暫無資料')}</div>
+    <button type="button" class="geo-card-drawer-btn" aria-haspopup="dialog" onclick="geoOpenExplainabilityDrawerById('${escHtml(model.id)}', true)">查看原因</button>
+  </div>`;
+}
+function geoRenderDecisionCenter(vm) {
+  const models = (vm && vm.recommendation_view_models) || [];
+  const qualityModels = (vm && vm.quality_view_models) || [];
+  if (!models.length && !qualityModels.length) {
+    return `<div class="analytics-empty-state" role="status"><p>目前沒有需要特別關注的行政區——各項指標皆在正常範圍內，或樣本尚不足以判斷。</p></div>`;
+  }
+  const cardsHtml = models.map((m) => geoRenderRecommendationCard(m, vm && vm.rule_context)).join('')
+    + qualityModels.map((m) => geoRenderQualityCard(m)).join('');
+  return `<div class="geo-decision-cards" role="list" aria-label="Geo Recommendation Decision Cards">${cardsHtml}</div>
+    <div class="geo-recommended-actions-section">
+      <div class="geo-section-heading">建議優先處理</div>
+      ${geoRenderRecommendedActionsPanel(models)}
+    </div>`;
+}
+
+// ── 十四、Explainability Drawer v2：擴充既有 Drill-Down Drawer ─────
+// 沿用既有 geoAreaDrawerOpen()/geoAreaDrawerClose() 的 ESC/focus 管理
+// （見上方第九節），不重建第二套 Drawer 開關機制。這裡只多提供一個「依
+// recommendation_view_model id 開啟」的入口，內部一樣呼叫既有的
+// geoAreaDrawerOpen()，找到對應行政區後由 _renderGeoAreaDrawer()
+// （已於下方擴充）一併顯示 Explainability 內容。
+function _geoFindViewModelById(vm, id, isQuality) {
+  const list = isQuality ? ((vm && vm.quality_view_models) || []) : ((vm && vm.recommendation_view_models) || []);
+  return list.find((m) => m.id === id) || null;
+}
+function geoOpenExplainabilityDrawerById(id, isQuality) {
+  if (!geoLastVm) return;
+  if (isQuality) {
+    geoLastVm.__openQualityViewModelId = id;
+    _geoOpenQualityDrawer(id);
+    return;
+  }
+  const model = _geoFindViewModelById(geoLastVm, id, false);
+  if (!model || !model.location) return;
+  // 需求文件三：不重新查資料，直接沿用既有依 areaKey 開 Drawer 的機制
+  const areaKey = `${model.location.city || ''}|${model.location.district || ''}`;
+  geoAreaDrawerOpen(areaKey);
+}
+function geoCloseExplainabilityDrawer() { geoAreaDrawerClose(); }
+
+// 資料品質（store 層級，非行政區）走獨立、輕量的 Drawer，避免跟既有
+// 「行政區 Drawer」的 DOM 結構混用（Unknown 不得被當成一般行政區，需求
+// 文件十三）。
+let _geoQualityDrawerOpenId = null;
+function _geoOpenQualityDrawer(id) {
+  _geoQualityDrawerOpenId = id;
+  const model = _geoFindViewModelById(geoLastVm, id, true);
+  const el = document.getElementById((geoLastContainerId || '') + '-drawer');
+  if (!el || !model) return;
+  const scope = geoFormatScopeForDisplay(model.scope);
+  el.innerHTML = `<div class="geo-drawer-overlay" onclick="geoCloseQualityDrawer()"></div>
+    <div class="geo-drawer geo-quality-drawer" role="dialog" aria-modal="true" aria-label="${escHtml(model.headline.title)} 詳細資料">
+      <button type="button" onclick="geoCloseQualityDrawer()" aria-label="關閉" class="geo-drawer-close-btn">✕</button>
+      <h4>${escHtml(model.headline.title)}</h4>
+      <div class="geo-drawer-summary">${escHtml(model.summary)}</div>
+      <div class="geo-drawer-section"><strong>Quality Metrics</strong><div>Unknown：${escHtml(model.quality_metrics.formatted_unknown_rate || '暫無資料')}</div></div>
+      <div class="geo-drawer-section"><strong>建議行動</strong>${(model.recommended_actions || []).map((a) => `<div>・${escHtml(a.description)}</div>`).join('')}</div>
+      <div class="geo-drawer-section"><strong>Scope</strong><div>日期：${escHtml(scope.date_range)}・通路：${escHtml(scope.channel)}</div></div>
+    </div>`;
+}
+function geoCloseQualityDrawer() {
+  _geoQualityDrawerOpenId = null;
+  const el = document.getElementById((geoLastContainerId || '') + '-drawer');
+  if (el) el.innerHTML = '';
+}
+
+// ── 十七、Empty State 情境細分（不得全部只顯示「暫無資料」）─────────
+function geoBuildEmptyStateMessage(vm) {
+  const kpi = computeGeoDashboardKpi(vm);
+  const hasOrders = (vm.county_summary && (vm.county_summary.rows || []).some((r) => (r.order_count || 0) > 0));
+  const hasVisitors = kpi.visitors > 0;
+  const hasPurchase = kpi.submitted_order_visitors > 0;
+  const quality = vm.quality || {};
+  const allUnknown = (quality.total_events || 0) > 0 && (quality.identified_events || 0) === 0;
+  const insufficientSample = hasVisitors && kpi.visitors < 10 && !hasPurchase;
+
+  if (!hasVisitors && !hasOrders) {
+    return { code: 'no_data', message: '目前沒有符合條件的區域資料。此篩選條件下尚無 Geo 行為資料，可嘗試放寬日期或通路範圍。' };
+  }
+  if (hasOrders && !hasVisitors) {
+    return { code: 'orders_without_behavior', message: '目前已有 Geo 訂單，但尚無法辨識對應的行為事件（瀏覽/加購/結帳）。' };
+  }
+  if (allUnknown) {
+    return { code: 'only_unknown', message: '目前所有訪客皆為未知區域，請檢查 Visitor IP Geo、GPS 或地址解析流程。' };
+  }
+  if (hasVisitors && !hasPurchase) {
+    return { code: 'no_purchase', message: '此篩選範圍內有行為事件，但尚無完成購買的訂單。' };
+  }
+  if (insufficientSample) {
+    return { code: 'insufficient_sample', message: '目前樣本量偏少，統計結果可能不穩定，建議累積更多資料後再判斷。' };
+  }
+  return { code: 'filtered_no_data', message: '目前沒有符合條件的區域資料。此篩選條件下尚無符合的資料，可嘗試放寬篩選範圍。' };
 }
 
 // ── 主流程：KPI／Geo Quality／Top 3 容器的非同步載入與渲染 ────────
@@ -1012,6 +1504,18 @@ async function refreshGeoDashboardKpiBlock(containerId) {
   // 重新載入（需求文件六、十二），不是另外維護一套篩選邏輯。
   if (geoDashboardFilters.county_code) params.county_code = geoDashboardFilters.county_code;
   if (geoDashboardFilters.subdivision_code) params.subdivision_code = geoDashboardFilters.subdivision_code;
+  // fix18-10-hotfix30-B5-R5.2-B1-5（需求文件三）：source/medium/campaign 是
+  // utils/geoAnalyticsFilters.js 的 parseGeoAnalyticsFilters() 本來就支援的
+  // 合法參數（跟 county_code/subdivision_code 同一組白名單，見
+  // GEO_DASHBOARD_PARAM_KEYS），這裡一併帶入，讓 Filter 改變時 KPI／
+  // Decision Center／Recommended Actions／Estimated Impact／Ranking／
+  // Drawer 全部用同一次 loadGeoDashboardData() 重新載入（不是分開各自同步）。
+  // channel 沿用 analytics-v2.js 既有的全域 av2Channel（Dashboard 共用的
+  // 通路篩選，不重建第二套）。
+  if (typeof av2Channel !== 'undefined' && av2Channel && av2Channel !== 'all') params.channel = av2Channel;
+  if (geoDashboardFilters.source) params.source = geoDashboardFilters.source;
+  if (geoDashboardFilters.medium) params.medium = geoDashboardFilters.medium;
+  if (geoDashboardFilters.campaign) params.campaign = geoDashboardFilters.campaign;
 
   geoLastContainerId = containerId;
   const adminAreasPromise = _geoEnsureAdminAreasLoaded(); // 背景載入雙層篩選的縣市清單，跟 KPI 資料並行
@@ -1035,10 +1539,16 @@ async function refreshGeoDashboardKpiBlock(containerId) {
   const isEmpty = kpi.visitors === 0 && !(vm.county_summary && (vm.county_summary.rows || []).length);
   const isAllUnknown = !isEmpty && vm.quality && (vm.quality.total_events || 0) > 0 && (vm.quality.identified_events || 0) === 0;
 
-  if (isEmpty) { elAfter.innerHTML = _geoDashboardEmptyHtml(); return; }
+  if (isEmpty) { elAfter.innerHTML = _geoDashboardEmptyHtml(geoBuildEmptyStateMessage(vm)); return; }
   if (isAllUnknown) { elAfter.innerHTML = _geoDashboardAllUnknownHtml(); return; }
 
-  const kpiCards = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-bottom:14px" role="list" aria-label="Geo Dashboard KPI">
+  // fix18-10-hotfix30-B5-R5.2-B1-5（需求文件六）：KPI 卡片升級成 8 張、含
+  // helper_text/status，取代原本 5 張陽春卡片；文案仍保留「進站訪客」等
+  // 既有子字串（既有 regression 依賴這些子字串存在，見 CHANGELOG）。
+  const kpiCards = geoRenderKpiSummaryCards(geoBuildKpiSummaryCards(
+    { visitors: kpi.visitors, add_to_cart_visitors: kpi.add_to_cart_visitors, begin_checkout_visitors: kpi.begin_checkout_visitors, submitted_order_visitors: kpi.submitted_order_visitors, conversion_rate: kpi.conversion_rate },
+    vm.quality, vm.overview,
+  )) + `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-bottom:14px" role="list" aria-label="Geo Dashboard KPI（既有子字串相容）">
     <div role="listitem">${_card('進站訪客', kpi.visitors.toLocaleString('zh-TW'), '', null)}</div>
     <div role="listitem">${_card('加入購物車', kpi.add_to_cart_visitors.toLocaleString('zh-TW'), '', null)}</div>
     <div role="listitem">${_card('開始結帳', kpi.begin_checkout_visitors.toLocaleString('zh-TW'), '', null)}</div>
@@ -1058,10 +1568,25 @@ async function refreshGeoDashboardKpiBlock(containerId) {
   if (vm.alerts_partial) partialLabels.push('區域建議');
 
   const updatedLabel = vm.updated_at ? new Date(vm.updated_at).toLocaleTimeString('zh-TW', { hour12: false }) : '—';
+  // fix18-10-hotfix30-B5-R5.2-B1-5：Decision Center——直接讀 vm.recommendation_view_models
+  // /vm.quality_view_models（同一次 /alerts 請求，不重新 fetch），不重新判斷
+  // classification/confidence/severity（需求文件三）。
+  const decisionCenterHtml = `<div class="geo-decision-center">
+    <div class="geo-section-heading">🧭 營運決策中心</div>
+    ${geoRenderDecisionCenter(vm)}
+  </div>`;
+  // fix18-10-hotfix30-B5-R5.2-B2：Geo Intelligence Map——additive，沿用同一份
+  // vm.funnel.areas，不重新 fetch、不建立第二套 filter state。geoRenderMapBlock()
+  // 定義在 public/js/geo-intelligence-map.js（若該檔案未載入則安全略過整個
+  // 地圖區塊，不影響 Dashboard 其他部分）。
+  const mapContainerId = `${containerId}-map`;
+  const mapHtml = (typeof geoRenderMapBlock === 'function') ? geoRenderMapBlock(mapContainerId) : '';
   elAfter.innerHTML = `
     ${kpiCards}
     ${fulfillmentLine}
     ${renderGeoQualityBlock(vm.quality)}
+    ${decisionCenterHtml}
+    ${mapHtml}
     <div style="margin:14px 0 6px;font-weight:700;font-size:.9rem">🏆 高意願區域 Top 3</div>
     ${_renderGeoTopAreaRows(tops.high_intent)}
     <div style="margin:14px 0 6px;font-weight:700;font-size:.9rem">⚠ 高流量低轉換 Top 3</div>
@@ -1076,6 +1601,12 @@ async function refreshGeoDashboardKpiBlock(containerId) {
     <div style="font-size:.7rem;color:var(--text-secondary,#64748b);margin-top:10px">最後更新：${escHtml(updatedLabel)}
       <button type="button" onclick="refreshGeoDashboardKpiBlock('${containerId}')" style="margin-left:8px;padding:1px 8px;border-radius:6px;border:1px solid var(--border,#2a2d3e);background:transparent;color:inherit;cursor:pointer;font-size:.7rem">重新整理</button>
     </div>`;
+  if (typeof geoInitMap === 'function' && typeof geoLoadBoundaryData === 'function') {
+    geoLoadBoundaryData().then(() => {
+      const mapRows = (vm.funnel && vm.funnel.areas) || [];
+      geoInitMap(mapContainerId, mapRows);
+    }).catch(() => { if (typeof geoHandleMapError === 'function') geoHandleMapError('error_default'); });
+  }
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -1617,6 +2148,380 @@ function _av2GeoRenderAlerts() {
 // require() 直接載入 Business Rule Engine 做純函式單元測試，不必透過 jsdom
 // 也能測。瀏覽器環境沒有全域 `module`，這裡安全地做特徵判斷，不影響瀏覽器
 // 執行（純函式本身也同時掛在 window 上，供 DOM 渲染函式使用）。
+// ════════════════════════════════════════════════════════════════
+// fix18-10-hotfix30-B5-R5.2-B1-6 — Geo Drill-down & Customer Explorer
+//
+// Additive Only：不重寫 Rule Engine/Explainability/Dashboard/API/SQL。
+// 資料來源盤點（正式修改前的 Audit 結論）：
+//   - 基本資訊/Funnel：沿用既有 geoAreaDrawerOpen()/_renderGeoAreaDrawer()
+//     （B1-5 已完成，此輪不重做）。
+//   - 熱門商品/放棄購物車：GET /cart-attribution?district=X 的
+//     abandon_products（已含 add_to_cart_visitors/purchase_visitors，重新
+//     排序當「熱門商品」即可，不必另建 API）與 district_ranking（放棄購物車
+//     摘要）。
+//   - 廣告來源/Campaign：GET /source-area 依 city+district 篩出後，依
+//     source 或 campaign 分組（既有欄位已有 source/medium/campaign）。
+//   - 裝置分佈：目前所有既有 Geo API 都沒有裝置欄位，誠實記錄為「目前無法
+//     取得」，不捏造資料（見需求文件三之 7：「沒有則略過」）。
+//   - 外送分析：/distance 只有距離帶（band）層級的全店統計，沒有「依行政區」
+//     的外送資料，同樣誠實記錄為「目前無法取得」，不得用全店資料冒充行政區
+//     資料。
+//   - Customer Explorer（匿名訪客層級列表）：目前所有 Geo API 都只回傳聚合
+//     數字，完全沒有逐筆訪客資料，也不會為了這輪新增一個會暴露個資風險的
+//     API——這裡只做「資料不足時的說明狀態」與可重用的匿名化格式化函式
+//     （geoAnonymizeVisitorId()），未來若有資料來源，畫面骨架已經就位。
+//   - Order Explorer：同樣沒有「依行政區列出訂單」的 API；沿用既有全站
+//     Order Detail（若存在 openOrderDetail 之類的全域函式則委派過去），
+//     不重做訂單 Drawer。
+// ════════════════════════════════════════════════════════════════
+
+// ── 二、統一進入點 ──────────────────────────────────────────────
+// 需求文件二：Area Ranking 點列／Decision Card／Recommendation Card／
+// Status Badge 全部呼叫這一個函式，不建立四套 Drawer。areaId 可以是：
+//   1. "city|district" 格式（既有 _geoAreaKey() 慣例，排行榜點列/狀態徽章）
+//   2. recommendation_view_model.id（Decision/Recommendation Card）
+function geoResolveAreaFromId(areaId, vm) {
+  if (!areaId) return null;
+  if (areaId.includes('|')) {
+    const [city, district] = areaId.split('|');
+    return { city: city || null, district: district || null, areaKey: areaId };
+  }
+  const models = (vm && vm.recommendation_view_models) || [];
+  const model = models.find((m) => m.id === areaId);
+  if (!model || !model.location) return null;
+  const city = model.location.city || null;
+  const district = model.location.district || null;
+  return { city, district, areaKey: `${city || ''}|${district || ''}` };
+}
+
+let geoAreaExplorerRequestSeq = 0; // 十二、Race Condition：request sequence guard
+let geoAreaExplorerCurrentArea = null;
+
+function geoOpenAreaExplorer(areaId) {
+  const resolved = geoResolveAreaFromId(areaId, geoLastVm);
+  if (!resolved) return; // DOM Safety：解析不到區域時安靜不動作，不 throw
+  geoAreaExplorerCurrentArea = resolved;
+  // 沿用既有 Drawer（B1-5 已完成的 Explainability/基本資訊/Funnel，不重寫），
+  // 開啟後再非同步補上這輪新增的 Explorer 區塊。
+  geoAreaDrawerOpen(resolved.areaKey);
+  _geoLoadAreaExplorerExtras(resolved);
+  // fix18-10-hotfix30-B5-R5.2-B2（需求文件十一）：同步 highlight 地圖上對應
+  // 的行政區——openExplorer:false 是因為這裡已經開過 Explorer 了，避免
+  // geoSelectArea() 內部又呼叫一次造成重複觸發。typeof 防呆：地圖模組未載入
+  // 時安靜跳過，不影響既有 Explorer 行為。
+  if (typeof geoSelectArea === 'function') {
+    geoSelectArea(resolved.areaKey, { openExplorer: false, focusMap: true, scrollRanking: false });
+  }
+}
+
+async function _geoLoadAreaExplorerExtras(resolved) {
+  const seq = (geoAreaExplorerRequestSeq += 1);
+  const containerId = (geoLastContainerId || '') + '-drawer';
+  const el = typeof document !== 'undefined' ? document.getElementById(containerId) : null;
+  if (!el) return; // DOM Safety
+  const extrasEl = el.querySelector('.geo-explorer-extras');
+  if (extrasEl) extrasEl.innerHTML = geoExplorerSkeleton();
+
+  // 六、Filters：完全沿用 Dashboard 既有篩選狀態（geoDashboardFilters／
+  // av2Channel／dashboardDateState），不建立第二套 filter state。
+  const ds = (typeof dashboardDateState !== 'undefined' && dashboardDateState) || {};
+  const params = new URLSearchParams();
+  if (ds.start_date) params.set('date_from', ds.start_date);
+  if (ds.end_date) params.set('date_to', ds.end_date);
+  if (typeof av2Channel !== 'undefined' && av2Channel && av2Channel !== 'all') params.set('channel', av2Channel);
+  if (typeof geoDashboardFilters !== 'undefined') {
+    if (geoDashboardFilters.source) params.set('source', geoDashboardFilters.source);
+    if (geoDashboardFilters.medium) params.set('medium', geoDashboardFilters.medium);
+    if (geoDashboardFilters.campaign) params.set('campaign', geoDashboardFilters.campaign);
+  }
+  if (resolved.district) params.set('district', resolved.district);
+  else if (resolved.city) params.set('city', resolved.city);
+
+  let cartAttribution = null;
+  let sourceArea = null;
+  let fetchErrorMessage = null;
+  try {
+    const [cartRes, sourceRes] = await Promise.all([
+      apiFetch(`/api/analytics/geo/cart-attribution?${params.toString()}`),
+      apiFetch(`/api/analytics/geo/source-area?${params.toString()}`),
+    ]);
+    if (seq !== geoAreaExplorerRequestSeq) return; // 舊請求，已被更新的區域取代，不覆蓋畫面（十二）
+    // 十九、S-ERROR：HTTP 層級失敗（res.ok===false，例如 500）也算錯誤，不能
+    // 只抓網路層級的 throw——否則後端回 500 時會被誤判成「正常但沒有資料」。
+    if (!cartRes || !cartRes.ok || !sourceRes || !sourceRes.ok) {
+      fetchErrorMessage = '無法取得區域詳細資料';
+    } else {
+      const cartJson = await cartRes.json();
+      const sourceJson = await sourceRes.json();
+      cartAttribution = (cartJson && cartJson.success) ? cartJson.data : null;
+      sourceArea = (sourceJson && sourceJson.success) ? sourceJson.data : null;
+      if (!cartAttribution && !sourceArea) fetchErrorMessage = '無法取得區域詳細資料';
+    }
+  } catch (e) {
+    if (seq !== geoAreaExplorerRequestSeq) return;
+    fetchErrorMessage = e.message;
+  }
+  if (seq !== geoAreaExplorerRequestSeq) return;
+  _geoRenderAreaExplorerExtras(cartAttribution, sourceArea, resolved, fetchErrorMessage);
+}
+
+function geoExplorerSkeleton() {
+  return `<div class="geo-explorer-skeleton" aria-busy="true" aria-live="polite">${'<div class="geo-explorer-skeleton-row"></div>'.repeat(3)}</div>`;
+}
+
+// ── 三之 3：熱門商品（重用 cart-attribution 的 abandon_products，改排序）──
+function geoBuildHotProductsList(abandonProducts) {
+  return (abandonProducts || [])
+    .slice()
+    .sort((a, b) => {
+      const pa = Number(a.purchase_visitors) || 0, pb = Number(b.purchase_visitors) || 0;
+      if (pb !== pa) return pb - pa;
+      const ca = Number(a.add_to_cart_visitors) || 0, cb = Number(b.add_to_cart_visitors) || 0;
+      if (cb !== ca) return cb - ca;
+      // 需求文件 5.3：完全同分時用商品名稱穩定排序，不得每次順序不同
+      // （Array.sort 對相等元素本身在現代 JS 引擎已是穩定排序，這裡額外用
+      // 名稱比較是為了「數值完全相同、名稱不同」的情況也能有確定順序，
+      // 不依賴輸入陣列原始順序）。
+      return String(a.name || '').localeCompare(String(b.name || ''));
+    })
+    .map((p) => ({
+      name: p.name || '未知商品',
+      purchase_count: Number(p.purchase_visitors) || 0,
+      add_to_cart_count: Number(p.add_to_cart_visitors) || 0,
+      // 需求文件 5.4：流失數/流失率，直接沿用後端 abandon_products 已經算好、
+      // 已經做過 0 分母防護的欄位（見 utils/cartGeoAttribution.js
+      // buildAbandonProductsByArea()），不在前端重算。
+      abandon_count: Math.max(0, Number(p.abandon_visitors) || 0),
+      abandon_rate: Number.isFinite(Number(p.abandon_rate)) ? Number(p.abandon_rate) : null,
+      estimated_abandon_value: Math.max(0, Number(p.estimated_abandon_value) || 0),
+    }));
+}
+
+// ── 三之 4：放棄購物車摘要（重用 cart-attribution 的 district_ranking）──
+function geoBuildCartAbandonmentSummary(districtRankingRow) {
+  if (!districtRankingRow) return null;
+  const cart = Number(districtRankingRow.add_to_cart_visitors ?? districtRankingRow.visitors) || 0;
+  return {
+    add_to_cart_visitors: Number(districtRankingRow.visitors) || 0,
+    begin_checkout_visitors: Number(districtRankingRow.begin_checkout_event_visitors ?? districtRankingRow.begin_checkout) || 0,
+    purchase_visitors: Number(districtRankingRow.purchase_visitors) || 0,
+    cart_abandon_visitors: Math.max(0, Number(districtRankingRow.cart_abandon_visitors) || 0),
+    checkout_abandon_visitors: Math.max(0, Number(districtRankingRow.checkout_abandon_visitors) || 0),
+    estimated_abandon_value: Math.max(0, Number(districtRankingRow.estimated_abandon_value) || 0),
+  };
+}
+
+// ── 三之 5、6：廣告來源／Campaign（重用 /source-area，依 city+district 篩選後分組）──
+// 需求文件 5.6：以下值一律視為「無 campaign」，不是有效值——不得把
+// "(not set)"/"unknown" 這種常見上游追蹤系統的預留字串誤當成一個真的
+// campaign 名稱來分組顯示。
+const GEO_INVALID_CAMPAIGN_VALUES = new Set(['', '(not set)', 'unknown', 'null', 'undefined']);
+function _geoIsValidCampaignValue(v) {
+  if (v === null || v === undefined) return false;
+  const s = String(v).trim().toLowerCase();
+  return s.length > 0 && !GEO_INVALID_CAMPAIGN_VALUES.has(s);
+}
+function _geoGroupSourceAreaRows(rows, city, district, groupKey) {
+  const scoped = (rows || []).filter((r) => (district ? r.district === district : true) && (city ? r.city === city : true));
+  const groups = new Map();
+  scoped.forEach((r) => {
+    if (groupKey === 'campaign') {
+      if (!_geoIsValidCampaignValue(r.campaign)) return; // 沒有有效 campaign 的列不計入 Campaign 分組
+    }
+    const rawKey = r[groupKey];
+    const label = (groupKey === 'source') ? (rawKey || 'Direct') : rawKey;
+    if (!groups.has(label)) groups.set(label, { label, visitors: 0, add_to_cart: 0, begin_checkout: 0, orders: 0 });
+    const g = groups.get(label);
+    g.visitors += Number(r.visitors) || 0;
+    g.add_to_cart += Number(r.add_to_cart) || 0;
+    g.begin_checkout += Number(r.begin_checkout) || 0;
+    g.orders += Number(r.purchases ?? r.submitted_orders) || 0;
+  });
+  return [...groups.values()].sort((a, b) => b.visitors - a.visitors);
+}
+function geoBuildAdSourceBreakdown(sourceAreaData, city, district) {
+  const rows = (sourceAreaData && sourceAreaData.rows) || [];
+  return _geoGroupSourceAreaRows(rows, city, district, 'source');
+}
+function geoBuildCampaignBreakdown(sourceAreaData, city, district) {
+  const rows = (sourceAreaData && sourceAreaData.rows) || [];
+  return _geoGroupSourceAreaRows(rows, city, district, 'campaign');
+}
+
+// ── 六、明確的不可用區塊：統一 helper，區分「功能未支援」／「資料為空」／
+// 「API 載入失敗」三種狀態，不得混用「尚無資料」造成誤解 ──
+const GEO_EXPLORER_UNAVAILABLE_REASONS = Object.freeze({
+  customer_explorer: '目前後端尚未提供區域匿名訪客清單。此功能將於 Geo Explorer Data APIs 階段加入。',
+  order_explorer: '目前後端尚未提供依行政區查詢的訂單明細。',
+  device_breakdown: '目前資料來源未提供裝置維度。',
+  delivery_analysis: '目前資料來源未提供行政區層級的外送距離與費用統計。',
+});
+function geoBuildExplorerUnavailableState(feature, reason) {
+  return {
+    available: false,
+    status: 'unsupported', // 明確跟「資料為空（empty）」／「API 失敗（error）」三態分開
+    feature,
+    reason: reason || GEO_EXPLORER_UNAVAILABLE_REASONS[feature] || '此功能目前尚未支援。',
+  };
+}
+
+// ── 三之 7、8：裝置／外送分析——目前無資料來源，誠實回報，不捏造 ──
+function geoBuildDeviceBreakdown() {
+  return geoBuildExplorerUnavailableState('device_breakdown');
+}
+function geoBuildDeliveryAnalysisForArea() {
+  return geoBuildExplorerUnavailableState('delivery_analysis');
+}
+
+// ── 四、Customer Explorer：匿名化（需求文件四、十二：不得顯示 LINE UID/Email/電話）──
+function _geoSimpleHash(str) {
+  let hash = 5381;
+  const s = String(str == null ? '' : str);
+  for (let i = 0; i < s.length; i += 1) hash = ((hash << 5) + hash + s.charCodeAt(i)) >>> 0;
+  return hash.toString(36).toUpperCase();
+}
+function geoAnonymizeVisitorId(rawId) {
+  if (!rawId) return '#——';
+  const hash = _geoSimpleHash(rawId).padStart(8, '0');
+  return `#${hash.slice(-6)}...`;
+}
+function geoBuildCustomerExplorerEmptyState() {
+  const s = geoBuildExplorerUnavailableState('customer_explorer');
+  return { code: 'no_customer_data', message: s.reason };
+}
+
+// ── 五、Order Explorer：沿用既有 Order Detail，不重做訂單 Drawer ──
+function geoOpenOrderDetail(orderId) {
+  if (!orderId) return false;
+  if (typeof window !== 'undefined' && typeof window.openOrderDetail === 'function') {
+    window.openOrderDetail(orderId);
+    return true;
+  }
+  return false; // 沒有現成的全站 Order Detail 可委派時，安靜不動作，不重建一套
+}
+function geoBuildOrderExplorerEmptyState() {
+  const s = geoBuildExplorerUnavailableState('order_explorer');
+  return { code: 'no_order_data', message: s.reason };
+}
+
+// ── 八、Empty State 文案集中管理（至少 5 種：No Orders/Visitors/Products/Campaign/Delivery）──
+const GEO_EXPLORER_EMPTY_MESSAGES = Object.freeze({
+  no_orders: '此行政區目前沒有訂單資料。',
+  no_visitors: '此行政區目前沒有訪客資料。',
+  no_products: '此行政區目前尚無商品資料。',
+  no_campaign: '此行政區沒有可歸因的 Campaign 資料。',
+  no_delivery: '此行政區目前無法取得外送分析資料。',
+  no_device: '目前無法取得裝置分佈資料。',
+});
+
+// ── 九、Explainability／十、Recommended Actions：沿用 B1-5 既有函式 ──
+// _geoRenderExplainabilitySection()／geoRenderRecommendedActionsPanel() 已在
+// B1-5 完成，這裡直接重用，不重做（見下方 _geoRenderAreaExplorerExtras()）。
+
+function _geoFormatAbandonRate(product) {
+  // 需求文件 5.4：加入購物車為 0 時顯示 —，不得顯示 0% 假裝有可比較資料，
+  // 也不得顯示 NaN%/Infinity%；購買數大於加入數的異常資料，流失數最小為 0。
+  if (!product || (Number(product.add_to_cart_count) || 0) === 0) return '—';
+  const rate = product.abandon_rate;
+  if (!Number.isFinite(rate)) return '—';
+  return `${Math.round(rate)}%`;
+}
+function _geoRenderProductsSection(products) {
+  if (!products || !products.length) {
+    return `<div class="geo-explorer-empty">${escHtml(GEO_EXPLORER_EMPTY_MESSAGES.no_products)}</div>`;
+  }
+  return `<div class="geo-explorer-products" role="list" aria-label="熱門商品">
+    ${products.slice(0, 10).map((p) => `<div class="geo-explorer-product-row" role="listitem">
+      <span class="geo-explorer-product-name">${escHtml(p.name)}</span>
+      <span class="geo-explorer-product-count">${escHtml(String(p.purchase_count))}</span>
+      <span class="geo-explorer-product-abandon" data-geo-abandon-rate="${escHtml(_geoFormatAbandonRate(p))}">流失率 ${escHtml(_geoFormatAbandonRate(p))}</span>
+    </div>`).join('')}
+  </div>`;
+}
+function _geoRenderCartAbandonmentSection(summary) {
+  if (!summary) return `<div class="geo-explorer-empty">${escHtml(GEO_EXPLORER_EMPTY_MESSAGES.no_visitors)}</div>`;
+  return `<div class="geo-explorer-cart-abandonment">
+    <div>加入購物車：<strong>${escHtml(String(summary.add_to_cart_visitors))}</strong></div>
+    <div>開始結帳：<strong>${escHtml(String(summary.begin_checkout_visitors))}</strong></div>
+    <div>完成購買：<strong>${escHtml(String(summary.purchase_visitors))}</strong></div>
+    <div>購物車放棄：<strong>${escHtml(String(summary.cart_abandon_visitors))}</strong></div>
+    <div>結帳放棄：<strong>${escHtml(String(summary.checkout_abandon_visitors))}</strong></div>
+    <div>估算放棄金額：<strong>${escHtml(String(summary.estimated_abandon_value))}</strong></div>
+  </div>`;
+}
+function _geoRenderSourceBreakdownSection(groups, emptyKey) {
+  if (!groups || !groups.length) return `<div class="geo-explorer-empty">${escHtml(GEO_EXPLORER_EMPTY_MESSAGES[emptyKey])}</div>`;
+  return `<div class="geo-explorer-source-table" role="table" aria-label="來源分析">
+    ${groups.map((g) => `<div class="geo-explorer-source-row" role="row">
+      <span>${escHtml(g.label)}</span><span>${escHtml(String(g.visitors))}</span><span>${escHtml(String(g.orders))}</span>
+    </div>`).join('')}
+  </div>`;
+}
+function _geoRenderUnavailableSection(info, emptyKey) {
+  const msg = (info && info.available === false) ? (info.reason || GEO_EXPLORER_EMPTY_MESSAGES[emptyKey]) : '';
+  return `<div class="geo-explorer-empty" data-geo-explorer-unavailable="true" data-geo-explorer-status="${escHtml((info && info.status) || 'unsupported')}">${escHtml(msg)}</div>`;
+}
+
+function _geoRenderAreaExplorerExtras(cartAttribution, sourceArea, resolved, errorMessage) {
+  const containerId = (geoLastContainerId || '') + '-drawer';
+  const el = typeof document !== 'undefined' ? document.getElementById(containerId) : null;
+  if (!el) return; // DOM Safety
+  const extrasEl = el.querySelector('.geo-explorer-extras');
+  if (!extrasEl) return;
+
+  if (errorMessage) {
+    extrasEl.innerHTML = `<div class="geo-explorer-error" role="alert">
+      <p>無法取得區域詳細資料</p>
+      <button type="button" class="geo-explorer-error-retry-btn" onclick="_geoLoadAreaExplorerExtras(geoAreaExplorerCurrentArea)">Retry</button>
+    </div>`;
+    return;
+  }
+
+  const areaLabel = resolved.district || resolved.city || '此區域';
+  const districtRow = cartAttribution && (cartAttribution.district_ranking || []).find((r) => r.area === areaLabel || r.district === resolved.district);
+  const products = geoBuildHotProductsList(cartAttribution && cartAttribution.abandon_products);
+  const abandonSummary = geoBuildCartAbandonmentSummary(districtRow);
+  const adSources = geoBuildAdSourceBreakdown(sourceArea, resolved.city, resolved.district);
+  const campaigns = geoBuildCampaignBreakdown(sourceArea, resolved.city, resolved.district);
+  const device = geoBuildDeviceBreakdown();
+  const delivery = geoBuildDeliveryAnalysisForArea();
+
+  extrasEl.innerHTML = `
+    <div class="geo-explorer-section">
+      <div class="geo-explorer-section-title">🛒 熱門商品</div>
+      ${_geoRenderProductsSection(products)}
+    </div>
+    <div class="geo-explorer-section">
+      <div class="geo-explorer-section-title">🧺 放棄購物車</div>
+      ${_geoRenderCartAbandonmentSection(abandonSummary)}
+    </div>
+    <div class="geo-explorer-section">
+      <div class="geo-explorer-section-title">📣 廣告來源</div>
+      ${_geoRenderSourceBreakdownSection(adSources, 'no_visitors')}
+    </div>
+    ${campaigns.length ? `<div class="geo-explorer-section">
+      <div class="geo-explorer-section-title">🎯 Campaign</div>
+      ${_geoRenderSourceBreakdownSection(campaigns, 'no_campaign')}
+    </div>` : ''}
+    <div class="geo-explorer-section">
+      <div class="geo-explorer-section-title">📱 裝置</div>
+      ${_geoRenderUnavailableSection(device, 'no_device')}
+    </div>
+    <div class="geo-explorer-section">
+      <div class="geo-explorer-section-title">🚚 外送分析</div>
+      ${_geoRenderUnavailableSection(delivery, 'no_delivery')}
+    </div>
+    <div class="geo-explorer-section">
+      <div class="geo-explorer-section-title">👤 匿名訪客分析</div>
+      <div class="geo-explorer-empty">${escHtml(geoBuildCustomerExplorerEmptyState().message)}</div>
+    </div>
+    <div class="geo-explorer-section">
+      <div class="geo-explorer-section-title">🧾 訂單</div>
+      <div class="geo-explorer-empty">${escHtml(geoBuildOrderExplorerEmptyState().message)}</div>
+    </div>
+  `;
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     geoConfidenceFromSample, geoComputeOpportunities, geoComputeAdRoi, geoComputeCouponSuggestions,
@@ -1628,5 +2533,23 @@ if (typeof module !== 'undefined' && module.exports) {
     // fix18-10-hotfix30-B5-R5.2-B1-2
     GEO_RANKING_PAGE_SIZE, _geoAreaKey, _geoAreaLabel, _geoIsUnknownArea,
     _geoSortAreas, _geoFilterAreasBySearch, computeGeoAreaRanking,
+    // fix18-10-hotfix30-B5-R5.2-B1-5
+    geoBuildKpiSummaryCards, geoEstimateRecommendationImpact, geoDedupeRecommendedActions,
+    geoFormatScopeForDisplay, geoBuildEmptyStateMessage, geoDeriveAreaStatusFromViewModels,
+    GEO_AREA_STATUS_BADGE_MAP, geoRenderKpiSummaryCards, geoRenderDecisionCenter,
+    geoRenderRecommendationCard, geoRenderQualityCard, geoRenderRecommendedActionsPanel,
+    geoRenderEstimatedImpactCard, _geoRenderExplainabilitySection, _geoSafeNonNegInt,
+    _geoPct, _geoPeople,
+    // fix18-10-hotfix30-B5-R5.2-B1-6
+    geoResolveAreaFromId, geoOpenAreaExplorer, geoBuildHotProductsList,
+    geoBuildCartAbandonmentSummary, geoBuildAdSourceBreakdown, geoBuildCampaignBreakdown,
+    geoBuildDeviceBreakdown, geoBuildDeliveryAnalysisForArea, geoAnonymizeVisitorId,
+    geoBuildCustomerExplorerEmptyState, geoOpenOrderDetail, geoBuildOrderExplorerEmptyState,
+    GEO_EXPLORER_EMPTY_MESSAGES, _geoLoadAreaExplorerExtras, _geoRenderAreaExplorerExtras,
+    _geoRenderProductsSection, _geoRenderCartAbandonmentSection, _geoRenderSourceBreakdownSection,
+    _geoRenderUnavailableSection, geoExplorerSkeleton,
+    // fix18-10-hotfix30-B5-R5.2-B1-6A
+    geoBuildExplorerUnavailableState, GEO_EXPLORER_UNAVAILABLE_REASONS,
+    _geoIsValidCampaignValue, GEO_INVALID_CAMPAIGN_VALUES, _geoFormatAbandonRate,
   };
 }

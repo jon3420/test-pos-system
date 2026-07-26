@@ -257,6 +257,20 @@ function getGeoFunnel(db, storeId, filters) {
         WHERE store_id = ? AND event_name = ? AND ${A_LOCAL} BETWEEN ? AND ?${chEvt.sql}${common.sql}
       )`;
   }
+  // fix18-10-hotfix30-B5-R5.2-B1-3（需求文件 4.2–4.4：人數／次數分離）——
+  // 「人數」用上面既有的 DISTINCT identity_key（不變，已被前幾輪 regression
+  // 驗證過）；「次數」是同一批事件的原始筆數，按 identity_key 先 COUNT(*)
+  // 分組一次（identity_key 上唯一），再用同一個 vga 分組 SUM 起來，不會因為
+  // LEFT JOIN 造成筆數重複（每個 identity_key 在 count CTE 裡只有一列）。
+  function countCTE(eventName, alias) {
+    return `
+      ${alias} AS (
+        SELECT identity_key, COUNT(*) AS event_count
+        FROM analytics_events
+        WHERE store_id = ? AND event_name = ? AND ${A_LOCAL} BETWEEN ? AND ?${chEvt.sql}${common.sql}
+        GROUP BY identity_key
+      )`;
+  }
   const evtParams = (evt) => [storeId, evt, range.startLocal, range.endLocal, ...chEvt.params, ...common.params];
 
   const sql = `
@@ -266,7 +280,10 @@ function getGeoFunnel(db, storeId, filters) {
     ${stepCTE(GEO_FUNNEL_EVENTS.cart, 'step_cart')},
     ${stepCTE(GEO_FUNNEL_EVENTS.checkout, 'step_checkout')},
     ${stepCTE(GEO_FUNNEL_EVENTS.submitOrder, 'step_submit')},
-    ${stepCTE(GEO_FUNNEL_EVENTS.purchase, 'step_purchase')}
+    ${stepCTE(GEO_FUNNEL_EVENTS.purchase, 'step_purchase')},
+    ${countCTE(GEO_FUNNEL_EVENTS.productView, 'count_view')},
+    ${countCTE(GEO_FUNNEL_EVENTS.cart, 'count_cart')},
+    ${countCTE(GEO_FUNNEL_EVENTS.checkout, 'count_checkout')}
     SELECT
       vga.geo_city AS city, vga.geo_district AS district,
       COUNT(DISTINCT step_visit.identity_key) AS visitors,
@@ -274,7 +291,10 @@ function getGeoFunnel(db, storeId, filters) {
       COUNT(DISTINCT step_cart.identity_key) AS add_to_cart_visitors,
       COUNT(DISTINCT step_checkout.identity_key) AS begin_checkout_visitors,
       COUNT(DISTINCT step_submit.identity_key) AS submitted_order_visitors,
-      COUNT(DISTINCT step_purchase.identity_key) AS purchase_visitors
+      COUNT(DISTINCT step_purchase.identity_key) AS purchase_visitors,
+      COALESCE(SUM(count_view.event_count), 0) AS view_product_events,
+      COALESCE(SUM(count_cart.event_count), 0) AS add_to_cart_events,
+      COALESCE(SUM(count_checkout.event_count), 0) AS begin_checkout_events
     FROM visitor_geo_attributed vga
     LEFT JOIN step_visit ON step_visit.identity_key = vga.identity_key
     LEFT JOIN step_view ON step_view.identity_key = vga.identity_key
@@ -282,8 +302,11 @@ function getGeoFunnel(db, storeId, filters) {
     LEFT JOIN step_checkout ON step_checkout.identity_key = vga.identity_key
     LEFT JOIN step_submit ON step_submit.identity_key = vga.identity_key
     LEFT JOIN step_purchase ON step_purchase.identity_key = vga.identity_key
+    LEFT JOIN count_view ON count_view.identity_key = vga.identity_key
+    LEFT JOIN count_cart ON count_cart.identity_key = vga.identity_key
+    LEFT JOIN count_checkout ON count_checkout.identity_key = vga.identity_key
     GROUP BY vga.geo_city, vga.geo_district
-    HAVING visitors > 0
+    HAVING (visitors + view_product_visitors + add_to_cart_visitors + begin_checkout_visitors + submitted_order_visitors + purchase_visitors) > 0
     ORDER BY visitors DESC
     LIMIT ? OFFSET ?
   `;
@@ -295,6 +318,9 @@ function getGeoFunnel(db, storeId, filters) {
     ...evtParams(GEO_FUNNEL_EVENTS.checkout),
     ...evtParams(GEO_FUNNEL_EVENTS.submitOrder),
     ...evtParams(GEO_FUNNEL_EVENTS.purchase),
+    ...evtParams(GEO_FUNNEL_EVENTS.productView),
+    ...evtParams(GEO_FUNNEL_EVENTS.cart),
+    ...evtParams(GEO_FUNNEL_EVENTS.checkout),
     limit, offset,
   ];
   const rows = db.all(sql, params) || [];
@@ -308,17 +334,36 @@ function getGeoFunnel(db, storeId, filters) {
       const checkout = Number(r.begin_checkout_visitors) || 0;
       const submitted = Number(r.submitted_order_visitors) || 0;
       const purchase = Number(r.purchase_visitors) || 0;
+      // fix18-10-hotfix30-B5-R5.2-B1-3（需求文件 4.2–4.4）：事件「次數」與
+      // 「人數」分開回傳，不得把次數誤當成人數（例如 1 人 view_product 12 次
+      // 必須是 view_product_visitors=1、view_product_events=12）。
+      const viewEvents = Number(r.view_product_events) || 0;
+      const cartEvents = Number(r.add_to_cart_events) || 0;
+      const checkoutEvents = Number(r.begin_checkout_events) || 0;
       return {
         city: r.city || null,
         district: r.district || null,
         visitors, view_product_visitors: view, add_to_cart_visitors: cart,
         begin_checkout_visitors: checkout, submitted_order_visitors: submitted, purchase_visitors: purchase,
+        view_product_events: viewEvents, add_to_cart_events: cartEvents, begin_checkout_events: checkoutEvents,
+        // 需求文件五：漏斗轉換率（分母為 0 一律 0，_rate() 已內建 NaN/Infinity 防護）
         visit_to_view_rate: _rate(view, visitors),
-        visit_to_cart_rate: _rate(cart, visitors),
+        view_to_cart_rate: _rate(cart, view),
         cart_to_checkout_rate: _rate(checkout, cart),
+        checkout_to_purchase_rate: _rate(purchase, checkout),
+        visit_to_purchase_rate: _rate(purchase, visitors),
+        // 舊欄位保留相容（既有 regression 依賴，語意不變：checkout_to_order_rate
+        // 是「開始結帳→送出訂單」，不是「開始結帳→完成購買」，兩者刻意分開）
+        visit_to_cart_rate: _rate(cart, visitors),
         checkout_to_order_rate: _rate(submitted, checkout),
         visit_to_order_rate: _rate(submitted, visitors),
-        visit_to_purchase_rate: _rate(purchase, visitors),
+        // 需求文件八：每階段流失人數（相鄰兩階段人數差，一律 >= 0）
+        dropoff: {
+          visit_to_view: Math.max(0, visitors - view),
+          view_to_cart: Math.max(0, view - cart),
+          cart_to_checkout: Math.max(0, cart - checkout),
+          checkout_to_purchase: Math.max(0, checkout - purchase),
+        },
       };
     }),
   };
@@ -496,6 +541,20 @@ function getGeoSourceArea(db, storeId, filters) {
   const chEvt = _channelEventsClause(channel);
   const common = _commonEventFilterClause(filters);
 
+  // fix18-10-hotfix30-B5-R5.2-B1-3（Phase 1.1 Audit 結論）——修正前的
+  // getGeoSourceArea() 有兩個問題：
+  //   1. `visitors` 只綁 page_view 事件（GEO_FUNNEL_EVENTS.visit），且完全
+  //      沒有 view_product（瀏覽商品）欄位，`HAVING visitors > 0` 導致只有
+  //      view_product/add_to_cart/begin_checkout/purchase、沒有 page_view
+  //      的訪客整列被丟掉——跟 getGeoFunnel()/getCountySummary() 這輪修過的
+  //      同一種漏失問題。
+  //   2. 完全沒有事件「次數」欄位（人數/次數混在一起，只有人數）。
+  // 修正：新增 view_product_visitors，HAVING 改成「任一階段人數 > 0」，並
+  // 補上 view_product_events/add_to_cart_events/begin_checkout_events（用
+  // SUM(CASE WHEN...) 跟人數同一次 GROUP BY 算出，不必像 getGeoFunnel() 那樣
+  // 另建 CTE——這裡本來就是單表 flat GROUP BY，不涉及跨事件 identity
+  // attribution）。source/medium/campaign/channel/city/district 的既有分組
+  // 與篩選範圍（common.sql／chEvt.sql）完全不動。
   const rows = db.all(
     `SELECT
        COALESCE(NULLIF(source,''),'direct') AS source,
@@ -503,19 +562,24 @@ function getGeoSourceArea(db, storeId, filters) {
        COALESCE(order_channel,'unknown') AS channel,
        geo_city AS city, geo_district AS district,
        COUNT(DISTINCT CASE WHEN event_name=? THEN identity_key END) AS visitors,
+       COUNT(DISTINCT CASE WHEN event_name=? THEN identity_key END) AS view_product_visitors,
        COUNT(DISTINCT CASE WHEN event_name=? THEN identity_key END) AS add_to_cart_visitors,
        COUNT(DISTINCT CASE WHEN event_name=? THEN identity_key END) AS begin_checkout_visitors,
        COUNT(DISTINCT CASE WHEN event_name=? THEN identity_key END) AS submitted_order_visitors,
-       COUNT(DISTINCT CASE WHEN event_name=? THEN identity_key END) AS purchases
+       COUNT(DISTINCT CASE WHEN event_name=? THEN identity_key END) AS purchases,
+       SUM(CASE WHEN event_name=? THEN 1 ELSE 0 END) AS view_product_events,
+       SUM(CASE WHEN event_name=? THEN 1 ELSE 0 END) AS add_to_cart_events,
+       SUM(CASE WHEN event_name=? THEN 1 ELSE 0 END) AS begin_checkout_events
      FROM analytics_events
      WHERE store_id=? AND geo_context='visitor' AND ${A_LOCAL} BETWEEN ? AND ?${chEvt.sql}${common.sql}
      GROUP BY source, medium, campaign, channel, city, district
-     HAVING visitors > 0
+     HAVING (visitors + view_product_visitors + add_to_cart_visitors + begin_checkout_visitors + submitted_order_visitors + purchases) > 0
      ORDER BY visitors DESC
      LIMIT ? OFFSET ?`,
     [
-      GEO_FUNNEL_EVENTS.visit, GEO_FUNNEL_EVENTS.cart, GEO_FUNNEL_EVENTS.checkout,
+      GEO_FUNNEL_EVENTS.visit, GEO_FUNNEL_EVENTS.productView, GEO_FUNNEL_EVENTS.cart, GEO_FUNNEL_EVENTS.checkout,
       GEO_FUNNEL_EVENTS.submitOrder, GEO_FUNNEL_EVENTS.purchase,
+      GEO_FUNNEL_EVENTS.productView, GEO_FUNNEL_EVENTS.cart, GEO_FUNNEL_EVENTS.checkout,
       storeId, range.startLocal, range.endLocal, ...chEvt.params, ...common.params,
       limit, offset,
     ]
@@ -523,16 +587,27 @@ function getGeoSourceArea(db, storeId, filters) {
 
   // 第八階段：total 用一次獨立的聚合 COUNT query（對「分組後的組合數」計數，
   // 不是對事件數計數），只多一條 SQL，不是逐筆 N+1。
+  // Phase 1.1：total 的判定條件必須跟上面主查詢的 HAVING 一致，否則分頁
+  // total_pages 會漏算「沒有 page_view 但有其他階段」的組合數。
   const totalRow = db.get(
     `SELECT COUNT(*) AS total FROM (
        SELECT source, medium, campaign, order_channel, geo_city, geo_district,
-              COUNT(DISTINCT CASE WHEN event_name=? THEN identity_key END) AS visitors
+              COUNT(DISTINCT CASE WHEN event_name=? THEN identity_key END) AS visitors,
+              COUNT(DISTINCT CASE WHEN event_name=? THEN identity_key END) AS view_product_visitors,
+              COUNT(DISTINCT CASE WHEN event_name=? THEN identity_key END) AS add_to_cart_visitors,
+              COUNT(DISTINCT CASE WHEN event_name=? THEN identity_key END) AS begin_checkout_visitors,
+              COUNT(DISTINCT CASE WHEN event_name=? THEN identity_key END) AS submitted_order_visitors,
+              COUNT(DISTINCT CASE WHEN event_name=? THEN identity_key END) AS purchases
        FROM analytics_events
        WHERE store_id=? AND geo_context='visitor' AND ${A_LOCAL} BETWEEN ? AND ?${chEvt.sql}${common.sql}
        GROUP BY source, medium, campaign, order_channel, geo_city, geo_district
-       HAVING visitors > 0
+       HAVING (visitors + view_product_visitors + add_to_cart_visitors + begin_checkout_visitors + submitted_order_visitors + purchases) > 0
      )`,
-    [GEO_FUNNEL_EVENTS.visit, storeId, range.startLocal, range.endLocal, ...chEvt.params, ...common.params]
+    [
+      GEO_FUNNEL_EVENTS.visit, GEO_FUNNEL_EVENTS.productView, GEO_FUNNEL_EVENTS.cart,
+      GEO_FUNNEL_EVENTS.checkout, GEO_FUNNEL_EVENTS.submitOrder, GEO_FUNNEL_EVENTS.purchase,
+      storeId, range.startLocal, range.endLocal, ...chEvt.params, ...common.params,
+    ]
   ) || { total: 0 };
   const total = Number(totalRow.total) || 0;
 
@@ -544,9 +619,16 @@ function getGeoSourceArea(db, storeId, filters) {
       return {
         source: r.source, medium: r.medium || null, campaign: r.campaign || null,
         channel: r.channel, city: r.city || null, district: r.district || null,
-        visitors, add_to_cart: Number(r.add_to_cart_visitors) || 0,
+        visitors,
+        view_product_visitors: Number(r.view_product_visitors) || 0,
+        add_to_cart: Number(r.add_to_cart_visitors) || 0,
         begin_checkout: Number(r.begin_checkout_visitors) || 0,
         submitted_orders: submitted, purchases: Number(r.purchases) || 0,
+        // fix18-10-hotfix30-B5-R5.2-B1-3（Phase 1.1）：事件次數，與上面人數
+        // 欄位分開，不得混用（同 getGeoFunnel()/getCountySummary() 原則）。
+        view_product_events: Number(r.view_product_events) || 0,
+        add_to_cart_events: Number(r.add_to_cart_events) || 0,
+        begin_checkout_events: Number(r.begin_checkout_events) || 0,
         conversion_rate: _rate(submitted, visitors),
       };
     }),
@@ -792,6 +874,15 @@ function getCountySummary(db, storeId, filters) {
         WHERE store_id = ? AND event_name = ? AND ${A_LOCAL} BETWEEN ? AND ?${chEvt.sql}${common.sql}
       )`;
   }
+  function countCTE(eventName, alias) {
+    return `
+      ${alias} AS (
+        SELECT identity_key, COUNT(*) AS event_count
+        FROM analytics_events
+        WHERE store_id = ? AND event_name = ? AND ${A_LOCAL} BETWEEN ? AND ?${chEvt.sql}${common.sql}
+        GROUP BY identity_key
+      )`;
+  }
   const evtParams = (evt) => [storeId, evt, range.startLocal, range.endLocal, ...chEvt.params, ...common.params];
 
   const sql = `
@@ -801,6 +892,9 @@ function getCountySummary(db, storeId, filters) {
     ${stepCTE(GEO_FUNNEL_EVENTS.cart, 'step_cart')},
     ${stepCTE(GEO_FUNNEL_EVENTS.checkout, 'step_checkout')},
     ${stepCTE(GEO_FUNNEL_EVENTS.purchase, 'step_purchase')},
+    ${countCTE(GEO_FUNNEL_EVENTS.productView, 'count_view')},
+    ${countCTE(GEO_FUNNEL_EVENTS.cart, 'count_cart')},
+    ${countCTE(GEO_FUNNEL_EVENTS.checkout, 'count_checkout')},
     purchase_revenue AS (
       SELECT ae.identity_key, COUNT(DISTINCT ae.order_id) AS orders, COALESCE(SUM(o.total), 0) AS revenue
       FROM analytics_events ae
@@ -815,6 +909,9 @@ function getCountySummary(db, storeId, filters) {
       COUNT(DISTINCT step_cart.identity_key) AS cart_visitors,
       COUNT(DISTINCT step_checkout.identity_key) AS checkout_visitors,
       COUNT(DISTINCT step_purchase.identity_key) AS purchase_visitors,
+      COALESCE(SUM(count_view.event_count), 0) AS product_view_events,
+      COALESCE(SUM(count_cart.event_count), 0) AS cart_events,
+      COALESCE(SUM(count_checkout.event_count), 0) AS checkout_events,
       COALESCE(SUM(pr.orders), 0) AS order_count,
       COALESCE(SUM(pr.revenue), 0) AS revenue
     FROM visitor_geo_attributed vga
@@ -823,9 +920,12 @@ function getCountySummary(db, storeId, filters) {
     LEFT JOIN step_cart ON step_cart.identity_key = vga.identity_key
     LEFT JOIN step_checkout ON step_checkout.identity_key = vga.identity_key
     LEFT JOIN step_purchase ON step_purchase.identity_key = vga.identity_key
+    LEFT JOIN count_view ON count_view.identity_key = vga.identity_key
+    LEFT JOIN count_cart ON count_cart.identity_key = vga.identity_key
+    LEFT JOIN count_checkout ON count_checkout.identity_key = vga.identity_key
     LEFT JOIN purchase_revenue pr ON pr.identity_key = vga.identity_key
     GROUP BY vga.geo_city, vga.geo_district
-    HAVING visitors > 0
+    HAVING (visitors + product_view_visitors + cart_visitors + checkout_visitors + purchase_visitors) > 0
   `;
   const params = [
     ...attribution.params,
@@ -834,6 +934,9 @@ function getCountySummary(db, storeId, filters) {
     ...evtParams(GEO_FUNNEL_EVENTS.cart),
     ...evtParams(GEO_FUNNEL_EVENTS.checkout),
     ...evtParams(GEO_FUNNEL_EVENTS.purchase),
+    ...evtParams(GEO_FUNNEL_EVENTS.productView),
+    ...evtParams(GEO_FUNNEL_EVENTS.cart),
+    ...evtParams(GEO_FUNNEL_EVENTS.checkout),
     storeId, GEO_FUNNEL_EVENTS.purchase, range.startLocal, range.endLocal,
   ];
   const districtRows = db.all(sql, params) || [];
@@ -870,6 +973,7 @@ function getCountySummary(db, storeId, filters) {
         county_code: resolved.county_code, county_name: resolved.county_name,
         visitor_count: 0, product_view_visitor_count: 0, cart_visitor_count: 0,
         checkout_visitor_count: 0, purchase_visitor_count: 0, order_count: 0, revenue: 0,
+        product_view_event_count: 0, cart_event_count: 0, checkout_event_count: 0,
         _subdivisionCodes: new Set(), unknown_subdivision_visitor_count: 0,
       });
     }
@@ -881,6 +985,10 @@ function getCountySummary(db, storeId, filters) {
     c.purchase_visitor_count += Number(r.purchase_visitors) || 0;
     c.order_count += Number(r.order_count) || 0;
     c.revenue += Number(r.revenue) || 0;
+    // 需求文件 4.2–4.4：次數與人數分開累加，不得混用（次數僅供 Drawer 補充顯示）
+    c.product_view_event_count += Number(r.product_view_events) || 0;
+    c.cart_event_count += Number(r.cart_events) || 0;
+    c.checkout_event_count += Number(r.checkout_events) || 0;
     if (resolved.resolution === 'subdivision') c._subdivisionCodes.add(resolved.subdivision_code);
     else c.unknown_subdivision_visitor_count += visitors; // 縣市已知，但這一列沒有明確 subdivision
   });
@@ -892,6 +1000,9 @@ function getCountySummary(db, storeId, filters) {
     cart_visitor_count: c.cart_visitor_count,
     checkout_visitor_count: c.checkout_visitor_count,
     purchase_visitor_count: c.purchase_visitor_count,
+    product_view_event_count: c.product_view_event_count,
+    cart_event_count: c.cart_event_count,
+    checkout_event_count: c.checkout_event_count,
     order_count: c.order_count,
     revenue: round2(c.revenue),
     visitor_to_cart_rate: _percent(c.cart_visitor_count, c.visitor_count),
