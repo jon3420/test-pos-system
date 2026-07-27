@@ -12,6 +12,12 @@ const { validateLineMemberReturnUrl } = require('../utils/returnUrlValidator');
 const { resolveSameAsStoreFlag } = require('../utils/pickupLocation');
 const { resolveAddFriendUrl } = require('../utils/lineCheckoutHandoff'); // fix18-10-hotfix29-C：加好友網址單一來源
 const { normalizeDeliveryDistanceFeeRules } = require('../utils/deliveryFeeCalc'); // C3：距離級距滿額免運設定驗證單一來源
+// fix18-10-hotfix30-B5-R5.2-B2：Geo Map 商家層級聚焦設定——單一 pure function
+// 集合，GET/PATCH /api/settings/geo-map 與 smoke test 共用同一份規則，不得
+// 另建第二套設定框架（需求文件四）。
+const {
+  GEO_MAP_SETTINGS_KEYS, validateGeoMapSettingsPatch, parseGeoMapSettingsRow,
+} = require('../utils/geoMapScope');
 
 // LINE 相關設定 key — line_order=false 時不可修改
 const LINE_KEYS = new Set([
@@ -184,6 +190,9 @@ const ALL_ALLOWED = [
   ...SHIPPING_ANNOUNCEMENT_KEYS,
   ...ANALYTICS_KEYS,
   ...LINE_MEMBER_KEYS,
+  // fix18-10-hotfix30-B5-R5.2-B2：Geo Map 聚焦範圍設定——沿用既有 key-value
+  // settings 表，不另建第二套設定框架（需求文件四）。
+  ...GEO_MAP_SETTINGS_KEYS,
 ];
 
 // fix18-10-hotfix26-F5：lat/lng 範圍驗證（-90~90 / -180~180，不可 NaN）。
@@ -657,6 +666,62 @@ router.patch('/store-location', (req, res) => {
     const s = {}; rows.forEach(r => { s[r.key] = r.value; });
     res.json({ success: true, data: redactSensitiveSettings(s) });
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+// fix18-10-hotfix30-B5-R5.2-B2：GET /api/settings/geo-map（需求文件五）。
+// 沿用既有 requireStore 注入的 req.storeId，不接受跨店讀取；沿用既有
+// store_lat/store_lng（見 parseGeoMapSettingsRow()），不重複存一份座標。
+router.get('/geo-map', (req, res) => {
+  try {
+    const db = getDb();
+    const storeId = req.storeId;
+    const rows = db.all('SELECT key, value FROM settings WHERE store_id=?', [storeId]);
+    const s = {}; rows.forEach(r => { s[r.key] = r.value; });
+    res.json({ success: true, data: parseGeoMapSettingsRow(s) });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+// fix18-10-hotfix30-B5-R5.2-B2：PATCH /api/settings/geo-map（需求文件五）。
+// 只更新 GEO_MAP_SETTINGS_KEYS 白名單內、且這次請求有送值的欄位——不動
+// store_lat/store_lng（那兩個欄位一律透過既有 PATCH /store-location 維護，
+// 見需求文件三「新增設定時避免重複存相同資料」）。
+router.patch('/geo-map', (req, res) => {
+  try {
+    const db = getDb();
+    const storeId = req.storeId;
+    const body = { ...(req.body || {}) };
+
+    const check = validateGeoMapSettingsPatch(body);
+    if (!check.ok) return res.status(400).json({ success: false, message: check.message });
+
+    GEO_MAP_SETTINGS_KEYS.forEach((k) => {
+      if (body[k] === undefined) return;
+      let v = body[k];
+      if ((k === 'geo_map_district_codes' || k === 'geo_map_bounds') && v !== null && typeof v !== 'string') {
+        v = JSON.stringify(v);
+      }
+      if (v === null) v = '';
+      const updated = db.run('UPDATE settings SET value=? WHERE store_id=? AND key=?', [String(v), storeId, k]);
+      if (!updated.changes) db.run('INSERT OR IGNORE INTO settings (store_id,key,value) VALUES (?,?,?)', [storeId, k, String(v)]);
+    });
+
+    try {
+      const wss = req.app.get('wss');
+      const rows2 = db.all('SELECT key, value FROM settings WHERE store_id=?', [storeId]);
+      const s2 = {}; rows2.forEach(r => { s2[r.key] = r.value; });
+      broadcastToStore(wss, storeId, { type: 'settings_updated', data: redactSensitiveSettings(s2) });
+    } catch {}
+
+    const rows = db.all('SELECT key, value FROM settings WHERE store_id=?', [storeId]);
+    const s = {}; rows.forEach(r => { s[r.key] = r.value; });
+    res.json({ success: true, data: parseGeoMapSettingsRow(s) });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+// fix18-10-hotfix30-B5-R5.2-B2：供 smoke test 直接呼叫驗證，不需要真的起
+// HTTP server（沿用既有 router.__test 慣例，見上方 hotfix26-F5 註解）。
+router.__test = Object.assign(router.__test || {}, {
+  validateGeoMapSettingsPatch, parseGeoMapSettingsRow, GEO_MAP_SETTINGS_KEYS,
 });
 
 module.exports = router;

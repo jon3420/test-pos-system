@@ -20,6 +20,83 @@ const GEO_MAP_PALETTE = Object.freeze({
   hover_border: '#374151',
 });
 
+// ════════════════════════════════════════════════════════════════
+// 二十二、商家可設定地圖聚焦範圍——SaaS 架構（fix18-10-hotfix30-B5-R5.2-B2）
+// 不得把桃園寫死成全系統預設；scope_mode 決定要用哪組資料算 viewport，
+// 無效時一律落到台灣全域 fallback，絕不 fallback 桃園。
+// ════════════════════════════════════════════════════════════════
+const GEO_MAP_SCOPE_MODES = Object.freeze(['store_location', 'districts', 'custom_bounds', 'data_bounds']);
+const GEO_MAP_TAIWAN_FALLBACK_VIEWPORT = Object.freeze({ type: 'center', center: [23.7, 121.0], zoom: 7, source: 'taiwan_fallback' });
+
+function _geoIsValidBoundsObj(b) {
+  if (!b || typeof b !== 'object') return false;
+  const { south, west, north, east } = b;
+  return [south, west, north, east].every((v) => typeof v === 'number' && Number.isFinite(v))
+    && south < north && west < east && south >= -90 && north <= 90 && west >= -180 && east <= 180;
+}
+
+// 需求文件八：單一 pure helper，決定地圖初始 viewport。優先順序完全依
+// scope_mode 決定該用哪一組資料，資料無效時落到台灣全域 fallback，不得
+// 混用其他模式的資料算出來的 bounds。
+function geoResolveInitialViewport(options) {
+  const o = options || {};
+  const autoFit = o.autoFitBounds !== false;
+  if (o.scopeMode === 'custom_bounds') {
+    if (autoFit && _geoIsValidBoundsObj(o.customBounds)) return { type: 'bounds', bounds: o.customBounds, source: 'custom_bounds' };
+    return { ...GEO_MAP_TAIWAN_FALLBACK_VIEWPORT };
+  }
+  if (o.scopeMode === 'districts') {
+    if (autoFit && _geoIsValidBoundsObj(o.districtBounds)) return { type: 'bounds', bounds: o.districtBounds, source: 'districts' };
+    return { ...GEO_MAP_TAIWAN_FALLBACK_VIEWPORT };
+  }
+  if (o.scopeMode === 'data_bounds') {
+    if (autoFit && _geoIsValidBoundsObj(o.dataBounds)) return { type: 'bounds', bounds: o.dataBounds, source: 'data_bounds' };
+    return { ...GEO_MAP_TAIWAN_FALLBACK_VIEWPORT };
+  }
+  if (o.scopeMode === 'store_location') {
+    if (Number.isFinite(o.storeLat) && Number.isFinite(o.storeLng)) {
+      return { type: 'center', center: [o.storeLat, o.storeLng], zoom: Number.isFinite(o.zoom) ? o.zoom : 12, source: 'store_location' };
+    }
+    return { ...GEO_MAP_TAIWAN_FALLBACK_VIEWPORT }; // 需求文件十二：店家座標缺失 → 台灣 fallback，不得 fallback 桃園
+  }
+  return { ...GEO_MAP_TAIWAN_FALLBACK_VIEWPORT };
+}
+
+// 需求文件七：GeoJSON 邊界來源解析——只依 settings.city_code 在 manifest 內
+// 查表，查不到就不載入邊界（不自動 fallback 桃園），來源必須是站內相對路徑。
+function _geoIsUnsafeSourceUrl(src) {
+  if (src === null || src === undefined) return false;
+  const s = String(src).trim();
+  if (!s) return false;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(s)) return true; // 任何帶 scheme 的 URL
+  if (s.startsWith('//')) return true; // protocol-relative
+  if (s.includes('..')) return true; // path traversal
+  if (!s.startsWith('/')) return true; // 必須是站內絕對相對路徑
+  return false;
+}
+function geoResolveBoundarySource(settings, manifest) {
+  const s = settings || {};
+  const m = manifest || {};
+  const cities = m.cities || {};
+  if (!s.city_code) return null;
+  const entry = cities[s.city_code];
+  if (!entry || !entry.source) return null;
+  const src = String(entry.source);
+  if (_geoIsUnsafeSourceUrl(src)) return null;
+  return src;
+}
+// 需求文件九：scope_mode=districts 時只 render 選取的行政區。沒有
+// district_code 屬性的舊版 fixture（例如既有測試用的桃園 13 區樣本）視為
+// 無法辨識、不過濾（向後相容），避免因為缺屬性就整批消失。
+function _geoFilterFeaturesByDistrictCodes(features, districtCodes) {
+  if (!Array.isArray(districtCodes) || !districtCodes.length) return features;
+  const set = new Set(districtCodes);
+  return (features || []).filter((f) => {
+    const code = f && f.properties && f.properties.district_code;
+    return code ? set.has(code) : true;
+  });
+}
+
 const GEO_MAP_METRICS = Object.freeze(['visitors', 'orders', 'revenue', 'conversion_rate', 'cart_abandonment_rate', 'risk']);
 const GEO_MAP_METRIC_LABELS = Object.freeze({
   visitors: 'Visitors', orders: 'Orders', revenue: 'Revenue',
@@ -284,6 +361,13 @@ let geoMapState = {
   leafletLoaded: false,
   geojsonLoaded: false,
   lastError: null,
+  // fix18-10-hotfix30-B5-R5.2-B2：商家層級 Geo Map 聚焦設定——單一狀態來源
+  // （需求文件十四），初始化／Retry／Tab 返回／Metric 切換／資料刷新全部
+  // 讀同一份 snapshot，不建立第二套 filter state。
+  settings: null,
+  manifest: null,
+  boundarySource: null,
+  lastViewport: null,
 };
 // fix18-10-hotfix30-B5-R5.2-B2：跟 geo-intelligence.js 的既有慣例一致
 // （_geoExposeWindowState()）——瀏覽器 classic <script> 下，頂層 let 不會
@@ -299,6 +383,7 @@ function _geoResetMapStateForTest() {
     instance: null, tileLayer: null, geoJsonLayer: null, metric: 'visitors', rows: [],
     featureIndex: null, selectedAreaId: null, hoveredAreaId: null, requestSeq: 0,
     containerId: null, leafletLoaded: false, geojsonLoaded: false, lastError: null,
+    settings: null, manifest: null, boundarySource: null, lastViewport: null,
   });
 }
 
@@ -338,16 +423,76 @@ function geoInitMap(containerId, rows) {
   }
   _geoBuildGeoJsonLayer();
   geoUpdateMapData(rows || [], geoMapState.metric);
-  if (geoMapState.geoJsonLayer && typeof geoMapState.geoJsonLayer.getBounds === 'function' && typeof geoMapState.instance.fitBounds === 'function') {
-    try { geoMapState.instance.fitBounds(geoMapState.geoJsonLayer.getBounds()); } catch (e) { /* 安靜失敗 */ }
-  }
+  _geoApplyInitialViewport(rows || []);
+  return true;
+}
+// fix18-10-hotfix30-B5-R5.2-B2（需求文件八）：取代舊版「一律 fitBounds 到
+// 載入的 GeoJSON（=桃園）」——改用 geoResolveInitialViewport() 依商家設定
+// 的 scope_mode 決定 viewport，資料無效一律落到台灣全域 fallback。
+function _geoComputeDataBounds(rows) {
+  if (!geoMapState.featureIndex || typeof L === 'undefined' || typeof L.geoJSON !== 'function') return null;
+  const feats = [];
+  (rows || []).forEach((r) => {
+    const f = geoMatchAreaToFeature(r, geoMapState.featureIndex);
+    if (f) feats.push(f);
+  });
+  if (!feats.length) return null;
+  try {
+    const layer = L.geoJSON({ type: 'FeatureCollection', features: feats });
+    const b = layer.getBounds();
+    if (!b || typeof b.getSouth !== 'function' || !b.isValid || !b.isValid()) return null;
+    return { south: b.getSouth(), west: b.getWest(), north: b.getNorth(), east: b.getEast() };
+  } catch (e) { return null; }
+}
+function _geoDistrictBoundsFromFeatureIndex() {
+  if (!geoMapState.geoJsonLayer || typeof geoMapState.geoJsonLayer.getBounds !== 'function') return null;
+  try {
+    const b = geoMapState.geoJsonLayer.getBounds();
+    if (!b || typeof b.getSouth !== 'function' || !b.isValid || !b.isValid()) return null;
+    return { south: b.getSouth(), west: b.getWest(), north: b.getNorth(), east: b.getEast() };
+  } catch (e) { return null; }
+}
+function _geoApplyInitialViewport(rows) {
+  if (!geoMapState.instance) return false;
+  const settings = geoMapState.settings || {};
+  const loc = settings.store_location || {};
+  const scopeMode = settings.scope_mode || 'store_location';
+  // fix18-10-hotfix30-B5-R5.2-B2（正確性修正）：只計算目前 scope_mode 真正
+  // 需要的那一種 bounds——data_bounds 才需要建立臨時 L.geoJSON() 圖層算
+  // bounds，districts 才需要讀 boundary layer 的 bounds。其他模式不建立
+  // 用不到的臨時圖層，避免每次 init/更新都多呼叫一次 L.geoJSON()（浪費效能，
+  // 也讓依賴呼叫次數判斷生命週期是否正確的邏輯失真）。
+  const viewport = geoResolveInitialViewport({
+    scopeMode,
+    autoFitBounds: settings.auto_fit_bounds !== false,
+    customBounds: settings.bounds,
+    districtBounds: scopeMode === 'districts' ? _geoDistrictBoundsFromFeatureIndex() : null,
+    dataBounds: scopeMode === 'data_bounds' ? _geoComputeDataBounds(rows) : null,
+    storeLat: Number(loc.lat), storeLng: Number(loc.lng),
+    zoom: Number(settings.default_zoom) || 12,
+  });
+  try {
+    if (viewport.type === 'bounds' && typeof L !== 'undefined' && typeof L.latLngBounds === 'function') {
+      const b = L.latLngBounds([viewport.bounds.south, viewport.bounds.west], [viewport.bounds.north, viewport.bounds.east]);
+      geoMapState.instance.fitBounds(b);
+    } else if (viewport.type === 'center' && typeof geoMapState.instance.setView === 'function') {
+      geoMapState.instance.setView(viewport.center, viewport.zoom);
+    }
+  } catch (e) { /* 安靜失敗，不讓地圖崩潰 */ }
+  geoMapState.lastViewport = viewport;
   return true;
 }
 // 十、行政區互動：click/hover/keyboard 全部在這裡統一綁定，不在多個地方各自
 // 重複綁 event（需求文件十）。
 function _geoBuildGeoJsonLayer() {
   if (!geoMapState.featureIndex || typeof L === 'undefined' || typeof L.geoJSON !== 'function') return;
-  const geojsonLike = { type: 'FeatureCollection', features: [...geoMapState.featureIndex.byCountyDistrict.values()] };
+  let features = [...geoMapState.featureIndex.byCountyDistrict.values()];
+  // 需求文件九：scope_mode=districts 時只 render 商家選取的行政區。
+  const settings = geoMapState.settings;
+  if (settings && settings.scope_mode === 'districts') {
+    features = _geoFilterFeaturesByDistrictCodes(features, settings.district_codes);
+  }
+  const geojsonLike = { type: 'FeatureCollection', features };
   geoMapState.geoJsonLayer = L.geoJSON(geojsonLike, {
     onEachFeature: (feature, layer) => {
       const props = (feature && feature.properties) || {};
@@ -406,13 +551,28 @@ function geoInvalidateMapSize() {
   geoMapState.instance.invalidateSize();
   return true;
 }
-async function geoLoadBoundaryData() {
+async function geoLoadBoundaryData(settings, manifest) {
   // 需求文件二十：request sequence guard——沿用 geoMapState.requestSeq
   // （state 裡本來就有這個欄位），確保較晚發出但較快完成的請求，不會被
   // 較早發出但較慢完成的請求事後覆蓋（賽跑防護）。
   const seq = (geoMapState.requestSeq += 1);
+  // fix18-10-hotfix30-B5-R5.2-B2：settings/manifest 未傳入時沿用 state 裡
+  // 目前已有的一份（同一份 snapshot，見需求文件十四），不是重新猜一份。
+  if (settings !== undefined) geoMapState.settings = settings;
+  if (manifest !== undefined) geoMapState.manifest = manifest;
+  const src = geoResolveBoundarySource(geoMapState.settings, geoMapState.manifest);
+  geoMapState.boundarySource = src;
+  if (!src) {
+    // 需求文件七：city_code 沒有對應 manifest → 不載入行政區邊界，不自動
+    // fallback 桃園。地圖仍可用 store_location/data_bounds/台灣 fallback
+    // 顯示，只是沒有行政區 polygon 可畫。
+    if (seq !== geoMapState.requestSeq) return null;
+    geoMapState.featureIndex = geoBuildAreaFeatureIndex({ type: 'FeatureCollection', features: [] });
+    geoMapState.geojsonLoaded = false;
+    return null;
+  }
   try {
-    const res = await fetch('/data/geo/taiwan-districts.geojson');
+    const res = await fetch(src);
     if (seq !== geoMapState.requestSeq) return null; // 已被更新的請求取代，不覆蓋
     if (!res || !res.ok) { geoMapState.geojsonLoaded = false; return null; }
     const geojson = await res.json();
@@ -425,6 +585,32 @@ async function geoLoadBoundaryData() {
     geoMapState.geojsonLoaded = false;
     return null;
   }
+}
+// 需求文件十三：設定 API 失敗時使用安全預設（store_location / zoom 12 /
+// 台灣 fallback），不得讓設定 API 失敗造成整個地圖消失。manifest 載入失敗
+// 一律視為「沒有邊界可用」，不影響地圖本身可否顯示。
+const GEO_MAP_SAFE_DEFAULT_SETTINGS = Object.freeze({
+  scope_mode: 'store_location', default_zoom: 12,
+  store_location: Object.freeze({ lat: null, lng: null }), city_code: null,
+  district_codes: Object.freeze([]), bounds: null, geojson_source: null, auto_fit_bounds: true,
+});
+async function geoFetchMapSettingsAndManifest() {
+  let settings = { ...GEO_MAP_SAFE_DEFAULT_SETTINGS };
+  try {
+    const res = await fetch('/api/settings/geo-map');
+    if (res && res.ok) {
+      const body = await res.json();
+      if (body && body.success && body.data) settings = body.data;
+    }
+  } catch (e) { /* 安靜退回安全預設，不讓地圖消失 */ }
+  let manifest = null;
+  try {
+    const res2 = await fetch('/data/geo/taiwan/manifest.json');
+    if (res2 && res2.ok) manifest = await res2.json();
+  } catch (e) { manifest = null; }
+  geoMapState.settings = settings;
+  geoMapState.manifest = manifest;
+  return { settings, manifest };
 }
 function geoUpdateMapData(rows, metric) {
   geoMapState.rows = Array.isArray(rows) ? rows : [];
@@ -578,6 +764,11 @@ if (typeof module !== 'undefined' && module.exports) {
     geoHandleMapKeydown, _geoBuildTooltipContent, _geoBuildGeoJsonLayer,
     GEO_MAP_MESSAGES, geoMapStatusText, geoBuildMapStatusHtml, geoBuildMapEmptyHtml,
     _geoResetMapStateForTest,
+    // fix18-10-hotfix30-B5-R5.2-B2
+    GEO_MAP_SCOPE_MODES, GEO_MAP_TAIWAN_FALLBACK_VIEWPORT, GEO_MAP_SAFE_DEFAULT_SETTINGS,
+    geoResolveInitialViewport, geoResolveBoundarySource, geoFetchMapSettingsAndManifest,
+    _geoFilterFeaturesByDistrictCodes, _geoIsUnsafeSourceUrl, _geoIsValidBoundsObj,
+    _geoComputeDataBounds, _geoDistrictBoundsFromFeatureIndex, _geoApplyInitialViewport,
     get geoMapState() { return geoMapState; },
   };
 }

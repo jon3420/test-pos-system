@@ -1,0 +1,10 @@
+{
+  "_comment": "fix18-10-hotfix30-B5-R5.2-B2：Geo Map 行政區邊界白名單 manifest。geoResolveBoundarySource() 只依商家設定的 city_code 在這裡查表，查不到就不載入邊界（不得自動 fallback 桃園），source 一律是站內相對路徑。本輪只補齊桃園市，其餘縣市待後續擴充，架構已支援新增。",
+  "cities": {
+    "TAO": {
+      "name": "桃園市",
+      "source": "/data/geo/taiwan/taoyuan-districts.geojson",
+      "district_property": "district_code"
+    }
+  }
+}

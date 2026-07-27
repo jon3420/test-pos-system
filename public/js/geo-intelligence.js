@@ -1624,10 +1624,16 @@ async function refreshGeoDashboardKpiBlock(containerId) {
   // geoInitMap()——即使 rows 是空陣列，polygon 仍要建立、metric 顯示
   // No Data，不得顯示 0（需求文件：初始化順序）。
   if (typeof geoInitMap === 'function' && typeof geoLoadBoundaryData === 'function') {
-    geoLoadBoundaryData().then(() => {
-      const mapRows = (vm.funnel && vm.funnel.areas) || [];
-      geoInitMap(mapContainerId, mapRows);
-    }).catch(() => { if (typeof geoHandleMapError === 'function') geoHandleMapError('error_default'); });
+    // fix18-10-hotfix30-B5-R5.2-B2：先讀商家的 Geo Map 聚焦設定（scope_mode/
+    // city_code/bounds...），再依設定解析邊界來源——不再無條件載入桃園
+    // GeoJSON 並 fitBounds（需求文件八）。設定 API 失敗時 geoFetchMapSettingsAndManifest()
+    // 內部已 fallback 安全預設，這裡不需要再處理一次。
+    (typeof geoFetchMapSettingsAndManifest === 'function' ? geoFetchMapSettingsAndManifest() : Promise.resolve({ settings: null, manifest: null }))
+      .then((resolved) => geoLoadBoundaryData(resolved.settings, resolved.manifest))
+      .then(() => {
+        const mapRows = (vm.funnel && vm.funnel.areas) || [];
+        geoInitMap(mapContainerId, mapRows);
+      }).catch(() => { if (typeof geoHandleMapError === 'function') geoHandleMapError('error_default'); });
   }
 }
 

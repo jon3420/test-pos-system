@@ -5,6 +5,7 @@
 
 const path = require('path');
 const fs = require('fs');
+const initSqlJs = require('sql.js'); // fix18-10-hotfix30-B5-R5.2-B2：SaaS Store Isolation 模擬測試用
 const ROOT = path.join(__dirname, '..');
 
 const results = [];
@@ -372,6 +373,28 @@ async function main() {
   const GEO_ALERTS_FIXTURE = { success: true, data: { alerts: [], rule_thresholds: {}, recommendation_view_models: [], quality_view_models: [], rule_context: {}, meta: {} } };
   const GEO_COUNTY_SUMMARY_FIXTURE = { ok: true, rows: [{ county_code: '68000', county_name: '桃園市', visitor_count: 160, order_count: 8 }], unknown: {} };
   const XSS_PAYLOAD_MAP = '<script>alert(7)</script>';
+  // fix18-10-hotfix30-B5-R5.2-B2：新架構下 geoLoadBoundaryData() 改為
+  // settings/manifest 驅動，不再無條件抓 public/data/geo/taiwan-districts.geojson。
+  // 既有測試指定的 fixture 路徑仍指向「桃園市」——這裡刻意沿用舊版 fixture
+  // 路徑（manifest 白名單內、且與 buildFetchMock() 的 'taiwan-districts.geojson'
+  // 攔截規則相容），只是測試資料本身仍是桃園（fixture 允許保留桃園案例，
+  // 見需求文件一），驗證的是 fetch/race/error 生命週期行為本身，不是驗證
+  // 「production 預設顯示桃園」（那正是本輪要移除的行為，見下方 SaaS-B/C/D/E
+  // 區段的 store isolation／fallback 測試才是驗證「不 fallback 桃園」）。
+  const GEO_MAP_SETTINGS_FIXTURE_TAO = {
+    scope_mode: 'districts', default_zoom: 12, store_location: { lat: null, lng: null },
+    city_code: 'TAO', district_codes: [], bounds: null, geojson_source: null, auto_fit_bounds: true,
+  };
+  const GEO_MAP_MANIFEST_FIXTURE = { cities: { TAO: { name: '桃園市', source: '/data/geo/taiwan-districts.geojson', district_property: 'district' } } };
+  // 供不經過 geoFetchMapSettingsAndManifest()（例如直接呼叫
+  // window.geoLoadBoundaryData() 測試 race/error 生命週期本身）的既有測試
+  // 沿用：直接把 window.geoMapState.settings/manifest 設成上面那組 fixture，
+  // 讓 geoResolveBoundarySource() 解析出跟舊版行為相同的 fixture 路徑。
+  // 純測試輔助函式，不是 production 程式碼。
+  function primeGeoMapScopeForLegacyFixture(win, overrides) {
+    win.geoMapState.settings = { ...GEO_MAP_SETTINGS_FIXTURE_TAO, ...(overrides || {}) };
+    win.geoMapState.manifest = GEO_MAP_MANIFEST_FIXTURE;
+  }
 
   function buildFetchMock(fetchCalls, opts) {
     const o = opts || {};
@@ -381,6 +404,14 @@ async function main() {
       let body; let status = 200;
       if (o.failGeojson && u.includes('taiwan-districts.geojson')) { status = 500; body = { error: 'fail' }; }
       else if (u.includes('taiwan-districts.geojson')) body = o.geojsonFixture || GEOJSON_FIXTURE;
+      // fix18-10-hotfix30-B5-R5.2-B2：Geo Map 商家層級設定／manifest——真實
+      // 前端流程（renderDashboardGeoIntelligence → refreshGeoDashboardKpiBlock）
+      // 會先打這兩支再決定邊界來源，這裡預設回覆桃園 fixture（跟上面
+      // GEOJSON_FIXTURE 攔截規則一致），可透過 o.geoMapSettingsFixture /
+      // o.geoMapManifestFixture 覆寫，供 store isolation／fallback 測試模擬
+      // 「無設定」「其他縣市商家」等情境。
+      else if (u.includes('/api/settings/geo-map')) body = { success: true, data: o.geoMapSettingsFixture !== undefined ? o.geoMapSettingsFixture : GEO_MAP_SETTINGS_FIXTURE_TAO };
+      else if (u.includes('/data/geo/taiwan/manifest.json')) body = o.geoMapManifestFixture !== undefined ? o.geoMapManifestFixture : GEO_MAP_MANIFEST_FIXTURE;
       else if (u.includes('/geo/overview')) body = GEO_OVERVIEW_FIXTURE;
       else if (u.includes('/geo/funnel')) body = o.funnelFixture || GEO_FUNNEL_FIXTURE;
       else if (u.includes('/geo/alerts')) body = o.alertsFixture || GEO_ALERTS_FIXTURE;
@@ -613,6 +644,7 @@ async function main() {
       }
       return Promise.resolve({ ok: true, status: 200, json: async () => ({ success: true }) });
     };
+    primeGeoMapScopeForLegacyFixture(window); // 直接呼叫 geoLoadBoundaryData()，不經過 geoFetchMapSettingsAndManifest()，手動補齊 settings/manifest 讓邊界來源解析出跟舊版一致的 fixture 路徑
     const p1 = window.geoLoadBoundaryData(); // Request A（慢，STALE 資料）
     await sleep(2);
     const p2 = window.geoLoadBoundaryData(); // Request B（快，正確資料）——立即接著發出
@@ -965,6 +997,7 @@ async function main() {
     document.body.innerHTML += window.geoRenderMapBlock('geo-map-destroyrace-1');
     window.geoMapState.featureIndex = M.geoBuildAreaFeatureIndex(GEOJSON_FIXTURE);
     window.geoInitMap('geo-map-destroyrace-1', buildTestRows());
+    primeGeoMapScopeForLegacyFixture(window);
     const loadPromise = window.geoLoadBoundaryData(); // 慢速請求還在飛
     window.geoDestroyMap(); // 請求還沒回來就銷毀地圖
     let threwDuringDestroy = false;
@@ -1082,6 +1115,7 @@ async function main() {
   {
     const { dom } = setupDom({ failGeojson: true });
     const { window } = dom.window;
+    primeGeoMapScopeForLegacyFixture(window); // 需要有可解析的邊界來源才會真的觸發 fetch，才能測到 failGeojson 情境
     const result = await window.geoLoadBoundaryData();
     assert(result === null, 'AI-MISSINGGEOJSON-1 GeoJSON fetch 失敗（404/500）時 geoLoadBoundaryData() 回傳 null');
     assert(window.geoMapState.geojsonLoaded === false, 'AI-MISSINGGEOJSON-2 geojsonLoaded 正確標記為 false');
@@ -1485,6 +1519,7 @@ async function main() {
     document.body.innerHTML += window.geoRenderMapBlock('geo-map-race2-1');
     window.geoMapState.featureIndex = M.geoBuildAreaFeatureIndex(GEOJSON_FIXTURE);
     window.geoInitMap('geo-map-race2-1', buildTestRows());
+    primeGeoMapScopeForLegacyFixture(window);
     const geojsonLoadPromise = window.geoLoadBoundaryData(); // 慢速 GeoJSON 請求飛行中
     window.geoSetMapMetric('revenue'); // metric 切換立刻發生（不等 GeoJSON）
     await geojsonLoadPromise;
@@ -1540,6 +1575,7 @@ async function main() {
 
     // fetch rejected / HTTP non-ok / JSON parse error 對 geoLoadBoundaryData 的影響（分開驗證三種不同故障點）
     const { dom: dom2 } = setupDom();
+    primeGeoMapScopeForLegacyFixture(dom2.window);
     dom2.window.fetch = () => Promise.reject(new Error('network down'));
     const rejectResult = await dom2.window.geoLoadBoundaryData();
     assert(rejectResult === null, 'AV-ERRORRECOVERY-fetchreject-1 fetch() reject 時 geoLoadBoundaryData() 回傳 null（不 throw 出去給呼叫端）');
@@ -1547,12 +1583,14 @@ async function main() {
     dom2.window.close();
 
     const { dom: dom3 } = setupDom();
+    primeGeoMapScopeForLegacyFixture(dom3.window);
     dom3.window.fetch = () => Promise.resolve({ ok: false, status: 404, json: async () => ({}) });
     const httpFailResult = await dom3.window.geoLoadBoundaryData();
     assert(httpFailResult === null, 'AV-ERRORRECOVERY-httpfail-1 HTTP 404（ok:false）時回傳 null');
     dom3.window.close();
 
     const { dom: dom4 } = setupDom();
+    primeGeoMapScopeForLegacyFixture(dom4.window);
     dom4.window.fetch = () => Promise.resolve({ ok: true, status: 200, json: async () => { throw new Error('invalid json'); } });
     let jsonParseThrew = false;
     let jsonParseResult;
@@ -1713,6 +1751,260 @@ async function main() {
     assert(mock.calls.mapInit > mapInitCountBefore, 'AY-REALBUG-13 tab 切換離開再返回（容器重建）後，地圖確實重新 init（不是維持在銷毀前的殭屍狀態）');
     assert(!!document.querySelector('.geo-map-root'), 'AY-REALBUG-14 重新進入後 .geo-map-root 再次存在');
     dom.window.close();
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // SaaS：商家可設定地圖聚焦範圍（fix18-10-hotfix30-B5-R5.2-B2 新架構）
+  // 不得寫死桃園；scope_mode 驅動 viewport／boundary source／district filter。
+  // ══════════════════════════════════════════════════════════════
+  {
+    const S = require(path.join(ROOT, 'utils/geoMapScope.js'));
+
+    // ── SaaS-A：validateGeoMapSettingsPatch（後端驗證） ──────────────
+    S.GEO_MAP_SCOPE_MODES.forEach((mode) => {
+      assert(S.validateGeoMapSettingsPatch({ geo_map_scope_mode: mode }).ok === true, `SaaS-A-mode-${mode} scope_mode=${mode} 通過驗證`);
+    });
+    assert(S.validateGeoMapSettingsPatch({ geo_map_scope_mode: 'bogus' }).ok === false, 'SaaS-A-1 未知 scope_mode 被拒絕');
+    assert(S.validateGeoMapSettingsPatch({ geo_map_default_zoom: 1 }).ok === true, 'SaaS-A-2 zoom 下限(1)通過');
+    assert(S.validateGeoMapSettingsPatch({ geo_map_default_zoom: 20 }).ok === true, 'SaaS-A-3 zoom 上限(20)通過');
+    assert(S.validateGeoMapSettingsPatch({ geo_map_default_zoom: 0 }).ok === false, 'SaaS-A-4 zoom 低於下限被拒絕');
+    assert(S.validateGeoMapSettingsPatch({ geo_map_default_zoom: 21 }).ok === false, 'SaaS-A-5 zoom 高於上限被拒絕');
+    assert(S.validateGeoMapSettingsPatch({ geo_map_default_zoom: 'abc' }).ok === false, 'SaaS-A-6 zoom 非數字被拒絕');
+    assert(S.validateGeoMapSettingsPatch({ geo_map_bounds: { south: 24, west: 121, north: 25, east: 122 } }).ok === true, 'SaaS-A-7 合法 bounds 通過');
+    assert(S.validateGeoMapSettingsPatch({ geo_map_bounds: { south: -90, west: -180, north: 90, east: 180 } }).ok === true, 'SaaS-A-8 bounds 邊界值(-90/-180/90/180)通過');
+    assert(S.validateGeoMapSettingsPatch({ geo_map_bounds: { south: -91, west: 121, north: 25, east: 122 } }).ok === false, 'SaaS-A-9 south < -90 被拒絕');
+    assert(S.validateGeoMapSettingsPatch({ geo_map_bounds: { south: 24, west: 121, north: 91, east: 122 } }).ok === false, 'SaaS-A-10 north > 90 被拒絕');
+    assert(S.validateGeoMapSettingsPatch({ geo_map_bounds: { south: 24, west: -181, north: 25, east: 122 } }).ok === false, 'SaaS-A-11 west < -180 被拒絕');
+    assert(S.validateGeoMapSettingsPatch({ geo_map_bounds: { south: 24, west: 121, north: 25, east: 181 } }).ok === false, 'SaaS-A-12 east > 180 被拒絕');
+    assert(S.validateGeoMapSettingsPatch({ geo_map_bounds: { south: 25, west: 121, north: 24, east: 122 } }).ok === false, 'SaaS-A-13 south >= north（順序錯誤）被拒絕');
+    assert(S.validateGeoMapSettingsPatch({ geo_map_bounds: { south: 24, west: 122, north: 25, east: 121 } }).ok === false, 'SaaS-A-14 west >= east（順序錯誤）被拒絕');
+    assert(S.validateGeoMapSettingsPatch({ geo_map_bounds: { south: 24, west: 121, north: 25 } }).ok === false, 'SaaS-A-15 bounds 缺欄位被拒絕');
+    assert(S.validateGeoMapSettingsPatch({ geo_map_bounds: 'not-an-object-but-valid-json-string-123' }).ok === false, 'SaaS-A-16 bounds 非物件字串被拒絕');
+    assert(S.validateGeoMapSettingsPatch({ geo_map_bounds: null }).ok === true, 'SaaS-A-17 bounds=null（清空）通過');
+    assert(S.validateGeoMapSettingsPatch({ geo_map_district_codes: ['ZHONGLI', 'BADE'] }).ok === true, 'SaaS-A-18 district_codes 字串陣列通過');
+    assert(S.validateGeoMapSettingsPatch({ geo_map_district_codes: '["ZHONGLI"]' }).ok === true, 'SaaS-A-19 district_codes JSON 字串通過');
+    assert(S.validateGeoMapSettingsPatch({ geo_map_district_codes: 'not-json' }).ok === false, 'SaaS-A-20 district_codes 不合法 JSON 被拒絕');
+    assert(S.validateGeoMapSettingsPatch({ geo_map_district_codes: [1, 2] }).ok === false, 'SaaS-A-21 district_codes 陣列元素非字串被拒絕');
+    assert(S.validateGeoMapSettingsPatch({ geo_map_district_codes: { a: 1 } }).ok === false, 'SaaS-A-22 district_codes 非陣列物件被拒絕');
+    assert(S.validateGeoMapSettingsPatch({ geo_map_geojson_source: '/data/geo/taiwan/taoyuan-districts.geojson' }).ok === true, 'SaaS-A-23 站內相對路徑通過');
+    assert(S.validateGeoMapSettingsPatch({ geo_map_geojson_source: 'http://evil.com/x.geojson' }).ok === false, 'SaaS-A-24 http:// 被拒絕');
+    assert(S.validateGeoMapSettingsPatch({ geo_map_geojson_source: 'https://evil.com/x.geojson' }).ok === false, 'SaaS-A-25 https:// 被拒絕');
+    assert(S.validateGeoMapSettingsPatch({ geo_map_geojson_source: 'javascript:alert(1)' }).ok === false, 'SaaS-A-26 javascript: 被拒絕');
+    assert(S.validateGeoMapSettingsPatch({ geo_map_geojson_source: 'data:text/html,x' }).ok === false, 'SaaS-A-27 data: 被拒絕');
+    assert(S.validateGeoMapSettingsPatch({ geo_map_geojson_source: '//evil.com/x.geojson' }).ok === false, 'SaaS-A-28 protocol-relative // 被拒絕');
+    assert(S.validateGeoMapSettingsPatch({ geo_map_geojson_source: '/data/geo/../../etc/passwd' }).ok === false, 'SaaS-A-29 path traversal .. 被拒絕');
+    assert(S.validateGeoMapSettingsPatch({ geo_map_geojson_source: 'relative/no-leading-slash.geojson' }).ok === false, 'SaaS-A-30 非站內絕對相對路徑（無開頭 /）被拒絕');
+    assert(S.validateGeoMapSettingsPatch({ geo_map_geojson_source: '' }).ok === true, 'SaaS-A-31 geojson_source 空字串（清空）通過');
+    assert(S.validateGeoMapSettingsPatch({ geo_map_auto_fit_bounds: '1' }).ok === true, 'SaaS-A-32 auto_fit_bounds="1" 通過');
+    assert(S.validateGeoMapSettingsPatch({ geo_map_auto_fit_bounds: 'false' }).ok === true, 'SaaS-A-33 auto_fit_bounds="false" 通過');
+    assert(S.validateGeoMapSettingsPatch({ geo_map_auto_fit_bounds: 'maybe' }).ok === false, 'SaaS-A-34 auto_fit_bounds 非布林字串被拒絕');
+    assert(S.validateGeoMapSettingsPatch({ geo_map_city_code: 123 }).ok === false, 'SaaS-A-35 city_code 非字串被拒絕');
+    assert(S.validateGeoMapSettingsPatch({ geo_map_scope_mode: 'districts', geo_map_city_code: 'TAO', geo_map_district_codes: ['ZHONGLI'], geo_map_default_zoom: 13 }).ok === true, 'SaaS-A-36 多欄位合法組合通過');
+
+    // ── SaaS-B：parseGeoMapSettingsRow（預設值／防呆） ──────────────
+    const d1 = S.parseGeoMapSettingsRow({});
+    assert(d1.scope_mode === 'store_location', 'SaaS-B-1 空設定 scope_mode 預設 store_location');
+    assert(d1.default_zoom === 12, 'SaaS-B-2 空設定 zoom 預設 12');
+    assert(d1.auto_fit_bounds === true, 'SaaS-B-3 空設定 auto_fit_bounds 預設 true');
+    assert(Array.isArray(d1.district_codes) && d1.district_codes.length === 0, 'SaaS-B-4 空設定 district_codes 預設空陣列');
+    assert(d1.bounds === null, 'SaaS-B-5 空設定 bounds 預設 null');
+    assert(d1.store_location.lat === null && d1.store_location.lng === null, 'SaaS-B-6 空設定 store_location 座標為 null');
+    const d2 = S.parseGeoMapSettingsRow({ store_lat: '24.9998', store_lng: '121.2168' });
+    assert(d2.store_location.lat === 24.9998 && d2.store_location.lng === 121.2168, 'SaaS-B-7 store_lat/store_lng 正確轉數字（沿用既有欄位，見需求文件三）');
+    const d3 = S.parseGeoMapSettingsRow({ store_lat: 'not-a-number' });
+    assert(d3.store_location.lat === null, 'SaaS-B-8 store_lat 非數字時安全回 null');
+    const d4 = S.parseGeoMapSettingsRow({ geo_map_district_codes: 'not-json' });
+    assert(Array.isArray(d4.district_codes) && d4.district_codes.length === 0, 'SaaS-B-9 district_codes 壞資料安全回空陣列（不拋錯，不讓地圖消失）');
+    const d5 = S.parseGeoMapSettingsRow({ geo_map_bounds: 'not-json' });
+    assert(d5.bounds === null, 'SaaS-B-10 bounds 壞 JSON 安全回 null');
+    const d6 = S.parseGeoMapSettingsRow({ geo_map_bounds: JSON.stringify({ south: 30, west: 121, north: 25, east: 122 }) });
+    assert(d6.bounds === null, 'SaaS-B-11 DB 內已存在的非法 bounds（順序錯誤）讀出時被重新驗證並清成 null，不原樣回傳壞資料');
+    const d7 = S.parseGeoMapSettingsRow({ geo_map_scope_mode: 'not-a-real-mode' });
+    assert(d7.scope_mode === 'store_location', 'SaaS-B-12 DB 內未知 scope_mode 讀出時 fallback 為預設值');
+    const d8 = S.parseGeoMapSettingsRow({ geo_map_default_zoom: '999' });
+    assert(d8.default_zoom === 12, 'SaaS-B-13 DB 內超範圍 zoom 讀出時 fallback 為預設值 12');
+    const d9 = S.parseGeoMapSettingsRow({ geo_map_auto_fit_bounds: '0' });
+    assert(d9.auto_fit_bounds === false, 'SaaS-B-14 auto_fit_bounds="0" 正確解析為 false');
+    const d10 = S.parseGeoMapSettingsRow({ geo_map_district_codes: JSON.stringify(['A', 2, 'B']) });
+    assert(d10.district_codes.length === 2 && d10.district_codes.every((x) => typeof x === 'string'), 'SaaS-B-15 district_codes 內非字串元素被過濾掉');
+
+    // ── SaaS-C：geoResolveBoundarySource（manifest／安全規則） ──────────
+    const MANIFEST_TAO = { cities: { TAO: { name: '桃園市', source: '/data/geo/taiwan/taoyuan-districts.geojson' } } };
+    assert(S.geoResolveBoundarySource({ city_code: 'TAO' }, MANIFEST_TAO) === '/data/geo/taiwan/taoyuan-districts.geojson', 'SaaS-C-1 (backend) city_code 對應 manifest → 回傳站內路徑');
+    assert(S.geoResolveBoundarySource({ city_code: null }, MANIFEST_TAO) === null, 'SaaS-C-2 (backend) 無 city_code → null（不載入邊界，不 fallback 桃園）');
+    assert(S.geoResolveBoundarySource({ city_code: 'TPE' }, MANIFEST_TAO) === null, 'SaaS-C-3 (backend) city_code 不在 manifest 內 → null（不自動 fallback 桃園）');
+    assert(S.geoResolveBoundarySource({ city_code: 'TAO' }, {}) === null, 'SaaS-C-4 (backend) manifest 缺 cities → null');
+    assert(S.geoResolveBoundarySource({ city_code: 'TAO' }, null) === null, 'SaaS-C-5 (backend) manifest 為 null → null，不拋錯');
+    assert(S.geoResolveBoundarySource({ city_code: 'X' }, { cities: { X: { source: 'https://evil.com/x.geojson' } } }) === null, 'SaaS-C-6 (backend) manifest 內 source 是外部 https → null');
+    assert(S.geoResolveBoundarySource({ city_code: 'X' }, { cities: { X: { source: '//evil.com/x.geojson' } } }) === null, 'SaaS-C-7 (backend) manifest 內 source 是 protocol-relative → null');
+    assert(S.geoResolveBoundarySource({ city_code: 'X' }, { cities: { X: { source: '/a/../../etc/passwd' } } }) === null, 'SaaS-C-8 (backend) manifest 內 source 含 path traversal → null');
+    assert(S.geoResolveBoundarySource({ city_code: 'X' }, { cities: { X: { source: 'javascript:alert(1)' } } }) === null, 'SaaS-C-9 (backend) manifest 內 source 是 javascript: → null');
+    [
+      [{ city_code: 'TAO' }, MANIFEST_TAO],
+      [{ city_code: null }, MANIFEST_TAO],
+      [{ city_code: 'X' }, { cities: { X: { source: 'https://evil.com/x' } } }],
+      [{ city_code: 'X' }, { cities: { X: { source: '/data/geo/taiwan/taoyuan-districts.geojson' } } }],
+    ].forEach(([settings, manifest], i) => {
+      assert(M.geoResolveBoundarySource(settings, manifest) === S.geoResolveBoundarySource(settings, manifest), `SaaS-C-consistency-${i} frontend 與 backend geoResolveBoundarySource() 結果一致`);
+    });
+
+    // ── SaaS-D：geoResolveInitialViewport（優先順序／不 fallback 桃園） ───
+    const TAOYUAN_LAT = 24.9998, TAOYUAN_LNG = 121.2168;
+    const r1 = S.geoResolveInitialViewport({ scopeMode: 'store_location', storeLat: 22.62, storeLng: 120.30, zoom: 14 });
+    assert(r1.type === 'center' && r1.center[0] === 22.62 && r1.center[1] === 120.30, 'SaaS-D-1 store_location 有效座標 → 依店家座標置中（高雄店家不會被桃園蓋掉）');
+    const r2 = S.geoResolveInitialViewport({ scopeMode: 'store_location' });
+    assert(r2.source === 'taiwan_fallback', 'SaaS-D-2 store_location 缺座標 → 台灣全域 fallback');
+    assert(r2.center[0] !== TAOYUAN_LAT || r2.center[1] !== TAOYUAN_LNG, 'SaaS-D-3 fallback 座標不等於桃園座標（不得 fallback 桃園）');
+    assert(JSON.stringify(r2.center) === JSON.stringify([23.7, 121.0]) && r2.zoom === 7, 'SaaS-D-4 台灣全域 fallback 座標與 zoom 正確（23.7,121.0 / zoom 7）');
+    const r3 = S.geoResolveInitialViewport({ scopeMode: 'custom_bounds', customBounds: { south: 24, west: 121, north: 25, east: 122 } });
+    assert(r3.type === 'bounds' && r3.source === 'custom_bounds', 'SaaS-D-5 custom_bounds 有效 → 使用自訂範圍');
+    const r4 = S.geoResolveInitialViewport({ scopeMode: 'custom_bounds', customBounds: { south: 30, west: 121, north: 25, east: 122 } });
+    assert(r4.source === 'taiwan_fallback', 'SaaS-D-6 custom_bounds 無效（順序錯誤） → 台灣 fallback（不落到其他模式的資料）');
+    const r5 = S.geoResolveInitialViewport({ scopeMode: 'districts', districtBounds: { south: 24, west: 121, north: 25, east: 122 } });
+    assert(r5.type === 'bounds' && r5.source === 'districts', 'SaaS-D-7 districts 有效 GeoJSON bounds → 使用行政區範圍');
+    const r6 = S.geoResolveInitialViewport({ scopeMode: 'districts', districtBounds: null });
+    assert(r6.source === 'taiwan_fallback', 'SaaS-D-8 districts 無 GeoJSON bounds → 台灣 fallback');
+    const r7 = S.geoResolveInitialViewport({ scopeMode: 'data_bounds', dataBounds: { south: 24, west: 121, north: 25, east: 122 } });
+    assert(r7.type === 'bounds' && r7.source === 'data_bounds', 'SaaS-D-9 data_bounds 有資料 → 使用資料範圍');
+    const r8 = S.geoResolveInitialViewport({ scopeMode: 'data_bounds', dataBounds: null });
+    assert(r8.source === 'taiwan_fallback', 'SaaS-D-10 data_bounds 無資料 → 台灣 fallback');
+    const r9 = S.geoResolveInitialViewport({ scopeMode: 'unknown_mode' });
+    assert(r9.source === 'taiwan_fallback', 'SaaS-D-11 未知 scope_mode → 台灣 fallback（安全預設）');
+    const r10 = S.geoResolveInitialViewport({ scopeMode: 'custom_bounds', autoFitBounds: false, customBounds: { south: 24, west: 121, north: 25, east: 122 } });
+    assert(r10.source === 'taiwan_fallback', 'SaaS-D-12 auto_fit_bounds=false 時即使 custom_bounds 有效仍不自動 fit（改用 fallback）');
+    const r11 = S.geoResolveInitialViewport({ scopeMode: 'districts', autoFitBounds: false, districtBounds: { south: 24, west: 121, north: 25, east: 122 } });
+    assert(r11.source === 'taiwan_fallback', 'SaaS-D-13 auto_fit_bounds=false 對 districts 模式同樣生效');
+    [
+      { scopeMode: 'store_location', storeLat: 25.03, storeLng: 121.56 },
+      { scopeMode: 'store_location' },
+      { scopeMode: 'custom_bounds', customBounds: { south: 24, west: 121, north: 25, east: 122 } },
+      { scopeMode: 'unknown' },
+    ].forEach((opts, i) => {
+      assert(JSON.stringify(M.geoResolveInitialViewport(opts)) === JSON.stringify(S.geoResolveInitialViewport(opts)), `SaaS-D-consistency-${i} frontend 與 backend geoResolveInitialViewport() 結果一致`);
+    });
+
+    // ── SaaS-E：District Filtering（scope_mode=districts 只 render 選取行政區） ──
+    const taoyuanReal = JSON.parse(fs.readFileSync(path.join(ROOT, 'public/data/geo/taiwan/taoyuan-districts.geojson'), 'utf8'));
+    assert(taoyuanReal.features.length === 13, 'SaaS-E-1 新版 taoyuan-districts.geojson 仍是 13 個行政區（架構調整，資料不變）');
+    assert(taoyuanReal.features.every((f) => !!(f.properties && f.properties.district_code)), 'SaaS-E-2 每個 feature 都有 district_code 屬性（供 district_codes 過濾比對）');
+    const codes = taoyuanReal.features.map((f) => f.properties.district_code);
+    assert(new Set(codes).size === codes.length, 'SaaS-E-3 每個 district_code 皆為唯一值');
+    const filteredSome = M._geoFilterFeaturesByDistrictCodes(taoyuanReal.features, ['ZHONGLI', 'BADE']);
+    assert(filteredSome.length === 2, 'SaaS-E-4 district_codes=[ZHONGLI,BADE] 只保留 2 個行政區');
+    assert(filteredSome.every((f) => ['ZHONGLI', 'BADE'].includes(f.properties.district_code)), 'SaaS-E-5 過濾結果只含指定的行政區代碼');
+    const filteredNone = M._geoFilterFeaturesByDistrictCodes(taoyuanReal.features, ['NOT_EXIST']);
+    assert(filteredNone.length === 0, 'SaaS-E-6 district_codes 全部不匹配時結果為空陣列（不誤顯示未選取的行政區）');
+    const filteredEmpty = M._geoFilterFeaturesByDistrictCodes(taoyuanReal.features, []);
+    assert(filteredEmpty.length === 13, 'SaaS-E-7 district_codes=[]（未限制）時不過濾，顯示全部');
+    const filteredNonArray = M._geoFilterFeaturesByDistrictCodes(taoyuanReal.features, undefined);
+    assert(filteredNonArray.length === 13, 'SaaS-E-8 district_codes 未提供時不過濾（向後相容預設行為）');
+    const legacyFixtureFeatures = [{ properties: { county: '桃園市', district: '中壢區' } }];
+    const filteredLegacy = M._geoFilterFeaturesByDistrictCodes(legacyFixtureFeatures, ['ZHONGLI']);
+    assert(filteredLegacy.length === 1, 'SaaS-E-9 缺少 district_code 屬性的舊版 fixture 不被誤過濾掉（向後相容）');
+
+    // ── SaaS-F：Manifest／靜態檔案完整性 ──────────────────────────
+    const manifestPath = path.join(ROOT, 'public/data/geo/taiwan/manifest.json');
+    assert(fs.existsSync(manifestPath), 'SaaS-F-1 public/data/geo/taiwan/manifest.json 存在');
+    let manifestParsed = null; let manifestParseThrew = false;
+    try { manifestParsed = JSON.parse(fs.readFileSync(manifestPath, 'utf8')); } catch (e) { manifestParseThrew = true; }
+    assert(!manifestParseThrew, 'SaaS-F-2 manifest.json 是合法 JSON');
+    assert(!!(manifestParsed && manifestParsed.cities && manifestParsed.cities.TAO), 'SaaS-F-3 manifest 內含 TAO（桃園市）條目');
+    assert(manifestParsed.cities.TAO.source === '/data/geo/taiwan/taoyuan-districts.geojson', 'SaaS-F-4 manifest TAO source 指向新版檔案路徑');
+    assert(fs.existsSync(path.join(ROOT, 'public', manifestParsed.cities.TAO.source)), 'SaaS-F-5 manifest 指向的檔案實際存在於磁碟');
+    assert(!S.isUnsafeSourceUrl(manifestParsed.cities.TAO.source), 'SaaS-F-6 manifest 內建 source 通過安全規則（架構本身自洽）');
+    assert(fs.existsSync(path.join(ROOT, 'public/data/geo/taiwan-districts.geojson')), 'SaaS-F-7 舊版 public/data/geo/taiwan-districts.geojson 仍保留（既有 fixture 相容，見需求文件一）');
+
+    // ── SaaS-G：Store Isolation／Cross-Store（settings key-value 表，模擬真實 SQL 寫入路徑） ──
+    {
+      const SQL = await initSqlJs();
+      const rawDb = new SQL.Database();
+      rawDb.run(`CREATE TABLE settings (store_id TEXT NOT NULL, key TEXT NOT NULL, value TEXT DEFAULT '', PRIMARY KEY(store_id, key));`);
+      const db = {
+        run(sql, params) { const stmt = rawDb.prepare(sql); stmt.bind(params || []); stmt.step(); const changes = rawDb.getRowsModified(); stmt.free(); return { changes }; },
+        get(sql, params) { const stmt = rawDb.prepare(sql); stmt.bind(params || []); const row = stmt.step() ? stmt.getAsObject() : undefined; stmt.free(); return row; },
+        all(sql, params) { const stmt = rawDb.prepare(sql); stmt.bind(params || []); const rows = []; while (stmt.step()) rows.push(stmt.getAsObject()); stmt.free(); return rows; },
+      };
+      function writeGeoMapSetting(storeId, key, value) {
+        const v = value === null ? '' : String(value);
+        const updated = db.run('UPDATE settings SET value=? WHERE store_id=? AND key=?', [v, storeId, key]);
+        if (!updated.changes) db.run('INSERT OR IGNORE INTO settings (store_id,key,value) VALUES (?,?,?)', [storeId, key, v]);
+      }
+      function readAllSettings(storeId) {
+        const rows = db.all('SELECT key, value FROM settings WHERE store_id=?', [storeId]);
+        const s = {}; rows.forEach((r) => { s[r.key] = r.value; }); return s;
+      }
+
+      writeGeoMapSetting('store_A', 'geo_map_scope_mode', 'districts');
+      writeGeoMapSetting('store_A', 'geo_map_city_code', 'TAO');
+      writeGeoMapSetting('store_A', 'store_lat', '24.9998');
+      writeGeoMapSetting('store_A', 'store_lng', '121.2168');
+
+      writeGeoMapSetting('store_B', 'geo_map_scope_mode', 'store_location');
+      writeGeoMapSetting('store_B', 'store_lat', '22.6273');
+      writeGeoMapSetting('store_B', 'store_lng', '120.3014');
+
+      const settingsA = S.parseGeoMapSettingsRow(readAllSettings('store_A'));
+      const settingsB = S.parseGeoMapSettingsRow(readAllSettings('store_B'));
+
+      assert(settingsA.scope_mode === 'districts' && settingsA.city_code === 'TAO', 'SaaS-G-1 store_A 讀到自己的 districts/TAO 設定');
+      assert(settingsB.scope_mode === 'store_location', 'SaaS-G-2 store_B 讀到自己的 store_location 設定，不是 store_A 的 districts');
+      assert(settingsB.city_code === null, 'SaaS-G-3 store_B 沒有設定 city_code，不會意外讀到 store_A 的 TAO（跨店隔離）');
+      assert(settingsA.store_location.lat === 24.9998, 'SaaS-G-4 store_A 座標正確（沿用既有 store_lat）');
+      assert(settingsB.store_location.lat === 22.6273 && settingsB.store_location.lat !== settingsA.store_location.lat, 'SaaS-G-5 store_B 座標是自己的高雄座標，未被 store_A 的桃園座標覆蓋（跨店隔離）');
+
+      const settingsCBefore = S.parseGeoMapSettingsRow(readAllSettings('store_C'));
+      writeGeoMapSetting('store_A', 'geo_map_default_zoom', '16');
+      const settingsCAfter = S.parseGeoMapSettingsRow(readAllSettings('store_C'));
+      assert(JSON.stringify(settingsCBefore) === JSON.stringify(settingsCAfter), 'SaaS-G-6 對 store_A 的寫入完全不影響從未設定過的 store_C（新商家預設安全、不互相污染）');
+      assert(settingsCAfter.scope_mode === 'store_location' && settingsCAfter.store_location.lat === null, 'SaaS-G-7 全新商家（store_C）沒有任何設定時，預設為 store_location 且座標為 null（後續會 fallback 台灣，不是桃園）');
+
+      writeGeoMapSetting('store_B', 'geo_map_scope_mode', 'custom_bounds');
+      writeGeoMapSetting('store_B', 'geo_map_scope_mode', 'data_bounds');
+      const bRows = db.all('SELECT * FROM settings WHERE store_id=? AND key=?', ['store_B', 'geo_map_scope_mode']);
+      assert(bRows.length === 1 && bRows[0].value === 'data_bounds', 'SaaS-G-8 重複寫入同一 key 是 UPDATE 覆蓋，不是疊加出多筆記錄');
+
+      const manifestShared = { cities: { TAO: { source: '/data/geo/taiwan/taoyuan-districts.geojson' } } };
+      const boundaryA = S.geoResolveBoundarySource(settingsA, manifestShared);
+      const boundaryB = S.geoResolveBoundarySource(settingsB, manifestShared);
+      assert(boundaryA === '/data/geo/taiwan/taoyuan-districts.geojson', 'SaaS-G-9 store_A（已設定 TAO）解析出邊界來源');
+      assert(boundaryB === null, 'SaaS-G-10 store_B（未設定 city_code）即使 manifest 內有 TAO 也不會自動載入桃園邊界（不 fallback 桃園）');
+    }
+
+    // ── SaaS-H：Memory／狀態不累積（重複週期不洩漏、不無限成長） ────────
+    {
+      const { dom } = setupDom();
+      const { document, window } = dom.window;
+      const mock = createLeafletMock();
+      window.L = mock.L;
+      for (let i = 0; i < 5; i += 1) {
+        document.body.innerHTML = `<div id="geo-map-mem-${i}"></div>`;
+        window.geoMapState.settings = { scope_mode: 'store_location', default_zoom: 12, store_location: { lat: 24 + i, lng: 121 + i }, city_code: null, district_codes: [], bounds: null, geojson_source: null, auto_fit_bounds: true };
+        window.geoMapState.manifest = null;
+        window.geoInitMap(`geo-map-mem-${i}`, buildTestRows());
+        window.geoDestroyMap();
+      }
+      assert(window.geoMapState.instance === null, 'SaaS-H-1 重複 5 次 init/destroy 週期後 instance 正確清空（不殘留上一輪的 map 物件）');
+      assert(window.geoMapState.containerId === null, 'SaaS-H-2 重複週期後 containerId 正確清空');
+      assert(mock.calls.removed === 5, 'SaaS-H-3 5 次週期確實各自呼叫一次 map.remove()（沒有殘留未銷毀的 instance）');
+      const settingsKeyCount = Object.keys(window.geoMapState.settings).length;
+      assert(settingsKeyCount === 8, 'SaaS-H-4 geoMapState.settings 每次替換為新的一份完整物件，鍵數量固定不隨週期增加（沒有舊欄位殘留疊加）');
+      dom.window.close();
+    }
+    {
+      const { dom } = setupDom();
+      const { window } = dom.window;
+      window.geoMapState.settings = { city_code: 'TAO' };
+      window.geoMapState.manifest = { cities: { TAO: { source: '/data/geo/taiwan-districts.geojson' } } };
+      await window.geoLoadBoundaryData();
+      const countAfterTao = window.geoMapState.featureIndex.featureCount;
+      window.geoMapState.settings = { city_code: null };
+      window.geoMapState.manifest = { cities: { TAO: { source: '/data/geo/taiwan-districts.geojson' } } };
+      await window.geoLoadBoundaryData();
+      const countAfterSwitch = window.geoMapState.featureIndex.featureCount;
+      assert(countAfterTao > 0, 'SaaS-H-5 切換前（TAO 商家）featureIndex 確實載入了行政區');
+      assert(countAfterSwitch === 0, 'SaaS-H-6 切換到未設定 city_code 的商家後，featureIndex 清空為 0（不殘留前一個商家的行政區資料，不跨商家污染）');
+      dom.window.close();
+    }
   }
 
   printSummary();
