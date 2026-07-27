@@ -1,0 +1,160 @@
+/* fix18-10-hotfix30-B5-R5.2-B3 — Geo Intelligence 地圖設定 UI
+   只補充 Core 既有 dark theme（main.css 的 --bg-*/--accent/--border/--text-*/--danger/--success
+   變數）沒有覆蓋到的元件：fieldset radio 群組、行政區多選清單、Preview 地圖容器與
+   loading overlay、bounds 欄位 grid、footer 按鈕列。不新增任何 Bootstrap 或第二套主題，
+   一律沿用既有變數，寬度/breakpoint 也沿用 main.css 既有的 768px 慣例。 */
+
+.geo-settings-fieldset {
+  border: 1px solid var(--border, #333);
+  border-radius: 8px;
+  padding: 12px 14px 14px;
+  margin: 0 0 10px;
+}
+.geo-settings-fieldset legend {
+  padding: 0 6px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--accent, #f5a623);
+}
+
+.geo-settings-radio-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 20px;
+  margin-top: 8px;
+}
+.geo-settings-radio {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--text-primary, #eee);
+}
+.geo-settings-radio input[type="radio"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent, #f5a623);
+  cursor: pointer;
+}
+.geo-settings-radio input[type="radio"]:focus-visible {
+  outline: 2px solid var(--accent, #f5a623);
+  outline-offset: 2px;
+}
+
+.geo-settings-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--text-secondary, #999);
+  cursor: pointer;
+}
+.geo-settings-checkbox input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent, #f5a623);
+  cursor: pointer;
+}
+.geo-settings-checkbox input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--accent, #f5a623);
+  outline-offset: 2px;
+}
+
+.geo-settings-zoom-value {
+  text-align: center;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--accent, #f5a623);
+  margin: 4px 0 8px;
+}
+
+.geo-settings-error {
+  color: var(--danger, #e53935) !important;
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+.geo-settings-district-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 12px;
+  max-height: 220px;
+  overflow-y: auto;
+  margin: 10px 0;
+  padding: 8px;
+  border: 1px solid var(--border, #333);
+  border-radius: 6px;
+  background: var(--bg-base, #0f0f0f);
+}
+.geo-settings-district-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-primary, #eee);
+  cursor: pointer;
+}
+.geo-settings-district-item input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent, #f5a623);
+  cursor: pointer;
+}
+.geo-settings-district-item input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--accent, #f5a623);
+  outline-offset: 2px;
+}
+
+.geo-settings-btn-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 10px;
+}
+.geo-settings-footer-actions {
+  margin-top: 16px;
+}
+
+.geo-settings-preview-map {
+  position: relative;
+  width: 100%;
+  height: 420px;
+  border: 1px solid var(--border, #333);
+  border-radius: 8px;
+  overflow: hidden; /* 需求十四之七：防止世界地圖水平重複造成錯誤觀感 */
+  background: var(--bg-base, #0f0f0f);
+}
+.geo-settings-preview-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary, #999);
+  font-size: 13px;
+  background: var(--bg-base, #0f0f0f);
+  z-index: 5;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+.geo-settings-preview-loading.geo-settings-hidden {
+  opacity: 0;
+  visibility: hidden;
+}
+
+/* ── Responsive：768px 以下沿用既有 main.css 慣例斷點 ────────────── */
+@media (max-width: 768px) {
+  .geo-settings-district-list { grid-template-columns: 1fr; }
+  .geo-settings-preview-map { height: 320px; }
+  .geo-settings-btn-row { flex-direction: column; align-items: stretch; }
+  .geo-settings-btn-row button { width: 100%; }
+}
+
+/* ── 390px 手機：bounds 四欄改單欄（沿用既有 input 本身就是 block 版面，這裡
+      只需確保 preview 高度落在 300~320px 區間、不水平溢出）────────────── */
+@media (max-width: 480px) {
+  .geo-settings-preview-map { height: 300px; }
+  .geo-settings-radio-group { flex-direction: column; gap: 10px; }
+}

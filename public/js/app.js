@@ -2507,6 +2507,7 @@ function switchSettingsTab(tab) {
   if (tab === 'line_members_list') { initLineMemberFilterListeners(); loadLineMembersList(true); } // fix18-10-hotfix23-E / hotfix26-C
   if (tab === 'line_analytics') { initLineAnalyticsListeners(); loadLineAnalyticsOverview(); } // fix18-10-hotfix26-E
   if (tab === 'line_integration') loadLineIntegrationCenter(); // fix18-10-hotfix27
+  if (tab === 'geo_map')          { if (typeof geoMapSettingsInit === 'function') geoMapSettingsInit(); } // fix18-10-hotfix30-B5-R5.2-B3
 }
 
 // ===== 設定 =====

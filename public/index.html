@@ -8,6 +8,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/main.css?v=fix18-10-hotfix24-UI">
   <link rel="stylesheet" href="/css/geo-intelligence.css?v=fix18-10-hotfix30-B5-R5-2-B1-5">
+  <link rel="stylesheet" href="/css/geo-map-settings.css?v=fix18-10-hotfix30-B5-R5-2-B3">
 </head>
 <body>
 
@@ -750,6 +751,7 @@
       <button class="settings-tab-btn"        data-stab="android_features" onclick="switchSettingsTab('android_features')">📱 Android 平板</button>
       <button class="settings-tab-btn"        data-stab="discount_campaigns" onclick="switchSettingsTab('discount_campaigns')">💸 折扣活動</button>
       <button class="settings-tab-btn"        data-stab="product_analysis_groups" onclick="switchSettingsTab('product_analysis_groups')">📊 商品分析群組</button>
+      <button class="settings-tab-btn"        data-stab="geo_map" onclick="switchSettingsTab('geo_map')" id="tab-btn-geo_map">🗺️ Geo Intelligence 地圖設定</button>
       <button class="settings-tab-btn"        data-stab="ads_attribution" onclick="switchSettingsTab('ads_attribution')">📣 廣告追蹤</button>
       <button class="settings-tab-btn"        data-stab="line_member" onclick="switchSettingsTab('line_member')">👤 LINE 會員登入設定</button>
       <button class="settings-tab-btn"        data-stab="line_analytics" onclick="switchSettingsTab('line_analytics')">📡 LINE 管理</button>
@@ -1875,6 +1877,108 @@
         </div>
       </div>
     </div>
+
+    <!-- fix18-10-hotfix30-B5-R5.2-B3：Geo Intelligence 地圖設定（沿用 Store Settings，
+         不另建第二套設定框架；只做 UI/Preview/Validation，不重新設計 R5.2-B2 的
+         Geo Map Core，viewport/boundary 計算全部呼叫 geo-intelligence-map.js 既有的
+         pure function）。所有 JS handler 一律使用 geoMapSettings* 命名空間，避免與
+         Core（geoMapState／GEO_MAP_SCOPE_MODES／geoInitMap 等）同名衝突。 -->
+    <div class="settings-tab-panel" id="stab-geo_map" style="display:none">
+      <div class="settings-grid">
+        <div class="settings-card full">
+          <fieldset class="geo-settings-fieldset">
+            <legend>🗺️ 地圖聚焦模式</legend>
+            <p class="settings-hint">決定 Geo Intelligence Dashboard 地圖預設顯示的範圍，不同商家可各自設定，不會互相影響。</p>
+            <div class="geo-settings-radio-group">
+              <label class="geo-settings-radio">
+                <input type="radio" name="geo_map_scope_mode" id="geo-scope-store_location" value="store_location" onchange="geoMapSettingsOnScopeModeChange()">
+                <span>店家位置</span>
+              </label>
+              <label class="geo-settings-radio">
+                <input type="radio" name="geo_map_scope_mode" id="geo-scope-districts" value="districts" onchange="geoMapSettingsOnScopeModeChange()">
+                <span>行政區</span>
+              </label>
+              <label class="geo-settings-radio">
+                <input type="radio" name="geo_map_scope_mode" id="geo-scope-custom_bounds" value="custom_bounds" onchange="geoMapSettingsOnScopeModeChange()">
+                <span>自訂範圍</span>
+              </label>
+              <label class="geo-settings-radio">
+                <input type="radio" name="geo_map_scope_mode" id="geo-scope-data_bounds" value="data_bounds" onchange="geoMapSettingsOnScopeModeChange()">
+                <span>依分析資料</span>
+              </label>
+            </div>
+          </fieldset>
+          <p class="settings-hint" id="geo-settings-data-bounds-hint" style="display:none">此模式會依目前符合篩選條件的 Geo 資料分布自動聚焦；若目前沒有可用資料，會改用下方「台灣全域」fallback（<strong>不會</strong> fallback 桃園）。</p>
+        </div>
+
+        <div class="settings-card">
+          <h3>🔍 預設縮放層級</h3>
+          <label for="geo-settings-zoom">縮放（5～18）</label>
+          <input type="range" id="geo-settings-zoom" min="5" max="18" step="1" value="12"
+                 aria-describedby="geo-settings-zoom-error" oninput="geoMapSettingsOnZoomChange()">
+          <div class="geo-settings-zoom-value" id="geo-settings-zoom-value" aria-live="polite">12</div>
+          <p class="settings-hint geo-settings-error" id="geo-settings-zoom-error" style="display:none" role="alert"></p>
+        </div>
+
+        <div class="settings-card" id="geo-settings-store-location-block">
+          <h3>📍 店家定位</h3>
+          <label for="geo-settings-lat">Latitude</label>
+          <input type="text" id="geo-settings-lat" inputmode="decimal" placeholder="例如：24.9998"
+                 aria-describedby="geo-settings-lat-error" oninput="geoMapSettingsOnLatLngChange()">
+          <p class="settings-hint geo-settings-error" id="geo-settings-lat-error" style="display:none" role="alert"></p>
+          <label for="geo-settings-lng">Longitude</label>
+          <input type="text" id="geo-settings-lng" inputmode="decimal" placeholder="例如：121.2168"
+                 aria-describedby="geo-settings-lng-error" oninput="geoMapSettingsOnLatLngChange()">
+          <p class="settings-hint geo-settings-error" id="geo-settings-lng-error" style="display:none" role="alert"></p>
+          <button type="button" class="btn-secondary" onclick="geoMapSettingsUseCurrentLocation()">📡 取得目前定位</button>
+          <p class="settings-hint" id="geo-settings-location-status" aria-live="polite"></p>
+        </div>
+
+        <div class="settings-card" id="geo-settings-districts-block" style="display:none">
+          <h3>🏘️ 行政區設定</h3>
+          <p class="settings-hint" id="geo-settings-manifest-coverage-hint" aria-live="polite">目前系統已提供的行政區邊界：載入中…</p>
+          <label for="geo-settings-city">縣市</label>
+          <select id="geo-settings-city" onchange="geoMapSettingsOnCityChange()"></select>
+          <div id="geo-settings-district-list" class="geo-settings-district-list" role="group" aria-label="行政區多選（可複選）"></div>
+          <p class="settings-hint geo-settings-error" id="geo-settings-district-error" style="display:none" role="alert"></p>
+          <label class="geo-settings-checkbox">
+            <input type="checkbox" id="geo-settings-auto-fit-bounds" checked onchange="geoMapSettingsOnAutoFitChange()">
+            <span>依行政區範圍自動縮放（auto_fit_bounds）</span>
+          </label>
+        </div>
+
+        <div class="settings-card" id="geo-settings-bounds-block" style="display:none">
+          <h3>📐 自訂範圍</h3>
+          <label for="geo-settings-bounds-south">South</label>
+          <input type="text" id="geo-settings-bounds-south" inputmode="decimal" oninput="geoMapSettingsOnBoundsChange()">
+          <label for="geo-settings-bounds-west">West</label>
+          <input type="text" id="geo-settings-bounds-west" inputmode="decimal" oninput="geoMapSettingsOnBoundsChange()">
+          <label for="geo-settings-bounds-north">North</label>
+          <input type="text" id="geo-settings-bounds-north" inputmode="decimal" oninput="geoMapSettingsOnBoundsChange()">
+          <label for="geo-settings-bounds-east">East</label>
+          <input type="text" id="geo-settings-bounds-east" inputmode="decimal" oninput="geoMapSettingsOnBoundsChange()">
+          <p class="settings-hint geo-settings-error" id="geo-settings-bounds-error" style="display:none" role="alert"></p>
+          <div class="geo-settings-btn-row">
+            <button type="button" class="btn-secondary" onclick="geoMapSettingsApplyCurrentPreviewToBounds()">🎯 套用目前預覽範圍</button>
+          </div>
+        </div>
+
+        <div class="settings-card full">
+          <h3>🗺️ Preview</h3>
+          <div id="geo-settings-preview-map" class="geo-settings-preview-map" role="application" aria-label="地圖聚焦範圍預覽">
+            <div class="geo-settings-preview-loading" id="geo-settings-preview-loading">地圖載入中…</div>
+          </div>
+          <p class="settings-hint" id="geo-settings-preview-status" aria-live="polite"></p>
+        </div>
+      </div>
+
+      <div class="geo-settings-btn-row geo-settings-footer-actions">
+        <button class="btn-primary" id="geo-settings-save-btn" onclick="geoMapSettingsSave()">💾 儲存設定</button>
+        <button type="button" class="btn-secondary" onclick="geoMapSettingsReload()">🔄 重新載入已儲存設定</button>
+        <button type="button" class="btn-secondary" onclick="geoMapSettingsRestoreDefaults()">↺ 還原系統預設</button>
+      </div>
+    </div>
+
 
     <!-- fix18-10-hotfix23-D：廣告追蹤設定（Meta Pixel／GA4）-->
     <div class="settings-tab-panel" id="stab-ads_attribution" style="display:none">
@@ -3372,6 +3476,12 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
   integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 <script src="/js/geo-intelligence-map.js?v=fix18-10-hotfix30-B5-R5-2-B2"></script>
+<!-- fix18-10-hotfix30-B5-R5.2-B3: Geo Intelligence Settings UI（後台設定中心）。
+     只做 UI/設定流程/Preview，不重新設計 Geo Map Core：直接沿用上面
+     geo-intelligence-map.js 同一份 classic <script> 共用作用域的 pure function
+     （geoResolveInitialViewport()/geoResolveBoundarySource()/
+     _geoFilterFeaturesByDistrictCodes()），因此必須排在它之後載入。 -->
+<script src="/js/geo-map-settings.js?v=fix18-10-hotfix30-B5-R5-2-B3"></script>
 <script src="/js/coupons.js?v=fix18-06"></script>
 <script src="/js/qrcode.min.js?v=fix18-09F-h2"></script>
 <script src="/license.js?v=fix18-06"></script>
