@@ -25,7 +25,7 @@ function printSummary() {
 
 // ── Leaflet Test Double（需求文件二十九）───────────────────────
 function createLeafletMock() {
-  const calls = { mapInit: 0, tileLayer: 0, geoJSON: 0, fitBoundsCalls: [], removed: 0, invalidateSize: 0, layerAdd: 0, layerRemove: 0 };
+  const calls = { mapInit: 0, tileLayer: 0, geoJSON: 0, fitBoundsCalls: [], setViewCalls: [], removed: 0, invalidateSize: 0, layerAdd: 0, layerRemove: 0 };
   const allLayers = [];
   function makeLayer(feature) {
     let style = {};
@@ -62,7 +62,7 @@ function createLeafletMock() {
         removed: false,
         remove() { this.removed = true; calls.removed += 1; },
         fitBounds(b) { calls.fitBoundsCalls.push(b); },
-        setView() { return this; },
+        setView(center, zoom) { calls.setViewCalls.push({ center, zoom }); return this; },
         invalidateSize() { calls.invalidateSize += 1; },
       };
     },
@@ -2005,6 +2005,68 @@ async function main() {
       assert(countAfterSwitch === 0, 'SaaS-H-6 切換到未設定 city_code 的商家後，featureIndex 清空為 0（不殘留前一個商家的行政區資料，不跨商家污染）');
       dom.window.close();
     }
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // Hotfix 2（fix18-10-hotfix30-B5-R5.2-B3-hotfix2）：Dashboard Tile 不載入
+  // Root Cause 回歸防護——_geoBuildGeoJsonLayer() 拋例外時，_geoApplyInitialViewport()
+  // （唯一會呼叫 setView()/fitBounds() 的地方）仍必須執行，否則 tileLayer 雖然已
+  // addTo() 但地圖從未取得有效 view，Leaflet 永遠不會開始請求任何 tile。
+  // ══════════════════════════════════════════════════════════════
+  {
+    const { dom } = setupDom();
+    const { document, window } = dom.window;
+    const mock = createLeafletMock();
+    window.L = mock.L;
+    // 讓 L.geoJSON() 在這次呼叫中故意拋例外，模擬「行政區 GeoJSON 資料格式異常」。
+    const realGeoJSON = mock.L.geoJSON;
+    mock.L.geoJSON = () => { throw new Error('模擬 GeoJSON 格式異常'); };
+    document.body.innerHTML += window.geoRenderMapBlock('geo-map-hotfix2-1');
+    window.geoMapState.featureIndex = M.geoBuildAreaFeatureIndex(GEOJSON_FIXTURE); // 有 featureIndex 才會真的走進 _geoBuildGeoJsonLayer() 內部建立 L.geoJSON()
+    let threw = false;
+    try { window.geoInitMap('geo-map-hotfix2-1', buildTestRows()); } catch (e) { threw = true; }
+    assert(!threw, 'HOTFIX2-1 _geoBuildGeoJsonLayer() 拋例外時，geoInitMap() 本身不會把例外往外拋（不崩潰整個 Dashboard）');
+    assert(mock.calls.setViewCalls.length + mock.calls.fitBoundsCalls.length > 0, 'HOTFIX2-2 即使 GeoJSON 層建立失敗，_geoApplyInitialViewport() 仍然執行並成功呼叫 setView()/fitBounds()（這是 tile 能否開始載入的關鍵——先前的 bug 正是這裡完全沒被執行到）');
+    assert(!!window.geoMapState.instance, 'HOTFIX2-3 GeoJSON 建立失敗不影響 map instance 本身存在');
+    assert(mock.calls.tileLayer === 1, 'HOTFIX2-4 tileLayer 仍正常建立一次（不受 GeoJSON 例外影響）');
+    mock.L.geoJSON = realGeoJSON;
+    dom.window.close();
+  }
+  {
+    // 正常情況（GeoJSON 沒有拋例外）viewport 套用行為不變，確認這次修正沒有
+    // 改變既有正常路徑的行為（只是新增了例外保護）。
+    const { dom } = setupDom();
+    const { document, window } = dom.window;
+    const mock = createLeafletMock();
+    window.L = mock.L;
+    document.body.innerHTML += window.geoRenderMapBlock('geo-map-hotfix2-2');
+    window.geoMapState.featureIndex = M.geoBuildAreaFeatureIndex(GEOJSON_FIXTURE);
+    window.geoInitMap('geo-map-hotfix2-2', buildTestRows());
+    assert(mock.calls.setViewCalls.length + mock.calls.fitBoundsCalls.length > 0, 'HOTFIX2-5 GeoJSON 正常建立時，viewport 套用行為維持不變（沒有 GeoJSON 例外時一樣會呼叫 setView()/fitBounds()）');
+    assert(mock.calls.geoJSON >= 1, 'HOTFIX2-6 正常情況下 L.geoJSON() 仍會被呼叫（沒有把 try/catch 誤用成整段跳過）');
+    dom.window.close();
+  }
+  {
+    // geoFetchMapSettingsAndManifest() 的 root cause 回歸防護：確認 Core 現在也
+    // 改用 apiFetch()（若環境有提供），不再是先前那個會被 401 靜默吞掉、讓
+    // Dashboard 悄悄忽略商家真實設定的裸 fetch()。
+    const src = fs.readFileSync(path.join(ROOT, 'public/js/geo-intelligence-map.js'), 'utf8');
+    assert(/apiFetch\('\/api\/settings\/geo-map'\)/.test(src), 'HOTFIX2-7 geoFetchMapSettingsAndManifest() 原始碼確認會呼叫 apiFetch()（若環境有提供）');
+    assert(/typeof apiFetch === 'function'/.test(src), 'HOTFIX2-8 對沒有載入 app.js 的獨立測試環境仍保留安全 fallback（typeof 判斷），不會直接噴 ReferenceError');
+  }
+  {
+    // 呼叫端實際驗證：提供一個假的全域 apiFetch()，確認 geoFetchMapSettingsAndManifest()
+    // 真的會呼叫它，而不是繞過去用裸 fetch()。
+    const { dom } = setupDom();
+    const { window } = dom.window;
+    let apiFetchCalled = false;
+    window.apiFetch = async (url, opts) => {
+      apiFetchCalled = true;
+      return { ok: true, status: 200, json: async () => ({ success: true, data: { scope_mode: 'store_location', default_zoom: 12, store_location: { lat: null, lng: null }, city_code: null, district_codes: [], bounds: null, auto_fit_bounds: true } }) };
+    };
+    await window.geoFetchMapSettingsAndManifest();
+    assert(apiFetchCalled === true, 'HOTFIX2-9 提供 apiFetch() 時，geoFetchMapSettingsAndManifest() 實際呼叫它（不是繞過去用裸 fetch()）');
+    dom.window.close();
   }
 
   printSummary();

@@ -421,7 +421,21 @@ function geoInitMap(containerId, rows) {
   } catch (e) {
     // 安靜失敗：不 rethrow，讓後面的 GeoJSON polygon layer 繼續建立。
   }
-  _geoBuildGeoJsonLayer();
+  // fix18-10-hotfix30-B5-R5.2-B3-hotfix2（Root Cause 修正，Dashboard Tile 不載入）：
+  // 上面的 tileLayer.addTo() 特意包了 try/catch，理由是「圖磚失敗不能讓整個地圖初始化
+  // 失敗」——但反過來的情況完全沒被保護：_geoBuildGeoJsonLayer() 若拋例外（例如某個
+  // 商家設定的行政區 GeoJSON 資料格式異常），整個 geoInitMap() 會在這裡中斷，後面的
+  // _geoApplyInitialViewport()（唯一會呼叫 setView()/fitBounds() 的地方）永遠不會執行。
+  // Leaflet 的地圖在從未 setView() 過的情況下不會開始請求任何 tile（地圖本身、zoom
+  // 控制這些跟 view 狀態無關的 UI 仍會正常顯示，但 tile 永遠是空的），這正好完全對應
+  // 「Leaflet 已建立、Zoom 控制正常，但 Tile Layer 完全沒有載入」的症狀。修法：對稱地
+  // 幫 _geoBuildGeoJsonLayer() 也包一層 try/catch，任何行政區 GeoJSON 相關的例外都不能
+  // 擋住後面一定要執行到的 viewport 套用，這樣 tile 才保證會開始載入。
+  try {
+    _geoBuildGeoJsonLayer();
+  } catch (e) {
+    // 安靜失敗：不 rethrow，讓後面一定要跑到的 viewport 套用（tile 能否載入的關鍵）繼續執行。
+  }
   geoUpdateMapData(rows || [], geoMapState.metric);
   _geoApplyInitialViewport(rows || []);
   return true;
@@ -597,7 +611,19 @@ const GEO_MAP_SAFE_DEFAULT_SETTINGS = Object.freeze({
 async function geoFetchMapSettingsAndManifest() {
   let settings = { ...GEO_MAP_SAFE_DEFAULT_SETTINGS };
   try {
-    const res = await fetch('/api/settings/geo-map');
+    // fix18-10-hotfix30-B5-R5.2-B3-hotfix2（Root Cause 修正，與 Settings UI 的
+    // Hotfix 1 同一類 bug）：/api/settings/geo-map 掛在 requireStore 底下，需要
+    // Authorization Bearer JWT 或 x-store-id header，裸 fetch() 完全不會帶，會
+    // 401。這裡原本用裸 fetch()，因為下面 `if (res && res.ok)` 的防禦寫法，401
+    // 會被「安靜吞掉」變成安全預設值——不會讓 Dashboard 崩潰，但會讓 Dashboard
+    // 悄悄忽略商家真正設定的 scope_mode/city_code/district_codes 等等，一直显示
+    // 安全預設而不是商家實際設定，且沒有任何錯誤訊息可觀察。改用既有 apiFetch()
+    // （跟 Settings UI／saveStoreLocationSettings() 同一套授權流程），不自行發明
+    // 第二套授權。
+    // 若目前執行環境沒有載入 app.js（例如獨立的 Core 測試環境），安全退回裸
+    // fetch()，不讓這個情境直接噴 ReferenceError；正式頁面一定會先載入 app.js，
+    // 一律走 apiFetch()。
+    const res = (typeof apiFetch === 'function') ? await apiFetch('/api/settings/geo-map') : await fetch('/api/settings/geo-map');
     if (res && res.ok) {
       const body = await res.json();
       if (body && body.success && body.data) settings = body.data;
