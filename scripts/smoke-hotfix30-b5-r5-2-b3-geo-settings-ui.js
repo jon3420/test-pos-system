@@ -228,8 +228,22 @@ async function main() {
 
   function buildFetchMock(opts) {
     const o = opts || {};
-    return async (url) => {
+    return async (url, options) => {
       const u = String(url);
+      const reqOpts = options || {};
+      const headers = reqOpts.headers || {};
+      // fix18-10-hotfix30-B5-R5.2-B3-hotfix1（Root Cause 回歸防護）：真實
+      // requireStore middleware 要求 /api/settings/* 一定要帶 Authorization
+      // Bearer JWT 或 x-store-id header，否則回 401 NO_STORE_TOKEN——這正是
+      // 先前「裸 fetch() 沒帶授權 header 導致 401」的真正 root cause。這裡在
+      // mock 裡如實重現同一個檢查，確保往後如果又不小心繞過 apiFetch()，
+      // smoke test 會立刻抓到，而不是像先前一樣測試也一起沒發現。
+      if (u.includes('/api/settings/') && !o.skipAuthCheck) {
+        const hasAuth = !!headers['Authorization'] || !!headers['x-store-id'];
+        if (!hasAuth) {
+          return { ok: false, status: 401, json: async () => ({ success: false, error: 'NO_STORE_TOKEN', message: '缺少店家登入 token，請重新登入' }) };
+        }
+      }
       if (u.includes('/api/settings/geo-map')) {
         if (o.failSettings) return { ok: false, status: 500, json: async () => ({}) };
         return { ok: true, status: 200, json: async () => ({ success: true, data: o.settingsFixture !== undefined ? o.settingsFixture : GEO_MAP_SETTINGS_FIXTURE }) };
@@ -280,6 +294,11 @@ async function main() {
   function setupDom(fetchOpts) {
     const dom = makeDom();
     dom.window.fetch = buildFetchMock(fetchOpts);
+    // fix18-10-hotfix30-B5-R5.2-B3-hotfix1：模擬真實已登入商家 session（apiFetch()
+    // 會讀 localStorage 的 pos_store_info.store_id 補上 x-store-id header），讓
+    // buildFetchMock() 的授權檢查在「正常已登入」情境下能通過，才能真正驗證
+    // 「有登入時該成功」與「沒登入時該 401」兩種情況的差異。
+    dom.window.localStorage.setItem('pos_store_info', JSON.stringify({ store_id: 'store_qa_test' }));
     // 需求：geo-map-settings.js 直接引用 Core 的 top-level const（GEO_MAP_SCOPE_MODES／
     // GEO_MAP_TAIWAN_FALLBACK_VIEWPORT），這在真實瀏覽器的多個 <script> tag 之間本來就是
     // 共用同一份全域詞法環境（let/const 跨 <script> 可見，這是既有規格行為）。但 jsdom 的
@@ -648,6 +667,45 @@ async function main() {
     const loadingEl = window.document.getElementById('geo-settings-preview-loading');
     assert(loadingEl.textContent.includes('失敗'), 'B-82 設定載入失敗時 Preview loading overlay 文字誠實反映失敗，不永遠卡在「地圖載入中」');
     await sleep(300); dom.window.close();
+  }
+
+  // ── B-15：Root Cause 回歸防護——/api/settings/geo-map 必須沿用 apiFetch() 授權流程 ──
+  {
+    // 情境 A：模擬「未登入」（不 seed pos_store_info，也不 seed token）——重現先前
+    // 401 的原始 bug 情境，確認程式碼能優雅處理（不崩潰、顯示錯誤），而不是假裝成功。
+    const dom = makeDom();
+    dom.window.fetch = buildFetchMock({});
+    dom.window.eval([appSrc, av2Src, geoSrc, mapSrc, settingsUiSrc].join('\n;\n'));
+    const mock = createLeafletMock();
+    dom.window.L = mock.L;
+    const { window } = dom.window;
+    let threw = false;
+    try { await window.geoMapSettingsLoad(); } catch (e) { threw = true; }
+    assert(!threw, 'B-83 未登入情境（無 Authorization/x-store-id）下 geoMapSettingsLoad() 不崩潰');
+    assert(window.geoMapSettingsState.loaded === false, 'B-84 未登入情境下 loaded 正確維持 false（401 被正確辨識為載入失敗，不是假裝成功）');
+    assert(!!window.geoMapSettingsState.loadError, 'B-85 未登入情境下記錄 loadError，畫面會顯示錯誤而不是空白');
+    await sleep(300); dom.window.close();
+  }
+  {
+    // 情境 B：模擬「已登入」（setupDom 預設會 seed pos_store_info）——確認登入後
+    // GET 與 PATCH 都能成功，證明現在確實有沿用 apiFetch() 帶上授權 header
+    // （若程式碼又不小心退回裸 fetch()，這裡會因為 mock 的授權檢查而重新失敗）。
+    const { dom } = setupDom();
+    const { window } = dom.window;
+    const loadOk = await window.geoMapSettingsLoad();
+    assert(loadOk === true, 'B-86 已登入情境下 GET /api/settings/geo-map 成功（apiFetch() 正確帶上 x-store-id/Authorization）');
+    const saveOk = await window.geoMapSettingsSave();
+    assert(saveOk === true, 'B-87 已登入情境下 PATCH /api/settings/geo-map 成功（apiFetch() 正確帶上授權 header，不再是先前的裸 fetch() 401 bug）');
+    await sleep(300); dom.window.close();
+  }
+  {
+    // 情境 C：直接檢查原始碼——確認 /api/settings/* 的呼叫全部經過 apiFetch()，
+    // 靜態閉環防止未來又不小心繞回裸 fetch()。
+    const src = fs.readFileSync(path.join(ROOT, 'public/js/geo-map-settings.js'), 'utf8');
+    assert(/await apiFetch\('\/api\/settings\/geo-map'\)/.test(src), 'B-88 原始碼確認 GET /api/settings/geo-map 呼叫 apiFetch()（不是裸 fetch()）');
+    assert(/await apiFetch\('\/api\/settings\/geo-map',\s*\{/.test(src), 'B-89 原始碼確認 PATCH /api/settings/geo-map 呼叫 apiFetch()');
+    assert(/await apiFetch\('\/api\/settings\/store-location',\s*\{/.test(src), 'B-90 原始碼確認 PATCH /api/settings/store-location 呼叫 apiFetch()');
+    assert(!/[^i]fetch\('\/api\/settings\/geo-map'\)/.test(src), 'B-91 原始碼內沒有殘留裸 fetch(\'/api/settings/geo-map\') 呼叫');
   }
 
   printSummary();

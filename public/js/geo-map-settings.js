@@ -113,7 +113,13 @@ function geoMapSettingsInvalidatePreviewSize() {
 async function geoMapSettingsLoad() {
   geoMapSettingsSetLoadError(null);
   try {
-    const res = await fetch('/api/settings/geo-map');
+    // fix18-10-hotfix30-B5-R5.2-B3-hotfix1（Root Cause 修正）：/api/settings/geo-map
+    // 掛在 requireStore 底下（server.js: app.use('/api/settings', requireStore, ...)），
+    // 需要 Authorization Bearer JWT 或 x-store-id header 其中之一，否則 requireStore
+    // 回 401 NO_STORE_TOKEN。裸 fetch() 完全不會帶這些 header，這正是先前 401 的
+    // root cause。完全沿用既有 apiFetch()（app.js）——跟 saveStoreLocationSettings()
+    // 等既有程式碼相同的授權流程，不自行發明第二套授權。
+    const res = await apiFetch('/api/settings/geo-map');
     if (!res || !res.ok) {
       geoMapSettingsSetLoadError('設定載入失敗，請稍後重試');
       return false;
@@ -623,9 +629,12 @@ async function geoMapSettingsSave() {
       geo_map_bounds: f.bounds || null,
       geo_map_auto_fit_bounds: f.auto_fit_bounds ? '1' : '0',
     };
-    const res = await fetch('/api/settings/geo-map', {
+    // fix18-10-hotfix30-B5-R5.2-B3-hotfix1（Root Cause 修正）：改用既有 apiFetch()，
+    // 理由同上（GET 那處的註解）——完全沿用 saveStoreLocationSettings() 的既有授權
+    // 流程，不自行發明第二套。apiFetch() 內部已經會設定 Content-Type header，不需
+    // 再手動指定一次。
+    const res = await apiFetch('/api/settings/geo-map', {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(patchBody),
     });
     const json = await res.json().catch(() => ({}));
@@ -639,9 +648,8 @@ async function geoMapSettingsSave() {
     if (Number.isFinite(f.store_lat) && Number.isFinite(f.store_lng)
       && (f.store_lat !== geoMapSettingsState.originalStoreLocation.lat || f.store_lng !== geoMapSettingsState.originalStoreLocation.lng)) {
       try {
-        await fetch('/api/settings/store-location', {
+        await apiFetch('/api/settings/store-location', {
           method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ store_lat: f.store_lat, store_lng: f.store_lng }),
         });
         geoMapSettingsState.originalStoreLocation = { lat: f.store_lat, lng: f.store_lng };
