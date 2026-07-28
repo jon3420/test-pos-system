@@ -1,0 +1,144 @@
+/* public/css/geo-heatmap.css — fix18-10-hotfix30-B5-R5.3-A1.1
+ * Geo Intelligence Heatmap Dashboard Integration
+ *
+ * 命名原則沿用 geo-intelligence.css（需求文件四之 4.1）：所有選擇器一律
+ * .geo-heat- 開頭，不使用泛用選擇器，避免污染全站其他頁面。
+ * 斷點：390 / 768 / 1024 / 1440（需求文件十四）。全部顏色搭配文字，
+ * 不單靠顏色表達（需求文件十六、二十）。全站預設 Dark Theme，這裡的顏色
+ * 全部用 CSS 變數或明確在深色底下可讀的色碼（需求文件十五）。
+ */
+
+.geo-heat-tabbar {
+  display: flex;
+  gap: 6px;
+  margin: 10px 0 14px;
+  border-bottom: 1px solid var(--border, #333);
+  flex-wrap: wrap;
+}
+.geo-heat-tab-btn {
+  padding: 8px 16px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--text-secondary, #999);
+  font-size: .86rem;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: 6px 6px 0 0;
+}
+.geo-heat-tab-btn:hover { background: var(--bg-hover, #2a2a2a); color: var(--text-primary, #f0f0f0); }
+.geo-heat-tab-btn:focus-visible { outline: 2px solid var(--accent, #f5a623); outline-offset: 2px; }
+.geo-heat-tab-btn.is-active {
+  color: var(--accent, #f5a623);
+  border-bottom-color: var(--accent, #f5a623);
+}
+
+.geo-heat-root { margin: 6px 0 20px; }
+
+.geo-heat-controlbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--border, #333);
+  border-radius: var(--radius, 10px);
+  background: var(--bg-panel, #1a1a1a);
+  margin-bottom: 12px;
+}
+.geo-heat-ctl-group { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.geo-heat-ctl-label { font-size: .72rem; color: var(--text-secondary, #999); margin-right: 4px; }
+.geo-heat-ctl-btn {
+  padding: 4px 10px;
+  font-size: .76rem;
+  border-radius: 999px;
+  border: 1px solid var(--border, #333);
+  background: var(--bg-card, #222);
+  color: var(--text-primary, #f0f0f0);
+  cursor: pointer;
+}
+.geo-heat-ctl-btn[aria-pressed="true"] {
+  background: var(--accent, #f5a623);
+  border-color: var(--accent, #f5a623);
+  color: #1a1a1a;
+  font-weight: 700;
+}
+.geo-heat-ctl-btn:focus-visible { outline: 2px solid var(--accent, #f5a623); outline-offset: 2px; }
+.geo-heat-toggle-label { display: flex; align-items: center; gap: 6px; font-size: .8rem; cursor: pointer; }
+
+.geo-heat-loading {
+  font-size: .8rem;
+  color: var(--text-secondary, #999);
+  padding: 8px 4px;
+}
+.geo-heat-error {
+  font-size: .82rem;
+  color: #fecaca;
+  background: rgba(229, 57, 53, .12);
+  border: 1px solid var(--danger, #e53935);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin-bottom: 10px;
+}
+
+.geo-heat-legend { display: flex; flex-wrap: wrap; gap: 10px; margin: 8px 0; }
+.geo-heat-legend-item { display: inline-flex; align-items: center; gap: 5px; font-size: .76rem; color: var(--text-secondary, #999); }
+.geo-heat-legend-item i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
+
+.geo-heat-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 10px;
+}
+.geo-heat-section-title { font-weight: 700; font-size: .84rem; margin: 6px 0; color: var(--text-primary, #f0f0f0); }
+.geo-heat-summary, .geo-heat-coverage {
+  font-size: .8rem;
+  line-height: 1.7;
+  color: var(--text-primary, #f0f0f0);
+}
+.geo-heat-coverage-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px dashed var(--border, #333);
+  font-size: .78rem;
+}
+.geo-heat-coverage-label { color: var(--text-secondary, #999); }
+.geo-heat-coverage-value { font-weight: 700; }
+.geo-heat-coverage-note { color: var(--text-muted, #666); font-size: .68rem; }
+
+.geo-heat-ranking-list { list-style: none; margin: 0; padding: 0; max-height: 360px; overflow-y: auto; }
+.geo-heat-rank-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: .8rem;
+  color: var(--text-primary, #f0f0f0);
+}
+.geo-heat-rank-item:hover { background: var(--bg-hover, #2a2a2a); }
+.geo-heat-rank-item:focus-visible { outline: 2px solid var(--accent, #f5a623); outline-offset: -2px; }
+.geo-heat-rank-item.is-selected { background: var(--bg-active, #333); border-left: 3px solid var(--accent, #f5a623); }
+.geo-heat-rank-index { width: 18px; color: var(--text-muted, #666); font-size: .72rem; }
+.geo-heat-rank-name { flex: 1 1 auto; }
+.geo-heat-rank-bar { position: absolute; left: 0; bottom: 0; height: 2px; background: var(--accent, #f5a623); opacity: .5; }
+.geo-heat-rank-value { font-weight: 700; font-size: .76rem; }
+.geo-heat-no-coord { font-size: .68rem; color: var(--text-muted, #666); margin-left: 6px; }
+
+/* ── Responsive：390 / 768 / 1024 / 1440（需求文件十四）───────────── */
+@media (max-width: 1024px) {
+  .geo-heat-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 768px) {
+  .geo-heat-controlbar { gap: 10px; padding: 8px 10px; }
+  .geo-heat-ctl-label { width: 100%; margin-bottom: 2px; }
+}
+@media (max-width: 390px) {
+  .geo-heat-tab-btn { padding: 7px 12px; font-size: .8rem; }
+  .geo-heat-ctl-btn { padding: 4px 8px; font-size: .72rem; }
+  .geo-heat-ranking-list { max-height: 260px; }
+}

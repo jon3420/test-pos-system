@@ -413,6 +413,17 @@ function getGeoFunnel(params, signal) {
 function getGeoAlerts(params, signal) {
   return apiFetch(`/api/analytics/geo/alerts?${_buildGeoDashboardParams(params).toString()}`, { signal });
 }
+// fix18-10-hotfix30-B5-R5.3-A1.1（Heatmap Dashboard Integration，需求文件五）：
+// utils/geoAnalyticsQueries.js 的 getGeoFulfillment() 與 routes/analytics-geo.js
+// 的 GET /fulfillment 在 R5.3-A1 就已存在（座標欄位也已在 A1 加好），但當時
+// 沒有前端 fetch wrapper（Engine 的 geo-heatmap.js 只合併「傳進去的資料」，
+// 不自己打 API）。這裡只是比照 getGeoFunnel() 補一個對稱的 wrapper，呼叫
+// 既有端點，沒有新增 `/api/analytics/geo/heatmap` 或任何第二套 API。
+function getGeoFulfillmentForHeatmap(params, signal) {
+  const qs = _buildGeoDashboardParams(params);
+  if (!params || params.limit === undefined) qs.set('limit', '200');
+  return apiFetch(`/api/analytics/geo/fulfillment?${qs.toString()}`, { signal });
+}
 function getGeoCountySummary(params, signal) {
   return apiFetch(`/api/analytics/geo/county-summary?${_buildGeoDashboardParams(params).toString()}`, { signal });
 }
@@ -1596,6 +1607,15 @@ async function refreshGeoDashboardKpiBlock(containerId) {
   // 這一段都要建立（地圖本身不依賴有沒有分析資料才能顯示行政區邊界）。
   const mapContainerId = `${containerId}-map`;
   const mapHtml = (typeof geoRenderMapBlock === 'function') ? geoRenderMapBlock(mapContainerId) : '';
+  // fix18-10-hotfix30-B5-R5.3-A1.1：Heatmap Tab——正式存在、可切換
+  // （需求文件三）。Tab Bar 與地圖共用同一個 Leaflet map instance
+  // （geo-heatmap-ui.js 的 _geoHeatUiEnsureMapReuse()），這裡只負責把
+  // Tab Bar／Heatmap Panel 的 HTML 骨架接進既有 Dashboard 版面；未載入
+  // geo-heatmap-ui.js 時安全略過（不影響 Dashboard 其餘部分），跟上面
+  // geoRenderMapBlock() 的 guard 慣例一致。
+  const heatTabBarHtml = (typeof geoHeatUiRenderTabBar === 'function') ? geoHeatUiRenderTabBar(containerId) : '';
+  const heatPanelHtml = (typeof geoHeatUiRenderPanel === 'function') ? geoHeatUiRenderPanel(containerId) : '';
+  const dashboardPanelHidden = (typeof geoHeatUiState !== 'undefined' && geoHeatUiState && geoHeatUiState.activeTab === 'heatmap') ? 'hidden' : '';
   const rankingSectionHtml = emptyStateNotice ? '' : `
     <div style="margin:14px 0 6px;font-weight:700;font-size:.9rem">🏆 高意願區域 Top 3</div>
     ${_renderGeoTopAreaRows(tops.high_intent)}
@@ -1609,16 +1629,20 @@ async function refreshGeoDashboardKpiBlock(containerId) {
     <div id="${containerId}-drawer"></div>
     ${partialLabels.length ? `<div style="font-size:.72rem;color:var(--text-secondary,#64748b);margin-top:8px">${escHtml(partialLabels.join('、'))}暫時無法載入</div>` : ''}`;
   elAfter.innerHTML = `
-    ${kpiCards}
-    ${fulfillmentLine}
-    ${renderGeoQualityBlock(vm.quality)}
-    ${decisionCenterHtml}
+    ${heatTabBarHtml}
     ${mapHtml}
-    ${emptyStateNotice || ''}
-    ${rankingSectionHtml}
-    <div style="font-size:.7rem;color:var(--text-secondary,#64748b);margin-top:10px">最後更新：${escHtml(updatedLabel)}
-      <button type="button" onclick="refreshGeoDashboardKpiBlock('${containerId}')" style="margin-left:8px;padding:1px 8px;border-radius:6px;border:1px solid var(--border,#2a2d3e);background:transparent;color:inherit;cursor:pointer;font-size:.7rem">重新整理</button>
-    </div>`;
+    <div id="${containerId}-panel-dashboard" ${dashboardPanelHidden}>
+      ${kpiCards}
+      ${fulfillmentLine}
+      ${renderGeoQualityBlock(vm.quality)}
+      ${decisionCenterHtml}
+      ${emptyStateNotice || ''}
+      ${rankingSectionHtml}
+      <div style="font-size:.7rem;color:var(--text-secondary,#64748b);margin-top:10px">最後更新：${escHtml(updatedLabel)}
+        <button type="button" onclick="refreshGeoDashboardKpiBlock('${containerId}')" style="margin-left:8px;padding:1px 8px;border-radius:6px;border:1px solid var(--border,#2a2d3e);background:transparent;color:inherit;cursor:pointer;font-size:.7rem">重新整理</button>
+      </div>
+    </div>
+    ${heatPanelHtml}`;
   // 無論是否 isEmpty/isAllUnknown，地圖初始化流程一律執行：先確認 DOM
   // 已經插入（上面 elAfter.innerHTML 已經完成），再載入 GeoJSON，再呼叫
   // geoInitMap()——即使 rows 是空陣列，polygon 仍要建立、metric 顯示
@@ -1633,7 +1657,19 @@ async function refreshGeoDashboardKpiBlock(containerId) {
       .then(() => {
         const mapRows = (vm.funnel && vm.funnel.areas) || [];
         geoInitMap(mapContainerId, mapRows);
+        // fix18-10-hotfix30-B5-R5.3-A1.1：接上 Heatmap Dashboard Integration——
+        // 必須排在 geoInitMap() 之後才呼叫（Heatmap 要重用這裡剛 ready 的同一個
+        // geoMapState.instance，不能提早呼叫、也不能另外建立地圖）。未載入
+        // geo-heatmap-ui.js 時安全略過，不影響 Dashboard 其餘部分。
+        if (typeof geoHeatUiRegisterContext === 'function') {
+          geoHeatUiRegisterContext(containerId, mapContainerId);
+        }
       }).catch(() => { if (typeof geoHandleMapError === 'function') geoHandleMapError('error_default'); });
+  } else if (typeof geoHeatUiRegisterContext === 'function') {
+    // geo-intelligence-map.js 未載入（理論上不會發生，防禦性 fallback）：
+    // 仍嘗試接線，讓 Heatmap Tab 至少能用既有 API 顯示 Ranking/Summary/Coverage
+    // （只是沒有地圖可重用）。
+    geoHeatUiRegisterContext(containerId, mapContainerId);
   }
 }
 

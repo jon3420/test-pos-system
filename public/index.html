@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="/css/main.css?v=fix18-10-hotfix24-UI">
   <link rel="stylesheet" href="/css/geo-intelligence.css?v=fix18-10-hotfix30-B5-R5-2-B1-5">
   <link rel="stylesheet" href="/css/geo-map-settings.css?v=fix18-10-hotfix30-B5-R5-2-B3">
+  <link rel="stylesheet" href="/css/geo-heatmap.css?v=fix18-10-hotfix30-B5-R5-3-A1-1">
 </head>
 <body>
 
@@ -3482,6 +3483,16 @@
      （geoResolveInitialViewport()/geoResolveBoundarySource()/
      _geoFilterFeaturesByDistrictCodes()），因此必須排在它之後載入。 -->
 <script src="/js/geo-map-settings.js?v=fix18-10-hotfix30-B5-R5-2-B3"></script>
+<!-- fix18-10-hotfix30-B5-R5.3-A1: Geo Intelligence Heatmap Engine（pure helper／
+     state／Leaflet render，見 R5.3-A1_COMPLETION_REPORT.md）。本輪（A1.1）
+     完全沒有修改這個檔案，只是把它接上 Dashboard UI（下面的 geo-heatmap-ui.js）。
+     必須排在 geo-intelligence-map.js 之後（重用同一個 Leaflet map instance）。 -->
+<script src="/js/geo-heatmap.js?v=fix18-10-hotfix30-B5-R5-3-A1"></script>
+<!-- fix18-10-hotfix30-B5-R5.3-A1.1: Dashboard Integration 膠水層——Tab／Control
+     Bar／Fetch＋Render 接線，見 R5.3-A1.1_COMPLETION_REPORT.md。必須排在
+     geo-heatmap.js／geo-intelligence.js／geo-intelligence-map.js／
+     analytics-v2.js 之後（會呼叫這幾個檔案既有的函式與全域狀態）。 -->
+<script src="/js/geo-heatmap-ui.js?v=fix18-10-hotfix30-B5-R5-3-A1-1"></script>
 <script src="/js/coupons.js?v=fix18-06"></script>
 <script src="/js/qrcode.min.js?v=fix18-09F-h2"></script>
 <script src="/license.js?v=fix18-06"></script>

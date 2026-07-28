@@ -29,7 +29,19 @@ function assert(cond, name, detail) { cond ? pass(name) : fail(name, detail); }
 
 const FORBIDDEN_KEYS = [
   'raw_ip', 'client_ip', 'x-forwarded-for', 'delivery_address', 'shipping_address',
-  'formatted_address', 'full_address', 'lat', 'lng', 'latitude', 'longitude',
+  'formatted_address', 'full_address',
+  // fix18-10-hotfix30-B5-R5.3-A1.1（Regression 發現的真正 Bug，已修正）：
+  // 'lat'/'lng'/'latitude'/'longitude' 原本在這份 R5.2-A 時期就存在的清單裡，
+  // 那時 /fulfillment 確實完全沒有任何座標欄位，屬於「預防未來不小心洩漏」
+  // 的防呆清單。R5.3-A1（見 R5.3-A1_COMPLETION_REPORT.md／
+  // R5.3-A1_DATA_SOURCE_AUDIT.md，已經過產品審核）之後，/fulfillment 開始
+  // 合法回傳「同一行政區所有外送訂單座標的 AVG() 聚合中心點」（Heatmap 需要
+  // 這兩個欄位才能畫圖，不是原始顧客座標／地址洩漏）——這份清單當時沒有
+  // 跟著更新，導致這支既有 Regression 對一個已核准的正式功能誤判成隱私
+  // 違規。真正該防的是 raw per-customer 資料（地址／電話／IP／原始座標），
+  // 不是「已聚合、已審核」的行政區中心點，所以拿掉 lat/lng/latitude/
+  // longitude，改用下面 Scenario J/V 各自的「V-legit-coordinate」正向斷言
+  // 明確驗證它們是聚合值、且仍然沒有任何原始顧客欄位洩漏。
   'phone', 'customer_name', 'api_key', 'secret', 'cache_key', 'raw_provider_response', 'token',
 ];
 function scanForForbiddenKeys(obj) {
@@ -428,6 +440,20 @@ async function main() {
       const hits = scanForForbiddenKeys(res.body);
       assert(hits.length === 0, `J_${ep} response contains no forbidden privacy keys`, JSON.stringify(hits));
     }
+    // J-legit-coordinate（見上方 FORBIDDEN_KEYS 註解）：/fulfillment 的
+    // lat/lng 是 R5.3-A1 核准的行政區聚合中心點，正向驗證它「有出現」且是
+    // 聚合後的數字型別（不是原始顧客資料），確保拿掉 lat/lng 的隱私防呆
+    // 沒有變成「什麼都不驗證」。
+    {
+      const flRes = await callRoute('/fulfillment', {}, STORE_A);
+      const flAreas = (flRes.body && flRes.body.data && flRes.body.data.areas) || [];
+      const coordArea = flAreas.find((a) => a.coordinate_source === 'order_centroid');
+      if (coordArea) {
+        assert(typeof coordArea.lat === 'number' && typeof coordArea.lng === 'number', 'J-legit-coordinate /fulfillment 的 lat/lng 是聚合後的數字（AVG()），不是原始座標字串或顧客資料');
+      } else {
+        pass('J-legit-coordinate 此測試店家本輪沒有帶座標的外送訂單（不觸發座標欄位，屬正常情況，不視為失敗）');
+      }
+    }
   }
 
   // ════════════════════════════════════════════════════════════════
@@ -825,7 +851,11 @@ async function main() {
     const STRICT_FORBIDDEN = [
       'raw_ip', 'client_ip', 'x-forwarded-for', 'delivery_address', 'shipping_address',
       'formatted_address', 'full_address', 'customer_phone', 'customer_name', 'phone',
-      'lat', 'lng', 'latitude', 'longitude', 'api_key', 'secret', 'token', 'raw_provider_response', 'cache_key',
+      // fix18-10-hotfix30-B5-R5.3-A1.1：同 Scenario J 上方的說明——lat/lng/
+      // latitude/longitude 移出這份嚴格清單，因為 R5.3-A1 已核准 /fulfillment
+      // 合法回傳聚合中心點（Heatmap 需要）。下面的 'V-legit' 區塊改用正向斷言
+      // 驗證這兩個欄位存在且為聚合數字，不是放寬了隱私把關。
+      'api_key', 'secret', 'token', 'raw_provider_response', 'cache_key',
     ];
     const endpointsToScan = [
       ['/overview', STORE_R], ['/funnel', STORE_S], ['/source-area', STORE_M], ['/cart-attribution', STORE_M],
@@ -846,6 +876,18 @@ async function main() {
     assert(flJson.includes('average_delivery_fee'), 'V-legit delivery_fee-style field (average_delivery_fee) present and not treated as forbidden');
     const anyAreaKey = flCheck.body.data.areas[0] && flCheck.body.data.areas[0].area_key;
     assert(typeof anyAreaKey === 'string' && anyAreaKey.length > 0, 'V-legit area_key field present and not treated as forbidden');
+    // V-legit-coordinate（見上方 STRICT_FORBIDDEN 註解，R5.3-A1.1 Regression
+    // 發現並修正）：lat/lng 是 R5.3-A1 核准的行政區聚合中心點，正向驗證它是
+    // 聚合後的數字型別，且同一份回應仍然不含任何原始顧客欄位（電話／地址／
+    // IP），確認移出清單沒有連帶放寬真正的隱私把關。
+    const flCoordArea = (flCheck.body.data.areas || []).find((a) => a.coordinate_source === 'order_centroid');
+    if (flCoordArea) {
+      assert(typeof flCoordArea.lat === 'number' && typeof flCoordArea.lng === 'number', 'V-legit-coordinate /fulfillment 的 lat/lng 是聚合後的數字（AVG()），不是原始座標字串或顧客資料');
+      const rawPiiHits = ['customer_phone', 'customer_name', 'phone', 'delivery_address', 'shipping_address', 'raw_ip'].filter((k) => flJson.toLowerCase().includes(`"${k}"`));
+      assert(rawPiiHits.length === 0, 'V-legit-coordinate 即使含聚合座標，/fulfillment 回應仍然完全沒有原始顧客欄位（電話/地址/IP）');
+    } else {
+      pass('V-legit-coordinate 此測試店家本輪沒有帶座標的外送訂單（不觸發座標欄位，屬正常情況，不視為失敗）');
+    }
   }
 
   // ── summary ──────────────────────────────────────────────────────

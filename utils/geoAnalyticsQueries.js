@@ -416,7 +416,14 @@ function getGeoFulfillment(db, storeId, filters) {
        AVG(CASE WHEN ${ORDERS_PAID_EXPR} THEN total END) AS average_order_value,
        AVG(CASE WHEN order_mode='delivery' THEN delivery_distance_km END) AS average_distance_km,
        AVG(CASE WHEN order_mode='delivery' THEN delivery_fee END) AS average_delivery_fee,
-       SUM(CASE WHEN order_mode='delivery' AND delivery_fee=0 THEN 1 ELSE 0 END) AS free_delivery_orders
+       SUM(CASE WHEN order_mode='delivery' AND delivery_fee=0 THEN 1 ELSE 0 END) AS free_delivery_orders,
+       -- fix18-10-hotfix30-B5-R5.3-A1（Geo Intelligence Heatmap Foundation）：
+       -- 唯一合法的真實座標來源——只有 order_mode='delivery' 且顧客當時提供過
+       -- delivery_lat/delivery_lng（TEXT，非空字串）的訂單才計入。不得對
+       -- shipping/pickup/takeout 或空字串座標取平均（會把 0/NULL 誤當成座標）。
+       COUNT(CASE WHEN order_mode='delivery' AND delivery_lat IS NOT NULL AND delivery_lat <> '' AND delivery_lng IS NOT NULL AND delivery_lng <> '' THEN 1 END) AS coordinate_count,
+       AVG(CASE WHEN order_mode='delivery' AND delivery_lat IS NOT NULL AND delivery_lat <> '' AND delivery_lng IS NOT NULL AND delivery_lng <> '' THEN CAST(delivery_lat AS REAL) END) AS avg_delivery_lat,
+       AVG(CASE WHEN order_mode='delivery' AND delivery_lat IS NOT NULL AND delivery_lat <> '' AND delivery_lng IS NOT NULL AND delivery_lng <> '' THEN CAST(delivery_lng AS REAL) END) AS avg_delivery_lng
      FROM orders
      WHERE ${ORDERS_BASE_WHERE} AND created_at BETWEEN ? AND ?
        AND order_mode IN ('delivery','shipping') AND fulfillment_geo_source IS NOT NULL
@@ -459,10 +466,33 @@ function getGeoFulfillment(db, storeId, filters) {
         average_delivery_fee: Number(r.average_delivery_fee) || 0,
         free_delivery_orders: Number(r.free_delivery_orders) || 0,
         out_of_range_attempts: oorMap.get(key) || 0,
+        // fix18-10-hotfix30-B5-R5.3-A1：coordinate_source 只有兩個合法值——
+        // 'order_centroid'（真的算出平均座標）或 'unavailable'（沒有任何一筆
+        // delivery 訂單帶座標）。不得無條件標成 order_centroid（那等於在沒有
+        // 座標時假裝有）。
+        coordinate_count: Number(r.coordinate_count) || 0,
+        coordinate_source: (Number(r.coordinate_count) || 0) > 0 ? 'order_centroid' : 'unavailable',
+        coordinate_confidence: geoHeatClassifyCoordinateConfidence(Number(r.coordinate_count) || 0),
+        lat: r.avg_delivery_lat != null ? Number(r.avg_delivery_lat) : null,
+        lng: r.avg_delivery_lng != null ? Number(r.avg_delivery_lng) : null,
       };
     }),
     takeout_no_fulfillment_address: Number(takeoutRow.c) || 0,
   };
+}
+
+// ────────────────────────────────────────────────────────────────
+// fix18-10-hotfix30-B5-R5.3-A1（需求文件四）：coordinate_count → confidence
+// 純函式，供 route 與 Smoke 共用同一套門檻，不各自寫死一份判斷邏輯。
+// 門檻選擇：0 筆＝完全沒有可信賴的樣本；1 筆＝有位置但無法排除單一離群值；
+// 2–4 筆＝有一定樣本但仍偏少；≥5 筆＝視為足夠聚合成一個代表性中心點。
+// ────────────────────────────────────────────────────────────────
+function geoHeatClassifyCoordinateConfidence(coordinateCount) {
+  const n = Number(coordinateCount) || 0;
+  if (n <= 0) return 'unavailable';
+  if (n === 1) return 'low';
+  if (n <= 4) return 'medium';
+  return 'high';
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -1058,4 +1088,5 @@ module.exports = {
   getGeoQuality,
   getGeoDashboardSummary,
   getCountySummary,
+  geoHeatClassifyCoordinateConfidence,
 };
