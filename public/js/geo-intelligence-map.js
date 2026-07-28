@@ -743,14 +743,18 @@ function geoRetryMap() {
 // ════════════════════════════════════════════════════════════════
 // 六、Dashboard 地圖區塊 render（HTML skeleton）
 // ════════════════════════════════════════════════════════════════
+// fix18-10-hotfix30-B5-R5.3-A4（Metric Switcher 整合，需求：不得保留兩套
+// 按鈕分別控制不同 state）：這裡不再輸出獨立的 `.geo-map-metrics` 按鈕列。
+// `geoMapState.metric` 改由統一的 `geoVisitorState.metric`（見
+// public/js/geo-visitor-layer.js 的 geoVisitorSetMetric()）透過既有的
+// geoSetMapMetric() 驅動，本檔案的 geoUpdateMapData()/geoSetMapMetric()/
+// geoGetFeatureStyle() 等既有函式簽名完全不變，只是不再由這裡的按鈕觸發。
 function geoRenderMapBlock(containerId) {
-  const metricButtons = GEO_MAP_METRICS.map((m) => `<button type="button" class="geo-map-metric-btn" data-geo-map-metric="${escHtml(m)}" aria-pressed="${m === geoMapState.metric}" onclick="geoSetMapMetric('${escHtml(m)}')">${escHtml(GEO_MAP_METRIC_LABELS[m])}</button>`).join('');
   return `<div class="geo-map-root">
     <div class="geo-map-header">
       <div class="geo-map-title">🗺️ Geo Intelligence Map</div>
       <div class="geo-map-subtitle">依行政區檢視營運表現，點擊可開啟區域分析</div>
     </div>
-    <div class="geo-map-metrics" role="group" aria-label="地圖指標切換">${metricButtons}</div>
     <div id="${escHtml(containerId)}" class="geo-map-canvas" role="application" aria-label="Geo Intelligence 行政區地圖">${geoBuildMapStatusHtml('loading_default')}</div>
     <div id="${escHtml(containerId)}-legend" class="geo-map-legend" aria-live="polite"></div>
     <div id="${escHtml(containerId)}-summary" class="geo-map-summary" aria-live="polite"></div>

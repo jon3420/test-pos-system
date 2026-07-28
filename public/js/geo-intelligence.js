@@ -1615,6 +1615,13 @@ async function refreshGeoDashboardKpiBlock(containerId) {
   // geoRenderMapBlock() 的 guard 慣例一致。
   const heatTabBarHtml = (typeof geoHeatUiRenderTabBar === 'function') ? geoHeatUiRenderTabBar(containerId) : '';
   const heatPanelHtml = (typeof geoHeatUiRenderPanel === 'function') ? geoHeatUiRenderPanel(containerId) : '';
+  // fix18-10-hotfix30-B5-R5.3-A4（Metric Switcher 整合，需求：只能保留
+  // 一套主切換器）：這是正式主切換器，跟共用地圖同一層級渲染，Dashboard／
+  // Heatmap 兩個分頁都看得到。舊版 geoRenderMapBlock() 內建的獨立
+  // `.geo-map-metrics` 按鈕列已移除（見 geo-intelligence-map.js），改由
+  // 這裡統一驅動（geoVisitorSetMetric() 內會同時呼叫既有的
+  // geoSetMapMetric() 更新地圖著色/Legend/Summary/Tooltip）。
+  const sharedMetricBarHtml = (typeof geoHeatUiRenderSharedMetricBar === 'function') ? geoHeatUiRenderSharedMetricBar(containerId) : '';
   const dashboardPanelHidden = (typeof geoHeatUiState !== 'undefined' && geoHeatUiState && geoHeatUiState.activeTab === 'heatmap') ? 'hidden' : '';
   const rankingSectionHtml = emptyStateNotice ? '' : `
     <div style="margin:14px 0 6px;font-weight:700;font-size:.9rem">🏆 高意願區域 Top 3</div>
@@ -1631,6 +1638,7 @@ async function refreshGeoDashboardKpiBlock(containerId) {
   elAfter.innerHTML = `
     ${heatTabBarHtml}
     ${mapHtml}
+    ${sharedMetricBarHtml}
     <div id="${containerId}-panel-dashboard" ${dashboardPanelHidden}>
       ${kpiCards}
       ${fulfillmentLine}

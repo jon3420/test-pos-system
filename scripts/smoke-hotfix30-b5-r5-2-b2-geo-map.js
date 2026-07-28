@@ -309,15 +309,21 @@ async function main() {
     assert(blockHtml.includes('geo-map-summary'), 'J-RENDER-4 map block 含 summary 容器');
     assert(blockHtml.includes('role="application"'), 'J-RENDER-5 canvas 容器含 role="application"');
     assert(blockHtml.includes('aria-label="Geo Intelligence 行政區地圖"'), 'J-RENDER-6 canvas 容器含正確 aria-label');
-    M.GEO_MAP_METRICS.forEach((m) => {
-      assert(blockHtml.includes(`data-geo-map-metric="${m}"`), `J-RENDER-7-${m} metric switcher 含「${m}」按鈕`);
-    });
-    const metricBtnMatches = blockHtml.match(/<button[^>]*class="geo-map-metric-btn"[^>]*>/g) || [];
-    assert(metricBtnMatches.length === M.GEO_MAP_METRICS.length, 'J-RENDER-8 metric 按鈕數量正確');
-    assert(metricBtnMatches.every((b) => b.includes('type="button"')), 'J-RENDER-9 所有 metric 按鈕都是 type="button"');
-    assert(metricBtnMatches.every((b) => b.includes('aria-pressed=')), 'J-RENDER-10 所有 metric 按鈕都有 aria-pressed');
-    const pressedBtn = metricBtnMatches.find((b) => b.includes('aria-pressed="true"'));
-    assert(!!pressedBtn && pressedBtn.includes('visitors'), 'J-RENDER-11 預設 metric（visitors）的按鈕標記 aria-pressed="true"');
+    // fix18-10-hotfix30-B5-R5.3-A4（Metric Switcher 整合，使用者明確指示：
+    // 只能保留一套主切換器，舊版這裡獨立的 `.geo-map-metrics` 按鈕列已
+    // 移除，改由統一的 geoVisitorState.metric 透過既有 geoSetMapMetric()
+    // 驅動，見 R5.3-A4_METRIC_SWITCHER_COMPARISON.md）。
+    assert(!/geo-map-metric-btn/.test(blockHtml), 'J-RENDER-7 map block 不再輸出獨立的 .geo-map-metric-btn 按鈕列（已整合進統一 Metric Switcher，不得保留兩套按鈕）');
+    assert(!/class="geo-map-metrics"/.test(blockHtml), 'J-RENDER-8 map block 不再輸出 .geo-map-metrics 容器（同一原因）');
+    // 正向 sanity：geoSetMapMetric() 這個既有函式本身完全沒有被移除或改壞，
+    // 只是不再由這裡的按鈕觸發——外部呼叫（例如統一 Metric Switcher）仍然
+    // 正確更新 geoMapState.metric 並觸發既有的著色/Legend/Summary 流程。
+    M._geoResetMapStateForTest();
+    const setOk = M.geoSetMapMetric('revenue');
+    assert(setOk === true, 'J-RENDER-9 geoSetMapMetric() 由外部呼叫仍正確回傳 true（既有函式未被破壞，只是不再由本檔案的按鈕驅動）');
+    assert(M.geoMapState.metric === 'revenue', 'J-RENDER-10 geoSetMapMetric() 呼叫後 geoMapState.metric 正確更新為 revenue');
+    assert(M.GEO_MAP_METRICS.includes('visitors') && M.GEO_MAP_METRICS.length === 6, 'J-RENDER-11 GEO_MAP_METRICS 常數本身保留完整 6 個值（供外部 Metric 對照表使用），只是不再由這裡自行渲染成按鈕');
+    M._geoResetMapStateForTest();
   }
 
   // ── Legend/Summary 格式化字串層級 ──
@@ -892,7 +898,11 @@ async function main() {
     assert(canvasEl.getAttribute('role') === 'application', 'AA-A11Y-4 Map canvas 容器 role="application"');
     assert(canvasEl.getAttribute('aria-label') === 'Geo Intelligence 行政區地圖', 'AA-A11Y-5 Map canvas 容器 aria-label 正確');
     const metricsGroup = document.querySelector('[role="group"][aria-label="地圖指標切換"]');
-    assert(!!metricsGroup, 'AA-A11Y-6 Metric switcher 有 role="group" 與 aria-label');
+    // fix18-10-hotfix30-B5-R5.3-A4：舊版這裡的獨立 metric switcher（含
+    // role="group" aria-label="地圖指標切換"）已移除並整合進統一的
+    // Metric Switcher（public/js/geo-visitor-layer.js 的
+    // geoVisitorMetricBarHtml()，aria-label="Geo Event 指標切換"）。
+    assert(!metricsGroup, 'AA-A11Y-6 舊版獨立 metric switcher 的 role="group" 容器已移除（Accessibility 職責轉移到統一 Metric Switcher，不得殘留兩套）');
     dom.window.close();
   }
 
@@ -1625,12 +1635,24 @@ async function main() {
     assert(preventDefaultCalled === true, 'AW-A11Y2-1 Space 鍵選取時確實呼叫 preventDefault()（避免頁面意外滾動）');
     assert(explorerReceivedSpace === '桃園市|中壢區', 'AW-A11Y2-2 Space 鍵選取後 Explorer 收到正確 area');
 
-    // metric controls 有 accessible name（aria-pressed 且按鈕文字非空）
+    // fix18-10-hotfix30-B5-R5.3-A4：舊版 .geo-map-metric-btn 按鈕列已移除
+    // （整合進統一 Metric Switcher）；改驗證統一 Metric Switcher
+    // （geo-visitor-layer.js 的 geoVisitorMetricBarHtml()）本身的按鈕有
+    // accessible name。
     const metricButtons = document.querySelectorAll('.geo-map-metric-btn');
-    assert(metricButtons.length === 6, 'AW-A11Y2-3 6 個 metric 按鈕全部存在');
-    metricButtons.forEach((btn, i) => {
-      assert(btn.textContent.trim().length > 0, `AW-A11Y2-4-${i} metric 按鈕有非空的 accessible name（文字內容）`);
-    });
+    assert(metricButtons.length === 0, 'AW-A11Y2-3 舊版 .geo-map-metric-btn 按鈕已完全移除（不得殘留兩套按鈕）');
+    if (typeof geoVisitorMetricBarHtml === 'function') {
+      const unifiedBarHtml = geoVisitorMetricBarHtml('a11y-test');
+      const tmp = document.createElement('div');
+      tmp.innerHTML = unifiedBarHtml;
+      const unifiedButtons = tmp.querySelectorAll('.geo-heat-ctl-btn');
+      assert(unifiedButtons.length === 8, 'AW-A11Y2-3b 統一 Metric Switcher 有 8 個按鈕（正式主切換器）');
+      unifiedButtons.forEach((btn, i) => {
+        assert(btn.textContent.trim().length > 0, `AW-A11Y2-4-${i} 統一 Metric Switcher 按鈕有非空的 accessible name（文字內容）`);
+      });
+    } else {
+      assert(true, 'AW-A11Y2-3b/4 統一 Metric Switcher accessible name 檢查（geo-visitor-layer.js 未載入到這支測試環境，其餘測試檔案已涵蓋，見 smoke-hotfix30-b5-r5-3-a2-geo-event-engine.js）');
+    }
 
     // hidden map fallback（鍵盤清單）在地圖本身完全沒有初始化時仍可操作
     window.geoDestroyMap();

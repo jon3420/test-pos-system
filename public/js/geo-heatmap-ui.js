@@ -258,10 +258,8 @@ function geoVisitorRangeBarHtml(containerId) {
 }
 function geoHeatUiRenderVisitorLayerHtml(containerId) {
   const hidden = geoHeatUiState.layer !== 'visitor';
-  const metricBarHtml = (typeof geoVisitorMetricBarHtml === 'function') ? geoVisitorMetricBarHtml(containerId) : '';
   return `<div id="${_geoHeatUiEsc(containerId)}-visitor-layer" ${hidden ? 'hidden' : ''}>
     ${geoVisitorRangeBarHtml(containerId)}
-    ${metricBarHtml}
     <div class="geo-heat-section-title">Geo Event Summary</div>
     <div id="${_geoHeatUiEsc(containerId)}-metric-summary" class="geo-heat-summary" aria-live="polite"></div>
     <div class="geo-heat-grid">
@@ -279,6 +277,16 @@ function geoHeatUiRenderVisitorLayerHtml(containerId) {
     <div class="geo-heat-section-title">Recent Geo Events</div>
     <div id="${_geoHeatUiEsc(containerId)}-visitor-recent" class="geo-visitor-recent-panel" aria-live="polite"></div>
   </div>`;
+}
+
+// fix18-10-hotfix30-B5-R5.3-A4（Metric Switcher 整合，需求：只能保留一套
+// 主切換器）：這是「正式主切換器」，跟共用地圖同一層級渲染（不在任何
+// Tab 的隱藏 panel 裡面），Dashboard／Heatmap 兩個分頁都看得到、都可以
+// 點擊，點擊後透過 geoVisitorSetMetric() 同時驅動地圖著色（見
+// geo-visitor-layer.js 的 GEO_EVENT_TO_MAP_METRIC 對照表）與 Heatmap 分頁
+// 內的 Geo Event Summary／Ranking。
+function geoHeatUiRenderSharedMetricBar(containerId) {
+  return (typeof geoVisitorMetricBarHtml === 'function') ? geoVisitorMetricBarHtml(containerId) : '';
 }
 
 function geoHeatUiRenderPanel(containerId) {
@@ -403,21 +411,18 @@ function geoHeatUiRegisterContext(containerId, mapContainerId) {
   // fix18-10-hotfix30-B5-R5.3-A1.2：Visitor Layer 是獨立 state，切店時也要
   // 一併清空，避免殘留上一店的 geo_visit_log 資料（需求文件 Store Isolation）。
   if (typeof geoVisitorHandleStoreSwitch === 'function') geoVisitorHandleStoreSwitch();
+  // fix18-10-hotfix30-B5-R5.3-A4（需求文件七）：Geo Event Engine 的統一
+  // Metric 切換器現在跟共用地圖同一層級，Dashboard／Heatmap 兩個分頁都看
+  // 得到，所以不論目前在哪個分頁，頁面掛載就要主動抓一次資料（預設
+  // Metric 為「訪客」），不需要使用者先手動切到 Heatmap 分頁或 Visitor
+  // Layer 才看得到資料。
+  if (typeof geoVisitorFetchAndRender === 'function') {
+    geoVisitorFetchAndRender(containerId, geoHeatUiState.visitorRange);
+  }
   if (geoHeatUiState.activeTab === 'heatmap') {
     _geoHeatUiEnsureMapReuse(containerId);
     _geoHeatUiBindRankingEvents(containerId);
     geoHeatUiFetchAndRender(containerId);
-    // fix18-10-hotfix30-B5-R5.3-A3（Analytics/Geo Sync Audit 發現的真正
-    // 落差）：Geo Event Engine 的統一 KPI（Visitors/AddToCart/Checkout/
-    // Orders...）本來只在使用者手動切到「訪客熱區 Visitor Layer」時才會
-    // 抓取，導致預設畫面（Order Layer）看起來像是「Geo 全部是 0」——不是
-    // 資料源不同步，是這裡從來沒有主動抓過。改成只要 Heatmap 分頁是啟用
-    // 狀態，不論目前顯示哪個 Layer，都主動抓一次 Geo Event Engine 資料，
-    // 確保切到 Visitor Layer 時資料已經是最新的，不會有「看起來是 0」的
-    // 空窗期。
-    if (typeof geoVisitorFetchAndRender === 'function') {
-      geoVisitorFetchAndRender(containerId, geoHeatUiState.visitorRange);
-    }
   }
 }
 
@@ -430,7 +435,7 @@ if (typeof module !== 'undefined' && module.exports) {
     geoHeatUiFetchAndRender, geoHeatUiRegisterContext,
     // fix18-10-hotfix30-B5-R5.3-A1.2
     geoHeatUiLayerToggleHtml, geoHeatUiSetLayer, geoHeatUiSetVisitorRange,
-    geoHeatUiRenderVisitorLayerHtml, geoVisitorRangeBarHtml,
+    geoHeatUiRenderVisitorLayerHtml, geoVisitorRangeBarHtml, geoHeatUiRenderSharedMetricBar,
     _geoHeatUiEnsureMapReuse, _geoHeatUiRestoreChoropleth, _geoHeatUiBindRankingEvents,
     _geoHeatUiRerenderControlBar, _geoHeatUiResetStateForTest,
     get geoHeatUiState() { return geoHeatUiState; },

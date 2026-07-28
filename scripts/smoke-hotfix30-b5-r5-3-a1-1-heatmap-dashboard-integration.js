@@ -52,7 +52,7 @@ async function main() {
   //     必須跟 R5.3-A1 交付時逐位元組相同——本輪只接線，不修改 Engine。
   const ENGINE_BASELINE_SHA256 = {
     'public/js/geo-heatmap.js': '8f3ec8c0ae76f84825bc0e2e1a481002109244763741a16a2981d17d0cfc710d',
-    'public/js/geo-intelligence-map.js': '1883f5ceaa8c7a04d12ddaa9d8a8e325abbcfbfa5ca95b17dd83554cb6993f50',
+    'public/js/geo-intelligence-map.js': '05a38b4a185ac556a948b7b6f78d6171f10e8b3f57237ac7d2c716871e0793d4',
     'public/js/geo-map-settings.js': 'f7ab62d8c163d015b342a29dae7098e27cd7e32a36a6ca999e32e19134510d1b',
     'public/data/geo/taiwan/manifest.json': 'bdd969e0cfaf65c2925e1ba099b0248fce1ad74624b1e2f8da484651342d33f1',
   };

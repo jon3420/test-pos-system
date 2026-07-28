@@ -282,6 +282,17 @@ function geoVisitorMetricBarHtml(containerId) {
   }).join('');
   return `<div id="${_geoVisitorEsc(containerId)}-metric-bar" class="geo-heat-controlbar" role="group" aria-label="Geo Event 指標切換">${buttons}</div>`;
 }
+// fix18-10-hotfix30-B5-R5.3-A4（Metric Switcher 整合）：新舊 Metric 名稱
+// 對照表，供呼叫既有的 geoSetMapMetric()（geo-intelligence-map.js，未修改
+// 其函式邏輯本身）使用，讓同一次切換同時驅動共用地圖的 Choropleth／
+// Legend／Summary／Tooltip，不重寫既有著色邏輯。add_to_cart／checkout
+// 兩個新指標在舊系統沒有對應維度，暫時 fallback 顯示 Visitors 分布（不
+// 影響本檔案自己的 Summary/Ranking 數字，只影響共用地圖的著色維度）。
+const GEO_EVENT_TO_MAP_METRIC = Object.freeze({
+  visitors: 'visitors', add_to_cart: 'visitors', checkout: 'visitors',
+  orders: 'orders', revenue: 'revenue', conversion: 'conversion_rate',
+  cart_abandonment: 'cart_abandonment_rate', recommendation_risk: 'risk',
+});
 function geoVisitorSetMetric(containerId, metric) {
   if (!GEO_EVENT_METRICS.includes(metric)) return false;
   geoVisitorState.metric = metric;
@@ -291,6 +302,12 @@ function geoVisitorSetMetric(containerId, metric) {
   }
   geoVisitorRenderMetricSummaryDom();
   geoVisitorRenderRankingDom(); // Ranking 排序依 metric 改變（訪客/加購/結帳/訂單各自排序）
+  // 需求文件六：切換任一 Metric 必須同步更新 Map Overlay／Legend／Summary／
+  // Tooltip——呼叫既有的 geoSetMapMetric()（共用地圖既有函式，未重寫），
+  // 不再由已移除的舊獨立按鈕驅動。
+  if (typeof geoSetMapMetric === 'function') {
+    geoSetMapMetric(GEO_EVENT_TO_MAP_METRIC[metric] || 'visitors');
+  }
   return true;
 }
 
@@ -431,7 +448,7 @@ async function geoVisitorFetchAndRender(containerId, range) {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     GEO_VISITOR_TIME_RANGES, GEO_VISITOR_RANGE_LABEL,
-    GEO_EVENT_METRICS, GEO_EVENT_METRIC_LABEL,
+    GEO_EVENT_METRICS, GEO_EVENT_METRIC_LABEL, GEO_EVENT_TO_MAP_METRIC,
     geoVisitorIsChoroplethEligible, _setChoroplethOfficialCityCodesForTest,
     geoVisitorComputeCoverage, geoVisitorBuildTooltipContent,
     geoVisitorRenderChoropleth, geoVisitorRenderSummaryDom, geoVisitorRenderCoverageDom,
