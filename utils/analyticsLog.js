@@ -272,7 +272,7 @@ function insertEvent(db, fields) {
 
     const g = _sanitizeGeoForWrite(geo);
 
-    db.run(
+    const insertResult = db.run(
       `INSERT INTO analytics_events (
         store_id, visitor_id, session_id, cart_id, order_id,
         event_name, product_id, quantity, order_mode,
@@ -315,6 +315,11 @@ function insertEvent(db, fields) {
         // 的同一個呼叫參數（purchase/submit_order 事件才會有值），不是新
         // 產生的資料。
         order_id,
+        // fix18-10-hotfix30-B5-R5.3-A3（Single Source of Truth Audit）：
+        // 記錄這筆 geo_visit_log 對應到剛剛寫入的哪一筆 analytics_events，
+        // 供稽核追溯與一次性 backfill script 的冪等判斷使用（見
+        // scripts/backfill-geo-visit-log.js）。
+        source_event_id: insertResult ? insertResult.lastInsertRowid : null,
         // 本輪唯一的 Geo Resolver（resolveVisitorGeo/normalizeDeliveryGeo）都不
         // 提供座標；lat/lng 沒有合法來源時保持 undefined，logGeoVisit() 會
         // 正確存成 NULL，不得用行政區中心點/店家座標/矩形中心假造座標。

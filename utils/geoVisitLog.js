@@ -80,18 +80,21 @@ function logGeoVisit(db, fields) {
     // fix18-10-hotfix30-B5-R5.3-A2：order_id 只在呼叫端真的有提供時才寫入
     // （來自既有 analytics_events.order_id，不是本輪臆測產生）。
     const orderId = f.order_id ? _safeStr(f.order_id, 200) : null;
+    // fix18-10-hotfix30-B5-R5.3-A3：source_event_id 只在呼叫端真的知道
+    // 對應的 analytics_events.id 時才寫入（不是本輪臆測產生）。
+    const sourceEventId = Number.isFinite(Number(f.source_event_id)) ? Number(f.source_event_id) : null;
 
     db.run(
       `INSERT INTO geo_visit_log (
         store_id, visitor_id, session_id, event_name, event_time,
-        lat, lng, city, district, country, source, is_unknown, order_id
-      ) VALUES (?,?,?,?, COALESCE(?, datetime('now')), ?,?,?,?,?,?,?,?)`,
+        lat, lng, city, district, country, source, is_unknown, order_id, source_event_id
+      ) VALUES (?,?,?,?, COALESCE(?, datetime('now')), ?,?,?,?,?,?,?,?,?)`,
       [
         _safeStr(f.store_id, 100), _safeStr(f.visitor_id, 200), _safeStr(f.session_id, 200),
         _safeStr(f.event_name, 100), eventTime,
         lat, lng,
         isUnknown ? 'Unknown' : city, isUnknown ? 'Unknown' : district, country,
-        source, isUnknown ? 1 : 0, orderId,
+        source, isUnknown ? 1 : 0, orderId, sourceEventId,
       ]
     );
     return true;

@@ -2330,6 +2330,28 @@ function initTables(w) {
     w._db.run('CREATE INDEX IF NOT EXISTS idx_geo_visit_log_store_order ON geo_visit_log(store_id, order_id)');
     w._save();
   } catch (e) { console.warn('[DB] geo_visit_log order_id migration:', e.message); }
+
+  // ══════════════════════════════════════════════════════════════════
+  // fix18-10-hotfix30-B5-R5.3-A3｜Analytics/Geo Single Source of Truth Audit
+  //
+  // source_event_id：追蹤這筆 geo_visit_log 是由哪一筆 analytics_events
+  // 同步產生（外鍵語意，但不強制 FK 約束，跟專案既有慣例一致）。目的：
+  //   1. 讓一次性 backfill script（scripts/backfill-geo-visit-log.js）能
+  //      用 NOT EXISTS 判斷「這筆 analytics_events 是否已經同步過」，
+  //      對已同步過的事件安全略過，可重複執行不會產生重複列。
+  //   2. 供稽核使用：確認 geo_visit_log 每一列都對應到一筆真實
+  //      analytics_events（不是憑空產生的資料）。
+  // ══════════════════════════════════════════════════════════════════
+  try {
+    const gvlCols2 = w.all('PRAGMA table_info(geo_visit_log)').map((c) => c.name);
+    if (!gvlCols2.includes('source_event_id')) {
+      w._db.run('ALTER TABLE geo_visit_log ADD COLUMN source_event_id INTEGER');
+      w._save();
+      console.log('[DB] ✅ geo_visit_log 補建欄位: source_event_id（用於 backfill 冪等判斷與稽核追溯）');
+    }
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_geo_visit_log_source_event ON geo_visit_log(store_id, source_event_id)');
+    w._save();
+  } catch (e) { console.warn('[DB] geo_visit_log source_event_id migration:', e.message); }
 }
 
 module.exports = { getDb, initDb };

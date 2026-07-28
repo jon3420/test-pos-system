@@ -107,6 +107,12 @@ function geoHeatUiSwitchTab(containerId, tab) {
     _geoHeatUiEnsureMapReuse(containerId);
     _geoHeatUiBindRankingEvents(containerId);
     geoHeatUiFetchAndRender(containerId);
+    // fix18-10-hotfix30-B5-R5.3-A3：同 geoHeatUiRegisterContext() 的修正
+    // ——切到 Heatmap 分頁時就主動抓一次 Geo Event Engine 資料，不等使用者
+    // 手動切到 Visitor Layer 才抓，避免看起來像「Geo 全部是 0」。
+    if (typeof geoVisitorFetchAndRender === 'function') {
+      geoVisitorFetchAndRender(containerId, geoHeatUiState.visitorRange);
+    }
     if (typeof geoInvalidateMapSize === 'function') setTimeout(() => { try { geoInvalidateMapSize(); } catch (e) {} }, 30);
   } else {
     _geoHeatUiRestoreChoropleth();
@@ -401,7 +407,15 @@ function geoHeatUiRegisterContext(containerId, mapContainerId) {
     _geoHeatUiEnsureMapReuse(containerId);
     _geoHeatUiBindRankingEvents(containerId);
     geoHeatUiFetchAndRender(containerId);
-    if (geoHeatUiState.layer === 'visitor' && typeof geoVisitorFetchAndRender === 'function') {
+    // fix18-10-hotfix30-B5-R5.3-A3（Analytics/Geo Sync Audit 發現的真正
+    // 落差）：Geo Event Engine 的統一 KPI（Visitors/AddToCart/Checkout/
+    // Orders...）本來只在使用者手動切到「訪客熱區 Visitor Layer」時才會
+    // 抓取，導致預設畫面（Order Layer）看起來像是「Geo 全部是 0」——不是
+    // 資料源不同步，是這裡從來沒有主動抓過。改成只要 Heatmap 分頁是啟用
+    // 狀態，不論目前顯示哪個 Layer，都主動抓一次 Geo Event Engine 資料，
+    // 確保切到 Visitor Layer 時資料已經是最新的，不會有「看起來是 0」的
+    // 空窗期。
+    if (typeof geoVisitorFetchAndRender === 'function') {
       geoVisitorFetchAndRender(containerId, geoHeatUiState.visitorRange);
     }
   }
