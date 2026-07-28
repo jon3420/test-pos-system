@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="/css/geo-intelligence.css?v=fix18-10-hotfix30-B5-R5-2-B1-5">
   <link rel="stylesheet" href="/css/geo-map-settings.css?v=fix18-10-hotfix30-B5-R5-2-B3">
   <link rel="stylesheet" href="/css/geo-heatmap.css?v=fix18-10-hotfix30-B5-R5-3-A1-1">
+  <link rel="stylesheet" href="/css/geo-visitor-layer.css?v=fix18-10-hotfix30-B5-R5-3-A1-2">
 </head>
 <body>
 
@@ -3493,6 +3494,10 @@
      geo-heatmap.js／geo-intelligence.js／geo-intelligence-map.js／
      analytics-v2.js 之後（會呼叫這幾個檔案既有的函式與全域狀態）。 -->
 <script src="/js/geo-heatmap-ui.js?v=fix18-10-hotfix30-B5-R5-3-A1-1"></script>
+<!-- fix18-10-hotfix30-B5-R5.3-A1.2: Analytics Visitor Geo Sync — Visitor Layer。
+     全新獨立檔案，完全沒有修改 geo-heatmap.js（Order Heatmap Engine）。必須
+     排在 geo-heatmap-ui.js 之後（Layer 切換按鈕由它呼叫這裡的函式）。 -->
+<script src="/js/geo-visitor-layer.js?v=fix18-10-hotfix30-B5-R5-3-A1-2"></script>
 <script src="/js/coupons.js?v=fix18-06"></script>
 <script src="/js/qrcode.min.js?v=fix18-09F-h2"></script>
 <script src="/license.js?v=fix18-06"></script>

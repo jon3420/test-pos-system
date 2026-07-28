@@ -31,6 +31,11 @@ const { getProviderStatus } = require('../utils/geoProviders');
 // fix18-10-hotfix30-B5-R5.2-A：Taiwan Administrative Area Intelligence
 const { getCountySummary } = require('../utils/geoAnalyticsQueries');
 const { listCounties, listSubdivisions, getManifest } = require('../utils/taiwanGeoNormalize');
+// fix18-10-hotfix30-B5-R5.3-A1.2（Analytics Visitor Geo Sync）：單一新增的
+// Geo Visit Query，不是第二套 Analytics API——沿用同一個 router／同一組
+// requireFeature('reports')+requireGeoAnalyticsEnabled 防護、同一個
+// req.storeId Store Isolation 慣例。
+const { getGeoVisitSummary, getGeoVisitAreas, getRecentGeoVisits, GEO_VISIT_LOG_TIME_RANGES } = require('../utils/geoVisitLog');
 
 // fix18-10-hotfix30-B5-R5.1-B（七之 A）：GEO_ANALYTICS_ENABLED=false 時，Geo
 // API 系列統一回 403 + 安全訊息（不是安全空結果——這系列端點本身就是「Geo
@@ -151,6 +156,32 @@ router.get('/funnel', requireFeature('reports'), requireGeoAnalyticsEnabled, _sa
 router.get('/fulfillment', requireFeature('reports'), requireGeoAnalyticsEnabled, _safeHandler(getGeoFulfillment, 'fulfillment'));
 router.get('/distance', requireFeature('reports'), requireGeoAnalyticsEnabled, _safeHandler(getGeoDistance));
 router.get('/source-area', requireFeature('reports'), requireGeoAnalyticsEnabled, _safeHandler(getGeoSourceArea, 'acquisition'));
+
+// fix18-10-hotfix30-B5-R5.3-A1.2（Analytics Visitor Geo Sync，需求文件「API：
+// 不得新增第二套 Analytics API，重用既有 Analytics Query，必要時新增 Geo
+// Visit Query」）：這是本輪唯一新增的端點，回傳 geo_visit_log 統計
+// （summary／areas／recent），供 Geo Intelligence 的 Visitor Layer／
+// Dashboard Integration／Recent Visitor Log 使用。不使用 _safeHandler（它是
+// 針對 parseGeoAnalyticsFilters()／date_from-date_to 那組既有篩選設計的，
+// 跟這裡的 range 預設 5m/30m/today/7d/30d 形狀不同），改用同樣的
+// try/catch + 安全錯誤訊息慣例自行處理。
+router.get('/visitor-log', requireFeature('reports'), requireGeoAnalyticsEnabled, (req, res) => {
+  try {
+    const db = getDb();
+    const storeId = req.storeId; // requireStore 已驗證，Store Isolation 不接受 req.query.store_id
+    const rangeParam = String(req.query.range || 'today');
+    const range = GEO_VISIT_LOG_TIME_RANGES.includes(rangeParam) ? rangeParam : 'today';
+    const limitParam = Number(req.query.limit);
+    const opts = { range };
+    const summary = getGeoVisitSummary(db, storeId, opts);
+    const areas = getGeoVisitAreas(db, storeId, opts);
+    const recent = getRecentGeoVisits(db, storeId, { limit: Number.isFinite(limitParam) ? limitParam : 20 });
+    return res.json({ success: true, data: { range, summary, areas, recent } });
+  } catch (error) {
+    console.error('[GeoAnalytics] visitor-log query failed:', error.message);
+    return res.status(500).json({ success: false, error: '無法讀取訪客地理資料' });
+  }
+});
 // fix18-10-hotfix30-B5-R5.2-B1-4（Geo 行為規則引擎 × Recommended Actions）——
 // 擴充既有 GET /alerts，不新增 endpoint（需求文件十四）。既有 alerts/
 // rule_thresholds 欄位完全保留、不改格式；新增 behavior_recommendations/

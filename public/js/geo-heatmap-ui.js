@@ -45,6 +45,13 @@ let geoHeatUiState = {
   enabled: true,
   containerId: null,
   mapContainerId: null,
+  // fix18-10-hotfix30-B5-R5.3-A1.2（Analytics Visitor Geo Sync）：新增的
+  // Layer 切換，預設 'order'——不影響任何既有行為（原本沒有這個欄位時，
+  // Heatmap 分頁一律等同現在的 'order' 呈現）。'visitor' 是全新加入的
+  // Visitor Layer（見 public/js/geo-visitor-layer.js），跟 Order Heatmap
+  // 完全獨立的 state／資料來源，互不影響。
+  layer: 'order',
+  visitorRange: 'today',
 };
 function _geoHeatUiExposeWindowState() {
   if (typeof window !== 'undefined') window.geoHeatUiState = geoHeatUiState;
@@ -55,6 +62,8 @@ function _geoHeatUiResetStateForTest() {
   geoHeatUiState.enabled = true;
   geoHeatUiState.containerId = null;
   geoHeatUiState.mapContainerId = null;
+  geoHeatUiState.layer = 'order';
+  geoHeatUiState.visitorRange = 'today';
   _geoHeatUiExposeWindowState();
 }
 
@@ -193,9 +202,81 @@ function geoHeatUiToggleEnabled(checked) {
 // ════════════════════════════════════════════════════════════════
 // 五、Panel Skeleton（需求文件三、七、八、九、十、十一、十二、十三）
 // ════════════════════════════════════════════════════════════════
+// fix18-10-hotfix30-B5-R5.3-A1.2：Layer 切換列（Order Heatmap / Visitor
+// Layer）。純新增，不影響 Order Heatmap 既有內容本身一個字元。
+function geoHeatUiLayerToggleHtml(containerId) {
+  const layers = [['order', '訂單熱區 Order Heatmap'], ['visitor', '訪客熱區 Visitor Layer']];
+  const buttons = layers.map(([key, label]) => {
+    const active = geoHeatUiState.layer === key;
+    return `<button type="button" class="geo-heat-layer-btn${active ? ' is-active' : ''}" aria-pressed="${active}" onclick="geoHeatUiSetLayer('${_geoHeatUiEsc(containerId)}','${_geoHeatUiEsc(key)}')">${_geoHeatUiEsc(label)}</button>`;
+  }).join('');
+  return `<div class="geo-heat-layer-toggle" role="group" aria-label="Heatmap Layer 切換">${buttons}</div>`;
+}
+function geoHeatUiSetLayer(containerId, layer) {
+  if (layer !== 'order' && layer !== 'visitor') return false;
+  geoHeatUiState.layer = layer;
+  if (typeof document !== 'undefined') {
+    const orderEl = document.getElementById(`${containerId}-order-layer`);
+    const visitorEl = document.getElementById(`${containerId}-visitor-layer`);
+    if (orderEl) orderEl.hidden = layer !== 'order';
+    if (visitorEl) visitorEl.hidden = layer !== 'visitor';
+    const btns = document.querySelectorAll(`#${containerId}-panel-heatmap .geo-heat-layer-btn`);
+    btns.forEach((b) => { /* aria-pressed 由重新渲染的 HTML 負責，這裡只切換顯示 */ });
+  }
+  if (layer === 'visitor' && typeof geoVisitorFetchAndRender === 'function') {
+    geoVisitorFetchAndRender(containerId, geoHeatUiState.visitorRange);
+  }
+  return true;
+}
+function geoHeatUiSetVisitorRange(containerId, range) {
+  geoHeatUiState.visitorRange = range;
+  if (typeof geoVisitorFetchAndRender === 'function') geoVisitorFetchAndRender(containerId, range);
+  if (typeof document !== 'undefined') {
+    const el = document.getElementById(`${containerId}-visitor-range-bar`);
+    if (el && typeof geoVisitorRangeBarHtml === 'function') el.outerHTML = geoVisitorRangeBarHtml(containerId);
+  }
+}
+// Visitor Layer 面板骨架：Time Range 切換 + Summary + Coverage + Ranking +
+// Recent Visitor Log。資料渲染完全交給 public/js/geo-visitor-layer.js 既有
+// 的 geoVisitorRender*Dom() 函式，這裡只負責容器 id 骨架（跟 Order Heatmap
+// 那組 #-summary/#-coverage/#-ranking 平行但完全獨立的一組 id，不會互相
+// 覆寫）。
+function geoVisitorRangeBarHtml(containerId) {
+  if (typeof GEO_VISITOR_TIME_RANGES === 'undefined') return '';
+  const buttons = GEO_VISITOR_TIME_RANGES.map((r) => {
+    const active = geoHeatUiState.visitorRange === r;
+    const label = (typeof GEO_VISITOR_RANGE_LABEL !== 'undefined' && GEO_VISITOR_RANGE_LABEL[r]) || r;
+    return `<button type="button" class="geo-heat-ctl-btn" aria-pressed="${active}" onclick="geoHeatUiSetVisitorRange('${_geoHeatUiEsc(containerId)}','${_geoHeatUiEsc(r)}')">${_geoHeatUiEsc(label)}</button>`;
+  }).join('');
+  return `<div id="${_geoHeatUiEsc(containerId)}-visitor-range-bar" class="geo-heat-controlbar" role="group" aria-label="Visitor Layer 時間範圍">${buttons}</div>`;
+}
+function geoHeatUiRenderVisitorLayerHtml(containerId) {
+  const hidden = geoHeatUiState.layer !== 'visitor';
+  return `<div id="${_geoHeatUiEsc(containerId)}-visitor-layer" ${hidden ? 'hidden' : ''}>
+    ${geoVisitorRangeBarHtml(containerId)}
+    <div class="geo-heat-grid">
+      <div class="geo-heat-col geo-heat-summary-col">
+        <div class="geo-heat-section-title">Geo Visitor Summary</div>
+        <div id="${_geoHeatUiEsc(containerId)}-visitor-summary" class="geo-heat-summary" aria-live="polite"></div>
+        <div class="geo-heat-section-title">Visitor Coverage</div>
+        <div id="${_geoHeatUiEsc(containerId)}-visitor-coverage" class="geo-heat-coverage"></div>
+      </div>
+      <div class="geo-heat-col geo-heat-ranking-col">
+        <div class="geo-heat-section-title">Visitor Ranking</div>
+        <ul id="${_geoHeatUiEsc(containerId)}-visitor-ranking" class="geo-heat-ranking-list" aria-label="Visitor 行政區排行"></ul>
+      </div>
+    </div>
+    <div class="geo-heat-section-title">Recent Visitor Log</div>
+    <div id="${_geoHeatUiEsc(containerId)}-visitor-recent" class="geo-visitor-recent-panel" aria-live="polite"></div>
+  </div>`;
+}
+
 function geoHeatUiRenderPanel(containerId) {
   const hidden = geoHeatUiState.activeTab !== 'heatmap';
+  const orderLayerHidden = geoHeatUiState.layer !== 'order';
   return `<div id="${_geoHeatUiEsc(containerId)}-panel-heatmap" class="geo-heat-root" role="tabpanel" aria-label="Heatmap" ${hidden ? 'hidden' : ''}>
+    ${geoHeatUiLayerToggleHtml(containerId)}
+    <div id="${_geoHeatUiEsc(containerId)}-order-layer" ${orderLayerHidden ? 'hidden' : ''}>
     ${geoHeatUiControlBarHtml()}
     <div id="${_geoHeatUiEsc(containerId)}-heat-loading" class="geo-heat-loading" role="status" hidden>${_geoHeatUiEsc(GEO_HEAT_UI_MESSAGES.loading)}</div>
     <div id="${_geoHeatUiEsc(containerId)}-heat-error" class="geo-heat-error" role="alert" hidden></div>
@@ -212,6 +293,8 @@ function geoHeatUiRenderPanel(containerId) {
         <ul id="${_geoHeatUiEsc(containerId)}-ranking" class="geo-heat-ranking-list" role="listbox" aria-label="Heatmap 行政區排行"></ul>
       </div>
     </div>
+    </div>
+    ${geoHeatUiRenderVisitorLayerHtml(containerId)}
   </div>`;
 }
 
@@ -307,10 +390,16 @@ function geoHeatUiRegisterContext(containerId, mapContainerId) {
   // 這個函式）一律先清空 Engine 既有的 Heat Layer／Selection／pending
   // request，再視目前分頁決定要不要立即抓新資料，不沿用上一店的殘留狀態。
   if (typeof geoHeatHandleStoreSwitch === 'function') geoHeatHandleStoreSwitch();
+  // fix18-10-hotfix30-B5-R5.3-A1.2：Visitor Layer 是獨立 state，切店時也要
+  // 一併清空，避免殘留上一店的 geo_visit_log 資料（需求文件 Store Isolation）。
+  if (typeof geoVisitorHandleStoreSwitch === 'function') geoVisitorHandleStoreSwitch();
   if (geoHeatUiState.activeTab === 'heatmap') {
     _geoHeatUiEnsureMapReuse(containerId);
     _geoHeatUiBindRankingEvents(containerId);
     geoHeatUiFetchAndRender(containerId);
+    if (geoHeatUiState.layer === 'visitor' && typeof geoVisitorFetchAndRender === 'function') {
+      geoVisitorFetchAndRender(containerId, geoHeatUiState.visitorRange);
+    }
   }
 }
 
@@ -321,6 +410,9 @@ if (typeof module !== 'undefined' && module.exports) {
     geoHeatUiControlBarHtml, geoHeatUiRenderPanel,
     geoHeatUiSetMetric, geoHeatUiSetDisplay, geoHeatUiSetChannel, geoHeatUiToggleEnabled,
     geoHeatUiFetchAndRender, geoHeatUiRegisterContext,
+    // fix18-10-hotfix30-B5-R5.3-A1.2
+    geoHeatUiLayerToggleHtml, geoHeatUiSetLayer, geoHeatUiSetVisitorRange,
+    geoHeatUiRenderVisitorLayerHtml, geoVisitorRangeBarHtml,
     _geoHeatUiEnsureMapReuse, _geoHeatUiRestoreChoropleth, _geoHeatUiBindRankingEvents,
     _geoHeatUiRerenderControlBar, _geoHeatUiResetStateForTest,
     get geoHeatUiState() { return geoHeatUiState; },

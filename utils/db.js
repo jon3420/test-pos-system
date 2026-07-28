@@ -2252,6 +2252,57 @@ function initTables(w) {
     w._db.run('CREATE INDEX IF NOT EXISTS idx_crm_segments_store_enabled ON crm_segments(store_id, enabled)');
     w._save();
   } catch(e) { console.warn('[DB] crm R2 hardening index:', e.message); }
+
+  // ══════════════════════════════════════════════════════════════════
+  // fix18-10-hotfix30-B5-R5.3-A1.2｜Geo Intelligence × Analytics Visitor Geo Sync
+  //
+  // geo_visit_log 是「Geo 快速查詢 Layer」——每一筆成功寫入 analytics_events
+  // 的事件，同步（additive、fail-open）寫入一筆攤平後的 Geo 摘要列，讓 Geo
+  // Intelligence 的 Visitor 相關統計/地圖不必再依賴 orders 表，即使商家尚未
+  // 產生任何訂單，也能看到訪客地理分布。
+  //
+  // 原則（需求文件「不得影響既有 analytics_events」）：
+  //   - 全新獨立資料表，safe migration（CREATE TABLE IF NOT EXISTS +
+  //     CREATE INDEX IF NOT EXISTS），絕不 DROP／重建／修改 analytics_events
+  //     本身的欄位或索引。
+  //   - lat/lng 欄位保留給「未來若真的有精確座標來源」使用；目前系統唯一的
+  //     Geo Resolver（utils/geoResolver.js 的 resolveVisitorGeo()）只回傳
+  //     city/district 名稱，從不回傳座標，因此本輪寫入路徑（見
+  //     utils/geoVisitLog.js）一律把 lat/lng 寫成 NULL，絕不用行政區中心點、
+  //     店家座標或矩形 fixture 的中心點假造座標（見使用者本輪明確指示）。
+  //   - is_unknown 描述「完全無法辨識地理位置」（city 與 district 皆缺），
+  //     不是「沒有精確座標」——city/district 已知但沒有 lat/lng 仍視為已知
+  //     （is_unknown=0），避免「Geo Visitors=0 但 Unknown=100%」的矛盾狀態。
+  // ══════════════════════════════════════════════════════════════════
+  w._db.run(`CREATE TABLE IF NOT EXISTS geo_visit_log (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    store_id    TEXT NOT NULL,
+    visitor_id  TEXT NOT NULL,
+    session_id  TEXT NOT NULL,
+    event_name  TEXT NOT NULL,
+    event_time  TEXT NOT NULL DEFAULT (datetime('now')),
+    lat         REAL,
+    lng         REAL,
+    city        TEXT,
+    district    TEXT,
+    country     TEXT,
+    source      TEXT NOT NULL DEFAULT 'unknown',
+    is_unknown  INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT DEFAULT (datetime('now'))
+  )`);
+  w._save();
+  try {
+    // 需求文件「Performance：查詢必須走 Index，不得每次全表掃描」——涵蓋
+    // Dashboard Integration 需要的四種查詢形狀：依時間範圍抓摘要/地圖資料
+    // （store_id+event_time）、依 event_name 篩選 Geo AddToCart/Checkout/
+    // Orders（store_id+event_name+event_time）、Session/Visitor 去重
+    // （store_id+session_id／store_id+visitor_id）。
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_geo_visit_log_store_time ON geo_visit_log(store_id, event_time)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_geo_visit_log_store_event_time ON geo_visit_log(store_id, event_name, event_time)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_geo_visit_log_store_session ON geo_visit_log(store_id, session_id)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_geo_visit_log_store_visitor ON geo_visit_log(store_id, visitor_id)');
+    w._save();
+  } catch(e) { console.warn('[DB] geo_visit_log index:', e.message); }
 }
 
 module.exports = { getDb, initDb };

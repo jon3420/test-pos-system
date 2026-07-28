@@ -32,6 +32,11 @@ const {
   UNKNOWN_GEO, isValidGeoSource, isValidGeoConfidence, isValidGeoResolution,
   isValidGeoContext, isValidGeoAccuracy, normalizeGeoVersion, DISTANCE_ALLOWED_CONTEXTS,
 } = require('./geoConstants');
+// fix18-10-hotfix30-B5-R5.3-A1.2（Analytics Visitor Geo Sync）：insertEvent()
+// 是所有事件寫入路徑的唯一共同出口，在這裡同步（additive、fail-open）補寫一筆
+// geo_visit_log，讓 Geo Intelligence 的 Visitor 統計/地圖不再只依賴 orders 表。
+// 完全不影響 analytics_events 本身的欄位、索引或既有寫入邏輯（見下方呼叫點）。
+const { logGeoVisit } = require('./geoVisitLog');
 
 // 防禦性清洗：只接受 geoConstants 允許的列舉值，其餘一律退回 unknown/null，
 // 絕不信任呼叫端傳入的任意字串（尤其禁止把前端傳來的資料未經驗證直接寫入）。
@@ -296,6 +301,22 @@ function insertEvent(db, fields) {
         g.geo_context, g.geo_version, g.geo_accuracy, g.geo_provider, g.geo_county_code, g.geo_subdivision_code,
       ]
     );
+
+    // fix18-10-hotfix30-B5-R5.3-A1.2：Analytics Visitor Geo Sync——同步寫入
+    // geo_visit_log（不影響上面 analytics_events 的寫入是否成功；這裡的
+    // try/catch 只保護這一步本身，logGeoVisit() 內部也是 fail-open，雙重
+    //保險絕不讓 Geo 快速查詢 Layer 的寫入影響事件主流程）。
+    try {
+      logGeoVisit(db, {
+        store_id, visitor_id, session_id, event_name,
+        geo_city: g.geo_city, geo_district: g.geo_district, geo_country: g.geo_country,
+        geo_source: g.geo_source,
+        // 本輪唯一的 Geo Resolver（resolveVisitorGeo/normalizeDeliveryGeo）都不
+        // 提供座標；lat/lng 沒有合法來源時保持 undefined，logGeoVisit() 會
+        // 正確存成 NULL，不得用行政區中心點/店家座標/矩形中心假造座標。
+      });
+    } catch (e3) { /* 絕不讓 Geo Visit Log 寫入影響事件主流程 */ }
+
     return true;
   } catch (e) {
     console.warn('[analyticsLog] insertEvent failed:', e.message);
