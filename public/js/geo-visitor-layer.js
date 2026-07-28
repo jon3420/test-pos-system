@@ -29,9 +29,20 @@
 
 'use strict';
 
-const GEO_VISITOR_TIME_RANGES = Object.freeze(['5m', '30m', 'today', '7d', '30d']);
+const GEO_VISITOR_TIME_RANGES = Object.freeze(['5m', '30m', '1h', '24h', 'today', '7d', '30d', 'custom']);
 const GEO_VISITOR_RANGE_LABEL = Object.freeze({
-  '5m': '近 5 分鐘', '30m': '近 30 分鐘', today: '今日', '7d': '近 7 天', '30d': '近 30 天',
+  '5m': '近 5 分鐘', '30m': '近 30 分鐘', '1h': '近 1 小時', '24h': '近 24 小時',
+  today: '今日', '7d': '近 7 天', '30d': '近 30 天', custom: '自訂',
+});
+
+// fix18-10-hotfix30-B5-R5.3-A2（Geo Event Engine，需求文件十三）：8 個正式
+// Dashboard Tab，全部共用同一個 geoEventState（這裡即 geoVisitorState），
+// 不建立 Visitors/Cart/Checkout/Orders 四套重複狀態——只是同一份 state 的
+// 一個 `metric` 欄位決定目前顯示哪一個 Tab 的 Summary/Ranking/Tooltip。
+const GEO_EVENT_METRICS = Object.freeze(['visitors', 'add_to_cart', 'checkout', 'orders', 'revenue', 'conversion', 'cart_abandonment', 'recommendation_risk']);
+const GEO_EVENT_METRIC_LABEL = Object.freeze({
+  visitors: '訪客', add_to_cart: '加入購物車', checkout: '開始結帳', orders: '完成訂單',
+  revenue: '營收', conversion: '成交率', cart_abandonment: '購物車放棄', recommendation_risk: '建議風險',
 });
 
 // 目前刻意留空（見上方稽核結論）。之後若有正式行政區邊界資料，在這裡加入
@@ -62,7 +73,10 @@ function _geoVisitorSafeNumber(v) { const n = Number(v); return Number.isFinite(
 let geoVisitorState = {
   containerId: null,
   range: 'today',
+  metric: 'visitors',
   summary: null,
+  funnel: null,
+  recommendationRisk: null,
   areas: [],
   recent: [],
   choroplethLayerGroup: null, // 獨立 layerGroup，跟既有 Dashboard 的 geoJsonLayer 分開，避免互相覆蓋
@@ -80,6 +94,8 @@ function geoVisitorHandleStoreSwitch() {
   }
   geoVisitorState.abortController = null;
   geoVisitorState.summary = null;
+  geoVisitorState.funnel = null;
+  geoVisitorState.recommendationRisk = null;
   geoVisitorState.areas = [];
   geoVisitorState.recent = [];
   geoVisitorState.requestSeq += 1;
@@ -91,7 +107,10 @@ function geoVisitorHandleStoreSwitch() {
 function _geoVisitorResetStateForTest() {
   geoVisitorState.containerId = null;
   geoVisitorState.range = 'today';
+  geoVisitorState.metric = 'visitors';
   geoVisitorState.summary = null;
+  geoVisitorState.funnel = null;
+  geoVisitorState.recommendationRisk = null;
   geoVisitorState.areas = [];
   geoVisitorState.recent = [];
   if (geoVisitorState.choroplethLayerGroup && typeof geoVisitorState.choroplethLayerGroup.clearLayers === 'function') {
@@ -220,14 +239,22 @@ function geoVisitorRenderCoverageDom() {
     `Coverage：${c.coverage_pct}%`,
   ].map(_geoVisitorEsc).join('<br>');
 }
+function _geoVisitorRankingSortKey(area, metric) {
+  if (metric === 'add_to_cart') return area.add_to_cart_count || 0;
+  if (metric === 'checkout') return area.checkout_count || 0;
+  if (metric === 'orders') return area.order_count || 0;
+  return area.visitor_count || 0; // visitors/revenue/conversion/cart_abandonment/recommendation_risk：目前沒有各自獨立的行政區級 SQL（需求文件六：不得為每個 Tab 建一套 SQL），沿用 Visitors 排序，見 R5.3-A2_DATA_DECISION.md
+}
+function _geoVisitorRankingValue(area, metric) { return _geoVisitorRankingSortKey(area, metric); }
 function geoVisitorRenderRankingDom() {
   const el = _geoVisitorEl('visitor-ranking');
   if (!el) return;
-  const list = (geoVisitorState.areas || []).slice().sort((a, b) => b.visitor_count - a.visitor_count);
+  const metric = geoVisitorState.metric;
+  const list = (geoVisitorState.areas || []).slice().sort((a, b) => _geoVisitorRankingSortKey(b, metric) - _geoVisitorRankingSortKey(a, metric));
   el.innerHTML = list.map((a) => {
     const name = a.is_unknown ? 'Unknown' : `${a.city || ''}${a.district || ''}`;
     const noCoord = a.is_unknown ? '' : `<span class="geo-visitor-approx">（行政區推定）</span>`;
-    return `<li class="geo-visitor-rank-item"><span class="geo-visitor-rank-name">${_geoVisitorEsc(name)}</span>${noCoord}<span class="geo-visitor-rank-value">${_geoVisitorEsc(String(a.visitor_count))}</span></li>`;
+    return `<li class="geo-visitor-rank-item"><span class="geo-visitor-rank-name">${_geoVisitorEsc(name)}</span>${noCoord}<span class="geo-visitor-rank-value">${_geoVisitorEsc(String(_geoVisitorRankingValue(a, metric)))}</span></li>`;
   }).join('');
 }
 function geoVisitorRenderRecentDom() {
@@ -237,8 +264,119 @@ function geoVisitorRenderRecentDom() {
   if (!list.length) { el.innerHTML = `<div class="geo-visitor-recent-empty">目前沒有訪客紀錄</div>`; return; }
   el.innerHTML = list.map((r) => {
     const name = r.is_unknown ? 'Unknown' : `${r.city || ''}${r.district || ''}`;
-    return `<div class="geo-visitor-recent-row"><span class="geo-visitor-recent-time">${_geoVisitorEsc(r.event_time)}</span><span class="geo-visitor-recent-area">${_geoVisitorEsc(name)}</span><span class="geo-visitor-recent-event">${_geoVisitorEsc(r.event_name)}</span><span class="geo-visitor-recent-source">${_geoVisitorEsc(r.source === 'ip' ? 'Analytics Sync' : (r.source || 'Analytics Sync'))}</span></div>`;
+    const level = r.is_unknown ? 'Unknown' : '行政區推定';
+    const mask = _geoVisitorEsc(r.visitor_mask || 'vis_***');
+    return `<div class="geo-visitor-recent-row"><span class="geo-visitor-recent-time">${_geoVisitorEsc(r.event_time)}</span><span class="geo-visitor-recent-mask">${mask}</span><span class="geo-visitor-recent-event">${_geoVisitorEsc(r.event_name)}</span><span class="geo-visitor-recent-area">${_geoVisitorEsc(name)}</span><span class="geo-visitor-recent-level">${_geoVisitorEsc(level)}</span><span class="geo-visitor-recent-source">${_geoVisitorEsc(r.source === 'ip' ? 'Analytics Sync' : (r.source || 'Analytics Sync'))}</span></div>`;
   }).join('');
+}
+
+// ════════════════════════════════════════════════════════════════
+// 五-B、Geo Event Engine Metric Tabs（需求文件十三～十九）——8 個正式
+//      Tab，全部共用 geoVisitorState.funnel（同一次 API 回應算好的完整
+//      漏斗），切換 Tab 不重新打 API，只切換要顯示哪一段資料。
+// ════════════════════════════════════════════════════════════════
+function geoVisitorMetricBarHtml(containerId) {
+  const buttons = GEO_EVENT_METRICS.map((m) => {
+    const active = geoVisitorState.metric === m;
+    return `<button type="button" class="geo-heat-ctl-btn" aria-pressed="${active}" onclick="geoVisitorSetMetric('${_geoVisitorEsc(containerId)}','${_geoVisitorEsc(m)}')">${_geoVisitorEsc(GEO_EVENT_METRIC_LABEL[m])}</button>`;
+  }).join('');
+  return `<div id="${_geoVisitorEsc(containerId)}-metric-bar" class="geo-heat-controlbar" role="group" aria-label="Geo Event 指標切換">${buttons}</div>`;
+}
+function geoVisitorSetMetric(containerId, metric) {
+  if (!GEO_EVENT_METRICS.includes(metric)) return false;
+  geoVisitorState.metric = metric;
+  if (typeof document !== 'undefined') {
+    const el = document.getElementById(`${containerId}-metric-bar`);
+    if (el) el.outerHTML = geoVisitorMetricBarHtml(containerId);
+  }
+  geoVisitorRenderMetricSummaryDom();
+  geoVisitorRenderRankingDom(); // Ranking 排序依 metric 改變（訪客/加購/結帳/訂單各自排序）
+  return true;
+}
+
+// 需求文件二十五：Empty State 依情況區分，不得全部只顯示「暫無資料」。
+function _geoVisitorEmptyStateReason(funnel) {
+  const f = funnel || {};
+  if (!f || (f.visitors || 0) === 0) return '目前沒有任何事件';
+  if ((f.unknown_visitors || 0) === (f.visitors || 0)) return '有事件，但目前全部訪客地理位置皆為 Unknown';
+  return null; // 有資料，不是空狀態
+}
+
+function geoVisitorRenderMetricSummaryDom() {
+  const el = _geoVisitorEl('metric-summary');
+  if (!el) return;
+  const f = geoVisitorState.funnel;
+  el.setAttribute('aria-live', 'polite');
+  if (!f) { el.innerHTML = `<div class="geo-visitor-recent-empty">目前沒有任何事件</div>`; return; }
+
+  const metric = geoVisitorState.metric;
+  const esc = _geoVisitorEsc;
+  let html = '';
+  if (metric === 'visitors') {
+    html = [
+      `Geo Visitors：${f.visitors}`,
+      `Known District：${f.known_district_visitors}`,
+      `Exact Coordinate：0`, // 誠實標示：本輪 IP Geo 從不提供精確座標
+      `Unknown：${f.unknown_visitors}`,
+      `Coverage：${f.visitors > 0 ? Math.round((f.known_district_visitors / f.visitors) * 1000) / 10 : 0}%`,
+    ].join('<br>');
+  } else if (metric === 'add_to_cart') {
+    html = [
+      `Add To Cart Visitors：${f.add_to_cart_visitors}`,
+      `Cart Rate（Visitor→Cart）：${f.visitor_to_cart_rate}%`,
+      `Known District：${f.known_district_visitors}`,
+      `Unknown：${f.unknown_visitors}`,
+    ].join('<br>');
+  } else if (metric === 'checkout') {
+    html = [
+      `Checkout Visitors：${f.begin_checkout_visitors}`,
+      `Cart to Checkout Rate：${f.cart_to_checkout_rate}%`,
+      `Checkout Abandonment：${f.checkout_abandonment_visitors}`,
+      `Coverage：${f.visitors > 0 ? Math.round((f.known_district_visitors / f.visitors) * 1000) / 10 : 0}%`,
+    ].join('<br>');
+  } else if (metric === 'orders') {
+    const ordersLine = (f.purchase_orders === null) ? '尚無可用訂單識別資料' : String(f.purchase_orders);
+    html = [
+      `Purchase Visitors：${f.purchase_visitors}`,
+      `Purchase Orders：${esc(ordersLine)}`,
+      `Visitor to Purchase Rate：${f.visitor_to_purchase_rate}%`,
+    ].join('<br>');
+  } else if (metric === 'revenue') {
+    if (f.revenue === null) {
+      html = `目前沒有可用營收事件資料`;
+    } else {
+      html = [
+        `Revenue：NT$ ${Math.round(f.revenue).toLocaleString('zh-TW')}`,
+        `資料來源：Order Data（不是 Analytics 原生營收，本專案 Analytics 事件目前沒有金額欄位）`,
+      ].join('<br>');
+    }
+  } else if (metric === 'conversion') {
+    html = [
+      `Conversion（Purchase / Visitors）：${f.visitor_to_purchase_rate}%`,
+      `Cart Conversion（Purchase / Add To Cart）：${f.cart_conversion_rate}%`,
+      `Checkout Conversion（Purchase / Checkout）：${f.checkout_conversion_rate}%`,
+    ].join('<br>');
+  } else if (metric === 'cart_abandonment') {
+    html = [
+      `Cart Abandonment Visitors：${f.cart_abandonment_visitors}`,
+      `（Add To Cart 訪客中，尚未 Purchase 的人數，集合差集計算）`,
+      `Checkout Abandonment Visitors：${f.checkout_abandonment_visitors}`,
+    ].join('<br>');
+  } else if (metric === 'recommendation_risk') {
+    const r = geoVisitorState.recommendationRisk;
+    if (!r || !r.sufficient_data) {
+      html = `<div class="geo-visitor-risk-basis">${esc((r && r.basis) || '規則式計算，非 AI')}</div><div>${esc((r && r.message) || 'Insufficient Data')}</div>`;
+    } else {
+      const signalLabels = {
+        high_visitor_low_conversion: '高訪客低成交', high_cart_low_checkout: '高加購低結帳',
+        high_checkout_low_purchase: '高結帳低購買', high_unknown: '高 Unknown',
+        low_coverage: '低 Coverage', delivery_distance_too_high: '外送距離過高',
+      };
+      const activeSignals = Object.entries(r.signals || {}).filter(([, v]) => v).map(([k]) => signalLabels[k] || k);
+      html = `<div class="geo-visitor-risk-basis">${esc(r.basis)}</div>` + (activeSignals.length ? activeSignals.map(esc).join('<br>') : '目前沒有觸發任何風險訊號');
+    }
+  }
+  el.innerHTML = html;
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -272,6 +410,8 @@ async function geoVisitorFetchAndRender(containerId, range) {
   if (seq !== geoVisitorState.requestSeq) return; // 舊 request，被更新的請求蓋掉
 
   geoVisitorState.summary = (data && data.summary) || null;
+  geoVisitorState.funnel = (data && data.funnel) || null;
+  geoVisitorState.recommendationRisk = (data && data.recommendation_risk) || null;
   geoVisitorState.areas = (data && data.areas) || [];
   geoVisitorState.recent = (data && data.recent) || [];
 
@@ -279,6 +419,7 @@ async function geoVisitorFetchAndRender(containerId, range) {
   geoVisitorRenderCoverageDom();
   geoVisitorRenderRankingDom();
   geoVisitorRenderRecentDom();
+  geoVisitorRenderMetricSummaryDom();
 
   // Choropleth：重用既有 Dashboard 的同一個 map instance／featureIndex
   // （不建立第二張 Leaflet map），未載入時安全略過。
@@ -290,11 +431,13 @@ async function geoVisitorFetchAndRender(containerId, range) {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     GEO_VISITOR_TIME_RANGES, GEO_VISITOR_RANGE_LABEL,
+    GEO_EVENT_METRICS, GEO_EVENT_METRIC_LABEL,
     geoVisitorIsChoroplethEligible, _setChoroplethOfficialCityCodesForTest,
     geoVisitorComputeCoverage, geoVisitorBuildTooltipContent,
     geoVisitorRenderChoropleth, geoVisitorRenderSummaryDom, geoVisitorRenderCoverageDom,
     geoVisitorRenderRankingDom, geoVisitorRenderRecentDom, geoVisitorFetchAndRender,
-    geoVisitorHandleStoreSwitch,
+    geoVisitorHandleStoreSwitch, geoVisitorMetricBarHtml, geoVisitorSetMetric,
+    geoVisitorRenderMetricSummaryDom, _geoVisitorEmptyStateReason,
     _geoVisitorResetStateForTest,
     get geoVisitorState() { return geoVisitorState; },
   };

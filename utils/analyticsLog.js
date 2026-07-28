@@ -311,6 +311,10 @@ function insertEvent(db, fields) {
         store_id, visitor_id, session_id, event_name,
         geo_city: g.geo_city, geo_district: g.geo_district, geo_country: g.geo_country,
         geo_source: g.geo_source,
+        // fix18-10-hotfix30-B5-R5.3-A2：order_id 來自既有 analytics_events
+        // 的同一個呼叫參數（purchase/submit_order 事件才會有值），不是新
+        // 產生的資料。
+        order_id,
         // 本輪唯一的 Geo Resolver（resolveVisitorGeo/normalizeDeliveryGeo）都不
         // 提供座標；lat/lng 沒有合法來源時保持 undefined，logGeoVisit() 會
         // 正確存成 NULL，不得用行政區中心點/店家座標/矩形中心假造座標。

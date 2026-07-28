@@ -252,8 +252,12 @@ function geoVisitorRangeBarHtml(containerId) {
 }
 function geoHeatUiRenderVisitorLayerHtml(containerId) {
   const hidden = geoHeatUiState.layer !== 'visitor';
+  const metricBarHtml = (typeof geoVisitorMetricBarHtml === 'function') ? geoVisitorMetricBarHtml(containerId) : '';
   return `<div id="${_geoHeatUiEsc(containerId)}-visitor-layer" ${hidden ? 'hidden' : ''}>
     ${geoVisitorRangeBarHtml(containerId)}
+    ${metricBarHtml}
+    <div class="geo-heat-section-title">Geo Event Summary</div>
+    <div id="${_geoHeatUiEsc(containerId)}-metric-summary" class="geo-heat-summary" aria-live="polite"></div>
     <div class="geo-heat-grid">
       <div class="geo-heat-col geo-heat-summary-col">
         <div class="geo-heat-section-title">Geo Visitor Summary</div>
@@ -266,7 +270,7 @@ function geoHeatUiRenderVisitorLayerHtml(containerId) {
         <ul id="${_geoHeatUiEsc(containerId)}-visitor-ranking" class="geo-heat-ranking-list" aria-label="Visitor 行政區排行"></ul>
       </div>
     </div>
-    <div class="geo-heat-section-title">Recent Visitor Log</div>
+    <div class="geo-heat-section-title">Recent Geo Events</div>
     <div id="${_geoHeatUiEsc(containerId)}-visitor-recent" class="geo-visitor-recent-panel" aria-live="polite"></div>
   </div>`;
 }

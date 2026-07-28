@@ -36,6 +36,9 @@ const { listCounties, listSubdivisions, getManifest } = require('../utils/taiwan
 // requireFeature('reports')+requireGeoAnalyticsEnabled 防護、同一個
 // req.storeId Store Isolation 慣例。
 const { getGeoVisitSummary, getGeoVisitAreas, getRecentGeoVisits, GEO_VISIT_LOG_TIME_RANGES } = require('../utils/geoVisitLog');
+// fix18-10-hotfix30-B5-R5.3-A2（Geo Event Engine）：additive 擴充既有
+// /visitor-log 回應，新增 funnel／coverage 兩個欄位，不新增第二套端點。
+const { getGeoEventFunnel, buildRecommendationRiskSummary } = require('../utils/geoEventEngine');
 
 // fix18-10-hotfix30-B5-R5.1-B（七之 A）：GEO_ANALYTICS_ENABLED=false 時，Geo
 // API 系列統一回 403 + 安全訊息（不是安全空結果——這系列端點本身就是「Geo
@@ -172,11 +175,24 @@ router.get('/visitor-log', requireFeature('reports'), requireGeoAnalyticsEnabled
     const rangeParam = String(req.query.range || 'today');
     const range = GEO_VISIT_LOG_TIME_RANGES.includes(rangeParam) ? rangeParam : 'today';
     const limitParam = Number(req.query.limit);
-    const opts = { range };
+    const opts = { range, customStart: req.query.custom_start };
     const summary = getGeoVisitSummary(db, storeId, opts);
     const areas = getGeoVisitAreas(db, storeId, opts);
     const recent = getRecentGeoVisits(db, storeId, { limit: Number.isFinite(limitParam) ? limitParam : 20 });
-    return res.json({ success: true, data: { range, summary, areas, recent } });
+    // fix18-10-hotfix30-B5-R5.3-A2：Geo Event Engine——單一查詢層一次算出
+    // 完整漏斗（Visitors/View Item/Add To Cart/Checkout/Purchase/Revenue/
+    // Abandonment/Conversion），供 Dashboard 全部 8 個 Tab 共用，不必為
+    // 每個 Tab 各自打一支 API。
+    const funnel = getGeoEventFunnel(db, storeId, opts);
+    const coverage = {
+      total: funnel.visitors,
+      known_district: funnel.known_district_visitors,
+      unknown: funnel.unknown_visitors,
+      unknown_rate: funnel.unknown_rate,
+      coverage_pct: funnel.visitors > 0 ? Math.round((funnel.known_district_visitors / funnel.visitors) * 1000) / 10 : 0,
+    };
+    const recommendationRisk = buildRecommendationRiskSummary(funnel);
+    return res.json({ success: true, data: { range, summary, areas, recent, funnel, coverage, recommendation_risk: recommendationRisk } });
   } catch (error) {
     console.error('[GeoAnalytics] visitor-log query failed:', error.message);
     return res.status(500).json({ success: false, error: '無法讀取訪客地理資料' });

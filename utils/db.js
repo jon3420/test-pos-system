@@ -2303,6 +2303,33 @@ function initTables(w) {
     w._db.run('CREATE INDEX IF NOT EXISTS idx_geo_visit_log_store_visitor ON geo_visit_log(store_id, visitor_id)');
     w._save();
   } catch(e) { console.warn('[DB] geo_visit_log index:', e.message); }
+
+  // ══════════════════════════════════════════════════════════════════
+  // fix18-10-hotfix30-B5-R5.3-A2｜Geo Event Engine — additive 擴充
+  // geo_visit_log，不建立第二套資料表（見 R5.3-A2_DATA_DECISION.md）。
+  //
+  // order_id：稽核結論——analytics_events 本來就有 order_id 欄位（purchase/
+  // submit_order 事件寫入時由呼叫端提供，見 utils/analyticsLog.js
+  // insertEvent()），只是 geo_visit_log 當初沒有同步存這個既有真實欄位。
+  // 這裡用 safe migration（ALTER TABLE ADD COLUMN）補上，資料來源是既有
+  // 真實欄位，不是本輪臆測新增。
+  //
+  // revenue：稽核結論——analytics_events 完全沒有 value/revenue/amount/
+  // order_total 欄位，Analytics 本身沒有原生營收資料可用。Revenue Tab
+  // 改成即時 JOIN 既有 orders 表的 total 欄位（透過這裡新增的 order_id），
+  // 明確標示來源是「Order Data」，不新增 geo_visit_log.revenue 欄位（避免
+  // 跟 orders.total 兩份資料互相漂移不一致）。
+  // ══════════════════════════════════════════════════════════════════
+  try {
+    const gvlCols = w.all('PRAGMA table_info(geo_visit_log)').map((c) => c.name);
+    if (!gvlCols.includes('order_id')) {
+      w._db.run('ALTER TABLE geo_visit_log ADD COLUMN order_id TEXT');
+      w._save();
+      console.log('[DB] ✅ geo_visit_log 補建欄位: order_id（既有 analytics_events.order_id 的同步欄位，非新資料來源）');
+    }
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_geo_visit_log_store_order ON geo_visit_log(store_id, order_id)');
+    w._save();
+  } catch (e) { console.warn('[DB] geo_visit_log order_id migration:', e.message); }
 }
 
 module.exports = { getDb, initDb };

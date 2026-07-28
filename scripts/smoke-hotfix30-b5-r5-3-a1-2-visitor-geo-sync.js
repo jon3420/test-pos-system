@@ -429,7 +429,7 @@ async function main() {
     assert(k in GVL, `A17-export-${k} utils/geoVisitLog.js 正確匯出 ${k}`);
   });
   assert(Object.isFrozen(GVL.GEO_VISIT_LOG_TIME_RANGES), 'A17-1 GEO_VISIT_LOG_TIME_RANGES 是 frozen 常數（不會被意外修改）');
-  assert(GVL.GEO_VISIT_LOG_TIME_RANGES.length === 5, 'A17-2 時間範圍剛好 5 種（5m/30m/today/7d/30d）');
+  assert(GVL.GEO_VISIT_LOG_TIME_RANGES.length === 8, 'A17-2 時間範圍擴充為 8 種（5m/30m/1h/24h/today/7d/30d/custom，R5.3-A2 需求文件二十新增 1h/24h/custom，既有 5 種原樣保留）');
 
   // 防禦性驗證：缺少必要欄位時安全回傳 false，不拋出例外
   assert(GVL.logGeoVisit(db, {}) === false, 'A17-3 logGeoVisit() 缺少全部必要欄位時回傳 false');

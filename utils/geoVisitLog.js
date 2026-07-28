@@ -32,17 +32,26 @@ function _safeStr(val, maxLen = 300) {
   return s.length > maxLen ? s.slice(0, maxLen) : s;
 }
 
-// 時間範圍預設（需求文件「Heat Aggregation：近5分鐘/30分鐘/今日/7天/30天」）。
-// 回傳 SQLite 可比較的 ISO-ish 字串（跟 analytics_events/geo_visit_log 的
-// created_at/event_time 一樣用 datetime('now') 格式，字串可直接比較）。
-const GEO_VISIT_LOG_TIME_RANGES = Object.freeze(['5m', '30m', 'today', '7d', '30d']);
-function resolveTimeRangeSince(range, now) {
+// 時間範圍預設（需求文件「Heat Aggregation：近5分鐘/30分鐘/今日/7天/30天」，
+// R5.3-A2 需求文件二十再擴充：1小時/24小時/自訂）。回傳 SQLite 可比較的
+// ISO-ish 字串（跟 analytics_events/geo_visit_log 的 created_at/event_time
+// 一樣用 datetime('now') 格式，字串可直接比較）。
+const GEO_VISIT_LOG_TIME_RANGES = Object.freeze(['5m', '30m', '1h', '24h', 'today', '7d', '30d', 'custom']);
+function resolveTimeRangeSince(range, now, customStart) {
   const nowDate = now instanceof Date ? now : new Date();
   const r = GEO_VISIT_LOG_TIME_RANGES.includes(range) ? range : 'today';
   if (r === '5m') return new Date(nowDate.getTime() - 5 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19);
   if (r === '30m') return new Date(nowDate.getTime() - 30 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19);
+  if (r === '1h') return new Date(nowDate.getTime() - 60 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19);
+  if (r === '24h') return new Date(nowDate.getTime() - 24 * 60 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19);
   if (r === '7d') return new Date(nowDate.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19);
   if (r === '30d') return new Date(nowDate.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19);
+  if (r === 'custom') {
+    // 自訂範圍：呼叫端必須提供合法的 customStart（字串），否則安全 fallback
+    // 回 today，不得讓不合法輸入變成「無下限」查詢（等同全表掃描風險）。
+    if (customStart && typeof customStart === 'string' && customStart.length >= 10) return customStart;
+    return `${nowDate.toISOString().slice(0, 10)} 00:00:00`;
+  }
   // 'today'：當天 00:00:00（UTC，跟既有 analytics 慣例一致，不另外處理時區轉換）
   return `${nowDate.toISOString().slice(0, 10)} 00:00:00`;
 }
@@ -68,18 +77,21 @@ function logGeoVisit(db, fields) {
 
     const source = _safeStr(f.geo_source, 30) || GEO_SOURCE.UNKNOWN;
     const eventTime = f.event_time ? _safeStr(f.event_time, 50) : null;
+    // fix18-10-hotfix30-B5-R5.3-A2：order_id 只在呼叫端真的有提供時才寫入
+    // （來自既有 analytics_events.order_id，不是本輪臆測產生）。
+    const orderId = f.order_id ? _safeStr(f.order_id, 200) : null;
 
     db.run(
       `INSERT INTO geo_visit_log (
         store_id, visitor_id, session_id, event_name, event_time,
-        lat, lng, city, district, country, source, is_unknown
-      ) VALUES (?,?,?,?, COALESCE(?, datetime('now')), ?,?,?,?,?,?,?)`,
+        lat, lng, city, district, country, source, is_unknown, order_id
+      ) VALUES (?,?,?,?, COALESCE(?, datetime('now')), ?,?,?,?,?,?,?,?)`,
       [
         _safeStr(f.store_id, 100), _safeStr(f.visitor_id, 200), _safeStr(f.session_id, 200),
         _safeStr(f.event_name, 100), eventTime,
         lat, lng,
         isUnknown ? 'Unknown' : city, isUnknown ? 'Unknown' : district, country,
-        source, isUnknown ? 1 : 0,
+        source, isUnknown ? 1 : 0, orderId,
       ]
     );
     return true;
@@ -184,19 +196,30 @@ function getGeoVisitAreas(db, storeId, options) {
   }
 }
 
-// ── Recent Visitor Log（需求文件：時間／行政區／事件／來源）─────────────
+// fix18-10-hotfix30-B5-R5.3-A2（需求文件二十二，隱私要求）：Recent Geo
+// Events 只能顯示遮罩後的訪客識別，不得顯示完整 visitor_id/session_id。
+function _maskVisitorIdentifier(visitorId, sessionId) {
+  const raw = (visitorId && String(visitorId).trim()) || (sessionId && String(sessionId).trim()) || '';
+  if (!raw) return 'vis_***';
+  const tail = raw.slice(-3);
+  return `vis_***${tail}`;
+}
+
+// ── Recent Visitor Log（需求文件：時間／行政區／事件／來源／訪客識別遮罩）─
 function getRecentGeoVisits(db, storeId, options) {
   const opts = options || {};
   const limit = Math.max(1, Math.min(200, Number(opts.limit) || 20));
   try {
     const rows = db.all(
-      `SELECT event_time, city, district, event_name, source, is_unknown
+      `SELECT event_time, city, district, event_name, source, is_unknown, visitor_id, session_id
        FROM geo_visit_log WHERE store_id=? ORDER BY event_time DESC, id DESC LIMIT ?`,
       [storeId, limit]
     ) || [];
     return rows.map((r) => ({
       event_time: r.event_time, city: r.city, district: r.district,
       event_name: r.event_name, source: r.source, is_unknown: !!r.is_unknown,
+      // 遮罩後的訪客識別（例：vis_***123），絕不回傳原始 visitor_id/session_id。
+      visitor_mask: _maskVisitorIdentifier(r.visitor_id, r.session_id),
     }));
   } catch (e) {
     console.warn('[geoVisitLog] getRecentGeoVisits failed:', e.message);
