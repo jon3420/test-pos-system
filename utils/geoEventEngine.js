@@ -47,6 +47,20 @@ function geoEventClassify(eventName) {
 }
 // 事件名稱清單（給 SQL IN (...) 用），避免在多個查詢裡各自重複寫死字串。
 const VISITOR_EVENT_NAMES = Object.keys(GEO_EVENT_NAME_MAP).filter((k) => GEO_EVENT_NAME_MAP[k] === GEO_EVENT_CLASS.VISITOR);
+// fix18-10-hotfix30-B5-R5.3-A5（Analytics/Geo Sync 真正 Bug 修正）：
+// 「Visitors」是漏斗最上層，語意上必須涵蓋「有觸發任何一個漏斗事件」的人，
+// 不能只窄限於 page_view/session_start——真實流量常見使用者透過商品連結
+// （例如 LINE 深連結/QR Code）直接落在商品頁，第一個、也是唯一一個被追蹤
+// 到的事件就是 view_product，從未觸發過 page_view。這類使用者在老闆儀表板
+// 的「目前在線」（utils/dashboardAnalytics.js 的 getRealtime()，任何事件都算
+// 在線，沒有限制 event_name）與 Analytics 轉換漏斗（商品瀏覽）都正確算作
+// 1 人，但先前這裡的 Visitors 計算只看 VISITOR_EVENT_NAMES（page_view/
+// session_start），導致這種 session 被排除，變成「老闆儀表板 1 人、Geo
+// 訪客 0 人」的不同步——這是分類邏輯本身的 bug，不是 UI 或部署問題。
+// 修正：Visitors 改成涵蓋整個漏斗（VISITOR/VIEW_ITEM/ADD_TO_CART/CHECKOUT/
+// PURCHASE 全部類別），下面各階段（view_item_visitors/add_to_cart_visitors/
+// ...）仍然各自只計算對應的單一事件類型，語意不變。
+const ALL_FUNNEL_EVENT_NAMES = Object.keys(GEO_EVENT_NAME_MAP);
 const PURCHASE_EVENT_NAMES = Object.keys(GEO_EVENT_NAME_MAP).filter((k) => GEO_EVENT_NAME_MAP[k] === GEO_EVENT_CLASS.PURCHASE);
 
 function _sqlInList(names) { return names.map((n) => `'${n.replace(/'/g, "''")}'`).join(','); }
@@ -78,7 +92,7 @@ function getGeoEventFunnel(db, storeId, options) {
     // 3a. 全店總覽（Summary 用）——一次查完，不分別查 6 次。
     const overviewRow = db.get(
       `SELECT
-        COUNT(DISTINCT CASE WHEN event_name IN (${_sqlInList(VISITOR_EVENT_NAMES)}) THEN ${VISITOR_KEY_SQL} END) AS visitors,
+        COUNT(DISTINCT CASE WHEN event_name IN (${_sqlInList(ALL_FUNNEL_EVENT_NAMES)}) THEN ${VISITOR_KEY_SQL} END) AS visitors,
         COUNT(DISTINCT CASE WHEN event_name='view_product' THEN ${VISITOR_KEY_SQL} END) AS view_item_visitors,
         COUNT(DISTINCT CASE WHEN event_name='add_to_cart' THEN ${VISITOR_KEY_SQL} END) AS add_to_cart_visitors,
         COUNT(DISTINCT CASE WHEN event_name='begin_checkout' THEN ${VISITOR_KEY_SQL} END) AS begin_checkout_visitors,
@@ -232,7 +246,7 @@ function buildRecommendationRiskSummary(funnel) {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
-    GEO_EVENT_CLASS, GEO_EVENT_NAME_MAP, VISITOR_EVENT_NAMES, PURCHASE_EVENT_NAMES,
+    GEO_EVENT_CLASS, GEO_EVENT_NAME_MAP, VISITOR_EVENT_NAMES, ALL_FUNNEL_EVENT_NAMES, PURCHASE_EVENT_NAMES,
     geoEventClassify, getGeoEventFunnel, buildRecommendationRiskSummary,
     RECOMMENDATION_RISK_MESSAGES,
     GEO_VISIT_LOG_TIME_RANGES,
