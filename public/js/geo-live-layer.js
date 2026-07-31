@@ -185,6 +185,9 @@
     requestSeq: 0,
     storeId: null,
     destroyed: false,
+    // fix18-10-hotfix30-B5-R5.4-G1.1（Visual Polish）
+    autoFitDone: false,     // 只在「第一次」有資料時自動 fitBounds，之後切換 Filter 不再強制跳
+    theme: 'light',         // 'light' | 'dark'，決定 Heatmap 漸層色階（見 buildHeatOptions）
   };
 
   function _clearActiveLayers() {
@@ -209,6 +212,7 @@
     if (!isValidDisplayMode(mode)) return false;
     if (state.mode !== mode) _clearActiveLayers();
     state.mode = mode;
+    saveLastDisplayMode(mode); // 記住最後使用模式（LocalStorage，需求文件十四）
     return true;
   }
 
@@ -249,12 +253,14 @@
       const points = await _fetchJson('/api/geo-live/markers?' + qs);
       if (points === null) return { state: 'error' };
       _renderMarkers(points, state.mode === 'cluster');
+      _autoFitIfNeeded(points);
       return { state: resolveModuleState({ rows: points }), count: points.length };
     }
     if (state.mode === 'heatmap') {
       const points = await _fetchJson('/api/geo-live/markers?' + qs);
       if (points === null) return { state: 'error' };
       _renderHeat(points);
+      _autoFitIfNeeded(points);
       return { state: resolveModuleState({ rows: points }), count: points.length };
     }
     if (state.mode === 'district') {
@@ -277,6 +283,19 @@
     return { state: 'error', reason: 'unknown_mode' };
   }
 
+  // Auto Fit Bounds（需求文件四）：只在第一次有資料時自動縮放；之後切換
+  // Filter 即使資料改變也不再強制跳視角（state.autoFitDone 只會被設成 true 一次）。
+  function _autoFitIfNeeded(points) {
+    const valid = (points || []).filter((p) => Number.isFinite(Number(p.lat)) && Number.isFinite(Number(p.lng)));
+    if (!shouldAutoFitBounds(valid.length > 0, state.autoFitDone)) return;
+    if (!state.map || typeof state.map.fitBounds !== 'function' || !hasL) return;
+    try {
+      const bounds = L.latLngBounds(valid.map((p) => [Number(p.lat), Number(p.lng)]));
+      state.map.fitBounds(bounds, { maxZoom: 15 });
+      state.autoFitDone = true;
+    } catch (e) { /* fitBounds 失敗不影響資料本身顯示 */ }
+  }
+
   function _renderMarkers(points, useCluster) {
     if (!state.map || !hasL) return;
     _clearActiveLayers();
@@ -285,7 +304,17 @@
       : L.layerGroup();
     (points || []).forEach((p) => {
       if (!Number.isFinite(Number(p.lat)) || !Number.isFinite(Number(p.lng))) return; // 不得畫假 Marker
-      const marker = L.marker([Number(p.lat), Number(p.lng)]);
+      const stage = resolveMarkerStage(p.event_name);
+      const marker = L.marker([Number(p.lat), Number(p.lng)], {
+        // Marker Fade In 動畫（200~300ms，見 ANIMATION_DURATION_MS）由 CSS
+        // class 負責（.geo-live-marker-fade-in），Leaflet icon className 掛
+        // 上去即可，不使用 JS setTimeout 手動漸層以免動畫過度複雜。
+        icon: L.divIcon({
+          className: `geo-live-marker-fade-in geo-live-marker-stage-${stage}`,
+          html: `<span style="background:${markerColorForStage(stage)}"></span>`,
+          iconSize: [16, 16],
+        }),
+      });
       const f = buildMarkerTooltipFields(p);
       marker.bindTooltip(
         `訪客 ${f.visitor}｜${f.last_event}｜${f.channel}／${f.device}｜精確度 ${f.accuracy}（${f.geo_quality}）`
@@ -299,16 +328,229 @@
   function _renderHeat(points) {
     if (!state.map || !hasL || typeof L.heatLayer !== 'function') return;
     _clearActiveLayers();
-    const metric = isValidHeatMetric(state.filters.heatMetric) ? state.filters.heatMetric : 'visitor_count';
-    void metric; // Marker 資料目前只有「一人一點」，權重固定為 1；未來若聚合成
-    // 「同一格多人」時可在這裡依 metric 加權，目前誠實地不假裝有除了
-    // visitor_count 以外、Marker 層級就能算出的其他指標。
-    const heatPoints = (points || [])
-      .filter((p) => Number.isFinite(Number(p.lat)) && Number.isFinite(Number(p.lng)))
-      .map((p) => [Number(p.lat), Number(p.lng), 1]);
-    state.layers.heat = L.heatLayer(heatPoints, { radius: 25 });
+    const valid = (points || []).filter((p) => Number.isFinite(Number(p.lat)) && Number.isFinite(Number(p.lng)));
+    const heatPoints = valid.map((p) => [Number(p.lat), Number(p.lng), 1]);
+    // 需求文件一：即使只有 1~3 筆資料也要肉眼可辨——buildHeatOptions() 依筆數
+    // 放大 radius/blur/minOpacity，不是固定一組永遠偏淡的設定。
+    const opts = buildHeatOptions(valid.length, state.theme);
+    state.layers.heat = L.heatLayer(heatPoints, opts);
     state.layers.heat.addTo(state.map);
   }
+
+  // ══════════════════════════════════════════════════════════════
+  // 九、R5.4-G1.1 Visual Polish — 純函式（Heatmap/Circle/Marker/Auto Fit/
+  //    Summary/Ranking/Coverage/Business Opportunity/Recommended Actions/
+  //    區域優惠建議/外送最佳化/LocalStorage/動畫/無障礙）
+  //
+  // 本輪不新增後端 API／不修改 DB／不重新設計已驗證的資料流；Summary／
+  // Ranking／外送最佳化涉及的欄位（revenue／distance）目前 G1 既有 API
+  // 沒有提供，這裡一律誠實地在缺資料時回傳 available:false／null，不臆測
+  // 假數字（見 R5.4-G1.1_VISUAL_POLISH.md「已知限制」）。
+  // ══════════════════════════════════════════════════════════════
+
+  // ── Heatmap：即使只有 1~3 筆資料也要肉眼可辨（半徑/模糊/透明度隨筆數放大）──
+  const HEAT_GRADIENT_LIGHT = Object.freeze({ 0.2: '#22c55e', 0.4: '#eab308', 0.6: '#f97316', 0.8: '#ef4444', 1.0: '#7f1d1d' });
+  // Dark Theme：純紅在深色背景對比不足，改用較亮的紅／橘做最高強度色階。
+  const HEAT_GRADIENT_DARK = Object.freeze({ 0.2: '#4ade80', 0.4: '#fde047', 0.6: '#fb923c', 0.8: '#ff5252', 1.0: '#ff8a80' });
+  function buildHeatOptions(pointCount, theme) {
+    const n = Number(pointCount) || 0;
+    const gradient = theme === 'dark' ? HEAT_GRADIENT_DARK : HEAT_GRADIENT_LIGHT;
+    if (n <= 3) return { radius: 45, blur: 35, maxZoom: 17, minOpacity: 0.6, gradient };
+    if (n <= 10) return { radius: 35, blur: 25, maxZoom: 17, minOpacity: 0.5, gradient };
+    return { radius: 25, blur: 20, maxZoom: 17, minOpacity: 0.35, gradient };
+  }
+  const HEAT_LEGEND_STOPS = Object.freeze([
+    { emoji: '🟢', label: '低' }, { emoji: '🟡', label: '中' },
+    { emoji: '🟠', label: '高' }, { emoji: '🔴', label: '最高' },
+  ]);
+
+  // ── Circle Mode：依 Metric 決定顏色，半徑依數值比例縮放（不得固定大小）──
+  const METRIC_COLORS = Object.freeze({ visitors: '#3b82f6', orders: '#f97316', revenue: '#eab308', conversion: '#a855f7' });
+  const CIRCLE_MIN_RADIUS_PX = 6;
+  const CIRCLE_MAX_RADIUS_PX = 24;
+  function buildCircleStyle(metric, value, minValue, maxValue) {
+    const color = METRIC_COLORS[metric] || METRIC_COLORS.visitors;
+    const v = Number(value) || 0;
+    const lo = Number(minValue) || 0;
+    const hi = Number(maxValue) || 0;
+    let ratio = 0;
+    if (hi > lo) ratio = Math.max(0, Math.min(1, (v - lo) / (hi - lo)));
+    else if (hi === lo && hi > 0) ratio = 1; // 只有一筆資料時，唯一值本身就是「最大值」，仍給予可辨識大小
+    const radius = Math.round(CIRCLE_MIN_RADIUS_PX + ratio * (CIRCLE_MAX_RADIUS_PX - CIRCLE_MIN_RADIUS_PX));
+    return { color, radius };
+  }
+
+  // ── Marker Mode：依事件階段決定 Icon 顏色 ──
+  const MARKER_STAGE_COLORS = Object.freeze({ visitor: '#3b82f6', checkout: '#f97316', order: '#22c55e', revenue: '#eab308' });
+  function resolveMarkerStage(eventName) {
+    const e = String(eventName || '');
+    if (e === 'purchase') return 'order';
+    if (e === 'begin_checkout') return 'checkout';
+    return 'visitor'; // page_view/view_product/add_to_cart/未知事件一律視為訪客階段
+  }
+  function markerColorForStage(stage) { return MARKER_STAGE_COLORS[stage] || MARKER_STAGE_COLORS.visitor; }
+
+  // ── Auto Fit Bounds：只在「第一次」有資料時自動 fitBounds，之後切換 Filter
+  //    不得強制再跳一次視角（需求文件四）──
+  function shouldAutoFitBounds(hasData, alreadyDone) { return !!hasData && !alreadyDone; }
+
+  // ── Summary Card：最高訪客/成交/營收區域、平均距離、平均轉換率、GPS/Unknown 覆蓋率 ──
+  function buildSummaryCard(input) {
+    const rows = Array.isArray(input && input.districtRows) ? input.districtRows : [];
+    const pool = (input && input.unknownPool) || {};
+    const topBy = (key) => rows.reduce((best, r) => (!best || Number(r[key]) > Number(best[key]) ? r : best), null);
+    const topVisitors = topBy('visitor_count');
+    const topOrders = topBy('order_count');
+    // revenue 目前 G1 既有 API 沒有提供（見檔案開頭決策記錄），誠實回傳 null，
+    // 不得用 orders 數量或其他欄位換算出一個看似合理的假營收數字。
+    const hasRevenueField = rows.some((r) => r.revenue !== undefined && r.revenue !== null);
+    const topRevenue = hasRevenueField ? topBy('revenue') : null;
+    const hasDistanceField = rows.some((r) => r.avg_distance_km !== undefined && r.avg_distance_km !== null);
+    const avgDistance = hasDistanceField
+      ? Math.round((rows.reduce((s, r) => s + (Number(r.avg_distance_km) || 0), 0) / rows.length) * 10) / 10
+      : null;
+    const totalVisitors = rows.reduce((s, r) => s + (Number(r.visitor_count) || 0), 0);
+    const totalOrders = rows.reduce((s, r) => s + (Number(r.order_count) || 0), 0);
+    const avgConversionPct = totalVisitors > 0 ? Math.round((totalOrders / totalVisitors) * 1000) / 10 : 0;
+    return {
+      top_visitors: topVisitors ? { label: topVisitors.district, value: topVisitors.visitor_count } : null,
+      top_orders: topOrders && topOrders.order_count > 0 ? { label: topOrders.district, value: topOrders.order_count } : null,
+      top_revenue: topRevenue ? { label: topRevenue.district, value: topRevenue.revenue } : null,
+      revenue_available: hasRevenueField,
+      avg_distance_km: avgDistance,
+      distance_available: hasDistanceField,
+      avg_conversion_rate_pct: avgConversionPct,
+      gps_coverage_pct: Number.isFinite(Number(pool.mappable_rate_pct)) ? Number(pool.mappable_rate_pct) : 0,
+      unknown_pct: pool.total > 0 ? Math.round((Number(pool.unknown || 0) / Number(pool.total)) * 1000) / 10 : 0,
+    };
+  }
+
+  // ── Ranking：排名 + 區域 + 訪客/加購/結帳/訂單/營收/成交率，依目前 Metric 排序 ──
+  const RANKING_METRICS = Object.freeze(['visitor_count', 'add_to_cart_count', 'checkout_count', 'order_count', 'revenue', 'conversion_rate_pct']);
+  function buildRankingTable(rows, metric) {
+    const arr = (Array.isArray(rows) ? rows : []).map(buildRankingRow);
+    const key = RANKING_METRICS.includes(metric) ? metric : 'visitor_count';
+    const sorted = arr.slice().sort((a, b) => (Number(b[key]) || 0) - (Number(a[key]) || 0));
+    return sorted.map((row, i) => Object.assign({ rank: i + 1 }, row));
+  }
+  // 點擊 Ranking 列：有座標就 Pan To，沒有就顯示「目前無地圖座標」
+  function resolveRankingClickAction(row) {
+    if (row && Number.isFinite(Number(row.lat)) && Number.isFinite(Number(row.lng))) {
+      return { action: 'panTo', lat: Number(row.lat), lng: Number(row.lng) };
+    }
+    return { action: 'no_coordinate', message: '目前無地圖座標' };
+  }
+
+  // ── Coverage Panel：加上 Progress Bar 用的百分比（0-100，clamp）──
+  function buildCoveragePanel(unknownPool) {
+    const p = unknownPool || {};
+    const clamp = (v) => Math.max(0, Math.min(100, Number(v) || 0));
+    return {
+      known_pct: clamp(p.coverage_pct),
+      gps_pct: clamp(p.mappable_rate_pct),
+      unknown_pct: p.total > 0 ? clamp((Number(p.unknown || 0) / Number(p.total)) * 100) : 0,
+    };
+  }
+
+  // ── Business Opportunity（Rule-based，非 AI）──
+  function buildBusinessOpportunities(districtRows) {
+    const rows = Array.isArray(districtRows) ? districtRows : [];
+    const opportunities = [];
+    const avgVisitors = rows.length ? rows.reduce((s, r) => s + (Number(r.visitor_count) || 0), 0) / rows.length : 0;
+    rows.forEach((r) => {
+      const conv = Number(r.conversion_rate_pct) || 0;
+      const orders = Number(r.order_count) || 0;
+      const visitors = Number(r.visitor_count) || 0;
+      if (conv > 80 && orders >= 1) {
+        opportunities.push({ type: 'high_conversion', district: r.district, message: `建議增加「${r.district}」的 Facebook 廣告曝光（成交率 ${conv}%，訂單 ${orders} 筆）` });
+      }
+      if (visitors > avgVisitors && avgVisitors > 0 && conv < 5) {
+        opportunities.push({ type: 'high_traffic_low_conversion', district: r.district, message: `「${r.district}」訪客多但轉換率偏低（${conv}%），建議檢查價格、優惠券與結帳流程` });
+      }
+    });
+    return opportunities;
+  }
+
+  // ── Recommended Actions：依 Geo Summary 輸出前三個建議 ──
+  function buildRecommendedActions(districtRows, coverage) {
+    const actions = [];
+    const rows = Array.isArray(districtRows) ? districtRows : [];
+    const topConv = rows.slice().sort((a, b) => (Number(b.conversion_rate_pct) || 0) - (Number(a.conversion_rate_pct) || 0))[0];
+    if (topConv && Number(topConv.conversion_rate_pct) > 0) {
+      actions.push(`「${topConv.district}」成交率最高（${topConv.conversion_rate_pct}%），建議增加曝光`);
+    }
+    const cov = coverage || {};
+    if (Number.isFinite(Number(cov.gps_pct)) && Number(cov.gps_pct) < 50) {
+      actions.push(`定位同意率偏低（${cov.gps_pct}%），建議優化定位授權引導流程`);
+    }
+    const highTrafficLowCheckout = rows.filter((r) => Number(r.visitor_count) > 0 && Number(r.checkout_count) === 0);
+    if (highTrafficLowCheckout.length > 0) {
+      actions.push(`${highTrafficLowCheckout.length} 個區域有訪客但無結帳，建議改善結帳流程`);
+    }
+    return actions.slice(0, 3);
+  }
+
+  // ── 區域優惠建議（純建議，不修改優惠系統）：依排名給予不同建議類型 ──
+  const REGION_DISCOUNT_SUGGESTIONS_BY_RANK = Object.freeze(['95 折', '免外送費', '滿額送好禮']);
+  function buildRegionDiscountSuggestions(rankedRows) {
+    const rows = Array.isArray(rankedRows) ? rankedRows : [];
+    return rows.slice(0, REGION_DISCOUNT_SUGGESTIONS_BY_RANK.length).map((r, i) => ({
+      district: r.district || r.label, suggestion: REGION_DISCOUNT_SUGGESTIONS_BY_RANK[i],
+    }));
+  }
+
+  // ── 外送最佳化：只有真的有 distance 欄位才輸出數字，否則誠實回傳 available:false ──
+  const DELIVERY_DISTANCE_ALERT_KM = 5;
+  function buildDeliveryOptimization(rows) {
+    const arr = Array.isArray(rows) ? rows.filter((r) => Number.isFinite(Number(r.distance_km))) : [];
+    if (arr.length === 0) return { available: false };
+    const distances = arr.map((r) => Number(r.distance_km));
+    const fees = arr.filter((r) => Number.isFinite(Number(r.delivery_fee))).map((r) => Number(r.delivery_fee));
+    const avg = (list) => Math.round((list.reduce((s, v) => s + v, 0) / list.length) * 10) / 10;
+    const avgDistance = avg(distances);
+    return {
+      available: true,
+      avg_distance_km: avgDistance,
+      max_distance_km: Math.max(...distances),
+      min_distance_km: Math.min(...distances),
+      avg_delivery_fee: fees.length ? avg(fees) : null,
+      suggest_fee_review: avgDistance > DELIVERY_DISTANCE_ALERT_KM,
+    };
+  }
+
+  // ── Display Mode 記憶（LocalStorage，Segmented Control 用）──
+  const LAST_DISPLAY_MODE_STORAGE_KEY = 'geo_live_layer_last_mode';
+  function getLastDisplayMode(storage) {
+    try {
+      const s = storage || (hasWindow ? window.localStorage : null);
+      if (!s) return null;
+      const v = s.getItem(LAST_DISPLAY_MODE_STORAGE_KEY);
+      return isValidDisplayMode(v) ? v : null;
+    } catch (e) { return null; }
+  }
+  function saveLastDisplayMode(mode, storage) {
+    try {
+      if (!isValidDisplayMode(mode)) return false;
+      const s = storage || (hasWindow ? window.localStorage : null);
+      if (!s) return false;
+      s.setItem(LAST_DISPLAY_MODE_STORAGE_KEY, mode);
+      return true;
+    } catch (e) { return false; }
+  }
+
+  // ── 動畫（Marker Fade In / Circle Zoom / Heat Fade）：200~300ms，不得過度 ──
+  const ANIMATION_DURATION_MS = 250;
+  function isAcceptableAnimationDuration(ms) { return Number(ms) >= 200 && Number(ms) <= 300; }
+
+  // ── Accessibility：Legend/Tooltip/Button/Switch 共用的 aria-label 文案 ──
+  const ARIA_LABELS = Object.freeze({
+    modeSwitcher: '地圖顯示模式切換',
+    heatToggle: '切換熱區圖顯示',
+    legend: '地圖圖例說明',
+    rankingRow: '點擊查看區域位置',
+  });
+
+  // ══════════════════════════════════════════════════════════════
 
   function destroy() {
     _clearActiveLayers();
@@ -323,6 +565,15 @@
     state.storeId = c.storeId || null;
     if (c.map) attachToMap(c.map);
     if (c.filters) setFilters(c.filters);
+    if (c.theme === 'dark' || c.theme === 'light') state.theme = c.theme;
+    // 需求文件十四：記住最後使用模式。若呼叫端明確指定 mode 則優先採用；
+    // 否則嘗試從 LocalStorage 還原上次使用的顯示模式，都沒有才維持預設 'markers'。
+    if (c.mode && isValidDisplayMode(c.mode)) {
+      state.mode = c.mode;
+    } else {
+      const remembered = getLastDisplayMode();
+      if (remembered) state.mode = remembered;
+    }
   }
 
   return {
@@ -333,6 +584,20 @@
     replayFrameAt, replaySpeedIntervalMs,
     MIN_POLL_INTERVAL_MS, resolvePollIntervalMs, isStaleResponse,
     resolveModuleState,
+    // fix18-10-hotfix30-B5-R5.4-G1.1（Visual Polish）
+    buildHeatOptions, HEAT_GRADIENT_LIGHT, HEAT_GRADIENT_DARK, HEAT_LEGEND_STOPS,
+    METRIC_COLORS, CIRCLE_MIN_RADIUS_PX, CIRCLE_MAX_RADIUS_PX, buildCircleStyle,
+    MARKER_STAGE_COLORS, resolveMarkerStage, markerColorForStage,
+    shouldAutoFitBounds,
+    buildSummaryCard,
+    RANKING_METRICS, buildRankingTable, resolveRankingClickAction,
+    buildCoveragePanel,
+    buildBusinessOpportunities, buildRecommendedActions,
+    REGION_DISCOUNT_SUGGESTIONS_BY_RANK, buildRegionDiscountSuggestions,
+    DELIVERY_DISTANCE_ALERT_KM, buildDeliveryOptimization,
+    LAST_DISPLAY_MODE_STORAGE_KEY, getLastDisplayMode, saveLastDisplayMode,
+    ANIMATION_DURATION_MS, isAcceptableAnimationDuration,
+    ARIA_LABELS,
     // 瀏覽器環境物件方法
     init, attachToMap, setMode, setFilters, refresh, destroy,
     get state() { return state; },

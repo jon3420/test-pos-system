@@ -127,3 +127,169 @@
   padding: 4px 2px;
   border-bottom: 1px dashed #e2e8f0;
 }
+
+/* ══════════════════════════════════════════════════════════════
+   fix18-10-hotfix30-B5-R5.4-G1.1 — Visual Polish
+   ══════════════════════════════════════════════════════════════ */
+
+/* 一/十二、Heatmap Legend（固定文字圖例，不只靠顏色） */
+.geo-live-heat-legend {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: #475569;
+  margin-top: 6px;
+}
+.geo-live-heat-legend-stop { display: flex; align-items: center; gap: 3px; }
+
+/* 三、Marker Icons — 依事件階段上色，不使用 Leaflet 預設單調藍色 */
+.geo-live-marker-stage-visitor span { background: #3b82f6; }
+.geo-live-marker-stage-checkout span { background: #f97316; }
+.geo-live-marker-stage-order span { background: #22c55e; }
+.geo-live-marker-stage-revenue span { background: #eab308; }
+.geo-live-marker-stage-visitor span,
+.geo-live-marker-stage-checkout span,
+.geo-live-marker-stage-order span,
+.geo-live-marker-stage-revenue span {
+  display: block;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 0 2px rgba(0,0,0,0.4);
+}
+
+/* 十五、動畫（200~300ms，見 ANIMATION_DURATION_MS，不得過度） */
+.geo-live-marker-fade-in { animation: geoLiveFadeIn 250ms ease-out; }
+.geo-live-circle-zoom-in { animation: geoLiveZoomIn 250ms ease-out; }
+.geo-live-heat-fade-in { animation: geoLiveFadeIn 250ms ease-out; }
+@keyframes geoLiveFadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes geoLiveZoomIn { from { transform: scale(0.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .geo-live-marker-fade-in, .geo-live-circle-zoom-in, .geo-live-heat-fade-in { animation: none; }
+}
+
+/* 六/七、Ranking / Coverage Progress Bar */
+.geo-live-progress-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  margin: 4px 0;
+}
+.geo-live-progress-label { width: 90px; flex-shrink: 0; color: #475569; }
+.geo-live-progress-track {
+  flex: 1;
+  height: 8px;
+  background: #e2e8f0;
+  border-radius: 999px;
+  overflow: hidden;
+}
+.geo-live-progress-fill {
+  height: 100%;
+  background: linear-gradient(to right, #3b82f6, #22c55e);
+  border-radius: 999px;
+  transition: width 250ms ease-out;
+}
+.geo-live-progress-value { width: 42px; text-align: right; color: #334155; }
+
+/* 八/九/十/十一、Business Opportunity / Recommended Actions / 區域優惠建議 / 外送最佳化 */
+.geo-live-insight-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+  margin-bottom: 6px;
+  background: #f8fafc;
+}
+.geo-live-insight-card--opportunity { border-left: 3px solid #22c55e; }
+.geo-live-insight-card--action { border-left: 3px solid #3b82f6; }
+.geo-live-insight-card--discount { border-left: 3px solid #eab308; }
+
+/* 十三、Display UX — Segmented Control */
+.geo-live-segmented {
+  display: inline-flex;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  overflow: hidden;
+}
+.geo-live-segmented-btn {
+  padding: 6px 14px;
+  font-size: 12px;
+  background: #fff;
+  color: #334155;
+  border: none;
+  border-right: 1px solid #e2e8f0;
+  cursor: pointer;
+}
+.geo-live-segmented-btn:last-child { border-right: none; }
+.geo-live-segmented-btn[aria-pressed="true"] {
+  background: #0f172a;
+  color: #fff;
+}
+.geo-live-segmented-btn:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+
+/* 十四、Heatmap Toggle — Switch */
+.geo-live-switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.geo-live-switch-track {
+  width: 34px;
+  height: 18px;
+  background: #cbd5e1;
+  border-radius: 999px;
+  position: relative;
+  transition: background 200ms ease-out;
+}
+.geo-live-switch input:checked + .geo-live-switch-track { background: #22c55e; }
+.geo-live-switch-track::after {
+  content: '';
+  position: absolute;
+  top: 2px; left: 2px;
+  width: 14px; height: 14px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 200ms ease-out;
+}
+.geo-live-switch input:checked + .geo-live-switch-track::after { transform: translateX(16px); }
+.geo-live-switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.geo-live-switch input:focus-visible + .geo-live-switch-track { outline: 2px solid #3b82f6; outline-offset: 2px; }
+
+/* 十七、Dark Theme — Heat 顏色/文字對比重新檢查（避免紅色在深色背景看不見） */
+[data-theme="dark"] .geo-live-ranking-panel,
+.geo-live-theme-dark .geo-live-ranking-panel {
+  background: #0f172a;
+  border-color: #1e293b;
+  color: #e2e8f0;
+}
+[data-theme="dark"] .geo-live-insight-card,
+.geo-live-theme-dark .geo-live-insight-card {
+  background: #1e293b;
+  border-color: #334155;
+  color: #e2e8f0;
+}
+[data-theme="dark"] .geo-live-progress-track,
+.geo-live-theme-dark .geo-live-progress-track { background: #334155; }
+[data-theme="dark"] .geo-live-progress-fill,
+.geo-live-theme-dark .geo-live-progress-fill { background: linear-gradient(to right, #60a5fa, #4ade80); }
+[data-theme="dark"] .geo-live-heat-legend,
+.geo-live-theme-dark .geo-live-heat-legend { color: #cbd5e1; }
+
+/* 十六、Responsive — 確認 Summary/Ranking/Coverage/地圖不重疊 */
+@media (max-width: 390px) {
+  .geo-live-layout { grid-template-columns: 1fr; gap: 8px; }
+  .geo-live-ranking-panel { max-height: 260px; }
+  .geo-live-segmented-btn { padding: 5px 10px; font-size: 11px; }
+}
+@media (min-width: 1024px) {
+  .geo-live-layout { grid-template-columns: 360px 1fr; }
+}

@@ -9,3 +9,34 @@ independent of any G1 change):
   time-boundary or grouping race unrelated to Geo Live Layer), not introduced by
   R5.4-G1. Verified via 10 repeated runs on G1 code + 5 repeated runs on pristine
   code, both showing the same intermittent pattern.
+
+ADDITIONAL CONFIRMED PRE-EXISTING (unrelated to G1/G1.1, verified against pristine
+unmodified zip with zero changes applied):
+
+  scripts/smoke-hotfix27.js / scripts/smoke-hotfix28.js
+  Both internally invoke scripts/smoke-hotfix26-f8-b.js as a sub-process/regression
+  check; that sub-script fails on both the G1.1 working copy AND a fresh extraction
+  of the original uploaded zip (3 fails each, consistently, both before and after
+  any of this project's Geo Live Layer changes). Root cause: pre-existing
+  "PRAGMA table_info(products) 失敗: w._db.all is not a function" issue internal
+  to that legacy smoke script's DB wrapper usage, unrelated to R5.4-G1/G1.1.
+
+R5.4-G1.1 (Visual Polish) made ZERO backend/DB/route changes -- only
+public/js/geo-live-layer.js, public/css/geo-live-layer.css, and two new
+frontend-only smoke scripts were touched. No new regression is possible from
+this round beyond the pre-existing flakiness documented above.
+
+FINAL ROUND ADDITIONAL FINDING (confirmed pre-existing, date/time-related,
+verified against pristine unmodified zip on the same date):
+
+  scripts/smoke-hotfix30-b5-r5-1-b-geo-api.js       (1 fail: "fulfillment: 中壢區 area present")
+  scripts/smoke-hotfix30-b5-r5-2-a-integrated.js    (1 fail: "A5 API /fulfillment: area present in response")
+  scripts/smoke-hotfix30-b5-r5-2-a-stage7.js        (8 fails: /fulfillment area enrichment + delivery_cost_risk
+                                                       alert generation assertions)
+
+All three reproduce identically (same fail count) on a fresh extraction of the
+original uploaded zip with zero G1/G1.1 changes applied, run on the same date.
+Root cause is internal to those legacy tests' area/fulfillment-alert fixture
+generation (likely date-window or "today" boundary sensitive), unrelated to
+R5.4-G1 or R5.4-G1.1. No product code was changed to "fix" these, per
+instruction not to alter unrelated logic to force a green run.
