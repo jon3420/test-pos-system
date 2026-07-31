@@ -485,6 +485,12 @@ initDb().then((db) => {
   // 內每條 route 各自套用 requireFeature('reports')，與既有
   // /api/analytics/cart-abandonment 等端點同一套保護，不另創新的權限系統。
   app.use('/api/analytics/geo', requireStore, require('./routes/analytics-geo'));
+  // fix18-10-hotfix30-B5-R5.4-G1：Geo Intelligence V2 — Live Geo Map + Heatmap
+  // Foundation。獨立掛載點（不是 /api/analytics/geo 底下的新路由），因為這支
+  // router 內部混合了「後台讀取（requireFeature('reports')）」與「顧客頁面
+  // 公開回報座標（POST /coordinate，無 feature gate）」兩種存取層級，刻意跟
+  // 純後台用的 /api/analytics/geo 分開，避免未來稽核時混淆保護等級。
+  app.use('/api/geo-live', requireStore, require('./routes/geo-live'));
 
   // fix18-10-hotfix31-R1：CRM Action Center（分群/動作管理），沿用 Operation Analytics
   // 同一組 reports 授權（分群/動作都是「深度分析」的延伸操作，不是獨立的付費功能）。

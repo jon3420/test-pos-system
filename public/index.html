@@ -3498,6 +3498,18 @@
      全新獨立檔案，完全沒有修改 geo-heatmap.js（Order Heatmap Engine）。必須
      排在 geo-heatmap-ui.js 之後（Layer 切換按鈕由它呼叫這裡的函式）。 -->
 <script src="/js/geo-visitor-layer.js?v=fix18-10-hotfix30-B5-R5-3-A1-2"></script>
+<!-- fix18-10-hotfix30-B5-R5.4-G1: Geo Intelligence V2 — Live Geo Map + Heatmap
+     Foundation。全新獨立檔案：GeoLiveLayer 不建立第二張 L.map()／第二個
+     Tile Layer，一律透過 window.geoMapState.instance 重用上面已經建立好的
+     地圖（見 public/js/geo-intelligence-map.js）。必須排在 geo-intelligence-
+     map.js 之後載入。Marker Cluster／Heatmap 外掛改用本地 vendor 檔案
+     （public/js/vendor/），不是唯一依賴外部 CDN。 -->
+<link rel="stylesheet" href="/css/vendor/MarkerCluster.css">
+<link rel="stylesheet" href="/css/vendor/MarkerCluster.Default.css">
+<link rel="stylesheet" href="/css/geo-live-layer.css?v=fix18-10-hotfix30-B5-R5-4-G1">
+<script src="/js/vendor/leaflet.markercluster.js?v=fix18-10-hotfix30-B5-R5-4-G1"></script>
+<script src="/js/vendor/leaflet-heat.js?v=fix18-10-hotfix30-B5-R5-4-G1"></script>
+<script src="/js/geo-live-layer.js?v=fix18-10-hotfix30-B5-R5-4-G1"></script>
 <script src="/js/coupons.js?v=fix18-06"></script>
 <script src="/js/qrcode.min.js?v=fix18-09F-h2"></script>
 <script src="/license.js?v=fix18-06"></script>

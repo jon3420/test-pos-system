@@ -474,6 +474,10 @@ img{max-width:100%;display:block}
 <script src="/js/analytics-platforms.js"></script>
 <script src="/js/line-member-gate.js"></script>
 <script src="/js/delivery-free-progress.js"></script>
+<!-- fix18-10-hotfix30-B5-R5.4-G1: Geo Intelligence V2 — 顧客頁面端 Consent-driven
+     Coordinate Acquisition。全新獨立檔案，init()/requestOnDeliveryFlow() 由下面
+     的主要 inline <script> 在 _getVisitorId()/_getSessionId() 定義完成後呼叫。 -->
+<script src="/js/geo-live-coordinate.js"></script>
 <script>
 'use strict';
 // ── SaaS store_id 綁定 ──
@@ -4646,6 +4650,25 @@ loadGoogleMapsScript();
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',connect);
   else connect();
+})();
+</script>
+<script>
+'use strict';
+// fix18-10-hotfix30-B5-R5.4-G1：GeoLiveCoordinate 接線。init() 本身不會呼叫
+// getCurrentPosition()（見 public/js/geo-live-coordinate.js），只有下面明確
+//列出的觸發時機才會嘗試取得定位，且每次都先檢查 cooldown/同意狀態，不會對
+// 已拒絕過的使用者反覆彈出。
+(function () {
+  if (typeof GeoLiveCoordinate === 'undefined') return; // 腳本載入失敗時安靜跳過，不影響點餐流程
+  GeoLiveCoordinate.init({
+    storeId: LINE_STORE_ID,
+    getVisitorId: _getVisitorId,
+    getSessionId: _getSessionId,
+  });
+  // 觸發時機一（需求文件優先建議一）：使用者開始外送地址流程——聚焦到外送
+  // 地址欄位時嘗試取得目前位置（不是頁面一載入就跳）。
+  var addrEl = document.getElementById('deliveryAddress');
+  if (addrEl) addrEl.addEventListener('focus', function () { GeoLiveCoordinate.requestOnDeliveryFlow(); }, { once: false });
 })();
 </script>
 </body>

@@ -1,0 +1,129 @@
+/* public/css/geo-live-layer.css — fix18-10-hotfix30-B5-R5.4-G1
+   Geo Intelligence V2｜GeoLiveLayer 樣式
+   只新增 class，不覆寫既有 .geo-map-* / .dashboard-* 既有樣式（不得破壞既有
+   Dashboard／Heatmap Tab 版面，見需求文件十七）。 */
+
+.geo-live-mode-switcher {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0;
+}
+.geo-live-mode-btn {
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #334155;
+  font-size: 12px;
+  cursor: pointer;
+}
+.geo-live-mode-btn[aria-pressed="true"] {
+  background: #0f172a;
+  color: #fff;
+  border-color: #0f172a;
+}
+
+.geo-live-layout {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 12px;
+}
+@media (max-width: 768px) {
+  .geo-live-layout { grid-template-columns: 1fr; }
+}
+
+.geo-live-ranking-panel {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 10px;
+  max-height: 480px;
+  overflow-y: auto;
+}
+.geo-live-ranking-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 4px;
+  border-bottom: 1px solid #f1f5f9;
+  font-size: 13px;
+}
+.geo-live-ranking-row:last-child { border-bottom: none; }
+.geo-live-ranking-rank {
+  display: inline-block;
+  width: 20px;
+  color: #94a3b8;
+  font-weight: 600;
+}
+.geo-live-ranking-unknown { color: #94a3b8; font-style: italic; }
+
+.geo-live-coverage-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 6px 0 10px;
+}
+.geo-live-badge {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: #f1f5f9;
+  color: #334155;
+}
+.geo-live-badge--granted { background: #dcfce7; color: #166534; }
+.geo-live-badge--denied { background: #fee2e2; color: #991b1b; }
+.geo-live-badge--timeout,
+.geo-live-badge--unavailable,
+.geo-live-badge--unsupported { background: #fef3c7; color: #92400e; }
+.geo-live-badge--unknown { background: #e2e8f0; color: #475569; }
+
+.geo-live-legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #475569;
+  margin-top: 6px;
+}
+.geo-live-legend-swatch {
+  width: 90px;
+  height: 10px;
+  border-radius: 4px;
+  background: linear-gradient(to right, #3b82f6, #22c55e, #eab308, #f97316, #ef4444);
+}
+
+.geo-live-empty-state,
+.geo-live-error-state,
+.geo-live-loading-state {
+  padding: 24px 12px;
+  text-align: center;
+  color: #64748b;
+  font-size: 13px;
+}
+.geo-live-error-state { color: #b91c1c; }
+
+.geo-live-replay-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.geo-live-replay-controls input[type="range"] { flex: 1; }
+
+.geo-live-store-marker {
+  /* 店家位置 Marker 必須與訪客 Marker 視覺明顯不同（需求文件八） */
+  filter: hue-rotate(180deg) saturate(1.4);
+}
+
+.geo-live-timeline-list {
+  max-height: 360px;
+  overflow-y: auto;
+}
+.geo-live-timeline-row {
+  display: grid;
+  grid-template-columns: 70px 1fr auto;
+  gap: 8px;
+  font-size: 12px;
+  padding: 4px 2px;
+  border-bottom: 1px dashed #e2e8f0;
+}

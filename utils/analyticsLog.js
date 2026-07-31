@@ -243,6 +243,10 @@ function insertEvent(db, fields) {
       // fix18-10-hotfix30-B5-R5.1-A：呼叫端預先算好的 Geo 物件（見上方說明），
       // 未提供時安全退回 UNKNOWN_GEO，完全不影響既有呼叫端。
       geo = null,
+      // fix18-10-hotfix30-B5-R5.4-G1：呼叫端可選擇性提供 User-Agent，用來給
+      // Geo Live Layer 的 Device Filter 分類（見 utils/deviceParser.js）。純
+      // 選填、fail-open，未提供時裝置別一律 'unknown'，不臆測。
+      user_agent = null,
     } = fields;
 
     if (!store_id || !visitor_id || !session_id || !event_name) return false;
@@ -307,6 +311,22 @@ function insertEvent(db, fields) {
     // try/catch 只保護這一步本身，logGeoVisit() 內部也是 fail-open，雙重
     //保險絕不讓 Geo 快速查詢 Layer 的寫入影響事件主流程）。
     try {
+      // fix18-10-hotfix30-B5-R5.4-G1：channel 重用既有 utils/analyticsV2.js
+      // classifySource()（單一分類來源，不重寫第二套規則）；device_type 用
+      // 本輪新增的 utils/deviceParser.js 對呼叫端提供的 user_agent 做決定性
+      // 分類。兩者都是「額外欄位」，任一計算失敗都不得影響事件主流程或既有
+      // geo_visit_log 寫入行為。
+      let g1Channel = null;
+      try {
+        const { classifySource } = require('./analyticsV2');
+        g1Channel = classifySource(source, referrer);
+      } catch (eC) { /* 保守退回 null，不影響主流程 */ }
+      let g1DeviceType = null;
+      try {
+        const { classifyDeviceType } = require('./deviceParser');
+        g1DeviceType = classifyDeviceType(user_agent);
+      } catch (eD) { /* 保守退回 null，不影響主流程 */ }
+
       logGeoVisit(db, {
         store_id, visitor_id, session_id, event_name,
         geo_city: g.geo_city, geo_district: g.geo_district, geo_country: g.geo_country,
@@ -323,6 +343,12 @@ function insertEvent(db, fields) {
         // 本輪唯一的 Geo Resolver（resolveVisitorGeo/normalizeDeliveryGeo）都不
         // 提供座標；lat/lng 沒有合法來源時保持 undefined，logGeoVisit() 會
         // 正確存成 NULL，不得用行政區中心點/店家座標/矩形中心假造座標。
+        // 真實座標改由 utils/geoLiveCoordinate.js 另一張表接收（見 R5.4-G1-B）。
+        // fix18-10-hotfix30-B5-R5.4-G1：postal_code 沿用既有 analytics_events
+        // geo_postal_code 欄位（同一筆 g 物件，非新資料來源）。
+        postal_code: g.geo_postal_code,
+        channel: g1Channel,
+        device_type: g1DeviceType,
       });
     } catch (e3) { /* 絕不讓 Geo Visit Log 寫入影響事件主流程 */ }
 

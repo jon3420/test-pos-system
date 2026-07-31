@@ -1,0 +1,11 @@
+KNOWN PRE-EXISTING FLAKY TEST (confirmed present in pristine, unmodified codebase,
+independent of any G1 change):
+
+  scripts/smoke-hotfix30-b5-r5-2-b1-3-geo-behavior-funnel-backend.js
+  Assertions I6/I7/I8/I10/I11 (source-area event-count grouping under district
+  '龍潭區') fail intermittently (~40% of runs, 0-5 failures per run) both on the
+  G1 working copy AND on a fresh extraction of the original uploaded zip with
+  zero G1 changes applied. Root cause is internal to that test/query (likely a
+  time-boundary or grouping race unrelated to Geo Live Layer), not introduced by
+  R5.4-G1. Verified via 10 repeated runs on G1 code + 5 repeated runs on pristine
+  code, both showing the same intermittent pattern.

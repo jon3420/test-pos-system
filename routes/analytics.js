@@ -291,6 +291,9 @@ router.post('/events', async (req, res) => {
       // fix18-10-hotfix30-B5-R5.1-B：Visitor Geo（見上方）。未啟用時為 null，
       // insertEvent 內部的 _sanitizeGeoForWrite 會安全退回 UNKNOWN_GEO。
       geo: visitorGeo,
+      // fix18-10-hotfix30-B5-R5.4-G1：Geo Live Layer Device Filter 用，選填、
+      // fail-open，未取得 user-agent 時裝置別一律 'unknown'。
+      user_agent: req.headers['user-agent'] || null,
     });
 
     if (!ok) {

@@ -2352,6 +2352,127 @@ function initTables(w) {
     w._db.run('CREATE INDEX IF NOT EXISTS idx_geo_visit_log_source_event ON geo_visit_log(store_id, source_event_id)');
     w._save();
   } catch (e) { console.warn('[DB] geo_visit_log source_event_id migration:', e.message); }
+
+  // fix18-10-hotfix30-B5-R5.4-G1｜Geo Intelligence V2 — Live Geo Layer 欄位遷移
+  _runGeoLiveG1Migration(w);
+  // fix18-10-hotfix30-B5-R5.4-G1-B｜真實座標來源表（Browser Geolocation 等）
+  _initGeoLiveCoordinatesTable(w);
+  // fix18-10-hotfix30-B5-R5.4-G1-C｜座標同意狀態稽核表
+  _initGeoCoordinateStatusLogTable(w);
+}
+
+
+// ============================================================
+// fix18-10-hotfix30-B5-R5.4-G1 | Geo Intelligence V2 -- Live Geo Layer
+//
+// Safe additive migration for geo_visit_log (same convention as the two
+// blocks above: PRAGMA table_info check, then ALTER TABLE ADD COLUMN only;
+// never DROP/rebuild, never a second parallel table):
+//   postal_code  -- spec item 10 "Postal Layer".
+//   channel      -- spec item 17 "Heat Filters", reuses the existing
+//                   utils/analyticsV2.js classifySource() classifier.
+//   device_type  -- spec item 18 "Device Filter"; new utils/deviceParser.js
+//                   does deterministic User-Agent classification. When no
+//                   UA is supplied it is always 'unknown' -- never guessed.
+// All three columns are populated only when the caller supplies them; NULL
+// otherwise. Existing rows and existing callers are unaffected.
+// ============================================================
+function _runGeoLiveG1Migration(w) {
+  try {
+    const gvlCols3 = w.all('PRAGMA table_info(geo_visit_log)').map((c) => c.name);
+    const g1ColDefs = [
+      ['postal_code', 'TEXT'],
+      ['channel', 'TEXT'],
+      ['device_type', 'TEXT'],
+    ];
+    let g1Added = 0;
+    for (const [col, def] of g1ColDefs) {
+      if (!gvlCols3.includes(col)) {
+        w._db.run(`ALTER TABLE geo_visit_log ADD COLUMN ${col} ${def}`);
+        g1Added++;
+        console.log(`[DB] geo_visit_log G1 column added: ${col}`);
+      }
+    }
+    if (g1Added > 0) w._save();
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_geo_visit_log_store_postal ON geo_visit_log(store_id, postal_code)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_geo_visit_log_store_channel ON geo_visit_log(store_id, channel)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_geo_visit_log_store_device ON geo_visit_log(store_id, device_type)');
+    w._save();
+  } catch (e) { console.warn('[DB] geo_visit_log G1 live layer migration:', e.message); }
+}
+
+
+// ============================================================
+// fix18-10-hotfix30-B5-R5.4-G1-B | Geo Intelligence V2 -- Real Coordinate
+// Acquisition (Live Marker source of truth)
+//
+// Decision record: the ONLY acceptable coordinate sources for a Live Marker
+// are ones the visitor's own device actually reported (Browser Geolocation
+// API / device GPS via that same API / a genuine signal-based Geolocation
+// API call). IP-based estimation and any centroid/fixture substitute are
+// explicitly forbidden for this table -- see utils/geoLiveCoordinate.js.
+//
+// This is a brand-new, separate, additive table. It does NOT touch
+// geo_visit_log's schema or existing write path again (already extended in
+// the R5.4-G1 block above) -- coordinates arrive asynchronously (after the
+// user grants consent, which happens after the page/event already fired),
+// so they are stored here and joined against geo_visit_log rows at READ
+// time for the Live Marker layer, keyed by visitor_id/session_id.
+// ============================================================
+function _initGeoLiveCoordinatesTable(w) {
+  try {
+    w._db.run(`CREATE TABLE IF NOT EXISTS geo_live_coordinates (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      store_id     TEXT NOT NULL,
+      visitor_id   TEXT NOT NULL,
+      session_id   TEXT NOT NULL,
+      lat          REAL NOT NULL,
+      lng          REAL NOT NULL,
+      accuracy_m   REAL,
+      source       TEXT NOT NULL,
+      captured_at  TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at   TEXT DEFAULT (datetime('now'))
+    )`);
+    w._save();
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_geo_live_coord_store_visitor ON geo_live_coordinates(store_id, visitor_id, captured_at)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_geo_live_coord_store_session ON geo_live_coordinates(store_id, session_id, captured_at)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_geo_live_coord_store_time ON geo_live_coordinates(store_id, captured_at)');
+    w._save();
+  } catch (e) { console.warn('[DB] geo_live_coordinates table:', e.message); }
+}
+
+
+// ============================================================
+// fix18-10-hotfix30-B5-R5.4-G1-C | Geo Intelligence V2 -- Coordinate Consent
+// Status Log
+//
+// Separate, additive audit table for EVERY consent outcome (granted / denied
+// / timeout / unavailable / unsupported / error / unknown) -- not just
+// successful coordinates. geo_live_coordinates stays "pure" (only ever holds
+// real, validated, granted coordinates); this table is what powers the
+// coverage KPI (total visitors / granted / denied / timeout / unsupported /
+// error / unknown) required by the G1 spec, and is also what the Unknown
+// Pool reasoning can audit later if needed.
+// ============================================================
+function _initGeoCoordinateStatusLogTable(w) {
+  try {
+    w._db.run(`CREATE TABLE IF NOT EXISTS geo_coordinate_status_log (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      store_id     TEXT NOT NULL,
+      visitor_id   TEXT NOT NULL,
+      session_id   TEXT NOT NULL,
+      status       TEXT NOT NULL,
+      source       TEXT,
+      accuracy_m   REAL,
+      captured_at  TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at   TEXT DEFAULT (datetime('now'))
+    )`);
+    w._save();
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_geo_coord_status_store_time ON geo_coordinate_status_log(store_id, captured_at)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_geo_coord_status_store_visitor ON geo_coordinate_status_log(store_id, visitor_id, captured_at)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_geo_coord_status_store_status ON geo_coordinate_status_log(store_id, status, captured_at)');
+    w._save();
+  } catch (e) { console.warn('[DB] geo_coordinate_status_log table:', e.message); }
 }
 
 module.exports = { getDb, initDb };
