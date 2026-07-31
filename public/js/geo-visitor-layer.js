@@ -82,6 +82,13 @@ let geoVisitorState = {
   choroplethLayerGroup: null, // 獨立 layerGroup，跟既有 Dashboard 的 geoJsonLayer 分開，避免互相覆蓋
   requestSeq: 0,
   abortController: null,
+  // fix18-10-hotfix30-B5-R5.3-A7（Geo KPI Single Source Integration）：
+  // 'idle' | 'loading' | 'ready' | 'error'——供 geo-intelligence.js 的
+  // 「Geo 訪客/加購/結帳/訂單」KPI 卡片判斷四態（loading/ready/error/empty，
+  // empty 是 ready 且 funnel.visitors===0 的子情況，由呼叫端自己再細分）。
+  // 這是本 state 唯一的新增欄位，不影響既有 summary/funnel/areas 等欄位
+  // 的既有語意或既有 regression 對它們的讀取方式。
+  status: 'idle',
 };
 if (typeof window !== 'undefined') window.geoVisitorState = geoVisitorState;
 // 需求文件「Store Isolation：沿用既有 Store Isolation，不同店不得共用 Geo
@@ -99,6 +106,10 @@ function geoVisitorHandleStoreSwitch() {
   geoVisitorState.areas = [];
   geoVisitorState.recent = [];
   geoVisitorState.requestSeq += 1;
+  // fix18-10-hotfix30-B5-R5.3-A7：切店必須回到 idle（不是 error/沿用上一店
+  // 的 ready），否則新店還沒抓到資料的空檔會誤顯示上一店的舊 KPI 卡片
+  // 狀態（需求文件九：Store Isolation 同樣適用於這個 status 欄位）。
+  geoVisitorState.status = 'idle';
   if (geoVisitorState.choroplethLayerGroup && typeof geoVisitorState.choroplethLayerGroup.clearLayers === 'function') {
     geoVisitorState.choroplethLayerGroup.clearLayers();
   }
@@ -119,6 +130,7 @@ function _geoVisitorResetStateForTest() {
   geoVisitorState.choroplethLayerGroup = null;
   geoVisitorState.requestSeq = 0;
   geoVisitorState.abortController = null;
+  geoVisitorState.status = 'idle';
   if (typeof window !== 'undefined') window.geoVisitorState = geoVisitorState;
 }
 
@@ -412,8 +424,15 @@ async function geoVisitorFetchAndRender(containerId, range) {
   }
   const controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
   geoVisitorState.abortController = controller;
+  // fix18-10-hotfix30-B5-R5.3-A7：一開始就標記 loading——即使這次是「重新
+  // 整理」而非初次載入，仍先進入 loading，讓消費端（KPI 卡片）自行決定要
+  // 不要在等待期間沿用上一次成功的數字（目前實作：沿用，避免閃爍；見
+  // geo-intelligence.js 的 geoKpiSourceStatus() 只把「從未成功過」的
+  // loading 顯示成骨架，重新整理中的 loading 不強制蓋掉畫面）。
+  geoVisitorState.status = 'loading';
 
   let data = null;
+  let requestFailed = false;
   try {
     const res = (typeof apiFetch === 'function')
       ? await apiFetch(`/api/analytics/geo/visitor-log?range=${encodeURIComponent(range)}`, { signal: controller ? controller.signal : undefined })
@@ -421,16 +440,33 @@ async function geoVisitorFetchAndRender(containerId, range) {
     if (res && res.ok) {
       const json = await res.json();
       if (json && json.success) data = json.data;
+      else requestFailed = true;
+    } else {
+      requestFailed = true;
     }
-  } catch (e) { data = null; }
+  } catch (e) {
+    data = null;
+    // AbortError 是被更新的請求正常取消，不算失敗；下面 seq 檢查會讓這次
+    // 直接 return，不會誤把「被取消」顯示成「錯誤」。
+    if (!(e && e.name === 'AbortError')) requestFailed = true;
+  }
 
   if (seq !== geoVisitorState.requestSeq) return; // 舊 request，被更新的請求蓋掉
 
+  // 既有行為（B1.2 起）：失敗時 summary/funnel/areas/recent 一律安全降級
+  // 為 null/[]，不得殘留上一次成功的舊資料（本檔案既有 Panel／Ranking／
+  // Recent Log 都依賴這個「失敗=空狀態」慣例，見既有 regression B8-1）。
   geoVisitorState.summary = (data && data.summary) || null;
   geoVisitorState.funnel = (data && data.funnel) || null;
   geoVisitorState.recommendationRisk = (data && data.recommendation_risk) || null;
   geoVisitorState.areas = (data && data.areas) || [];
   geoVisitorState.recent = (data && data.recent) || [];
+  // fix18-10-hotfix30-B5-R5.3-A7（需求文件九、情境E）：另外新增的
+  // status 欄位——失敗時標記 'error'，不得偷偷 fallback 成舊資料、也不得
+  // 假裝是 0。geo-intelligence.js 的 KPI 卡片 adapter 一律先檢查
+  // status==='error' 才決定要不要顯示明確錯誤（優先於 funnel 是否為
+  // null），所以這裡 funnel 被清成 null 不影響 KPI 卡片正確顯示錯誤狀態。
+  geoVisitorState.status = (requestFailed || !data) ? 'error' : 'ready';
 
   geoVisitorRenderSummaryDom();
   geoVisitorRenderCoverageDom();
@@ -442,6 +478,14 @@ async function geoVisitorFetchAndRender(containerId, range) {
   // （不建立第二張 Leaflet map），未載入時安全略過。
   if (typeof window !== 'undefined' && window.geoMapState && window.geoMapState.instance) {
     geoVisitorRenderChoropleth(window.geoMapState.instance, window.geoMapState.featureIndex);
+  }
+
+  // fix18-10-hotfix30-B5-R5.3-A7（需求文件八：同步更新，不需要手動切
+  // Heatmap Tab）：通知 geo-intelligence.js 的「Geo 訪客/加購/結帳/訂單」
+  // KPI 卡片重新渲染。typeof 保護，跟本檔案其餘呼叫 geoSetMapMetric() 的
+  // soft-coupling 慣例一致，未載入 geo-intelligence.js 時安全略過。
+  if (typeof geoIntelligenceOnEventEngineUpdate === 'function') {
+    geoIntelligenceOnEventEngineUpdate();
   }
 }
 

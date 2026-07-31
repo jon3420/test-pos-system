@@ -309,7 +309,22 @@ async function main() {
     assert(html.includes('開始結帳'), 'C: KPI shows 開始結帳');
     assert(html.includes('完成訂單'), 'C: KPI shows 完成訂單');
     assert(html.includes('整體成交率'), 'C: KPI shows 整體成交率');
-    assert(/6[0-9]\b/.test(html), 'C: visitor total (42+25=67) rendered in KPI card', html.slice(0, 200));
+    // fix18-10-hotfix30-B5-R5.3-A7（Geo KPI Single Source Integration）：
+    // 「進站訪客/加入購物車/開始結帳/完成訂單/整體成交率」這組 KPI 卡片
+    // 正式資料來源改為 geoVisitorState.funnel（Geo Event Engine），不再讀
+    // vm.funnel（這支 getGeoFunnel() 回應的 areas 42+25=67 只是舊資料流的
+    // fixture，不該再決定這裡的數字——那正是 R5.3-A6 診斷出的 bug 本體：
+    // Unknown 訪客在 _visitorGeoAttributionCTE() 就被整筆排除，這條資料流
+    // 本來就不可靠，不該繼續拿它的總和來驗證「KPI 有沒有顯示真實數字」）。
+    // 這個測試環境（Part B jsdom harness）只 eval 了 app.js／analytics-v2.js／
+    // geo-intelligence.js，沒有載入 geo-visitor-layer.js，Geo Event Engine
+    // 的 geoVisitorState 因此真的不存在——這種情況下卡片正確顯示「載入中…」
+    // 佔位文字，而不是偷偷 fallback 顯示 vm.funnel 的 67（需求文件九：
+    // Source-of-Truth Guard，API 未就緒時不得假裝有資料）。專屬 A7 regression
+    // （scripts/smoke-hotfix30-b5-r5-3-a7-geo-kpi-single-source.js）另外用完整
+    // 載入 geo-visitor-layer.js 的環境驗證真正有資料時的正確顯示。
+    assert(html.includes('載入中…'), 'C（A7更新）: geo-visitor-layer.js 未載入時，KPI 卡片正確顯示 Geo Event Engine 載入中佔位文字，不 fallback 顯示 vm.funnel 的舊數字');
+    assert(!/\b67\b/.test(html), 'C（A7更新）: KPI 卡片不再包含 vm.funnel 的加總數字 67（Source-of-Truth Guard：不得混用 vm.funnel）');
     assert(html.includes('Geo Quality'), 'C: Geo Quality section rendered');
   }
 

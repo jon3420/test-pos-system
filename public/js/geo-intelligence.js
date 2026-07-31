@@ -574,6 +574,14 @@ function _geoRate(n, d) { // 與 utils/geoAnalyticsQueries.js 的 _rate() 定義
   if (dd <= 0) return 0;
   return Math.round((nn / dd) * 10000) / 10000;
 }
+// fix18-10-hotfix30-B5-R5.3-A7（Geo KPI Single Source Integration）：
+// legacy area aggregation only — 這個函式（跟它底下的 vm.funnel／
+// getGeoFunnel()／_visitorGeoAttributionCTE()）不再驅動「Geo 訪客/加購/
+// 結帳/訂單/成交率/Geo辨識率/Unknown比例」這組 KPI 卡片（那組卡片改用
+// geoAdaptEventEngineFunnelForKpi() 讀 geoVisitorState.funnel，見上方）。
+// 保留給行政區聚合相關用途：isEmpty 判斷（refreshGeoDashboardKpiBlock()）、
+// geoBuildEmptyStateMessage()、行政區 Top 3／排行榜／Choropleth 的空狀態
+// 判斷——這些仍合理依賴 vm.funnel.areas 是否為空，不是本輪遷移範圍。
 function computeGeoDashboardKpi(vm) {
   const totals = _sumFunnelAreas(vm.funnel);
   return {
@@ -1176,7 +1184,13 @@ function geoBuildKpiSummaryCards(kpi, quality, overview) {
   // 兩者預設值相同，這裡不強依賴 rule_context 是否存在）。
   const unknownWarnThreshold = 0.5;
   const cards = [
-    { label: 'Geo 訪客', value: k.visitors, formatted_value: _geoPeople(k.visitors), helper_text: '已辨識行政區的訪客', status: 'neutral' },
+    // fix18-10-hotfix30-B5-R5.3-A7（Geo KPI Single Source Integration）：
+    // 文案修正為誠實反映語意——這張卡片的數字現在包含 Known + Unknown
+    // 全部訪客，不再只是「已辨識行政區的訪客」（那是舊 vm.funnel／
+    // getGeoFunnel() 時代、Unknown 會被 CTE 整筆排除時的殘留文案，容易
+    // 誤導）。此函式本身仍是純函式，不讀取任何全域 state，呼叫端傳什麼
+    // 就顯示什麼。
+    { label: 'Geo 訪客', value: k.visitors, formatted_value: _geoPeople(k.visitors), helper_text: '含 Unknown 地理位置的所有訪客', status: 'neutral' },
     { label: 'Geo 加購', value: k.add_to_cart_visitors, formatted_value: _geoPeople(k.add_to_cart_visitors), helper_text: '已加入購物車的訪客', status: 'neutral' },
     { label: 'Geo 結帳', value: k.begin_checkout_visitors, formatted_value: _geoPeople(k.begin_checkout_visitors), helper_text: '已開始結帳的訪客', status: 'neutral' },
     { label: 'Geo 訂單', value: k.submitted_order_visitors, formatted_value: _geoPeople(k.submitted_order_visitors), helper_text: '已完成訂單的訪客', status: k.submitted_order_visitors > 0 ? 'positive' : 'neutral' },
@@ -1200,6 +1214,173 @@ function geoRenderKpiSummaryCards(cards) {
     </div>`).join('')}
   </div>`;
 }
+
+// ════════════════════════════════════════════════════════════════
+// 六之一、fix18-10-hotfix30-B5-R5.3-A7 — Geo KPI Single Source Integration
+//
+// 決策（見 R5.3-A6 診斷）：「Geo 訪客／Geo 加購／Geo 結帳／Geo 訂單」
+// （以及同一組卡片裡的 Geo 成交率／Geo 辨識率／Unknown 比例）不得再用
+// vm.funnel（getGeoFunnel()／_visitorGeoAttributionCTE()，Unknown 訪客
+// 在 CTE 階段就被整筆排除）計算。正式 Source of Truth 改為
+// geoVisitorState.funnel（geo-visitor-layer.js，來自 Geo Event Engine
+// getGeoEventFunnel()，Unknown 已正確計入分母）。
+//
+// getGeoFunnel()／vm.funnel／/api/analytics/geo/funnel 完全不刪除、不停用
+// ——依需求文件七，legacy area aggregation only：繼續驅動行政區 Top 3／
+// 排行榜／Choropleth／Empty State 判斷（computeGeoDashboardKpi(vm) 仍保留
+// 給這些用途，見 refreshGeoDashboardKpiBlock() 與 geoBuildEmptyStateMessage()
+// 裡未被本輪觸碰的既有呼叫）。
+//
+// 這裡是「單一 adapter」（需求文件四）：把 geoVisitorState.funnel 轉換成
+// geoBuildKpiSummaryCards() 既有的 { visitors, add_to_cart_visitors,
+// begin_checkout_visitors, submitted_order_visitors, conversion_rate } +
+// { identified_rate, unknown_rate } 形狀——geoBuildKpiSummaryCards() 本身
+// 完全不修改（純函式，既有 regression 直接餵固定物件驗證，不可變更其
+// 簽名/行為），只是呼叫端不再傳 vm.funnel 算出來的值，改傳這裡算出來的值。
+// 全案唯一一個做這個轉換的地方，其他 render 函式都不得各自重算。
+// ════════════════════════════════════════════════════════════════
+function _geoEventEngineState() {
+  // typeof 保護：geo-visitor-layer.js 未載入時安全退回 null（不拋例外），
+  // 跟本檔案其餘呼叫 geoSetMapMetric() 等既有函式的 guard 慣例一致。
+  return (typeof geoVisitorState !== 'undefined' && geoVisitorState) ? geoVisitorState : null;
+}
+
+// 供需求文件九「Source-of-Truth Guard」的 Static Audit／smoke test 用：
+// 讀取目前 Geo Event Engine 的載入狀態，四態之一。
+//   idle    — 從未成功或失敗過（初次掛載前）
+//   loading — 目前有一個 request 正在飛行中，且從未有過成功資料
+//   ready   — 最近一次 request 成功，且 visitors > 0
+//   empty   — 最近一次 request 成功，但 visitors === 0（誠實區分空狀態跟載入中，需求文件五）
+//   error   — 最近一次 request 失敗
+function geoKpiSourceStatus() {
+  const state = _geoEventEngineState();
+  if (!state) return 'idle';
+  const raw = state.status || 'idle';
+  if (raw === 'error') return 'error';
+  if (raw !== 'ready' || !state.funnel) return (raw === 'loading' ? 'loading' : 'idle');
+  return (Number(state.funnel.visitors) || 0) > 0 ? 'ready' : 'empty';
+}
+
+// 單一 adapter：geoVisitorState.funnel → geoBuildKpiSummaryCards() 既有形狀。
+// 回傳 { status, kpi, quality }；status 非 ready/empty 時 kpi/quality 為 null，
+// 呼叫端（_geoRenderKpiLiveHtml）必須先檢查 status，不得對 null 取值。
+function geoAdaptEventEngineFunnelForKpi() {
+  const status = geoKpiSourceStatus();
+  if (status !== 'ready' && status !== 'empty') return { status, kpi: null, quality: null };
+  const state = _geoEventEngineState();
+  const f = (state && state.funnel) || {};
+  const visitors = Number(f.visitors) || 0;
+  const known = Number(f.known_district_visitors) || 0;
+  // Unknown 一律 = 總數 - Known（跟 utils/geoEventEngine.js 本身的定義一致，
+  // 需求文件六：Unknown 必須計入總訪客，不得讓分母歸零或整段消失）。
+  const unknown = Math.max(0, visitors - known);
+  const coverage = visitors > 0 ? known / visitors : 0;
+  return {
+    status,
+    kpi: {
+      visitors,
+      add_to_cart_visitors: Number(f.add_to_cart_visitors) || 0,
+      begin_checkout_visitors: Number(f.begin_checkout_visitors) || 0,
+      // 舊卡片欄位叫 submitted_order_visitors；新引擎的對應概念是「已完成
+      // 購買（purchase）事件」的訪客數，語意最接近，且跟 8-Tab Metric Bar
+      // 顯示的「Purchase Visitors」是同一個數字，不是另外發明一個定義。
+      submitted_order_visitors: Number(f.purchase_visitors) || 0,
+      conversion_rate: (Number(f.visitor_to_purchase_rate) || 0) / 100,
+    },
+    quality: {
+      identified_rate: coverage,
+      unknown_rate: visitors > 0 ? unknown / visitors : 0,
+    },
+    known_visitors: known,
+    unknown_visitors: unknown,
+    coverage,
+  };
+}
+
+// 四態渲染：loading/error 顯示明確狀態文字，絕不假裝成 0 或偷偷 fallback
+// 成 vm.funnel 的數字（需求文件九：Source-of-Truth Guard）。ready/empty
+// 才會呼叫既有、未修改的 geoBuildKpiSummaryCards()/geoRenderKpiSummaryCards()。
+function _geoKpiLoadingCardsHtml() {
+  return `<div class="geo-kpi-grid" role="list" aria-label="Geo KPI Summary" data-geo-kpi-state="loading">
+    ${['Geo 訪客', 'Geo 加購', 'Geo 結帳', 'Geo 訂單', 'Geo 成交率', 'Geo 辨識率', 'Unknown 比例'].map((label) => `
+      <div class="geo-kpi-card" data-geo-status="neutral" role="listitem">
+        <div class="geo-kpi-label">${escHtml(label)}</div>
+        <div class="geo-kpi-value">載入中…</div>
+        <div class="geo-kpi-helper"><span aria-hidden="true">·</span> Geo Event Engine 資料載入中</div>
+      </div>`).join('')}
+  </div>`;
+}
+function _geoKpiErrorCardsHtml() {
+  return `<div class="geo-kpi-grid" role="list" aria-label="Geo KPI Summary" data-geo-kpi-state="error">
+    ${['Geo 訪客', 'Geo 加購', 'Geo 結帳', 'Geo 訂單', 'Geo 成交率', 'Geo 辨識率', 'Unknown 比例'].map((label) => `
+      <div class="geo-kpi-card" data-geo-status="danger" role="listitem">
+        <div class="geo-kpi-label">${escHtml(label)}</div>
+        <div class="geo-kpi-value">無法載入</div>
+        <div class="geo-kpi-helper"><span aria-hidden="true">⛔</span> Geo Event Engine 讀取失敗，請點擊重新整理</div>
+      </div>`).join('')}
+  </div>`;
+}
+// 5-card「既有子字串相容」區塊（進站訪客／加入購物車／開始結帳／完成訂單／
+// 整體成交率，見既有 regression：smoke-hotfix30-b5-r5-1-c-geo-ui.js 等）
+// 也改用同一個 adapter 輸出，不得跟上面 8 張卡片使用不同數字來源。
+function _geoLegacySubstringKpiHtml(adapted) {
+  const status = adapted.status;
+  if (status === 'loading' || status === 'idle') {
+    return `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-bottom:14px" role="list" aria-label="Geo Dashboard KPI（既有子字串相容）">
+      <div role="listitem">${_card('進站訪客', '載入中…', '', null)}</div>
+      <div role="listitem">${_card('加入購物車', '載入中…', '', null)}</div>
+      <div role="listitem">${_card('開始結帳', '載入中…', '', null)}</div>
+      <div role="listitem">${_card('完成訂單', '載入中…', '', '#10b981')}</div>
+      <div role="listitem">${_card('整體成交率', '載入中…', '', '#818cf8')}</div>
+    </div>`;
+  }
+  if (status === 'error') {
+    return `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-bottom:14px" role="list" aria-label="Geo Dashboard KPI（既有子字串相容）">
+      <div role="listitem">${_card('進站訪客', '無法載入', '', null)}</div>
+      <div role="listitem">${_card('加入購物車', '無法載入', '', null)}</div>
+      <div role="listitem">${_card('開始結帳', '無法載入', '', null)}</div>
+      <div role="listitem">${_card('完成訂單', '無法載入', '', '#10b981')}</div>
+      <div role="listitem">${_card('整體成交率', '無法載入', '', '#818cf8')}</div>
+    </div>`;
+  }
+  const kpi = adapted.kpi;
+  return `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-bottom:14px" role="list" aria-label="Geo Dashboard KPI（既有子字串相容）">
+    <div role="listitem">${_card('進站訪客', kpi.visitors.toLocaleString('zh-TW'), '', null)}</div>
+    <div role="listitem">${_card('加入購物車', kpi.add_to_cart_visitors.toLocaleString('zh-TW'), '', null)}</div>
+    <div role="listitem">${_card('開始結帳', kpi.begin_checkout_visitors.toLocaleString('zh-TW'), '', null)}</div>
+    <div role="listitem">${_card('完成訂單', kpi.submitted_order_visitors.toLocaleString('zh-TW'), '', '#10b981')}</div>
+    <div role="listitem">${_card('整體成交率', (kpi.conversion_rate * 100).toFixed(1) + '%', '', '#818cf8')}</div>
+  </div>`;
+}
+// 單一入口：8 張卡片 + 5-card 相容區塊，一次算好一起回傳，兩處共用同一次
+// adapter 呼叫結果（不得各自呼叫 adapter 兩次、可能拿到不同時間點的 state）。
+function _geoRenderKpiLiveHtml(overview) {
+  const adapted = geoAdaptEventEngineFunnelForKpi();
+  let mainCardsHtml;
+  if (adapted.status === 'loading' || adapted.status === 'idle') {
+    mainCardsHtml = _geoKpiLoadingCardsHtml();
+  } else if (adapted.status === 'error') {
+    mainCardsHtml = _geoKpiErrorCardsHtml();
+  } else {
+    // ready 或 empty：empty 也是「有效資料」（今日目前 0 個事件），不是
+    // loading，用真正的 0 值走完整既有 geoBuildKpiSummaryCards() 邏輯即可
+    // 正確顯示（0 人／0% 等，需求文件五：Empty 與 Loading 不得混為一談）。
+    mainCardsHtml = geoRenderKpiSummaryCards(geoBuildKpiSummaryCards(adapted.kpi, adapted.quality, overview));
+  }
+  return mainCardsHtml + _geoLegacySubstringKpiHtml(adapted);
+}
+// geo-visitor-layer.js 的 geoVisitorFetchAndRender() 每次成功/失敗都會呼叫
+// 這個 hook（typeof 保護，跟既有雙向 soft-coupling 慣例一致），讓 KPI 卡片
+// 即時反映 Geo Event Engine 最新狀態，不需要使用者手動切到 Heatmap Tab
+// （需求文件八：同步更新）。只更新自己的 DOM 子樹，不重新渲染整個 Dashboard。
+function geoIntelligenceOnEventEngineUpdate() {
+  if (typeof document === 'undefined' || !geoLastContainerId) return;
+  const el = document.getElementById(`${geoLastContainerId}-geo-kpi-live`);
+  if (!el) return;
+  const overview = (geoLastVm && geoLastVm.overview) || {};
+  el.innerHTML = _geoRenderKpiLiveHtml(overview);
+}
+if (typeof window !== 'undefined') window.geoIntelligenceOnEventEngineUpdate = geoIntelligenceOnEventEngineUpdate;
 
 // ── 十四之三、Scope 顯示格式化：缺值一律顯示「全部」/「未限定」，
 // 不得顯示 null/undefined ──
@@ -1565,19 +1746,17 @@ async function refreshGeoDashboardKpiBlock(containerId) {
     ? _geoDashboardEmptyHtml(geoBuildEmptyStateMessage(vm))
     : (isAllUnknown ? _geoDashboardAllUnknownHtml() : null);
 
-  // fix18-10-hotfix30-B5-R5.2-B1-5（需求文件六）：KPI 卡片升級成 8 張、含
-  // helper_text/status，取代原本 5 張陽春卡片；文案仍保留「進站訪客」等
-  // 既有子字串（既有 regression 依賴這些子字串存在，見 CHANGELOG）。
-  const kpiCards = geoRenderKpiSummaryCards(geoBuildKpiSummaryCards(
-    { visitors: kpi.visitors, add_to_cart_visitors: kpi.add_to_cart_visitors, begin_checkout_visitors: kpi.begin_checkout_visitors, submitted_order_visitors: kpi.submitted_order_visitors, conversion_rate: kpi.conversion_rate },
-    vm.quality, vm.overview,
-  )) + `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-bottom:14px" role="list" aria-label="Geo Dashboard KPI（既有子字串相容）">
-    <div role="listitem">${_card('進站訪客', kpi.visitors.toLocaleString('zh-TW'), '', null)}</div>
-    <div role="listitem">${_card('加入購物車', kpi.add_to_cart_visitors.toLocaleString('zh-TW'), '', null)}</div>
-    <div role="listitem">${_card('開始結帳', kpi.begin_checkout_visitors.toLocaleString('zh-TW'), '', null)}</div>
-    <div role="listitem">${_card('完成訂單', kpi.submitted_order_visitors.toLocaleString('zh-TW'), '', '#10b981')}</div>
-    <div role="listitem">${_card('整體成交率', (kpi.conversion_rate * 100).toFixed(1) + '%', '', '#818cf8')}</div>
-  </div>`;
+  // fix18-10-hotfix30-B5-R5.3-A7（Geo KPI Single Source Integration）：
+  // 這裡的 8 張卡片＋5-card 相容區塊，正式資料來源改為
+  // geoVisitorState.funnel（Geo Event Engine，Unknown 正確計入分母），
+  // 停止使用上面這個 `kpi`（computeGeoDashboardKpi(vm)，即 vm.funnel／
+  // getGeoFunnel()，Unknown 訪客在 _visitorGeoAttributionCTE() 就被整筆
+  // 排除——見 R5.3-A6 診斷）。`kpi`／`vm.funnel` 仍保留給上面 isEmpty／
+  // geoBuildEmptyStateMessage() 等「行政區聚合」用途（legacy area
+  // aggregation only，見需求文件七），不是刪除，只是不再驅動這一個 KPI
+  // 卡片區塊。包在固定 id 的容器裡，讓 geoIntelligenceOnEventEngineUpdate()
+  // 之後可以只更新這個子樹（同步更新，不需要整頁重繪，見需求文件八）。
+  const kpiCards = `<div id="${containerId}-geo-kpi-live">${_geoRenderKpiLiveHtml(vm.overview)}</div>`;
 
   // 履約分析：沿用舊 Dashboard 原本就有的能力（訂單是否已有履約地理資訊），
   // 但資料來源改成新版 /overview 的 fulfillment_geo（不是舊 geo_summary），
@@ -2639,5 +2818,9 @@ if (typeof module !== 'undefined' && module.exports) {
     // fix18-10-hotfix30-B5-R5.2-B1-6A
     geoBuildExplorerUnavailableState, GEO_EXPLORER_UNAVAILABLE_REASONS,
     _geoIsValidCampaignValue, GEO_INVALID_CAMPAIGN_VALUES, _geoFormatAbandonRate,
+    // fix18-10-hotfix30-B5-R5.3-A7（Geo KPI Single Source Integration）
+    geoKpiSourceStatus, geoAdaptEventEngineFunnelForKpi, _geoRenderKpiLiveHtml,
+    geoIntelligenceOnEventEngineUpdate, _geoKpiLoadingCardsHtml, _geoKpiErrorCardsHtml,
+    _geoLegacySubstringKpiHtml,
   };
 }
