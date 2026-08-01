@@ -188,3 +188,27 @@
   color: #64748b;
   font-style: italic;
 }
+
+/* fix18-10-hotfix30-B5-R5.4-G1.3.1（需求文件八、九）——Root Cause：這個
+   區塊原本完全沒有 Dark Theme 覆寫，`background:#f8fafc` 是寫死的淺色，
+   也沒有自己的 `color`，深色主題下會直接繼承全站 Dark Theme 的淺色/白色
+   文字，變成「淺底淺字」「近乎看不見」。跟 geo-live-layer.css 既有的
+   `[data-theme="dark"]` / `.geo-live-theme-dark` 雙選擇器＋深灰藍色票
+   （#0f172a/#1e293b/#334155/#e2e8f0）同一套慣例，不新造一套 Dark Theme
+   token。 */
+[data-theme="dark"] .geo-heat-coverage-explanation-text,
+.geo-live-theme-dark .geo-heat-coverage-explanation-text {
+  background: #1e293b;
+  color: #e2e8f0;
+  border-left-color: #475569;
+}
+[data-theme="dark"] .geo-heat-coverage-explanation-text[data-state="no_business_data"],
+.geo-live-theme-dark .geo-heat-coverage-explanation-text[data-state="no_business_data"] { border-left-color: #94a3b8; }
+[data-theme="dark"] .geo-heat-coverage-explanation-text[data-state="no_geo_data"],
+.geo-live-theme-dark .geo-heat-coverage-explanation-text[data-state="no_geo_data"] { border-left-color: #f59e0b; }
+[data-theme="dark"] .geo-heat-coverage-explanation-text[data-state="partial_coverage"],
+.geo-live-theme-dark .geo-heat-coverage-explanation-text[data-state="partial_coverage"] { border-left-color: #3b82f6; }
+[data-theme="dark"] .geo-heat-coverage-explanation-text[data-state="full_coverage"],
+.geo-live-theme-dark .geo-heat-coverage-explanation-text[data-state="full_coverage"] { border-left-color: #22c55e; }
+[data-theme="dark"] .geo-heat-coverage-explanation-note,
+.geo-live-theme-dark .geo-heat-coverage-explanation-note { color: #94a3b8; }

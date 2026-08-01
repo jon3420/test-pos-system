@@ -300,18 +300,29 @@ function geoHeatUiSetChannel(channel) {
 
 // 依 metric 算出（total, drawn）：total 是「業務總量」，drawn 是「可歸屬地理
 // 資料量」。currency metrics（revenue）用金額本身；其餘用筆數/人數。
-function _geoHeatMetricTotals(areas, metric) {
+function _geoHeatMetricTotals(areas, metric, businessTotals) {
   const list = areas || [];
+  const bt = businessTotals || {};
   if (metric === 'revenue') {
-    const total = list.reduce((s, a) => s + (Number(a.revenue) || 0), 0);
-    // revenue 目前系統沒有「已歸屬地理區域的營收」獨立欄位，沿用既有
-    // coordinate_count>0 的 area 才視為「該區營收可歸屬」的既有判斷慣例
-    // （跟 orders 用同一套 coordinate_count 語意，不新造一套）。
+    // fix18-10-hotfix30-B5-R5.4-G1.3.1（需求文件二、三）：Root Cause——
+    // areas 只包含 order_mode IN ('delivery','shipping') AND
+    // fulfillment_geo_source IS NOT NULL 的訂單（getGeoFulfillment() 既有
+    // 查詢條件），也就是「Geo Drawable」子集合，不是全店總量。之前直接把
+    // list.reduce(revenue) 當 Business Total，等於用 Geo Drawable Total
+    // 冒充 Business Total，導致「有訂單但無 Geo」被誤判成「沒有訂單資料」。
+    // 現在優先採用後端 additive 欄位 business_total_revenue（同一組
+    // Store/Date/Channel 篩選、不受 order_mode/geo_source 限制）；只有在
+    // 該欄位不是數字（例如舊 fixture 沒有這個欄位）時，才 fallback 回舊的
+    // areas 加總（不得無故改變沒有這個欄位時的既有行為）。
+    const total = (typeof bt.revenue === 'number') ? bt.revenue : list.reduce((s, a) => s + (Number(a.revenue) || 0), 0);
+    // Geo Drawable Total 語意不變：coordinate_count>0 的 area 才視為「該區
+    // 營收可歸屬」（跟 orders 用同一套 coordinate_count 語意，不新造一套）。
     const drawn = list.filter((a) => (Number(a.coordinate_count) || 0) > 0).reduce((s, a) => s + (Number(a.revenue) || 0), 0);
     return { total, drawn };
   }
   if (metric === 'orders') {
-    const total = list.reduce((s, a) => s + (Number(a.submitted_orders) || 0), 0);
+    // 同上——優先用 business_total_orders，fallback 回 areas 加總。
+    const total = (typeof bt.orders === 'number') ? bt.orders : list.reduce((s, a) => s + (Number(a.submitted_orders) || 0), 0);
     const drawn = list.reduce((s, a) => s + (Number(a.coordinate_count) || 0), 0);
     return { total, drawn };
   }
@@ -342,8 +353,16 @@ const GEO_HEAT_COVERAGE_NO_GEO_TEXT = Object.freeze({
 // 的 errorEl）另外處理，這裡只負責前三種。
 function _geoHeatBuildCoverageExplanationText(metric, total, drawn) {
   const m = GEO_HEAT_METRICS.includes(metric) ? metric : 'orders';
-  const t = Math.max(0, Number(total) || 0);
-  const d = Math.max(0, Math.min(t, Number(drawn) || 0));
+  // fix18-10-hotfix30-B5-R5.4-G1.3.1：防禦性補強——total/drawn 理論上永遠
+  // 是有限數字（後端 COUNT(*)/SUM() 的聚合結果，透過 Number() 轉型），
+  // 但為了不讓格式異常的 API 回應（例如缺欄位、序列化錯誤）產生
+  // "NaN%"/"Infinity%" 這種使用者看得到的髒字串，這裡在既有 clamp 之前
+  // 先擋掉非有限數字，一律視為 0（等同「無業務資料/無 Geo 資料」）。
+  // 不改變任何正常數字輸入（真實案例）的既有行為。
+  const safeTotal = Number.isFinite(Number(total)) ? Number(total) : 0;
+  const safeDrawn = Number.isFinite(Number(drawn)) ? Number(drawn) : 0;
+  const t = Math.max(0, safeTotal);
+  const d = Math.max(0, Math.min(t, safeDrawn));
   if (t <= 0) return { state: 'no_business_data', text: GEO_HEAT_COVERAGE_NO_BUSINESS_DATA_TEXT[m] };
   if (d <= 0) return { state: 'no_geo_data', text: (GEO_HEAT_COVERAGE_NO_GEO_TEXT[m] || GEO_HEAT_COVERAGE_NO_GEO_TEXT.orders)(m === 'revenue' ? t.toLocaleString('en-US') : t) };
   const pct = t > 0 ? Math.round((d / t) * 1000) / 10 : 0;
@@ -358,7 +377,7 @@ function _geoHeatUiRenderCoverageExplanation(containerId) {
   if (typeof document === 'undefined') return;
   const el = document.getElementById(`${containerId}-coverage-explanation`);
   if (!el) return;
-  const { total, drawn } = _geoHeatMetricTotals(geoHeatState.areas, geoHeatState.metric);
+  const { total, drawn } = _geoHeatMetricTotals(geoHeatState.areas, geoHeatState.metric, geoHeatState.businessTotals);
   const result = _geoHeatBuildCoverageExplanationText(geoHeatState.metric, total, drawn);
   let html = `<p class="geo-heat-coverage-explanation-text" data-state="${_geoHeatUiEsc(result.state)}">${_geoHeatUiEsc(result.text)}</p>`;
   if (geoHeatUiState.unmappedGlobalMetric) {
@@ -693,7 +712,17 @@ async function geoHeatUiFetchAndRender(containerId) {
       }
       const funnelAreas = (funnelJson.data && funnelJson.data.areas) || [];
       const fulfillmentAreas = (fulfillmentJson.data && fulfillmentJson.data.areas) || [];
-      return geoHeatBuildAreas(funnelAreas, fulfillmentAreas);
+      const areas = geoHeatBuildAreas(funnelAreas, fulfillmentAreas);
+      // fix18-10-hotfix30-B5-R5.4-G1.3.1（需求文件三、四）：業務總量是
+      // additive 欄位，只有 API 明確回傳「數字」時才採用；缺欄位（例如舊
+      // fixture／API 尚未部署）一律是 null，交由 _geoHeatMetricTotals()
+      // fallback 回舊行為，不臆測。
+      const fd = fulfillmentJson.data || {};
+      const businessTotals = {
+        orders: (typeof fd.business_total_orders === 'number') ? fd.business_total_orders : null,
+        revenue: (typeof fd.business_total_revenue === 'number') ? fd.business_total_revenue : null,
+      };
+      return { areas, businessTotals };
     } catch (e) {
       if (e && e.name === 'AbortError') return geoHeatState.areas; // 被更新的請求取消，不視為錯誤
       if (errorEl) { errorEl.hidden = false; errorEl.textContent = GEO_HEAT_UI_MESSAGES.error; }

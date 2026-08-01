@@ -448,8 +448,31 @@ function getGeoFulfillment(db, storeId, filters) {
     [storeId, range.startLocal, range.endLocal, ...chOrd.params]
   ) || { c: 0 };
 
+  // fix18-10-hotfix30-B5-R5.4-G1.3.1（需求文件三、四）：Business Total ——
+  // 上面的 `rows`/GROUP BY 查詢刻意只涵蓋
+  // `order_mode IN ('delivery','shipping') AND fulfillment_geo_source IS NOT NULL`，
+  // 也就是「Geo Drawable」子集合，不是全店總量（這正是本輪要修的 bug：
+  // 之前把這個子集合的加總誤當成 Business Total）。
+  //
+  // 這裡另外用「同一組」Store／Date Range／Channel 篩選（跟上面 rows 查詢
+  // 共用 ORDERS_BASE_WHERE／range／chOrd，不新造篩選邏輯），但不套用
+  // order_mode／fulfillment_geo_source／city／district 限制，算出真正的
+  // 全店訂單數／營收（含 takeout、含沒有任何地理資料的訂單），作為
+  // additive 欄位回傳。不修改上面任何既有欄位語意，也不改變訂單/營收/
+  // Channel/Date Range 的既有定義（沿用同一個 ORDERS_BASE_WHERE／
+  // ORDERS_PAID_EXPR／chOrd）。
+  const businessTotalRow = db.get(
+    `SELECT COUNT(*) AS business_total_orders,
+            COALESCE(SUM(CASE WHEN ${ORDERS_PAID_EXPR} THEN total ELSE 0 END),0) AS business_total_revenue
+     FROM orders
+     WHERE ${ORDERS_BASE_WHERE} AND created_at BETWEEN ? AND ?${chOrd.sql}`,
+    [storeId, range.startLocal, range.endLocal, ...chOrd.params]
+  ) || { business_total_orders: 0, business_total_revenue: 0 };
+
   return {
     page, limit,
+    business_total_orders: Number(businessTotalRow.business_total_orders) || 0,
+    business_total_revenue: Number(businessTotalRow.business_total_revenue) || 0,
     areas: rows.map((r) => {
       const submitted = Number(r.submitted_orders) || 0;
       const completed = Number(r.completed_orders) || 0;

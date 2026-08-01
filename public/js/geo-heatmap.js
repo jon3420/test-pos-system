@@ -284,6 +284,12 @@ let geoHeatState = {
   display: 'circle',     // circle | marker | ranking_only
   channel: 'all',
   areas: [],
+  // fix18-10-hotfix30-B5-R5.4-G1.3.1（需求文件三、四）：additive 欄位——
+  // Business Total（全店訂單數／營收，不受 Geo 限制），跟 areas 分開存放，
+  // 不覆蓋/混用既有 areas 的 submitted_orders/coordinate_count 語意。
+  // null 代表「本次 API 回應沒有帶這個欄位」（例如舊測試 fixture／
+  // Heatmap Off 分支），消費端必須 fallback 回舊行為，不得假裝有資料。
+  businessTotals: { orders: null, revenue: null },
   selectedAreaId: null,
   requestSeq: 0,
   abortController: null,
@@ -301,6 +307,7 @@ function _geoHeatResetStateForTest() {
   geoHeatState.display = 'circle';
   geoHeatState.channel = 'all';
   geoHeatState.areas = [];
+  geoHeatState.businessTotals = { orders: null, revenue: null };
   geoHeatState.selectedAreaId = null;
   geoHeatState.requestSeq = 0;
   geoHeatState.abortController = null;
@@ -319,6 +326,7 @@ function geoHeatHandleStoreSwitch() {
   geoHeatState.abortController = null;
   geoHeatState.selectedAreaId = null;
   geoHeatState.areas = [];
+  geoHeatState.businessTotals = { orders: null, revenue: null };
   geoHeatState.requestSeq += 1;
   if (geoHeatState.layerGroup && typeof geoHeatState.layerGroup.clearLayers === 'function') {
     geoHeatState.layerGroup.clearLayers();
@@ -452,14 +460,22 @@ function geoHeatScheduleUpdate(fetchAreasFn, delayMs) {
     if (geoHeatState.abortController && typeof geoHeatState.abortController.abort === 'function') geoHeatState.abortController.abort();
     const controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
     geoHeatState.abortController = controller;
-    let areas = [];
+    let result = [];
     try {
-      areas = await fetchAreasFn(controller ? controller.signal : undefined);
+      result = await fetchAreasFn(controller ? controller.signal : undefined);
     } catch (e) {
-      areas = [];
+      result = [];
     }
     if (seq !== geoHeatState.requestSeq) return; // 舊 request，被更新的請求蓋掉——防止 race condition
+    // fix18-10-hotfix30-B5-R5.4-G1.3.1：向下相容——沿用既有 fetchAreasFn 只回傳
+    // 陣列的既有呼叫方式（G1/G1.1/G1.2/G1.3 既有 Smoke 全部這樣用，不改）；
+    // 新的呼叫方式可以回傳 { areas, businessTotals }，這裡才會額外更新
+    // geoHeatState.businessTotals。同一個 seq 防護一併保護 businessTotals，
+    // 不會有 stale response 蓋掉新資料的問題。
+    const areas = Array.isArray(result) ? result : (result && result.areas) || [];
+    const businessTotals = (!Array.isArray(result) && result && result.businessTotals) ? result.businessTotals : null;
     geoHeatState.areas = areas || [];
+    if (businessTotals) geoHeatState.businessTotals = businessTotals;
     geoHeatRenderLayer(geoHeatState.areas, geoHeatState.metric, geoHeatState.display);
     _geoHeatRenderRankingDom();
     _geoHeatRenderSummaryDom();
