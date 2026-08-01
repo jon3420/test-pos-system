@@ -142,3 +142,25 @@
   .geo-heat-ctl-btn { padding: 4px 8px; font-size: .72rem; }
   .geo-heat-ranking-list { max-height: 260px; }
 }
+
+/* fix18-10-hotfix30-B5-R5.4-G1.2：Visitor Layer 沒有真實座標可畫時的地圖
+   覆蓋文字（DOM 文字，不是 Leaflet Layer，不會被誤認成 Marker）。地圖容器
+   本身（.leaflet-container）由 Leaflet 自己設定 position:relative，這裡的
+   絕對定位可以正確相對於地圖本身置中。 */
+.geo-heat-visitor-map-overlay {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 500; /* 低於 Leaflet 控制項(1000)，高於一般 tile/layer */
+  background: rgba(15, 23, 42, 0.85);
+  color: #f1f5f9;
+  padding: 12px 18px;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-line;
+  text-align: center;
+  max-width: 80%;
+  pointer-events: none;
+}

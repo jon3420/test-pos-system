@@ -208,16 +208,112 @@ function geoHeatUiToggleEnabled(checked) {
 // ════════════════════════════════════════════════════════════════
 // 五、Panel Skeleton（需求文件三、七、八、九、十、十一、十二、十三）
 // ════════════════════════════════════════════════════════════════
-// fix18-10-hotfix30-B5-R5.3-A1.2：Layer 切換列（Order Heatmap / Visitor
-// Layer）。純新增，不影響 Order Heatmap 既有內容本身一個字元。
+// fix18-10-hotfix30-B5-R5.4-G1.2：Layer 切換列的唯一單一狀態鍵仍是既有
+// geoHeatUiState.layer（不新增第二套 orderHeatmapMode/geoLiveState 之類的
+// 平行狀態）。本輪要修的是：切換 layer 之後，(1) 按鈕 active/aria-pressed
+// 沒有真的被重新套用（下面看到的空 forEach 就是原本的 Bug）、(2) Order
+// Heatmap 與 Visitor Layer 各自的 Leaflet layerGroup 從未互斥顯示，導致
+// 兩者可能同時掛在同一張地圖上、(3) Visitor Layer 沒有真實座標可畫時，
+// 地圖上完全沒有任何說明文字，看起來像「Order Heatmap 沒有真的切換掉」。
 function geoHeatUiLayerToggleHtml(containerId) {
   const layers = [['order', '訂單熱區 Order Heatmap'], ['visitor', '訪客熱區 Visitor Layer']];
   const buttons = layers.map(([key, label]) => {
     const active = geoHeatUiState.layer === key;
-    return `<button type="button" class="geo-heat-layer-btn${active ? ' is-active' : ''}" aria-pressed="${active}" onclick="geoHeatUiSetLayer('${_geoHeatUiEsc(containerId)}','${_geoHeatUiEsc(key)}')">${_geoHeatUiEsc(label)}</button>`;
+    return `<button type="button" class="geo-heat-layer-btn${active ? ' is-active' : ''}" data-layer="${_geoHeatUiEsc(key)}" aria-pressed="${active}" aria-selected="${active}" onclick="geoHeatUiSetLayer('${_geoHeatUiEsc(containerId)}','${_geoHeatUiEsc(key)}')">${_geoHeatUiEsc(label)}</button>`;
   }).join('');
-  return `<div class="geo-heat-layer-toggle" role="group" aria-label="Heatmap Layer 切換">${buttons}</div>`;
+  return `<div id="${_geoHeatUiEsc(containerId)}-layer-toggle" class="geo-heat-layer-toggle" role="group" aria-label="Heatmap Layer 切換">${buttons}</div>`;
 }
+
+// 對照表（Root Cause 追查用，見 CHANGELOG_HOTFIX30_B5_R5_4_G1_2_LAYER_SWITCH_FIX.md）：
+//   DOM id              #{containerId}-layer-toggle 內的 .geo-heat-layer-btn
+//   state key           geoHeatUiState.layer（唯一正式狀態，'order'|'visitor'）
+//   click handler       geoHeatUiSetLayer(containerId, layer)
+//   render function      _geoHeatUiRerenderLayerToggle() / geoVisitorFetchAndRender()
+//   map layer           window.geoHeatState.layerGroup（order）／
+//                        window.geoVisitorState.choroplethLayerGroup（visitor）
+//   active class/aria   .is-active / aria-pressed / aria-selected（由
+//                        _geoHeatUiRerenderLayerToggle() 重新渲染整段 HTML 決定，
+//                        不再是「切完 state 之後放著不管」）
+//   API source          order: 既有 Heatmap Engine API；visitor:
+//                        /api/analytics/geo/visitor-log（本輪未修改任一個 API）
+// 確認結果：沒有第二套競爭 state（orderHeatmapMode/geoVisitorMode/
+// geoLiveState/activeLayer 都不存在於本檔案），問題純粹是「更新 state 之後
+// 忘了真的把 UI 三處（按鈕／地圖 Layer／覆蓋文字）套用新 state」，屬於
+// render 沒有跟著 state 走，不是雙重狀態競爭。
+
+function _geoHeatUiRerenderLayerToggle(containerId) {
+  if (typeof document === 'undefined') return;
+  const el = document.getElementById(`${containerId}-layer-toggle`);
+  if (el) el.outerHTML = geoHeatUiLayerToggleHtml(containerId);
+}
+
+// 唯一負責「Order/Visitor 兩個 Leaflet layerGroup 互斥顯示」的函式。只用
+// addLayer/removeLayer 切換既有 group 的顯示狀態，不 clearLayers()（資料本身
+// 不受影響）、不重建 group、不重建地圖／Tile Layer。快速連點時 map.hasLayer()
+// 判斷是冪等的，不會重複 addLayer 造成 duplicate layer。
+function _geoHeatUiApplyLayerExclusivity(layer) {
+  if (typeof window === 'undefined') return;
+  const map = window.geoMapState && window.geoMapState.instance;
+  if (!map || typeof map.hasLayer !== 'function') return;
+  const orderGroup = window.geoHeatState && window.geoHeatState.layerGroup;
+  const visitorGroup = window.geoVisitorState && window.geoVisitorState.choroplethLayerGroup;
+  if (layer === 'order') {
+    if (visitorGroup && map.hasLayer(visitorGroup)) map.removeLayer(visitorGroup);
+    if (orderGroup && !map.hasLayer(orderGroup)) map.addLayer(orderGroup);
+  } else if (layer === 'visitor') {
+    if (orderGroup && map.hasLayer(orderGroup)) map.removeLayer(orderGroup);
+    if (visitorGroup && !map.hasLayer(visitorGroup)) map.addLayer(visitorGroup);
+  }
+}
+
+// 需求文件三／七：Visitor Layer 沒有真實座標可畫時，地圖上必須明確顯示
+// 原因（而不是留一張看起來像「還在 Order Heatmap」的空白/舊畫面）。純
+// DOM 覆蓋文字，不是 Leaflet Layer，不會被誤認成假 Marker。三種空狀態
+// （error／empty／no_coordinate）文案不同，讀取的都是既有、未修改的
+// geoVisitorState.status 與 geoVisitorComputeCoverage() 既有回傳值。
+function _geoHeatUiVisitorMapOverlayMessage(status, coverage) {
+  if (status === 'loading') return '訪客熱區載入中…';
+  if (status === 'error') return '訪客熱區載入失敗，請重試';
+  const c = coverage || { total: 0, with_coordinate: 0, known_area_only: 0 };
+  if (!c.total) return '目前沒有符合條件的訪客事件';
+  // 只有在「連行政區 Choropleth 都沒有東西可畫」時才顯示這段覆蓋文字——
+  // 若 known_area_only > 0，choropleth 至少會畫出行政區色塊，地圖不是空的，
+  // 不該被這段文字擋住（見需求文件回報情境：Known District=0 且
+  // Exact Coordinate=0 才是「完全沒有東西可畫」的那個情境）。
+  if (!c.with_coordinate && !c.known_area_only) {
+    return `目前有 ${c.total} 位訪客，但尚未取得可繪製的真實座標\n`
+      + `Known District：${c.known_area_only}｜Exact Coordinate：${c.with_coordinate}｜`
+      + `Unknown：${c.unknown}｜Coverage：${c.coverage_pct}%`;
+  }
+  return null; // 有真實座標或至少有行政區色塊可畫時不顯示覆蓋文字，讓地圖正常呈現
+}
+function _geoHeatUiRenderVisitorMapOverlay() {
+  if (typeof document === 'undefined') return;
+  const mapContainerId = geoHeatUiState.mapContainerId;
+  if (!mapContainerId) return;
+  const mapEl = document.getElementById(mapContainerId);
+  if (!mapEl) return;
+  const overlayId = `${mapContainerId}-visitor-empty-overlay`;
+  let overlay = document.getElementById(overlayId);
+  if (geoHeatUiState.layer !== 'visitor') {
+    if (overlay) overlay.remove(); // 切回 Order 時不得殘留 Visitor 的覆蓋文字
+    return;
+  }
+  const status = (window.geoVisitorState && window.geoVisitorState.status) || 'loading';
+  const coverage = (typeof geoVisitorComputeCoverage === 'function' && window.geoVisitorState)
+    ? geoVisitorComputeCoverage(window.geoVisitorState.summary)
+    : null;
+  const message = _geoHeatUiVisitorMapOverlayMessage(status, coverage);
+  if (!message) { if (overlay) overlay.remove(); return; }
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = overlayId;
+    overlay.className = 'geo-heat-visitor-map-overlay';
+    mapEl.appendChild(overlay);
+  }
+  overlay.textContent = message;
+}
+
 function geoHeatUiSetLayer(containerId, layer) {
   if (layer !== 'order' && layer !== 'visitor') return false;
   geoHeatUiState.layer = layer;
@@ -226,11 +322,22 @@ function geoHeatUiSetLayer(containerId, layer) {
     const visitorEl = document.getElementById(`${containerId}-visitor-layer`);
     if (orderEl) orderEl.hidden = layer !== 'order';
     if (visitorEl) visitorEl.hidden = layer !== 'visitor';
-    const btns = document.querySelectorAll(`#${containerId}-panel-heatmap .geo-heat-layer-btn`);
-    btns.forEach((b) => { /* aria-pressed 由重新渲染的 HTML 負責，這裡只切換顯示 */ });
   }
+  // 修正 Root Cause 一：按鈕 active/aria-pressed 重新渲染整段 HTML，不再是
+  // 「查到按鈕卻什麼都不做」的空 forEach。
+  _geoHeatUiRerenderLayerToggle(containerId);
+  // 修正 Root Cause 二：Order/Visitor 兩個既有 Leaflet layerGroup 互斥顯示
+  // （只 addLayer/removeLayer，不 clearLayers/不重建）。
+  _geoHeatUiApplyLayerExclusivity(layer);
   if (layer === 'visitor' && typeof geoVisitorFetchAndRender === 'function') {
-    geoVisitorFetchAndRender(containerId, geoHeatUiState.visitorRange);
+    // 修正 Root Cause 三：資料抓回來、choropleth 畫完之後，再依當下真實的
+    // status/coverage 決定要不要顯示「無可繪製座標」等地圖覆蓋文字。
+    Promise.resolve(geoVisitorFetchAndRender(containerId, geoHeatUiState.visitorRange))
+      .then(() => { _geoHeatUiApplyLayerExclusivity(geoHeatUiState.layer); _geoHeatUiRenderVisitorMapOverlay(); })
+      .catch(() => { _geoHeatUiRenderVisitorMapOverlay(); });
+    _geoHeatUiRenderVisitorMapOverlay(); // 先用目前已知狀態畫一次（多半是 loading），資料回來後上面再更新一次
+  } else {
+    _geoHeatUiRenderVisitorMapOverlay(); // layer==='order' 時，這裡負責移除殘留的 Visitor 覆蓋文字
   }
   return true;
 }
@@ -417,8 +524,13 @@ function geoHeatUiRegisterContext(containerId, mapContainerId) {
   // Metric 為「訪客」），不需要使用者先手動切到 Heatmap 分頁或 Visitor
   // Layer 才看得到資料。
   if (typeof geoVisitorFetchAndRender === 'function') {
-    geoVisitorFetchAndRender(containerId, geoHeatUiState.visitorRange);
+    Promise.resolve(geoVisitorFetchAndRender(containerId, geoHeatUiState.visitorRange))
+      .then(() => { _geoHeatUiApplyLayerExclusivity(geoHeatUiState.layer); _geoHeatUiRenderVisitorMapOverlay(); })
+      .catch(() => { _geoHeatUiRenderVisitorMapOverlay(); });
   }
+  // 需求文件六：切店/重新掛載時，若殘留上一店的 Visitor 覆蓋文字，先移除
+  // （新店資料回來前的空檔一律顯示「載入中」而不是上一店的舊訊息）。
+  _geoHeatUiRenderVisitorMapOverlay();
   if (geoHeatUiState.activeTab === 'heatmap') {
     _geoHeatUiEnsureMapReuse(containerId);
     _geoHeatUiBindRankingEvents(containerId);
@@ -438,6 +550,9 @@ if (typeof module !== 'undefined' && module.exports) {
     geoHeatUiRenderVisitorLayerHtml, geoVisitorRangeBarHtml, geoHeatUiRenderSharedMetricBar,
     _geoHeatUiEnsureMapReuse, _geoHeatUiRestoreChoropleth, _geoHeatUiBindRankingEvents,
     _geoHeatUiRerenderControlBar, _geoHeatUiResetStateForTest,
+    // fix18-10-hotfix30-B5-R5.4-G1.2（Layer Switch Bug Fix）
+    _geoHeatUiRerenderLayerToggle, _geoHeatUiApplyLayerExclusivity,
+    _geoHeatUiVisitorMapOverlayMessage, _geoHeatUiRenderVisitorMapOverlay,
     get geoHeatUiState() { return geoHeatUiState; },
   };
 }
