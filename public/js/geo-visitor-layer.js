@@ -320,6 +320,14 @@ function geoVisitorSetMetric(containerId, metric) {
   if (typeof geoSetMapMetric === 'function') {
     geoSetMapMetric(GEO_EVENT_TO_MAP_METRIC[metric] || 'visitors');
   }
+  // fix18-10-hotfix30-B5-R5.4-G1.3：這裡是「上方全域 Metric」唯一的正式
+  // 設值入口，因此也是「同步到 Order Heatmap 分頁自己的 Metric」的唯一
+  // 正確掛勾點——不在別處另外複製一份同步邏輯。實際的 mapping／reentrancy
+  // guard／不支援指標的說明文字，全部集中在 geoHeatUiSyncMetricFromGlobal()
+  // （geo-heatmap-ui.js），這裡只負責呼叫，不重複實作。
+  if (typeof geoHeatUiSyncMetricFromGlobal === 'function') {
+    geoHeatUiSyncMetricFromGlobal(metric);
+  }
   return true;
 }
 

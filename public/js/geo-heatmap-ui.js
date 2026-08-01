@@ -52,6 +52,10 @@ let geoHeatUiState = {
   // 完全獨立的 state／資料來源，互不影響。
   layer: 'order',
   visitorRange: 'today',
+  // fix18-10-hotfix30-B5-R5.4-G1.3：目前全域 Metric 若沒有對應的 Order
+  // Heatmap Metric（購物車放棄／建議風險），記錄是哪一個，供 Coverage
+  // Explanation 顯示明確提示；null 代表目前全域 Metric 有正常對應。
+  unmappedGlobalMetric: null,
 };
 function _geoHeatUiExposeWindowState() {
   if (typeof window !== 'undefined') window.geoHeatUiState = geoHeatUiState;
@@ -64,6 +68,7 @@ function _geoHeatUiResetStateForTest() {
   geoHeatUiState.mapContainerId = null;
   geoHeatUiState.layer = 'order';
   geoHeatUiState.visitorRange = 'today';
+  geoHeatUiState.unmappedGlobalMetric = null;
   _geoHeatUiExposeWindowState();
 }
 
@@ -176,18 +181,106 @@ function _geoHeatUiRerenderControlBar(containerId) {
   if (bar) bar.outerHTML = geoHeatUiControlBarHtml();
 }
 
+// ════════════════════════════════════════════════════════════════
+// fix18-10-hotfix30-B5-R5.4-G1.3｜Geo Metric Sync & Coverage Explanation
+//
+// Root Cause（見 R5.4-G1.3_METRIC_SYNC_FIX.md）：上方「全域 Metric」
+// （8-Tab Metric Bar，geoVisitorState.metric，見 geo-visitor-layer.js）
+// 在 R5.3-A4 已經會同步驅動共用 Choropleth 地圖（geoMapState.metric，透過
+// GEO_EVENT_TO_MAP_METRIC），但從來沒有同步到 Order Heatmap 分頁自己的
+// 獨立 Metric 狀態（geoHeatState.metric，見 geo-heatmap.js）——兩邊各自
+//維護自己的按鈕/state，互不相干。
+//
+// 這裡新增「唯一同步入口」，不新增第三套 Metric state：全域
+// geoVisitorState.metric 依然是唯一權威來源，這裡只負責把它的變化「轉譯＋
+// 套用」到 Order Heatmap 既有的 geoHeatState.metric（GEO_HEAT_METRICS 是
+// GEO_EVENT_METRICS 的子集，只是 checkout/begin_checkout 命名不同）。
+// ════════════════════════════════════════════════════════════════
+
+// Mapping 集中管理（需求文件四）：唯一一份對照表，不散落多處 hardcode。
+// null 代表「該全域指標沒有對應的 Order Heatmap Metric」（購物車放棄／
+// 建議風險目前沒有可繪製的地理熱區維度）——遇到 null 一律保留目前
+// geoHeatState.metric 原值，不得靜默改成 Orders，並顯示明確說明文字。
+const GEO_EVENT_TO_HEATMAP_METRIC = Object.freeze({
+  visitors: 'visitors',
+  add_to_cart: 'add_to_cart',
+  checkout: 'begin_checkout',
+  orders: 'orders',
+  revenue: 'revenue',
+  conversion: 'conversion',
+  cart_abandonment: null,
+  recommendation_risk: null,
+});
+// 反向對照（Order Heatmap Metric → 全域 Metric），供下方按鈕同步回上方用。
+// 因為 GEO_HEAT_METRICS 是 GEO_EVENT_TO_HEATMAP_METRIC 值域的完整子集
+// （六個都有對應的全域指標），這份表可以直接由上表反轉產生，不需要另外
+// 手動維護第二份、有可能兜不起來的對照表。
+const GEO_HEATMAP_TO_EVENT_METRIC = Object.freeze(
+  Object.keys(GEO_EVENT_TO_HEATMAP_METRIC).reduce((acc, k) => {
+    const v = GEO_EVENT_TO_HEATMAP_METRIC[k];
+    if (v) acc[v] = k;
+    return acc;
+  }, {})
+);
+
+// Reentrancy Guard：避免「上方觸發下方、下方又觸發上方」無限互相呼叫。
+let _geoMetricSyncInProgress = false;
+
+// 全域 Metric → Order Heatmap Metric（單一同步入口，需求文件三）。
+// 呼叫端：geoVisitorSetMetric()（geo-visitor-layer.js）在設定完
+// geoVisitorState.metric、同步完 geoMapState.metric 之後，最後呼叫這裡。
+function geoHeatUiSyncMetricFromGlobal(globalMetric) {
+  if (_geoMetricSyncInProgress) return false;
+  _geoMetricSyncInProgress = true;
+  try {
+    const mapped = GEO_EVENT_TO_HEATMAP_METRIC[globalMetric];
+    // 需求文件四方案二：沒有對應 Heatmap Metric 時，保留目前 geoHeatState.metric
+    // 原值（不得靜默改成 Orders），只記錄「目前是哪個全域指標造成沒有對應」，
+    // 供 Coverage/Empty 區塊顯示明確說明文字。
+    geoHeatUiState.unmappedGlobalMetric = mapped ? null : globalMetric;
+    if (mapped && GEO_HEAT_METRICS.includes(mapped) && geoHeatState.metric !== mapped) {
+      geoHeatState.metric = mapped;
+      if (typeof geoHeatRenderLayer === 'function') geoHeatRenderLayer(geoHeatState.areas, geoHeatState.metric, geoHeatState.display);
+      if (typeof _geoHeatRenderRankingDom === 'function') _geoHeatRenderRankingDom();
+      if (typeof _geoHeatRenderSummaryDom === 'function') _geoHeatRenderSummaryDom();
+      if (typeof _geoHeatRenderCoverageCardDom === 'function') _geoHeatRenderCoverageCardDom();
+      if (typeof _geoHeatRenderLegendDom === 'function') _geoHeatRenderLegendDom();
+    }
+    if (geoHeatUiState.containerId) {
+      _geoHeatUiRerenderControlBar(geoHeatUiState.containerId);
+      _geoHeatUiRenderCoverageExplanation(geoHeatUiState.containerId);
+    }
+    return !!mapped;
+  } finally {
+    _geoMetricSyncInProgress = false;
+  }
+}
+
 function geoHeatUiSetMetric(metric) {
   if (!GEO_HEAT_METRICS.includes(metric)) return;
   geoHeatState.metric = metric;
   geoHeatRenderLayer(geoHeatState.areas, geoHeatState.metric, geoHeatState.display);
   _geoHeatRenderRankingDom(); _geoHeatRenderSummaryDom(); _geoHeatRenderCoverageCardDom(); _geoHeatRenderLegendDom();
-  if (geoHeatUiState.containerId) _geoHeatUiRerenderControlBar(geoHeatUiState.containerId);
+  if (geoHeatUiState.containerId) {
+    _geoHeatUiRerenderControlBar(geoHeatUiState.containerId);
+    _geoHeatUiRenderCoverageExplanation(geoHeatUiState.containerId);
+  }
+  // 需求文件五：下方 Metric 若本來就有對應的全域指標，點擊時同步回上方
+  // （雙向同步），不留兩套可能互相矛盾的控制。
+  if (!_geoMetricSyncInProgress) {
+    const globalEquivalent = GEO_HEATMAP_TO_EVENT_METRIC[metric];
+    if (globalEquivalent && typeof geoVisitorSetMetric === 'function' && geoHeatUiState.containerId) {
+      _geoMetricSyncInProgress = true;
+      try { geoVisitorSetMetric(geoHeatUiState.containerId, globalEquivalent); } finally { _geoMetricSyncInProgress = false; }
+    }
+  }
 }
 function geoHeatUiSetDisplay(display) {
   if (!GEO_HEAT_DISPLAY_MODES.includes(display)) return;
   geoHeatState.display = display;
   geoHeatRenderLayer(geoHeatState.areas, geoHeatState.metric, geoHeatState.display);
   if (geoHeatUiState.containerId) _geoHeatUiRerenderControlBar(geoHeatUiState.containerId);
+
 }
 function geoHeatUiSetChannel(channel) {
   if (!GEO_HEAT_CHANNELS.includes(channel)) return;
@@ -197,6 +290,111 @@ function geoHeatUiSetChannel(channel) {
   if (typeof av2Channel !== 'undefined') av2Channel = channel; // eslint-disable-line no-undef
   if (geoHeatUiState.containerId) geoHeatUiFetchAndRender(geoHeatUiState.containerId);
 }
+// ════════════════════════════════════════════════════════════════
+// fix18-10-hotfix30-B5-R5.4-G1.3｜Coverage Explanation（需求文件七～十二）
+//
+// 完全讀取既有、未修改的 geoHeatBuildSummary()/geoHeatState.areas 既有欄位
+// （submitted_orders/coordinate_count/revenue/...），不重新計算統計口徑，
+// 只是把「已經算好的數字」組成清楚的一句話，取代原本模糊的「資料不足」。
+// ════════════════════════════════════════════════════════════════
+
+// 依 metric 算出（total, drawn）：total 是「業務總量」，drawn 是「可歸屬地理
+// 資料量」。currency metrics（revenue）用金額本身；其餘用筆數/人數。
+function _geoHeatMetricTotals(areas, metric) {
+  const list = areas || [];
+  if (metric === 'revenue') {
+    const total = list.reduce((s, a) => s + (Number(a.revenue) || 0), 0);
+    // revenue 目前系統沒有「已歸屬地理區域的營收」獨立欄位，沿用既有
+    // coordinate_count>0 的 area 才視為「該區營收可歸屬」的既有判斷慣例
+    // （跟 orders 用同一套 coordinate_count 語意，不新造一套）。
+    const drawn = list.filter((a) => (Number(a.coordinate_count) || 0) > 0).reduce((s, a) => s + (Number(a.revenue) || 0), 0);
+    return { total, drawn };
+  }
+  if (metric === 'orders') {
+    const total = list.reduce((s, a) => s + (Number(a.submitted_orders) || 0), 0);
+    const drawn = list.reduce((s, a) => s + (Number(a.coordinate_count) || 0), 0);
+    return { total, drawn };
+  }
+  // visitors/add_to_cart/begin_checkout/conversion：目前系統性設計下沒有
+  // 座標（見 R5.4-G1 架構文件），total 用該指標既有欄位加總，drawn 恆為 0
+  // （誠實反映現況，不臆測）。
+  const key = metric === 'begin_checkout' ? 'begin_checkout' : metric;
+  const total = list.reduce((s, a) => s + (Number(a[key]) || 0), 0);
+  return { total, drawn: 0 };
+}
+
+const GEO_HEAT_COVERAGE_NO_BUSINESS_DATA_TEXT = Object.freeze({
+  visitors: '目前沒有符合條件的訪客事件', add_to_cart: '目前沒有符合條件的加購事件',
+  begin_checkout: '目前沒有符合條件的結帳事件', orders: '目前沒有符合條件的訂單資料',
+  revenue: '目前沒有符合條件的營收資料', conversion: '目前沒有符合條件的轉換資料',
+});
+const GEO_HEAT_COVERAGE_NO_GEO_TEXT = Object.freeze({
+  visitors: (t) => `目前有 ${t} 位訪客，但尚未取得可繪製的真實座標。`,
+  add_to_cart: (t) => `目前有 ${t} 位加購訪客，但尚未取得可用地理資料。`,
+  begin_checkout: (t) => `目前有 ${t} 位開始結帳訪客，但尚未取得可用地理資料。`,
+  orders: (t) => `今日已有 ${t} 筆訂單，但目前沒有訂單包含可用的地理資料，因此無法顯示地圖熱區。`,
+  revenue: (t) => `目前已有營收 NT$${t}，但目前沒有任何營收可歸屬到地理區域。`,
+  conversion: () => '目前有轉換資料，但沒有足夠地理資料計算區域轉換率。',
+});
+
+// 需求文件九：區分四種資料狀態（完全無資料／有業務資料無 Geo／部分
+// Coverage／API Error）。API Error 由呼叫端（geoHeatUiFetchAndRender 既有
+// 的 errorEl）另外處理，這裡只負責前三種。
+function _geoHeatBuildCoverageExplanationText(metric, total, drawn) {
+  const m = GEO_HEAT_METRICS.includes(metric) ? metric : 'orders';
+  const t = Math.max(0, Number(total) || 0);
+  const d = Math.max(0, Math.min(t, Number(drawn) || 0));
+  if (t <= 0) return { state: 'no_business_data', text: GEO_HEAT_COVERAGE_NO_BUSINESS_DATA_TEXT[m] };
+  if (d <= 0) return { state: 'no_geo_data', text: (GEO_HEAT_COVERAGE_NO_GEO_TEXT[m] || GEO_HEAT_COVERAGE_NO_GEO_TEXT.orders)(m === 'revenue' ? t.toLocaleString('en-US') : t) };
+  const pct = t > 0 ? Math.round((d / t) * 1000) / 10 : 0;
+  const label = GEO_HEAT_METRIC_LABEL[m] || m;
+  return { state: 'partial_coverage', text: `${t} 筆${label}中有 ${d} 筆可顯示於地圖，Coverage ${pct}%` };
+}
+
+// 需求文件八：目前 Order Heatmap Metric 若沒有對應的全域指標映射
+// （geoHeatUiState.unmappedGlobalMetric 非 null），額外附加一句提示，不得
+// 靜默切成 Orders 卻不告知使用者。
+function _geoHeatUiRenderCoverageExplanation(containerId) {
+  if (typeof document === 'undefined') return;
+  const el = document.getElementById(`${containerId}-coverage-explanation`);
+  if (!el) return;
+  const { total, drawn } = _geoHeatMetricTotals(geoHeatState.areas, geoHeatState.metric);
+  const result = _geoHeatBuildCoverageExplanationText(geoHeatState.metric, total, drawn);
+  let html = `<p class="geo-heat-coverage-explanation-text" data-state="${_geoHeatUiEsc(result.state)}">${_geoHeatUiEsc(result.text)}</p>`;
+  if (geoHeatUiState.unmappedGlobalMetric) {
+    const label = (typeof GEO_EVENT_METRIC_LABEL !== 'undefined' && GEO_EVENT_METRIC_LABEL[geoHeatUiState.unmappedGlobalMetric]) || geoHeatUiState.unmappedGlobalMetric;
+    html += `<p class="geo-heat-coverage-explanation-note">上方選擇的「${_geoHeatUiEsc(label)}」此指標目前沒有對應的地理熱區 Metric，下方維持顯示「${_geoHeatUiEsc(GEO_HEAT_METRIC_LABEL[geoHeatState.metric])}」。</p>`;
+  }
+  el.innerHTML = html;
+}
+
+// 需求文件十：外帶／外送差異的靜態說明（不是逐筆真實數字，本輪沒有新增
+// 任何「外帶/外送筆數」的資料來源／API；純粹是固定的教育性文字，說明
+// 「為什麼外帶訂單通常沒有座標」，不臆測、不冒充精確統計數字）。
+const GEO_HEAT_TAKEOUT_DELIVERY_EXPLANATION =
+  '外帶訂單若未取得顧客同意提供的真實位置，通常不會有可繪製地理資料。'
+  + '外送訂單需要有經緯度（delivery_lat/delivery_lng）才會納入 Order Marker／Revenue Heatmap／外送距離計算，'
+  + '不會把店家地址當成顧客位置，也不會用行政區中心點或 IP 位置取代真實座標。';
+
+// 需求文件十一：Business Opportunity 空狀態（有業務資料但 Geo Coverage=0）
+function _geoHeatBuildBusinessOpportunityEmptyText(metric, total) {
+  const t = Math.max(0, Number(total) || 0);
+  if (t <= 0) return null; // 完全沒有業務資料時，交由既有「資料不足」流程處理，不是本輪範圍
+  if (metric === 'revenue') return `目前已有營收 NT$${t.toLocaleString('en-US')}，但尚無可歸屬地理區域的資料，因此暫時無法產生區域商機建議。`;
+  return `目前已有 ${t} 筆${GEO_HEAT_METRIC_LABEL[metric] || ''}資料，但尚無可歸屬地理區域的資料，因此暫時無法產生區域商機建議。`;
+}
+// 依然是 Rule-based（非 AI）：固定建議文字，不是模型生成。
+const GEO_HEAT_RECOMMENDED_ACTION_LOW_GEO_COVERAGE = '建議先提高外送地址／定位資料覆蓋率，再進行區域分析。';
+
+// 需求文件十二：外送最佳化空狀態
+function _geoHeatBuildDeliveryOptimizationText(deliveryOrderCount, deliveryWithCoordinateCount) {
+  const d = Math.max(0, Number(deliveryOrderCount) || 0);
+  if (d <= 0) return '今日沒有外送訂單，因此目前無法計算平均距離、外送費與配送最佳化建議。';
+  const withCoord = Math.max(0, Number(deliveryWithCoordinateCount) || 0);
+  if (withCoord <= 0) return '目前有外送訂單，但缺少可用座標，無法計算配送距離。';
+  return null; // 有座標可計算時，交由既有/未來的距離計算邏輯處理，不是本輪範圍
+}
+
 function geoHeatUiToggleEnabled(checked) {
   geoHeatUiState.enabled = !!checked;
   if (geoHeatUiState.containerId) {
@@ -338,6 +536,7 @@ function geoHeatUiSetLayer(containerId, layer) {
     _geoHeatUiRenderVisitorMapOverlay(); // 先用目前已知狀態畫一次（多半是 loading），資料回來後上面再更新一次
   } else {
     _geoHeatUiRenderVisitorMapOverlay(); // layer==='order' 時，這裡負責移除殘留的 Visitor 覆蓋文字
+    _geoHeatUiRenderCoverageExplanation(containerId); // 用既有快取的 geoHeatState.areas 立即重繪，不必重新 Fetch
   }
   return true;
 }
@@ -406,6 +605,7 @@ function geoHeatUiRenderPanel(containerId) {
     <div id="${_geoHeatUiEsc(containerId)}-heat-loading" class="geo-heat-loading" role="status" hidden>${_geoHeatUiEsc(GEO_HEAT_UI_MESSAGES.loading)}</div>
     <div id="${_geoHeatUiEsc(containerId)}-heat-error" class="geo-heat-error" role="alert" hidden></div>
     <div id="${_geoHeatUiEsc(containerId)}-heat-legend" class="geo-heat-legend" aria-live="polite"></div>
+    <div id="${_geoHeatUiEsc(containerId)}-coverage-explanation" class="geo-heat-coverage-explanation" aria-live="polite"></div>
     <div class="geo-heat-grid">
       <div class="geo-heat-col geo-heat-summary-col">
         <div class="geo-heat-section-title">Summary</div>
@@ -460,6 +660,7 @@ async function geoHeatUiFetchAndRender(containerId) {
     if (loadingEl) loadingEl.hidden = true;
     geoHeatRenderLayer(geoHeatState.areas, geoHeatState.metric, 'ranking_only');
     _geoHeatRenderRankingDom(); _geoHeatRenderSummaryDom(); _geoHeatRenderCoverageCardDom(); _geoHeatRenderLegendDom();
+    _geoHeatUiRenderCoverageExplanation(containerId);
     return;
   }
 
@@ -501,6 +702,14 @@ async function geoHeatUiFetchAndRender(containerId) {
       if (loadingEl) loadingEl.hidden = true;
     }
   }, 250);
+  // fix18-10-hotfix30-B5-R5.4-G1.3：geoHeatScheduleUpdate()（Engine，未修改）
+  // 內部本身有 250ms debounce，資料回來後會呼叫既有的 Ranking/Summary/
+  // Coverage/Legend render；這裡在稍晚一點（+10ms 緩衝）重新產生 Coverage
+  // Explanation 文字，只讀取 Engine 已經算好的 geoHeatState.areas，不修改
+  // Engine 任何邏輯或呼叫時機。
+  if (typeof setTimeout === 'function') {
+    setTimeout(() => { try { _geoHeatUiRenderCoverageExplanation(containerId); } catch (e) { /* 安靜失敗，不擋主要渲染 */ } }, 260);
+  }
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -553,6 +762,13 @@ if (typeof module !== 'undefined' && module.exports) {
     // fix18-10-hotfix30-B5-R5.4-G1.2（Layer Switch Bug Fix）
     _geoHeatUiRerenderLayerToggle, _geoHeatUiApplyLayerExclusivity,
     _geoHeatUiVisitorMapOverlayMessage, _geoHeatUiRenderVisitorMapOverlay,
+    // fix18-10-hotfix30-B5-R5.4-G1.3（Metric Sync & Coverage Explanation）
+    GEO_EVENT_TO_HEATMAP_METRIC, GEO_HEATMAP_TO_EVENT_METRIC,
+    geoHeatUiSyncMetricFromGlobal,
+    _geoHeatMetricTotals, _geoHeatBuildCoverageExplanationText, _geoHeatUiRenderCoverageExplanation,
+    GEO_HEAT_TAKEOUT_DELIVERY_EXPLANATION,
+    _geoHeatBuildBusinessOpportunityEmptyText, GEO_HEAT_RECOMMENDED_ACTION_LOW_GEO_COVERAGE,
+    _geoHeatBuildDeliveryOptimizationText,
     get geoHeatUiState() { return geoHeatUiState; },
   };
 }

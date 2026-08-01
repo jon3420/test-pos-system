@@ -49,3 +49,11 @@ only public/js/geo-heatmap-ui.js, public/css/geo-heatmap.css, and the new
 G1.2 smoke test, none of which smoke-hotfix27/28 exercise). Re-ran 3x
 consecutively during G1.2 final regression, consistently 3/3 -- within the
 range already observed and documented as pre-existing in prior rounds.
+
+R5.4-G1.3 ROUND RECONFIRMATION: Full regression rerun (69 scripts + 4 G1-family
+smokes + node --check on 204 files) shows the exact same pre-existing flaky
+set as before (smoke-cart-delivery-live-refresh.js, smoke-hotfix26-c/f2/f7/f8-b.js,
+smoke-hotfix27-cd/27/28.js, smoke-hotfix29.js), zero new failures introduced by
+G1.3. This round touched only public/js/geo-heatmap-ui.js and
+public/js/geo-visitor-layer.js (metric sync entry point), plus new
+scripts/smoke-*-g1-3-*.js and scripts/static-audit-g1-3.js.

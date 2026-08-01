@@ -164,3 +164,27 @@
   max-width: 80%;
   pointer-events: none;
 }
+
+/* fix18-10-hotfix30-B5-R5.4-G1.3：Coverage Explanation（取代原本模糊的
+   「資料不足」/「目前沒有可顯示的熱區資料」）。四種資料狀態用不同左邊框
+   顏色區分，文字本身仍是主要傳達手段（不只靠顏色）。 */
+.geo-heat-coverage-explanation { margin: 8px 0; }
+.geo-heat-coverage-explanation-text {
+  margin: 0 0 4px;
+  padding: 8px 12px;
+  border-left: 3px solid #94a3b8;
+  background: #f8fafc;
+  border-radius: 4px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.geo-heat-coverage-explanation-text[data-state="no_business_data"] { border-left-color: #94a3b8; }
+.geo-heat-coverage-explanation-text[data-state="no_geo_data"] { border-left-color: #f59e0b; }
+.geo-heat-coverage-explanation-text[data-state="partial_coverage"] { border-left-color: #22c55e; }
+.geo-heat-coverage-explanation-note {
+  margin: 0;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: #64748b;
+  font-style: italic;
+}
