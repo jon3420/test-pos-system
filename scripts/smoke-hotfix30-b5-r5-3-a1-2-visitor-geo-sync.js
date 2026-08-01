@@ -393,8 +393,20 @@ async function main() {
   // ── A16. Static Audit（不得修改既有 Order Heatmap/Order Centroid/
   //        Order Coverage；不得建立第二套 Dashboard/Analytics；無假 Geo/
   //        Debug Code/重複 Layer/第二張 Leaflet Map）──────────────────
+  // fix18-10-hotfix30-B5-R5.4-G1.3.2（Regression Guard Alignment）——同
+  // scripts/smoke-hotfix30-b5-r5-3-a2-geo-event-engine.js 的 A14-1 說明：
+  // A16-1 原本對 public/js/geo-heatmap.js 做整檔 SHA-256 逐位元組相等，
+  // 但 G1.3.1 為了新增 Business Total additive plumbing 已合法修改該檔案，
+  // 整檔相等從此永遠不可能通過。改用共用的 Scope-aware Invariant Guard
+  // （scripts/lib/geo-heatmap-g131-scope-guard.js）取代，保留原本「不要
+  // 有人偷改 Engine」的保護目的，其餘 3 個未修改檔案繼續維持整檔相等。
+  const scopeGuard = require(path.join(ROOT, 'scripts/lib/geo-heatmap-g131-scope-guard.js'));
+  const scopedCheck = scopeGuard.computeScopedBaselineCheck(ROOT);
+  assert(scopedCheck.ok, `A16-1a public/js/geo-heatmap.js：Scope-aware Reconstruction Check 通過（除 GEO_HEATMAP_G131_ALLOWED_ADDITIONS 明確列出的 additive 內容外，其餘位元組與基線 ${scopeGuard.PRISTINE_BASELINE_SHA256.slice(0, 12)}… 完全相同）`, JSON.stringify(scopedCheck.perItem.filter((r) => !r.ok)));
+  const behavioralCheck = await scopeGuard.runBehavioralInvariants(ROOT);
+  assert(behavioralCheck.ok === true, 'A16-1b public/js/geo-heatmap.js：Behavioral Invariant Check 全數通過（stale-request guard／duplicate-request guard／backward compatibility／no-second-map／areas schema 等不變條件）', JSON.stringify((behavioralCheck.results || []).filter((r) => !r.ok)));
+
   const ORDER_HEATMAP_BASELINE_SHA256 = {
-    'public/js/geo-heatmap.js': '8f3ec8c0ae76f84825bc0e2e1a481002109244763741a16a2981d17d0cfc710d',
     'public/js/geo-intelligence-map.js': '05a38b4a185ac556a948b7b6f78d6171f10e8b3f57237ac7d2c716871e0793d4',
     'public/js/geo-map-settings.js': 'f7ab62d8c163d015b342a29dae7098e27cd7e32a36a6ca999e32e19134510d1b',
     'public/data/geo/taiwan/manifest.json': 'bdd969e0cfaf65c2925e1ba099b0248fce1ad74624b1e2f8da484651342d33f1',

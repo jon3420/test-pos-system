@@ -362,8 +362,36 @@ async function main() {
   // ══════════════════════════════════════════════════════════════
   // A14. Static Audit（需求文件三十）
   // ══════════════════════════════════════════════════════════════
+  // fix18-10-hotfix30-B5-R5.4-G1.3.2（Regression Guard Alignment）——
+  // A14-1 原本對 public/js/geo-heatmap.js 做「整檔 SHA-256 逐位元組相等」，
+  // 但 G1.3.1 為了新增 Business Total additive plumbing（geoHeatState.
+  // businessTotals／geoHeatScheduleUpdate() 向下相容擴充），已合法、必要
+  // 地修改了這個檔案——整檔逐位元組相等從此永遠不可能通過，這個 Guard
+  // 本身已經過時（不是產品程式碼有問題）。
+  //
+  // 原本整檔相等真正要保護的目的（不要有人在 Engine 裡偷改 stale-request
+  // guard、偷建第二張地圖／第二個 Tile Layer、偷改既有 render 呼叫簽章、
+  // 偷改既有 areas 欄位結構…）依然重要、依然必須被檢查，所以改用
+  // scripts/lib/geo-heatmap-g131-scope-guard.js 提供的「Scope-aware
+  // Invariant Guard」取代，而不是直接刪掉這個 Guard：
+  //   - Reconstruction Check：把 GEO_HEATMAP_G131_ALLOWED_ADDITIONS 明確
+  //     列出的新增內容（且必須剛好各出現一次）從目前檔案還原掉，還原後
+  //     的內容仍必須等於原本的整檔基線 hash——證明「除了明確列出的新增
+  //     內容之外，其餘每一個位元組都跟基線一模一樣」，比整檔相等更精確
+  //     （整檔相等連合法的新增都會擋，這個只擋 allowlist 以外的變動）。
+  //   - Behavioral Invariant Check：額外用 jsdom 實際執行 geo-heatmap.js，
+  //     驗證 stale-request guard／duplicate-request guard／backward
+  //     compatibility／不建第二張 Map／既有 areas 欄位結構等一批行為不變
+  //     條件——這是原本整檔 hash 從來沒有真正驗證過的「行為」層面。
+  // 其餘 3 個檔案（geo-intelligence-map.js／geo-map-settings.js／
+  // manifest.json）本輪未修改，繼續維持原本的整檔 SHA-256 相等（不放寬）。
+  const scopeGuard = require(path.join(ROOT, 'scripts/lib/geo-heatmap-g131-scope-guard.js'));
+  const scopedCheck = scopeGuard.computeScopedBaselineCheck(ROOT);
+  assert(scopedCheck.ok, `A14-1a public/js/geo-heatmap.js：Scope-aware Reconstruction Check 通過（除 GEO_HEATMAP_G131_ALLOWED_ADDITIONS 明確列出的 additive 內容外，其餘位元組與基線 ${scopeGuard.PRISTINE_BASELINE_SHA256.slice(0, 12)}… 完全相同）`, JSON.stringify(scopedCheck.perItem.filter((r) => !r.ok)));
+  const behavioralCheck = await scopeGuard.runBehavioralInvariants(ROOT);
+  assert(behavioralCheck.ok === true, 'A14-1b public/js/geo-heatmap.js：Behavioral Invariant Check 全數通過（stale-request guard／duplicate-request guard／backward compatibility／no-second-map／areas schema 等不變條件）', JSON.stringify((behavioralCheck.results || []).filter((r) => !r.ok)));
+
   const ORDER_HEATMAP_BASELINE_SHA256 = {
-    'public/js/geo-heatmap.js': '8f3ec8c0ae76f84825bc0e2e1a481002109244763741a16a2981d17d0cfc710d',
     'public/js/geo-intelligence-map.js': '05a38b4a185ac556a948b7b6f78d6171f10e8b3f57237ac7d2c716871e0793d4',
     'public/js/geo-map-settings.js': 'f7ab62d8c163d015b342a29dae7098e27cd7e32a36a6ca999e32e19134510d1b',
     'public/data/geo/taiwan/manifest.json': 'bdd969e0cfaf65c2925e1ba099b0248fce1ad74624b1e2f8da484651342d33f1',
