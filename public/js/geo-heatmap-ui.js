@@ -370,6 +370,61 @@ function _geoHeatBuildCoverageExplanationText(metric, total, drawn) {
   return { state: 'partial_coverage', text: `${t} 筆${label}中有 ${d} 筆可顯示於地圖，Coverage ${pct}%` };
 }
 
+// fix18-10-hotfix30-B5-R5.4-G1.4（需求文件四：沒有 Drawable Geo 時顯示
+// 誠實 Overlay，不畫假 Marker）——Root Cause：G1.2 只替 Visitor Layer 做了
+// 「沒有真實座標可畫時，地圖上明確顯示原因」的覆蓋文字
+// （_geoHeatUiRenderVisitorMapOverlay），Order Heatmap 這邊完全沒有對應
+// 邏輯：`geoHeatRenderLayer()` 在 plottable.length===0 時只是靜靜地畫
+// 一張空地圖，使用者看不出「這是真的沒有可畫的 Geo 資料」還是「還在
+// loading」還是「Rendering 壞了」。這裡補上對稱的 Order Layer 版本，直接
+// 沿用 geoHeatComputeDrawableState() 這個新的統一狀態機，不新建第二套
+// 判斷邏輯，也不改動 G1.3.1 既有的 Coverage Explanation 文字（那是給
+// Coverage 卡片用的，這裡是給「地圖本身」用的，職責不同）。
+// 需求文件五之 D：Orders／Revenue 各自固定文案，數字直接取自
+// geoHeatState.businessTotals（跟 G1.3.1 Coverage Explanation 同一組
+// 資料來源，不重新計算，不會兩處數字對不上）。
+function _geoHeatUiOrderMapOverlayMessage(drawableState, metric, businessTotals) {
+  if (drawableState === 'no_business_data') return null; // 沒有業務資料時，Coverage Explanation 卡片已經講得很清楚，地圖上不必再疊一層文字
+  const bt = businessTotals || {};
+  if (drawableState === 'has_business_but_no_drawable_geo') {
+    if (metric === 'revenue') {
+      const rev = (typeof bt.revenue === 'number') ? bt.revenue : 0;
+      return `目前已有營收 NT$${rev.toLocaleString('en-US')}，但目前沒有任何營收可歸屬到地理區域，因此無法顯示地圖標示。`;
+    }
+    const orders = (typeof bt.orders === 'number') ? bt.orders : 0;
+    return `今日已有 ${orders} 筆訂單，但目前沒有訂單包含可用的地理資料，因此無法顯示地圖標示。`;
+  }
+  if (drawableState === 'has_drawable_district_only') {
+    return '目前已知部分行政區有訂單，但尚無平均座標可畫地圖標示；請參考右側排行榜的行政區名稱。';
+  }
+  return null; // has_drawable_exact_only／has_mixed_drawable_geo：至少有東西可畫，不疊加文字
+}
+function _geoHeatUiRenderOrderMapOverlay() {
+  if (typeof document === 'undefined') return;
+  const mapContainerId = geoHeatUiState.mapContainerId;
+  if (!mapContainerId) return;
+  const mapEl = document.getElementById(mapContainerId);
+  if (!mapEl) return;
+  const overlayId = `${mapContainerId}-order-empty-overlay`;
+  let overlay = document.getElementById(overlayId);
+  if (geoHeatUiState.layer !== 'order') {
+    if (overlay) overlay.remove(); // 切到 Visitor 時不得殘留 Order 的覆蓋文字
+    return;
+  }
+  const drawableState = (typeof geoHeatComputeDrawableState === 'function')
+    ? geoHeatComputeDrawableState(geoHeatState.areas, geoHeatState.businessTotals)
+    : 'no_business_data';
+  const message = _geoHeatUiOrderMapOverlayMessage(drawableState, geoHeatState.metric, geoHeatState.businessTotals);
+  if (!message) { if (overlay) overlay.remove(); return; }
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = overlayId;
+    overlay.className = 'geo-heat-visitor-map-overlay geo-heat-order-map-overlay';
+    mapEl.appendChild(overlay);
+  }
+  overlay.textContent = message;
+}
+
 // 需求文件八：目前 Order Heatmap Metric 若沒有對應的全域指標映射
 // （geoHeatUiState.unmappedGlobalMetric 非 null），額外附加一句提示，不得
 // 靜默切成 Orders 卻不告知使用者。
@@ -385,6 +440,10 @@ function _geoHeatUiRenderCoverageExplanation(containerId) {
     html += `<p class="geo-heat-coverage-explanation-note">上方選擇的「${_geoHeatUiEsc(label)}」此指標目前沒有對應的地理熱區 Metric，下方維持顯示「${_geoHeatUiEsc(GEO_HEAT_METRIC_LABEL[geoHeatState.metric])}」。</p>`;
   }
   el.innerHTML = html;
+  // G1.4 additive：Coverage Explanation 每次重繪，同步重繪 Order Layer 的
+  // 地圖誠實 Overlay（同一批 geoHeatState.areas／businessTotals，不重新
+  // Fetch，不產生額外請求）。
+  _geoHeatUiRenderOrderMapOverlay();
 }
 
 // 需求文件十：外帶／外送差異的靜態說明（不是逐筆真實數字，本輪沒有新增
@@ -498,7 +557,11 @@ function _geoHeatUiVisitorMapOverlayMessage(status, coverage) {
   // 不該被這段文字擋住（見需求文件回報情境：Known District=0 且
   // Exact Coordinate=0 才是「完全沒有東西可畫」的那個情境）。
   if (!c.with_coordinate && !c.known_area_only) {
-    return `目前有 ${c.total} 位訪客，但尚未取得可繪製的真實座標\n`
+    // fix18-10-hotfix30-B5-R5.4-G1.4：主要句子改用跟 Order Overlay 統一的
+    // 「因此無法顯示地圖標示」句型（需求文件五之 D），第二行的
+    // Known District/Exact Coordinate/Unknown/Coverage 診斷明細是 G1.2
+    // 既有內容，保留不刪，補充說明用，不是取代主要句子。
+    return `目前已有 ${c.total} 位訪客，但尚未取得可繪製到地圖上的地理資料，因此無法顯示地圖標示。\n`
       + `Known District：${c.known_area_only}｜Exact Coordinate：${c.with_coordinate}｜`
       + `Unknown：${c.unknown}｜Coverage：${c.coverage_pct}%`;
   }
@@ -553,9 +616,13 @@ function geoHeatUiSetLayer(containerId, layer) {
       .then(() => { _geoHeatUiApplyLayerExclusivity(geoHeatUiState.layer); _geoHeatUiRenderVisitorMapOverlay(); })
       .catch(() => { _geoHeatUiRenderVisitorMapOverlay(); });
     _geoHeatUiRenderVisitorMapOverlay(); // 先用目前已知狀態畫一次（多半是 loading），資料回來後上面再更新一次
+    // G1.4：切到 Visitor 時，同步清掉可能殘留的 Order Layer 覆蓋文字
+    // （否則使用者從「Order 無 Geo 可畫」切到 Visitor，畫面會疊著一段
+    // 過期的 Order 文字），對稱於下面 else 分支清 Visitor 覆蓋文字的做法。
+    _geoHeatUiRenderOrderMapOverlay();
   } else {
     _geoHeatUiRenderVisitorMapOverlay(); // layer==='order' 時，這裡負責移除殘留的 Visitor 覆蓋文字
-    _geoHeatUiRenderCoverageExplanation(containerId); // 用既有快取的 geoHeatState.areas 立即重繪，不必重新 Fetch
+    _geoHeatUiRenderCoverageExplanation(containerId); // 用既有快取的 geoHeatState.areas 立即重繪，不必重新 Fetch（內含 _geoHeatUiRenderOrderMapOverlay()）
   }
   return true;
 }
@@ -798,6 +865,8 @@ if (typeof module !== 'undefined' && module.exports) {
     GEO_HEAT_TAKEOUT_DELIVERY_EXPLANATION,
     _geoHeatBuildBusinessOpportunityEmptyText, GEO_HEAT_RECOMMENDED_ACTION_LOW_GEO_COVERAGE,
     _geoHeatBuildDeliveryOptimizationText,
+    // fix18-10-hotfix30-B5-R5.4-G1.4（Map Label Rendering & Honest Drawable-State Fix）
+    _geoHeatUiOrderMapOverlayMessage, _geoHeatUiRenderOrderMapOverlay,
     get geoHeatUiState() { return geoHeatUiState; },
   };
 }

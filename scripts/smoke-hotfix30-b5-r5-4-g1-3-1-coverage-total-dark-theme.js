@@ -55,6 +55,13 @@ async function main() {
     const { GEO_SOURCE, GEO_CONTEXT } = require('../utils/geoConstants');
     const { parseGeoAnalyticsFilters } = require('../utils/geoAnalyticsFilters');
     const geoQ = require('../utils/geoAnalyticsQueries');
+    // fix18-10-hotfix30-B5-R5.4-G1.4：Harness 修正——不再用
+    // datetime('now','localtime')（跟著容器 OS 時區走，容器是 UTC，跟
+    // app 的 Asia/Taipei 查詢範圍在跨日附近會對不上，導致 fixture 落在
+    // 查詢範圍外）。改用 computeFixtureTimestamp()，直接呼叫產品既有的
+    // resolveDateRange()，取查詢範圍正中間，保證一定落在範圍內，且完全
+    // 不依賴容器時區、不 hardcode 日期。
+    const { computeFixtureTimestamp } = require('./lib/geo-fixture-time');
 
     const STORE_G131 = 'store_g131_business_total';
     const STORE_G131_OTHER = 'store_g131_other';
@@ -68,9 +75,10 @@ async function main() {
     db.run('DELETE FROM orders WHERE store_id IN (?,?,?)', [STORE_G131, STORE_G131_OTHER, 'store_g131_never_used']);
 
     function insOrder(id, storeId, mode, status, orderStatus, total, geo) {
+      const ts = computeFixtureTimestamp('today');
       db.run(`INSERT INTO orders (id, uuid, order_number, store_id, order_mode, order_status, status, kitchen_status, customer_name, customer_phone, items, payment_method, payment_category, payment_status, subtotal, total, note, sync_status, device_id, source, created_at, updated_at, delivery_fee, delivery_distance_km, delivery_lat, delivery_lng, fulfillment_geo_city, fulfillment_geo_district, fulfillment_geo_source, fulfillment_geo_confidence, fulfillment_geo_resolution, fulfillment_distance_band)
-        VALUES (?,?,?,?,?,?,?,'done','A','0900000000','[]','cash','cash','paid',?,?,'','synced','LINE','line', datetime('now','localtime'), datetime('now','localtime'),0,?,?,?,?,?,?,?,?,?)`,
-        [id, id, id, storeId, mode, orderStatus, status, total, total, geo ? 2 : null,
+        VALUES (?,?,?,?,?,?,?,'done','A','0900000000','[]','cash','cash','paid',?,?,'','synced','LINE','line', ?, ?,0,?,?,?,?,?,?,?,?,?)`,
+        [id, id, id, storeId, mode, orderStatus, status, total, total, ts, ts, geo ? 2 : null,
           (geo && mode === 'delivery') ? '25.0000' : null, (geo && mode === 'delivery') ? '121.0000' : null,
           geo ? geo.geo_city : null, geo ? geo.geo_district : null, geo ? geo.geo_source : null,
           geo ? geo.geo_confidence : null, geo ? geo.geo_resolution : null, geo ? geo.geo_distance_band : null]);

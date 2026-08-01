@@ -46,7 +46,37 @@ check('17', '無店家座標冒充 Visitor（overlay/exclusivity 函式不含 st
 check('18', '無行政區中心冒充 Visitor（_geoHeatUiApplyLayerExclusivity/_geoHeatUiRenderVisitorMapOverlay 不含 centroid 邏輯）', !/centroid/i.test(uiCode));
 check('19', 'Unknown 不畫點（Overlay 是文字提示，不建立任何 Leaflet marker/circle）', !/_geoHeatUiRenderVisitorMapOverlay[\s\S]{0,800}L\.(marker|circle)\(/.test(uiSrc));
 check('20', 'A7 KPI 未退化（geo-intelligence.js 本輪未修改）', fs.existsSync(path.join(ROOT, 'public/js/geo-intelligence.js')));
-check('21', 'Order Heatmap Engine 未退化（geo-heatmap.js 本輪未修改，只有 geo-heatmap-ui.js 被修改）', !/_geoHeatUiApplyLayerExclusivity|_geoHeatUiRenderVisitorMapOverlay/.test(heatSrc));
+// fix18-10-hotfix30-B5-R5.4-G1.4：check 21 原本用「geo-heatmap.js 完全不
+// 含 UI 層函式名稱字串」這種寬鬆字串比對，來間接驗證「G1.2 沒有把 UI 層
+// 邏輯誤放進 Engine 檔案」。這個檢查方式太脆弱——G1.3.1／G1.4 之後
+// geo-heatmap.js 合法新增的說明註解只要提到這些函式名稱（例如解釋「這裡
+// 為什麼不需要修改 _geoHeatUiApplyLayerExclusivity()」），就會被誤判成
+//「Engine 退化」，即使實際上一行程式碼邏輯都沒有跨界。
+//
+// 改用 scripts/lib/geo-heatmap-g131-scope-guard.js 這個共用的 Layered
+// Scope Guard，直接驗證真正該驗證的事情：Engine 檔案除了明確列在
+// Allowlist 的 additive 內容之外，其餘逐位元組跟原始基線相同，且一系列
+// 行為不變條件（stale guard／no second map/tile／backward compatibility
+// 等）持續成立——這才是「Order Heatmap Engine 未退化」原本真正要保護的
+// 目的，字串比對只是早期的替代方案。
+const scopeGuard = require(path.join(ROOT, 'scripts/lib/geo-heatmap-g131-scope-guard.js'));
+const g12ScopedCheck = scopeGuard.computeScopedBaselineCheck(ROOT);
+check('21', 'Order Heatmap Engine 未退化（改用 Shared Layered Scope Guard：geo-heatmap.js 除 G1.3.1／G1.4 Allowlist 明確列出的 additive 內容外，其餘逐位元組與原始 pristine baseline 相同；不再使用「完全不得出現特定字串」這種容易被合法註解誤傷的檢查方式）', g12ScopedCheck.ok === true);
+check('21b', 'Layered Scope Guard 涵蓋 G1.3.1 Allowlist 正確（GEO_HEATMAP_G131_ALLOWED_ADDITIONS 4 項，每項精確命中一次）', Array.isArray(scopeGuard.GEO_HEATMAP_G131_ALLOWED_ADDITIONS) && scopeGuard.GEO_HEATMAP_G131_ALLOWED_ADDITIONS.length === 4 && g12ScopedCheck.perItem.filter((p) => scopeGuard.GEO_HEATMAP_G131_ALLOWED_ADDITIONS.some((a) => a.id === p.id)).every((p) => p.ok));
+check('21c', 'Layered Scope Guard 涵蓋 G1.4 Allowlist 正確（GEO_HEATMAP_G14_ALLOWED_ADDITIONS 4 項，每項精確命中一次，含 businessTotals／Permanent Label／Drawable State 三種 additive 內容）', Array.isArray(scopeGuard.GEO_HEATMAP_G14_ALLOWED_ADDITIONS) && scopeGuard.GEO_HEATMAP_G14_ALLOWED_ADDITIONS.length === 4 && g12ScopedCheck.perItem.filter((p) => scopeGuard.GEO_HEATMAP_G14_ALLOWED_ADDITIONS.some((a) => a.id === p.id)).every((p) => p.ok));
+check('21d', 'Layered Reconstruction 正確（依序還原 G1.4 → G1.3.1 兩層後，內容確實可還原）', g12ScopedCheck.allItemsOk === true);
+check('21e', '最終可還原到原始 pristine baseline hash（8f3ec8c0...，不是新算出來的檔案 hash）', g12ScopedCheck.reconstructedHash === scopeGuard.PRISTINE_BASELINE_SHA256 && scopeGuard.PRISTINE_BASELINE_SHA256 === '8f3ec8c0ae76f84825bc0e2e1a481002109244763741a16a2981d17d0cfc710d');
+check('21f', 'Allowlist 外修改仍會失敗（用一個跟 businessTotals/Label/Drawable State 都無關的改動驗證 Guard 仍會 FAIL，不是形同虛設）', (() => {
+  const irrelevant = heatSrc.replace('function geoHeatSafeNumber', 'function geoHeatSafeNumberRenamedForAudit');
+  return scopeGuard.computeScopedBaselineCheckForSource(irrelevant).ok === false;
+})());
+check('21g', 'no second map（geo-heatmap.js 本身不含 L.map( 呼叫）', !/L\.map\(/.test(heatCode) && !/new\s+L\.Map\(/.test(heatCode));
+check('21h', 'no second tile layer（geo-heatmap.js 本身不含 L.tileLayer( 呼叫）', !/L\.tileLayer\(/.test(heatCode));
+check('21i', 'stale request guard（geoHeatScheduleUpdate 仍有 seq !== geoHeatState.requestSeq 防護）', /if \(seq !== geoHeatState\.requestSeq\) return;/.test(heatCode));
+check('21j', 'backward compatibility（geoHeatScheduleUpdate 仍支援 Array.isArray(result) 純陣列格式，G1/G1.1 既有呼叫方式不受影響）', /const areas = Array\.isArray\(result\) \? result : \(result && result\.areas\) \|\| \[\];/.test(heatCode));
+check('21k', 'businessTotals additive（G1.3.1 新增欄位仍在，且是額外欄位不是取代既有欄位）', /businessTotals: \{ orders: null, revenue: null \},/.test(heatCode) && /areas: \[\],/.test(heatCode));
+check('21l', 'Permanent Label additive（G1.4 新增的 L.tooltip permanent:true 邏輯仍在，且與既有 marker.bindTooltip hover 邏輯並存，不是取代）', /L\.tooltip\(\{ permanent: true/.test(heatCode) && /marker\.bindTooltip\(geoHeatBuildTooltipContent/.test(heatCode));
+check('21m', 'Drawable State additive（G1.4 新增的 geoHeatComputeDrawableState() 是獨立新函式，不修改既有 geoHeatBuildAreas／geoHeatRenderLayer 的既有回傳/參數簽章）', /function geoHeatComputeDrawableState\(areas, businessTotals\)/.test(heatCode) && /function geoHeatRenderLayer\(areas, metric, display\)/.test(heatCode));
 check('22', 'G1 GeoLiveLayer 未退化（geo-live-layer.js 本輪完全未修改）', !/_geoHeatUiApplyLayerExclusivity|geoHeatUiSetLayer/.test(geoLiveLayerSrc));
 check('23', 'index.html Script Load Order 正確（geo-heatmap.js → geo-heatmap-ui.js → geo-visitor-layer.js，既有慣例，本輪未變動）', (() => {
   const posHeat = indexHtml.indexOf('src="/js/geo-heatmap.js');

@@ -343,8 +343,63 @@ function geoHeatEnsureLayerGroup(leafletMapInstance) {
   return geoHeatState.layerGroup;
 }
 
+// ════════════════════════════════════════════════════════════════
+// fix18-10-hotfix30-B5-R5.4-G1.4（需求文件：統一 Drawable State）——
+// 純函式，只讀 areas／businessTotals，不碰 DOM、不碰 Leaflet，additive，
+// 不修改／不取代 G1.3.1 既有的 Coverage Explanation 四態（那是「文字說明」
+// 用的狀態機，這裡是給「地圖要畫什麼」用的狀態機，兩者用途不同、互不覆蓋）。
+//
+// 五態定義：
+//   no_business_data              ：全店這段期間根本沒有訂單（沿用
+//                                    businessTotals，沒有就 fallback 回
+//                                    areas 加總，跟 G1.3.1 同一套判斷慣例）
+//   has_business_but_no_drawable_geo：有訂單，但沒有任何一個行政區有已知
+//                                    地理資料可畫（既沒有平均座標，也沒有
+//                                    任何履約紀錄指出行政區名稱）
+//   has_drawable_district_only    ：至少一個行政區「知道名稱」（有履約
+//                                    紀錄提到這個行政區）但沒有平均座標可
+//                                    畫 Marker/Circle——這種區域只能在
+//                                    Ranking 文字列表顯示行政區名稱＋
+//                                    「目前尚無可用座標」，不能在地圖上畫
+//                                    任何點（沒有座標，畫了就是造假）。
+//   has_drawable_exact_only       ：所有「有履約紀錄」的行政區都有平均
+//                                    座標可畫。
+//   has_mixed_drawable_geo        ：以上兩種同時存在。
+// ════════════════════════════════════════════════════════════════
+function geoHeatComputeDrawableState(areas, businessTotals) {
+  const list = areas || [];
+  const bt = businessTotals || {};
+  const businessTotal = (typeof bt.orders === 'number')
+    ? bt.orders
+    : list.reduce((s, a) => s + (Number(a.submitted_orders) || 0), 0);
+  if (businessTotal <= 0) return 'no_business_data';
+  // 「知道這個行政區有履約紀錄」＝ submitted_orders > 0（不論有沒有座標）；
+  // district_only／exact_only 都只在這個子集合裡分類，避免把「完全沒被
+  // 履約系統提過的行政區」（例如純訪客瀏覽、還沒下單）也算進來。
+  const knownDistricts = list.filter((a) => (Number(a.submitted_orders) || 0) > 0);
+  if (knownDistricts.length === 0) return 'has_business_but_no_drawable_geo';
+  const exact = knownDistricts.filter((a) => a.coordinate_source === 'order_centroid' && typeof a.lat === 'number' && typeof a.lng === 'number');
+  const districtOnly = knownDistricts.filter((a) => !(a.coordinate_source === 'order_centroid' && typeof a.lat === 'number' && typeof a.lng === 'number'));
+  if (exact.length === 0 && districtOnly.length === 0) return 'has_business_but_no_drawable_geo';
+  if (exact.length > 0 && districtOnly.length === 0) return 'has_drawable_exact_only';
+  if (exact.length === 0 && districtOnly.length > 0) return 'has_drawable_district_only';
+  return 'has_mixed_drawable_geo';
+}
+
 // 需求文件十八：clearLayers() 更新，不重建 group／map／tile；只畫有真實座標
 // 的行政區（coordinate_source === 'order_centroid'），其餘留給 Ranking。
+//
+// fix18-10-hotfix30-B5-R5.4-G1.4 Root Cause（需求文件一、二）：markers/
+// circles 原本只用 bindTooltip(content) 綁「hover 才顯示」的提示，沒有任何
+// 「常駐可見」的行政區名稱標示——滑鼠不移過去，地圖上只看得到一個個沒有
+// 名字的色點/圖釘，真實使用情境下很容易被誤認為「標示沒有顯示」。修法：
+// 額外用 L.tooltip({ permanent: true, interactive: false }) 建立一個獨立、
+// 常駐顯示的行政區名稱標籤，跟原本的 hover 提示（完整內容：Orders/
+// Revenue/Coverage…）並存，不互相取代——常駐標籤只顯示「行政區名稱」，
+// 版面才不會太擠；完整資訊仍然靠 hover tooltip。這個標籤物件跟 marker 一起
+// group.addLayer()，所以會自動跟著既有的 group.clearLayers()／Layer Switch
+// addLayer／removeLayer 邏輯同步顯示/隱藏，不需要另外維護一份 Label
+// LayerGroup、不需要修改 _geoHeatUiApplyLayerExclusivity()。
 function geoHeatRenderLayer(areas, metric, display) {
   const group = geoHeatState.layerGroup;
   if (!group || typeof group.clearLayers !== 'function') return;
@@ -369,6 +424,17 @@ function geoHeatRenderLayer(areas, metric, display) {
       marker.on('click', () => { geoHeatState.selectedAreaId = area.area_id; geoHeatRenderLayer(geoHeatState.areas, geoHeatState.metric, geoHeatState.display); _geoHeatRenderRankingDom(); });
     }
     if (typeof group.addLayer === 'function') group.addLayer(marker);
+    // 常駐 District Label（G1.4 新增，additive）：只顯示行政區名稱，真實
+    // 座標來自同一筆 area 資料（area.lat/area.lng，已經是 order_centroid
+    // 真實平均座標，不是另外算的假座標）。
+    if (typeof L !== 'undefined' && typeof L.tooltip === 'function' && typeof group.addLayer === 'function') {
+      try {
+        const labelTooltip = L.tooltip({ permanent: true, direction: 'top', offset: [0, -6], className: 'geo-heat-map-label', interactive: false });
+        if (typeof labelTooltip.setLatLng === 'function') labelTooltip.setLatLng([area.lat, area.lng]);
+        if (typeof labelTooltip.setContent === 'function') labelTooltip.setContent(_geoHeatEsc(area.area_name || area.district || area.city || ''));
+        group.addLayer(labelTooltip);
+      } catch (e) { /* Leaflet 環境差異時安靜失敗，不擋既有 marker 渲染 */ }
+    }
   });
 }
 function GEO_HEAT_CHANNEL_LABEL(channel) {
@@ -495,7 +561,7 @@ if (typeof module !== 'undefined' && module.exports) {
     geoHeatComputeAreaCoverage, geoHeatComputeMetricCoverage,
     geoHeatBuildAreas, geoHeatBuildRanking, geoHeatBuildSummary, geoHeatBuildTooltipContent,
     geoHeatHandleStoreSwitch, geoHeatEnsureLayerGroup, geoHeatRenderLayer, geoHeatSelectArea,
-    geoHeatScheduleUpdate, geoHeatStatusText, GEO_HEAT_CHANNEL_LABEL,
+    geoHeatScheduleUpdate, geoHeatStatusText, GEO_HEAT_CHANNEL_LABEL, geoHeatComputeDrawableState,
     _geoHeatResetStateForTest, _geoHeatRenderRankingDom, _geoHeatRenderSummaryDom,
     _geoHeatRenderCoverageCardDom, _geoHeatRenderLegendDom,
     get geoHeatState() { return geoHeatState; },

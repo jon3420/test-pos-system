@@ -300,10 +300,15 @@ async function main() {
     const geoQ = require(path.join(ROOT, 'utils/geoAnalyticsQueries'));
     const STORE = 'store_g132_regression_guard';
     db.run('DELETE FROM orders WHERE store_id = ?', [STORE]);
+    // fix18-10-hotfix30-B5-R5.4-G1.4：Harness 修正，理由同 G1.3.1 smoke——
+    // 不用 datetime('now','localtime')（跟著容器 OS 時區走），改用
+    // computeFixtureTimestamp() 呼叫產品既有 resolveDateRange()。
+    const { computeFixtureTimestamp } = require(path.join(ROOT, 'scripts/lib/geo-fixture-time'));
     function insOrder(id, mode, status, orderStatus, total, geo) {
+      const ts = computeFixtureTimestamp('today');
       db.run(`INSERT INTO orders (id, uuid, order_number, store_id, order_mode, order_status, status, kitchen_status, customer_name, customer_phone, items, payment_method, payment_category, payment_status, subtotal, total, note, sync_status, device_id, source, created_at, updated_at, delivery_fee, delivery_distance_km, delivery_lat, delivery_lng, fulfillment_geo_city, fulfillment_geo_district, fulfillment_geo_source, fulfillment_geo_confidence, fulfillment_geo_resolution, fulfillment_distance_band)
-        VALUES (?,?,?,?,?,?,?,'done','A','0900000000','[]','cash','cash','paid',?,?,'','synced','LINE','line', datetime('now','localtime'), datetime('now','localtime'),0,?,?,?,?,?,?,?,?,?)`,
-        [id, id, id, STORE, mode, orderStatus, status, total, total, geo ? 2 : null,
+        VALUES (?,?,?,?,?,?,?,'done','A','0900000000','[]','cash','cash','paid',?,?,'','synced','LINE','line', ?, ?,0,?,?,?,?,?,?,?,?,?)`,
+        [id, id, id, STORE, mode, orderStatus, status, total, total, ts, ts, geo ? 2 : null,
           (geo && mode === 'delivery') ? '25.0000' : null, (geo && mode === 'delivery') ? '121.0000' : null,
           geo ? geo.geo_city : null, geo ? geo.geo_district : null, geo ? geo.geo_source : null,
           geo ? geo.geo_confidence : null, geo ? geo.geo_resolution : null, geo ? geo.geo_distance_band : null]);
@@ -347,8 +352,9 @@ async function main() {
     // 情境 D：Store 隔離
     const STORE_OTHER = 'store_g132_other';
     db.run('DELETE FROM orders WHERE store_id = ?', [STORE_OTHER]);
+    const tsOther = computeFixtureTimestamp('today');
     db.run(`INSERT INTO orders (id, uuid, order_number, store_id, order_mode, status, kitchen_status, customer_name, customer_phone, items, payment_method, payment_category, payment_status, subtotal, total, note, sync_status, device_id, source, created_at, updated_at)
-      VALUES ('g132-d1','g132-d1','g132-d1',?,'takeout','completed','done','A','0900000000','[]','cash','cash','paid',9999,9999,'','synced','LINE','line', datetime('now','localtime'), datetime('now','localtime'))`, [STORE_OTHER]);
+      VALUES ('g132-d1','g132-d1','g132-d1',?,'takeout','completed','done','A','0900000000','[]','cash','cash','paid',9999,9999,'','synced','LINE','line', ?, ?)`, [STORE_OTHER, tsOther, tsOther]);
     const fD = geoQ.getGeoFulfillment(db, STORE, filters);
     assert(fD.business_total_orders === 3, '38g. 情境 D：其他店訂單不會混入本店 business_total_orders（Store Isolation）');
     const fOther = geoQ.getGeoFulfillment(db, STORE_OTHER, filters);

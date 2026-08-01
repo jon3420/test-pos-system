@@ -212,3 +212,62 @@
 .geo-live-theme-dark .geo-heat-coverage-explanation-text[data-state="full_coverage"] { border-left-color: #22c55e; }
 [data-theme="dark"] .geo-heat-coverage-explanation-note,
 .geo-live-theme-dark .geo-heat-coverage-explanation-note { color: #94a3b8; }
+
+/* ════════════════════════════════════════════════════════════════
+ * fix18-10-hotfix30-B5-R5.4-G1.4 — Map Label Rendering & Honest
+ * Drawable-State Fix
+ *
+ * Root Cause（白色空白橫條）：`.geo-heat-layer-toggle` / `.geo-heat-layer-btn`
+ * 這兩個 class 從 R5.3-A1.2 建立 Order/Visitor Layer 切換按鈕以來，
+ * `public/js/geo-heatmap-ui.js` 的 geoHeatUiLayerToggleHtml() 一直有輸出
+ * 這兩個 class 名稱，但這支 CSS 檔案裡從來沒有對應的規則——瀏覽器對沒有
+ * 任何 CSS 的 <button> 套用預設樣式（多半是淺灰/白底、系統字型），在全站
+ * Dark Theme 底下就是一條突兀的白色空白橫條。修法：比照本檔案其餘控制項
+ * （.geo-heat-ctl-btn／.geo-heat-tab-btn）已經在用的 CSS 變數 + 深色
+ * fallback 慣例補上樣式，不新造一套視覺語言。
+ * ════════════════════════════════════════════════════════════════ */
+.geo-heat-layer-toggle {
+  display: flex;
+  gap: 6px;
+  margin: 0 0 10px;
+  flex-wrap: wrap;
+}
+.geo-heat-layer-btn {
+  padding: 6px 14px;
+  font-size: .78rem;
+  font-weight: 600;
+  border-radius: 999px;
+  border: 1px solid var(--border, #333);
+  background: var(--bg-card, #222);
+  color: var(--text-primary, #f0f0f0);
+  cursor: pointer;
+}
+.geo-heat-layer-btn:hover { background: var(--bg-hover, #2a2a2a); }
+.geo-heat-layer-btn:focus-visible { outline: 2px solid var(--accent, #f5a623); outline-offset: 2px; }
+.geo-heat-layer-btn.is-active,
+.geo-heat-layer-btn[aria-pressed="true"] {
+  background: var(--accent, #f5a623);
+  border-color: var(--accent, #f5a623);
+  color: #1a1a1a;
+}
+
+/* 常駐 District Label（G1.4 新增）——只顯示行政區名稱，跟 Leaflet 預設
+   tooltip 樣式區隔開，確保深色/淺色主題下都可讀，且不會被誤認為互動式
+   按鈕或假 Marker（no pointer-events，純文字標籤）。*/
+.geo-heat-map-label {
+  background: rgba(15, 23, 42, .82);
+  color: #f1f5f9;
+  border: none;
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  box-shadow: none;
+  pointer-events: none;
+}
+.geo-heat-map-label::before { display: none; } /* 拿掉 Leaflet tooltip 預設小箭頭，避免跟 Marker 圖示重疊 */
+
+/* Order Layer 的誠實空狀態覆蓋文字，共用 .geo-heat-visitor-map-overlay
+   既有樣式（背景/文字/定位規則相同，only 語意上是 Order 版本），這裡只
+   加一個可辨識的 class 供測試／未來擴充用，不重複定義樣式。*/
+.geo-heat-order-map-overlay { /* 目前沿用 .geo-heat-visitor-map-overlay 全部樣式，故留空，僅作語意標記 */ }

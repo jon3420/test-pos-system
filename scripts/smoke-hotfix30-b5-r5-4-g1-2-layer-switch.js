@@ -50,7 +50,7 @@ async function main() {
   assert(H._geoHeatUiVisitorMapOverlayMessage('error', null) === '訪客熱區載入失敗，請重試', 'A-2 error 狀態文案正確（情境：API error）');
   assert(H._geoHeatUiVisitorMapOverlayMessage('ready', { total: 0 }) === '目前沒有符合條件的訪客事件', 'A-3 完全無訪客時文案正確（情境：empty）');
   const noCoordMsg = H._geoHeatUiVisitorMapOverlayMessage('ready', { total: 1, with_coordinate: 0, known_area_only: 0, unknown: 1, coverage_pct: 0 });
-  assert(noCoordMsg.includes('目前有 1 位訪客'), 'A-4 有訪客但無座標時文案含正確訪客數（重現真實回報情境）');
+  assert(noCoordMsg.includes('目前已有 1 位訪客'), 'A-4 有訪客但無座標時文案含正確訪客數（重現真實回報情境）');
   assert(noCoordMsg.includes('Known District：0') && noCoordMsg.includes('Exact Coordinate：0') && noCoordMsg.includes('Unknown：1') && noCoordMsg.includes('Coverage：0%'), 'A-5 文案含完整 Known/Exact/Unknown/Coverage 數字（重現真實回報的四個數字）');
   const hasCoordResult = H._geoHeatUiVisitorMapOverlayMessage('ready', { total: 5, with_coordinate: 2 });
   assert(hasCoordResult === null, 'A-6 有真實座標可畫時不顯示覆蓋文字（讓地圖正常呈現，不擋住真實資料）');
@@ -203,7 +203,7 @@ async function main() {
   {
     const overlay = dom.window.document.getElementById(`${MAP_CONTAINER_ID}-visitor-empty-overlay`);
     assert(!!overlay, '11a. 無 Exact Coordinate 時地圖出現明確覆蓋文字（不是空白底圖）');
-    assert(overlay && overlay.textContent.includes('目前有 1 位訪客'), '11. Exact Coordinate=0 時覆蓋文字含正確訪客數與情境說明');
+    assert(overlay && overlay.textContent.includes('目前已有 1 位訪客'), '11. Exact Coordinate=0 時覆蓋文字含正確訪客數與情境說明');
     assert(overlay && overlay.textContent.includes('Coverage：0%'), '11b. 覆蓋文字含 Coverage：0%（對應真實回報情境）');
   }
   assert(!(visitorGroup._children.length > 0), '12. Unknown 不畫 Marker（known=0 時 choropleth 沒有畫出任何色塊/點）');

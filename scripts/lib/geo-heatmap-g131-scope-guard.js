@@ -119,6 +119,59 @@ const GEO_HEATMAP_G131_ALLOWED_ADDITIONS = [
  * 把目前檔案內容中，allowlist 允許的新增內容全部還原掉，回傳還原後的內容
  * 與詳細比對結果。
  */
+
+
+// ══════════════════════════════════════════════════════════════════
+// fix18-10-hotfix30-B5-R5.4-G1.4 — 疊加第二層 Scope Allowlist
+//
+// G1.4 對 geo-heatmap.js 新增了 4 段合法 additive 修改（Drawable State
+// 分類器、Root Cause 說明註解、常駐 District Label 標籤、export 清單新增
+// geoHeatComputeDrawableState）。這一層疊在 G1.3.1 那一層「之上」——也就是
+// 把目前檔案內容依序先還原 G1.4 的新增，再還原 G1.3.1 的新增，最後必須
+// equal 回同一個 PRISTINE_BASELINE_SHA256（R5.3-A2/A1.2 那一輪的原始
+// 基線）。這樣 A2／A1.2／G1.3.2 既有呼叫 computeScopedBaselineCheck() 的
+// 程式碼完全不用改，這個函式內部自動變成「疊兩層」，向下相容。
+// ══════════════════════════════════════════════════════════════════
+const GEO_HEATMAP_G14_ALLOWED_ADDITIONS = [
+  {
+    id: 'g14-drawable-state-function',
+    description: '新增 geoHeatComputeDrawableState() 統一 Drawable State 分類器（純函式，additive）',
+    needle: "// ════════════════════════════════════════════════════════════════\n// fix18-10-hotfix30-B5-R5.4-G1.4（需求文件：統一 Drawable State）——\n// 純函式，只讀 areas／businessTotals，不碰 DOM、不碰 Leaflet，additive，\n// 不修改／不取代 G1.3.1 既有的 Coverage Explanation 四態（那是「文字說明」\n// 用的狀態機，這裡是給「地圖要畫什麼」用的狀態機，兩者用途不同、互不覆蓋）。\n//\n// 五態定義：\n//   no_business_data              ：全店這段期間根本沒有訂單（沿用\n//                                    businessTotals，沒有就 fallback 回\n//                                    areas 加總，跟 G1.3.1 同一套判斷慣例）\n//   has_business_but_no_drawable_geo：有訂單，但沒有任何一個行政區有已知\n//                                    地理資料可畫（既沒有平均座標，也沒有\n//                                    任何履約紀錄指出行政區名稱）\n//   has_drawable_district_only    ：至少一個行政區「知道名稱」（有履約\n//                                    紀錄提到這個行政區）但沒有平均座標可\n//                                    畫 Marker/Circle——這種區域只能在\n//                                    Ranking 文字列表顯示行政區名稱＋\n//                                    「目前尚無可用座標」，不能在地圖上畫\n//                                    任何點（沒有座標，畫了就是造假）。\n//   has_drawable_exact_only       ：所有「有履約紀錄」的行政區都有平均\n//                                    座標可畫。\n//   has_mixed_drawable_geo        ：以上兩種同時存在。\n// ════════════════════════════════════════════════════════════════\nfunction geoHeatComputeDrawableState(areas, businessTotals) {\n  const list = areas || [];\n  const bt = businessTotals || {};\n  const businessTotal = (typeof bt.orders === 'number')\n    ? bt.orders\n    : list.reduce((s, a) => s + (Number(a.submitted_orders) || 0), 0);\n  if (businessTotal <= 0) return 'no_business_data';\n  // 「知道這個行政區有履約紀錄」＝ submitted_orders > 0（不論有沒有座標）；\n  // district_only／exact_only 都只在這個子集合裡分類，避免把「完全沒被\n  // 履約系統提過的行政區」（例如純訪客瀏覽、還沒下單）也算進來。\n  const knownDistricts = list.filter((a) => (Number(a.submitted_orders) || 0) > 0);\n  if (knownDistricts.length === 0) return 'has_business_but_no_drawable_geo';\n  const exact = knownDistricts.filter((a) => a.coordinate_source === 'order_centroid' && typeof a.lat === 'number' && typeof a.lng === 'number');\n  const districtOnly = knownDistricts.filter((a) => !(a.coordinate_source === 'order_centroid' && typeof a.lat === 'number' && typeof a.lng === 'number'));\n  if (exact.length === 0 && districtOnly.length === 0) return 'has_business_but_no_drawable_geo';\n  if (exact.length > 0 && districtOnly.length === 0) return 'has_drawable_exact_only';\n  if (exact.length === 0 && districtOnly.length > 0) return 'has_drawable_district_only';\n  return 'has_mixed_drawable_geo';\n}\n\n",
+  },
+  {
+    id: 'g14-render-layer-root-cause-comment',
+    description: 'geoHeatRenderLayer() 上方新增 G1.4 Root Cause 說明註解',
+    needle: "//\n// fix18-10-hotfix30-B5-R5.4-G1.4 Root Cause（需求文件一、二）：markers/\n// circles 原本只用 bindTooltip(content) 綁「hover 才顯示」的提示，沒有任何\n// 「常駐可見」的行政區名稱標示——滑鼠不移過去，地圖上只看得到一個個沒有\n// 名字的色點/圖釘，真實使用情境下很容易被誤認為「標示沒有顯示」。修法：\n// 額外用 L.tooltip({ permanent: true, interactive: false }) 建立一個獨立、\n// 常駐顯示的行政區名稱標籤，跟原本的 hover 提示（完整內容：Orders/\n// Revenue/Coverage…）並存，不互相取代——常駐標籤只顯示「行政區名稱」，\n// 版面才不會太擠；完整資訊仍然靠 hover tooltip。這個標籤物件跟 marker 一起\n// group.addLayer()，所以會自動跟著既有的 group.clearLayers()／Layer Switch\n// addLayer／removeLayer 邏輯同步顯示/隱藏，不需要另外維護一份 Label\n// LayerGroup、不需要修改 _geoHeatUiApplyLayerExclusivity()。\n",
+  },
+  {
+    id: 'g14-permanent-district-label',
+    description: 'geoHeatRenderLayer() 內新增常駐 District Label（L.tooltip permanent:true），跟既有 hover tooltip 並存',
+    needle: "    // 常駐 District Label（G1.4 新增，additive）：只顯示行政區名稱，真實\n    // 座標來自同一筆 area 資料（area.lat/area.lng，已經是 order_centroid\n    // 真實平均座標，不是另外算的假座標）。\n    if (typeof L !== 'undefined' && typeof L.tooltip === 'function' && typeof group.addLayer === 'function') {\n      try {\n        const labelTooltip = L.tooltip({ permanent: true, direction: 'top', offset: [0, -6], className: 'geo-heat-map-label', interactive: false });\n        if (typeof labelTooltip.setLatLng === 'function') labelTooltip.setLatLng([area.lat, area.lng]);\n        if (typeof labelTooltip.setContent === 'function') labelTooltip.setContent(_geoHeatEsc(area.area_name || area.district || area.city || ''));\n        group.addLayer(labelTooltip);\n      } catch (e) { /* Leaflet 環境差異時安靜失敗，不擋既有 marker 渲染 */ }\n    }\n",
+  },
+  {
+    id: 'g14-export-drawable-state',
+    description: 'module.exports 新增 geoHeatComputeDrawableState',
+    needle: "geoHeatScheduleUpdate, geoHeatStatusText, GEO_HEAT_CHANNEL_LABEL, geoHeatComputeDrawableState,",
+    reconstructAs: "geoHeatScheduleUpdate, geoHeatStatusText, GEO_HEAT_CHANNEL_LABEL,",
+  },
+];
+
+function reconstructG14Layer(currentSource) {
+  let working = currentSource;
+  const perItem = [];
+  for (const item of GEO_HEATMAP_G14_ALLOWED_ADDITIONS) {
+    const count = working.split(item.needle).length - 1;
+    if (count !== 1) {
+      perItem.push({ id: item.id, ok: false, count, reason: `預期剛好出現 1 次，實際出現 ${count} 次` });
+      continue;
+    }
+    const replacement = 'reconstructAs' in item ? item.reconstructAs : '';
+    working = working.replace(item.needle, replacement);
+    perItem.push({ id: item.id, ok: true, count });
+  }
+  return { reconstructed: working, perItem };
+}
+
 function reconstructPristine(currentSource) {
   let working = currentSource;
   const perItem = [];
@@ -141,38 +194,37 @@ function computeScopedBaselineCheck(rootDir) {
     return { ok: false, reason: `${REL_PATH} 不存在`, perItem: [] };
   }
   const currentSource = fs.readFileSync(filePath, 'utf8');
-  const { reconstructed, perItem } = reconstructPristine(currentSource);
-  const allItemsOk = perItem.every((r) => r.ok);
-  const reconstructedHash = crypto.createHash('sha256').update(reconstructed, 'utf8').digest('hex');
-  const hashMatches = reconstructedHash === PRISTINE_BASELINE_SHA256;
-  return {
-    ok: allItemsOk && hashMatches,
-    allItemsOk,
-    hashMatches,
-    reconstructedHash,
-    expectedHash: PRISTINE_BASELINE_SHA256,
-    perItem,
-  };
+  return computeScopedBaselineCheckForSource(currentSource);
 }
 
 /**
  * mutation-style negative test 用：直接對「任意來源字串」（不是真的檔案）
  * 跑同一套還原邏輯，讓呼叫端可以在記憶體中模擬「非法修改」而不必真的
  * 寫壞磁碟上的產品檔案。
+ *
+ * fix18-10-hotfix30-B5-R5.4-G1.4：疊兩層——先還原 G1.4 這一層新增
+ * （GEO_HEATMAP_G14_ALLOWED_ADDITIONS），再還原 G1.3.1 那一層新增
+ * （GEO_HEATMAP_G131_ALLOWED_ADDITIONS），兩層都精確命中一次之後，剩下的
+ * 內容必須等於同一個 PRISTINE_BASELINE_SHA256。A2／A1.2 呼叫的還是同一個
+ * 函式名稱／同一個回傳格式，不需要修改呼叫端。
  */
 function computeScopedBaselineCheckForSource(currentSource) {
-  const { reconstructed, perItem } = reconstructPristine(currentSource);
+  const g14 = reconstructG14Layer(currentSource);
+  const g131 = reconstructPristine(g14.reconstructed);
+  const perItem = [...g14.perItem, ...g131.perItem];
   const allItemsOk = perItem.every((r) => r.ok);
-  const reconstructedHash = crypto.createHash('sha256').update(reconstructed, 'utf8').digest('hex');
+  const reconstructedHash = crypto.createHash('sha256').update(g131.reconstructed, 'utf8').digest('hex');
   const hashMatches = reconstructedHash === PRISTINE_BASELINE_SHA256;
-  return { ok: allItemsOk && hashMatches, allItemsOk, hashMatches, reconstructedHash, perItem };
+  return { ok: allItemsOk && hashMatches, allItemsOk, hashMatches, reconstructedHash, expectedHash: PRISTINE_BASELINE_SHA256, perItem };
 }
 
 module.exports = {
   REL_PATH,
   PRISTINE_BASELINE_SHA256,
   GEO_HEATMAP_G131_ALLOWED_ADDITIONS,
+  GEO_HEATMAP_G14_ALLOWED_ADDITIONS,
   reconstructPristine,
+  reconstructG14Layer,
   computeScopedBaselineCheck,
   computeScopedBaselineCheckForSource,
   runBehavioralInvariants,
