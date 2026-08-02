@@ -98,15 +98,21 @@ check('20', '無 stale store data（businessTotals 在 geoHeatHandleStoreSwitch(
 // ══════════════════════════════════════════════════════════════
 // 四、Dark Theme / Light Theme
 // ══════════════════════════════════════════════════════════════
-check('21', 'Dark Theme 無白底（新增的 [data-theme="dark"] 區塊背景是深色 #1e293b，不是 #fff/#ffffff/white）',
-  /\[data-theme="dark"\] \.geo-heat-coverage-explanation-text,\s*\n\.geo-live-theme-dark \.geo-heat-coverage-explanation-text \{[^}]*background:\s*#1e293b/.test(cssSrc)
-  && !/\[data-theme="dark"\] \.geo-heat-coverage-explanation-text,\s*\n\.geo-live-theme-dark \.geo-heat-coverage-explanation-text \{[^}]*background:\s*#fff/.test(cssSrc));
+// fix18-10-hotfix30-B5-R5.4-G1.4.1：#21-23 原本斷言的 [data-theme="dark"]
+// 覆寫規則與 #f8fafc 基礎背景，正是使用者截圖裡「白色橫條看不見文字」的
+// Bug 本身——整個專案沒有任何程式碼會設定 data-theme="dark" 屬性，這個
+// selector 從未生效（見 R5.4-G1.4.1_BASELINE_REALITY_AUDIT.md 第四節）。
+// 改成驗證 G1.4.1 修正後的真實狀態：直接用 var(--bg-card,...) 深色
+// fallback，不 gate 在不存在的 theme selector 底下。
+check('21', 'Dark Card 無白底（Coverage Explanation 背景改用 var(--bg-card, #1e293b) 深色 fallback，不是 #fff/#ffffff/white，且不再依賴不存在的 [data-theme="dark"]）',
+  /\.geo-heat-coverage-explanation-text\s*\{[^}]*background:\s*var\(--bg-card,\s*#1e293b\)/.test(cssSrc)
+  && !/\.geo-heat-coverage-explanation-text\s*\{[^}]*background:\s*(#fff\b|#ffffff\b|white\b)/i.test(cssSrc));
 
-check('22', 'Dark Theme 文字可讀（新增 color: #e2e8f0 高對比淺色字）',
-  /\[data-theme="dark"\] \.geo-heat-coverage-explanation-text,\s*\n\.geo-live-theme-dark \.geo-heat-coverage-explanation-text \{[^}]*color:\s*#e2e8f0/.test(cssSrc));
+check('22', 'Dark Card 文字可讀（color: var(--text-primary, #e2e8f0) 高對比淺色字，直接生效不需 theme gating）',
+  /\.geo-heat-coverage-explanation-text\s*\{[^}]*color:\s*var\(--text-primary,\s*#e2e8f0\)/.test(cssSrc));
 
-check('23', 'Light Theme 未退化（原本 background:#f8fafc 的既有規則保留，沒有被本輪覆蓋或刪除）',
-  /\.geo-heat-coverage-explanation-text\s*\{[^}]*background:\s*#f8fafc/.test(cssSrc));
+check('23', '不再硬編碼 #f8fafc 近白色背景（G1.4.1 已修正 Bug 來源，這是「未退化回舊 Bug」的檢查，不是「必須保留舊 Bug」）',
+  !/\.geo-heat-coverage-explanation-text\s*\{[^}]*background:\s*#f8fafc/.test(cssSrc));
 
 check('24', 'role=status / aria-live（coverage-explanation 容器仍帶 aria-live="polite"，未被本輪移除）',
   /id="\$\{_geoHeatUiEsc\(containerId\)\}-coverage-explanation" class="geo-heat-coverage-explanation" aria-live="polite"/.test(uiSrc));

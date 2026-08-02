@@ -657,13 +657,20 @@ async function main() {
     const scopeGuard = require(path.join(ROOT, 'scripts/lib/geo-heatmap-g131-scope-guard.js'));
     assert(Array.isArray(scopeGuard.GEO_HEATMAP_G14_ALLOWED_ADDITIONS) && scopeGuard.GEO_HEATMAP_G14_ALLOWED_ADDITIONS.length === 4, '126. G1.4 allowlist 為第二層，剛好 4 項');
     assert(Array.isArray(scopeGuard.GEO_HEATMAP_G131_ALLOWED_ADDITIONS) && scopeGuard.GEO_HEATMAP_G131_ALLOWED_ADDITIONS.length === 4, '127. G1.3.1 allowlist 不變，仍是 4 項（本輪沒有動到那一層的定義）');
-    const g14Layer = scopeGuard.reconstructG14Layer(fs.readFileSync(path.join(ROOT, 'public/js/geo-heatmap.js'), 'utf8'));
+    // fix18-10-hotfix30-B5-R5.4-G1.4.1：G1.4.1 在 geo-heatmap.js 新增了第三層
+    // Scope Allowlist（GEO_HEATMAP_G141_ALLOWED_ADDITIONS），疊在這裡驗證的
+    // G1.4 層之上。這裡改用最新的三層 computeScopedBaselineCheck()（而不是
+    // 只還原 G1.4／G1.3.1 兩層），這樣這支 G1.4 smoke 才是對「目前檔案」
+    // 的真實陳述，不是對一個已經過期的兩層假設。
+    const g141Layer = scopeGuard.reconstructG141Layer(fs.readFileSync(path.join(ROOT, 'public/js/geo-heatmap.js'), 'utf8'));
+    assert(g141Layer.perItem.every((r) => r.ok), '128a. 移除 G1.4.1 additions 後回到 G1.4 layer（每個 G1.4.1 項目都精確命中一次）');
+    const g14Layer = scopeGuard.reconstructG14Layer(g141Layer.reconstructed);
     assert(g14Layer.perItem.every((r) => r.ok), '128. 移除 G1.4 additions 後回到 G1.3.1 layer（每個 G1.4 項目都精確命中一次）');
     const g131Layer = scopeGuard.reconstructPristine(g14Layer.reconstructed);
     assert(g131Layer.perItem.every((r) => r.ok), '129. 再移除 G1.3.1 additions 後回到 pristine baseline（每個 G1.3.1 項目都精確命中一次）');
     const crypto = require('crypto');
     const finalHash = crypto.createHash('sha256').update(g131Layer.reconstructed, 'utf8').digest('hex');
-    assert(finalHash === scopeGuard.PRISTINE_BASELINE_SHA256, '130. pristine hash 不修改（疊兩層還原後仍等於同一個原始基線 hash）');
+    assert(finalHash === scopeGuard.PRISTINE_BASELINE_SHA256, '130. pristine hash 不修改（疊三層還原後仍等於同一個原始基線 hash）');
     assert(scopeGuard.PRISTINE_BASELINE_SHA256 === '8f3ec8c0ae76f84825bc0e2e1a481002109244763741a16a2981d17d0cfc710d', '131. 未直接更新 pristine hash 為新檔案 hash（仍是 R5.3-A2/A1.2 那一輪的原始值）');
 
     // Allowlist 外修改仍 FAIL（在 G1.4 之外注入一個無關改動）

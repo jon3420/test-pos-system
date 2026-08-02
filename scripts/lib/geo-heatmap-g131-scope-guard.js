@@ -156,6 +156,127 @@ const GEO_HEATMAP_G14_ALLOWED_ADDITIONS = [
   },
 ];
 
+// ══════════════════════════════════════════════════════════════════
+// fix18-10-hotfix30-B5-R5.4-G1.4.1 — 疊加第三層 Scope Allowlist
+//
+// G1.4.1 對 geo-heatmap.js 新增了 Metric-aware Eligibility（見
+// R5.4-G1.4.1_BASELINE_REALITY_AUDIT.md 第四節／
+// R5.4-G1.4.1_DARK_CARD_METRIC_RENDERING_FIX.md）：修正 Visitors=0 等
+// 「結構性無座標」metric 仍然沿用 Orders 的 order_centroid 座標畫出
+// Marker/Circle/常駐標籤的問題。這一層疊在 G1.4 那一層「之上」——先還原
+// G1.4.1 的新增，再還原 G1.4 的新增，再還原 G1.3.1 的新增，最後必須
+// equal 回同一個 PRISTINE_BASELINE_SHA256。
+// ══════════════════════════════════════════════════════════════════
+const GEO_HEATMAP_G141_ALLOWED_ADDITIONS = [
+  {
+    id: 'g141-metric-eligibility-block',
+    description: '新增 geoHeatMetricSupportsCoordinate() / _geoHeatIsValidLatLng() / geoHeatIsAreaEligibleForMetric()（純函式，additive，取代單純 coordinate_source 篩選）',
+    needle:
+`// ════════════════════════════════════════════════════════════════
+// fix18-10-hotfix30-B5-R5.4-G1.4.1 Root Cause（見
+// R5.4-G1.4.1_BASELINE_REALITY_AUDIT.md 第四節）：geoHeatRenderLayer()
+// 原本只用 \`coordinate_source === 'order_centroid'\` 決定「這個行政區能不能
+// 畫」，完全沒有檢查「目前選的 metric 在這個行政區是不是真的有資料」。
+// 因為 order_centroid 座標只從履約訂單算出來，跟 Orders/Revenue 綁在一起，
+// 切到 Visitors／Add to Cart／Checkout 時，同一批 Orders 的座標點會原封
+// 不動被畫出來（只是數值變成 0），使用者看到的就是「Visitors=0 還是有
+// 中壢區的 Marker/Circle/常駐標籤」。這也是「Metric 切換後地圖殘留舊點」
+// 這個回報症狀的實際成因——不是 Metric state 沒同步（geoHeatUiSyncMetric
+// FromGlobal／geoHeatUiSetMetric 兩邊都有正確呼叫 clearLayers 後重繪），
+// 而是重繪時的篩選條件本身沒有分辨 metric。
+//
+// 修法：新增單一 Metric-aware Eligibility 判斷，取代單純的
+// coordinate_source 篩選：
+//   - visitors／add_to_cart／begin_checkout：這三個 metric 在目前架構下
+//     structurally 完全沒有座標收集機制（見上方 GEO_HEAT_METRICS_WITHOUT
+//     _COORDINATES 與其註解），任何行政區都不合法，一律不畫。
+//   - orders／revenue：只要 coordinate_source 是合法的 order_centroid，
+//     且 lat/lng 是有限數字、在合理緯經度範圍內，就合法（0 筆訂單／0 元
+//     營收仍是有效資料，可以畫 0 值熱點——不得用 truthy 判斷）。
+//   - conversion：除了上述座標檢查，還需要有效分母（visitors > 0）才合法；
+//     沒有分母時 conversion 無意義，不得畫成 0%。
+function geoHeatMetricSupportsCoordinate(metric) {
+  return !GEO_HEAT_METRICS_WITHOUT_COORDINATES.includes(metric);
+}
+function _geoHeatIsValidLatLng(lat, lng) {
+  if (typeof lat !== 'number' || typeof lng !== 'number') return false;
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return false;
+  if (lat === 0 && lng === 0) return false; // 0,0 視為無效座標，不得冒充真實位置
+  return true;
+}
+function geoHeatGetAreaMetricValue(area, metric) {
+  return geoHeatSafeNumber((area || {})[metric]);
+}
+function geoHeatIsAreaEligibleForMetric(area, metric) {
+  const a = area || {};
+  if (!GEO_HEAT_METRICS.includes(metric)) return false; // metric 必須合法（GEO_HEAT_METRICS 列舉值之一），未知字串一律不合法
+  if (a.coordinate_source !== 'order_centroid') return false;
+  if (!_geoHeatIsValidLatLng(a.lat, a.lng)) return false;
+  if (!geoHeatMetricSupportsCoordinate(metric)) return false; // visitors/add_to_cart/begin_checkout：結構性無座標
+  if (metric === 'conversion') return geoHeatSafeNumber(a.visitors) > 0; // 需要有效分母才能畫
+  return true; // orders／revenue：0 值仍是有效資料，可畫
+}
+
+`,
+    reconstructAs: '',
+  },
+  {
+    id: 'g141-ranking-uses-shared-resolver-and-eligibility',
+    description: 'geoHeatBuildRanking() 改用共用的 geoHeatGetAreaMetricValue()／geoHeatIsAreaEligibleForMetric()，取代各自重複的 inline 判斷（需求文件三：Metric Value/Eligibility 不得由 Circle/Marker/Ranking/Summary 各自判斷）',
+    needle:
+`      value: geoHeatGetAreaMetricValue(a, metric),
+      ratio: maxV > 0 ? Math.max(0, Math.min(1, geoHeatGetAreaMetricValue(a, metric) / maxV)) : 0,
+      visitors: a.visitors, orders: a.orders, conversion: a.conversion,
+      has_coordinate: geoHeatIsAreaEligibleForMetric(a, metric),`,
+    reconstructAs:
+`      value: geoHeatSafeNumber(a[metric]),
+      ratio: maxV > 0 ? Math.max(0, Math.min(1, geoHeatSafeNumber(a[metric]) / maxV)) : 0,
+      visitors: a.visitors, orders: a.orders, conversion: a.conversion,
+      has_coordinate: a.coordinate_source === 'order_centroid',`,
+  },
+  {
+    id: 'g141-render-layer-uses-shared-resolver',
+    description: 'geoHeatRenderLayer() 改用共用的 geoHeatGetAreaMetricValue()，取代原本的 inline geoHeatSafeNumber(area[metric])',
+    needle: '    const value = geoHeatGetAreaMetricValue(area, metric);',
+    reconstructAs: '    const value = geoHeatSafeNumber(area[metric]);',
+  },
+  {
+    id: 'g141-plottable-filter-metric-aware',
+    description: 'geoHeatRenderLayer() 內 plottable 篩選改用 geoHeatIsAreaEligibleForMetric()（metric-aware），取代原本只看 coordinate_source 的寫法',
+    needle: "  const plottable = (areas || []).filter((a) => geoHeatIsAreaEligibleForMetric(a, metric));",
+    reconstructAs: "  const plottable = (areas || []).filter((a) => a.coordinate_source === 'order_centroid' && typeof a.lat === 'number' && typeof a.lng === 'number');",
+  },
+  {
+    id: 'g141-selectarea-eligibility-check',
+    description: 'geoHeatSelectArea() 的 panTo 判斷改用 geoHeatIsAreaEligibleForMetric()，避免對目前 metric 不合法的座標 panTo',
+    needle: "  if (!area || !geoHeatIsAreaEligibleForMetric(area, geoHeatState.metric)) {",
+    reconstructAs: "  if (!area || area.coordinate_source !== 'order_centroid') {",
+  },
+  {
+    id: 'g141-export-eligibility-helpers',
+    description: 'module.exports 新增 geoHeatGetAreaMetricValue / geoHeatMetricSupportsCoordinate / geoHeatIsAreaEligibleForMetric',
+    needle: "    geoHeatGetAreaMetricValue, geoHeatMetricSupportsCoordinate, geoHeatIsAreaEligibleForMetric,\n",
+    reconstructAs: '',
+  },
+];
+
+function reconstructG141Layer(currentSource) {
+  let working = currentSource;
+  const perItem = [];
+  for (const item of GEO_HEATMAP_G141_ALLOWED_ADDITIONS) {
+    const count = working.split(item.needle).length - 1;
+    if (count !== 1) {
+      perItem.push({ id: item.id, ok: false, count, reason: `預期剛好出現 1 次，實際出現 ${count} 次` });
+      continue;
+    }
+    const replacement = 'reconstructAs' in item ? item.reconstructAs : '';
+    working = working.replace(item.needle, replacement);
+    perItem.push({ id: item.id, ok: true, count });
+  }
+  return { reconstructed: working, perItem };
+}
+
 function reconstructG14Layer(currentSource) {
   let working = currentSource;
   const perItem = [];
@@ -209,9 +330,10 @@ function computeScopedBaselineCheck(rootDir) {
  * 函式名稱／同一個回傳格式，不需要修改呼叫端。
  */
 function computeScopedBaselineCheckForSource(currentSource) {
-  const g14 = reconstructG14Layer(currentSource);
+  const g141 = reconstructG141Layer(currentSource);
+  const g14 = reconstructG14Layer(g141.reconstructed);
   const g131 = reconstructPristine(g14.reconstructed);
-  const perItem = [...g14.perItem, ...g131.perItem];
+  const perItem = [...g141.perItem, ...g14.perItem, ...g131.perItem];
   const allItemsOk = perItem.every((r) => r.ok);
   const reconstructedHash = crypto.createHash('sha256').update(g131.reconstructed, 'utf8').digest('hex');
   const hashMatches = reconstructedHash === PRISTINE_BASELINE_SHA256;
@@ -223,8 +345,10 @@ module.exports = {
   PRISTINE_BASELINE_SHA256,
   GEO_HEATMAP_G131_ALLOWED_ADDITIONS,
   GEO_HEATMAP_G14_ALLOWED_ADDITIONS,
+  GEO_HEATMAP_G141_ALLOWED_ADDITIONS,
   reconstructPristine,
   reconstructG14Layer,
+  reconstructG141Layer,
   computeScopedBaselineCheck,
   computeScopedBaselineCheckForSource,
   runBehavioralInvariants,

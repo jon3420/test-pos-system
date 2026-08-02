@@ -112,10 +112,16 @@ check('40', 'G1.2 未退化（geoHeatUiSetLayer／_geoHeatUiApplyLayerExclusivit
   /function geoHeatUiSetLayer/.test(uiSrc) && /function _geoHeatUiApplyLayerExclusivity/.test(uiSrc));
 check('41', 'A7 KPI 未退化（geo-intelligence.js 完全未受本輪影響）',
   !/businessTotals|geo-heatmap-g131-scope-guard/.test(geoIntelligenceSrc));
-check('42', 'Dark Theme 未退化（G1.3.1 CSS 修正仍存在）',
-  /\[data-theme="dark"\] \.geo-heat-coverage-explanation-text/.test(cssSrc) && /background:\s*#1e293b/.test(cssSrc));
-check('43', 'Light Theme 未退化（既有淺色背景規則仍在）',
-  /\.geo-heat-coverage-explanation-text\s*\{[^}]*background:\s*#f8fafc/.test(cssSrc));
+// fix18-10-hotfix30-B5-R5.4-G1.4.1：#42/#43 原本斷言 dead CSS pattern（
+// [data-theme="dark"] 覆寫 + 基礎規則寫死 #f8fafc 近白背景）必須存在——這正是
+// 使用者截圖裡「白色橫條看不見文字」那個 Bug 本身（見
+// R5.4-G1.4.1_BASELINE_REALITY_AUDIT.md 第四節：全專案沒有任何程式碼會設定
+// [data-theme="dark"]，這個選擇器永遠不會生效）。改成驗證修正後的真實狀態。
+check('42', 'Coverage Explanation 深色樣式未退化（G1.4.1 修正版：var(--bg-card,#1e293b) 直接生效，不再依賴不存在的 [data-theme="dark"]）',
+  /\.geo-heat-coverage-explanation-text\s*\{[^}]*background:\s*var\(--bg-card,\s*#1e293b\)/.test(cssSrc)
+  && !/\[data-theme="dark"\]\s*\.geo-heat-coverage-explanation-text/.test(cssSrc.replace(/\/\*[\s\S]*?\*\//g, '')));
+check('43', 'Coverage Explanation 不再硬編碼 #f8fafc 近白色背景（G1.4.1 已修正 Bug，未退化回舊狀態）',
+  !/\.geo-heat-coverage-explanation-text\s*\{[^}]*background:\s*#f8fafc/.test(cssSrc));
 
 // 八、打包／品質相關
 check('44', 'no test DB（打包排除規則存在，data 目錄不含 pos.db；此處檢查工作目錄狀態）',

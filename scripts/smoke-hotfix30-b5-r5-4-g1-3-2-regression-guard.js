@@ -285,9 +285,19 @@ async function main() {
   assert(/function geoHeatUiSetLayer/.test(uiSrcFull) && /function _geoHeatUiApplyLayerExclusivity/.test(uiSrcFull), '35. Layer Switch 不退化（geoHeatUiSetLayer／_geoHeatUiApplyLayerExclusivity 仍存在）');
   // 36. Coverage Explanation 不退化
   assert(/function _geoHeatBuildCoverageExplanationText/.test(uiSrcFull) && /function _geoHeatMetricTotals/.test(uiSrcFull), '36. Coverage Explanation 不退化（G1.3.1 核心函式仍存在）');
-  // 37. Dark Theme 不退化
+  // 37. Coverage Explanation dark-styling 不退化
+  //
+  // fix18-10-hotfix30-B5-R5.4-G1.4.1：這個斷言原本要求 `[data-theme="dark"]
+  // .geo-heat-coverage-explanation-text { background:#1e293b }` 必須存在——
+  // 但這正是 R5.4-G1.4.1_BASELINE_REALITY_AUDIT.md 第四節確認的 dead CSS
+  // （整個專案沒有任何程式碼會設定 [data-theme="dark"]，這個選擇器永遠不會
+  // 被瀏覽器選中）。G1.4.1 移除了這個錯誤的 theme-gating，改用跟本檔案其餘
+  // 規則一致的 var(--bg-card, #1e293b) 寫法（沒有 gating，直接生效）。
+  // 這裡改成驗證修正後的真實規則仍然存在，不是驗證一個已知的 Bug 沒有退化。
   const cssSrc = fs.readFileSync(path.join(ROOT, 'public/css/geo-heatmap.css'), 'utf8');
-  assert(/\[data-theme="dark"\] \.geo-heat-coverage-explanation-text/.test(cssSrc) && /background:\s*#1e293b/.test(cssSrc), '37. Dark Theme 不退化（G1.3.1 CSS 修正仍存在）');
+  assert(/\.geo-heat-coverage-explanation-text\s*\{[^}]*background:\s*var\(--bg-card,\s*#1e293b\)/.test(cssSrc)
+    && !/\[data-theme="dark"\]\s*\.geo-heat-coverage-explanation-text/.test(cssSrc.replace(/\/\*[\s\S]*?\*\//g, '')),
+    '37. Coverage Explanation dark-styling 不退化（G1.4.1 修正版：var(--bg-card,#1e293b) 直接生效，不再依賴不存在的 [data-theme="dark"]）');
 
   // ══════════════════════════════════════════════════════════════
   // 十、G1.3.1 真實案例 Fixture 仍通過（再次用真實 sql.js DB 交叉驗證）
@@ -630,8 +640,17 @@ async function main() {
   assert(!/geoip|ip-api|ipapi/i.test(heatSrc) && !/geoip|ip-api|ipapi/i.test(uiSrcFull), '95. no IP coordinate（皆不呼叫 IP resolver）');
   assert(!/store_lat|store_lng|storeCoordinate/i.test(heatSrc) && !/store_lat|store_lng|storeCoordinate/i.test(uiSrcFull), '96. no store coordinate fallback');
   assert(!/districtCentroid|district_center/i.test(heatSrc) && !/districtCentroid|district_center/i.test(uiSrcFull), '97. no district centroid marker');
-  assert(/\[data-theme="dark"\] \.geo-heat-coverage-explanation-text/.test(cssSrc), '98. Dark Theme CSS 仍存在（G1.3.1 修正未被本輪動到）');
-  assert(/\.geo-heat-coverage-explanation-text\s*\{[^}]*background:\s*#f8fafc/.test(cssSrc), '99. Light Theme 未退化（既有淺色背景規則仍在）');
+  // fix18-10-hotfix30-B5-R5.4-G1.4.1：同上——#98/#99 原本斷言 dead CSS
+  // pattern（[data-theme="dark"] 覆寫、以及基礎規則寫死 #f8fafc 近白背景）
+  // 必須存在，等於在保護截圖裡那個「白色橫條看不見文字」的 Bug。改成驗證
+  // 修正後的真實狀態：#98 驗證 Coverage Explanation 仍有深色樣式（var()
+  // 版本），且不再依賴不存在的 theme selector；#99 驗證 #f8fafc 這個
+  // Bug 來源已經真的被移除，不是「仍然存在」。
+  assert(/\.geo-heat-coverage-explanation-text\s*\{[^}]*background:\s*var\(--bg-card,\s*#1e293b\)/.test(cssSrc)
+    && !/\[data-theme="dark"\]\s*\.geo-heat-coverage-explanation-text/.test(cssSrc.replace(/\/\*[\s\S]*?\*\//g, '')),
+    '98. Coverage Explanation 深色樣式仍存在（G1.4.1 修正版：var(--bg-card,...)，未被本輪意外移除）');
+  assert(!/\.geo-heat-coverage-explanation-text\s*\{[^}]*background:\s*#f8fafc/.test(cssSrc),
+    '99. Coverage Explanation 不再硬編碼 #f8fafc 近白色背景（G1.4.1 已修正，未退化回 Bug）');
   assert(/el\.innerHTML = html;/.test(uiSrcFull), '100. coverage explanation DOM 安全（整段覆寫既有容器，不重複插入節點，本輪未修改此邏輯）');
 
   // ══════════════════════════════════════════════════════════════

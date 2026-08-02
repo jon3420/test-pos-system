@@ -35,7 +35,12 @@ check('4', 'permanent=true 明確設定（不是預設值 false）', /permanent:
 check('5', 'label CSS 存在（.geo-heat-map-label）', /\.geo-heat-map-label\s*\{/.test(cssSrc));
 check('6', 'label content safe（用 setContent + _geoHeatEsc 轉義，不是 innerHTML 拼接）', /labelTooltip\.setContent\(_geoHeatEsc\(/.test(heatCode));
 check('7', 'district label path（labelTooltip 使用 area.area_name/district/city 其中之一）', /_geoHeatEsc\(area\.area_name \|\| area\.district \|\| area\.city \|\| ''\)/.test(heatCode));
-check('8', 'exact marker path（僅 plottable 陣列——coordinate_source==="order_centroid" 且 lat/lng 為數字——才進入 forEach 建立 marker/label）', /const plottable = \(areas \|\| \[\]\)\.filter\(\(a\) => a\.coordinate_source === 'order_centroid' && typeof a\.lat === 'number' && typeof a\.lng === 'number'\);/.test(heatCode));
+// fix18-10-hotfix30-B5-R5.4-G1.4.1：#8 原本斷言 plottable 篩選必須是舊版
+// 「只看 coordinate_source」的寫法，但 G1.4.1 已經改成 metric-aware 的
+// geoHeatIsAreaEligibleForMetric()（同時檢查 coordinate_source 且該 metric
+// 在這個行政區有效），這是修正 Visitors=0 仍畫 Marker 的 Bug 所需的真實
+// 架構改動，不是退化。改成驗證新的寫法存在。
+check('8', 'exact marker path（plottable 篩選改用 geoHeatIsAreaEligibleForMetric()，metric-aware，只有座標合法且該 metric 有效的行政區才進入 forEach 建立 marker/label）', /const plottable = \(areas \|\| \[\]\)\.filter\(\(a\) => geoHeatIsAreaEligibleForMetric\(a, metric\)\);/.test(heatCode));
 check('9', 'hover tooltip 保留（marker.bindTooltip 呼叫仍在，跟 permanent label 並存）', /marker\.bindTooltip\(geoHeatBuildTooltipContent/.test(heatCode));
 check('10', 'label cleanup（group.clearLayers() 在每次 render 開頭執行，label 跟 marker 一起被清除）', /group\.clearLayers\(\);/.test(heatCode));
 
@@ -65,7 +70,15 @@ check('27', 'empty hidden（Order/Visitor Overlay 沒有訊息時整個 DOM 節�
 // 六、Scope Guard Layering
 check('28', 'G1.4 allowlist 存在（GEO_HEATMAP_G14_ALLOWED_ADDITIONS）', Array.isArray(scopeGuard.GEO_HEATMAP_G14_ALLOWED_ADDITIONS) && scopeGuard.GEO_HEATMAP_G14_ALLOWED_ADDITIONS.length === 4);
 check('29', 'G1.3.1 allowlist 不變（GEO_HEATMAP_G131_ALLOWED_ADDITIONS 仍是 4 項）', Array.isArray(scopeGuard.GEO_HEATMAP_G131_ALLOWED_ADDITIONS) && scopeGuard.GEO_HEATMAP_G131_ALLOWED_ADDITIONS.length === 4);
-check('30', 'layered reconstruction（computeScopedBaselineCheckForSource 內部依序呼叫 reconstructG14Layer 再呼叫 reconstructPristine）', /const g14 = reconstructG14Layer\(currentSource\);/.test(guardSrc) && /const g131 = reconstructPristine\(g14\.reconstructed\);/.test(guardSrc));
+// fix18-10-hotfix30-B5-R5.4-G1.4.1：#30 原本斷言兩層鏈（g14 直接吃
+// currentSource）。G1.4.1 在 geo-heatmap.js 新增了第三層 Scope Allowlist，
+// 疊在 G1.4 之上，所以現在是三層鏈：g141 先還原（吃 currentSource），
+// g14 接著還原（吃 g141.reconstructed），g131 最後還原（吃
+// g14.reconstructed）。改成驗證三層鏈的正確串接順序。
+check('30', 'layered reconstruction（computeScopedBaselineCheckForSource 內部依序呼叫 reconstructG141Layer → reconstructG14Layer → reconstructPristine，三層鏈正確串接）',
+  /const g141 = reconstructG141Layer\(currentSource\);/.test(guardSrc)
+  && /const g14 = reconstructG14Layer\(g141\.reconstructed\);/.test(guardSrc)
+  && /const g131 = reconstructPristine\(g14\.reconstructed\);/.test(guardSrc));
 check('31', 'pristine hash unchanged（仍是 8f3ec8c0...）', scopeGuard.PRISTINE_BASELINE_SHA256 === '8f3ec8c0ae76f84825bc0e2e1a481002109244763741a16a2981d17d0cfc710d');
 {
   const result = scopeGuard.computeScopedBaselineCheck(ROOT);

@@ -224,10 +224,10 @@ function geoHeatBuildRanking(areas, metric) {
     .map((a) => ({
       area_id: a.area_id,
       area_name: a.area_name,
-      value: geoHeatSafeNumber(a[metric]),
-      ratio: maxV > 0 ? Math.max(0, Math.min(1, geoHeatSafeNumber(a[metric]) / maxV)) : 0,
+      value: geoHeatGetAreaMetricValue(a, metric),
+      ratio: maxV > 0 ? Math.max(0, Math.min(1, geoHeatGetAreaMetricValue(a, metric) / maxV)) : 0,
       visitors: a.visitors, orders: a.orders, conversion: a.conversion,
-      has_coordinate: a.coordinate_source === 'order_centroid',
+      has_coordinate: geoHeatIsAreaEligibleForMetric(a, metric),
     }))
     .sort((x, y) => y.value - x.value);
 }
@@ -386,6 +386,52 @@ function geoHeatComputeDrawableState(areas, businessTotals) {
   return 'has_mixed_drawable_geo';
 }
 
+// ════════════════════════════════════════════════════════════════
+// fix18-10-hotfix30-B5-R5.4-G1.4.1 Root Cause（見
+// R5.4-G1.4.1_BASELINE_REALITY_AUDIT.md 第四節）：geoHeatRenderLayer()
+// 原本只用 `coordinate_source === 'order_centroid'` 決定「這個行政區能不能
+// 畫」，完全沒有檢查「目前選的 metric 在這個行政區是不是真的有資料」。
+// 因為 order_centroid 座標只從履約訂單算出來，跟 Orders/Revenue 綁在一起，
+// 切到 Visitors／Add to Cart／Checkout 時，同一批 Orders 的座標點會原封
+// 不動被畫出來（只是數值變成 0），使用者看到的就是「Visitors=0 還是有
+// 中壢區的 Marker/Circle/常駐標籤」。這也是「Metric 切換後地圖殘留舊點」
+// 這個回報症狀的實際成因——不是 Metric state 沒同步（geoHeatUiSyncMetric
+// FromGlobal／geoHeatUiSetMetric 兩邊都有正確呼叫 clearLayers 後重繪），
+// 而是重繪時的篩選條件本身沒有分辨 metric。
+//
+// 修法：新增單一 Metric-aware Eligibility 判斷，取代單純的
+// coordinate_source 篩選：
+//   - visitors／add_to_cart／begin_checkout：這三個 metric 在目前架構下
+//     structurally 完全沒有座標收集機制（見上方 GEO_HEAT_METRICS_WITHOUT
+//     _COORDINATES 與其註解），任何行政區都不合法，一律不畫。
+//   - orders／revenue：只要 coordinate_source 是合法的 order_centroid，
+//     且 lat/lng 是有限數字、在合理緯經度範圍內，就合法（0 筆訂單／0 元
+//     營收仍是有效資料，可以畫 0 值熱點——不得用 truthy 判斷）。
+//   - conversion：除了上述座標檢查，還需要有效分母（visitors > 0）才合法；
+//     沒有分母時 conversion 無意義，不得畫成 0%。
+function geoHeatMetricSupportsCoordinate(metric) {
+  return !GEO_HEAT_METRICS_WITHOUT_COORDINATES.includes(metric);
+}
+function _geoHeatIsValidLatLng(lat, lng) {
+  if (typeof lat !== 'number' || typeof lng !== 'number') return false;
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return false;
+  if (lat === 0 && lng === 0) return false; // 0,0 視為無效座標，不得冒充真實位置
+  return true;
+}
+function geoHeatGetAreaMetricValue(area, metric) {
+  return geoHeatSafeNumber((area || {})[metric]);
+}
+function geoHeatIsAreaEligibleForMetric(area, metric) {
+  const a = area || {};
+  if (!GEO_HEAT_METRICS.includes(metric)) return false; // metric 必須合法（GEO_HEAT_METRICS 列舉值之一），未知字串一律不合法
+  if (a.coordinate_source !== 'order_centroid') return false;
+  if (!_geoHeatIsValidLatLng(a.lat, a.lng)) return false;
+  if (!geoHeatMetricSupportsCoordinate(metric)) return false; // visitors/add_to_cart/begin_checkout：結構性無座標
+  if (metric === 'conversion') return geoHeatSafeNumber(a.visitors) > 0; // 需要有效分母才能畫
+  return true; // orders／revenue：0 值仍是有效資料，可畫
+}
+
 // 需求文件十八：clearLayers() 更新，不重建 group／map／tile；只畫有真實座標
 // 的行政區（coordinate_source === 'order_centroid'），其餘留給 Ranking。
 //
@@ -405,10 +451,10 @@ function geoHeatRenderLayer(areas, metric, display) {
   if (!group || typeof group.clearLayers !== 'function') return;
   group.clearLayers();
   if (display === 'ranking_only') return;
-  const plottable = (areas || []).filter((a) => a.coordinate_source === 'order_centroid' && typeof a.lat === 'number' && typeof a.lng === 'number');
+  const plottable = (areas || []).filter((a) => geoHeatIsAreaEligibleForMetric(a, metric));
   const stats = geoHeatComputeStats(plottable, metric);
   plottable.forEach((area) => {
-    const value = geoHeatSafeNumber(area[metric]);
+    const value = geoHeatGetAreaMetricValue(area, metric);
     const normalized = geoHeatNormalizeValue(value, stats.min, stats.max);
     const selected = geoHeatState.selectedAreaId === area.area_id;
     const style = geoHeatGetStyle(metric, normalized, selected);
@@ -448,7 +494,7 @@ function geoHeatSelectArea(areaId) {
   const area = (geoHeatState.areas || []).find((a) => a.area_id === areaId);
   geoHeatRenderLayer(geoHeatState.areas, geoHeatState.metric, geoHeatState.display);
   _geoHeatRenderRankingDom();
-  if (!area || area.coordinate_source !== 'order_centroid') {
+  if (!area || !geoHeatIsAreaEligibleForMetric(area, geoHeatState.metric)) {
     return { ok: true, panned: false, message: '目前尚無可用座標' };
   }
   if (geoHeatState.instance && typeof geoHeatState.instance.panTo === 'function') {
@@ -562,6 +608,7 @@ if (typeof module !== 'undefined' && module.exports) {
     geoHeatBuildAreas, geoHeatBuildRanking, geoHeatBuildSummary, geoHeatBuildTooltipContent,
     geoHeatHandleStoreSwitch, geoHeatEnsureLayerGroup, geoHeatRenderLayer, geoHeatSelectArea,
     geoHeatScheduleUpdate, geoHeatStatusText, GEO_HEAT_CHANNEL_LABEL, geoHeatComputeDrawableState,
+    geoHeatGetAreaMetricValue, geoHeatMetricSupportsCoordinate, geoHeatIsAreaEligibleForMetric,
     _geoHeatResetStateForTest, _geoHeatRenderRankingDom, _geoHeatRenderSummaryDom,
     _geoHeatRenderCoverageCardDom, _geoHeatRenderLegendDom,
     get geoHeatState() { return geoHeatState; },

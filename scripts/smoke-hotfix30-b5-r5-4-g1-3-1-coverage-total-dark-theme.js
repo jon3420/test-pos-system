@@ -436,26 +436,42 @@ async function main() {
 
     // ══════════════════════════════════════════════════════════════
     // 九、Dark Theme CSS
+    //
+    // fix18-10-hotfix30-B5-R5.4-G1.4.1：以下 8 個斷言原本直接斷言
+    // G1.3.1 當時寫的 dead CSS pattern 必須存在——`.geo-heat-coverage-
+    // explanation-text` 基礎規則寫死 `background:#f8fafc`（近白色），
+    // 深色樣式則整段包在 `[data-theme="dark"]` / `.geo-live-theme-dark`
+    // 底下。但整個專案從未有任何程式碼會把這個 attribute/class 加到任何
+    // DOM 元素上（見 R5.4-G1.4.1_BASELINE_REALITY_AUDIT.md 第四節），
+    // 這個 App 本身也沒有 Light/Dark 切換機制、只有單一固定深色主題
+    // （public/css/main.css 的 :root 變數）。也就是說，這 8 個斷言原本在
+    // 保護的正是使用者截圖裡「白色橫條、文字幾乎看不見」那個 Bug 本身。
+    // G1.4.1 把這個區塊改成跟本檔案其餘規則一致的寫法：不 gate 在不存在
+    // 的 theme selector 底下，直接用 var(--bg-card,...) / var(--text-
+    // primary,...) / var(--border,...)（深色 fallback），並讓空內容不留
+    // 白條。以下斷言改成驗證「修正後」的真實行為，數量維持 8 個不變。
     // ══════════════════════════════════════════════════════════════
     {
-      // 41. Light Theme background 未退化（沒有 [data-theme] 前綴的既有規則仍在）
-      assert(/\.geo-heat-coverage-explanation-text\s*\{[^}]*background:\s*#f8fafc/.test(cssSrc), '41. Light Theme background 未退化（仍是 #f8fafc）');
-      // 42. Light Theme text（沿用既有：沒有寫死 color，靠全站 Light Theme 預設深色文字）
-      assert(/\.geo-heat-coverage-explanation-text\s*\{[^}]*padding:\s*8px 12px/.test(cssSrc), '42. Light Theme 版型未退化（padding 保留）');
-      // 43. Dark Theme background（新增）
-      assert(/\[data-theme="dark"\] \.geo-heat-coverage-explanation-text[^{]*\{[^}]*background:\s*#1e293b/.test(cssSrc), '43. Dark Theme background（新增 #1e293b 深色底）');
-      // 44. Dark Theme text
-      assert(/\[data-theme="dark"\] \.geo-heat-coverage-explanation-text[^{]*\{[^}]*color:\s*#e2e8f0/.test(cssSrc), '44. Dark Theme text（新增 #e2e8f0 高對比淺色字）');
-      // 45. Dark Theme border
-      assert(/\[data-theme="dark"\] \.geo-heat-coverage-explanation-text[^{]*\{[^}]*border-left-color:\s*#475569/.test(cssSrc), '45. Dark Theme border（新增低對比灰色 border）');
-      // 46. Dark Theme accent（no_geo_data 橘色提示線在 dark theme 下仍存在）
-      assert(/\[data-theme="dark"\] \.geo-heat-coverage-explanation-text\[data-state="no_geo_data"\][^{]*\{[^}]*border-left-color:\s*#f59e0b/.test(cssSrc), '46. Dark Theme accent（no_geo_data 橘色提示線）');
-      // 47. no white background in dark theme（Dark Theme 區塊內沒有 #fff/#ffffff/white 背景）
-      const darkBlockMatch = cssSrc.match(/\/\* fix18-10-hotfix30-B5-R5\.4-G1\.3\.1[\s\S]*$/);
-      const darkBlock = darkBlockMatch ? darkBlockMatch[0] : '';
-      assert(darkBlock.length > 0 && !/background:\s*#fff\b|background:\s*#ffffff\b|background:\s*white\b/i.test(darkBlock), '47. no white background in dark theme（新增區塊沒有純白背景）');
-      // 48. readable contrast hook（背景 #1e293b + 文字 #e2e8f0，深色底配淺色字，符合對比方向）
-      assert(darkBlock.indexOf('#1e293b') !== -1 && darkBlock.indexOf('#e2e8f0') !== -1, '48. readable contrast hook（深底 #1e293b + 淺字 #e2e8f0 同時存在，方向正確）');
+      // 41. 不再硬編碼近白色背景 #f8fafc（原本的 Bug 來源）
+      assert(!/\.geo-heat-coverage-explanation-text\s*\{[^}]*background:\s*#f8fafc/.test(cssSrc), '41. 不再硬編碼 #f8fafc 近白色背景（G1.4.1 已移除 Bug 來源）');
+      // 42. 改用專案既有 CSS 變數 var(--bg-card, ...)，深色 fallback
+      assert(/\.geo-heat-coverage-explanation-text\s*\{[^}]*background:\s*var\(--bg-card,\s*#1e293b\)/.test(cssSrc), '42. Coverage Explanation 背景改用 var(--bg-card, ...)（深色 fallback）');
+      // 43. 有明確 color（不再靠繼承，直接用 var(--text-primary, ...)）
+      assert(/\.geo-heat-coverage-explanation-text\s*\{[^}]*color:\s*var\(--text-primary,\s*#e2e8f0\)/.test(cssSrc), '43. Coverage Explanation 有明確 color：var(--text-primary, ...)（不再靠繼承猜文字色）');
+      // 44. border 也改用變數，跟本檔案其餘規則一致（不是另一套硬編碼色票）
+      assert(/\.geo-heat-coverage-explanation-text\s*\{[^}]*border-left:\s*3px solid var\(--border,\s*#475569\)/.test(cssSrc), '44. border-left 改用 var(--border, ...)，跟本檔案其餘規則同一套慣例');
+      // 45. 不再依賴不存在的 theme selector（[data-theme="dark"] / .geo-live-theme-dark 完全從這個區塊消失）
+      const coverageBlockMatch = cssSrc.match(/\.geo-heat-coverage-explanation \{[\s\S]*?\.geo-heat-coverage-explanation-note:empty[^\n]*\n/);
+      const coverageBlockNoComments = (coverageBlockMatch ? coverageBlockMatch[0] : '').replace(/\/\*[\s\S]*?\*\//g, '');
+      assert(coverageBlockNoComments.length > 0 && !/\[data-theme="dark"\]|\.geo-live-theme-dark/.test(coverageBlockNoComments), '45. Coverage Explanation 區塊不再依賴不存在的 [data-theme="dark"] / .geo-live-theme-dark（排除說明註解後的實際選擇器）');
+      // 46. 渲染邏輯（_geoHeatUiRenderCoverageExplanation）沒有使用 inline style，樣式完全由 CSS class 控制
+      assert(!/_geoHeatUiRenderCoverageExplanation[\s\S]{0,600}style=/.test(uiSrc), '46. Coverage Explanation 渲染邏輯沒有使用 inline style');
+      // 47. 空內容不留白條（:empty 規則存在，取代舊的「no white background in dark theme」檢查）
+      assert(/\.geo-heat-coverage-explanation-text:empty[^{]*\{[^}]*display:\s*none/.test(cssSrc), '47. 空內容不保留高度／不留白條（:empty { display:none }）');
+      // 48. readable contrast hook：深色背景 fallback 與淺色文字 fallback 同時存在於同一條規則，方向正確
+      const baseRuleMatch = cssSrc.match(/\.geo-heat-coverage-explanation-text\s*\{[^}]*\}/);
+      const baseRule = baseRuleMatch ? baseRuleMatch[0] : '';
+      assert(baseRule.indexOf('#1e293b') !== -1 && baseRule.indexOf('#e2e8f0') !== -1, '48. readable contrast hook（深底 fallback #1e293b + 淺字 fallback #e2e8f0 同時存在於同一條規則，方向正確）');
       // 49-50 covered in DOM section below
     }
 

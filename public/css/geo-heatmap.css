@@ -166,52 +166,54 @@
 }
 
 /* fix18-10-hotfix30-B5-R5.4-G1.3：Coverage Explanation（取代原本模糊的
-   「資料不足」/「目前沒有可顯示的熱區資料」）。四種資料狀態用不同左邊框
-   顏色區分，文字本身仍是主要傳達手段（不只靠顏色）。 */
+   「資料不足」/「目前沒有可顯示的熱區資料」）。資料狀態用不同左邊框
+   顏色區分，文字本身仍是主要傳達手段（不只靠顏色）。
+   目前 _geoHeatBuildCoverageExplanationText() 只會產生三種 data-state：
+   no_business_data／no_geo_data／partial_coverage（見 geo-heatmap-ui.js）。
+   full_coverage／error 目前沒有任何程式路徑會設定，故不在此新增對應的
+   顏色規則——避免重演 G1.3.1 那種「寫了但永遠不會被觸發」的死 CSS。 */
 .geo-heat-coverage-explanation { margin: 8px 0; }
+
+/* fix18-10-hotfix30-B5-R5.4-G1.4.1 Root Cause（見
+   R5.4-G1.4.1_BASELINE_REALITY_AUDIT.md 第四節）：G1.3.1 當時把修正做成
+   `[data-theme="dark"]` / `.geo-live-theme-dark` 覆寫規則，抄了
+   geo-live-layer.css 的既有寫法，但整個專案裡「從來沒有任何程式碼」會把
+   `data-theme="dark"` 屬性或 `.geo-live-theme-dark` class 加到任何 DOM
+   元素上（實際 grep 全專案 public/js、*.html 為零筆）。這個 App 本身沒有
+   Light/Dark 切換機制——`public/css/main.css` 的 `:root` 直接把
+   --bg-panel/--text-primary 等變數定成深色系（全站唯一固定主題），本檔案
+   其餘規則（.geo-heat-summary、.geo-heat-controlbar…）也全部是直接用
+   `var(--bg-panel, #1a1a1a)` / `var(--text-primary, #f0f0f0)` 之類的變數＋
+   深色 fallback，沒有任何 theme-gating。G1.3.1 幫這個區塊寫的深色樣式因此
+   是「永遠不會被瀏覽器選中的死規則」，實際生效的只有上面沒有 gating 的
+   基礎規則：`background:#f8fafc`（近白）＋沒有自訂 `color`（繼承 body 的
+   淺色文字），等於「近白底＋淺色字」，就是使用者截圖看到的「白色橫條、
+   文字幾乎看不見」。修法：拿掉錯誤的 theme-gating，比照本檔案其餘規則
+   直接用 CSS 變數（深色 fallback），跟全站唯一主題一致，不用等一個不存在
+   的 toggle。 */
 .geo-heat-coverage-explanation-text {
   margin: 0 0 4px;
-  padding: 8px 12px;
-  border-left: 3px solid #94a3b8;
-  background: #f8fafc;
-  border-radius: 4px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--border, #475569);
+  background: var(--bg-card, #1e293b);
+  color: var(--text-primary, #e2e8f0);
+  border-radius: 8px;
   font-size: 13px;
   line-height: 1.6;
 }
 .geo-heat-coverage-explanation-text[data-state="no_business_data"] { border-left-color: #94a3b8; }
 .geo-heat-coverage-explanation-text[data-state="no_geo_data"] { border-left-color: #f59e0b; }
-.geo-heat-coverage-explanation-text[data-state="partial_coverage"] { border-left-color: #22c55e; }
+.geo-heat-coverage-explanation-text[data-state="partial_coverage"] { border-left-color: #3b82f6; }
 .geo-heat-coverage-explanation-note {
   margin: 0;
   padding: 6px 12px;
   font-size: 12px;
-  color: #64748b;
+  color: var(--text-secondary, #94a3b8);
   font-style: italic;
 }
-
-/* fix18-10-hotfix30-B5-R5.4-G1.3.1（需求文件八、九）——Root Cause：這個
-   區塊原本完全沒有 Dark Theme 覆寫，`background:#f8fafc` 是寫死的淺色，
-   也沒有自己的 `color`，深色主題下會直接繼承全站 Dark Theme 的淺色/白色
-   文字，變成「淺底淺字」「近乎看不見」。跟 geo-live-layer.css 既有的
-   `[data-theme="dark"]` / `.geo-live-theme-dark` 雙選擇器＋深灰藍色票
-   （#0f172a/#1e293b/#334155/#e2e8f0）同一套慣例，不新造一套 Dark Theme
-   token。 */
-[data-theme="dark"] .geo-heat-coverage-explanation-text,
-.geo-live-theme-dark .geo-heat-coverage-explanation-text {
-  background: #1e293b;
-  color: #e2e8f0;
-  border-left-color: #475569;
-}
-[data-theme="dark"] .geo-heat-coverage-explanation-text[data-state="no_business_data"],
-.geo-live-theme-dark .geo-heat-coverage-explanation-text[data-state="no_business_data"] { border-left-color: #94a3b8; }
-[data-theme="dark"] .geo-heat-coverage-explanation-text[data-state="no_geo_data"],
-.geo-live-theme-dark .geo-heat-coverage-explanation-text[data-state="no_geo_data"] { border-left-color: #f59e0b; }
-[data-theme="dark"] .geo-heat-coverage-explanation-text[data-state="partial_coverage"],
-.geo-live-theme-dark .geo-heat-coverage-explanation-text[data-state="partial_coverage"] { border-left-color: #3b82f6; }
-[data-theme="dark"] .geo-heat-coverage-explanation-text[data-state="full_coverage"],
-.geo-live-theme-dark .geo-heat-coverage-explanation-text[data-state="full_coverage"] { border-left-color: #22c55e; }
-[data-theme="dark"] .geo-heat-coverage-explanation-note,
-.geo-live-theme-dark .geo-heat-coverage-explanation-note { color: #94a3b8; }
+/* 空內容不得保留高度（需求文件五）。 */
+.geo-heat-coverage-explanation-text:empty,
+.geo-heat-coverage-explanation-note:empty { display: none; }
 
 /* ════════════════════════════════════════════════════════════════
  * fix18-10-hotfix30-B5-R5.4-G1.4 — Map Label Rendering & Honest
