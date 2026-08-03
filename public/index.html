@@ -754,6 +754,7 @@
       <button class="settings-tab-btn"        data-stab="discount_campaigns" onclick="switchSettingsTab('discount_campaigns')">💸 折扣活動</button>
       <button class="settings-tab-btn"        data-stab="product_analysis_groups" onclick="switchSettingsTab('product_analysis_groups')">📊 商品分析群組</button>
       <button class="settings-tab-btn"        data-stab="geo_map" onclick="switchSettingsTab('geo_map')" id="tab-btn-geo_map">🗺️ Geo Intelligence 地圖設定</button>
+      <button class="settings-tab-btn"        data-stab="ga4_realtime" onclick="switchSettingsTab('ga4_realtime')" id="tab-btn-ga4_realtime">📶 GA4 即時推估設定</button>
       <button class="settings-tab-btn"        data-stab="ads_attribution" onclick="switchSettingsTab('ads_attribution')">📣 廣告追蹤</button>
       <button class="settings-tab-btn"        data-stab="line_member" onclick="switchSettingsTab('line_member')">👤 LINE 會員登入設定</button>
       <button class="settings-tab-btn"        data-stab="line_analytics" onclick="switchSettingsTab('line_analytics')">📡 LINE 管理</button>
@@ -1978,6 +1979,77 @@
         <button class="btn-primary" id="geo-settings-save-btn" onclick="geoMapSettingsSave()">💾 儲存設定</button>
         <button type="button" class="btn-secondary" onclick="geoMapSettingsReload()">🔄 重新載入已儲存設定</button>
         <button type="button" class="btn-secondary" onclick="geoMapSettingsRestoreDefaults()">↺ 還原系統預設</button>
+      </div>
+    </div>
+
+    <!-- fix18-10-hotfix30-B5-R5.4-G1.5-B2a：GA4 Realtime Visitor Geo Layer 的
+         Settings UI。沿用既有 settings 表／settings-tab-panel 架構，不另建第二套
+         設定系統。所有讀寫都經由 utils/ga4RealtimeConfig.js 的白名單驗證
+         （見 routes/settings.js 的 GET/PATCH /api/settings/ga4-realtime）。 -->
+    <div class="settings-tab-panel" id="stab-ga4_realtime" style="display:none">
+      <div class="settings-grid">
+        <div class="settings-card full">
+          <h3>📶 GA4 即時推估圖層設定</h3>
+          <p class="settings-hint">Property ID 與 Stream ID 不是密碼，但只能設定於目前店家，不會與其他店家共用。</p>
+          <p class="settings-hint">Service Account 憑證由伺服器環境變數管理，本頁不顯示也不儲存 private key。</p>
+
+          <fieldset class="geo-ga4-settings-section">
+            <legend>A. 啟用狀態</legend>
+            <div class="geo-ga4-settings-field">
+              <label><input type="checkbox" id="ga4RealtimeEnabled"> 啟用 GA4 即時推估圖層</label>
+            </div>
+            <div class="geo-ga4-settings-field">
+              <label><input type="checkbox" id="ga4RealtimeAutoRefresh"> 自動更新即時資料</label>
+            </div>
+          </fieldset>
+
+          <fieldset class="geo-ga4-settings-section">
+            <legend>B. GA4 資料來源</legend>
+            <div class="geo-ga4-settings-field">
+              <label for="ga4RealtimePropertyId">GA4 Property ID</label>
+              <input type="text" id="ga4RealtimePropertyId" inputmode="numeric" autocomplete="off">
+              <p class="geo-ga4-settings-help">GA4 Property ID 為純數字，例如 123456789。</p>
+              <div class="geo-ga4-settings-error" id="ga4RealtimePropertyError"></div>
+            </div>
+            <div class="geo-ga4-settings-field">
+              <label for="ga4RealtimeStreamId">GA4 Web Stream ID</label>
+              <input type="text" id="ga4RealtimeStreamId" inputmode="numeric" autocomplete="off">
+              <p class="geo-ga4-settings-help">GA4 Web Stream ID 為純數字，只套用於目前店家。</p>
+              <div class="geo-ga4-settings-error" id="ga4RealtimeStreamError"></div>
+            </div>
+            <div class="geo-ga4-settings-field">
+              <label><input type="checkbox" id="ga4RealtimeSinglePropertyMode"> 使用伺服器共用 Property 模式</label>
+              <p class="geo-ga4-settings-help" id="ga4RealtimeSinglePropertyModeHint"></p>
+            </div>
+          </fieldset>
+
+          <fieldset class="geo-ga4-settings-section">
+            <legend>C. 更新策略</legend>
+            <div class="geo-ga4-settings-field">
+              <label for="ga4RealtimeCacheSeconds">Cache 秒數</label>
+              <input type="number" id="ga4RealtimeCacheSeconds" min="30" max="300" step="1">
+              <div class="geo-ga4-settings-error" id="ga4RealtimeCacheError"></div>
+            </div>
+          </fieldset>
+
+          <fieldset class="geo-ga4-settings-section">
+            <legend>D. Server 狀態</legend>
+            <div class="geo-ga4-settings-server-state" id="ga4RealtimeServerState" aria-live="polite"></div>
+          </fieldset>
+
+          <fieldset class="geo-ga4-settings-section">
+            <legend>E. 連線測試</legend>
+            <button type="button" class="btn-secondary" id="ga4RealtimeTestBtn" onclick="geoGa4SettingsTestConnection()">🔌 測試連線</button>
+            <div class="geo-ga4-settings-test-result" id="ga4RealtimeTestResult" aria-live="polite"></div>
+          </fieldset>
+
+          <div class="geo-ga4-settings-error" id="ga4RealtimeGeneralError"></div>
+          <div class="geo-ga4-settings-status" id="ga4RealtimeSettingsStatus" aria-live="polite"></div>
+
+          <div class="geo-settings-btn-row geo-settings-footer-actions">
+            <button class="btn-primary" id="ga4RealtimeSaveBtn" onclick="geoGa4SettingsSave()">💾 儲存設定</button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -3510,6 +3582,20 @@
 <script src="/js/vendor/leaflet.markercluster.js?v=fix18-10-hotfix30-B5-R5-4-G1"></script>
 <script src="/js/vendor/leaflet-heat.js?v=fix18-10-hotfix30-B5-R5-4-G1"></script>
 <script src="/js/geo-live-layer.js?v=fix18-10-hotfix30-B5-R5-4-G1"></script>
+<!-- fix18-10-hotfix30-B5-R5.4-G1.5-B1: GA4 Realtime Visitor Geo Layer（前端）。
+     全新獨立檔案，完全沒有修改 geo-heatmap.js／geo-heatmap-ui.js 既有的 Order/
+     Visitor 分支邏輯之外的東西（geo-heatmap-ui.js 的第三層 'ga4' 互斥分支是
+     G1.5 階段就已經加好的 additive 變更，見該檔案）。必須排在 geo-heatmap-ui.js
+     之後（Layer 切換由它呼叫這裡的函式）、geo-intelligence-map.js 之後（重用
+     同一個 window.geoMapState.instance + featureIndex，不建立第二張
+     L.map()／第二個 Tile Layer）。 -->
+<link rel="stylesheet" href="/css/geo-ga4-realtime-layer.css?v=fix18-10-hotfix30-B5-R5-4-G1-5-B1">
+<script src="/js/geo-ga4-realtime-layer.js?v=fix18-10-hotfix30-B5-R5-4-G1-5-B1"></script>
+<!-- fix18-10-hotfix30-B5-R5.4-G1.5-B2a：GA4 Realtime Settings UI。必須排在
+     geo-ga4-realtime-layer.js 之後（儲存成功時呼叫它的
+     geoGa4NotifySettingsChanged()）、頁面 bootstrap 之前。 -->
+<link rel="stylesheet" href="/css/geo-ga4-settings.css?v=fix18-10-hotfix30-B5-R5-4-G1-5-B2a">
+<script src="/js/geo-ga4-settings.js?v=fix18-10-hotfix30-B5-R5-4-G1-5-B2a"></script>
 <script src="/js/coupons.js?v=fix18-06"></script>
 <script src="/js/qrcode.min.js?v=fix18-09F-h2"></script>
 <script src="/license.js?v=fix18-06"></script>

@@ -492,7 +492,9 @@ function geoHeatUiToggleEnabled(checked) {
 // 兩者可能同時掛在同一張地圖上、(3) Visitor Layer 沒有真實座標可畫時，
 // 地圖上完全沒有任何說明文字，看起來像「Order Heatmap 沒有真的切換掉」。
 function geoHeatUiLayerToggleHtml(containerId) {
-  const layers = [['order', '訂單熱區 Order Heatmap'], ['visitor', '訪客熱區 Visitor Layer']];
+  // fix18-10-hotfix30-B5-R5.4-G1.5：新增 GA4 Realtime 選項，additive——
+  // 既有 order/visitor 兩個 key 與行為完全不變，只多一個第三選項。
+  const layers = [['order', '訂單熱區 Order Heatmap'], ['visitor', '訪客熱區 Visitor Layer'], ['ga4', 'GA4 即時訪客（IP 城市級推估）']];
   const buttons = layers.map(([key, label]) => {
     const active = geoHeatUiState.layer === key;
     return `<button type="button" class="geo-heat-layer-btn${active ? ' is-active' : ''}" data-layer="${_geoHeatUiEsc(key)}" aria-pressed="${active}" aria-selected="${active}" onclick="geoHeatUiSetLayer('${_geoHeatUiEsc(containerId)}','${_geoHeatUiEsc(key)}')">${_geoHeatUiEsc(label)}</button>`;
@@ -533,12 +535,22 @@ function _geoHeatUiApplyLayerExclusivity(layer) {
   if (!map || typeof map.hasLayer !== 'function') return;
   const orderGroup = window.geoHeatState && window.geoHeatState.layerGroup;
   const visitorGroup = window.geoVisitorState && window.geoVisitorState.choroplethLayerGroup;
+  // fix18-10-hotfix30-B5-R5.4-G1.5：第三個互斥 group（GA4 Realtime）。沿用
+  // 既有「只 addLayer/removeLayer，不 clearLayers／不重建」慣例，其餘兩個
+  // 既有分支完全不動。
+  const ga4Group = window.geoGa4State && window.geoGa4State.layerGroup;
   if (layer === 'order') {
     if (visitorGroup && map.hasLayer(visitorGroup)) map.removeLayer(visitorGroup);
+    if (ga4Group && map.hasLayer(ga4Group)) map.removeLayer(ga4Group);
     if (orderGroup && !map.hasLayer(orderGroup)) map.addLayer(orderGroup);
   } else if (layer === 'visitor') {
     if (orderGroup && map.hasLayer(orderGroup)) map.removeLayer(orderGroup);
+    if (ga4Group && map.hasLayer(ga4Group)) map.removeLayer(ga4Group);
     if (visitorGroup && !map.hasLayer(visitorGroup)) map.addLayer(visitorGroup);
+  } else if (layer === 'ga4') {
+    if (orderGroup && map.hasLayer(orderGroup)) map.removeLayer(orderGroup);
+    if (visitorGroup && map.hasLayer(visitorGroup)) map.removeLayer(visitorGroup);
+    if (ga4Group && !map.hasLayer(ga4Group)) map.addLayer(ga4Group);
   }
 }
 
@@ -594,22 +606,54 @@ function _geoHeatUiRenderVisitorMapOverlay() {
   overlay.textContent = message;
 }
 
+// fix18-10-hotfix30-B5-R5.4-G1.5：GA4 Layer 的地圖覆蓋文字，跟
+// _geoHeatUiVisitorMapOverlayMessage 同一種角色，只是資料來源換成
+// geoGa4State／geoGa4MapOverlayMessage()（定義於 geo-ga4-realtime-layer.js，
+// 本檔案不重複定義文案邏輯，只負責讀取與掛載 DOM）。
+function _geoHeatUiRenderGa4MapOverlay() {
+  if (typeof document === 'undefined') return;
+  const mapContainerId = geoHeatUiState.mapContainerId;
+  if (!mapContainerId) return;
+  const mapEl = document.getElementById(mapContainerId);
+  if (!mapEl) return;
+  const overlayId = `${mapContainerId}-ga4-empty-overlay`;
+  let overlay = document.getElementById(overlayId);
+  if (geoHeatUiState.layer !== 'ga4') {
+    if (overlay) overlay.remove();
+    return;
+  }
+  const message = (typeof geoGa4MapOverlayMessage === 'function') ? geoGa4MapOverlayMessage() : null;
+  if (!message) { if (overlay) overlay.remove(); return; }
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = overlayId;
+    overlay.className = 'geo-heat-visitor-map-overlay geo-heat-ga4-map-overlay';
+    mapEl.appendChild(overlay);
+  }
+  overlay.textContent = message;
+}
+
 function geoHeatUiSetLayer(containerId, layer) {
-  if (layer !== 'order' && layer !== 'visitor') return false;
+  if (layer !== 'order' && layer !== 'visitor' && layer !== 'ga4') return false;
   geoHeatUiState.layer = layer;
   if (typeof document !== 'undefined') {
     const orderEl = document.getElementById(`${containerId}-order-layer`);
     const visitorEl = document.getElementById(`${containerId}-visitor-layer`);
+    const ga4El = document.getElementById(`${containerId}-ga4-layer`);
     if (orderEl) orderEl.hidden = layer !== 'order';
     if (visitorEl) visitorEl.hidden = layer !== 'visitor';
+    if (ga4El) ga4El.hidden = layer !== 'ga4';
   }
   // 修正 Root Cause 一：按鈕 active/aria-pressed 重新渲染整段 HTML，不再是
   // 「查到按鈕卻什麼都不做」的空 forEach。
   _geoHeatUiRerenderLayerToggle(containerId);
-  // 修正 Root Cause 二：Order/Visitor 兩個既有 Leaflet layerGroup 互斥顯示
+  // 修正 Root Cause 二：Order/Visitor/GA4 三個既有 Leaflet layerGroup 互斥顯示
   // （只 addLayer/removeLayer，不 clearLayers/不重建）。
   _geoHeatUiApplyLayerExclusivity(layer);
   if (layer === 'visitor' && typeof geoVisitorFetchAndRender === 'function') {
+    // fix18-10-hotfix30-B5-R5.4-G1.5-B1：離開 GA4 Layer 時清 timer／abort 未完成
+    // request（見 geo-ga4-realtime-layer.js 的 geoGa4Deactivate()）。
+    if (typeof geoGa4Deactivate === 'function') geoGa4Deactivate();
     // 修正 Root Cause 三：資料抓回來、choropleth 畫完之後，再依當下真實的
     // status/coverage 決定要不要顯示「無可繪製座標」等地圖覆蓋文字。
     Promise.resolve(geoVisitorFetchAndRender(containerId, geoHeatUiState.visitorRange))
@@ -620,8 +664,20 @@ function geoHeatUiSetLayer(containerId, layer) {
     // （否則使用者從「Order 無 Geo 可畫」切到 Visitor，畫面會疊著一段
     // 過期的 Order 文字），對稱於下面 else 分支清 Visitor 覆蓋文字的做法。
     _geoHeatUiRenderOrderMapOverlay();
+    _geoHeatUiRenderGa4MapOverlay();
+  } else if (layer === 'ga4' && typeof geoGa4FetchAndRender === 'function') {
+    Promise.resolve(geoGa4FetchAndRender(containerId))
+      .then(() => { _geoHeatUiApplyLayerExclusivity(geoHeatUiState.layer); _geoHeatUiRenderGa4MapOverlay(); })
+      .catch(() => { _geoHeatUiRenderGa4MapOverlay(); });
+    _geoHeatUiRenderGa4MapOverlay();
+    _geoHeatUiRenderVisitorMapOverlay();
+    _geoHeatUiRenderOrderMapOverlay();
   } else {
+    // fix18-10-hotfix30-B5-R5.4-G1.5-B1：離開 GA4 Layer（切回 order）時同樣要
+    // 清 timer／abort（跟上面 visitor 分支對稱，避免只處理一半）。
+    if (typeof geoGa4Deactivate === 'function') geoGa4Deactivate();
     _geoHeatUiRenderVisitorMapOverlay(); // layer==='order' 時，這裡負責移除殘留的 Visitor 覆蓋文字
+    _geoHeatUiRenderGa4MapOverlay(); // 同理移除殘留的 GA4 覆蓋文字
     _geoHeatUiRenderCoverageExplanation(containerId); // 用既有快取的 geoHeatState.areas 立即重繪，不必重新 Fetch（內含 _geoHeatUiRenderOrderMapOverlay()）
   }
   return true;
@@ -706,6 +762,22 @@ function geoHeatUiRenderPanel(containerId) {
     </div>
     </div>
     ${geoHeatUiRenderVisitorLayerHtml(containerId)}
+    ${geoHeatUiRenderGa4LayerHtml(containerId)}
+  </div>`;
+}
+
+// fix18-10-hotfix30-B5-R5.4-G1.5-B1：GA4 Layer 容器骨架（跟 Order/Visitor
+// 那組 id 同一層級、完全獨立的一組 id，不會互相覆寫）。實際 Toolbar／
+// Summary／Choropleth 的內容渲染完全交給 geo-ga4-realtime-layer.js 的
+// geoGa4FetchAndRender()，這裡只負責容器 id 骨架，跟 Visitor Layer 的
+// geoHeatUiRenderVisitorLayerHtml() 是同一種切法。
+function geoHeatUiRenderGa4LayerHtml(containerId) {
+  const hidden = geoHeatUiState.layer !== 'ga4';
+  return `<div id="${_geoHeatUiEsc(containerId)}-ga4-layer" ${hidden ? 'hidden' : ''}>
+    <div id="${_geoHeatUiEsc(containerId)}-ga4-toolbar"></div>
+    <div id="${_geoHeatUiEsc(containerId)}-ga4-summary" class="geo-ga4-realtime-summary" aria-live="polite"></div>
+    <div id="${_geoHeatUiEsc(containerId)}-ga4-status" class="geo-ga4-realtime-status" aria-live="polite"></div>
+    <div id="${_geoHeatUiEsc(containerId)}-ga4-notices"></div>
   </div>`;
 }
 
@@ -867,6 +939,8 @@ if (typeof module !== 'undefined' && module.exports) {
     _geoHeatBuildDeliveryOptimizationText,
     // fix18-10-hotfix30-B5-R5.4-G1.4（Map Label Rendering & Honest Drawable-State Fix）
     _geoHeatUiOrderMapOverlayMessage, _geoHeatUiRenderOrderMapOverlay,
+    // fix18-10-hotfix30-B5-R5.4-G1.5（GA4 Realtime Visitor Geo Layer）
+    _geoHeatUiRenderGa4MapOverlay,
     get geoHeatUiState() { return geoHeatUiState; },
   };
 }

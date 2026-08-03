@@ -1,0 +1,88 @@
+/* public/css/geo-ga4-settings.css — fix18-10-hotfix30-B5-R5.4-G1.5-B2a
+   GA4 Realtime Settings UI 樣式。只新增 class，不覆寫既有 .settings-* 樣式。
+   一律使用 public/css/main.css 既有的 dark theme CSS variables。 */
+
+.geo-ga4-settings-section {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 6px);
+  padding: 12px;
+  margin-bottom: 12px;
+  background: var(--bg-panel);
+}
+.geo-ga4-settings-section legend {
+  color: var(--text-primary);
+  font-weight: 600;
+  padding: 0 6px;
+}
+
+.geo-ga4-settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.geo-ga4-settings-field {
+  margin-bottom: 10px;
+  color: var(--text-primary);
+}
+.geo-ga4-settings-field label {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--text-primary);
+}
+.geo-ga4-settings-field input[type="text"],
+.geo-ga4-settings-field input[type="number"] {
+  width: 100%;
+  max-width: 320px;
+  box-sizing: border-box;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  border-radius: var(--radius-sm, 6px);
+  padding: 8px;
+}
+
+.geo-ga4-settings-help {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 4px 0 0;
+}
+
+.geo-ga4-settings-status {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-top: 8px;
+}
+.geo-ga4-settings-server-state {
+  color: var(--text-primary);
+  font-size: 13px;
+}
+.geo-ga4-settings-test-result {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.geo-ga4-settings-error {
+  color: var(--danger);
+  font-size: 12px;
+  margin-top: 4px;
+  min-height: 16px;
+}
+.geo-ga4-settings-success {
+  color: var(--success);
+}
+.geo-ga4-settings-loading {
+  color: var(--text-secondary);
+}
+.geo-ga4-settings-cooldown {
+  color: var(--accent);
+}
+
+@media (max-width: 480px) {
+  .geo-ga4-settings-field input[type="text"],
+  .geo-ga4-settings-field input[type="number"] {
+    max-width: 100%;
+    font-size: 16px; /* 避免手機瀏覽器對小於 16px 的 input 自動縮放 */
+  }
+}

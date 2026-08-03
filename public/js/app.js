@@ -2508,6 +2508,7 @@ function switchSettingsTab(tab) {
   if (tab === 'line_analytics') { initLineAnalyticsListeners(); loadLineAnalyticsOverview(); } // fix18-10-hotfix26-E
   if (tab === 'line_integration') loadLineIntegrationCenter(); // fix18-10-hotfix27
   if (tab === 'geo_map')          { if (typeof geoMapSettingsInit === 'function') geoMapSettingsInit(); } // fix18-10-hotfix30-B5-R5.2-B3
+  if (tab === 'ga4_realtime')     { if (typeof geoGa4SettingsInit === 'function') geoGa4SettingsInit(); } // fix18-10-hotfix30-B5-R5.4-G1.5-B2a
 }
 
 // ===== 設定 =====

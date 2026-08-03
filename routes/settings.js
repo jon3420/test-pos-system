@@ -18,6 +18,13 @@ const { normalizeDeliveryDistanceFeeRules } = require('../utils/deliveryFeeCalc'
 const {
   GEO_MAP_SETTINGS_KEYS, validateGeoMapSettingsPatch, parseGeoMapSettingsRow,
 } = require('../utils/geoMapScope');
+// fix18-10-hotfix30-B5-R5.4-G1.5-B2：GA4 Realtime Settings —— 沿用同一份
+// 白名單/驗證規則（utils/ga4RealtimeConfig.js），不建立第二套設定框架。
+const {
+  GA4_REALTIME_SETTINGS_KEYS, validateGa4RealtimeSettingsPatch, getGa4RealtimeConfig,
+} = require('../utils/ga4RealtimeConfig');
+const { invalidateGa4RealtimeCacheForStore } = require('../utils/ga4Realtime');
+const ga4Client = require('../utils/ga4Realtime/client');
 
 // LINE 相關設定 key — line_order=false 時不可修改
 const LINE_KEYS = new Set([
@@ -720,8 +727,119 @@ router.patch('/geo-map', (req, res) => {
 
 // fix18-10-hotfix30-B5-R5.2-B2：供 smoke test 直接呼叫驗證，不需要真的起
 // HTTP server（沿用既有 router.__test 慣例，見上方 hotfix26-F5 註解）。
+// fix18-10-hotfix30-B5-R5.4-G1.5-B2：GET /api/settings/ga4-realtime。
+// 沿用既有 requireStore 注入的 req.storeId，SQL 帶 WHERE store_id=?，
+// 物理上不可能跨店讀取。只回傳「可以安全顯示的摘要」，不回傳憑證/
+// env path/client_email/private key（見需求文件五）。
+router.get('/ga4-realtime', (req, res) => {
+  try {
+    const db = getDb();
+    const storeId = req.storeId;
+    const config = getGa4RealtimeConfig(db, storeId);
+    const cred = ga4Client.credentialStatus();
+    res.json({
+      success: true,
+      data: {
+        ga4_realtime_enabled: config.enabled,
+        ga4_realtime_property_id: config.propertyId || '',
+        ga4_realtime_stream_id: config.streamId || '',
+        ga4_realtime_single_property_mode: config.singlePropertyMode,
+        ga4_realtime_cache_seconds: config.cacheSeconds,
+        ga4_realtime_auto_refresh_enabled: config.autoRefreshEnabled,
+        server_single_store_mode_available: _boolFromEnv(process.env.GA4_REALTIME_SINGLE_STORE_MODE),
+        credential_available: !!cred.available,
+        sdk_available: ga4Client.isSdkAvailable(),
+      },
+    });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
+function _boolFromEnv(raw) {
+  return String(raw).trim().toLowerCase() === 'true';
+}
+
+// fix18-10-hotfix30-B5-R5.4-G1.5-B2：PATCH /api/settings/ga4-realtime。
+// 只更新 GA4_REALTIME_SETTINGS_KEYS 白名單內、且這次請求有送值的欄位。
+// 不接受 store_id／credentials／private_key／property_id(非白名單命名)／
+// stream_id(非白名單命名) 等欄位（validateGa4RealtimeSettingsPatch 會擋）。
+// 設定變更後立刻呼叫 invalidateGa4RealtimeCacheForStore()（需求文件七），
+// 只清這個 store 的 cache，不影響其他店家。
+router.patch('/ga4-realtime', (req, res) => {
+  try {
+    const db = getDb();
+    const storeId = req.storeId;
+    const body = { ...(req.body || {}) };
+
+    const check = validateGa4RealtimeSettingsPatch(body);
+    if (!check.ok) return res.status(400).json({ success: false, message: check.message });
+
+    const keysToWrite = GA4_REALTIME_SETTINGS_KEYS.filter((k) => body[k] !== undefined);
+    const anyRelevantChange = keysToWrite.length > 0;
+
+    // fix18-10-hotfix30-B5-R5.4-G1.5-B2b：原子性寫入。
+    //
+    // Reality Audit 發現一個既有、真實存在的 bug：utils/db.js 包裝過的
+    // db.run() 每次呼叫都會呼叫 save()（= sqlDb.export() + 寫檔），而
+    // sqlDb.export() 在 sql.js 底層會提早結束目前開啟的 SQL transaction
+    // ——這代表如果在 BEGIN 之後、COMMIT 之前呼叫「包裝過」的 db.run()，
+    // 之後的 ROLLBACK 會直接丟出「cannot rollback - no transaction is
+    // active」，而且第一筆寫入其實已經因為 export() 被提早、非預期地
+    // autocommit，完全不是原子操作。
+    //
+    // 修法：跟 utils/db.js 內既有的 hotfix7 categories 遷移用同一種安全
+    // 寫法——直接用 db._db（原始 sqlDb）跑 BEGIN/一連串 prepare-run-free/
+    // COMMIT，只在 COMMIT 成功之後才呼叫一次 db._save()，過程中完全不
+    // 呼叫包裝過的 db.run()（避免任何一次中途 export() 提早結束 transaction）。
+    if (anyRelevantChange) {
+      const rawDb = db._db;
+      try {
+        rawDb.run('BEGIN');
+        keysToWrite.forEach((k) => {
+          let v = body[k];
+          if (v === null) v = '';
+          const updateStmt = rawDb.prepare('UPDATE settings SET value=? WHERE store_id=? AND key=?');
+          updateStmt.run([String(v), storeId, k]);
+          const changes = rawDb.getRowsModified ? rawDb.getRowsModified() : 0;
+          updateStmt.free();
+          if (!changes) {
+            const insertStmt = rawDb.prepare('INSERT OR IGNORE INTO settings (store_id,key,value) VALUES (?,?,?)');
+            insertStmt.run([storeId, k, String(v)]);
+            insertStmt.free();
+          }
+        });
+        rawDb.run('COMMIT');
+        db._save();
+      } catch (writeErr) {
+        try { rawDb.run('ROLLBACK'); } catch (rollbackErr) { /* 沒有真的開啟中的 transaction 時 ROLLBACK 本身會丟例外，安全忽略 */ }
+        return res.status(500).json({ success: false, message: '設定儲存失敗，請稍後再試' });
+      }
+      // 只有在 COMMIT 成功之後才清該 store 的 cache／遞增 generation（需求
+      // 文件三：Cache Invalidation 必須發生在 Commit 之後，不是之前）。
+      invalidateGa4RealtimeCacheForStore(storeId);
+    }
+
+    const config = getGa4RealtimeConfig(db, storeId);
+    const cred = ga4Client.credentialStatus();
+    res.json({
+      success: true,
+      data: {
+        ga4_realtime_enabled: config.enabled,
+        ga4_realtime_property_id: config.propertyId || '',
+        ga4_realtime_stream_id: config.streamId || '',
+        ga4_realtime_single_property_mode: config.singlePropertyMode,
+        ga4_realtime_cache_seconds: config.cacheSeconds,
+        ga4_realtime_auto_refresh_enabled: config.autoRefreshEnabled,
+        server_single_store_mode_available: _boolFromEnv(process.env.GA4_REALTIME_SINGLE_STORE_MODE),
+        credential_available: !!cred.available,
+        sdk_available: ga4Client.isSdkAvailable(),
+      },
+    });
+  } catch (e) { res.status(500).json({ success: false, message: e.message }); }
+});
+
 router.__test = Object.assign(router.__test || {}, {
   validateGeoMapSettingsPatch, parseGeoMapSettingsRow, GEO_MAP_SETTINGS_KEYS,
+  validateGa4RealtimeSettingsPatch, GA4_REALTIME_SETTINGS_KEYS,
 });
 
 module.exports = router;

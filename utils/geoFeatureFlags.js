@@ -9,6 +9,11 @@
 //   GEO_VISITOR_IP_ENABLED=false —— IP 推定進站區域（涉及外部服務/隱私/部署環境，預設關閉）
 //   GEO_MAP_ENABLED=false        —— 行政區地圖（缺乏可信 GeoJSON 依賴前先關閉）
 //   GEO_ALERTS_ENABLED=true      —— 高流量低轉換等規則式警示
+//   GA4_REALTIME_ENABLED=false   —— fix18-10-hotfix30-B5-R5.4-G1.5：GA4
+//                                    Realtime Visitor Geo Layer（涉及外部
+//                                    Google Analytics Data API／憑證，預設
+//                                    關閉，沿用 GEO_VISITOR_IP_ENABLED 同一組
+//                                    「涉外部服務先關閉」慣例）
 //
 // 讀取一律用 truthy 字串比對（'0'/'false'/'' → false，其餘含明確 'true' → true），
 // 未設定時使用上述預設值，避免部署環境忘記設定 env 就整批開關錯誤。
@@ -29,6 +34,7 @@ function getGeoFeatureFlags() {
     GEO_VISITOR_IP_ENABLED:   _boolFromEnv(process.env.GEO_VISITOR_IP_ENABLED, false),
     GEO_MAP_ENABLED:          _boolFromEnv(process.env.GEO_MAP_ENABLED, false),
     GEO_ALERTS_ENABLED:       _boolFromEnv(process.env.GEO_ALERTS_ENABLED, true),
+    GA4_REALTIME_ENABLED:     _boolFromEnv(process.env.GA4_REALTIME_ENABLED, false),
   };
 }
 
