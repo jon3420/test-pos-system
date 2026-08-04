@@ -73,6 +73,71 @@ const COUNTY_ALIASES = {
 
 function _norm(s) { return String(s || '').trim().toLowerCase(); }
 
+// ══════════════════════════════════════════════════════════════════
+// fix18-10-hotfix30-B5-R5.4-G1.5-B2.5：GA4 City Dimension
+// District→Parent County 白名單（需求文件二）。
+//
+// 範圍刻意限定：這張表只給 GA4 Realtime「city」這個粗粒度、本來就標示為
+// 「僅供區域趨勢分析，非精確定位」的欄位使用（見 utils/ga4Realtime/
+// index.js 的 DISCLAIMER），刻意不併入上面的 COUNTY_ALIASES／
+// normalizeCounty()／resolveTaiwanAdministrativeArea()——那些函式被訂單
+// 履行地址、外送地址解析等對「正確性」要求更高、且已知會被外送地址等
+// 精確場景使用的流程共用（見 resolveStoredArea() 的 fulfillment context），
+// 混進去風險更高。
+//
+// 已知風險（誠實記錄，不得隱藏，見
+// R5.4-G1.5-B2.5_DISTRICT_NORMALIZATION_AUDIT.md 詳細分析）：
+//   "Taoyuan District" 在全國行政區資料集中同時對應到「桃園市桃園區」與
+//   「高雄市桃源區」——桃園與桃源中文不同字、但英文皆音譯為
+//   Taoyuan／Taoyuan District，是資料集本身就存在的全國唯一性衝突，不是
+//   本表誤植。本表仍選擇明確、單向對照到桃園市，是有意識、有記錄的業務
+//   決策（GA4 Visitor Geo Layer 情境下，桃源區——人口約 4000 人的高雄山地
+//   原住民鄉——產生「這家店」的 GA4 即時流量機率極低，遠低於桃園市桃園區
+//   這個人口 20 萬以上的市中心行政區），不是沒注意到衝突就盲猜；也因此
+//   刻意不把這個對照併入全域 COUNTY_ALIASES，避免同樣的取捨套用到外送
+//   地址等「錯了會造成實際業務後果」的場景。
+//   "Longtan District"／"龍潭區" 沒有這個問題——全國資料集中唯一對應桃園市
+//   龍潭區，可以安全地當成明確別名，不是取捨，是單純正確。
+const DISTRICT_PARENT_ALIASES = Object.freeze({
+  '桃園市': [
+    'Longtan District', 'Longtan Dist.', 'Longtan', '龍潭區',
+    'Taoyuan District', 'Taoyuan Dist.', '桃園區',
+  ],
+});
+
+// _normDistrict(s)：trim 前後空白＋大小寫不敏感＋把任何連續空白（含
+// tab／換行，\s 涵蓋兩者）正規化成單一空白，避免 "Longtan  District"／
+// "Longtan\tDistrict"／" Longtan District\n" 因為空白差異而查不到別名表。
+function _normDistrict(s) {
+  return String(s === undefined || s === null ? '' : s).trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+let _districtParentAliasIndex = null;
+function _buildDistrictParentAliasIndex() {
+  if (_districtParentAliasIndex) return;
+  _buildIndexes();
+  _districtParentAliasIndex = new Map();
+  const ds = _load();
+  Object.entries(DISTRICT_PARENT_ALIASES).forEach(([countyName, aliases]) => {
+    const county = ds.counties.find((c) => c.county_name === countyName);
+    if (!county) return; // 防禦性：資料集與別名表理論上應完全對齊
+    aliases.forEach((a) => _districtParentAliasIndex.set(_normDistrict(a), county.county_code));
+  });
+}
+
+// normalizeDistrictToParentCounty(value) → county row 或 null（不猜測，
+// 只認得白名單裡明確列出的字串；沒有 "去掉 District 字尾剩下的文字直接當
+// 縣市" 這種通用規則——見需求文件二「不得只做 city.replace(' District',
+// '')」）。
+function normalizeDistrictToParentCounty(value) {
+  _buildDistrictParentAliasIndex();
+  if (value === undefined || value === null) return null;
+  const key = _normDistrict(value);
+  if (!key) return null;
+  const code = _districtParentAliasIndex.get(key);
+  return code ? _byCountyCode.get(code) : null;
+}
+
 function _buildIndexes() {
   if (_byCountyCode) return;
   const ds = _load();
@@ -530,6 +595,9 @@ module.exports = {
   validateAreaFilters,
   resolveStoredArea,
   COUNTY_ALIASES,
+  // R5.4-G1.5-B2.5：GA4 City Dimension District→Parent County 白名單
+  normalizeDistrictToParentCounty,
+  DISTRICT_PARENT_ALIASES,
   // R5.1-D 向下相容
   normalizeTaiwanGeo,
   TAOYUAN_DISTRICTS,

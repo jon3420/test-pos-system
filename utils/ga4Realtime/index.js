@@ -15,7 +15,7 @@
 
 'use strict';
 
-const { normalizeCounty } = require('../taiwanGeoNormalize');
+const { normalizeCounty, normalizeDistrictToParentCounty } = require('../taiwanGeoNormalize');
 const { getGa4RealtimeConfig } = require('../ga4RealtimeConfig');
 const {
   GA4_REALTIME_WINDOWS, isSupportedGa4Metric,
@@ -152,7 +152,18 @@ function _aggregateCityRows(rows, dimensionHeaders) {
     if (countryId && countryId !== 'TW') { excludedNonTw += 1; continue; }
 
     const normalizedCity = city && city !== '(not set)' && city.toLowerCase() !== 'unknown' ? city : null;
-    const county = normalizedCity ? normalizeCounty(normalizedCity) : null;
+    // fix18-10-hotfix30-B5-R5.4-G1.5-B2.5：GA4「city」維度對台灣常回傳的是
+    // 「行政區」（例如 "Longtan District"／"Taoyuan District"），不是縣市
+    // 本身，normalizeCounty() 只認得縣市層級別名，所以這類 row 原本一律
+    // 掉進 unmapped。這裡新增 normalizeDistrictToParentCounty() 作為
+    // fallback——只認得明確白名單裡的行政區字串（見
+    // utils/taiwanGeoNormalize.js 的 DISTRICT_PARENT_ALIASES 與已記錄的
+    // Taoyuan District 全國唯一性衝突風險），不做任何「去掉 District 字尾
+    // 剩下文字就當縣市」的通用猜測，也完全不影響 Hsinchu／Chiayi 裸名稱
+    // 仍然回 null（ambiguous）的既有保護。
+    const county = normalizedCity
+      ? (normalizeCounty(normalizedCity) || normalizeDistrictToParentCounty(normalizedCity))
+      : null;
     if (county) {
       const key = county.county_code;
       if (!countyMap.has(key)) {
