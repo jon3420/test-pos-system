@@ -65,7 +65,11 @@ check('24', 'invalidateGa4RealtimeCacheForStore(storeId) 存在', /function inva
 check('25', '每店 generation Map 存在', /_storeGeneration = new Map/.test(idxSrc));
 check('26', 'fetch 前捕捉 generationAtStart', /generationAtStart = _getStoreGeneration\(storeId\)/.test(idxSrc));
 check('27', 'fetch 完成後比對 generation 才寫 cache', /_getStoreGeneration\(storeId\) === generationAtStart/.test(idxCode));
-check('28', 'stale request 結果不寫 cache（discard，見上一項比對）', /if \(_getStoreGeneration\(storeId\) === generationAtStart\) \{/.test(idxCode));
+// fix18-10-hotfix30-B5-R5.4-G1.5-B2.4：同一個 if 內新增了
+// `&& payload.status !== 'partial'` 條件（見需求文件三：Partial Success
+// 不得覆蓋既有 Full Cache）。Category B 刻意變更，驗證重點改成「generation
+// 比對仍然是寫入 cache 的必要條件之一」，不要求它是唯一條件。
+check('28', 'stale request 結果不寫 cache（discard，見上一項比對；B2.4 起同一個 if 內新增 partial 排除條件）', /if \(_getStoreGeneration\(storeId\) === generationAtStart/.test(idxCode));
 check('29', '不使用 _cache.clear() 做全域清除（只有 resetForTest 測試用途例外）', (idxCode.match(/_cache\.clear\(\)/g) || []).length <= 1);
 check('30', 'invalidate 只影響該 store 的 cache（用 prefix 過濾，不是清全部）', /key\.startsWith\(prefix\)/.test(idxCode));
 

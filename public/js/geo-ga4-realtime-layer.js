@@ -35,6 +35,9 @@ const GEO_GA4_METRIC_LABEL = Object.freeze({
 const GEO_GA4_STATUS_LABEL = Object.freeze({
   disabled: '尚未啟用', not_configured: '尚未設定', fresh: '即時', cached: '快取',
   stale_cache: '過期快取', error: '連線錯誤', auth_error: '登入已失效',
+  // fix18-10-hotfix30-B5-R5.4-G1.5-B2.4：Partial Success（Summary 成功、
+  // City 失敗）——不是完整錯誤，見需求文件六。
+  partial: '部分成功',
 });
 
 // fix18-10-hotfix30-B5-R5.4-G1.5-B2.2：GA4 Backend Connection Error 訊息
@@ -131,13 +134,13 @@ function geoGa4NormalizeResponse(json) {
   const empty = {
     ok: false,
     status: 'error', quota_status: 'unknown', fetched_at: null, cache_age_seconds: null,
-    is_cached: false, is_stale: false, error_code: 'malformed_response',
+    is_cached: false, is_stale: false, error_code: 'malformed_response', error_stage: null,
     summary: { total_active_users_ga4: 0, event_count: 0, screen_page_views: null, mapped_counties: 0, unmapped_city_rows: 0, excluded_non_tw_rows: 0 },
     counties: [], unmapped: [], notices: [],
   };
   if (!json || json.success !== true || !json.data || typeof json.data !== 'object') {
     if (json && json.success === false) {
-      return { ...empty, status: 'error', error_code: json.code || 'GA4_API_ERROR', message: json.message, retryable: !!json.retryable };
+      return { ...empty, status: 'error', error_code: json.code || 'GA4_API_ERROR', error_stage: json.stage || null, message: json.message, retryable: !!json.retryable };
     }
     return empty;
   }
@@ -152,6 +155,9 @@ function geoGa4NormalizeResponse(json) {
     is_cached: !!d.is_cached,
     is_stale: !!d.is_stale,
     error_code: d.error_code || null,
+    // fix18-10-hotfix30-B5-R5.4-G1.5-B2.4：Partial Success（status==='partial'）
+    // 時後端會回 error_stage:'city'，前端不得把它當成完整錯誤（見需求文件六）。
+    error_stage: d.error_stage || null,
     summary: {
       total_active_users_ga4: Number(summary.total_active_users_ga4) || 0,
       event_count: Number(summary.event_count) || 0,
@@ -380,6 +386,10 @@ function geoGa4StatusMessage(payload) {
   if (payload.status === 'error') {
     return GEO_GA4_ERROR_MESSAGES[payload.error_code] || 'GA4 連線發生錯誤，請稍後再試。';
   }
+  // fix18-10-hotfix30-B5-R5.4-G1.5-B2.4：Partial Success——Summary 已取得，
+  // 只有城市區域資料暫時無法載入，不得顯示跟 status==='error' 相同的
+  // 「連線發生錯誤」文案（見需求文件六）。
+  if (payload.status === 'partial') return '已取得 GA4 即時總覽，但城市區域資料暫時無法載入。';
   if (payload.status === 'fresh') return '剛剛更新';
   if (payload.status === 'cached') return `目前顯示 ${payload.cache_age_seconds ?? 0} 秒前的快取資料`;
   if (payload.status === 'stale_cache') return `Google Analytics 暫時無法連線，目前顯示 ${payload.cache_age_seconds ?? 0} 秒前的舊資料`;
@@ -412,7 +422,11 @@ function geoGa4RenderNoticesHtml(payload) {
   const quotaMsg = geoGa4QuotaWarning(payload);
   if (quotaMsg) parts.push(`<div class="geo-ga4-realtime-warning">${_geoGa4Esc(quotaMsg)}</div>`);
 
-  if (payload && payload.ok) {
+  if (payload && payload.ok && payload.status !== 'partial') {
+    // fix18-10-hotfix30-B5-R5.4-G1.5-B2.4：Partial Success 的「城市資料是
+    // 空的」原因是 City Request 失敗（不是 Google 沒有資料），不能套用
+    // 一般「查無城市資料」的措辭，後端已經在 notices 裡給了專屬訊息（見
+    // 需求文件六），這裡跳過一般空狀態判斷，避免顯示誤導訊息。
     if (payload.summary.total_active_users_ga4 === 0) {
       parts.push(`<div class="geo-ga4-realtime-empty">最近${geoGa4State.windowMinutes}分鐘沒有 GA4 活躍使用者。</div>`);
     } else if (!payload.counties.length) {
@@ -598,6 +612,10 @@ function geoGa4MapOverlayMessage() {
   if (p.status === 'auth_error') return GEO_GA4_AUTH_ERROR_MESSAGE;
   if (p.status === 'error') return GEO_GA4_ERROR_MESSAGES[p.error_code] || 'GA4 即時圖層載入失敗，請重試';
   if (!p.ok) return 'GA4 即時圖層載入失敗，請重試';
+  // fix18-10-hotfix30-B5-R5.4-G1.5-B2.4：Partial Success 不是完整錯誤——
+  // Summary 卡片正常顯示，只有地圖不著色，不得顯示「載入失敗」這類地圖
+  // 覆蓋文案（需求文件六：不視為完整錯誤）。回 null 表示不顯示地圖覆蓋層。
+  if (p.status === 'partial') return null;
   if (p.status === 'disabled') return GEO_GA4_ERROR_MESSAGES.ga4_realtime_disabled;
   if (p.status === 'not_configured') return 'GA4 Realtime 尚未設定 Property／憑證';
   if (!p.counties || !p.counties.length) return '目前沒有可對應到縣市的 GA4 即時資料';

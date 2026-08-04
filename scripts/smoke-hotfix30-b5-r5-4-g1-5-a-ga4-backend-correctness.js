@@ -125,10 +125,16 @@ async function main() {
     assert(summary.request.property === 'properties/123', 'B12 property format properties/{id}');
     assert(summary.request.dimensions.length === 0, 'B13 summary request has no dimensions');
     const city = rb.buildGa4RealtimeCityRequest(base);
-    assert(city.request.dimensions.map((d) => d.name).join(',') === 'city,cityId,country,countryId', 'B14 city dimensions city/cityId/country/countryId');
+    // fix18-10-hotfix30-B5-R5.4-G1.5-B2.4：City Request 維度自四維
+    // （city/cityId/country/countryId）縮減為二維（city/countryId）——
+    // _aggregateCityRows() 從未讀取 cityId／country，見
+    // R5.4-G1.5-B2.4_CITY_REQUEST_REALITY_AUDIT.md 第三節／
+    // R5.4-G1.5-B2.4_GA4_CITY_PARTIAL_FIX.md。B14/B16/B17 為此次 baseline
+    // 更新（原本斷言四維，屬於本次刻意變更的行為，不是誤判）。
+    assert(city.request.dimensions.map((d) => d.name).join(',') === 'city,countryId', 'B14 city dimensions 最小化為 city/countryId（B2.4 起）');
     assert(city.request.dimensions.some((d) => d.name === 'city'), 'B15 city dimension present');
-    assert(city.request.dimensions.some((d) => d.name === 'cityId'), 'B16 cityId dimension present');
-    assert(city.request.dimensions.some((d) => d.name === 'country'), 'B17 country dimension present');
+    assert(!city.request.dimensions.some((d) => d.name === 'cityId'), 'B16 cityId dimension 已移除（未使用，B2.4 起）');
+    assert(!city.request.dimensions.some((d) => d.name === 'country'), 'B17 country dimension 已移除（未使用，B2.4 起）');
     assert(city.request.dimensions.some((d) => d.name === 'countryId'), 'B18 countryId dimension present');
 
     const r5 = rb.buildGa4MinuteRanges(5);

@@ -266,10 +266,16 @@ router.get('/ga4-realtime', requireFeature('reports'), requireGeoAnalyticsEnable
     const code = (e instanceof Ga4RealtimeError) ? e.code : 'GA4_API_ERROR';
     const retryable = (e instanceof Ga4RealtimeError) ? e.retryable : false;
     const httpStatus = (e instanceof Ga4RealtimeError) ? e.httpStatus : 500;
-    // 需求文件十七：Error response 只能回 success/code/message/retryable/status，
-    // 不得回 stack/rawError/credential 內容。
+    // fix18-10-hotfix30-B5-R5.4-G1.5-B2.4：新增 stage（'summary'|null）——
+    // 只有 Summary 失敗（或 Request 本身不合法）才會走到這個 catch，City
+    // 單獨失敗已在 orchestrator 轉成 Partial Success（HTTP 200），不會拋到
+    // 這裡（見需求文件八）。
+    const stage = (e instanceof Ga4RealtimeError) ? e.stage : null;
+    // 需求文件十七、八：Error response 只能回
+    // success/code/stage/message/retryable/status，不得回
+    // stack/rawError/credential 內容。
     console.error('[geo-live/ga4-realtime]', code);
-    return res.status(httpStatus).json({ success: false, code, message: 'GA4 Realtime API 發生錯誤，請稍後再試', retryable, status: 'error' });
+    return res.status(httpStatus).json({ success: false, code, stage, message: 'GA4 Realtime API 發生錯誤，請稍後再試', retryable, status: 'error' });
   }
 });
 

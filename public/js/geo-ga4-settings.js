@@ -381,6 +381,14 @@ function geoGa4SettingsRenderTestResult(result) {
     return;
   }
   if (!result.connected) {
+    // fix18-10-hotfix30-B5-R5.4-G1.5-B2.4：Summary 成功、只有 City Request
+    // 失敗（error_stage==='city'）時，後端已給出專屬文案（「GA4 基本連線
+    // 成功，但城市區域資料請求失敗。」），優先顯示這個，不要被一般
+    // error_code 對照表覆蓋成「完全連不上」的訊息（見需求文件二）。
+    if (result.error_stage === 'city') {
+      el.textContent = result.message || 'GA4 基本連線成功，但城市區域資料請求失敗。';
+      return;
+    }
     const code = result.error_code;
     el.textContent = GA4_SETTINGS_TEST_ERROR_MESSAGES[code] || result.message || 'GA4 連線測試失敗。';
     return;

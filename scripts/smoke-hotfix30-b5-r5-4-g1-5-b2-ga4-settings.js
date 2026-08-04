@@ -311,7 +311,38 @@ async function main() {
     assert(!('active_users' in testJson.data), 'E87 no per-row activeUsers detail');
     assert(!('propertyQuota' in testJson.data), 'E88 no raw quota object');
     assert(capturedRequests.some((r) => r.dimensions.length === 0), 'E77 summary request issued');
-    assert(capturedRequests.some((r) => r.dimensions.length === 4), 'E78 city request issued');
+    // fix18-10-hotfix30-B5-R5.4-G1.5-B2.4：City Request 維度自四維縮減為
+    // 二維（city/countryId，見 requestBuilder.js／
+    // R5.4-G1.5-B2.4_CITY_REQUEST_REALITY_AUDIT.md 第三節）。此為刻意的
+    // Contract 變更（Category B），非測試誤判——原斷言（4 維）已隨產品行為
+    // 更新為 2 維，斷言數量不變，仍驗證「city request 真的被送出」這件事。
+    assert(capturedRequests.some((r) => r.dimensions.length === 2), 'E78 city request issued（B2.4 起最小化為 2 維 city/countryId）');
+
+    // fix18-10-hotfix30-B5-R5.4-G1.5-B2.4：E78 附加更強驗證——Summary 成功
+    // ＋City 失敗時，Connection Test 不得再假成功（舊語意：只看
+    // summaryResult.ok 就回 connected:true，即使 City 失敗）。這裡直接繞過
+    // route，呼叫 connTest.runGa4ConnectionTest() 驗證新語意（見需求文件二
+    // Rule C／R5.4-G1.5-B2.4_CITY_REQUEST_REALITY_AUDIT.md）。
+    connTest.resetForTest();
+    client._setClientForTest({
+      async runRealtimeReport(req) {
+        if (req.dimensions.length === 0) return [summaryResp2];
+        const e = new Error('city boom'); e.code = 503; throw e;
+      },
+    });
+    const cityFailResult = await connTest.runGa4ConnectionTest(db, 'store_b2_a');
+    assert(cityFailResult.connected === false, 'E78b Summary success + City fail → connected:false（不再假成功）');
+    assert(cityFailResult.summary_request_ok === true, 'E78c summary_request_ok:true（Summary 真的成功）');
+    assert(cityFailResult.city_request_ok === false, 'E78d city_request_ok:false');
+    assert(cityFailResult.error_stage === 'city', 'E78e error_stage:city');
+    assert(cityFailResult.message === 'GA4 基本連線成功，但城市區域資料請求失敗。', 'E78f 專屬訊息，不與完全連不上共用文案');
+    connTest.resetForTest();
+    client._setClientForTest({
+      async runRealtimeReport(req) {
+        capturedRequests.push(req);
+        return req.dimensions.length === 0 ? [summaryResp2] : [cityResp2];
+      },
+    });
     assert(capturedRequests.every((r) => r.minuteRanges[0].name === 'last_30_minutes'), 'E79 window=30 used');
     assert(capturedRequests.every((r) => JSON.stringify(r.dimensionFilter || {}).includes('9001') || !r.dimensionFilter), 'E81 stream filter applied when configured');
 
@@ -626,7 +657,14 @@ async function main() {
     const idxCode = fs.readFileSync(path.join(ROOT, 'utils/ga4Realtime/index.js'), 'utf8').split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
     assert(!/function invalidateGa4RealtimeCacheForStore\(\)[\s\S]{0,50}_cache\.clear\(\)/.test(idxCode), 'K172 global cache clear → confirmed invalidate is per-store (uses prefix filter, not clear())');
     assert(/generationAtStart/.test(idxCode) && /_getStoreGeneration\(storeId\) === generationAtStart/.test(idxCode), 'K173 generation check removed → confirmed present');
-    assert(/if \(_getStoreGeneration\(storeId\) === generationAtStart\)/.test(idxCode), 'K174 old request writes cache unconditionally → confirmed guarded by generation check');
+    // fix18-10-hotfix30-B5-R5.4-G1.5-B2.4：generation guard 現在多了一個
+    // 條件（&& payload.status !== 'partial'，見需求文件三：Partial
+    // Success 不得覆蓋既有 Full Cache）。這是刻意的 Contract 變更
+    // （Category B），K174 更新為驗證「generation 判斷仍然存在」且「同時
+    // 存在 partial 排除條件」，而不是原本假設整個 if 只有一個條件的過嚴正
+    // 規表達式。
+    assert(/if \(_getStoreGeneration\(storeId\) === generationAtStart/.test(idxCode), 'K174 old request writes cache unconditionally → confirmed guarded by generation check（B2.4 起同一個 if 內新增 partial 排除條件，見下一筆）');
+    assert(/generationAtStart\s*&&\s*payload\.status\s*!==\s*'partial'/.test(idxCode), "K174b Partial Success 寫入 cache → confirmed 同一個 if 內同時要求 generation 吻合且非 partial（B2.4 新增）");
     assert(/RATE_LIMIT_MS/.test(fs.readFileSync(path.join(ROOT, 'utils/ga4Realtime/connectionTest.js'), 'utf8')), 'K175 rate limit removed → confirmed present');
     assert(!/geoGa4SettingsInit[\s\S]{0,300}ga4-realtime-test/.test(fs.readFileSync(path.join(ROOT, 'public/js/geo-ga4-settings.js'), 'utf8')), 'K176 automatic live test on page load → confirmed absent');
     const connCode = fs.readFileSync(path.join(ROOT, 'utils/ga4Realtime/connectionTest.js'), 'utf8');

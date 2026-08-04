@@ -89,7 +89,11 @@ async function main() {
     // ga4-visitors 這個字串（用來說明它不存在／用來當作測試 mock 的攔截關鍵字），
     // 這是合理的自我參照說明，不是產品程式碼裡真的呼叫這個 legacy endpoint，
     // 排除這兩份檔案本身，避免誤判。
-    .filter((f) => !f.endsWith('smoke-hotfix30-b5-r5-4-g1-5-b2-3-ga4-endpoint-unification.js') && !f.endsWith('R5.4-G1.5-B2.3_RUNTIME_ENDPOINT_AUDIT.md') && !f.endsWith('R5.4-G1.5-B2.3_GA4_ENDPOINT_UNIFICATION_FIX.md'))
+    // fix18-10-hotfix30-B5-R5.4-G1.5-B2.4：新增的 Reality Audit／Fix Report
+    // 文件同樣會用文字描述歷史上曾經存在過的 ga4-visitors legacy endpoint
+    // （說明使用者回報現象時的背景脈絡），屬於合理的自我參照說明，不是
+    // 產品程式碼真的呼叫這個 legacy endpoint，一併排除。
+    .filter((f) => !f.endsWith('smoke-hotfix30-b5-r5-4-g1-5-b2-3-ga4-endpoint-unification.js') && !f.endsWith('R5.4-G1.5-B2.3_RUNTIME_ENDPOINT_AUDIT.md') && !f.endsWith('R5.4-G1.5-B2.3_GA4_ENDPOINT_UNIFICATION_FIX.md') && !f.endsWith('R5.4-G1.5-B2.4_CITY_REQUEST_REALITY_AUDIT.md') && !f.endsWith('R5.4-G1.5-B2.4_GA4_CITY_PARTIAL_FIX.md'))
     .filter((f) => LEGACY_PATTERN.test(fs.readFileSync(f, 'utf8')));
   assert(repoHits.length === 0, 'A8b 全 repo（.js/.html/.md，排除 node_modules/.git/data，以及本測試/audit 文件自身的說明性文字）無 ga4-visitors', repoHits.join(','));
 

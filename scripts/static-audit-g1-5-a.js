@@ -34,7 +34,11 @@ check('4', 'requestBuilder.js 有 minuteRanges builder', /function buildGa4Minut
 check('5', 'window=5 → startMinutesAgo:4,endMinutesAgo:0', /startMinutesAgo: 4, endMinutesAgo: 0/.test(rbSrc));
 check('6', 'window=30 → startMinutesAgo:29,endMinutesAgo:0', /startMinutesAgo: 29, endMinutesAgo: 0/.test(rbSrc));
 check('7', 'summary request dimensions 為空陣列', /dimensions: \[\]/.test(rbSrc));
-check('8', 'city request 含 city/cityId/country/countryId 四個維度', /name: 'city'.*name: 'cityId'.*name: 'country'.*name: 'countryId'/s.test(rbSrc));
+// fix18-10-hotfix30-B5-R5.4-G1.5-B2.4：City Request 維度自四維縮減為二維
+// （city/countryId，cityId／country 從未被聚合器使用，見
+// R5.4-G1.5-B2.4_CITY_REQUEST_REALITY_AUDIT.md 第三節）。此為刻意的
+// Contract 變更（Category B），非誤判。
+check('8', 'city request 含 city/countryId 兩個維度（B2.4 起最小化，不再含未使用的 cityId/country）', /dimensions: \[\{ name: 'city' \}, \{ name: 'countryId' \}\]/.test(rbSrc) && !/name: 'cityId'/.test(rbSrc) && !/name: 'country' \}/.test(rbSrc));
 check('9', 'buildGa4DimensionFilter 支援 streamId filter', /_exactStringFilter\('streamId', streamId\)/.test(rbSrc));
 check('10', 'buildGa4DimensionFilter 支援 eventName filter', /_exactStringFilter\('eventName', eventName\)/.test(rbSrc));
 check('11', 'stream+event 同時存在時使用 andGroup', /andGroup/.test(rbSrc));
@@ -58,7 +62,15 @@ check('21', 'revenue/conversion 不在 GA4_REALTIME_METRIC_KEYS 支援清單內'
 // ══════════════════════════════════════════════════════════════
 check('22', '存在獨立的 Summary Request builder（buildGa4RealtimeSummaryRequest）', /function buildGa4RealtimeSummaryRequest/.test(rbSrc));
 check('23', '存在獨立的 City Request builder（buildGa4RealtimeCityRequest）', /function buildGa4RealtimeCityRequest/.test(rbSrc));
-check('24', 'orchestrator 同時發送 Summary + City 兩個 Request（Promise.all）', /Promise\.all\(\[/.test(indexSrc) && /summaryReq\.request/.test(indexSrc) && /cityReq\.request/.test(indexSrc));
+// fix18-10-hotfix30-B5-R5.4-G1.5-B2.4：orchestrator 不再自己 inline 一份
+// Promise.all([...])——改成呼叫共用的 runGa4RealtimeRequestPair()
+// （utils/ga4Realtime/requestPair.js，見需求文件四），該函式內部仍然是
+// Promise.all 平行送出 Summary/City 兩個 Request，只是實作搬到共用模組
+// （connectionTest.js 也用同一份，避免兩處各自維護一份走樣的重複邏輯）。
+// 這是刻意的 Contract 變更（Category B）：驗證重點改成「orchestrator 真的
+// 呼叫了共用的 requestPair 模組，並把 summaryReq.request／cityReq.request
+// 傳進去」，而不是「orchestrator 自己 inline Promise.all」。
+check('24', 'orchestrator 透過共用 requestPair.js 同時發送 Summary + City 兩個 Request', /require\(['"]\.\/requestPair['"]\)/.test(indexSrc) && /runGa4RealtimeRequestPair/.test(indexSrc) && /summaryReq\.request/.test(indexSrc) && /cityReq\.request/.test(indexSrc) && /Promise\.all\(\[/.test(read('utils/ga4Realtime/requestPair.js')));
 check('25', 'total_active_users_ga4 來自 summaryRow，不是從 counties reduce', /const totalActiveUsers = summaryRow/.test(indexCode));
 check('26', 'orchestrator 程式碼中不存在 combined_total 欄位', !/combined_total/.test(indexCode));
 check('27', 'orchestrator 程式碼中不存在 total_visitors_combined 欄位', !/total_visitors_combined/.test(indexCode));
@@ -105,7 +117,11 @@ check('55', 'client.js 支援 GA4_SERVICE_ACCOUNT_JSON（未編碼）', /GA4_SER
 check('56', 'JSON parse 失敗分類為 credential_invalid，不外洩原始字串', /credential_invalid/.test(clientSrc));
 check('57', 'credentialStatus() 不回傳 private_key／client_email 等原始憑證內容（程式碼本身不含 private_key 字面值，僅註解提及禁止事項）', /function credentialStatus/.test(clientSrc) && !/private_key/.test(codeOnly(clientSrc)));
 check('58', 'client.js 例外處理不把完整 error 物件往外傳（只留安全 code/message）', /message: 'GA4 Realtime API request failed'/.test(clientSrc));
-check('59', 'route 的錯誤回應只有 success/code/message/retryable/status 五個欄位', /success: false, code, message:.*retryable, status: 'error'/.test(routeSrc));
+// fix18-10-hotfix30-B5-R5.4-G1.5-B2.4：錯誤回應新增 stage 欄位（'summary'|
+// null，見需求文件八），讓前端／維運知道是 Summary 階段失敗（City 單獨
+// 失敗已改成 Partial Success，不會走到這個錯誤分支）。仍然只回安全欄位，
+// 不含 stack/rawError/credential。Category B 刻意變更。
+check('59', 'route 的錯誤回應只有 success/code/stage/message/retryable/status 六個安全欄位', /success: false, code, stage, message:.*retryable, status: 'error'/.test(routeSrc));
 check('60', 'route 未讀取 body 中的 credentials/private_key（body 沒有被用來組 config）', !/req\.body\.credentials|req\.body\.private_key/.test(routeCode));
 check('61', '.env.example 沒有內嵌真實 private_key（沒有帶內容的 JSON blob）', !/"private_key":\s*"-----BEGIN/.test(envSrc));
 check('62', '.env.example 的 GA4 相關變數皆為空值 placeholder', /GA4_PROPERTY_ID=\n/.test(envSrc) && /GA4_SERVICE_ACCOUNT_JSON=\n/.test(envSrc));

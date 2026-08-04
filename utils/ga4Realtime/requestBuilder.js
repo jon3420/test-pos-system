@@ -89,6 +89,16 @@ function buildGa4RealtimeSummaryRequest({ propertyId, streamId, windowMinutes, m
 }
 
 // buildGa4RealtimeCityRequest({ propertyId, streamId, windowMinutes, metric })
+//
+// fix18-10-hotfix30-B5-R5.4-G1.5-B2.4：最小化為 city／countryId 兩個維度
+// （見 R5.4-G1.5-B2.4_CITY_REQUEST_REALITY_AUDIT.md 第三節）。
+//   - _aggregateCityRows() 實際只讀取 city／countryId，cityId／country 從
+//     未被使用，是多餘、未使用的正式 Request 維度。
+//   - 縮減維度＝縮減 GA4 Realtime Dimensions 相容性風險與回應大小，且不
+//     影響既有 County Mapping（county mapping 只吃 city 字串）。
+//   - _aggregateCityRows() 對「舊格式」（city/cityId/country/countryId 四
+//     維）仍向後相容——它用 dimensionHeaders.indexOf() 找欄位位置，找不到
+//     的欄位回 -1 也不會出錯，所以舊 fixture／舊 cache entry 一樣能解析。
 function buildGa4RealtimeCityRequest({ propertyId, streamId, windowMinutes, metric }) {
   if (!isSupportedGa4Metric(metric)) return { ok: false, code: 'unsupported_metric' };
   const rangeResult = buildGa4MinuteRanges(windowMinutes);
@@ -101,7 +111,7 @@ function buildGa4RealtimeCityRequest({ propertyId, streamId, windowMinutes, metr
     ok: true,
     request: {
       property: `properties/${propertyId}`,
-      dimensions: [{ name: 'city' }, { name: 'cityId' }, { name: 'country' }, { name: 'countryId' }],
+      dimensions: [{ name: 'city' }, { name: 'countryId' }],
       metrics: [{ name: 'activeUsers' }, { name: 'eventCount' }],
       ...(dimensionFilter ? { dimensionFilter } : {}),
       minuteRanges: rangeResult.minuteRanges,

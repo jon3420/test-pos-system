@@ -16,6 +16,7 @@
 
 const { getGa4RealtimeConfig } = require('../ga4RealtimeConfig');
 const { buildGa4RealtimeSummaryRequest, buildGa4RealtimeCityRequest } = require('./requestBuilder');
+const { runGa4RealtimeRequestPair } = require('./requestPair');
 const ga4Client = require('./client');
 
 const RATE_LIMIT_MS = 30 * 1000;
@@ -55,18 +56,42 @@ function _classifyTestFailure(errorResult) {
   return map[code] || 'ga4_unavailable';
 }
 
+// fix18-10-hotfix30-B5-R5.4-G1.5-B2.4：Connection Test 假陽性修正（見需求
+// 文件二／R5.4-G1.5-B2.4_CITY_REQUEST_REALITY_AUDIT.md）。舊版只檢查
+// summaryResult.ok，Summary 成功＋City 失敗一律仍回 connected:true，但正式
+// Data Endpoint 兩個 Request 都會檢查，City 失敗時整個 502——造成
+// Connection Test 顯示成功、正式資料卻打不開的矛盾。
+//
+// 新規則（三種結果，不得再有第四種「city 失敗仍 connected:true」的情況）：
+//   A. Summary 成功＋City 成功 → connected:true，error_stage:null。
+//   B. Summary 失敗           → connected:false，error_stage:'summary'。
+//   C. Summary 成功＋City 失敗 → connected:false（整體連線測試「不算通過」），
+//                                 但 property_accessible/summary_request_ok
+//                                 仍誠實回 true（因為 Summary 真的成功），
+//                                 error_stage:'city'，並顯示專屬訊息，不與
+//                                 完全連不上（case B）共用文案。
+function _baseTestResult(testedAt, sdkAvailable, credentialAvailable) {
+  return {
+    connected: false, sdk_available: sdkAvailable, credential_available: credentialAvailable,
+    property_accessible: false, stream_filter_valid: false,
+    summary_request_ok: false, city_request_ok: false, realtime_request_ok: false,
+    has_recent_data: false, rows_count: 0, tested_at: testedAt,
+    error_stage: null, error_code: null, message: '',
+  };
+}
+
 async function _runTestNow(db, storeId) {
   const config = getGa4RealtimeConfig(db, storeId);
   const testedAt = new Date().toISOString();
 
   if (!config.enabled) {
-    return { connected: false, sdk_available: ga4Client.isSdkAvailable(), credential_available: false, property_accessible: false, stream_filter_valid: false, realtime_request_ok: false, has_recent_data: false, rows_count: 0, tested_at: testedAt, message: 'GA4 即時推估圖層尚未啟用，請先啟用後再測試連線。', error_code: 'ga4_realtime_disabled' };
+    return { ..._baseTestResult(testedAt, ga4Client.isSdkAvailable(), false), message: 'GA4 即時推估圖層尚未啟用，請先啟用後再測試連線。', error_code: 'ga4_realtime_disabled' };
   }
   if (!config.configured) {
-    return { connected: false, sdk_available: ga4Client.isSdkAvailable(), credential_available: !!ga4Client.credentialStatus().available, property_accessible: false, stream_filter_valid: false, realtime_request_ok: false, has_recent_data: false, rows_count: 0, tested_at: testedAt, message: '尚未完成 Property／Stream 設定，請先儲存設定後再測試連線。', error_code: config.errorCode };
+    return { ..._baseTestResult(testedAt, ga4Client.isSdkAvailable(), !!ga4Client.credentialStatus().available), message: '尚未完成 Property／Stream 設定，請先儲存設定後再測試連線。', error_code: config.errorCode };
   }
   if (!ga4Client.isSdkAvailable()) {
-    return { connected: false, sdk_available: false, credential_available: false, property_accessible: false, stream_filter_valid: false, realtime_request_ok: false, has_recent_data: false, rows_count: 0, tested_at: testedAt, message: 'Server 尚未安裝 GA4 SDK，請聯絡系統管理員。', error_code: 'sdk_unavailable' };
+    return { ..._baseTestResult(testedAt, false, false), message: 'Server 尚未安裝 GA4 SDK，請聯絡系統管理員。', error_code: 'sdk_unavailable' };
   }
 
   const cred = ga4Client.credentialStatus();
@@ -74,30 +99,54 @@ async function _runTestNow(db, storeId) {
   const cityReq = buildGa4RealtimeCityRequest({ propertyId: config.propertyId, streamId: config.streamId, windowMinutes: 30, metric: 'visitors' });
 
   const timeoutMs = Number(process.env.GA4_REALTIME_TIMEOUT_MS) || 10000;
-  const [summaryResult, cityResult] = await Promise.all([
-    ga4Client.runGa4RealtimeReport(summaryReq.request, { timeoutMs }),
-    ga4Client.runGa4RealtimeReport(cityReq.request, { timeoutMs }),
-  ]);
+  const { summaryResult, cityResult } = await runGa4RealtimeRequestPair({
+    summaryRequest: summaryReq.ok ? summaryReq.request : null,
+    cityRequest: cityReq.ok ? cityReq.request : null,
+    windowMinutes: 30,
+    metric: 'visitors',
+    runFn: (request) => ga4Client.runGa4RealtimeReport(request, { timeoutMs }),
+  });
 
+  // Case B：Summary 失敗 → 整個連線測試失敗，City 是否成功不影響判定，但
+  // city_request_ok 誠實依實際結果回報（見需求文件二 Rule B）。
   if (!summaryResult.ok) {
     return {
-      connected: false, sdk_available: true, credential_available: !!cred.available,
-      property_accessible: false, stream_filter_valid: false, realtime_request_ok: false,
-      has_recent_data: false, rows_count: 0, tested_at: testedAt,
+      ..._baseTestResult(testedAt, true, !!cred.available),
+      property_accessible: false, stream_filter_valid: false,
+      summary_request_ok: false, city_request_ok: !!cityResult.ok,
+      realtime_request_ok: false, error_stage: 'summary',
       message: '連線測試失敗，請確認 Property／Stream 設定與伺服器憑證。',
       error_code: _classifyTestFailure(summaryResult),
     };
   }
 
-  const rowsCount = (cityResult.ok && cityResult.rows) ? cityResult.rows.length : 0;
   const activeUsersIdx = summaryResult.metricHeaders.indexOf('activeUsers');
   const hasData = summaryResult.rows.length > 0
     && Number((summaryResult.rows[0].metricValues[activeUsersIdx] || {}).value || 0) > 0;
 
+  // Case C：Summary 成功＋City 失敗 → 不得再顯示完整成功（需求文件二
+  // Rule C）。property_accessible/stream_filter_valid 依 Summary 的結果
+  // 判定為 true（Summary 能跑成功，代表 Property／Stream Filter 本身是
+  // 合法的），但 connected 仍是 false，因為地圖資料需要的 City Request
+  // 打不通。
+  if (!cityResult.ok) {
+    return {
+      ..._baseTestResult(testedAt, true, !!cred.available),
+      property_accessible: true, stream_filter_valid: true,
+      summary_request_ok: true, city_request_ok: false,
+      realtime_request_ok: false, has_recent_data: hasData,
+      error_stage: 'city', error_code: _classifyTestFailure(cityResult),
+      message: 'GA4 基本連線成功，但城市區域資料請求失敗。',
+    };
+  }
+
+  // Case A：Summary 成功＋City 成功。
+  const rowsCount = (cityResult.rows) ? cityResult.rows.length : 0;
   return {
-    connected: true, sdk_available: true, credential_available: !!cred.available,
-    property_accessible: true, stream_filter_valid: true, realtime_request_ok: true,
-    has_recent_data: hasData, rows_count: rowsCount, tested_at: testedAt,
+    ..._baseTestResult(testedAt, true, !!cred.available),
+    connected: true, property_accessible: true, stream_filter_valid: true,
+    summary_request_ok: true, city_request_ok: true, realtime_request_ok: true,
+    has_recent_data: hasData, rows_count: rowsCount, error_stage: null,
     message: hasData ? '連線成功，最近 30 分鐘有即時資料。' : '連線成功，目前最近30分鐘沒有即時資料。',
     error_code: null,
   };

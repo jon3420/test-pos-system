@@ -22,6 +22,7 @@ const {
   buildGa4RealtimeSummaryRequest, buildGa4RealtimeCityRequest,
 } = require('./requestBuilder');
 const { isRetryableGa4Error } = require('./errors');
+const { runGa4RealtimeRequestPair } = require('./requestPair');
 const ga4Client = require('./client');
 
 const DISCLAIMER = 'GA4 位置由 IP 推估，僅供區域趨勢分析，非精確定位。';
@@ -31,11 +32,16 @@ const QUOTA_NOTICE_LOW_DATA = 'Google Analytics 可能基於隱私保護省略�
 // 由 route 層轉成 { success:false, code, message, retryable, status } 的最小
 // 錯誤形狀（見需求文件十七：Error response 不得回 stack/rawError/credential）。
 class Ga4RealtimeError extends Error {
-  constructor(code, retryable, httpStatus) {
+  // fix18-10-hotfix30-B5-R5.4-G1.5-B2.4：新增 stage（'summary'|'city'|null）
+  // ——只有 Summary 失敗（或 Request Builder 驗證失敗）才會走到這個例外；
+  // City 單獨失敗改成 Partial Success（見 _fetchAndBuildPayload），不再
+  // throw。route 層可把 stage 一併回給前端做安全診斷（見需求文件八）。
+  constructor(code, retryable, httpStatus, stage) {
     super(code);
     this.code = code;
     this.retryable = !!retryable;
     this.httpStatus = httpStatus || 502;
+    this.stage = stage || null;
   }
 }
 
@@ -115,11 +121,18 @@ async function _runWithRetry(fn, opts = {}) {
 // Hsinchu County/Chiayi City/Chiayi County 等 alias，且 bare "Hsinchu"／
 // "Chiayi" 正確回傳 null=ambiguous，不會誤猜）。country 非 TW 一律排除，
 // 不畫入台灣地圖。
+//
+// fix18-10-hotfix30-B5-R5.4-G1.5-B2.4：正式 City Request 已縮減為
+// city／countryId 兩個維度（見 requestBuilder.js／
+// R5.4-G1.5-B2.4_CITY_REQUEST_REALITY_AUDIT.md 第三節）。本函式只讀取
+// city／countryId，從未讀取 cityId／country，因此：
+//   - 不得假設 cityId／country 一定存在於 dimensionHeaders。
+//   - indexOf() 對不存在的維度回傳 -1，下面的存取都用 `idx.x >= 0` 防禦，
+//     所以舊 fixture／舊 cache（四維：city/cityId/country/countryId）與
+//     新 Request（兩維：city/countryId）都能正確解析（向後相容）。
 function _aggregateCityRows(rows, dimensionHeaders) {
   const idx = {
     city: dimensionHeaders.indexOf('city'),
-    cityId: dimensionHeaders.indexOf('cityId'),
-    country: dimensionHeaders.indexOf('country'),
     countryId: dimensionHeaders.indexOf('countryId'),
   };
   const metricIdx = { activeUsers: 0, eventCount: 1 };
@@ -227,7 +240,21 @@ async function getGa4RealtimeData({ db, storeId, window, metric, forceRefresh = 
       // fix18-10-hotfix30-B5-R5.4-G1.5-B2：若設定在這次 fetch 進行期間被
       // 改過（generation 已經前進），這筆結果是舊設定算出來的，不得寫回
       // cache（否則使用者剛改完 Property，畫面卻閃回舊 Property 的資料）。
-      if (_getStoreGeneration(storeId) === generationAtStart) {
+      //
+      // fix18-10-hotfix30-B5-R5.4-G1.5-B2.4：Partial Success
+      // （payload.status === 'partial'）不得寫進一般 Full Cache（見需求
+      // 文件三）：
+      //   - Partial 的 counties 一律是空陣列，寫進 cache 等於用「暫時打不
+      //     開城市資料」蓋掉使用者上一次真正成功的完整縣市資料，下次
+      //     cache-hit 會誤把「沒有城市資料」當成快取結果回傳。
+      //   - 若目前沒有既有 Full Cache，這裡什麼都不寫，單純把 partial
+      //     payload 回給這次 Request；下次 fetch（無論 auto refresh 或
+      //     手動 refresh）會重新嘗試 City Request，一旦成功就正常建立
+      //     Full Cache，不受這次 partial 影響。
+      //   - 若目前已有 Full Cache，這裡直接跳過寫入，讓舊的 Full Cache
+      //     繼續存在、繼續可被下一次 cache-hit 使用，直到它自然過期或被
+      //     下一次「Summary+City 都成功」的 fetch 換掉。
+      if (_getStoreGeneration(storeId) === generationAtStart && payload.status !== 'partial') {
         _cache.set(cacheKey, {
           data: payload,
           fetchedAt: Date.now(),
@@ -235,8 +262,16 @@ async function getGa4RealtimeData({ db, storeId, window, metric, forceRefresh = 
           lastSuccessfulAt: Date.now(),
         });
       }
-      _storeLastSuccessAt.set(storeId, payload.fetched_at);
-      _storeLastErrorCode.set(storeId, null);
+      // fix18-10-hotfix30-B5-R5.4-G1.5-B2.4：last_success_at／
+      // last_error_code（getGa4RealtimeStatus 用）代表「完整 Geo 資料上次
+      // 成功時間」，Partial 只是 Summary 成功、City 沒成功，不算完整成功，
+      // 不得更新這個時間戳（否則 status endpoint 會誤導使用者以為地圖資料
+      // 剛剛更新過）。但 Partial 也不是「錯誤」（HTTP 200，success:true），
+      // 所以也不寫入 last_error_code。
+      if (payload.status !== 'partial') {
+        _storeLastSuccessAt.set(storeId, payload.fetched_at);
+        _storeLastErrorCode.set(storeId, null);
+      }
       return payload;
     })
     .catch((err) => {
@@ -266,18 +301,27 @@ function _clonePayload(p) {
 async function _fetchAndBuildPayload({ config, storeId, windowMinutes, metric, sleepFn }) {
   const summaryReq = buildGa4RealtimeSummaryRequest({ propertyId: config.propertyId, streamId: config.streamId, windowMinutes, metric });
   const cityReq = buildGa4RealtimeCityRequest({ propertyId: config.propertyId, streamId: config.streamId, windowMinutes, metric });
-  if (!summaryReq.ok) throw new Ga4RealtimeError(summaryReq.code, false, 400);
-  if (!cityReq.ok) throw new Ga4RealtimeError(cityReq.code, false, 400);
+  if (!summaryReq.ok) throw new Ga4RealtimeError(summaryReq.code, false, 400, 'summary');
+  if (!cityReq.ok) throw new Ga4RealtimeError(cityReq.code, false, 400, 'city');
 
   const timeoutMs = Number(process.env.GA4_REALTIME_TIMEOUT_MS) || 10000;
 
-  const [summaryResult, cityResult] = await Promise.all([
-    _runWithRetry(() => ga4Client.runGa4RealtimeReport(summaryReq.request, { timeoutMs }), { sleepFn }),
-    _runWithRetry(() => ga4Client.runGa4RealtimeReport(cityReq.request, { timeoutMs }), { sleepFn }),
-  ]);
+  // fix18-10-hotfix30-B5-R5.4-G1.5-B2.4：改用共用的 runGa4RealtimeRequestPair
+  // （見 requestPair.js），保留原本的重試邏輯（每個 stage 各自 retry，不是
+  // 兩個 stage 綁在一起重試），並新增安全診斷 log（stage/code/retryable/
+  // window/metric/elapsed_ms，見需求文件四）。
+  const { summaryResult, cityResult } = await runGa4RealtimeRequestPair({
+    summaryRequest: summaryReq.request,
+    cityRequest: cityReq.request,
+    windowMinutes,
+    metric,
+    runFn: (request) => _runWithRetry(() => ga4Client.runGa4RealtimeReport(request, { timeoutMs }), { sleepFn }),
+  });
 
-  if (!summaryResult.ok) throw new Ga4RealtimeError(summaryResult.code, summaryResult.retryable, 502);
-  if (!cityResult.ok) throw new Ga4RealtimeError(cityResult.code, cityResult.retryable, 502);
+  // fix18-10-hotfix30-B5-R5.4-G1.5-B2.4：Summary 失敗——總數與核心 GA4
+  // Request 都不可用，仍視為整體失敗（見需求文件五 Rule A），route 層轉成
+  // 502。
+  if (!summaryResult.ok) throw new Ga4RealtimeError(summaryResult.code, summaryResult.retryable, 502, 'summary');
 
   const summaryRow = (summaryResult.rows && summaryResult.rows[0]) || null;
   const summaryMetricIdx = { activeUsers: summaryResult.metricHeaders.indexOf('activeUsers'), eventCount: summaryResult.metricHeaders.indexOf('eventCount'), screenPageViews: summaryResult.metricHeaders.indexOf('screenPageViews') };
@@ -286,6 +330,43 @@ async function _fetchAndBuildPayload({ config, storeId, windowMinutes, metric, s
   const totalScreenPageViews = (summaryMetricIdx.screenPageViews >= 0 && summaryRow)
     ? Number((summaryRow.metricValues[summaryMetricIdx.screenPageViews] || {}).value || 0)
     : null;
+
+  // fix18-10-hotfix30-B5-R5.4-G1.5-B2.4：Summary 成功＋City 失敗 →
+  // Partial Success（見需求文件五 Rule C）。不再整個 502：Summary 卡片
+  // 仍可顯示，地圖不著色，不得使用假的縣市資料／店家地址替代／畫
+  // Marker／Circle（counties 一律回空陣列）。這個 payload 從呼叫端
+  // （getGa4RealtimeData）的角度看跟 fresh payload 一樣是正常 resolve，
+  // 會被寫進 route 的 200 success:true 回應。
+  if (!cityResult.ok) {
+    return {
+      source: 'ga4_realtime',
+      accuracy: 'ip_city_county_estimate',
+      window_minutes: windowMinutes,
+      metric,
+      fetched_at: new Date().toISOString(),
+      cache_age_seconds: 0,
+      is_cached: false,
+      is_stale: false,
+      status: 'partial',
+      quota_status: summaryResult.quotaStatus || 'unknown',
+      summary: {
+        total_active_users_ga4: totalActiveUsers,
+        event_count: totalEventCount,
+        screen_page_views: totalScreenPageViews,
+        mapped_counties: 0,
+        unmapped_city_rows: 0,
+        excluded_non_tw_rows: 0,
+      },
+      counties: [],
+      unmapped: [],
+      notices: [
+        'GA4 即時總覽已取得，但城市區域資料暫時無法載入。',
+        DISCLAIMER,
+      ],
+      error_code: 'city_request_failed',
+      error_stage: 'city',
+    };
+  }
 
   const { counties, unmapped, excludedNonTw } = _aggregateCityRows(cityResult.rows, cityResult.dimensionHeaders);
 
