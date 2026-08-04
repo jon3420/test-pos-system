@@ -2006,17 +2006,18 @@
           <fieldset class="geo-ga4-settings-section">
             <legend>B. GA4 資料來源</legend>
             <div class="geo-ga4-settings-field">
-              <label for="ga4RealtimePropertyId">GA4 Property ID</label>
+              <label for="ga4RealtimePropertyId">GA4 Property ID（資源 ID）</label>
               <input type="text" id="ga4RealtimePropertyId" inputmode="numeric" autocomplete="off">
-              <p class="geo-ga4-settings-help">GA4 Property ID 為純數字，例如 123456789。</p>
+              <p class="geo-ga4-settings-help">請填 GA4『資源詳細資料』頁顯示的資源 ID，只填純數字。</p>
               <div class="geo-ga4-settings-error" id="ga4RealtimePropertyError"></div>
             </div>
             <div class="geo-ga4-settings-field">
-              <label for="ga4RealtimeStreamId">GA4 Web Stream ID</label>
+              <label for="ga4RealtimeStreamId">GA4 Web Stream ID（串流 ID）</label>
               <input type="text" id="ga4RealtimeStreamId" inputmode="numeric" autocomplete="off">
-              <p class="geo-ga4-settings-help">GA4 Web Stream ID 為純數字，只套用於目前店家。</p>
+              <p class="geo-ga4-settings-help">請填 GA4『網頁串流詳情』頁顯示的串流 ID，只填純數字。不是 G- 開頭的評估 ID。</p>
               <div class="geo-ga4-settings-error" id="ga4RealtimeStreamError"></div>
             </div>
+            <p class="geo-ga4-settings-help">Property ID 與 Stream ID 是不同欄位，請勿填反。</p>
             <div class="geo-ga4-settings-field">
               <label><input type="checkbox" id="ga4RealtimeSinglePropertyMode"> 使用伺服器共用 Property 模式</label>
               <p class="geo-ga4-settings-help" id="ga4RealtimeSinglePropertyModeHint"></p>

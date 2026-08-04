@@ -1,4 +1,4 @@
-// public/js/geo-ga4-settings.js — fix18-10-hotfix30-B5-R5.4-G1.5-B2a
+// public/js/geo-ga4-settings.js — fix18-10-hotfix30-B5-R5.4-G1.5-B2.1
 // GA4 Realtime Visitor Geo Layer — Settings UI
 //
 // 沿用既有 apiFetch()（app.js）／showToast()（app.js）／
@@ -14,6 +14,18 @@
 //     該店設定，不接受前端覆寫 Property／Stream／Credential。
 //   - 頁面初始化只讀本地 settings/status，不自動觸發 Google API 呼叫
 //     （呼叫連線測試永遠需要使用者按下按鈕）。
+//
+// fix18-10-hotfix30-B5-R5.4-G1.5-B2.1（GA4 Settings Persistence Hotfix）：
+//   - Settings Form 一律只使用 Stored Settings 欄位（ga4_realtime_enabled／
+//     ga4_realtime_property_id／ga4_realtime_stream_id／
+//     ga4_realtime_single_property_mode／ga4_realtime_cache_seconds／
+//     ga4_realtime_auto_refresh_enabled），不受伺服器全域 Feature Flag
+//     或憑證狀態影響（見 routes/settings.js buildGa4RealtimeSettingsResponse()）。
+//   - Runtime 狀態（global_enabled／effective_enabled／effective_configured／
+//     credential_available／sdk_available／property_configured／
+//     stream_configured）只用於狀態顯示，絕不回填表單欄位。
+//   - GET 失敗或 malformed response 時，一律保留目前表單，不得呼叫
+//     geoGa4SettingsPopulateForm(emptyDefaults) 把使用者已輸入的內容清空。
 
 'use strict';
 
@@ -70,18 +82,28 @@ function geoGa4SettingsInit() {
 
 // geoGa4SettingsNormalizeResponse(json) — 防禦性正規化，malformed 時回傳
 // 安全預設值，不 throw。
+//
+// 欄位分兩組（fix18-10-hotfix30-B5-R5.4-G1.5-B2.1，見需求文件二/四）：
+//   Stored Settings  → ga4_realtime_*（Settings Form 一律只讀這組）
+//   Effective Runtime → global_enabled／effective_enabled／effective_configured／
+//                        runtime_error_code／property_configured／
+//                        stream_configured／credential_available／sdk_available
+//                        （只用於狀態顯示，不得回填表單）
 function geoGa4SettingsNormalizeResponse(json) {
   const empty = {
     ok: false,
     ga4_realtime_enabled: false, ga4_realtime_property_id: '', ga4_realtime_stream_id: '',
     ga4_realtime_single_property_mode: false, ga4_realtime_cache_seconds: 60,
     ga4_realtime_auto_refresh_enabled: true, server_single_store_mode_available: false,
+    global_enabled: false, effective_enabled: false, effective_configured: false,
+    runtime_error_code: null, property_configured: false, stream_configured: false,
     credential_available: false, sdk_available: false,
   };
   if (!json || json.success !== true || !json.data || typeof json.data !== 'object') return empty;
   const d = json.data;
   return {
     ok: true,
+    // Stored Settings — 使用者實際儲存的值，Settings Form 一律只使用這組。
     ga4_realtime_enabled: !!d.ga4_realtime_enabled,
     ga4_realtime_property_id: d.ga4_realtime_property_id || '',
     ga4_realtime_stream_id: d.ga4_realtime_stream_id || '',
@@ -89,11 +111,22 @@ function geoGa4SettingsNormalizeResponse(json) {
     ga4_realtime_cache_seconds: Number(d.ga4_realtime_cache_seconds) || 60,
     ga4_realtime_auto_refresh_enabled: d.ga4_realtime_auto_refresh_enabled !== false,
     server_single_store_mode_available: !!d.server_single_store_mode_available,
+    // Effective Runtime Config — 只用於狀態顯示。
+    global_enabled: !!d.global_enabled,
+    effective_enabled: !!d.effective_enabled,
+    effective_configured: !!d.effective_configured,
+    runtime_error_code: d.runtime_error_code || null,
+    property_configured: !!d.property_configured,
+    stream_configured: !!d.stream_configured,
     credential_available: !!d.credential_available,
     sdk_available: !!d.sdk_available,
   };
 }
 
+// geoGa4SettingsLoad() — fix18-10-hotfix30-B5-R5.4-G1.5-B2.1：GET 失敗或
+// malformed response 時，不得呼叫 geoGa4SettingsPopulateForm(emptyDefaults)
+// 清空使用者現有輸入（需求文件六 3）。只有 normalized.ok===true 才會
+// Populate 表單；失敗時只顯示「重新讀取設定失敗」，保留目前表單內容。
 async function geoGa4SettingsLoad() {
   window.geoGa4SettingsState.loading = true;
   const mySeq = ++window.geoGa4SettingsState.requestSeq;
@@ -115,13 +148,20 @@ async function geoGa4SettingsLoad() {
   if (mySeq !== window.geoGa4SettingsState.requestSeq) return; // 被更新的呼叫取代
 
   window.geoGa4SettingsState.loading = false;
-  window.geoGa4SettingsState.loaded = normalized.ok;
+  window.geoGa4SettingsState.loaded = window.geoGa4SettingsState.loaded || normalized.ok;
   window.geoGa4SettingsState.loadError = !normalized.ok;
-  window.geoGa4SettingsState.lastLoaded = normalized;
-  window.geoGa4SettingsState.serverSingleStoreModeAvailable = normalized.server_single_store_mode_available;
 
-  geoGa4SettingsPopulateForm(normalized);
-  geoGa4SettingsRenderServerStatus(normalized);
+  if (normalized.ok) {
+    window.geoGa4SettingsState.lastLoaded = normalized;
+    window.geoGa4SettingsState.serverSingleStoreModeAvailable = normalized.server_single_store_mode_available;
+    geoGa4SettingsPopulateForm(normalized);
+    geoGa4SettingsRenderServerStatus(normalized);
+    geoGa4SettingsRenderStatusMessage(normalized);
+  } else {
+    // 不清空表單、不覆蓋既有成功提示；只提示重新讀取設定失敗，允許使用者
+    // 重新載入（需求文件六 3）。
+    geoGa4SettingsRenderLoadError();
+  }
   return normalized;
 }
 
@@ -134,6 +174,8 @@ function geoGa4SettingsPopulateForm(s) {
   const cacheEl = _geoGa4SettingsEl('ga4RealtimeCacheSeconds');
   const singleModeHintEl = _geoGa4SettingsEl('ga4RealtimeSinglePropertyModeHint');
 
+  // 一律只使用 Stored Settings 欄位（ga4_realtime_*），不得使用
+  // effective_enabled／effective_configured 等 Runtime 欄位回填表單。
   if (enabledEl) enabledEl.checked = !!s.ga4_realtime_enabled;
   if (autoRefreshEl) autoRefreshEl.checked = !!s.ga4_realtime_auto_refresh_enabled;
   if (propertyEl) propertyEl.value = s.ga4_realtime_property_id || '';
@@ -149,20 +191,57 @@ function geoGa4SettingsPopulateForm(s) {
   }
 }
 
+// geoGa4SettingsRenderServerStatus(s) — Runtime 狀態顯示，跟 Settings Form
+// 完全分開（需求文件六 2）：
+//   店家設定 → ga4_realtime_enabled（Stored）
+//   Server 全域功能 → global_enabled
+//   實際執行狀態 → effective_enabled && effective_configured
+//   SDK／Server Credential／Property／Stream → 各自獨立顯示
 function geoGa4SettingsRenderServerStatus(s) {
   const el = _geoGa4SettingsEl('ga4RealtimeServerState');
   if (!el) return;
+  const runtimeUsable = !!s.effective_enabled && !!s.effective_configured;
   const rows = [
+    ['店家設定', s.ga4_realtime_enabled ? '已啟用' : '未啟用'],
+    ['Server 全域功能', s.global_enabled ? '已啟用' : '未啟用'],
+    ['實際執行狀態', runtimeUsable ? '可用' : '不可用'],
     ['SDK', s.sdk_available ? '可用' : '不可用'],
     ['Server 憑證', s.credential_available ? '已設定' : '未設定'],
-    ['Property', s.ga4_realtime_property_id ? '已設定' : '未設定'],
-    ['Stream', s.ga4_realtime_stream_id ? '已設定' : '未設定'],
+    ['Property', s.property_configured ? '已設定' : '未設定'],
+    ['Stream', s.stream_configured ? '已設定' : '未設定'],
     ['Auto Refresh', s.ga4_realtime_auto_refresh_enabled ? '已啟用' : '已停用'],
     ['Cache', `${s.ga4_realtime_cache_seconds} 秒`],
   ];
   el.innerHTML = rows.map(([label, value]) => (
     `<div class="geo-ga4-settings-field"><strong>${_geoGa4SettingsEsc(label)}：</strong>${_geoGa4SettingsEsc(value)}</div>`
   )).join('');
+}
+
+// geoGa4SettingsRenderStatusMessage(s) — fix18-10-hotfix30-B5-R5.4-G1.5-B2.1
+// 需求文件七：依 Stored/Runtime 狀態組合顯示對應文案，Property／Stream
+// 已儲存不因 Credential 未設定而顯示未設定。
+function geoGa4SettingsRenderStatusMessage(s) {
+  const el = _geoGa4SettingsEl('ga4RealtimeSettingsStatus');
+  if (!el) return;
+  let msg = '';
+  if (s.ga4_realtime_enabled && !s.global_enabled) {
+    msg = '店家設定已保存，但伺服器尚未開啟 GA4 即時功能。';
+  } else if (s.global_enabled && !s.credential_available) {
+    msg = 'GA4 設定已保存，但伺服器憑證尚未設定。';
+  } else if (s.effective_enabled && s.effective_configured) {
+    msg = 'GA4 即時功能已就緒。';
+  }
+  el.textContent = msg;
+  el.classList.remove('geo-ga4-settings-load-error');
+}
+
+// geoGa4SettingsRenderLoadError() — GET 失敗或 malformed 時顯示，不清空
+// 表單、不影響先前的儲存成功提示邏輯（需求文件六 3）。
+function geoGa4SettingsRenderLoadError() {
+  const el = _geoGa4SettingsEl('ga4RealtimeSettingsStatus');
+  if (!el) return;
+  el.textContent = '重新讀取設定失敗，請稍後重新載入。';
+  el.classList.add('geo-ga4-settings-load-error');
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -259,11 +338,26 @@ async function geoGa4SettingsSave() {
     if (typeof showToast === 'function') showToast('✅ 設定已儲存', 'success');
     window.geoGa4SettingsState.lastSaved = Date.now();
 
-    // 成功後再 GET 一次重新確認 Server 狀態（不信任 PATCH 回應本身當作最終真相）。
+    // fix18-10-hotfix30-B5-R5.4-G1.5-B2.1：先用 PATCH response 立即
+    // Populate（避免使用者短暫看到舊值），再執行 GET 作確認（需求文件六 4）。
+    // 若 GET 確認失敗，geoGa4SettingsLoad() 本身不會清空欄位，PATCH 已寫入
+    // 的值會繼續保留在表單上。
+    const patchNormalized = geoGa4SettingsNormalizeResponse(json);
+    if (patchNormalized.ok) {
+      window.geoGa4SettingsState.loaded = true;
+      window.geoGa4SettingsState.loadError = false;
+      window.geoGa4SettingsState.lastLoaded = patchNormalized;
+      window.geoGa4SettingsState.serverSingleStoreModeAvailable = patchNormalized.server_single_store_mode_available;
+      geoGa4SettingsPopulateForm(patchNormalized);
+      geoGa4SettingsRenderServerStatus(patchNormalized);
+      geoGa4SettingsRenderStatusMessage(patchNormalized);
+    }
+
     const reloaded = await geoGa4SettingsLoad();
 
     if (typeof geoGa4NotifySettingsChanged === 'function') {
-      geoGa4NotifySettingsChanged(reloaded ? reloaded.ga4_realtime_auto_refresh_enabled : form.ga4_realtime_auto_refresh_enabled);
+      const effectiveNotify = (reloaded && reloaded.ok) ? reloaded : patchNormalized;
+      geoGa4NotifySettingsChanged(effectiveNotify.ok ? effectiveNotify.ga4_realtime_auto_refresh_enabled : form.ga4_realtime_auto_refresh_enabled);
     }
   } catch (e) {
     _geoGa4SettingsRenderFieldErrors({ general: '設定儲存時發生未預期錯誤，請稍後再試。' });
@@ -344,6 +438,7 @@ if (typeof module !== 'undefined' && module.exports) {
     GA4_SETTINGS_PATCH_KEYS, GA4_SETTINGS_TEST_ERROR_MESSAGES,
     geoGa4SettingsInit, geoGa4SettingsNormalizeResponse, geoGa4SettingsLoad,
     geoGa4SettingsPopulateForm, geoGa4SettingsRenderServerStatus,
+    geoGa4SettingsRenderStatusMessage, geoGa4SettingsRenderLoadError,
     geoGa4SettingsValidateForm, geoGa4SettingsBuildPatch, geoGa4SettingsSave,
     geoGa4SettingsTestConnection, geoGa4SettingsRenderTestResult, geoGa4SettingsUpdateCooldown,
     _geoGa4SettingsReadForm, _geoGa4SettingsClearFieldErrors, _geoGa4SettingsRenderFieldErrors,

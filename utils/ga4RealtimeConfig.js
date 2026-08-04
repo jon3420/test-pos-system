@@ -179,6 +179,46 @@ function getGa4RealtimeConfig(db, storeId) {
   return parseGa4RealtimeSettingsRow(rawSettings, envFallback);
 }
 
+// getGa4RealtimeStoredSettings(db, storeId) — fix18-10-hotfix30-B5-R5.4-
+// G1.5-B2.1：Raw Stored Settings Resolver（跟 getGa4RealtimeConfig() 的
+// Effective Runtime Config 是兩件事，不得混用——見需求文件二／三）。
+//
+// 這裡回傳的是「使用者實際儲存在 settings 表的值」，供 Settings Editor
+// 顯示／編輯用：
+//   - 不套用 globalEnabled（GA4_REALTIME_ENABLED）判斷，即使全域功能未開，
+//     Property／Stream／店家 Checkbox 仍原樣回傳。
+//   - 不套用 singleStoreMode env fallback（那是 Runtime 專用邏輯）。
+//   - 只做「型別/格式」層級的正規化（boolean 解析、cache 秒數 clamp），
+//     不做「是否可執行」層級的判斷。
+//   - SQL 帶 WHERE store_id=?，物理上不可能讀到別店資料。
+//   - 不讀取 Property／Stream 的 Query Override（呼叫端一律用
+//     req.storeId，這裡也沒有任何 override 參數可傳入）。
+//   - 不回傳憑證／env path 等任何欄位。
+//   - 不新增 DB Schema，沿用既有 settings key-value 表。
+function getGa4RealtimeStoredSettings(db, storeId) {
+  const rows = db.all(
+    `SELECT key, value FROM settings WHERE store_id=? AND key IN (${GA4_REALTIME_SETTINGS_KEYS.map(() => '?').join(',')})`,
+    [storeId, ...GA4_REALTIME_SETTINGS_KEYS]
+  );
+  const rawSettings = {};
+  (rows || []).forEach((r) => { rawSettings[r.key] = r.value; });
+
+  return {
+    ga4_realtime_enabled: _boolFromSetting(rawSettings.ga4_realtime_enabled, false),
+    ga4_realtime_property_id: (() => {
+      const s = rawSettings.ga4_realtime_property_id;
+      return (s === undefined || s === null) ? '' : String(s).trim();
+    })(),
+    ga4_realtime_stream_id: (() => {
+      const s = rawSettings.ga4_realtime_stream_id;
+      return (s === undefined || s === null) ? '' : String(s).trim();
+    })(),
+    ga4_realtime_single_property_mode: _boolFromSetting(rawSettings.ga4_realtime_single_property_mode, false),
+    ga4_realtime_cache_seconds: normalizeGa4CacheSeconds(rawSettings.ga4_realtime_cache_seconds, GA4_CACHE_SECONDS_DEFAULT),
+    ga4_realtime_auto_refresh_enabled: _boolFromSetting(rawSettings.ga4_realtime_auto_refresh_enabled, true),
+  };
+}
+
 // validateGa4RealtimeSettingsPatch(body) → { ok, message } — 純函式，
 // 供 routes/settings.js 的 PATCH /api/settings/ga4-realtime 與 smoke test
 // 共用同一份規則（沿用 utils/geoMapScope.js 的
@@ -245,4 +285,5 @@ module.exports = {
   validateGa4RealtimeSettingsPatch,
   parseGa4RealtimeSettingsRow,
   getGa4RealtimeConfig,
+  getGa4RealtimeStoredSettings,
 };

@@ -78,6 +78,11 @@
 .geo-ga4-settings-cooldown {
   color: var(--accent);
 }
+/* fix18-10-hotfix30-B5-R5.4-G1.5-B2.1：GET 失敗/重新讀取設定失敗時的狀態文字，
+   不清空表單，只用顏色提示（需求文件六 3）。 */
+.geo-ga4-settings-load-error {
+  color: var(--danger);
+}
 
 @media (max-width: 480px) {
   .geo-ga4-settings-field input[type="text"],

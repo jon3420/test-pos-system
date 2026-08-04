@@ -20,8 +20,12 @@ const {
 } = require('../utils/geoMapScope');
 // fix18-10-hotfix30-B5-R5.4-G1.5-B2：GA4 Realtime Settings —— 沿用同一份
 // 白名單/驗證規則（utils/ga4RealtimeConfig.js），不建立第二套設定框架。
+// fix18-10-hotfix30-B5-R5.4-G1.5-B2.1：GET/PATCH 一律用 buildGa4RealtimeSettingsResponse()
+// 組裝回應，Stored Settings（getGa4RealtimeStoredSettings）與 Effective Runtime
+// Config（getGa4RealtimeConfig）分開回傳，不得再混為同一組欄位（見需求文件二/四）。
 const {
   GA4_REALTIME_SETTINGS_KEYS, validateGa4RealtimeSettingsPatch, getGa4RealtimeConfig,
+  getGa4RealtimeStoredSettings,
 } = require('../utils/ga4RealtimeConfig');
 const { invalidateGa4RealtimeCacheForStore } = require('../utils/ga4Realtime');
 const ga4Client = require('../utils/ga4Realtime/client');
@@ -725,38 +729,80 @@ router.patch('/geo-map', (req, res) => {
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 });
 
+function _boolFromEnv(raw) {
+  return String(raw).trim().toLowerCase() === 'true';
+}
+
+// _isPureNumericId(raw) — 只用來判斷 Stored Property/Stream 是否為「合法
+// 純數字」（需求文件四：property_configured／stream_configured）。不得用
+// 長度猜測是否填反（需求文件八），這裡只驗證格式，不比較長度。
+function _isPureNumericId(raw) {
+  const s = (raw === undefined || raw === null) ? '' : String(raw).trim();
+  return s !== '' && /^[0-9]+$/.test(s);
+}
+
+// buildGa4RealtimeSettingsResponse(db, storeId) — fix18-10-hotfix30-B5-
+// R5.4-G1.5-B2.1：GET／PATCH 共用同一份回應 Builder（需求文件五），避免
+// 兩條 Route 分別組裝欄位、之後再度分歧。
+//
+// 明確區分兩種資料（需求文件二）：
+//   Stored Settings   → Settings UI 顯示/編輯用，不受全域 Feature Flag 或
+//                        憑證狀態影響。
+//   Effective Runtime  → 目前系統是否「真的能執行」GA4（Global Flag +
+//                        店家開關 + Property/Stream + Credential 都到位）。
+function buildGa4RealtimeSettingsResponse(db, storeId) {
+  const stored = getGa4RealtimeStoredSettings(db, storeId);
+  const effective = getGa4RealtimeConfig(db, storeId);
+  const cred = ga4Client.credentialStatus();
+
+  return {
+    success: true,
+    data: {
+      // Stored Settings —— 使用者在 settings 表實際儲存的值，Settings Form
+      // 一律只信任這一組欄位（不受全域 Flag／憑證狀態影響，見需求文件二）。
+      ga4_realtime_enabled: stored.ga4_realtime_enabled,
+      ga4_realtime_property_id: stored.ga4_realtime_property_id,
+      ga4_realtime_stream_id: stored.ga4_realtime_stream_id,
+      ga4_realtime_single_property_mode: stored.ga4_realtime_single_property_mode,
+      ga4_realtime_cache_seconds: stored.ga4_realtime_cache_seconds,
+      ga4_realtime_auto_refresh_enabled: stored.ga4_realtime_auto_refresh_enabled,
+
+      // Effective Runtime Config —— 目前系統「實際是否能執行」GA4，
+      // 給 Runtime 狀態顯示／Connection Test 用，跟上面的 Stored Settings
+      // 是分開的兩組欄位，不得合併（需求文件四）。
+      global_enabled: _boolFromEnv(process.env.GA4_REALTIME_ENABLED),
+      effective_enabled: effective.enabled,
+      effective_configured: effective.configured,
+      runtime_error_code: effective.errorCode || null,
+
+      // Stored Property/Stream 是否為合法純數字（僅格式檢查，不比較長度，
+      // 不得用來猜測 Property/Stream 是否填反，見需求文件八）。
+      property_configured: _isPureNumericId(stored.ga4_realtime_property_id),
+      stream_configured: _isPureNumericId(stored.ga4_realtime_stream_id),
+
+      server_single_store_mode_available: _boolFromEnv(process.env.GA4_REALTIME_SINGLE_STORE_MODE),
+      credential_available: !!cred.available,
+      sdk_available: ga4Client.isSdkAvailable(),
+    },
+  };
+}
+
 // fix18-10-hotfix30-B5-R5.2-B2：供 smoke test 直接呼叫驗證，不需要真的起
 // HTTP server（沿用既有 router.__test 慣例，見上方 hotfix26-F5 註解）。
 // fix18-10-hotfix30-B5-R5.4-G1.5-B2：GET /api/settings/ga4-realtime。
 // 沿用既有 requireStore 注入的 req.storeId，SQL 帶 WHERE store_id=?，
 // 物理上不可能跨店讀取。只回傳「可以安全顯示的摘要」，不回傳憑證/
 // env path/client_email/private key（見需求文件五）。
+// fix18-10-hotfix30-B5-R5.4-G1.5-B2.1：改用 buildGa4RealtimeSettingsResponse()，
+// 回傳 Stored Settings（不受全域 Flag／憑證影響）+ Effective Runtime（另外
+// 分開的欄位），不得再用 Effective Config 回填 Settings 表單（需求文件一）。
 router.get('/ga4-realtime', (req, res) => {
   try {
     const db = getDb();
     const storeId = req.storeId;
-    const config = getGa4RealtimeConfig(db, storeId);
-    const cred = ga4Client.credentialStatus();
-    res.json({
-      success: true,
-      data: {
-        ga4_realtime_enabled: config.enabled,
-        ga4_realtime_property_id: config.propertyId || '',
-        ga4_realtime_stream_id: config.streamId || '',
-        ga4_realtime_single_property_mode: config.singlePropertyMode,
-        ga4_realtime_cache_seconds: config.cacheSeconds,
-        ga4_realtime_auto_refresh_enabled: config.autoRefreshEnabled,
-        server_single_store_mode_available: _boolFromEnv(process.env.GA4_REALTIME_SINGLE_STORE_MODE),
-        credential_available: !!cred.available,
-        sdk_available: ga4Client.isSdkAvailable(),
-      },
-    });
+    res.json(buildGa4RealtimeSettingsResponse(db, storeId));
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 });
-
-function _boolFromEnv(raw) {
-  return String(raw).trim().toLowerCase() === 'true';
-}
 
 // fix18-10-hotfix30-B5-R5.4-G1.5-B2：PATCH /api/settings/ga4-realtime。
 // 只更新 GA4_REALTIME_SETTINGS_KEYS 白名單內、且這次請求有送值的欄位。
@@ -818,28 +864,18 @@ router.patch('/ga4-realtime', (req, res) => {
       invalidateGa4RealtimeCacheForStore(storeId);
     }
 
-    const config = getGa4RealtimeConfig(db, storeId);
-    const cred = ga4Client.credentialStatus();
-    res.json({
-      success: true,
-      data: {
-        ga4_realtime_enabled: config.enabled,
-        ga4_realtime_property_id: config.propertyId || '',
-        ga4_realtime_stream_id: config.streamId || '',
-        ga4_realtime_single_property_mode: config.singlePropertyMode,
-        ga4_realtime_cache_seconds: config.cacheSeconds,
-        ga4_realtime_auto_refresh_enabled: config.autoRefreshEnabled,
-        server_single_store_mode_available: _boolFromEnv(process.env.GA4_REALTIME_SINGLE_STORE_MODE),
-        credential_available: !!cred.available,
-        sdk_available: ga4Client.isSdkAvailable(),
-      },
-    });
+    // fix18-10-hotfix30-B5-R5.4-G1.5-B2.1：PATCH 回應與 GET 共用同一份
+    // Builder（buildGa4RealtimeSettingsResponse()），COMMIT 成功、cache
+    // invalidate 之後才重新讀取 Stored Settings／Effective Runtime，避免
+    // 兩條 Route 分別組裝欄位又再度分歧（需求文件五）。
+    res.json(buildGa4RealtimeSettingsResponse(db, storeId));
   } catch (e) { res.status(500).json({ success: false, message: e.message }); }
 });
 
 router.__test = Object.assign(router.__test || {}, {
   validateGeoMapSettingsPatch, parseGeoMapSettingsRow, GEO_MAP_SETTINGS_KEYS,
   validateGa4RealtimeSettingsPatch, GA4_REALTIME_SETTINGS_KEYS,
+  buildGa4RealtimeSettingsResponse,
 });
 
 module.exports = router;
