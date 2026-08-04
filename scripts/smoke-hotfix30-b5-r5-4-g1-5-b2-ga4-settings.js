@@ -492,6 +492,9 @@ async function main() {
         const n = fq3.shift();
         return { json: async () => (n || { success: true, data: { status: 'fresh', quota_status: 'normal', summary: { total_active_users_ga4: 1, event_count: 1 }, counties: [{ county_code: '68000', county_name: '桃園市', active_users: 1, event_count: 1, source: 'ga4_city', accuracy: 'ip_city_county_estimate' }], unmapped: [], notices: [] } }) };
       };
+      // fix18-10-hotfix30-B5-R5.4-G1.5-B2.2：geo-ga4-realtime-layer.js 已改用
+      // apiFetch()（Auth Hotfix），這裡的假 apiFetch 沿用同一顆 window.fetch mock。
+      window.apiFetch = window.fetch;
       const ga4Src = fs.readFileSync(path.join(ROOT, 'public/js/geo-ga4-realtime-layer.js'), 'utf8').replace(/'use strict';\s*\n/, '');
       window.eval(ga4Src);
       await window.geoGa4FetchAndRender('geo-db');

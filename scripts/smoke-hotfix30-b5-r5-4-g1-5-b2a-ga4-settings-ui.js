@@ -279,11 +279,20 @@ async function main() {
     window.L = { layerGroup: () => ({ addTo() { return this; }, clearLayers() {}, addLayer() {}, _layers: [] }), geoJSON: () => ({ bindTooltip() { return this; } }) };
     window.geoMapState = { instance: {}, featureIndex: { byCountyDistrict: new Map() } };
     let fq = [];
-    window.fetch = async (url) => {
-      if (String(url).includes('ga4-realtime-status')) return { json: async () => ({ success: true, data: { auto_refresh_enabled: false } }) };
+    // fix18-10-hotfix30-B5-R5.4-G1.5-B2.2：geo-ga4-realtime-layer.js 已改用
+    // apiFetch()（Auth Hotfix），status/data 兩個 endpoint 各自對應不同
+    // fixture，不能共用同一個 queue（避免 status request 把 data fixture
+    // 提前吃掉）。window.fetch 與 window.apiFetch 共用同一顆 mock 函式，
+    // 符合真實 apiFetch 在非 401/403 時直接回傳原生 Response 的 Contract。
+    const mockApiRequest1 = async (url) => {
+      if (String(url).includes('ga4-realtime-status')) {
+        return { status: 200, ok: true, json: async () => ({ success: true, data: { auto_refresh_enabled: false } }) };
+      }
       const next = fq.shift();
-      return { json: async () => (next || { success: true, data: { status: 'fresh', quota_status: 'normal', summary: { total_active_users_ga4: 1, event_count: 1 }, counties: [], unmapped: [], notices: [] } }) };
+      return { status: 200, ok: true, json: async () => (next || { success: true, data: { status: 'fresh', quota_status: 'normal', summary: { total_active_users_ga4: 1, event_count: 1 }, counties: [], unmapped: [], notices: [] } }) };
     };
+    window.fetch = mockApiRequest1;
+    window.apiFetch = mockApiRequest1;
     const ga4Src = fs.readFileSync(path.join(ROOT, 'public/js/geo-ga4-realtime-layer.js'), 'utf8').replace(/'use strict';\s*\n/, '');
     window.eval(ga4Src);
     await window.geoGa4FetchAndRender('geo-db');
@@ -293,10 +302,14 @@ async function main() {
     window.geoGa4Deactivate();
     fq = [];
     window.geoGa4State._forceStatusFetch = true;
-    window.fetch = async (url) => {
-      if (String(url).includes('ga4-realtime-status')) return { json: async () => ({ success: true, data: { auto_refresh_enabled: true } }) };
-      return { json: async () => ({ success: true, data: { status: 'fresh', quota_status: 'normal', summary: { total_active_users_ga4: 1, event_count: 1 }, counties: [], unmapped: [], notices: [] } }) };
+    const mockApiRequest2 = async (url) => {
+      if (String(url).includes('ga4-realtime-status')) {
+        return { status: 200, ok: true, json: async () => ({ success: true, data: { auto_refresh_enabled: true } }) };
+      }
+      return { status: 200, ok: true, json: async () => ({ success: true, data: { status: 'fresh', quota_status: 'normal', summary: { total_active_users_ga4: 1, event_count: 1 }, counties: [], unmapped: [], notices: [] } }) };
     };
+    window.fetch = mockApiRequest2;
+    window.apiFetch = mockApiRequest2;
     await window.geoGa4FetchAndRender('geo-db');
     await new Promise((r) => setTimeout(r, 20));
     assert(window.geoGa4State.autoRefreshTimer !== null, 'F62 enabled: auto_refresh_enabled=true → timer scheduled');

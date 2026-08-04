@@ -34,8 +34,29 @@ const GEO_GA4_METRIC_LABEL = Object.freeze({
 });
 const GEO_GA4_STATUS_LABEL = Object.freeze({
   disabled: '尚未啟用', not_configured: '尚未設定', fresh: '即時', cached: '快取',
-  stale_cache: '過期快取', error: '連線錯誤',
+  stale_cache: '過期快取', error: '連線錯誤', auth_error: '登入已失效',
 });
+
+// fix18-10-hotfix30-B5-R5.4-G1.5-B2.2：GA4 Backend Connection Error 訊息
+// 對照表（跟 public/js/geo-ga4-settings.js 的 GA4_SETTINGS_TEST_ERROR_MESSAGES
+// 同一組錯誤碼命名，維持一致用語），只用於「已經確定不是 Authentication
+// 問題」的 status==='error' 情況（見需求文件七：Authentication Error 與
+// GA4 Connection Error 必須分開，不得混用同一段文字）。
+const GEO_GA4_ERROR_MESSAGES = Object.freeze({
+  ga4_realtime_disabled: '店家設定已保存，但伺服器尚未開啟 GA4 即時功能。',
+  credential_unavailable: '伺服器尚未設定 GA4 憑證。',
+  credential_invalid: 'GA4 憑證格式錯誤。',
+  permission_denied: 'Service Account 沒有此 GA4 Property 的讀取權限。',
+  property_not_found: '找不到此 GA4 Property。',
+  stream_filter_invalid: 'Stream ID 無法套用於目前 Property。',
+  quota_limited: 'GA4 API 暫時達到使用限制。',
+  ga4_timeout: 'GA4 連線逾時，請稍後再試。',
+  ga4_unavailable: 'Google Analytics 暫時無法連線。',
+});
+
+// Authentication 失敗（Store Token 缺失／失效）固定文案，跟 GA4 Backend
+// 錯誤完全分開，不得共用同一段訊息（需求文件七、八）。
+const GEO_GA4_AUTH_ERROR_MESSAGE = '店家登入狀態已失效，請重新登入後再試。';
 
 // 需求文件九：GA4 縣市著色固定樣式（青色虛線），不使用訂單熱區的
 // 綠→黃→紅強度色階，不使用訪客層的藍色系，一望即知是第三種圖層。
@@ -145,11 +166,62 @@ function geoGa4NormalizeResponse(json) {
   };
 }
 
+// geoGa4AuthErrorPayload(body) — fix18-10-hotfix30-B5-R5.4-G1.5-B2.2：apiFetch
+// 對 401／403 回傳的不是原生 fetch Response，而是 `{ ok:false, status, body }`
+// （見 public/js/app.js apiFetch()）。這裡把它轉成跟 geoGa4NormalizeResponse()
+// 一致的 shape，但用獨立的 status='auth_error'，不落入 GA4 Backend 的
+// status='error' 分支，兩者訊息與判斷邏輯完全分開（需求文件七）。
+function geoGa4AuthErrorPayload(body) {
+  const b = body || {};
+  return {
+    ok: false,
+    status: 'auth_error', quota_status: 'unknown', fetched_at: null, cache_age_seconds: null,
+    is_cached: false, is_stale: false, error_code: b.error || 'AUTH_REQUIRED',
+    message: GEO_GA4_AUTH_ERROR_MESSAGE,
+    summary: { total_active_users_ga4: 0, event_count: 0, screen_page_views: null, mapped_counties: 0, unmapped_city_rows: 0, excluded_non_tw_rows: 0 },
+    counties: [], unmapped: [], notices: [],
+  };
+}
+
+// geoGa4FetchData() — fix18-10-hotfix30-B5-R5.4-G1.5-B2.2：改用 apiFetch()
+// （跟 public/js/geo-ga4-settings.js 完全同一套呼叫方式），不再使用無認證
+// 的裸 fetch()。apiFetch() 內部負責 Authorization／x-store-id／Store
+// Session／401-403 處理，這裡不建立第二套 Token 讀取邏輯（需求文件二、四）。
 async function geoGa4FetchData({ windowMinutes, metric, refresh, signal }) {
   const url = geoGa4BuildRequestUrl({ windowMinutes, metric, refresh });
-  const resp = await fetch(url, { signal });
-  const json = await resp.json();
+  const res = (typeof apiFetch === 'function')
+    ? await apiFetch(url, { method: 'GET', signal })
+    : null;
+  if (!res) return geoGa4NormalizeResponse(null); // apiFetch 不存在（極端防禦，正常環境不會發生）
+  // apiFetch 對 401／403 回傳的是 { ok:false, status, body }（不是原生
+  // Response，沒有 .json()），必須先判斷 status 再決定要不要呼叫 .json()，
+  // 否則會直接噴 TypeError（見需求文件五）。
+  if (res.status === 401 || res.status === 403) {
+    return geoGa4AuthErrorPayload(res.body);
+  }
+  if (typeof res.json !== 'function') return geoGa4NormalizeResponse(null);
+  const json = await res.json();
   return geoGa4NormalizeResponse(json);
+}
+
+// geoGa4FetchStatus() — fix18-10-hotfix30-B5-R5.4-G1.5-B2.2：從
+// geoGa4FetchAndRender() 內原本直接寫死的裸 fetch('/api/geo-live/
+// ga4-realtime-status') 抽出來的具名函式，一樣改用 apiFetch()。401／403
+// 時安全回傳 null（讓呼叫端維持目前 configAutoRefreshEnabled 值，不阻擋
+// 主要的 Data Request──真正的 Auth 錯誤會由 Data Request 那邊統一顯示，
+// 這裡不重複顯示第二次相同錯誤）。
+async function geoGa4FetchStatus() {
+  const res = (typeof apiFetch === 'function')
+    ? await apiFetch('/api/geo-live/ga4-realtime-status', { method: 'GET' })
+    : null;
+  if (!res) return null;
+  if (res.status === 401 || res.status === 403) return null;
+  if (typeof res.json !== 'function') return null;
+  try {
+    const json = await res.json();
+    if (json && json.success === true && json.data && typeof json.data === 'object') return json.data;
+  } catch (e) { /* malformed response，安全降級為 null，不拋出 */ }
+  return null;
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -292,7 +364,10 @@ function geoGa4RenderSummaryHtml(payload) {
 
 function geoGa4StatusMessage(payload) {
   if (!payload) return '';
-  if (payload.status === 'disabled') return '尚未啟用 GA4 即時推估圖層。';
+  // fix18-10-hotfix30-B5-R5.4-G1.5-B2.2：Authentication 失敗與 GA4 Backend
+  // 錯誤分開判斷，不得共用同一段文字（需求文件七）。
+  if (payload.status === 'auth_error') return GEO_GA4_AUTH_ERROR_MESSAGE;
+  if (payload.status === 'disabled') return GEO_GA4_ERROR_MESSAGES.ga4_realtime_disabled;
   if (payload.status === 'not_configured') {
     const reasonMap = {
       missing_property: '尚未設定 Property', stream_not_configured: '尚未設定 Stream',
@@ -302,7 +377,9 @@ function geoGa4StatusMessage(payload) {
     const reason = reasonMap[payload.error_code] || '尚未完成設定';
     return `${reason}。請至 GA4 設定完成 Property／Stream 設定。`;
   }
-  if (payload.status === 'error') return 'GA4 連線發生錯誤，請稍後再試。';
+  if (payload.status === 'error') {
+    return GEO_GA4_ERROR_MESSAGES[payload.error_code] || 'GA4 連線發生錯誤，請稍後再試。';
+  }
   if (payload.status === 'fresh') return '剛剛更新';
   if (payload.status === 'cached') return `目前顯示 ${payload.cache_age_seconds ?? 0} 秒前的快取資料`;
   if (payload.status === 'stale_cache') return `Google Analytics 暫時無法連線，目前顯示 ${payload.cache_age_seconds ?? 0} 秒前的舊資料`;
@@ -347,8 +424,11 @@ function geoGa4RenderNoticesHtml(payload) {
       parts.push(`<div class="geo-ga4-realtime-notice">未對應城市：${shown}${more}</div>`);
     }
   }
-  if (payload && payload.status === 'error') {
-    parts.push(`<div class="geo-ga4-realtime-error">${_geoGa4Esc(payload.message || 'GA4 連線發生錯誤')}</div>`);
+  if (payload && (payload.status === 'error' || payload.status === 'auth_error')) {
+    // fix18-10-hotfix30-B5-R5.4-G1.5-B2.2：不直接印後端原始 payload.message
+    // （避免任何來源的原始錯誤字串未經分類就外洩到畫面上），一律透過
+    // geoGa4StatusMessage() 的錯誤碼對照表決定顯示文字。
+    parts.push(`<div class="geo-ga4-realtime-error">${_geoGa4Esc(geoGa4StatusMessage(payload))}</div>`);
   }
   return parts.join('');
 }
@@ -462,10 +542,11 @@ async function geoGa4FetchAndRender(containerId) {
   // 目前值，不假設為 true 或 false。
   if (!reactivating) {
     try {
-      const statusResp = await fetch('/api/geo-live/ga4-realtime-status');
-      const statusJson = await statusResp.json();
-      if (statusJson && statusJson.success && statusJson.data && typeof statusJson.data.auto_refresh_enabled === 'boolean') {
-        geoGa4State.configAutoRefreshEnabled = statusJson.data.auto_refresh_enabled;
+      // fix18-10-hotfix30-B5-R5.4-G1.5-B2.2：改用具名的 geoGa4FetchStatus()
+      // （內部使用 apiFetch()，不再是無認證的裸 fetch()）。
+      const statusData = await geoGa4FetchStatus();
+      if (statusData && typeof statusData.auto_refresh_enabled === 'boolean') {
+        geoGa4State.configAutoRefreshEnabled = statusData.auto_refresh_enabled;
       }
     } catch (e) { /* 讀取失敗不阻擋主要資料 fetch，維持目前值 */ }
   }
@@ -511,9 +592,13 @@ function geoGa4MapOverlayMessage() {
   const p = geoGa4State.lastPayload;
   if (geoGa4State.loading && !p) return 'GA4 即時圖層載入中…';
   if (!p) return null;
-  if (p.status === 'error') return 'GA4 即時圖層載入失敗，請重試';
+  // fix18-10-hotfix30-B5-R5.4-G1.5-B2.2：Authentication 失敗要顯示明確的
+  // 重新登入提示，不得顯示模糊的「載入失敗」，也不得跟 GA4 Backend 錯誤
+  // 共用文字（需求文件七、八）。
+  if (p.status === 'auth_error') return GEO_GA4_AUTH_ERROR_MESSAGE;
+  if (p.status === 'error') return GEO_GA4_ERROR_MESSAGES[p.error_code] || 'GA4 即時圖層載入失敗，請重試';
   if (!p.ok) return 'GA4 即時圖層載入失敗，請重試';
-  if (p.status === 'disabled') return 'GA4 Realtime Visitor Geo Layer 尚未啟用';
+  if (p.status === 'disabled') return GEO_GA4_ERROR_MESSAGES.ga4_realtime_disabled;
   if (p.status === 'not_configured') return 'GA4 Realtime 尚未設定 Property／憑證';
   if (!p.counties || !p.counties.length) return '目前沒有可對應到縣市的 GA4 即時資料';
   return null;
@@ -524,7 +609,8 @@ if (typeof module !== 'undefined' && module.exports) {
     GEO_GA4_WINDOWS, GEO_GA4_METRICS, GEO_GA4_METRIC_LABEL, GEO_GA4_POLYGON_STYLE, GEO_GA4_POLYGON_STYLE_NO_DATA,
     GA4_REALTIME_DISCLAIMER, GA4_REALTIME_PRIVACY_NOTICE,
     geoGa4State,
-    geoGa4BuildRequestUrl, geoGa4NormalizeResponse, geoGa4FetchData,
+    geoGa4BuildRequestUrl, geoGa4NormalizeResponse, geoGa4FetchData, geoGa4FetchStatus, geoGa4AuthErrorPayload,
+    GEO_GA4_ERROR_MESSAGES, GEO_GA4_AUTH_ERROR_MESSAGE,
     geoGa4FindLayersForCounty, geoGa4RenderChoropleth, geoGa4BuildTooltipContent,
     geoGa4ClearLayer, geoGa4RestoreStyles,
     geoGa4RenderToolbarHtml, geoGa4RenderSummaryHtml, geoGa4RenderStatusHtml, geoGa4RenderNoticesHtml,

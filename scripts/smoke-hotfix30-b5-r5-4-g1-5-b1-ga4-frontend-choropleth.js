@@ -162,15 +162,26 @@ async function main() {
 
     const fetchCalls = [];
     let fetchQueue = [];
-    window.fetch = async (url) => {
+    // fix18-10-hotfix30-B5-R5.4-G1.5-B2.2：geo-ga4-realtime-layer.js 已改用
+    // apiFetch()（不再是無認證裸 fetch()，見 B2.2 Auth Hotfix），這裡的假
+    // window.apiFetch 沿用跟原本 window.fetch mock 完全一樣的 fixture queue
+    // 行為，只是回傳 shape 多帶 `status`/`ok`（模擬 apiFetch 在非 401/403
+    // 時直接回傳原生 fetch Response 的行為）。window.fetch 仍保留（不使用，
+    // 純防禦，避免任何殘留呼叫路徑找不到 fetch 直接噴 ReferenceError）。
+    const runFakeFetch = async (url) => {
       fetchCalls.push(String(url));
       if (String(url).includes('ga4-realtime-status')) {
-        return { json: async () => ({ success: true, data: { auto_refresh_enabled: true } }) };
+        return { status: 200, ok: true, json: async () => ({ success: true, data: { auto_refresh_enabled: true } }) };
       }
       const next = fetchQueue.shift() || fixtureFresh();
       if (next === 'THROW_ABORT') { const e = new Error('aborted'); e.name = 'AbortError'; throw e; }
-      return { json: async () => next };
+      if (next && next.__authError) {
+        return { ok: false, status: next.__authError, body: next.body || { success: false, error: 'NO_STORE_TOKEN', message: '缺少店家登入 token，請重新登入' } };
+      }
+      return { status: 200, ok: true, json: async () => next };
     };
+    window.fetch = runFakeFetch;
+    window.apiFetch = runFakeFetch;
 
     const engineSrc = fs.readFileSync(path.join(ROOT, 'public/js/geo-heatmap.js'), 'utf8').replace(/'use strict';\s*\n/, '');
     const uiSrc = fs.readFileSync(path.join(ROOT, 'public/js/geo-heatmap-ui.js'), 'utf8').replace(/'use strict';\s*\n/, '');
@@ -356,7 +367,10 @@ async function main() {
     env.setFetchQueue([fixtureDisabled()]);
     await window.geoGa4FetchAndRender('geo-db');
     let statusHtml = window.document.getElementById('geo-db-ga4-status').innerHTML;
-    assert(statusHtml.includes('尚未啟用'), 'F1 disabled 狀態文案正確');
+    // fix18-10-hotfix30-B5-R5.4-G1.5-B2.2：Auth Hotfix 需求文件八，disabled
+    // 狀態文案改為與 Settings UI 一致的「店家設定已保存，但伺服器尚未開啟
+    // GA4 即時功能。」，不再是舊版「尚未啟用 GA4 即時推估圖層。」。
+    assert(statusHtml.includes('伺服器尚未開啟 GA4 即時功能'), 'F1 disabled 狀態文案正確');
 
     env.setFetchQueue([fixtureNotConfigured('missing_property')]);
     await window.geoGa4Refresh('geo-db');
@@ -567,13 +581,13 @@ async function main() {
     slowFetchEnv.window.document.getElementById('geo-db').innerHTML = slowFetchEnv.window.geoHeatUiRenderGa4LayerHtml('geo-db');
     let resolveFirst;
     const firstGate = new Promise((r) => { resolveFirst = r; });
-    slowFetchEnv.window.fetch = async (url, opts) => {
+    slowFetchEnv.window.apiFetch = async (url, opts) => {
       if (String(url).includes('ga4-realtime-status')) {
-        return { json: async () => ({ success: true, data: { auto_refresh_enabled: true } }) };
+        return { status: 200, ok: true, json: async () => ({ success: true, data: { auto_refresh_enabled: true } }) };
       }
       if (opts && opts.signal) opts.signal.addEventListener('abort', () => { abortedCount += 1; });
       await firstGate;
-      return { json: async () => fixtureFresh() };
+      return { status: 200, ok: true, json: async () => fixtureFresh() };
     };
     const firstCall = slowFetchEnv.window.geoGa4FetchAndRender('geo-db');
     slowFetchEnv.window.geoGa4SetMetric('geo-db', 'purchase');
