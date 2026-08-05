@@ -80,6 +80,7 @@ let geoVisitorState = {
   areas: [],
   recent: [],
   choroplethLayerGroup: null, // 獨立 layerGroup，跟既有 Dashboard 的 geoJsonLayer 分開，避免互相覆蓋
+  markerLayerGroup: null, // fix18-10-hotfix30-B5-R5.4-G1.6-A1.1：Estimate Marker 專用 layerGroup，跟 choropleth 分開管理
   requestSeq: 0,
   abortController: null,
   // fix18-10-hotfix30-B5-R5.3-A7（Geo KPI Single Source Integration）：
@@ -113,6 +114,9 @@ function geoVisitorHandleStoreSwitch() {
   if (geoVisitorState.choroplethLayerGroup && typeof geoVisitorState.choroplethLayerGroup.clearLayers === 'function') {
     geoVisitorState.choroplethLayerGroup.clearLayers();
   }
+  if (geoVisitorState.markerLayerGroup && typeof geoVisitorState.markerLayerGroup.clearLayers === 'function') {
+    geoVisitorState.markerLayerGroup.clearLayers();
+  }
 }
 
 function _geoVisitorResetStateForTest() {
@@ -128,6 +132,10 @@ function _geoVisitorResetStateForTest() {
     geoVisitorState.choroplethLayerGroup.clearLayers();
   }
   geoVisitorState.choroplethLayerGroup = null;
+  if (geoVisitorState.markerLayerGroup && typeof geoVisitorState.markerLayerGroup.clearLayers === 'function') {
+    geoVisitorState.markerLayerGroup.clearLayers();
+  }
+  geoVisitorState.markerLayerGroup = null;
   geoVisitorState.requestSeq = 0;
   geoVisitorState.abortController = null;
   geoVisitorState.status = 'idle';
@@ -244,12 +252,36 @@ function geoVisitorRenderCoverageDom() {
   const el = _geoVisitorEl('visitor-coverage');
   if (!el) return;
   const c = geoVisitorComputeCoverage(geoVisitorState.summary);
-  el.innerHTML = [
+  const lines = [
     `Geo Visitor：${c.total}`,
     `Known：${c.total - c.unknown}`,
     `Unknown：${c.unknown}`,
     `Coverage：${c.coverage_pct}%`,
   ].map(_geoVisitorEsc).join('<br>');
+  // fix18-10-hotfix30-B5-R5.4-G1.6-A1.1：Legend Runtime Wiring——這是
+  // Visitor Layer 真正會用到 Marker 的區域（Coverage 卡片緊鄰
+  // Known/Unknown 統計），每次 Coverage 重新渲染（也就是每次真實資料
+  // render，不是只有 Smoke Test 手動呼叫）都會一併重畫 Legend。Renderer
+  // 未載入時安全略過（不強制要求一定有 window.GeoMarkerRenderer）。
+  const renderer = _geoVisitorMarkerRenderer();
+  const legendHtml = renderer && typeof renderer.buildLegendHtml === 'function' ? renderer.buildLegendHtml() : '';
+  // fix18-10-hotfix30-B5-R5.4-G1.6-A1.2（需求文件十三）：Source
+  // Attribution 只顯示一次（跟著 Legend 一起顯示，不是每個 Marker 各自
+  // 顯示一次）。
+  const attributionHtml = legendHtml ? '<div class="geo-marker-attribution">行政區推估標註資料來源：內政部國土測繪中心行政區界線開放資料。</div>' : '';
+  // 只有「有已知 county／district 統計，但目前沒有任何 Marker 被畫出來」
+  // 時才顯示 Blocked 說明（見需求文件三：不得誤導成「沒有地區資料」）。
+  const hasKnownAreas = (geoVisitorState.areas || []).some((a) => a && !a.is_unknown);
+  const hasMarkers = !!(geoVisitorState.markerLayerGroup && geoVisitorState.markerLayerGroup._layers && Object.keys(geoVisitorState.markerLayerGroup._layers).length);
+  // fix18-10-hotfix30-B5-R5.4-G1.6-A1.2（需求文件九）：Blocked Notice 只有
+  // 在「catalog unavailable」或「marker capability unavailable」時才顯示
+  // ——用後端明確回傳的 error_code='catalog_unavailable' 判斷，不是單純
+  // 「這次剛好沒有畫出任何 Marker」（那可能只是因為所有已知區域都在
+  // 資料集之外找不到對照，不代表 Catalog 本身壞了）。
+  const catalogUnavailable = (geoVisitorState.areas || []).some((a) => a && a.marker && a.marker.error_code === 'catalog_unavailable');
+  const blockedHtml = (hasKnownAreas && !hasMarkers && catalogUnavailable && renderer && typeof renderer.buildBlockedNoticeHtml === 'function')
+    ? renderer.buildBlockedNoticeHtml() : '';
+  el.innerHTML = lines + legendHtml + attributionHtml + blockedHtml;
 }
 function _geoVisitorRankingSortKey(area, metric) {
   if (metric === 'add_to_cart') return area.add_to_cart_count || 0;
@@ -477,7 +509,6 @@ async function geoVisitorFetchAndRender(containerId, range) {
   geoVisitorState.status = (requestFailed || !data) ? 'error' : 'ready';
 
   geoVisitorRenderSummaryDom();
-  geoVisitorRenderCoverageDom();
   geoVisitorRenderRankingDom();
   geoVisitorRenderRecentDom();
   geoVisitorRenderMetricSummaryDom();
@@ -486,7 +517,17 @@ async function geoVisitorFetchAndRender(containerId, range) {
   // （不建立第二張 Leaflet map），未載入時安全略過。
   if (typeof window !== 'undefined' && window.geoMapState && window.geoMapState.instance) {
     geoVisitorRenderChoropleth(window.geoMapState.instance, window.geoMapState.featureIndex);
+    // fix18-10-hotfix30-B5-R5.4-G1.6-A1.1：Marker 接線——跟 Choropleth
+    // 同一個 render pipeline、同一次呼叫，不是獨立、只有測試會走到的路徑
+    // （見需求文件十：使用者點擊按鈕/切換 range/metric 後，這個函式會被
+    // geoVisitorFetchAndRender() 呼叫，Marker 也會跟著重畫）。
+    geoVisitorRenderMarkers(window.geoMapState.instance, geoVisitorBuildMarkerPoints(geoVisitorState.areas));
   }
+
+  // fix18-10-hotfix30-B5-R5.4-G1.6-A1.1：Coverage DOM（含 Legend／Blocked
+  // 說明）必須排在 Marker 畫完之後，才能正確反映「這次 render 到底有沒有
+  // 真的畫出 Marker」（不是用上一輪的殘留狀態判斷）。
+  geoVisitorRenderCoverageDom();
 
   // fix18-10-hotfix30-B5-R5.3-A7（需求文件八：同步更新，不需要手動切
   // Heatmap Tab）：通知 geo-intelligence.js 的「Geo 訪客/加購/結帳/訂單」
@@ -495,6 +536,112 @@ async function geoVisitorFetchAndRender(containerId, range) {
   if (typeof geoIntelligenceOnEventEngineUpdate === 'function') {
     geoIntelligenceOnEventEngineUpdate();
   }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// fix18-10-hotfix30-B5-R5.4-G1.6-A1：Marker Rendering Unification —
+// Visitor Layer Marker 接線。
+//
+// 重要稽核結論（不得忽略，見檔案開頭既有稽核註記）：本檔案先前已明確記錄
+// 「Visitor Geo（IP 推定）只給 city/district 名稱，從來不給 lat/lng」、
+// 「絕不用矩形 fixture 的中心點假造座標」，因此目前唯一的行政區 Polygon
+// 資料集（軸對齊矩形，不是真實邊界）不能拿來算「中心點」當 Marker 座標——
+// 算出來的點沒有地理意義，是假造。
+//
+// 本輪（G1.6-A1）新增的 geoVisitorRenderMarkers() 只負責「畫」——重用
+// public/js/geo-marker-renderer.js 的共用 Renderer，本身不產生、不猜測、
+// 不查表換算任何座標。在真正的縣市／行政區中心點資料來源（例如未來
+// G1.6-A2 Visitor Geo Attribution Pipeline 若引入官方 Polygon 或 Provider
+// 回傳的中心點）就位之前，呼叫端如果沒有傳入合法 lat/lng 的點，
+// geoMarkerRenderGroup() 會把它們全部安全過濾掉（不畫、不報錯）——這是
+// 刻意的、跟現有 Choropleth-only 策略一致的保守行為，不是本函式的 bug。
+// ══════════════════════════════════════════════════════════════════
+
+let _geoVisitorMarkerGroup = null;
+
+// _geoVisitorMarkerRenderer() — 優先使用明確的 window.GeoMarkerRenderer
+// namespace（見需求文件三），Node 測試環境（沒有 window，或載入的是舊版
+// module.exports 直接 require 出來的裸函式）才 fallback 用全域裸函式名稱。
+function _geoVisitorMarkerRenderer() {
+  if (typeof window !== 'undefined' && window.GeoMarkerRenderer) return window.GeoMarkerRenderer;
+  if (typeof geoMarkerRenderGroup === 'function') {
+    return { renderGroup: geoMarkerRenderGroup, clearGroup: (typeof geoMarkerClearGroup === 'function' ? geoMarkerClearGroup : () => {}) };
+  }
+  return null;
+}
+
+// ══════════════════════════════════════════════════════════════════
+// fix18-10-hotfix30-B5-R5.4-G1.6-A1.2：Authoritative Representative
+// Points Closure。
+//
+// A1.1 的 BLOCKED 佔位（AUTHORITATIVE_CENTROID_SOURCE = null）已解除：
+// 後端 getGeoVisitAreas()（見 utils/geoVisitLog.js
+// resolveAreaRepresentativeMarker()）現在會用內政部國土測繪中心官方
+// 行政區界線資料算出的 Representative Point Catalog，把每個 area 算好
+// 的 lat/lng/accuracy/coordinate_source 直接放進 area.marker。
+//
+// 前端本輪之後**不得**自己從 county／district 名稱猜座標——只讀後端已經
+// 算好、驗證過的 area.marker 欄位（需求文件九）。coordinate_source 必須
+// 落在明確 allowlist 內才採用，防止未來後端萬一混入不明來源時前端還是
+// 照畫不誤。
+const GEO_VISITOR_ALLOWED_COORDINATE_SOURCES = Object.freeze([
+  'nlsc_official_boundary_representative_point',
+]);
+function _geoVisitorIsTrustedMarker(marker) {
+  if (!marker || marker.available !== true) return false;
+  if (!Number.isFinite(marker.lat) || !Number.isFinite(marker.lng)) return false;
+  if (marker.accuracy !== 'district_centroid' && marker.accuracy !== 'county_centroid') return false;
+  if (!GEO_VISITOR_ALLOWED_COORDINATE_SOURCES.includes(marker.coordinate_source)) return false;
+  return true;
+}
+
+// geoVisitorBuildMarkerPoints(areas) — 純函式：只把「已知」（!is_unknown）
+// 且後端 marker 欄位可信（見 _geoVisitorIsTrustedMarker）的行政區聚合列
+// 轉成 Marker Renderer 契約的點；Unknown 或後端沒有算出可信 marker 的列
+// 一律不建立任何點（需求文件四 A／九：Unknown 不建立 Estimate Model，
+// 前端不猜測、不 fallback）。
+function geoVisitorBuildMarkerPoints(areas) {
+  const list = Array.isArray(areas) ? areas : [];
+  const points = [];
+  list.forEach((area) => {
+    if (!area || area.is_unknown) return; // Unknown 不建立 Estimate Model
+    if (!_geoVisitorIsTrustedMarker(area.marker)) return; // 後端沒有算出可信座標 → 安全跳過，不畫、不猜
+    const marker = area.marker;
+    const label = `${area.city || ''}${area.district || ''}`.trim() || area.city || '';
+    points.push({
+      accuracy: marker.accuracy, // 'district_centroid' 或 'county_centroid'
+      lat: marker.lat, lng: marker.lng,
+      area_key: `${area.city || ''}|${area.district || ''}`,
+      label,
+      count: Number(area.visitor_count) || 1,
+    });
+  });
+  return points;
+}
+
+// geoVisitorRenderMarkers(mapInstance, points) → { drawn, skipped }
+//   points：陣列，每筆 { accuracy: 'district_centroid'|'county_centroid',
+//     lat, lng, area_key, label, count }（見 geo-marker-renderer.js 的
+//     geoMarkerBuildPoints() 契約）。真實產品呼叫端見
+//     geoVisitorFetchAndRender()：每次成功取得資料後，會用
+//     geoVisitorBuildMarkerPoints(geoVisitorState.areas) 算出點，呼叫這裡
+//     （跟 geoVisitorRenderChoropleth 同一個 render pipeline，同步呼叫，
+//     不是另外一條獨立、只有測試會走到的路徑）。目前因為
+//     _geoVisitorResolveAreaCentroid() 明確 BLOCKED（見上方常數），實際
+//     產出的點永遠是空陣列，這是誠實的安全降級，不是接線缺失。
+function geoVisitorRenderMarkers(mapInstance, points) {
+  const renderer = _geoVisitorMarkerRenderer();
+  if (!renderer) return { drawn: 0, skipped: (points || []).length };
+  const result = renderer.renderGroup(mapInstance, geoVisitorState.markerLayerGroup, points, {});
+  geoVisitorState.markerLayerGroup = result.group;
+  return { drawn: result.drawn, skipped: result.skipped };
+}
+
+// geoVisitorClearMarkers() — Layer Cleanup：離開 Visitor Layer／切店／
+// metric 或 range 切換時呼叫，清空目前的 Marker group（不留殘留）。
+function geoVisitorClearMarkers() {
+  const renderer = _geoVisitorMarkerRenderer();
+  if (renderer) renderer.clearGroup(geoVisitorState.markerLayerGroup);
 }
 
 if (typeof module !== 'undefined' && module.exports) {
@@ -508,6 +655,7 @@ if (typeof module !== 'undefined' && module.exports) {
     geoVisitorHandleStoreSwitch, geoVisitorMetricBarHtml, geoVisitorSetMetric,
     geoVisitorRenderMetricSummaryDom, _geoVisitorEmptyStateReason,
     _geoVisitorResetStateForTest,
+    geoVisitorRenderMarkers, geoVisitorClearMarkers, geoVisitorBuildMarkerPoints,
     get geoVisitorState() { return geoVisitorState; },
   };
 }

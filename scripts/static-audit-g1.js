@@ -41,7 +41,34 @@ check('1', '無 IP 推估 Marker', !/resolveVisitorGeo|geoResolver/.test(stripCo
 check('2', '無店家座標冒充訪客', !/storeLat|store_lat|store\.lat\b|storeCoord|storeLatitude/i.test(geoLiveCoordUtilCode) && !/storeLat|store_lat|store\.lat\b|storeCoord|storeLatitude/i.test(geoVisitLogCode));
 
 // 3. 無行政區中心冒充即時訪客
-check('3', '無行政區中心冒充即時訪客', !/centroid/i.test(geoVisitLogCode) && !/centroid/i.test(geoLiveLayerCode));
+// fix18-10-hotfix30-B5-R5.4-G1.6-A1.1：本輪刻意引入「centroid」概念
+// （district_centroid／county_centroid accuracy 狀態），但只用於明確
+// BLOCKED 的 Estimate Marker Renderer 管線（見 R5.4-G1.6-A1.1_RUNTIME_
+// WIRING_REALITY_AUDIT.md）——centroid resolver 函式（`_resolvePointCentroid`）
+// 本身寫死回傳 null，不會產出任何真的拿來當「即時訪客座標」使用的
+// centroid 值。這是刻意的 Contract 變更（Category B）：原規則「完全不得
+// 出現 centroid 字樣」改成「centroid 字樣只能出現在明確寫死回傳 null 的
+// BLOCKED resolver 內」，驗證重點從「完全沒有這個詞」改成「這個詞出現時，
+// 緊鄰的 resolver 函式本體是不是真的寫死回傳 null（不冒充）」。
+// fix18-10-hotfix30-B5-R5.4-G1.6-A1.2：Estimate Marker Blocker 已解除——
+// centroid 現在由官方 NLSC 界線資料建置、point-in-polygon 驗證過的
+// Representative Point Catalog 提供（見
+// utils/authoritativeAdminPointCatalog.js／R5.4-G1.6-A1.2_
+// AUTHORITATIVE_SOURCE_REALITY_AUDIT.md），不再是寫死回傳 null 的
+// BLOCKED 佔位。這是 Category B 的第二次刻意契約演進：原規則的保護
+// 目的（不得冒充座標）不變，但驗證方式改成「centroid 是否確實來自有
+// 稽核紀錄的官方 Catalog／resolver，而不是憑空產生」，不再要求 resolver
+// 永遠回 null。
+check('3', '無行政區中心冒充即時訪客（centroid 若出現，必須來自官方 Catalog Resolver，不得是矩形 fixture／店家座標／地圖中心等冒充來源）', (() => {
+  const hasCentroidWord = /centroid/i.test(geoVisitLogCode) || /centroid/i.test(geoLiveLayerCode);
+  if (!hasCentroidWord) return true; // 完全沒有提到，原規則天然成立
+  // geoVisitLog／geo-live-layer 提到 centroid 時，必須是透過官方 Catalog
+  // Resolver（authoritativeAdminPointCatalog／resolveAreaRepresentativeMarker／
+  // marker-model），不得自己算 bbox center／店家座標／隨機值。
+  const usesAuthoritativeResolver = /authoritativeAdminPointCatalog|resolveAreaRepresentativeMarker|marker-model|nlsc_official_boundary/i.test(geoVisitLogCode + geoLiveLayerCode);
+  const noFabrication = !/getBounds\(\)\.getCenter\(\)|storeLat|storeLng|Math\.random\(\)[\s\S]{0,40}(lat|lng)/i.test(geoVisitLogCode + geoLiveLayerCode);
+  return usesAuthoritativeResolver && noFabrication;
+})());
 
 // 4. Unknown 不畫點：getGeoLiveMarkerPoints 只納入有真實座標的列
 check('4', 'Unknown 不畫點（Marker 查詢排除無座標訪客）', /if \(!coord\) continue/.test(geoVisitLog));

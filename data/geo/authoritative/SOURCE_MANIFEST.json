@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "provider": "內政部國土測繪中心",
+  "provider_en": "National Land Surveying and Mapping Center, Ministry of the Interior (NLSC)",
+  "datasets": [
+    {
+      "dataset_id": "7442",
+      "dataset_name": "直轄市、縣(市)界線(TWD97經緯度)",
+      "dataset_name_en": "Municipality/County Boundary (TWD97 Lat/Lon)",
+      "source_type": "official_government_open_data",
+      "source_page": "政府資料開放平臺 data.gov.tw 資料集 7442（使用者提供，本輪環境無法連線 data.gov.tw 獨立驗證頁面內容，見 REALITY_AUDIT 第 1 節的驗證範圍說明）",
+      "archive_filename": "直轄市_縣_市_界線1140318.zip",
+      "archive_sha256": "9ff4d337e03a711d7e17caaf4d0c46a0fe2c6bd3660b321a2e35123030d8491c",
+      "downloaded_at": "user_provided_2026-08-04",
+      "source_updated_at": "1140318",
+      "source_updated_at_note": "檔名日期為民國114年03月18日（西元2025-03-18），與 .shp.xml ArcGIS CreaDate=20250321 一致",
+      "license_name": "政府資料開放授權條款第1版（使用者提供之資料集標示，本輪環境無法連線 data.gov.tw 獨立驗證授權頁面文字）",
+      "crs_declared": "GCS_TWD97[2020] (datum D_TWD_1997, ellipsoid GRS_1980) — 讀自 COUNTY_MOI_1140318.prj",
+      "crs_epsg_resolved": "EPSG:3824",
+      "feature_count": 22,
+      "shp_component_files": [
+        "COUNTY_MOI_1140318.shp",
+        "COUNTY_MOI_1140318.shx",
+        "COUNTY_MOI_1140318.dbf",
+        "COUNTY_MOI_1140318.prj",
+        "COUNTY_MOI_1140318.CPG",
+        "COUNTY_MOI_1140318.sbn",
+        "COUNTY_MOI_1140318.sbx",
+        "COUNTY_MOI_1140318.shp.xml"
+      ],
+      "dbf_fields_verified": ["COUNTYID", "COUNTYCODE", "COUNTYNAME", "COUNTYENG"]
+    },
+    {
+      "dataset_id": "7441",
+      "dataset_name": "鄉(鎮、市、區)界線(TWD97經緯度)",
+      "dataset_name_en": "Township/District Boundary (TWD97 Lat/Lon)",
+      "source_type": "official_government_open_data",
+      "source_page": "政府資料開放平臺 data.gov.tw 資料集 7441（使用者提供，本輪環境無法連線 data.gov.tw 獨立驗證頁面內容，見 REALITY_AUDIT 第 1 節的驗證範圍說明）",
+      "archive_filename": "鄉_鎮_市_區_界線1140318.zip",
+      "archive_sha256": "c5dc6c0f9a8cc1aad6758a0a6fb81b203718b37f42c5aa8e684262ca24a7d9dd",
+      "downloaded_at": "user_provided_2026-08-04",
+      "source_updated_at": "1140318",
+      "source_updated_at_note": "檔名日期為民國114年03月18日（西元2025-03-18）",
+      "license_name": "政府資料開放授權條款第1版（使用者提供之資料集標示，本輪環境無法連線 data.gov.tw 獨立驗證授權頁面文字）",
+      "crs_declared": "GCS_TWD97[2020] (datum D_TWD_1997, ellipsoid GRS_1980) — 讀自 TOWN_MOI_1140318.prj",
+      "crs_epsg_resolved": "EPSG:3824",
+      "feature_count": 368,
+      "shp_component_files": [
+        "TOWN_MOI_1140318.shp",
+        "TOWN_MOI_1140318.shx",
+        "TOWN_MOI_1140318.dbf",
+        "TOWN_MOI_1140318.prj",
+        "TOWN_MOI_1140318.CPG",
+        "TOWN_MOI_1140318.sbn",
+        "TOWN_MOI_1140318.sbx",
+        "TOWN_MOI_1140318.shp.xml",
+        "Town_Majia_Sanhe.shp",
+        "Town_Majia_Sanhe.shx",
+        "Town_Majia_Sanhe.dbf",
+        "Town_Majia_Sanhe.prj",
+        "Town_Majia_Sanhe.CPG",
+        "Town_Majia_Sanhe.sbn",
+        "Town_Majia_Sanhe.sbx",
+        "Town_Majia_Sanhe.shp.xml"
+      ],
+      "dbf_fields_verified": ["TOWNID", "TOWNCODE", "COUNTYNAME", "TOWNNAME", "TOWNENG", "COUNTYID", "COUNTYCODE"],
+      "official_correction_note": "壓縮檔內含補充檔案 Town_Majia_Sanhe（TOWNCODE=10013280，瑪家鄉）。實際讀取隨附的修正清單_11403.xlsx 後確認：該清單記錄的是新竹縣尖石鄉／苗栗縣泰安鄉／臺中市和平區的縣市界＋村里界釐整，以及臺南市善化區的村里界釐整，完全沒有提到瑪家鄉或三和，因此無法確認 Town_Majia_Sanhe 對主檔案的套用方式（replacement／union／difference+union／reference only 皆無根據）。Shapely 幾何分析顯示兩者 intersects=true，intersection 面積≈主檔案面積的99.9999%，但 symmetric_difference≈主檔案面積的8.6%，明顯不是同一個 Polygon。Build Tool 因此刻意不套用這個補充檔案（majia_correction_status='reference_only'），Catalog 完全只用主檔案 TOWN_MOI_1140318.shp 計算瑪家鄉的 Representative Point，368 個行政區維持主檔案原樣，不會因此變成 369 個或使用未經確認的幾何。"
+    }
+  ],
+  "verification_scope_note": "本 Manifest 記錄之 archive_sha256／dbf_fields_verified／crs_declared／feature_count 皆為對使用者上傳的原始 ZIP 檔案直接計算／解析所得，可重現（見 R5.4-G1.6-A1.2_AUTHORITATIVE_SOURCE_REALITY_AUDIT.md）。dataset_id／license_name／source_page 為使用者於上傳時提供的資料集識別資訊；本輪執行環境的網路白名單不包含 data.gov.tw，因此無法連線該平台頁面獨立驗證資料集描述文字與授權頁面的逐字內容，此為誠實記錄的驗證範圍限制，不是缺漏。",
+  "generator": {
+    "script": "scripts/build-authoritative-admin-points.js",
+    "version": "1.0.0",
+    "generated_at": "PLACEHOLDER_SET_BY_BUILD"
+  }
+}

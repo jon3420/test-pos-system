@@ -514,7 +514,17 @@ async function main() {
   const geoLiveCoordinateUtilText = fs.readFileSync(path.join(ROOT, 'utils/geoLiveCoordinate.js'), 'utf8');
   assert(!/storeLat|store_lat|store\.lat\b|storeCoord|store_coordinate/i.test(geoLiveCoordinateUtilText), '44-1 geoLiveCoordinate.js 不含「用店家座標」的變數/邏輯樣式');
   const geoVisitLogText = fs.readFileSync(path.join(ROOT, 'utils/geoVisitLog.js'), 'utf8');
-  assert(!/centroid/i.test(geoVisitLogText), '45-1 geoVisitLog.js（G1 Marker 查詢）不含 centroid 相關邏輯');
+  // fix18-10-hotfix30-B5-R5.4-G1.6-A1.2：本輪刻意新增 Estimate Marker
+  // （district_centroid／county_centroid）能力，但只透過官方 NLSC
+  // Representative Point Catalog（authoritativeAdminPointCatalog.js）
+  // 查表，getGeoLiveMarkerPoints()（G1 既有的「只回真實座標」Exact Marker
+  // 查詢）本身完全未修改。這是刻意的 Contract 變更（Category B）：驗證
+  // 重點改成「getGeoLiveMarkerPoints() 函式本體沒有 centroid 邏輯」，不是
+  // 整個檔案禁止出現這個詞（檔案裡新增的 getGeoLiveMarkerModel／
+  // resolveAreaRepresentativeMarker 是獨立的新函式，見
+  // R5.4-G1.6-A1.2_IMPLEMENTATION_REPORT.md）。
+  const getGeoLiveMarkerPointsBody = (geoVisitLogText.match(/function getGeoLiveMarkerPoints\(db, storeId, options\) \{\n([\s\S]*?)\n\}/) || [])[1] || '';
+  assert(!/centroid/i.test(getGeoLiveMarkerPointsBody), '45-1 geoVisitLog.js（G1 Marker 查詢 getGeoLiveMarkerPoints 函式本體）不含 centroid 相關邏輯');
   assert(!/rectangle|Rectangle/.test(geoLiveLayerText), '45-2 geo-live-layer.js 不含 rectangle fixture 相關邏輯');
 
   printSummary();

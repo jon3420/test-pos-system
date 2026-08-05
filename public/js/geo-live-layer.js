@@ -198,6 +198,105 @@
     if (state.layers.heat && state.map.hasLayer(state.layers.heat)) {
       state.map.removeLayer(state.layers.heat);
     }
+    // fix18-10-hotfix30-B5-R5.4-G1.6-A1.1：Mode 切換也要清掉上一個 Mode
+    // 殘留的 Estimate Marker，避免不同顯示模式疊圖。
+    clearEstimateMarkers();
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // fix18-10-hotfix30-B5-R5.4-G1.6-A1：Marker Rendering Unification —
+  // Dashboard Marker 接線（縣市／行政區推估 Marker，跟既有「真實座標」
+  // Marker Cluster 分開管理，因為兩者的資料來源與精確度語意完全不同）。
+  //
+  // 重用 public/js/geo-marker-renderer.js 的共用 Renderer（透過
+  // typeof geoMarkerRenderGroup 判斷是否已載入，跟既有其他跨檔案 soft-
+  // coupling 慣例一致；Node 環境下沒有載入時安全 no-op，不影響本檔案其餘
+  // 純函式的既有單元測試）。這是一個新增的、獨立的 overlay，不是既有
+  // DISPLAY_MODES 六種模式之一，不受「一次只能開一種主要模式」限制——
+  // 目前沒有任何呼叫端會餵真實的縣市／行政區中心點資料進來（那是
+  // Visitor Geo Attribution Pipeline 的職責，不在本輪範圍），保留這組
+  // 函式是為了讓「Marker 接線」本身就位、可測試。
+  // ══════════════════════════════════════════════════════════════
+
+  // fix18-10-hotfix30-B5-R5.4-G1.6-A1.2：BLOCKED 佔位已解除——Estimate
+  // Marker 現在改用後端 /api/geo-live/marker-model 提供的
+  // estimate_points（見 utils/geoVisitLog.js 的 getGeoLiveMarkerModel()，
+  // 由官方 NLSC Representative Point Catalog 算出安全座標），前端完全不
+  // 自己猜座標、不查 Catalog。
+  //
+  // buildEstimateMarkerPointsFromModel(estimatePoints) — 純函式：把後端
+  // marker-model 回應的 estimate_points 轉成 geo-marker-renderer.js 的
+  // geoMarkerBuildPoints() 契約（accuracy/lat/lng/area_key/label/count）。
+  // 只接受合法 accuracy（district_centroid／county_centroid）與合法
+  // coordinate_source（allowlist，見需求文件十二），不合法的點安全跳過，
+  // 不猜、不 fallback。
+  const ESTIMATE_COORDINATE_SOURCE_ALLOWLIST = Object.freeze(['nlsc_official_boundary_representative_point']);
+  function buildEstimateMarkerPointsFromModel(estimatePoints) {
+    const list = Array.isArray(estimatePoints) ? estimatePoints : [];
+    const out = [];
+    list.forEach((p) => {
+      if (!p) return;
+      if (p.accuracy !== 'district_centroid' && p.accuracy !== 'county_centroid') return;
+      if (!ESTIMATE_COORDINATE_SOURCE_ALLOWLIST.includes(p.coordinate_source)) return;
+      if (!Number.isFinite(Number(p.lat)) || !Number.isFinite(Number(p.lng))) return;
+      out.push({
+        accuracy: p.accuracy, lat: Number(p.lat), lng: Number(p.lng),
+        area_key: p.district_code || p.county_code || p.id,
+        label: p.label || p.district || p.county || '',
+        count: Number(p.count) || 1,
+      });
+    });
+    return out;
+  }
+
+  // renderEstimateMarkers(points) → { drawn, skipped }
+  //   points：見 geo-marker-renderer.js 的 geoMarkerBuildPoints() 契約
+  //   （accuracy: 'district_centroid'|'county_centroid'|'unknown'，
+  //   'unknown' 一律不畫）。fix18-10-hotfix30-B5-R5.4-G1.6-A1.1：優先透過
+  //   window.GeoMarkerRenderer 明確 namespace 呼叫（見需求文件三），
+  //   Node/舊環境 fallback 用裸函式全域。
+  function _liveMarkerRenderer() {
+    if (typeof window !== 'undefined' && window.GeoMarkerRenderer) return window.GeoMarkerRenderer;
+    if (typeof geoMarkerRenderGroup === 'function') {
+      return { renderGroup: geoMarkerRenderGroup, clearGroup: (typeof geoMarkerClearGroup === 'function' ? geoMarkerClearGroup : () => {}) };
+    }
+    return null;
+  }
+  function renderEstimateMarkers(points, hadBlockedCandidates) {
+    const renderer = _liveMarkerRenderer();
+    if (!state.map || !renderer) {
+      return { drawn: 0, skipped: (points || []).length };
+    }
+    const result = renderer.renderGroup(state.map, state.layers.estimateMarkers, points, {});
+    state.layers.estimateMarkers = result.group;
+    // fix18-10-hotfix30-B5-R5.4-G1.6-A1.1：Legend Runtime Wiring——每次
+    // 真正呼叫 renderEstimateMarkers()（也就是每次 refresh() 成功，不是只
+    // 有測試手動呼叫）都同步更新 Legend／Blocked 說明 DOM（若頁面上有對應
+    // 容器；沒有時安全略過，不報錯）。GA4 Choropleth 沿用自己的縣市色階
+    // 說明，不使用這裡的 Marker Legend（本函式完全不知道、也不觸碰 GA4
+    // 的任何 DOM 元素）。`hadBlockedCandidates`（由呼叫端在濾除 exact 點
+    // 之前先算好，見 refresh()）代表「這批資料裡本來就存在沒有真實座標的
+    // row」，跟 `points`（已經是濾完、可能是空陣列的 Estimate 候選點）
+    // 是兩件不同的事——用已經濾完的 points 判斷會永遠判斷不出「有 row 但
+    // 被 Blocked 擋下來」這種情況（那些 row 早就已經被濾掉，不在
+    // points 裡）。
+    if (typeof document !== 'undefined' && typeof renderer.buildLegendHtml === 'function') {
+      const legendEl = document.getElementById('geo-live-marker-legend');
+      if (legendEl) {
+        const showBlockedNotice = !!hadBlockedCandidates && result.drawn === 0;
+        legendEl.innerHTML = renderer.buildLegendHtml()
+          + (showBlockedNotice && typeof renderer.buildBlockedNoticeHtml === 'function' ? renderer.buildBlockedNoticeHtml() : '');
+      }
+    }
+    return { drawn: result.drawn, skipped: result.skipped };
+  }
+
+  // clearEstimateMarkers() — Layer Cleanup：獨立於 _clearActiveLayers()
+  // （那個只管六種主要顯示模式），估算 Marker 自己的 group 自己清，
+  // destroy() 也會呼叫（見下方）。
+  function clearEstimateMarkers() {
+    const renderer = _liveMarkerRenderer();
+    if (renderer) renderer.clearGroup(state.layers.estimateMarkers);
   }
 
   // attachToMap：接受既有 map 實例（來自 window.geoMapState.instance），不建立
@@ -205,6 +304,22 @@
   function attachToMap(mapInstance) {
     if (!mapInstance) return false;
     state.map = mapInstance;
+    // fix18-10-hotfix30-B5-R5.4-G1.6-A1.1：Legend Runtime Wiring——確保
+    // #geo-live-marker-legend 這個容器真的存在於頁面上（緊接在地圖容器
+    // 之後），不依賴 index.html 靜態先寫好一個 div（Dashboard 地圖容器本身
+    // 就是動態插入的，見 geo-intelligence-map.js geoInitMap()）。找不到地圖
+    // 容器（例如 Node/測試環境沒有真正的 DOM）時安全略過，不報錯。
+    if (typeof document !== 'undefined' && typeof mapInstance.getContainer === 'function') {
+      try {
+        const mapEl = mapInstance.getContainer();
+        if (mapEl && mapEl.parentNode && !document.getElementById('geo-live-marker-legend')) {
+          const legendEl = document.createElement('div');
+          legendEl.id = 'geo-live-marker-legend';
+          legendEl.className = 'geo-marker-legend-container';
+          mapEl.parentNode.insertBefore(legendEl, mapEl.nextSibling);
+        }
+      } catch (e) { /* DOM 操作失敗不影響地圖本身正常運作 */ }
+    }
     return true;
   }
 
@@ -253,6 +368,21 @@
       const points = await _fetchJson('/api/geo-live/markers?' + qs);
       if (points === null) return { state: 'error' };
       _renderMarkers(points, state.mode === 'cluster');
+      // fix18-10-hotfix30-B5-R5.4-G1.6-A1.2：Estimate Marker 改用正式
+      // /api/geo-live/marker-model（不再從 exact points 猜）。跟 Exact
+      // 同一次 refresh() 呼叫，Stale Response Guard 已在 _fetchJson()
+      // 內處理（同一份 state.requestSeq），這裡的 fetch 若因為切換
+      // metric/store 而變成過期回應，_fetchJson 會回 null，安全跳過，
+      // 不覆蓋新的畫面狀態。新 endpoint 失敗（null）不影響 Exact——見
+      // 需求文件十一：Estimate 失敗只是安全不畫，不清空既有 Summary，
+      // 不影響 Exact Marker。
+      const markerModel = await _fetchJson('/api/geo-live/marker-model?' + qs);
+      if (markerModel && Array.isArray(markerModel.estimate_points)) {
+        const catalogUnavailable = !!(markerModel.capabilities && markerModel.capabilities.catalog_available === false);
+        renderEstimateMarkers(buildEstimateMarkerPointsFromModel(markerModel.estimate_points), catalogUnavailable);
+      } else {
+        renderEstimateMarkers([], true); // Estimate endpoint 失敗：安全清空＋顯示 blocked notice，不影響 Exact
+      }
       _autoFitIfNeeded(points);
       return { state: resolveModuleState({ rows: points }), count: points.length };
     }
@@ -554,6 +684,7 @@
 
   function destroy() {
     _clearActiveLayers();
+    clearEstimateMarkers();
     if (state.pollTimer) { clearInterval(state.pollTimer); state.pollTimer = null; }
     state.destroyed = true;
     // 注意：絕不呼叫 state.map.remove()——那張地圖是既有 geo-intelligence-map.js
@@ -600,6 +731,7 @@
     ARIA_LABELS,
     // 瀏覽器環境物件方法
     init, attachToMap, setMode, setFilters, refresh, destroy,
+    renderEstimateMarkers, clearEstimateMarkers, buildEstimateMarkerPointsFromModel,
     get state() { return state; },
   };
 }));

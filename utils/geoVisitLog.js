@@ -24,6 +24,8 @@
 'use strict';
 
 const { GEO_SOURCE } = require('./geoConstants');
+const { resolveTaiwanAdministrativeArea } = require('./taiwanGeoNormalize');
+const authoritativeAdminPointCatalog = require('./authoritativeAdminPointCatalog');
 
 function _safeStr(val, maxLen = 300) {
   if (val === undefined || val === null) return null;
@@ -177,6 +179,44 @@ function getGeoVisitSummary(db, storeId, options) {
 // 的 visitor_key（visitor_id 優先，session_id 只在 visitor_id 缺失時 fallback，
 // 不得把同一人跨 session 的造訪算成多人，也不得把 visitor_id 與 session_id
 // 各自獨立計數）。
+// ══════════════════════════════════════════════════════════════════
+// fix18-10-hotfix30-B5-R5.4-G1.6-A1.2：Region-only Marker（Estimate）——
+// 把 city/district 這種自由文字，安全轉成 Authoritative Representative
+// Point。分兩步，缺一步就安全回 unavailable，不猜測、不 fallback：
+//   1. resolveTaiwanAdministrativeArea({city, district}) —— 既有 B2.5／
+//      R5.2 引擎，只在能唯一辨識時才回 county_code／subdivision_code
+//      （Hsinchu／Chiayi 裸名稱、Taoyuan District 沒有 county_code 佐證
+//      時，這一步本身就已經回 unknown，不會走到下一步）。
+//   2. authoritativeAdminPointCatalog.resolveAdministrativeRepresentative
+//      Point({district_code, county_code}) —— 用官方 NLSC 界線算出的
+//      Representative Point 查表，查不到（Catalog unavailable／code 不在
+//      表裡）也回 null。
+// 兩步都成功才回 { available:true, ... }，任何一步失敗都回
+// { available:false }（不影響呼叫端 Summary／Ranking，只是不畫 Marker）。
+function resolveAreaRepresentativeMarker(area) {
+  const a = area || {};
+  if (a.is_unknown) return { available: false };
+  const resolved = resolveTaiwanAdministrativeArea({ city: a.city, district: a.district });
+  if (!resolved || (!resolved.subdivision_code && !resolved.county_code)) return { available: false };
+  const catalogStatus = authoritativeAdminPointCatalog.getCatalogStatus();
+  if (!catalogStatus.available) return { available: false, error_code: 'catalog_unavailable' };
+  const point = authoritativeAdminPointCatalog.resolveAdministrativeRepresentativePoint({
+    district_code: resolved.subdivision_code || null,
+    county_code: resolved.county_code || null,
+  });
+  if (!point) return { available: false };
+  const accuracy = point.district_code ? 'district_centroid' : 'county_centroid';
+  return {
+    available: true,
+    lat: point.lat,
+    lng: point.lng,
+    accuracy,
+    coordinate_source: 'nlsc_official_boundary_representative_point',
+    county_code: point.county_code,
+    district_code: point.district_code || null,
+  };
+}
+
 function getGeoVisitAreas(db, storeId, options) {
   const opts = options || {};
   const since = resolveTimeRangeSince(opts.range, opts.now);
@@ -199,6 +239,7 @@ function getGeoVisitAreas(db, storeId, options) {
       add_to_cart_count: Number(r.add_to_cart_count) || 0,
       checkout_count: Number(r.checkout_count) || 0,
       order_count: Number(r.order_count) || 0,
+      marker: resolveAreaRepresentativeMarker({ city: r.city, district: r.district, is_unknown: !!r.is_unknown }),
     }));
   } catch (e) {
     console.warn('[geoVisitLog] getGeoVisitAreas failed:', e.message);
@@ -620,6 +661,135 @@ function getGeoLiveMarkerPoints(db, storeId, options) {
   }
 }
 
+// getGeoLiveMarkerModel(db, storeId, options) → { exact_points,
+//   estimate_points, unknown_count, capabilities }
+//
+// fix18-10-hotfix30-B5-R5.4-G1.6-A1.2：Dashboard Region-only Payload。
+// 向後相容設計（需求文件十四）：完全不修改 getGeoLiveMarkerPoints()／
+// 既有 `if (!coord) continue` 安全過濾，新增一個獨立的 Server Helper，
+// 同一個 storeId／filters 下：
+//   1. exact_points：直接沿用 getGeoLiveMarkerPoints()（不重複查詢邏輯）。
+//   2. estimate_points：只查「沒有出現在 exact_points 的 visitor_key」
+//      且 city／district 已知（非 is_unknown）的列，用
+//      resolveAreaRepresentativeMarker() 轉成 Representative Point，同
+//      accuracy＋district_code／county_code 聚合成一個 Marker（需求文件
+//      十六 C：同 metric + district_code → 一個 Marker）。
+//   3. unknown_count：is_unknown=1 的 unique visitor_key 數（且未出現在
+//      exact_points——理論上 unknown 不會有座標，這裡仍防禦性排除）。
+function getGeoLiveMarkerModel(db, storeId, options) {
+  const opts = options || {};
+  const exactPoints = getGeoLiveMarkerPoints(db, storeId, opts);
+  const exactVisitorKeys = new Set(exactPoints.map((p) => p.visitor_key));
+
+  const since = resolveTimeRangeSince(opts.range, opts.now, opts.customStart);
+  const where = ['store_id = ?', 'event_time >= ?'];
+  const params = [storeId, since];
+  _applyCommonFilters(where, params, opts);
+
+  const capabilities = {
+    exact_available: true,
+    district_estimates_available: false,
+    county_estimates_available: false,
+    catalog_available: false,
+    catalog_source: null,
+    catalog_schema_version: null,
+  };
+  let catalogErrorCode = null;
+  try {
+    const status = authoritativeAdminPointCatalog.getCatalogStatus();
+    capabilities.district_estimates_available = !!status.available;
+    capabilities.county_estimates_available = !!status.available;
+    capabilities.catalog_available = !!status.available;
+    capabilities.catalog_source = status.available ? status.source : null;
+    capabilities.catalog_schema_version = status.available ? status.schema_version : null;
+    if (!status.available) catalogErrorCode = status.error_code || 'catalog_unavailable';
+  } catch (e) {
+    catalogErrorCode = 'catalog_unavailable';
+  }
+
+  function respond(estimatePoints, unknownCount, errorCode) {
+    const districtEntities = estimatePoints.filter((p) => p.accuracy === 'district_centroid').length;
+    const countyEntities = estimatePoints.filter((p) => p.accuracy === 'county_centroid').length;
+    const summary = {
+      exact_entities: exactPoints.length,
+      district_estimate_entities: districtEntities,
+      county_estimate_entities: countyEntities,
+      unknown_entities: unknownCount,
+    };
+    const out = { exact_points: exactPoints, estimate_points: estimatePoints, unknown_count: unknownCount, summary, capabilities };
+    if (errorCode) { out.status = 'partial'; out.error_code = errorCode; } else { out.status = 'ok'; out.error_code = null; }
+    return out;
+  }
+
+  // fix18-10-hotfix30-B5-R5.4-G1.6-A1.2：Catalog 不可用時，Estimate 安全
+  // 停用（不查、不猜），但 Exact 完全不受影響——見需求文件十一 Partial
+  // Failure Contract。
+  if (catalogErrorCode) {
+    return respond([], 0, catalogErrorCode);
+  }
+
+  try {
+    const rows = db.all(
+      `SELECT ${VISITOR_KEY_SQL} AS visitor_key, city, district, is_unknown, event_name
+       FROM geo_visit_log
+       WHERE ${where.join(' AND ')}
+       ORDER BY event_time DESC`,
+      params
+    ) || [];
+
+    const seenForDedupe = new Set(); // visitor_key -> 每個 unique entity 只算一次（含 unknown 判斷）
+    const unknownVisitorKeys = new Set();
+    const estimateAgg = new Map(); // key: accuracy|code -> { ...marker fields, visitor_keys:Set, event_count }
+
+    rows.forEach((r) => {
+      if (exactVisitorKeys.has(r.visitor_key)) return; // 已經是 Exact，不重複畫（需求文件十六：同一 entity 只能出現在 exact/estimate/unknown 三者之一）
+      if (seenForDedupe.has(`${r.visitor_key}|${r.event_name}`)) return; // event_count 另計，不用事件次數重複畫 Marker
+      seenForDedupe.add(`${r.visitor_key}|${r.event_name}`);
+
+      if (r.is_unknown) { unknownVisitorKeys.add(r.visitor_key); return; }
+
+      const marker = resolveAreaRepresentativeMarker({ city: r.city, district: r.district, is_unknown: false });
+      if (!marker.available) { unknownVisitorKeys.delete(r.visitor_key); return; } // 有 city/district 但查無 Representative Point：誠實的「已知但未顯示」，不計入 unknown
+
+      const code = marker.district_code || marker.county_code;
+      // fix18-10-hotfix30-B5-R5.4-G1.6-A1.2（需求文件十二）：aggregate id
+      // 用不可逆、非個人識別的 district/county code 組成，不含任何
+      // visitor_key／個別識別資訊。
+      const key = `${marker.accuracy}:${code}`;
+      if (!estimateAgg.has(key)) {
+        estimateAgg.set(key, {
+          id: marker.district_code ? `district:${marker.district_code}` : `county:${marker.county_code}`,
+          source: 'pos_visitor_geo',
+          county_code: marker.county_code, county: null, district_code: marker.district_code, district: null,
+          lat: marker.lat, lng: marker.lng, accuracy: marker.accuracy,
+          coordinate_source: marker.coordinate_source,
+          is_estimate: true,
+          _visitorKeys: new Set(), event_count: 0,
+        });
+      }
+      const agg = estimateAgg.get(key);
+      agg._visitorKeys.add(r.visitor_key);
+      agg.event_count += 1;
+      if (!agg.district && r.district) agg.district = r.district;
+      if (!agg.county && r.city) agg.county = r.city;
+    });
+
+    const estimatePoints = Array.from(estimateAgg.values()).map((agg) => ({
+      id: agg.id, source: agg.source,
+      county_code: agg.county_code, county: agg.county, district_code: agg.district_code, district: agg.district,
+      lat: agg.lat, lng: agg.lng, accuracy: agg.accuracy,
+      label: agg.district || agg.county || '',
+      count: agg._visitorKeys.size, unique_visitors: agg._visitorKeys.size, event_count: agg.event_count,
+      coordinate_source: agg.coordinate_source, is_estimate: true,
+    }));
+
+    return respond(estimatePoints, unknownVisitorKeys.size, null);
+  } catch (e) {
+    console.warn('[geoVisitLog] getGeoLiveMarkerModel estimate query failed:', e.message);
+    return respond([], 0, 'region_query_failed');
+  }
+}
+
 module.exports = {
   GEO_VISIT_LOG_TIME_RANGES,
   VISITOR_KEY_SQL,
@@ -640,4 +810,7 @@ module.exports = {
   getGeoLiveVisitorTimeline,
   // fix18-10-hotfix30-B5-R5.4-G1-B（真實座標 Marker）
   getGeoLiveMarkerPoints,
+  // fix18-10-hotfix30-B5-R5.4-G1.6-A1.2（Region-only Marker）
+  resolveAreaRepresentativeMarker,
+  getGeoLiveMarkerModel,
 };

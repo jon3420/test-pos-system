@@ -1,0 +1,53 @@
+/* public/css/geo-marker-renderer.css — fix18-10-hotfix30-B5-R5.4-G1.6-A1.1
+ * Geo Marker Rendering Unification — 四態視覺樣式 + Legend。
+ * 對應 public/js/geo-marker-renderer.js 的 geoMarkerIconClassFor()。
+ */
+
+.geo-marker-icon-shape {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  font-size: 12px;
+  line-height: 1;
+}
+
+/* Exact：實心、實線、沿用呼叫端既有事件顏色（本檔案不覆寫顏色） */
+.geo-marker-accuracy-exact .geo-marker-icon-shape {
+  opacity: 1;
+}
+
+/* District Centroid：空心／半透明、虛線外框 */
+.geo-marker-accuracy-district_centroid .geo-marker-icon-shape {
+  opacity: 0.75;
+  border: 1px dashed var(--text-secondary, #64748b);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-secondary, #64748b);
+}
+
+/* County Centroid：比 District 更低透明度、不同形狀（方形） */
+.geo-marker-accuracy-county_centroid .geo-marker-icon-shape {
+  opacity: 0.5;
+  border: 1px dashed var(--text-secondary, #94a3b8);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-secondary, #94a3b8);
+}
+
+/* Legend（見需求文件七，必須出現在使用 Marker 的 Dashboard／Visitor Layer，
+   不能只存在程式常數中） */
+.geo-marker-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--text-secondary, #64748b);
+  padding: 4px 0;
+}
+.geo-marker-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}

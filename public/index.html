@@ -3551,6 +3551,14 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
   integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 <script src="/js/geo-intelligence-map.js?v=fix18-10-hotfix30-B5-R5-2-B2"></script>
+<link rel="stylesheet" href="/css/geo-marker-renderer.css?v=fix18-10-hotfix30-B5-R5-4-G1-6-A1-1">
+<!-- fix18-10-hotfix30-B5-R5.4-G1.6-A1.1: Geo Marker Rendering Unification —
+     單一共用 Marker Renderer（見 R5.4-G1.6-A1.1_RUNTIME_WIRING_FIX.md）。
+     必須排在 geo-visitor-layer.js／geo-live-layer.js 之前（兩者都透過
+     window.GeoMarkerRenderer 呼叫這裡定義的 renderGroup/clearGroup）。不
+     建立 L.map()／Tile Layer，本身跟 Leaflet map 生命週期無關，排在
+     Leaflet 之後只是沿用同一個 <script> 區塊順序，非硬性依賴。 -->
+<script src="/js/geo-marker-renderer.js?v=fix18-10-hotfix30-B5-R5-4-G1-6-A1-1"></script>
 <!-- fix18-10-hotfix30-B5-R5.2-B3: Geo Intelligence Settings UI（後台設定中心）。
      只做 UI/設定流程/Preview，不重新設計 Geo Map Core：直接沿用上面
      geo-intelligence-map.js 同一份 classic <script> 共用作用域的 pure function

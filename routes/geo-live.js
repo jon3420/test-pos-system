@@ -29,7 +29,7 @@ const { getGeoFeatureFlags } = require('../utils/geoFeatureFlags');
 const {
   GEO_VISIT_LOG_TIME_RANGES,
   GEO_LIVE_CHANNELS, GEO_LIVE_DEVICES,
-  getGeoLiveMarkerPoints, getGeoLiveUnknownPool, getGeoLiveDistricts,
+  getGeoLiveMarkerPoints, getGeoLiveMarkerModel, getGeoLiveUnknownPool, getGeoLiveDistricts,
   getGeoLivePostal, getGeoLiveHeatSummaryTop5, getGeoLiveReplayBuckets,
   getGeoLiveVisitorTimeline,
 } = require('../utils/geoVisitLog');
@@ -78,6 +78,14 @@ function _safeHandler(fn) {
 
 // ── 二／三／十九／二十：Live Marker（只回傳真實座標，見 utils/geoLiveCoordinate.js）
 router.get('/markers', requireFeature('reports'), requireGeoAnalyticsEnabled, _safeHandler(getGeoLiveMarkerPoints));
+
+// fix18-10-hotfix30-B5-R5.4-G1.6-A1.2：Region-only Marker Model——新增
+// 獨立 endpoint（不修改 /markers 既有 contract，見需求文件十四）。回傳
+// { exact_points, estimate_points, unknown_count, capabilities }。
+// exact_points 跟 /markers 資料來源相同（同一個 getGeoLiveMarkerPoints()），
+// estimate_points 用官方 NLSC Representative Point Catalog 查表，Catalog
+// 不可用時 estimate_points 安全回空陣列，不影響 exact_points／不回 500。
+router.get('/marker-model', requireFeature('reports'), requireGeoAnalyticsEnabled, _safeHandler(getGeoLiveMarkerModel));
 
 // ── 五：Unknown Visitor Pool（Known/Unknown/Coverage + Mappable）
 router.get('/unknown-pool', requireFeature('reports'), requireGeoAnalyticsEnabled, _safeHandler(getGeoLiveUnknownPool));
