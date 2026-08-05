@@ -310,7 +310,17 @@ function geoVisitorRenderRecentDom() {
     const name = r.is_unknown ? 'Unknown' : `${r.city || ''}${r.district || ''}`;
     const level = r.is_unknown ? 'Unknown' : '行政區推定';
     const mask = _geoVisitorEsc(r.visitor_mask || 'vis_***');
-    return `<div class="geo-visitor-recent-row"><span class="geo-visitor-recent-time">${_geoVisitorEsc(r.event_time)}</span><span class="geo-visitor-recent-mask">${mask}</span><span class="geo-visitor-recent-event">${_geoVisitorEsc(r.event_name)}</span><span class="geo-visitor-recent-area">${_geoVisitorEsc(name)}</span><span class="geo-visitor-recent-level">${_geoVisitorEsc(level)}</span><span class="geo-visitor-recent-source">${_geoVisitorEsc(r.source === 'ip' ? 'Analytics Sync' : (r.source || 'Analytics Sync'))}</span></div>`;
+    // fix18-10-hotfix30-B5-R5.4-G1.6-A1.2.1：優先使用標準 UTC 欄位
+    // event_time_utc 換算 Asia/Taipei 顯示；舊欄位 r.event_time 只作
+    // fallback（例如尚未部署新後端的過渡期）。一律透過共用 Helper
+    // formatTaipeiDateTime()（public/js/date-time-format.js），不得在這裡
+    // 手動 +8 小時。無法辨識/缺漏時安全顯示 '—'，不顯示 Invalid Date。
+    // 標籤是「事件時間（台灣）」，不是登入時間——view_product 等是瀏覽事件，
+    // 不是訪客登入。
+    const taipeiTime = (typeof formatTaipeiDateTime === 'function')
+      ? formatTaipeiDateTime(r.event_time_utc || r.event_time)
+      : (r.event_time || '—');
+    return `<div class="geo-visitor-recent-row"><span class="geo-visitor-recent-time" title="事件時間（台灣）">${_geoVisitorEsc(taipeiTime)}</span><span class="geo-visitor-recent-mask">${mask}</span><span class="geo-visitor-recent-event">${_geoVisitorEsc(r.event_name)}</span><span class="geo-visitor-recent-area">${_geoVisitorEsc(name)}</span><span class="geo-visitor-recent-level">${_geoVisitorEsc(level)}</span><span class="geo-visitor-recent-source">${_geoVisitorEsc(r.source === 'ip' ? 'Analytics Sync' : (r.source || 'Analytics Sync'))}</span></div>`;
   }).join('');
 }
 

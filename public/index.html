@@ -3543,6 +3543,11 @@
 <script src="/js/line-member-gate.js?v=fix18-10-hotfix26-D"></script>
 <script src="/js/app.js?v=fix18-10-hotfix22"></script>
 <script src="/js/analytics-v2.js?v=fix18-10-hotfix24-UI"></script>
+<!-- fix18-10-hotfix30-B5-R5.4-G1.6-A1.2.1: 共用 Asia/Taipei 顯示 Helper（唯一的
+     瀏覽器端時間格式化來源）。必須排在 geo-visitor-layer.js／geo-live-layer.js
+     之前，兩者都改用這裡的 formatTaipeiDateTime()，不再各自手動 +8 小時或
+     直接輸出 DB 原始字串。 -->
+<script src="/js/date-time-format.js?v=fix18-10-hotfix30-B5-R5-4-G1-6-A1-2-1"></script>
 <script src="/js/geo-intelligence.js?v=fix18-10-hotfix30-B5-R5-1-C"></script>
 <!-- fix18-10-hotfix30-B5-R5.2-B2: Leaflet（CDN，含 integrity；載入失敗時 geo-intelligence-map.js 的
      typeof L === 'undefined' 檢查會安全顯示「地圖元件載入中」，不會讓整個 Dashboard 崩潰） -->

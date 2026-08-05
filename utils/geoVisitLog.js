@@ -26,6 +26,7 @@
 const { GEO_SOURCE } = require('./geoConstants');
 const { resolveTaiwanAdministrativeArea } = require('./taiwanGeoNormalize');
 const authoritativeAdminPointCatalog = require('./authoritativeAdminPointCatalog');
+const { getTaipeiDayUtcRange, toUtcIsoString } = require('./dateTime');
 
 function _safeStr(val, maxLen = 300) {
   if (val === undefined || val === null) return null;
@@ -52,10 +53,15 @@ function resolveTimeRangeSince(range, now, customStart) {
     // 自訂範圍：呼叫端必須提供合法的 customStart（字串），否則安全 fallback
     // 回 today，不得讓不合法輸入變成「無下限」查詢（等同全表掃描風險）。
     if (customStart && typeof customStart === 'string' && customStart.length >= 10) return customStart;
-    return `${nowDate.toISOString().slice(0, 10)} 00:00:00`;
+    return getTaipeiDayUtcRange(nowDate).startUtc;
   }
-  // 'today'：當天 00:00:00（UTC，跟既有 analytics 慣例一致，不另外處理時區轉換）
-  return `${nowDate.toISOString().slice(0, 10)} 00:00:00`;
+  // 'today'：Asia/Taipei 日曆日 00:00:00 換算回 UTC 的下限（R5.4-G1.6-A1.2.1
+  // 修正：舊版直接用 nowDate.toISOString().slice(0,10)，那是 UTC 日曆日，
+  // 跟台灣日曆日在 UTC 08:00~16:00 這段區間會差一天，見
+  // R5.4-G1.6-A1.2.1_TIMEZONE_REALITY_AUDIT.md 問題 2）。「近 24 小時」
+  // （'24h' 分支）本身就是 rolling window，不受此修正影響，維持原邏輯
+  // （需求文件七：不得把 rolling window 改成台灣今日）。
+  return getTaipeiDayUtcRange(nowDate).startUtc;
 }
 
 // 供 utils/analyticsLog.js insertEvent() 呼叫的唯一寫入入口。
@@ -267,7 +273,13 @@ function getRecentGeoVisits(db, storeId, options) {
       [storeId, limit]
     ) || [];
     return rows.map((r) => ({
-      event_time: r.event_time, city: r.city, district: r.district,
+      // 舊欄位保留原樣（向後相容，需求文件五），不得刪除。
+      event_time: r.event_time,
+      // 新增標準欄位（R5.4-G1.6-A1.2.1）：ISO 8601 UTC，前端優先使用這個
+      // 欄位換算 Asia/Taipei 顯示時間，不再直接顯示 DB 原始字串。
+      // parseStoredUtcTimestamp 解析不出來時安全回 null（不得猜測時區）。
+      event_time_utc: toUtcIsoString(r.event_time),
+      city: r.city, district: r.district,
       event_name: r.event_name, source: r.source, is_unknown: !!r.is_unknown,
       // 遮罩後的訪客識別（例：vis_***123），絕不回傳原始 visitor_id/session_id。
       visitor_mask: _maskVisitorIdentifier(r.visitor_id, r.session_id),
