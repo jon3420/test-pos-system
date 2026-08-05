@@ -313,6 +313,10 @@ initDb().then((db) => {
 
   // ── Super Admin 總控台（獨立，不需 storeGuard）────────
   app.use('/api/super-admin', require('./routes/superAdmin'));
+  // fix18-10-hotfix30-B5-R5.4-G1.6-A2-T1：暫時性 Zeabur Client IP Trust 診斷
+  // 端點，Super Admin 限定，不啟用/不影響任何 Geo Provider 功能（見
+  // routes/admin-geo-diagnostic.js 頂部說明）。
+  app.use('/api/admin/geo', require('./routes/admin-geo-diagnostic'));
 
   // ── hotfix11/12 診斷 API：GET /api/debug/schema ──────────
   // 部署後呼叫此 API 可確認線上 SQLite schema 是否正確（無需登入）
