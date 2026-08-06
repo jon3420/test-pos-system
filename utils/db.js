@@ -3,7 +3,11 @@ const initSqlJs = require('sql.js');
 const fs = require('fs');
 const path = require('path');
 
-const DB_PATH = path.join(__dirname, '../data/pos.db');
+// fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1: allow overriding the DB file path via
+// env var so QA harnesses can point at an isolated temp DB while still
+// exercising the real production db.js module (no behavior change when the
+// env var is unset — default path is unchanged).
+const DB_PATH = process.env.POS_DB_PATH || path.join(__dirname, '../data/pos.db');
 const dataDir = path.join(__dirname, '../data');
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 
@@ -2356,6 +2360,9 @@ function initTables(w) {
   // fix18-10-hotfix30-B5-R5.4-G1｜Geo Intelligence V2 — Live Geo Layer 欄位遷移
   _runGeoLiveG1Migration(w);
   // fix18-10-hotfix30-B5-R5.4-G1-B｜真實座標來源表（Browser Geolocation 等）
+  _initGa4GeoRealtimeSnapshotsTable(w);
+  _initGa4GeoRangeStatsTable(w);
+  _initGa4GeoSyncRunsTable(w);
   _initGeoLiveCoordinatesTable(w);
   // fix18-10-hotfix30-B5-R5.4-G1-C｜座標同意狀態稽核表
   _initGeoCoordinateStatusLogTable(w);
@@ -2473,6 +2480,158 @@ function _initGeoCoordinateStatusLogTable(w) {
     w._db.run('CREATE INDEX IF NOT EXISTS idx_geo_coord_status_store_status ON geo_coordinate_status_log(store_id, status, captured_at)');
     w._save();
   } catch (e) { console.warn('[DB] geo_coordinate_status_log table:', e.message); }
+}
+
+// ============================================================
+// fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1 | GA4 城市歷史統計、即時快照與行政區
+// 轉換地圖 — Data Model
+//
+// 三張全新、獨立、additive 資料表（safe migration：只用 CREATE TABLE IF NOT
+// EXISTS / CREATE INDEX IF NOT EXISTS，絕不 DROP／重建 geo_visit_log、
+// analytics_events 或任何既有表）。
+//
+// 語意上與 geo_visit_log（POS 個別 visitor_id 事件）完全分離：這三張表只保存
+// GA4 Server 端回傳的「城市彙總」數字，從不寫入 visitor_id / user_pseudo_id /
+// GA client_id，也不會反查或回填 POS 的 Known/Unknown 訪客狀態（見需求文件一
+// 禁止清單、R5.4-G1.6-GA4-H1_PRIVACY_AUDIT.md）。
+// ============================================================
+function _initGa4GeoRealtimeSnapshotsTable(w) {
+  try {
+    w._db.run(`CREATE TABLE IF NOT EXISTS ga4_geo_realtime_snapshots (
+      id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+      store_id              TEXT NOT NULL,
+      property_id           TEXT NOT NULL,
+
+      captured_bucket_utc   TEXT NOT NULL,
+      captured_at_utc       TEXT NOT NULL DEFAULT (datetime('now')),
+      captured_at_taipei    TEXT,
+      window_minutes        INTEGER NOT NULL DEFAULT 30,
+
+      country_raw           TEXT,
+      region_raw             TEXT,
+      city_raw               TEXT,
+      raw_location_key      TEXT NOT NULL,
+
+      country_code          TEXT,
+      county_code           TEXT,
+      county_name           TEXT,
+      district_code          TEXT,
+      district_name          TEXT,
+
+      normalization_status  TEXT NOT NULL DEFAULT 'unknown',
+      administrative_level  TEXT,
+
+      active_users_30m       INTEGER NOT NULL DEFAULT 0,
+      event_count_30m        INTEGER NOT NULL DEFAULT 0,
+
+      source                TEXT NOT NULL DEFAULT 'ga4_realtime',
+      metrics_version       TEXT NOT NULL DEFAULT 'v1',
+      normalization_version TEXT NOT NULL DEFAULT 'v1',
+      sync_run_id           TEXT,
+      created_at            TEXT DEFAULT (datetime('now')),
+
+      UNIQUE(store_id, property_id, captured_bucket_utc, raw_location_key, metrics_version)
+    )`);
+    w._save();
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_ga4geo_rt_store_bucket ON ga4_geo_realtime_snapshots(store_id, property_id, captured_bucket_utc)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_ga4geo_rt_store_district ON ga4_geo_realtime_snapshots(store_id, district_code, captured_bucket_utc)');
+    w._save();
+  } catch (e) { console.warn('[DB] ga4_geo_realtime_snapshots table:', e.message); }
+}
+
+function _initGa4GeoRangeStatsTable(w) {
+  try {
+    w._db.run(`CREATE TABLE IF NOT EXISTS ga4_geo_range_stats (
+      id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+      store_id              TEXT NOT NULL,
+      property_id           TEXT NOT NULL,
+
+      range_start_date      TEXT NOT NULL,
+      range_end_date        TEXT NOT NULL,
+      timezone              TEXT NOT NULL DEFAULT 'Asia/Taipei',
+
+      country_raw           TEXT,
+      region_raw             TEXT,
+      city_raw               TEXT,
+      raw_location_key      TEXT NOT NULL,
+
+      country_code          TEXT,
+      county_code           TEXT,
+      county_name           TEXT,
+      district_code          TEXT,
+      district_name          TEXT,
+
+      normalization_status  TEXT NOT NULL DEFAULT 'unknown',
+      administrative_level  TEXT,
+
+      active_users           INTEGER NOT NULL DEFAULT 0,
+      new_users              INTEGER NOT NULL DEFAULT 0,
+      sessions               INTEGER NOT NULL DEFAULT 0,
+
+      page_view_count        INTEGER NOT NULL DEFAULT 0,
+      view_product_count     INTEGER NOT NULL DEFAULT 0,
+      view_item_count        INTEGER NOT NULL DEFAULT 0,
+      add_to_cart_count      INTEGER NOT NULL DEFAULT 0,
+      begin_checkout_count   INTEGER NOT NULL DEFAULT 0,
+      checkout_click_count   INTEGER NOT NULL DEFAULT 0,
+      purchase_count         INTEGER NOT NULL DEFAULT 0,
+
+      transaction_count      INTEGER NOT NULL DEFAULT 0,
+      purchase_revenue       REAL NOT NULL DEFAULT 0,
+      currency               TEXT,
+
+      metrics_version        TEXT NOT NULL DEFAULT 'v1',
+      event_mapping_version  TEXT NOT NULL DEFAULT 'v1',
+      normalization_version  TEXT NOT NULL DEFAULT 'v1',
+      source                 TEXT NOT NULL DEFAULT 'ga4_report',
+
+      synced_at_utc          TEXT NOT NULL DEFAULT (datetime('now')),
+      sync_run_id            TEXT,
+      created_at             TEXT DEFAULT (datetime('now')),
+      updated_at             TEXT DEFAULT (datetime('now')),
+
+      UNIQUE(store_id, property_id, range_start_date, range_end_date, raw_location_key, metrics_version, event_mapping_version)
+    )`);
+    w._save();
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_ga4geo_range_store_range ON ga4_geo_range_stats(store_id, property_id, range_start_date, range_end_date)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_ga4geo_range_store_district ON ga4_geo_range_stats(store_id, district_code, range_start_date, range_end_date)');
+    w._save();
+  } catch (e) { console.warn('[DB] ga4_geo_range_stats table:', e.message); }
+}
+
+function _initGa4GeoSyncRunsTable(w) {
+  try {
+    w._db.run(`CREATE TABLE IF NOT EXISTS ga4_geo_sync_runs (
+      id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+      store_id           TEXT NOT NULL,
+      property_id        TEXT,
+      sync_type          TEXT NOT NULL,
+      range_start_date   TEXT,
+      range_end_date     TEXT,
+
+      started_at_utc     TEXT NOT NULL DEFAULT (datetime('now')),
+      finished_at_utc    TEXT,
+
+      status             TEXT NOT NULL DEFAULT 'running',
+      rows_received      INTEGER NOT NULL DEFAULT 0,
+      rows_saved         INTEGER NOT NULL DEFAULT 0,
+      rows_unknown       INTEGER NOT NULL DEFAULT 0,
+      rows_overseas      INTEGER NOT NULL DEFAULT 0,
+      requests_used      INTEGER NOT NULL DEFAULT 0,
+
+      error_code         TEXT,
+      error_message_safe TEXT,
+
+      partial             INTEGER NOT NULL DEFAULT 0,
+      stale_fallback_used INTEGER NOT NULL DEFAULT 0,
+      source              TEXT NOT NULL DEFAULT 'ga4_geo_sync_service',
+      created_at          TEXT DEFAULT (datetime('now'))
+    )`);
+    w._save();
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_ga4geo_syncruns_store_time ON ga4_geo_sync_runs(store_id, started_at_utc)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_ga4geo_syncruns_store_type ON ga4_geo_sync_runs(store_id, sync_type, started_at_utc)');
+    w._save();
+  } catch (e) { console.warn('[DB] ga4_geo_sync_runs table:', e.message); }
 }
 
 module.exports = { getDb, initDb };

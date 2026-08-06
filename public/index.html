@@ -3610,6 +3610,13 @@
      geoGa4NotifySettingsChanged()）、頁面 bootstrap 之前。 -->
 <link rel="stylesheet" href="/css/geo-ga4-settings.css?v=fix18-10-hotfix30-B5-R5-4-G1-5-B2-3">
 <script src="/js/geo-ga4-settings.js?v=fix18-10-hotfix30-B5-R5-4-G1-5-B2-3"></script>
+<!-- fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1: GA4 城市歷史統計/即時快照/行政區
+     轉換地圖子面板。全新獨立檔案，完全沒有修改 geo-ga4-realtime-layer.js/
+     geo-ga4-settings.js。必須排在兩者之後（沿用同一個 window.geoMapState.
+     instance，且透過 geo-heatmap-ui.js 的 'ga4' layer 切換分支呼叫
+     window.GeoGa4H1Panel.init()/destroy()，不建立第二張地圖）。 -->
+<link rel="stylesheet" href="/css/geo-ga4-h1.css?v=fix18-10-hotfix30-B5-R5-4-G1-6-GA4-H1">
+<script src="/js/geo-ga4-h1-panel.js?v=fix18-10-hotfix30-B5-R5-4-G1-6-GA4-H1"></script>
 <script src="/js/coupons.js?v=fix18-06"></script>
 <script src="/js/qrcode.min.js?v=fix18-09F-h2"></script>
 <script src="/license.js?v=fix18-06"></script>

@@ -654,6 +654,12 @@ function geoHeatUiSetLayer(containerId, layer) {
     // fix18-10-hotfix30-B5-R5.4-G1.5-B1：離開 GA4 Layer 時清 timer／abort 未完成
     // request（見 geo-ga4-realtime-layer.js 的 geoGa4Deactivate()）。
     if (typeof geoGa4Deactivate === 'function') geoGa4Deactivate();
+    // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1：離開 GA4 Layer 時同樣清理 H1
+    // 子面板（timer／abort／獨立 marker layerGroup），不影響上面既有的
+    // geoGa4Deactivate()。
+    if (window.GeoGa4H1Panel && typeof window.GeoGa4H1Panel.destroy === 'function') {
+      window.GeoGa4H1Panel.destroy({ toolbar: `${containerId}-ga4-h1-toolbar` });
+    }
     // 修正 Root Cause 三：資料抓回來、choropleth 畫完之後，再依當下真實的
     // status/coverage 決定要不要顯示「無可繪製座標」等地圖覆蓋文字。
     Promise.resolve(geoVisitorFetchAndRender(containerId, geoHeatUiState.visitorRange))
@@ -672,10 +678,23 @@ function geoHeatUiSetLayer(containerId, layer) {
     _geoHeatUiRenderGa4MapOverlay();
     _geoHeatUiRenderVisitorMapOverlay();
     _geoHeatUiRenderOrderMapOverlay();
+    // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1：進入 GA4 Layer 時同時啟動 H1
+    // 子面板（獨立 layerGroup／獨立 fetch，不影響上面既有 G1.5 Realtime
+    // Choropleth 的任何邏輯）。window.geoMapState.instance 是既有唯一地圖。
+    if (window.GeoGa4H1Panel && typeof window.GeoGa4H1Panel.init === 'function') {
+      window.GeoGa4H1Panel.init({
+        toolbar: `${containerId}-ga4-h1-toolbar`,
+        status: `${containerId}-ga4-h1-status`,
+        table: `${containerId}-ga4-h1-table`,
+      }, window.geoMapState && window.geoMapState.instance);
+    }
   } else {
     // fix18-10-hotfix30-B5-R5.4-G1.5-B1：離開 GA4 Layer（切回 order）時同樣要
     // 清 timer／abort（跟上面 visitor 分支對稱，避免只處理一半）。
     if (typeof geoGa4Deactivate === 'function') geoGa4Deactivate();
+    if (window.GeoGa4H1Panel && typeof window.GeoGa4H1Panel.destroy === 'function') {
+      window.GeoGa4H1Panel.destroy({ toolbar: `${containerId}-ga4-h1-toolbar` });
+    }
     _geoHeatUiRenderVisitorMapOverlay(); // layer==='order' 時，這裡負責移除殘留的 Visitor 覆蓋文字
     _geoHeatUiRenderGa4MapOverlay(); // 同理移除殘留的 GA4 覆蓋文字
     _geoHeatUiRenderCoverageExplanation(containerId); // 用既有快取的 geoHeatState.areas 立即重繪，不必重新 Fetch（內含 _geoHeatUiRenderOrderMapOverlay()）
@@ -778,6 +797,14 @@ function geoHeatUiRenderGa4LayerHtml(containerId) {
     <div id="${_geoHeatUiEsc(containerId)}-ga4-summary" class="geo-ga4-realtime-summary" aria-live="polite"></div>
     <div id="${_geoHeatUiEsc(containerId)}-ga4-status" class="geo-ga4-realtime-status" aria-live="polite"></div>
     <div id="${_geoHeatUiEsc(containerId)}-ga4-notices"></div>
+    <!-- fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1：GA4 城市歷史統計/即時快照子面板。
+         獨立 id 骨架，跟上面既有 G1.5 Realtime Toolbar/Summary/Status/Notices
+         完全不共用元素，只共用同一個 hidden 顯示/隱藏狀態（父層 div 決定）。
+         實際渲染交給 public/js/geo-ga4-h1-panel.js 的 GeoGa4H1Panel.init()。 -->
+    <hr class="ga4-h1-divider" />
+    <div id="${_geoHeatUiEsc(containerId)}-ga4-h1-toolbar" class="ga4-h1-toolbar"></div>
+    <div id="${_geoHeatUiEsc(containerId)}-ga4-h1-status" class="ga4-h1-status" aria-live="polite"></div>
+    <div id="${_geoHeatUiEsc(containerId)}-ga4-h1-table"></div>
   </div>`;
 }
 

@@ -99,6 +99,14 @@ function _getClient() {
   _loadSdk();
   if (!_ClientCtor) return null;
   if (!_client) {
+    // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1（bugfix 輪）：只在「真的要建立
+    // 一個新的 Client」且完全沒有任何已知憑證來源時擋下——已經透過
+    // _setClientForTest() 注入好的假 Client（見上面 if 判斷，_client 已經
+    // 非 null 就不會走進這個分支）完全不受影響，既有 G1.5-A 測試套件全部
+    // 照舊运作。只有「production code path 且未設定任何憑證」這個特定
+    // 危險組合會被擋下（見 runGa4RealtimeReport/runGa4Report 的說明：
+    // 隱含 ADC 解析在本專案的 Zeabur 部署環境下會讓整個 process crash）。
+    if (!credentialStatus().available) return null;
     _client = new _ClientCtor(_buildClientOptions());
   }
   return _client;
@@ -157,11 +165,45 @@ async function runGa4RealtimeReport(request, options = {}) {
   }
 }
 
+// runGa4Report(request, { timeoutMs }) — fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1
+// GA4 Historical runReport()（今天／昨天／近 7 天／近 30 天／自訂日期），
+// 沿用同一個 lazy singleton client 與同一組憑證載入邏輯（需求文件五：不得
+// 為了 GA4-H1 另外建立第二支 GA4 Client）。不重試——重試/backoff 邏輯留給
+// services/ga4GeoSyncService.js 的呼叫端處理。
+//   → { ok:true, response:{ rows, dimensionHeaders, metricHeaders } }
+//   → { ok:false, code, retryable, message }（fail-open，絕不 throw，絕不
+//     把 rawError／credential 內容放進回傳值）
+async function runGa4Report(request, options = {}) {
+  const client = _getClient();
+  if (!client) {
+    return { ok: false, provider: name, code: 'SDK_UNAVAILABLE', retryable: false, message: '@google-analytics/data not installed or not loadable' };
+  }
+  const timeoutMs = Number(options.timeoutMs) || 15000;
+
+  try {
+    const [response] = await withTimeout(client.runReport(request), timeoutMs);
+    const rows = (response && response.rows) || [];
+    const dimensionHeaders = (response && response.dimensionHeaders) || [];
+    const metricHeaders = (response && response.metricHeaders) || [];
+    return {
+      ok: true,
+      provider: name,
+      rows,
+      dimensionHeaders: dimensionHeaders.map((h) => h.name),
+      metricHeaders: metricHeaders.map((h) => h.name),
+    };
+  } catch (e) {
+    const code = classifyGa4RealtimeError(e);
+    return { ok: false, provider: name, code, retryable: isRetryableGa4Error(code), message: 'GA4 Report API request failed' };
+  }
+}
+
 module.exports = {
   name,
   isSdkAvailable,
   credentialStatus,
   runGa4RealtimeReport,
+  runGa4Report,
   _setClientForTest,
   _resetForTest,
   _parseQuotaForTest: _parseQuota,

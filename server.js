@@ -496,6 +496,10 @@ initDb().then((db) => {
   // 純後台用的 /api/analytics/geo 分開，避免未來稽核時混淆保護等級。
   app.use('/api/geo-live', requireStore, require('./routes/geo-live'));
 
+  // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1: GA4 城市歷史統計/即時快照/行政區
+  // 轉換地圖——後台限定，沿用同一組 requireFeature('reports') 保護。
+  app.use('/api/analytics/ga4-geo', requireStore, requireFeature('reports'), require('./routes/ga4-geo'));
+
   // fix18-10-hotfix31-R1：CRM Action Center（分群/動作管理），沿用 Operation Analytics
   // 同一組 reports 授權（分群/動作都是「深度分析」的延伸操作，不是獨立的付費功能）。
   app.use('/api/crm', requireStore, requireFeature('reports'), require('./routes/crm'));

@@ -28,7 +28,26 @@ const routeCode = codeOnly(routeSrc);
 // 一、SDK / Request 使用官方欄位
 // ══════════════════════════════════════════════════════════════
 check('1', 'client.js 呼叫 runRealtimeReport', /runRealtimeReport/.test(clientSrc));
-check('2', 'client.js 不使用 runReport() 代替 Realtime', !/\.runReport\(/.test(clientSrc));
+// fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1（Category B — 過時斷言更新）：
+//   原始斷言：整份 client.js 完全不得出現 `.runReport(` 呼叫，用來防止
+//   Realtime 路徑被誤植換成 Historical API。
+//   新 Contract（GA4-H1 導入）：client.js 新增了 runGa4Report()，刻意呼叫
+//   `client.runReport(request)` 來支援 Historical runReport（今天/昨天/
+//   7d/30d/自訂日期），這是文件明確要求、刻意的新增功能，不是誤植。
+//   理由：GA4-H1 需要在同一個 Singleton Client 上同時支援 Realtime 與
+//   Historical 兩種官方 API，不能為了保留這條舊斷言就另外開一個第二個
+//   Client（那才是真正違反需求文件五「不得建立第二個 GA4 Client」）。
+//   修正後的斷言改成精準只檢查 runGa4RealtimeReport() 這個函式「自己的
+//   函式體」，確保 Realtime 路徑本身沒有被靜靜換掉——這才是原始斷言真正
+//   要保護的東西，跟「檔案裡其他地方新增一個呼叫 runReport 的獨立函式」
+//   是两件不同的事。
+check('2', 'client.js 的 runGa4RealtimeReport() 函式體本身不使用 runReport() 代替 Realtime（GA4-H1 新增的 runGa4Report() 函式允許呼叫 runReport，兩者互不影響）', (() => {
+  const fnStart = clientSrc.indexOf('async function runGa4RealtimeReport(');
+  const fnEnd = clientSrc.indexOf('\nasync function runGa4Report(');
+  if (fnStart === -1 || fnEnd === -1 || fnEnd <= fnStart) return false;
+  const fnBody = clientSrc.slice(fnStart, fnEnd);
+  return !/\.runReport\(/.test(fnBody) && /\.runRealtimeReport\(/.test(fnBody);
+})());
 check('3', 'client.js 是 lazy singleton（_getClient 內只 new 一次，用 if(!_client))', /if \(!_client\)/.test(clientSrc));
 check('4', 'requestBuilder.js 有 minuteRanges builder', /function buildGa4MinuteRanges/.test(rbSrc));
 check('5', 'window=5 → startMinutesAgo:4,endMinutesAgo:0', /startMinutesAgo: 4, endMinutesAgo: 0/.test(rbSrc));
