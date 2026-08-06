@@ -45,6 +45,7 @@ function makeFakeLeaflet() {
 }
 
 // ── Controllable Fake fetch ──
+// route.status（可選）模擬真實 HTTP status（預設 200）。
 function makeFakeFetch(routes) {
   const calls = [];
   const fn = async function fakeFetch(url, opts = {}) {
@@ -64,12 +65,45 @@ function makeFakeFetch(routes) {
         });
       }
     });
-    if (!route) return { json: async () => ({ success: false, code: 'not_found' }) };
-    if (typeof route.body === 'function') return { json: async () => route.body(url, opts) };
-    return { json: async () => route.body };
+    const status = (route && typeof route.status === 'number') ? route.status : 200;
+    if (!route) return { status: 404, ok: false, json: async () => ({ success: false, code: 'not_found' }) };
+    if (typeof route.body === 'function') return { status, ok: status < 400, json: async () => route.body(url, opts) };
+    return { status, ok: status < 400, json: async () => route.body };
   };
   fn.calls = calls;
   return fn;
+}
+
+// makeFakeApiFetch(fetchFn) — 真實 public/js/app.js apiFetch() 的最小
+// 對照實作（需求文件九：不再用「繞過 apiFetch 的裸假 fetch」測試 Panel，
+// 一律模擬「真實的 401／403 → { ok:false, status, body } 物件」Contract）。
+// GA4-H1 Panel 現在只透過 window.apiFetch／apiFetch() 呼叫 API，這裡是
+// 測試環境裡對這個 Contract 的可控替身，不是重寫 Panel 的邏輯。
+function makeFakeApiFetch(fetchFn, { storeToken = 'FAKE_TOKEN', storeId = 'store_001' } = {}) {
+  return async function fakeApiFetch(url, options = {}) {
+    const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
+    if (storeToken) headers['Authorization'] = 'Bearer ' + storeToken;
+    if (storeId) headers['x-store-id'] = storeId;
+    const res = await fetchFn(url, { ...options, headers });
+    if (res.status === 401) {
+      const body = await res.json().catch(() => ({}));
+      return { ok: false, status: 401, body };
+    }
+    if (res.status === 403) {
+      const body = await res.json().catch(() => ({}));
+      return { ok: false, status: 403, body };
+    }
+    return res;
+  };
+}
+
+// setFakeApi(routes, apiOpts) — 同時設定 global.fetch（供 Fake apiFetch
+// 內部呼叫／供測項讀 calls）與 global.apiFetch（Panel 真正呼叫的入口）。
+function setFakeApi(routes, apiOpts) {
+  const fakeFetch = makeFakeFetch(routes);
+  global.fetch = fakeFetch;
+  global.apiFetch = makeFakeApiFetch(fakeFetch, apiOpts || {});
+  return fakeFetch;
 }
 
 function freshPanelModule(dom) {
@@ -109,7 +143,7 @@ async function main() {
   {
     const dom = makeDom();
     const panel = freshPanelModule(dom);
-    global.fetch = makeFakeFetch([{ test: /realtime/, body: { success: true, cities: [] } }]);
+    setFakeApi([{ test: /realtime/, body: { success: true, cities: [] } }]);
     const map = new FakeMap();
     await initAndWait(panel, IDS, map);
     const toolbarEl = dom.window.document.getElementById(IDS.toolbar);
@@ -135,7 +169,7 @@ async function main() {
     const dom = makeDom();
     const panel = freshPanelModule(dom);
     const seenUrls = [];
-    global.fetch = makeFakeFetch([
+    setFakeApi([
       { test: /realtime/, body: (url) => { seenUrls.push(url); return { success: true, cities: [] }; } },
       { test: /history/, body: (url) => { seenUrls.push(url); return { success: true, rows: [] }; } },
     ]);
@@ -162,7 +196,7 @@ async function main() {
   {
     const dom = makeDom();
     const panel = freshPanelModule(dom);
-    global.fetch = makeFakeFetch([{ test: /history/, body: { success: false, code: 'invalid_date_format' } }]);
+    setFakeApi([{ test: /history/, body: { success: false, code: 'invalid_date_format' } }]);
     const map = new FakeMap();
     panel.geoGa4H1State.mode = 'custom';
     panel.geoGa4H1State.customStart = 'not-a-date';
@@ -194,23 +228,84 @@ async function main() {
   {
     const dom = makeDom();
     const panel = freshPanelModule(dom);
-    const fakeFetch = makeFakeFetch([
+    const fakeFetch = setFakeApi([
       { test: /realtime/, body: { success: true, cities: [] } },
-      { test: /sync/, delayMs: 30, body: { success: true } },
+      { test: /sync/, delayMs: 30, body: { success: true, rows_saved: 12 } },
     ]);
-    global.fetch = fakeFetch;
     const map = new FakeMap();
     await initAndWait(panel, IDS, map);
     const btn = dom.window.document.getElementById(IDS.toolbar).querySelector('#ga4h1-sync');
     check('17. Sync button exists', !!btn);
     btn.dispatchEvent(new dom.window.Event('click'));
     check('18. Sync button disabled immediately on click (loading state)', btn.disabled === true);
-    await new Promise((r) => setTimeout(r, 60));
+    await new Promise((r) => setTimeout(r, 150));
     check('19. Sync button re-enabled after completion', btn.disabled === false);
-    // 需求文件二之 4：手動同步一定要真的送出 POST /sync（不靠讀 response body
-    // 判斷，因為 Panel 本身故意 fire-and-forget，不解析同步回應——這裡改用
-    // Fake fetch 自己記錄的 call log 來驗證，而不是依賴 Panel 去讀 .json()。
-    check('19b. Sync actually POSTed to /sync', fakeFetch.calls.some((c) => c.url.includes('/sync') && c.opts.method === 'POST'));
+    // R5.4-G1.6-GA4-H1.1-AUTH 需求文件五：手動同步不再 fire-and-forget，
+    // 一律透過 apiFetch POST /sync（Fake apiFetch 內部呼叫 Fake fetch，
+    // 這裡驗證真的送出了 POST，而不是繞過 Auth 的裸 fetch）。
+    check('19b. Sync actually POSTed to /sync (via apiFetch)', fakeFetch.calls.some((c) => c.url.includes('/sync') && c.opts.method === 'POST'));
+    // 需求文件五：成功時要解析 Response 並顯示 rows_saved，再 Refresh Read
+    // API——不是單純打完就結束（fire-and-forget 已經在本輪修正掉）。
+    check('19c. Sync success re-fetches the realtime endpoint afterwards (not fire-and-forget)', fakeFetch.calls.filter((c) => c.url.includes('/realtime')).length >= 2);
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // 19d-19h. Sync failure codes — must NOT clear old cache / NOT auto-retry read
+  // ══════════════════════════════════════════════════════════════
+  {
+    const dom = makeDom();
+    const panel = freshPanelModule(dom);
+    setFakeApi([
+      { test: /realtime/, body: { success: true, cities: [{ district_name: '舊資料區', normalization_status: 'ok', active_users: 9 }] } },
+      { test: /sync/, status: 429, body: { success: false, code: 'rate_limited' } },
+    ]);
+    const map = new FakeMap();
+    await initAndWait(panel, IDS, map);
+    const realtimeCallsBefore = global.fetch.calls.filter((c) => c.url.includes('/realtime')).length;
+    const btn = dom.window.document.getElementById(IDS.toolbar).querySelector('#ga4h1-sync');
+    let threw = false;
+    try {
+      btn.dispatchEvent(new dom.window.Event('click'));
+      await new Promise((r) => setTimeout(r, 60));
+    } catch (e) { threw = true; }
+    check('19d. 429 rate_limited sync failure handled without throwing', !threw);
+    const realtimeCallsAfter = global.fetch.calls.filter((c) => c.url.includes('/realtime')).length;
+    check('19e. Sync failure (429) does NOT trigger another read (no error chain)', realtimeCallsAfter === realtimeCallsBefore);
+    check('19f. Sync failure does not clear the last good payload', panel.geoGa4H1State.lastGoodPayload && Array.isArray(panel.geoGa4H1State.lastGoodPayload.cities) && panel.geoGa4H1State.lastGoodPayload.cities.length === 1);
+    check('19g. Sync button re-enabled after a failed sync (not stuck in "同步中…")', btn.disabled === false);
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // 19h-19j. Sync 502 ga4_backend_error / 401 auth_required — safe handling
+  // ══════════════════════════════════════════════════════════════
+  {
+    const dom = makeDom();
+    const panel = freshPanelModule(dom);
+    setFakeApi([
+      { test: /realtime/, body: { success: true, cities: [] } },
+      { test: /sync/, status: 502, body: { success: false, code: 'ga4_backend_error' } },
+    ]);
+    const map = new FakeMap();
+    await initAndWait(panel, IDS, map);
+    const btn = dom.window.document.getElementById(IDS.toolbar).querySelector('#ga4h1-sync');
+    let threw = false;
+    try { btn.dispatchEvent(new dom.window.Event('click')); await new Promise((r) => setTimeout(r, 40)); } catch (e) { threw = true; }
+    check('19h. 502 ga4_backend_error sync failure handled without throwing', !threw);
+    check('19i. Sync button re-enabled after 502 failure', btn.disabled === false);
+  }
+  {
+    const dom = makeDom();
+    const panel = freshPanelModule(dom);
+    setFakeApi([
+      { test: /realtime/, body: { success: true, cities: [] } },
+      { test: /sync/, status: 401, body: { success: false, error: 'NO_STORE_TOKEN', message: '缺少店家登入 token，請重新登入' } },
+    ]);
+    const map = new FakeMap();
+    await initAndWait(panel, IDS, map);
+    const btn = dom.window.document.getElementById(IDS.toolbar).querySelector('#ga4h1-sync');
+    let threw = false;
+    try { btn.dispatchEvent(new dom.window.Event('click')); await new Promise((r) => setTimeout(r, 40)); } catch (e) { threw = true; }
+    check('19j. 401 auth_required sync failure (via apiFetch object contract) handled without throwing', !threw);
   }
 
   // ══════════════════════════════════════════════════════════════
@@ -220,7 +315,7 @@ async function main() {
     const dom = makeDom();
     const panel = freshPanelModule(dom);
     let slowResolved = false;
-    global.fetch = makeFakeFetch([
+    setFakeApi([
       { test: /range=today/, delayMs: 80, body: () => { slowResolved = true; return { success: true, rows: [{ district_name: 'STALE_TODAY_ROW', active_users: 1 }] }; } },
       { test: /range=7d/, delayMs: 5, body: { success: true, rows: [{ district_name: 'FRESH_7D_ROW', active_users: 2 }] } },
     ]);
@@ -244,7 +339,7 @@ async function main() {
   {
     const dom = makeDom();
     const panel = freshPanelModule(dom);
-    global.fetch = makeFakeFetch([{ test: /realtime/, body: { success: true, cities: [{ district_name: '中壢區', normalization_status: 'ok', current_active_users: 3, marker_point: { lat: 24.95, lng: 121.2 } }] } }]);
+    setFakeApi([{ test: /realtime/, body: { success: true, cities: [{ district_name: '中壢區', normalization_status: 'ok', current_active_users: 3, marker_point: { lat: 24.95, lng: 121.2 } }] } }]);
     const map = new FakeMap();
     // 模擬既有 POS Exact/Estimate/Order 各自的 layerGroup，掛在同一張 map 上。
     const posExactGroup = new FakeLayerGroup(); posExactGroup.addTo(map); posExactGroup.addLayer({ id: 'pos-exact-1' });
@@ -443,7 +538,8 @@ async function main() {
       { district_name: '龍潭區', city_raw: 'Longtan District', active_users: 20, normalization_status: 'ok' },
     ];
     let fetchCallCount = 0;
-    global.fetch = (() => { const f = makeFakeFetch([{ test: /./, body: { success: true, cities: [] } }]); return (...a) => { fetchCallCount += 1; return f(...a); }; })();
+    setFakeApi([{ test: /./, body: { success: true, cities: [] } }]);
+    { const origApiFetch = global.apiFetch; global.apiFetch = (...a) => { fetchCallCount += 1; return origApiFetch(...a); }; }
     const map = new FakeMap();
     panel.geoGa4H1RenderInteractiveTable(IDS.table, rows);
     const tableEl = dom.window.document.getElementById(IDS.table);
@@ -485,7 +581,7 @@ async function main() {
   {
     const dom = makeDom();
     const panel = freshPanelModule(dom);
-    global.fetch = makeFakeFetch([{ test: /realtime/, delayMs: 50, body: { success: true, cities: [] } }]);
+    setFakeApi([{ test: /realtime/, delayMs: 50, body: { success: true, cities: [] } }]);
     const map = new FakeMap();
     panel.geoGa4H1Init(IDS, map);
     panel.geoGa4H1State.pollTimer = setInterval(() => {}, 10000); // simulate a poller if one were ever added

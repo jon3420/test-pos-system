@@ -49,6 +49,85 @@ function _geoGa4H1Rate(numerator, denominator) {
 function _geoGa4H1ValidMode(m) { return GEO_GA4_H1_MODES.includes(m); }
 function _geoGa4H1ValidMetric(m) { return GEO_GA4_H1_METRICS.includes(m); }
 
+// ══════════════════════════════════════════════════════════════════
+// R5.4-G1.6-GA4-H1.1-AUTH — Auth Contract + AbortError Safety
+//
+// 邊界（見需求文件二～四、八）：
+//   - 一律透過 window.apiFetch／apiFetch()（沿用 public/js/app.js 既有
+//     Contract），不得再直接裸 fetch('/api/analytics/ga4-geo/...')。
+//   - 不自行重新讀取／解析 JWT，不建立第二套 Token Reader／Auth Wrapper。
+//   - apiFetch 對 401／403 回傳的是 { ok:false, status, body }（不是原生
+//     Response，沒有 .json()）；成功或其他狀態則可能回原生 Response。
+//     geoGa4H1ApiRequest 同時支援兩種形狀，不假設 res.json 一定存在。
+// ══════════════════════════════════════════════════════════════════
+
+function _geoGa4H1IsAbortError(e) {
+  return !!(e && e.name === 'AbortError');
+}
+
+// geoGa4H1SafeRunFetch(fn) — 集中的 AbortError Safety Wrapper（需求文件
+// 八）。只安靜吞掉 error.name==='AbortError'；其他錯誤原樣往上拋，交給
+// 呼叫端進入安全 UI Error 狀態，不得被本函式意外吃掉。回傳 undefined
+// 代表這次呼叫被 abort，呼叫端必須把 undefined 視為「安靜結束」，不得
+// 誤當成一個合法的空結果去渲染。
+async function geoGa4H1SafeRunFetch(fn) {
+  try {
+    return await fn();
+  } catch (e) {
+    if (_geoGa4H1IsAbortError(e)) return undefined;
+    throw e;
+  }
+}
+
+// geoGa4H1ApiRequest(url, options) — 集中 Auth Helper。優先使用
+// window.apiFetch，其次是全域 apiFetch（沿用 geo-ga4-realtime-layer.js／
+// geo-ga4-settings.js 同一個判斷慣例，見需求文件三）。回傳統一過的
+// Contract 物件：
+//   成功／後端業務錯誤：後端原始 JSON 展開＋http_status
+//   401：{ success:false, code:'auth_required',    http_status:401 }
+//   403：{ success:false, code:'feature_disabled',  http_status:403 }
+//   格式異常／apiFetch 不存在：{ success:false, code:'invalid_response' }
+// AbortError 不在這裡吞掉——原樣往外拋，交給呼叫端的
+// geoGa4H1SafeRunFetch() 統一處理（需求文件八：安靜結束，不得輸出
+// Uncaught (in promise)）。
+async function geoGa4H1ApiRequest(url, options = {}) {
+  const winApiFetch = (typeof window !== 'undefined') ? window.apiFetch : undefined;
+  const fetchFn = (typeof winApiFetch === 'function')
+    ? winApiFetch
+    : (typeof apiFetch === 'function' ? apiFetch : null);
+  if (!fetchFn) return { success: false, code: 'invalid_response', http_status: null };
+
+  const res = await fetchFn(url, options);
+  if (!res) return { success: false, code: 'invalid_response', http_status: null };
+
+  // apiFetch 對 401／403 回傳的不是原生 Response（沒有 .json()），必須先
+  // 判斷 ok===false && status 再決定要不要呼叫 .json()（需求文件四）。
+  if (res.ok === false && (res.status === 401 || res.status === 403)) {
+    return {
+      success: false,
+      code: res.status === 401 ? 'auth_required' : 'feature_disabled',
+      http_status: res.status,
+      body: res.body || {},
+    };
+  }
+
+  if (typeof res.json !== 'function') {
+    return { success: false, code: 'invalid_response', http_status: (typeof res.status === 'number' ? res.status : null) };
+  }
+
+  let json;
+  try {
+    json = await res.json();
+  } catch (e) {
+    if (_geoGa4H1IsAbortError(e)) throw e; // 交給上層 SafeRunFetch 統一吞掉
+    return { success: false, code: 'invalid_response', http_status: (typeof res.status === 'number' ? res.status : null) };
+  }
+
+  const httpStatus = (typeof res.status === 'number') ? res.status : 200;
+  if (json && typeof json === 'object') return { ...json, http_status: httpStatus };
+  return { success: false, code: 'invalid_response', http_status: httpStatus };
+}
+
 async function geoGa4H1Fetch(mode, opts = {}) {
   const controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
   if (geoGa4H1State.currentAbort) {
@@ -56,20 +135,18 @@ async function geoGa4H1Fetch(mode, opts = {}) {
   }
   geoGa4H1State.currentAbort = controller;
 
-  const fetchOpts = { credentials: 'include' };
+  const fetchOpts = {};
   if (controller) fetchOpts.signal = controller.signal;
 
   if (mode === 'realtime') {
-    const res = await fetch('/api/analytics/ga4-geo/realtime', fetchOpts);
-    return res.json();
+    return geoGa4H1ApiRequest('/api/analytics/ga4-geo/realtime', { method: 'GET', ...fetchOpts });
   }
   const params = new URLSearchParams({ range: mode });
   if (mode === 'custom') {
     params.set('start_date', opts.startDate || '');
     params.set('end_date', opts.endDate || '');
   }
-  const res = await fetch(`/api/analytics/ga4-geo/history?${params.toString()}`, fetchOpts);
-  return res.json();
+  return geoGa4H1ApiRequest(`/api/analytics/ga4-geo/history?${params.toString()}`, { method: 'GET', ...fetchOpts });
 }
 
 function _geoGa4H1EnsureGroup(mapInstance) {
@@ -372,18 +449,37 @@ function geoGa4H1RenderInteractiveTable(containerId, rows) {
   _geoGa4H1UpdateSortIndicators(containerId);
 }
 
+// GA4_H1_STATUS_CODE_MAP — 需求文件七：H1 UI 錯誤分類，一律依 code 顯示
+// 對應人話訊息，不得把所有狀況統一顯示成「GA4 資料暫時無法取得」。
+const GA4_H1_STATUS_CODE_MAP = Object.freeze({
+  // Auth（geoGa4H1ApiRequest 統一轉換出的 code，見需求文件四）
+  auth_required: '登入已失效，請重新登入。',
+  feature_disabled: '此方案未開放報表分析功能。',
+  // GA4 Backend／Property／Credential
+  property_not_bound: '此店尚未綁定 GA4 Property。',
+  credential_unavailable: 'Server 尚未設定 GA4 憑證。',
+  SDK_UNAVAILABLE: 'Server 尚未設定 GA4 憑證。',
+  sdk_unavailable: 'Server 尚未設定 GA4 憑證。',
+  permission_denied: 'GA4 Service Account 沒有此 Property 的讀取權限。',
+  invalid_argument: 'GA4 查詢格式或 Property 設定不相容。',
+  rate_limited: '操作過於頻繁，請稍候再試。',
+  network_error: '網路連線失敗。',
+  ga4_backend_error: 'GA4 連線發生錯誤，請稍後再試。',
+  ga4_request_failed: 'GA4 連線發生錯誤，請稍後再試。',
+  ga4_realtime_disabled: 'GA4 城市地圖尚未啟用。',
+  ga4_disabled: 'GA4 城市地圖尚未啟用。',
+  sync_in_progress: '同步進行中，請稍候再試。',
+  invalid_response: 'GA4 資料回應格式異常，請稍後再試。',
+  unexpected_error: 'GA4 資料暫時無法取得，請稍後再試。',
+});
+
 function geoGa4H1RenderStatus(containerId, payload) {
   const el = document.getElementById(containerId);
   if (!el) return;
   let text = '';
   if (!payload) { text = '載入中…'; }
   else if (payload.success === false) {
-    const codeMap = {
-      property_not_bound: '此店尚未綁定 GA4 Property，無法顯示 GA4 城市資料。',
-      ga4_disabled: 'GA4 城市地圖尚未啟用。',
-      sync_in_progress: '同步進行中，請稍候再試。',
-    };
-    text = codeMap[payload.code] || 'GA4 資料暫時無法取得，已顯示最後一次成功的快取。';
+    text = GA4_H1_STATUS_CODE_MAP[payload.code] || 'GA4 資料暫時無法取得，已顯示最後一次成功的快取。';
   } else if (payload.stale) {
     text = `資料可能過期（最後成功同步：${payload.last_sync_at_utc || '—'}）`;
   } else if (Array.isArray(payload.rows) && payload.rows.length === 0 && !Array.isArray(payload.cities)) {
@@ -394,6 +490,42 @@ function geoGa4H1RenderStatus(containerId, payload) {
     text = `最後成功同步：${payload.last_sync_at_utc || '—'}`;
   }
   el.textContent = text;
+}
+
+// GA4_H1_SYNC_ERROR_MESSAGES — 需求文件五：手動同步失敗分類文案。
+const GA4_H1_SYNC_ERROR_MESSAGES = Object.freeze({
+  invalid_range: '同步時間範圍不正確，請重新選擇。',
+  invalid_sync_type: '同步類型不正確。',
+  invalid_date_format: '日期格式不正確，請重新選擇日期。',
+  auth_required: '登入已失效，請重新登入。',
+  feature_disabled: '此方案未開放報表分析功能。',
+  rate_limited: '操作過於頻繁，請稍候再試。',
+  ga4_backend_error: 'GA4 連線發生錯誤，請稍後再試。',
+  ga4_request_failed: 'GA4 連線發生錯誤，請稍後再試。',
+  unexpected_error: '同步發生未預期錯誤，請稍後再試。',
+  invalid_response: '同步回應格式異常，請稍後再試。',
+});
+
+// _geoGa4H1HandleSyncResult(result, onChange) — 需求文件五：手動同步必須
+// 解析 Sync Response，不能再 fire-and-forget。
+//   成功：顯示同步成功／rows_saved，再 Refresh Read API（onChange）。
+//   失敗：顯示安全錯誤碼對應文案，不清空舊 Cache，不把按鈕誤顯示成
+//         成功，也不立刻無條件再打一次讀取造成錯誤連鎖（不呼叫
+//         onChange()）。
+async function _geoGa4H1HandleSyncResult(result, onChange) {
+  if (result && result.success === true) {
+    const rowsSaved = (typeof result.rows_saved === 'number') ? result.rows_saved : null;
+    if (typeof showToast === 'function') {
+      showToast(rowsSaved !== null ? `同步成功，已更新 ${rowsSaved} 筆資料` : '同步成功', 'success');
+    }
+    if (typeof onChange === 'function') {
+      await geoGa4H1SafeRunFetch(() => onChange());
+    }
+    return;
+  }
+  const code = (result && result.code) || 'unexpected_error';
+  const msg = GA4_H1_SYNC_ERROR_MESSAGES[code] || '同步失敗，請稍後再試。';
+  if (typeof showToast === 'function') showToast(msg, 'error');
 }
 
 function geoGa4H1RenderToolbar(containerId, onChange) {
@@ -422,6 +554,17 @@ function geoGa4H1RenderToolbar(containerId, onChange) {
   const metricEl = el.querySelector('#ga4h1-metric');
   const syncBtn = el.querySelector('#ga4h1-sync');
 
+  // _geoGa4H1SwallowAbort — 需求文件八之 3／4：Timer／事件監聽器呼叫出去
+  // 的 Promise 必須有安全 catch，不得讓 AbortError（或任何其他錯誤）變成
+  // 瀏覽器 Console 的 Uncaught (in promise)。這裡 addEventListener 的
+  // callback 拿到的是 geoGa4H1Refresh() 回傳的 Promise——雖然
+  // geoGa4H1Refresh() 內部已經會吞掉 AbortError，這裡仍加一層防禦，避免
+  // 未來任何修改不小心讓錯誤外漏。
+  function _geoGa4H1SwallowAbort(e) {
+    if (_geoGa4H1IsAbortError(e)) return; // 安靜結束，被下一次呼叫取代
+    console.error('[GA4-H1]', e); // eslint-disable-line no-console
+  }
+
   const modeHandler = (e) => {
     geoGa4H1State.mode = _geoGa4H1ValidMode(e.target.value) ? e.target.value : 'realtime';
     // 需求文件二 B 之 7：Mode 切換後排序/搜尋狀態固定行為——重設回預設
@@ -431,9 +574,12 @@ function geoGa4H1RenderToolbar(containerId, onChange) {
     geoGa4H1State.searchTerm = '';
     geoGa4H1State.sortColumn = null;
     geoGa4H1State.sortDirection = 'desc';
-    onChange();
+    Promise.resolve(onChange()).catch(_geoGa4H1SwallowAbort);
   };
-  const metricHandler = (e) => { geoGa4H1State.metric = _geoGa4H1ValidMetric(e.target.value) ? e.target.value : 'active_users'; onChange(); };
+  const metricHandler = (e) => {
+    geoGa4H1State.metric = _geoGa4H1ValidMetric(e.target.value) ? e.target.value : 'active_users';
+    Promise.resolve(onChange()).catch(_geoGa4H1SwallowAbort);
+  };
   const syncHandler = async () => {
     syncBtn.disabled = true;
     syncBtn.textContent = '同步中…';
@@ -441,13 +587,18 @@ function geoGa4H1RenderToolbar(containerId, onChange) {
       const body = geoGa4H1State.mode === 'realtime'
         ? { sync_type: 'realtime' }
         : { sync_type: 'range', range: geoGa4H1State.mode, start_date: geoGa4H1State.customStart, end_date: geoGa4H1State.customEnd };
-      await fetch('/api/analytics/ga4-geo/sync', {
-        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-      });
+      const result = await geoGa4H1SafeRunFetch(() => geoGa4H1ApiRequest('/api/analytics/ga4-geo/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }));
+      if (result !== undefined) await _geoGa4H1HandleSyncResult(result, onChange);
+    } catch (e) {
+      _geoGa4H1SwallowAbort(e);
+      if (!_geoGa4H1IsAbortError(e) && typeof showToast === 'function') showToast('同步發生未預期錯誤，請稍後再試', 'error');
     } finally {
       syncBtn.disabled = false;
       syncBtn.textContent = '手動同步';
-      onChange();
     }
   };
 
@@ -468,11 +619,12 @@ async function geoGa4H1Refresh(ids, mapInstance) {
 
   let payload;
   try {
-    payload = await geoGa4H1Fetch(geoGa4H1State.mode, { startDate: geoGa4H1State.customStart, endDate: geoGa4H1State.customEnd });
+    payload = await geoGa4H1SafeRunFetch(() => geoGa4H1Fetch(geoGa4H1State.mode, { startDate: geoGa4H1State.customStart, endDate: geoGa4H1State.customEnd }));
   } catch (e) {
-    if (e && e.name === 'AbortError') return;
     payload = { success: false, code: 'network_error' };
   }
+  // undefined === 被 AbortError 安靜結束（被下一次呼叫取代），不得覆蓋新狀態。
+  if (payload === undefined) return;
 
   if (myGeneration !== geoGa4H1State.generation) return;
 
@@ -495,7 +647,12 @@ async function geoGa4H1Refresh(ids, mapInstance) {
 
 function geoGa4H1Init(ids, mapInstance) {
   geoGa4H1RenderToolbar(ids.toolbar, () => geoGa4H1Refresh(ids, mapInstance));
-  geoGa4H1Refresh(ids, mapInstance);
+  // 需求文件八：這裡是 fire-and-forget（呼叫端不 await），Promise 必須有
+  // 安全 catch，不得讓 AbortError 或其他錯誤變成 Uncaught (in promise)。
+  geoGa4H1Refresh(ids, mapInstance).catch((e) => {
+    if (_geoGa4H1IsAbortError(e)) return;
+    console.error('[GA4-H1] init refresh failed', e); // eslint-disable-line no-console
+  });
 }
 
 function geoGa4H1Destroy(ids) {
@@ -531,5 +688,9 @@ if (typeof module !== 'undefined' && module.exports) {
     _geoGa4H1Rate, _geoGa4H1MetricValue, _geoGa4H1Esc, _geoGa4H1ValidMode, _geoGa4H1ValidMetric,
     geoGa4H1Init, geoGa4H1Destroy, geoGa4H1Refresh, geoGa4H1ClearMarkers,
     geoGa4H1State,
+    // R5.4-G1.6-GA4-H1.1-AUTH：Auth Contract + AbortError Safety（供
+    // scripts/run-g1-6-ga4-h1-1-browser-auth-runtime.js／static audit 使用）。
+    geoGa4H1ApiRequest, geoGa4H1SafeRunFetch, _geoGa4H1IsAbortError,
+    _geoGa4H1HandleSyncResult, GA4_H1_STATUS_CODE_MAP, GA4_H1_SYNC_ERROR_MESSAGES,
   };
 }

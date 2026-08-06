@@ -600,6 +600,94 @@ function checkMetricSwitchPreservesSearchAndSort(files) {
   return !metricHandlerBody.includes('searchTerm') && !metricHandlerBody.includes('sortColumn');
 }
 
+// ══════════════════════════════════════════════════════════════════
+// R5.4-G1.6-GA4-H1.1-AUTH round — Auth Contract / AbortError Safety checks.
+// 一律讀 CODE.panel（已剝除註解），避免邊界說明文字（例如檔案開頭
+// 「不得再直接裸 fetch(...)」這句話本身）被誤判成「真的這樣做了」。
+// ══════════════════════════════════════════════════════════════════
+function checkH1AuthNoBareFetchOnThreeEndpoints(files, code) {
+  return !/fetch\(\s*['"`]\/api\/analytics\/ga4-geo/.test(code.panel);
+}
+function checkH1AuthUsesExistingApiFetch(files, code) {
+  return code.panel.includes('window.apiFetch') && code.panel.includes("typeof apiFetch === 'function'");
+}
+function checkH1AuthNeverReadsPosStoreTokenDirectly(files, code) {
+  return !/localStorage\.getItem\(\s*['"`]pos_store_token['"`]\s*\)/.test(code.panel);
+}
+function checkH1AuthNeverBuildsAuthorizationHeaderItself(files, code) {
+  return !/headers\[['"`]Authorization['"`]\]\s*=/.test(code.panel) && !code.panel.includes("'Bearer ' +");
+}
+function checkH1AuthNeverReadsXStoreIdItself(files, code) {
+  return !/headers\[['"`]x-store-id['"`]\]\s*=/.test(code.panel);
+}
+function checkH1AuthNeverParsesJwt(files, code) {
+  return !/atob\s*\(/.test(code.panel) && !code.panel.includes('parseJwtPayload');
+}
+function checkH1AuthTokenNeverBuiltIntoUrl(files, code) {
+  const start = code.panel.indexOf('async function geoGa4H1Fetch');
+  const end = code.panel.indexOf('function _geoGa4H1EnsureGroup');
+  const fn = (start !== -1 && end !== -1) ? code.panel.slice(start, end) : '';
+  return fn.length > 0 && !fn.includes('token') && !fn.includes('Token');
+}
+function checkH1AuthSyncResponseIsParsed(files, code) {
+  return code.panel.includes('_geoGa4H1HandleSyncResult') && code.panel.includes('result.success === true') && code.panel.includes('rows_saved');
+}
+function _h1AuthSyncResultFnBody(code) {
+  const start = code.panel.indexOf('async function _geoGa4H1HandleSyncResult');
+  const end = code.panel.indexOf('function geoGa4H1RenderToolbar');
+  return (start !== -1 && end !== -1) ? code.panel.slice(start, end) : '';
+}
+function checkH1AuthSyncFailureNeverCallsOnChange(files, code) {
+  const fn = _h1AuthSyncResultFnBody(code);
+  const failureStart = fn.indexOf('const code = (result && result.code)');
+  const failureBody = failureStart !== -1 ? fn.slice(failureStart) : '';
+  return fn.length > 0 && failureBody.length > 0 && !failureBody.includes('onChange');
+}
+function checkH1AuthSyncFailureNeverClearsCache(files, code) {
+  const fn = _h1AuthSyncResultFnBody(code);
+  return fn.length > 0 && !fn.includes('lastGoodPayload = null') && !fn.includes('geoGa4H1RenderTable(');
+}
+function checkH1AuthHas401Category(files, code) { return code.panel.includes('auth_required:'); }
+function checkH1AuthHas403Category(files, code) { return code.panel.includes('feature_disabled:'); }
+function checkH1AuthHas429Category(files, code) { return code.panel.includes('rate_limited:'); }
+function checkH1AuthHas502Category(files, code) { return code.panel.includes('ga4_backend_error:') || code.panel.includes('ga4_request_failed:'); }
+function checkH1AuthHasSdkUnavailableCategory(files, code) { return code.panel.includes('SDK_UNAVAILABLE:') || code.panel.includes('sdk_unavailable:'); }
+function checkH1AuthHasPermissionDeniedCategory(files, code) { return code.panel.includes('permission_denied:'); }
+function checkH1AuthHasInvalidArgumentCategory(files, code) { return code.panel.includes('invalid_argument:'); }
+function checkH1AuthHasAbortSafeWrapper(files, code) {
+  return code.panel.includes('async function geoGa4H1SafeRunFetch') && code.panel.includes("_geoGa4H1IsAbortError(e)) return undefined;");
+}
+function checkH1AuthListenerPromisesHaveCatch(files, code) {
+  const modeStart = code.panel.indexOf('const modeHandler = (e) => {');
+  const modeEnd = code.panel.indexOf('const metricHandler');
+  const metricEnd = code.panel.indexOf('const syncHandler');
+  const modeHandlerBody = (modeStart !== -1 && modeEnd !== -1) ? code.panel.slice(modeStart, modeEnd) : '';
+  const metricHandlerBody = (modeEnd !== -1 && metricEnd !== -1) ? code.panel.slice(modeEnd, metricEnd) : '';
+  return modeHandlerBody.length > 0 && metricHandlerBody.length > 0
+    && modeHandlerBody.includes('.catch(') && metricHandlerBody.includes('.catch(');
+}
+function checkH1AuthInitFireAndForgetHasCatch(files, code) {
+  const start = code.panel.indexOf('function geoGa4H1Init');
+  const end = code.panel.indexOf('function geoGa4H1Destroy');
+  const fn = (start !== -1 && end !== -1) ? code.panel.slice(start, end) : '';
+  return fn.length > 0 && fn.includes('.catch(');
+}
+function checkH1AuthDestroyAbortIsWrappedInTryCatch(files, code) {
+  const start = code.panel.indexOf('function geoGa4H1Destroy');
+  const end = code.panel.indexOf("if (typeof window !== 'undefined') {");
+  const fn = (start !== -1 && end !== -1) ? code.panel.slice(start, end) : '';
+  return fn.length > 0 && fn.includes('try { geoGa4H1State.currentAbort.abort(); } catch (e)');
+}
+function checkH1AuthNeverLogsRawErrorToUi(files, code) {
+  return !code.panel.includes('.textContent = e.message') && !code.panel.includes('.textContent = err.message') && !code.panel.includes('.textContent = e.stack');
+}
+function checkH1AuthNeverLogsToken(files, code) {
+  return !/console\.\w+\([^)]*[Tt]oken/.test(code.panel);
+}
+function checkH1AuthNeverExposesPropertyId(files, code) {
+  return !code.panel.includes('property_id') && !code.panel.includes('propertyId');
+}
+
 const CHECKS = [
   ['A. Migration: 3 tables exist', checkMigrationTablesExist],
   ['A. Migration: safe (no DROP/DELETE)', checkMigrationSafe],
@@ -779,6 +867,32 @@ const CHECKS = [
   ['Destroy: cleans up search and sort listeners', checkDestroyCleansSearchAndSortListeners],
   ['Mode switch resets search and sort state', checkModeSwitchResetsSearchAndSort],
   ['Metric switch preserves search and sort state', checkMetricSwitchPreservesSearchAndSort],
+
+  // ── R5.4-G1.6-GA4-H1.1-AUTH（本輪新增）──
+  ['H1-AUTH 1. H1 never bare-calls fetch() on the 3 GA4-geo endpoints', checkH1AuthNoBareFetchOnThreeEndpoints],
+  ['H1-AUTH 2. H1 uses the existing apiFetch (window.apiFetch / apiFetch)', checkH1AuthUsesExistingApiFetch],
+  ['H1-AUTH 3. H1 never reads pos_store_token directly', checkH1AuthNeverReadsPosStoreTokenDirectly],
+  ['H1-AUTH 4. H1 never builds its own Authorization header', checkH1AuthNeverBuildsAuthorizationHeaderItself],
+  ['H1-AUTH 5. H1 never builds its own x-store-id header', checkH1AuthNeverReadsXStoreIdItself],
+  ['H1-AUTH 6. H1 never parses JWT payload', checkH1AuthNeverParsesJwt],
+  ['H1-AUTH 7. Token is never built into a request URL', checkH1AuthTokenNeverBuiltIntoUrl],
+  ['H1-AUTH 8. Sync Response is actually parsed (rows_saved/success)', checkH1AuthSyncResponseIsParsed],
+  ['H1-AUTH 9. Sync only refreshes (onChange) on success', checkH1AuthSyncFailureNeverCallsOnChange],
+  ['H1-AUTH 10. Sync failure never clears the cache/table', checkH1AuthSyncFailureNeverClearsCache],
+  ['H1-AUTH 11. 401 (auth_required) category exists', checkH1AuthHas401Category],
+  ['H1-AUTH 12. 403 (feature_disabled) category exists', checkH1AuthHas403Category],
+  ['H1-AUTH 13. 429 (rate_limited) category exists', checkH1AuthHas429Category],
+  ['H1-AUTH 14. 502 (ga4_backend_error/ga4_request_failed) category exists', checkH1AuthHas502Category],
+  ['H1-AUTH 15. SDK_UNAVAILABLE category exists', checkH1AuthHasSdkUnavailableCategory],
+  ['H1-AUTH 16. permission_denied category exists', checkH1AuthHasPermissionDeniedCategory],
+  ['H1-AUTH 17. invalid_argument category exists', checkH1AuthHasInvalidArgumentCategory],
+  ['H1-AUTH 18. Centralized AbortError-safe wrapper exists (geoGa4H1SafeRunFetch)', checkH1AuthHasAbortSafeWrapper],
+  ['H1-AUTH 19. mode/metric change listener promises have .catch(...)', checkH1AuthListenerPromisesHaveCatch],
+  ['H1-AUTH 20. Init fire-and-forget refresh promise has .catch(...)', checkH1AuthInitFireAndForgetHasCatch],
+  ['H1-AUTH 21. Destroy() aborts the in-flight controller inside try/catch', checkH1AuthDestroyAbortIsWrappedInTryCatch],
+  ['H1-AUTH 22. Never renders raw error.message/stack into the DOM', checkH1AuthNeverLogsRawErrorToUi],
+  ['H1-AUTH 23. Never logs the token to console', checkH1AuthNeverLogsToken],
+  ['H1-AUTH 24. Never exposes property_id/propertyId', checkH1AuthNeverExposesPropertyId],
 ];
 
 // runAudit() — 需求文件（regression runner 修正輪）：執行＋列印全部檢查
