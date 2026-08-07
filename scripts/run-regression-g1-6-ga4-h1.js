@@ -19,9 +19,15 @@ const SUITE = [
   // ── GA4-H1（本輪新增，五個測試層）──
   ['scripts/run-g1-6-ga4-h1-qa.js', 22, 22, 'GA4-H1 QA Harness'],
   ['scripts/smoke-hotfix30-b5-r5-4-g1-6-ga4-h1-credential-guard.js', 17, 17, 'GA4-H1 Credential Guard'],
-  ['scripts/run-g1-6-ga4-h1-frontend-runtime.js', 73, 73, 'GA4-H1 Frontend Runtime'],
+  // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.2：以下兩個期望值 73/73、166/166
+  // 為 Category B（Outdated Assertion）——已於 H1.2 修正為真實現況 81/81、
+  // 190/190（在 H1.2 修改後與未修改的 H1.1-AUTH baseline 上重新各自驗證
+  // 三輪，結果完全相同，證明是這支 Runner 腳本本身數字陳舊，不是本輪程式
+  // 邏輯或迴歸造成，也不是本輪造成兩者不一致）。詳見
+  // R5.4-G1.6-GA4-H1.2-UNIQUE-ADMIN_TEST_REPORT.md 第五節。
+  ['scripts/run-g1-6-ga4-h1-frontend-runtime.js', 81, 81, 'GA4-H1 Frontend Runtime'],
   ['scripts/smoke-hotfix30-b5-r5-4-g1-6-ga4-h1.js', 108, 108, 'GA4-H1 Targeted Smoke'],
-  ['scripts/static-audit-g1-6-ga4-h1.js', 166, 166, 'GA4-H1 Static Audit'],
+  ['scripts/static-audit-g1-6-ga4-h1.js', 190, 190, 'GA4-H1 Static Audit'],
 
   // ── Shared GA4 Client / A2-T1 / geo-live ──
   ['scripts/smoke-g1-6-a2-t1-client-ip-trust-diagnostic.js', 12, 12, 'A2-T1 Smoke'],

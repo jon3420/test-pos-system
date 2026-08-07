@@ -138,6 +138,98 @@ function normalizeDistrictToParentCounty(value) {
   return code ? _byCountyCode.get(code) : null;
 }
 
+// ══════════════════════════════════════════════════════════════════
+// fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.2：全台唯一鄉鎮市區安全映射
+//
+// 背景：R5.4-G1.5-B2.5 的 DISTRICT_PARENT_ALIASES 只手動列了少數行政區
+// （Longtan／Taoyuan），GA4 city 維度回傳的其他鄉鎮市區（Pingzhen／
+// Yangmei／Banqiao／…）一律落入 unmapped。本輪不擴充手動白名單，改為
+// 重用既有 368 筆全台權威 subdivision 資料與其既有的 _subdivisionNameIndex
+// （_buildIndexes() 已經把每個 subdivision 的中文全名／英文全名／資料集內
+// aliases 全部索引進同一份 Map，同一個 alias 對到多個不同 subdivision_code
+// 時，Map 的 value 陣列天然就會有多筆——這就是「全國唯一性」判斷所需要的
+// 候選清單，不必另外複製一份行政區資料或另建 Alias Registry）。
+//
+// resolveUniqueSubdivisionParentCounty(rawName) 是最低層共用 Helper：
+//   - candidates.length === 0                  → status: 'unknown'
+//   - candidates 對應 >1 個不同 subdivision_code → status: 'ambiguous'
+//   - 其餘（1 個或多個 alias record 但同一個 subdivision_code）→ status: 'unique'
+// 呼叫端（目前只有 utils/ga4Realtime/index.js）自行決定 unknown/ambiguous
+// 時如何處理（目前都是 unmapped，不猜測）。
+//
+// 本函式刻意「只」比對既有資料集的 aliases 陣列，唯一額外處理的是輸入端
+// 「District / Dist.」標準句點差異正規化（見需求文件四）——因為資料集裡
+// 本來就沒有 "Pingzhen Dist." 這種縮寫變體，屬於輸入正規化範疇，不是新增
+// 資料。這裡完全不使用模糊比對／Levenshtein／contains／startsWith／任意
+// strip 後綴猜測。
+function _normSubdivisionAliasInput(s) {
+  if (s === undefined || s === null) return '';
+  let v = String(s);
+  if (typeof v.normalize === 'function') v = v.normalize('NFC'); // Unicode 安全正規化
+  v = v.replace(/[\t\n\r]+/g, ' '); // tab／newline 正規化成空白
+  v = v.trim();
+  v = v.replace(/\s+/g, ' '); // 連續空白折疊成單一空白
+  return v.toLowerCase(); // 英文大小寫不敏感
+}
+
+function _subdivisionCandidatesForAlias(normalizedKey) {
+  _buildIndexes();
+  if (!normalizedKey) return [];
+  return _subdivisionNameIndex.get(normalizedKey) || [];
+}
+
+const _UNMAPPABLE_LITERALS = new Set(['(not set)', 'unknown', 'null', 'undefined', '']);
+
+function resolveUniqueSubdivisionParentCounty(rawName) {
+  _buildIndexes();
+  if (rawName === undefined || rawName === null) return { status: 'unknown', candidates: [] };
+  const trimmedRaw = String(rawName).trim();
+  if (!trimmedRaw) return { status: 'unknown', candidates: [] }; // F. 空白 → unmapped，不猜測
+
+  const normalized = _normSubdivisionAliasInput(rawName);
+  if (_UNMAPPABLE_LITERALS.has(normalized)) return { status: 'unknown', candidates: [] }; // F. (not set)/unknown/null
+
+  let candidates = _subdivisionCandidatesForAlias(normalized);
+
+  // 標準句點差異：District / Dist.（需求文件四）。資料集 aliases 本身沒有
+  // "Dist." 縮寫變體，只在這裡做一次確定性的字尾替換再重查，不是模糊比對。
+  if (!candidates.length && /\bdist\.$/.test(normalized)) {
+    const expanded = normalized.replace(/\bdist\.$/, 'district');
+    candidates = _subdivisionCandidatesForAlias(expanded);
+  }
+
+  if (!candidates.length) return { status: 'unknown', candidates: [] }; // A. 無候選
+
+  const uniqueCodes = Array.from(new Set(candidates.map((c) => c.subdivision_code)));
+  if (uniqueCodes.length > 1) {
+    // B. 多個不同 subdivision_code → ambiguous，不猜測
+    return {
+      status: 'ambiguous',
+      candidates: candidates.map((c) => ({
+        county_code: c.county_code, county_name: c.county_name,
+        subdivision_code: c.subdivision_code, subdivision_name: c.subdivision_name,
+        canonical_name: c.subdivision_name_en || c.subdivision_name,
+        administrative_type: c.subdivision_type, source: 'authoritative_taiwan_administrative_areas',
+      })),
+    };
+  }
+
+  // C／D. 只對應一個 subdivision_code（可能有多筆 alias record 指向同一筆，
+  // 視為安全重複，仍是唯一候選）。
+  const sub = candidates[0];
+  const county = _byCountyCode.get(sub.county_code) || null;
+  return {
+    status: 'unique',
+    county_code: sub.county_code,
+    county_name: (county && county.county_name) || sub.county_name,
+    subdivision_code: sub.subdivision_code,
+    subdivision_name: sub.subdivision_name,
+    subdivision_type: sub.subdivision_type,
+    canonical_name: sub.subdivision_name_en || sub.subdivision_name,
+    source: 'authoritative_unique_subdivision',
+  };
+}
+
 function _buildIndexes() {
   if (_byCountyCode) return;
   const ds = _load();
@@ -598,6 +690,9 @@ module.exports = {
   // R5.4-G1.5-B2.5：GA4 City Dimension District→Parent County 白名單
   normalizeDistrictToParentCounty,
   DISTRICT_PARENT_ALIASES,
+  // R5.4-G1.6-GA4-H1.2：全台唯一鄉鎮市區安全映射（重用既有權威資料集，
+  // 不建立第二套行政區資料）
+  resolveUniqueSubdivisionParentCounty,
   // R5.1-D 向下相容
   normalizeTaiwanGeo,
   TAOYUAN_DISTRICTS,

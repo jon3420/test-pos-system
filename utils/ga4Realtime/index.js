@@ -15,7 +15,7 @@
 
 'use strict';
 
-const { normalizeCounty, normalizeDistrictToParentCounty } = require('../taiwanGeoNormalize');
+const { normalizeCounty, normalizeDistrictToParentCounty, resolveUniqueSubdivisionParentCounty } = require('../taiwanGeoNormalize');
 const { getGa4RealtimeConfig } = require('../ga4RealtimeConfig');
 const {
   GA4_REALTIME_WINDOWS, isSupportedGa4Metric,
@@ -161,9 +161,22 @@ function _aggregateCityRows(rows, dimensionHeaders) {
     // Taoyuan District 全國唯一性衝突風險），不做任何「去掉 District 字尾
     // 剩下文字就當縣市」的通用猜測，也完全不影響 Hsinchu／Chiayi 裸名稱
     // 仍然回 null（ambiguous）的既有保護。
-    const county = normalizedCity
+    // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.2：Longtan／Taoyuan District 之外
+    // 的其他鄉鎮市區（Pingzhen／Yangmei／Banqiao／…）改由全台權威資料集的
+    // 「全國唯一性」查詢處理，不擴充手動白名單。resolveUniqueSubdivisionParentCounty()
+    // 只在該名稱全國僅對應一個 subdivision_code 時才回傳 parent county；
+    // 歧義（例如 Taoyuan District 桃園市桃園區 vs 高雄市桃源區）或未知名稱
+    // 一律維持 unmapped，不猜測。既有 DISTRICT_PARENT_ALIASES 手動白名單
+    // 優先，行為完全不變（見 R5.4-G1.6-GA4-H1.2_REALITY_AUDIT.md 六）。
+    let county = normalizedCity
       ? (normalizeCounty(normalizedCity) || normalizeDistrictToParentCounty(normalizedCity))
       : null;
+    if (!county && normalizedCity) {
+      const uniqueResolved = resolveUniqueSubdivisionParentCounty(normalizedCity);
+      if (uniqueResolved && uniqueResolved.status === 'unique') {
+        county = { county_code: uniqueResolved.county_code, county_name: uniqueResolved.county_name };
+      }
+    }
     if (county) {
       const key = county.county_code;
       if (!countyMap.has(key)) {
