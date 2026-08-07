@@ -295,17 +295,39 @@ router.get('/ga4-realtime-status', requireFeature('reports'), (req, res) => {
   return res.json({ success: true, data: getGa4RealtimeStatus(db, req.storeId) });
 });
 
+// _parseGa4EventCompatFlag(raw) — fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.3-
+// EVENT-COMPAT（需求文件九）：明確、白名單式的布林旗標解析，不得用
+// `Boolean(raw)` 之類的 JS truthy 轉換（那會讓非空字串 "false" 被誤判成
+// true）。只有下列值視為 true：布林 true／數字 1／字串 '1'／字串 'true'
+// （大小寫不拘）。其他任何值（包含 undefined／null／false／0／'0'／
+// 'false'／任意其他字串／物件）一律回 false。
+function _parseGa4EventCompatFlag(raw) {
+  if (raw === true || raw === 1 || raw === '1') return true;
+  if (typeof raw === 'string' && raw.trim().toLowerCase() === 'true') return true;
+  return false;
+}
+
 // ══════════════════════════════════════════════════════════════════
 // POST /ga4-realtime-test — fix18-10-hotfix30-B5-R5.4-G1.5-B2
 // Connection Test：只讀，只用「目前已儲存的該店設定」（req.storeId），
 // 完全不接受 body 傳入的 property/stream/credentials（見需求文件八）。
 // Rate limit／single-flight 由 utils/ga4Realtime/connectionTest.js 內部處理
 // （同店 30 秒內最多一次真正的 Google 呼叫）。
+//
+// fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.3-EVENT-COMPAT（需求文件六、九）：
+// 新增明確 Opt-in 的 `event_compat` 旗標（body 或 query 皆可，見
+// _parseGa4EventCompatFlag()——只接受白名單值，不做 JS truthy 轉換）——
+// 只有這個旗標為真，才會多測 view_item／add_to_cart／checkout／purchase
+// 四個 Event Metric 的相容性。不傳這個旗標時（既有前端一律沒有傳），行為
+// 與 H1.2 baseline 完全相同，不會多消耗 Quota（見
+// utils/ga4Realtime/connectionTest.js runGa4ConnectionTest()）。
 // ══════════════════════════════════════════════════════════════════
 router.post('/ga4-realtime-test', requireFeature('reports'), async (req, res) => {
   try {
     const db = getDb();
-    const result = await runGa4ConnectionTest(db, req.storeId);
+    const b = req.body || {};
+    const includeEventCompatibility = _parseGa4EventCompatFlag(b.event_compat) || _parseGa4EventCompatFlag(req.query.event_compat);
+    const result = await runGa4ConnectionTest(db, req.storeId, { includeEventCompatibility });
     return res.json({ success: true, data: result });
   } catch (e) {
     console.error('[geo-live/ga4-realtime-test]', e.message);
@@ -314,3 +336,9 @@ router.post('/ga4-realtime-test', requireFeature('reports'), async (req, res) =>
 });
 
 module.exports = router;
+// fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.3-EVENT-COMPAT：供
+// scripts/run-g1-6-ga4-h1-3-realtime-event-runtime.js／
+// scripts/run-g1-6-ga4-h1-3-mutations.js 直接單元測試這個純函式，不用
+// 每個布林邊界案例都跑一次完整 HTTP Request（HTTP 層的整合測試另外在
+// Realtime Event Runtime 裡覆蓋，見需求文件九）。
+module.exports._parseGa4EventCompatFlagForTest = _parseGa4EventCompatFlag;

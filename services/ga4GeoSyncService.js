@@ -16,6 +16,7 @@ const { getDb } = require('../utils/db');
 const { getGa4RealtimeConfig } = require('../utils/ga4RealtimeConfig');
 const { normalizeGa4Location, resolveMarkerPoint } = require('../utils/ga4Geo/normalize');
 const productionAdapter = require('../utils/ga4Geo/productionAdapter');
+const { getTaipeiCalendarDateString } = require('../utils/dateTime');
 
 const METRICS_VERSION = 'v1';
 const NORMALIZATION_VERSION = 'v1';
@@ -62,10 +63,29 @@ function _bucketFloor(d = new Date(), bucketMinutes = REALTIME_BUCKET_MINUTES) {
   return new Date(floored).toISOString().replace('T', ' ').slice(0, 19);
 }
 
+// fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.3-EVENT-COMPAT（需求文件一、二）：
+// _todayDateString() 的「現在時刻」透過這組 test-only clock override 注入
+// （不依賴 process.env.TZ／機器時區——時區判斷全部交給
+// utils/dateTime.js 的 getTaipeiCalendarDateString()，這裡只負責決定
+// 「現在」是哪個時間點，供單元測試指定固定時刻）。Production code path
+// 從不呼叫 _setClockForTest()，預設一律用真實 `new Date()`。
+let _clockOverrideForTest = null;
+function _setClockForTest(fn) { _clockOverrideForTest = fn; }
+function _resetClockForTest() { _clockOverrideForTest = null; }
+function _now() { return _clockOverrideForTest ? _clockOverrideForTest() : new Date(); }
+
+// _todayDateString(offsetDays) → 'YYYY-MM-DD'（Asia/Taipei 日曆日，見
+// utils/dateTime.js getTaipeiCalendarDateString()）。
+//
+// fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.3-EVENT-COMPAT：修正前這裡是
+// `new Date(); d.setUTCDate(d.getUTCDate()+offsetDays); toISOString()
+// .slice(0,10)`——純 UTC Calendar Day，在 Asia/Taipei 00:00～07:59 之間
+// 會把「今天」誤判成 UTC 的「昨天」（見
+// R5.4-G1.6-GA4-H1.3-EVENT-COMPAT_REALITY_AUDIT.md 二）。現在改為重用
+// utils/dateTime.js 既有的集中 Timezone Helper（A1.2.1 已建立、已驗證），
+// 不在本檔案另外實作第二套時區換算。
 function _todayDateString(offsetDays = 0) {
-  const d = new Date();
-  d.setUTCDate(d.getUTCDate() + offsetDays);
-  return d.toISOString().slice(0, 10);
+  return getTaipeiCalendarDateString(_now(), offsetDays);
 }
 
 function _daysBetween(startDate, endDate) {
@@ -538,4 +558,10 @@ module.exports = {
   METRICS_VERSION,
   NORMALIZATION_VERSION,
   EVENT_MAPPING_VERSION,
+  // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.3-EVENT-COMPAT：供
+  // scripts/run-g1-6-ga4-h1-3-historical-runtime.js 注入固定「現在時刻」
+  // 測試 Asia/Taipei Calendar Boundary，不供 Production code path 使用。
+  _setClockForTest,
+  _resetClockForTest,
+  _todayDateStringForTest: _todayDateString,
 };

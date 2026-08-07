@@ -23,27 +23,33 @@ function _logStage(stage, result, windowMinutes, metric, elapsedMs) {
   console.log(`[ga4-realtime] stage=${stage} code=${code} retryable=${retryable} window=${windowMinutes} metric=${metric} elapsed_ms=${elapsedMs}`);
 }
 
+// runGa4RealtimeSingleRequest(stage, request, windowMinutes, metric, runFn)
+//   → 單一 stage 的執行＋安全診斷 Log（供 runGa4RealtimeRequestPair 共用，
+//   也供 connectionTest.js 的 Event Compatibility Probe 直接重用——見
+//   R5.4-G1.6-GA4-H1.3-EVENT-COMPAT_REALITY_AUDIT.md 八：Probe 只需要單一
+//   Summary Request，不需要成對的 Summary+City，不得為了 Probe 另外複製一份
+//   log 邏輯）。
+async function runGa4RealtimeSingleRequest(stage, request, windowMinutes, metric, runFn) {
+  if (!request) {
+    const result = { ok: false, code: 'invalid_request', retryable: false };
+    _logStage(stage, result, windowMinutes, metric, 0);
+    return result;
+  }
+  const startedAt = Date.now();
+  const result = await runFn(request);
+  _logStage(stage, result, windowMinutes, metric, Date.now() - startedAt);
+  return result;
+}
+
 // runGa4RealtimeRequestPair({ summaryRequest, cityRequest, windowMinutes, metric, runFn })
 //   → { summaryResult, cityResult, summaryRequest, cityRequest }
 //
 // summaryRequest／cityRequest 若為 null（呼叫端 builder 失敗時就不該呼叫
 // 這個函式，但這裡仍防禦性處理，回傳 ok:false/invalid_request，不丟例外）。
 async function runGa4RealtimeRequestPair({ summaryRequest, cityRequest, windowMinutes, metric, runFn }) {
-  const run = async (stage, request) => {
-    if (!request) {
-      const result = { ok: false, code: 'invalid_request', retryable: false };
-      _logStage(stage, result, windowMinutes, metric, 0);
-      return result;
-    }
-    const startedAt = Date.now();
-    const result = await runFn(request);
-    _logStage(stage, result, windowMinutes, metric, Date.now() - startedAt);
-    return result;
-  };
-
   const [summaryResult, cityResult] = await Promise.all([
-    run('summary', summaryRequest),
-    run('city', cityRequest),
+    runGa4RealtimeSingleRequest('summary', summaryRequest, windowMinutes, metric, runFn),
+    runGa4RealtimeSingleRequest('city', cityRequest, windowMinutes, metric, runFn),
   ]);
 
   return { summaryResult, cityResult, summaryRequest, cityRequest };
@@ -51,4 +57,5 @@ async function runGa4RealtimeRequestPair({ summaryRequest, cityRequest, windowMi
 
 module.exports = {
   runGa4RealtimeRequestPair,
+  runGa4RealtimeSingleRequest,
 };

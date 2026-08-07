@@ -39,11 +39,38 @@ function _geoGa4H1Esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-function _geoGa4H1Rate(numerator, denominator) {
+// _geoGa4H1PerUser(numerator, denominator) — fix18-10-hotfix30-B5-R5.4-
+// G1.6-GA4-H1.3-EVENT-COMPAT（需求文件七～十）：「平均事件／人」
+// = event_count / active_users，語意是「平均每個使用者觸發幾次這個事件」
+// ，不是 conversion rate（conversion rate 需要「觸發過這個事件的 Unique
+// Users」當分母，本輪沒有這個 Query，見需求文件二十三）。因此本函式
+// 刻意不乘以 100、不回傳百分比。denominator<=0 回傳 null（畫面顯示
+// '—'，不得是 Infinity／NaN／0%）。
+function _geoGa4H1PerUser(numerator, denominator) {
   const n = Number(numerator) || 0;
   const d = Number(denominator) || 0;
   if (!d) return null;
-  return Math.round((n / d) * 1000) / 10;
+  return Math.round((n / d) * 10) / 10;
+}
+
+// _geoGa4H1Rate — 舊名稱別名。fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.3-
+// EVENT-COMPAT 之前這裡回傳的是「×100 的百分比」（「加購率」／「購買率」，
+// 已證實是誤把 event/user 平均值當成 conversion rate 顯示成 500%／400%，
+// 見 R5.4-G1.6-GA4-H1.3-EVENT-COMPAT_REALITY_AUDIT.md）。本輪語意修正為
+// per-user 平均值，不再乘 100；只保留這個舊名稱當 alias，避免破壞既有
+// Contract Test（見 scripts/run-g1-6-ga4-h1-frontend-runtime.js #39：
+// `panel._geoGa4H1Rate(5, 0) === null`），本檔案內部一律改呼叫
+// _geoGa4H1PerUser()，不再有新程式碼呼叫這個舊名稱。
+function _geoGa4H1Rate(numerator, denominator) {
+  return _geoGa4H1PerUser(numerator, denominator);
+}
+
+// _geoGa4H1FormatPerUser(value) — 顯示格式化，固定一位小數（'5.0'／'4.0'，
+// 不是裸數字 '5'／'4'，也不是 null/undefined 直接顯示），null → '—'。
+// 只用在畫面顯示（Table／Tooltip），Sort 仍用 _geoGa4H1PerUser() 的原始
+// 數值比較，不受這裡的字串格式影響。
+function _geoGa4H1FormatPerUser(value) {
+  return (value === null || value === undefined) ? '—' : Number(value).toFixed(1);
 }
 
 function _geoGa4H1ValidMode(m) { return GEO_GA4_H1_MODES.includes(m); }
@@ -180,8 +207,8 @@ function _geoGa4H1Icon(radius) {
 
 function geoGa4H1BuildTooltip(row) {
   const activeUsers = row.active_users ?? row.current_active_users ?? 0;
-  const addToCartRate = _geoGa4H1Rate(row.add_to_cart_count, activeUsers);
-  const purchaseRate = _geoGa4H1Rate(row.purchase_count, activeUsers);
+  const addToCartPerUser = _geoGa4H1PerUser(row.add_to_cart_count, activeUsers);
+  const purchasePerUser = _geoGa4H1PerUser(row.purchase_count, activeUsers);
   const label = _geoGa4H1Esc(row.district_name || row.county_name || '未知區域');
   const lines = [
     `<b>${label}</b>`,
@@ -191,9 +218,18 @@ function geoGa4H1BuildTooltip(row) {
   if (row.new_users !== undefined) lines.push(`新使用者：${_geoGa4H1Esc(row.new_users)}`);
   if (row.sessions !== undefined) lines.push(`工作階段：${_geoGa4H1Esc(row.sessions)}`);
   if (row.view_item_count !== undefined) lines.push(`商品瀏覽：${_geoGa4H1Esc(row.view_item_count)}`);
-  if (row.add_to_cart_count !== undefined) lines.push(`加入購物車：${_geoGa4H1Esc(row.add_to_cart_count)}（加購率 ${addToCartRate === null ? '—' : addToCartRate + '%'}）`);
+  // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.3-EVENT-COMPAT（需求文件十一）：
+  // 加購事件／人、購買事件／人各自獨立一行，不再用「（加購率 500%）」這種
+  // 括號附註格式，也不得出現 % 符號。
+  if (row.add_to_cart_count !== undefined) {
+    lines.push(`加入購物車：${_geoGa4H1Esc(row.add_to_cart_count)}`);
+    lines.push(`加購事件／人：${_geoGa4H1Esc(_geoGa4H1FormatPerUser(addToCartPerUser))}`);
+  }
   if (row.begin_checkout_count !== undefined) lines.push(`開始結帳：${_geoGa4H1Esc(row.begin_checkout_count)}`);
-  if (row.purchase_count !== undefined) lines.push(`完成購買：${_geoGa4H1Esc(row.purchase_count)}（購買率 ${purchaseRate === null ? '—' : purchaseRate + '%'}）`);
+  if (row.purchase_count !== undefined) {
+    lines.push(`完成購買：${_geoGa4H1Esc(row.purchase_count)}`);
+    lines.push(`購買事件／人：${_geoGa4H1Esc(_geoGa4H1FormatPerUser(purchasePerUser))}`);
+  }
   if (row.transaction_count !== undefined) lines.push(`交易數：${_geoGa4H1Esc(row.transaction_count)}`);
   if (row.purchase_revenue !== undefined) lines.push(`營收：${_geoGa4H1Esc(row.purchase_revenue)}`);
   lines.push(`最近同步：${_geoGa4H1Esc(row.last_seen_at_utc || row.synced_at_utc || '—')}`);
@@ -233,8 +269,8 @@ const GA4_H1_SORT_COLUMNS = Object.freeze([
   { key: 'purchase_count', label: '完成購買', type: 'number' },
   { key: 'transaction_count', label: '交易數', type: 'number' },
   { key: 'purchase_revenue', label: '營收', type: 'number' },
-  { key: 'add_to_cart_rate', label: '加購率', type: 'number' },
-  { key: 'purchase_rate', label: '購買率', type: 'number' },
+  { key: 'add_to_cart_per_user', label: '加購事件／人', type: 'number' },
+  { key: 'purchase_per_user', label: '購買事件／人', type: 'number' },
   { key: 'last_synced', label: '最近同步', type: 'text' },
 ]);
 
@@ -271,8 +307,8 @@ function _geoGa4H1SortValue(row, key) {
     case 'purchase_count': return row.purchase_count;
     case 'transaction_count': return row.transaction_count;
     case 'purchase_revenue': return row.purchase_revenue;
-    case 'add_to_cart_rate': return _geoGa4H1Rate(row.add_to_cart_count, activeUsers);
-    case 'purchase_rate': return _geoGa4H1Rate(row.purchase_count, activeUsers);
+    case 'add_to_cart_per_user': return _geoGa4H1PerUser(row.add_to_cart_count, activeUsers);
+    case 'purchase_per_user': return _geoGa4H1PerUser(row.purchase_count, activeUsers);
     case 'last_synced': return row.last_seen_at_utc || row.synced_at_utc || null;
     default: return null;
   }
@@ -314,8 +350,8 @@ function _geoGa4H1SortRows(rows, column, direction) {
 
 function _geoGa4H1BuildRowHtml(r) {
   const activeUsers = r.active_users ?? r.current_active_users ?? 0;
-  const addToCartRate = _geoGa4H1Rate(r.add_to_cart_count, activeUsers);
-  const purchaseRate = _geoGa4H1Rate(r.purchase_count, activeUsers);
+  const addToCartPerUser = _geoGa4H1PerUser(r.add_to_cart_count, activeUsers);
+  const purchasePerUser = _geoGa4H1PerUser(r.purchase_count, activeUsers);
   const label = _geoGa4H1RowLabel(r);
   return `<tr>
       <td>${_geoGa4H1Esc(label)}</td>
@@ -328,8 +364,8 @@ function _geoGa4H1BuildRowHtml(r) {
       <td>${_geoGa4H1Esc(r.purchase_count ?? '—')}</td>
       <td>${_geoGa4H1Esc(r.transaction_count ?? '—')}</td>
       <td>${_geoGa4H1Esc(r.purchase_revenue ?? '—')}</td>
-      <td>${addToCartRate === null ? '—' : _geoGa4H1Esc(addToCartRate) + '%'}</td>
-      <td>${purchaseRate === null ? '—' : _geoGa4H1Esc(purchaseRate) + '%'}</td>
+      <td>${_geoGa4H1Esc(_geoGa4H1FormatPerUser(addToCartPerUser))}</td>
+      <td>${_geoGa4H1Esc(_geoGa4H1FormatPerUser(purchasePerUser))}</td>
       <td>${_geoGa4H1Esc(r.last_seen_at_utc || r.synced_at_utc || '—')}</td>
     </tr>`;
 }
@@ -349,7 +385,7 @@ function geoGa4H1RenderTable(containerId, rows, opts = {}) {
       <thead><tr>
         <th>行政區</th><th>活躍使用者</th><th>新使用者</th><th>工作階段</th>
         <th>商品瀏覽</th><th>加入購物車</th><th>開始結帳</th><th>完成購買</th>
-        <th>交易數</th><th>營收</th><th>加購率</th><th>購買率</th><th>最近同步</th>
+        <th>交易數</th><th>營收</th><th>加購事件／人</th><th>購買事件／人</th><th>最近同步</th>
       </tr></thead>
       <tbody>${rowsHtml || '<tr><td colspan="13">目前沒有資料</td></tr>'}</tbody>
     </table>
@@ -516,7 +552,19 @@ async function _geoGa4H1HandleSyncResult(result, onChange) {
   if (result && result.success === true) {
     const rowsSaved = (typeof result.rows_saved === 'number') ? result.rows_saved : null;
     if (typeof showToast === 'function') {
-      showToast(rowsSaved !== null ? `同步成功，已更新 ${rowsSaved} 筆資料` : '同步成功', 'success');
+      // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.3-EVENT-COMPAT（需求文件五、
+      // 六）：rows_saved===0 是合法的空結果（例如 Today 剛開始，GA4
+      // 標準報表資料尚未產生／隱私門檻省略低量資料），不是錯誤，不得顯示
+      // 紅色 Error，也不得用含糊的「已更新 0 筆資料」措辭讓人誤以為同步
+      // 本身失敗。rows_saved>0 維持既有措辭；success 但沒有 rows_saved
+      // 欄位（例如 realtime 同步）維持既有的「同步成功」。
+      if (rowsSaved === 0) {
+        showToast('同步成功，目前 GA4 報表尚無可用的區域資料。即時資料與標準報表的處理時間不同，稍後再同步即可。', 'success');
+      } else if (rowsSaved !== null) {
+        showToast(`同步成功，已更新 ${rowsSaved} 筆資料`, 'success');
+      } else {
+        showToast('同步成功', 'success');
+      }
     }
     if (typeof onChange === 'function') {
       await geoGa4H1SafeRunFetch(() => onChange());
@@ -685,7 +733,7 @@ if (typeof module !== 'undefined' && module.exports) {
     geoGa4H1BuildTooltip, geoGa4H1RenderTable, geoGa4H1RenderStatus, geoGa4H1RenderToolbar,
     geoGa4H1RenderMarkers, geoGa4H1Fetch,
     geoGa4H1RenderInteractiveTable, _geoGa4H1FilterRows, _geoGa4H1SortRows, _geoGa4H1RowLabel,
-    _geoGa4H1Rate, _geoGa4H1MetricValue, _geoGa4H1Esc, _geoGa4H1ValidMode, _geoGa4H1ValidMetric,
+    _geoGa4H1Rate, _geoGa4H1PerUser, _geoGa4H1FormatPerUser, _geoGa4H1MetricValue, _geoGa4H1Esc, _geoGa4H1ValidMode, _geoGa4H1ValidMetric,
     geoGa4H1Init, geoGa4H1Destroy, geoGa4H1Refresh, geoGa4H1ClearMarkers,
     geoGa4H1State,
     // R5.4-G1.6-GA4-H1.1-AUTH：Auth Contract + AbortError Safety（供

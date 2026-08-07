@@ -130,10 +130,48 @@ function getTaipeiDayUtcRange(dateInput) {
   };
 }
 
+// getTaipeiCalendarDateString(dateInput, offsetDays) → 'YYYY-MM-DD'
+//
+// fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.3-EVENT-COMPAT：GA4-H1 Historical
+// 「今天／昨天／近 7 天／近 30 天」需要的是 Asia/Taipei 日曆日字串（不是
+// getTaipeiDayUtcRange() 回傳的 UTC 邊界字串），且必須可以做 ±N 天位移
+// （offsetDays）。這裡刻意重用同一個 TAIPEI_FORMATTER（跟
+// getTaipeiDayUtcRange／formatTaipeiDateTime 同一份 Intl 實例，同一套
+// Asia/Taipei 解析邏輯，不是第二套 timezone 實作——見
+// R5.4-G1.6-GA4-H1.3-EVENT-COMPAT_REALITY_AUDIT.md 一：本專案已有
+// utils/dateTime.js 作為集中 Timezone Helper，本函式只是在同一個檔案內
+// 新增「回傳日曆日字串＋支援位移」這個既有 Helper 沒提供的能力，不建立
+// 第二套 timezone 模組）。
+//
+// dateInput 省略時＝「now」（可注入任意 Date／可解析時間值做測試，不依賴
+// process.env.TZ 或執行機器時區——所有時區判斷都經由 Intl.DateTimeFormat
+// 的 timeZone:'Asia/Taipei' 選項，不使用固定 +8 小時字串位移）。
+//
+// offsetDays 的日期位移用 Date.UTC() 對「已經是 Asia/Taipei 日曆日」的
+// 年/月/日字面值做加減（時、分、秒固定用中午 12:00 UTC 當基準，避免任何
+// 日期邊界／月份天數/閏年進位誤差；只借用 Date.UTC 的月曆進位計算，不代表
+// 這個時間點有任何實際意義）。
+function getTaipeiCalendarDateString(dateInput, offsetDays = 0) {
+  const base = dateInput === undefined || dateInput === null
+    ? new Date()
+    : (parseStoredUtcTimestamp(dateInput) || new Date());
+
+  const parts = TAIPEI_FORMATTER.formatToParts(base);
+  const map = {};
+  parts.forEach((p) => { map[p.type] = p.value; });
+
+  const shifted = new Date(Date.UTC(Number(map.year), Number(map.month) - 1, Number(map.day) + Number(offsetDays || 0), 12, 0, 0));
+  const y = shifted.getUTCFullYear();
+  const m = String(shifted.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(shifted.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
 module.exports = {
   parseStoredUtcTimestamp,
   isValidTimestamp,
   toUtcIsoString,
   formatTaipeiDateTime,
   getTaipeiDayUtcRange,
+  getTaipeiCalendarDateString,
 };

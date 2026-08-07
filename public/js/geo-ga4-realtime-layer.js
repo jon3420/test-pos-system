@@ -57,6 +57,30 @@ const GEO_GA4_ERROR_MESSAGES = Object.freeze({
   ga4_unavailable: 'Google Analytics 暫時無法連線。',
 });
 
+// _geoGa4ClassifyErrorFamilyMessage(code) — fix18-10-hotfix30-B5-R5.4-
+// G1.6-GA4-H1.3-EVENT-COMPAT（需求文件十五）：GA4 Realtime Event Metric
+// 修正之後，後端實際回傳的 error `code` 是 utils/ga4Realtime/errors.js
+// classifyGa4RealtimeError() 產生的原始分類（'400'／'401'／'403'／
+// '429'／'500'～'504'／'TIMEOUT'／'unsupported_metric'／'invalid_window'
+// 等），跟上面 GEO_GA4_ERROR_MESSAGES 這組舊有的語意化 key（例如
+// 'permission_denied'／'quota_limited'）並不是同一組字典。這裡新增一層
+// 「code 家族 → 安全文案」的分類，只在 GEO_GA4_ERROR_MESSAGES 沒有對應
+// entry 時當 fallback 使用（不取代舊字典，避免任何仍會命中舊 key 的路徑
+// 改變行為）。只回傳分類後的安全文案，不回傳／不記錄任何原始 code 以外
+// 的細節。
+function _geoGa4ClassifyErrorFamilyMessage(code) {
+  const c = String(code === null || code === undefined ? '' : code);
+  if (['400', 'invalid_argument', 'invalid_request', 'unsupported_metric', 'invalid_window'].includes(c)) {
+    return 'GA4 即時事件查詢格式不相容。';
+  }
+  if (c === '401') return '登入狀態已失效，請重新登入。';
+  if (c === '403') return 'GA4 權限不足或此功能未開放。';
+  if (c === '429') return 'GA4 查詢過於頻繁，請稍候再試。';
+  if (c === 'TIMEOUT' || c === 'ETIMEDOUT') return 'GA4 查詢逾時，請稍後再試。';
+  if (['500', '502', '503', '504'].includes(c)) return 'Google Analytics 暫時無法連線。';
+  return null; // 不認得的 code，交給呼叫端使用最終 fallback 文案
+}
+
 // Authentication 失敗（Store Token 缺失／失效）固定文案，跟 GA4 Backend
 // 錯誤完全分開，不得共用同一段訊息（需求文件七、八）。
 const GEO_GA4_AUTH_ERROR_MESSAGE = '店家登入狀態已失效，請重新登入後再試。';
@@ -384,7 +408,7 @@ function geoGa4StatusMessage(payload) {
     return `${reason}。請至 GA4 設定完成 Property／Stream 設定。`;
   }
   if (payload.status === 'error') {
-    return GEO_GA4_ERROR_MESSAGES[payload.error_code] || 'GA4 連線發生錯誤，請稍後再試。';
+    return GEO_GA4_ERROR_MESSAGES[payload.error_code] || _geoGa4ClassifyErrorFamilyMessage(payload.error_code) || 'GA4 連線發生錯誤，請稍後再試。';
   }
   // fix18-10-hotfix30-B5-R5.4-G1.5-B2.4：Partial Success——Summary 已取得，
   // 只有城市區域資料暫時無法載入，不得顯示跟 status==='error' 相同的
@@ -610,7 +634,7 @@ function geoGa4MapOverlayMessage() {
   // 重新登入提示，不得顯示模糊的「載入失敗」，也不得跟 GA4 Backend 錯誤
   // 共用文字（需求文件七、八）。
   if (p.status === 'auth_error') return GEO_GA4_AUTH_ERROR_MESSAGE;
-  if (p.status === 'error') return GEO_GA4_ERROR_MESSAGES[p.error_code] || 'GA4 即時圖層載入失敗，請重試';
+  if (p.status === 'error') return GEO_GA4_ERROR_MESSAGES[p.error_code] || _geoGa4ClassifyErrorFamilyMessage(p.error_code) || 'GA4 即時圖層載入失敗，請重試';
   if (!p.ok) return 'GA4 即時圖層載入失敗，請重試';
   // fix18-10-hotfix30-B5-R5.4-G1.5-B2.4：Partial Success 不是完整錯誤——
   // Summary 卡片正常顯示，只有地圖不著色，不得顯示「載入失敗」這類地圖
@@ -628,7 +652,7 @@ if (typeof module !== 'undefined' && module.exports) {
     GA4_REALTIME_DISCLAIMER, GA4_REALTIME_PRIVACY_NOTICE,
     geoGa4State,
     geoGa4BuildRequestUrl, geoGa4NormalizeResponse, geoGa4FetchData, geoGa4FetchStatus, geoGa4AuthErrorPayload,
-    GEO_GA4_ERROR_MESSAGES, GEO_GA4_AUTH_ERROR_MESSAGE,
+    GEO_GA4_ERROR_MESSAGES, GEO_GA4_AUTH_ERROR_MESSAGE, _geoGa4ClassifyErrorFamilyMessage,
     geoGa4FindLayersForCounty, geoGa4RenderChoropleth, geoGa4BuildTooltipContent,
     geoGa4ClearLayer, geoGa4RestoreStyles,
     geoGa4RenderToolbarHtml, geoGa4RenderSummaryHtml, geoGa4RenderStatusHtml, geoGa4RenderNoticesHtml,
