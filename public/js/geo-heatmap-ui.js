@@ -109,6 +109,13 @@ function geoHeatUiSwitchTab(containerId, tab) {
     });
   }
   if (tab === 'heatmap') {
+    // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4-MAP-STATE Stage 5：進 Heatmap
+    // 前，先讓 Dashboard GA4 Overlay 交出地圖（移除自己的 layerGroup、abort
+    // 自己 pending 的 request），不得殘留進 Heatmap（需求文件十八）。
+    if (typeof geoDashboardGa4Deactivate === 'function') {
+      const map = window.geoMapState && window.geoMapState.instance;
+      geoDashboardGa4Deactivate(map);
+    }
     _geoHeatUiEnsureMapReuse(containerId);
     _geoHeatUiBindRankingEvents(containerId);
     geoHeatUiFetchAndRender(containerId);
@@ -120,9 +127,37 @@ function geoHeatUiSwitchTab(containerId, tab) {
     }
     if (typeof geoInvalidateMapSize === 'function') setTimeout(() => { try { geoInvalidateMapSize(); } catch (e) {} }, 30);
   } else {
+    // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4-MAP-STATE：切回 Dashboard
+    // 分頁前，先把 Heatmap 端加到共用地圖上的所有 LayerGroup／timer／
+    // pending request 清掉，再重畫 choropleth（見
+    // R5.4-G1.6-GA4-H1.4-MAP-STATE_REALITY_AUDIT.md 章節 H：Root Cause
+    // 就是這裡過去只呼叫 _geoHeatUiRestoreChoropleth()，從沒做過
+    // cleanup）。
+    _geoHeatUiCleanupForDashboard(containerId);
     _geoHeatUiRestoreChoropleth();
+    // Stage 5：Heatmap cleanup 完成、choropleth 恢復後，才啟動 Dashboard
+    // 自己的 GA4 Overlay（讀自己的 persisted range，不會拿到 Heatmap H1
+    // 剛剛用過的 markerGroup——那個已經在上面 cleanup 步驟被移除／destroy）。
+    if (typeof geoDashboardGa4Activate === 'function') {
+      const map = window.geoMapState && window.geoMapState.instance;
+      geoDashboardGa4Activate(_geoHeatUiDashboardGa4Ids(containerId), map);
+    }
+    if (typeof geoInvalidateMapSize === 'function') setTimeout(() => { try { geoInvalidateMapSize(); } catch (e) {} }, 30);
   }
   return true;
+}
+
+// _geoHeatUiDashboardGa4Ids()——Dashboard GA4 Overlay 需要的 DOM id 組合，
+// 命名沿用既有 `${containerId}-xxx` 慣例（跟 geoGa4H1RenderToolbar 的
+// `${containerId}-ga4-h1-toolbar` 同一套風格）。實際容器由
+// public/js/geo-intelligence.js 的 Dashboard Panel HTML 建立。
+function _geoHeatUiDashboardGa4Ids(containerId) {
+  return {
+    containerId,
+    rangeMount: `${containerId}-dashboard-ga4-range`,
+    label: `${containerId}-dashboard-ga4-label`,
+    status: `${containerId}-dashboard-ga4-status`,
+  };
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -554,6 +589,83 @@ function _geoHeatUiApplyLayerExclusivity(layer) {
   }
 }
 
+// ════════════════════════════════════════════════════════════════
+// Heatmap → Dashboard 分頁切換 Cleanup（fix18-10-hotfix30-B5-R5.4-
+// G1.6-GA4-H1.4-MAP-STATE 第一階段）
+//
+// Root Cause（見 R5.4-G1.6-GA4-H1.4-MAP-STATE_REALITY_AUDIT.md 章節
+// F／G／H）：geoHeatUiSwitchTab() 切到 'dashboard' 時，過去只呼叫
+// _geoHeatUiRestoreChoropleth()，從未把 Heatmap 端已經 addLayer 到共用
+// geoMapState.instance 上的 4 組 LayerGroup（Order／Visitor／GA4
+// Realtime／GA4 H1 Historical）移除，也從未停掉 Realtime／H1 各自的
+// timer／AbortController，造成 Marker Leakage（使用者回報的紫色 GA4
+// Marker 殘留）與背景 request 繼續跑。這裡集中處理，取代散落多次
+// map.removeLayer(...)。
+//
+// 只清「這次 Heatmap session 造成的 active 狀態」（layer 本身／timer／
+// pending request／覆蓋文字），刻意不動 Heatmap 使用者選的
+// layer／source／range／metric state（geoHeatUiState.layer／
+// geoHeatUiState.visitorRange／geoGa4State.metric／
+// geoGa4State.windowMinutes／...）——下次切回 Heatmap 分頁必須原樣恢復
+// （需求文件四），不是重設回預設值。
+// ════════════════════════════════════════════════════════════════
+function _geoHeatUiRemoveLayerIfPresent(map, group) {
+  if (!map || !group) return;
+  try {
+    if (typeof map.hasLayer === 'function' && typeof map.removeLayer === 'function' && map.hasLayer(group)) {
+      map.removeLayer(group);
+    }
+  } catch (e) { /* 安靜失敗，不擋 cleanup 其他步驟 */ }
+}
+
+function _geoHeatUiCleanupForDashboard(containerId) {
+  if (typeof window === 'undefined') return;
+  const map = window.geoMapState && window.geoMapState.instance;
+
+  // 1. 停 GA4 Realtime 既有的 timer／AbortController（既有函式
+  // geoGa4Deactivate()，不重寫；它本身只 clearLayers 群組內容、不會把
+  // 群組從地圖移除，移除群組本身留給下面第 3-5 步統一處理）。
+  if (typeof geoGa4Deactivate === 'function') {
+    try { geoGa4Deactivate(); } catch (e) { /* 安靜失敗 */ }
+  }
+  // 2. Destroy GA4 H1 Historical 子面板（既有函式 GeoGa4H1Panel.destroy()：
+  // 清 pollTimer／currentAbort／呼叫自己的 markerGroup.remove() 把
+  // markerGroup 從地圖上移除並清空參考／DOM listener cleanup）。ids
+  // 沿用 geoHeatUiSetLayer() 既有命名慣例（`${containerId}-ga4-h1-*`）。
+  if (window.GeoGa4H1Panel && typeof window.GeoGa4H1Panel.destroy === 'function') {
+    try {
+      window.GeoGa4H1Panel.destroy({
+        toolbar: `${containerId}-ga4-h1-toolbar`,
+        table: `${containerId}-ga4-h1-table`,
+      });
+    } catch (e) { /* 安靜失敗 */ }
+  }
+
+  // 3-5. 移除剩下三組 LayerGroup 本身（Order／Visitor／GA4 Realtime；
+  // GA4 H1 的 markerGroup 已經在上面 destroy() 內用 .remove() 處理過，
+  // 不重複移除）。只 map.removeLayer，不 clearLayers——clearLayers 會清掉
+  // 資料本身，下次切回 Heatmap 還要重新 fetch；這裡只要讓地圖上看不到，
+  // 資料／群組物件本身留著（Order／Visitor 沒有等效 Deactivate()，這裡
+  // 是它們僅有的 cleanup 路徑）。
+  _geoHeatUiRemoveLayerIfPresent(map, window.geoHeatState && window.geoHeatState.layerGroup);
+  _geoHeatUiRemoveLayerIfPresent(map, window.geoVisitorState && window.geoVisitorState.choroplethLayerGroup);
+  _geoHeatUiRemoveLayerIfPresent(map, window.geoGa4State && window.geoGa4State.layerGroup);
+
+  // 6. 清掉殘留在共用地圖容器上的 Visitor／GA4 覆蓋文字。這些是純 DOM
+  // 覆蓋層（非 Leaflet Layer），掛在 mapContainerId 底下；地圖容器本身
+  // 在 Dashboard／Heatmap 兩個分頁都可見（只有 Panel 被 hidden，地圖
+  // 容器不在 Panel 裡面），所以切分頁不會自動清掉這些文字。
+  if (typeof document !== 'undefined') {
+    const mapContainerId = geoHeatUiState.mapContainerId;
+    if (mapContainerId) {
+      const visitorOverlay = document.getElementById(`${mapContainerId}-visitor-empty-overlay`);
+      if (visitorOverlay) visitorOverlay.remove();
+      const ga4Overlay = document.getElementById(`${mapContainerId}-ga4-empty-overlay`);
+      if (ga4Overlay) ga4Overlay.remove();
+    }
+  }
+}
+
 // 需求文件三／七：Visitor Layer 沒有真實座標可畫時，地圖上必須明確顯示
 // 原因（而不是留一張看起來像「還在 Order Heatmap」的空白/舊畫面）。純
 // DOM 覆蓋文字，不是 Leaflet Layer，不會被誤認成假 Marker。三種空狀態
@@ -968,6 +1080,10 @@ if (typeof module !== 'undefined' && module.exports) {
     _geoHeatUiOrderMapOverlayMessage, _geoHeatUiRenderOrderMapOverlay,
     // fix18-10-hotfix30-B5-R5.4-G1.5（GA4 Realtime Visitor Geo Layer）
     _geoHeatUiRenderGa4MapOverlay,
+    // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4-MAP-STATE（Heatmap→Dashboard
+    // Layer Lifecycle Cleanup，第一階段）
+    _geoHeatUiCleanupForDashboard, _geoHeatUiRemoveLayerIfPresent,
+    _geoHeatUiDashboardGa4Ids,
     get geoHeatUiState() { return geoHeatUiState; },
   };
 }

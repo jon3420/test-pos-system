@@ -3548,6 +3548,20 @@
      之前，兩者都改用這裡的 formatTaipeiDateTime()，不再各自手動 +8 小時或
      直接輸出 DB 原始字串。 -->
 <script src="/js/date-time-format.js?v=fix18-10-hotfix30-B5-R5-4-G1-6-A1-2-1"></script>
+<!-- fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4-MAP-STATE: Geo Historical Range
+     Resolver（純函式，不綁 DOM）。必須排在 date-time-format.js 之後（用它的
+     getTaipeiCalendarDateString）、geo-range-control.js／geo-ga4-h1-panel.js／
+     geo-ga4-dashboard-layer.js 之前——這三個檔案的頂層程式碼在「解析當下」
+     就會檢查 typeof resolveGeoHistoricalRange，不是延後到呼叫時才檢查，
+     順序顛倒會讓整個 H1.4 Range 功能在瀏覽器裡永久失效（Node 測試環境的
+     require() fallback 在真實瀏覽器不存在）。 -->
+<script src="/js/geo-range-resolver.js?v=fix18-10-hotfix30-B5-R5-4-G1-6-GA4-H1-4-MAP-STATE"></script>
+<!-- fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4-MAP-STATE: Reusable Geo Range
+     Control（快捷按鈕／單日／自訂輸入框，Dashboard 與 Heatmap Historical
+     共用同一份程式碼、各自傳入獨立 state）。必須排在 geo-range-resolver.js
+     之後（依賴它的 resolveGeoHistoricalRange）、geo-ga4-h1-panel.js／
+     geo-ga4-dashboard-layer.js 之前。 -->
+<script src="/js/geo-range-control.js?v=fix18-10-hotfix30-B5-R5-4-G1-6-GA4-H1-4-MAP-STATE"></script>
 <script src="/js/geo-intelligence.js?v=fix18-10-hotfix30-B5-R5-1-C"></script>
 <!-- fix18-10-hotfix30-B5-R5.2-B2: Leaflet（CDN，含 integrity；載入失敗時 geo-intelligence-map.js 的
      typeof L === 'undefined' 檢查會安全顯示「地圖元件載入中」，不會讓整個 Dashboard 崩潰） -->
@@ -3616,6 +3630,16 @@
      instance，且透過 geo-heatmap-ui.js 的 'ga4' layer 切換分支呼叫
      window.GeoGa4H1Panel.init()/destroy()，不建立第二張地圖）。 -->
 <link rel="stylesheet" href="/css/geo-ga4-h1.css?v=fix18-10-hotfix30-B5-R5-4-G1-6-GA4-H1">
+<!-- fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4-MAP-STATE: Dashboard GA4 Regional
+     Overview（Read-only，只 GET 既有 persisted Historical API，永不 POST
+     sync／呼叫 Realtime／建立第二張地圖）。必須排在 geo-range-resolver.js／
+     geo-range-control.js 之後（頂層程式碼會檢查
+     typeof resolveGeoHistoricalRange，跟 geo-ga4-h1-panel.js 同一個道理）、
+     geo-heatmap-ui.js 之後或之前皆可（geoHeatUiSwitchTab() 只在函式呼叫時
+     才用 typeof geoDashboardGa4Activate 安全 guard，不是頂層檢查），排在
+     這裡是為了跟同樣依賴 geo-range-resolver.js／geo-range-control.js 的
+     geo-ga4-h1-panel.js 放在一起，方便維護。 -->
+<script src="/js/geo-ga4-dashboard-layer.js?v=fix18-10-hotfix30-B5-R5-4-G1-6-GA4-H1-4-MAP-STATE"></script>
 <script src="/js/geo-ga4-h1-panel.js?v=fix18-10-hotfix30-B5-R5-4-G1-6-GA4-H1"></script>
 <script src="/js/coupons.js?v=fix18-06"></script>
 <script src="/js/qrcode.min.js?v=fix18-09F-h2"></script>

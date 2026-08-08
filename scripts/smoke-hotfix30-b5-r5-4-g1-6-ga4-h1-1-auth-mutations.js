@@ -360,10 +360,19 @@ async function main() {
     // Mutation I — Listener Promise 移除安全 catch（Mode／Metric）。
     // ══════════════════════════════════════════════════════════════
     {
+      // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4-MAP-STATE：Stage 4.1 在
+      // _geoGa4H1RenderRangeMount() 內新增了第三個合法呼叫點（GeoRangeControl
+      // 的 onChange callback，一樣需要 .catch(_geoGa4H1SwallowAbort) 防護）。
+      // 這個新呼叫點在原始碼裡的位置在 `const modeHandler = ...` 之前，
+      // 所以不會落進下面 modeBody／metricBody 的切片範圍——原本針對
+      // modeHandler／metricHandler 兩處的保護測試意圖完全不變，這裡只是
+      // 把「命中次數」的期待值從 2 更新成 3（OUTDATED CONTRACT ASSERTION：
+      // 舊＝剛好 2 處；新＝新增 rangeMount onChange 後變成 3 處，保護意圖
+      // 「所有 onChange() 呼叫都要有安全 catch」本身沒有變）。
       const ORIG = 'Promise.resolve(onChange()).catch(_geoGa4H1SwallowAbort);';
       const MUT = 'Promise.resolve(onChange()); // MUTATION-I: no .catch(...) guard';
-      const mutatedSrc = mutateAll(REAL_PANEL_SRC, ORIG, MUT, 2);
-      check('I0. Mutation I hits exactly 2 byte-exact occurrences (modeHandler + metricHandler)', mutatedSrc !== REAL_PANEL_SRC);
+      const mutatedSrc = mutateAll(REAL_PANEL_SRC, ORIG, MUT, 3);
+      check('I0. Mutation I hits exactly 3 byte-exact occurrences (rangeMount onChange + modeHandler + metricHandler)', mutatedSrc !== REAL_PANEL_SRC);
 
       const codeMutated = stripComments(mutatedSrc);
       const codeReal = stripComments(REAL_PANEL_SRC);

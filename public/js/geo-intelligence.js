@@ -1819,6 +1819,11 @@ async function refreshGeoDashboardKpiBlock(containerId) {
     ${mapHtml}
     ${sharedMetricBarHtml}
     <div id="${containerId}-panel-dashboard" ${dashboardPanelHidden}>
+      <div class="geo-dashboard-ga4-block" style="margin-bottom:12px;padding:10px;border:1px solid var(--border,#2a2d3e);border-radius:8px">
+        <div id="${containerId}-dashboard-ga4-label" style="font-weight:700;font-size:.88rem"></div>
+        <div id="${containerId}-dashboard-ga4-range" style="margin:8px 0"></div>
+        <div id="${containerId}-dashboard-ga4-status" style="font-size:.78rem;color:var(--text-secondary,#64748b)" role="status" aria-live="polite"></div>
+      </div>
       ${kpiCards}
       ${fulfillmentLine}
       ${renderGeoQualityBlock(vm.quality)}
@@ -1850,6 +1855,17 @@ async function refreshGeoDashboardKpiBlock(containerId) {
         // geo-heatmap-ui.js 時安全略過，不影響 Dashboard 其餘部分。
         if (typeof geoHeatUiRegisterContext === 'function') {
           geoHeatUiRegisterContext(containerId, mapContainerId);
+        }
+        // Stage 5（fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4-MAP-STATE）：
+        // Direct Load Contract——F5 直接進 Dashboard 時，不需要先進
+        // Heatmap、不需要手動同步，只要 DB 已有 persisted Historical
+        // rows 就自己畫 GA4 marker。只在目前真的是 Dashboard 分頁時才
+        // activate（如果 geoHeatUiState 顯示目前在 Heatmap 分頁，代表這次
+        // render 是在 Heatmap session 中途重新整理 KPI 區塊，不該搶著把
+        // Dashboard GA4 Overlay 加到地圖上）。
+        const isHeatmapActive = (typeof geoHeatUiState !== 'undefined' && geoHeatUiState && geoHeatUiState.activeTab === 'heatmap');
+        if (!isHeatmapActive && typeof geoDashboardGa4Activate === 'function' && typeof _geoHeatUiDashboardGa4Ids === 'function') {
+          geoDashboardGa4Activate(_geoHeatUiDashboardGa4Ids(containerId), geoMapState.instance);
         }
       }).catch(() => { if (typeof geoHandleMapError === 'function') geoHandleMapError('error_default'); });
   } else if (typeof geoHeatUiRegisterContext === 'function') {

@@ -51,7 +51,18 @@ async function main() {
   // A1. Heatmap Engine（geo-heatmap.js）與既有 Map／Settings／manifest
   //     必須跟 R5.3-A1 交付時逐位元組相同——本輪只接線，不修改 Engine。
   const ENGINE_BASELINE_SHA256 = {
-    'public/js/geo-heatmap.js': '8f3ec8c0ae76f84825bc0e2e1a481002109244763741a16a2981d17d0cfc710d',
+    // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4-MAP-STATE Stage 5.1：這個雜湊
+    // 過去對不上任何本輪或近期修改——已用乾淨解壓的
+    // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.3-EVENT-COMPAT-QA-full.zip
+    // baseline 隔離驗證：(1) 該 baseline 的 geo-heatmap.js 用 `diff -q`
+    // 跟本輪 H1.4 workdir 逐位元組相同（沒有任何差異）；(2) 對著那個完全
+    // 沒被 H1.4 動過的乾淨 baseline 執行同一支 smoke test，SA-1 仍然回報
+    // 一模一樣的 sha256 mismatch。結論：INHERITED_STALE_TEST_EXPECTATION
+    // ——這個常數本身在更早的合法版本（G1.2～G1.6 任一次修改 geo-heatmap.js
+    // 之後）就沒有同步更新，不是 H1.4 造成的 regression，H1.4 完全沒有
+    // 修改過 geo-heatmap.js。這裡只更新測試期待值成真實 baseline 雜湊
+    // （Test-only change，不計入 H1.4 Production Diff Ledger）。
+    'public/js/geo-heatmap.js': 'c8898a3c469890b7d3e036937cb01f747cece4dafc22e8eac070abce2556f67d',
     'public/js/geo-intelligence-map.js': '05a38b4a185ac556a948b7b6f78d6171f10e8b3f57237ac7d2c716871e0793d4',
     'public/js/geo-map-settings.js': 'f7ab62d8c163d015b342a29dae7098e27cd7e32a36a6ca999e32e19134510d1b',
     'public/data/geo/taiwan/manifest.json': 'bdd969e0cfaf65c2925e1ba099b0248fce1ad74624b1e2f8da484651342d33f1',

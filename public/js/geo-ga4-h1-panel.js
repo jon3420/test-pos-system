@@ -15,19 +15,68 @@
 
 'use strict';
 
-const GEO_GA4_H1_MODES = ['realtime', 'today', 'yesterday', '7d', '30d', 'custom'];
+// fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4-MAP-STATE：Historical Range
+// 的唯一真相來源是 resolveGeoHistoricalRange()（本輪 Stage 3 既有純函式），
+// 不在這裡另外算 90d/180d/this_year/last_year（見需求文件六）。瀏覽器
+// 正常執行路徑會直接吃到全域 window.resolveGeoHistoricalRange（跟
+// geo-range-resolver.js 同一份 <script> 載入順序即可）；Node 測試環境
+// （多數既有 H1 測試都是直接 require() 這個檔案，不是 eval 字串）在這裡
+// 用 require 撈同一份正式檔案，不是複製演算法。
+var _geoGa4H1ResolveRangeFn = (typeof resolveGeoHistoricalRange === 'function') ? resolveGeoHistoricalRange : null;
+if (!_geoGa4H1ResolveRangeFn && typeof require === 'function') {
+  try { _geoGa4H1ResolveRangeFn = require('./geo-range-resolver.js').resolveGeoHistoricalRange; } catch (e) { /* 安靜失敗，_geoGa4H1ResolveRange() 會回 range_resolver_unavailable */ }
+}
+
+const GEO_GA4_H1_MODES = [
+  // 'realtime'／'historical' 是新架構下的兩個 sentinel（toolbar 唯二可選
+  // 的頂層模式）。today/yesterday/7d/30d/custom 是舊版直接寫在
+  // geoGa4H1State.mode 上的歷史 range 值（仍支援，供既有呼叫端／測試
+  // 直接設定 state 時使用，見 _geoGa4H1SyncLegacyModeIntoRangeState()）。
+  // single/90d/180d/this_year/last_year 是本輪新增的 Range Contract。
+  'realtime', 'historical',
+  'today', 'yesterday', 'single', '7d', '30d', '90d', '180d', 'this_year', 'last_year', 'custom',
+];
 const GEO_GA4_H1_METRICS = ['active_users', 'view_item_count', 'add_to_cart_count', 'begin_checkout_count', 'purchase_count'];
+
+// resolveGeoHistoricalRange() 失敗 code → 中文提示（跟 geo-range-control.js
+// 的 GEO_RANGE_CONTROL_ERROR_MESSAGES 是同一份 Contract 的獨立對照表，
+// 這裡不 require 那個檔案——避免 Range Control 反過來被迫變成 Panel 的
+// 依賴，兩者仍是各自獨立、互不強制耦合的模組）。
+const GEO_GA4_H1_RANGE_ERROR_MESSAGES = {
+  invalid_mode: '請選擇查詢模式',
+  timezone_helper_unavailable: '時區資料暫時無法使用',
+  missing_single_date: '請選擇日期',
+  missing_custom_range: '請選擇日期',
+  invalid_date_format: '日期格式不正確',
+  start_after_end: '開始日期不可晚於結束日期',
+  range_too_large: '查詢期間最多 366 天',
+  range_resolver_unavailable: '查詢範圍功能暫時無法使用',
+};
+function _geoGa4H1RangeErrorMessage(code) { return GEO_GA4_H1_RANGE_ERROR_MESSAGES[code] || '查詢範圍設定有誤'; }
 
 const geoGa4H1State = {
   mode: 'realtime',
   metric: 'active_users',
   customStart: null,
   customEnd: null,
+  // Stage 4.1：Heatmap Historical 專屬 Range State（需求文件三）。不得與
+  // 未來 dashboardGa4State.rangeState 共用同一個物件參考——這個檔案完全
+  // 不知道 Dashboard 的存在，天生就不會發生共用。
+  rangeState: { mode: '7d', singleDate: '', startDate: '', endDate: '' },
   generation: 0,
   markerGroup: null,
   pollTimer: null,
   currentAbort: null,
   lastGoodPayload: null,
+  destroyed: false, // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4-MAP-STATE Stage 6：見 geoGa4H1Destroy()／syncHandler 註解——Manual Sync 的 POST 沒有掛 AbortController，destroy() 無法取消它，只能靠這個旗標擋掉「late sync 完成後又 resurrect markerGroup」。
+  // Stage 6.1：單靠 destroyed 布林值會有 ABA 風險——destroy() 之後如果
+  // 很快又 init() 回來（同一個 panel 重新 activate），destroyed 會被
+  // 重設回 false，讓「更早那一輪」尚未完成的 Manual Sync 誤以為自己還
+  // 屬於現在這個 active session。lifecycleGeneration 是單調遞增的
+  // session 版本號：每次 init()／destroy() 都 +1，Manual Sync 開始時
+  // capture 當下版本號，完成時兩個條件都要成立才處理結果——
+  // (a) destroyed===false　(b) capturedGeneration===目前版本號。
+  lifecycleGeneration: 0,
   searchTerm: '',      // 需求文件二之 A：只影響 Table Rows，不影響 API/Marker 資料
   sortColumn: null,     // 目前排序欄位 key（null=維持資料原始順序）
   sortDirection: 'desc', // 'desc' | 'asc'——第一次點擊 desc，第二次 asc
@@ -75,6 +124,42 @@ function _geoGa4H1FormatPerUser(value) {
 
 function _geoGa4H1ValidMode(m) { return GEO_GA4_H1_MODES.includes(m); }
 function _geoGa4H1ValidMetric(m) { return GEO_GA4_H1_METRICS.includes(m); }
+
+// _geoGa4H1SyncLegacyModeIntoRangeState()——需求文件六：唯一 Range Truth。
+//
+// 新架構下，toolbar 上的 #ga4h1-mode 只剩兩個 sentinel 值：'realtime' 與
+// 'historical'；真正的歷史查詢 preset 一律活在 geoGa4H1State.rangeState
+// 裡（由 GeoRangeControl 直接就地修改）。
+//
+// 但既有測試／既有呼叫端有大量地方是直接
+// `geoGa4H1State.mode = 'today'`／'7d'／'custom' + customStart/customEnd
+// 這樣設定（繞過 UI，直接操作 state），這是本輪 Stage 1～3 都刻意保留、
+// 不動的既有 Contract。這裡把這種「舊式直接寫在 .mode 上的歷史 range
+// 值」透明同步進 rangeState，讓 Refresh／Sync 兩邊都只認 rangeState 這一份
+// 真相，不需要修改任何既有呼叫端或測試。
+function _geoGa4H1SyncLegacyModeIntoRangeState() {
+  const m = geoGa4H1State.mode;
+  if (m === 'realtime' || m === 'historical') return; // 新架構 sentinel，不是歷史 range 值，不覆蓋 rangeState
+  geoGa4H1State.rangeState.mode = m;
+  // 只有舊呼叫端／舊測試真的透過 customStart/customEnd 設定時才覆蓋
+  // rangeState 的 startDate/endDate；如果呼叫端已經改用新架構直接寫
+  // rangeState.startDate/endDate（GeoRangeControl 的正常用法），這裡不得
+  // 拿兩個都還是 null 的舊欄位把它蓋回去。
+  if (m === 'custom' && (geoGa4H1State.customStart !== null || geoGa4H1State.customEnd !== null)) {
+    geoGa4H1State.rangeState.startDate = geoGa4H1State.customStart;
+    geoGa4H1State.rangeState.endDate = geoGa4H1State.customEnd;
+  }
+}
+
+// _geoGa4H1ResolveRange() → resolveGeoHistoricalRange() 的結果，是
+// Historical Read 與 Manual Sync 唯二共同的真相來源（需求文件八）。
+function _geoGa4H1ResolveRange() {
+  _geoGa4H1SyncLegacyModeIntoRangeState();
+  if (typeof _geoGa4H1ResolveRangeFn !== 'function') {
+    return { ok: false, mode: geoGa4H1State.rangeState.mode, code: 'range_resolver_unavailable' };
+  }
+  return _geoGa4H1ResolveRangeFn(geoGa4H1State.rangeState.mode, geoGa4H1State.rangeState);
+}
 
 // ══════════════════════════════════════════════════════════════════
 // R5.4-G1.6-GA4-H1.1-AUTH — Auth Contract + AbortError Safety
@@ -567,6 +652,12 @@ async function _geoGa4H1HandleSyncResult(result, onChange) {
       }
     }
     if (typeof onChange === 'function') {
+      // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4-MAP-STATE Stage 6：見
+      // geoGa4H1Destroy() 註解——Manual Sync 沒有 AbortController 可以
+      // 取消，若使用者在 Sync 進行中切走（geoGa4H1Destroy() 已執行），
+      // 這裡不得再呼叫 onChange()（那會重新建立 markerGroup 並
+      // addLayer 回共用地圖，即使目前畫面已經不在 Heatmap 分頁）。
+      if (geoGa4H1State.destroyed) return;
       await geoGa4H1SafeRunFetch(() => onChange());
     }
     return;
@@ -579,15 +670,13 @@ async function _geoGa4H1HandleSyncResult(result, onChange) {
 function geoGa4H1RenderToolbar(containerId, onChange) {
   const el = document.getElementById(containerId);
   if (!el) return;
+  const rangeMountId = `${containerId}-h1-range-mount`;
   el.innerHTML = `
     <select id="ga4h1-mode">
       <option value="realtime">即時 30 分鐘</option>
-      <option value="today">今天</option>
-      <option value="yesterday">昨天</option>
-      <option value="7d">近 7 天</option>
-      <option value="30d">近 30 天</option>
-      <option value="custom">自訂日期</option>
+      <option value="historical">歷史查詢</option>
     </select>
+    <div id="${rangeMountId}" class="ga4-h1-range-mount"></div>
     <select id="ga4h1-metric">
       <option value="active_users">活躍使用者</option>
       <option value="view_item_count">商品瀏覽</option>
@@ -602,6 +691,42 @@ function geoGa4H1RenderToolbar(containerId, onChange) {
   const metricEl = el.querySelector('#ga4h1-metric');
   const syncBtn = el.querySelector('#ga4h1-sync');
 
+  // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4-MAP-STATE：#ga4h1-mode 現在只
+  // 是「即時／歷史」兩個 sentinel（需求文件四：Realtime Window 跟
+  // Historical Calendar Range 不再混成同一套 control）。歷史查詢的 10 個
+  // preset（today/yesterday/single/7d/30d/90d/180d/this_year/last_year/
+  // custom）全部交給 GeoRangeControl，mount 在 rangeMountId 這個獨立容器
+  // 裡，綁定 geoGa4H1State.rangeState（Heatmap Historical 專屬 state，
+  // 需求文件三）。若使用者直接（或既有測試）把 geoGa4H1State.mode 設成
+  // 一個歷史 range 字面值而不是 'historical'，仍視為「已經在歷史查詢」
+  // ——見 _geoGa4H1IsHistoricalDisplayMode()，這裡只影響「要不要顯示
+  // range mount」這個 UI 判斷，不影響 Refresh/Sync 的真相來源。
+  function _geoGa4H1IsHistoricalDisplayMode() {
+    return geoGa4H1State.mode !== 'realtime';
+  }
+
+  let _geoGa4H1RangeControlHandle = null;
+  function _geoGa4H1RenderRangeMount() {
+    if (typeof document === 'undefined') return;
+    const mountEl = document.getElementById(rangeMountId);
+    if (!mountEl) return;
+    if (!_geoGa4H1IsHistoricalDisplayMode()) {
+      mountEl.innerHTML = '';
+      mountEl.hidden = true;
+      if (_geoGa4H1RangeControlHandle && typeof _geoGa4H1RangeControlHandle.destroy === 'function') _geoGa4H1RangeControlHandle.destroy();
+      _geoGa4H1RangeControlHandle = null;
+      return;
+    }
+    mountEl.hidden = false;
+    _geoGa4H1SyncLegacyModeIntoRangeState();
+    if (typeof GeoRangeControl !== 'undefined' && GeoRangeControl && typeof GeoRangeControl.mount === 'function') {
+      _geoGa4H1RangeControlHandle = GeoRangeControl.mount(rangeMountId, {
+        state: geoGa4H1State.rangeState,
+        onChange: () => { Promise.resolve(onChange()).catch(_geoGa4H1SwallowAbort); },
+      });
+    }
+  }
+
   // _geoGa4H1SwallowAbort — 需求文件八之 3／4：Timer／事件監聽器呼叫出去
   // 的 Promise 必須有安全 catch，不得讓 AbortError（或任何其他錯誤）變成
   // 瀏覽器 Console 的 Uncaught (in promise)。這裡 addEventListener 的
@@ -614,7 +739,8 @@ function geoGa4H1RenderToolbar(containerId, onChange) {
   }
 
   const modeHandler = (e) => {
-    geoGa4H1State.mode = _geoGa4H1ValidMode(e.target.value) ? e.target.value : 'realtime';
+    const v = e.target.value;
+    geoGa4H1State.mode = (v === 'realtime' || v === 'historical') ? v : 'realtime';
     // 需求文件二 B 之 7：Mode 切換後排序/搜尋狀態固定行為——重設回預設
     // （不同日期區間/模式的資料集不同，延續舊搜尋字串容易誤導使用者以為
     // 資料仍是同一批）。Metric 切換不會走到這個 handler，因此搜尋/排序在
@@ -622,6 +748,7 @@ function geoGa4H1RenderToolbar(containerId, onChange) {
     geoGa4H1State.searchTerm = '';
     geoGa4H1State.sortColumn = null;
     geoGa4H1State.sortDirection = 'desc';
+    _geoGa4H1RenderRangeMount();
     Promise.resolve(onChange()).catch(_geoGa4H1SwallowAbort);
   };
   const metricHandler = (e) => {
@@ -629,35 +756,70 @@ function geoGa4H1RenderToolbar(containerId, onChange) {
     Promise.resolve(onChange()).catch(_geoGa4H1SwallowAbort);
   };
   const syncHandler = async () => {
+    // 需求文件十二：現有 disabled/loading 就是既有 single-flight 防護，
+    // 沿用，不新增 scheduler。
+    if (syncBtn.disabled) return;
     syncBtn.disabled = true;
     syncBtn.textContent = '同步中…';
+    // Stage 6.1 ABA Guard：capture 這次 Sync 開始當下的 session 版本號。
+    // Manual Sync 的 POST 沒有 AbortController，destroy() 取消不了它——
+    // 如果期間發生過 destroy()（甚至又 init() 開了新 session），
+    // lifecycleGeneration 一定已經前進，藉此判斷「這個結果還屬不屬於
+    // 現在這個 active session」，不能只看 destroyed 這個布林值（會有
+    // destroy→init 的 ABA：舊 sync 完成時看到 destroyed 又變回 false，
+    // 誤以為自己還算數）。
+    const capturedGeneration = geoGa4H1State.lifecycleGeneration;
+    const isStaleLifecycle = () => geoGa4H1State.destroyed || geoGa4H1State.lifecycleGeneration !== capturedGeneration;
     try {
-      const body = geoGa4H1State.mode === 'realtime'
-        ? { sync_type: 'realtime' }
-        : { sync_type: 'range', range: geoGa4H1State.mode, start_date: geoGa4H1State.customStart, end_date: geoGa4H1State.customEnd };
+      let body;
+      if (geoGa4H1State.mode === 'realtime') {
+        body = { sync_type: 'realtime' };
+      } else {
+        // 需求文件八／十一：Manual Sync 跟 Historical Read 用完全同一個
+        // resolved range；resolved.ok===false 時（validation 失敗）不得
+        // 發任何 API，只顯示錯誤文字。
+        const resolved = _geoGa4H1ResolveRange();
+        if (!resolved.ok) {
+          if (typeof showToast === 'function') showToast(_geoGa4H1RangeErrorMessage(resolved.code), 'error');
+          syncBtn.disabled = false;
+          syncBtn.textContent = '手動同步';
+          return;
+        }
+        body = { sync_type: 'range', range: resolved.apiRange, start_date: resolved.startDate, end_date: resolved.endDate };
+      }
       const result = await geoGa4H1SafeRunFetch(() => geoGa4H1ApiRequest('/api/analytics/ga4-geo/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       }));
+      // Stage 6.1：Server 端已經正常完成同步、DB 也正常更新——這裡不否定
+      // Server-side 的結果，只是這個「已經是舊 session」的瀏覽器端不再把
+      // 它套進任何 UI（不 render、不改 status、不觸發 refresh），因為現在
+      // 畫面已經是另一個 session 了。
+      if (isStaleLifecycle()) return;
       if (result !== undefined) await _geoGa4H1HandleSyncResult(result, onChange);
     } catch (e) {
+      if (isStaleLifecycle()) return;
       _geoGa4H1SwallowAbort(e);
       if (!_geoGa4H1IsAbortError(e) && typeof showToast === 'function') showToast('同步發生未預期錯誤，請稍後再試', 'error');
     } finally {
-      syncBtn.disabled = false;
-      syncBtn.textContent = '手動同步';
+      if (!isStaleLifecycle()) {
+        syncBtn.disabled = false;
+        syncBtn.textContent = '手動同步';
+      }
     }
   };
 
   modeEl.addEventListener('change', modeHandler);
   metricEl.addEventListener('change', metricHandler);
   syncBtn.addEventListener('click', syncHandler);
+  _geoGa4H1RenderRangeMount(); // 需求文件十三：reactivate 時，若 mode 已經是歷史查詢，立刻恢復 rangeState 對應的 UI（不重設回 realtime）。
 
   el._ga4h1Cleanup = () => {
     modeEl.removeEventListener('change', modeHandler);
     metricEl.removeEventListener('change', metricHandler);
     syncBtn.removeEventListener('click', syncHandler);
+    if (_geoGa4H1RangeControlHandle && typeof _geoGa4H1RangeControlHandle.destroy === 'function') _geoGa4H1RangeControlHandle.destroy();
   };
 }
 
@@ -665,9 +827,28 @@ async function geoGa4H1Refresh(ids, mapInstance) {
   const myGeneration = ++geoGa4H1State.generation;
   geoGa4H1RenderStatus(ids.status, null);
 
+  // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4-MAP-STATE：realtime 完全不變
+  // （需求文件四）；非 realtime 一律先過 _geoGa4H1ResolveRange()（跟
+  // Manual Sync 同一個函式），resolved.ok===false 時不得發 API（需求文件
+  // 十一），直接顯示錯誤訊息並結束，不留舊 payload/舊 marker 在畫面上
+  // 誤導使用者。
+  let fetchMode = 'realtime';
+  let fetchOpts = {};
+  if (geoGa4H1State.mode !== 'realtime') {
+    const resolved = _geoGa4H1ResolveRange();
+    if (!resolved.ok) {
+      if (myGeneration !== geoGa4H1State.generation) return;
+      geoGa4H1RenderStatus(ids.status, { success: false, code: resolved.code, message: _geoGa4H1RangeErrorMessage(resolved.code) });
+      if (ids.table) geoGa4H1RenderTable(ids.table, []);
+      return;
+    }
+    fetchMode = resolved.apiRange;
+    fetchOpts = { startDate: resolved.startDate, endDate: resolved.endDate };
+  }
+
   let payload;
   try {
-    payload = await geoGa4H1SafeRunFetch(() => geoGa4H1Fetch(geoGa4H1State.mode, { startDate: geoGa4H1State.customStart, endDate: geoGa4H1State.customEnd }));
+    payload = await geoGa4H1SafeRunFetch(() => geoGa4H1Fetch(fetchMode, fetchOpts));
   } catch (e) {
     payload = { success: false, code: 'network_error' };
   }
@@ -694,6 +875,8 @@ async function geoGa4H1Refresh(ids, mapInstance) {
 }
 
 function geoGa4H1Init(ids, mapInstance) {
+  geoGa4H1State.destroyed = false; // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4-MAP-STATE Stage 6：重新 activate 時解除上次 destroy() 設下的旗標
+  geoGa4H1State.lifecycleGeneration += 1; // Stage 6.1：開啟新的 active session 版本號
   geoGa4H1RenderToolbar(ids.toolbar, () => geoGa4H1Refresh(ids, mapInstance));
   // 需求文件八：這裡是 fire-and-forget（呼叫端不 await），Promise 必須有
   // 安全 catch，不得讓 AbortError 或其他錯誤變成 Uncaught (in promise)。
@@ -704,8 +887,26 @@ function geoGa4H1Init(ids, mapInstance) {
 }
 
 function geoGa4H1Destroy(ids) {
+  // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4-MAP-STATE Stage 6：Manual Sync
+  // 的 POST /sync 沒有掛 AbortController（跟 Historical Read 用的
+  // currentAbort 是不同的請求，abort currentAbort 完全取消不了它——見
+  // _geoGa4H1HandleSyncResult()／syncHandler()），所以切走時若剛好有一次
+  // Sync 還在飛，它會在背景繼續跑完，完成後呼叫 onChange() 觸發
+  // geoGa4H1Refresh()，_geoGa4H1EnsureGroup() 看到 markerGroup 已經是
+  // null 就會建一個新的並 addLayer 回共用地圖——不管目前畫面在哪個分頁。
+  // 這面旗標就是擋這個：destroy() 之後任何 late 完成的 sync 一律不觸發
+  // onChange()（見 syncHandler 內的檢查），reactivate（geoGa4H1Init）時
+  // 才重新打開。
+  geoGa4H1State.destroyed = true;
+  geoGa4H1State.lifecycleGeneration += 1; // Stage 6.1：讓這個 session 之前 capture 的任何 generation 立刻作廢
   if (geoGa4H1State.pollTimer) { clearInterval(geoGa4H1State.pollTimer); geoGa4H1State.pollTimer = null; }
+  // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4-MAP-STATE：abort 之後也要把
+  // 參考歸零（跟 geo-ga4-realtime-layer.js 的 geoGa4Deactivate() 對
+  // abortController 的既有慣例一致），否則 destroy() 後 currentAbort
+  // 仍指向一個已經 abort 過的舊 controller，下次讀到會誤以為還有進行中
+  // 的 request。
   if (geoGa4H1State.currentAbort) { try { geoGa4H1State.currentAbort.abort(); } catch (e) { /* ignore */ } }
+  geoGa4H1State.currentAbort = null;
   geoGa4H1ClearMarkers();
   if (geoGa4H1State.markerGroup) {
     try { geoGa4H1State.markerGroup.remove(); } catch (e) { /* ignore */ }
@@ -736,6 +937,10 @@ if (typeof module !== 'undefined' && module.exports) {
     _geoGa4H1Rate, _geoGa4H1PerUser, _geoGa4H1FormatPerUser, _geoGa4H1MetricValue, _geoGa4H1Esc, _geoGa4H1ValidMode, _geoGa4H1ValidMetric,
     geoGa4H1Init, geoGa4H1Destroy, geoGa4H1Refresh, geoGa4H1ClearMarkers,
     geoGa4H1State,
+    // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4-MAP-STATE（Stage 4.1：H1
+    // Historical Range Integration，唯一 Range Truth）
+    GEO_GA4_H1_RANGE_ERROR_MESSAGES, _geoGa4H1RangeErrorMessage,
+    _geoGa4H1SyncLegacyModeIntoRangeState, _geoGa4H1ResolveRange,
     // R5.4-G1.6-GA4-H1.1-AUTH：Auth Contract + AbortError Safety（供
     // scripts/run-g1-6-ga4-h1-1-browser-auth-runtime.js／static audit 使用）。
     geoGa4H1ApiRequest, geoGa4H1SafeRunFetch, _geoGa4H1IsAbortError,

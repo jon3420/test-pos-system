@@ -23,7 +23,17 @@ const NORMALIZATION_VERSION = 'v1';
 const EVENT_MAPPING_VERSION = 'v1';
 const REALTIME_WINDOW_MINUTES = 30;
 const REALTIME_BUCKET_MINUTES = 5;
-const CUSTOM_RANGE_MAX_DAYS = 92; // 需求文件十二：自訂日期最大範圍限制
+// fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4-MAP-STATE：span（見下方
+// _daysBetween()）是 exclusive 日期差，不是 inclusive 日曆天數——
+// start===end 時 span=0。所以 inclusiveCalendarDays = span + 1。
+// Maximum date span is 365 days, equivalent to at most 366 inclusive
+// calendar days. This permits a full leap year (e.g. 2028-01-01 ～
+// 2028-12-31, inclusive=366, span=365) but rejects 367-day ranges
+// (span=366 → range_too_large). 拒絕判斷維持 `span > CUSTOM_RANGE_MAX_DAYS`
+// 不變，只調整這個常數本身（見
+// R5.4-G1.6-GA4-H1.4-MAP-STATE_REALITY_AUDIT.md 章節 L：舊值 92 會擋掉
+// 180d／今年／去年 這三個 H1.4 新增 preset）。
+const CUSTOM_RANGE_MAX_DAYS = 365; // 最大允許 365 天日期差，即最多 366 個含首尾日的 Calendar Days（span+1）。
 
 // GA4 真實事件名稱 → 本表欄位。view_product_count 目前沒有獨立可信來源
 // （Reality Audit 未能對正式 Property 驗證是否存在獨立 view_product 事件，
