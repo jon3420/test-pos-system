@@ -434,13 +434,18 @@ async function main() {
     assert(counters.zoomCounters.zoomOutCalls === zoomOutBefore + 1, 'D13. zoomOut() callable while scrollWheelZoom disabled');
 
     // D14/D15：Dashboard → Heatmap：wheel 直接 enabled，Heatmap 內點擊仍 enabled。
+    // H1.4.2 TEST-ONLY CONTRACT MIGRATION：H1.4.1 舊 Contract 是「切到
+    // Heatmap 就直接 wheel enabled，不需要點擊」。H1.4.2 起 Heatmap 改成
+    // 跟 Dashboard 完全一樣的 click-to-activate（見
+    // H1.4.2_GA4_RANGE_MAP_WHEEL_REALITY_AUDIT.md）：切到 Heatmap 一律先
+    // disabled，點地圖後才 enabled。
     window.geoHeatUiSwitchTab(CONTAINER_ID, 'heatmap');
     await new Promise((r) => setTimeout(r, 30));
-    assert(map.scrollWheelZoom.enabled === true, 'D14. Dashboard → Heatmap: wheel enabled without needing a click');
+    assert(map.scrollWheelZoom.enabled === false, 'D14. Dashboard → Heatmap: wheel starts DISABLED (H1.4.2 contract change from H1.4.1 auto-enabled)');
     const mapCanvasInHeatmap = document.getElementById(MAP_CONTAINER_ID);
     mapCanvasInHeatmap.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-    await new Promise((r) => setTimeout(r, 5));
-    assert(map.scrollWheelZoom.enabled === true, 'D15. Click inside map while on Heatmap tab → still enabled (Heatmap never locks)');
+    await new Promise((r) => setTimeout(r, 15));
+    assert(map.scrollWheelZoom.enabled === true, 'D15. Click inside Heatmap map → wheel becomes enabled (same click-to-activate as Dashboard)');
 
     // D16：Heatmap → Dashboard：wheel 重新 disabled（不記住上一輪）。
     window.geoHeatUiSwitchTab(CONTAINER_ID, 'dashboard');

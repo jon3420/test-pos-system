@@ -541,7 +541,12 @@ async function runOnce(roundLabel) {
     dom12.window.dashboardGa4State.rangeState.mode = '90d';
     await dom12.window.geoDashboardGa4Refresh(DASH_IDS, map12);
     A(group._children.length === 0, 'Empty-1. 90d empty：Dashboard marker count = 0');
-    A(dom12.window.document.getElementById(DASH_IDS.status).textContent.includes('目前尚無此期間已同步'), 'Empty-2. 顯示合法 empty 訊息，不是 error');
+    // H1.4.2 TEST-ONLY CONTRACT MIGRATION：舊 Contract 是純文字「請至
+    // Heatmap → GA4 區域分析執行手動同步」，H1.4.2 起改成「立即同步並顯示」
+    // Sync CTA（見 geo-ga4-dashboard-layer.js _geoDashboardGa4RenderEmptyCta()）。
+    A(dom12.window.document.getElementById(DASH_IDS.status).textContent.includes('尚未同步'), 'Empty-2. 顯示合法 empty 訊息（H1.4.2：Sync CTA 文案），不是 error');
+    const emptyCtaBtn = dom12.window.document.getElementById(`${DASH_IDS.containerId}-sync-cta-btn`);
+    A(!!emptyCtaBtn && emptyCtaBtn.textContent === '立即同步並顯示', 'Empty-2b. empty 狀態渲染出「立即同步並顯示」CTA 按鈕', emptyCtaBtn && emptyCtaBtn.textContent);
 
     dom12.window.apiFetch = makeFakeApiFetch({ forceStatus: 500 });
     dom12.window.dashboardGa4State.rangeState.mode = '180d';

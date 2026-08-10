@@ -116,15 +116,21 @@ check('E5', 'dashboardMapInteractionState 沒有被塞進 dashboardGa4State 或 
 check('E6', 'geoDashboardMapActivate() 存在（Dashboard 分頁 activate 時重設 disabled）', heatUiSrc.includes('function geoDashboardMapActivate('));
 const activateBody = extractFnBody(heatUiSrc, 'function geoDashboardMapActivate(mapContainerId)');
 check('E7', 'geoDashboardMapActivate() 內呼叫 geoDashboardMapDisableWheel()（一律重設，不記住上一輪狀態）', activateBody.includes('geoDashboardMapDisableWheel()'));
-check('E8', 'geoDashboardMapDeactivateForHeatmap() 存在（切到 Heatmap 前解除 Dashboard 專屬 listener 並啟用滾輪）', heatUiSrc.includes('function geoDashboardMapDeactivateForHeatmap('));
+check('E8', 'geoDashboardMapDeactivateForHeatmap() 函式仍存在（H1.4.1 舊 helper 保留，避免外部直接 import 時整個炸掉），但 H1.4.2 起沒有任何 production call site（見 E10 migration）', heatUiSrc.includes('function geoDashboardMapDeactivateForHeatmap('));
 const deactivateBody = extractFnBody(heatUiSrc, 'function geoDashboardMapDeactivateForHeatmap()');
-check('E9', 'geoDashboardMapDeactivateForHeatmap() 內呼叫 scrollWheelZoom.enable()', deactivateBody.includes('.enable()'));
-check('E10', 'geoHeatUiSwitchTab() 切到 heatmap 分支呼叫 geoDashboardMapDeactivateForHeatmap()', (() => {
+check('E9', 'geoDashboardMapDeactivateForHeatmap() 函式體內仍是舊的 .enable() 寫法（死碼本身內容不變，只是沒人呼叫它了）', deactivateBody.includes('.enable()'));
+// H1.4.2 TEST-ONLY CONTRACT MIGRATION：H1.4.1 舊 Contract 是「切到
+// Heatmap 就呼叫 geoDashboardMapDeactivateForHeatmap()（強制 enable 滾
+// 輪）」。H1.4.2 起 Heatmap 改成跟 Dashboard 完全一樣的
+// click-to-activate——heatmap 分支改呼叫既有的 geoDashboardMapActivate()
+// （見 geo-heatmap-ui.js geoHeatUiSwitchTab()），一律先回到 disabled，
+// 點地圖後才 enable。
+check('E10', 'geoHeatUiSwitchTab() 切到 heatmap 分支呼叫 geoDashboardMapActivate()（H1.4.2 新 Contract：click-to-activate，不再自動 enable），且不再呼叫 geoDashboardMapDeactivateForHeatmap()', (() => {
   const body = extractFnBody(heatUiSrc, 'function geoHeatUiSwitchTab(containerId, tab)');
   const heatmapBranchIdx = body.indexOf("if (tab === 'heatmap')");
   const elseIdx = body.indexOf('} else {', heatmapBranchIdx);
   const heatmapBranch = heatmapBranchIdx !== -1 && elseIdx !== -1 ? body.slice(heatmapBranchIdx, elseIdx) : '';
-  return heatmapBranch.includes('geoDashboardMapDeactivateForHeatmap()');
+  return heatmapBranch.includes('geoDashboardMapActivate(') && !heatmapBranch.includes('geoDashboardMapDeactivateForHeatmap()');
 })());
 check('E11', 'geoHeatUiSwitchTab() 切回 dashboard 分支呼叫 geoDashboardMapActivate()', (() => {
   const body = extractFnBody(heatUiSrc, 'function geoHeatUiSwitchTab(containerId, tab)');

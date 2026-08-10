@@ -18,6 +18,21 @@ const results = [];
 function pass(name) { results.push({ name, status: 'PASS' }); console.log(`[PASS] ${name}`); }
 function fail(name, detail) { results.push({ name, status: 'FAIL', detail }); console.log(`[FAIL] ${name}${detail ? ' — ' + detail : ''}`); }
 function assert(cond, name, detail) { cond ? pass(name) : fail(name, detail); }
+// H1.4.2 TEST-ONLY CONTRACT MIGRATION 用的小工具：從原始碼字串裡切出一個
+// function 的完整本體（含 `{}` 配對），跟既有 static-audit 系列腳本
+// 同一套 extractFnBody() 慣例。
+function extractFn(code, fnSignature) {
+  const start = code.indexOf(fnSignature);
+  if (start === -1) return '';
+  let depth = 0;
+  let i = code.indexOf('{', start + fnSignature.length);
+  const bodyStart = i;
+  for (; i < code.length; i += 1) {
+    if (code[i] === '{') depth += 1;
+    else if (code[i] === '}') { depth -= 1; if (depth === 0) { i += 1; break; } }
+  }
+  return code.slice(bodyStart, i);
+}
 function printSummary() {
   const p = results.filter((r) => r.status === 'PASS').length;
   const f = results.filter((r) => r.status === 'FAIL').length;
@@ -248,7 +263,14 @@ async function main() {
     assert(true, '25 empty rows request completed');
     assert(groupBefore._children.length === 0, '26 0 markers（empty 後 clearLayers）', String(groupBefore._children.length));
     const statusText = dom.window.document.getElementById(IDS.status).textContent;
-    assert(statusText.includes('目前尚無此期間已同步'), '27 empty message correct', statusText);
+    // H1.4.2 TEST-ONLY CONTRACT MIGRATION：舊 H1.4 Contract 是純文字「請至
+    // Heatmap → GA4 區域分析執行手動同步」，H1.4.2 起 Dashboard 自己提供
+    // 「立即同步並顯示」CTA（見 geo-ga4-dashboard-layer.js
+    // _geoDashboardGa4RenderEmptyCta()），不再要求使用者離開 Dashboard。
+    // 這裡改成驗證新 Contract：empty-state 文字＋CTA 按鈕同時存在。
+    assert(statusText.includes('尚未同步'), '27 empty message correct (H1.4.2: Sync CTA copy, not the old "go to Heatmap" text)', statusText);
+    const syncBtn = dom.window.document.getElementById(`${IDS.containerId}-sync-cta-btn`);
+    assert(!!syncBtn && syncBtn.textContent === '立即同步並顯示', '27b empty state renders the H1.4.2 "立即同步並顯示" Sync CTA button', syncBtn && syncBtn.textContent);
     assert(!statusText.includes('4 個行政區'), '28 empty does not restore old marker/old status text');
   }
 
@@ -345,7 +367,24 @@ async function main() {
     const fs = require('fs');
     const src = fs.readFileSync(path.join(ROOT, 'public/js/geo-ga4-dashboard-layer.js'), 'utf8');
     const codeOnly = src.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
-    assert(!/method:\s*['"]POST['"]/.test(codeOnly) && !/\/sync/.test(codeOnly), '45 no POST sync（原始碼層級確認）');
+    // H1.4.2 TEST-ONLY CONTRACT MIGRATION：H1.4 舊 Contract 是「Dashboard
+    // 完全不 POST」，H1.4.2 起新增 Dashboard Sync CTA，允許「使用者主動點
+    // 立即同步並顯示」時 POST 既有 Manual Sync endpoint——但 Range 切換
+    // 本身（onChange）仍必須是 GET-only，不能自動觸發 POST。用語意檢查
+    // 取代舊的「整份檔案完全沒有 POST/sync」假設：
+    //   1. Range onChange 分支（geoDashboardGa4Activate 內 mount 的
+    //      onChange callback）只呼叫 geoDashboardGa4Refresh（GET），不呼叫
+    //      geoDashboardGa4SyncNow／POST。
+    //   2. POST 只在 geoDashboardGa4SyncNow()（CTA click handler）內出現。
+    //   3. geoDashboardGa4SyncNow() 本身不會直接把 POST response 拿去畫
+    //      marker，成功後一定呼叫 geoDashboardGa4Refresh()（GET）才 render。
+    const activateSrc = extractFn(codeOnly, 'function geoDashboardGa4Activate(ids, mapInstance)');
+    const onChangeSnippet = activateSrc.slice(activateSrc.indexOf('onChange:'), activateSrc.indexOf('onChange:') + 200);
+    assert(onChangeSnippet.includes('geoDashboardGa4Refresh(') && !onChangeSnippet.includes('geoDashboardGa4SyncNow'), '45a Range onChange only calls geoDashboardGa4Refresh (GET) — range switching alone never auto-POSTs', onChangeSnippet);
+    const syncNowSrc = extractFn(codeOnly, 'async function geoDashboardGa4SyncNow()');
+    assert(/method:\s*['"]POST['"]/.test(syncNowSrc) && /\/sync/.test(syncNowSrc), '45b POST /sync only exists inside geoDashboardGa4SyncNow() — the explicit user-click CTA handler, not anywhere in the auto range-switch path', syncNowSrc.slice(0, 200));
+    assert(!/geoDashboardGa4RenderMarkers\(mapInstance,\s*result/.test(syncNowSrc) && !/result\.rows/.test(syncNowSrc), '45c geoDashboardGa4SyncNow() never renders markers directly from the POST response (result.rows is never read/rendered) — POST is command-only', syncNowSrc.includes('result.rows') ? 'FOUND result.rows usage' : 'clean');
+    assert(/if \(stillSameRange\) \{\s*\n\s*const refreshResult = await geoDashboardGa4Refresh\(/.test(syncNowSrc), '45d sync success path calls geoDashboardGa4Refresh() (GET persisted) before any render happens — Persist→GET→Render, not POST→Render', syncNowSrc.length > 0 ? '(see body)' : '');
     assert(!/realtime/i.test(codeOnly), '46 no realtime API（原始碼層級確認，完全不提 realtime）');
     assert(!/googleapis|google\.auth|GoogleAuth/.test(codeOnly), '47 no raw Google client（原始碼層級確認）');
     assert(/apiFetch/.test(codeOnly), '48 uses apiFetch（原始碼層級確認有引用既有 authenticated fetch）');

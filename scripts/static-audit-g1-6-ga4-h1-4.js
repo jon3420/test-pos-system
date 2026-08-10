@@ -178,11 +178,23 @@ function main() {
   check('E49', 'dashboardGa4State 有 currentAbort 欄位', /currentAbort:\s*null,/.test(dashCode));
   check('E50', 'geoDashboardGa4Refresh() 建立新的 AbortController', /new AbortController\(\)/.test(dashRefreshBody));
   check('E51', '新 request 開始時 abort 舊的 currentAbort（invalidate previous request）', /if \(dashboardGa4State\.currentAbort\) \{\s*\n\s*try \{ dashboardGa4State\.currentAbort\.abort\(\); \}/.test(dashRefreshBody));
-  check('E52', 'response render 前檢查 generation（stale response guard）', /if \(myGeneration !== dashboardGa4State\.generation\) return;/.test(dashRefreshBody));
+  // H1.4.2 TEST-ONLY CONTRACT MIGRATION：舊 E52/E56 用 regex 比對
+  // `if (myGeneration !== dashboardGa4State.generation) return;` 這個
+  // literal 寫法。H1.4.2 為了讓 geoDashboardGa4SyncNow() 能判斷「同步後
+  // GET 到底是不是真的有資料」，把這裡的 `return;` 改成
+  // `return { superseded: true };`——guard 的判斷條件（比較 myGeneration
+  // 跟目前 generation）完全沒有變，只是回傳值從 undefined 變成一個描述性
+  // 物件。改成語意檢查：只要「條件判斷仍然存在、且判斷為真時提早結束、不
+  // 繼續往下執行任何 render」，不管回傳的是 `return;` 還是
+  // `return { ...任何東西 };`。
+  check('E52', 'response render 前檢查 generation（stale response guard）——判斷條件仍存在，回傳值不拘（H1.4.2 起用 { superseded: true } 取代單純 return，供呼叫端判斷「這次呼叫被取代」，guard 邏輯本身不變）', /if \(myGeneration !== dashboardGa4State\.generation\) return[^;]*;/.test(dashRefreshBody));
   check('E53', 'response render 前用 myGeneration 這個區域變數而非直接讀 state（避免 race）', /const myGeneration = \+\+dashboardGa4State\.generation;/.test(dashRefreshBody));
   check('E54', 'deactivate 讓 generation 前進（invalidate）', /dashboardGa4State\.generation \+= 1;/.test(dashDeactivateBody));
   check('E55', 'deactivate 會 abort 進行中的 request', /currentAbort\.abort\(\)/.test(dashDeactivateBody));
-  check('E56', 'late response 的正式 render path 有 guard（同 E52，資料流程唯一入口）', /if \(myGeneration !== dashboardGa4State\.generation\) return;/.test(dashRefreshBody));
+  check('E56', 'late response 的正式 render path 有 guard（同 E52，資料流程唯一入口）——同一個判斷條件在 fetch 完成後那個 guard 點也存在，語意跟 E52 相同，不檢查回傳值字面值', (() => {
+    const idx = dashRefreshBody.indexOf('if (myGeneration !== dashboardGa4State.generation) return');
+    return idx !== -1; // 存在即可（回傳值格式不拘）
+  })());
   check('E57', 'empty rows path 呼叫 geoDashboardGa4ClearMarkers()', /if \(rows\.length === 0\) \{\s*\n\s*geoDashboardGa4ClearMarkers\(\);/.test(dashRefreshBody));
   check('E58', 'error path 呼叫 geoDashboardGa4ClearMarkers()', /if \(!body \|\| body\.success === false\) \{\s*\n\s*geoDashboardGa4ClearMarkers\(\);/.test(dashRefreshBody));
   check('E59', '新 request 一開始就先清舊 marker（不留 stale marker 在新舊資料之間）', /geoDashboardGa4ClearMarkers\(\);\s*\n\s*_geoDashboardGa4RenderLabel/.test(dashRefreshBody));
@@ -311,8 +323,19 @@ function main() {
   // ══════════════════════════════════════════════════════════════
   check('M141', 'Dashboard module 使用 apiFetch', /window\.apiFetch/.test(dashApiRequestBody) || /apiFetch/.test(dashApiRequestBody));
   check('M142', 'Dashboard module 的 request function body 沒有 bare fetch(（只檢查 request 函式本體，不是整檔案）', !/(?<!api)fetch\(/.test(dashFetchBody.replace(/apiFetch\(/g, '')));
-  check('M143', 'Dashboard 只 GET history（_geoDashboardGa4Fetch 的 url 指向 /api/analytics/ga4-geo/history）', /\/api\/analytics\/ga4-geo\/history/.test(dashFetchBody));
-  check('M144', 'Dashboard 整份程式碼沒有 POST /sync（排除註解後）', !/\/sync/.test(dashCode));
+  check('M143', 'Dashboard 的 GET path（_geoDashboardGa4Fetch，Range 切換觸發）只打 /api/analytics/ga4-geo/history（不含 /sync）', /\/api\/analytics\/ga4-geo\/history/.test(dashFetchBody) && !/\/sync/.test(dashFetchBody));
+  // H1.4.2 TEST-ONLY CONTRACT MIGRATION：舊 M144 斷言「Dashboard 整份程式碼
+  // 完全沒有 POST /sync」，這假設已經被本輪新增的 Sync CTA
+  // （geoDashboardGa4SyncNow()）推翻——新 Contract 不是「完全沒有」，而是
+  // 「只有使用者主動點擊 CTA 才會 POST，Range 切換本身仍是 GET-only」。用
+  // 語意檢查取代單純的字面值排除法。
+  const dashActivateBody = extractFnBody(dashCode, 'function geoDashboardGa4Activate(ids, mapInstance)');
+  const dashOnChangeSnippet = dashActivateBody.slice(dashActivateBody.indexOf('onChange:'), dashActivateBody.indexOf('onChange:') + 200);
+  check('M144', 'Range 切換的 onChange callback 只呼叫 geoDashboardGa4Refresh()（GET），不呼叫 geoDashboardGa4SyncNow／POST——切換 Range 本身不會自動打 Sync', dashOnChangeSnippet.includes('geoDashboardGa4Refresh(') && !dashOnChangeSnippet.includes('SyncNow'));
+  const dashSyncNowBody = extractFnBody(dashCode, 'async function geoDashboardGa4SyncNow()');
+  check('M144b', 'POST /sync 唯一出現在 geoDashboardGa4SyncNow()（使用者主動點擊 CTA 才會呼叫的 handler）內，不在任何 auto-triggered 的路徑', /\/sync/.test(dashSyncNowBody) && dashSyncNowBody.length > 100);
+  check('M144c', 'geoDashboardGa4SyncNow() 不會直接把 POST response 拿去 render marker（result.rows 完全沒有被讀取／傳給 render 函式）', !/result\.rows/.test(dashSyncNowBody) && !/geoDashboardGa4RenderMarkers\([^)]*result/.test(dashSyncNowBody));
+  check('M144d', 'geoDashboardGa4SyncNow() 的成功路徑會呼叫 geoDashboardGa4Refresh()（重新 GET persisted），維持 Persist→GET→Render，不是 POST→Render', /await geoDashboardGa4Refresh\(/.test(dashSyncNowBody));
   check('M145', 'Dashboard 整份程式碼沒有 realtime endpoint（排除註解後）', !/ga4-realtime|\/realtime/.test(dashCode));
   check('M146', 'Dashboard 沒有 runReport 字樣', !/runReport/.test(dashCode));
   check('M147', 'Dashboard 沒有 runRealtimeReport 字樣', !/runRealtimeReport/.test(dashCode));

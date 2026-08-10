@@ -88,15 +88,23 @@ function _geoHeatUiEsc(s) {
 // GA4 Query State（dashboardGa4State／geoGa4H1State）完全無關，不共用、不
 // 放進那些物件裡面。
 //
-// 規則：
+// 規則（H1.4.2 起，需求文件十五～二十七：Dashboard／Heatmap 統一）：
 //   - Dashboard 分頁：預設 scrollWheelZoom disabled；點擊地圖 → enabled；
-//     Esc／點地圖外部／切到 Heatmap／Dashboard 重新 activate → 一律回到
-//     disabled（不記住上一輪狀態）。
-//   - Heatmap 分頁：scrollWheelZoom 永遠 enabled（分析頁面，需要完整地圖
-//     操作），不顯示 Dashboard 的 click-to-activate 提示。
+//     Esc／點地圖外部／切分頁／重新 activate → 一律回到 disabled（不記住
+//     上一輪狀態）。
+//   - Heatmap 分頁：H1.4.1 時是「永遠 enabled」，H1.4.2 起改成跟
+//     Dashboard 完全一致的 click-to-activate 行為——這是本輪 Intentional
+//     Contract Change（不是修 H1.4.1 的 bug），因為兩個分頁共用同一張
+//     Leaflet map instance／同一個 mapContainerId／同一個 -wheel-hint
+//     DOM 節點，所以直接重用同一套 bind/enable/disable lifecycle 即可，
+//     不需要另外做一份 Heatmap 專屬 state。
 //   - +/- Zoom Control 完全不受影響（不同的 Leaflet handler）。
 //   - Idempotent：所有 listener 綁定都先記錄在 state 裡，重複呼叫
-//     activate 不會疊加第二份 listener（需求文件二十五）。
+//     activate 不會疊加第二份 listener（需求文件二十五、四十三）。
+//
+// state 名稱沿用 dashboardMapInteractionState（需求文件二十六：功能正確
+// 優先，現有 state 本身就是「哪個 mapContainerId／要不要 bind」的通用
+// 描述，跟哪個 Tab 無關，安全支援兩個分頁，不為了改名做大範圍重構）。
 // ════════════════════════════════════════════════════════════════
 let dashboardMapInteractionState = {
   wheelEnabled: false,
@@ -105,6 +113,16 @@ let dashboardMapInteractionState = {
   clickHandler: null,
   escHandler: null,
   outsideHandler: null,
+  // H1.4.2：記住「當初實際綁定 click listener 的那個 DOM 元素」，不是只記
+  // containerId 字串。refreshGeoDashboardKpiBlock() 之類的整段 innerHTML
+  // 重繪會用同一個 id 建立一個全新的 DOM 節點——舊節點被丟掉，但舊節點上
+  // 的 listener 沒有人幫忙拆，新節點上也沒有人幫忙補。H1.4.1 時這個裂縫
+  // 剛好被「切一次 Heatmap 就會整套 unbind／dashboard 切回來再整套
+  // rebind」蓋住，沒被踩到；H1.4.2 讓 Heatmap 改成也走同一套
+  // activate/idempotent bind，不再每次切分頁都 unbind，這個裂縫才會真的
+  // 被踩到——所以這裡直接把「目前綁定的是不是同一個 DOM 節點」變成
+  // idempotent 判斷的一部分，才是真正修好，不是繞過。
+  boundCanvasEl: null,
 };
 if (typeof window !== 'undefined') window.dashboardMapInteractionState = dashboardMapInteractionState;
 function _geoDashboardMapResetInteractionStateForTest() {
@@ -112,6 +130,7 @@ function _geoDashboardMapResetInteractionStateForTest() {
   dashboardMapInteractionState.wheelEnabled = false;
   dashboardMapInteractionState.bound = false;
   dashboardMapInteractionState.mapContainerId = null;
+  dashboardMapInteractionState.boundCanvasEl = null;
 }
 
 const GEO_DASHBOARD_MAP_WHEEL_HINT = Object.freeze({
@@ -169,20 +188,25 @@ function _geoDashboardMapOnOutsideClick(e) {
 }
 
 // geoDashboardMapBindWheelLifecycle()——需求文件二十五：Idempotent，重複
-// 呼叫（同一個 mapContainerId）不會新增第二份 listener；換了容器（例如
-// 切店）才會先解掉舊的再重綁。
+// 呼叫（同一個 mapContainerId、同一個實際 DOM 節點）不會新增第二份
+// listener；換了容器 id（例如切店）或「id 相同但 DOM 節點被整段
+// innerHTML 重繪換掉」都會先解掉舊的再重綁（H1.4.2：後者是新補上的
+// 判斷，見上方 boundCanvasEl 註解）。
 function geoDashboardMapBindWheelLifecycle(mapContainerId) {
   if (typeof document === 'undefined' || !mapContainerId) return false;
-  if (dashboardMapInteractionState.bound && dashboardMapInteractionState.mapContainerId !== mapContainerId) {
+  const canvas = document.getElementById(mapContainerId);
+  const containerChanged = dashboardMapInteractionState.mapContainerId !== mapContainerId;
+  const domNodeReplaced = dashboardMapInteractionState.boundCanvasEl !== null && dashboardMapInteractionState.boundCanvasEl !== canvas;
+  if (dashboardMapInteractionState.bound && (containerChanged || domNodeReplaced)) {
     _geoDashboardMapUnbindWheelLifecycle();
   }
   dashboardMapInteractionState.mapContainerId = mapContainerId;
   if (dashboardMapInteractionState.bound) return true;
 
-  const canvas = document.getElementById(mapContainerId);
   if (canvas) {
     dashboardMapInteractionState.clickHandler = _geoDashboardMapOnMapClick;
     canvas.addEventListener('click', dashboardMapInteractionState.clickHandler);
+    dashboardMapInteractionState.boundCanvasEl = canvas;
   }
   dashboardMapInteractionState.escHandler = _geoDashboardMapOnKeydown;
   document.addEventListener('keydown', dashboardMapInteractionState.escHandler);
@@ -193,13 +217,15 @@ function geoDashboardMapBindWheelLifecycle(mapContainerId) {
 }
 function _geoDashboardMapUnbindWheelLifecycle() {
   if (typeof document === 'undefined') return;
-  const canvas = dashboardMapInteractionState.mapContainerId && document.getElementById(dashboardMapInteractionState.mapContainerId);
+  const canvas = dashboardMapInteractionState.boundCanvasEl
+    || (dashboardMapInteractionState.mapContainerId && document.getElementById(dashboardMapInteractionState.mapContainerId));
   if (canvas && dashboardMapInteractionState.clickHandler) canvas.removeEventListener('click', dashboardMapInteractionState.clickHandler);
   if (dashboardMapInteractionState.escHandler) document.removeEventListener('keydown', dashboardMapInteractionState.escHandler);
   if (dashboardMapInteractionState.outsideHandler) document.removeEventListener('click', dashboardMapInteractionState.outsideHandler, true);
   dashboardMapInteractionState.clickHandler = null;
   dashboardMapInteractionState.escHandler = null;
   dashboardMapInteractionState.outsideHandler = null;
+  dashboardMapInteractionState.boundCanvasEl = null;
   dashboardMapInteractionState.bound = false;
 }
 
@@ -212,9 +238,12 @@ function geoDashboardMapActivate(mapContainerId) {
   geoDashboardMapDisableWheel();
   return true;
 }
-// geoDashboardMapDeactivateForHeatmap()——切到 Heatmap 前呼叫：解掉
-// Dashboard 專屬的 click/Esc/outside listener（Heatmap 不需要這套
-// click-to-activate 行為），並讓滾輪維持永遠可用、隱藏 hint badge。
+// geoDashboardMapDeactivateForHeatmap()——H1.4.1 舊 Contract：切到 Heatmap
+// 前解掉 Dashboard 專屬 listener 並強制 enable 滾輪。H1.4.2 起，Heatmap
+// 改成跟 Dashboard 一樣的 click-to-activate（見上方需求文件十五～
+// 二十七），這個函式不再被呼叫（geoHeatUiSwitchTab() 兩個分支現在都呼叫
+// geoDashboardMapActivate()）。保留函式本體只是避免任何外部程式碼直接
+// import 它時整個炸掉，函式本身不再代表目前的 Contract。
 function geoDashboardMapDeactivateForHeatmap() {
   _geoDashboardMapUnbindWheelLifecycle();
   const map = (typeof geoMapState !== 'undefined' && geoMapState) ? geoMapState.instance : null;
@@ -260,9 +289,12 @@ function geoHeatUiSwitchTab(containerId, tab) {
       const map = window.geoMapState && window.geoMapState.instance;
       geoDashboardGa4Deactivate(map);
     }
-    // H1.4.1（需求文件八）：進 Heatmap 前，Dashboard 的 click-to-activate
-    // 滾輪鎖必須解除——Heatmap 是分析頁，滾輪縮放永遠可用。
-    geoDashboardMapDeactivateForHeatmap();
+    // H1.4.2（Intentional Contract Change，見需求文件十五～二十七）：進
+    // Heatmap 不再強制 enable 滾輪——改成跟 Dashboard 一樣，重新
+    // activate 一次同一套 click-to-activate lifecycle（同一個
+    // mapContainerId，idempotent，不會疊加第二份 listener），一律先回到
+    // disabled + 顯示 hint，點地圖後才 enable。
+    if (geoHeatUiState.mapContainerId) geoDashboardMapActivate(geoHeatUiState.mapContainerId);
     _geoHeatUiEnsureMapReuse(containerId);
     _geoHeatUiBindRankingEvents(containerId);
     geoHeatUiFetchAndRender(containerId);
