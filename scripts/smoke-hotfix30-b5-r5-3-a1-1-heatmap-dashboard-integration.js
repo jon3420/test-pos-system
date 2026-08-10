@@ -63,7 +63,14 @@ async function main() {
     // 修改過 geo-heatmap.js。這裡只更新測試期待值成真實 baseline 雜湊
     // （Test-only change，不計入 H1.4 Production Diff Ledger）。
     'public/js/geo-heatmap.js': 'c8898a3c469890b7d3e036937cb01f747cece4dafc22e8eac070abce2556f67d',
-    'public/js/geo-intelligence-map.js': '05a38b4a185ac556a948b7b6f78d6171f10e8b3f57237ac7d2c716871e0793d4',
+    // H1.4.1（Geo Dashboard Cleanup，需求文件四／三十七）：這支雜湊值改為
+    // H1.4.1 之後的新 baseline——本輪唯一、明確授權修改 geo-intelligence-map.js
+    // 的地方就是問題一（滾輪縮放預設關閉＋wheel-hint badge 容器），這是
+    // 需求文件本身列出的 Production Diff 預期檔案之一（「geo-intelligence-map.js
+    // 若 scroll control owner 在這裡」），不是未授權的 Engine 改動，也不是
+    // regression。INTENTIONAL H1.4.1 CONTRACT CHANGE：只更新這裡的期待值，
+    // 不把新加的 scrollWheelZoom.disable()／wheel-hint DOM 撤掉。
+    'public/js/geo-intelligence-map.js': '9997c0b84a867e27b11a1a499b06de0b83f78403dd9feba401a6edbc49f1970d',
     'public/js/geo-map-settings.js': 'f7ab62d8c163d015b342a29dae7098e27cd7e32a36a6ca999e32e19134510d1b',
     'public/data/geo/taiwan/manifest.json': 'bdd969e0cfaf65c2925e1ba099b0248fce1ad74624b1e2f8da484651342d33f1',
   };

@@ -745,7 +745,7 @@ async function geoDashboardSetCampaign(value) {
 // ── 排序／搜尋／分頁／展開：純前端操作，重用 geoLastVm，不重新 fetch ──
 function _geoRerenderRankingOnly() {
   if (!geoLastContainerId || !geoLastVm) return;
-  const el = document.getElementById(geoLastContainerId + '-ranking');
+  const el = document.getElementById(geoLastContainerId + '-legacy-ranking');
   if (!el) return;
   el.innerHTML = _renderGeoAreaRankingTable(geoLastVm);
 }
@@ -1779,29 +1779,10 @@ async function refreshGeoDashboardKpiBlock(containerId) {
     <div class="geo-section-heading">🧭 營運決策中心</div>
     ${geoRenderDecisionCenter(vm)}
   </div>`;
-  // fix18-10-hotfix30-B5-R5.2-B2：Geo Intelligence Map——additive，沿用同一份
-  // vm.funnel.areas，不重新 fetch、不建立第二套 filter state。geoRenderMapBlock()
-  // 定義在 public/js/geo-intelligence-map.js（若該檔案未載入則安全略過整個
-  // 地圖區塊，不影響 Dashboard 其他部分）。無論 isEmpty/isAllUnknown 與否，
-  // 這一段都要建立（地圖本身不依賴有沒有分析資料才能顯示行政區邊界）。
-  const mapContainerId = `${containerId}-map`;
-  const mapHtml = (typeof geoRenderMapBlock === 'function') ? geoRenderMapBlock(mapContainerId) : '';
-  // fix18-10-hotfix30-B5-R5.3-A1.1：Heatmap Tab——正式存在、可切換
-  // （需求文件三）。Tab Bar 與地圖共用同一個 Leaflet map instance
-  // （geo-heatmap-ui.js 的 _geoHeatUiEnsureMapReuse()），這裡只負責把
-  // Tab Bar／Heatmap Panel 的 HTML 骨架接進既有 Dashboard 版面；未載入
-  // geo-heatmap-ui.js 時安全略過（不影響 Dashboard 其餘部分），跟上面
-  // geoRenderMapBlock() 的 guard 慣例一致。
-  const heatTabBarHtml = (typeof geoHeatUiRenderTabBar === 'function') ? geoHeatUiRenderTabBar(containerId) : '';
-  const heatPanelHtml = (typeof geoHeatUiRenderPanel === 'function') ? geoHeatUiRenderPanel(containerId) : '';
-  // fix18-10-hotfix30-B5-R5.3-A4（Metric Switcher 整合，需求：只能保留
-  // 一套主切換器）：這是正式主切換器，跟共用地圖同一層級渲染，Dashboard／
-  // Heatmap 兩個分頁都看得到。舊版 geoRenderMapBlock() 內建的獨立
-  // `.geo-map-metrics` 按鈕列已移除（見 geo-intelligence-map.js），改由
-  // 這裡統一驅動（geoVisitorSetMetric() 內會同時呼叫既有的
-  // geoSetMapMetric() 更新地圖著色/Legend/Summary/Tooltip）。
-  const sharedMetricBarHtml = (typeof geoHeatUiRenderSharedMetricBar === 'function') ? geoHeatUiRenderSharedMetricBar(containerId) : '';
-  const dashboardPanelHidden = (typeof geoHeatUiState !== 'undefined' && geoHeatUiState && geoHeatUiState.activeTab === 'heatmap') ? 'hidden' : '';
+  // rankingSectionHtml——需要在下面的 window.__geoHeatUiDiagnosticsHtml 之前
+  // 就算好（H1.4.1 追加修正：Top-3／排行榜跟著 Recommended Actions／
+  // Empty 提示一起移出 Dashboard，理由見下方大段註解）。內容本身完全未
+  // 修改，只是計算時機提前。
   const rankingSectionHtml = emptyStateNotice ? '' : `
     <div style="margin:14px 0 6px;font-weight:700;font-size:.9rem">🏆 高意願區域 Top 3</div>
     ${_renderGeoTopAreaRows(tops.high_intent)}
@@ -1811,25 +1792,87 @@ async function refreshGeoDashboardKpiBlock(containerId) {
     ${_renderGeoOrderAreaRows(tops.top_orders_by_source_county)}
     <div style="margin:16px 0 6px;font-weight:700;font-size:.9rem">📋 行政區排行榜</div>
     ${_renderGeoFilterBarHtml()}
-    <div id="${containerId}-ranking">${_renderGeoAreaRankingTable(vm)}</div>
+    <div id="${containerId}-legacy-ranking">${_renderGeoAreaRankingTable(vm)}</div>
     <div id="${containerId}-drawer"></div>
     ${partialLabels.length ? `<div style="font-size:.72rem;color:var(--text-secondary,#64748b);margin-top:8px">${escHtml(partialLabels.join('、'))}暫時無法載入</div>` : ''}`;
+  // fix18-10-hotfix30-B5-R5.2-B2：Geo Intelligence Map——additive，沿用同一份
+  // vm.funnel.areas，不重新 fetch、不建立第二套 filter state。geoRenderMapBlock()
+  // 定義在 public/js/geo-intelligence-map.js（若該檔案未載入則安全略過整個
+  // 地圖區塊，不影響 Dashboard 其他部分）。無論 isEmpty/isAllUnknown 與否，
+  // 這一段都要建立（地圖本身不依賴有沒有分析資料才能顯示行政區邊界）。
+  const mapContainerId = `${containerId}-map`;
+  const mapHtml = (typeof geoRenderMapBlock === 'function') ? geoRenderMapBlock(mapContainerId) : '';
+  // fix18-10-hotfix30-B5-R5.3-A4（Metric Switcher 整合，需求：只能保留
+  // 一套主切換器）：舊版 geoRenderMapBlock() 內建的獨立 `.geo-map-metrics`
+  // 按鈕列已移除（見 geo-intelligence-map.js），改由這裡統一驅動
+  // （geoVisitorSetMetric() 內會同時呼叫既有的 geoSetMapMetric() 更新地圖
+  // 著色/Legend/Summary/Tooltip）。H1.4.1（問題三）：這套「正式主切換器」
+  // 本身完全沒有被移除或重寫，只是不再跟共用地圖同一層級渲染給 Dashboard
+  // 分頁看——見下方 window.__geoHeatUiDiagnosticsHtml，只在 Heatmap 分頁
+  // 出現。必須先算出來，才能在下面呼叫 geoHeatUiRenderPanel() 之前準備好
+  // window.__geoHeatUiDiagnosticsHtml（Heatmap Panel 組裝時需要讀取它）。
+  const sharedMetricBarHtml = (typeof geoHeatUiRenderSharedMetricBar === 'function') ? geoHeatUiRenderSharedMetricBar(containerId) : '';
+  // H1.4.1（Geo Dashboard Cleanup 問題二、三／需求文件十一、十二）：舊
+  // 8-metric 選單（`sharedMetricBarHtml`）與 POS Visitor Geo 診斷
+  // （`kpiCards` 8 張卡＋5-card 相容區塊、`renderGeoQualityBlock(vm.quality)`
+  // 的 Geo Quality/Unknown 比例）不再渲染於 Dashboard 分頁——這兩組都是
+  // 「這些區域資料怎麼來／POS Geo 辨識品質如何」的 Diagnostics，跟
+  // Dashboard 要回答的「客人主要從哪裡來」（GA4 persisted Historical
+  // regional data）是不同責任。改成只在 Heatmap 分頁渲染，透過
+  // `window.__geoHeatUiDiagnosticsHtml` 這個小型 hook 把已經算好的 HTML
+  // 字串交給 `geoHeatUiRenderPanel()`（geo-heatmap-ui.js）組裝——不是
+  // duplicate：`_geoRenderKpiLiveHtml`/`renderGeoQualityBlock`/
+  // `geoHeatUiRenderSharedMetricBar` 本身完全沒有被複製一份，只是渲染
+  // 位置從 Dashboard 移到 Heatmap（需求文件十一：不是 delete function，
+  // 完整能力保留）。必須在呼叫 geoHeatUiRenderPanel() 之前設定好。
+  // H1.4.1（追加修正，依 Final Dashboard Geo DOM Contract）：Recommended
+  // Actions（decisionCenterHtml）、Empty/AllUnknown 提示（emptyStateNotice
+  // ——這兩種訊息本身就是「目前所有訪客皆為未知區域」/「目前沒有符合條件
+  // 的區域資料」，屬於明文禁止在 Dashboard 出現的 Acquisition Geo
+  // warning／no-data message）、以及 Top-3／排行榜（rankingSectionHtml）
+  // 全部依 code dependency 證實只讀取舊版 `vm`（loadGeoDashboardData() ——
+  // /funnel、/county-summary、/alerts，legacy Visitor Geo 聚合），跟這次
+  // Dashboard 唯一合法資料來源 GA4 persisted Historical（vm.overview 以外
+  // 完全不碰）無關，也完全不是「合法 GA4 summary」，因此不符合 Final
+  // Dashboard Geo DOM Contract 第 8 項的保留條件——一律移出 Dashboard。
+  // Top-3／排行榜本身雖然不依賴舊 8-metric selector（GEO_EVENT_METRICS／
+  // geoVisitorState 完全沒有出現在 computeGeoTopAreas()/_renderGeoAreaRankingTable()/
+  // computeGeoAreaRanking() 內，純讀 vm.funnel／vm.county_summary），但因為
+  // 不是「獨立合法的 GA4 Dashboard summary」，同樣不符合保留條件，跟著
+  // selector 一起移到 Heatmap（避免孤立在 Dashboard 沒有 owner）。
+  window.__geoHeatUiDiagnosticsHtml = `${sharedMetricBarHtml}
+    <div id="${containerId}-geo-quality-heat" class="geo-dashboard-diagnostic-block">${kpiCards}${fulfillmentLine}${renderGeoQualityBlock(vm.quality)}</div>
+    <div id="${containerId}-decision-center-heat">${decisionCenterHtml}</div>
+    <div id="${containerId}-legacy-empty-heat">${emptyStateNotice || ''}</div>
+    <div id="${containerId}-ranking-heat">${rankingSectionHtml}</div>`;
+  // fix18-10-hotfix30-B5-R5.3-A1.1：Heatmap Tab——正式存在、可切換
+  // （需求文件三）。Tab Bar 與地圖共用同一個 Leaflet map instance
+  // （geo-heatmap-ui.js 的 _geoHeatUiEnsureMapReuse()），這裡只負責把
+  // Tab Bar／Heatmap Panel 的 HTML 骨架接進既有 Dashboard 版面；未載入
+  // geo-heatmap-ui.js 時安全略過（不影響 Dashboard 其餘部分），跟上面
+  // geoRenderMapBlock() 的 guard 慣例一致。
+  const heatTabBarHtml = (typeof geoHeatUiRenderTabBar === 'function') ? geoHeatUiRenderTabBar(containerId) : '';
+  const heatPanelHtml = (typeof geoHeatUiRenderPanel === 'function') ? geoHeatUiRenderPanel(containerId) : '';
+  // H1.4.1（Final Dashboard Geo DOM Contract，無條件版本）：Dashboard 一律
+  // 不顯示 Diagnostics（8-metric bar／KPI 卡／Geo Quality／Recommended
+  // Actions／Empty 提示／Top-3／排行榜），不論 geo-heatmap-ui.js 是否載入
+  // ——正式 public/index.html 一律同時載入 geo-intelligence.js 與
+  // geo-heatmap-ui.js（Browser Entry Contract，見 Static Audit），「沒有
+  // Heatmap 的 Dashboard」不是正式 Production 會出現的組態，不得為了遷就
+  // 舊 standalone 測試環境在 Production 程式碼裡加 if/else 雙重 Contract。
+  // 舊測試如果只 eval 這一份檔案、沒有一起載入 geo-heatmap-ui.js，改成
+  // Intentional H1.4.1 UI Contract Change 更新它們自己的期待值（不在這裡
+  // 加條件式 fallback）。
+  const dashboardPanelHidden = (typeof geoHeatUiState !== 'undefined' && geoHeatUiState && geoHeatUiState.activeTab === 'heatmap') ? 'hidden' : '';
   elAfter.innerHTML = `
     ${heatTabBarHtml}
     ${mapHtml}
-    ${sharedMetricBarHtml}
     <div id="${containerId}-panel-dashboard" ${dashboardPanelHidden}>
       <div class="geo-dashboard-ga4-block" style="margin-bottom:12px;padding:10px;border:1px solid var(--border,#2a2d3e);border-radius:8px">
         <div id="${containerId}-dashboard-ga4-label" style="font-weight:700;font-size:.88rem"></div>
         <div id="${containerId}-dashboard-ga4-range" style="margin:8px 0"></div>
         <div id="${containerId}-dashboard-ga4-status" style="font-size:.78rem;color:var(--text-secondary,#64748b)" role="status" aria-live="polite"></div>
       </div>
-      ${kpiCards}
-      ${fulfillmentLine}
-      ${renderGeoQualityBlock(vm.quality)}
-      ${decisionCenterHtml}
-      ${emptyStateNotice || ''}
-      ${rankingSectionHtml}
       <div style="font-size:.7rem;color:var(--text-secondary,#64748b);margin-top:10px">最後更新：${escHtml(updatedLabel)}
         <button type="button" onclick="refreshGeoDashboardKpiBlock('${containerId}')" style="margin-left:8px;padding:1px 8px;border-radius:6px;border:1px solid var(--border,#2a2d3e);background:transparent;color:inherit;cursor:pointer;font-size:.7rem">重新整理</button>
       </div>
@@ -1866,6 +1909,16 @@ async function refreshGeoDashboardKpiBlock(containerId) {
         const isHeatmapActive = (typeof geoHeatUiState !== 'undefined' && geoHeatUiState && geoHeatUiState.activeTab === 'heatmap');
         if (!isHeatmapActive && typeof geoDashboardGa4Activate === 'function' && typeof _geoHeatUiDashboardGa4Ids === 'function') {
           geoDashboardGa4Activate(_geoHeatUiDashboardGa4Ids(containerId), geoMapState.instance);
+        }
+        // H1.4.1（Geo Dashboard Cleanup 需求文件四、七）：Direct Load／
+        // F5 直接進 Dashboard 這條路徑不會經過 geoHeatUiSwitchTab()，所以
+        // 這裡也要主動把滾輪縮放重設為 disabled + click-to-activate 提示
+        // ——跟切分頁回 Dashboard 是同一個「Dashboard 變成可見畫面」事件，
+        // 只是觸發來源不同。只在目前真的是 Dashboard 分頁時才 activate，
+        // 避免 Heatmap session 中途重繪 KPI 區塊時誤把 Heatmap 的滾輪
+        // 狀態搶走。
+        if (!isHeatmapActive && typeof geoDashboardMapActivate === 'function') {
+          geoDashboardMapActivate(mapContainerId);
         }
       }).catch(() => { if (typeof geoHandleMapError === 'function') geoHandleMapError('error_default'); });
   } else if (typeof geoHeatUiRegisterContext === 'function') {

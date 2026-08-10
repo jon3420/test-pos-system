@@ -448,26 +448,44 @@ async function main() {
     await window.refreshGeoDashboardKpiBlock('geo-kpi-xss');
     await sleep(20);
     const el = document.getElementById('geo-kpi-xss');
-    assert(el.innerHTML.includes('geo-decision-card'), 'I-DOM-1 Decision Center 真實渲染出 .geo-decision-card');
-    assert(el.querySelector('svg') === null, 'I-XSS-1 <svg onload=alert(1)> 未被解析成真實可執行節點');
-    assert(el.querySelector('script') === null, 'I-XSS-2 <script>alert(1)</script> 未被解析成真實 <script> 節點');
-    assert(el.querySelectorAll('img[onerror]').length === 0, 'I-XSS-3 <img onerror=...> 未被解析成帶事件的真實節點');
-    assert(!el.innerHTML.includes('<svg onload'), 'I-XSS-4 原始 <svg onload> 字串已被 escape（不是原樣輸出）');
-    assert(el.innerHTML.includes('進站訪客'), 'I-BC-1 舊 KPI 子字串「進站訪客」仍存在（向下相容）');
-    assert(el.innerHTML.includes('加入購物車'), 'I-BC-2 舊 KPI 子字串「加入購物車」仍存在');
-    assert(el.innerHTML.includes('整體成交率'), 'I-BC-3 舊 KPI 子字串「整體成交率」仍存在');
-    assert(el.innerHTML.includes('geo-kpi-card'), 'I-DOM-2 新 KPI 卡片（.geo-kpi-card）確實渲染');
-    assert(el.innerHTML.includes('geo-status-badge') || el.innerHTML.includes('—'), 'I-RANK-1 排行榜狀態欄確實渲染（有徽章或—佔位）');
+    // H1.4.1（Intentional UI Contract Change）：Decision Center／KPI 卡／
+    // 排行榜狀態欄不再輸出到 Dashboard container 本身——這支測試環境沒有
+    // 載入 geo-heatmap-ui.js，所以沒有 Heatmap 分頁把
+    // window.__geoHeatUiDiagnosticsHtml 接進真實 DOM；改用該 hook 字串本身
+    // 驗證同一份渲染邏輯/資料仍然正確（XSS escape 檢查則改用 hook 字串，
+    // 因為 hook 本身就是 escHtml() 過的 HTML 字串，沒有插入真實 DOM 不影響
+    // escape 是否正確這件事）。
+    const diag = dom.window.__geoHeatUiDiagnosticsHtml || '';
+    assert(!el.innerHTML.includes('geo-decision-card'), 'I-DOM-1a Decision Center 不再渲染於 Dashboard container（已移至 Heatmap，H1.4.1）');
+    assert(diag.includes('geo-decision-card'), 'I-DOM-1 Decision Center 真實渲染出 .geo-decision-card（via Heatmap diagnostics hook）');
+    assert(!diag.includes('<svg onload'), 'I-XSS-1 <svg onload=alert(1)> 已被 escape，不是原樣輸出（於 diagnostics hook 字串內）');
+    assert(!diag.includes('<script>alert'), 'I-XSS-2 <script>alert(1)</script> 已被 escape，不是原樣輸出（於 diagnostics hook 字串內）');
+    assert(!/<img[^>]*onerror=/.test(diag), 'I-XSS-3 <img onerror=...> 已被 escape，不是原樣輸出（於 diagnostics hook 字串內）');
+    assert(!diag.includes('<svg onload'), 'I-XSS-4 原始 <svg onload> 字串已被 escape（不是原樣輸出）');
+    assert(!/id="[^"]*-geo-kpi-live"/.test(el.innerHTML), 'I-BC-0 KPI block 不再渲染於 Dashboard container（已移至 Heatmap，H1.4.1）');
+    assert(diag.includes('進站訪客'), 'I-BC-1 舊 KPI 子字串「進站訪客」仍存在（向下相容，via Heatmap diagnostics hook）');
+    assert(diag.includes('加入購物車'), 'I-BC-2 舊 KPI 子字串「加入購物車」仍存在（via Heatmap diagnostics hook）');
+    assert(diag.includes('整體成交率'), 'I-BC-3 舊 KPI 子字串「整體成交率」仍存在（via Heatmap diagnostics hook）');
+    assert(diag.includes('geo-kpi-card'), 'I-DOM-2 新 KPI 卡片（.geo-kpi-card）確實渲染（via Heatmap diagnostics hook）');
+    assert(diag.includes('geo-status-badge') || diag.includes('—'), 'I-RANK-1 排行榜狀態欄確實渲染（有徽章或—佔位，via Heatmap diagnostics hook）');
     dom.window.close();
   }
 
   // ── Drawer 開關 / ESC / focus / Explainability 內容 ──
+  // H1.4.1：Drawer（geoAreaDrawerOpen/Close）本身是排行榜點列的既有功能，
+  // 排行榜的正式 owner 已移到 Heatmap 分頁（window.__geoHeatUiDiagnosticsHtml，
+  // 見上方 I-DOM-1）。這支測試不載入 geo-heatmap-ui.js，所以手動建立一個
+  // 「Heatmap owner fixture」——把 diagnostics hook 的 HTML 字串插入一個
+  // 額外容器，模擬 geoHeatUiRenderPanel() 在正式 Production 會做的事情，
+  // 這樣 `${containerId}-drawer` 才會是真的存在於 DOM 的節點，可以繼續用
+  // 真實 DOM 事件驗證 Drawer 開關/ESC/focus 行為本身（不是繞過測試）。
   {
     const { dom } = setupDom();
     const { document, window } = dom.window;
     document.body.innerHTML += '<div id="geo-kpi-drawer"></div><button id="opener">opener</button>';
     await window.refreshGeoDashboardKpiBlock('geo-kpi-drawer');
     await sleep(20);
+    document.body.innerHTML += `<div id="geo-kpi-drawer-heatmap-owner">${window.__geoHeatUiDiagnosticsHtml || ''}</div>`;
     document.getElementById('opener').focus();
     window.geoAreaDrawerOpen('桃園市|中壢區');
     let drawerEl = document.getElementById('geo-kpi-drawer-drawer');
@@ -541,8 +559,12 @@ async function main() {
     await Promise.all([p1, p2]);
     await sleep(60); // 確保就算 Request A 比較晚完成，也已經跑完（驗證它不會覆蓋畫面）
     const el = document.getElementById('geo-kpi-race');
-    assert(el.innerHTML.includes('districtB請求B'), 'K-RACE-1 最終畫面顯示 Request B（後發出）的資料');
-    assert(!el.innerHTML.includes('districtA請求A'), 'K-RACE-2 舊的 Request A 資料沒有覆蓋畫面（即使它比較晚才完成）');
+    // H1.4.1：排行榜（district 名稱來源）owner 已移到 Heatmap 分頁，這裡
+    // 改用 window.__geoHeatUiDiagnosticsHtml 驗證同一個 race-condition /
+    // stale-response guard 行為（跟本輪 UI 搬遷完全無關，邏輯沒有改變）。
+    const diag = window.__geoHeatUiDiagnosticsHtml || '';
+    assert(diag.includes('districtB請求B'), 'K-RACE-1 最終畫面顯示 Request B（後發出）的資料（via Heatmap diagnostics hook）');
+    assert(!diag.includes('districtA請求A'), 'K-RACE-2 舊的 Request A 資料沒有覆蓋畫面（即使它比較晚才完成）（via Heatmap diagnostics hook）');
     dom.window.close();
   }
 
@@ -583,8 +605,11 @@ async function main() {
     await window.refreshGeoDashboardKpiBlock('geo-kpi-empty');
     await sleep(20);
     const html = document.getElementById('geo-kpi-empty').innerHTML;
-    assert(html.includes('尚無') || html.includes('沒有符合條件'), 'N-EMPTY-1 空資料時顯示有意義的說明文字');
-    assert(html.includes('data-geo-empty-code'), 'N-EMPTY-2 空狀態標記了情境代碼（可用於未來細分樣式）');
+    const diag = window.__geoHeatUiDiagnosticsHtml || '';
+    // H1.4.1：Empty State 訊息本身是明文禁止在 Dashboard 出現的 no-data
+    // message，一律移到 Heatmap diagnostics hook（邏輯本身沒有改變）。
+    assert(diag.includes('尚無') || diag.includes('沒有符合條件'), 'N-EMPTY-1 空資料時顯示有意義的說明文字（via Heatmap diagnostics hook）');
+    assert(diag.includes('data-geo-empty-code'), 'N-EMPTY-2 空狀態標記了情境代碼（可用於未來細分樣式）（via Heatmap diagnostics hook）');
     dom.window.close();
   }
 
@@ -652,6 +677,11 @@ async function main() {
     document.body.innerHTML += '<div id="geo-kpi-drawer2"></div><button id="opener2">opener2</button>';
     await window.refreshGeoDashboardKpiBlock('geo-kpi-drawer2');
     await sleep(20);
+    // H1.4.1：同上（I-DOM-1／J-DRAWER 區塊）——排行榜/Drawer 的正式 owner
+    // 已移到 Heatmap 分頁，這裡手動建立 Heatmap owner fixture 讓
+    // `${containerId}-drawer` 真的存在於 DOM，才能繼續用真實事件測試
+    // Drawer 開關/ESC/focus 行為本身。
+    document.body.innerHTML += `<div id="geo-kpi-drawer2-heatmap-owner">${window.__geoHeatUiDiagnosticsHtml || ''}</div>`;
 
     // Focus stub：monkey-patch focus() 以確認 production code 真的呼叫過
     let focusCallCount = 0;
@@ -807,7 +837,7 @@ async function main() {
     const newCalls = fetchCalls.slice(callsBefore);
     const funnelCall = newCalls.find((c) => c.url.includes('/geo/funnel'));
     assert(funnelCall && !funnelCall.url.includes('source=') && !funnelCall.url.includes('medium=') && !funnelCall.url.includes('campaign='), 'W-CLEAR-1 清除篩選後，query string 不含空值參數（不送 source=&medium=&campaign=）');
-    assert(document.getElementById('geo-kpi-clear').innerHTML.includes('geo-kpi-card'), 'W-CLEAR-2 清除篩選後 KPI 正常渲染，不因空篩選值出錯');
+    assert((window.__geoHeatUiDiagnosticsHtml || '').includes('geo-kpi-card'), 'W-CLEAR-2 清除篩選後 KPI 正常渲染，不因空篩選值出錯（via Heatmap diagnostics hook）');
     dom.window.close();
   }
 
@@ -837,8 +867,12 @@ async function main() {
     document.body.innerHTML += '<div id="geo-kpi-colspan"></div>';
     await window.refreshGeoDashboardKpiBlock('geo-kpi-colspan');
     await sleep(20);
+    // H1.4.1：排行榜（含展開列/toggle）owner 已移到 Heatmap 分頁，這裡
+    // 手動建立 Heatmap owner fixture，讓 `${containerId}-ranking` 真的
+    // 存在於 DOM，`geoRankingToggleExpand()` 才能實際找到並重繪它。
+    document.body.innerHTML += `<div id="geo-kpi-colspan-heatmap-owner">${window.__geoHeatUiDiagnosticsHtml || ''}</div>`;
     window.geoRankingToggleExpand('桃園市|中壢區');
-    const html = document.getElementById('geo-kpi-colspan').innerHTML;
+    const html = document.getElementById('geo-kpi-colspan-heatmap-owner').innerHTML;
     const thCount = (html.match(/<th[\s>]/g) || []).length;
     const colspanMatch = html.match(/colspan="(\d+)"/);
     assert(!!colspanMatch, 'Z-COLSPAN-1 展開列存在 colspan 屬性');
@@ -860,7 +894,12 @@ async function main() {
     document.body.innerHTML += '<div id="geo-kpi-a11y"></div>';
     await window.refreshGeoDashboardKpiBlock('geo-kpi-a11y');
     await sleep(20);
-    const html = document.getElementById('geo-kpi-a11y').innerHTML;
+    // H1.4.1：KPI／Decision Center／排行榜／Drawer 的 owner 已移到 Heatmap
+    // 分頁，這裡手動建立 Heatmap owner fixture 才能繼續驗證這些區塊本身的
+    // accessibility 屬性（button type／aria-expanded／role="list"／Drawer
+    // role="dialog"），驗證的內容跟本輪 UI 搬遷完全無關。
+    document.body.innerHTML += `<div id="geo-kpi-a11y-heatmap-owner">${window.__geoHeatUiDiagnosticsHtml || ''}</div>`;
+    const html = document.getElementById('geo-kpi-a11y-heatmap-owner').innerHTML;
     const buttonMatches = html.match(/<button[^>]*>/g) || [];
     assert(buttonMatches.length > 0, 'Y-A11Y-1 頁面內確實有 <button> 元素（不是用 div 模擬按鈕）');
     assert(buttonMatches.every((b) => b.includes('type="button"')), 'Y-A11Y-2 所有 <button> 都明確標註 type="button"（避免預設 submit 行為）');
@@ -881,7 +920,7 @@ async function main() {
     await window.geoDashboardSetSource('newsource');
     await sleep(20);
     const html = document.getElementById('geo-kpi-sync').innerHTML;
-    assert(html.includes('geo-kpi-card') && html.includes('geo-decision-card'), 'R-SYNC-1 Filter 改變後，KPI 與 Decision Center 在同一次渲染內同步更新');
+    assert((window.__geoHeatUiDiagnosticsHtml || '').includes('geo-kpi-card') && (window.__geoHeatUiDiagnosticsHtml || '').includes('geo-decision-card'), 'R-SYNC-1 Filter 改變後，KPI 與 Decision Center 在同一次渲染內同步更新（via Heatmap diagnostics hook）');
     dom.window.close();
   }
 

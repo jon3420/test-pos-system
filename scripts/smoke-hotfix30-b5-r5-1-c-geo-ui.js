@@ -343,8 +343,18 @@ async function main() {
     assert(body.includes('Geo Intelligence'), 'dashboard: Geo Intelligence section exists');
     assert(body.includes('中壢區'), 'dashboard: top intent area (中壢區) rendered correctly');
     assert(body.includes('桃園區'), 'dashboard: high-traffic-low-conversion area (桃園區) rendered correctly');
-    assert(/履約分析|20 筆/.test(body), 'dashboard: fulfillment summary rendered');
-    assert(body.includes('Healthy'), 'dashboard: quality status "healthy" rendered with label');
+    // H1.4.1（Geo Dashboard Cleanup, Intentional UI Contract Change）：
+    // 履約分析與 Geo Quality 徽章原本掛在 Dashboard 面板本身，現在正式
+    // Dashboard Contract 底下這兩者都是 POS Geo Diagnostics，一律移到
+    // Heatmap 分頁（window.__geoHeatUiDiagnosticsHtml hook，供
+    // geo-heatmap-ui.js 的 geoHeatUiRenderPanel() 組裝）。這裡改成：(a)
+    // 確認 Dashboard 本身不再顯示這兩者，(b) 確認邏輯/資料完全沒有被刪除
+    // ——同一次 render 產生的 diagnostics hook 裡仍然找得到。
+    assert(!/履約分析|20 筆/.test(body), 'dashboard: fulfillment summary no longer rendered on Dashboard (moved to Heatmap, H1.4.1)');
+    assert(!body.includes('Healthy'), 'dashboard: quality status badge no longer rendered on Dashboard (moved to Heatmap, H1.4.1)');
+    const diagnosticsHtml = dom.window.__geoHeatUiDiagnosticsHtml || '';
+    assert(/履約分析|20 筆/.test(diagnosticsHtml), 'dashboard: fulfillment summary still computed and available via Heatmap diagnostics hook (logic preserved, not deleted)');
+    assert(diagnosticsHtml.includes('Healthy'), 'dashboard: quality status badge still computed and available via Heatmap diagnostics hook (logic preserved, not deleted)');
     assert(caughtErrors.length === 0, 'dashboard: no uncaught window errors during initial render', JSON.stringify(caughtErrors));
   }
   // R5.2-B1-1 architecture update:
@@ -352,12 +362,17 @@ async function main() {
   // (see renderGeoQualityBlock() in geo-intelligence.js), not from the old
   // geo_summary.data_quality — vary the /overview mock fixture per status
   // instead of the legacy summary object.
+  // H1.4.1（Intentional UI Contract Change）：Geo Quality 徽章本身的渲染
+  // 邏輯完全沒有改變，只是不再輸出到 Dashboard body——改為檢查
+  // window.__geoHeatUiDiagnosticsHtml（Heatmap 分頁的 owner）。
   for (const [status, label] of [['degraded', 'Degraded'], ['insufficient_data', 'Insufficient Data'], ['disabled', 'Disabled']]) {
     const overviewFixture = JSON.parse(JSON.stringify(GEO_OVERVIEW_FIXTURE));
     overviewFixture.data.data_quality = { status };
     const { dom } = await setupDashboard({ overviewFixture });
     const body = dom.window.document.getElementById('db-body-v2').innerHTML;
-    assert(body.includes(label), `dashboard quality: status=${status} renders label "${label}"`);
+    const diagnosticsHtml = dom.window.__geoHeatUiDiagnosticsHtml || '';
+    assert(!body.includes(label), `dashboard quality: status=${status} label "${label}" no longer on Dashboard (moved to Heatmap, H1.4.1)`);
+    assert(diagnosticsHtml.includes(label), `dashboard quality: status=${status} label "${label}" still available via Heatmap diagnostics hook`);
   }
   {
     // unknown / 缺失狀態不應讓畫面崩潰，安全退回 disabled 樣式
@@ -696,13 +711,28 @@ async function main() {
   {
     const { dom } = await setupDashboard({ failEndpoints: ['county-summary'] });
     const body = dom.window.document.getElementById('db-body-v2').innerHTML;
-    assert(body.includes('進站訪客') && body.includes('加入購物車') && body.includes('開始結帳') && body.includes('完成訂單') && body.includes('整體成交率'),
-      'partial failure: county-summary failing still renders all core KPI labels (sourced from overview/funnel, unaffected)');
-    assert(body.includes('高意願區域') && body.includes('高流量低轉換'),
-      'partial failure: county-summary failing still renders the Top 3 sections that depend on funnel, not county-summary');
+    const diagnosticsHtml = dom.window.__geoHeatUiDiagnosticsHtml || '';
+    // H1.4.1（Intentional UI Contract Change）：這組 5-card KPI 子字串相容
+    // 區塊與 Top-3 區塊本身的計算/容錯邏輯完全沒有改變（overview/funnel
+    // 成功、county-summary 失敗仍然要能獨立算出這些內容），只是輸出位置
+    // 從 Dashboard body 移到 Heatmap 分頁（window.__geoHeatUiDiagnosticsHtml）
+    // ——這裡改成同時確認「Dashboard 不再顯示」與「內容仍然正確計算出來」。
+    // H1.4.1（精準判斷，避免與 Dashboard 其他正常區塊的合法文字誤判——
+    // 例如「今日商機」/「區域優惠建議」的建議文案本來就含「加入購物車」
+    // 這種詞彙，是完全不同、未被本輪觸碰的功能。改用實際 DOM owner 的
+    // id/class marker 判斷，不是整頁子字串搜尋）：kpiCards 固定輸出
+    // `id="${containerId}-geo-kpi-live"`，這個 id 不再出現在 Dashboard body。
+    assert(!/id="[^"]*-geo-kpi-live"/.test(body),
+      'partial failure: legacy 5-card KPI substrings no longer rendered on Dashboard (moved to Heatmap, H1.4.1) — checked via -geo-kpi-live DOM owner id, not generic substring');
+    assert(diagnosticsHtml.includes('進站訪客') && diagnosticsHtml.includes('加入購物車') && diagnosticsHtml.includes('開始結帳') && diagnosticsHtml.includes('完成訂單') && diagnosticsHtml.includes('整體成交率'),
+      'partial failure: county-summary failing still computes all core KPI labels (sourced from overview/funnel, unaffected) — available via Heatmap diagnostics hook');
+    assert(!body.includes('高意願區域') && !body.includes('高流量低轉換'),
+      'partial failure: Top 3 sections no longer rendered on Dashboard (moved to Heatmap, H1.4.1)');
+    assert(diagnosticsHtml.includes('高意願區域') && diagnosticsHtml.includes('高流量低轉換'),
+      'partial failure: Top 3 sections (depend on funnel, not county-summary) still computed — available via Heatmap diagnostics hook');
     assert(!body.includes('Geo 分析載入失敗'), 'partial failure: county-summary failing alone does NOT trigger the fatal dashboard-wide error state');
-    assert(body.includes('外送成交（依訪客來源縣市）Top 3暫時無法載入') || body.includes('暫時無法載入'),
-      'partial failure: the specific county-summary-dependent section discloses that it failed to load, rather than silently showing nothing');
+    assert(diagnosticsHtml.includes('外送成交（依訪客來源縣市）Top 3暫時無法載入') || diagnosticsHtml.includes('暫時無法載入'),
+      'partial failure: the specific county-summary-dependent section still discloses that it failed to load (in the Heatmap diagnostics hook), rather than silently showing nothing');
   }
   {
     // 對照組：overview（必要 API）失敗時，仍必須是 fatal error（不能連這個都變成 partial）。

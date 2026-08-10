@@ -349,9 +349,9 @@ async function main() {
     document.body.innerHTML += '<div id="geo-kpi-explorer"></div>';
     await window.refreshGeoDashboardKpiBlock('geo-kpi-explorer');
     await sleep(20);
-    const html = document.getElementById('geo-kpi-explorer').innerHTML;
-    assert(html.includes("geoOpenAreaExplorer('桃園市|中壢區')") || html.includes('geoOpenAreaExplorer(&#039;桃園市|中壢區&#039;)') || /geoOpenAreaExplorer\('[^']*'\)/.test(html), 'O-ENTRY-1 排行榜點列 onclick 呼叫 geoOpenAreaExplorer()');
-    assert((html.match(/geoOpenAreaExplorer\(/g) || []).length >= 2, 'O-ENTRY-2 排行榜列點擊與狀態徽章兩個進入點都呼叫 geoOpenAreaExplorer()（同一函式，不是兩套邏輯）');
+    const html = window.__geoHeatUiDiagnosticsHtml || '';
+    assert(html.includes("geoOpenAreaExplorer('桃園市|中壢區')") || html.includes('geoOpenAreaExplorer(&#039;桃園市|中壢區&#039;)') || /geoOpenAreaExplorer\('[^']*'\)/.test(html), 'O-ENTRY-1 排行榜點列 onclick 呼叫 geoOpenAreaExplorer()（via Heatmap diagnostics hook，H1.4.1：排行榜 owner 已移到 Heatmap）');
+    assert((html.match(/geoOpenAreaExplorer\(/g) || []).length >= 2, 'O-ENTRY-2 排行榜列點擊與狀態徽章兩個進入點都呼叫 geoOpenAreaExplorer()（同一函式，不是兩套邏輯，via Heatmap diagnostics hook）');
     dom.window.close();
   }
   {
@@ -360,8 +360,11 @@ async function main() {
     document.body.innerHTML += '<div id="geo-kpi-cardentry"></div>';
     await window.refreshGeoDashboardKpiBlock('geo-kpi-cardentry');
     await sleep(20);
-    const html = document.getElementById('geo-kpi-cardentry').innerHTML;
-    assert(html.includes("geoOpenAreaExplorer('geo-rec-fixture-explorer')"), 'O-ENTRY-3 Recommendation Card「查看原因」按鈕呼叫 geoOpenAreaExplorer()（同一函式）');
+    // H1.4.1：Recommendation Card（Decision Center／Recommended Actions）
+    // owner 已移到 Heatmap 分頁，同一顆按鈕/同一支函式完全沒有改變，只是
+    // 輸出位置從 Dashboard container 移到 window.__geoHeatUiDiagnosticsHtml。
+    const html = window.__geoHeatUiDiagnosticsHtml || '';
+    assert(html.includes("geoOpenAreaExplorer('geo-rec-fixture-explorer')"), 'O-ENTRY-3 Recommendation Card「查看原因」按鈕呼叫 geoOpenAreaExplorer()（同一函式，via Heatmap diagnostics hook）');
     dom.window.close();
   }
 
@@ -372,6 +375,10 @@ async function main() {
     document.body.innerHTML += '<div id="geo-explorer-main"></div><button id="opener-explorer">o</button>';
     await window.refreshGeoDashboardKpiBlock('geo-explorer-main');
     await sleep(20);
+    // H1.4.1：Explorer/Drawer owner 已移到 Heatmap 分頁，手動掛 Heatmap owner fixture
+    // 讓 'geo-explorer-main-drawer' 真的存在於 DOM（純測試 fixture，不代表 Production ownership，
+    // 見 geoHeatUiRenderPanel()/geoHeatUiSwitchTab() 的 Target Runtime 才是真正驗證）。
+    document.body.innerHTML += `<div id="geo-explorer-main-heatmap-owner">${window.__geoHeatUiDiagnosticsHtml || ''}</div>`;
     document.getElementById('opener-explorer').focus();
     window.geoOpenAreaExplorer('桃園市|中壢區');
     await sleep(30);
@@ -399,6 +406,10 @@ async function main() {
     document.body.innerHTML += '<div id="geo-explorer-filters"></div>';
     await window.refreshGeoDashboardKpiBlock('geo-explorer-filters');
     await sleep(20);
+    // H1.4.1：Explorer/Drawer owner 已移到 Heatmap 分頁，手動掛 Heatmap owner fixture
+    // 讓 'geo-explorer-filters-drawer' 真的存在於 DOM（純測試 fixture，不代表 Production ownership，
+    // 見 geoHeatUiRenderPanel()/geoHeatUiSwitchTab() 的 Target Runtime 才是真正驗證）。
+    document.body.innerHTML += `<div id="geo-explorer-filters-heatmap-owner">${window.__geoHeatUiDiagnosticsHtml || ''}</div>`;
     window.geoDashboardFilters.source = 'fb';
     window.geoDashboardFilters.campaign = 'summer';
     const callsBefore = fetchCalls.length;
@@ -420,6 +431,10 @@ async function main() {
     document.body.innerHTML += '<div id="geo-explorer-race"></div>';
     await window.refreshGeoDashboardKpiBlock('geo-explorer-race');
     await sleep(20);
+    // H1.4.1：Explorer/Drawer owner 已移到 Heatmap 分頁，手動掛 Heatmap owner fixture
+    // 讓 'geo-explorer-race-drawer' 真的存在於 DOM（純測試 fixture，不代表 Production ownership，
+    // 見 geoHeatUiRenderPanel()/geoHeatUiSwitchTab() 的 Target Runtime 才是真正驗證）。
+    document.body.innerHTML += `<div id="geo-explorer-race-heatmap-owner">${window.__geoHeatUiDiagnosticsHtml || ''}</div>`;
     window.geoOpenAreaExplorer('桃園市|中壢區'); // Request A
     await sleep(5);
     window.geoOpenAreaExplorer('桃園市|八德區'); // Request B（切換更快，A 還沒完成）
@@ -436,6 +451,10 @@ async function main() {
     document.body.innerHTML += '<div id="geo-explorer-error"></div>';
     await window.refreshGeoDashboardKpiBlock('geo-explorer-error');
     await sleep(20);
+    // H1.4.1：Explorer/Drawer owner 已移到 Heatmap 分頁，手動掛 Heatmap owner fixture
+    // 讓 'geo-explorer-error-drawer' 真的存在於 DOM（純測試 fixture，不代表 Production ownership，
+    // 見 geoHeatUiRenderPanel()/geoHeatUiSwitchTab() 的 Target Runtime 才是真正驗證）。
+    document.body.innerHTML += `<div id="geo-explorer-error-heatmap-owner">${window.__geoHeatUiDiagnosticsHtml || ''}</div>`;
     window.geoOpenAreaExplorer('桃園市|中壢區');
     await sleep(30);
     const html = document.getElementById('geo-explorer-error-drawer').innerHTML;
@@ -466,6 +485,10 @@ async function main() {
     document.body.innerHTML += '<div id="geo-explorer-a11y"></div><button id="opener-a11y">o</button>';
     await window.refreshGeoDashboardKpiBlock('geo-explorer-a11y');
     await sleep(20);
+    // H1.4.1：Explorer/Drawer owner 已移到 Heatmap 分頁，手動掛 Heatmap owner fixture
+    // 讓 'geo-explorer-a11y-drawer' 真的存在於 DOM（純測試 fixture，不代表 Production ownership，
+    // 見 geoHeatUiRenderPanel()/geoHeatUiSwitchTab() 的 Target Runtime 才是真正驗證）。
+    document.body.innerHTML += `<div id="geo-explorer-a11y-heatmap-owner">${window.__geoHeatUiDiagnosticsHtml || ''}</div>`;
     document.getElementById('opener-a11y').focus();
     window.geoOpenAreaExplorer('桃園市|中壢區');
     await sleep(30);
@@ -486,6 +509,10 @@ async function main() {
     document.body.innerHTML += '<div id="geo-explorer-empty"></div>';
     await window.refreshGeoDashboardKpiBlock('geo-explorer-empty');
     await sleep(20);
+    // H1.4.1：Explorer/Drawer owner 已移到 Heatmap 分頁，手動掛 Heatmap owner fixture
+    // 讓 'geo-explorer-empty-drawer' 真的存在於 DOM（純測試 fixture，不代表 Production ownership，
+    // 見 geoHeatUiRenderPanel()/geoHeatUiSwitchTab() 的 Target Runtime 才是真正驗證）。
+    document.body.innerHTML += `<div id="geo-explorer-empty-heatmap-owner">${window.__geoHeatUiDiagnosticsHtml || ''}</div>`;
     window.geoOpenAreaExplorer('桃園市|中壢區');
     await sleep(30);
     const html = document.getElementById('geo-explorer-empty-drawer').innerHTML;

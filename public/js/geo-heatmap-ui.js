@@ -70,6 +70,9 @@ function _geoHeatUiResetStateForTest() {
   geoHeatUiState.visitorRange = 'today';
   geoHeatUiState.unmappedGlobalMetric = null;
   _geoHeatUiExposeWindowState();
+  // H1.4.1：測試隔離時一併重置 Dashboard Map Wheel Interaction State，避免
+  // 上一個測試殘留的 listener／enabled 狀態影響下一個測試。
+  if (typeof _geoDashboardMapResetInteractionStateForTest === 'function') _geoDashboardMapResetInteractionStateForTest();
 }
 
 function _geoHeatUiEsc(s) {
@@ -77,6 +80,147 @@ function _geoHeatUiEsc(s) {
   return String(s == null ? '' : s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// ════════════════════════════════════════════════════════════════
+// 一之二、H1.4.1（Geo Dashboard Cleanup 需求文件二十四～二十八）
+// Dashboard Map Wheel-Zoom Interaction State ——純粹的 Map UX 狀態，跟
+// GA4 Query State（dashboardGa4State／geoGa4H1State）完全無關，不共用、不
+// 放進那些物件裡面。
+//
+// 規則：
+//   - Dashboard 分頁：預設 scrollWheelZoom disabled；點擊地圖 → enabled；
+//     Esc／點地圖外部／切到 Heatmap／Dashboard 重新 activate → 一律回到
+//     disabled（不記住上一輪狀態）。
+//   - Heatmap 分頁：scrollWheelZoom 永遠 enabled（分析頁面，需要完整地圖
+//     操作），不顯示 Dashboard 的 click-to-activate 提示。
+//   - +/- Zoom Control 完全不受影響（不同的 Leaflet handler）。
+//   - Idempotent：所有 listener 綁定都先記錄在 state 裡，重複呼叫
+//     activate 不會疊加第二份 listener（需求文件二十五）。
+// ════════════════════════════════════════════════════════════════
+let dashboardMapInteractionState = {
+  wheelEnabled: false,
+  bound: false,
+  mapContainerId: null,
+  clickHandler: null,
+  escHandler: null,
+  outsideHandler: null,
+};
+if (typeof window !== 'undefined') window.dashboardMapInteractionState = dashboardMapInteractionState;
+function _geoDashboardMapResetInteractionStateForTest() {
+  _geoDashboardMapUnbindWheelLifecycle();
+  dashboardMapInteractionState.wheelEnabled = false;
+  dashboardMapInteractionState.bound = false;
+  dashboardMapInteractionState.mapContainerId = null;
+}
+
+const GEO_DASHBOARD_MAP_WHEEL_HINT = Object.freeze({
+  disabled: '點擊地圖後可使用滾輪縮放',
+  enabled: '滾輪縮放已啟用・按 Esc 關閉',
+});
+
+function _geoDashboardMapWheelHintEl(mapContainerId) {
+  if (typeof document === 'undefined' || !mapContainerId) return null;
+  return document.getElementById(`${mapContainerId}-wheel-hint`);
+}
+function _geoDashboardMapRenderHint(mapContainerId, mode) {
+  const el = _geoDashboardMapWheelHintEl(mapContainerId);
+  if (!el) return;
+  el.textContent = GEO_DASHBOARD_MAP_WHEEL_HINT[mode] || '';
+  el.hidden = false;
+  el.setAttribute('data-geo-wheel-mode', mode);
+}
+function _geoDashboardMapHideHint(mapContainerId) {
+  const el = _geoDashboardMapWheelHintEl(mapContainerId);
+  if (!el) return;
+  el.hidden = true;
+  el.textContent = '';
+  el.removeAttribute('data-geo-wheel-mode');
+}
+
+// geoDashboardMapDisableWheel/EnableWheel——實際操作 Leaflet
+// map.scrollWheelZoom handler，並同步更新 hint badge 文字。與地圖是否已
+// 建立無關的呼叫一律安全略過（typeof/guard），不拋例外。
+function geoDashboardMapDisableWheel() {
+  const map = (typeof geoMapState !== 'undefined' && geoMapState) ? geoMapState.instance : null;
+  if (map && map.scrollWheelZoom && typeof map.scrollWheelZoom.disable === 'function') map.scrollWheelZoom.disable();
+  dashboardMapInteractionState.wheelEnabled = false;
+  _geoDashboardMapRenderHint(dashboardMapInteractionState.mapContainerId, 'disabled');
+}
+function geoDashboardMapEnableWheel() {
+  const map = (typeof geoMapState !== 'undefined' && geoMapState) ? geoMapState.instance : null;
+  if (map && map.scrollWheelZoom && typeof map.scrollWheelZoom.enable === 'function') map.scrollWheelZoom.enable();
+  dashboardMapInteractionState.wheelEnabled = true;
+  _geoDashboardMapRenderHint(dashboardMapInteractionState.mapContainerId, 'enabled');
+}
+
+function _geoDashboardMapOnMapClick() {
+  if (!dashboardMapInteractionState.wheelEnabled) geoDashboardMapEnableWheel();
+}
+function _geoDashboardMapOnKeydown(e) {
+  if (e && e.key === 'Escape' && dashboardMapInteractionState.wheelEnabled) geoDashboardMapDisableWheel();
+}
+function _geoDashboardMapOnOutsideClick(e) {
+  if (!dashboardMapInteractionState.wheelEnabled) return;
+  if (typeof document === 'undefined') return;
+  const canvas = dashboardMapInteractionState.mapContainerId && document.getElementById(dashboardMapInteractionState.mapContainerId);
+  if (canvas && e && e.target && typeof canvas.contains === 'function' && canvas.contains(e.target)) return; // 點在地圖畫布內，不算 outside
+  geoDashboardMapDisableWheel();
+}
+
+// geoDashboardMapBindWheelLifecycle()——需求文件二十五：Idempotent，重複
+// 呼叫（同一個 mapContainerId）不會新增第二份 listener；換了容器（例如
+// 切店）才會先解掉舊的再重綁。
+function geoDashboardMapBindWheelLifecycle(mapContainerId) {
+  if (typeof document === 'undefined' || !mapContainerId) return false;
+  if (dashboardMapInteractionState.bound && dashboardMapInteractionState.mapContainerId !== mapContainerId) {
+    _geoDashboardMapUnbindWheelLifecycle();
+  }
+  dashboardMapInteractionState.mapContainerId = mapContainerId;
+  if (dashboardMapInteractionState.bound) return true;
+
+  const canvas = document.getElementById(mapContainerId);
+  if (canvas) {
+    dashboardMapInteractionState.clickHandler = _geoDashboardMapOnMapClick;
+    canvas.addEventListener('click', dashboardMapInteractionState.clickHandler);
+  }
+  dashboardMapInteractionState.escHandler = _geoDashboardMapOnKeydown;
+  document.addEventListener('keydown', dashboardMapInteractionState.escHandler);
+  dashboardMapInteractionState.outsideHandler = _geoDashboardMapOnOutsideClick;
+  document.addEventListener('click', dashboardMapInteractionState.outsideHandler, true);
+  dashboardMapInteractionState.bound = true;
+  return true;
+}
+function _geoDashboardMapUnbindWheelLifecycle() {
+  if (typeof document === 'undefined') return;
+  const canvas = dashboardMapInteractionState.mapContainerId && document.getElementById(dashboardMapInteractionState.mapContainerId);
+  if (canvas && dashboardMapInteractionState.clickHandler) canvas.removeEventListener('click', dashboardMapInteractionState.clickHandler);
+  if (dashboardMapInteractionState.escHandler) document.removeEventListener('keydown', dashboardMapInteractionState.escHandler);
+  if (dashboardMapInteractionState.outsideHandler) document.removeEventListener('click', dashboardMapInteractionState.outsideHandler, true);
+  dashboardMapInteractionState.clickHandler = null;
+  dashboardMapInteractionState.escHandler = null;
+  dashboardMapInteractionState.outsideHandler = null;
+  dashboardMapInteractionState.bound = false;
+}
+
+// geoDashboardMapActivate()——Dashboard 分頁變成目前可見畫面時呼叫（首次
+// Direct Load render，或從 Heatmap 切回都算）。需求文件七：不延續上一輪
+// enabled 狀態，一律重新回到 disabled + 顯示 hint。
+function geoDashboardMapActivate(mapContainerId) {
+  if (!mapContainerId) return false;
+  geoDashboardMapBindWheelLifecycle(mapContainerId);
+  geoDashboardMapDisableWheel();
+  return true;
+}
+// geoDashboardMapDeactivateForHeatmap()——切到 Heatmap 前呼叫：解掉
+// Dashboard 專屬的 click/Esc/outside listener（Heatmap 不需要這套
+// click-to-activate 行為），並讓滾輪維持永遠可用、隱藏 hint badge。
+function geoDashboardMapDeactivateForHeatmap() {
+  _geoDashboardMapUnbindWheelLifecycle();
+  const map = (typeof geoMapState !== 'undefined' && geoMapState) ? geoMapState.instance : null;
+  if (map && map.scrollWheelZoom && typeof map.scrollWheelZoom.enable === 'function') map.scrollWheelZoom.enable();
+  dashboardMapInteractionState.wheelEnabled = true;
+  _geoDashboardMapHideHint(dashboardMapInteractionState.mapContainerId);
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -116,6 +260,9 @@ function geoHeatUiSwitchTab(containerId, tab) {
       const map = window.geoMapState && window.geoMapState.instance;
       geoDashboardGa4Deactivate(map);
     }
+    // H1.4.1（需求文件八）：進 Heatmap 前，Dashboard 的 click-to-activate
+    // 滾輪鎖必須解除——Heatmap 是分析頁，滾輪縮放永遠可用。
+    geoDashboardMapDeactivateForHeatmap();
     _geoHeatUiEnsureMapReuse(containerId);
     _geoHeatUiBindRankingEvents(containerId);
     geoHeatUiFetchAndRender(containerId);
@@ -135,6 +282,10 @@ function geoHeatUiSwitchTab(containerId, tab) {
     // cleanup）。
     _geoHeatUiCleanupForDashboard(containerId);
     _geoHeatUiRestoreChoropleth();
+    // H1.4.1（需求文件七）：切回 Dashboard 一律重新回到 scrollWheelZoom
+    // disabled + 顯示 click-to-activate 提示，不記住上一輪是否曾經
+    // enabled 過。
+    if (geoHeatUiState.mapContainerId) geoDashboardMapActivate(geoHeatUiState.mapContainerId);
     // Stage 5：Heatmap cleanup 完成、choropleth 恢復後，才啟動 Dashboard
     // 自己的 GA4 Overlay（讀自己的 persisted range，不會拿到 Heatmap H1
     // 剛剛用過的 markerGroup——那個已經在上面 cleanup 步驟被移除／destroy）。
@@ -868,10 +1019,22 @@ function geoHeatUiRenderSharedMetricBar(containerId) {
   return (typeof geoVisitorMetricBarHtml === 'function') ? geoVisitorMetricBarHtml(containerId) : '';
 }
 
+// H1.4.1（Geo Dashboard Cleanup 問題二、三／需求文件十一、十二）：舊 8-metric
+// 選單與 POS Visitor Geo 診斷（8 張 KPI 卡＋Geo Quality）從 Dashboard 移到
+// 這裡——`window.__geoHeatUiDiagnosticsHtml` 由 geo-intelligence.js 的
+// `refreshGeoDashboardKpiBlock()` 在同一次渲染裡先算好（用同一份、完全沒
+// 修改過的 `geoHeatUiRenderSharedMetricBar()`/`_geoRenderKpiLiveHtml()`/
+// `renderGeoQualityBlock()`），這裡只負責把已經算好的 HTML 接進 Heatmap
+// 面板，不是另外重新實作一份。未設定時安全降級為空字串（例如某些既有
+// 測試直接呼叫 geoHeatUiRenderPanel() 而沒有先跑過 Dashboard render）。
+function _geoHeatUiDiagnosticsBlockHtml() {
+  return (typeof window !== 'undefined' && window.__geoHeatUiDiagnosticsHtml) || '';
+}
 function geoHeatUiRenderPanel(containerId) {
   const hidden = geoHeatUiState.activeTab !== 'heatmap';
   const orderLayerHidden = geoHeatUiState.layer !== 'order';
   return `<div id="${_geoHeatUiEsc(containerId)}-panel-heatmap" class="geo-heat-root" role="tabpanel" aria-label="Heatmap" ${hidden ? 'hidden' : ''}>
+    <div id="${_geoHeatUiEsc(containerId)}-heat-diagnostics">${_geoHeatUiDiagnosticsBlockHtml()}</div>
     ${geoHeatUiLayerToggleHtml(containerId)}
     <div id="${_geoHeatUiEsc(containerId)}-order-layer" ${orderLayerHidden ? 'hidden' : ''}>
     ${geoHeatUiControlBarHtml()}
@@ -1084,6 +1247,14 @@ if (typeof module !== 'undefined' && module.exports) {
     // Layer Lifecycle Cleanup，第一階段）
     _geoHeatUiCleanupForDashboard, _geoHeatUiRemoveLayerIfPresent,
     _geoHeatUiDashboardGa4Ids,
+    // H1.4.1（Geo Dashboard Cleanup — Dashboard Map Wheel-Zoom Interaction）
+    GEO_DASHBOARD_MAP_WHEEL_HINT,
+    geoDashboardMapActivate, geoDashboardMapDeactivateForHeatmap,
+    geoDashboardMapEnableWheel, geoDashboardMapDisableWheel,
+    geoDashboardMapBindWheelLifecycle, _geoDashboardMapUnbindWheelLifecycle,
+    _geoDashboardMapOnMapClick, _geoDashboardMapOnKeydown, _geoDashboardMapOnOutsideClick,
+    _geoDashboardMapResetInteractionStateForTest,
+    get dashboardMapInteractionState() { return dashboardMapInteractionState; },
     get geoHeatUiState() { return geoHeatUiState; },
   };
 }

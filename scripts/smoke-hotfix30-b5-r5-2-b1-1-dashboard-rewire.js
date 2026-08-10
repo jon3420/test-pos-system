@@ -231,10 +231,18 @@ async function main() {
     return { dom, fetchCalls, caughtErrors, container };
   }
   function qs(url) { return Object.fromEntries(new URL(url, 'http://localhost/').searchParams); }
+  // H1.4.1（Geo Dashboard Cleanup, Intentional UI Contract Change）：
+  // window.__geoHeatUiDiagnosticsHtml 是 refreshGeoDashboardKpiBlock()
+  // 產生的 Heatmap diagnostics hook（KPI 卡／Geo Quality／Top-3／排行榜／
+  // Recommended Actions／Empty 提示），這支測試環境沒有載入
+  // geo-heatmap-ui.js，所以沒有 Heatmap 分頁可以實際消費它，但 hook 本身
+  // 仍然會被正確賦值——用來驗證「邏輯/資料完全沒有被刪除，只是輸出位置
+  // 從 Dashboard 移到 Heatmap」。
+  function diagHtml(dom) { return (dom.window.__geoHeatUiDiagnosticsHtml) || ''; }
 
   // ── B1. Dashboard 不再依賴舊摘要當主要資料來源 ──────────────────
   {
-    const { container, fetchCalls } = await setupDashboard();
+    const { dom, container, fetchCalls } = await setupDashboard();
     await new Promise((r) => setTimeout(r, 60));
     const geoCalls = fetchCalls.filter((c) => c.url.includes('/api/analytics/geo/'));
     assert(geoCalls.length >= 4, 'B: renderDashboardGeoIntelligence triggers real /api/analytics/geo/* calls (overview/funnel/alerts/county-summary)', `got ${geoCalls.length} calls`);
@@ -242,7 +250,11 @@ async function main() {
     assert(geoCalls.some((c) => c.url.includes('/funnel')), 'B: funnel endpoint called');
     assert(geoCalls.some((c) => c.url.includes('/alerts')), 'B: alerts endpoint called');
     assert(geoCalls.some((c) => c.url.includes('/county-summary')), 'B: county-summary endpoint called');
-    assert(container.innerHTML.includes('進站訪客'), 'B: KPI block renders visitor count label sourced from live API, not just legacy summary text');
+    // H1.4.1：KPI block（-geo-kpi-live）不再輸出到 Dashboard container，
+    // 改為輸出到 Heatmap diagnostics hook（精準用 DOM owner id 判斷，避免
+    // 跟 Dashboard 其他區塊——例如商機建議文案——的合法文字誤判）。
+    assert(!/id="[^"]*-geo-kpi-live"/.test(container.innerHTML), 'B: KPI block no longer rendered inline on Dashboard (moved to Heatmap, H1.4.1)');
+    assert(diagHtml(dom).includes('進站訪客'), 'B: KPI block still renders visitor count label sourced from live API, not just legacy summary text — available via Heatmap diagnostics hook');
     assert(!/top_intent_areas|high_traffic_low_conversion/.test(container.innerHTML), 'B: rendered HTML does not leak raw legacy geo_summary field names');
   }
 
@@ -301,14 +313,20 @@ async function main() {
 
   // ── C. KPI ────────────────────────────────────────────────────
   {
-    const { container } = await setupDashboard();
+    const { dom, container } = await setupDashboard();
     await new Promise((r) => setTimeout(r, 60));
     const html = container.innerHTML;
-    assert(html.includes('進站訪客'), 'C: KPI shows 進站訪客');
-    assert(html.includes('加入購物車'), 'C: KPI shows 加入購物車');
-    assert(html.includes('開始結帳'), 'C: KPI shows 開始結帳');
-    assert(html.includes('完成訂單'), 'C: KPI shows 完成訂單');
-    assert(html.includes('整體成交率'), 'C: KPI shows 整體成交率');
+    const diag = diagHtml(dom);
+    // H1.4.1（Intentional UI Contract Change）：這組 5-card KPI 子字串
+    // 相容區塊與 Geo Quality 徽章不再輸出到 Dashboard container，改輸出到
+    // Heatmap diagnostics hook——先用精準 DOM owner id 確認 Dashboard 端
+    // 乾淨，再確認同一份資料/邏輯仍然存在於 hook 裡（不是被刪除）。
+    assert(!/id="[^"]*-geo-kpi-live"/.test(html), 'C: KPI block (-geo-kpi-live) no longer rendered on Dashboard (moved to Heatmap, H1.4.1)');
+    assert(diag.includes('進站訪客'), 'C: KPI shows 進站訪客 (via Heatmap diagnostics hook)');
+    assert(diag.includes('加入購物車'), 'C: KPI shows 加入購物車 (via Heatmap diagnostics hook)');
+    assert(diag.includes('開始結帳'), 'C: KPI shows 開始結帳 (via Heatmap diagnostics hook)');
+    assert(diag.includes('完成訂單'), 'C: KPI shows 完成訂單 (via Heatmap diagnostics hook)');
+    assert(diag.includes('整體成交率'), 'C: KPI shows 整體成交率 (via Heatmap diagnostics hook)');
     // fix18-10-hotfix30-B5-R5.3-A7（Geo KPI Single Source Integration）：
     // 「進站訪客/加入購物車/開始結帳/完成訂單/整體成交率」這組 KPI 卡片
     // 正式資料來源改為 geoVisitorState.funnel（Geo Event Engine），不再讀
@@ -322,31 +340,37 @@ async function main() {
     // 佔位文字，而不是偷偷 fallback 顯示 vm.funnel 的 67（需求文件九：
     // Source-of-Truth Guard，API 未就緒時不得假裝有資料）。專屬 A7 regression
     // （scripts/smoke-hotfix30-b5-r5-3-a7-geo-kpi-single-source.js）另外用完整
-    // 載入 geo-visitor-layer.js 的環境驗證真正有資料時的正確顯示。
-    assert(html.includes('載入中…'), 'C（A7更新）: geo-visitor-layer.js 未載入時，KPI 卡片正確顯示 Geo Event Engine 載入中佔位文字，不 fallback 顯示 vm.funnel 的舊數字');
-    assert(!/\b67\b/.test(html), 'C（A7更新）: KPI 卡片不再包含 vm.funnel 的加總數字 67（Source-of-Truth Guard：不得混用 vm.funnel）');
-    assert(html.includes('Geo Quality'), 'C: Geo Quality section rendered');
+    // 載入 geo-visitor-layer.js 的環境驗證真正有資料時的正確顯示。H1.4.1：
+    // 這段驗證的內容本身沒變，只是改看 diagnostics hook 而非 Dashboard html。
+    assert(diag.includes('載入中…'), 'C（A7更新）: geo-visitor-layer.js 未載入時，KPI 卡片正確顯示 Geo Event Engine 載入中佔位文字，不 fallback 顯示 vm.funnel 的舊數字（via Heatmap diagnostics hook）');
+    assert(!/\b67\b/.test(diag), 'C（A7更新）: KPI 卡片不再包含 vm.funnel 的加總數字 67（Source-of-Truth Guard：不得混用 vm.funnel）（via Heatmap diagnostics hook）');
+    assert(!html.includes('Geo Quality'), 'C: Geo Quality section no longer rendered on Dashboard (moved to Heatmap, H1.4.1)');
+    assert(diag.includes('Geo Quality'), 'C: Geo Quality section still computed — available via Heatmap diagnostics hook');
   }
 
   // ── D. Top 3 ──────────────────────────────────────────────────
   {
-    const { container } = await setupDashboard();
+    const { dom, container } = await setupDashboard();
     await new Promise((r) => setTimeout(r, 60));
     const html = container.innerHTML;
-    assert(html.includes('高意願區域'), 'D: high-intent Top 3 section rendered');
-    assert(html.includes('高流量低轉換'), 'D: low-conversion Top 3 section rendered');
-    assert(html.includes('外送成交'), 'D: order/revenue-by-source-county Top 3 section rendered');
-    assert(html.includes('桃園市中壢區') || html.includes('中壢區'), 'D: fixture high-intent area label appears in rendered output');
+    const diag = diagHtml(dom);
+    assert(!html.includes('高意願區域') && !html.includes('高流量低轉換'), 'D: Top 3 sections no longer rendered on Dashboard (moved to Heatmap, H1.4.1)');
+    assert(diag.includes('高意願區域'), 'D: high-intent Top 3 section still computed — available via Heatmap diagnostics hook');
+    assert(diag.includes('高流量低轉換'), 'D: low-conversion Top 3 section still computed — available via Heatmap diagnostics hook');
+    assert(diag.includes('外送成交'), 'D: order/revenue-by-source-county Top 3 section still computed — available via Heatmap diagnostics hook');
+    assert(diag.includes('桃園市中壢區') || diag.includes('中壢區'), 'D: fixture high-intent area label appears in Heatmap diagnostics hook output');
   }
   {
-    // Unknown row must not silently vanish, and must be labeled.
-    const { container } = await setupDashboard({
+    // Unknown row must not silently vanish, and must be labeled — now inside
+    // the Heatmap diagnostics hook rather than the Dashboard container
+    // (H1.4.1: ranking table ownership moved, same underlying logic).
+    const { dom } = await setupDashboard({
       funnelFor: () => geoFunnelFixture({ areas: [
         { city: null, district: null, area_label: null, visitors: 30, add_to_cart_visitors: 25, begin_checkout_visitors: 20, submitted_order_visitors: 18, purchase_visitors: 15 },
       ] }),
     });
     await new Promise((r) => setTimeout(r, 60));
-    assert(container.innerHTML.includes('未知區域'), 'D: unknown-area row is explicitly labeled 未知區域, not silently dropped');
+    assert(diagHtml(dom).includes('未知區域'), 'D: unknown-area row is explicitly labeled 未知區域, not silently dropped (via Heatmap diagnostics hook)');
   }
 
   // ── E. 狀態：loading / empty / all-unknown / error / partial / ready ──
@@ -357,20 +381,25 @@ async function main() {
     await new Promise((r) => setTimeout(r, 80));
   }
   {
-    const { container } = await setupDashboard({
+    const { dom, container } = await setupDashboard({
       funnelFor: () => geoFunnelFixture({ areas: [] }),
       countyFor: () => geoCountySummaryFixture({ rows: [] }),
       overviewFor: () => geoOverviewFixture({ top_areas: [], data_quality: { status: 'insufficient_data', total_events: 0, identified_events: 0, unknown_events: 0, identified_rate: 0, unknown_rate: 0, minimum_sample: 10 } }),
     });
     await new Promise((r) => setTimeout(r, 60));
-    assert(container.innerHTML.includes('目前沒有符合條件的區域資料'), 'E: empty state shows the required empty message, not a bare "—"');
+    // H1.4.1：empty state 訊息本身就是明文禁止在 Dashboard 出現的
+    // no-data message（需求文件），一律移到 Heatmap diagnostics hook。
+    assert(!container.innerHTML.includes('目前沒有符合條件的區域資料'), 'E: empty state message no longer rendered on Dashboard (moved to Heatmap, H1.4.1)');
+    assert(diagHtml(dom).includes('目前沒有符合條件的區域資料'), 'E: empty state still shows the required empty message via Heatmap diagnostics hook, not a bare "—"');
   }
   {
-    const { container } = await setupDashboard({
+    const { dom, container } = await setupDashboard({
       overviewFor: () => geoOverviewFixture({ data_quality: { status: 'degraded', total_events: 100, identified_events: 0, unknown_events: 100, identified_rate: 0, unknown_rate: 1, minimum_sample: 10 } }),
     });
     await new Promise((r) => setTimeout(r, 60));
-    assert(container.innerHTML.includes('目前已有 Analytics 事件，但尚無可辨識區域'), 'E: all-unknown state shows dedicated message, distinct from plain empty state');
+    // H1.4.1：這是明文禁止的 Acquisition Geo warning，一律移到 Heatmap。
+    assert(!container.innerHTML.includes('目前已有 Analytics 事件，但尚無可辨識區域'), 'E: all-unknown state message no longer rendered on Dashboard (moved to Heatmap, H1.4.1)');
+    assert(diagHtml(dom).includes('目前已有 Analytics 事件，但尚無可辨識區域'), 'E: all-unknown state still shows dedicated message via Heatmap diagnostics hook, distinct from plain empty state');
   }
   {
     const { container } = await setupDashboard({ forceStatus: (u) => u.includes('/geo/overview') ? 500 : 0 });
@@ -379,10 +408,12 @@ async function main() {
     assert(container.innerHTML.includes('重新整理'), 'E: error state offers a 重新整理 (retry) control');
   }
   {
-    const { container } = await setupDashboard({ alertsFail: true });
+    const { dom, container } = await setupDashboard({ alertsFail: true });
     await new Promise((r) => setTimeout(r, 60));
-    assert(container.innerHTML.includes('進站訪客'), 'E: partial state (alerts failed) still renders core KPI (overview/funnel/county-summary succeeded)');
-    assert(container.innerHTML.includes('暫時無法載入'), 'E: partial state discloses that a sub-section failed, not silently omitted');
+    const diag = diagHtml(dom);
+    assert(!/id="[^"]*-geo-kpi-live"/.test(container.innerHTML), 'E: partial state — KPI block no longer rendered on Dashboard (moved to Heatmap, H1.4.1)');
+    assert(diag.includes('進站訪客'), 'E: partial state (alerts failed) still computes core KPI (overview/funnel/county-summary succeeded) — via Heatmap diagnostics hook');
+    assert(diag.includes('暫時無法載入'), 'E: partial state still discloses that a sub-section failed, not silently omitted — via Heatmap diagnostics hook');
   }
   {
     const { container } = await setupDashboard(null, { data_quality: { status: 'disabled', unknown_rate: 0 } });
@@ -436,8 +467,14 @@ async function main() {
     await Promise.all([p1, p2]);
     await new Promise((r) => setTimeout(r, 80));
 
-    assert(container.innerHTML.includes('第二次新資料區') || container.innerHTML.includes('進站訪客'), 'F: after two rapid calls, the DOM reflects the second (newer) request', container.innerHTML.slice(0, 150));
-    assert(!container.innerHTML.includes('第一次舊資料區'), 'F: the slower, superseded first request never overwrites the newer response on screen');
+    // H1.4.1：district 名稱／KPI 文字現在只出現在 Heatmap diagnostics hook
+    // （Top-3／排行榜／KPI 卡的 owner 都已移出 Dashboard container），改用
+    // window.__geoHeatUiDiagnosticsHtml 驗證「反映第二次新資料、不是舊資料」
+    // 這個 AbortController/generation-guard 行為本身（跟本輪 UI 搬遷無關，
+    // 邏輯完全沒有改變）。
+    const diagAfterAbort = dom.window.__geoHeatUiDiagnosticsHtml || '';
+    assert(diagAfterAbort.includes('第二次新資料區') || diagAfterAbort.includes('進站訪客'), 'F: after two rapid calls, the diagnostics hook reflects the second (newer) request', diagAfterAbort.slice(0, 150));
+    assert(!diagAfterAbort.includes('第一次舊資料區'), 'F: the slower, superseded first request never overwrites the newer response in the diagnostics hook');
   }
 
   // ── G. Privacy ───────────────────────────────────────────────

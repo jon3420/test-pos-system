@@ -411,6 +411,18 @@ function geoInitMap(containerId, rows) {
   if (geoMapState.instance) geoDestroyMap();
   geoMapState.containerId = containerId;
   geoMapState.instance = L.map(container);
+  // H1.4.1（Geo Dashboard Cleanup 需求文件四）：新建立的地圖一律預設關閉
+  // 滾輪縮放——原本 Leaflet 預設是 scrollWheelZoom:true，導致使用者只是
+  // 想往下捲頁面、滑鼠經過地圖就會被攔截去 zoom 地圖。實際的
+  // enable/disable 生命週期（Dashboard click-to-activate／Heatmap 永遠
+  // enable／Esc 或點外部恢復 disable）由 geo-heatmap-ui.js 的
+  // dashboardMapInteractionState 依 Tab 切換時機驅動（見該檔案），這裡只
+  // 負責「地圖一建立就是安全的關閉狀態」這個預設值本身。+/- Zoom Control
+  // 完全不受影響（Leaflet 的 zoomControl 跟 scrollWheelZoom 是兩個獨立
+  // handler）。
+  if (geoMapState.instance.scrollWheelZoom && typeof geoMapState.instance.scrollWheelZoom.disable === 'function') {
+    geoMapState.instance.scrollWheelZoom.disable();
+  }
   geoMapState.tileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '&copy; OpenStreetMap contributors',
   });
@@ -750,12 +762,22 @@ function geoRetryMap() {
 // geoSetMapMetric() 驅動，本檔案的 geoUpdateMapData()/geoSetMapMetric()/
 // geoGetFeatureStyle() 等既有函式簽名完全不變，只是不再由這裡的按鈕觸發。
 function geoRenderMapBlock(containerId) {
+  // H1.4.1（Geo Dashboard Cleanup 需求文件五／二十八）：地圖畫布外面包一層
+  // position:relative wrapper，讓 Scroll-Wheel Hint badge 用絕對定位疊在
+  // 地圖右上角，而不是插進 Leaflet 自己管理的容器內部（避免被 L.map() 的
+  // DOM 操作影響／蓋掉，也避免擋住地圖操作）。Hint 本身只是一個小型文字
+  // badge，預設 hidden，實際顯示/文字由 geo-heatmap-ui.js 的
+  // dashboardMapInteractionState 依目前 Tab／滾輪狀態控制。tabindex="0"
+  // 讓鍵盤使用者能 focus 到地圖畫布（Esc 才有意義退出滾輪模式）。
   return `<div class="geo-map-root">
     <div class="geo-map-header">
       <div class="geo-map-title">🗺️ Geo Intelligence Map</div>
       <div class="geo-map-subtitle">依行政區檢視營運表現，點擊可開啟區域分析</div>
     </div>
-    <div id="${escHtml(containerId)}" class="geo-map-canvas" role="application" aria-label="Geo Intelligence 行政區地圖">${geoBuildMapStatusHtml('loading_default')}</div>
+    <div class="geo-map-canvas-wrap" style="position:relative">
+      <div id="${escHtml(containerId)}" class="geo-map-canvas" role="application" aria-label="Geo Intelligence 行政區地圖" tabindex="0">${geoBuildMapStatusHtml('loading_default')}</div>
+      <div id="${escHtml(containerId)}-wheel-hint" class="geo-map-wheel-hint" role="status" aria-live="polite" hidden></div>
+    </div>
     <div id="${escHtml(containerId)}-legend" class="geo-map-legend" aria-live="polite"></div>
     <div id="${escHtml(containerId)}-summary" class="geo-map-summary" aria-live="polite"></div>
     <ul id="${escHtml(containerId)}-area-list" class="geo-map-area-list" aria-label="行政區清單（鍵盤可操作備援）"></ul>

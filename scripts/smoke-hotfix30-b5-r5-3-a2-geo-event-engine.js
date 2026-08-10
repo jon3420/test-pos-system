@@ -392,7 +392,15 @@ async function main() {
   assert(behavioralCheck.ok === true, 'A14-1b public/js/geo-heatmap.js：Behavioral Invariant Check 全數通過（stale-request guard／duplicate-request guard／backward compatibility／no-second-map／areas schema 等不變條件）', JSON.stringify((behavioralCheck.results || []).filter((r) => !r.ok)));
 
   const ORDER_HEATMAP_BASELINE_SHA256 = {
-    'public/js/geo-intelligence-map.js': '05a38b4a185ac556a948b7b6f78d6171f10e8b3f57237ac7d2c716871e0793d4',
+    // H1.4.1（TEST-ONLY, INTENTIONAL H1.4.1 PRODUCTION FILE CHANGE）：
+    // geo-intelligence-map.js 本輪唯一、明確授權的修改是問題一（滾輪縮放
+    // 預設關閉＋wheel-hint badge 容器），是需求文件本身列出的 Production
+    // Diff 預期檔案——不是未授權的 Engine 改動。這裡跟
+    // smoke-hotfix30-b5-r5-3-a1-1-heatmap-dashboard-integration.js／
+    // smoke-hotfix30-b5-r5-3-a1-2-visitor-geo-sync.js 使用同一組 64-char
+    // SHA256（H1.4.1 之後的真實檔案雜湊），三支測試對這個檔案的期待值
+    // 完全一致，不是各自 truncate/不同版本。
+    'public/js/geo-intelligence-map.js': '9997c0b84a867e27b11a1a499b06de0b83f78403dd9feba401a6edbc49f1970d',
     'public/js/geo-map-settings.js': 'f7ab62d8c163d015b342a29dae7098e27cd7e32a36a6ca999e32e19134510d1b',
     'public/data/geo/taiwan/manifest.json': 'bdd969e0cfaf65c2925e1ba099b0248fce1ad74624b1e2f8da484651342d33f1',
   };
