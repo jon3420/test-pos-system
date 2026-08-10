@@ -57,3 +57,13 @@ smoke-hotfix27-cd/27/28.js, smoke-hotfix29.js), zero new failures introduced by
 G1.3. This round touched only public/js/geo-heatmap-ui.js and
 public/js/geo-visitor-layer.js (metric sync entry point), plus new
 scripts/smoke-*-g1-3-*.js and scripts/static-audit-g1-3.js.
+
+H1.4.3 ROUND RECONFIRMATION: scripts/smoke-hotfix30-b5-r5-3-a7-geo-kpi-single-source.js
+(inherited transitively via H1.4.1->H1.4.2->H1.4.3 regression chain) failed once
+(1/87, assertion B4-2) during one H1.4.3 full-regression round, but passed 4/4
+when re-run standalone in isolation immediately after. H1.4.3's own new suites
+(Heatmap Range Runtime / Data Lineage Runtime / Static Audit) are appended at
+the END of the SUITE array, strictly after this suite, so they cannot be the
+cause of state leaking into it. Classified as pre-existing order-dependent
+flakiness (consistent with the long-documented pattern above), not a
+regression introduced by H1.4.3. No product code was changed to "fix" this.

@@ -68,6 +68,7 @@ const geoGa4H1State = {
   pollTimer: null,
   currentAbort: null,
   lastGoodPayload: null,
+  lastGoodRangeKey: null, // H1.4.3：lastGoodPayload 是「哪一個 range identity」的資料，見 _geoGa4H1RangeKey()／geoGa4H1Refresh() 的 stale fallback 判斷。
   destroyed: false, // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4-MAP-STATE Stage 6：見 geoGa4H1Destroy()／syncHandler 註解——Manual Sync 的 POST 沒有掛 AbortController，destroy() 無法取消它，只能靠這個旗標擋掉「late sync 完成後又 resurrect markerGroup」。
   // Stage 6.1：單靠 destroyed 布林值會有 ABA 風險——destroy() 之後如果
   // 很快又 init() 回來（同一個 panel 重新 activate），destroyed 會被
@@ -359,11 +360,28 @@ const GA4_H1_SORT_COLUMNS = Object.freeze([
   { key: 'last_synced', label: '最近同步', type: 'text' },
 ]);
 
+// H1.4.3（需求文件二十七～三十）：normalize.js 的 raw_location_key 是
+// country+region+city 組合，「不同 raw identity 都被 normalize 成同一個
+// display bucket（Unknown／Overseas／Other）」時，每個 raw identity 仍各自
+// 是一筆獨立 persisted row（沒有被 sync 階段合併，因為它們的 raw_location_key
+// 本來就不同——見 services/ga4GeoSyncService.js 的 merged Map）。過去這裡
+// 全部顯示成同一句「Overseas／Other」，畫面上看起來像是「兩筆完全相同的
+// 重複資料」，但底層其實是兩個不同國家/地區/城市的 raw row（真正的 GA4
+// Dimension 身分不同，不是 duplicate、也不能盲目 sum activeUsers 合併成一筆
+// ——需求文件二十九）。因此這裡改成附加原始 country/region/city context，
+// 讓使用者看得出「這是兩筆不同來源、只是都無法解析成台灣行政區」，而不是
+// 誤以為系統壞掉重複寫入。沒有任何 raw context 可用時（極舊資料／欄位
+// 缺失）才維持原始純文字，不強行加上空括號。
+function _geoGa4H1RawContextSuffix(r) {
+  const parts = [r.country_raw, r.region_raw, r.city_raw]
+    .filter((v) => v !== null && v !== undefined && String(v).trim() !== '');
+  return parts.length ? ('（' + parts.join(' / ') + '）') : '';
+}
 function _geoGa4H1RowLabel(r) {
-  return r.normalization_status === 'unknown' ? 'Unknown'
-    : r.normalization_status === 'overseas_or_other' ? 'Overseas／Other'
-    : r.normalization_status === 'ambiguous' ? 'Ambiguous'
-    : (r.district_name || r.county_name || 'Unknown');
+  if (r.normalization_status === 'unknown') return 'Unknown' + _geoGa4H1RawContextSuffix(r);
+  if (r.normalization_status === 'overseas_or_other') return 'Overseas／Other' + _geoGa4H1RawContextSuffix(r);
+  if (r.normalization_status === 'ambiguous') return 'Ambiguous' + _geoGa4H1RawContextSuffix(r);
+  return r.district_name || r.county_name || 'Unknown';
 }
 
 // _geoGa4H1FilterRows(rows, term) — 需求文件二 A：trim／case-insensitive／
@@ -594,7 +612,17 @@ const GA4_H1_STATUS_CODE_MAP = Object.freeze({
   unexpected_error: 'GA4 資料暫時無法取得，請稍後再試。',
 });
 
-function geoGa4H1RenderStatus(containerId, payload) {
+// H1.4.3（需求文件六十三／Manual QA 問題 1）：Dashboard 的
+// _geoDashboardGa4RenderLabel() 一直都有把 resolved.displayLabel（實際
+// 日期區間，例如「2026/08/04 ～ 2026/08/10」）顯示在畫面上；Heatmap H1
+// 這邊過去完全沒有對應的顯示位置——使用者在 Heatmap 點了「近7天」之後，
+// 畫面上找不到任何地方寫著「現在看到的是哪一段實際日期」，只能靠猜。這正是
+// Manual QA 誤把 8/3～8/9 的 Heatmap 資料拿去跟 8/4～8/10 的 Dashboard 資料
+// 互相比較、誤判成「資料不一致」的根源之一（見
+// H1.4.3_GA4_HEATMAP_RANGE_DATA_CONSISTENCY_REALITY_AUDIT.md 章節五）。這裡
+// 補上同樣語意的 rangeLabel（第三個參數，可選——既有呼叫端／既有測試不傳
+// 這個參數時行為完全不變，不破壞既有 Contract）。
+function geoGa4H1RenderStatus(containerId, payload, rangeLabel) {
   const el = document.getElementById(containerId);
   if (!el) return;
   let text = '';
@@ -610,6 +638,7 @@ function geoGa4H1RenderStatus(containerId, payload) {
   } else {
     text = `最後成功同步：${payload.last_sync_at_utc || '—'}`;
   }
+  if (rangeLabel) text = `查詢期間：${rangeLabel}｜${text}`;
   el.textContent = text;
 }
 
@@ -823,6 +852,20 @@ function geoGa4H1RenderToolbar(containerId, onChange) {
   };
 }
 
+// _geoGa4H1FetchRangeKey(mode, opts) — H1.4.3（需求文件三十六、三十七、
+// 五十七）：Historical Empty/Failed Range 的 stale fallback 只能拿「同一個
+// range identity 上一次成功的資料」重播一次（例如同一個 90d 正在自動
+// 輪詢，這次剛好網路抖動），絕不能把「使用者已經切到 90d，但上一次成功的
+// 其實是 7d 的資料」誤當成 90d 的合法快取繼續顯示——那正是 Manual QA
+// 回報的「Table 看起來還是舊資料，沒有跟著 Range 切換」的其中一種真實
+// 觸發路徑（見 H1.4.3_GA4_HEATMAP_RANGE_DATA_CONSISTENCY_REALITY_AUDIT.md
+// 章節五 之 D）。fetchMode==='realtime' 時 opts 為空物件，key 只用 mode
+// 本身即可（Realtime 沒有 startDate/endDate 概念）。
+function _geoGa4H1FetchRangeKey(mode, opts) {
+  if (mode === 'realtime') return 'realtime';
+  return `${mode}|${(opts && opts.startDate) || ''}|${(opts && opts.endDate) || ''}`;
+}
+
 async function geoGa4H1Refresh(ids, mapInstance) {
   const myGeneration = ++geoGa4H1State.generation;
   geoGa4H1RenderStatus(ids.status, null);
@@ -834,6 +877,7 @@ async function geoGa4H1Refresh(ids, mapInstance) {
   // 誤導使用者。
   let fetchMode = 'realtime';
   let fetchOpts = {};
+  let resolvedRangeLabel = null; // H1.4.3：只有 Historical 才有實際日期區間可顯示，Realtime 維持 null（不顯示查詢期間字樣）。
   if (geoGa4H1State.mode !== 'realtime') {
     const resolved = _geoGa4H1ResolveRange();
     if (!resolved.ok) {
@@ -844,6 +888,7 @@ async function geoGa4H1Refresh(ids, mapInstance) {
     }
     fetchMode = resolved.apiRange;
     fetchOpts = { startDate: resolved.startDate, endDate: resolved.endDate };
+    resolvedRangeLabel = resolved.displayLabel;
   }
 
   let payload;
@@ -857,13 +902,23 @@ async function geoGa4H1Refresh(ids, mapInstance) {
 
   if (myGeneration !== geoGa4H1State.generation) return;
 
+  const currentRangeKey = _geoGa4H1FetchRangeKey(fetchMode, fetchOpts);
   if (payload && payload.success) {
     geoGa4H1State.lastGoodPayload = payload;
-  } else if (geoGa4H1State.lastGoodPayload) {
+    geoGa4H1State.lastGoodRangeKey = currentRangeKey;
+  } else if (geoGa4H1State.lastGoodPayload && geoGa4H1State.lastGoodRangeKey === currentRangeKey) {
+    // 只有「上一次成功的資料剛好也是現在這個 range identity」才能當 stale
+    // fallback 重播；否則就是別的 range 的資料，繼續往下走空/錯誤狀態
+    // （不得把它偽裝成這個 range 的合法快取——需求文件三十七、五十七）。
     payload = { ...geoGa4H1State.lastGoodPayload, success: true, stale: true };
+  } else if (payload && payload.success === false) {
+    // 需求文件三十七：現在這個 range 沒有可用的「同 identity」快取可以
+    // fallback，一律顯示空 Table／錯誤狀態，不得殘留任何其他 range 的
+    // 舊資料在畫面上誤導使用者。
+    payload = { success: false, code: (payload && payload.code) || 'unexpected_error' };
   }
 
-  geoGa4H1RenderStatus(ids.status, payload);
+  geoGa4H1RenderStatus(ids.status, payload, resolvedRangeLabel);
   if (!payload || payload.success === false) {
     if (ids.table) geoGa4H1RenderTable(ids.table, []);
     return;
@@ -933,7 +988,7 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     geoGa4H1BuildTooltip, geoGa4H1RenderTable, geoGa4H1RenderStatus, geoGa4H1RenderToolbar,
     geoGa4H1RenderMarkers, geoGa4H1Fetch,
-    geoGa4H1RenderInteractiveTable, _geoGa4H1FilterRows, _geoGa4H1SortRows, _geoGa4H1RowLabel,
+    geoGa4H1RenderInteractiveTable, _geoGa4H1FilterRows, _geoGa4H1SortRows, _geoGa4H1RowLabel, _geoGa4H1RawContextSuffix, _geoGa4H1FetchRangeKey,
     _geoGa4H1Rate, _geoGa4H1PerUser, _geoGa4H1FormatPerUser, _geoGa4H1MetricValue, _geoGa4H1Esc, _geoGa4H1ValidMode, _geoGa4H1ValidMetric,
     geoGa4H1Init, geoGa4H1Destroy, geoGa4H1Refresh, geoGa4H1ClearMarkers,
     geoGa4H1State,
