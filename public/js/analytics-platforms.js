@@ -88,9 +88,27 @@
     payment_started: 'AddPaymentInfo',
     purchase: 'Purchase',
   };
+  // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.4｜GA4 view_item 重複觸發修正：
+  // view_product 是「商品卡進入視窗」的曝光訊號（IntersectionObserver，見
+  // line-order.html / line-shipping.html 的 _setupViewProductObserver），語意上是
+  // 清單曝光（list impression），不是使用者真的選擇/開啟/查看某一個特定商品。
+  // 之前把 view_product 對應成 GA4 view_item，導致每次 render（首次載入／換分類／
+  // 搜尋）時，畫面上任何進入視窗的商品卡都會各自送一次 view_item —— 這就是
+  // Production 回報「使用者只點開第一個商品一次，GA4 卻收到 9 次 view_item」的
+  // 根因（9 張商品卡各自曝光各送一次，而不是同一次點擊被送 9 次）。
+  // 移除這個對應：view_product 只留給內部 /api/analytics/events 記錄與既有 Meta
+  // ViewContent（本輪不變更 Meta 語意），不再流向 GA4 view_item。
+  //
+  // R5.4-G1.6-GA4-H1.4.4 Reality Audit 結論：目前 line-order.html / line-shipping.html
+  // 沒有任何「開啟/查看單一商品內容」的介面（沒有商品詳情 modal／drawer／頁面，
+  // 商品卡本身點擊不會觸發任何 UI 反應）。因此本輪刻意「不」新增 view_item 事件名稱
+  // 對應——那需要先由 Production 決定要不要新增一個真正的商品查看互動，而不是由
+  // tracking 層自行造一個看不見的「點卡片＝查看」語意。詳見
+  // H1.4.4_GA4_VIEW_ITEM_DUPLICATE_REALITY_AUDIT.md 第六節。
+  // 目前狀態：view_item 在 GA4_EVENT_MAP 中不存在任何 key／send site，
+  // 這是刻意的（Homepage Load Contract：view_item delta = 0，且沒有製造假事件）。
   const GA4_EVENT_MAP = {
     page_view: 'page_view',
-    view_product: 'view_item',
     add_to_cart: 'add_to_cart',
     begin_checkout: 'begin_checkout',
     payment_started: 'add_payment_info',
