@@ -329,7 +329,7 @@ function _av2TableWrap(inner) {
 
 // ── ① Dashboard（總覽）─────────────────────────────────────────────
 // fix18-10-hotfix24-A1（Part 8/11：Event 與 User 正式分離）：
-//   商品瀏覽／加入購物車／開始結帳 顯示的是「事件次數」（event_count，不去重），
+//   商品曝光／加入購物車／開始結帳 顯示的是「事件次數」（event_count，不去重），
 //   並在括號內附註「不重複人數」（unique_users）；總訪客維持不重複人數（本來就是
 //   進站的量測基準）；完成付款／訂單數維持「筆」（訂單為單位，本來就不該用人數）。
 function _av2RenderDashboard(data, v2) {
@@ -365,7 +365,7 @@ function _av2RenderDashboard(data, v2) {
 
   html += `<div class="analytics-kpi-grid">
     ${_card('總訪客', uniqUsers('page_view') + ' 人')}
-    ${cardWithUnique('商品瀏覽', evtCount('view_product'), uniqUsers('view_product'), ' 次')}
+    ${cardWithUnique('商品曝光', evtCount('view_product'), uniqUsers('view_product'), ' 次')}
     ${cardWithUnique('加入購物車', evtCount('add_to_cart'), uniqUsers('add_to_cart'), ' 次')}
     ${cardWithUnique('開始結帳', evtCount('begin_checkout'), uniqUsers('begin_checkout'), ' 次')}
     ${_card('完成付款', (purchaseStage?purchaseStage.count:0) + ' 筆', '', '#10b981')}
@@ -445,13 +445,20 @@ function _av2HealthBoxHtml(h) {
 // ── ② Product Funnel（依需求文件九：中文化標籤，滿版一列，指標平均分布 Grid）──
 // 註：這裡的 View/Add/Checkout/Purchase 沿用 Hotfix23-B 既有設計，本來就是
 // 「不重複人數／購物車數」（getProductRanking 內部欄位就叫 view_people／
-// cart_people），不是原始事件次數；因此標籤採用「瀏覽人數」而非「瀏覽次數」，
+// cart_people），不是原始事件次數；因此標籤採用「曝光人數」而非「瀏覽次數」，
 // 避免把人數標成次數，正好符合 Part 8/11「Event 與 User 不得混用」的精神。
+//
+// H1.4.5-PRODUCT-EXPOSURE-TO-CART-RATE：這裡的 view / view_people 來源是 internal
+// view_product（商品卡進入顧客可見視窗時的曝光訊號，IntersectionObserver 觸發），
+// 語意是「商品卡曝光不重複人數」，不是顧客主動點擊查看商品詳情頁，也不是 GA4
+// view_item（GA4 view_item 目前沒有對應的商品詳情頁功能，維持 0，詳見
+// H1.4.4_GA4_VIEW_ITEM_SEMANTICS）。畫面標籤因此由「瀏覽」改為「曝光」，
+// 但 API 欄位名稱（view / view_to_add_rate）維持不變，避免破壞性改名。
 function _av2RenderFunnel(v2) {
   const rows = v2.product_funnel || [];
   if (v2.insufficient_data || !rows.length) {
     return _section('🔻 商品漏斗 Product Funnel', _av2Empty('🔻', '尚無漏斗資料',
-      '此區間尚無足夠的瀏覽／加入購物車／結帳／付款事件，累積更多流量後即可看到每個商品的轉換漏斗。'));
+      '此區間尚無足夠的曝光／加入購物車／結帳／付款事件，累積更多流量後即可看到每個商品的轉換漏斗。'));
   }
   const stageBox = (labelZh, labelEn, value) => `<div style="text-align:center">
     <div style="font-size:.72rem;color:var(--text-secondary)">${labelZh}<br><span style="font-size:.62rem;opacity:.7">${labelEn}</span></div>
@@ -473,7 +480,7 @@ function _av2RenderFunnel(v2) {
           style="font-size:.75rem;padding:3px 10px;border-radius:99px;border:1px solid var(--border);background:transparent;color:#6366f1;cursor:pointer;white-space:nowrap">🔎 結帳中明細</button>
       </div>
       <div class="analytics-funnel-metrics">
-        ${stageBox('瀏覽人數', 'View Users', p.view)}
+        ${stageBox('曝光人數', 'Exposure Users', p.view)}
         ${stageBox('加入購物車人數', 'Cart Users', p.add_to_cart)}
         ${stageBox('結帳購物車數', 'Checkout Carts', p.checkout)}
         ${stageBox('完成訂單人數', 'Orders', p.purchase)}
@@ -483,14 +490,14 @@ function _av2RenderFunnel(v2) {
         </div>
       </div>
       <div id="${detailId}" style="display:none;gap:8px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
-        ${rateChip('瀏覽→加購', p.view_to_add_rate)}
+        ${rateChip('曝光→加購', p.view_to_add_rate)}
         ${rateChip('加購→結帳', p.add_to_checkout_rate)}
         ${rateChip('結帳→成交', p.checkout_to_purchase_rate)}
         <span style="font-size:.72rem;padding:2px 8px;border-radius:99px;background:rgba(76,175,80,.12);color:var(--success);white-space:nowrap">營收 ${_nt(p.revenue)}</span>
       </div>
     </div>`;
     }).join('');
-  return _section('🔻 商品漏斗 Product Funnel（瀏覽 → 加入購物車 → 結帳 → 成交）', items);
+  return _section('🔻 商品漏斗 Product Funnel（曝光 → 加入購物車 → 結帳 → 成交）', items);
 }
 
 // ── ③ 購物車放棄分析（獨立頁籤）──────────────────────────────────────

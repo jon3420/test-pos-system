@@ -412,7 +412,10 @@ function getAiInsightsV2(cartAbandonment, sourcePerformance, funnel, crm) {
     }
   });
 
-  // 規則 2：商品瀏覽高但加入購物車率低（view_to_add_rate 明顯偏低）
+  // 規則 2：商品曝光高但加入購物車率低（view_to_add_rate 明顯偏低）
+  // H1.4.5-PRODUCT-EXPOSURE-TO-CART-RATE：f.view 來源是 internal view_product（商品卡
+  // 曝光不重複人數），只改老闆看到的文字語意（瀏覽→曝光），不改樣本門檻、平均值計算、
+  // 異常判斷公式與 view_to_add_rate 這個 API 欄位名稱。
   const withReliableView = funnel.filter(f => f.view >= MIN_VIEW_SAMPLE_FOR_AI && f.view_to_add_rate !== null);
   if (withReliableView.length) {
     const avgViewToAdd = withReliableView.reduce((s, f) => s + f.view_to_add_rate, 0) / withReliableView.length;
@@ -421,8 +424,8 @@ function getAiInsightsV2(cartAbandonment, sourcePerformance, funnel, crm) {
         insights.push({
           type: 'low_view_to_cart',
           severity: 'medium',
-          problem: `「${f.product_name}」瀏覽量高但加入購物車率偏低`,
-          evidence: `瀏覽 ${f.view} 人，僅 ${f.add_to_cart} 人加入購物車（${f.view_to_add_rate}%，同期平均 ${round2(avgViewToAdd)}%）`,
+          problem: `「${f.product_name}」曝光高但加入購物車率偏低`,
+          evidence: `曝光 ${f.view} 人，僅 ${f.add_to_cart} 人加入購物車（${f.view_to_add_rate}%，同期平均 ${round2(avgViewToAdd)}%）`,
           actions: ['改善商品圖片', '改善商品描述', '檢查售價與份量呈現'],
           values: { product_name: f.product_name, view: f.view, add_to_cart: f.add_to_cart, view_to_add_rate: f.view_to_add_rate },
         });

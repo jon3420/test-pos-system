@@ -152,6 +152,7 @@ img{max-width:100%;display:block}
 .ship-cancelled-banner{background:#fce8e8;color:#b71c1c;text-align:center;padding:10px;border-radius:8px;font-weight:700;margin-bottom:14px}
 .track-btn{width:100%;padding:10px;margin-top:8px;background:#fff;color:var(--g);border:1.5px solid var(--g);border-radius:8px;font-size:13px;font-weight:700}
 </style>
+<link rel="stylesheet" href="/css/product-detail-modal.css">
 </head>
 <body>
 
@@ -306,6 +307,7 @@ img{max-width:100%;display:block}
 <script src="/js/analytics-attribution.js"></script>
 <script src="/js/analytics-platforms.js"></script>
 <script src="/js/line-member-gate.js"></script>
+<script src="/js/product-detail-modal.js"></script>
 <script>
 const params = new URLSearchParams(location.search);
 const STORE_ID = params.get('store_id') || '';
@@ -385,6 +387,10 @@ function _trackEvent(eventName, extra){
   if (eventName !== 'purchase') {
     try{
       const pp=(extra && extra.product_id) ? { content_ids:[String(extra.product_id)], content_type:'product' } : {};
+      // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.6：view_item 需要完整 GA4 items 陣列，
+      // 沿用既有 trackPlatformEvent() 分派，不新增第二套 gtag() 呼叫點。
+      if (extra && extra.items) pp.items = extra.items;
+      if (extra && extra.value !== undefined && extra.value !== null) pp.value = extra.value;
       AnalyticsPlatforms.trackPlatformEvent(eventName, pp);
     }catch(e){}
   }
@@ -896,7 +902,7 @@ function renderProductGrid(elId, products) {
     const qty = cart[p.id] ? cart[p.id].qty : 0;
     const soldOut = p.quota_remaining !== null && p.quota_remaining <= 0;
     return `
-      <div class="prod-card" data-pid="${p.id}">
+      <div class="prod-card" data-pid="${p.id}" tabindex="0" role="button" aria-label="查看${esc(p.name)}詳情">
         ${p.image ? `<img class="prod-img" src="${esc(p.image)}">` : `<div class="prod-ph">📦</div>`}
         <div class="prod-body">
           ${p.spec ? `<div class="prod-spec">${esc(p.spec)}</div>` : ''}
@@ -918,6 +924,57 @@ function renderProductGrid(elId, products) {
       </div>`;
   }).join('');
   _setupViewProductObserver(elId);
+  _bindProdCardDetailOpen(elId);
+}
+// fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.6：商品卡整卡（含圖片/名稱）可開啟商品
+// 詳情，但快速加入 [+]／[-][qty][+]（class="qty-btn"）維持原有行為，不得同時觸發
+// Modal（需求文件三）。用容器層級 delegation（與既有 bindQtyDelegation 同一慣例），
+// 避免商品卡重繪後個別綁定失效。同時支援 Enter/Space 鍵盤開啟。
+function _bindProdCardDetailOpen(containerId) {
+  const el = document.getElementById(containerId);
+  if (!el || el._detailBound) return;
+  el._detailBound = true;
+  el.addEventListener('click', (e) => {
+    if (e.target.closest('.qty-btn')) return;
+    const card = e.target.closest('.prod-card');
+    if (!card || !el.contains(card)) return;
+    openProductDetail(Number(card.dataset.pid));
+  });
+  el.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'Spacebar') return;
+    if (e.target.closest('.qty-btn')) return;
+    const card = e.target.closest('.prod-card');
+    if (!card || !el.contains(card)) return;
+    e.preventDefault();
+    openProductDetail(Number(card.dataset.pid));
+  });
+}
+
+function openProductDetail(pid) {
+  if (typeof SHOP_DATA === 'undefined' || !SHOP_DATA) return; // 頁面資料尚未載入完成時安全跳出，不報錯
+  const p = findProduct(pid);
+  if (!p) return; // 頁面資料尚未載入完成時安全跳出，不報錯（需求文件四）
+  const soldOut = p.quota_remaining !== null && p.quota_remaining !== undefined && p.quota_remaining <= 0;
+  const maxQty = (!soldOut && p.quota_remaining !== null && p.quota_remaining !== undefined)
+    ? Math.max(1, Number(p.quota_remaining)) : null;
+  ProductDetailModal.open({
+    id: p.id, name: p.name, price: Number(p.price) || 0,
+    image: p.image || '', description: p.description || '',
+    startQty: 1, maxQty, blocked: soldOut, blockedLabel: soldOut ? '已售完' : '',
+  }, {
+    onOpen: function () { _trackViewItemShipping(p); },
+    onAddToCart: function (prod, qty) {
+      if (soldOut) return false;
+      changeQty(pid, qty); // 沿用既有正式購物車 helper，不另建第二套邏輯
+      return true;
+    },
+  });
+}
+// GA4 view_item —— 只有商品詳情成功開啟時才送出，與 view_product（清單曝光）分離。
+function _trackViewItemShipping(p) {
+  const item = { item_id: String(p.id), item_name: p.name, price: Number(p.price) || 0, quantity: 1 };
+  if (p.category_name) item.item_category = p.category_name;
+  _trackEvent('view_item', { product_id: Number(p.id), quantity: 1, items: [item], value: Number(p.price) || 0 });
 }
 // fix18-10-hotfix23-A：view_product — 商品卡真正進入視窗時記錄一次（同一 session +
 // product_id 去重）

@@ -1402,17 +1402,21 @@ function renderDashboardProductsTable() {
     return '';
   };
 
-  el.innerHTML = `<table style="width:100%;min-width:680px;border-collapse:collapse;font-size:.8rem">
+  // H1.4.5-PRODUCT-EXPOSURE-TO-CART-RATE：internal view_product 的真實語意是「商品卡曝光」
+  // （商品卡進入顧客可見畫面），不是顧客主動點擊查看商品詳情，因此「瀏覽人數」改標「曝光人數」，
+  // 並在「加購人數」後面新增「曝光→加購率」（= 加購不重複人數 ÷ 曝光不重複人數 × 100%，
+  // 直接使用 API 回傳的 view_to_cart_rate，前端不重算）。「加入→成交率」改成較自然的「加購→成交率」。
+  el.innerHTML = `<table style="width:100%;min-width:760px;border-collapse:collapse;font-size:.8rem">
     <thead><tr style="color:var(--text-secondary,#64748b);font-size:.72rem">
       <th style="text-align:left;padding-bottom:6px">商品</th><th style="text-align:left;padding-bottom:6px">分級</th>
-      <th style="text-align:right;padding-bottom:6px">瀏覽人數</th><th style="text-align:right;padding-bottom:6px">加購人數</th><th style="text-align:right;padding-bottom:6px">加購數量</th>
+      <th style="text-align:right;padding-bottom:6px">曝光人數</th><th style="text-align:right;padding-bottom:6px">加購人數</th><th style="text-align:right;padding-bottom:6px">曝光→加購率</th><th style="text-align:right;padding-bottom:6px">加購數量</th>
       <th style="text-align:right;padding-bottom:6px">成交人數</th><th style="text-align:right;padding-bottom:6px">成交數量</th><th style="text-align:right;padding-bottom:6px">未成交人數</th>
-      <th style="text-align:right;padding-bottom:6px">加入→成交率</th>
+      <th style="text-align:right;padding-bottom:6px">加購→成交率</th>
     </tr></thead>
     <tbody>${list.map(p => `<tr class="db-v3-hover">
       <td style="padding:5px 0">${p.is_delisted ? `已下架商品 #${p.product_id}` : escHtml(p.product_name)}</td>
       <td style="padding:5px 0;font-size:.72rem">${tierBadge(p.product_id)}</td>
-      <td style="text-align:right">${p.view_people}</td><td style="text-align:right">${p.cart_people}</td><td style="text-align:right">${p.cart_qty}</td>
+      <td style="text-align:right">${p.view_people}</td><td style="text-align:right">${p.cart_people}</td><td style="text-align:right">${_fmtPct(p.view_to_cart_rate)}</td><td style="text-align:right">${p.cart_qty}</td>
       <td style="text-align:right">${p.purchase_people}</td><td style="text-align:right">${p.purchase_qty}</td><td style="text-align:right">${p.not_purchased_people}</td>
       <td style="text-align:right">${_fmtPct(p.cart_to_purchase_rate)}</td>
     </tr>`).join('')}</tbody></table>`;

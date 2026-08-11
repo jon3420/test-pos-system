@@ -83,6 +83,14 @@ function _sanitizeGeoForWrite(geo) {
 const EVENT_WHITELIST = [
   'page_view',
   'view_product',
+  // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.6（PRODUCT-DETAIL-CHECKOUT-FLOW）：
+  // 商品詳情正式上線後新增的真實互動事件——使用者主動點擊商品卡並成功開啟商品
+  // 詳情視窗時記錄一次（見 public/js/product-detail-modal.js + 各頁
+  // openProductDetail()）。與 view_product（清單曝光）語意完全分開，
+  // view_product 不得、也沒有映射成這個事件（見 CHANGELOG_HOTFIX30_B5_R5_1_B
+  // 與 public/js/analytics-platforms.js 內的 GA4_EVENT_MAP 說明）。沿用既有
+  // product_id/quantity 欄位，不新增資料表。
+  'view_item',
   'add_to_cart',
   'remove_from_cart',
   'begin_checkout',

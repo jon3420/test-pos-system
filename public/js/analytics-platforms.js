@@ -107,9 +107,15 @@
   // H1.4.4_GA4_VIEW_ITEM_DUPLICATE_REALITY_AUDIT.md 第六節。
   // 目前狀態：view_item 在 GA4_EVENT_MAP 中不存在任何 key／send site，
   // 這是刻意的（Homepage Load Contract：view_item delta = 0，且沒有製造假事件）。
+  // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.6｜PRODUCT-DETAIL-CHECKOUT-FLOW：
+  // 商品詳情 Modal 正式上線後，才新增這個 view_item 對應。與上方 H1.4.4 的
+  // 註解一致：view_product（清單曝光）永遠不映射到這裡；只有使用者主動點擊
+  // 商品卡並成功開啟商品詳情時，呼叫端（line-order.html/line-shipping.html
+  // 的 openProductDetail()）才會用 _trackEvent('view_item', {...}) 觸發一次。
   const GA4_EVENT_MAP = {
     page_view: 'page_view',
     add_to_cart: 'add_to_cart',
+    view_item: 'view_item',
     begin_checkout: 'begin_checkout',
     payment_started: 'add_payment_info',
     purchase: 'purchase',

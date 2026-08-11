@@ -20,9 +20,16 @@
 //   - add_to_cart / quantity 的測試透過「真的 dispatch click 事件到 buildCard() 產生的
 //     真實 DOM 節點」進行（Category G/H/I），對應使用者真的點擊畫面。
 //
-// 本輪 Reality Audit 結論：目前 codebase 沒有任何 product-detail view 介面，
+// 本輪 Reality Audit 結論（H1.4.4 當時）：目前 codebase 沒有任何 product-detail view 介面，
 // 商品卡本身沒有 onclick。Category G 的存在目的是把這件事鎖進 regression：
 // 未來如果有人不小心在 buildCard() 加了 onclick，這個測試會抓到。
+//
+// ── H1.4.6 CHANGELOG（SUPERSEDED，2026）──────────────────────────────────────
+// H1.4.6-PRODUCT-DETAIL-CHECKOUT-FLOW 正式新增了商品詳情 Modal，上面這個「商品卡
+// 不應該有 onclick／點擊不應該送 view_item」的假設已經過期。Category G／H／I／K／M
+// 已改寫為驗證新契約：「點擊卡片主體＝合法開啟商品詳情，剛好送 1 次 view_item；
+// 清單曝光（Cat A–F）與快速加入購物車（Cat H／I）仍然完全不會送 view_item」。
+// 其餘所有斷言（Cat A–F 清單曝光、Cat J ecommerce smoke）完全未被放寬。
 
 'use strict';
 
@@ -97,6 +104,7 @@ function loadPage(htmlFile) {
   win.localStorage = { getItem: k => (k in storage ? storage[k] : null), setItem: (k, v) => { storage[k] = String(v); }, removeItem: k => { delete storage[k]; } };
   win.sessionStorage = { getItem: k => (k in sstorage ? sstorage[k] : null), setItem: (k, v) => { sstorage[k] = String(v); }, removeItem: k => { delete sstorage[k]; } };
   win.alert = () => {};
+  win.scrollTo = () => {}; // jsdom 沒有實作真正的版面/捲動；避免 _unlockScroll() 的 Not implemented 噪音
   let threw = null;
   win.addEventListener('error', (e) => { threw = threw || (e.error || e.message); });
   return { win, gtagCalls, ioInstances, getThrown: () => threw };
@@ -167,22 +175,42 @@ async function run() {
     allCardsNow.forEach(c => io4.fireIntersect(c)); // 滾動來回，同一張卡可能被送第二次 intersect
     check('[Cat F] scroll 情境（同批卡片重複進入 viewport） → view_item 仍 = 0', viewItemCount(gtagCalls) === 0);
 
-    // Category G — 點擊商品卡本體（沒有 product-detail view，Reality Audit 已確認）
+    // Category G — 點擊商品卡本體
+    // ── H1.4.6 CHANGELOG（SUPERSEDED）──────────────────────────────
+    // 原始 H1.4.4 假設「目前沒有 product-detail 介面，商品卡沒有 onclick，點擊
+    // 卡片不會送出 view_item」。H1.4.6-PRODUCT-DETAIL-CHECKOUT-FLOW 正式新增了
+    // 商品詳情 Modal 後，這個假設不再成立：點擊卡片主要區域「正是」開啟商品
+    // 詳情、送出 view_item 的合法途徑（見 public/line-order.html 的
+    // onProdCardClick()/openProductDetail()）。新契約驗證的重點從「完全不送」
+    // 改成「只在使用者真的點擊卡片主體時，剛好送一次，且是透過正式的
+    // openProductDetail() → ProductDetailModal.open() → onOpen 路徑，不是清單
+    // 曝光（IntersectionObserver／Category A–F）意外觸發的」。
+    const viewItemBeforeCardClick = viewItemCount(gtagCalls);
     const cardToClick = win.document.getElementById('pc-1');
+    check('[Cat G→H1.4.6 SUPERSEDED] .prod-card 現在「應該」有 onclick 屬性（H1.4.6 商品詳情：點擊卡片主體開啟詳情，取代 H1.4.4「沒有隱形 view 觸發」假設）',
+      cardToClick.hasAttribute('onclick'));
     cardToClick.dispatchEvent(new win.Event('click', { bubbles: true }));
-    check('[Cat G] 點擊商品卡本體（.prod-card）不會送出 view_item（目前無 product-detail 互動）', viewItemCount(gtagCalls) === 0);
-    check('[Cat G] .prod-card 本身沒有 onclick 屬性（沒有隱形的 view 觸發）', !cardToClick.hasAttribute('onclick'));
+    await settle();
+    check('[Cat G→H1.4.6 SUPERSEDED] 點擊商品卡本體會開啟商品詳情並剛好送出 1 次 view_item（不是 0 次也不是多次）——取代 H1.4.4「完全不送」舊契約',
+      viewItemCount(gtagCalls) === viewItemBeforeCardClick + 1,
+      `before=${viewItemBeforeCardClick} after=${viewItemCount(gtagCalls)}`);
+    check('[Cat G] Modal 確實真的開啟了（window.ProductDetailModal.isOpen()===true），不是誤判/假送事件',
+      win.ProductDetailModal && win.ProductDetailModal.isOpen() === true);
+    win.ProductDetailModal.close();
+    const viewItemAfterCardClick = viewItemCount(gtagCalls);
 
     // Category H — add_to_cart：呼叫真實的 _trackAddToCart()（addCart() 成功路徑最終呼叫的同一個函式）
     const beforeAdd = eventCount(gtagCalls, 'add_to_cart');
     win._trackAddToCart(1, 1);
     check('[Cat H] add_to_cart 觸發 → GA4 add_to_cart +1', eventCount(gtagCalls, 'add_to_cart') === beforeAdd + 1);
-    check('[Cat H] add_to_cart 觸發後 view_item 仍 = 0（不會 bubble 成 view_item）', viewItemCount(gtagCalls) === 0);
+    check('[Cat H→H1.4.6 SUPERSEDED] add_to_cart 觸發後 view_item 計數不變（快速加入購物車不會假送 view_item，只是基準值不再是絕對 0，而是 Cat G 開啟詳情後的計數）',
+      viewItemCount(gtagCalls) === viewItemAfterCardClick);
 
     // Category I — 數量按鈕（quantity）：chgQty 內部同樣呼叫 _trackAddToCart/_trackRemoveFromCart，
     // 不應觸發 view_item。這裡直接呼叫 _trackRemoveFromCart 驗證對稱的一半。
     win._trackRemoveFromCart(1, 1);
-    check('[Cat I] remove_from_cart（對應數量 "-"）不會觸發 view_item', viewItemCount(gtagCalls) === 0);
+    check('[Cat I→H1.4.6 SUPERSEDED] remove_from_cart（對應數量 "-"）不會觸發 view_item（基準值同上，改為相對 Cat G 之後不變，不是絕對 0）',
+      viewItemCount(gtagCalls) === viewItemAfterCardClick);
 
     // Category J — 既有 ecommerce smoke：begin_checkout / purchase 不受影響
     win.AnalyticsPlatforms.trackPlatformEvent('begin_checkout', {});
@@ -191,15 +219,18 @@ async function run() {
     check('[Cat J] purchase 正常送出 1 次', eventCount(gtagCalls, 'purchase') === 1);
 
     // Category K — mapping contract 直接驗證（跟 static audit 互補，這裡驗證「真實載入後」的行為）
-    check('[Cat K] 完整跑完 A–J 全部情境後，累積 view_item 總次數仍 = 0', viewItemCount(gtagCalls) === 0);
+    check('[Cat K→H1.4.6 SUPERSEDED] 完整跑完 A–J 全部情境後，累積 view_item 總次數恰好 = 1（只來自 Cat G 那一次真實點擊開啟詳情，A–F 清單曝光/H–I 快速加入都沒有額外貢獻）',
+      viewItemCount(gtagCalls) === 1, `實際=${viewItemCount(gtagCalls)}`);
 
     // Category M — Init Idempotence：重複 init + 重複建立 observer，不應讓 view_product 變成 view_item
+    const viewItemBeforeM = viewItemCount(gtagCalls);
     for (let i = 0; i < 3; i++) win.AnalyticsPlatforms.init({ analytics_ga4_enabled: '1', analytics_ga4_measurement_id: 'G-TEST' });
     win.renderMenu();
     await settle();
     const ioLast = ioInstances[ioInstances.length - 1];
     [...win.document.querySelectorAll('.prod-card[id^="pc-"]')].forEach(c => ioLast.fireIntersect(c));
-    check('[Cat M] 重複 init() 3 次 + 重新 render → view_item 仍 = 0', viewItemCount(gtagCalls) === 0);
+    check('[Cat M→H1.4.6 SUPERSEDED] 重複 init() 3 次 + 重新 render + 清單曝光（IntersectionObserver）→ view_item 計數不變（清單曝光永遠只送 view_product，不會因重複 init 或重繪變成 view_item；基準值改為 Cat G 之後的計數，不是絕對 0）',
+      viewItemCount(gtagCalls) === viewItemBeforeM);
   }
 
   // ══════════════════════════════════════════════════════════════
@@ -211,7 +242,13 @@ async function run() {
     check('line-shipping.html 載入時沒有 uncaught error', !getThrown(), getThrown() ? String(getThrown().message || getThrown()) : '');
 
     win.AnalyticsPlatforms.init({ analytics_ga4_enabled: '1', analytics_ga4_measurement_id: 'G-TEST' });
-    win.renderProductGrid('prodGrid', makeFixtureProducts(9).map(p => ({ ...p, image: '', description: '', spec: '', quota_remaining: null })));
+    // H1.4.6：openProductDetail() 需要真的存在的 SHOP_DATA（頁面資料尚未載入完成時的安全
+    // guard，見 public/line-shipping.html openProductDetail() 開頭）。SHOP_DATA 是頁面
+    // inline <script> 頂層用 `let` 宣告的變數，不是 window 的屬性，必須透過真的 <script>
+    // 標籤（runInPageScope）才能正確寫入，直接 win.SHOP_DATA=... 對它沒有作用。
+    const shippingFixture = makeFixtureProducts(9).map(p => ({ ...p, image: '', description: '', spec: '', quota_remaining: null }));
+    runInPageScope(win, `SHOP_DATA = ${JSON.stringify({ products: shippingFixture, upsell_products: [] })};`);
+    win.renderProductGrid('prodGrid', shippingFixture);
     await settle();
 
     const io = ioInstances[ioInstances.length - 1];
@@ -221,14 +258,24 @@ async function run() {
     cards.forEach(c => io.fireIntersect(c));
     check('[line-shipping][Cat B] 9 張卡片曝光 → GA4 view_item = 0', viewItemCount(gtagCalls) === 0, `實際=${viewItemCount(gtagCalls)}`);
 
+    // ── H1.4.6 SUPERSEDED（同 PART 1 的 Cat G 說明）：宅配頁現在也有商品詳情，
+    // 點擊卡片主體正是合法開啟途徑。
+    const viewItemBeforeCardClick = viewItemCount(gtagCalls);
     const cardToClick = cards[0];
+    check('[line-shipping][Cat G→H1.4.6 SUPERSEDED] .prod-card 現在「應該」有 tabindex/role（H1.4.6 商品詳情：整卡可點擊/鍵盤開啟，取代「沒有 onclick」舊假設）',
+      cardToClick.hasAttribute('tabindex'));
     cardToClick.dispatchEvent(new win.Event('click', { bubbles: true }));
-    check('[line-shipping][Cat G] 點擊商品卡本體不會送出 view_item', viewItemCount(gtagCalls) === 0);
-    check('[line-shipping][Cat G] .prod-card 沒有 onclick 屬性', !cardToClick.hasAttribute('onclick'));
+    await settle();
+    check('[line-shipping][Cat G→H1.4.6 SUPERSEDED] 點擊商品卡本體會開啟商品詳情並剛好送出 1 次 view_item',
+      viewItemCount(gtagCalls) === viewItemBeforeCardClick + 1,
+      `before=${viewItemBeforeCardClick} after=${viewItemCount(gtagCalls)}`);
+    win.ProductDetailModal.close();
+    const viewItemAfterCardClick = viewItemCount(gtagCalls);
 
     const beforeAdd = eventCount(gtagCalls, 'add_to_cart');
     win._trackEvent('add_to_cart', { product_id: 1, quantity: 1 });
-    check('[line-shipping][Cat H] add_to_cart 觸發 → +1，且不影響 view_item', eventCount(gtagCalls, 'add_to_cart') === beforeAdd + 1 && viewItemCount(gtagCalls) === 0);
+    check('[line-shipping][Cat H→H1.4.6 SUPERSEDED] add_to_cart 觸發 → +1，且不影響 view_item 計數（基準值改為 Cat G 開啟詳情之後，不是絕對 0）',
+      eventCount(gtagCalls, 'add_to_cart') === beforeAdd + 1 && viewItemCount(gtagCalls) === viewItemAfterCardClick);
   }
 
   // ── Report ──────────────────────────────────────────────────────

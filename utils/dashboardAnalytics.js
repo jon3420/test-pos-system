@@ -470,6 +470,12 @@ function getProductRanking(db, storeId, range, channel) {
       purchase_qty: Number(purch.qty || 0),
       not_purchased_people: notPurchasedPeople,
       cart_to_purchase_rate: cartPeople > 0 ? round2(purchasePeople / cartPeople * 100) : null,
+      // H1.4.5-PRODUCT-EXPOSURE-TO-CART-RATE：view_people 語意其實是「商品卡曝光不重複人數」
+      // （來自 internal view_product，商品卡進入可視畫面時觸發），不是顧客點擊查看商品詳情。
+      // 這裡新增 view_to_cart_rate = 加購不重複人數 ÷ 曝光不重複人數 × 100%，
+      // 回答「看到這個商品的人，有多少人加入購物車？」。誠實顯示計算值，
+      // 不做 Math.min(100, ...) 上限篡改；曝光為 0 時回傳 null（避免 0/0 = NaN 或除以 0）。
+      view_to_cart_rate: viewCount > 0 ? round2(cartPeople / viewCount * 100) : null,
     };
   });
 }

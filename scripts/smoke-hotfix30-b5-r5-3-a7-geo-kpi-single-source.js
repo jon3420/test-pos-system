@@ -402,7 +402,21 @@ async function main() {
     const { container } = await setupDashboard({ visitorLogFails: true });
     const html = container.innerHTML;
     assert(html.includes('無法載入'), 'B4-1（情境E）API 失敗時 KPI 卡片顯示「無法載入」');
-    assert(!html.includes('42') , 'B4-2（情境E）不得 fallback 顯示舊 getGeoFunnel() fixture 的數字（42）');
+    // H1.4.5 測試基礎設施修正（Test Infrastructure Fix，非 Production 變更）：
+    //
+    // Reality Audit：這條斷言原本對整個 container.innerHTML（含畫面下方一段真實、
+    // 會隨時間變動的「最後更新：HH:MM:SS」時鐘字串，來源是 geo-intelligence.js
+    // 第 1772/1876 行的 `new Date(vm.updated_at).toLocaleTimeString(...)`，屬於
+    // 正常、正確的 Production 行為，不是這次要抓的 bug）做全文 `includes('42')`
+    // 掃描。用 60 次連續重跑＋HTML context dump 實際捉到過一次失敗，證實原因是
+    // 當下時鐘剛好落在「秒數＝42」（例如「最後更新：09:18:42」），跟本斷言真正要
+    // 驗證的「KPI 卡片不得 fallback 顯示舊 getGeoFunnel() fixture 的 42」完全無關
+    // ——重現率約 1/60（≈1.67%，與「每分鐘 60 秒中剛好命中 42 那一秒」的機率一致）。
+    // 修正方式：只排除「最後更新」這段已知、確定會隨時間變動的時間戳文字之後的
+    // 內容，其餘所有畫面內容（KPI 卡片、5-card 相容區塊等）仍完整檢查，不縮小
+    // 對「KPI 卡片本身不得顯示 42」這個原本業務驗證的覆蓋範圍。
+    const htmlBeforeTimestamp = html.split('最後更新')[0];
+    assert(!htmlBeforeTimestamp.includes('42'), 'B4-2（情境E）不得 fallback 顯示舊 getGeoFunnel() fixture 的數字（42）（排除下方會隨時間變動、內容正常的「最後更新」時鐘文字）');
     assert(html.includes('data-geo-kpi-state="error"'), 'B4-3（情境E）error 狀態有明確 data 屬性');
   }
 

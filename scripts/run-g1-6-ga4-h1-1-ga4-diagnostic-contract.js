@@ -229,6 +229,37 @@ async function main() {
     check('29. No unhandledRejection listener residue in any Worker, and all per-Worker temp DBs are cleaned up', listenerResidue.length === 0 && dbResidue.length === 0, JSON.stringify({ listenerResidue, dbResidue }));
   }
 
+  // ══════════════════════════════════════════════════════════════
+  // H1.4.5 測試基礎設施修正（Test Infrastructure Fix，非 Production 變更）：
+  //
+  // Reality Audit：在 H1.4.5 完整 74-suite regression 的其中一輪裡，本檔案的
+  // check 29 在執行當下驗證 tempDbFiles 全部已清除（fs.existsSync 為 false，
+  // check 29 本身 PASS），但外層 regression runner 稍後對 os.tmpdir() 的
+  // 掃描仍偵測到同一個 tmpDbPath 檔案存在（safe_output_scan scenario）。
+  // 獨立重跑本檔案 11 次（node 直接執行）與透過 execFileSync 重跑 5 次皆為
+  // 0 殘留，無法穩定重現；判斷根因是「74 個 suite 連續執行造成的系統資源
+  // 壓力（CPU/IO contention）下，罕見的檔案系統寫入/刪除時序邊界」，而不是
+  // 每個 runScenario() 呼叫本身邏輯有誤（該邏輯在單獨執行時 100% 可靠）。
+  //
+  // 修正原則（測試基礎設施層，不改動任何 Production 程式碼）：per-scenario
+  // 的 unlink 仍是第一線防線；這裡在 Parent 即將退出前加一道「保險式」最終
+  // 清除，逐一檢查 tempDbFiles 是否仍存在，如果存在就再次嘗試刪除並明確記錄
+  // 下來（不是靜默吞掉，方便未來追蹤是否又發生、發生在哪個 scenario）。
+  // 這道保險不影響、也不取代 check 29 本身的偵測結果——check 29 仍然如實
+  // 反映「當下那一刻」的清除狀態，這裡只是確保 Parent process 結束前，
+  // 沒有任何本檔案建立的暫存 DB 殘留給外層 regression runner 誤判。
+  // ══════════════════════════════════════════════════════════════
+  const finalSweepForced = [];
+  tempDbFiles.forEach((p) => {
+    if (fs.existsSync(p)) {
+      finalSweepForced.push(p);
+      try { fs.unlinkSync(p); } catch (e) { /* 已盡最大努力；若仍失敗，check 29 的紀錄足以追查 */ }
+    }
+  });
+  if (finalSweepForced.length) {
+    console.log(`[TEST-INFRA] 最終保險清除觸發：${finalSweepForced.join(', ')}（check 29 執行當下曾經是乾淨的，代表這是延遲出現的殘留，已於 Parent 結束前強制清除）`);
+  }
+
   const pass = results.filter((r) => r.pass).length;
   const fail = results.filter((r) => !r.pass);
   results.forEach((r) => console.log(`[${r.pass ? 'PASS' : 'FAIL'}] ${r.name}${r.pass ? '' : ' — ' + r.detail}`));
@@ -240,4 +271,5 @@ async function main() {
 main().catch((e) => {
   console.error('GA4 Diagnostic Contract Parent crashed:', e);
   process.exit(1);
+
 });

@@ -1,0 +1,113 @@
+/* public/css/product-detail-modal.css
+ * H1.4.6-PRODUCT-DETAIL-CHECKOUT-FLOW
+ * 共用的「商品詳情」Modal / Bottom Sheet 樣式，同時供 LINE 外帶/外送點餐頁
+ * (public/line-order.html) 與宅配商品頁 (public/line-shipping.html) 載入。
+ * 不得依賴任何頁面專屬的 class 名稱，只用本檔案自訂的 .pdm-* 前綴，避免與既有
+ * 頁面樣式衝突或被既有樣式覆蓋。
+ */
+
+.pdm-overlay{
+  position:fixed; inset:0; background:rgba(0,0,0,.5);
+  z-index:9990; opacity:0; pointer-events:none;
+  transition:opacity .18s ease;
+}
+.pdm-overlay.pdm-open{ opacity:1; pointer-events:auto; }
+
+.pdm-sheet{
+  position:fixed; left:0; right:0; bottom:0;
+  background:#fff; z-index:9991;
+  border-radius:16px 16px 0 0;
+  max-height:88vh;
+  display:flex; flex-direction:column;
+  transform:translateY(100%);
+  transition:transform .22s ease;
+  box-shadow:0 -6px 24px rgba(0,0,0,.18);
+}
+.pdm-overlay.pdm-open .pdm-sheet{ transform:translateY(0); }
+
+/* 桌機：置中 Modal，非底部 Sheet */
+@media (min-width:768px){
+  .pdm-sheet{
+    left:50%; bottom:50%; right:auto;
+    width:min(560px, 92vw);
+    max-height:85vh;
+    border-radius:16px;
+    transform:translate(-50%,calc(50% + 24px));
+    opacity:0;
+  }
+  .pdm-overlay.pdm-open .pdm-sheet{ transform:translate(-50%,50%); opacity:1; }
+}
+
+.pdm-close{
+  position:absolute; top:10px; right:10px; width:32px; height:32px;
+  border-radius:50%; background:rgba(0,0,0,.45); color:#fff;
+  border:none; font-size:18px; line-height:1; cursor:pointer;
+  display:flex; align-items:center; justify-content:center;
+  z-index:2;
+}
+.pdm-close:active{ background:rgba(0,0,0,.65); }
+
+.pdm-scroll{
+  overflow-y:auto; -webkit-overflow-scrolling:touch;
+  flex:1 1 auto;
+}
+
+.pdm-img-wrap{
+  position:relative; width:100%;
+  background:#f2f2f2;
+  aspect-ratio:1/1;
+  overflow:hidden;
+}
+.pdm-img-wrap img{
+  width:100%; height:100%; display:block;
+  object-fit:cover; /* 依現有商品圖比例，預設 cover 避免留白；不變形（object-fit 保比例裁切） */
+}
+.pdm-img-wrap.pdm-ph{
+  display:flex; align-items:center; justify-content:center;
+  font-size:64px; color:#bbb;
+}
+
+.pdm-body{ padding:16px 18px 8px; }
+.pdm-name{ font-size:19px; font-weight:700; color:#222; margin:0 0 6px; word-break:break-word; }
+.pdm-desc{ font-size:14px; color:#666; line-height:1.6; margin:0 0 12px; white-space:pre-wrap; word-break:break-word; }
+.pdm-price-row{ font-size:15px; color:#333; margin-bottom:14px; }
+.pdm-price{ font-weight:700; color:#e05a2b; font-size:17px; }
+
+.pdm-badge{
+  display:inline-block; font-size:12px; font-weight:700; padding:3px 9px;
+  border-radius:999px; margin-bottom:10px;
+}
+.pdm-badge-block{ background:#ffebee; color:#c62828; }
+.pdm-badge-info{ background:#eef2ff; color:#3730a3; }
+
+.pdm-qty-row{
+  display:flex; align-items:center; justify-content:space-between;
+  padding:10px 0; border-top:1px solid #f0f0f0; margin-top:6px;
+}
+.pdm-qty-label{ font-size:14px; color:#444; font-weight:600; }
+.pdm-qty-ctrl{ display:flex; align-items:center; gap:14px; }
+.pdm-qty-ctrl button{
+  width:34px; height:34px; border-radius:50%; border:1px solid #ddd; background:#fff;
+  font-size:18px; line-height:1; cursor:pointer; display:flex; align-items:center; justify-content:center;
+}
+.pdm-qty-ctrl button:disabled{ opacity:.4; cursor:not-allowed; }
+.pdm-qty-num{ min-width:22px; text-align:center; font-weight:700; font-size:15px; }
+
+.pdm-footer{
+  padding:12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+  border-top:1px solid #eee;
+  display:flex; align-items:center; gap:12px;
+  background:#fff;
+}
+.pdm-subtotal{ flex:0 0 auto; font-size:15px; color:#333; white-space:nowrap; }
+.pdm-subtotal b{ font-size:18px; color:#e05a2b; }
+.pdm-add-btn{
+  flex:1 1 auto; height:46px; border:none; border-radius:10px;
+  background:#e05a2b; color:#fff; font-size:16px; font-weight:700; cursor:pointer;
+}
+.pdm-add-btn:disabled{ background:#ccc; cursor:not-allowed; }
+.pdm-add-btn.pdm-added{ background:#2e7d32; }
+
+/* body 捲動鎖定：開啟商品詳情時，背景頁面不可跟著捲動 */
+html.pdm-scroll-lock{ overflow:hidden !important; height:100%; }
+html.pdm-scroll-lock body{ overflow:hidden !important; height:100%; }

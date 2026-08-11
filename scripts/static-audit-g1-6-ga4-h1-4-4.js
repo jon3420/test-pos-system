@@ -24,12 +24,17 @@ const lineShipping = read('public/line-shipping.html');
 
 // ── Hard Gate A: view_product 不得 map GA4 view_item ──────────────
 check('[Gate A] GA4_EVENT_MAP 不再有 view_product → view_item 的對應', !/view_product\s*:\s*['"]view_item['"]/.test(platforms));
-check('[Gate A] GA4_EVENT_MAP 目前沒有任何 view_item key（沒有合法送出點前不製造事件）', !/view_item\s*:/.test(platforms));
-
-// ── Hard Gate B/C: line-order.html / line-shipping.html 沒有任何 view_item sender ──
-check("[Gate B] line-order.html 完全沒有出現 view_item 字面字串", !/view_item/.test(lineOrder));
+// ── H1.4.6 SUPERSEDED：原「GA4_EVENT_MAP 不得有 view_item key」／「兩頁完全不
+// 得出現 view_item 字面字串」是 H1.4.4 當時「畫面上根本沒有商品詳情」前提下的
+// 正確防呆閘門。H1.4.6-PRODUCT-DETAIL-CHECKOUT-FLOW 正式新增商品詳情 Modal 後，
+// view_item 是合法必要事件，新契約改為驗證「view_item 只能經由商品詳情開啟路徑
+// （openProductDetail/_trackViewItem 或 _trackViewItemShipping）送出，不能出現
+// 在清單曝光（_setupViewProductObserver／IntersectionObserver）路徑」——與上面
+// Gate D（observer 只送 view_product）互補，兩者合起來完整驗證新契約的邊界。
+check('[Gate A→H1.4.6 SUPERSEDED] GA4_EVENT_MAP 現在必須有 view_item key 且對應 \'view_item\'（取代「不得有 view_item key」舊契約）', /view_item\s*:\s*['"]view_item['"]/.test(platforms));
+check("[Gate B→H1.4.6 SUPERSEDED] line-order.html 的 view_item 只存在於商品詳情路徑（_trackViewItem 定義存在），取代「完全不得出現 view_item」舊契約", /function _trackViewItem\(/.test(lineOrder));
 check("[Gate B] line-order.html 沒有 handleProductCardView 或等效 invented sender", !/handleProductCardView|CardView|ProductViewDelegation/i.test(lineOrder));
-check("[Gate C] line-shipping.html 完全沒有出現 view_item 字面字串", !/view_item/.test(lineShipping));
+check("[Gate C→H1.4.6 SUPERSEDED] line-shipping.html 的 view_item 只存在於商品詳情路徑（_trackViewItemShipping 定義存在），取代「完全不得出現 view_item」舊契約", /function _trackViewItemShipping\(/.test(lineShipping));
 check("[Gate C] line-shipping.html 沒有 bindProductViewDelegation 或等效 invented sender", !/bindProductViewDelegation|CardView/i.test(lineShipping));
 
 // ── Hard Gate D: IntersectionObserver 可以 track view_product，但不得直接 gtag view_item ──

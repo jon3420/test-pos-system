@@ -264,6 +264,7 @@ img{max-width:100%;display:block}
 .delivery-free-reco__item-name{font-weight:600;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.4;min-height:2.8em}
 .delivery-free-reco__item-price{color:#e65100;font-weight:700;margin-top:4px}
 </style>
+<link rel="stylesheet" href="/css/product-detail-modal.css">
 </head>
 <body>
 
@@ -473,6 +474,7 @@ img{max-width:100%;display:block}
 <script src="/js/analytics-attribution.js"></script>
 <script src="/js/analytics-platforms.js"></script>
 <script src="/js/line-member-gate.js"></script>
+<script src="/js/product-detail-modal.js"></script>
 <script src="/js/delivery-free-progress.js"></script>
 <!-- fix18-10-hotfix30-B5-R5.4-G1: Geo Intelligence V2 — 顧客頁面端 Consent-driven
      Coordinate Acquisition。全新獨立檔案，init()/requestOnDeliveryFlow() 由下面
@@ -553,6 +555,11 @@ function _trackEvent(eventName, extra){
   if (eventName !== 'purchase') {
     try{
       const pp = (extra && extra.product_id) ? { content_ids:[String(extra.product_id)], content_type:'product' } : {};
+      // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.6：view_item 需要完整 GA4 items 陣列
+      // （item_id/item_name/price/quantity/item_category），沿用既有 trackPlatformEvent()
+      // 分派，不新增第二套 gtag() 呼叫點（需求文件七）。
+      if (extra && extra.items) pp.items = extra.items;
+      if (extra && extra.value !== undefined && extra.value !== null) pp.value = extra.value;
       AnalyticsPlatforms.trackPlatformEvent(eventName, pp);
     }catch(e){}
   }
@@ -2658,7 +2665,83 @@ function buildCard(p){
   const modeOnlyCapsuleHtml = (!isSoldOut && (onlyTakeout || onlyDelivery))
     ? `<div class="tag-capsule" style="bottom:6px;right:6px;top:auto;background:#607d8b">${onlyTakeout?'僅外帶':'僅外送'}</div>` : '';
 
-  return `<div class="prod-card" id="pc-${p.id}"><div class="prod-img-wrap${imgDimmed?' img-dimmed':''}">${imgHtml}<div class="prod-ph" ${img?'style="display:none"':''}>🍽️</div>${ribbonHtml}${capsuleHtml}${modeOnlyCapsuleHtml}</div><div class="prod-body"><div class="prod-name">${esc(name)}</div>${spec?`<div class="prod-spec">${esc(spec)}</div>`:''}<div class="status-row">${statusRowHtml}</div>${stockBadge}<div class="prod-desc">${esc(desc)}</div><div class="prod-footer"><span class="prod-price">$${price}</span>${footer}</div></div></div>`;
+  // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.6：tabindex/role/onkeydown 讓鍵盤使用者
+  // 也能用 Enter／Space 開啟商品詳情（本輪新增需求：鍵盤操作至少支援 Enter/Space）。
+  return `<div class="prod-card" id="pc-${p.id}" tabindex="0" role="button" aria-label="查看${esc(name)}詳情" onclick="onProdCardClick(event,${p.id})" onkeydown="onProdCardKeydown(event,${p.id})"><div class="prod-img-wrap${imgDimmed?' img-dimmed':''}">${imgHtml}<div class="prod-ph" ${img?'style="display:none"':''}>🍽️</div>${ribbonHtml}${capsuleHtml}${modeOnlyCapsuleHtml}</div><div class="prod-body"><div class="prod-name">${esc(name)}</div>${spec?`<div class="prod-spec">${esc(spec)}</div>`:''}<div class="status-row">${statusRowHtml}</div>${stockBadge}<div class="prod-desc">${esc(desc)}</div><div class="prod-footer"><span class="prod-price">$${price}</span>${footer}</div></div></div>`;
+}
+
+// ── H1.4.6：商品詳情 Modal 開啟入口 ──────────────────────
+// 點擊商品卡主要區域／圖片／名稱時開啟；點擊快速加入 [+] 或既有的 [-][qty][+]
+// 數量控制時，維持原有「快速加入」行為，不開啟商品詳情（需求文件二）。
+function onProdCardClick(evt, id) {
+  if (evt && evt.target && evt.target.closest && evt.target.closest('.qty-ctrl, .add-btn')) return;
+  openProductDetail(id);
+}
+function onProdCardKeydown(evt, id) {
+  if (evt.key !== 'Enter' && evt.key !== ' ' && evt.key !== 'Spacebar') return;
+  if (evt.target && evt.target.closest && evt.target.closest('.qty-ctrl, .add-btn')) return;
+  evt.preventDefault();
+  openProductDetail(id);
+}
+
+function openProductDetail(id) {
+  const p = allProducts.find(x => x.id == id);
+  if (!p) return;
+  const name = p.effective_line_name || p.line_name || p.name;
+  const price = Number(p.effective_line_price || p.price) || 0;
+  const image = p.line_image_url || p.image || '';
+  const description = p.line_description || '';
+
+  // 沿用 buildCard() 完全相同的可購買判斷，商品詳情不得繞過外帶／外送販售限制
+  // （需求文件五：不得因開啟商品詳情而繞過既有販售限制）。
+  const modeAvail = getProductAvailableModes(p);
+  const anyModeEnabled = modeAvail.takeout.enabled || modeAvail.delivery.enabled;
+  const anyImmediate = (modeAvail.takeout.enabled && !modeAvail.takeout.reason)
+    || (modeAvail.delivery.enabled && !modeAvail.delivery.reason);
+  const mode = _representativeMode(modeAvail);
+  const soldOutReason = mode === 'delivery' ? p.delivery_sold_out_reason : p.takeout_sold_out_reason;
+  const canNextDay = mode === 'delivery' ? p.delivery_can_next_day : p.takeout_can_next_day;
+  const isSoldOut = anyModeEnabled ? false : (!!soldOutReason || Number(p.line_sold_out) === 1 || (p.sale_status || 'available') !== 'available');
+  const canPreorderNextDay = !anyImmediate && (isSoldOut || !!soldOutReason) && !!canNextDay && soldOutReason !== 'mode_closed';
+  const preorderInfo = p.line_preorder || { hasPreorder: false };
+  const preorderFullBlocked = canPreorderNextDay && preorderInfo.hasPreorder && Number(preorderInfo.remaining ?? 0) <= 0;
+  const quota = p.line_quota || { hasQuota: false };
+  const quotaRealSoldOut = quota.hasQuota && Number(quota.remaining ?? 0) <= 0 && !canPreorderNextDay;
+  const blocked = (isSoldOut && !canPreorderNextDay) || quotaRealSoldOut || preorderFullBlocked;
+  let blockedLabel = '';
+  if (blocked) {
+    blockedLabel = preorderFullBlocked ? '預購已滿' : (isSoldOut ? '今日售完' : '無法加入');
+  }
+  // 份數/庫存上限（僅在有 quota 且非預購情境時套用，與 addCart()/chgQty() 現有規則一致）
+  let maxQty = null;
+  if (!blocked && quota.hasQuota && !canPreorderNextDay) {
+    maxQty = Math.max(1, Number(quota.remaining || 0));
+  }
+  const startQty = 1;
+
+  ProductDetailModal.open({
+    id: p.id, name, price, image, description,
+    startQty, maxQty, blocked, blockedLabel,
+  }, {
+    onOpen: function () { _trackViewItem(p, name, price); },
+    onAddToCart: function (prod, qty) {
+      const before = cart[id] ? cart[id].qty : 0;
+      for (let i = 0; i < qty; i++) addCart(id);
+      const after = cart[id] ? cart[id].qty : 0;
+      return after > before; // 只有真的加入成功（既有驗證通過）才回報成功
+    },
+  });
+}
+
+// fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.6：GA4 view_item —— 只有商品詳情成功
+// 開啟時才送出，商品卡曝光（view_product）不得映射成這個事件（需求文件七）。
+function _trackViewItem(p, name, price) {
+  const catName = (typeof categories !== 'undefined' && Array.isArray(categories))
+    ? (categories.find(c => String(c.id) === String(p.display_cat_id || 0)) || {}).name
+    : undefined;
+  const item = { item_id: String(p.id), item_name: name, price: Number(price) || 0, quantity: 1 };
+  if (catName) item.item_category = catName;
+  _trackEvent('view_item', { product_id: Number(p.id), quantity: 1, items: [item], value: Number(price) || 0 });
 }
 
 // ── 購物車操作 ─────────────────────────────────────────
