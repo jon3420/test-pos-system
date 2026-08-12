@@ -136,14 +136,27 @@ check('[product-detail-modal.js] 有防止快速連點重複加入的節流判�
 // ════════════════════════════════════════════════════════════════
 check('[line-order.html] cartBar 顯示商品件數（cartCnt）', /id="cartCnt"/.test(lineOrder));
 check('[line-order.html] cartBar 顯示總額（cartBarTotal）', /id="cartBarTotal"/.test(lineOrder));
-check('[line-order.html] cartBar 點擊進入既有 openCartSheet()（前往結帳＝既有結帳流程，未重做）',
+// H1.4.7 supersession:
+// 舊契約：cartBar 點擊進入 openCartSheet() 就代表「前往結帳＝既有結帳流程，
+//         未重做」；openCartSheet() 零參數簽名、空購物車時提早 return。
+// 新契約：cartBar 點擊仍呼叫 openCartSheet()（結構不變，保留），但
+//         openCartSheet() 現在只負責打開「購物車摘要」（第一階段），不代表
+//         前往結帳；真正的「前往結帳」是獨立的 #goCheckoutBtn/openCheckoutStep()
+//         操作。openCartSheet() 也改為可接受 opts 參數（{step,silent}，供
+//         LIFF/Gate 導回恢復第二階段用），舊的零參數簽名斷言在結構上已經
+//         過期（不是「還沒重做」，是刻意重做）。
+check('[line-order.html] cartBar 點擊仍呼叫既有 openCartSheet()（結構不變，只是語意已改為只開第一階段購物車摘要，不是前往結帳）',
   /id="cartBar"[^>]*onclick="openCartSheet\(\)"/.test(lineOrder));
-check('[line-order.html] openCartSheet() 空購物車時提早 return，不能前往結帳',
-  /function openCartSheet\(\)\{\s*if\(!Object\.keys\(cart\)\.length\)return;/.test(lineOrder));
+check('[line-order.html] openCartSheet() 空購物車時提早 return（新簽名 openCartSheet(opts)，opts 供 LIFF 導回使用）',
+  /function openCartSheet\(opts\)\{\s*opts=opts\|\|\{\};[\s\S]{0,200}if\(!Object\.keys\(cart\)\.length\)return;/.test(lineOrder));
+check('[line-order.html] 點 cartBar 打開的購物車摘要（cartStage）不等於前往結帳——checkoutStage 預設仍是 hidden，onclick="openCartSheet()" 本身不會切換 stage',
+  /<div id="checkoutStage" hidden>/.test(lineOrder));
 check('[line-shipping.html] cartBar 顯示商品件數（cartCnt）', /id="cartCnt"/.test(lineShipping));
 check('[line-shipping.html] cartBar 顯示總額（cartBarTotal）', /id="cartBarTotal"/.test(lineShipping));
-check('[line-shipping.html] cartBar 點擊進入既有 openCartSheet()（前往結帳＝既有結帳流程，未重做）',
+check('[line-shipping.html] cartBar 點擊仍呼叫既有 openCartSheet()（結構不變，只是語意已改為只開第一階段購物車摘要，不是前往結帳）',
   /id="cartBar"[^>]*onclick="openCartSheet\(\)"/.test(lineShipping));
+check('[line-shipping.html] 點 cartBar 打開的購物車摘要不等於前往結帳——checkoutStage 預設仍是 hidden',
+  /<div id="checkoutStage" hidden>/.test(lineShipping));
 
 // ════════════════════════════════════════════════════════════════
 // Group 9：Analytics 事件契約——view_product 與 view_item 語意分離
@@ -178,10 +191,26 @@ check('[line-shipping.html] _trackEvent() 通用分派會把 extra.items 帶入 
 // ════════════════════════════════════════════════════════════════
 // Group 10：begin_checkout / add_to_cart 語意未被重做
 // ════════════════════════════════════════════════════════════════
-check('[line-order.html] begin_checkout 仍只在 openCartSheet()（非空購物車）內、同一 cart_id 去重觸發一次',
-  /function openCartSheet\(\)\{[\s\S]{0,600}_trackEvent\('begin_checkout'\)/.test(lineOrder));
-check('[line-shipping.html] begin_checkout 仍只在 openCartSheet() 內觸發（未被本輪重做）',
-  /_trackEvent\('begin_checkout'\)/.test(lineShipping));
+// H1.4.7 supersession:
+// 舊契約：begin_checkout 仍只在 openCartSheet()（非空購物車）內、同一
+//         cart_id 去重觸發一次。
+// 新契約：openCartSheet() 不再觸發 begin_checkout（正式前台已不再送出這個
+//         事件，legacy 原始資料保留但不再由新流程產生）；改為觸發
+//         view_cart（每次真實打開都記一筆，不是同一 cart_id 永久去重一次）。
+//         真正的「開始結帳」事件 checkout_click 由獨立的
+//         openCheckoutStep()/前往結帳按鈕觸發，不在 openCartSheet() 內。
+check('[line-order.html] openCartSheet() 不再觸發 begin_checkout（整份檔案都沒有任何 _trackEvent(\'begin_checkout\') 呼叫）',
+  !/_trackEvent\('begin_checkout'\)/.test(lineOrder));
+check('[line-order.html] openCartSheet() 改為觸發 view_cart（打開購物車摘要的正式事件）',
+  /function openCartSheet\(opts\)\{[\s\S]{0,900}_trackEvent\('view_cart'/.test(lineOrder));
+check('[line-order.html] checkout_click 由獨立的 openCheckoutStep()（前往結帳）觸發，不在 openCartSheet() 內',
+  /function openCheckoutStep\(\)\{[\s\S]{0,400}_enterCheckoutStage/.test(lineOrder) && !/function openCartSheet\(opts\)\{[\s\S]{0,2000}_trackEvent\('checkout_click'/.test(lineOrder));
+check('[line-shipping.html] openCartSheet() 不再觸發 begin_checkout（整份檔案都沒有任何 _trackEvent(\'begin_checkout\') 呼叫）',
+  !/_trackEvent\('begin_checkout'\)/.test(lineShipping));
+check('[line-shipping.html] openCartSheet() 改為觸發 view_cart（打開購物車摘要的正式事件）',
+  /function openCartSheet\(opts\)\s*\{[\s\S]{0,1200}_trackEvent\('view_cart'/.test(lineShipping));
+check('[line-shipping.html] checkout_click 由獨立的 openCheckoutStep()（前往結帳）觸發，不在 openCartSheet() 內',
+  /function openCheckoutStep\(\)\s*\{[\s\S]{0,400}_enterCheckoutStage/.test(lineShipping) && !/function openCartSheet\(opts\)\s*\{[\s\S]{0,1060}_trackEvent\('checkout_click'/.test(lineShipping));
 check('[line-order.html] add_to_cart 仍由 _trackAddToCart()（真正加入成功後）送出，Modal 沒有繞過它另外送出',
   /function _trackAddToCart/.test(lineOrder) && !/ProductDetailModal[\s\S]{0,50}add_to_cart/.test(lineOrder));
 

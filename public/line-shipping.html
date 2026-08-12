@@ -107,7 +107,17 @@ img{max-width:100%;display:block}
 .ot{display:flex;justify-content:space-between;padding:8px 0;font-size:14px;font-weight:500;color:#777}
 .ot.total{font-size:17px;font-weight:700;color:var(--text);border-top:1px solid var(--bd);margin-top:4px;padding-top:10px}
 .free-hint{font-size:12px;color:var(--g);background:#e3f2fd;border-radius:6px;padding:6px 10px;margin:6px 0}
-.sub-btn{width:100%;padding:14px;background:var(--g);color:#fff;border-radius:var(--r);font-size:16px;font-weight:700;margin-top:12px}
+.sub-btn{width:100%;padding:14px;background:var(--g);color:#fff;border-radius:var(--r);font-size:16px;font-weight:700}
+/* fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.7：兩階段結帳 stage 樣式（與 line-order.html 一致）。*/
+#cartStage,#checkoutStage{display:block}
+#cartStage[hidden],#checkoutStage[hidden]{display:none!important}
+.cart-stage-footer{position:sticky;bottom:0;left:0;right:0;background:#fff;padding:10px 16px calc(10px + env(safe-area-inset-bottom));border-top:1px solid var(--bd);z-index:2}
+.go-checkout-btn{width:100%;padding:14px;background:var(--g);color:#fff;border-radius:var(--r);font-size:16px;font-weight:700;cursor:pointer;border:none}
+.go-checkout-btn:disabled{background:#ccc;cursor:not-allowed}
+.continue-shopping-btn{width:100%;padding:12px;background:#fff;color:var(--g);border:1.5px solid var(--g);border-radius:var(--r);font-size:15px;font-weight:600;margin-top:10px;cursor:pointer}
+.checkout-stage-hd{display:flex;flex-direction:column;gap:6px;padding:14px 16px 4px}
+.back-to-cart-btn{align-self:flex-start;background:none;border:none;color:var(--g);font-size:14px;font-weight:600;padding:4px 0;cursor:pointer}
+.checkout-stage-title{font-size:16px;font-weight:700}
 .sub-btn:disabled{background:#ccc;cursor:not-allowed}
 .pb{padding-bottom:80px}
 .loading{text-align:center;padding:60px 20px;color:var(--sub)}
@@ -201,60 +211,78 @@ img{max-width:100%;display:block}
 
 <div class="sheet" id="cartSheet">
   <div class="sheet-hd"><h3>🛒 宅配購物車</h3><div style="display:flex;gap:8px;align-items:center"><button class="close-btn" onclick="clearCartByUser()" title="清空購物車">🗑️</button><button class="close-btn" onclick="closeSheet()">✕</button></div></div>
-  <div id="cartItems" style="padding:0 16px"></div>
-  <div class="cf">
-    <div id="cartShipInfo" style="padding:0"></div>
-    <!-- hotfix22-C：優惠券輸入（與 line-order.html 相同流程，共用同一組 /api/coupons/validate） -->
-    <div class="fg" id="couponArea" style="display:none">
-      <label class="fl">🎟️ 優惠券代碼</label>
-      <div style="display:flex;gap:8px;align-items:center">
-        <input class="fi" id="couponInput" placeholder="輸入優惠券代碼（如 WELCOME30）" style="flex:1;text-transform:uppercase" oninput="this.value=this.value.toUpperCase()" onkeydown="if(event.key==='Enter'){event.preventDefault();applyCoupon();}">
-        <button id="couponApplyBtn" onclick="applyCoupon()" style="padding:10px 14px;background:#06C755;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;white-space:nowrap;flex-shrink:0;cursor:pointer">套用</button>
+
+  <!-- ══ 第一階段：購物車摘要 ══ -->
+  <div id="cartStage">
+    <div id="cartItems" style="padding:0 16px"></div>
+    <div class="cf" style="padding-bottom:88px">
+      <div id="cartShipInfo" style="padding:0"></div>
+      <!-- hotfix22-C：優惠券輸入（與 line-order.html 相同流程，共用同一組 /api/coupons/validate） -->
+      <div class="fg" id="couponArea" style="display:none">
+        <label class="fl">🎟️ 優惠券代碼</label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input class="fi" id="couponInput" placeholder="輸入優惠券代碼（如 WELCOME30）" style="flex:1;text-transform:uppercase" oninput="this.value=this.value.toUpperCase()" onkeydown="if(event.key==='Enter'){event.preventDefault();applyCoupon();}">
+          <button id="couponApplyBtn" onclick="applyCoupon()" style="padding:10px 14px;background:#06C755;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;white-space:nowrap;flex-shrink:0;cursor:pointer">套用</button>
+        </div>
+        <div id="couponMsg" style="font-size:12px;margin-top:4px;min-height:18px"></div>
+        <div id="couponAppliedRow" style="display:none;margin-top:4px;font-size:12px;color:#06C755;align-items:center;gap:8px">
+          <span id="couponAppliedText"></span>
+          <button onclick="clearCoupon()" style="background:none;border:1px solid #06C755;color:#06C755;border-radius:6px;padding:2px 8px;font-size:11px;cursor:pointer">清除優惠券</button>
+        </div>
       </div>
-      <div id="couponMsg" style="font-size:12px;margin-top:4px;min-height:18px"></div>
-      <div id="couponAppliedRow" style="display:none;margin-top:4px;font-size:12px;color:#06C755;align-items:center;gap:8px">
-        <span id="couponAppliedText"></span>
-        <button onclick="clearCoupon()" style="background:none;border:1px solid #06C755;color:#06C755;border-radius:6px;padding:2px 8px;font-size:11px;cursor:pointer">清除優惠券</button>
+      <div class="ot"><span>小計</span><span id="subtotalDisplay">$0</span></div>
+      <div id="discountRow" class="ot" style="display:none">
+        <span style="color:#06C755;font-weight:600">🎟️ 優惠折扣</span><span id="discountDisplay" style="color:#06C755;font-weight:600">-$0</span>
       </div>
+      <div class="ot"><span>運費</span><span id="feeDisplay">$0</span></div>
+      <div id="freeHint" class="free-hint" style="display:none"></div>
+      <div id="minOrderWarn" class="min-order-warn" style="display:none"></div>
+      <div class="ot total"><span>應付金額</span><span id="orderTotal">$0</span></div>
+      <button type="button" class="continue-shopping-btn" id="continueShoppingBtn" onclick="closeSheet()">繼續選購</button>
     </div>
-    <div class="ot"><span>小計</span><span id="subtotalDisplay">$0</span></div>
-    <div id="discountRow" class="ot" style="display:none">
-      <span style="color:#06C755;font-weight:600">🎟️ 優惠折扣</span><span id="discountDisplay" style="color:#06C755;font-weight:600">-$0</span>
+    <div class="cart-stage-footer" id="cartStageFooter">
+      <button type="button" class="go-checkout-btn" id="goCheckoutBtn" onclick="openCheckoutStep()">前往結帳｜NT$0</button>
     </div>
-    <div class="ot"><span>運費</span><span id="feeDisplay">$0</span></div>
-    <div id="freeHint" class="free-hint" style="display:none"></div>
-    <div id="minOrderWarn" class="min-order-warn" style="display:none"></div>
-    <div class="ot total"><span>應付金額</span><span id="orderTotal">$0</span></div>
+  </div>
 
-    <div class="fg"><label class="fl">收件人姓名 <span class="req">*</span></label><input class="fi" id="rName" placeholder="收件人姓名" oninput="debouncedPersistCart()"></div>
-    <div class="fr">
-      <div class="fg"><label class="fl">收件電話 <span class="req">*</span></label><input class="fi" id="rPhone" placeholder="聯絡電話" type="tel" oninput="debouncedPersistCart()"></div>
-      <div class="fg"><label class="fl">郵遞區號</label><input class="fi" id="rPostal" placeholder="郵遞區號" oninput="debouncedPersistCart()"></div>
+  <!-- ══ 第二階段：正式結帳表單 ══ -->
+  <div id="checkoutStage" hidden>
+    <div class="checkout-stage-hd">
+      <button type="button" class="back-to-cart-btn" id="backToCartBtn" onclick="backToCartStep()">← 返回購物車</button>
+      <h4 class="checkout-stage-title">填寫收件資料</h4>
     </div>
-    <div class="fr">
-      <div class="fg"><label class="fl">縣市 <span class="req">*</span></label><input class="fi" id="rCity" placeholder="縣市" oninput="debouncedPersistCart()"></div>
-      <div class="fg"><label class="fl">鄉鎮市區 <span class="req">*</span></label><input class="fi" id="rDistrict" placeholder="鄉鎮市區" oninput="debouncedPersistCart()"></div>
-    </div>
-    <div class="fg"><label class="fl">詳細地址 <span class="req">*</span></label><input class="fi" id="rAddress" placeholder="詳細地址" oninput="debouncedPersistCart()"></div>
-    <div class="fg"><label class="fl">地址備註</label><input class="fi" id="rAddressNote" placeholder="例：管理室代收" oninput="debouncedPersistCart()"></div>
-
-    <div class="fg">
-      <label class="fl">希望到貨</label>
-      <div class="arrival-btns">
-        <button class="arrival-btn active" id="arrivalAsapBtn" onclick="setArrivalType('asap')">🚚 最快出貨</button>
-        <button class="arrival-btn" id="arrivalDateBtn" onclick="setArrivalType('date')">📅 指定日期</button>
+    <div class="cf" style="padding-bottom:88px">
+      <div class="fg"><label class="fl">收件人姓名 <span class="req">*</span></label><input class="fi" id="rName" placeholder="收件人姓名" oninput="debouncedPersistCart()"></div>
+      <div class="fr">
+        <div class="fg"><label class="fl">收件電話 <span class="req">*</span></label><input class="fi" id="rPhone" placeholder="聯絡電話" type="tel" oninput="debouncedPersistCart()"></div>
+        <div class="fg"><label class="fl">郵遞區號</label><input class="fi" id="rPostal" placeholder="郵遞區號" oninput="debouncedPersistCart()"></div>
       </div>
-      <input class="fi" id="rArrivalDate" type="date" style="display:none" onchange="persistCart()">
+      <div class="fr">
+        <div class="fg"><label class="fl">縣市 <span class="req">*</span></label><input class="fi" id="rCity" placeholder="縣市" oninput="debouncedPersistCart()"></div>
+        <div class="fg"><label class="fl">鄉鎮市區 <span class="req">*</span></label><input class="fi" id="rDistrict" placeholder="鄉鎮市區" oninput="debouncedPersistCart()"></div>
+      </div>
+      <div class="fg"><label class="fl">詳細地址 <span class="req">*</span></label><input class="fi" id="rAddress" placeholder="詳細地址" oninput="debouncedPersistCart()"></div>
+      <div class="fg"><label class="fl">地址備註</label><input class="fi" id="rAddressNote" placeholder="例：管理室代收" oninput="debouncedPersistCart()"></div>
+
+      <div class="fg">
+        <label class="fl">希望到貨</label>
+        <div class="arrival-btns">
+          <button class="arrival-btn active" id="arrivalAsapBtn" onclick="setArrivalType('asap')">🚚 最快出貨</button>
+          <button class="arrival-btn" id="arrivalDateBtn" onclick="setArrivalType('date')">📅 指定日期</button>
+        </div>
+        <input class="fi" id="rArrivalDate" type="date" style="display:none" onchange="persistCart()">
+      </div>
+
+      <div class="fg">
+        <label class="fl">付款方式</label>
+        <div class="pay-btns" id="payBtns"></div>
+      </div>
+
+      <div class="fg"><label class="fl">備註</label><input class="fi" id="rNote" placeholder="給店家的話（選填）" oninput="debouncedPersistCart()"></div>
     </div>
-
-    <div class="fg">
-      <label class="fl">付款方式</label>
-      <div class="pay-btns" id="payBtns"></div>
+    <div class="cart-stage-footer" id="checkoutStageFooter">
+      <button class="sub-btn" id="submitBtn" onclick="submitOrder()">確認下單</button>
     </div>
-
-    <div class="fg"><label class="fl">備註</label><input class="fi" id="rNote" placeholder="給店家的話（選填）" oninput="debouncedPersistCart()"></div>
-
-    <button class="sub-btn" id="submitBtn" onclick="submitOrder()">送出訂單</button>
   </div>
 </div>
 
@@ -426,7 +454,7 @@ async function _initLineMemberGateFromShopData(d){
   // 面板重新打開，客人只需再按一次「送出訂單」即可完成，不需重新輸入資料。
   const cbResult=gateState&&gateState.loginCallbackResult;
   if(_lineMemberGateConfig.gate_mode==='checkout' && cbResult && cbResult.ok && cbResult.autoVerified){
-    try{ if(Object.keys(cart||{}).length) openCartSheet(); }catch(e){}
+    try{ if(Object.keys(cart||{}).length) openCartSheet({step:'checkout'}); }catch(e){}
   }
 }
 function _currentMemberSession(){
@@ -747,7 +775,7 @@ function clearCartStorage() {
 
 // hotfix22-F：使用者主動按「清空購物車」——與外帶/外送 line-order.html 行為統一
 function clearCartByUser() {
-  if (!cartCount() && !appliedCoupon) { closeSheet(); return; }
+  if (!cartCount() && !appliedCoupon) { _enterCartStage(); closeSheet(); return; }
   if (!confirm('確定要清空購物車嗎？')) return;
   // fix18-10-hotfix23-A：使用者主動清空購物車 → 記一筆 remove_from_cart（metadata.reason=clear_cart）
   try{
@@ -768,6 +796,7 @@ function clearCartByUser() {
   updateCartBar();
   renderProductGrid('prodGrid', SHOP_DATA?.products || []);
   if (SHOP_DATA?.upsell_products?.length) renderProductGrid('upsellGrid', SHOP_DATA.upsell_products);
+  _enterCartStage();
   closeSheet();
   toast('🗑️ 已清空購物車');
 }
@@ -1148,6 +1177,11 @@ function refreshCartSheetTotals() {
 
   const submitBtn = document.getElementById('submitBtn');
   if (submitBtn) submitBtn.disabled = belowMin;
+  const goCheckoutBtn = document.getElementById('goCheckoutBtn');
+  if (goCheckoutBtn) goCheckoutBtn.disabled = belowMin;
+  // H1.4.7：購物車摘要「前往結帳」與結帳表單「確認下單」兩個 CTA 金額必須同步，
+  // refreshCartSheetTotals() 是既有系統唯一的金額重算入口，這裡統一觸發即可。
+  updateCheckoutActionAmounts();
 
   renderCartShipInfo();
 }
@@ -1210,22 +1244,111 @@ function renderCartShipInfo() {
   </div>`;
 }
 
-function openCartSheet() {
-  // fix18-10-hotfix23-A：begin_checkout — 第一次打開購物車時記錄，同一 cart_id 去重一次
-  try{
-    const cid=_getCartId(true);
-    const bcKey='line_bc_sent_'+STORE_ID;
-    let sentFor=null;
-    try{ sentFor=sessionStorage.getItem(bcKey); }catch(e){}
-    if(cid && sentFor!==cid){
-      _trackEvent('begin_checkout');
-      try{ sessionStorage.setItem(bcKey,cid); }catch(e){}
-    }
-  }catch(e){}
+// fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.7：view_cart／checkout_click 共用 payload
+// 建構（不含收件人姓名/電話/地址等個資，只含金額與商品結構）。
+function _buildCartAnalyticsPayload() {
+  try {
+    const { sub, fee, discount, total } = calcFee();
+    const items = cartList().map(c => ({ product_id: c.product.id, qty: c.qty }));
+    return {
+      cart_id: _getCartId(false) || null,
+      order_mode: 'shipping',
+      currency: 'TWD',
+      value: total,
+      item_count: cartCount(),
+      items,
+      subtotal: sub,
+      discount,
+      delivery_fee: fee,
+      total,
+    };
+  } catch (e) { return { cart_id: _getCartId(false) || null }; }
+}
+
+// H1.4.7：真正兩階段結帳——openCartSheet() 只負責打開「購物車摘要」（第一階段），
+// 不再在此觸發任何結帳語意事件。opts.step==='checkout' 只用於 LINE 會員 Gate
+// 導回後恢復使用者原本所在的第二階段，不代表使用者這次按下「前往結帳」，
+// 因此 silent 情境下不會補送 checkout_click。
+function openCartSheet(opts) {
+  opts = opts || {};
+  // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.7：購物車空白時不得進入摘要或結帳
+  // （不只靠呼叫端 case 'open_cart'/cartBar hidden 的間接防護，這裡直接擋一次）。
+  if (!cartCount()) return;
+  // opts.step==='checkout' 用於 LINE Gate 導回後恢復第二階段，本身不代表使用者
+  // 這次點查看購物車，一律視為 silent（無論呼叫端是否明確傳 silent），不補送
+  // view_cart 或 checkout_click。
+  const silent = opts.silent === true || opts.step === 'checkout';
+  // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.7：view_cart —— 每次使用者「真正點擊
+  // 並成功打開」第一階段購物車摘要都要記一筆（不是同一個 cart_id 永久只記一次；
+  // 關閉後再次點查看購物車，view_cart 要再增加一筆）。openCartSheet() 只在真實
+  // 的開啟動作被呼叫，render／金額更新／返回購物車／頁面恢復都不會呼叫這個
+  // 函式，故不需要、也不應該用 sessionStorage 之類的機制做永久去重。
+  if (!silent) {
+    try { _trackEvent('view_cart', _buildCartAnalyticsPayload()); } catch (e) {}
+  }
   renderCartItems();
   refreshCartSheetTotals();
   document.getElementById('overlay').classList.add('show');
   document.getElementById('cartSheet').classList.add('show');
+  if (opts.step === 'checkout') { _enterCheckoutStage({ silent: true }); }
+  else { _enterCartStage(); }
+}
+
+// ══ H1.4.7 兩階段結帳：stage 狀態切換（與 line-order.html 對應邏輯一致）══
+let cartUIStage = 'cart';
+
+function _enterCartStage() {
+  cartUIStage = 'cart';
+  const cs = document.getElementById('cartStage'); if (cs) cs.hidden = false;
+  const chs = document.getElementById('checkoutStage'); if (chs) chs.hidden = true;
+}
+
+function _enterCheckoutStage(opts) {
+  opts = opts || {};
+  cartUIStage = 'checkout';
+  const cs = document.getElementById('cartStage'); if (cs) cs.hidden = true;
+  const chs = document.getElementById('checkoutStage'); if (chs) chs.hidden = false;
+  updateCheckoutActionAmounts();
+  if (!opts.silent) {
+    try {
+      const cid = _getCartId(true);
+      const ccKey = 'line_cc_sent_' + STORE_ID;
+      let sentFor = null;
+      try { sentFor = sessionStorage.getItem(ccKey); } catch (e) {}
+      if (cid && sentFor !== cid) {
+        _trackEvent('checkout_click', _buildCartAnalyticsPayload());
+        try { sessionStorage.setItem(ccKey, cid); } catch (e) {}
+      }
+    } catch (e) {}
+  }
+}
+
+// 購物車摘要底部「前往結帳｜NT$金額」——只切換畫面，不得直接呼叫 submitOrder()。
+// 購物車無效（未達最低訂購金額）時不得成功進入第二階段，也就不送 checkout_click。
+function openCheckoutStep() {
+  if (!cartCount()) return;
+  const goBtn = document.getElementById('goCheckoutBtn');
+  if (goBtn && goBtn.disabled) { toast('尚未達最低訂購金額，請調整購物車內容'); return; }
+  _enterCheckoutStage({ silent: false });
+}
+
+// 返回購物車：只切畫面，不清除任何資料、不重算金額、不重新觸發 view_cart。
+function backToCartStep() {
+  _enterCartStage();
+}
+
+// 兩個 CTA（前往結帳／確認下單）的金額必須永遠與 #orderTotal 同步——由
+// refreshCartSheetTotals()（既有系統中，購物車增減／優惠券／運費都會呼叫的
+// 單一入口）統一觸發。
+function updateCheckoutActionAmounts() {
+  const orderTotalEl = document.getElementById('orderTotal');
+  const amt = orderTotalEl ? orderTotalEl.textContent.replace('$', '') : '0';
+  const goBtn = document.getElementById('goCheckoutBtn');
+  if (goBtn) goBtn.textContent = `前往結帳｜NT$${amt}`;
+  const submitBtn = document.getElementById('submitBtn');
+  if (submitBtn && !submitBtn.disabled && submitBtn.textContent !== '送出中…') {
+    submitBtn.textContent = `確認下單｜NT$${amt}`;
+  }
 }
 function openQuerySheet() {
   document.getElementById('overlay').classList.add('show');
@@ -1368,7 +1491,7 @@ async function submitOrder() {
   // fix18-10-hotfix23-E：checkout 模式在真正送單前要求登入
   if(_lineMemberGateConfig && _lineMemberGateConfig.gate_enabled && _lineMemberGateConfig.gate_mode==='checkout'){
     const gateResult=await LineMemberGate.requireMemberBeforeCheckout(STORE_ID,_lineMemberGateConfig,_gateIds(),_trackEvent);
-    if(!gateResult.ok){ btn.disabled=false; btn.textContent='送出訂單'; return; }
+    if(!gateResult.ok){ btn.disabled=false; updateCheckoutActionAmounts(); return; }
   }
   // fix18-10-hotfix23-A：payment_started — 非 LINE Pay（無跳轉）選擇付款方式並送出時記錄；
   // LINE Pay 改在跳轉前記錄（見下方 lpRes.payment_url 導轉處）
@@ -1384,7 +1507,7 @@ async function submitOrder() {
       analytics: _analyticsPayloadForOrder(),
       member_session: _currentMemberSession(),
     });
-    if (!res.success) { toast(res.message || '送出失敗'); btn.disabled = false; btn.textContent = '送出訂單'; return; }
+    if (!res.success) { toast(res.message || '送出失敗'); btn.disabled = false; updateCheckoutActionAmounts(); return; }
     const d = res.data;
 
     // hotfix22-B：宅配 LINE Pay 正式付款流程 — 沿用 line-order.html 已驗證過的模式
@@ -1418,12 +1541,12 @@ async function submitOrder() {
           return;
         } else {
           toast(lpRes.message || 'LINE Pay 建立付款失敗，請改選其他付款方式');
-          btn.disabled = false; btn.textContent = '送出訂單';
+          btn.disabled = false; updateCheckoutActionAmounts();
           return;
         }
       } catch (lpErr) {
         toast('LINE Pay 連線失敗：' + lpErr.message);
-        btn.disabled = false; btn.textContent = '送出訂單';
+        btn.disabled = false; updateCheckoutActionAmounts();
         return;
       }
     }
@@ -1437,11 +1560,12 @@ async function submitOrder() {
     appliedCoupon = null;
     clearCartStorage();
     updateCartBar();
+    _enterCartStage();
     closeSheet();
   } catch (e) {
     toast('送出失敗，請稍後再試');
   } finally {
-    btn.disabled = false; btn.textContent = '送出訂單';
+    btn.disabled = false; updateCheckoutActionAmounts();
   }
 }
 

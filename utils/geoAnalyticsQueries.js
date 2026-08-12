@@ -29,7 +29,15 @@ const GEO_FUNNEL_EVENTS = Object.freeze({
   visit: 'page_view',
   productView: 'view_product',
   cart: 'add_to_cart',
-  checkout: 'begin_checkout',
+  // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.7（TWO-STAGE-CHECKOUT）：這個檔案
+  // 所有漏斗/警示/評分查詢的「開始結帳」階段都是透過這一個常數集中定義事件
+  // 名稱（見檔頭註解），故只需要在這一處把來源從 begin_checkout 換成
+  // checkout_click，就能讓下面所有 step_checkout／count_checkout／
+  // begin_checkout_visitors／begin_checkout_events 等既有輸出欄位（欄位名稱
+  // 保留不變，只是資料來源換了）全部改用新的權威事件，不逐一在每支查詢裡
+  // 各自修改、也不會漏改任何一處。begin_checkout 的歷史原始事件不受影響，
+  // 只是不再是這裡任何查詢的資料來源；不與 checkout_click 用 OR 合併。
+  checkout: 'checkout_click',
   submitOrder: 'submit_order',
   purchase: 'purchase',
 });
@@ -345,6 +353,12 @@ function getGeoFunnel(db, storeId, filters) {
         district: r.district || null,
         visitors, view_product_visitors: view, add_to_cart_visitors: cart,
         begin_checkout_visitors: checkout, submitted_order_visitors: submitted, purchase_visitors: purchase,
+        // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.7：新增 canonical 欄位
+        // checkout_click_visitors/events——與上面 begin_checkout_visitors/events
+        // 數值完全相同（GEO_FUNNEL_EVENTS.checkout 已改成 'checkout_click'，
+        // 這裡只是同一次算好的結果多附一個新名字），讓開始改用新事件名稱的
+        // 消費端可以直接讀新欄位，同時不破壞舊欄位名稱的既有 response shape。
+        checkout_click_visitors: checkout, checkout_click_events: checkoutEvents,
         view_product_events: viewEvents, add_to_cart_events: cartEvents, begin_checkout_events: checkoutEvents,
         // 需求文件五：漏斗轉換率（分母為 0 一律 0，_rate() 已內建 NaN/Infinity 防護）
         visit_to_view_rate: _rate(view, visitors),

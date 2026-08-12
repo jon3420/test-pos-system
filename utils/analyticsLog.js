@@ -94,6 +94,15 @@ const EVENT_WHITELIST = [
   'add_to_cart',
   'remove_from_cart',
   'begin_checkout',
+  // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.7（TWO-STAGE-CHECKOUT）：真正兩階段
+  // 結帳的正式事件契約。view_cart＝使用者打開「購物車摘要」（第一階段）；
+  // checkout_click＝使用者按下「前往結帳」並成功切換到「結帳表單」（第二階段）。
+  // begin_checkout 保留在白名單只是為了不破壞既有歷史資料寫入路徑的相容性；
+  // H1.4.7 之後的前端不再呼叫 _trackEvent('begin_checkout')（見
+  // public/line-order.html／public/line-shipping.html 的 openCartSheet()），
+  // 新流程的「開始結帳」語意一律以 checkout_click 為權威事件來源。
+  'view_cart',
+  'checkout_click',
   'submit_order',
   'payment_started',
   'purchase',

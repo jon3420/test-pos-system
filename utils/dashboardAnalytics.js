@@ -144,17 +144,45 @@ function getFunnel(db, storeId, range, channel) {
     `SELECT COUNT(*) c FROM analytics_events WHERE ${evtWhere}`, p(evt)
   ) || {}).c || 0);
 
+  // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.7（TWO-STAGE-CHECKOUT）：正式漏斗改為
+  // page_view → view_product → add_to_cart → view_cart → checkout_click →
+  // submit_order → purchase。checkout_click 是「開始結帳」的唯一權威來源
+  // （view_cart 只代表「打開購物車摘要」，不是開始結帳，不得混為一談）。
+  //
+  // begin_checkout 相容別名的定位修正（取代先前版本的做法）：完整 inventory
+  // 過整個專案後（見交付報告），沒有任何真實消費端會用
+  // `funnel.find(f=>f.key==='begin_checkout')` 讀取這個陣列——`getRecommendations()`
+  // 已改讀 checkout_click；`getHealthScore()`／其他消費端用 funnel[0]／
+  // funnel[funnel.length-1] 依「第一個是 page_view、最後一個是 purchase」的
+  // 位置假設存取，如果在陣列尾端（或任何位置）插入一個額外的 begin_checkout
+  // 條目，會讓 funnel[funnel.length-1] 變成 begin_checkout 而不是 purchase
+  // （真實會壞掉的 bug），而且 public/js/app.js 的 renderDashboardFunnelV2()
+  // 會把陣列裡「每一個」元素都畫成漏斗圖上的一條可視 bar，插入 begin_checkout
+  // 會讓 Dashboard 多出一條不該存在的第七條漏斗階段。故這裡不再把
+  // begin_checkout 放進這個陣列——沒有真實舊契約需要保留（不是「刪除既有
+  // 功能」，是移除我這一輪之前自行加入、其實沒有消費端在用的東西）。
+  // begin_checkout 的相容別名改放在 utils/geoAnalyticsQueries.js 的
+  // begin_checkout_visitors/events 欄位（那裡的欄位名稱本身就是既有 API
+  // response shape 的一部分，是真的需要保留的既有契約），與這裡的 canonical
+  // 六階段漏斗完全分開，不混在一起。
+  //
+  // 誠實限制（供交付報告引用）：begin_checkout 的原始歷史事件在 H1.4.7 上線前
+  // 就存在，但 view_cart／checkout_click 只從 H1.4.7 事件契約上線後才開始有
+  // 資料；沒有任何可靠的部署時間分界可用於回溯合併，故本漏斗不嘗試「補齊」
+  // 上線前的 view_cart／checkout_click 數字，也不會把它們跟 begin_checkout
+  // 相加或取代。
   const stages = [
     { key: 'page_view', label: '進站', count: distinctVisitors('page_view'), event_count: eventCount('page_view'), unique_users: distinctVisitors('page_view') },
     { key: 'view_product', label: '商品瀏覽', count: distinctVisitors('view_product'), event_count: eventCount('view_product'), unique_users: distinctVisitors('view_product') },
     { key: 'add_to_cart', label: '加入購物車', count: distinctVisitors('add_to_cart'), event_count: eventCount('add_to_cart'), unique_users: distinctVisitors('add_to_cart') },
-    { key: 'begin_checkout', label: '開始結帳', count: distinctVisitors('begin_checkout'), event_count: eventCount('begin_checkout'), unique_users: distinctVisitors('begin_checkout') },
+    { key: 'view_cart', label: '查看購物車', count: distinctVisitors('view_cart'), event_count: eventCount('view_cart'), unique_users: distinctVisitors('view_cart') },
+    { key: 'checkout_click', label: '開始結帳', count: distinctVisitors('checkout_click'), event_count: eventCount('checkout_click'), unique_users: distinctVisitors('checkout_click') },
     { key: 'submit_order', label: '送出訂單', count: distinctOrders('submit_order'), event_count: eventCount('submit_order'), unique_users: distinctVisitors('submit_order'), orders: distinctOrders('submit_order') },
     { key: 'purchase', label: '完成付款', count: distinctOrders('purchase'), event_count: eventCount('purchase'), unique_users: distinctVisitors('purchase'), orders: distinctOrders('purchase') },
   ];
 
   const entryCount = stages[0].count;
-  return stages.map((s, i) => {
+  const mapped = stages.map((s, i) => {
     const prev = i > 0 ? stages[i - 1].count : null;
     return {
       ...s,
@@ -162,6 +190,7 @@ function getFunnel(db, storeId, range, channel) {
       overall_conversion_rate: entryCount > 0 ? round2(s.count / entryCount * 100) : null,
     };
   });
+  return mapped;
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -254,7 +283,11 @@ function getRealtime(db, storeId) {
   );
   const online = new Set();
   let browsing = 0, inCart = 0, paying = 0;
-  const cartEvents = new Set(['add_to_cart', 'remove_from_cart', 'begin_checkout']);
+  // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.7：新流程不再送出 begin_checkout，
+  // 改送 view_cart／checkout_click，這裡的即時線上人數分類也要跟著認得這兩個
+  // 新事件，否則切換到新流程後「購物車中」人數會被誤判成「瀏覽中」。
+  // begin_checkout 保留在集合內，只是為了不影響切換前仍在進行中的舊 session。
+  const cartEvents = new Set(['add_to_cart', 'remove_from_cart', 'view_cart', 'checkout_click', 'begin_checkout']);
   sessions.forEach(s => {
     if (online.has(s.session_id)) return; // 同一 session 若有多筆同時間戳，只算一次
     online.add(s.session_id);
@@ -616,22 +649,35 @@ function getIncomplete(db, storeId, range, channel) {
   const chClause = _eventChannelWhereClause(channel);
   const p = [storeId, range.startLocal, range.endLocal, ...chClause.params];
 
-  // 購物車未結帳：有 add_to_cart，但同一 cart_id 沒有 begin_checkout
+  // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.7：購物車未結帳＝有 add_to_cart，但
+  // 同一 cart_id 沒有 checkout_click（開始結帳的權威來源，見需求文件 Analytics
+  // 事件契約）。不得用 checkout_click OR begin_checkout 混算，避免新舊事件
+  // 重複計數；begin_checkout 的歷史原始事件保留在 analytics_events，但不再是
+  // 這個查詢的資料來源。
   const cartsWithAdd = new Set(db.all(
     `SELECT DISTINCT cart_id FROM analytics_events WHERE store_id=? AND event_name='add_to_cart'
        AND cart_id IS NOT NULL AND cart_id!='' AND ${A_LOCAL} BETWEEN ? AND ?${chClause.sql}`, p
   ).map(r => r.cart_id));
   const cartsWithCheckout = new Set(db.all(
-    `SELECT DISTINCT cart_id FROM analytics_events WHERE store_id=? AND event_name='begin_checkout'
+    `SELECT DISTINCT cart_id FROM analytics_events WHERE store_id=? AND event_name='checkout_click'
        AND cart_id IS NOT NULL AND cart_id!='' AND ${A_LOCAL} BETWEEN ? AND ?${chClause.sql}`, p
   ).map(r => r.cart_id));
   const cartsWithSubmit = new Set(db.all(
     `SELECT DISTINCT cart_id FROM analytics_events WHERE store_id=? AND event_name='submit_order'
        AND cart_id IS NOT NULL AND cart_id!='' AND ${A_LOCAL} BETWEEN ? AND ?${chClause.sql}`, p
   ).map(r => r.cart_id));
+  // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.7：已經完成付款（purchase）的購物車，
+  // 即使因為漏送事件或舊資料而沒有 checkout_click／submit_order 紀錄，也不得被
+  // 誤判成「放棄的購物車」——這裡的「未結帳」「未送單」統計目的是找出真正卡住
+  // 沒完成的購物車，不是單純比對事件是否存在。有 purchase 就代表這台購物車的
+  // 旅程已經走完，一律從下面兩個未完成統計中排除。
+  const cartsWithPurchase = new Set(db.all(
+    `SELECT DISTINCT cart_id FROM analytics_events WHERE store_id=? AND event_name='purchase'
+       AND cart_id IS NOT NULL AND cart_id!='' AND ${A_LOCAL} BETWEEN ? AND ?${chClause.sql}`, p
+  ).map(r => r.cart_id));
 
-  const cartNotCheckedOut = [...cartsWithAdd].filter(c => !cartsWithCheckout.has(c)).length;
-  const checkoutNotSubmitted = [...cartsWithCheckout].filter(c => !cartsWithSubmit.has(c)).length;
+  const cartNotCheckedOut = [...cartsWithAdd].filter(c => !cartsWithCheckout.has(c) && !cartsWithPurchase.has(c)).length;
+  const checkoutNotSubmitted = [...cartsWithCheckout].filter(c => !cartsWithSubmit.has(c) && !cartsWithPurchase.has(c)).length;
 
   // 已送單等待付款：submit_order 有，但 purchase 沒有（同一 order_id）
   const submittedOrderIds = new Set(db.all(
@@ -768,7 +814,9 @@ function getRecommendations(funnel, cart, payments, repeat) {
   const pv = funnel.find(f => f.key === 'page_view').count;
   const vp = funnel.find(f => f.key === 'view_product').count;
   const atc = funnel.find(f => f.key === 'add_to_cart').count;
-  const bc = funnel.find(f => f.key === 'begin_checkout').count;
+  // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.7：「開始結帳」權威來源改為
+  // checkout_click（begin_checkout 只是相容別名，數值相同，但改讀新 key 較清楚）。
+  const bc = funnel.find(f => f.key === 'checkout_click').count;
 
   if (pv >= 20 && vp > 0 && vp / pv < 0.3) {
     recs.push({
@@ -1083,6 +1131,13 @@ const AD_SOURCE_STAGE_EVENTS = [
   ['view_product', 'visitor_id'],
   ['add_to_cart', 'visitor_id'],
   ['begin_checkout', 'visitor_id'],
+  // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.7：H1.4.7 前端已不再送出
+  // begin_checkout（改送 view_cart／checkout_click），上面那個 stage 定義
+  // 保留是為了不刪除／不重算既有歷史 begin_checkout 資料；這裡另外新增
+  // checkout_click 當一個獨立、未合併的 stage，讓 H1.4.7 上線後的廣告歸因
+  // 報表仍能看到「開始結帳」數字，不會因為前端換事件就悄悄歸零。兩者刻意
+  // 分開查詢、分開輸出欄位，不用 OR 合併，避免同一使用者被重複計數。
+  ['checkout_click', 'visitor_id'],
   ['submit_order', 'order_id'],
   ['purchase', 'order_id'],
 ];
@@ -1138,7 +1193,7 @@ function getAdsAttribution(db, storeId, range) {
   // ── First Touch：整批撈原始事件列，在 JS 端解析 metadata_json 分組 ──
   const rawRows = db.all(
     `SELECT event_name, visitor_id, order_id, metadata_json FROM analytics_events
-     WHERE store_id=? AND event_name IN ('page_view','view_product','add_to_cart','begin_checkout','submit_order','purchase')
+     WHERE store_id=? AND event_name IN ('page_view','view_product','add_to_cart','begin_checkout','checkout_click','submit_order','purchase')
        AND ${A_LOCAL} BETWEEN ? AND ?`,
     [storeId, range.startLocal, range.endLocal]
   );
@@ -1232,6 +1287,7 @@ function getAdsAttribution(db, storeId, range) {
         view_product: stages.view_product || 0,
         add_to_cart: stages.add_to_cart || 0,
         begin_checkout: stages.begin_checkout || 0,
+        checkout_click: stages.checkout_click || 0,
         submit_order: stages.submit_order || 0,
         purchase,
         conversion_rate: entry > 0 ? round2(purchase / entry * 100) : null,
@@ -1261,6 +1317,7 @@ function getAdsAttribution(db, storeId, range) {
         view_product: row.stages.view_product || 0,
         add_to_cart: row.stages.add_to_cart || 0,
         begin_checkout: row.stages.begin_checkout || 0,
+        checkout_click: row.stages.checkout_click || 0,
         submit_order: row.stages.submit_order || 0,
         purchase,
         conversion_rate: entry > 0 ? round2(purchase / entry * 100) : null,

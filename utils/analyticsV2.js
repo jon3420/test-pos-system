@@ -76,10 +76,14 @@ function getProductFunnel(db, storeId, range, channel) {
     productCarts[r.product_id].add(r.cart_id);
   });
 
-  // 有 begin_checkout 的 cart_id 集合
+  // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.7：「開始結帳」的權威來源改為
+  // checkout_click（H1.4.7 前端不再送出 begin_checkout）。輸出欄位名稱仍是
+  // 通用的 `checkout`（不是 `begin_checkout`），故這裡換資料來源不會破壞既有
+  // response shape。不與 begin_checkout 用 OR 合併，避免新舊事件重複計數；
+  // begin_checkout 的歷史原始事件不受影響，只是不再是這個統計的來源。
   const checkoutCartIds = new Set(db.all(
     `SELECT DISTINCT cart_id FROM analytics_events
-     WHERE store_id=? AND event_name='begin_checkout' AND cart_id IS NOT NULL AND cart_id != ''
+     WHERE store_id=? AND event_name='checkout_click' AND cart_id IS NOT NULL AND cart_id != ''
        AND ${A_LOCAL} BETWEEN ? AND ?${chClause.sql}`, p
   ).map(r => r.cart_id));
 

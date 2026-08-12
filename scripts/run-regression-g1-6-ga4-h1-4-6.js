@@ -84,7 +84,17 @@ function normPath(p) { return String(p).trim().replace(/\\/g, '/'); }
 // ════════════════════════════════════════════════════════════════
 const H146_NEW = [
   ['scripts/run-g1-6-ga4-h1-4-6-runtime.js', 37, 37, 'H1.4.6 Product Detail Modal Runtime (real jsdom + real public/js/product-detail-modal.js: open/close/backdrop/Esc/qty/subtotal/maxQty/無圖無介紹fallback/快速連點防護/blocked商品/onOpen單次觸發/長文字不噴錯)'],
-  ['scripts/static-audit-g1-6-ga4-h1-4-6.js', 66, 66, 'H1.4.6 Static/UI/Analytics Audit (LINE外帶外送/宅配共用同一份Modal元件 + 商品卡點擊/鍵盤開啟 + 加入購物車呼叫既有addCart()/changeQty() + 不繞過售完判斷 + Modal UI要求 + 固定購物車列 + view_product/view_item語意分離 + GA4 items[] + 規格加料界線 + 後端驗證未放寬)'],
+  // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.7 誠實更新（不是竄改 H1.4.6 歷史交付
+  // 結果）：H1.4.7 兩階段結帳上線後，scripts/static-audit-g1-6-ga4-h1-4-6.js 裡
+  // 有 5 個已確認過期的 checkout 相關斷言（cartBar/openCartSheet 語意、
+  // begin_checkout 觸發點）被 supersede 成對應的 H1.4.7 新契約斷言（逐項在該
+  // 檔案內以 supersession 註解標記，原始 66 項裡仍有效的 61 項全部保留），
+  // 淨增 6 項，實測為 72/72。這裡的期望值必須跟著更新為 72/72，否則往下
+  // inherited 的 H1.4.7 regression runner 會用「H1.4.6 交付當時的 66/66」
+  // 這個已經不成立的期望值去判斷現在的真實輸出，導致新 runner 對一個實際
+  // FAIL=0 的 suite 誤判為 FAIL。H1.4.6 當時的原始 66/66 交付紀錄本身保留在
+  //對話紀錄與交付報告裡，不會被這裡的數字更新抹去。
+  ['scripts/static-audit-g1-6-ga4-h1-4-6.js', 72, 72, 'H1.4.6 Static/UI/Analytics Audit (LINE外帶外送/宅配共用同一份Modal元件 + 商品卡點擊/鍵盤開啟 + 加入購物車呼叫既有addCart()/changeQty() + 不繞過售完判斷 + Modal UI要求 + 固定購物車列 + view_product/view_item語意分離 + GA4 items[] + 規格加料界線 + 後端驗證未放寬；H1.4.7 更新：5 項過期 checkout 斷言已 supersede，66→72)'],
 ];
 
 const SUITE = [...H145_FINAL_SUITE, ...H146_NEW];

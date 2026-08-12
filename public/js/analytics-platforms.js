@@ -85,9 +85,27 @@
     view_product: 'ViewContent',
     add_to_cart: 'AddToCart',
     begin_checkout: 'InitiateCheckout',
+    // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.7（TWO-STAGE-CHECKOUT）：
+    // checkout_click＝使用者按下「前往結帳」，語意等同 Meta 標準轉換事件
+    // InitiateCheckout（沿用既有 begin_checkout 的映射目標，因為兩者在各自
+    // 版本裡代表的都是「開始結帳」這件事，只是 H1.4.7 換了事件名稱來源）。
+    // view_cart（打開購物車摘要）語意上不是開始結帳，故意不映射到
+    // InitiateCheckout，讓 Meta 那邊留一個獨立的自訂事件名稱，不失真、不
+    // 誤增 InitiateCheckout 次數。
+    checkout_click: 'InitiateCheckout',
+    view_cart: 'view_cart',
     payment_started: 'AddPaymentInfo',
     purchase: 'Purchase',
   };
+  // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.7：Meta Pixel 對「標準事件」
+  // （PageView/ViewContent/AddToCart/InitiateCheckout/Purchase/...）用
+  // fbq('track', name, ...)；對「不在 Meta 標準事件清單裡的自訂事件」必須用
+  // fbq('trackCustom', name, ...)，否則 Meta 會把不明字串塞進 track()，事件
+  // 品質分數／自動比對會出問題。view_cart 不是 Meta 標準事件（Meta 沒有
+  // 「ViewCart」），故意保留成獨立自訂事件名稱、不誤併入 InitiateCheckout，
+  // 這裡用一個最小的 Set 記錄「哪些 canonical 事件要用 trackCustom」，不重寫
+  // 整套派送流程、不建立第二套 event map。
+  const META_CUSTOM_EVENTS = new Set(['view_cart']);
   // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.4｜GA4 view_item 重複觸發修正：
   // view_product 是「商品卡進入視窗」的曝光訊號（IntersectionObserver，見
   // line-order.html / line-shipping.html 的 _setupViewProductObserver），語意上是
@@ -117,6 +135,13 @@
     add_to_cart: 'add_to_cart',
     view_item: 'view_item',
     begin_checkout: 'begin_checkout',
+    // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.7（TWO-STAGE-CHECKOUT）：正式
+    // 事件契約——view_cart／checkout_click 各自 1:1 對應到同名 GA4 事件，
+    // 不得另外多送一筆 begin_checkout（H1.4.7 前端本身也已經不呼叫
+    // _trackEvent('begin_checkout')，這裡的 begin_checkout 映射保留純粹是
+    // 相容性宣告，不會再被觸發）。
+    view_cart: 'view_cart',
+    checkout_click: 'checkout_click',
     payment_started: 'add_payment_info',
     purchase: 'purchase',
   };
@@ -126,10 +151,14 @@
   function trackMeta(eventName, params, eventId) {
     if (!_config || !_config.metaEnabled || !_config.metaPixelId || !window.fbq) return;
     const metaName = META_EVENT_MAP[eventName] || eventName;
+    // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.7：自訂事件（目前只有 view_cart）
+    // 用 fbq('trackCustom', ...)；其餘（含 checkout_click→InitiateCheckout）
+    // 都是 Meta 標準事件，維持既有 fbq('track', ...) 呼叫方式，not 退步。
+    const method = META_CUSTOM_EVENTS.has(eventName) ? 'trackCustom' : 'track';
     try {
       const opts = eventId ? { eventID: String(eventId) } : undefined;
-      if (opts) window.fbq('track', metaName, params || {}, opts);
-      else window.fbq('track', metaName, params || {});
+      if (opts) window.fbq(method, metaName, params || {}, opts);
+      else window.fbq(method, metaName, params || {});
     } catch (e) {
       console.warn('[analytics-platforms] Meta Pixel 事件送出失敗:', e.message);
     }
