@@ -27,6 +27,15 @@ const path = require('path');
 const fs = require('fs');
 const { execFileSync } = require('child_process');
 const ROOT = path.join(__dirname, '..');
+const dbHelper = require('./lib/qa-temp-db.js');
+
+// Stage 3A remediation: never touch the real data/pos.db. bootstrapChildDb()
+// enforces the full POS_DB_PATH/POS_DB_TEMP_ROOT root-containment contract
+// (parent-invoked: verified containment, never deleted by this script;
+// standalone: mkdtemp root owned and cleaned up by this script). Bootstrap
+// and every DB-touching require live inside the SAME outer try/finally in
+// runEntry() below -- a failure at any point after bootstrap still triggers
+// full cleanup, it isn't a separate disconnected cleanup path.
 
 const results = [];
 function pass(name) { results.push({ name, status: 'PASS' }); console.log(`[PASS] ${name}`); }
@@ -59,11 +68,6 @@ async function main() {
     try { execFileSync(process.execPath, ['--check', path.join(ROOT, rel)]); pass(`0-parse ${rel} node --check 通過`); }
     catch (e) { fail(`0-parse ${rel} node --check 通過`, e.message.slice(0, 200)); }
   });
-
-  const DATA_DIR = path.join(ROOT, 'data');
-  const DB_FILE = path.join(DATA_DIR, 'pos.db');
-  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-  if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);
 
   const { initDb, getDb } = require(path.join(ROOT, 'utils/db.js'));
   await initDb();
@@ -298,11 +302,24 @@ async function main() {
     assert(connTest._lastTestAtEventCompatForTest.size === 0, '25b. event-compat map empty after resetForTest (no residue)');
   }
 
-  if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);
   printSummary();
 }
 
-main().catch((e) => {
+async function runEntry() {
+  let dbContext;
+  let primaryError;
+  try {
+    dbContext = dbHelper.bootstrapChildDb('event-compat-standalone');
+    return await main();
+  } catch (err) {
+    primaryError = err;
+    throw err;
+  } finally {
+    dbHelper.handleOwnedCleanup(dbContext, primaryError);
+  }
+}
+
+runEntry().catch((e) => {
   console.error(e);
   process.exitCode = 1;
 });

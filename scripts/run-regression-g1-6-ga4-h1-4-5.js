@@ -22,83 +22,46 @@ const fs = require('fs');
 const os = require('os');
 const { execFileSync } = require('child_process');
 const ROOT = path.join(__dirname, '..');
-const DB_FILE = path.join(ROOT, 'data', 'pos.db');
+const dbHelper = require('./lib/qa-temp-db.js');
 
-// ════════════════════════════════════════════════════════════════
-// 1. 重新執行 H1.4.4 runner 原始碼裡「組出最終 SUITE 陣列」的那一段，
-//    拿到它真正的 inherited final suite 清單（不是手打轉抄）。
-//
-//    已知問題修復：用 new Function() 執行擷取出來的原始碼片段時，該片段內部
-//    會呼叫 require(...)、使用 __dirname，且它本身可能包含 module.exports 賦值
-//    （雖然 H1.4.4 是在片段之後才手動加 module.exports = SUITE;，但為了保險，這裡
-//    一律把 module／require／__dirname 三個全部當作參數注入，避免片段內任何一處
-//    直接引用到外層作用域不存在的 module，導致「module is not defined」而整支
-//    runner 在解析階段就先炸掉、後面所有 suite 都沒有機會真正執行。
-// ════════════════════════════════════════════════════════════════
-function parseH144FinalSuite() {
-  const rel = 'scripts/run-regression-g1-6-ga4-h1-4-4.js';
-  const abs = path.join(ROOT, rel);
-  const src = fs.readFileSync(abs, 'utf8');
-  const marker = 'const SUITE = [...H143_FINAL_SUITE, ...H144_NEW];';
-  const idx = src.indexOf(marker);
-  if (idx === -1) {
-    console.error(`[FATAL] 無法在 ${rel} 裡找到 SUITE 組裝那一行，解析邏輯可能已經跟原始碼格式不同步。`);
-    process.exit(1);
-  }
-  const codeUpToSuite = src.slice(0, idx + marker.length).replace(/^#!.*\n/, '');
-  const fakeModule = { exports: null };
-  // eslint-disable-next-line no-new-func
-  const fn = new Function('module', 'require', '__dirname', `${codeUpToSuite}\nmodule.exports = SUITE;`);
-  fn(fakeModule, require, path.dirname(abs));
-  if (!Array.isArray(fakeModule.exports)) {
-    console.error(`[FATAL] 從 ${rel} 解析出來的 SUITE 不是陣列（module.exports=${JSON.stringify(fakeModule.exports)}），解析邏輯可能已經跟原始碼格式不同步。`);
-    process.exit(1);
-  }
-  return fakeModule.exports;
+// Stage 3A remediation: SUITE is read from the side-effect-free JSON catalog
+// (verified byte-identical to the pre-remediation inheritance-resolved
+// array, including the exact 74-count invariant this file used to assert at
+// runtime). The parseH144FinalSuite() readFileSync+new Function() executor
+// is gone -- the catalog already contains the final resolved tuples. Real
+// data/pos.db is never touched; each child gets its own mkdtemp-isolated
+// temp DB.
+const CATALOG_PATH = path.join(ROOT, 'scripts/lib/H1.4.8_REGRESSION_SUITE_CATALOG.json');
+const CATALOG_KEY = 'GA4_H1_4_5';
+const rawCatalog = JSON.parse(fs.readFileSync(CATALOG_PATH, 'utf8'));
+if (!rawCatalog.suites || !rawCatalog.suites[CATALOG_KEY]) {
+  throw new Error(`[FATAL] Suite catalog missing key "${CATALOG_KEY}" in ${CATALOG_PATH}`);
 }
-const H144_FINAL_SUITE = parseH144FinalSuite();
-
-{
-  const seen = new Set();
-  const dups = [];
-  H144_FINAL_SUITE.forEach(([p]) => { if (seen.has(p)) dups.push(p); seen.add(p); });
-  if (dups.length) {
-    console.error('[FATAL] H1.4.4 final runner 內部本身有重複 suite path，無法安全繼承：', dups);
-    process.exit(1);
-  }
-  if (H144_FINAL_SUITE.length === 0) {
-    console.error('[FATAL] 從 run-regression-g1-6-ga4-h1-4-4.js 解析出的最終 SUITE 是空陣列，解析邏輯可能已經跟原始碼格式不同步。');
-    process.exit(1);
-  }
-  if (H144_FINAL_SUITE.length !== 72) {
-    console.error(`[FATAL] 預期從 H1.4.4 繼承 72 個 suite，實際解析出 ${H144_FINAL_SUITE.length} 個。解析邏輯或 H1.4.4 原始碼可能已經改變，請人工確認後再繼續，不得靜默忽略這個不一致。`);
-    process.exit(1);
-  }
+const catalogEntry = rawCatalog.suites[CATALOG_KEY];
+if (!Array.isArray(catalogEntry.entries) || catalogEntry.entries.length !== catalogEntry.tupleCount) {
+  throw new Error(`[FATAL] Suite catalog entry "${CATALOG_KEY}" is malformed (tupleCount mismatch or entries not an array)`);
 }
+const SUITE = Object.freeze(catalogEntry.entries.map(([p, pass, total, label]) => {
+  const passOk = pass === null || typeof pass === 'number';
+  const totalOk = total === null || typeof total === 'number';
+  if (typeof p !== 'string' || !passOk || !totalOk || typeof label !== 'string') {
+    throw new Error(`[FATAL] Malformed suite tuple in catalog "${CATALOG_KEY}": ${JSON.stringify([p, pass, total, label])}`);
+  }
+  return Object.freeze([p, pass, total, label]);
+}));
 
-// ════════════════════════════════════════════════════════════════
-// 2. H1.4.5 新增：Product Exposure-to-Cart Rate Runtime／Static-UI Audit
-//    （全部 fresh 執行確認過真實 count，且都是 FAIL=0）。
-// ════════════════════════════════════════════════════════════════
-const H145_NEW = [
-  ['scripts/run-g1-6-ga4-h1-4-5-exposure-runtime.js', 31, 31, 'H1.4.5 Product Exposure-to-Cart Rate Runtime (real getProductRanking() + real sql.js DB: 1/1=100, 3/10=30, view=0→null, 1/2=200 no-cap, delisted product, store isolation, date range, channel filter)'],
-  ['scripts/static-audit-g1-6-ga4-h1-4-5.js', 40, 40, 'H1.4.5 Static/UI Audit (主儀表板/Analytics V2/AI Insights 曝光語意標籤 + view_to_cart_rate/view_to_add_rate API 欄位未破壞性改名 + GA4 view_item/Meta Pixel/GA4即時地圖 語意保護 Hard Gate)'],
-];
-
-const SUITE = [...H144_FINAL_SUITE, ...H145_NEW];
-
-// Final uniqueness gate.
+// Final uniqueness + exact-count gate (preserved from the original: this
+// file's own history shows a real value in asserting the exact expected
+// count, not just >0).
 {
   const seen = new Set();
   const dups = [];
   SUITE.forEach(([p]) => { if (seen.has(p)) dups.push(p); seen.add(p); });
   if (dups.length) {
-    console.error('[FATAL] H1.4.5 runner 組出來的最終 SUITE 清單有重複 path：', dups);
-    process.exit(1);
+    throw new Error(`[FATAL] H1.4.5 runner 組出來的最終 SUITE 清單有重複 path：${JSON.stringify(dups)}`);
   }
   if (SUITE.length !== 74) {
-    console.error(`[FATAL] 預期最終應解析出 74 個唯一 suite（72 inherited + 2 new），實際為 ${SUITE.length} 個。`);
-    process.exit(1);
+    throw new Error(`[FATAL] 預期最終應解析出 74 個唯一 suite（72 inherited + 2 new），實際為 ${SUITE.length} 個。`);
   }
 }
 
@@ -155,9 +118,9 @@ function snapshotTmpMatches() {
   return new Set(matched);
 }
 
-function detectResidue(preRoundTmpSnapshot) {
+function detectResidue(preRoundTmpSnapshot, tmpRoot) {
   const issues = [];
-  if (fs.existsSync(DB_FILE)) issues.push('data/pos.db');
+  if (tmpRoot && fs.existsSync(tmpRoot)) issues.push('temp DB root: ' + tmpRoot);
   if (fs.existsSync(path.join(ROOT, 'data'))) {
     ['.sqlite', '.sqlite3'].forEach((ext) => {
       if (fs.readdirSync(path.join(ROOT, 'data')).some((f) => f.endsWith(ext))) issues.push(`data/*${ext}`);
@@ -194,7 +157,7 @@ function classify(expectPass, expectTotal, pass, fail, total, exitCode, crashed,
   return ok ? 'PASS' : 'FAIL';
 }
 
-function runRound(roundNum) {
+function runRound(roundNum, tmpRoot) {
   console.log(`\n========================= ROUND ${roundNum} =========================`);
   let allOk = true;
   const roundResults = [];
@@ -208,7 +171,8 @@ function runRound(roundNum) {
       allOk = false;
       continue;
     }
-    if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);
+    const childDbPath = dbHelper.createChildDbPath(tmpRoot, label);
+    const childEnv = dbHelper.buildChildEnv(childDbPath, tmpRoot);
     let output = '';
     let crashed = false;
     let exitCode = 0;
@@ -217,12 +181,14 @@ function runRound(roundNum) {
       // cwd 固定為專案根目錄，避免繼承 suite 因工作目錄不同而讀不到相對路徑檔案；
       // 每個 suite 都是獨立 child process（execFileSync），不共用任何模組快取或
       // 全域狀態，也不會因為前一個 suite 沒清乾淨而互相污染。
-      output = execFileSync(process.execPath, [p], { cwd: ROOT, encoding: 'utf8', timeout: 120000 });
+      output = execFileSync(process.execPath, [p], { cwd: ROOT, encoding: 'utf8', timeout: 120000, env: childEnv });
     } catch (e) {
       output = (e.stdout || '') + (e.stderr || '');
       crashed = true;
       exitCode = e.status === undefined ? 1 : e.status;
       if (e.signal === 'SIGTERM' || /ETIMEDOUT/.test(String(e.code))) timedOut = true;
+    } finally {
+      dbHelper.cleanupDbFileAndSidecars(childDbPath);
     }
     const { pass, fail, total } = parseSummary(output);
     const classification = classify(expectPass, expectTotal, pass, fail, total, exitCode, crashed, timedOut);
@@ -236,8 +202,7 @@ function runRound(roundNum) {
       console.log('----------------------');
     }
   }
-  if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);
-  const residue = detectResidue(preRoundTmpSnapshot);
+  const residue = detectResidue(preRoundTmpSnapshot, null);
   if (residue.length) { allOk = false; console.log(`[RESIDUE] Round ${roundNum} flagged: ${residue.join('; ')}`); }
   else { console.log(`[RESIDUE] Round ${roundNum}: clean`); }
   if (sumChildFailAssertions > 0) allOk = false;
@@ -248,9 +213,7 @@ function runRound(roundNum) {
 
 function main() {
   console.log('H1.4.5 Full Regression Runner');
-  console.log(`  Inherited from H1.4.4 final runner (parsed live): ${H144_FINAL_SUITE.length} unique suites`);
-  console.log(`  + H1.4.5 new suites (Product Exposure-to-Cart Rate Runtime / Static-UI Audit): ${H145_NEW.length}`);
-  console.log(`  = Total unique suites this round: ${SUITE.length}`);
+  console.log(`  Final resolved suite (from side-effect-free JSON catalog, Stage 3A remediated): ${SUITE.length} unique suites`);
   console.log('\nnode --check for H1.4.5 touched Production/Test files:');
   let checkOk = true;
   for (const rel of NODE_CHECK_FILES) {
@@ -263,9 +226,15 @@ function main() {
     }
   }
 
-  const roundCount = Number(process.argv[2]) > 0 ? Number(process.argv[2]) : 3;
-  const rounds = [];
-  for (let i = 1; i <= roundCount; i += 1) rounds.push(runRound(i));
+  const roundCount = dbHelper.parseRegressionCliArgs(process.argv.slice(2)).roundCount;
+  const { tmpRoot, cleanupRoot } = dbHelper.createOrchestratorTempRoot('regression-ga4-h1-4-5');
+  let rounds;
+  try {
+    rounds = [];
+    for (let i = 1; i <= roundCount; i += 1) rounds.push(runRound(i, tmpRoot));
+  } finally {
+    cleanupRoot();
+  }
 
   const allRoundsOk = rounds.every((r) => r.allOk) && checkOk;
 

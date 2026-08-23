@@ -1,0 +1,498 @@
+{
+  "generatedAt": "2026-08-19T04:19:16.316Z",
+  "verificationMethod": "staticSourceAudit for pre-flight gates, genuine childRuntimeExecution for all 17 orchestrator one-round runs",
+  "harnessLocation": "/tmp/o3_foreground_harness.js (parameterized, reused across all 17+1 runs; not added to the repo)",
+  "harnessUsesBuiltinsOnly": true,
+  "typescriptUsedByHarness": false,
+  "orchestratorRuntimeExecuted": true,
+  "orchestratorsTotal": 17,
+  "orchestratorsPassed": 17,
+  "orchestratorsFailed": 0,
+  "orchestratorsNotRun": 0,
+  "oneRoundPerOrchestrator": true,
+  "expectedSuiteEntryExecutions": 848,
+  "actualSuiteEntryExecutions": 848,
+  "globalUniqueChildPathCount": 90,
+  "globalUniqueChildPathCountMethod": "machine-computed via /tmp/stage3c3_global_audit.js scanning all 17 catalog.suites entries and deduplicating by child path -- not assumed to equal 79 (GA4_H1_4_7’s own suite size) or any other guessed value",
+  "multiRoundConsistencyExecuted": false,
+  "generalRegressionExecuted": false,
+  "repoSourceModifiedDuringRuntime": false,
+  "evidenceAddedAfterRuntime": true,
+  "ga4H1_4_7DryRun": {
+    "exitCode": 0,
+    "inventory": 79,
+    "orderedSuiteHashMatchesCatalog": true,
+    "missingExtraDuplicate": 0,
+    "tempRootCreated": false,
+    "dbTouched": false,
+    "gitSourceUnchanged": true,
+    "countedTowardAcceptedTotal": false
+  },
+  "checkpointAggregateCorrection": {
+    "oldPassed": 0,
+    "newPassed": 12,
+    "reason": "checkpoint results/aggregate were never actually persisted after each root run during the prior turn -- each root was independently verified via direct log/done.json inspection at the time, but not written back into this shared checkpoint file. Reconstructed here from the 12 completed done.json files, all confirmed exitCode=0."
+  },
+  "seventeenRootRecords": [
+    {
+      "root": "B2_5",
+      "expectedSuiteEntries": 24,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 80635,
+      "stdoutLog": "/tmp/o3-attempt4-B2_5-stdout.log",
+      "stdoutSha256": "d04990c56222ca27cfab09141eb4054c609320d3a746774b456238eeb8773369",
+      "stderrLog": "/tmp/o3-attempt4-B2_5-stderr.log",
+      "stderrSha256": "8143fd94d5c6c1b925212f1ae6f02176fc8872ff13d85e2ba6ffc5961c4297c4"
+    },
+    {
+      "root": "GA4_H1_4_7",
+      "expectedSuiteEntries": 79,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 180732,
+      "stdoutLog": "/tmp/o3-attempt4-GA4_H1_4_7-stdout.log",
+      "stdoutSha256": "a05cb51998502f84d81de9730524d8a36448c1251f7e92ae7339eba8a0262943",
+      "stderrLog": "/tmp/o3-attempt4-GA4_H1_4_7-stderr.log",
+      "stderrSha256": "25ffc0c0aab5cf2150eb75a6c6a8fa28986a80a14df384a6524797ee0fa18f24"
+    },
+    {
+      "root": "A1_2_1",
+      "expectedSuiteEntries": 26,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 77901,
+      "stdoutLog": "/tmp/o3-attempt4-A1_2_1-stdout.log",
+      "stdoutSha256": "fac19b52449c827eb906dd6cfc0935f098ba84e2a9e9710fc9d07c711482d997",
+      "stderrLog": "/tmp/o3-attempt4-A1_2_1-stderr.log",
+      "stderrSha256": "947f16bd751f698a0da67ea1315d0232716eafb476e1d9c9cd30f33b10c4334f"
+    },
+    {
+      "root": "A1",
+      "expectedSuiteEntries": 30,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 85857,
+      "stdoutLog": "/tmp/o3-attempt4-A1-stdout.log",
+      "stdoutSha256": "adfa1cf74e3fb08f854d471d7ad2913f1123d9b62c0de1b47648128720d6923e",
+      "stderrLog": "/tmp/o3-attempt4-A1-stderr.log",
+      "stderrSha256": "920ca962a813ac1bbc4d45813366923ddd504f617fbfad9753eddaeee47ea5a4"
+    },
+    {
+      "root": "GA4_H1",
+      "expectedSuiteEntries": 31,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 82743,
+      "stdoutLog": "/tmp/o3-attempt4-GA4_H1-stdout.log",
+      "stdoutSha256": "5067d2956c61252487331b8bcca2e50cc2b5f610fe8ed42297e97ed5e43f921f",
+      "stderrLog": "/tmp/o3-attempt4-GA4_H1-stderr.log",
+      "stderrSha256": "a5b114d7c824ba73594a8e951fe850f54d4fa71fd4d21224b7ba4a5010b7b9d4"
+    },
+    {
+      "root": "A1_1",
+      "expectedSuiteEntries": 32,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 87687,
+      "stdoutLog": "/tmp/o3-attempt4-A1_1-stdout.log",
+      "stdoutSha256": "0b8b266207e2ccb504413ac7b61103300d63abe0834a6ea630bcaea4762c2ba0",
+      "stderrLog": "/tmp/o3-attempt4-A1_1-stderr.log",
+      "stderrSha256": "b6a3825fd47499951100f666911fd00322e3adb87b02b342086aa77533a64778"
+    },
+    {
+      "root": "GA4_H1_1_AUTH",
+      "expectedSuiteEntries": 34,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 101894,
+      "stdoutLog": "/tmp/o3-attempt4-GA4_H1_1_AUTH-stdout.log",
+      "stdoutSha256": "04086248a5bdf6367bfea9e52d7923b0ad658eab5e3adec9b1e850249cdefeb9",
+      "stderrLog": "/tmp/o3-attempt4-GA4_H1_1_AUTH-stderr.log",
+      "stderrSha256": "01e42b181cad1a91fdc219c80105758b01e94e6e90ec4599493f58a9d35e6453"
+    },
+    {
+      "root": "A1_2",
+      "expectedSuiteEntries": 35,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 88467,
+      "stdoutLog": "/tmp/o3-attempt4-A1_2-stdout.log",
+      "stdoutSha256": "4a04453a1b09221d64ee49b18da2942ca754cbb8cbd6ea2e866d30f532793bd5",
+      "stderrLog": "/tmp/o3-attempt4-A1_2-stderr.log",
+      "stderrSha256": "4181e92eae20a7f132e883d0c3726d3282186d68b7a684c3ee685a21fddcf24e"
+    },
+    {
+      "root": "GA4_H1_2",
+      "expectedSuiteEntries": 36,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 102280,
+      "stdoutLog": "/tmp/o3-attempt4-GA4_H1_2-stdout.log",
+      "stdoutSha256": "7000b1b153979bb8c325424526fff09f965ec9c822c3cf30a02c4e6cfcff5221",
+      "stderrLog": "/tmp/o3-attempt4-GA4_H1_2-stderr.log",
+      "stderrSha256": "69b9cfc9a5d4c964293049315cba5a0829952e88facb0e54f126fe451d28a4c0"
+    },
+    {
+      "root": "GA4_H1_3",
+      "expectedSuiteEntries": 42,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 112508,
+      "stdoutLog": "/tmp/o3-attempt4-GA4_H1_3-stdout.log",
+      "stdoutSha256": "94075382afe3a4d4b887e1d41940c68e8b48b1a1ba48c566185802ca2e6d7cc3",
+      "stderrLog": "/tmp/o3-attempt4-GA4_H1_3-stderr.log",
+      "stderrSha256": "063fc766e0898b92f5c4b92827e1774913fb826171e5b7da675a61040837d32a"
+    },
+    {
+      "root": "GA4_H1_4",
+      "expectedSuiteEntries": 56,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 128362,
+      "stdoutLog": "/tmp/o3-attempt4-GA4_H1_4-stdout.log",
+      "stdoutSha256": "30ba91daa3d8efe8023e0655cca8119a0cf14f193e3ac04ebfde635aa341fd17",
+      "stderrLog": "/tmp/o3-attempt4-GA4_H1_4-stderr.log",
+      "stderrSha256": "4748bf3e7a4767844f1f91f4278ac2d9f09cdd0c7777af14a0d5695591be9450"
+    },
+    {
+      "root": "GA4_H1_4_1",
+      "expectedSuiteEntries": 64,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 151291,
+      "stdoutLog": "/tmp/o3-attempt4-GA4_H1_4_1-stdout.log",
+      "stdoutSha256": "765ea00ca00d77c72e9ef382ae922bfa145ef327f1f95f26403ba01f7341551d",
+      "stderrLog": "/tmp/o3-attempt4-GA4_H1_4_1-stderr.log",
+      "stderrSha256": "714039576c7ba3d511eaf69fc3b2ea5d74dfb36c83014f9aefb7cf351b5976a3"
+    },
+    {
+      "root": "GA4_H1_4_2",
+      "expectedSuiteEntries": 67,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 160998,
+      "stdoutLog": "/tmp/o3-attempt4-GA4_H1_4_2-stdout.log",
+      "stdoutSha256": "985fd216bfd3864713a0398e125634fbf204363381cc0599aeb8bac0080a7212",
+      "stderrLog": "/tmp/o3-attempt4-GA4_H1_4_2-stderr.log",
+      "stderrSha256": "e794792d0c76dc03b419f7a25871e08b86e0908032ea6452e1ef4e4a7d677cc4"
+    },
+    {
+      "root": "GA4_H1_4_3",
+      "expectedSuiteEntries": 70,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 159226,
+      "stdoutLog": "/tmp/o3-attempt4-GA4_H1_4_3-stdout.log",
+      "stdoutSha256": "eb5df7855c99e88eb6ef59bd5a8add20fae5d30bf5948821a0089641e6283313",
+      "stderrLog": "/tmp/o3-attempt4-GA4_H1_4_3-stderr.log",
+      "stderrSha256": "730bec0516bfb39fd086ab9fe35e37c6750a2305cffc42189e1807f0e3fb3bdd"
+    },
+    {
+      "root": "GA4_H1_4_4",
+      "expectedSuiteEntries": 72,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 161434,
+      "stdoutLog": "/tmp/o3-attempt4-GA4_H1_4_4-stdout.log",
+      "stdoutSha256": "98b3cc6540f273429bf1b64707445df8581e58055a449c4f6f20a4952507d95a",
+      "stderrLog": "/tmp/o3-attempt4-GA4_H1_4_4-stderr.log",
+      "stderrSha256": "baf2e0a22bfbb7b2479fa3f9085f75e5aad89da529465c3c3c29089612beffb1"
+    },
+    {
+      "root": "GA4_H1_4_5",
+      "expectedSuiteEntries": 74,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 161995,
+      "stdoutLog": "/tmp/o3-attempt4-GA4_H1_4_5-stdout.log",
+      "stdoutSha256": "606344ca4a9e9f95db5f7ba8f5206cd84b7832d5758852dd2c74bf71a50687df",
+      "stderrLog": "/tmp/o3-attempt4-GA4_H1_4_5-stderr.log",
+      "stderrSha256": "aa97bcbdc5b1f3b27a578fb0f4430ee403bc26e80d64467d817caa2686d62aa1"
+    },
+    {
+      "root": "GA4_H1_4_6",
+      "expectedSuiteEntries": 76,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "durationMs": 163163,
+      "stdoutLog": "/tmp/o3-attempt4-GA4_H1_4_6-stdout.log",
+      "stdoutSha256": "465324b3cf9f89d6f14f943806c3863bac2a1b3a6482f0750e1add3b4a8a878b",
+      "stderrLog": "/tmp/o3-attempt4-GA4_H1_4_6-stderr.log",
+      "stderrSha256": "9c739426465479df03dd926bec2a6670ae1a457bd84499849229249a46e22836"
+    }
+  ],
+  "stage3C3CatalogDefectsFixed": [
+    {
+      "child": "scripts/smoke-hotfix30-b5-r5-2-b1-1-dashboard-rewire.js",
+      "staleValue": "101/101",
+      "correctValue": "108/108",
+      "staleKeysFixed": 9
+    },
+    {
+      "child": "scripts/run-g1-6-ga4-h1-4-dashboard-source-runtime.js",
+      "staleValue": "55/55",
+      "correctValue": "59/59",
+      "staleKeysFixed": 2
+    },
+    {
+      "child": "scripts/run-g1-6-ga4-h1-4-map-state-runtime.js",
+      "staleValue": "99/99",
+      "correctValue": "100/100",
+      "staleKeysFixed": 2
+    },
+    {
+      "child": "scripts/static-audit-g1-6-ga4-h1-4.js",
+      "staleValue": "227/227",
+      "correctValue": "230/230",
+      "staleKeysFixed": 2
+    },
+    {
+      "totalCatalogKeysModified": 10,
+      "evidenceFile": "scripts/lib/H1.4.8_STAGE3C3_GLOBAL_COUNT_CONTRACT_REMEDIATION.json"
+    }
+  ],
+  "parserAndOutputFormatHandling": {
+    "formatsObservedAndHandled": [
+      "[OK]   Name  pass=N fail=0 total=N (expect N/N)",
+      "[PASS] Name  pass=N fail=0 total=N (expect N/N)",
+      "[PASS                  ] Name  pass=N fail=0 total=N exit=0 (expect N/N)"
+    ],
+    "determinationPriority": [
+      "process exit code/signal (primary)",
+      "raw log explicit [FAIL lines (secondary)",
+      "orchestrator final summary/allOk (tertiary)",
+      "harness regex parser (last resort, never sole authority)"
+    ],
+    "noSingleRegexReliedOnAlone": true,
+    "parseErrorsEncountered": 0,
+    "note": "Every root’s verification cross-checked exit code, explicit [FAIL count (always 0 across all 17), and either the \"[ROUND 1 TOTALS] ... allOk=true\" line or the \"N round(s) all green: YES\" / \"N round(s) consistent: YES\" summary text -- never relying on exit code alone."
+  },
+  "timeoutKillInfrastructureRecord": {
+    "internalHarnessTimeoutMs": 1500000,
+    "outerToolTimeoutSec": 1650,
+    "timeoutsTriggered": 0,
+    "killsIssued": 0,
+    "processGroupCleanupMethod": "setsid-obtained distinct process group per run, targeted SIGTERM then SIGKILL if needed -- never pkill",
+    "allRunsCompletedWithinTimeout": true,
+    "longestRunDurationMs": 182053
+  },
+  "attemptsHistory": {
+    "attempt1": {
+      "passed": 0,
+      "failed": 1,
+      "notRun": 16,
+      "failure": "B2_5 -- pre-existing stale DB-presence assertion in static-audit-g1-4.js, root-caused and fixed in Stage 3C1",
+      "checkpointFile": "/tmp/stage3c_orchestrator_checkpoint.json",
+      "checkpointSha256": "ea5d0a16ffb45897805935ec13abff3e0ebbfdf01ef946d8796ace23a54afdb4"
+    },
+    "attempt2": {
+      "passed": 1,
+      "failed": 1,
+      "notRun": 15,
+      "passedRoot": "B2_5",
+      "failedRoot": "GA4_H1_4_7",
+      "failure": "catalog exact-count staleness for 3 children, root-caused and fixed in Stage 3C2",
+      "checkpointFile": "/tmp/stage3c_orchestrator_checkpoint_attempt2.json",
+      "checkpointSha256": "b9776c6cb46b21f2e3bd3f6724dc1a1896838c88000ed69ab155318a420b625d",
+      "physicalSuiteEntryExecutionsIncludingFailedRoot": 103
+    },
+    "attempt3": {
+      "passed": 2,
+      "failed": 1,
+      "notRun": 14,
+      "passedRoots": [
+        "B2_5",
+        "GA4_H1_4_7"
+      ],
+      "failedRoot": "A1_2_1",
+      "failure": "catalog exact-count staleness for Dashboard Rewire (and 3 more discovered via global audit), root-caused and fixed in Stage 3C3",
+      "pid525InfrastructureInconclusive": {
+        "classification": "infrastructureTerminationInconclusive",
+        "testResult": "none",
+        "notRetroactivelyClassified": true
+      },
+      "checkpointFile": "/tmp/stage3c_orchestrator_checkpoint_attempt3.json"
+    },
+    "attempt4": {
+      "passed": 17,
+      "failed": 0,
+      "notRun": 0,
+      "acceptedSuiteEntryExecutions": 848,
+      "checkpointFile": "/tmp/stage3c_orchestrator_checkpoint_attempt4.json"
+    },
+    "note": "Attempts 1, 2, and 3 remain immutable historical records, not overwritten or retroactively marked passing. Only attempt 4 achieved full 17/17 pass."
+  },
+  "remediationIsolatedExecutions": [
+    {
+      "scope": "Stage 3C2",
+      "children": [
+        "smoke-hotfix30-b5-r5-4-g1-6-a1-2-authoritative-points.js",
+        "static-audit-g1-6-ga4-h1-4-7.js",
+        "run-h1-4-7-analytics-contract-runtime.js"
+      ],
+      "purpose": "safety-isolated validation of corrected counts before catalog fix"
+    },
+    {
+      "scope": "Stage 3C3",
+      "note": "no new isolated executions needed -- reused existing current-source runtime evidence from attempt-3’s successful GA4_H1_4_7 run"
+    }
+  ],
+  "dbGitSourceTmpBeforeAfter": {
+    "perRootChecks": "17/17 roots individually confirmed: DB SHA-256/git-hash-object/size/mtime unchanged, git status matching attempt-4 baseline exactly (diff empty), zero temp-root/process residue",
+    "finalState": {
+      "sha256": "78254c1b972a57ca184ab9645542c407b1b8752b605ec2378832d78ff6a84ccf",
+      "gitHashObject": "86eea5859a6879ed113ffbaa3f4220494de0814a",
+      "size": 651264,
+      "mtime": 1786712225,
+      "walShmJournalPresent": false
+    }
+  },
+  "checkpointProtocol": {
+    "requiredAfterEveryRoot": true,
+    "persistedAfterEveryRootDuringFirst12": false,
+    "classification": "checkpointPersistenceFailure",
+    "staleCheckpointPassedValue": 0,
+    "runtimeResultsLost": false,
+    "reconstructionPerformed": true,
+    "reconstructionSources": [
+      "per-root done.json",
+      "raw stdout logs",
+      "raw stderr logs",
+      "heartbeat artifacts",
+      "attempt-4 baseline snapshots"
+    ],
+    "reconstructedRoots": 12,
+    "reconstructedSuiteEntries": 489,
+    "rootsRerunForReconstruction": 0,
+    "explanation": "The first 12 completed roots (B2_5 through GA4_H1_4_1) each ran successfully and were individually verified via direct log/done.json inspection at the time -- but the shared checkpoint JSON was not written back to disk after each one, as the process required. When resumed, the checkpoint still showed the stale initial passed=0 from before any root had run. This was not a simple arithmetic mistake (e.g. off-by-one) -- it was a genuine gap in the required per-root persistence step. No runtime results were lost: all 12 roots' actual outcomes were fully recoverable from their independently-written done.json files, raw stdout/stderr logs, and heartbeat artifacts, none of which depend on the checkpoint file. Reconstruction re-derived the aggregate (passed=12, sum=489) directly from those 12 done.json files without rerunning any root.",
+    "staleCheckpointPath": "/tmp/stage3c_orchestrator_checkpoint_attempt4.json (state before reconstruction)",
+    "staleCheckpointNote": "The checkpoint file was reconstructed IN PLACE once true state was recovered -- a separate frozen copy of the pre-reconstruction (passed=0) state was not preserved as a distinct file, since the actual ground truth (12 done.json files, all independently timestamped and hashed) was never at risk and remains the authoritative source for this evidence.",
+    "reconstructedCheckpointPath": "/tmp/stage3c_orchestrator_checkpoint_attempt4.json",
+    "reconstructedCheckpointSha256Now": "03433601157f7d171036353ee1dfc489e8d5851441776102799451d0ffbf5518",
+    "doneJsonFiles": [
+      {
+        "root": "B2_5",
+        "path": "/tmp/o3-attempt4-B2_5-done.json",
+        "sha256": "21e14de7e3bd23fa9e7ce02cbc1a875f861aac6b9787d34bdc4a46598dbfc2ea"
+      },
+      {
+        "root": "GA4_H1_4_7",
+        "path": "/tmp/o3-attempt4-GA4_H1_4_7-done.json",
+        "sha256": "5b85d56f817e3b2f74230efefe1374c170e32b64c68064ace777c53617f1750c"
+      },
+      {
+        "root": "A1_2_1",
+        "path": "/tmp/o3-attempt4-A1_2_1-done.json",
+        "sha256": "8c207b4a5ef204049560dfd5052a3c857f4783d1735a4b16a270f52df7ed0d01"
+      },
+      {
+        "root": "A1",
+        "path": "/tmp/o3-attempt4-A1-done.json",
+        "sha256": "b1949b782a645afd4471e571f240cf95cfd22abecd64371430793479e3432643"
+      },
+      {
+        "root": "GA4_H1",
+        "path": "/tmp/o3-attempt4-GA4_H1-done.json",
+        "sha256": "ec324fd45180f241c6b706fdab60b8d0fded468b2b82c34f19259af6bce9bf9d"
+      },
+      {
+        "root": "A1_1",
+        "path": "/tmp/o3-attempt4-A1_1-done.json",
+        "sha256": "4df827dbe7a7ce8cafb4f832a0f6d65c402716867687d6aa1bf8b3c33c63fb92"
+      },
+      {
+        "root": "GA4_H1_1_AUTH",
+        "path": "/tmp/o3-attempt4-GA4_H1_1_AUTH-done.json",
+        "sha256": "91158a9229eb59d2098792b1173305b4305b2d2c5228c30301b2ead5c4f4561c"
+      },
+      {
+        "root": "A1_2",
+        "path": "/tmp/o3-attempt4-A1_2-done.json",
+        "sha256": "f420681a4bdfa3093e6554b5f501ddc70914b347f15cfb1f296fb28fc739c321"
+      },
+      {
+        "root": "GA4_H1_2",
+        "path": "/tmp/o3-attempt4-GA4_H1_2-done.json",
+        "sha256": "27c11e06d101c33f1fea465fb9809d7c150850b69dcb0c74bfb4a978eb6d45c3"
+      },
+      {
+        "root": "GA4_H1_3",
+        "path": "/tmp/o3-attempt4-GA4_H1_3-done.json",
+        "sha256": "a43e259ee2b1071196a4b369b9bf68ebe292aba490eb1882a3740824edc68048"
+      },
+      {
+        "root": "GA4_H1_4",
+        "path": "/tmp/o3-attempt4-GA4_H1_4-done.json",
+        "sha256": "dee3d84a123f1107c6586050e934abe3900536d51a5215f4fa467cb2bb7f79cd"
+      },
+      {
+        "root": "GA4_H1_4_1",
+        "path": "/tmp/o3-attempt4-GA4_H1_4_1-done.json",
+        "sha256": "7cf5ddd933aa9243d11ef852ee4752ae12e6abb180dfa61b7946a19f3f83301f"
+      }
+    ],
+    "reconstructionScriptPath": "inline node -e invocation (not a persisted /tmp script file) -- logic: read each done.json, assemble results array, compute passed/failed/notRun/acceptedSuiteEntries",
+    "reconstructionTime": "2026-08-19 (during the turn that resumed from GA4_H1_4_2)",
+    "perRootUniqueIdDedup": "12 roots confirmed unique by catalog key (B2_5, GA4_H1_4_7, A1_2_1, A1, GA4_H1, A1_1, GA4_H1_1_AUTH, A1_2, GA4_H1_2, GA4_H1_3, GA4_H1_4, GA4_H1_4_1) -- 0 duplicates"
+  },
+  "finalGatesWithRawEvidence": {
+    "regressionGuard": {
+      "command": "node scripts/smoke-hotfix30-b5-r5-4-g1-3-2-regression-guard.js",
+      "exitCode": 0,
+      "rawOutputTail": "PASS:  148\nFAIL:  0\nTOTAL: 148",
+      "result": "148/148",
+      "rawLogPath": "/tmp/regguard_standalone_final.log"
+    },
+    "stage3BEvidenceInvariants": {
+      "method": "live invariant validator (not a re-execution of any child) checking Stage 3B evidence JSON internal consistency plus cross-check of its recorded DB sentinel against the CURRENT DB sentinel",
+      "command": "node -e \"<inline invariant checks>\" (12 individual checks: scope flags, failuresArray empty, all 5 layer .pass flags, DB sentinel match, candidateJsCount)",
+      "exitCode": 0,
+      "checksRun": 12,
+      "checksPassed": 12,
+      "result": "ALL PASS"
+    },
+    "seventeenRootStrictCliGate": {
+      "distinctFromClosureCheck": true,
+      "explanation": "The closure/quarantine check (Gate 6 of the 34-file gate) verifies catalog/suite-hash/child-reachability consistency. This gate is a SEPARATE check of the CLI argument-parsing contract itself: shared parser usage, default-3-rounds, argv 1/2/3 mapping, invalid-input fail-closed, validation-before-temp-root-creation, exactly-1-dry-run-capable-root, zero process.exit bypass, zero real-DB delete, zero dynamic execution (comment-stripped), buildChildEnv/cleanup preservation, and node --check -- none of which the closure check inspects.",
+      "scriptPath": "/tmp/stage3c_cli_gate_live.js",
+      "command": "node /tmp/stage3c_cli_gate_live.js",
+      "exitCode": 0,
+      "perRootAllPass": "17/17",
+      "sharedParserContractLivePass": true,
+      "exactlyOneDryRunRoot": true,
+      "bugsFoundAndFixedDuringThisVerification": [
+        {
+          "bug": "aggregation logic required every raw field to equal true, including allowDryRun itself, which is legitimately false for 16 of 17 roots",
+          "fix": "aggregate only over a named list of fields that must genuinely be true for every root, checking allowDryRunMatchesInventory (the correctness of the value) instead of allowDryRun (the raw value) directly"
+        },
+        {
+          "bug": "dynamic-execution regex scanned raw source including comments, matching explanatory prose like \"the parseH141FinalSuite() readFileSync+new Function()\" that documents the ABSENCE of new Function(), not its use",
+          "fix": "strip full-line // comments before scanning, consistent with the existing 34-file gate script"
+        }
+      ],
+      "resultFile": "/tmp/stage3c_cli_gate_live_result.json"
+    }
+  },
+  "manifestRegistration": {
+    "manifestNotApplicable": true,
+    "reason": "H1.4.8_DB_SCRIPT_MANIFEST.json is a per-file DB-safety classification registry (safetyClassificationCounts, priorityCounts, entries with pre/post-remediation safety) -- it has no evidence-catalog or stageEvidenceIndex field for registering Stage evidence files. No new schema was invented for this purpose; this evidence file simply exists at its own path in scripts/lib/, consistent with how all other Stage 3A/3B/3C0/3C1/3C2/3C3 evidence files are stored."
+  }
+}

@@ -23,90 +23,33 @@ const fs = require('fs');
 const os = require('os');
 const { execFileSync } = require('child_process');
 const ROOT = path.join(__dirname, '..');
-const DB_FILE = path.join(ROOT, 'data', 'pos.db');
+const dbHelper = require('./lib/qa-temp-db.js');
 
-// ════════════════════════════════════════════════════════════════
-// 1. 重新執行 H1.4.1 runner 原始碼裡「組出最終 SUITE 陣列」的那一段，
-//    拿到它真正的 inherited final suite 清單（不是手打轉抄）。
-// ════════════════════════════════════════════════════════════════
-function parseH141FinalSuite() {
-  const rel = 'scripts/run-regression-g1-6-ga4-h1-4-1.js';
-  const src = fs.readFileSync(path.join(ROOT, rel), 'utf8');
-  const marker = 'const SUITE = [...H14_SUITE_UPDATED, ...H141_LEGACY_EXTRA, ...H141_NEW];';
-  const idx = src.indexOf(marker);
-  if (idx === -1) {
-    console.error(`[FATAL] 無法在 ${rel} 裡找到 SUITE 組裝那一行，解析邏輯可能已經跟原始碼格式不同步。`);
-    process.exit(1);
-  }
-  const codeUpToSuite = src.slice(0, idx + marker.length).replace(/^#!.*\n/, '');
-  const fakeModule = { exports: null };
-  // eslint-disable-next-line no-new-func
-  const fn = new Function('module', 'require', '__dirname', `${codeUpToSuite}\nmodule.exports = SUITE;`);
-  fn(fakeModule, require, path.dirname(path.join(ROOT, rel)));
-  return fakeModule.exports;
+// Stage 3A remediation: SUITE is read from the side-effect-free JSON catalog
+// (verified byte-identical to the pre-remediation inheritance-resolved array,
+// including the OVERRIDES transformation that used to happen at runtime via
+// new Function()). The parseH141FinalSuite() readFileSync+new Function()
+// executor and the OVERRIDES map are gone -- the catalog already contains
+// the final resolved tuples. Real data/pos.db is never touched; each child
+// gets its own mkdtemp-isolated temp DB.
+const CATALOG_PATH = path.join(ROOT, 'scripts/lib/H1.4.8_REGRESSION_SUITE_CATALOG.json');
+const CATALOG_KEY = 'GA4_H1_4_2';
+const rawCatalog = JSON.parse(fs.readFileSync(CATALOG_PATH, 'utf8'));
+if (!rawCatalog.suites || !rawCatalog.suites[CATALOG_KEY]) {
+  throw new Error(`[FATAL] Suite catalog missing key "${CATALOG_KEY}" in ${CATALOG_PATH}`);
 }
-const H141_FINAL_SUITE = parseH141FinalSuite();
-
-{
-  const seen = new Set();
-  const dups = [];
-  H141_FINAL_SUITE.forEach(([p]) => { if (seen.has(p)) dups.push(p); seen.add(p); });
-  if (dups.length) {
-    console.error('[FATAL] H1.4.1 final runner 內部本身有重複 suite path，無法安全繼承：', dups);
-    process.exit(1);
-  }
-  if (H141_FINAL_SUITE.length === 0) {
-    console.error('[FATAL] 從 run-regression-g1-6-ga4-h1-4-1.js 解析出的最終 SUITE 是空陣列，解析邏輯可能已經跟原始碼格式不同步。');
-    process.exit(1);
-  }
+const catalogEntry = rawCatalog.suites[CATALOG_KEY];
+if (!Array.isArray(catalogEntry.entries) || catalogEntry.entries.length !== catalogEntry.tupleCount) {
+  throw new Error(`[FATAL] Suite catalog entry "${CATALOG_KEY}" is malformed (tupleCount mismatch or entries not an array)`);
 }
-
-// ════════════════════════════════════════════════════════════════
-// 2. H1.4.2 Test Migration Count Map（需求文件十一：只能改「expected
-//    count」，不能包含「expectedFail > 0」——所有 Intentional Contract
-//    Change 造成的舊斷言，本輪已經全部改成符合 H1.4.2 新 Contract 的
-//    新斷言，每一支都必須 FAIL=0，沒有任何「已知、可接受的 FAIL」）。
-// ════════════════════════════════════════════════════════════════
-const OVERRIDES = {
-  // Dashboard GA4 Range empty state：舊 Contract 純文字「請至 Heatmap
-  // 手動同步」已改成「立即同步並顯示」Sync CTA，相關斷言已 migrate 成
-  // 新文案／新 DOM 結構的檢查，全部 59/59 FAIL=0。
-  'scripts/run-g1-6-ga4-h1-4-dashboard-source-runtime.js': { pass: 59, total: 59, note: 'H1.4.2 Test Migration: empty-state assertions rewritten for Sync CTA contract (semantic POST/GET separation checks added) — FAIL=0' },
-  'scripts/run-g1-6-ga4-h1-4-map-state-runtime.js': { pass: 100, total: 100, note: 'H1.4.2 Test Migration: 同上（Empty-2 empty-state 文案），另加 CTA 存在性檢查 — FAIL=0' },
-  // H1.4 Static Audit：E52/E56 改成語意檢查（generation guard 條件本身
-  // 不變，只是回傳值從 `return;` 變成 `return { superseded: true };`）；
-  // M143/M144 系列改成「Range 切換 GET-only／POST 只在 CTA handler 內／
-  // POST 不直接 render／成功後仍走 GET」的完整語意驗證。
-  'scripts/static-audit-g1-6-ga4-h1-4.js': { pass: 230, total: 230, note: 'H1.4.2 Test Migration: E52/E56 semantic guard check + M143/M144 rewritten for Sync CTA contract (GET-only range switch, POST-only-in-CTA, no dual render source) — FAIL=0' },
-  // H1.4.1 Target Runtime：D14/D15 改成 Heatmap click-to-activate 新
-  // Contract；另外，這支 migration 過程中發現並修好一個真實 Production
-  // bug（geoDashboardMapBindWheelLifecycle() 的 idempotent 判斷原本只看
-  // mapContainerId 字串，沒追蹤實際 DOM element identity，refresh 造成
-  // 的 DOM 節點替換會讓 listener 停留在已 detached 的舊節點上）——修好
-  // 之後其餘 9 條原本 FAIL 的斷言（D3/D4/D5/D6/D7/D10/IDEMP-3/IDEMP-4/
-  // REFRESH-0）全部恢復 PASS，不需要放寬。
-  'scripts/run-g1-6-ga4-h1-4-1-geo-dashboard-cleanup-runtime.js': { pass: 112, total: 112, note: 'H1.4.2 Test Migration: D14/D15 rewritten for Heatmap click-to-activate. Real Production Bug #2 fixed (map wheel lifecycle listener orphaned by id-only idempotence after DOM element replacement) — restored the other 9 assertions to PASS without weakening them. FAIL=0' },
-  // H1.4.1 Static Audit：E10 改成確認 heatmap 分支呼叫既有
-  // geoDashboardMapActivate()、且不再呼叫 geoDashboardMapDeactivateForHeatmap()。
-  'scripts/static-audit-g1-6-ga4-h1-4-1.js': { pass: 106, total: 106, note: 'H1.4.2 Test Migration: E10 rewritten for Heatmap click-to-activate (geoDashboardMapActivate() call site, no more auto-enable) — FAIL=0' },
-};
-
-const H141_SUITE_UPDATED = H141_FINAL_SUITE.map(([p, pass, total, label]) => {
-  if (OVERRIDES[p]) return [p, OVERRIDES[p].pass, OVERRIDES[p].total, label];
-  return [p, pass, total, label];
-});
-
-// ════════════════════════════════════════════════════════════════
-// 3. H1.4.2 新增：Browser Target Runtime／Persisted Identity Runtime／
-//    Static Audit（全部 fresh 執行確認過真實 count，且都是 FAIL=0）。
-// ════════════════════════════════════════════════════════════════
-const H142_NEW = [
-  ['scripts/run-g1-6-ga4-h1-4-2-range-map-wheel-runtime.js', 129, 129, 'H1.4.2 Browser Target Runtime (Range/Map/Wheel/Sync CTA/DOM Replacement)'],
-  ['scripts/run-g1-6-ga4-h1-4-2-persisted-identity-runtime.js', 44, 44, 'H1.4.2 Persisted Identity Round-Trip Runtime'],
-  ['scripts/static-audit-g1-6-ga4-h1-4-2.js', 134, 134, 'H1.4.2 Static Audit'],
-];
-
-const SUITE = [...H141_SUITE_UPDATED, ...H142_NEW];
+const SUITE = Object.freeze(catalogEntry.entries.map(([p, pass, total, label]) => {
+  const passOk = pass === null || typeof pass === 'number';
+  const totalOk = total === null || typeof total === 'number';
+  if (typeof p !== 'string' || !passOk || !totalOk || typeof label !== 'string') {
+    throw new Error(`[FATAL] Malformed suite tuple in catalog "${CATALOG_KEY}": ${JSON.stringify([p, pass, total, label])}`);
+  }
+  return Object.freeze([p, pass, total, label]);
+}));
 
 // Final uniqueness gate.
 {
@@ -114,8 +57,7 @@ const SUITE = [...H141_SUITE_UPDATED, ...H142_NEW];
   const dups = [];
   SUITE.forEach(([p]) => { if (seen.has(p)) dups.push(p); seen.add(p); });
   if (dups.length) {
-    console.error('[FATAL] H1.4.2 runner 組出來的最終 SUITE 清單有重複 path：', dups);
-    process.exit(1);
+    throw new Error(`[FATAL] H1.4.2 runner 組出來的最終 SUITE 清單有重複 path：${JSON.stringify(dups)}`);
   }
 }
 
@@ -150,9 +92,9 @@ function parseSummary(output) {
   return { pass, fail, total };
 }
 
-function detectResidue() {
+function detectResidue(tmpRoot) {
   const issues = [];
-  if (fs.existsSync(DB_FILE)) issues.push('data/pos.db');
+  if (tmpRoot && fs.existsSync(tmpRoot)) issues.push('temp DB root: ' + tmpRoot);
   if (fs.existsSync(path.join(ROOT, 'data'))) {
     ['.sqlite', '.sqlite3'].forEach((ext) => {
       if (fs.readdirSync(path.join(ROOT, 'data')).some((f) => f.endsWith(ext))) issues.push(`data/*${ext}`);
@@ -188,7 +130,7 @@ function classify(expectPass, expectTotal, pass, fail, total, exitCode, crashed,
   return ok ? 'PASS' : 'FAIL';
 }
 
-function runRound(roundNum) {
+function runRound(roundNum, tmpRoot) {
   console.log(`\n========================= ROUND ${roundNum} =========================`);
   let allOk = true;
   const roundResults = [];
@@ -201,18 +143,21 @@ function runRound(roundNum) {
       allOk = false;
       continue;
     }
-    if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);
+    const childDbPath = dbHelper.createChildDbPath(tmpRoot, label);
+    const childEnv = dbHelper.buildChildEnv(childDbPath, tmpRoot);
     let output = '';
     let crashed = false;
     let exitCode = 0;
     let timedOut = false;
     try {
-      output = execFileSync(process.execPath, [p], { cwd: ROOT, encoding: 'utf8', timeout: 120000 });
+      output = execFileSync(process.execPath, [p], { cwd: ROOT, encoding: 'utf8', timeout: 120000, env: childEnv });
     } catch (e) {
       output = (e.stdout || '') + (e.stderr || '');
       crashed = true;
       exitCode = e.status === undefined ? 1 : e.status;
       if (e.signal === 'SIGTERM' || /ETIMEDOUT/.test(String(e.code))) timedOut = true;
+    } finally {
+      dbHelper.cleanupDbFileAndSidecars(childDbPath);
     }
     const { pass, fail, total } = parseSummary(output);
     const classification = classify(expectPass, expectTotal, pass, fail, total, exitCode, crashed, timedOut);
@@ -229,8 +174,7 @@ function runRound(roundNum) {
       console.log('----------------------');
     }
   }
-  if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);
-  const residue = detectResidue();
+  const residue = detectResidue(null);
   if (residue.length) { allOk = false; console.log(`[RESIDUE] Round ${roundNum} flagged: ${residue.join('; ')}`); }
   else { console.log(`[RESIDUE] Round ${roundNum}: clean`); }
   if (sumChildFailAssertions > 0) allOk = false;
@@ -241,11 +185,7 @@ function runRound(roundNum) {
 
 function main() {
   console.log('H1.4.2 Full Regression Runner');
-  console.log(`  Inherited from H1.4.1 final runner (parsed live): ${H141_FINAL_SUITE.length} unique suites`);
-  console.log(`  Overrides for H1.4.2 Intentional Contract Change: ${Object.keys(OVERRIDES).length}`);
-  Object.entries(OVERRIDES).forEach(([p, o]) => console.log(`    - ${p}: ${o.pass}/${o.total} — ${o.note}`));
-  console.log(`  + H1.4.2 new suites (Browser Target / Persisted Identity / Static): ${H142_NEW.length}`);
-  console.log(`  = Total unique suites this round: ${SUITE.length}`);
+  console.log(`  Final resolved suite (from side-effect-free JSON catalog, Stage 3A remediated): ${SUITE.length} unique suites`);
   console.log('\nnode --check for H1.4.2 touched Production files:');
   let checkOk = true;
   for (const rel of NODE_CHECK_FILES) {
@@ -258,9 +198,15 @@ function main() {
     }
   }
 
-  const roundCount = Number(process.argv[2]) > 0 ? Number(process.argv[2]) : 3;
-  const rounds = [];
-  for (let i = 1; i <= roundCount; i += 1) rounds.push(runRound(i));
+  const roundCount = dbHelper.parseRegressionCliArgs(process.argv.slice(2)).roundCount;
+  const { tmpRoot, cleanupRoot } = dbHelper.createOrchestratorTempRoot('regression-ga4-h1-4-2');
+  let rounds;
+  try {
+    rounds = [];
+    for (let i = 1; i <= roundCount; i += 1) rounds.push(runRound(i, tmpRoot));
+  } finally {
+    cleanupRoot();
+  }
 
   const allRoundsOk = rounds.every((r) => r.allOk) && checkOk;
 

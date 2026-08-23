@@ -10,6 +10,51 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { execFileSync } = require('child_process');
 const ROOT = path.join(__dirname, '..');
+const dbHelper = require('./lib/qa-temp-db.js');
+
+// Identity-based DB handle registry: this file genuinely needs TWO
+// separate DB instances (section O and section P each build their own
+// fixture data under the SAME real data/pos.db path in the original code
+// -- see the Stage 3A remediation note before section O below for why a
+// naive fix would not actually separate them). Each handle is registered
+// exactly once, in creation order; cleanup closes them in REVERSE order.
+const _dbHandles = [];
+function registerDbHandle(handle) {
+  if (!_dbHandles.includes(handle)) _dbHandles.push(handle);
+}
+
+// Failure-safe initDb() wrapper. utils/db.js's initDb() (see utils/db.js
+// lines 81-91) assigns the module-internal `wrappedDb` variable at line 88
+// -- BEFORE initTables() runs at line 89. If initTables() throws (a
+// migration failure), `wrappedDb` is ALREADY a truthy, partially-
+// initialized object at that point, so getDb() (line 76-79, which only
+// checks truthiness) would happily return it. If our own call site never
+// reaches getDb()/registerDbHandle() because `await initDb()` itself threw
+// first, that partially-initialized handle (which still holds a real,
+// allocated sql.js WASM object via ._db) would never be registered for
+// cleanup and would leak. This wrapper makes a best-effort attempt to
+// retrieve and register whatever handle exists after a failed initDb(),
+// without ever letting that best-effort retrieval mask the ORIGINAL
+// initDb() error -- the original error is always what gets rethrown.
+async function initDbSafely(dbModule) {
+  try {
+    await dbModule.initDb();
+    const handle = dbModule.getDb();
+    registerDbHandle(handle);
+    return handle;
+  } catch (initError) {
+    try {
+      const partialHandle = dbModule.getDb();
+      registerDbHandle(partialHandle);
+    } catch (getDbError) {
+      // getDb() itself threw -- wrappedDb was never assigned at all (e.g.
+      // initSqlJs() failed before utils/db.js line 84), so there is
+      // nothing to register. This is expected and fine; fall through to
+      // rethrow the ORIGINAL initDb() error, not this one.
+    }
+    throw initError;
+  }
+}
 
 const results = [];
 function pass(name) { results.push({ name, status: 'PASS' }); console.log(`[PASS] ${name}`); }
@@ -29,7 +74,7 @@ function printSummary() {
 
 function sha256File(p) { return crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex'); }
 
-async function main() {
+async function main(dbContext) {
   [
     'scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-2-authoritative-points.js',
     'scripts/build-authoritative-admin-points.js',
@@ -443,13 +488,32 @@ async function main() {
   // ══════════════════════════════════════════════════════════════
   // O. Region-only Backend Model — 真實 sqlite fixture（227-252）
   // ══════════════════════════════════════════════════════════════
+  // dbModule1/db declared at main()-scope (not inside the block below) so
+  // that section Q's self-proving assertions (module-generation identity
+  // check) can reference DB1's module/handle after section P has run.
+  let dbModule1;
+  let db;
   {
-    const DATA_DIR = path.join(ROOT, 'data');
-    const DB_FILE = path.join(DATA_DIR, 'pos.db');
-    if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);
-    const { initDb, getDb } = require(path.join(ROOT, 'utils/db.js'));
-    await initDb();
-    const db = getDb();
+    // Stage 3A remediation note (see also the section P edit below): the
+    // ORIGINAL code here unlinked and re-initialized the REAL data/pos.db
+    // TWICE in this file (once here, once in section P), both times via
+    // `require(path.join(ROOT, 'utils/db.js'))` with NO require.cache
+    // eviction anywhere in the file. Since utils/db.js's initDb() guards
+    // with `if (wrappedDb) return wrappedDb;`, the SECOND require+initDb()
+    // call in the original code did NOT create a second database -- it
+    // returned the SAME cached in-memory object as this one, with this
+    // section's fixture data (store_a12 etc.) still present when section P
+    // ran (the disk-level unlink between sections had no effect on the
+    // already-loaded in-memory object). This was a genuine pre-existing
+    // test defect (accidentally harmless here only because section P
+    // filters by a disjoint store_id, not because isolation was real) --
+    // reported here rather than silently preserved. Fixed below by
+    // properly evicting require.cache before section P's re-require, so
+    // "DB1" (this section) and "DB2" (section P) are now genuinely
+    // separate database instances, each in its own mkdtemp-isolated temp
+    // file -- and neither ever touches the real data/pos.db.
+    dbModule1 = require(path.join(ROOT, 'utils/db.js'));
+    db = await initDbSafely(dbModule1);
     db.run("INSERT OR IGNORE INTO stores (store_id, active) VALUES (?,?)", ['store_a12', 1]);
     db.run("INSERT OR IGNORE INTO stores (store_id, active) VALUES (?,?)", ['store_a12_other', 1]);
 
@@ -490,8 +554,6 @@ async function main() {
     assert(Array.isArray(channelModel.estimate_points), 'O108 different channel 查詢仍正常運作');
     const emptyStoreModel = geoVisitLog.getGeoLiveMarkerModel(db, 'store_never_used', { range: 'today' });
     assert(emptyStoreModel.exact_points.length === 0 && emptyStoreModel.estimate_points.length === 0 && emptyStoreModel.unknown_count === 0, 'O109 empty dataset 安全回傳全空結果（不 throw）');
-
-    if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);
   }
 
   // ══════════════════════════════════════════════════════════════
@@ -501,11 +563,92 @@ async function main() {
     catalogTool.resetForTest();
     const origExists = fs.existsSync;
     fs.existsSync = (p) => (String(p).includes('taiwan-admin-representative-points') ? false : origExists(p));
-    const DB_FILE2 = path.join(ROOT, 'data/pos.db');
-    if (fs.existsSync(DB_FILE2)) fs.unlinkSync(DB_FILE2);
-    const { initDb, getDb } = require(path.join(ROOT, 'utils/db.js'));
-    await initDb();
-    const db2 = getDb();
+
+    // Stage 3A remediation: DB2 is a genuinely SEPARATE temp DB file,
+    // sibling to DB1 within the SAME validated temp root
+    // (dbContext.tmpRoot -- this section never creates a new root of its
+    // own, standalone or parent-provided). POS_DB_PATH is fully replaced
+    // (never unset/emptied) to the new, already-containment-validated path
+    // BEFORE the require.cache eviction + re-require below, so there is no
+    // window where a fresh require could fall back to the real
+    // data/pos.db. require.cache is evicted ONLY for utils/db.js's own
+    // resolved absolute path -- not a broad cache wipe -- confirmed safe
+    // because geoVisitLog.js and utils/authoritativeAdminPointCatalog.js
+    // (this file's only other required production modules) do not
+    // themselves require utils/db.js (they take `db` as an explicit
+    // parameter instead), so no stale closure-captured DB reference exists
+    // anywhere else that would need separate handling.
+    const db2Path = dbHelper.createChildDbPath(dbContext.tmpRoot, 'db2');
+    process.env.POS_DB_PATH = db2Path;
+    const utilsDbAbsolutePath = require.resolve(path.join(ROOT, 'utils/db.js'));
+    delete require.cache[utilsDbAbsolutePath];
+    const dbModule2 = require(path.join(ROOT, 'utils/db.js'));
+    const db2 = await initDbSafely(dbModule2);
+
+    // ══════════════════════════════════════════════════════════════
+    // Q. Dual-DB Self-Proving Separation（additive -- see Stage 3A
+    //    remediation note above section O: the ORIGINAL code here did NOT
+    //    actually create a second database, due to an unevicted
+    //    require.cache entry causing db2 to be the same object as db.
+    //    These assertions make that specific regression impossible to
+    //    silently reintroduce in the future -- if DB2 ever again became
+    //    the same object as DB1, or shared its data, these would FAIL.
+    // ══════════════════════════════════════════════════════════════
+    {
+      // Distinct-path check: pure string/path comparison (path.resolve),
+      // proves DB1 and DB2 are not the same file. This alone is NOT a
+      // containment safety proof -- see the separate containment check
+      // below, which uses realpath + path.relative.
+      const db1RealPath = fs.realpathSync(dbContext.dbPath);
+      const db2ResolvedPath = path.resolve(db2Path);
+      assert(db1RealPath !== db2ResolvedPath, 'Q1 distinctPathCheck: DB1 與 DB2 的路徑不同（path.resolve 比對，證明不是同一個檔案，非 containment 安全證據）', { db1RealPath, db2ResolvedPath });
+
+      // Containment check: realpath the temp root (always exists, created
+      // by mkdtemp during bootstrap) and each DB's PARENT DIRECTORY
+      // (guaranteed to exist even if the DB FILE itself has not been
+      // written to disk yet -- see the NOTE above -- because
+      // createChildDbPath() places both DB1 and DB2 directly inside
+      // dbContext.tmpRoot, never a not-yet-created subdirectory). Verified
+      // via path.relative(), never a string-prefix comparison, matching
+      // the same escape-detection pattern already used in
+      // scripts/lib/qa-temp-db.js's validateParentProvidedDb().
+      const rootReal = fs.realpathSync(dbContext.tmpRoot);
+      const db1ParentReal = fs.realpathSync(path.dirname(dbContext.dbPath));
+      const db2ParentReal = fs.realpathSync(path.dirname(db2Path));
+      function isContained(parentReal) {
+        const rel = path.relative(rootReal, parentReal);
+        return (rel === '' || (!path.isAbsolute(rel) && rel !== '..' && !rel.startsWith('..' + path.sep)));
+      }
+      assert(isContained(db1ParentReal), 'Q2 containmentCheck: DB1 的 parent directory 經 realpath + path.relative 驗證確實位於 validated temp root 內（非字串 prefix 比對）', { db1ParentReal, rootReal, rel: path.relative(rootReal, db1ParentReal) });
+      assert(isContained(db2ParentReal), 'Q3 containmentCheck: DB2 的 parent directory 經 realpath + path.relative 驗證確實位於同一個 validated temp root 內（非字串 prefix 比對）', { db2ParentReal, rootReal, rel: path.relative(rootReal, db2ParentReal) });
+
+      assert(dbModule1 !== dbModule2, 'Q4 DB1 與 DB2 使用不同的 utils/db.js module generation（require.cache eviction 確實生效，不是同一個 module object）');
+      assert(db2 !== db, 'Q5 db2 !== db（wrapped handle object identity 不同，不是同一個 in-memory 資料庫）');
+
+      // NOTE (found via Stage 3B runtime execution): section O/P's
+      // `INSERT OR IGNORE INTO stores (store_id, active) VALUES (?,?)`
+      // calls omit the NOT NULL `store_name` column (see utils/db.js's
+      // stores table schema) -- INSERT OR IGNORE silently swallows this
+      // constraint violation rather than throwing, so the stores table
+      // ALWAYS ends up with zero rows for store_a12/store_a12_other/
+      // store_partial. This is a pre-existing characteristic of the
+      // original 212 assertions' fixture setup (unchanged by this Stage
+      // 3A session -- confirmed via the AST diff showing these INSERT
+      // lines byte-identical to baseline) that was simply never observed
+      // before, because none of the original 212 assertions query the
+      // stores table directly; they all go through
+      // geoVisitLog.getGeoLiveMarkerModel(), which reads from
+      // geo_visit_log instead. So Q6-Q9 below check geo_visit_log (the
+      // table section O/P's log()/logGeoVisit() calls actually,
+      // successfully populate), not the never-actually-populated stores
+      // table.
+      const db2SeesSectionOStores = db2.all("SELECT DISTINCT store_id FROM geo_visit_log WHERE store_id IN ('store_a12', 'store_a12_other')");
+      assert(db2SeesSectionOStores.length === 0, 'Q6 DB2 初始化後、Section P fixture 寫入前：Section O 專屬的 store_a12/store_a12_other 在 DB2 的 geo_visit_log 中筆數為 0（證明 DB2 是真正全新的資料庫，不是繼承 DB1 的資料）', { foundCount: db2SeesSectionOStores.length });
+
+      const db1StillHasSectionOStores = db.all("SELECT DISTINCT store_id FROM geo_visit_log WHERE store_id IN ('store_a12', 'store_a12_other')");
+      assert(db1StillHasSectionOStores.length === 2, 'Q7 DB1 在 DB2 建立後仍保有 Section O 原本的 geo_visit_log 資料（store_a12 與 store_a12_other 都還在），證明建立 DB2 沒有刪除或取代 DB1', { foundCount: db1StillHasSectionOStores.length });
+    }
+
     db2.run("INSERT OR IGNORE INTO stores (store_id, active) VALUES (?,?)", ['store_partial', 1]);
     geoVisitLog.logGeoVisit(db2, { store_id: 'store_partial', visitor_id: 'p1', session_id: 'sp1', event_name: 'page_view', geo_city: '桃園市', geo_district: '龍潭區', event_time: new Date().toISOString() });
     const partialModel = geoVisitLog.getGeoLiveMarkerModel(db2, 'store_partial', { range: 'today' });
@@ -514,9 +657,35 @@ async function main() {
     assert(partialModel.estimate_points.length === 0, 'P255/P114 estimate_points=[] when catalog unavailable');
     assert(partialModel.capabilities.catalog_available === false, 'P256/P115 catalog_available=false');
     assert(['catalog_unavailable', 'catalog_missing', 'catalog_invalid', 'catalog_hash_mismatch', 'catalog_schema_unsupported', 'catalog_coordinate_invalid'].includes(partialModel.error_code), 'P257/P116 error_code 落在合法 catalog 失敗代碼列舉內（本情境模擬檔案不存在，實際回報更精確的 catalog_missing，見 _loadCatalog 邏輯）');
+
+    // Q7/Q8 (additive, dual-DB self-proving separation, continued): after
+    // section P's fixture write, store_partial must exist in DB2 and must
+    // NOT exist in DB1 -- this is the cross-check requirement 7 companion
+    // to Q5/Q6 above, confirming the two databases remain genuinely
+    // independent even after both have received their own writes.
+    {
+      const partialInDb2 = db2.all("SELECT DISTINCT store_id FROM geo_visit_log WHERE store_id = 'store_partial'");
+      assert(partialInDb2.length === 1, 'Q8 Section P 專屬的 store_partial 資料存在於 DB2 的 geo_visit_log', { foundCount: partialInDb2.length });
+      const partialInDb1 = db.all("SELECT DISTINCT store_id FROM geo_visit_log WHERE store_id = 'store_partial'");
+      assert(partialInDb1.length === 0, 'Q9 相同的 store_partial 資料不存在於 DB1 的 geo_visit_log（證明 Section P 的寫入沒有跨越到 DB1，兩個資料庫直到最後都維持獨立）', { foundCount: partialInDb1.length });
+
+      // Q10: supplementary FILE-level (not just parent-directory-level)
+      // realpath containment check for DB2 -- only performed here, AFTER
+      // section P's writes have guaranteed persisted the file to disk
+      // (db2.run() above triggers the wrapped save()). Before this point
+      // the file did not necessarily exist, so a file-level realpath
+      // check would have thrown/been fabricated; it is not skipped
+      // entirely, just correctly deferred to when it can be genuinely
+      // performed instead of faked.
+      const db2FileRealPath = fs.realpathSync(db2Path);
+      const rootRealForQ10 = fs.realpathSync(dbContext.tmpRoot);
+      const relQ10 = path.relative(rootRealForQ10, path.dirname(db2FileRealPath));
+      const containedQ10 = relQ10 === '' || (!path.isAbsolute(relQ10) && relQ10 !== '..' && !relQ10.startsWith('..' + path.sep));
+      assert(containedQ10, 'Q10 DB2 檔案在實際持久化到磁碟後，補做的 file-level realpath containment 驗證同樣通過（不是憑空虛構未落地檔案的 realpath 結果）', { db2FileRealPath, rootRealForQ10, relQ10 });
+    }
+
     fs.existsSync = origExists;
     catalogTool.resetForTest();
-    if (fs.existsSync(DB_FILE2)) fs.unlinkSync(DB_FILE2);
 
     // Exact failure 走既有 contract（getGeoLiveMarkerPoints 內部已有 try/catch fail-open，見 P119）
     assert(/catch \(e\) \{[\s\S]{0,80}console\.warn\('\[geoVisitLog\] getGeoLiveMarkerModel estimate query failed/.test(geoVisitLogSrc), 'P258/P118 region_query_failed error path exists and fail-open');
@@ -529,7 +698,41 @@ async function main() {
   printSummary();
 }
 
-main().catch((e) => {
+async function runEntry() {
+  let dbContext;
+  let primaryError;
+  try {
+    dbContext = dbHelper.bootstrapChildDb('authoritative-points-standalone');
+    return await main(dbContext);
+  } catch (err) {
+    primaryError = err;
+    throw err;
+  } finally {
+    // Dependency-ordered, UNCONDITIONAL for process-local resources (only
+    // the final step is gated on ownsTempRoot). DB handles are closed in
+    // REVERSE creation order (handle2 before handle1) via the
+    // identity-based registry built up by registerDbHandle() -- each
+    // handle is attempted independently (one failing does not prevent the
+    // others from being attempted), and only the owned temp root/DB files
+    // are ever deleted, never a parent-provided one.
+    await dbHelper.runCleanupStepsAsync([
+      ...[..._dbHandles].reverse().map((handle, i) => ({
+        name: `db-handle-close-${i}`,
+        fn: () => {
+          if (handle && handle._db && typeof handle._db.close === 'function') {
+            handle._db.close();
+          }
+        },
+      })),
+      {
+        name: 'dbContext-cleanup',
+        fn: () => { if (dbContext && dbContext.ownsTempRoot) dbContext.cleanup(); },
+      },
+    ], primaryError);
+  }
+}
+
+runEntry().catch((e) => {
   console.error('[FATAL]', e);
   process.exitCode = 1;
 });

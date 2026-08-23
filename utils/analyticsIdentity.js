@@ -165,27 +165,45 @@ function _getLinkedVisitorIds(db, storeId, lineUserId) {
   } catch (e) { return []; }
 }
 
+// fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.8（CHECKOUT-ANALYTICS-UNIFICATION，
+// 四次修正）：把「哪個證據贏」這件事抽成唯一、共用的純判定函式，scalar
+// resolveCanonicalVisitor() 與批次 resolveCanonicalVisitors() 都呼叫這個
+// 同一個函式做決定，只是「怎麼取得證據」不同（scalar 逐筆查詢單一 key；
+// batch 一次撈完所有 key 的證據再逐一查表）。這樣兩者的判定規則不會日後
+// 各自演化、產生分歧——只有一份規則：
+//   1. isDirectLineMember → 這個 key 本身就是 line_user_id。
+//   2. sessionLink 存在且 line_user_id 已在 line_members 確認過 → 走該連結。
+//   3. 以上都沒有 → 回傳 null，交給呼叫端處理「保持匿名」（scalar／batch
+//      在這一步的行為不同：scalar 的 key 可能是 session_id／cart_id，需要
+//      回推 analytics_events 找真正的 visitor_id；batch 的輸入本身就已經
+//      是 visitor_id，直接用它自己當匿名 key，不必再查）。
+function _decideLineIdentity(key, evidence) {
+  const { isDirectLineMember, sessionLink, isSessionLinkConfirmed } = evidence || {};
+  if (isDirectLineMember) {
+    return {
+      found: true, canonical_type: 'line_user_id', line_user_id: key,
+      resolution_method: 'direct_line_member', confidence: 'high',
+    };
+  }
+  if (sessionLink && sessionLink.line_user_id && isSessionLinkConfirmed) {
+    return {
+      found: true, canonical_type: 'line_user_id', line_user_id: sessionLink.line_user_id,
+      resolution_method: 'visitor_session_link', confidence: 'high',
+    };
+  }
+  return null; // 沒有決定性 LINE 連結，交給呼叫端處理匿名／查無紀錄
+}
+
 function resolveCanonicalVisitor(db, storeId, rawKey) {
   const key = _clean(rawKey);
   if (!db || !storeId || !key) return { found: false };
 
-  // 規則 1：key 本身就是已知的 LINE 會員
+  // 規則 1 的證據：key 本身就是已知的 LINE 會員
   let lm = null;
   try { lm = db.get('SELECT line_user_id FROM line_members WHERE store_id=? AND line_user_id=?', [storeId, key]); } catch (e) { lm = null; }
-  if (lm && lm.line_user_id) {
-    return {
-      found: true,
-      canonical_type: 'line_user_id',
-      line_user_id: key,
-      visitor_id: null,
-      resolution_method: 'direct_line_member',
-      confidence: 'high',
-      linked_visitor_ids: _getLinkedVisitorIds(db, storeId, key),
-    };
-  }
 
-  // 規則 2：key（可能是 visitor_id／session_id／cart_id）曾在 LINE 登入當下
-  // 被記錄與某個 line_user_id 綁定（line_member_sessions，決定性連結）
+  // 規則 2 的證據：key（可能是 visitor_id／session_id／cart_id）曾在 LINE
+  // 登入當下被記錄與某個 line_user_id 綁定（line_member_sessions，決定性連結）
   let link = null;
   try {
     link = db.get(
@@ -195,19 +213,23 @@ function resolveCanonicalVisitor(db, storeId, rawKey) {
       [storeId, key, key, key]
     );
   } catch (e) { link = null; }
+  let linkConfirmed = false;
   if (link && link.line_user_id) {
     const lm2 = db.get('SELECT line_user_id FROM line_members WHERE store_id=? AND line_user_id=?', [storeId, link.line_user_id]);
-    if (lm2) {
-      return {
-        found: true,
-        canonical_type: 'line_user_id',
-        line_user_id: link.line_user_id,
-        visitor_id: null,
-        resolution_method: 'visitor_session_link',
-        confidence: 'high',
-        linked_visitor_ids: _getLinkedVisitorIds(db, storeId, link.line_user_id),
-      };
-    }
+    linkConfirmed = !!lm2;
+  }
+
+  const decision = _decideLineIdentity(key, {
+    isDirectLineMember: !!(lm && lm.line_user_id),
+    sessionLink: link,
+    isSessionLinkConfirmed: linkConfirmed,
+  });
+  if (decision) {
+    return {
+      ...decision,
+      visitor_id: null,
+      linked_visitor_ids: _getLinkedVisitorIds(db, storeId, decision.line_user_id),
+    };
   }
 
   // 規則 3：沒有任何 LINE 連結——保持匿名。key 可能傳進來的是 session_id／
@@ -244,6 +266,167 @@ function resolveCanonicalVisitor(db, storeId, rawKey) {
   };
 }
 
+// fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.8（CHECKOUT-ANALYTICS-UNIFICATION，
+// 三次修正）：resolveCanonicalVisitor() 是 per-key 查詢，供 Visitor 360／
+// Drill Down 這種「查單一個人」的情境使用（每次最多 4 次 DB 查詢）。Analytics
+// Product Funnel 需要對「一批 visitor_id」批次去重（同一次 request 可能有
+// 上百個 distinct visitor_id，逐一呼叫 resolveCanonicalVisitor() 會變成
+// O(visitor 數) 次查詢，且商品×階段會再放大）。這裡新增批次版本，只做 2 次
+// batch 查詢（不管 visitor_id 有幾個），套用跟 resolveCanonicalVisitor() 完全
+// 相同的規則順序（規則 1：key 本身是已知 LINE 會員；規則 2：曾透過
+// line_member_sessions 決定性連結到某個 LINE 會員，取 last_seen_at 最新的
+// 一筆；規則 3：查無連結，維持匿名，用原始 visitor_id 當自己的 key）——
+// 兩個函式共用同一套規則，只是 resolveCanonicalVisitor() 逐筆查、
+// resolveCanonicalVisitors() 批次查，不是兩套不同的身份判斷邏輯。
+//
+// 回傳：Map(visitorId -> canonicalKey)，canonicalKey 格式：
+//   已連結 LINE 會員 → `line_user:${line_user_id}`
+//   未連結／查無紀錄 → `visitor:${原始 visitor_id}`（不臆測合併）
+// fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.8（CHECKOUT-ANALYTICS-UNIFICATION，
+// 六次修正）：正式 request-scoped identity context——取代先前 analyticsV2.js
+// 裡裸的 `new Map()`。這是 Route 真正使用的 production API，不是
+// test-only hook。綁定單一 store_id；context 若被拿去查不同 store，
+// resolveInContext() 會直接 throw，不會靜默沿用舊結果。
+// fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.8（九次修正）：identity evidence
+// （line_members／line_member_sessions）只以 store_id 分區查詢，完全不看
+// channel（resolveCanonicalVisitors() 的簽章就沒有 channel 參數），所以
+// canonicalByVisitor 這份 map 是「store-scoped」，不是「store+channel-scoped」
+// ——同一個 visitor_id 在同一個 store 裡，不管查哪個 channel，canonical
+// identity 都是同一個答案，這是正確、預期的行為。
+//
+// primedScopes 不是 identity 解析本身的驗證機制，但**是**真正的 prime 完成
+// 狀態閘門（不是純觀察用的 bookkeeping——見 utils/analyticsV2.js
+// primeFunnelIdentityContext()：它會先查 primedScopes 決定要不要跳過整段
+// visitor union discovery＋resolveInContext，不是查完才記錄）。
+// primedScopes 記錄「channel + 日期區間」這個 scope 的 visitor union
+// discovery 是否已經完整跑過一次，只有在 discovery 與 resolveInContext 都
+// 成功之後才會被標記完成；中途拋出例外不會留下假的已完成 scope。
+function createCanonicalIdentityContext(storeId, channel) {
+  if (!storeId) throw new Error('[analyticsIdentity] createCanonicalIdentityContext() 需要 storeId');
+  return {
+    storeId,
+    canonicalByVisitor: new Map(), // 正規化後的 visitor_id -> canonical key（store-scoped，見上方說明）
+    primedScopes: new Set(), // Set of "channel|startLocal|endLocal"，見上方說明：真正的 prime 完成閘門
+  };
+}
+
+function _assertContextStoreScope(context, storeId) {
+  if (context.storeId !== storeId) {
+    throw new Error(
+      `[analyticsIdentity] identity context store_id 不符：這個 context 是綁定給 store_id="${context.storeId}" 建立的，` +
+      `卻被拿去查詢 store_id="${storeId}"。identity context 不得跨店重用，請為每個 store 建立獨立 context。`
+    );
+  }
+}
+
+// 在指定 context 內批次解析一批 visitor_id（正規化、去重、跳過已在
+// context 裡的、對缺的呼叫 resolveCanonicalVisitors() 補齊）。這是
+// Route／utils/analyticsV2.js 應該呼叫的正式入口；resolveCanonicalVisitors()
+// 本身仍保留（給不需要跨多次呼叫共用 cache 的 standalone 呼叫端用）。
+function resolveInContext(db, context, storeId, rawVisitorIds) {
+  _assertContextStoreScope(context, storeId);
+  const ids = [...new Set((rawVisitorIds || []).map(_clean).filter(Boolean))];
+  if (!ids.length) return context.canonicalByVisitor;
+  const missing = ids.filter((id) => !context.canonicalByVisitor.has(id));
+  if (missing.length) {
+    const resolved = resolveCanonicalVisitors(db, storeId, missing);
+    resolved.forEach((key, id) => context.canonicalByVisitor.set(id, key));
+  }
+  return context.canonicalByVisitor;
+}
+
+function resolveCanonicalVisitors(db, storeId, rawVisitorIds) {
+  const map = new Map();
+  const ids = [...new Set((rawVisitorIds || []).map(_clean).filter(Boolean))];
+  if (!db || !storeId || !ids.length) return map;
+
+  // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.8（correctness 修正）：先前這三支
+  // 查詢各自用 try/catch 把「查詢失敗」跟「查無命中」當成同一件事——這是
+  // production correctness bug，不是防禦性設計：真正的 operational DB error
+  // （例如連線中斷、schema 損壞）會被吞掉，visitor 被誤判成匿名，
+  // primedScopes 卻仍然標記完成，讓這筆錯誤的負面證據被快取、污染同一次
+  // request 後續所有 product／global canonical 結果。
+  //
+  // 這三張表（line_members／line_member_sessions）是 utils/db.js migration
+  // 在啟動時無條件建立的正式 schema（見該檔案），不存在「舊 schema 沒有這
+  // 張表」的相容性需求，所以這裡沒有需要保留的 no such table/column
+  // fallback——查詢失敗一律視為非預期錯誤，往上拋出，不吞掉、不猜測成
+  // 「查無命中」。
+  //
+  // 錯誤訊息只標示發生在哪個 phase（direct-member／session-link／
+  // session-confirm）與 store_id，不寫入任何 visitor_id 或 line_user_id
+  // （避免個資落入 log／error message）。用 { cause } 保留原始錯誤方便除錯。
+
+  // 規則 1（批次）：這些 visitor_id 本身有沒有哪個字串就是已知的 line_user_id
+  // （理論上很少見，但跟 per-key 版本規則順序保持一致，不省略）。
+  const directLineMemberIds = new Set();
+  try {
+    const placeholders = ids.map(() => '?').join(',');
+    db.all(`SELECT line_user_id FROM line_members WHERE store_id=? AND line_user_id IN (${placeholders})`, [storeId, ...ids])
+      .forEach((r) => directLineMemberIds.add(r.line_user_id));
+  } catch (e) {
+    { const err = new Error(`[analyticsIdentity] resolveCanonicalVisitors: direct-member 查詢失敗（store_id=${storeId}）`, { cause: e }); err.identityIntegrityFailure = true; err.identityPhase = 'direct-member'; throw err; }
+  }
+
+  // 規則 2（批次）：這些 visitor_id 有沒有在 line_member_sessions 留下決定性
+  // 連結紀錄——一次撈出所有符合的列，在 JS 端依 visitor_id 分組，each 組取
+  // last_seen_at 最新的一筆（跟 per-key 版本的 ORDER BY ... DESC LIMIT 1 規則相同）。
+  const linkByVisitorId = new Map(); // visitor_id -> { line_user_id, last_seen_at }
+  const remainingIds = ids.filter((id) => !directLineMemberIds.has(id));
+  if (remainingIds.length) {
+    try {
+      const placeholders = remainingIds.map(() => '?').join(',');
+      const rows = db.all(
+        `SELECT visitor_id, line_user_id, last_seen_at FROM line_member_sessions
+         WHERE store_id=? AND visitor_id IN (${placeholders})`,
+        [storeId, ...remainingIds]
+      );
+      rows.forEach((r) => {
+        const existing = linkByVisitorId.get(r.visitor_id);
+        if (!existing || String(r.last_seen_at) > String(existing.last_seen_at)) {
+          linkByVisitorId.set(r.visitor_id, { line_user_id: r.line_user_id, last_seen_at: r.last_seen_at });
+        }
+      });
+    } catch (e) {
+      { const err = new Error(`[analyticsIdentity] resolveCanonicalVisitors: session-link 查詢失敗（store_id=${storeId}）`, { cause: e }); err.identityIntegrityFailure = true; err.identityPhase = 'session-link'; throw err; }
+    }
+  }
+
+  // 規則 2 的第二段（跟 per-key 版本一致）：連結到的 line_user_id 必須真的
+  // 存在於 line_members，才算數（防禦性檢查，不是新規則）。
+  const candidateLineUserIds = [...new Set([...linkByVisitorId.values()].map((v) => v.line_user_id).filter(Boolean))];
+  const confirmedLineUserIds = new Set();
+  if (candidateLineUserIds.length) {
+    try {
+      const placeholders = candidateLineUserIds.map(() => '?').join(',');
+      db.all(`SELECT line_user_id FROM line_members WHERE store_id=? AND line_user_id IN (${placeholders})`, [storeId, ...candidateLineUserIds])
+        .forEach((r) => confirmedLineUserIds.add(r.line_user_id));
+    } catch (e) {
+      { const err = new Error(`[analyticsIdentity] resolveCanonicalVisitors: session-confirm 查詢失敗（store_id=${storeId}）`, { cause: e }); err.identityIntegrityFailure = true; err.identityPhase = 'session-confirm'; throw err; }
+    }
+  }
+
+  ids.forEach((id) => {
+    const decision = _decideLineIdentity(id, {
+      isDirectLineMember: directLineMemberIds.has(id),
+      sessionLink: linkByVisitorId.get(id) || null,
+      isSessionLinkConfirmed: (() => {
+        const link = linkByVisitorId.get(id);
+        return !!(link && link.line_user_id && confirmedLineUserIds.has(link.line_user_id));
+      })(),
+    });
+    if (decision) {
+
+      map.set(id, `line_user:${decision.line_user_id}`);
+      return;
+    }
+    // 規則 3：查無決定性連結，維持匿名，不臆測合併。
+    map.set(id, `visitor:${id}`);
+  });
+
+  return map;
+}
+
 module.exports = {
   IDENTITY_TYPES,
   ESTIMATED_TYPES,
@@ -253,4 +436,7 @@ module.exports = {
   identityBasisLabel,
   summarizeIdentityBasis,
   resolveCanonicalVisitor,
+  resolveCanonicalVisitors,
+  createCanonicalIdentityContext,
+  resolveInContext,
 };

@@ -14,10 +14,15 @@ const path = require('path');
 const os = require('os');
 const { JSDOM } = require('jsdom');
 const ROOT = path.join(__dirname, '..');
-const TMP_DIR = path.join(os.tmpdir(), `h14-mutations-${process.pid}`);
-fs.mkdirSync(TMP_DIR, { recursive: true });
-process.on('exit', () => { try { fs.rmSync(TMP_DIR, { recursive: true, force: true }); } catch (e) { /* ignore */ } });
-
+const dbHelper = require('./lib/qa-temp-db.js');
+// TMP_DIR: reserved unique-per-process temp directory (not currently
+// written into by any code path in this file -- writeTempCopy() writes
+// adjacent to originals instead, see below). Creation moved inside
+// runEntry()'s try block so it lives within the same protected
+// bootstrap/finally lifecycle as everything else, rather than being
+// created at module top-level before any try/finally exists to guarantee
+// its cleanup.
+let TMP_DIR = null;
 const results = [];
 function pass(name) { results.push({ name, status: 'PASS' }); console.log(`[PASS] ${name}`); }
 function fail(name, detail) { results.push({ name, status: 'FAIL', detail }); console.log(`[FAIL] ${name}${detail ? ' — ' + detail : ''}`); }
@@ -56,8 +61,20 @@ function writeTempCopy(relPath, transform) {
   // mutated 版本也正常運作」的假陽性（不是 mutation 真的沒生效，是測試
   // 環境本身壞了）。
   const tmpPath = realPath.replace(/\.js$/, TMP_SUFFIX);
-  fs.writeFileSync(tmpPath, mutated, 'utf8');
+  // Safety ordering: verify the computed temp path differs from the
+  // tracked original, register it BEFORE writing, and unlink+rethrow on
+  // any write failure -- a partial-write throw can never leave an
+  // unregistered file on disk.
+  if (path.resolve(tmpPath) === path.resolve(realPath)) {
+    throw new Error(`[SAFETY] writeTempCopy computed temp path equals the tracked original (${tmpPath}) -- refusing to write`);
+  }
   tempFilesCreated.push(tmpPath);
+  try {
+    fs.writeFileSync(tmpPath, mutated, 'utf8');
+  } catch (e) {
+    try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); } catch (e2) { /* best-effort partial-write cleanup */ }
+    throw e;
+  }
   return tmpPath;
 }
 
@@ -622,4 +639,69 @@ async function main() {
   printSummary();
 }
 
-main().catch((e) => { console.error('[FATAL]', e.stack || e.message); process.exitCode = 1; });
+async function runEntry() {
+  let dbContext;
+  let primaryError;
+  try {
+    TMP_DIR = path.join(os.tmpdir(), `h14-mutations-${process.pid}`);
+    fs.mkdirSync(TMP_DIR, { recursive: true });
+    dbContext = dbHelper.bootstrapChildDb('h14-map-state-mutations-standalone');
+    return await main();
+  } catch (err) {
+    primaryError = err;
+    throw err;
+  } finally {
+    // Deterministic PRIMARY cleanup backstop (fires on success and on any
+    // throw from main() or from the TMP_DIR/bootstrap setup above -- not
+    // conditional on reaching a specific point inside main()). Three
+    // cleanup steps, each independently attempted (a failure in one does
+    // not prevent the others from running) via the shared
+    // runCleanupSteps() policy: (a) tempFilesCreated[] -- individual
+    // unlinkSync, no glob; (b) TMP_DIR -- a single mkdirSync-created
+    // directory unique to this process, canonicalized-verified to sit
+    // under os.tmpdir() before deletion; (c) dbContext (if owned). Per the
+    // shared cleanup-error policy: if main() succeeded (no primaryError)
+    // but any of these fail, that failure IS surfaced (thrown) -- success +
+    // broken cleanup must never silently report as exit 0. If main()
+    // already failed, the primary error is preserved and all cleanup
+    // failures are attached as non-throwing secondary diagnostics.
+    dbHelper.runCleanupSteps([
+      {
+        name: 'tempFilesCreated',
+        fn: () => {
+          // existsSync guard: a file may already be gone here if
+          // writeTempCopy()'s own write-failure handler already unlinked
+          // it (the path stays registered either way) -- that is not a
+          // cleanup failure, it's already-clean. Only a genuine failure to
+          // remove a file that DOES exist should surface as an error.
+          tempFilesCreated.forEach((p) => { if (fs.existsSync(p)) fs.unlinkSync(p); });
+          tempFilesCreated.length = 0;
+        },
+      },
+      {
+        name: 'TMP_DIR',
+        fn: () => {
+          if (!TMP_DIR || !fs.existsSync(TMP_DIR)) return;
+          const realTmpDir = fs.realpathSync(TMP_DIR);
+          const realOsTmp = fs.realpathSync(os.tmpdir());
+          const rel = path.relative(realOsTmp, realTmpDir);
+          const safeToDelete = rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
+          if (!safeToDelete) throw new Error(`[SAFETY] TMP_DIR (${realTmpDir}) does not resolve under os.tmpdir() (${realOsTmp}) -- refusing to delete`);
+          fs.rmSync(TMP_DIR, { recursive: true, force: true });
+        },
+      },
+      {
+        name: 'dbContext',
+        fn: () => { if (dbContext && dbContext.ownsTempRoot) dbContext.cleanup(); },
+      },
+    ], primaryError);
+  }
+}
+
+// Second-layer fallback only (e.g. SIGKILL bypassing the finally above).
+// Idempotent: fs.rmSync(..., { force: true }) does not throw or log if
+// TMP_DIR is already gone, so this never produces a duplicate/second log
+// line even if the finally above already removed it.
+process.on('exit', () => { if (TMP_DIR) { try { fs.rmSync(TMP_DIR, { recursive: true, force: true }); } catch (e) { /* ignore */ } } });
+
+runEntry().catch((e) => { console.error('[FATAL]', e.stack || e.message); process.exitCode = 1; });

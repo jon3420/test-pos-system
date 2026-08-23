@@ -39,7 +39,14 @@ const EVENT_NAME_ZH = {
   remove_from_cart: '移除購物車商品',
   cart_updated: '購物車內容更新',
   cart_restored: '重新開啟購物車',
-  begin_checkout: '開始結帳',
+  // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.8（CHECKOUT-ANALYTICS-UNIFICATION）：
+  // checkout_click 是「前往結帳」的正式權威事件（H1.4.7 起前台改送這個，
+  // 不再送 begin_checkout）。begin_checkout 保留給 H1.4.7 上線前的舊資料
+  // timeline 顯示，中文標成「開始結帳（舊事件）」，不得與新事件的中文標籤
+  // 混淆、也不計入任何新版 KPI（只用於這裡把舊事件顯示成人看得懂的文字）。
+  view_cart: '查看購物車',
+  checkout_click: '前往結帳',
+  begin_checkout: '開始結帳（舊事件）',
   submit_order: '填寫資料並送出',
   payment_started: '開始付款',
   purchase: '完成購買',
@@ -83,7 +90,10 @@ const STAGE_LABELS = {
   remove_from_cart: '加入購物車',
   view_product: '加入購物車',
   page_view: '加入購物車',
-  begin_checkout: '開始結帳',
+  // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.8：checkout_click 是正式「前往結帳」
+  // 階段，begin_checkout 只作為舊事件的 timeline 相容顯示（不是新版 KPI 權威來源）。
+  checkout_click: '前往結帳',
+  begin_checkout: '開始結帳（舊事件）',
   submit_order: '填寫資料',
   line_login_start: 'LINE Login',
   line_login_success: 'LINE Login 成功',
@@ -95,10 +105,28 @@ function stageLabel(eventName) {
   return STAGE_LABELS[eventName] || '加入購物車';
 }
 // 判斷是否屬於「結帳中」的事件（供 status=checkout 判斷）
-const CHECKOUT_STAGE_EVENTS = new Set([
-  'begin_checkout', 'submit_order', 'payment_started',
+// fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.8（CHECKOUT-ANALYTICS-UNIFICATION）：
+// 拆成三個獨立常數，語意與用途完全分開，不共用同一個 Set：
+//   CHECKOUT_CLICK_KPI_EVENTS —— 正式「前往結帳」KPI／status 的唯一權威證據
+//     來源，只有 checkout_click。這個常數本身只用來標示語意；實際判定
+//     status==='checkout' 時，是用 getCheckoutClickCartIdSet() 對這個 cart_id
+//     做「是否曾經有 checkout_click」的批次 EXISTENCE 查詢（見下方
+//     _buildRowFromCandidate），不是檢查 lastEventMap 的『最後一筆事件名稱』
+//     是否等於 checkout_click——這樣才不會因為某個 cart 的最後一筆事件恰好是
+//     submit_order／payment_started 而被排除在外，也不會反過來被那些
+//     downstream 事件「補算」出從未發生過的 checkout_click。
+//   ORDER_PROGRESS_EVENTS —— 純粹的生命週期／畫面階段分類（僅供
+//     stageLabel() 顯示「填寫資料」「付款開始」等文字），不得被任何
+//     checkout KPI／篩選／CRM 查詢讀取，也不得反向推論出 checkout_click 發生過。
+//   LEGACY_TIMELINE_ONLY_EVENTS —— 僅供 STAGE_LABELS 顯示用，純粹是「這張
+//     購物車最後一筆事件的中文說法」（標示「開始結帳（舊事件）」），不參與
+//     status 判定、不影響任何 KPI／篩選／CRM 分群。
+const CHECKOUT_CLICK_KPI_EVENTS = new Set(['checkout_click']);
+const ORDER_PROGRESS_EVENTS = new Set([
+  'submit_order', 'payment_started',
   'line_login_start', 'line_login_success', 'line_login_failed',
 ]);
+const LEGACY_TIMELINE_ONLY_EVENTS = new Set(['begin_checkout']);
 
 // ────────────────────────────────────────────────────────────────
 // 放置時間格式化（供 age_label 使用，符合需求文件範例：
@@ -271,6 +299,44 @@ function getPurchasedCartIdSet(db, storeId, cartIds) {
   return new Set(rows.map(r => r.cart_id));
 }
 
+// fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.8（CHECKOUT-ANALYTICS-UNIFICATION）：
+// submit_order 是後端在「訂單已經成功建立」之後才寫入的事件（見
+// routes/line-orders.js／routes/line-shipping.js 的實際發送位置：先建立
+// orders 資料列取得 uuid，再呼叫 logServerEvent(..., 'submit_order')，緊接著
+// 非 LinePay 訂單會在同一個請求裡立刻再寫入 'purchase'；LinePay 訂單則是
+// submit_order 先寫入，purchase 等 LINE Pay 回呼確認付款後才寫入）。這代表
+// 「有 submit_order」＝「這張購物車已經轉換成一筆真實訂單」，不是「還在
+// 猶豫要不要結帳」的購物車——即使還沒有 purchase（例如 LinePay 付款中），
+// 也不應該被列為「未結帳／可能已放棄」購物車，否則會讓已經下單、只是還在
+// 等付款確認的客人被老闆誤判成「這個人放棄購物車了」。
+function getSubmittedOrderCartIdSet(db, storeId, cartIds) {
+  if (!cartIds.length) return new Set();
+  const rows = db.all(
+    `SELECT DISTINCT cart_id FROM analytics_events
+     WHERE store_id=? AND event_name='submit_order' AND cart_id IN (${_inParams(cartIds)})`,
+    [storeId, ...cartIds]
+  );
+  return new Set(rows.map(r => r.cart_id));
+}
+
+// fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.8（CHECKOUT-ANALYTICS-UNIFICATION）：
+// 正式「前往結帳」KPI／status 判定的唯一權威證據，是「這個 cart_id 是否曾經
+// 有過 checkout_click 事件」——用批次查詢 EXISTENCE（不是只看 lastEventMap
+// 的『最後一筆事件名稱』）。這樣即使最後一筆事件是 submit_order／
+// payment_started（更後面的階段），只要這個 cart_id 曾經有 checkout_click，
+// 仍然正確算「已前往結帳」；反過來，如果一個 cart_id 只有 submit_order／
+// payment_started、卻從來沒有 checkout_click（理論上不該發生，但不能靠假設
+// 排除，必須靠查詢排除），就不能被反向推論成「已前往結帳」。
+function getCheckoutClickCartIdSet(db, storeId, cartIds) {
+  if (!cartIds.length) return new Set();
+  const rows = db.all(
+    `SELECT DISTINCT cart_id FROM analytics_events
+     WHERE store_id=? AND event_name='checkout_click' AND cart_id IN (${_inParams(cartIds)})`,
+    [storeId, ...cartIds]
+  );
+  return new Set(rows.map(r => r.cart_id));
+}
+
 // 每個 cart_id 最後一筆 cart_updated / cart_restored 快照（用 MAX(id) 取代逐筆查詢）
 function getLatestSnapshotMap(db, storeId, cartIds) {
   const map = {};
@@ -412,15 +478,28 @@ function getMemberFriendStatusMap(db, storeId, lineUserIds) {
 const OPEN_CART_WINDOW_DAYS = 30;
 
 function _buildRowFromCandidate(c, ctx, opts = {}) {
-  const { purchasedSet, snapshotMap, firstAddMap, firstTouchMap, lastEventMap,
+  const { purchasedSet, submittedOrderSet, checkoutClickSet, snapshotMap, firstAddMap, firstTouchMap, lastEventMap,
     legacyItemsMap, productsInfoMap, memberNameMap, nowMs } = ctx;
   const cartId = c.cart_id;
   const isPurchased = purchasedSet.has(cartId);
-  // fix31-r1：新增 includePurchased 選項供 utils/drilldown.js 重用同一套批次查詢與
-  // 欄位組裝邏輯（Drill Down 需要看到「已成交」的人，不只是未完成購物車）。
-  // opts 預設為 {}，既有呼叫端（getOpenCartRows）沒有傳第三個參數，行為完全不變：
-  // 已購買一律 return null，不列入未完成清單。
+  // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.8（CHECKOUT-ANALYTICS-UNIFICATION，二次修正）：
+  // submit_order 代表這張購物車已經轉換成一筆真實訂單（見 getSubmittedOrderCartIdSet()
+  // 上方註解：後端只在訂單成功建立後才寫入這個事件），即使還沒有 purchase
+  // （例如 LinePay 付款中），也不該被當成「未結帳／可能已放棄」。
+  //
+  // includePurchased／includeSubmitted 是兩個完全獨立、不得互相代替的開關：
+  //   includePurchased 只控制「purchase 已成立」的購物車是否納入。
+  //   includeSubmitted 只控制「submit_order 已成立（但可能還沒 purchase）」
+  //     的購物車是否納入。
+  // 不用同一個旗標控制兩者，否則會出現「明明只想看 submitted，卻連
+  // purchased 都被放行」或反過來的錯誤耦合。fix31-r1 原本的 includePurchased
+  // 語意（Drill Down 用來看「已成交」的人）維持不變，只是現在「已成交」這件
+  // 事本身分成 purchased／submitted 兩種更精確的子狀態。
+  const hasSubmittedOrder = submittedOrderSet ? submittedOrderSet.has(cartId) : false;
+  // opts 預設為 {}，既有呼叫端（getOpenCartRows 未指定任一 flag）行為完全不變：
+  // 已購買、已送單一律 return null，不列入未完成清單。
   if (isPurchased && !opts.includePurchased) return null; // 已完成購買，不列入未完成清單
+  if (!isPurchased && hasSubmittedOrder && !opts.includeSubmitted) return null; // 已成立訂單（尚未購買），不列入未完成清單
 
   const snap = snapshotMap[cartId];
   let estimated = true, items = [], subtotal = 0, discount = 0, deliveryFee = 0, total = 0, orderMode = 'unknown';
@@ -461,8 +540,17 @@ function _buildRowFromCandidate(c, ctx, opts = {}) {
   const stage = stageLabel(lastEventName);
   let statusVal = 'abandoned';
   if (isPurchased) statusVal = 'purchased';
+  // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.8：submit_order（訂單已建立，但尚未
+  // 收到 purchase——例如 LinePay 付款中）獨立標成 'submitted'，不是 'purchased'
+  // （避免誤報已成交），也不是 'checkout'／'abandoned'（避免誤報還在猶豫或已放棄）。
+  else if (hasSubmittedOrder) statusVal = 'submitted';
   else if (ageSeconds !== null && ageSeconds <= 30 * 60) statusVal = 'active';
-  else if (CHECKOUT_STAGE_EVENTS.has(lastEventName)) statusVal = 'checkout';
+  // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.8：用「這個 cart_id 是否曾經有過
+  // checkout_click」的 EXISTENCE 查詢結果判定，不是看 lastEventName 是否等於
+  // 某個 Set 成員——這樣 submit_order／payment_started 這些之後的階段不會
+  // 反向「補算」出從未發生過的 checkout_click，也不會因為它們是最後一筆事件
+  // 而被排除在真正發生過 checkout_click 的購物車之外。
+  else if (checkoutClickSet.has(cartId)) statusVal = 'checkout';
 
   const isLine = ft.identity_type === 'line_user_id';
   let lineUidMasked = null, displayName = null, visitorShort = null, lineUidRaw = null;
@@ -498,6 +586,11 @@ function _buildRowFromCandidate(c, ctx, opts = {}) {
     age_label: formatAgeLabel(ageSeconds),
     last_stage: stage,
     status: statusVal,
+    // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.8（CHECKOUT-ANALYTICS-UNIFICATION）：
+    // 獨立於 status 之外，明確標示「這個 cart_id 是否曾經有過 checkout_click」
+    // 這個 EXISTENCE 事實——即使 status 因為 purchased／submitted 優先權而顯示
+    // 別的值，這個欄位仍然如實反映「曾前往結帳」的歷史證據不會被後續事件抹掉。
+    has_checkout_click: checkoutClickSet.has(cartId),
     items,
     subtotal: round2(subtotal),
     discount: round2(discount),
@@ -535,6 +628,11 @@ function getOpenCartRows(db, storeId, opts = {}) {
   const ageBucketKey = opts.age_bucket || 'all';
   const identity = opts.identity || 'all';
   const orderMode = opts.order_mode || 'all';
+  // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.8（CHECKOUT-ANALYTICS-UNIFICATION，二次修正）：
+  // 兩個獨立旗標，預設皆 false（沿用既有行為：已購買、已送單一律不列入）。
+  // 不共用同一個旗標——見上方 _buildRowFromCandidate() 的說明。
+  const includePurchased = opts.includePurchased === true;
+  const includeSubmitted = opts.includeSubmitted === true;
 
   const nowMs = Date.now();
   const sinceLocal = _msToLocalBoundary(nowMs - OPEN_CART_WINDOW_DAYS * 24 * 3600 * 1000);
@@ -545,6 +643,12 @@ function getOpenCartRows(db, storeId, opts = {}) {
   }
   const cartIds = candidates.map(c => c.cart_id);
   const purchasedSet = getPurchasedCartIdSet(db, storeId, cartIds);
+  // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.8：submit_order＝訂單已建立，同 purchased
+  // 一樣要從預設「未完成購物車」清單排除（見上方 getSubmittedOrderCartIdSet 註解）。
+  const submittedOrderSet = getSubmittedOrderCartIdSet(db, storeId, cartIds);
+  // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.8：正式「前往結帳」status 的
+  // 唯一權威證據——EXISTENCE 查詢（不是 lastEventMap 的『最後一筆事件名稱』）。
+  const checkoutClickSet = getCheckoutClickCartIdSet(db, storeId, cartIds);
   const snapshotMap = getLatestSnapshotMap(db, storeId, cartIds);
   const firstAddMap = getFirstAddToCartMap(db, storeId, cartIds);
   const firstTouchMap = getFirstTouchMap(db, storeId, cartIds);
@@ -562,9 +666,9 @@ function getOpenCartRows(db, storeId, opts = {}) {
   )];
   const memberNameMap = getMemberDisplayNameMap(db, storeId, lineUserIds);
 
-  const ctx = { purchasedSet, snapshotMap, firstAddMap, firstTouchMap, lastEventMap, legacyItemsMap, productsInfoMap, memberNameMap, nowMs };
+  const ctx = { purchasedSet, submittedOrderSet, checkoutClickSet, snapshotMap, firstAddMap, firstTouchMap, lastEventMap, legacyItemsMap, productsInfoMap, memberNameMap, nowMs };
 
-  let rows = candidates.map(c => _buildRowFromCandidate(c, ctx)).filter(Boolean);
+  let rows = candidates.map(c => _buildRowFromCandidate(c, ctx, { includePurchased, includeSubmitted })).filter(Boolean);
 
   // 篩選（篩選在批次查詢完成之後、於應用層進行；單店 30 天內未完成購物車量級
   // 有限，優先確保正確性與可讀性，不在此為了極端規模做額外 SQL 分頁優化）
@@ -744,6 +848,13 @@ module.exports = {
   getOpenCartRows,
   getCartDetail,
   OPEN_CART_WINDOW_DAYS,
+  // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.8：供測試驗證事件契約拆分
+  // （checkout_click 是 KPI 權威來源，begin_checkout 只在 Timeline 顯示，
+  // submit_order/payment_started 是純生命週期分類，不得反推 checkout_click）。
+  CHECKOUT_CLICK_KPI_EVENTS,
+  ORDER_PROGRESS_EVENTS,
+  LEGACY_TIMELINE_ONLY_EVENTS,
+  getCheckoutClickCartIdSet,
   // 供測試使用
   round2,
   shortId,
@@ -752,6 +863,7 @@ module.exports = {
   // CRM Action Center 需要對「任意 KPI／維度」而非只有「未完成購物車」組出同一種
   // 列格式，重用既有批次查詢，不建立第二套購物車/會員查詢邏輯）。
   getPurchasedCartIdSet,
+  getSubmittedOrderCartIdSet,
   getLatestSnapshotMap,
   getFirstAddToCartMap,
   getFirstTouchMap,
@@ -761,6 +873,7 @@ module.exports = {
   getMemberDisplayNameMap,
   getMemberFriendStatusMap,
   buildRowFromCandidate: _buildRowFromCandidate,
+  getCartsCandidateIds,
   emptySummary,
   computeOpenSummary,
 };

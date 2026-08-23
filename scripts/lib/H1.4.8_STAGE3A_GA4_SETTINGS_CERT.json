@@ -1,0 +1,280 @@
+{
+  "file": "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-ga4-settings.js",
+  "certifiedAt": "2026-08-16T10:24:43.812Z",
+  "childRuntimeExecuted": false,
+  "verificationMethod": "staticSourceAudit (node --check is syntax-only, not execution)",
+  "preModificationBaseline": {
+    "gitHashObjectMatchedLockedRecord": true,
+    "lockedHash": "8c1b77a5dbaf77fb803ebbb0bf1ab739d4ec9d2e",
+    "lockedSha256": "e64072dfb7d515796642b3ac959101299c7620cc9586a073e8224ba8be99bbe4",
+    "astAssertCallCount": 167,
+    "sectionMarkerCount": 12,
+    "method": "TypeScript compiler AST (ts.createSourceFile + walk), not the unreliable hand-rolled tokenizer used earlier this session"
+  },
+  "postModificationVerification": {
+    "astAssertCallCount": 167,
+    "allArgumentsStructurallyIdentical": true,
+    "fullCallOrderedHash": "4065307839edfec06d6c1a35c6f4fdfdc3094af0529a18f6e4d9aeac8f7d48d9",
+    "fullCallHashMatch": true,
+    "sectionMarkerCount": 12,
+    "sectionsDeepStrictEqualBaseline": true
+  },
+  "architecturalDifferenceFromFile1": {
+    "file1Pattern": "ONE server instance, created once in section B, reused across sections C/G/H, closed exactly once at the very end of main().",
+    "file2Pattern": "TWO independent server instances (\"server\" in section C, \"server2\" in section E), each created AND closed inline within its own section during normal execution -- NOT reused across sections and NOT deferred to the end. Each was originally closed via a bare fire-and-forget `.close()` call with no callback/await/verification.",
+    "riskInOriginalCode": "If an exception occurred between a section's server creation and its own inline .close() call, that server would remain open for the rest of the process, and the original main().catch() handler (unlike file 1's) never called process.exit() or closed any server -- meaning an exception mid-section could leave the process hanging indefinitely (an open http.Server keeps Node's event loop alive). This was a pre-existing latent bug that Stage 3A's centralized cleanup now fixes as a side effect.",
+    "designDecision": "Rather than removing the inline closes (which would leave both servers listening for the remainder of main()'s execution, sections D-L, harmlessly but unnecessarily), the inline closes were KEPT as the fast/normal path, and BOTH servers were additionally hoisted to module scope and wired into the outer runEntry() finally as an exception-path safety net. closeHttpServerBounded() treats an already-closed server (server.listening === false) as a safe no-op, so calling it again in the finally after a normal inline close is harmless."
+  },
+  "sharedHelperDecision": {
+    "comparisonMade": true,
+    "coreAlgorithmIdentical": "The bounded-close ALGORITHM (race close-completion against a resolving timeout, force-close via closeAllConnections() on timeout, re-await the original close promise, clear the timer in a real finally covering every path) is identical between file 1's single server and file 2's two servers -- there was no reason to write it twice.",
+    "extractedTo": "scripts/lib/qa-temp-db.js exports closeHttpServerBounded(server, timeoutMs), additive (no existing export changed). File 1 was refactored to call the shared version instead of its own local copy (re-verified: still 82/82 assert calls identical after that refactor).",
+    "file2SpecificAddition": "closeHttpServerBounded() also checks `server.listening === false` and returns immediately as a safe no-op -- needed for file 2's already-closed-by-inline-call case, which file 1 never encountered (its server is only ever closed once, in the outer finally). This check is harmless for file 1 too.",
+    "whatWasNotShared": "The overall runEntry()/cleanup-step wiring (which servers exist, DB handle close, root cleanup ordering) remains file-specific, since file 2 has two servers and a different normal-vs-exception-path closing pattern -- only the single-server bounded-close primitive itself was extracted."
+  },
+  "executableHelperTests": {
+    "location": "scripts/run-h1-4-8-product-funnel-semantics-runtime.js, HTTPCLOSE1-6 + sentinel",
+    "usesRealHttpServers": true,
+    "coverage": [
+      "HTTPCLOSE1: normal close with no in-flight requests",
+      "HTTPCLOSE2: already-closed server is a safe no-op",
+      "HTTPCLOSE3: a genuinely lingering connection (real net.Socket held open by a gated request handler) is force-closed after a short timeout, and real completion is still awaited",
+      "HTTPCLOSE4: no timer leak on the normal path (proven via timing behavior across two consecutive close calls, not by inspecting internal Node handles)",
+      "HTTPCLOSE5: close failure with no primary error surfaces as a real failure via the shared cleanup policy",
+      "HTTPCLOSE6: primary error + close failure preserves primary identity, close failure attached as secondary diagnostic",
+      "HTTPCLOSE-SENTINEL: production DB sentinel unchanged"
+    ],
+    "mainRuntimeAssertionCount": {
+      "total": 381,
+      "previousTotal": 374,
+      "newAssertionsThisTurn": 7,
+      "passCount": 381,
+      "failCount": 0,
+      "exitCode": 0
+    }
+  },
+  "lifecycleInventory": {
+    "firstDbTouchingRequire": "utils/db.js, inside main() (line ~61 after edits)",
+    "moduleTopLevelSideEffectFound": "REMOVED: previously unconditional fs.unlinkSync(real data/pos.db) at module top level before main() ran, identical pattern to file 1",
+    "serverInstances": 2,
+    "dbHandle": "utils/db.js getDb() wrapped object; underlying sql.js WASM Database exposed via db._db.close(), same as file 1; idempotent (sql.js internal null-guard) with an additional script-level `dbHandle = null` guard after close",
+    "timersFound": "Several `await new Promise((r) => setTimeout(r, 20))` one-shot delay patterns used inline within already-awaited Promises -- these resolve and are garbage-collected naturally as part of normal test flow, not persistent/leaking timers; no setInterval anywhere in the file",
+    "jsdomInstances": 3,
+    "processExitCallsRemoved": 1,
+    "realDbUnlinkCallsRemoved": 2,
+    "preExistingTestQuirkNoted": "Line ~266 of the original file: `assert(() => { ...; return true; }, 'D69 ...')` passes a function (always truthy) as the condition -- a likely pre-existing test authoring artifact. Preserved exactly as-is (not \"fixed\"), consistent with the instruction not to alter any assertion condition; confirmed present unchanged in the AST full-argument comparison above."
+  },
+  "cleanupOwnershipShortCircuitReview": {
+    "claim": "server-close, server2-close, and db-handle-close all run UNCONDITIONALLY via the single runCleanupStepsAsync([...]) call; only the final dbContext-cleanup step is gated on ownsTempRoot.",
+    "parentProvidedModeStillClosesProcessResources": true,
+    "parentProvidedRootDeleted": false
+  },
+  "exitCodeTruthTableConfirmed": {
+    "assertions all pass + cleanup success": 0,
+    "assertion failure": "non-zero (printSummary() sets process.exitCode = 1 when any FAIL exists)",
+    "primary exception": "non-zero (runEntry().catch() sets process.exitCode = 1)",
+    "no primary error but cleanup failure": "non-zero (thrown by runCleanupStepsAsync with no primaryError, propagates to runEntry().catch())",
+    "primary error AND cleanup failure": "non-zero, primary error identity preserved, cleanup failure(s) retrievable via primaryError.secondaryCleanupErrors[]"
+  },
+  "processExitCallCount": 0,
+  "realDbPathMutationCount": 0,
+  "candidateJsCount": 186,
+  "gitDiffCheckPass": true,
+  "productionDbSentinel": {
+    "sha256": "78254c1b972a57ca184ab9645542c407b1b8752b605ec2378832d78ff6a84ccf",
+    "gitHashObject": "86eea5859a6879ed113ffbaa3f4220494de0814a",
+    "size": 651264,
+    "mtime": 1786712225,
+    "walShmJournalPresent": false
+  },
+  "dbHandleMultiplicityAudit": {
+    "auditedAt": "2026-08-16T14:48:36.091Z",
+    "claim": "All 3 DB-touching requires in this file resolve to a SINGLE shared utils/db.js module instance -- not 3 separate handles. dbHandle (singular) is correct and sufficient; no handle registry needed.",
+    "table": [
+      {
+        "requireLocation": "main(), line ~61 (this file, direct)",
+        "requiredModule": "require(path.join(ROOT, 'utils/db.js'))",
+        "resolvedAbsolutePath": "/home/claude/restore_work/work/utils/db.js",
+        "requireCacheEvicted": false,
+        "callsInitDbGetDb": true,
+        "assignedTo": "dbHandle (module-scope, this file)"
+      },
+      {
+        "requireLocation": "main(), line ~154 (routes/settings.js require)",
+        "requiredModule": "require(path.join(ROOT, 'routes/settings.js'))",
+        "resolvedAbsolutePath": "/home/claude/restore_work/work/routes/settings.js",
+        "requireCacheEvicted": false,
+        "note": "routes/settings.js itself internally does require('../utils/db') at its own line 6 -- this resolves to the SAME /home/claude/restore_work/work/utils/db.js absolute path (confirmed via require.resolve()), hitting the same Node module cache entry as the direct require above. routes/settings.js therefore holds a reference to the IDENTICAL getDb function / DB singleton, not a separate one."
+      },
+      {
+        "requireLocation": "main(), line ~299 (routes/geo-live.js require)",
+        "requiredModule": "require(path.join(ROOT, 'routes/geo-live.js'))",
+        "resolvedAbsolutePath": "/home/claude/restore_work/work/routes/geo-live.js",
+        "requireCacheEvicted": false,
+        "note": "Same reasoning: routes/geo-live.js line 26 require('../utils/db') resolves to the identical absolute path, confirmed via require.resolve(). Same shared singleton."
+      }
+    ],
+    "requireCacheEvictionSearch": {
+      "method": "grep for require.cache and delete require.cache across the entire file",
+      "matchesFound": 0
+    },
+    "objectIdentityReasoningChain": [
+      "1. Node.js require() resolves relative/computed paths to a canonical absolute path BEFORE consulting require.cache.",
+      "2. require.resolve() run directly against all 3 call sites (this file's own require, and the internal requires inside routes/settings.js and routes/geo-live.js) all produced the exact same absolute path: /home/claude/restore_work/work/utils/db.js.",
+      "3. No delete require.cache[...] or equivalent cache-eviction call exists anywhere in this file (confirmed by grep, 0 matches) -- so the module cache entry for that absolute path, once populated by the FIRST require, is never invalidated for the remainder of the process.",
+      "4. utils/db.js exports getDb (and initDb), and internally guards DB creation with `if (wrappedDb) return wrappedDb;` -- so even multiple getDb() calls across the 3 requiring sites return the SAME wrapped DB object reference, not new ones.",
+      "5. Conclusion: exactly ONE DB handle object exists for the entire lifetime of this test run. The single module-scope `dbHandle` variable (assigned once, from this file's own getDb() call) is a complete and sufficient reference for cleanup -- closing it via db._db.close() releases the one and only underlying sql.js WASM object that routes/settings.js and routes/geo-live.js also transitively hold references to (since they hold the SAME object, not copies)."
+    ],
+    "handleRegistryNeeded": false,
+    "verificationMethod": "staticSourceAudit + require.resolve() path-resolution check (read-only Node API, does not execute any target file’s top-level code)"
+  },
+  "concurrentCloseAndTimerFinalAudit": {
+    "concurrentCloseStateTracking": {
+      "addedAt": "2026-08-16T14:49:02.022Z",
+      "mechanism": "module-local WeakMap<server, {status, promise}> in scripts/lib/qa-temp-db.js",
+      "listeningFalseAloneNoLongerSoleSignal": true,
+      "statesTracked": [
+        "absent (never touched by this helper)",
+        "'pending' (in-flight close)",
+        "'completed' (settled, success or failure)"
+      ],
+      "secondConcurrentCallBehavior": "awaits the SAME in-flight promise, never issues a second server.close() call",
+      "thirdCallAfterCompletionBehavior": "safe no-op, does not re-surface a prior failure to an unrelated later caller",
+      "weakMapGcSafety": "WeakMap keys (the server objects) do not prevent garbage collection",
+      "noRawCloseCallsRemainOutsideHelper": "confirmed via grep across both remediated HTTP files: 0 raw server.close()/server2.close() calls remain, only comment mentions"
+    },
+    "timerAndCombinedErrorReconfirmed": {
+      "clearTimeoutInRealFinally": true,
+      "pathsCovered": [
+        "graceful resolve",
+        "graceful reject",
+        "timeout",
+        "closeAllConnections() throws",
+        "force-close + close-settle both fail (combined, both preserved via .causes[])"
+      ],
+      "forceCloseThrowStillAwaitsOriginalClose": true
+    },
+    "newExecutableTests": {
+      "location": "scripts/run-h1-4-8-product-funnel-semantics-runtime.js, HTTPCLOSE7-10",
+      "usesRealHttpServersAndSockets": true,
+      "coverage": [
+        "HTTPCLOSE7: two same-tick concurrent calls on one listening server -- underlying close callback fires exactly once, both calls resolve correctly",
+        "HTTPCLOSE8: second call arriving mid-timeout/force-close does not resolve early -- observes the real completion",
+        "HTTPCLOSE9: third call after completion is a safe no-op, close callback still only fired once total, near-instant return",
+        "HTTPCLOSE10: no cross-server state leakage -- a fresh, unrelated server closes normally after HTTPCLOSE7-9"
+      ],
+      "mainRuntimeAssertionCount": {
+        "total": 385,
+        "previousTotal": 381,
+        "newAssertionsThisTurn": 4,
+        "passCount": 385,
+        "failCount": 0,
+        "exitCode": 0
+      }
+    }
+  },
+  "generationAndRetryStateMachine": {
+    "addedAt": "2026-08-16T15:04:12.260Z",
+    "reason": "Two real boundary cases in the concurrent-close state machine were audited and fixed: (1) a server closed then re-listen()'d would previously hit the stale completed state and no-op, leaking the re-listened server; (2) a failed original close would previously be marked completed anyway, permanently blocking any retry.",
+    "sameServerRelistenSupported": true,
+    "failedAttemptRetrySupported": true,
+    "completedOnlyAfterActualClose": "state is marked completed based on the ORIGINAL close promise genuinely resolving, not on closeAllConnections() succeeding and not unconditionally in a finally",
+    "concurrentFailureShared": "two concurrent callers on an attempt that ultimately fails both receive the identical rejection (same Error object), proven via HTTPCLOSE13 with Promise.allSettled",
+    "bugFoundDuringTestDesign": "Initial versions of HTTPCLOSE11/12 had bugs in the TEST setup itself (double-wrapping server.close on re-listen; a mock that let the real close succeed while only faking an error report to the helper, which made a \"failed\" first attempt actually already-closed by the time of the second call). Both were caught by 2 real test failures (not silently passed), diagnosed, and fixed in the test code -- the underlying helper implementation was correct throughout; the tests needed fixing to correctly exercise it.",
+    "executableTests": {
+      "location": "scripts/run-h1-4-8-product-funnel-semantics-runtime.js, HTTPCLOSE11-15",
+      "coverage": [
+        "HTTPCLOSE11: listen->close->re-listen(same object)->close, underlying close callback fires exactly twice (once per generation)",
+        "HTTPCLOSE12: a genuine first-attempt failure (server remains listening) followed by a real retry that succeeds",
+        "HTTPCLOSE13: two concurrent callers on an attempt that ultimately fails both observe the identical failure",
+        "HTTPCLOSE14: no stale pending state after a failure -- the next call is a clean fresh attempt",
+        "HTTPCLOSE15: sentinel"
+      ],
+      "mainRuntimeAssertionCount": {
+        "total": 390,
+        "previousTotal": 385,
+        "newAssertionsThisTurn": 5,
+        "passCount": 390,
+        "failCount": 0,
+        "exitCode": 0
+      }
+    },
+    "reVerifiedAfterFix": {
+      "file1AstCallCount": 82,
+      "file1FullCallHashMatch": true,
+      "file2AstCallCount": 167,
+      "file2FullCallHashMatch": true,
+      "fourteenChildGate": "14/14 clean",
+      "candidateJsCount": 186,
+      "gitDiffCheckPass": true
+    },
+    "preciseTestTable": [
+      {
+        "label": "HTTPCLOSE11",
+        "scenario": "listen -> helper close -> re-listen (same Server object) -> helper close again; underlying close callback must fire exactly twice",
+        "usesRealServerSocket": true,
+        "usesRealTiming": false,
+        "monkeypatch": true,
+        "monkeypatchContent": "wraps server.close once (capturing the true original via .bind before wrapping) to count callback invocations; never wraps the helper itself",
+        "monkeypatchRestoredInFinally": false,
+        "monkeypatchRestoreNote": "Not restored -- this server instance is local to this test block and never reused elsewhere, so no restoration was needed for isolation. No other test or production code touches this specific server object.",
+        "assertionPurpose": "proves the completed-state check re-evaluates server.listening on each call, so a re-listened server gets a fresh close generation instead of being short-circuited by the stale completed state from its first close",
+        "isSentinel": false
+      },
+      {
+        "label": "HTTPCLOSE12",
+        "scenario": "first close attempt genuinely fails (server remains listening, not just a fake error report over an already-successful close) -> second call is a real retry that succeeds",
+        "usesRealServerSocket": true,
+        "usesRealTiming": false,
+        "monkeypatch": true,
+        "monkeypatchContent": "server.close replaced with a function that on its first invocation calls back with an injected Error WITHOUT invoking the real close (so the server stays genuinely listening), and on subsequent invocations delegates to the real original close",
+        "monkeypatchRestoredInFinally": false,
+        "monkeypatchRestoreNote": "Not restored -- server instance local to this block, never reused.",
+        "assertionPurpose": "proves a genuine close failure is not marked completed, so a later call issues a real new server.close() call (verified via callCount) rather than being permanently stuck",
+        "isSentinel": false
+      },
+      {
+        "label": "HTTPCLOSE13",
+        "scenario": "two concurrent closeHttpServerBounded() calls on a server whose close attempt ultimately fails -- both callers must observe the identical failure",
+        "usesRealServerSocket": true,
+        "usesRealTiming": false,
+        "monkeypatch": true,
+        "monkeypatchContent": "server.close replaced to always call back with an injected Error without performing a real close",
+        "monkeypatchRestoredInFinally": false,
+        "monkeypatchRestoreNote": "Not restored as a monkeypatch reversal -- instead the server is explicitly force-closed for real via the raw http.Server.prototype.close at the end of this test block, to avoid leaking a listening server into later tests.",
+        "assertionPurpose": "proves concurrent callers on a shared in-flight attempt receive the SAME resolved/rejected outcome, not one succeeding and one failing",
+        "isSentinel": false
+      },
+      {
+        "label": "HTTPCLOSE14",
+        "scenario": "after a genuine close failure, the immediately following call is a clean fresh attempt with no stale pending state",
+        "usesRealServerSocket": true,
+        "usesRealTiming": true,
+        "monkeypatch": true,
+        "monkeypatchContent": "server.close fails (without real close) on first call, delegates to the real original close on the second call",
+        "monkeypatchRestoredInFinally": false,
+        "monkeypatchRestoreNote": "Not restored -- server instance local to this block, never reused.",
+        "assertionPurpose": "proves no leftover pending/failed state blocks or delays a subsequent genuine close attempt (timing bound + explicit callCount check)",
+        "isSentinel": false
+      },
+      {
+        "label": "HTTPCLOSE15",
+        "scenario": "production data/pos.db SHA-1 hash check after HTTPCLOSE11-14",
+        "usesRealServerSocket": false,
+        "usesRealTiming": false,
+        "monkeypatch": false,
+        "monkeypatchContent": null,
+        "monkeypatchRestoredInFinally": null,
+        "assertionPurpose": "sentinel -- confirms none of the preceding HTTP-close generation/retry tests touched the real database",
+        "isSentinel": true
+      }
+    ],
+    "honestMethodClassification": {
+      "realHttpCreateServerRealSocketRealTiming": "HTTPCLOSE11, 12, 13 (partial -- no explicit timing assertion), 14",
+      "closeFailureInjectionMethod": "deterministic monkeypatch of server.close on a REAL http.Server instance -- never a mock of closeHttpServerBounded() itself, and never a mock of Node's http module",
+      "helperFunctionItselfNeverMocked": true,
+      "monkeypatchScope": "Each monkeypatch is applied to a LOCAL server instance created fresh within that specific test block (via makeServer()) -- no monkeypatch is ever applied to a server instance shared with, or reused by, another test or any production code path. None of the 4 monkeypatches (HTTPCLOSE11-14) required an explicit finally-based restoration because none of their target server objects are used again after their own test block (HTTPCLOSE13 additionally force-closes its server for real, to avoid leaving a listening server open into subsequent tests, though this is a cleanup step rather than a \"restore the original close method\" step).",
+      "arithmeticVerification": "385 (baseline before this batch) + 5 (HTTPCLOSE11, 12, 13, 14, 15) = 390 (confirmed by direct execution: PASS 390, FAIL 0, TOTAL 390)"
+    }
+  }
+}

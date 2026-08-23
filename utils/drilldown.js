@@ -25,6 +25,8 @@
 const { ANALYTICS_CREATED_AT_LOCAL_EXPR: A_LOCAL } = require('./dashboardDate');
 const {
   getPurchasedCartIdSet,
+  getSubmittedOrderCartIdSet,
+  getCheckoutClickCartIdSet,
   getLatestSnapshotMap,
   getFirstAddToCartMap,
   getFirstTouchMap,
@@ -56,7 +58,7 @@ const DIMENSION_COLUMN_MAP = {
 // 原始欄位，是 buildRowFromCandidate() 組好列之後才算得出來的「衍生欄位」
 // （購物車目前狀態／身份是 LINE 會員還是匿名／LINE 好友狀態／多久沒動作），
 // 所以一律在應用層對已組好的列做篩選，不會出現在 SQL WHERE 子句裡。
-const CART_STATUS_VALUES = new Set(['active', 'checkout', 'abandoned', 'purchased']);
+const CART_STATUS_VALUES = new Set(['active', 'checkout', 'submitted', 'abandoned', 'purchased']);
 const IDENTITY_STATE_VALUES = new Set(['line', 'visitor']);
 const FRIEND_STATUS_VALUES = new Set(['friend', 'not_friend', 'unknown']);
 
@@ -178,14 +180,26 @@ function getActivityMap(db, storeId, cartIds) {
 
 /**
  * 依候選 cart_id 清單組出完整列（重用 cartSnapshot.js 的批次查詢與欄位組裝）。
- * includePurchased 預設 true——Drill Down 情境需要看到「已成交」的人（例如
- * 「點開始結帳 → 看到有哪些人，其中誰後來完成了購買」）。
+ * includePurchased／includeSubmitted 都預設 true——Drill Down 情境需要看到
+ * 「已成交」的人（例如「點開始結帳 → 看到有哪些人，其中誰後來完成了購買」），
+ * 這裡的「已成交」包含 purchase 已確認與 submit_order 已成立但付款中（例如
+ * LinePay）兩種情況，兩個旗標故意都預設 true 以維持既有 Drill Down 行為
+ * （沿用 fix31-r1 的既有慣例），但彼此是獨立旗標，不是同一個開關的兩個名字。
  */
-function buildRowsForCartIds(db, storeId, cartIds, { includePurchased = true } = {}) {
+function buildRowsForCartIds(db, storeId, cartIds, { includePurchased = true, includeSubmitted = true } = {}) {
   if (!cartIds.length) return [];
   const nowMs = Date.now();
   const activityMap = getActivityMap(db, storeId, cartIds);
   const purchasedSet = getPurchasedCartIdSet(db, storeId, cartIds);
+  // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.8（CHECKOUT-ANALYTICS-UNIFICATION）：
+  // buildRowFromCandidate() 內部的 status 判定需要 submittedOrderSet／
+  // checkoutClickSet（EXISTENCE 查詢，不是看最後一筆事件名稱）。這裡之前只有
+  // purchasedSet，缺少這兩個會讓 buildRowFromCandidate() 在購物車不是「近 30
+  // 分鐘活躍」時嘗試呼叫 undefined.has() 而拋錯——之所以先前測試沒有抓到，
+  // 是因為 fixture 的購物車剛好都落在「近期活躍」分支，提前 short-circuit
+  // 掉了那一行，沒有真正執行到。
+  const submittedOrderSet = getSubmittedOrderCartIdSet(db, storeId, cartIds);
+  const checkoutClickSet = getCheckoutClickCartIdSet(db, storeId, cartIds);
   const snapshotMap = getLatestSnapshotMap(db, storeId, cartIds);
   const firstAddMap = getFirstAddToCartMap(db, storeId, cartIds);
   const firstTouchMap = getFirstTouchMap(db, storeId, cartIds);
@@ -208,13 +222,13 @@ function buildRowsForCartIds(db, storeId, cartIds, { includePurchased = true } =
   // 該既有 API 的回應欄位形狀。
   const friendStatusMap = getMemberFriendStatusMap(db, storeId, lineUserIds);
 
-  const ctx = { purchasedSet, snapshotMap, firstAddMap, firstTouchMap, lastEventMap, legacyItemsMap, productsInfoMap, memberNameMap, nowMs };
+  const ctx = { purchasedSet, submittedOrderSet, checkoutClickSet, snapshotMap, firstAddMap, firstTouchMap, lastEventMap, legacyItemsMap, productsInfoMap, memberNameMap, nowMs };
 
   return cartIds
     .map((id) => {
       const c = activityMap[id];
       if (!c) return null; // 理論上不會發生（cartIds 就是從同一張表查出來的），保守處理
-      const row = buildRowFromCandidate(c, ctx, { includePurchased });
+      const row = buildRowFromCandidate(c, ctx, { includePurchased, includeSubmitted });
       if (row && row.identity_type === 'line' && row._line_uid_raw) {
         row.friend_status = friendStatusMap[row._line_uid_raw] || 'unknown';
       } else if (row) {
@@ -269,6 +283,10 @@ function getDrilldownRows(db, storeId, rawFilters = {}, opts = {}) {
   const safeLimit = Math.min(100, Math.max(1, Math.trunc(Number(opts.limit) || 20)));
   const safePage = Math.max(1, Math.trunc(Number(opts.page) || 1));
   const includePurchased = opts.include_purchased !== false;
+  // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.8：獨立旗標，預設 true（維持既有
+  // Drill Down 行為：預設看得到已送單/已成交的人）。刻意不用 include_purchased
+  // 一併控制，避免呼叫端只想關閉 purchased 卻連 submitted 也被誤關。
+  const includeSubmitted = opts.include_submitted !== false;
   const filters = _sanitizeFilters(rawFilters);
   const warnings = [];
 
@@ -282,7 +300,7 @@ function getDrilldownRows(db, storeId, rawFilters = {}, opts = {}) {
     return { rows: [], total: 0, page: safePage, limit: safeLimit, visitor_count: visitorCount, filters, warnings, generated_at: generatedAt };
   }
 
-  let rows = buildRowsForCartIds(db, storeId, cartIds, { includePurchased });
+  let rows = buildRowsForCartIds(db, storeId, cartIds, { includePurchased, includeSubmitted });
   rows = _applyPostBuildFilters(rows, filters);
   rows = _applySort(rows, opts.sort_by, opts.sort_dir);
 
@@ -320,7 +338,7 @@ function countDrilldownMatches(db, storeId, rawFilters = {}) {
     || filters.friend_status !== undefined || filters.age_bucket !== undefined;
   if (needsFullHydrate) {
     const { ids } = findMatchingCartIds(db, storeId, filters);
-    const rows = _applyPostBuildFilters(buildRowsForCartIds(db, storeId, ids, { includePurchased: true }), filters);
+    const rows = _applyPostBuildFilters(buildRowsForCartIds(db, storeId, ids, { includePurchased: true, includeSubmitted: true }), filters);
     return rows.length;
   }
   const { ids } = findMatchingCartIds(db, storeId, filters);
@@ -337,7 +355,7 @@ function resolveMemberKeys(db, storeId, rawFilters = {}, { limit = 2000 } = {}) 
   const filters = _sanitizeFilters(rawFilters);
   const { ids: cartIds } = findMatchingCartIds(db, storeId, filters);
   if (!cartIds.length) return [];
-  let rows = buildRowsForCartIds(db, storeId, cartIds, { includePurchased: true });
+  let rows = buildRowsForCartIds(db, storeId, cartIds, { includePurchased: true, includeSubmitted: true });
   rows = _applyPostBuildFilters(rows, filters);
   const seen = new Set();
   const out = [];

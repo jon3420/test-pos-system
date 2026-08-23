@@ -1,0 +1,56 @@
+{
+  "generatedAt": "2026-08-16T03:04:10.897Z",
+  "purpose": "Stage 3A dynamic-execution gate: distinguish unsafe/unresolved dynamic execution from pre-existing, allowlisted jsdom test-harness eval. Counts are reported at the granularity that is actually true -- static site count vs. reachable invocation count -- not conflated into one number.",
+  "unsafeOrUnresolvedDynamicExecutionCount": 0,
+  "allowlistedEntries": [
+    {
+      "file": "scripts/run-g1-6-ga4-h1-4-map-state-mutations.js",
+      "mechanism": "dom.window.eval(src) -- jsdom window-context eval, NOT Node vm/eval/new Function on arbitrary source",
+      "definingFunction": "buildEnv() (defined line 321)",
+      "evalLine": 372,
+      "allowlistedPreExistingTestHarnessSiteCount": 1,
+      "staticallyReachableInvocationCount": 19,
+      "staticallyReachableInvocationCountNote": "buildEnv() has 19 call sites across the file (one per test scenario that needs a DOM+eval environment). This is the number of places in the source that COULD reach the eval call during a full run, not a guaranteed-exactly-19 dynamic execution count -- some scenarios may short-circuit via runScenario()'s try/catch before reaching buildEnv() if an earlier assertion in the same scenario throws first. Presented honestly as a static reachability count, not conflated with a measured runtime execution count (this script has not been executed).",
+      "allowlistedSourceFileCount": 9,
+      "preExistingConfirmation": "This eval call and JSDOM(html, { runScripts: \"outside-only\" }) construction pattern already existed in the file before this Stage 3A session (pre-modification SHA-256 of this file, recorded in H1.4.8_STAGE3A_FIXED_SET.json before any edit, matches the version containing this exact eval call). This session's edits touched only: (1) added dbHelper require, (2) removed the module-top-level DB_FILE unlink block, (3) wrapped main() invocation in runEntry() with bootstrapChildDb(). Zero lines inside buildEnv(), the eval call itself, or its src-assembly logic were changed -- confirmed via git diff showing no +/- lines within that function body.",
+      "srcSources": {
+        "allowlist": [
+          "public/js/date-time-format.js",
+          "public/js/geo-range-resolver.js",
+          "public/js/geo-range-control.js",
+          "public/js/geo-heatmap.js",
+          "public/js/geo-visitor-layer.js",
+          "public/js/geo-ga4-realtime-layer.js",
+          "public/js/geo-ga4-h1-panel.js",
+          "public/js/geo-ga4-dashboard-layer.js",
+          "public/js/geo-heatmap-ui.js"
+        ],
+        "allowlistSourceLine": "353-356 (literal array, .map(get))",
+        "resolutionFunction": "readMaybeMutated(relPath, useMutated, transform) (line 315), get = (rel) => readMaybeMutated(rel, !!mutations[rel], mutations[rel]) (line 365)",
+        "externalInputControl": "NONE -- the 9-entry array is a hardcoded literal in source; argv/env/network/user input cannot add, remove, or reorder entries, and cannot substitute a different path for any entry. This fixed, trusted, no-external-input allowlist is the actual safety boundary for this eval call -- not a claim about jsdom sandbox strength (see below)."
+      },
+      "jsdomConstructionOptions": {
+        "runScripts": "outside-only",
+        "url": "http://localhost/",
+        "resources": "not set (jsdom default: no external resource loading)"
+      },
+      "jsdomSandboxClaim": "IMPORTANT: this evidence does NOT claim jsdom provides a safe sandbox for executing untrusted code. jsdom is a DOM implementation, not a security sandbox, and running arbitrary/untrusted script through dom.window.eval() would not be safe regardless of these options. The actual and only safety property being claimed here is narrower: the source text passed to eval() always originates from the fixed 9-file allowlist above (verified/mutated copies of those exact files only), so the question of jsdom's sandbox strength against a malicious payload does not arise in this harness -- there is no untrusted-input path into eval() at all.",
+      "nodeCapabilitiesExposedToEvalContext": {
+        "require": false,
+        "process": false,
+        "fs": false,
+        "note": "grep-confirmed: no dom.window.require, dom.window.process, or dom.window.fs assignment anywhere in this file. This absence-of-explicit-injection check proves jsdom's own default globals were not supplemented with Node capabilities by this test file -- it does NOT by itself prove jsdom internals expose nothing sensitive; it is one supporting data point, not the primary safety argument (the primary argument is the fixed source allowlist above)."
+      },
+      "networkExposure": {
+        "resourcesOption": "not set (jsdom default) -- jsdom does not fetch external resources (scripts/stylesheets/images referenced by the loaded HTML) unless resources: \"usable\" or similar is explicitly configured, which it is not here.",
+        "windowFetchOverride": "dom.window.fetch is overridden in ONE unrelated scenario (line 578, a different function than buildEnv()) with a synchronous mock returning canned {success:true, rows:[]} JSON -- never a real network call. This override does not apply to buildEnv()'s eval context in general; it is scenario-local.",
+        "realNetworkAccessClaim": "No real network access was found to be reachable from the eval'd code in the scenarios inspected; this is based on source inspection (grep + manual read), not on having executed the script."
+      },
+      "mutationTempFileHandling": {
+        "writeLocation": "writeTempCopy() writes into the SAME directory as the original file (path.dirname(realPath)), with filename computed as realPath.replace(/\\.js$/, TMP_SUFFIX) where TMP_SUFFIX = `.mutation-tmp-${process.pid}.js` -- always DIFFERENT from and never overwrites the tracked original file.",
+        "cleanupMechanism": "UPDATED this turn: now uses a deterministic finally-based cleanup in runEntry() as the PRIMARY mechanism (see Part 2 of this turn's work), with the pre-existing process.on(\"exit\", ...) handler kept only as a second-layer fallback, not the sole cleanup path."
+      }
+    }
+  ],
+  "mutationsJsNote": "scripts/run-g1-6-ga4-h1-3-mutations.js was also audited: 0 eval/new Function/vm usage found -- it uses require() on mutated file copies only (writeAdjacent/writeTmp + require(p)), which is covered by the general dynamic-require canonicalization proof, not this eval-specific category. Its temp-file cleanup was also updated this turn to a deterministic finally-based primary mechanism (see Part 2)."
+}

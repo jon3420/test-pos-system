@@ -1,0 +1,1026 @@
+{
+  "lockedAt": "2026-08-15T09:08:05.152Z",
+  "stage": "3A",
+  "rootCount": 17,
+  "reachableUnsafeChildCount": 17,
+  "totalSetCount": 34,
+  "roots": [
+    "scripts/run-regression-b2-5.js",
+    "scripts/run-regression-g1-6-a1-1.js",
+    "scripts/run-regression-g1-6-a1-2-1.js",
+    "scripts/run-regression-g1-6-a1-2.js",
+    "scripts/run-regression-g1-6-a1.js",
+    "scripts/run-regression-g1-6-ga4-h1-1-auth.js",
+    "scripts/run-regression-g1-6-ga4-h1-2.js",
+    "scripts/run-regression-g1-6-ga4-h1-3.js",
+    "scripts/run-regression-g1-6-ga4-h1-4-1.js",
+    "scripts/run-regression-g1-6-ga4-h1-4-2.js",
+    "scripts/run-regression-g1-6-ga4-h1-4-3.js",
+    "scripts/run-regression-g1-6-ga4-h1-4-4.js",
+    "scripts/run-regression-g1-6-ga4-h1-4-5.js",
+    "scripts/run-regression-g1-6-ga4-h1-4-6.js",
+    "scripts/run-regression-g1-6-ga4-h1-4-7.js",
+    "scripts/run-regression-g1-6-ga4-h1-4.js",
+    "scripts/run-regression-g1-6-ga4-h1.js"
+  ],
+  "unsafeChildren": [
+    "scripts/run-g1-6-ga4-h1-3-event-compat-connection-test.js",
+    "scripts/run-g1-6-ga4-h1-3-historical-runtime.js",
+    "scripts/run-g1-6-ga4-h1-3-mutations.js",
+    "scripts/run-g1-6-ga4-h1-3-realtime-event-runtime.js",
+    "scripts/run-g1-6-ga4-h1-4-5-exposure-runtime.js",
+    "scripts/run-g1-6-ga4-h1-4-map-state-mutations.js",
+    "scripts/run-g1-6-ga4-h1-4-range-backend-runtime.js",
+    "scripts/smoke-hotfix30-b5-r5-3-a1-2-visitor-geo-sync.js",
+    "scripts/smoke-hotfix30-b5-r5-3-a1-geo-heatmap.js",
+    "scripts/smoke-hotfix30-b5-r5-3-a2-geo-event-engine.js",
+    "scripts/smoke-hotfix30-b5-r5-4-g1-3-2-regression-guard.js",
+    "scripts/smoke-hotfix30-b5-r5-4-g1-4-map-label-rendering.js",
+    "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-1-ga4-settings-persistence.js",
+    "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-4-ga4-city-partial.js",
+    "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-ga4-settings.js",
+    "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-2-authoritative-points.js",
+    "scripts/smoke-hotfix30-b5-r5-4-g1-live-geo.js"
+  ],
+  "fullSet": [
+    "scripts/run-g1-6-ga4-h1-3-event-compat-connection-test.js",
+    "scripts/run-g1-6-ga4-h1-3-historical-runtime.js",
+    "scripts/run-g1-6-ga4-h1-3-mutations.js",
+    "scripts/run-g1-6-ga4-h1-3-realtime-event-runtime.js",
+    "scripts/run-g1-6-ga4-h1-4-5-exposure-runtime.js",
+    "scripts/run-g1-6-ga4-h1-4-map-state-mutations.js",
+    "scripts/run-g1-6-ga4-h1-4-range-backend-runtime.js",
+    "scripts/run-regression-b2-5.js",
+    "scripts/run-regression-g1-6-a1-1.js",
+    "scripts/run-regression-g1-6-a1-2-1.js",
+    "scripts/run-regression-g1-6-a1-2.js",
+    "scripts/run-regression-g1-6-a1.js",
+    "scripts/run-regression-g1-6-ga4-h1-1-auth.js",
+    "scripts/run-regression-g1-6-ga4-h1-2.js",
+    "scripts/run-regression-g1-6-ga4-h1-3.js",
+    "scripts/run-regression-g1-6-ga4-h1-4-1.js",
+    "scripts/run-regression-g1-6-ga4-h1-4-2.js",
+    "scripts/run-regression-g1-6-ga4-h1-4-3.js",
+    "scripts/run-regression-g1-6-ga4-h1-4-4.js",
+    "scripts/run-regression-g1-6-ga4-h1-4-5.js",
+    "scripts/run-regression-g1-6-ga4-h1-4-6.js",
+    "scripts/run-regression-g1-6-ga4-h1-4-7.js",
+    "scripts/run-regression-g1-6-ga4-h1-4.js",
+    "scripts/run-regression-g1-6-ga4-h1.js",
+    "scripts/smoke-hotfix30-b5-r5-3-a1-2-visitor-geo-sync.js",
+    "scripts/smoke-hotfix30-b5-r5-3-a1-geo-heatmap.js",
+    "scripts/smoke-hotfix30-b5-r5-3-a2-geo-event-engine.js",
+    "scripts/smoke-hotfix30-b5-r5-4-g1-3-2-regression-guard.js",
+    "scripts/smoke-hotfix30-b5-r5-4-g1-4-map-label-rendering.js",
+    "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-1-ga4-settings-persistence.js",
+    "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-4-ga4-city-partial.js",
+    "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-ga4-settings.js",
+    "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-2-authoritative-points.js",
+    "scripts/smoke-hotfix30-b5-r5-4-g1-live-geo.js"
+  ],
+  "evidence": {
+    "scripts/run-regression-b2-5.js": {
+      "type": "ROOT (orchestrator itself)",
+      "reachedVia": []
+    },
+    "scripts/run-regression-g1-6-a1-1.js": {
+      "type": "ROOT (orchestrator itself)",
+      "reachedVia": []
+    },
+    "scripts/run-regression-g1-6-a1-2-1.js": {
+      "type": "ROOT (orchestrator itself)",
+      "reachedVia": []
+    },
+    "scripts/run-regression-g1-6-a1-2.js": {
+      "type": "ROOT (orchestrator itself)",
+      "reachedVia": []
+    },
+    "scripts/run-regression-g1-6-a1.js": {
+      "type": "ROOT (orchestrator itself)",
+      "reachedVia": []
+    },
+    "scripts/run-regression-g1-6-ga4-h1-1-auth.js": {
+      "type": "ROOT (orchestrator itself)",
+      "reachedVia": []
+    },
+    "scripts/run-regression-g1-6-ga4-h1-2.js": {
+      "type": "ROOT (orchestrator itself)",
+      "reachedVia": []
+    },
+    "scripts/run-regression-g1-6-ga4-h1-3.js": {
+      "type": "ROOT (orchestrator itself)",
+      "reachedVia": []
+    },
+    "scripts/run-regression-g1-6-ga4-h1-4-1.js": {
+      "type": "ROOT (orchestrator itself)",
+      "reachedVia": []
+    },
+    "scripts/run-regression-g1-6-ga4-h1-4-2.js": {
+      "type": "ROOT (orchestrator itself)",
+      "reachedVia": []
+    },
+    "scripts/run-regression-g1-6-ga4-h1-4-3.js": {
+      "type": "ROOT (orchestrator itself)",
+      "reachedVia": []
+    },
+    "scripts/run-regression-g1-6-ga4-h1-4-4.js": {
+      "type": "ROOT (orchestrator itself)",
+      "reachedVia": []
+    },
+    "scripts/run-regression-g1-6-ga4-h1-4-5.js": {
+      "type": "ROOT (orchestrator itself)",
+      "reachedVia": []
+    },
+    "scripts/run-regression-g1-6-ga4-h1-4-6.js": {
+      "type": "ROOT (orchestrator itself)",
+      "reachedVia": []
+    },
+    "scripts/run-regression-g1-6-ga4-h1-4-7.js": {
+      "type": "ROOT (orchestrator itself)",
+      "reachedVia": []
+    },
+    "scripts/run-regression-g1-6-ga4-h1-4.js": {
+      "type": "ROOT (orchestrator itself)",
+      "reachedVia": []
+    },
+    "scripts/run-regression-g1-6-ga4-h1.js": {
+      "type": "ROOT (orchestrator itself)",
+      "reachedVia": []
+    },
+    "scripts/run-g1-6-ga4-h1-3-event-compat-connection-test.js": {
+      "type": "UNSAFE CHILD",
+      "reachedVia": [
+        "scripts/run-regression-g1-6-ga4-h1-3.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-1.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-2.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-3.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-4.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-5.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-6.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-7.js",
+        "scripts/run-regression-g1-6-ga4-h1-4.js"
+      ]
+    },
+    "scripts/run-g1-6-ga4-h1-3-historical-runtime.js": {
+      "type": "UNSAFE CHILD",
+      "reachedVia": [
+        "scripts/run-regression-g1-6-ga4-h1-3.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-1.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-2.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-3.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-4.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-5.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-6.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-7.js",
+        "scripts/run-regression-g1-6-ga4-h1-4.js"
+      ]
+    },
+    "scripts/run-g1-6-ga4-h1-3-mutations.js": {
+      "type": "UNSAFE CHILD",
+      "reachedVia": [
+        "scripts/run-regression-g1-6-ga4-h1-3.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-1.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-2.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-3.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-4.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-5.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-6.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-7.js",
+        "scripts/run-regression-g1-6-ga4-h1-4.js"
+      ]
+    },
+    "scripts/run-g1-6-ga4-h1-3-realtime-event-runtime.js": {
+      "type": "UNSAFE CHILD",
+      "reachedVia": [
+        "scripts/run-regression-g1-6-ga4-h1-3.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-1.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-2.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-3.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-4.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-5.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-6.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-7.js",
+        "scripts/run-regression-g1-6-ga4-h1-4.js"
+      ]
+    },
+    "scripts/run-g1-6-ga4-h1-4-5-exposure-runtime.js": {
+      "type": "UNSAFE CHILD",
+      "reachedVia": [
+        "scripts/run-regression-g1-6-ga4-h1-4-5.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-6.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-7.js"
+      ]
+    },
+    "scripts/run-g1-6-ga4-h1-4-map-state-mutations.js": {
+      "type": "UNSAFE CHILD",
+      "reachedVia": [
+        "scripts/run-regression-g1-6-ga4-h1-4-1.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-2.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-3.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-4.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-5.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-6.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-7.js",
+        "scripts/run-regression-g1-6-ga4-h1-4.js"
+      ]
+    },
+    "scripts/run-g1-6-ga4-h1-4-range-backend-runtime.js": {
+      "type": "UNSAFE CHILD",
+      "reachedVia": [
+        "scripts/run-regression-g1-6-ga4-h1-4-1.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-2.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-3.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-4.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-5.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-6.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-7.js",
+        "scripts/run-regression-g1-6-ga4-h1-4.js"
+      ]
+    },
+    "scripts/smoke-hotfix30-b5-r5-3-a1-2-visitor-geo-sync.js": {
+      "type": "UNSAFE CHILD",
+      "reachedVia": [
+        "scripts/run-regression-b2-5.js",
+        "scripts/run-regression-g1-6-a1-1.js",
+        "scripts/run-regression-g1-6-a1-2.js",
+        "scripts/run-regression-g1-6-a1.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-1.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-2.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-3.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-4.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-5.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-6.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-7.js"
+      ]
+    },
+    "scripts/smoke-hotfix30-b5-r5-3-a1-geo-heatmap.js": {
+      "type": "UNSAFE CHILD",
+      "reachedVia": [
+        "scripts/run-regression-g1-6-a1-1.js",
+        "scripts/run-regression-g1-6-a1-2-1.js",
+        "scripts/run-regression-g1-6-a1-2.js",
+        "scripts/run-regression-g1-6-a1.js",
+        "scripts/run-regression-g1-6-ga4-h1-1-auth.js",
+        "scripts/run-regression-g1-6-ga4-h1-2.js",
+        "scripts/run-regression-g1-6-ga4-h1-3.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-1.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-2.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-3.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-4.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-5.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-6.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-7.js",
+        "scripts/run-regression-g1-6-ga4-h1-4.js",
+        "scripts/run-regression-g1-6-ga4-h1.js"
+      ]
+    },
+    "scripts/smoke-hotfix30-b5-r5-3-a2-geo-event-engine.js": {
+      "type": "UNSAFE CHILD",
+      "reachedVia": [
+        "scripts/run-regression-b2-5.js",
+        "scripts/run-regression-g1-6-a1-1.js",
+        "scripts/run-regression-g1-6-a1-2.js",
+        "scripts/run-regression-g1-6-a1.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-1.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-2.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-3.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-4.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-5.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-6.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-7.js"
+      ]
+    },
+    "scripts/smoke-hotfix30-b5-r5-4-g1-3-2-regression-guard.js": {
+      "type": "UNSAFE CHILD",
+      "reachedVia": [
+        "scripts/run-regression-b2-5.js",
+        "scripts/run-regression-g1-6-a1-1.js",
+        "scripts/run-regression-g1-6-a1-2.js",
+        "scripts/run-regression-g1-6-a1.js"
+      ]
+    },
+    "scripts/smoke-hotfix30-b5-r5-4-g1-4-map-label-rendering.js": {
+      "type": "UNSAFE CHILD",
+      "reachedVia": [
+        "scripts/run-regression-b2-5.js",
+        "scripts/run-regression-g1-6-a1-1.js",
+        "scripts/run-regression-g1-6-a1-2.js",
+        "scripts/run-regression-g1-6-a1.js"
+      ]
+    },
+    "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-1-ga4-settings-persistence.js": {
+      "type": "UNSAFE CHILD",
+      "reachedVia": [
+        "scripts/run-regression-b2-5.js",
+        "scripts/run-regression-g1-6-a1-1.js",
+        "scripts/run-regression-g1-6-a1-2-1.js",
+        "scripts/run-regression-g1-6-a1-2.js",
+        "scripts/run-regression-g1-6-a1.js",
+        "scripts/run-regression-g1-6-ga4-h1-1-auth.js",
+        "scripts/run-regression-g1-6-ga4-h1-2.js",
+        "scripts/run-regression-g1-6-ga4-h1-3.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-1.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-2.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-3.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-4.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-5.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-6.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-7.js",
+        "scripts/run-regression-g1-6-ga4-h1-4.js",
+        "scripts/run-regression-g1-6-ga4-h1.js"
+      ]
+    },
+    "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-4-ga4-city-partial.js": {
+      "type": "UNSAFE CHILD",
+      "reachedVia": [
+        "scripts/run-regression-b2-5.js",
+        "scripts/run-regression-g1-6-a1-1.js",
+        "scripts/run-regression-g1-6-a1-2-1.js",
+        "scripts/run-regression-g1-6-a1-2.js",
+        "scripts/run-regression-g1-6-a1.js",
+        "scripts/run-regression-g1-6-ga4-h1-1-auth.js",
+        "scripts/run-regression-g1-6-ga4-h1-2.js",
+        "scripts/run-regression-g1-6-ga4-h1-3.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-1.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-2.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-3.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-4.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-5.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-6.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-7.js",
+        "scripts/run-regression-g1-6-ga4-h1-4.js",
+        "scripts/run-regression-g1-6-ga4-h1.js"
+      ]
+    },
+    "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-ga4-settings.js": {
+      "type": "UNSAFE CHILD",
+      "reachedVia": [
+        "scripts/run-regression-b2-5.js",
+        "scripts/run-regression-g1-6-a1-1.js",
+        "scripts/run-regression-g1-6-a1-2-1.js",
+        "scripts/run-regression-g1-6-a1-2.js",
+        "scripts/run-regression-g1-6-a1.js",
+        "scripts/run-regression-g1-6-ga4-h1-1-auth.js",
+        "scripts/run-regression-g1-6-ga4-h1-2.js",
+        "scripts/run-regression-g1-6-ga4-h1-3.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-1.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-2.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-3.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-4.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-5.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-6.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-7.js",
+        "scripts/run-regression-g1-6-ga4-h1-4.js",
+        "scripts/run-regression-g1-6-ga4-h1.js"
+      ]
+    },
+    "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-2-authoritative-points.js": {
+      "type": "UNSAFE CHILD",
+      "reachedVia": [
+        "scripts/run-regression-g1-6-a1-2-1.js",
+        "scripts/run-regression-g1-6-a1-2.js",
+        "scripts/run-regression-g1-6-ga4-h1-1-auth.js",
+        "scripts/run-regression-g1-6-ga4-h1-2.js",
+        "scripts/run-regression-g1-6-ga4-h1-3.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-1.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-2.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-3.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-4.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-5.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-6.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-7.js",
+        "scripts/run-regression-g1-6-ga4-h1-4.js",
+        "scripts/run-regression-g1-6-ga4-h1.js"
+      ]
+    },
+    "scripts/smoke-hotfix30-b5-r5-4-g1-live-geo.js": {
+      "type": "UNSAFE CHILD",
+      "reachedVia": [
+        "scripts/run-regression-b2-5.js",
+        "scripts/run-regression-g1-6-a1-1.js",
+        "scripts/run-regression-g1-6-a1-2-1.js",
+        "scripts/run-regression-g1-6-a1-2.js",
+        "scripts/run-regression-g1-6-a1.js",
+        "scripts/run-regression-g1-6-ga4-h1-1-auth.js",
+        "scripts/run-regression-g1-6-ga4-h1-2.js",
+        "scripts/run-regression-g1-6-ga4-h1-3.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-1.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-2.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-3.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-4.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-5.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-6.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-7.js",
+        "scripts/run-regression-g1-6-ga4-h1-4.js",
+        "scripts/run-regression-g1-6-ga4-h1.js"
+      ]
+    }
+  },
+  "dynamicUnresolvedPaths": [],
+  "dynamicCheckNote": "All 17 roots use only execFileSync(process.execPath, [path.join(ROOT, rel)]) with rel sourced from literal SUITE tuple entries. No spawn/fork, no template-literal or array-concatenation path construction found. 0 dynamic unresolvable child paths.",
+  "preModification": {
+    "scripts/run-g1-6-ga4-h1-3-event-compat-connection-test.js": {
+      "file": "scripts/run-g1-6-ga4-h1-3-event-compat-connection-test.js",
+      "exists": true,
+      "preModificationSha256": "4ee86021fa694bbd097c9696261ad8863931850590953fc049465513dec3788e",
+      "preModificationGitHashObject": "efaa13f56a8fee33f7d9aa0347d8148190336068",
+      "originalSafetyClassification": "UNSAFE_REAL_DELETE",
+      "rootPaths": [
+        "scripts/run-regression-g1-6-ga4-h1-3.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-1.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-2.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-3.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-4.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-5.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-6.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-7.js",
+        "scripts/run-regression-g1-6-ga4-h1-4.js"
+      ],
+      "sourceCitations": [
+        "scripts/run-g1-6-ga4-h1-3-event-compat-connection-test.js:66 `if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);`",
+        "scripts/run-g1-6-ga4-h1-3-event-compat-connection-test.js:301 `if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);`"
+      ]
+    },
+    "scripts/run-g1-6-ga4-h1-3-historical-runtime.js": {
+      "file": "scripts/run-g1-6-ga4-h1-3-historical-runtime.js",
+      "exists": true,
+      "preModificationSha256": "491a5e21bbaf7c34eadbc746ca5d97e4371f4bbd9b3d0571f584a5270002a462",
+      "preModificationGitHashObject": "fc5baa92906d359731cab47cbd969ee1ccb50653",
+      "originalSafetyClassification": "UNSAFE_REAL_INIT_OR_WRITE",
+      "rootPaths": [
+        "scripts/run-regression-g1-6-ga4-h1-3.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-1.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-2.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-3.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-4.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-5.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-6.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-7.js",
+        "scripts/run-regression-g1-6-ga4-h1-4.js"
+      ],
+      "sourceCitations": [
+        "scripts/run-g1-6-ga4-h1-3-historical-runtime.js:63 (indirect-require-route/service/middleware)"
+      ]
+    },
+    "scripts/run-g1-6-ga4-h1-3-mutations.js": {
+      "file": "scripts/run-g1-6-ga4-h1-3-mutations.js",
+      "exists": true,
+      "preModificationSha256": "0968cc72cf3c20e189a3c83f89c03a0c4ee55ec04aa3a8bbf0d1fd4aead1cdc9",
+      "preModificationGitHashObject": "cf0add4450ed510cfa4c20df91566fe51cd3e0e9",
+      "originalSafetyClassification": "UNSAFE_REAL_DELETE",
+      "rootPaths": [
+        "scripts/run-regression-g1-6-ga4-h1-3.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-1.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-2.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-3.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-4.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-5.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-6.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-7.js",
+        "scripts/run-regression-g1-6-ga4-h1-4.js"
+      ],
+      "sourceCitations": [
+        "scripts/run-g1-6-ga4-h1-3-mutations.js:535 `if (fs.existsSync(dbFile)) fs.unlinkSync(dbFile);`"
+      ]
+    },
+    "scripts/run-g1-6-ga4-h1-3-realtime-event-runtime.js": {
+      "file": "scripts/run-g1-6-ga4-h1-3-realtime-event-runtime.js",
+      "exists": true,
+      "preModificationSha256": "ad4b73feb6b6209eca903a41a2b918aade3eb38f66086431552a22a6feba476f",
+      "preModificationGitHashObject": "5781d0718ee73b50d6053c057bdda338486b8e25",
+      "originalSafetyClassification": "UNSAFE_REAL_DELETE",
+      "rootPaths": [
+        "scripts/run-regression-g1-6-ga4-h1-3.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-1.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-2.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-3.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-4.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-5.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-6.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-7.js",
+        "scripts/run-regression-g1-6-ga4-h1-4.js"
+      ],
+      "sourceCitations": [
+        "scripts/run-g1-6-ga4-h1-3-realtime-event-runtime.js:78 `if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);`",
+        "scripts/run-g1-6-ga4-h1-3-realtime-event-runtime.js:441 `if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);`"
+      ]
+    },
+    "scripts/run-g1-6-ga4-h1-4-5-exposure-runtime.js": {
+      "file": "scripts/run-g1-6-ga4-h1-4-5-exposure-runtime.js",
+      "exists": true,
+      "preModificationSha256": "0ef4f9d61ead729182aaacf0829b643774397c113662f1e8275f48d61038c08a",
+      "preModificationGitHashObject": "2e9aa14d08d54a7f48f47484f4aaf2afea590125",
+      "originalSafetyClassification": "UNSAFE_REAL_DELETE",
+      "rootPaths": [
+        "scripts/run-regression-g1-6-ga4-h1-4-5.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-6.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-7.js"
+      ],
+      "sourceCitations": [
+        "scripts/run-g1-6-ga4-h1-4-5-exposure-runtime.js:29 `if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);`",
+        "scripts/run-g1-6-ga4-h1-4-5-exposure-runtime.js:226 `if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);`"
+      ]
+    },
+    "scripts/run-g1-6-ga4-h1-4-map-state-mutations.js": {
+      "file": "scripts/run-g1-6-ga4-h1-4-map-state-mutations.js",
+      "exists": true,
+      "preModificationSha256": "4d0a3b31575d6f271014fc966590258e61e0f3df084d2d9e1f6862b468ee532f",
+      "preModificationGitHashObject": "9862d8baa9deba94f245a9aa72c86f7c1294e770",
+      "originalSafetyClassification": "UNSAFE_REAL_INIT_OR_WRITE",
+      "rootPaths": [
+        "scripts/run-regression-g1-6-ga4-h1-4-1.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-2.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-3.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-4.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-5.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-6.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-7.js",
+        "scripts/run-regression-g1-6-ga4-h1-4.js"
+      ],
+      "sourceCitations": [
+        "scripts/run-g1-6-ga4-h1-4-map-state-mutations.js:143 (REAL_SVC = services/ga4GeoSyncService.js)",
+        "scripts/run-g1-6-ga4-h1-4-map-state-mutations.js:147 (require(p) executes it)"
+      ]
+    },
+    "scripts/run-g1-6-ga4-h1-4-range-backend-runtime.js": {
+      "file": "scripts/run-g1-6-ga4-h1-4-range-backend-runtime.js",
+      "exists": true,
+      "preModificationSha256": "236d463fa1eed1c8d769caba8fcfe116a25bfccdf23cf861dcabea0b9b9311a3",
+      "preModificationGitHashObject": "df91f7b14c37e819bba5b6cd6524ddac819f26e2",
+      "originalSafetyClassification": "UNSAFE_REAL_INIT_OR_WRITE",
+      "rootPaths": [
+        "scripts/run-regression-g1-6-ga4-h1-4-1.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-2.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-3.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-4.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-5.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-6.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-7.js",
+        "scripts/run-regression-g1-6-ga4-h1-4.js"
+      ],
+      "sourceCitations": [
+        "scripts/run-g1-6-ga4-h1-4-range-backend-runtime.js:45 (indirect-require-route/service/middleware)"
+      ]
+    },
+    "scripts/run-regression-b2-5.js": {
+      "file": "scripts/run-regression-b2-5.js",
+      "exists": true,
+      "preModificationSha256": "ff40326daa584dd94e6c03d293eb4585c87c6217e2f3ad2abcec60355af31e98",
+      "preModificationGitHashObject": "bcc1f9cc21605f88a202dbfc196677681c52c536",
+      "originalSafetyClassification": "UNSAFE_REAL_DELETE",
+      "rootPaths": [],
+      "sourceCitations": [
+        "scripts/run-regression-b2-5.js:83 `if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);`",
+        "scripts/run-regression-b2-5.js:103 `if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);`"
+      ]
+    },
+    "scripts/run-regression-g1-6-a1-1.js": {
+      "file": "scripts/run-regression-g1-6-a1-1.js",
+      "exists": true,
+      "preModificationSha256": "4deff2abc572add29b63d8f305571a5afc81ecb7ac8e632783370e412bf88a86",
+      "preModificationGitHashObject": "4659ea9460310df8de0358ef7df1e436fa0abe61",
+      "originalSafetyClassification": "UNSAFE_REAL_DELETE",
+      "rootPaths": [],
+      "sourceCitations": [
+        "scripts/run-regression-g1-6-a1-1.js:98 `if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);`",
+        "scripts/run-regression-g1-6-a1-1.js:118 `if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);`"
+      ]
+    },
+    "scripts/run-regression-g1-6-a1-2-1.js": {
+      "file": "scripts/run-regression-g1-6-a1-2-1.js",
+      "exists": true,
+      "preModificationSha256": "7191cfb401f75145b26b6176e00d8075bf0acf81a104805207b8519e7ced374d",
+      "preModificationGitHashObject": "3c653bc28cda922c767cfdd685064243b7d62ed0",
+      "originalSafetyClassification": "UNSAFE_REAL_DELETE",
+      "rootPaths": [],
+      "sourceCitations": [
+        "scripts/run-regression-g1-6-a1-2-1.js:91 `if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);`",
+        "scripts/run-regression-g1-6-a1-2-1.js:111 `if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);`"
+      ]
+    },
+    "scripts/run-regression-g1-6-a1-2.js": {
+      "file": "scripts/run-regression-g1-6-a1-2.js",
+      "exists": true,
+      "preModificationSha256": "0d430d08b816d518d4d84976fbde515f719a23e01ceedc44bd4c6bd2744b2754",
+      "preModificationGitHashObject": "ab2ddaafa5b775b02641a62b2d7b1fa18149f5e4",
+      "originalSafetyClassification": "UNSAFE_REAL_DELETE",
+      "rootPaths": [],
+      "sourceCitations": [
+        "scripts/run-regression-g1-6-a1-2.js:108 `if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);`",
+        "scripts/run-regression-g1-6-a1-2.js:128 `if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);`"
+      ]
+    },
+    "scripts/run-regression-g1-6-a1.js": {
+      "file": "scripts/run-regression-g1-6-a1.js",
+      "exists": true,
+      "preModificationSha256": "9e96964f34a386907eee07a8aa1d2c3d392d95b69d92d4c4f7f5e0d0de0ea964",
+      "preModificationGitHashObject": "34713a43f5b4b7dfe868caad375fe8971b107716",
+      "originalSafetyClassification": "UNSAFE_REAL_DELETE",
+      "rootPaths": [],
+      "sourceCitations": [
+        "scripts/run-regression-g1-6-a1.js:94 `if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);`",
+        "scripts/run-regression-g1-6-a1.js:114 `if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);`"
+      ]
+    },
+    "scripts/run-regression-g1-6-ga4-h1-1-auth.js": {
+      "file": "scripts/run-regression-g1-6-ga4-h1-1-auth.js",
+      "exists": true,
+      "preModificationSha256": "9fa291e958fe52a489b3e0421347af3fe0fc33b2725d8ae61f015edd0b8b5f38",
+      "preModificationGitHashObject": "9cad0d14fc9f0ede3bb9cbed95193868f2592e0c",
+      "originalSafetyClassification": "UNSAFE_REAL_DELETE",
+      "rootPaths": [],
+      "sourceCitations": [
+        "scripts/run-regression-g1-6-ga4-h1-1-auth.js:117 `if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);`",
+        "scripts/run-regression-g1-6-ga4-h1-1-auth.js:139 `if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);`"
+      ]
+    },
+    "scripts/run-regression-g1-6-ga4-h1-2.js": {
+      "file": "scripts/run-regression-g1-6-ga4-h1-2.js",
+      "exists": true,
+      "preModificationSha256": "3526a1b008f5dcd3a46ca5417a76a271ff4ebfd5bc8e068e67fa60a7347207b7",
+      "preModificationGitHashObject": "fd9112f7655fb126caab3d37ce268abcb29d3606",
+      "originalSafetyClassification": "UNSAFE_REAL_DELETE",
+      "rootPaths": [],
+      "sourceCitations": [
+        "scripts/run-regression-g1-6-ga4-h1-2.js:148 `if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);`",
+        "scripts/run-regression-g1-6-ga4-h1-2.js:172 `if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);`"
+      ]
+    },
+    "scripts/run-regression-g1-6-ga4-h1-3.js": {
+      "file": "scripts/run-regression-g1-6-ga4-h1-3.js",
+      "exists": true,
+      "preModificationSha256": "20f9906ce63b3ff60b6be45fef96063b97beebd206199e55dbbbc51231ebe59a",
+      "preModificationGitHashObject": "51d27ddc1251682265636cc6531d26312e87d02d",
+      "originalSafetyClassification": "UNSAFE_REAL_DELETE",
+      "rootPaths": [],
+      "sourceCitations": [
+        "scripts/run-regression-g1-6-ga4-h1-3.js:157 `if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);`",
+        "scripts/run-regression-g1-6-ga4-h1-3.js:181 `if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);`"
+      ]
+    },
+    "scripts/run-regression-g1-6-ga4-h1-4-1.js": {
+      "file": "scripts/run-regression-g1-6-ga4-h1-4-1.js",
+      "exists": true,
+      "preModificationSha256": "e3a74b9787fd7a85cef9494f604612ca6266d6f8be66e77eabf82f9aca8741ec",
+      "preModificationGitHashObject": "31ce19dbf8fc44e641fbfa4e914b4739276d2c4e",
+      "originalSafetyClassification": "UNSAFE_REAL_DELETE",
+      "rootPaths": [],
+      "sourceCitations": [
+        "scripts/run-regression-g1-6-ga4-h1-4-1.js:186 `if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);`",
+        "scripts/run-regression-g1-6-ga4-h1-4-1.js:210 `if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);`"
+      ]
+    },
+    "scripts/run-regression-g1-6-ga4-h1-4-2.js": {
+      "file": "scripts/run-regression-g1-6-ga4-h1-4-2.js",
+      "exists": true,
+      "preModificationSha256": "abb174d5ca076f1ecc15cb0f996074c6b9e1044428a337de84fdf9d16dac76be",
+      "preModificationGitHashObject": "23c0baba3276583a59f7c6019f93e25a133fb862",
+      "originalSafetyClassification": "UNSAFE_REAL_DELETE",
+      "rootPaths": [],
+      "sourceCitations": [
+        "scripts/run-regression-g1-6-ga4-h1-4-2.js:204 `if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);`",
+        "scripts/run-regression-g1-6-ga4-h1-4-2.js:232 `if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);`"
+      ]
+    },
+    "scripts/run-regression-g1-6-ga4-h1-4-3.js": {
+      "file": "scripts/run-regression-g1-6-ga4-h1-4-3.js",
+      "exists": true,
+      "preModificationSha256": "e7004d21e34b874f2ee244a90d036e5a5a505e031e983e2a942844620a39fdd0",
+      "preModificationGitHashObject": "61fd37dadefd2e4425d63f57875fd142814dfcb8",
+      "originalSafetyClassification": "UNSAFE_REAL_DELETE",
+      "rootPaths": [],
+      "sourceCitations": [
+        "scripts/run-regression-g1-6-ga4-h1-4-3.js:168 `if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);`",
+        "scripts/run-regression-g1-6-ga4-h1-4-3.js:193 `if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);`"
+      ]
+    },
+    "scripts/run-regression-g1-6-ga4-h1-4-4.js": {
+      "file": "scripts/run-regression-g1-6-ga4-h1-4-4.js",
+      "exists": true,
+      "preModificationSha256": "e6c88e5b87e6c635531a5a5a74eae59feddcf77bbf72acadb962243f76e904d6",
+      "preModificationGitHashObject": "86baf91087d5604833162ed98d72e88cbebf0b42",
+      "originalSafetyClassification": "UNSAFE_REAL_DELETE",
+      "rootPaths": [],
+      "sourceCitations": [
+        "scripts/run-regression-g1-6-ga4-h1-4-4.js:171 `if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);`",
+        "scripts/run-regression-g1-6-ga4-h1-4-4.js:196 `if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);`"
+      ]
+    },
+    "scripts/run-regression-g1-6-ga4-h1-4-5.js": {
+      "file": "scripts/run-regression-g1-6-ga4-h1-4-5.js",
+      "exists": true,
+      "preModificationSha256": "5f3f2534a315833e0138f89cbd6784ebe1b029eeaf8603a350b26feace9bdfbd",
+      "preModificationGitHashObject": "727fb19a2d86caf64e089d2ce7dd7b4ac0ee3e7a",
+      "originalSafetyClassification": "UNSAFE_REAL_DELETE",
+      "rootPaths": [],
+      "sourceCitations": [
+        "scripts/run-regression-g1-6-ga4-h1-4-5.js:211 `if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);`",
+        "scripts/run-regression-g1-6-ga4-h1-4-5.js:239 `if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);`"
+      ]
+    },
+    "scripts/run-regression-g1-6-ga4-h1-4-6.js": {
+      "file": "scripts/run-regression-g1-6-ga4-h1-4-6.js",
+      "exists": true,
+      "preModificationSha256": "fcc8eb6fb12354b08804dd21238a1d66de0a921a7037e78bb08b0a82484ef5d3",
+      "preModificationGitHashObject": "d7e60abf4b4cfcaaffacfc6e9efbf8e4cdf28210",
+      "originalSafetyClassification": "UNSAFE_REAL_DELETE",
+      "rootPaths": [],
+      "sourceCitations": [
+        "scripts/run-regression-g1-6-ga4-h1-4-6.js:211 `if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);`",
+        "scripts/run-regression-g1-6-ga4-h1-4-6.js:236 `if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);`"
+      ]
+    },
+    "scripts/run-regression-g1-6-ga4-h1-4-7.js": {
+      "file": "scripts/run-regression-g1-6-ga4-h1-4-7.js",
+      "exists": true,
+      "preModificationSha256": "1644c0997f0d92ce2b1debd92abeae9aaac7fd8ffcca2184970c0cdd391f601c",
+      "preModificationGitHashObject": "0b071019ea228f36f4d331dc5cc286f1bb01c52a",
+      "originalSafetyClassification": "UNSAFE_REAL_DELETE",
+      "rootPaths": [],
+      "sourceCitations": [
+        "scripts/run-regression-g1-6-ga4-h1-4-7.js:293 `if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);`",
+        "scripts/run-regression-g1-6-ga4-h1-4-7.js:329 `if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);`"
+      ]
+    },
+    "scripts/run-regression-g1-6-ga4-h1-4.js": {
+      "file": "scripts/run-regression-g1-6-ga4-h1-4.js",
+      "exists": true,
+      "preModificationSha256": "6b968ec32e4aab92d3ecf12b0b17bab5460a933371e104d33421621255d3b322",
+      "preModificationGitHashObject": "7bcc00dadf33e90fb7b1203a55a0ca53aa24c8a0",
+      "originalSafetyClassification": "UNSAFE_REAL_DELETE",
+      "rootPaths": [],
+      "sourceCitations": [
+        "scripts/run-regression-g1-6-ga4-h1-4.js:221 `if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);`",
+        "scripts/run-regression-g1-6-ga4-h1-4.js:245 `if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);`"
+      ]
+    },
+    "scripts/run-regression-g1-6-ga4-h1.js": {
+      "file": "scripts/run-regression-g1-6-ga4-h1.js",
+      "exists": true,
+      "preModificationSha256": "c5ccca0da1e3e71cd0fc4cbf7e12c63fba38d02f671a977632411985a550d37d",
+      "preModificationGitHashObject": "eeca2a61b454348c58d81c367af2fdd50830fe43",
+      "originalSafetyClassification": "UNSAFE_REAL_DELETE",
+      "rootPaths": [],
+      "sourceCitations": [
+        "scripts/run-regression-g1-6-ga4-h1.js:116 `if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);`",
+        "scripts/run-regression-g1-6-ga4-h1.js:138 `if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);`"
+      ]
+    },
+    "scripts/smoke-hotfix30-b5-r5-3-a1-2-visitor-geo-sync.js": {
+      "file": "scripts/smoke-hotfix30-b5-r5-3-a1-2-visitor-geo-sync.js",
+      "exists": true,
+      "preModificationSha256": "bf6003fd0ebc6cabfeb2c50f423f88f9c54ec7bb0732d153b0f353b1872f7d6d",
+      "preModificationGitHashObject": "40abf4b43b00d27e400be1db43ed49f7ad4dc3a2",
+      "originalSafetyClassification": "UNSAFE_REAL_DELETE",
+      "rootPaths": [
+        "scripts/run-regression-b2-5.js",
+        "scripts/run-regression-g1-6-a1-1.js",
+        "scripts/run-regression-g1-6-a1-2.js",
+        "scripts/run-regression-g1-6-a1.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-1.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-2.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-3.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-4.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-5.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-6.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-7.js"
+      ],
+      "sourceCitations": [
+        "scripts/smoke-hotfix30-b5-r5-3-a1-2-visitor-geo-sync.js:47 `if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);`"
+      ]
+    },
+    "scripts/smoke-hotfix30-b5-r5-3-a1-geo-heatmap.js": {
+      "file": "scripts/smoke-hotfix30-b5-r5-3-a1-geo-heatmap.js",
+      "exists": true,
+      "preModificationSha256": "3ed1b9d28fae7ac07d0a12c12877f86371ac40be651c46bd59e7c678b441afa6",
+      "preModificationGitHashObject": "a57ee39c3ec1756438817dfbb295871550b1207f",
+      "originalSafetyClassification": "UNSAFE_REAL_DELETE",
+      "rootPaths": [
+        "scripts/run-regression-g1-6-a1-1.js",
+        "scripts/run-regression-g1-6-a1-2-1.js",
+        "scripts/run-regression-g1-6-a1-2.js",
+        "scripts/run-regression-g1-6-a1.js",
+        "scripts/run-regression-g1-6-ga4-h1-1-auth.js",
+        "scripts/run-regression-g1-6-ga4-h1-2.js",
+        "scripts/run-regression-g1-6-ga4-h1-3.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-1.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-2.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-3.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-4.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-5.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-6.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-7.js",
+        "scripts/run-regression-g1-6-ga4-h1-4.js",
+        "scripts/run-regression-g1-6-ga4-h1.js"
+      ],
+      "sourceCitations": [
+        "scripts/smoke-hotfix30-b5-r5-3-a1-geo-heatmap.js:269 `if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);`",
+        "scripts/smoke-hotfix30-b5-r5-3-a1-geo-heatmap.js:298 `if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);`"
+      ]
+    },
+    "scripts/smoke-hotfix30-b5-r5-3-a2-geo-event-engine.js": {
+      "file": "scripts/smoke-hotfix30-b5-r5-3-a2-geo-event-engine.js",
+      "exists": true,
+      "preModificationSha256": "b2609bed8a15f2907bae087401bc2822c646d103a53334f9a488a1b111328bfc",
+      "preModificationGitHashObject": "d17a2e27053a3d62069d3defd3bb748604147ec6",
+      "originalSafetyClassification": "UNSAFE_REAL_DELETE",
+      "rootPaths": [
+        "scripts/run-regression-b2-5.js",
+        "scripts/run-regression-g1-6-a1-1.js",
+        "scripts/run-regression-g1-6-a1-2.js",
+        "scripts/run-regression-g1-6-a1.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-1.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-2.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-3.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-4.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-5.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-6.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-7.js"
+      ],
+      "sourceCitations": [
+        "scripts/smoke-hotfix30-b5-r5-3-a2-geo-event-engine.js:45 `if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);`"
+      ]
+    },
+    "scripts/smoke-hotfix30-b5-r5-4-g1-3-2-regression-guard.js": {
+      "file": "scripts/smoke-hotfix30-b5-r5-4-g1-3-2-regression-guard.js",
+      "exists": true,
+      "preModificationSha256": "a8e164d1decc3d32bd9182a9112529d326e9e5dc78e4aa366fe4197d467a9b3a",
+      "preModificationGitHashObject": "c4b76405bb0d48ff73a578e69441f4c0244b0c2b",
+      "originalSafetyClassification": "UNSAFE_REAL_INIT_OR_WRITE",
+      "rootPaths": [
+        "scripts/run-regression-b2-5.js",
+        "scripts/run-regression-g1-6-a1-1.js",
+        "scripts/run-regression-g1-6-a1-2.js",
+        "scripts/run-regression-g1-6-a1.js"
+      ],
+      "sourceCitations": [
+        "scripts/smoke-hotfix30-b5-r5-4-g1-3-2-regression-guard.js:306 (direct-require-utils/db)"
+      ]
+    },
+    "scripts/smoke-hotfix30-b5-r5-4-g1-4-map-label-rendering.js": {
+      "file": "scripts/smoke-hotfix30-b5-r5-4-g1-4-map-label-rendering.js",
+      "exists": true,
+      "preModificationSha256": "b26d3fd20fe2f2179488efdc291f41be3b5f9636fb7ab857e14d0a9bcdd93845",
+      "preModificationGitHashObject": "4aebb2c6d4eeeba81cfcd7c30191e461491271dc",
+      "originalSafetyClassification": "UNSAFE_REAL_INIT_OR_WRITE",
+      "rootPaths": [
+        "scripts/run-regression-b2-5.js",
+        "scripts/run-regression-g1-6-a1-1.js",
+        "scripts/run-regression-g1-6-a1-2.js",
+        "scripts/run-regression-g1-6-a1.js"
+      ],
+      "sourceCitations": [
+        "scripts/smoke-hotfix30-b5-r5-4-g1-4-map-label-rendering.js:454 (direct-require-utils/db)"
+      ]
+    },
+    "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-1-ga4-settings-persistence.js": {
+      "file": "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-1-ga4-settings-persistence.js",
+      "exists": true,
+      "preModificationSha256": "78bebcc4904df44482230cf7720db82c2c0ff0db568115a1a93b904576b61bcd",
+      "preModificationGitHashObject": "810a1f6747ede2457fbc485729a643eec5692532",
+      "originalSafetyClassification": "UNSAFE_REAL_DELETE",
+      "rootPaths": [
+        "scripts/run-regression-b2-5.js",
+        "scripts/run-regression-g1-6-a1-1.js",
+        "scripts/run-regression-g1-6-a1-2-1.js",
+        "scripts/run-regression-g1-6-a1-2.js",
+        "scripts/run-regression-g1-6-a1.js",
+        "scripts/run-regression-g1-6-ga4-h1-1-auth.js",
+        "scripts/run-regression-g1-6-ga4-h1-2.js",
+        "scripts/run-regression-g1-6-ga4-h1-3.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-1.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-2.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-3.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-4.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-5.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-6.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-7.js",
+        "scripts/run-regression-g1-6-ga4-h1-4.js",
+        "scripts/run-regression-g1-6-ga4-h1.js"
+      ],
+      "sourceCitations": [
+        "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-1-ga4-settings-persistence.js:20 `if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);`",
+        "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-1-ga4-settings-persistence.js:463 `if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);`",
+        "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-1-ga4-settings-persistence.js:470 `if (fs.existsSync(DB_FILE)) { try { fs.unlinkSync(DB_FILE); } catch (e2) {} }`"
+      ]
+    },
+    "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-4-ga4-city-partial.js": {
+      "file": "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-4-ga4-city-partial.js",
+      "exists": true,
+      "preModificationSha256": "3e4e7a4d0ad3402d077b8fc050f08174e936f7d6abe932e27346c709aa212b46",
+      "preModificationGitHashObject": "c707bfde9a233b272e62257a6b7869582644e12a",
+      "originalSafetyClassification": "UNSAFE_REAL_DELETE",
+      "rootPaths": [
+        "scripts/run-regression-b2-5.js",
+        "scripts/run-regression-g1-6-a1-1.js",
+        "scripts/run-regression-g1-6-a1-2-1.js",
+        "scripts/run-regression-g1-6-a1-2.js",
+        "scripts/run-regression-g1-6-a1.js",
+        "scripts/run-regression-g1-6-ga4-h1-1-auth.js",
+        "scripts/run-regression-g1-6-ga4-h1-2.js",
+        "scripts/run-regression-g1-6-ga4-h1-3.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-1.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-2.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-3.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-4.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-5.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-6.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-7.js",
+        "scripts/run-regression-g1-6-ga4-h1-4.js",
+        "scripts/run-regression-g1-6-ga4-h1.js"
+      ],
+      "sourceCitations": [
+        "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-4-ga4-city-partial.js:72 `if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);`"
+      ]
+    },
+    "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-ga4-settings.js": {
+      "file": "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-ga4-settings.js",
+      "exists": true,
+      "preModificationSha256": "e64072dfb7d515796642b3ac959101299c7620cc9586a073e8224ba8be99bbe4",
+      "preModificationGitHashObject": "8c1b77a5dbaf77fb803ebbb0bf1ab739d4ec9d2e",
+      "originalSafetyClassification": "UNSAFE_REAL_DELETE",
+      "rootPaths": [
+        "scripts/run-regression-b2-5.js",
+        "scripts/run-regression-g1-6-a1-1.js",
+        "scripts/run-regression-g1-6-a1-2-1.js",
+        "scripts/run-regression-g1-6-a1-2.js",
+        "scripts/run-regression-g1-6-a1.js",
+        "scripts/run-regression-g1-6-ga4-h1-1-auth.js",
+        "scripts/run-regression-g1-6-ga4-h1-2.js",
+        "scripts/run-regression-g1-6-ga4-h1-3.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-1.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-2.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-3.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-4.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-5.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-6.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-7.js",
+        "scripts/run-regression-g1-6-ga4-h1-4.js",
+        "scripts/run-regression-g1-6-ga4-h1.js"
+      ],
+      "sourceCitations": [
+        "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-ga4-settings.js:18 `if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);`",
+        "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-ga4-settings.js:702 `if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);`",
+        "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-ga4-settings.js:706 `main().catch((e) => { console.error(e); if (fs.existsSync(DB_FILE)) { try { fs.unlinkSync(DB_FILE); } catch (e2) {} } process.exitCode = 1; });`"
+      ]
+    },
+    "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-2-authoritative-points.js": {
+      "file": "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-2-authoritative-points.js",
+      "exists": true,
+      "preModificationSha256": "49b98b1eb087e22708a78665ddec89e487f0bfc66a93536c4b12bd2e1502a9a9",
+      "preModificationGitHashObject": "b8476351a95573d4ee205ed422f26e98771ab512",
+      "originalSafetyClassification": "UNSAFE_REAL_DELETE",
+      "rootPaths": [
+        "scripts/run-regression-g1-6-a1-2-1.js",
+        "scripts/run-regression-g1-6-a1-2.js",
+        "scripts/run-regression-g1-6-ga4-h1-1-auth.js",
+        "scripts/run-regression-g1-6-ga4-h1-2.js",
+        "scripts/run-regression-g1-6-ga4-h1-3.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-1.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-2.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-3.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-4.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-5.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-6.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-7.js",
+        "scripts/run-regression-g1-6-ga4-h1-4.js",
+        "scripts/run-regression-g1-6-ga4-h1.js"
+      ],
+      "sourceCitations": [
+        "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-2-authoritative-points.js:449 `if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);`",
+        "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-2-authoritative-points.js:494 `if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);`",
+        "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-2-authoritative-points.js:505 `if (fs.existsSync(DB_FILE2)) fs.unlinkSync(DB_FILE2);`",
+        "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-2-authoritative-points.js:519 `if (fs.existsSync(DB_FILE2)) fs.unlinkSync(DB_FILE2);`"
+      ]
+    },
+    "scripts/smoke-hotfix30-b5-r5-4-g1-live-geo.js": {
+      "file": "scripts/smoke-hotfix30-b5-r5-4-g1-live-geo.js",
+      "exists": true,
+      "preModificationSha256": "67a356b51d80100ba382b613d97c42c85e85a7db4ea8348917997409c1905d35",
+      "preModificationGitHashObject": "b5456c41c8c12b1d899f34c989d9a855a04adfcb",
+      "originalSafetyClassification": "UNSAFE_REAL_DELETE",
+      "rootPaths": [
+        "scripts/run-regression-b2-5.js",
+        "scripts/run-regression-g1-6-a1-1.js",
+        "scripts/run-regression-g1-6-a1-2-1.js",
+        "scripts/run-regression-g1-6-a1-2.js",
+        "scripts/run-regression-g1-6-a1.js",
+        "scripts/run-regression-g1-6-ga4-h1-1-auth.js",
+        "scripts/run-regression-g1-6-ga4-h1-2.js",
+        "scripts/run-regression-g1-6-ga4-h1-3.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-1.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-2.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-3.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-4.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-5.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-6.js",
+        "scripts/run-regression-g1-6-ga4-h1-4-7.js",
+        "scripts/run-regression-g1-6-ga4-h1-4.js",
+        "scripts/run-regression-g1-6-ga4-h1.js"
+      ],
+      "sourceCitations": [
+        "scripts/smoke-hotfix30-b5-r5-4-g1-live-geo.js:20 `if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);`"
+      ]
+    }
+  }
+}

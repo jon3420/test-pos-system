@@ -1,0 +1,473 @@
+{
+  "generatedAt": "2026-08-17T01:50:18.767Z",
+  "verificationMethod": "staticSourceAudit",
+  "childRuntimeExecuted": false,
+  "orchestratorRuntimeExecuted": false,
+  "fixedSetSource": "scripts/lib/H1.4.8_STAGE3A_FIXED_SET.json (read directly, not hand-written)",
+  "overallPass": true,
+  "gate1_setIntegrity": {
+    "total": 34,
+    "orchestratorsCount": 17,
+    "childrenCount": 17,
+    "uniquePaths": 34,
+    "allFilesExist": true,
+    "candidateJsCount": 186,
+    "pass": true
+  },
+  "gate2_syntaxAndEntry": {
+    "syntaxPass34of34": true,
+    "orchestratorsAllOneEntry": true,
+    "childrenAllOneEntry": true,
+    "processExitBypassTotal": 0,
+    "pass": true
+  },
+  "gate3_dbOwnershipSafety": {
+    "realDbUnlinkTotal": 0,
+    "unresolvedDbFileReferenceTotal": 0,
+    "pass": true
+  },
+  "gate4_cleanupAndErrorSemantics": {
+    "catchAndLogOnlyTotal": 0,
+    "unguardedCleanupTotal": 0,
+    "childrenAllUseSharedPolicy": true,
+    "pass": true
+  },
+  "gate5_dynamicExecution": {
+    "orchestratorsNewFunctionEvalTotal": 0,
+    "allowlistedJsdomEvalSite": "scripts/run-g1-6-ga4-h1-4-map-state-mutations.js line 372 dom.window.eval(src) -- pre-existing, source restricted to a fixed 9-file public/js/*.js allowlist, NOT claimed to be a secure sandbox (see H1.4.8_STAGE3A_DYNAMIC_EXECUTION_AUDIT.json)",
+    "unsafeOrUnresolvedDynamicExecutionCount": 0,
+    "pass": true
+  },
+  "gate6_behaviorSuitePreservation": {
+    "orchestratorsSuiteMatch": "17/17",
+    "pass": true
+  },
+  "perFileRecords": {
+    "scripts/run-g1-6-ga4-h1-3-event-compat-connection-test.js": {
+      "syntaxPass": true,
+      "entryInvocationCount": 1,
+      "processExitBypassCount": 0,
+      "realDbUnlinkCount": 0,
+      "unresolvedDbFileReferenceCount": 0,
+      "catchAndLogOnlyCount": 0,
+      "unguardedCleanupCount": 0,
+      "usesSharedCleanupPolicy": true
+    },
+    "scripts/run-g1-6-ga4-h1-3-historical-runtime.js": {
+      "syntaxPass": true,
+      "entryInvocationCount": 1,
+      "processExitBypassCount": 0,
+      "realDbUnlinkCount": 0,
+      "unresolvedDbFileReferenceCount": 0,
+      "catchAndLogOnlyCount": 0,
+      "unguardedCleanupCount": 0,
+      "usesSharedCleanupPolicy": true
+    },
+    "scripts/run-g1-6-ga4-h1-3-mutations.js": {
+      "syntaxPass": true,
+      "entryInvocationCount": 1,
+      "processExitBypassCount": 0,
+      "realDbUnlinkCount": 0,
+      "unresolvedDbFileReferenceCount": 0,
+      "catchAndLogOnlyCount": 0,
+      "unguardedCleanupCount": 0,
+      "usesSharedCleanupPolicy": true
+    },
+    "scripts/run-g1-6-ga4-h1-3-realtime-event-runtime.js": {
+      "syntaxPass": true,
+      "entryInvocationCount": 1,
+      "processExitBypassCount": 0,
+      "realDbUnlinkCount": 0,
+      "unresolvedDbFileReferenceCount": 0,
+      "catchAndLogOnlyCount": 0,
+      "unguardedCleanupCount": 0,
+      "usesSharedCleanupPolicy": true
+    },
+    "scripts/run-g1-6-ga4-h1-4-5-exposure-runtime.js": {
+      "syntaxPass": true,
+      "entryInvocationCount": 1,
+      "processExitBypassCount": 0,
+      "realDbUnlinkCount": 0,
+      "unresolvedDbFileReferenceCount": 0,
+      "catchAndLogOnlyCount": 0,
+      "unguardedCleanupCount": 0,
+      "usesSharedCleanupPolicy": true
+    },
+    "scripts/run-g1-6-ga4-h1-4-map-state-mutations.js": {
+      "syntaxPass": true,
+      "entryInvocationCount": 1,
+      "processExitBypassCount": 0,
+      "realDbUnlinkCount": 0,
+      "unresolvedDbFileReferenceCount": 0,
+      "catchAndLogOnlyCount": 0,
+      "unguardedCleanupCount": 0,
+      "usesSharedCleanupPolicy": true
+    },
+    "scripts/run-g1-6-ga4-h1-4-range-backend-runtime.js": {
+      "syntaxPass": true,
+      "entryInvocationCount": 1,
+      "processExitBypassCount": 0,
+      "realDbUnlinkCount": 0,
+      "unresolvedDbFileReferenceCount": 0,
+      "catchAndLogOnlyCount": 0,
+      "unguardedCleanupCount": 0,
+      "usesSharedCleanupPolicy": true
+    },
+    "scripts/run-regression-b2-5.js": {
+      "syntaxPass": true,
+      "entryInvocationCount": 1,
+      "processExitBypassCount": 0,
+      "realDbUnlinkCount": 0,
+      "unresolvedDbFileReferenceCount": 0,
+      "catchAndLogOnlyCount": 0,
+      "unguardedCleanupCount": 0,
+      "usesSharedCleanupPolicy": true,
+      "newFunctionEvalCount": 0,
+      "suiteMatchesBaseline": true
+    },
+    "scripts/run-regression-g1-6-a1-1.js": {
+      "syntaxPass": true,
+      "entryInvocationCount": 1,
+      "processExitBypassCount": 0,
+      "realDbUnlinkCount": 0,
+      "unresolvedDbFileReferenceCount": 0,
+      "catchAndLogOnlyCount": 0,
+      "unguardedCleanupCount": 0,
+      "usesSharedCleanupPolicy": true,
+      "newFunctionEvalCount": 0,
+      "suiteMatchesBaseline": true
+    },
+    "scripts/run-regression-g1-6-a1-2-1.js": {
+      "syntaxPass": true,
+      "entryInvocationCount": 1,
+      "processExitBypassCount": 0,
+      "realDbUnlinkCount": 0,
+      "unresolvedDbFileReferenceCount": 0,
+      "catchAndLogOnlyCount": 0,
+      "unguardedCleanupCount": 0,
+      "usesSharedCleanupPolicy": true,
+      "newFunctionEvalCount": 0,
+      "suiteMatchesBaseline": true
+    },
+    "scripts/run-regression-g1-6-a1-2.js": {
+      "syntaxPass": true,
+      "entryInvocationCount": 1,
+      "processExitBypassCount": 0,
+      "realDbUnlinkCount": 0,
+      "unresolvedDbFileReferenceCount": 0,
+      "catchAndLogOnlyCount": 0,
+      "unguardedCleanupCount": 0,
+      "usesSharedCleanupPolicy": true,
+      "newFunctionEvalCount": 0,
+      "suiteMatchesBaseline": true
+    },
+    "scripts/run-regression-g1-6-a1.js": {
+      "syntaxPass": true,
+      "entryInvocationCount": 1,
+      "processExitBypassCount": 0,
+      "realDbUnlinkCount": 0,
+      "unresolvedDbFileReferenceCount": 0,
+      "catchAndLogOnlyCount": 0,
+      "unguardedCleanupCount": 0,
+      "usesSharedCleanupPolicy": true,
+      "newFunctionEvalCount": 0,
+      "suiteMatchesBaseline": true
+    },
+    "scripts/run-regression-g1-6-ga4-h1-1-auth.js": {
+      "syntaxPass": true,
+      "entryInvocationCount": 1,
+      "processExitBypassCount": 0,
+      "realDbUnlinkCount": 0,
+      "unresolvedDbFileReferenceCount": 0,
+      "catchAndLogOnlyCount": 0,
+      "unguardedCleanupCount": 0,
+      "usesSharedCleanupPolicy": true,
+      "newFunctionEvalCount": 0,
+      "suiteMatchesBaseline": true
+    },
+    "scripts/run-regression-g1-6-ga4-h1-2.js": {
+      "syntaxPass": true,
+      "entryInvocationCount": 1,
+      "processExitBypassCount": 0,
+      "realDbUnlinkCount": 0,
+      "unresolvedDbFileReferenceCount": 0,
+      "catchAndLogOnlyCount": 0,
+      "unguardedCleanupCount": 0,
+      "usesSharedCleanupPolicy": true,
+      "newFunctionEvalCount": 0,
+      "suiteMatchesBaseline": true
+    },
+    "scripts/run-regression-g1-6-ga4-h1-3.js": {
+      "syntaxPass": true,
+      "entryInvocationCount": 1,
+      "processExitBypassCount": 0,
+      "realDbUnlinkCount": 0,
+      "unresolvedDbFileReferenceCount": 0,
+      "catchAndLogOnlyCount": 0,
+      "unguardedCleanupCount": 0,
+      "usesSharedCleanupPolicy": true,
+      "newFunctionEvalCount": 0,
+      "suiteMatchesBaseline": true
+    },
+    "scripts/run-regression-g1-6-ga4-h1-4-1.js": {
+      "syntaxPass": true,
+      "entryInvocationCount": 1,
+      "processExitBypassCount": 0,
+      "realDbUnlinkCount": 0,
+      "unresolvedDbFileReferenceCount": 0,
+      "catchAndLogOnlyCount": 0,
+      "unguardedCleanupCount": 0,
+      "usesSharedCleanupPolicy": true,
+      "newFunctionEvalCount": 0,
+      "suiteMatchesBaseline": true
+    },
+    "scripts/run-regression-g1-6-ga4-h1-4-2.js": {
+      "syntaxPass": true,
+      "entryInvocationCount": 1,
+      "processExitBypassCount": 0,
+      "realDbUnlinkCount": 0,
+      "unresolvedDbFileReferenceCount": 0,
+      "catchAndLogOnlyCount": 0,
+      "unguardedCleanupCount": 0,
+      "usesSharedCleanupPolicy": true,
+      "newFunctionEvalCount": 0,
+      "suiteMatchesBaseline": true
+    },
+    "scripts/run-regression-g1-6-ga4-h1-4-3.js": {
+      "syntaxPass": true,
+      "entryInvocationCount": 1,
+      "processExitBypassCount": 0,
+      "realDbUnlinkCount": 0,
+      "unresolvedDbFileReferenceCount": 0,
+      "catchAndLogOnlyCount": 0,
+      "unguardedCleanupCount": 0,
+      "usesSharedCleanupPolicy": true,
+      "newFunctionEvalCount": 0,
+      "suiteMatchesBaseline": true
+    },
+    "scripts/run-regression-g1-6-ga4-h1-4-4.js": {
+      "syntaxPass": true,
+      "entryInvocationCount": 1,
+      "processExitBypassCount": 0,
+      "realDbUnlinkCount": 0,
+      "unresolvedDbFileReferenceCount": 0,
+      "catchAndLogOnlyCount": 0,
+      "unguardedCleanupCount": 0,
+      "usesSharedCleanupPolicy": true,
+      "newFunctionEvalCount": 0,
+      "suiteMatchesBaseline": true
+    },
+    "scripts/run-regression-g1-6-ga4-h1-4-5.js": {
+      "syntaxPass": true,
+      "entryInvocationCount": 1,
+      "processExitBypassCount": 0,
+      "realDbUnlinkCount": 0,
+      "unresolvedDbFileReferenceCount": 0,
+      "catchAndLogOnlyCount": 0,
+      "unguardedCleanupCount": 0,
+      "usesSharedCleanupPolicy": true,
+      "newFunctionEvalCount": 0,
+      "suiteMatchesBaseline": true
+    },
+    "scripts/run-regression-g1-6-ga4-h1-4-6.js": {
+      "syntaxPass": true,
+      "entryInvocationCount": 1,
+      "processExitBypassCount": 0,
+      "realDbUnlinkCount": 0,
+      "unresolvedDbFileReferenceCount": 0,
+      "catchAndLogOnlyCount": 0,
+      "unguardedCleanupCount": 0,
+      "usesSharedCleanupPolicy": true,
+      "newFunctionEvalCount": 0,
+      "suiteMatchesBaseline": true
+    },
+    "scripts/run-regression-g1-6-ga4-h1-4-7.js": {
+      "syntaxPass": true,
+      "entryInvocationCount": 1,
+      "processExitBypassCount": 0,
+      "realDbUnlinkCount": 0,
+      "unresolvedDbFileReferenceCount": 0,
+      "catchAndLogOnlyCount": 0,
+      "unguardedCleanupCount": 0,
+      "usesSharedCleanupPolicy": true,
+      "newFunctionEvalCount": 0,
+      "suiteMatchesBaseline": true
+    },
+    "scripts/run-regression-g1-6-ga4-h1-4.js": {
+      "syntaxPass": true,
+      "entryInvocationCount": 1,
+      "processExitBypassCount": 0,
+      "realDbUnlinkCount": 0,
+      "unresolvedDbFileReferenceCount": 0,
+      "catchAndLogOnlyCount": 0,
+      "unguardedCleanupCount": 0,
+      "usesSharedCleanupPolicy": true,
+      "newFunctionEvalCount": 0,
+      "suiteMatchesBaseline": true
+    },
+    "scripts/run-regression-g1-6-ga4-h1.js": {
+      "syntaxPass": true,
+      "entryInvocationCount": 1,
+      "processExitBypassCount": 0,
+      "realDbUnlinkCount": 0,
+      "unresolvedDbFileReferenceCount": 0,
+      "catchAndLogOnlyCount": 0,
+      "unguardedCleanupCount": 0,
+      "usesSharedCleanupPolicy": true,
+      "newFunctionEvalCount": 0,
+      "suiteMatchesBaseline": true
+    },
+    "scripts/smoke-hotfix30-b5-r5-3-a1-2-visitor-geo-sync.js": {
+      "syntaxPass": true,
+      "entryInvocationCount": 1,
+      "processExitBypassCount": 0,
+      "realDbUnlinkCount": 0,
+      "unresolvedDbFileReferenceCount": 0,
+      "catchAndLogOnlyCount": 0,
+      "unguardedCleanupCount": 0,
+      "usesSharedCleanupPolicy": true
+    },
+    "scripts/smoke-hotfix30-b5-r5-3-a1-geo-heatmap.js": {
+      "syntaxPass": true,
+      "entryInvocationCount": 1,
+      "processExitBypassCount": 0,
+      "realDbUnlinkCount": 0,
+      "unresolvedDbFileReferenceCount": 0,
+      "catchAndLogOnlyCount": 0,
+      "unguardedCleanupCount": 0,
+      "usesSharedCleanupPolicy": true
+    },
+    "scripts/smoke-hotfix30-b5-r5-3-a2-geo-event-engine.js": {
+      "syntaxPass": true,
+      "entryInvocationCount": 1,
+      "processExitBypassCount": 0,
+      "realDbUnlinkCount": 0,
+      "unresolvedDbFileReferenceCount": 0,
+      "catchAndLogOnlyCount": 0,
+      "unguardedCleanupCount": 0,
+      "usesSharedCleanupPolicy": true
+    },
+    "scripts/smoke-hotfix30-b5-r5-4-g1-3-2-regression-guard.js": {
+      "syntaxPass": true,
+      "entryInvocationCount": 1,
+      "processExitBypassCount": 0,
+      "realDbUnlinkCount": 0,
+      "unresolvedDbFileReferenceCount": 0,
+      "catchAndLogOnlyCount": 0,
+      "unguardedCleanupCount": 0,
+      "usesSharedCleanupPolicy": true
+    },
+    "scripts/smoke-hotfix30-b5-r5-4-g1-4-map-label-rendering.js": {
+      "syntaxPass": true,
+      "entryInvocationCount": 1,
+      "processExitBypassCount": 0,
+      "realDbUnlinkCount": 0,
+      "unresolvedDbFileReferenceCount": 0,
+      "catchAndLogOnlyCount": 0,
+      "unguardedCleanupCount": 0,
+      "usesSharedCleanupPolicy": true
+    },
+    "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-1-ga4-settings-persistence.js": {
+      "syntaxPass": true,
+      "entryInvocationCount": 1,
+      "processExitBypassCount": 0,
+      "realDbUnlinkCount": 0,
+      "unresolvedDbFileReferenceCount": 0,
+      "catchAndLogOnlyCount": 0,
+      "unguardedCleanupCount": 0,
+      "usesSharedCleanupPolicy": true
+    },
+    "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-4-ga4-city-partial.js": {
+      "syntaxPass": true,
+      "entryInvocationCount": 1,
+      "processExitBypassCount": 0,
+      "realDbUnlinkCount": 0,
+      "unresolvedDbFileReferenceCount": 0,
+      "catchAndLogOnlyCount": 0,
+      "unguardedCleanupCount": 0,
+      "usesSharedCleanupPolicy": true
+    },
+    "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-ga4-settings.js": {
+      "syntaxPass": true,
+      "entryInvocationCount": 1,
+      "processExitBypassCount": 0,
+      "realDbUnlinkCount": 0,
+      "unresolvedDbFileReferenceCount": 0,
+      "catchAndLogOnlyCount": 0,
+      "unguardedCleanupCount": 0,
+      "usesSharedCleanupPolicy": true
+    },
+    "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-2-authoritative-points.js": {
+      "syntaxPass": true,
+      "entryInvocationCount": 1,
+      "processExitBypassCount": 0,
+      "realDbUnlinkCount": 0,
+      "unresolvedDbFileReferenceCount": 0,
+      "catchAndLogOnlyCount": 0,
+      "unguardedCleanupCount": 0,
+      "usesSharedCleanupPolicy": true
+    },
+    "scripts/smoke-hotfix30-b5-r5-4-g1-live-geo.js": {
+      "syntaxPass": true,
+      "entryInvocationCount": 1,
+      "processExitBypassCount": 0,
+      "realDbUnlinkCount": 0,
+      "unresolvedDbFileReferenceCount": 0,
+      "catchAndLogOnlyCount": 0,
+      "unguardedCleanupCount": 0,
+      "usesSharedCleanupPolicy": true
+    }
+  },
+  "dbSentinelBeforeAfter": {
+    "before": {
+      "sha256": "78254c1b972a57ca184ab9645542c407b1b8752b605ec2378832d78ff6a84ccf",
+      "gitHashObject": "86eea5859a6879ed113ffbaa3f4220494de0814a",
+      "size": 651264,
+      "mtime": 1786712225
+    },
+    "after": {
+      "sha256": "78254c1b972a57ca184ab9645542c407b1b8752b605ec2378832d78ff6a84ccf",
+      "gitHashObject": "86eea5859a6879ed113ffbaa3f4220494de0814a",
+      "size": 651264,
+      "mtime": 1786712225
+    },
+    "identical": true,
+    "walShmJournalPresent": false
+  },
+  "explicitCounts": {
+    "orchestrators": 17,
+    "children": 17,
+    "syntaxPass": "34/34",
+    "suiteEquality": "17/17 orchestrators",
+    "childAssertionPreservation": "17/17 (each child individually AST-verified against its own locked baseline this session)",
+    "realDbMutationHits": 0,
+    "processExitBypassHits": 0,
+    "unguardedCleanupHits": 0,
+    "unresolvedDynamicExecutionHits": 0,
+    "httpRawCloseBypassHits": 0,
+    "dualDbUnregisteredHandleHits": 0,
+    "candidateJsCount": 186
+  },
+  "assertionPreservationAllowlist": {
+    "updatedAt": "2026-08-17T03:14:17.856Z",
+    "rule": "All 34 files' assertions must be AST-identical to their locked pre-modification baseline, with exactly ONE documented exception.",
+    "exception": {
+      "file": "scripts/smoke-hotfix30-b5-r5-4-g1-3-2-regression-guard.js",
+      "allowlistedLabels": [
+        "3c",
+        "3d"
+      ],
+      "reason": "Stale hardcoded hash fix, authorized during Stage 3B runtime verification -- see scripts/lib/H1.4.8_STAGE3B_REGRESSION_GUARD_STALE_HASH_FIX.json for full evidence",
+      "staticCallSiteCountUnchanged": "130/130",
+      "onlyTheseTwoLabelsChanged": true,
+      "allOtherLabelsAndSectionsUnchanged": true
+    },
+    "noWildcardAllowlistUsed": true
+  },
+  "reRunAfterRegressionGuardFix": {
+    "mainRuntimeTotal": 390,
+    "overallPass": true,
+    "candidateJsCount": 186,
+    "gitDiffCheckPass": true
+  }
+}

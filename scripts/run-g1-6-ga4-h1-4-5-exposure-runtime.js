@@ -23,10 +23,10 @@ const path = require('path');
 const fs = require('fs');
 
 const ROOT = path.join(__dirname, '..');
-const DATA_DIR = path.join(ROOT, 'data');
-const DB_FILE = path.join(DATA_DIR, 'pos.db');
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);
+const dbHelper = require('./lib/qa-temp-db.js');
+
+// Stage 3A remediation: bootstrap + DB-touching requires all live inside the
+// same outer try/finally in runEntry() below (see tail of this file).
 
 const results = [];
 function pass(name) { results.push({ name, status: 'PASS' }); }
@@ -222,8 +222,10 @@ async function main() {
   if (pPos) assert(pPos.view_to_cart_rate === 100, 'Category G: channel=pos 的 view_to_cart_rate 正確計算（1÷1=100）', `實際 ${pPos.view_to_cart_rate}`);
   if (pLine) assert(pLine.view_to_cart_rate === 50, 'Category G: channel=line_takeout 的 view_to_cart_rate 正確計算（1÷2=50）', `實際 ${pLine.view_to_cart_rate}`);
 
-  // ── 收尾：清除本輪測試建立的 DB 檔，避免殘留 ──────────────────────
-  if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);
+  // ── 收尾：清除本輪測試建立的 temp DB 檔，避免殘留 ──────────────────
+  // (Stage 3A: cleanup happens via runEntry()'s outer try/finally at the
+  // tail of this file, or is owned by the parent orchestrator -- this
+  // function no longer touches any DB_FILE path directly.)
 
   const total = results.length;
   const passed = results.filter((r) => r.status === 'PASS').length;
@@ -238,7 +240,21 @@ async function main() {
   process.exitCode = failedList.length ? 1 : 0;
 }
 
-main().catch((e) => {
+async function runEntry() {
+  let dbContext;
+  let primaryError;
+  try {
+    dbContext = dbHelper.bootstrapChildDb('h145-exposure-standalone');
+    return await main();
+  } catch (err) {
+    primaryError = err;
+    throw err;
+  } finally {
+    dbHelper.handleOwnedCleanup(dbContext, primaryError);
+  }
+}
+
+runEntry().catch((e) => {
   console.error('[FATAL]', e);
   process.exitCode = 1;
 });

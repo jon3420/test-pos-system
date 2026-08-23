@@ -1,0 +1,253 @@
+{
+  "generatedAt": "2026-08-19T01:15:35.182Z",
+  "attempt3FailureRecord": {
+    "passed": 2,
+    "failed": 1,
+    "notRun": 14,
+    "passedRoots": [
+      "B2_5",
+      "GA4_H1_4_7"
+    ],
+    "failedRoot": "A1_2_1",
+    "failedRootExit": 1,
+    "mismatchChild": "scripts/smoke-hotfix30-b5-r5-2-b1-1-dashboard-rewire.js",
+    "catalogExpected": "101/101",
+    "actualObserved": "108/108",
+    "childFail": 0,
+    "fullyExecuted26Entries": true,
+    "missingExtraDuplicate": 0,
+    "stdoutLog": "/tmp/o3-A1_2_1-stdout.log",
+    "stdoutSha256": "aa0a93f1f49af8dcbc681720d9f88438a6fc2495bfaa275340aa89b60ac166bb",
+    "stderrLog": "/tmp/o3-A1_2_1-stderr.log",
+    "stderrSha256": "321cf600b301ff1b0fffd3a756a30eb2e883a90d8d12b5cee223bd34dc771c99",
+    "doneJson": "/tmp/o3-A1_2_1-done.json",
+    "physicalA1_2_1SuiteEntryExecutions": 26,
+    "acceptedSuiteEntryExecutionsUnchanged": 103,
+    "productionDbGitSourceTmpUnchanged": true,
+    "notRetroactivelyMarkedPassing": true
+  },
+  "dashboardRewireProof": {
+    "ownFinalSummary": {
+      "pass": 108,
+      "fail": 0,
+      "total": 108
+    },
+    "orchestratorParserAgreement": true,
+    "noIncidentalPassTextMiscounting": true,
+    "noDuplicateAssertionIds": "rawAssertCallSiteCount=108, matches self-reported total exactly",
+    "noConditionalCount": true,
+    "exitCode": 0,
+    "childIdenticalToGitHead": true,
+    "catalogStale101EntryProvenance": "The stale 101/101 entry was ALREADY present in the catalog snapshot taken before Stage 3C2 (/tmp/catalog_before_3c2.json, hashed and preserved) -- confirmed NOT introduced during this session. Critically, that SAME pre-3C2 snapshot already showed the catalog INTERNALLY INCONSISTENT for this exact child: 8 keys (A1, A1_1, A1_2, A1_2_1, GA4_H1, GA4_H1_1_AUTH, GA4_H1_2, GA4_H1_3) had stale 101/101 while 7 keys (GA4_H1_4_1 through GA4_H1_4_7) already correctly had 108/108 -- proving the 108 value is the true count and predates this session entirely.",
+    "classification": "preExistingCatalogMetadataDefect"
+  },
+  "globalCatalogUnionAudit": {
+    "method": "machine scan of all 17 roots’ catalog.suites entries, grouping by child path and collecting the distinct pass/total value(s) seen for each",
+    "globalUniqueChildPathCount": 90,
+    "reachabilityNote": "GA4_H1_4_7’s 79-path set and A1_2_1’s 26-path set are both subsets of this 90-path global union; Dashboard Rewire is not part of GA4_H1_4_7’s 79 (confirmed: it does not automatically constitute a GA4_H1_4_7 closure defect, exactly as expected)",
+    "inconsistentChildrenFoundCount": 4,
+    "inconsistentChildrenList": []
+  },
+  "actualCountTruthTable": {
+    "method": "reused existing current-source runtime evidence -- no new isolated executions were needed, since all 4 inconsistent children’s TRUE counts were already directly observable in the attempt-3 GA4_H1_4_7 successful formal run log (/tmp/o2_attempt3_exec2_stdout.log), where each showed [PASS] with fail=0 and an \"(expect N/N)\" annotation that already matched, confirming those specific catalog keys (GA4_H1_4_2 through GA4_H1_4_7) already held the correct value",
+    "entries": [
+      {
+        "path": "scripts/smoke-hotfix30-b5-r5-2-b1-1-dashboard-rewire.js",
+        "actualPass": 108,
+        "actualFail": 0,
+        "actualTotal": 108,
+        "exit": 0,
+        "source": "attempt-3 GA4_H1_4_7 formal run, line 50",
+        "logSha256Ref": "/tmp/o2_attempt3_exec2_stdout.log"
+      },
+      {
+        "path": "scripts/run-g1-6-ga4-h1-4-dashboard-source-runtime.js",
+        "actualPass": 59,
+        "actualFail": 0,
+        "actualTotal": 59,
+        "exit": 0,
+        "source": "attempt-3 GA4_H1_4_7 formal run, line 66"
+      },
+      {
+        "path": "scripts/run-g1-6-ga4-h1-4-map-state-runtime.js",
+        "actualPass": 100,
+        "actualFail": 0,
+        "actualTotal": 100,
+        "exit": 0,
+        "source": "attempt-3 GA4_H1_4_7 formal run, line 67"
+      },
+      {
+        "path": "scripts/static-audit-g1-6-ga4-h1-4.js",
+        "actualPass": 230,
+        "actualFail": 0,
+        "actualTotal": 230,
+        "exit": 0,
+        "source": "attempt-3 GA4_H1_4_7 formal run, line 71"
+      }
+    ],
+    "provenanceConfirmedForAll4": {
+      "childByteIdenticalToGitHead": true,
+      "notInStage3ARemediated34FileSet": true,
+      "classification": "preExistingCatalogMetadataDefect"
+    },
+    "parserReliability": "confirmed reliable -- each child’s own final summary line was located directly and matched the orchestrator’s parsed value in every case"
+  },
+  "mismatchInventory": {
+    "allFourConfirmedSameDefectFamily": "exact expected-count metadata stale, no parser problems, no conditional counts, no duplicate assertions, no child failures found -- batch remediation authorized under Stage 3C3 Part 5 without per-instance stopping",
+    "entries": [
+      {
+        "path": "scripts/smoke-hotfix30-b5-r5-2-b1-1-dashboard-rewire.js",
+        "staleValue": "101/101",
+        "correctValue": "108/108",
+        "staleActiveKeys": [
+          "A1",
+          "A1_1",
+          "A1_2",
+          "A1_2_1",
+          "GA4_H1",
+          "GA4_H1_1_AUTH",
+          "GA4_H1_2",
+          "GA4_H1_3",
+          "GA4_H1_4"
+        ],
+        "alreadyCorrectKeys": [
+          "GA4_H1_4_1",
+          "GA4_H1_4_2",
+          "GA4_H1_4_3",
+          "GA4_H1_4_4",
+          "GA4_H1_4_5",
+          "GA4_H1_4_6",
+          "GA4_H1_4_7"
+        ]
+      },
+      {
+        "path": "scripts/run-g1-6-ga4-h1-4-dashboard-source-runtime.js",
+        "staleValue": "55/55",
+        "correctValue": "59/59",
+        "staleActiveKeys": [
+          "GA4_H1_4",
+          "GA4_H1_4_1"
+        ],
+        "alreadyCorrectKeys": [
+          "GA4_H1_4_2",
+          "GA4_H1_4_3",
+          "GA4_H1_4_4",
+          "GA4_H1_4_5",
+          "GA4_H1_4_6",
+          "GA4_H1_4_7"
+        ]
+      },
+      {
+        "path": "scripts/run-g1-6-ga4-h1-4-map-state-runtime.js",
+        "staleValue": "99/99",
+        "correctValue": "100/100",
+        "staleActiveKeys": [
+          "GA4_H1_4",
+          "GA4_H1_4_1"
+        ],
+        "alreadyCorrectKeys": [
+          "GA4_H1_4_2",
+          "GA4_H1_4_3",
+          "GA4_H1_4_4",
+          "GA4_H1_4_5",
+          "GA4_H1_4_6",
+          "GA4_H1_4_7"
+        ]
+      },
+      {
+        "path": "scripts/static-audit-g1-6-ga4-h1-4.js",
+        "staleValue": "227/227",
+        "correctValue": "230/230",
+        "staleActiveKeys": [
+          "GA4_H1_4",
+          "GA4_H1_4_1"
+        ],
+        "alreadyCorrectKeys": [
+          "GA4_H1_4_2",
+          "GA4_H1_4_3",
+          "GA4_H1_4_4",
+          "GA4_H1_4_5",
+          "GA4_H1_4_6",
+          "GA4_H1_4_7"
+        ]
+      }
+    ],
+    "afterFixVerification": "global union audit re-run after applying all 4 fixes -- 0 remaining inconsistent children (down from 4)"
+  },
+  "exactChangedEntryAllowlist": "/tmp/stage3c3_allowlist.json (written BEFORE any edit, per instruction)",
+  "changesApplied": {
+    "catalogKeysModified": 10,
+    "catalogKeysModifiedList": [
+      "A1",
+      "A1_1",
+      "A1_2",
+      "A1_2_1",
+      "GA4_H1",
+      "GA4_H1_1_AUTH",
+      "GA4_H1_2",
+      "GA4_H1_3",
+      "GA4_H1_4",
+      "GA4_H1_4_1"
+    ],
+    "alreadyCorrectEntriesRewritten": 0,
+    "filesModified": [
+      "scripts/lib/H1.4.8_REGRESSION_SUITE_CATALOG.json",
+      "scripts/lib/H1.4.8_STAGE3A_SUITE_BASELINE.json (additive fields only)"
+    ],
+    "childScriptsModified": false,
+    "assertionsModified": false,
+    "parserModified": false,
+    "comparatorRelaxed": false,
+    "childPathOrSuiteOrderChanged": false,
+    "rootSuiteEntryCountChanged": false,
+    "productionCodeModified": false,
+    "packageLockfileModified": false,
+    "historicalEvidenceOverwritten": false,
+    "exactEqualityStillEnforced": "108===108, 59===59, 100===100, 230===230 -- no >=, no skip, no exit-0-only shortcut"
+  },
+  "hashHandling": {
+    "generatorFormula": "orderedSuiteSha256 = sha256(JSON.stringify(entries)) -- same formula confirmed in Stage 3C2, reused unchanged",
+    "oldNewHashesFile": "/tmp/stage3c3_hash_changes.json",
+    "historicalHashesPreserved": {
+      "location": "scripts/lib/H1.4.8_STAGE3A_SUITE_BASELINE.json",
+      "originalOrderedSuiteSha256FieldUntouched": true,
+      "stage3C2FieldsPreservedWhereTheyExisted": "copied to stage3C2CurrentOrderedSuiteSha256Preserved before being superseded by the new stage3C3Current* fields",
+      "newFieldsAdded": [
+        "stage3C3CurrentOrderedSuiteSha256",
+        "stage3C3CurrentResolvedOrderedSuite"
+      ]
+    },
+    "catalogBeforeSnapshot": {
+      "path": "/tmp/catalog_before_3c3.json",
+      "sha256": "a9b43f75c8629a66c407680f1e53430d9ce27de2e01f874031a5456e8429e16a"
+    },
+    "suiteBaselineBeforeSnapshot": {
+      "path": "/tmp/suitebaseline_before_3c3.json",
+      "sha256": "a15aff7207a3a27925e991812f8f039f709282a65be1b5d78dc92721a7012234"
+    }
+  },
+  "gateResultsAfterFix": {
+    "nodeCheckAffectedFiles": "PASS",
+    "seventeenRootSuiteOrderGate": "17/17 (gate closure-check script updated to use stage3C3Current* fields first, falling back through stage3C2Current* then original -- found and fixed during this verification, not silently left stale)",
+    "thirtyFourFileSafetyGate": {
+      "overallPass": true
+    },
+    "closureQuarantineIntersection": 0,
+    "globalUniqueChildPathCount": 90,
+    "safeRuntimeTotal": 413,
+    "parserSelfTest": "22/22",
+    "candidateJsCount": 186,
+    "executableRepoTypescriptUsage": 0,
+    "packageJsonChanged": false,
+    "packageLockChanged": false,
+    "gitDiffCheckPass": true,
+    "productionDbSentinel": {
+      "sha256": "78254c1b972a57ca184ab9645542c407b1b8752b605ec2378832d78ff6a84ccf",
+      "gitHashObject": "86eea5859a6879ed113ffbaa3f4220494de0814a",
+      "size": 651264,
+      "mtime": 1786712225,
+      "walShmJournalPresent": false
+    }
+  },
+  "conclusion": "Stage 3C3 global catalog-count remediation complete. Proceeding to establish attempt 4."
+}

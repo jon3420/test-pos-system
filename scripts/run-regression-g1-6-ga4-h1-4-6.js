@@ -28,89 +28,47 @@ const fs = require('fs');
 const os = require('os');
 const { execFileSync } = require('child_process');
 const ROOT = path.join(__dirname, '..');
-const DB_FILE = path.join(ROOT, 'data', 'pos.db');
+const dbHelper = require('./lib/qa-temp-db.js');
 
-// ════════════════════════════════════════════════════════════════
-// 1. 重新執行 H1.4.5 runner 原始碼裡「組出最終 SUITE 陣列」的那一段，
-//    拿到它真正的 inherited final suite 清單（不是手打轉抄）。
-// ════════════════════════════════════════════════════════════════
-function parseH145FinalSuite() {
-  const rel = 'scripts/run-regression-g1-6-ga4-h1-4-5.js';
-  const abs = path.join(ROOT, rel);
-  const src = fs.readFileSync(abs, 'utf8');
-  const marker = 'const SUITE = [...H144_FINAL_SUITE, ...H145_NEW];';
-  const idx = src.indexOf(marker);
-  if (idx === -1) {
-    console.error(`[FATAL] 無法在 ${rel} 裡找到 SUITE 組裝那一行，解析邏輯可能已經跟原始碼格式不同步。`);
-    process.exit(1);
-  }
-  const codeUpToSuite = src.slice(0, idx + marker.length).replace(/^#!.*\n/, '');
-  const fakeModule = { exports: null };
-  // eslint-disable-next-line no-new-func
-  const fn = new Function('module', 'require', '__dirname', `${codeUpToSuite}\nmodule.exports = SUITE;`);
-  fn(fakeModule, require, path.dirname(abs));
-  if (!Array.isArray(fakeModule.exports)) {
-    console.error(`[FATAL] 從 ${rel} 解析出來的 SUITE 不是陣列，解析邏輯可能已經跟原始碼格式不同步。`);
-    process.exit(1);
-  }
-  return fakeModule.exports;
+// Stage 3A remediation: SUITE is read from the side-effect-free JSON catalog
+// (verified byte-identical to the pre-remediation inheritance-resolved
+// array, including the exact 76-count invariant this file used to assert at
+// runtime). The parseH145FinalSuite() readFileSync+new Function() executor
+// is gone -- the catalog already contains the final resolved tuples. Real
+// data/pos.db is never touched; each child gets its own mkdtemp-isolated
+// temp DB.
+const CATALOG_PATH = path.join(ROOT, 'scripts/lib/H1.4.8_REGRESSION_SUITE_CATALOG.json');
+const CATALOG_KEY = 'GA4_H1_4_6';
+const rawCatalog = JSON.parse(fs.readFileSync(CATALOG_PATH, 'utf8'));
+if (!rawCatalog.suites || !rawCatalog.suites[CATALOG_KEY]) {
+  throw new Error(`[FATAL] Suite catalog missing key "${CATALOG_KEY}" in ${CATALOG_PATH}`);
 }
-const H145_FINAL_SUITE = parseH145FinalSuite();
+const catalogEntry = rawCatalog.suites[CATALOG_KEY];
+if (!Array.isArray(catalogEntry.entries) || catalogEntry.entries.length !== catalogEntry.tupleCount) {
+  throw new Error(`[FATAL] Suite catalog entry "${CATALOG_KEY}" is malformed (tupleCount mismatch or entries not an array)`);
+}
+const SUITE = Object.freeze(catalogEntry.entries.map(([p, pass, total, label]) => {
+  const passOk = pass === null || typeof pass === 'number';
+  const totalOk = total === null || typeof total === 'number';
+  if (typeof p !== 'string' || !passOk || !totalOk || typeof label !== 'string') {
+    throw new Error(`[FATAL] Malformed suite tuple in catalog "${CATALOG_KEY}": ${JSON.stringify([p, pass, total, label])}`);
+  }
+  return Object.freeze([p, pass, total, label]);
+}));
 
 // suite path 正規化（統一用 '/' 分隔、去除前後空白），用於去重比對。
 function normPath(p) { return String(p).trim().replace(/\\/g, '/'); }
 
-{
-  const seen = new Set();
-  const dups = [];
-  H145_FINAL_SUITE.forEach(([p]) => { const n = normPath(p); if (seen.has(n)) dups.push(n); seen.add(n); });
-  if (dups.length) {
-    console.error('[FATAL] H1.4.5 final runner 內部本身有重複 suite path，無法安全繼承：', dups);
-    process.exit(1);
-  }
-  if (H145_FINAL_SUITE.length === 0) {
-    console.error('[FATAL] 從 run-regression-g1-6-ga4-h1-4-5.js 解析出的最終 SUITE 是空陣列。');
-    process.exit(1);
-  }
-  if (H145_FINAL_SUITE.length !== 74) {
-    console.error(`[FATAL] 預期從 H1.4.5 繼承 74 個 suite，實際解析出 ${H145_FINAL_SUITE.length} 個。解析邏輯或 H1.4.5 原始碼可能已經改變，請人工確認後再繼續，不得靜默忽略這個不一致。`);
-    process.exit(1);
-  }
-}
-
-// ════════════════════════════════════════════════════════════════
-// 2. H1.4.6 新增：Product Detail Modal Runtime／Static-UI-Analytics Audit
-//    （全部 fresh 執行確認過真實 count，且都是 FAIL=0——見對話中的執行紀錄）。
-// ════════════════════════════════════════════════════════════════
-const H146_NEW = [
-  ['scripts/run-g1-6-ga4-h1-4-6-runtime.js', 37, 37, 'H1.4.6 Product Detail Modal Runtime (real jsdom + real public/js/product-detail-modal.js: open/close/backdrop/Esc/qty/subtotal/maxQty/無圖無介紹fallback/快速連點防護/blocked商品/onOpen單次觸發/長文字不噴錯)'],
-  // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.7 誠實更新（不是竄改 H1.4.6 歷史交付
-  // 結果）：H1.4.7 兩階段結帳上線後，scripts/static-audit-g1-6-ga4-h1-4-6.js 裡
-  // 有 5 個已確認過期的 checkout 相關斷言（cartBar/openCartSheet 語意、
-  // begin_checkout 觸發點）被 supersede 成對應的 H1.4.7 新契約斷言（逐項在該
-  // 檔案內以 supersession 註解標記，原始 66 項裡仍有效的 61 項全部保留），
-  // 淨增 6 項，實測為 72/72。這裡的期望值必須跟著更新為 72/72，否則往下
-  // inherited 的 H1.4.7 regression runner 會用「H1.4.6 交付當時的 66/66」
-  // 這個已經不成立的期望值去判斷現在的真實輸出，導致新 runner 對一個實際
-  // FAIL=0 的 suite 誤判為 FAIL。H1.4.6 當時的原始 66/66 交付紀錄本身保留在
-  //對話紀錄與交付報告裡，不會被這裡的數字更新抹去。
-  ['scripts/static-audit-g1-6-ga4-h1-4-6.js', 72, 72, 'H1.4.6 Static/UI/Analytics Audit (LINE外帶外送/宅配共用同一份Modal元件 + 商品卡點擊/鍵盤開啟 + 加入購物車呼叫既有addCart()/changeQty() + 不繞過售完判斷 + Modal UI要求 + 固定購物車列 + view_product/view_item語意分離 + GA4 items[] + 規格加料界線 + 後端驗證未放寬；H1.4.7 更新：5 項過期 checkout 斷言已 supersede，66→72)'],
-];
-
-const SUITE = [...H145_FINAL_SUITE, ...H146_NEW];
-
-// Final normalize + uniqueness gate（需求文件三之 4：suite path 必須正規化並去重）。
+// Final normalize + uniqueness + exact-count gate.
 {
   const seen = new Set();
   const dups = [];
   SUITE.forEach(([p]) => { const n = normPath(p); if (seen.has(n)) dups.push(n); seen.add(n); });
   if (dups.length) {
-    console.error('[FATAL] H1.4.6 runner 組出來的最終 SUITE 清單有重複 path（正規化後比對）：', dups);
-    process.exit(1);
+    throw new Error(`[FATAL] H1.4.6 runner 組出來的最終 SUITE 清單有重複 path（正規化後比對）：${JSON.stringify(dups)}`);
   }
   if (SUITE.length !== 76) {
-    console.error(`[FATAL] 預期最終應解析出 76 個唯一 suite（74 inherited + 2 new），實際為 ${SUITE.length} 個。`);
-    process.exit(1);
+    throw new Error(`[FATAL] 預期最終應解析出 76 個唯一 suite（74 inherited + 2 new），實際為 ${SUITE.length} 個。`);
   }
 }
 
@@ -159,9 +117,9 @@ function snapshotTmpMatches() {
   return new Set(all.filter((f) => patterns.some((re) => re.test(f))));
 }
 
-function detectResidue(preRoundTmpSnapshot) {
+function detectResidue(preRoundTmpSnapshot, tmpRoot) {
   const issues = [];
-  if (fs.existsSync(DB_FILE)) issues.push('data/pos.db');
+  if (tmpRoot && fs.existsSync(tmpRoot)) issues.push('temp DB root: ' + tmpRoot);
   if (fs.existsSync(path.join(ROOT, 'data'))) {
     ['.sqlite', '.sqlite3'].forEach((ext) => {
       if (fs.readdirSync(path.join(ROOT, 'data')).some((f) => f.endsWith(ext))) issues.push(`data/*${ext}`);
@@ -194,7 +152,7 @@ function classify(expectPass, expectTotal, pass, fail, total, exitCode, crashed,
   return ok ? 'PASS' : 'FAIL';
 }
 
-function runRound(roundNum) {
+function runRound(roundNum, tmpRoot) {
   console.log(`\n========================= ROUND ${roundNum} =========================`);
   let allOk = true;
   const roundResults = [];
@@ -208,18 +166,21 @@ function runRound(roundNum) {
       allOk = false;
       continue;
     }
-    if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);
+    const childDbPath = dbHelper.createChildDbPath(tmpRoot, label);
+    const childEnv = dbHelper.buildChildEnv(childDbPath, tmpRoot);
     let output = '';
     let crashed = false;
     let exitCode = 0;
     let timedOut = false;
     try {
-      output = execFileSync(process.execPath, [p], { cwd: ROOT, encoding: 'utf8', timeout: 120000 });
+      output = execFileSync(process.execPath, [p], { cwd: ROOT, encoding: 'utf8', timeout: 120000, env: childEnv });
     } catch (e) {
       output = (e.stdout || '') + (e.stderr || '');
       crashed = true;
       exitCode = e.status === undefined ? 1 : e.status;
       if (e.signal === 'SIGTERM' || /ETIMEDOUT/.test(String(e.code))) timedOut = true;
+    } finally {
+      dbHelper.cleanupDbFileAndSidecars(childDbPath);
     }
     const { pass, fail, total } = parseSummary(output);
     const classification = classify(expectPass, expectTotal, pass, fail, total, exitCode, crashed, timedOut);
@@ -233,8 +194,7 @@ function runRound(roundNum) {
       console.log('----------------------');
     }
   }
-  if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);
-  const residue = detectResidue(preRoundTmpSnapshot);
+  const residue = detectResidue(preRoundTmpSnapshot, null);
   if (residue.length) { allOk = false; console.log(`[RESIDUE] Round ${roundNum} flagged: ${residue.join('; ')}`); }
   else { console.log(`[RESIDUE] Round ${roundNum}: clean`); }
   if (sumChildFailAssertions > 0) allOk = false;
@@ -245,9 +205,7 @@ function runRound(roundNum) {
 
 function main() {
   console.log('H1.4.6 Full Regression Runner');
-  console.log(`  Inherited from H1.4.5 final runner (parsed live): ${H145_FINAL_SUITE.length} unique suites`);
-  console.log(`  + H1.4.6 new suites (Product Detail Modal Runtime / Static-UI-Analytics Audit): ${H146_NEW.length}`);
-  console.log(`  = Total unique suites this round: ${SUITE.length}`);
+  console.log(`  Final resolved suite (from side-effect-free JSON catalog, Stage 3A remediated): ${SUITE.length} unique suites`);
   console.log('\nnode --check for H1.4.6 touched Production/Test files (.css skipped, not JS):');
   let checkOk = true;
   for (const rel of NODE_CHECK_FILES) {
@@ -268,9 +226,15 @@ function main() {
     }
   }
 
-  const roundCount = Number(process.argv[2]) > 0 ? Number(process.argv[2]) : 3;
-  const rounds = [];
-  for (let i = 1; i <= roundCount; i += 1) rounds.push(runRound(i));
+  const roundCount = dbHelper.parseRegressionCliArgs(process.argv.slice(2)).roundCount;
+  const { tmpRoot, cleanupRoot } = dbHelper.createOrchestratorTempRoot('regression-ga4-h1-4-6');
+  let rounds;
+  try {
+    rounds = [];
+    for (let i = 1; i <= roundCount; i += 1) rounds.push(runRound(i, tmpRoot));
+  } finally {
+    cleanupRoot();
+  }
 
   const allRoundsOk = rounds.every((r) => r.allOk) && checkOk;
 

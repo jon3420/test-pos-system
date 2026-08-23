@@ -27,71 +27,34 @@ const fs = require('fs');
 const os = require('os');
 const { execFileSync } = require('child_process');
 const ROOT = path.join(__dirname, '..');
-const DB_FILE = path.join(ROOT, 'data', 'pos.db');
+const dbHelper = require('./lib/qa-temp-db.js');
 
-// ════════════════════════════════════════════════════════════════
-// 1. 從 H1.4 final runner 原始碼解析出真實 SUITE tuple array
-// ════════════════════════════════════════════════════════════════
-function parseH14Suite() {
-  const src = fs.readFileSync(path.join(ROOT, 'scripts/run-regression-g1-6-ga4-h1-4.js'), 'utf8');
-  const re = /\['(scripts\/[a-zA-Z0-9._-]+\.js)',\s*(\d+),\s*(\d+),\s*'([^']*)'\]/g;
-  const arr = [];
-  let m;
-  while ((m = re.exec(src))) arr.push([m[1], Number(m[2]), Number(m[3]), m[4]]);
-  return arr;
+// Stage 3A remediation: SUITE is read from the side-effect-free JSON catalog
+// (verified byte-identical to the pre-remediation inheritance-resolved array
+// via scripts/lib/H1.4.8_STAGE3A_SUITE_BASELINE.json + deepStrictEqual,
+// including the OVERRIDES transformation that used to happen at runtime).
+// The parseH14Suite() readFileSync+regex parser and the OVERRIDES map are
+// gone -- the catalog already contains the final resolved tuples. Real
+// data/pos.db is never touched; each child gets its own mkdtemp-isolated
+// temp DB.
+const CATALOG_PATH = path.join(ROOT, 'scripts/lib/H1.4.8_REGRESSION_SUITE_CATALOG.json');
+const CATALOG_KEY = 'GA4_H1_4_1';
+const rawCatalog = JSON.parse(fs.readFileSync(CATALOG_PATH, 'utf8'));
+if (!rawCatalog.suites || !rawCatalog.suites[CATALOG_KEY]) {
+  throw new Error(`[FATAL] Suite catalog missing key "${CATALOG_KEY}" in ${CATALOG_PATH}`);
 }
-const H14_SUITE = parseH14Suite();
-
-// Sanity check：H1.4 inherited set 必須真的是唯一（無重複 path），數量記錄
-// 下來但不假設固定為某個數字——用程式碼算出來的當唯一真相。
-{
-  const seen = new Set();
-  const dups = [];
-  H14_SUITE.forEach(([p]) => { if (seen.has(p)) dups.push(p); seen.add(p); });
-  if (dups.length) {
-    console.error('[FATAL] H1.4 baseline runner 內部本身有重複 suite path，無法安全繼承：', dups);
-    process.exit(1);
-  }
-  if (H14_SUITE.length === 0) {
-    console.error('[FATAL] 從 run-regression-g1-6-ga4-h1-4.js 解析出的 SUITE 是空陣列，解析邏輯可能已經跟原始碼格式不同步。');
-    process.exit(1);
-  }
+const catalogEntry = rawCatalog.suites[CATALOG_KEY];
+if (!Array.isArray(catalogEntry.entries) || catalogEntry.entries.length !== catalogEntry.tupleCount) {
+  throw new Error(`[FATAL] Suite catalog entry "${CATALOG_KEY}" is malformed (tupleCount mismatch or entries not an array)`);
 }
-
-// H1.4.1 對「已確認因本輪 intentional 測試遷移而改變」的 suite 覆寫期待值
-// ——只有這一支的 assertion count 真的變了（101→108，多出的 7 個全部是
-// H1.4.1 新增的 Intentional UI Contract Change 驗證，非隨意更新，見
-// smoke-hotfix30-b5-r5-2-b1-1-dashboard-rewire.js 內文註解）。
-const OVERRIDES = {
-  'scripts/smoke-hotfix30-b5-r5-2-b1-1-dashboard-rewire.js': [108, 108],
-};
-const H14_SUITE_UPDATED = H14_SUITE.map(([p, pass, total, label]) => {
-  if (OVERRIDES[p]) return [p, OVERRIDES[p][0], OVERRIDES[p][1], label];
-  return [p, pass, total, label];
-});
-
-// ════════════════════════════════════════════════════════════════
-// 2. 本輪額外加入：跟 H1.4.1 修改直接相關、但沒被 H1.4 baseline runner
-//    收進去的既有 legacy smoke（fresh 執行確認過的真實 count）。
-// ════════════════════════════════════════════════════════════════
-const H141_LEGACY_EXTRA = [
-  ['scripts/smoke-hotfix30-b5-r5-1-c-geo-ui.js', 203, 203, 'H1.4.1 Legacy Migration: R5.1-C Geo UI'],
-  ['scripts/smoke-hotfix30-b5-r5-2-b1-5-geo-dashboard-ui.js', 315, 315, 'H1.4.1 Legacy Migration: B1-5 Geo Dashboard UI'],
-  ['scripts/smoke-hotfix30-b5-r5-2-b1-6-geo-explorer.js', 376, 376, 'H1.4.1 Legacy Migration: B1-6 Geo Explorer'],
-  ['scripts/smoke-hotfix30-b5-r5-3-a1-2-visitor-geo-sync.js', 189, 189, 'H1.4.1 Legacy Migration: A1.2 Visitor Geo Sync'],
-  ['scripts/smoke-hotfix30-b5-r5-3-a2-geo-event-engine.js', 229, 229, 'H1.4.1 Legacy Migration: A2 Geo Event Engine'],
-  ['scripts/smoke-hotfix30-b5-r5-3-a7-geo-kpi-single-source.js', 87, 87, 'H1.4.1 Legacy Migration: A7 Geo KPI Single Source'],
-];
-
-// ════════════════════════════════════════════════════════════════
-// 3. H1.4.1 新增的 Target Runtime／Static Audit
-// ════════════════════════════════════════════════════════════════
-const H141_NEW = [
-  ['scripts/run-g1-6-ga4-h1-4-1-geo-dashboard-cleanup-runtime.js', 112, 112, 'H1.4.1 Target Runtime'],
-  ['scripts/static-audit-g1-6-ga4-h1-4-1.js', 106, 106, 'H1.4.1 Static Audit'],
-];
-
-const SUITE = [...H14_SUITE_UPDATED, ...H141_LEGACY_EXTRA, ...H141_NEW];
+const SUITE = Object.freeze(catalogEntry.entries.map(([p, pass, total, label]) => {
+  const passOk = pass === null || typeof pass === 'number';
+  const totalOk = total === null || typeof total === 'number';
+  if (typeof p !== 'string' || !passOk || !totalOk || typeof label !== 'string') {
+    throw new Error(`[FATAL] Malformed suite tuple in catalog "${CATALOG_KEY}": ${JSON.stringify([p, pass, total, label])}`);
+  }
+  return Object.freeze([p, pass, total, label]);
+}));
 
 // Final uniqueness gate（section 五：duplicate suite -> FAIL）。
 {
@@ -99,8 +62,7 @@ const SUITE = [...H14_SUITE_UPDATED, ...H141_LEGACY_EXTRA, ...H141_NEW];
   const dups = [];
   SUITE.forEach(([p]) => { if (seen.has(p)) dups.push(p); seen.add(p); });
   if (dups.length) {
-    console.error('[FATAL] H1.4.1 runner 組出來的最終 SUITE 清單有重複 path：', dups);
-    process.exit(1);
+    throw new Error(`[FATAL] H1.4.1 runner 組出來的最終 SUITE 清單有重複 path：${JSON.stringify(dups)}`);
   }
 }
 
@@ -137,9 +99,9 @@ function parseSummary(output) {
   return { pass, fail, total };
 }
 
-function detectResidue() {
+function detectResidue(tmpRoot) {
   const issues = [];
-  if (fs.existsSync(DB_FILE)) issues.push('data/pos.db');
+  if (tmpRoot && fs.existsSync(tmpRoot)) issues.push('temp DB root: ' + tmpRoot);
   if (fs.existsSync(path.join(ROOT, 'data'))) {
     ['.sqlite', '.sqlite3'].forEach((ext) => {
       if (fs.readdirSync(path.join(ROOT, 'data')).some((f) => f.endsWith(ext))) issues.push(`data/*${ext}`);
@@ -171,7 +133,7 @@ function classify(rel, expectPass, expectTotal, pass, fail, total, exitCode, cra
   return ok ? 'PASS' : 'FAIL';
 }
 
-function runRound(roundNum) {
+function runRound(roundNum, tmpRoot) {
   console.log(`\n========================= ROUND ${roundNum} =========================`);
   let allOk = true;
   const roundResults = [];
@@ -183,18 +145,21 @@ function runRound(roundNum) {
       allOk = false;
       continue;
     }
-    if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);
+    const childDbPath = dbHelper.createChildDbPath(tmpRoot, label);
+    const childEnv = dbHelper.buildChildEnv(childDbPath, tmpRoot);
     let output = '';
     let crashed = false;
     let exitCode = 0;
     let timedOut = false;
     try {
-      output = execFileSync(process.execPath, [p], { cwd: ROOT, encoding: 'utf8', timeout: 120000 });
+      output = execFileSync(process.execPath, [p], { cwd: ROOT, encoding: 'utf8', timeout: 120000, env: childEnv });
     } catch (e) {
       output = (e.stdout || '') + (e.stderr || '');
       crashed = true;
       exitCode = e.status === undefined ? 1 : e.status;
       if (e.signal === 'SIGTERM' || /ETIMEDOUT/.test(String(e.code))) timedOut = true;
+    } finally {
+      dbHelper.cleanupDbFileAndSidecars(childDbPath);
     }
     const { pass, fail, total } = parseSummary(output);
     const classification = classify(rel, expectPass, expectTotal, pass, fail, total, exitCode, crashed, timedOut);
@@ -207,8 +172,7 @@ function runRound(roundNum) {
       console.log('----------------------');
     }
   }
-  if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);
-  const residue = detectResidue();
+  const residue = detectResidue(null);
   if (residue.length) { allOk = false; console.log(`[RESIDUE] Round ${roundNum} flagged: ${residue.join('; ')}`); }
   else { console.log(`[RESIDUE] Round ${roundNum}: clean`); }
   return { allOk, roundResults, residue };
@@ -216,10 +180,7 @@ function runRound(roundNum) {
 
 function main() {
   console.log('H1.4.1 Full Regression Runner');
-  console.log(`  Inherited from H1.4 baseline runner (parsed live): ${H14_SUITE.length} unique suites`);
-  console.log(`  + H1.4.1 legacy migration extras: ${H141_LEGACY_EXTRA.length}`);
-  console.log(`  + H1.4.1 new suites (Target Runtime / Static): ${H141_NEW.length}`);
-  console.log(`  = Total unique suites this round: ${SUITE.length}`);
+  console.log(`  Final resolved suite (from side-effect-free JSON catalog, Stage 3A remediated): ${SUITE.length} unique suites`);
   console.log('\nnode --check for H1.4.1 touched Production files:');
   let checkOk = true;
   for (const rel of NODE_CHECK_FILES) {
@@ -232,11 +193,20 @@ function main() {
     }
   }
 
-  const roundCount = Number(process.argv[2]) > 0 ? Number(process.argv[2]) : 3;
-  const rounds = [];
-  for (let i = 1; i <= roundCount; i += 1) rounds.push(runRound(i));
+  const roundCount = dbHelper.parseRegressionCliArgs(process.argv.slice(2)).roundCount;
+  const { tmpRoot, cleanupRoot } = dbHelper.createOrchestratorTempRoot('regression-ga4-h1-4-1');
+  let rounds;
+  try {
+    rounds = [];
+    for (let i = 1; i <= roundCount; i += 1) rounds.push(runRound(i, tmpRoot));
+  } finally {
+    cleanupRoot();
+  }
+  const finalResidue = detectResidue(tmpRoot);
+  const finalResidueOk = finalResidue.length === 0;
+  if (!finalResidueOk) console.log(`[RESIDUE] final: ${finalResidue.join('; ')}`);
 
-  const allRoundsOk = rounds.every((r) => r.allOk) && checkOk;
+  const allRoundsOk = rounds.every((r) => r.allOk) && checkOk && finalResidueOk;
 
   let consistent = true;
   for (let s = 0; s < SUITE.length; s += 1) {

@@ -1,0 +1,55 @@
+{
+  "file": "scripts/smoke-hotfix30-b5-r5-3-a1-geo-heatmap.js",
+  "correctedAt": "2026-08-16T03:22:54.806Z",
+  "retraction": "The earlier claim of \"117 original assertions all preserved\" was WRONG and is retracted outright. The correct raw assert() call-site count, verified by direct char-by-char scan (not regex), is 116 in BOTH the HEAD baseline and the current file -- identical.",
+  "rawAssertCallSiteCount": {
+    "head": 116,
+    "current": 116,
+    "identical": true,
+    "method": "char-by-char scan for the literal token \"assert(\" not preceded by an identifier character, excluding the assert() function definition line itself"
+  },
+  "labeledVsUnlabeled": {
+    "totalCallSites": 116,
+    "withLabelArgument": 115,
+    "withoutLabelArgument": 1,
+    "note": "Determined via a proper paren-depth + string-state tokenizer (not a single regex), correctly splitting each assert(...) call into its top-level comma-separated arguments regardless of quotes/parens nested inside the condition expression."
+  },
+  "earlier114CountExplanation": {
+    "cause": "A prior naive regex (matching up to the FIRST quote character after assert() unconditionally) mis-parsed 3 of the 116 call sites, because those 3 conditions contain single-quoted string literals INSIDE the condition expression itself (e.g. H.GEO_HEAT_CHANNELS.includes('all')) -- the regex grabbed the wrong substring as the 'label', producing 114 successfully-matched entries instead of 116.",
+    "affectedCallsByContent": [
+      "H.GEO_HEAT_CHANNELS.includes('all') && ... , 'A1-3 channel enum 含既有渠道'",
+      "H.geoHeatComputeMetricCoverage([], 'orders') === 0, 'A1-46 空 areas 的 metric coverage → 0，不崩潰'",
+      "tooltip.includes('中壢區'), 'A1-48 Tooltip 含行政區名稱'"
+    ],
+    "resolution": "Re-ran extraction with a proper tokenizer (tracks paren depth and string-literal state character-by-character, correctly handling embedded quotes). Result: all 116 call sites correctly parsed in both HEAD and current."
+  },
+  "orderedExecutableConditionExpressionHash": {
+    "conditionExpressionHash": "notUsed",
+    "reason": "Custom tokenizer could not reliably parse every JavaScript regex/template literal (specifically: a regex literal containing a backtick inside a character class was mis-tokenized as a template-literal delimiter, causing it to swallow unrelated subsequent file content into one bogus \"condition\"). This metric is withdrawn as unreliable, not reported as passing.",
+    "whatWasUsedInstead": "The single specific line responsible (A1-91's regex check) was located directly via grep in both HEAD and current, and confirmed byte-identical via direct string equality (str1 === str2), not via the tokenizer."
+  },
+  "labelHashMatch": {
+    "headHash": "f120e9fa9d4800b188a4de842b2c7a226899b819e66212f3f7f3a5379ad90da4",
+    "currentHash": "f120e9fa9d4800b188a4de842b2c7a226899b819e66212f3f7f3a5379ad90da4",
+    "match": true,
+    "method": "proper tokenizer, all 116 entries, ordered"
+  },
+  "gitDiffConfirmation": "git diff shows 0 lines matching ^-.*assert\\( and 0 lines matching ^\\+.*assert\\( for this file -- no assert() call was removed, added, or modified at the git-diff line level.",
+  "sectionMarkersConfirmed": {
+    "count": 15,
+    "orderMatchesHead": true
+  },
+  "reachabilityConfirmed": {
+    "allSectionsReachableFromMain": true,
+    "noNewConditionalSkipIntroduced": true,
+    "dbTouchRequireLine": 276,
+    "dbTouchConfirmedInsideMainScopeViaBraceDepthTracking": true
+  },
+  "entryInvocationCount": 1,
+  "asyncMainAwaited": true,
+  "exitCodeMappingEquivalence": {
+    "original": "process.exit(failed > 0 ? 1 : 0)",
+    "current": "process.exitCode = failed > 0 ? 1 : 0",
+    "equivalent": true
+  }
+}

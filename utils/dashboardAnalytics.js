@@ -176,7 +176,10 @@ function getFunnel(db, storeId, range, channel) {
     { key: 'view_product', label: '商品瀏覽', count: distinctVisitors('view_product'), event_count: eventCount('view_product'), unique_users: distinctVisitors('view_product') },
     { key: 'add_to_cart', label: '加入購物車', count: distinctVisitors('add_to_cart'), event_count: eventCount('add_to_cart'), unique_users: distinctVisitors('add_to_cart') },
     { key: 'view_cart', label: '查看購物車', count: distinctVisitors('view_cart'), event_count: eventCount('view_cart'), unique_users: distinctVisitors('view_cart') },
-    { key: 'checkout_click', label: '開始結帳', count: distinctVisitors('checkout_click'), event_count: eventCount('checkout_click'), unique_users: distinctVisitors('checkout_click') },
+    // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.8（CHECKOUT-ANALYTICS-UNIFICATION）：
+    // 中文標籤由「開始結帳」統一改為「前往結帳」，權威事件（checkout_click）與
+    // 計算方式本身不變，只是後台顯示用語與需求文件三的語意表格對齊。
+    { key: 'checkout_click', label: '前往結帳', count: distinctVisitors('checkout_click'), event_count: eventCount('checkout_click'), unique_users: distinctVisitors('checkout_click') },
     { key: 'submit_order', label: '送出訂單', count: distinctOrders('submit_order'), event_count: eventCount('submit_order'), unique_users: distinctVisitors('submit_order'), orders: distinctOrders('submit_order') },
     { key: 'purchase', label: '完成付款', count: distinctOrders('purchase'), event_count: eventCount('purchase'), unique_users: distinctVisitors('purchase'), orders: distinctOrders('purchase') },
   ];
@@ -318,10 +321,14 @@ function getCartAnalysis(db, storeId, range, channel) {
     [storeId, range.startLocal, range.endLocal, ...chClause.params]
   ) || {}).c || 0);
 
-  // 有效 cart_id 清單（該區間內有 add_to_cart 且 cart_id 非空）
+  // 有效 cart_id 清單（該區間內有 add_to_cart 且 cart_id 非空、非純空白）
+  // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.8（CHECKOUT-ANALYTICS-UNIFICATION）：
+  // 補上 TRIM(cart_id) != ''——舊寫法只擋 NULL 與空字串，純空白字串（例如
+  // 前端某些邊界情況送出 "   " 當 cart_id）會被誤當成一個「合法」的
+  // cart_id，讓 added_carts 多算出不存在的購物車。
   const carts = db.all(
     `SELECT DISTINCT cart_id FROM analytics_events
-     WHERE store_id=? AND event_name='add_to_cart' AND cart_id IS NOT NULL AND cart_id != ''
+     WHERE store_id=? AND event_name='add_to_cart' AND cart_id IS NOT NULL AND cart_id != '' AND TRIM(cart_id) != ''
        AND ${A_LOCAL} BETWEEN ? AND ?${chClause.sql}`,
     [storeId, range.startLocal, range.endLocal, ...chClause.params]
   ).map(r => r.cart_id);
@@ -329,6 +336,7 @@ function getCartAnalysis(db, storeId, range, channel) {
   if (!carts.length) {
     return {
       add_to_cart_visitors: addToCartVisitors,
+      added_carts: 0, checkout_carts: 0,
       completed_carts: 0, incomplete_carts: 0, abandonment_rate: null,
       estimated_abandoned_amount: 0, avg_dwell_seconds: null,
       abandon_time_buckets: emptyBuckets(),
@@ -337,6 +345,15 @@ function getCartAnalysis(db, storeId, range, channel) {
   }
 
   const placeholders = carts.map(() => '?').join(',');
+  // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.8（CHECKOUT-ANALYTICS-UNIFICATION）：
+  // 全局購物車 KPI 補上「前往結帳購物車數」——唯一權威來源是 checkout_click，
+  // 且用 cart_id IN (carts) 直接把集合限制在 added_carts 之內（= added_carts
+  // ∩ checkout_click 集合），不得另外查詢或合併 begin_checkout。
+  const checkoutCarts = new Set(db.all(
+    `SELECT DISTINCT cart_id FROM analytics_events
+     WHERE store_id=? AND event_name='checkout_click' AND cart_id IN (${placeholders})`,
+    [storeId, ...carts]
+  ).map(r => r.cart_id));
   // 哪些 cart_id 有 purchase（完成購買）
   const purchasedCarts = new Set(db.all(
     `SELECT DISTINCT cart_id FROM analytics_events
@@ -416,6 +433,14 @@ function getCartAnalysis(db, storeId, range, channel) {
 
   return {
     add_to_cart_visitors: addToCartVisitors,
+    // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.8：全局購物車 KPI（三種口徑分開，
+    // 都是 cart_id 為單位，不是人數，也不是各商品列相加）：
+    //   added_carts     = DISTINCT cart_id with add_to_cart（= carts.length）
+    //   checkout_carts  = added_carts ∩ DISTINCT cart_id with checkout_click
+    //   completed_carts = added_carts ∩ DISTINCT cart_id with purchase
+    //   incomplete_carts = added_carts − completed_carts（放棄購物車數）
+    added_carts: carts.length,
+    checkout_carts: checkoutCarts.size,
     completed_carts: completedCarts,
     incomplete_carts: incompleteCarts,
     abandonment_rate: abandonmentRate,
@@ -1126,17 +1151,18 @@ function getDailyTip(recommendations, productTiers, products, cart) {
 //     orders.items JSON 的做法一致）。解析失敗一律當作沒有 first_touch 資料，
 //     不得讓整支 API 500（需求文件十四／十六）。
 // ────────────────────────────────────────────────────────────────
+// fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.8（CHECKOUT-ANALYTICS-UNIFICATION）：
+// 正式 canonical stage 只有 checkout_click——begin_checkout 已從這個查詢
+// 陣列移除（H1.4.7 之前的版本曾經把兩者當獨立、平行的 stage 各查一次，導致
+// 同一個「前往結帳」動作在報表上出現兩個不同來源的數字，這正是需求文件
+// 明確要求修正的違規狀態）。deprecated 的 begin_checkout response key（見
+// buildSourceTable／buildCampaignTable）改成「直接引用 checkout_click 這次
+// aggregation 算出來的同一份結果」，不再對 event_name='begin_checkout' 發送
+// 任何 SQL 查詢、不再是這個陣列的一員、也不參與 First Touch 的 rawRows 掃描。
 const AD_SOURCE_STAGE_EVENTS = [
   ['page_view', 'visitor_id'],
   ['view_product', 'visitor_id'],
   ['add_to_cart', 'visitor_id'],
-  ['begin_checkout', 'visitor_id'],
-  // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.7：H1.4.7 前端已不再送出
-  // begin_checkout（改送 view_cart／checkout_click），上面那個 stage 定義
-  // 保留是為了不刪除／不重算既有歷史 begin_checkout 資料；這裡另外新增
-  // checkout_click 當一個獨立、未合併的 stage，讓 H1.4.7 上線後的廣告歸因
-  // 報表仍能看到「開始結帳」數字，不會因為前端換事件就悄悄歸零。兩者刻意
-  // 分開查詢、分開輸出欄位，不用 OR 合併，避免同一使用者被重複計數。
   ['checkout_click', 'visitor_id'],
   ['submit_order', 'order_id'],
   ['purchase', 'order_id'],
@@ -1191,9 +1217,11 @@ function getAdsAttribution(db, storeId, range) {
   });
 
   // ── First Touch：整批撈原始事件列，在 JS 端解析 metadata_json 分組 ──
+  // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.8：不再掃描 begin_checkout（deprecated
+  // alias 改由 checkout_click 這次 aggregation 的結果直接派生，不是另一次查詢）。
   const rawRows = db.all(
     `SELECT event_name, visitor_id, order_id, metadata_json FROM analytics_events
-     WHERE store_id=? AND event_name IN ('page_view','view_product','add_to_cart','begin_checkout','checkout_click','submit_order','purchase')
+     WHERE store_id=? AND event_name IN ('page_view','view_product','add_to_cart','checkout_click','submit_order','purchase')
        AND ${A_LOCAL} BETWEEN ? AND ?`,
     [storeId, range.startLocal, range.endLocal]
   );
@@ -1281,13 +1309,20 @@ function getAdsAttribution(db, storeId, range) {
     return Object.entries(bySource).map(([src, stages]) => {
       const entry = stages.page_view || 0;
       const purchase = stages.purchase || 0;
+      // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.8（CHECKOUT-ANALYTICS-UNIFICATION）：
+      // checkout_click 是唯一 canonical 欄位（上面 AD_SOURCE_STAGE_EVENTS 這次
+      // aggregation 算出來的真實結果）。begin_checkout 是 deprecated response
+      // alias，直接指派同一個數值（同一份記憶體中的變數，不是第二次查詢、不是
+      // OR、不是 SUM），只為了不讓仍在讀這個舊欄位名稱的既有 API consumer
+      // 突然拿到 undefined。第一方 UI 不得讀這個欄位（見 public/js/app.js）。
+      const checkoutClick = stages.checkout_click || 0;
       return {
         source: src,
         entry,
         view_product: stages.view_product || 0,
         add_to_cart: stages.add_to_cart || 0,
-        begin_checkout: stages.begin_checkout || 0,
-        checkout_click: stages.checkout_click || 0,
+        checkout_click: checkoutClick,
+        begin_checkout: checkoutClick, // deprecated alias，值與 checkout_click 完全相同
         submit_order: stages.submit_order || 0,
         purchase,
         conversion_rate: entry > 0 ? round2(purchase / entry * 100) : null,
@@ -1310,14 +1345,17 @@ function getAdsAttribution(db, storeId, range) {
       const entry = row.stages.page_view || 0;
       const purchase = row.stages.purchase || 0;
       const key = row.campaign + '|' + row.source;
+      // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.8：同上，begin_checkout 是
+      // deprecated alias，直接引用同一份 checkout_click canonical 結果。
+      const checkoutClick = row.stages.checkout_click || 0;
       return {
         campaign: row.campaign,
         source: row.source,
         entry,
         view_product: row.stages.view_product || 0,
         add_to_cart: row.stages.add_to_cart || 0,
-        begin_checkout: row.stages.begin_checkout || 0,
-        checkout_click: row.stages.checkout_click || 0,
+        checkout_click: checkoutClick,
+        begin_checkout: checkoutClick, // deprecated alias，值與 checkout_click 完全相同
         submit_order: row.stages.submit_order || 0,
         purchase,
         conversion_rate: entry > 0 ? round2(purchase / entry * 100) : null,

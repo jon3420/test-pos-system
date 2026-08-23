@@ -175,9 +175,23 @@ function buildCustomerJourney(events, { lineRow, identity } = {}) {
         addToGroup('add_to_cart', anyCartMilestoneEver ? '再次加入購物車' : '加入購物車', e.created_at_local);
         anyCartMilestoneEver = true;
         break;
+      // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.8（CHECKOUT-ANALYTICS-UNIFICATION）：
+      // view_cart／checkout_click 是 H1.4.7 起的正式權威事件，Timeline 必須
+      // 認得這兩個新事件（之前版本只認識 begin_checkout，落在 default 直接被
+      // 吃掉，導致新流程上線後 Timeline 完全看不到「查看購物車」「前往結帳」
+      // 這兩個里程碑）。begin_checkout 保留給舊資料顯示，標成「開始結帳
+      // （舊事件）」，不得跟新事件的「前往結帳」標籤混淆。
+      case 'view_cart':
+        flushGroup();
+        push('view_cart', '查看購物車', e.created_at_local, false);
+        break;
+      case 'checkout_click':
+        flushGroup();
+        push('checkout_click', '前往結帳', e.created_at_local, false);
+        break;
       case 'begin_checkout':
         flushGroup();
-        push('begin_checkout', '開始結帳', e.created_at_local, false);
+        push('begin_checkout', '開始結帳（舊事件）', e.created_at_local, false);
         break;
       case 'line_login_success':
       case 'member_login':

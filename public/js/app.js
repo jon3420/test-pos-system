@@ -936,6 +936,7 @@ function renderDashboardCart(cart) {
   return _section('🛒 購物車分析（所選期間轉換口徑）',
     `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px;margin-bottom:16px">
       ${_cardTip('加入購物車人數', cart.add_to_cart_visitors + ' 人', '依訪客／會員身分去重，不是點擊加入購物車的總次數。', '')}
+      ${_cardTip('前往結帳購物車數', (cart.checkout_carts ?? 0) + ' 個', '權威事件是 checkout_click；以購物車數（cart_id）計算，不是人數，也不含舊版 begin_checkout 事件。', '')}
       ${_card('完成購買購物車', cart.completed_carts + ' 個', '', '#10b981')}
       ${_card('未完成購物車', cart.incomplete_carts + ' 個', '', '#f59e0b')}
       ${_card('放棄率', _fmtPct(cart.abandonment_rate), '', '#ef4444')}
@@ -1072,7 +1073,7 @@ function renderCartGeoSummary(wrap, { summary, ranking, topAreas }) {
       <table style="width:100%;min-width:400px;border-collapse:collapse;font-size:.78rem">
         <thead><tr style="color:var(--text-secondary,#64748b);text-align:left;font-size:.68rem">
           <th style="padding:5px 8px">區域</th><th style="padding:5px 8px;text-align:right">購物車</th>
-          <th style="padding:5px 8px;text-align:right">開始結帳</th><th style="padding:5px 8px;text-align:right">可能已放棄</th>
+          <th style="padding:5px 8px;text-align:right">前往結帳</th><th style="padding:5px 8px;text-align:right">可能已放棄</th>
         </tr></thead>
         <tbody>${convRows}</tbody>
       </table>
@@ -1479,16 +1480,19 @@ function _adsSourceTableHtml(rows) {
     <td style="text-align:right">${r.entry || '—'}</td>
     <td style="text-align:right">${r.view_product || '—'}</td>
     <td style="text-align:right">${r.add_to_cart || '—'}</td>
-    <td style="text-align:right">${r.begin_checkout || '—'}</td>
+    <td style="text-align:right">${r.checkout_click || '—'}</td>
     <td style="text-align:right">${r.submit_order || '—'}</td>
     <td style="text-align:right">${r.purchase || '—'}</td>
     <td style="text-align:right">${r.conversion_rate === null || r.conversion_rate === undefined ? '—' : _fmtPct(r.conversion_rate)}</td>
     <td style="text-align:right;color:#10b981">${_nt(r.ad_revenue || 0)}</td>
   </tr>`).join('');
+  // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.8（CHECKOUT-ANALYTICS-UNIFICATION）：
+  // 表格只顯示一欄「前往結帳」，讀取 r.checkout_click（權威來源），不再讀取
+  // 已 deprecated 的 r.begin_checkout（避免同一動作被算成兩欄或顯示錯誤事件）。
   return `<div style="overflow-x:auto"><table style="width:100%;min-width:640px;border-collapse:collapse;font-size:.8rem">
     <thead><tr style="color:var(--text-secondary,#64748b);font-size:.7rem">
       <th style="text-align:left">來源</th><th style="text-align:right">進站</th><th style="text-align:right">商品瀏覽</th>
-      <th style="text-align:right">加入購物車</th><th style="text-align:right">開始結帳</th><th style="text-align:right">送出訂單</th>
+      <th style="text-align:right">加入購物車</th><th style="text-align:right">前往結帳</th><th style="text-align:right">送出訂單</th>
       <th style="text-align:right">完成付款</th><th style="text-align:right">進站→付款</th><th style="text-align:right">廣告營收</th>
     </tr></thead><tbody>${body}</tbody></table></div>`;
 }
@@ -1503,16 +1507,18 @@ function _adsCampaignTableHtml(rows) {
     <td style="text-align:right">${r.entry || '—'}</td>
     <td style="text-align:right">${r.view_product || '—'}</td>
     <td style="text-align:right">${r.add_to_cart || '—'}</td>
-    <td style="text-align:right">${r.begin_checkout || '—'}</td>
+    <td style="text-align:right">${r.checkout_click || '—'}</td>
     <td style="text-align:right">${r.submit_order || '—'}</td>
     <td style="text-align:right">${r.purchase || '—'}</td>
     <td style="text-align:right">${r.conversion_rate === null || r.conversion_rate === undefined ? '—' : _fmtPct(r.conversion_rate)}</td>
     <td style="text-align:right;color:#10b981">${_nt(r.ad_revenue || 0)}</td>
   </tr>`).join('');
+  // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.8：同上，讀取 r.checkout_click，
+  // 欄位標籤統一顯示「前往結帳」。
   return `<div style="overflow-x:auto"><table style="width:100%;min-width:720px;border-collapse:collapse;font-size:.8rem">
     <thead><tr style="color:var(--text-secondary,#64748b);font-size:.7rem">
       <th style="text-align:left">活動名稱</th><th style="text-align:left">來源</th><th style="text-align:right">進站</th>
-      <th style="text-align:right">商品瀏覽</th><th style="text-align:right">加購</th><th style="text-align:right">開始結帳</th>
+      <th style="text-align:right">商品瀏覽</th><th style="text-align:right">加購</th><th style="text-align:right">前往結帳</th>
       <th style="text-align:right">送出訂單</th><th style="text-align:right">完成付款</th><th style="text-align:right">轉換率</th>
       <th style="text-align:right">廣告營收</th>
     </tr></thead><tbody>${body}</tbody></table></div>`;

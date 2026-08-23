@@ -408,12 +408,21 @@ async function main() {
     console.log('fbq calls =', JSON.stringify(fbqCalls));
     console.log('gtag calls =', JSON.stringify(gtagCalls));
 
-    // ── GA4：view_cart／checkout_click 各一次，事件名稱與內部 canonical 一致 ──
+    // ── GA4：view_cart 送 GA4 view_cart；checkout_click 送 GA4 標準事件
+    // begin_checkout（不再送 GA4 自訂事件 checkout_click）──────────────
+    // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.8（CHECKOUT-ANALYTICS-UNIFICATION）：
+    // D2/D9 是本輪唯一被明確要求更新的過期契約（見需求文件四）：H1.4.7 原本
+    // 斷言「GA4 checkout_click=1、GA4 begin_checkout=0」，H1.4.8 起改為
+    // 「GA4 begin_checkout=1、GA4 checkout_click=0」。這不是弱化測試，是
+    // 跟著 analytics-platforms.js 的正確映射走。
     const ga4ViewCart = gtagCalls.filter(c => c[0] === 'event' && c[1] === 'view_cart');
     const ga4CheckoutClick = gtagCalls.filter(c => c[0] === 'event' && c[1] === 'checkout_click');
+    const ga4BeginCheckoutFromClick = gtagCalls.filter(c => c[0] === 'event' && c[1] === 'begin_checkout');
     assert(ga4ViewCart.length === 1, 'D1 GA4 view_cart 恰好派送一次', ga4ViewCart.length);
-    assert(ga4CheckoutClick.length === 1, 'D2 GA4 checkout_click 恰好派送一次', ga4CheckoutClick.length);
+    assert(ga4CheckoutClick.length === 0, 'D2 GA4 自訂事件 checkout_click 呼叫數＝0（H1.4.8 起不再送出，改送 GA4 begin_checkout）', ga4CheckoutClick.length);
+    assert(ga4BeginCheckoutFromClick.length === 1, 'D2b GA4 begin_checkout 恰好派送一次（內部 checkout_click 對應到 GA4 標準事件 begin_checkout）', ga4BeginCheckoutFromClick.length);
     assert(ga4ViewCart[0] && ga4ViewCart[0][2] && ga4ViewCart[0][2].value === 350 && ga4ViewCart[0][2].currency === 'TWD' && Array.isArray(ga4ViewCart[0][2].items), 'D3 GA4 view_cart payload 保留 value/currency/items', ga4ViewCart[0]);
+    assert(ga4BeginCheckoutFromClick[0] && ga4BeginCheckoutFromClick[0][2] && ga4BeginCheckoutFromClick[0][2].value === 350 && ga4BeginCheckoutFromClick[0][2].currency === 'TWD' && Array.isArray(ga4BeginCheckoutFromClick[0][2].items), 'D3b GA4 begin_checkout（來自 checkout_click）payload 保留 value/currency/items，不含姓名/電話/地址/LINE user id', ga4BeginCheckoutFromClick[0]);
 
     // ── Meta：checkout_click 用 track+InitiateCheckout；view_cart 用 trackCustom+view_cart ──
     const metaCheckoutClick = fbqCalls.filter(c => c[0] === 'track' && c[1] === 'InitiateCheckout');
@@ -427,11 +436,12 @@ async function main() {
     // checkout_click 不得同時再送一個 custom event（同一次 trackPlatformEvent 呼叫只應有 1 筆 fbq 呼叫）
     assert(fbqCallsRightAfterCheckoutClick === 2, 'D8 checkout_click 不得同時再送 custom event（累計 fbq 呼叫數＝2：view_cart 1 次＋checkout_click 1 次）', fbqCallsRightAfterCheckoutClick);
 
-    // ── begin_checkout 呼叫數必須為 0（兩個事件全程都不得觸發它）──────
+    // ── H1.4.8：GA4 begin_checkout 呼叫數必須恰好 1（來自 checkout_click），
+    // Meta 端不得出現字面上的 begin_checkout 事件名稱（Meta 用的是
+    // InitiateCheckout，begin_checkout 只是 GA4 的事件命名）─────────────
     const beginCheckoutGA4 = gtagCalls.filter(c => c[0] === 'event' && c[1] === 'begin_checkout');
-    const beginCheckoutMeta = fbqCalls.filter(c => c[1] === 'InitiateCheckout' && c[0] === 'track' && false); // InitiateCheckout 本身不是 begin_checkout 字串，這裡改用事件名稱字串比對
     const beginCheckoutMetaLiteral = fbqCalls.filter(c => String(c[1]).toLowerCase().includes('begin_checkout'));
-    assert(beginCheckoutGA4.length === 0, 'D9 全程 GA4 begin_checkout 呼叫數＝0', beginCheckoutGA4.length);
+    assert(beginCheckoutGA4.length === 1, 'D9 全程 GA4 begin_checkout 呼叫數＝1（僅來自 checkout_click，不重複、不多送）', beginCheckoutGA4.length);
     assert(beginCheckoutMetaLiteral.length === 0, 'D10 全程 Meta 沒有任何字面上的 begin_checkout 事件名稱', beginCheckoutMetaLiteral.length);
 
     // ── add_to_cart／purchase 既有映射不得退步 ──────────────────────

@@ -1,0 +1,5213 @@
+{
+  "generatedAt": "2026-08-15T10:08:52.156Z",
+  "sourceBaseline": "scripts/lib/H1.4.8_STAGE3A_SUITE_BASELINE.json",
+  "suites": {
+    "B2_5": {
+      "orchestratorFile": "scripts/run-regression-b2-5.js",
+      "tupleCount": 24,
+      "orderedSuiteSha256": "7c58e189c68faf392a4cf2a361f11b27182aaee4f58c88a938b0ed313394a658",
+      "entries": [
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-5-district-normalization.js",
+          76,
+          76,
+          "B2.5 Smoke"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-4-ga4-city-partial.js",
+          139,
+          139,
+          "B2.4 Smoke"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-3-ga4-endpoint-unification.js",
+          75,
+          75,
+          "B2.3 Smoke"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-2-ga4-layer-auth.js",
+          95,
+          95,
+          "B2.2 Smoke"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-1-ga4-settings-persistence.js",
+          85,
+          85,
+          "B2.1 Smoke"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-ga4-settings.js",
+          187,
+          187,
+          "B2 Settings Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-5-b2.js",
+          82,
+          82,
+          "B2 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2a-ga4-settings-ui.js",
+          106,
+          106,
+          "B2a Smoke"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b1-ga4-frontend-choropleth.js",
+          168,
+          168,
+          "B1 Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-5-b1.js",
+          71,
+          71,
+          "B1 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-a-ga4-backend-correctness.js",
+          140,
+          140,
+          "G1.5-A Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-5-a.js",
+          77,
+          77,
+          "G1.5-A Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b2-geo-map.js",
+          620,
+          620,
+          "Geo Map Settings"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b3-geo-settings-ui.js",
+          157,
+          157,
+          "Geo Settings UI"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-live-geo.js",
+          212,
+          212,
+          "G1 geo-live"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-4-1-dark-card-metric-rendering.js",
+          149,
+          149,
+          "G1.4.1"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-4-map-label-rendering.js",
+          148,
+          148,
+          "G1.4"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-3-2-regression-guard.js",
+          148,
+          148,
+          "G1.3.2"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-2-layer-switch.js",
+          83,
+          83,
+          "G1.2"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-3-a2-geo-event-engine.js",
+          229,
+          229,
+          "A2"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-3-a1-2-visitor-geo-sync.js",
+          189,
+          189,
+          "A1.2"
+        ],
+        [
+          "scripts/static-audit-g1-4-1.js",
+          56,
+          56,
+          "Static Audit G1.4.1"
+        ],
+        [
+          "scripts/static-audit-g1-4.js",
+          52,
+          52,
+          "Static Audit G1.4"
+        ],
+        [
+          "scripts/static-audit-g1-3-2.js",
+          48,
+          48,
+          "Static Audit G1.3.2"
+        ]
+      ]
+    },
+    "A1": {
+      "orchestratorFile": "scripts/run-regression-g1-6-a1.js",
+      "tupleCount": 30,
+      "orderedSuiteSha256": "e376064dc46e41ebe98ab074a6ceaad132c59f4d432dfd2395c2562a829a4065",
+      "entries": [
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-marker-unification.js",
+          50,
+          50,
+          "G1.6-A1 Smoke"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-3-a1-geo-heatmap.js",
+          128,
+          128,
+          "Order Heatmap (A1)"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b1-1-dashboard-rewire.js",
+          108,
+          108,
+          "Dashboard Rewire"
+        ],
+        [
+          "scripts/static-audit-g1.js",
+          30,
+          30,
+          "Static Audit G1"
+        ],
+        [
+          "scripts/static-audit-g1-2.js",
+          37,
+          37,
+          "Static Audit G1.2"
+        ],
+        [
+          "scripts/static-audit-g1-3.js",
+          32,
+          32,
+          "Static Audit G1.3"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-5-district-normalization.js",
+          76,
+          76,
+          "B2.5 Smoke"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-4-ga4-city-partial.js",
+          139,
+          139,
+          "B2.4 Smoke"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-3-ga4-endpoint-unification.js",
+          75,
+          75,
+          "B2.3 Smoke"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-2-ga4-layer-auth.js",
+          95,
+          95,
+          "B2.2 Smoke"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-1-ga4-settings-persistence.js",
+          85,
+          85,
+          "B2.1 Smoke"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-ga4-settings.js",
+          187,
+          187,
+          "B2 Settings Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-5-b2.js",
+          82,
+          82,
+          "B2 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2a-ga4-settings-ui.js",
+          106,
+          106,
+          "B2a Smoke"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b1-ga4-frontend-choropleth.js",
+          168,
+          168,
+          "B1 Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-5-b1.js",
+          71,
+          71,
+          "B1 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-a-ga4-backend-correctness.js",
+          140,
+          140,
+          "G1.5-A Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-5-a.js",
+          77,
+          77,
+          "G1.5-A Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b2-geo-map.js",
+          620,
+          620,
+          "Geo Map Settings"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b3-geo-settings-ui.js",
+          157,
+          157,
+          "Geo Settings UI"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-live-geo.js",
+          212,
+          212,
+          "G1 geo-live"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-4-1-dark-card-metric-rendering.js",
+          149,
+          149,
+          "G1.4.1"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-4-map-label-rendering.js",
+          148,
+          148,
+          "G1.4"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-3-2-regression-guard.js",
+          148,
+          148,
+          "G1.3.2"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-2-layer-switch.js",
+          83,
+          83,
+          "G1.2"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-3-a2-geo-event-engine.js",
+          229,
+          229,
+          "A2"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-3-a1-2-visitor-geo-sync.js",
+          189,
+          189,
+          "A1.2"
+        ],
+        [
+          "scripts/static-audit-g1-4-1.js",
+          56,
+          56,
+          "Static Audit G1.4.1"
+        ],
+        [
+          "scripts/static-audit-g1-4.js",
+          52,
+          52,
+          "Static Audit G1.4"
+        ],
+        [
+          "scripts/static-audit-g1-3-2.js",
+          48,
+          48,
+          "Static Audit G1.3.2"
+        ]
+      ]
+    },
+    "A1_1": {
+      "orchestratorFile": "scripts/run-regression-g1-6-a1-1.js",
+      "tupleCount": 32,
+      "orderedSuiteSha256": "d6f33fc3abbc678677168fdc3c1318c218b65861b9539b36ba581d562844d05a",
+      "entries": [
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-1-runtime-wiring.js",
+          160,
+          160,
+          "G1.6-A1.1 Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-a1-1.js",
+          90,
+          90,
+          "G1.6-A1.1 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-marker-unification.js",
+          50,
+          50,
+          "G1.6-A1 Smoke"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-3-a1-geo-heatmap.js",
+          128,
+          128,
+          "Order Heatmap (A1)"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b1-1-dashboard-rewire.js",
+          108,
+          108,
+          "Dashboard Rewire"
+        ],
+        [
+          "scripts/static-audit-g1.js",
+          30,
+          30,
+          "Static Audit G1"
+        ],
+        [
+          "scripts/static-audit-g1-2.js",
+          37,
+          37,
+          "Static Audit G1.2"
+        ],
+        [
+          "scripts/static-audit-g1-3.js",
+          32,
+          32,
+          "Static Audit G1.3"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-5-district-normalization.js",
+          76,
+          76,
+          "B2.5 Smoke"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-4-ga4-city-partial.js",
+          139,
+          139,
+          "B2.4 Smoke"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-3-ga4-endpoint-unification.js",
+          75,
+          75,
+          "B2.3 Smoke"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-2-ga4-layer-auth.js",
+          95,
+          95,
+          "B2.2 Smoke"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-1-ga4-settings-persistence.js",
+          85,
+          85,
+          "B2.1 Smoke"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-ga4-settings.js",
+          187,
+          187,
+          "B2 Settings Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-5-b2.js",
+          82,
+          82,
+          "B2 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2a-ga4-settings-ui.js",
+          106,
+          106,
+          "B2a Smoke"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b1-ga4-frontend-choropleth.js",
+          168,
+          168,
+          "B1 Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-5-b1.js",
+          71,
+          71,
+          "B1 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-a-ga4-backend-correctness.js",
+          140,
+          140,
+          "G1.5-A Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-5-a.js",
+          77,
+          77,
+          "G1.5-A Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b2-geo-map.js",
+          620,
+          620,
+          "Geo Map Settings"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b3-geo-settings-ui.js",
+          157,
+          157,
+          "Geo Settings UI"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-live-geo.js",
+          212,
+          212,
+          "G1 geo-live"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-4-1-dark-card-metric-rendering.js",
+          149,
+          149,
+          "G1.4.1"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-4-map-label-rendering.js",
+          148,
+          148,
+          "G1.4"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-3-2-regression-guard.js",
+          148,
+          148,
+          "G1.3.2"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-2-layer-switch.js",
+          83,
+          83,
+          "G1.2"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-3-a2-geo-event-engine.js",
+          229,
+          229,
+          "A2"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-3-a1-2-visitor-geo-sync.js",
+          189,
+          189,
+          "A1.2"
+        ],
+        [
+          "scripts/static-audit-g1-4-1.js",
+          56,
+          56,
+          "Static Audit G1.4.1"
+        ],
+        [
+          "scripts/static-audit-g1-4.js",
+          52,
+          52,
+          "Static Audit G1.4"
+        ],
+        [
+          "scripts/static-audit-g1-3-2.js",
+          48,
+          48,
+          "Static Audit G1.3.2"
+        ]
+      ]
+    },
+    "A1_2": {
+      "orchestratorFile": "scripts/run-regression-g1-6-a1-2.js",
+      "tupleCount": 35,
+      "orderedSuiteSha256": "4d263a328e742d80791538fb7f04727f32358d1df926a4da13f90b4255b4d07f",
+      "entries": [
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-2-authoritative-points.js",
+          261,
+          261,
+          "A1.2 Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-a1-2.js",
+          125,
+          125,
+          "A1.2 Static Audit"
+        ],
+        [
+          "scripts/verify-authoritative-admin-points.js",
+          57,
+          57,
+          "Catalog Verify"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-1-runtime-wiring.js",
+          160,
+          160,
+          "G1.6-A1.1 Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-a1-1.js",
+          90,
+          90,
+          "G1.6-A1.1 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-marker-unification.js",
+          50,
+          50,
+          "G1.6-A1 Smoke"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-3-a1-geo-heatmap.js",
+          128,
+          128,
+          "Order Heatmap (A1)"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b1-1-dashboard-rewire.js",
+          108,
+          108,
+          "Dashboard Rewire"
+        ],
+        [
+          "scripts/static-audit-g1.js",
+          30,
+          30,
+          "Static Audit G1"
+        ],
+        [
+          "scripts/static-audit-g1-2.js",
+          37,
+          37,
+          "Static Audit G1.2"
+        ],
+        [
+          "scripts/static-audit-g1-3.js",
+          32,
+          32,
+          "Static Audit G1.3"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-5-district-normalization.js",
+          76,
+          76,
+          "B2.5 Smoke"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-4-ga4-city-partial.js",
+          139,
+          139,
+          "B2.4 Smoke"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-3-ga4-endpoint-unification.js",
+          75,
+          75,
+          "B2.3 Smoke"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-2-ga4-layer-auth.js",
+          95,
+          95,
+          "B2.2 Smoke"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-1-ga4-settings-persistence.js",
+          85,
+          85,
+          "B2.1 Smoke"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-ga4-settings.js",
+          187,
+          187,
+          "B2 Settings Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-5-b2.js",
+          82,
+          82,
+          "B2 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2a-ga4-settings-ui.js",
+          106,
+          106,
+          "B2a Smoke"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b1-ga4-frontend-choropleth.js",
+          168,
+          168,
+          "B1 Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-5-b1.js",
+          71,
+          71,
+          "B1 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-a-ga4-backend-correctness.js",
+          140,
+          140,
+          "G1.5-A Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-5-a.js",
+          77,
+          77,
+          "G1.5-A Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b2-geo-map.js",
+          620,
+          620,
+          "Geo Map Settings"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b3-geo-settings-ui.js",
+          157,
+          157,
+          "Geo Settings UI"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-live-geo.js",
+          212,
+          212,
+          "G1 geo-live"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-4-1-dark-card-metric-rendering.js",
+          149,
+          149,
+          "G1.4.1"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-4-map-label-rendering.js",
+          148,
+          148,
+          "G1.4"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-3-2-regression-guard.js",
+          148,
+          148,
+          "G1.3.2"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-2-layer-switch.js",
+          83,
+          83,
+          "G1.2"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-3-a2-geo-event-engine.js",
+          229,
+          229,
+          "A2"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-3-a1-2-visitor-geo-sync.js",
+          189,
+          189,
+          "A1.2"
+        ],
+        [
+          "scripts/static-audit-g1-4-1.js",
+          56,
+          56,
+          "Static Audit G1.4.1"
+        ],
+        [
+          "scripts/static-audit-g1-4.js",
+          52,
+          52,
+          "Static Audit G1.4"
+        ],
+        [
+          "scripts/static-audit-g1-3-2.js",
+          48,
+          48,
+          "Static Audit G1.3.2"
+        ]
+      ]
+    },
+    "A1_2_1": {
+      "orchestratorFile": "scripts/run-regression-g1-6-a1-2-1.js",
+      "tupleCount": 26,
+      "orderedSuiteSha256": "155536dff4680e257653c7abffd3f14953e7cae07b45497a87df79afcbb25f9c",
+      "entries": [
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-2-1-time-and-marker-qa.js",
+          190,
+          190,
+          "A1.2.1 Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-a1-2-1.js",
+          106,
+          106,
+          "A1.2.1 Static Audit"
+        ],
+        [
+          "scripts/run-g1-6-a1-2-1-manual-qa.js",
+          41,
+          41,
+          "A1.2.1 QA Harness"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-2-authoritative-points.js",
+          261,
+          261,
+          "A1.2 Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-a1-2.js",
+          125,
+          125,
+          "A1.2 Static Audit"
+        ],
+        [
+          "scripts/verify-authoritative-admin-points.js",
+          57,
+          57,
+          "Catalog Verify"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-1-runtime-wiring.js",
+          160,
+          160,
+          "A1.1 Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-a1-1.js",
+          90,
+          90,
+          "A1.1 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-marker-unification.js",
+          50,
+          50,
+          "A1 Smoke"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-3-a1-geo-heatmap.js",
+          128,
+          128,
+          "Order Heatmap"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b1-1-dashboard-rewire.js",
+          108,
+          108,
+          "Dashboard Rewire"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-5-district-normalization.js",
+          76,
+          76,
+          "B2.5"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-4-ga4-city-partial.js",
+          139,
+          139,
+          "B2.4"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-3-ga4-endpoint-unification.js",
+          75,
+          75,
+          "B2.3"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-2-ga4-layer-auth.js",
+          95,
+          95,
+          "B2.2"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-1-ga4-settings-persistence.js",
+          85,
+          85,
+          "B2.1"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-ga4-settings.js",
+          187,
+          187,
+          "B2 Settings"
+        ],
+        [
+          "scripts/static-audit-g1-5-b2.js",
+          82,
+          82,
+          "B2 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2a-ga4-settings-ui.js",
+          106,
+          106,
+          "B2a"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b1-ga4-frontend-choropleth.js",
+          168,
+          168,
+          "B1"
+        ],
+        [
+          "scripts/static-audit-g1-5-b1.js",
+          71,
+          71,
+          "B1 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-a-ga4-backend-correctness.js",
+          140,
+          140,
+          "G1.5-A"
+        ],
+        [
+          "scripts/static-audit-g1-5-a.js",
+          77,
+          77,
+          "G1.5-A Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b2-geo-map.js",
+          620,
+          620,
+          "Geo Map Settings"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b3-geo-settings-ui.js",
+          157,
+          157,
+          "Geo Settings UI"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-live-geo.js",
+          212,
+          212,
+          "G1 geo-live"
+        ]
+      ]
+    },
+    "GA4_H1": {
+      "orchestratorFile": "scripts/run-regression-g1-6-ga4-h1.js",
+      "tupleCount": 31,
+      "orderedSuiteSha256": "c2b95ed1f480af74b0c49e4dd994eb5d8d5c1b97fcbe53682326830316b56bf0",
+      "entries": [
+        [
+          "scripts/run-g1-6-ga4-h1-qa.js",
+          22,
+          22,
+          "GA4-H1 QA Harness"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-ga4-h1-credential-guard.js",
+          17,
+          17,
+          "GA4-H1 Credential Guard"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-frontend-runtime.js",
+          81,
+          81,
+          "GA4-H1 Frontend Runtime"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-ga4-h1.js",
+          108,
+          108,
+          "GA4-H1 Targeted Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1.js",
+          190,
+          190,
+          "GA4-H1 Static Audit"
+        ],
+        [
+          "scripts/smoke-g1-6-a2-t1-client-ip-trust-diagnostic.js",
+          12,
+          12,
+          "A2-T1 Smoke"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-a-ga4-backend-correctness.js",
+          140,
+          140,
+          "G1.5-A Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-5-a.js",
+          77,
+          77,
+          "G1.5-A Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-live-geo.js",
+          212,
+          212,
+          "G1 geo-live"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-2-1-time-and-marker-qa.js",
+          190,
+          190,
+          "A1.2.1 Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-a1-2-1.js",
+          106,
+          106,
+          "A1.2.1 Static Audit"
+        ],
+        [
+          "scripts/run-g1-6-a1-2-1-manual-qa.js",
+          41,
+          41,
+          "A1.2.1 QA"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-2-authoritative-points.js",
+          261,
+          261,
+          "A1.2 Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-a1-2.js",
+          125,
+          125,
+          "A1.2 Static Audit"
+        ],
+        [
+          "scripts/verify-authoritative-admin-points.js",
+          57,
+          57,
+          "Catalog Verify"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-1-runtime-wiring.js",
+          160,
+          160,
+          "A1.1 Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-a1-1.js",
+          90,
+          90,
+          "A1.1 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-marker-unification.js",
+          50,
+          50,
+          "A1 Smoke"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-3-a1-geo-heatmap.js",
+          128,
+          128,
+          "Order Heatmap"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b1-1-dashboard-rewire.js",
+          108,
+          108,
+          "Dashboard Rewire"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-5-district-normalization.js",
+          76,
+          76,
+          "B2.5"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-4-ga4-city-partial.js",
+          139,
+          139,
+          "B2.4"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-3-ga4-endpoint-unification.js",
+          75,
+          75,
+          "B2.3"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-2-ga4-layer-auth.js",
+          95,
+          95,
+          "B2.2"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-1-ga4-settings-persistence.js",
+          85,
+          85,
+          "B2.1"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-ga4-settings.js",
+          187,
+          187,
+          "B2 Settings"
+        ],
+        [
+          "scripts/static-audit-g1-5-b2.js",
+          82,
+          82,
+          "B2 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2a-ga4-settings-ui.js",
+          106,
+          106,
+          "B2a"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b1-ga4-frontend-choropleth.js",
+          168,
+          168,
+          "B1"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b2-geo-map.js",
+          620,
+          620,
+          "Geo Map Settings"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b3-geo-settings-ui.js",
+          157,
+          157,
+          "Geo Settings UI"
+        ]
+      ]
+    },
+    "GA4_H1_1_AUTH": {
+      "orchestratorFile": "scripts/run-regression-g1-6-ga4-h1-1-auth.js",
+      "tupleCount": 34,
+      "orderedSuiteSha256": "301e04dcd0dbc498335f51e10116d7ebd983ab69de0d9d6176665cb6843f33ee",
+      "entries": [
+        [
+          "scripts/run-g1-6-ga4-h1-qa.js",
+          22,
+          22,
+          "GA4-H1 QA Harness"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-ga4-h1-credential-guard.js",
+          17,
+          17,
+          "GA4-H1 Credential Guard"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-frontend-runtime.js",
+          81,
+          81,
+          "GA4-H1 Frontend Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-1-browser-auth-runtime.js",
+          47,
+          47,
+          "GA4-H1.1 Browser Auth Runtime"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-ga4-h1-1-auth-mutations.js",
+          24,
+          24,
+          "GA4-H1.1 Auth Mutation Suite"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-1-ga4-diagnostic-contract.js",
+          40,
+          40,
+          "GA4-H1.1 GA4 Diagnostic Contract"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-ga4-h1.js",
+          108,
+          108,
+          "GA4-H1 Targeted Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1.js",
+          190,
+          190,
+          "GA4-H1 Static Audit"
+        ],
+        [
+          "scripts/smoke-g1-6-a2-t1-client-ip-trust-diagnostic.js",
+          12,
+          12,
+          "A2-T1 Smoke"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-a-ga4-backend-correctness.js",
+          140,
+          140,
+          "G1.5-A Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-5-a.js",
+          77,
+          77,
+          "G1.5-A Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-live-geo.js",
+          212,
+          212,
+          "G1 geo-live"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-2-1-time-and-marker-qa.js",
+          190,
+          190,
+          "A1.2.1 Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-a1-2-1.js",
+          106,
+          106,
+          "A1.2.1 Static Audit"
+        ],
+        [
+          "scripts/run-g1-6-a1-2-1-manual-qa.js",
+          41,
+          41,
+          "A1.2.1 QA"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-2-authoritative-points.js",
+          261,
+          261,
+          "A1.2 Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-a1-2.js",
+          125,
+          125,
+          "A1.2 Static Audit"
+        ],
+        [
+          "scripts/verify-authoritative-admin-points.js",
+          57,
+          57,
+          "Catalog Verify"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-1-runtime-wiring.js",
+          160,
+          160,
+          "A1.1 Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-a1-1.js",
+          90,
+          90,
+          "A1.1 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-marker-unification.js",
+          50,
+          50,
+          "A1 Smoke"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-3-a1-geo-heatmap.js",
+          128,
+          128,
+          "Order Heatmap"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b1-1-dashboard-rewire.js",
+          108,
+          108,
+          "Dashboard Rewire"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-5-district-normalization.js",
+          76,
+          76,
+          "B2.5"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-4-ga4-city-partial.js",
+          139,
+          139,
+          "B2.4"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-3-ga4-endpoint-unification.js",
+          75,
+          75,
+          "B2.3"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-2-ga4-layer-auth.js",
+          95,
+          95,
+          "B2.2"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-1-ga4-settings-persistence.js",
+          85,
+          85,
+          "B2.1"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-ga4-settings.js",
+          187,
+          187,
+          "B2 Settings"
+        ],
+        [
+          "scripts/static-audit-g1-5-b2.js",
+          82,
+          82,
+          "B2 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2a-ga4-settings-ui.js",
+          106,
+          106,
+          "B2a"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b1-ga4-frontend-choropleth.js",
+          168,
+          168,
+          "B1"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b2-geo-map.js",
+          620,
+          620,
+          "Geo Map Settings"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b3-geo-settings-ui.js",
+          157,
+          157,
+          "Geo Settings UI"
+        ]
+      ]
+    },
+    "GA4_H1_2": {
+      "orchestratorFile": "scripts/run-regression-g1-6-ga4-h1-2.js",
+      "tupleCount": 36,
+      "orderedSuiteSha256": "abe7f16ec07de896b05584c88b0b12d2c776d87a5a14d94382d24fd3c05f05c5",
+      "entries": [
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-6-unique-subdivision-normalization.js",
+          82,
+          82,
+          "H1.2 Unique Subdivision Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-2.js",
+          36,
+          36,
+          "H1.2 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-5-district-normalization.js",
+          76,
+          76,
+          "B2.5 District Normalization"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-4-ga4-city-partial.js",
+          139,
+          139,
+          "B2.4 City Partial"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-live-geo.js",
+          212,
+          212,
+          "G1 geo-live"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-a-ga4-backend-correctness.js",
+          140,
+          140,
+          "G1.5-A Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-5-a.js",
+          77,
+          77,
+          "G1.5-A Static Audit"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-qa.js",
+          22,
+          22,
+          "H1 QA"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-ga4-h1-credential-guard.js",
+          17,
+          17,
+          "H1 Credential Guard"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-ga4-h1.js",
+          108,
+          108,
+          "H1 Targeted Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1.js",
+          190,
+          190,
+          "H1 Static Audit"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-frontend-runtime.js",
+          81,
+          81,
+          "H1 Frontend Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-1-browser-auth-runtime.js",
+          47,
+          47,
+          "H1.1 Browser Auth Runtime"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-ga4-h1-1-auth-mutations.js",
+          24,
+          24,
+          "H1.1 Auth Mutation"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-1-ga4-diagnostic-contract.js",
+          40,
+          40,
+          "H1.1 Diagnostic Contract"
+        ],
+        [
+          "scripts/verify-authoritative-admin-points.js",
+          57,
+          57,
+          "A1.2 Catalog Verify"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-2-authoritative-points.js",
+          261,
+          261,
+          "A1.2 Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-a1-2.js",
+          125,
+          125,
+          "A1.2 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-2-1-time-and-marker-qa.js",
+          190,
+          190,
+          "A1.2.1 Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-a1-2-1.js",
+          106,
+          106,
+          "A1.2.1 Static Audit"
+        ],
+        [
+          "scripts/run-g1-6-a1-2-1-manual-qa.js",
+          41,
+          41,
+          "A1.2.1 QA"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-1-runtime-wiring.js",
+          160,
+          160,
+          "A1.1 Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-a1-1.js",
+          90,
+          90,
+          "A1.1 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-marker-unification.js",
+          50,
+          50,
+          "A1 Smoke"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b2-geo-map.js",
+          620,
+          620,
+          "Geo Map Settings"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b3-geo-settings-ui.js",
+          157,
+          157,
+          "Geo Settings UI"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-3-a1-geo-heatmap.js",
+          128,
+          128,
+          "Order Heatmap"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b1-1-dashboard-rewire.js",
+          108,
+          108,
+          "Dashboard Rewire"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-3-ga4-endpoint-unification.js",
+          75,
+          75,
+          "B2.3"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-2-ga4-layer-auth.js",
+          95,
+          95,
+          "B2.2"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-1-ga4-settings-persistence.js",
+          85,
+          85,
+          "B2.1"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-ga4-settings.js",
+          187,
+          187,
+          "B2 Settings"
+        ],
+        [
+          "scripts/static-audit-g1-5-b2.js",
+          82,
+          82,
+          "B2 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2a-ga4-settings-ui.js",
+          106,
+          106,
+          "B2a"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b1-ga4-frontend-choropleth.js",
+          168,
+          168,
+          "B1"
+        ],
+        [
+          "scripts/smoke-g1-6-a2-t1-client-ip-trust-diagnostic.js",
+          12,
+          12,
+          "A2-T1 Smoke"
+        ]
+      ]
+    },
+    "GA4_H1_3": {
+      "orchestratorFile": "scripts/run-regression-g1-6-ga4-h1-3.js",
+      "tupleCount": 42,
+      "orderedSuiteSha256": "09800fec117b785b6d99badecaf70d1e67b126cd2826222c03e9b06342aa5d49",
+      "entries": [
+        [
+          "scripts/run-g1-6-ga4-h1-3-request-builder-contract.js",
+          68,
+          68,
+          "H1.3 Request Builder Contract"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-3-event-compat-connection-test.js",
+          48,
+          48,
+          "H1.3 Event Compat Connection Test"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-3-realtime-event-runtime.js",
+          65,
+          65,
+          "H1.3 Realtime Event Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-3-historical-runtime.js",
+          44,
+          44,
+          "H1.3 Historical Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-3-mutations.js",
+          37,
+          37,
+          "H1.3 Mutation Suite"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-3.js",
+          63,
+          63,
+          "H1.3 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-6-unique-subdivision-normalization.js",
+          82,
+          82,
+          "H1.2 Unique Subdivision Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-2.js",
+          36,
+          36,
+          "H1.2 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-5-district-normalization.js",
+          76,
+          76,
+          "B2.5 District Normalization"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-4-ga4-city-partial.js",
+          139,
+          139,
+          "B2.4 City Partial"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-live-geo.js",
+          212,
+          212,
+          "G1 geo-live"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-a-ga4-backend-correctness.js",
+          140,
+          140,
+          "G1.5-A Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-5-a.js",
+          77,
+          77,
+          "G1.5-A Static Audit"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-qa.js",
+          22,
+          22,
+          "H1 QA"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-ga4-h1-credential-guard.js",
+          17,
+          17,
+          "H1 Credential Guard"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-ga4-h1.js",
+          108,
+          108,
+          "H1 Targeted Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1.js",
+          190,
+          190,
+          "H1 Static Audit"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-frontend-runtime.js",
+          81,
+          81,
+          "H1 Frontend Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-1-browser-auth-runtime.js",
+          47,
+          47,
+          "H1.1 Browser Auth Runtime"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-ga4-h1-1-auth-mutations.js",
+          24,
+          24,
+          "H1.1 Auth Mutation"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-1-ga4-diagnostic-contract.js",
+          40,
+          40,
+          "H1.1 Diagnostic Contract"
+        ],
+        [
+          "scripts/verify-authoritative-admin-points.js",
+          57,
+          57,
+          "A1.2 Catalog Verify"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-2-authoritative-points.js",
+          261,
+          261,
+          "A1.2 Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-a1-2.js",
+          125,
+          125,
+          "A1.2 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-2-1-time-and-marker-qa.js",
+          190,
+          190,
+          "A1.2.1 Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-a1-2-1.js",
+          106,
+          106,
+          "A1.2.1 Static Audit"
+        ],
+        [
+          "scripts/run-g1-6-a1-2-1-manual-qa.js",
+          41,
+          41,
+          "A1.2.1 QA"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-1-runtime-wiring.js",
+          160,
+          160,
+          "A1.1 Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-a1-1.js",
+          90,
+          90,
+          "A1.1 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-marker-unification.js",
+          50,
+          50,
+          "A1 Smoke"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b2-geo-map.js",
+          620,
+          620,
+          "Geo Map Settings"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b3-geo-settings-ui.js",
+          157,
+          157,
+          "Geo Settings UI"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-3-a1-geo-heatmap.js",
+          128,
+          128,
+          "Order Heatmap"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b1-1-dashboard-rewire.js",
+          108,
+          108,
+          "Dashboard Rewire"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-3-ga4-endpoint-unification.js",
+          75,
+          75,
+          "B2.3"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-2-ga4-layer-auth.js",
+          95,
+          95,
+          "B2.2"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-1-ga4-settings-persistence.js",
+          85,
+          85,
+          "B2.1"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-ga4-settings.js",
+          187,
+          187,
+          "B2 Settings"
+        ],
+        [
+          "scripts/static-audit-g1-5-b2.js",
+          82,
+          82,
+          "B2 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2a-ga4-settings-ui.js",
+          106,
+          106,
+          "B2a"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b1-ga4-frontend-choropleth.js",
+          168,
+          168,
+          "B1"
+        ],
+        [
+          "scripts/smoke-g1-6-a2-t1-client-ip-trust-diagnostic.js",
+          12,
+          12,
+          "A2-T1 Smoke"
+        ]
+      ]
+    },
+    "GA4_H1_4": {
+      "orchestratorFile": "scripts/run-regression-g1-6-ga4-h1-4.js",
+      "tupleCount": 56,
+      "orderedSuiteSha256": "c13efbd224be6b476c9db308a7e84494f90266ab4a1df71599223b0694c715e8",
+      "entries": [
+        [
+          "scripts/run-g1-6-ga4-h1-3-request-builder-contract.js",
+          68,
+          68,
+          "H1.3 Request Builder Contract"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-3-event-compat-connection-test.js",
+          48,
+          48,
+          "H1.3 Event Compat Connection Test"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-3-realtime-event-runtime.js",
+          65,
+          65,
+          "H1.3 Realtime Event Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-3-historical-runtime.js",
+          44,
+          44,
+          "H1.3 Historical Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-3-mutations.js",
+          37,
+          37,
+          "H1.3 Mutation Suite"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-3.js",
+          63,
+          63,
+          "H1.3 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-6-unique-subdivision-normalization.js",
+          82,
+          82,
+          "H1.2 Unique Subdivision Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-2.js",
+          36,
+          36,
+          "H1.2 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-5-district-normalization.js",
+          76,
+          76,
+          "B2.5 District Normalization"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-4-ga4-city-partial.js",
+          139,
+          139,
+          "B2.4 City Partial"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-live-geo.js",
+          212,
+          212,
+          "G1 geo-live"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-a-ga4-backend-correctness.js",
+          140,
+          140,
+          "G1.5-A Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-5-a.js",
+          77,
+          77,
+          "G1.5-A Static Audit"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-qa.js",
+          22,
+          22,
+          "H1 QA"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-ga4-h1-credential-guard.js",
+          17,
+          17,
+          "H1 Credential Guard"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-ga4-h1.js",
+          108,
+          108,
+          "H1 Targeted Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1.js",
+          190,
+          190,
+          "H1 Static Audit"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-frontend-runtime.js",
+          81,
+          81,
+          "H1 Frontend Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-1-browser-auth-runtime.js",
+          47,
+          47,
+          "H1.1 Browser Auth Runtime"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-ga4-h1-1-auth-mutations.js",
+          24,
+          24,
+          "H1.1 Auth Mutation"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-1-ga4-diagnostic-contract.js",
+          40,
+          40,
+          "H1.1 Diagnostic Contract"
+        ],
+        [
+          "scripts/verify-authoritative-admin-points.js",
+          57,
+          57,
+          "A1.2 Catalog Verify"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-2-authoritative-points.js",
+          261,
+          261,
+          "A1.2 Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-a1-2.js",
+          125,
+          125,
+          "A1.2 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-2-1-time-and-marker-qa.js",
+          190,
+          190,
+          "A1.2.1 Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-a1-2-1.js",
+          106,
+          106,
+          "A1.2.1 Static Audit"
+        ],
+        [
+          "scripts/run-g1-6-a1-2-1-manual-qa.js",
+          41,
+          41,
+          "A1.2.1 QA"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-1-runtime-wiring.js",
+          160,
+          160,
+          "A1.1 Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-a1-1.js",
+          90,
+          90,
+          "A1.1 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-marker-unification.js",
+          50,
+          50,
+          "A1 Smoke"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b2-geo-map.js",
+          620,
+          620,
+          "Geo Map Settings"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b3-geo-settings-ui.js",
+          157,
+          157,
+          "Geo Settings UI"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-3-a1-geo-heatmap.js",
+          128,
+          128,
+          "Order Heatmap"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b1-1-dashboard-rewire.js",
+          108,
+          108,
+          "Dashboard Rewire"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-3-ga4-endpoint-unification.js",
+          75,
+          75,
+          "B2.3"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-2-ga4-layer-auth.js",
+          95,
+          95,
+          "B2.2"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-1-ga4-settings-persistence.js",
+          85,
+          85,
+          "B2.1"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-ga4-settings.js",
+          187,
+          187,
+          "B2 Settings"
+        ],
+        [
+          "scripts/static-audit-g1-5-b2.js",
+          82,
+          82,
+          "B2 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2a-ga4-settings-ui.js",
+          106,
+          106,
+          "B2a"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b1-ga4-frontend-choropleth.js",
+          168,
+          168,
+          "B1"
+        ],
+        [
+          "scripts/smoke-g1-6-a2-t1-client-ip-trust-diagnostic.js",
+          12,
+          12,
+          "A2-T1 Smoke"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-layer-cleanup-runtime.js",
+          30,
+          30,
+          "H1.4 Layer Cleanup Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-range-backend-runtime.js",
+          25,
+          25,
+          "H1.4 Range Backend Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-timezone-parity-runtime.js",
+          17,
+          17,
+          "H1.4 Timezone Parity Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-range-runtime.js",
+          45,
+          45,
+          "H1.4 Range Resolver Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-range-ui-runtime.js",
+          37,
+          37,
+          "H1.4 Range UI Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-h1-range-integration-runtime.js",
+          35,
+          35,
+          "H1.4 H1 Range Integration Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-persisted-range-runtime.js",
+          23,
+          23,
+          "H1.4 Persisted Range Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-dashboard-source-runtime.js",
+          59,
+          59,
+          "H1.4 Dashboard Source Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-map-state-runtime.js",
+          100,
+          100,
+          "H1.4 Map State Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-lifecycle-aba-runtime.js",
+          22,
+          22,
+          "H1.4 Lifecycle ABA Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-map-state-mutations.js",
+          30,
+          30,
+          "H1.4 Mutation Suite"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-browser-entry-runtime.js",
+          24,
+          24,
+          "H1.4 Browser Entry Runtime"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-4.js",
+          230,
+          230,
+          "H1.4 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-3-a1-1-heatmap-dashboard-integration.js",
+          112,
+          112,
+          "Inherited Hash Smoke (Heatmap-Dashboard Integration)"
+        ]
+      ]
+    },
+    "GA4_H1_4_1": {
+      "orchestratorFile": "scripts/run-regression-g1-6-ga4-h1-4-1.js",
+      "tupleCount": 64,
+      "orderedSuiteSha256": "07e3942cdbbd8c077080bc50f10fdc5479460bdd716c18273110beb0e7c0c774",
+      "entries": [
+        [
+          "scripts/run-g1-6-ga4-h1-3-request-builder-contract.js",
+          68,
+          68,
+          "H1.3 Request Builder Contract"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-3-event-compat-connection-test.js",
+          48,
+          48,
+          "H1.3 Event Compat Connection Test"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-3-realtime-event-runtime.js",
+          65,
+          65,
+          "H1.3 Realtime Event Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-3-historical-runtime.js",
+          44,
+          44,
+          "H1.3 Historical Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-3-mutations.js",
+          37,
+          37,
+          "H1.3 Mutation Suite"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-3.js",
+          63,
+          63,
+          "H1.3 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-6-unique-subdivision-normalization.js",
+          82,
+          82,
+          "H1.2 Unique Subdivision Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-2.js",
+          36,
+          36,
+          "H1.2 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-5-district-normalization.js",
+          76,
+          76,
+          "B2.5 District Normalization"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-4-ga4-city-partial.js",
+          139,
+          139,
+          "B2.4 City Partial"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-live-geo.js",
+          212,
+          212,
+          "G1 geo-live"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-a-ga4-backend-correctness.js",
+          140,
+          140,
+          "G1.5-A Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-5-a.js",
+          77,
+          77,
+          "G1.5-A Static Audit"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-qa.js",
+          22,
+          22,
+          "H1 QA"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-ga4-h1-credential-guard.js",
+          17,
+          17,
+          "H1 Credential Guard"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-ga4-h1.js",
+          108,
+          108,
+          "H1 Targeted Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1.js",
+          190,
+          190,
+          "H1 Static Audit"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-frontend-runtime.js",
+          81,
+          81,
+          "H1 Frontend Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-1-browser-auth-runtime.js",
+          47,
+          47,
+          "H1.1 Browser Auth Runtime"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-ga4-h1-1-auth-mutations.js",
+          24,
+          24,
+          "H1.1 Auth Mutation"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-1-ga4-diagnostic-contract.js",
+          40,
+          40,
+          "H1.1 Diagnostic Contract"
+        ],
+        [
+          "scripts/verify-authoritative-admin-points.js",
+          57,
+          57,
+          "A1.2 Catalog Verify"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-2-authoritative-points.js",
+          261,
+          261,
+          "A1.2 Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-a1-2.js",
+          125,
+          125,
+          "A1.2 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-2-1-time-and-marker-qa.js",
+          190,
+          190,
+          "A1.2.1 Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-a1-2-1.js",
+          106,
+          106,
+          "A1.2.1 Static Audit"
+        ],
+        [
+          "scripts/run-g1-6-a1-2-1-manual-qa.js",
+          41,
+          41,
+          "A1.2.1 QA"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-1-runtime-wiring.js",
+          160,
+          160,
+          "A1.1 Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-a1-1.js",
+          90,
+          90,
+          "A1.1 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-marker-unification.js",
+          50,
+          50,
+          "A1 Smoke"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b2-geo-map.js",
+          620,
+          620,
+          "Geo Map Settings"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b3-geo-settings-ui.js",
+          157,
+          157,
+          "Geo Settings UI"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-3-a1-geo-heatmap.js",
+          128,
+          128,
+          "Order Heatmap"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b1-1-dashboard-rewire.js",
+          108,
+          108,
+          "Dashboard Rewire"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-3-ga4-endpoint-unification.js",
+          75,
+          75,
+          "B2.3"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-2-ga4-layer-auth.js",
+          95,
+          95,
+          "B2.2"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-1-ga4-settings-persistence.js",
+          85,
+          85,
+          "B2.1"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-ga4-settings.js",
+          187,
+          187,
+          "B2 Settings"
+        ],
+        [
+          "scripts/static-audit-g1-5-b2.js",
+          82,
+          82,
+          "B2 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2a-ga4-settings-ui.js",
+          106,
+          106,
+          "B2a"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b1-ga4-frontend-choropleth.js",
+          168,
+          168,
+          "B1"
+        ],
+        [
+          "scripts/smoke-g1-6-a2-t1-client-ip-trust-diagnostic.js",
+          12,
+          12,
+          "A2-T1 Smoke"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-layer-cleanup-runtime.js",
+          30,
+          30,
+          "H1.4 Layer Cleanup Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-range-backend-runtime.js",
+          25,
+          25,
+          "H1.4 Range Backend Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-timezone-parity-runtime.js",
+          17,
+          17,
+          "H1.4 Timezone Parity Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-range-runtime.js",
+          45,
+          45,
+          "H1.4 Range Resolver Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-range-ui-runtime.js",
+          37,
+          37,
+          "H1.4 Range UI Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-h1-range-integration-runtime.js",
+          35,
+          35,
+          "H1.4 H1 Range Integration Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-persisted-range-runtime.js",
+          23,
+          23,
+          "H1.4 Persisted Range Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-dashboard-source-runtime.js",
+          59,
+          59,
+          "H1.4 Dashboard Source Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-map-state-runtime.js",
+          100,
+          100,
+          "H1.4 Map State Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-lifecycle-aba-runtime.js",
+          22,
+          22,
+          "H1.4 Lifecycle ABA Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-map-state-mutations.js",
+          30,
+          30,
+          "H1.4 Mutation Suite"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-browser-entry-runtime.js",
+          24,
+          24,
+          "H1.4 Browser Entry Runtime"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-4.js",
+          230,
+          230,
+          "H1.4 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-3-a1-1-heatmap-dashboard-integration.js",
+          112,
+          112,
+          "Inherited Hash Smoke (Heatmap-Dashboard Integration)"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-1-c-geo-ui.js",
+          203,
+          203,
+          "H1.4.1 Legacy Migration: R5.1-C Geo UI"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b1-5-geo-dashboard-ui.js",
+          315,
+          315,
+          "H1.4.1 Legacy Migration: B1-5 Geo Dashboard UI"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b1-6-geo-explorer.js",
+          376,
+          376,
+          "H1.4.1 Legacy Migration: B1-6 Geo Explorer"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-3-a1-2-visitor-geo-sync.js",
+          189,
+          189,
+          "H1.4.1 Legacy Migration: A1.2 Visitor Geo Sync"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-3-a2-geo-event-engine.js",
+          229,
+          229,
+          "H1.4.1 Legacy Migration: A2 Geo Event Engine"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-3-a7-geo-kpi-single-source.js",
+          87,
+          87,
+          "H1.4.1 Legacy Migration: A7 Geo KPI Single Source"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-1-geo-dashboard-cleanup-runtime.js",
+          112,
+          112,
+          "H1.4.1 Target Runtime"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-4-1.js",
+          106,
+          106,
+          "H1.4.1 Static Audit"
+        ]
+      ]
+    },
+    "GA4_H1_4_2": {
+      "orchestratorFile": "scripts/run-regression-g1-6-ga4-h1-4-2.js",
+      "tupleCount": 67,
+      "orderedSuiteSha256": "9611d389c5ba414bb9b48b1a57e3fd1b2aa2c4b4df134411e807e311d7b3903d",
+      "entries": [
+        [
+          "scripts/run-g1-6-ga4-h1-3-request-builder-contract.js",
+          68,
+          68,
+          "H1.3 Request Builder Contract"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-3-event-compat-connection-test.js",
+          48,
+          48,
+          "H1.3 Event Compat Connection Test"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-3-realtime-event-runtime.js",
+          65,
+          65,
+          "H1.3 Realtime Event Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-3-historical-runtime.js",
+          44,
+          44,
+          "H1.3 Historical Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-3-mutations.js",
+          37,
+          37,
+          "H1.3 Mutation Suite"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-3.js",
+          63,
+          63,
+          "H1.3 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-6-unique-subdivision-normalization.js",
+          82,
+          82,
+          "H1.2 Unique Subdivision Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-2.js",
+          36,
+          36,
+          "H1.2 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-5-district-normalization.js",
+          76,
+          76,
+          "B2.5 District Normalization"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-4-ga4-city-partial.js",
+          139,
+          139,
+          "B2.4 City Partial"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-live-geo.js",
+          212,
+          212,
+          "G1 geo-live"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-a-ga4-backend-correctness.js",
+          140,
+          140,
+          "G1.5-A Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-5-a.js",
+          77,
+          77,
+          "G1.5-A Static Audit"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-qa.js",
+          22,
+          22,
+          "H1 QA"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-ga4-h1-credential-guard.js",
+          17,
+          17,
+          "H1 Credential Guard"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-ga4-h1.js",
+          108,
+          108,
+          "H1 Targeted Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1.js",
+          190,
+          190,
+          "H1 Static Audit"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-frontend-runtime.js",
+          81,
+          81,
+          "H1 Frontend Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-1-browser-auth-runtime.js",
+          47,
+          47,
+          "H1.1 Browser Auth Runtime"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-ga4-h1-1-auth-mutations.js",
+          24,
+          24,
+          "H1.1 Auth Mutation"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-1-ga4-diagnostic-contract.js",
+          40,
+          40,
+          "H1.1 Diagnostic Contract"
+        ],
+        [
+          "scripts/verify-authoritative-admin-points.js",
+          57,
+          57,
+          "A1.2 Catalog Verify"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-2-authoritative-points.js",
+          261,
+          261,
+          "A1.2 Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-a1-2.js",
+          125,
+          125,
+          "A1.2 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-2-1-time-and-marker-qa.js",
+          190,
+          190,
+          "A1.2.1 Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-a1-2-1.js",
+          106,
+          106,
+          "A1.2.1 Static Audit"
+        ],
+        [
+          "scripts/run-g1-6-a1-2-1-manual-qa.js",
+          41,
+          41,
+          "A1.2.1 QA"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-1-runtime-wiring.js",
+          160,
+          160,
+          "A1.1 Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-a1-1.js",
+          90,
+          90,
+          "A1.1 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-marker-unification.js",
+          50,
+          50,
+          "A1 Smoke"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b2-geo-map.js",
+          620,
+          620,
+          "Geo Map Settings"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b3-geo-settings-ui.js",
+          157,
+          157,
+          "Geo Settings UI"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-3-a1-geo-heatmap.js",
+          128,
+          128,
+          "Order Heatmap"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b1-1-dashboard-rewire.js",
+          108,
+          108,
+          "Dashboard Rewire"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-3-ga4-endpoint-unification.js",
+          75,
+          75,
+          "B2.3"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-2-ga4-layer-auth.js",
+          95,
+          95,
+          "B2.2"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-1-ga4-settings-persistence.js",
+          85,
+          85,
+          "B2.1"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-ga4-settings.js",
+          187,
+          187,
+          "B2 Settings"
+        ],
+        [
+          "scripts/static-audit-g1-5-b2.js",
+          82,
+          82,
+          "B2 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2a-ga4-settings-ui.js",
+          106,
+          106,
+          "B2a"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b1-ga4-frontend-choropleth.js",
+          168,
+          168,
+          "B1"
+        ],
+        [
+          "scripts/smoke-g1-6-a2-t1-client-ip-trust-diagnostic.js",
+          12,
+          12,
+          "A2-T1 Smoke"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-layer-cleanup-runtime.js",
+          30,
+          30,
+          "H1.4 Layer Cleanup Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-range-backend-runtime.js",
+          25,
+          25,
+          "H1.4 Range Backend Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-timezone-parity-runtime.js",
+          17,
+          17,
+          "H1.4 Timezone Parity Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-range-runtime.js",
+          45,
+          45,
+          "H1.4 Range Resolver Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-range-ui-runtime.js",
+          37,
+          37,
+          "H1.4 Range UI Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-h1-range-integration-runtime.js",
+          35,
+          35,
+          "H1.4 H1 Range Integration Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-persisted-range-runtime.js",
+          23,
+          23,
+          "H1.4 Persisted Range Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-dashboard-source-runtime.js",
+          59,
+          59,
+          "H1.4 Dashboard Source Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-map-state-runtime.js",
+          100,
+          100,
+          "H1.4 Map State Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-lifecycle-aba-runtime.js",
+          22,
+          22,
+          "H1.4 Lifecycle ABA Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-map-state-mutations.js",
+          30,
+          30,
+          "H1.4 Mutation Suite"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-browser-entry-runtime.js",
+          24,
+          24,
+          "H1.4 Browser Entry Runtime"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-4.js",
+          230,
+          230,
+          "H1.4 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-3-a1-1-heatmap-dashboard-integration.js",
+          112,
+          112,
+          "Inherited Hash Smoke (Heatmap-Dashboard Integration)"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-1-c-geo-ui.js",
+          203,
+          203,
+          "H1.4.1 Legacy Migration: R5.1-C Geo UI"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b1-5-geo-dashboard-ui.js",
+          315,
+          315,
+          "H1.4.1 Legacy Migration: B1-5 Geo Dashboard UI"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b1-6-geo-explorer.js",
+          376,
+          376,
+          "H1.4.1 Legacy Migration: B1-6 Geo Explorer"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-3-a1-2-visitor-geo-sync.js",
+          189,
+          189,
+          "H1.4.1 Legacy Migration: A1.2 Visitor Geo Sync"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-3-a2-geo-event-engine.js",
+          229,
+          229,
+          "H1.4.1 Legacy Migration: A2 Geo Event Engine"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-3-a7-geo-kpi-single-source.js",
+          87,
+          87,
+          "H1.4.1 Legacy Migration: A7 Geo KPI Single Source"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-1-geo-dashboard-cleanup-runtime.js",
+          112,
+          112,
+          "H1.4.1 Target Runtime"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-4-1.js",
+          106,
+          106,
+          "H1.4.1 Static Audit"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-2-range-map-wheel-runtime.js",
+          129,
+          129,
+          "H1.4.2 Browser Target Runtime (Range/Map/Wheel/Sync CTA/DOM Replacement)"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-2-persisted-identity-runtime.js",
+          44,
+          44,
+          "H1.4.2 Persisted Identity Round-Trip Runtime"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-4-2.js",
+          134,
+          134,
+          "H1.4.2 Static Audit"
+        ]
+      ]
+    },
+    "GA4_H1_4_3": {
+      "orchestratorFile": "scripts/run-regression-g1-6-ga4-h1-4-3.js",
+      "tupleCount": 70,
+      "orderedSuiteSha256": "2e00f859dca8d21ff8ab155715b7b1b81eea7fb2046ff61de62aa1ccbf1835c1",
+      "entries": [
+        [
+          "scripts/run-g1-6-ga4-h1-3-request-builder-contract.js",
+          68,
+          68,
+          "H1.3 Request Builder Contract"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-3-event-compat-connection-test.js",
+          48,
+          48,
+          "H1.3 Event Compat Connection Test"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-3-realtime-event-runtime.js",
+          65,
+          65,
+          "H1.3 Realtime Event Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-3-historical-runtime.js",
+          44,
+          44,
+          "H1.3 Historical Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-3-mutations.js",
+          37,
+          37,
+          "H1.3 Mutation Suite"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-3.js",
+          63,
+          63,
+          "H1.3 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-6-unique-subdivision-normalization.js",
+          82,
+          82,
+          "H1.2 Unique Subdivision Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-2.js",
+          36,
+          36,
+          "H1.2 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-5-district-normalization.js",
+          76,
+          76,
+          "B2.5 District Normalization"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-4-ga4-city-partial.js",
+          139,
+          139,
+          "B2.4 City Partial"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-live-geo.js",
+          212,
+          212,
+          "G1 geo-live"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-a-ga4-backend-correctness.js",
+          140,
+          140,
+          "G1.5-A Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-5-a.js",
+          77,
+          77,
+          "G1.5-A Static Audit"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-qa.js",
+          22,
+          22,
+          "H1 QA"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-ga4-h1-credential-guard.js",
+          17,
+          17,
+          "H1 Credential Guard"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-ga4-h1.js",
+          108,
+          108,
+          "H1 Targeted Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1.js",
+          190,
+          190,
+          "H1 Static Audit"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-frontend-runtime.js",
+          81,
+          81,
+          "H1 Frontend Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-1-browser-auth-runtime.js",
+          47,
+          47,
+          "H1.1 Browser Auth Runtime"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-ga4-h1-1-auth-mutations.js",
+          24,
+          24,
+          "H1.1 Auth Mutation"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-1-ga4-diagnostic-contract.js",
+          40,
+          40,
+          "H1.1 Diagnostic Contract"
+        ],
+        [
+          "scripts/verify-authoritative-admin-points.js",
+          57,
+          57,
+          "A1.2 Catalog Verify"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-2-authoritative-points.js",
+          261,
+          261,
+          "A1.2 Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-a1-2.js",
+          125,
+          125,
+          "A1.2 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-2-1-time-and-marker-qa.js",
+          190,
+          190,
+          "A1.2.1 Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-a1-2-1.js",
+          106,
+          106,
+          "A1.2.1 Static Audit"
+        ],
+        [
+          "scripts/run-g1-6-a1-2-1-manual-qa.js",
+          41,
+          41,
+          "A1.2.1 QA"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-1-runtime-wiring.js",
+          160,
+          160,
+          "A1.1 Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-a1-1.js",
+          90,
+          90,
+          "A1.1 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-marker-unification.js",
+          50,
+          50,
+          "A1 Smoke"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b2-geo-map.js",
+          620,
+          620,
+          "Geo Map Settings"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b3-geo-settings-ui.js",
+          157,
+          157,
+          "Geo Settings UI"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-3-a1-geo-heatmap.js",
+          128,
+          128,
+          "Order Heatmap"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b1-1-dashboard-rewire.js",
+          108,
+          108,
+          "Dashboard Rewire"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-3-ga4-endpoint-unification.js",
+          75,
+          75,
+          "B2.3"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-2-ga4-layer-auth.js",
+          95,
+          95,
+          "B2.2"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-1-ga4-settings-persistence.js",
+          85,
+          85,
+          "B2.1"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-ga4-settings.js",
+          187,
+          187,
+          "B2 Settings"
+        ],
+        [
+          "scripts/static-audit-g1-5-b2.js",
+          82,
+          82,
+          "B2 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2a-ga4-settings-ui.js",
+          106,
+          106,
+          "B2a"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b1-ga4-frontend-choropleth.js",
+          168,
+          168,
+          "B1"
+        ],
+        [
+          "scripts/smoke-g1-6-a2-t1-client-ip-trust-diagnostic.js",
+          12,
+          12,
+          "A2-T1 Smoke"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-layer-cleanup-runtime.js",
+          30,
+          30,
+          "H1.4 Layer Cleanup Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-range-backend-runtime.js",
+          25,
+          25,
+          "H1.4 Range Backend Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-timezone-parity-runtime.js",
+          17,
+          17,
+          "H1.4 Timezone Parity Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-range-runtime.js",
+          45,
+          45,
+          "H1.4 Range Resolver Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-range-ui-runtime.js",
+          37,
+          37,
+          "H1.4 Range UI Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-h1-range-integration-runtime.js",
+          35,
+          35,
+          "H1.4 H1 Range Integration Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-persisted-range-runtime.js",
+          23,
+          23,
+          "H1.4 Persisted Range Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-dashboard-source-runtime.js",
+          59,
+          59,
+          "H1.4 Dashboard Source Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-map-state-runtime.js",
+          100,
+          100,
+          "H1.4 Map State Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-lifecycle-aba-runtime.js",
+          22,
+          22,
+          "H1.4 Lifecycle ABA Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-map-state-mutations.js",
+          30,
+          30,
+          "H1.4 Mutation Suite"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-browser-entry-runtime.js",
+          24,
+          24,
+          "H1.4 Browser Entry Runtime"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-4.js",
+          230,
+          230,
+          "H1.4 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-3-a1-1-heatmap-dashboard-integration.js",
+          112,
+          112,
+          "Inherited Hash Smoke (Heatmap-Dashboard Integration)"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-1-c-geo-ui.js",
+          203,
+          203,
+          "H1.4.1 Legacy Migration: R5.1-C Geo UI"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b1-5-geo-dashboard-ui.js",
+          315,
+          315,
+          "H1.4.1 Legacy Migration: B1-5 Geo Dashboard UI"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b1-6-geo-explorer.js",
+          376,
+          376,
+          "H1.4.1 Legacy Migration: B1-6 Geo Explorer"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-3-a1-2-visitor-geo-sync.js",
+          189,
+          189,
+          "H1.4.1 Legacy Migration: A1.2 Visitor Geo Sync"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-3-a2-geo-event-engine.js",
+          229,
+          229,
+          "H1.4.1 Legacy Migration: A2 Geo Event Engine"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-3-a7-geo-kpi-single-source.js",
+          87,
+          87,
+          "H1.4.1 Legacy Migration: A7 Geo KPI Single Source"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-1-geo-dashboard-cleanup-runtime.js",
+          112,
+          112,
+          "H1.4.1 Target Runtime"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-4-1.js",
+          106,
+          106,
+          "H1.4.1 Static Audit"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-2-range-map-wheel-runtime.js",
+          129,
+          129,
+          "H1.4.2 Browser Target Runtime (Range/Map/Wheel/Sync CTA/DOM Replacement)"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-2-persisted-identity-runtime.js",
+          44,
+          44,
+          "H1.4.2 Persisted Identity Round-Trip Runtime"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-4-2.js",
+          134,
+          134,
+          "H1.4.2 Static Audit"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-3-heatmap-range-runtime.js",
+          64,
+          64,
+          "H1.4.3 Heatmap Range Runtime (10 ranges + race + empty + cross-range stale fallback guard + custom-transport collision guard + search + Overseas disambiguation)"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-3-data-lineage-runtime.js",
+          33,
+          33,
+          "H1.4.3 Data Lineage Runtime (Raw→Normalize→Persist→Read→Heatmap/Dashboard ViewModel, real SQLite)"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-4-3.js",
+          161,
+          161,
+          "H1.4.3 Static Audit (Cross-range cache identity / Overseas display / No snapshot summing / Single payload / Search / Realtime-Historical split / H1.4.2 freeze / Backend scope)"
+        ]
+      ]
+    },
+    "GA4_H1_4_4": {
+      "orchestratorFile": "scripts/run-regression-g1-6-ga4-h1-4-4.js",
+      "tupleCount": 72,
+      "orderedSuiteSha256": "77cfacd5039140c53fc56ad31f541d7910626cc7826405042d7f5017e6790465",
+      "entries": [
+        [
+          "scripts/run-g1-6-ga4-h1-3-request-builder-contract.js",
+          68,
+          68,
+          "H1.3 Request Builder Contract"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-3-event-compat-connection-test.js",
+          48,
+          48,
+          "H1.3 Event Compat Connection Test"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-3-realtime-event-runtime.js",
+          65,
+          65,
+          "H1.3 Realtime Event Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-3-historical-runtime.js",
+          44,
+          44,
+          "H1.3 Historical Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-3-mutations.js",
+          37,
+          37,
+          "H1.3 Mutation Suite"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-3.js",
+          63,
+          63,
+          "H1.3 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-6-unique-subdivision-normalization.js",
+          82,
+          82,
+          "H1.2 Unique Subdivision Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-2.js",
+          36,
+          36,
+          "H1.2 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-5-district-normalization.js",
+          76,
+          76,
+          "B2.5 District Normalization"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-4-ga4-city-partial.js",
+          139,
+          139,
+          "B2.4 City Partial"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-live-geo.js",
+          212,
+          212,
+          "G1 geo-live"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-a-ga4-backend-correctness.js",
+          140,
+          140,
+          "G1.5-A Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-5-a.js",
+          77,
+          77,
+          "G1.5-A Static Audit"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-qa.js",
+          22,
+          22,
+          "H1 QA"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-ga4-h1-credential-guard.js",
+          17,
+          17,
+          "H1 Credential Guard"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-ga4-h1.js",
+          108,
+          108,
+          "H1 Targeted Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1.js",
+          190,
+          190,
+          "H1 Static Audit"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-frontend-runtime.js",
+          81,
+          81,
+          "H1 Frontend Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-1-browser-auth-runtime.js",
+          47,
+          47,
+          "H1.1 Browser Auth Runtime"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-ga4-h1-1-auth-mutations.js",
+          24,
+          24,
+          "H1.1 Auth Mutation"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-1-ga4-diagnostic-contract.js",
+          40,
+          40,
+          "H1.1 Diagnostic Contract"
+        ],
+        [
+          "scripts/verify-authoritative-admin-points.js",
+          57,
+          57,
+          "A1.2 Catalog Verify"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-2-authoritative-points.js",
+          261,
+          261,
+          "A1.2 Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-a1-2.js",
+          125,
+          125,
+          "A1.2 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-2-1-time-and-marker-qa.js",
+          190,
+          190,
+          "A1.2.1 Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-a1-2-1.js",
+          106,
+          106,
+          "A1.2.1 Static Audit"
+        ],
+        [
+          "scripts/run-g1-6-a1-2-1-manual-qa.js",
+          41,
+          41,
+          "A1.2.1 QA"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-1-runtime-wiring.js",
+          160,
+          160,
+          "A1.1 Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-a1-1.js",
+          90,
+          90,
+          "A1.1 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-marker-unification.js",
+          50,
+          50,
+          "A1 Smoke"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b2-geo-map.js",
+          620,
+          620,
+          "Geo Map Settings"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b3-geo-settings-ui.js",
+          157,
+          157,
+          "Geo Settings UI"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-3-a1-geo-heatmap.js",
+          128,
+          128,
+          "Order Heatmap"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b1-1-dashboard-rewire.js",
+          108,
+          108,
+          "Dashboard Rewire"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-3-ga4-endpoint-unification.js",
+          75,
+          75,
+          "B2.3"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-2-ga4-layer-auth.js",
+          95,
+          95,
+          "B2.2"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-1-ga4-settings-persistence.js",
+          85,
+          85,
+          "B2.1"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-ga4-settings.js",
+          187,
+          187,
+          "B2 Settings"
+        ],
+        [
+          "scripts/static-audit-g1-5-b2.js",
+          82,
+          82,
+          "B2 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2a-ga4-settings-ui.js",
+          106,
+          106,
+          "B2a"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b1-ga4-frontend-choropleth.js",
+          168,
+          168,
+          "B1"
+        ],
+        [
+          "scripts/smoke-g1-6-a2-t1-client-ip-trust-diagnostic.js",
+          12,
+          12,
+          "A2-T1 Smoke"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-layer-cleanup-runtime.js",
+          30,
+          30,
+          "H1.4 Layer Cleanup Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-range-backend-runtime.js",
+          25,
+          25,
+          "H1.4 Range Backend Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-timezone-parity-runtime.js",
+          17,
+          17,
+          "H1.4 Timezone Parity Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-range-runtime.js",
+          45,
+          45,
+          "H1.4 Range Resolver Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-range-ui-runtime.js",
+          37,
+          37,
+          "H1.4 Range UI Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-h1-range-integration-runtime.js",
+          35,
+          35,
+          "H1.4 H1 Range Integration Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-persisted-range-runtime.js",
+          23,
+          23,
+          "H1.4 Persisted Range Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-dashboard-source-runtime.js",
+          59,
+          59,
+          "H1.4 Dashboard Source Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-map-state-runtime.js",
+          100,
+          100,
+          "H1.4 Map State Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-lifecycle-aba-runtime.js",
+          22,
+          22,
+          "H1.4 Lifecycle ABA Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-map-state-mutations.js",
+          30,
+          30,
+          "H1.4 Mutation Suite"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-browser-entry-runtime.js",
+          24,
+          24,
+          "H1.4 Browser Entry Runtime"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-4.js",
+          230,
+          230,
+          "H1.4 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-3-a1-1-heatmap-dashboard-integration.js",
+          112,
+          112,
+          "Inherited Hash Smoke (Heatmap-Dashboard Integration)"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-1-c-geo-ui.js",
+          203,
+          203,
+          "H1.4.1 Legacy Migration: R5.1-C Geo UI"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b1-5-geo-dashboard-ui.js",
+          315,
+          315,
+          "H1.4.1 Legacy Migration: B1-5 Geo Dashboard UI"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b1-6-geo-explorer.js",
+          376,
+          376,
+          "H1.4.1 Legacy Migration: B1-6 Geo Explorer"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-3-a1-2-visitor-geo-sync.js",
+          189,
+          189,
+          "H1.4.1 Legacy Migration: A1.2 Visitor Geo Sync"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-3-a2-geo-event-engine.js",
+          229,
+          229,
+          "H1.4.1 Legacy Migration: A2 Geo Event Engine"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-3-a7-geo-kpi-single-source.js",
+          87,
+          87,
+          "H1.4.1 Legacy Migration: A7 Geo KPI Single Source"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-1-geo-dashboard-cleanup-runtime.js",
+          112,
+          112,
+          "H1.4.1 Target Runtime"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-4-1.js",
+          106,
+          106,
+          "H1.4.1 Static Audit"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-2-range-map-wheel-runtime.js",
+          129,
+          129,
+          "H1.4.2 Browser Target Runtime (Range/Map/Wheel/Sync CTA/DOM Replacement)"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-2-persisted-identity-runtime.js",
+          44,
+          44,
+          "H1.4.2 Persisted Identity Round-Trip Runtime"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-4-2.js",
+          134,
+          134,
+          "H1.4.2 Static Audit"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-3-heatmap-range-runtime.js",
+          64,
+          64,
+          "H1.4.3 Heatmap Range Runtime (10 ranges + race + empty + cross-range stale fallback guard + custom-transport collision guard + search + Overseas disambiguation)"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-3-data-lineage-runtime.js",
+          33,
+          33,
+          "H1.4.3 Data Lineage Runtime (Raw→Normalize→Persist→Read→Heatmap/Dashboard ViewModel, real SQLite)"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-4-3.js",
+          161,
+          161,
+          "H1.4.3 Static Audit (Cross-range cache identity / Overseas display / No snapshot summing / Single payload / Search / Realtime-Historical split / H1.4.2 freeze / Backend scope)"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-4-view-item-runtime.js",
+          25,
+          25,
+          "H1.4.4 View Item Semantics Runtime (real line-order.html/line-shipping.html DOM + real analytics-platforms.js: 9-card impression regression, card-click has no sender, add_to_cart/remove_from_cart independence, ecommerce smoke, init idempotence) — H1.4.6: card-click assertions SUPERSEDED (25 vs original 24; see file CHANGELOG)"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-4-4.js",
+          23,
+          23,
+          "H1.4.4 Static Audit (view_product not mapped to GA4 view_item / no view_item sender in either page / ecommerce mapping preserved / Meta+internal preserved / H1.4.3 freeze)"
+        ]
+      ]
+    },
+    "GA4_H1_4_5": {
+      "orchestratorFile": "scripts/run-regression-g1-6-ga4-h1-4-5.js",
+      "tupleCount": 74,
+      "orderedSuiteSha256": "091d481d11ebff4f1e754698ef9f390b55292e5a8ae6341febcd96d80710c468",
+      "entries": [
+        [
+          "scripts/run-g1-6-ga4-h1-3-request-builder-contract.js",
+          68,
+          68,
+          "H1.3 Request Builder Contract"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-3-event-compat-connection-test.js",
+          48,
+          48,
+          "H1.3 Event Compat Connection Test"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-3-realtime-event-runtime.js",
+          65,
+          65,
+          "H1.3 Realtime Event Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-3-historical-runtime.js",
+          44,
+          44,
+          "H1.3 Historical Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-3-mutations.js",
+          37,
+          37,
+          "H1.3 Mutation Suite"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-3.js",
+          63,
+          63,
+          "H1.3 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-6-unique-subdivision-normalization.js",
+          82,
+          82,
+          "H1.2 Unique Subdivision Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-2.js",
+          36,
+          36,
+          "H1.2 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-5-district-normalization.js",
+          76,
+          76,
+          "B2.5 District Normalization"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-4-ga4-city-partial.js",
+          139,
+          139,
+          "B2.4 City Partial"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-live-geo.js",
+          212,
+          212,
+          "G1 geo-live"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-a-ga4-backend-correctness.js",
+          140,
+          140,
+          "G1.5-A Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-5-a.js",
+          77,
+          77,
+          "G1.5-A Static Audit"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-qa.js",
+          22,
+          22,
+          "H1 QA"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-ga4-h1-credential-guard.js",
+          17,
+          17,
+          "H1 Credential Guard"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-ga4-h1.js",
+          108,
+          108,
+          "H1 Targeted Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1.js",
+          190,
+          190,
+          "H1 Static Audit"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-frontend-runtime.js",
+          81,
+          81,
+          "H1 Frontend Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-1-browser-auth-runtime.js",
+          47,
+          47,
+          "H1.1 Browser Auth Runtime"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-ga4-h1-1-auth-mutations.js",
+          24,
+          24,
+          "H1.1 Auth Mutation"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-1-ga4-diagnostic-contract.js",
+          40,
+          40,
+          "H1.1 Diagnostic Contract"
+        ],
+        [
+          "scripts/verify-authoritative-admin-points.js",
+          57,
+          57,
+          "A1.2 Catalog Verify"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-2-authoritative-points.js",
+          261,
+          261,
+          "A1.2 Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-a1-2.js",
+          125,
+          125,
+          "A1.2 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-2-1-time-and-marker-qa.js",
+          190,
+          190,
+          "A1.2.1 Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-a1-2-1.js",
+          106,
+          106,
+          "A1.2.1 Static Audit"
+        ],
+        [
+          "scripts/run-g1-6-a1-2-1-manual-qa.js",
+          41,
+          41,
+          "A1.2.1 QA"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-1-runtime-wiring.js",
+          160,
+          160,
+          "A1.1 Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-a1-1.js",
+          90,
+          90,
+          "A1.1 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-marker-unification.js",
+          50,
+          50,
+          "A1 Smoke"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b2-geo-map.js",
+          620,
+          620,
+          "Geo Map Settings"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b3-geo-settings-ui.js",
+          157,
+          157,
+          "Geo Settings UI"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-3-a1-geo-heatmap.js",
+          128,
+          128,
+          "Order Heatmap"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b1-1-dashboard-rewire.js",
+          108,
+          108,
+          "Dashboard Rewire"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-3-ga4-endpoint-unification.js",
+          75,
+          75,
+          "B2.3"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-2-ga4-layer-auth.js",
+          95,
+          95,
+          "B2.2"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-1-ga4-settings-persistence.js",
+          85,
+          85,
+          "B2.1"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-ga4-settings.js",
+          187,
+          187,
+          "B2 Settings"
+        ],
+        [
+          "scripts/static-audit-g1-5-b2.js",
+          82,
+          82,
+          "B2 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2a-ga4-settings-ui.js",
+          106,
+          106,
+          "B2a"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b1-ga4-frontend-choropleth.js",
+          168,
+          168,
+          "B1"
+        ],
+        [
+          "scripts/smoke-g1-6-a2-t1-client-ip-trust-diagnostic.js",
+          12,
+          12,
+          "A2-T1 Smoke"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-layer-cleanup-runtime.js",
+          30,
+          30,
+          "H1.4 Layer Cleanup Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-range-backend-runtime.js",
+          25,
+          25,
+          "H1.4 Range Backend Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-timezone-parity-runtime.js",
+          17,
+          17,
+          "H1.4 Timezone Parity Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-range-runtime.js",
+          45,
+          45,
+          "H1.4 Range Resolver Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-range-ui-runtime.js",
+          37,
+          37,
+          "H1.4 Range UI Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-h1-range-integration-runtime.js",
+          35,
+          35,
+          "H1.4 H1 Range Integration Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-persisted-range-runtime.js",
+          23,
+          23,
+          "H1.4 Persisted Range Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-dashboard-source-runtime.js",
+          59,
+          59,
+          "H1.4 Dashboard Source Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-map-state-runtime.js",
+          100,
+          100,
+          "H1.4 Map State Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-lifecycle-aba-runtime.js",
+          22,
+          22,
+          "H1.4 Lifecycle ABA Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-map-state-mutations.js",
+          30,
+          30,
+          "H1.4 Mutation Suite"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-browser-entry-runtime.js",
+          24,
+          24,
+          "H1.4 Browser Entry Runtime"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-4.js",
+          230,
+          230,
+          "H1.4 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-3-a1-1-heatmap-dashboard-integration.js",
+          112,
+          112,
+          "Inherited Hash Smoke (Heatmap-Dashboard Integration)"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-1-c-geo-ui.js",
+          203,
+          203,
+          "H1.4.1 Legacy Migration: R5.1-C Geo UI"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b1-5-geo-dashboard-ui.js",
+          315,
+          315,
+          "H1.4.1 Legacy Migration: B1-5 Geo Dashboard UI"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b1-6-geo-explorer.js",
+          376,
+          376,
+          "H1.4.1 Legacy Migration: B1-6 Geo Explorer"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-3-a1-2-visitor-geo-sync.js",
+          189,
+          189,
+          "H1.4.1 Legacy Migration: A1.2 Visitor Geo Sync"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-3-a2-geo-event-engine.js",
+          229,
+          229,
+          "H1.4.1 Legacy Migration: A2 Geo Event Engine"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-3-a7-geo-kpi-single-source.js",
+          87,
+          87,
+          "H1.4.1 Legacy Migration: A7 Geo KPI Single Source"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-1-geo-dashboard-cleanup-runtime.js",
+          112,
+          112,
+          "H1.4.1 Target Runtime"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-4-1.js",
+          106,
+          106,
+          "H1.4.1 Static Audit"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-2-range-map-wheel-runtime.js",
+          129,
+          129,
+          "H1.4.2 Browser Target Runtime (Range/Map/Wheel/Sync CTA/DOM Replacement)"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-2-persisted-identity-runtime.js",
+          44,
+          44,
+          "H1.4.2 Persisted Identity Round-Trip Runtime"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-4-2.js",
+          134,
+          134,
+          "H1.4.2 Static Audit"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-3-heatmap-range-runtime.js",
+          64,
+          64,
+          "H1.4.3 Heatmap Range Runtime (10 ranges + race + empty + cross-range stale fallback guard + custom-transport collision guard + search + Overseas disambiguation)"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-3-data-lineage-runtime.js",
+          33,
+          33,
+          "H1.4.3 Data Lineage Runtime (Raw→Normalize→Persist→Read→Heatmap/Dashboard ViewModel, real SQLite)"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-4-3.js",
+          161,
+          161,
+          "H1.4.3 Static Audit (Cross-range cache identity / Overseas display / No snapshot summing / Single payload / Search / Realtime-Historical split / H1.4.2 freeze / Backend scope)"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-4-view-item-runtime.js",
+          25,
+          25,
+          "H1.4.4 View Item Semantics Runtime (real line-order.html/line-shipping.html DOM + real analytics-platforms.js: 9-card impression regression, card-click has no sender, add_to_cart/remove_from_cart independence, ecommerce smoke, init idempotence) — H1.4.6: card-click assertions SUPERSEDED (25 vs original 24; see file CHANGELOG)"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-4-4.js",
+          23,
+          23,
+          "H1.4.4 Static Audit (view_product not mapped to GA4 view_item / no view_item sender in either page / ecommerce mapping preserved / Meta+internal preserved / H1.4.3 freeze)"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-5-exposure-runtime.js",
+          31,
+          31,
+          "H1.4.5 Product Exposure-to-Cart Rate Runtime (real getProductRanking() + real sql.js DB: 1/1=100, 3/10=30, view=0→null, 1/2=200 no-cap, delisted product, store isolation, date range, channel filter)"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-4-5.js",
+          40,
+          40,
+          "H1.4.5 Static/UI Audit (主儀表板/Analytics V2/AI Insights 曝光語意標籤 + view_to_cart_rate/view_to_add_rate API 欄位未破壞性改名 + GA4 view_item/Meta Pixel/GA4即時地圖 語意保護 Hard Gate)"
+        ]
+      ]
+    },
+    "GA4_H1_4_6": {
+      "orchestratorFile": "scripts/run-regression-g1-6-ga4-h1-4-6.js",
+      "tupleCount": 76,
+      "orderedSuiteSha256": "fce12b0b72d15265547da299e5e63f313bb28a4447a23a43ebe1dc117922c8cb",
+      "entries": [
+        [
+          "scripts/run-g1-6-ga4-h1-3-request-builder-contract.js",
+          68,
+          68,
+          "H1.3 Request Builder Contract"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-3-event-compat-connection-test.js",
+          48,
+          48,
+          "H1.3 Event Compat Connection Test"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-3-realtime-event-runtime.js",
+          65,
+          65,
+          "H1.3 Realtime Event Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-3-historical-runtime.js",
+          44,
+          44,
+          "H1.3 Historical Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-3-mutations.js",
+          37,
+          37,
+          "H1.3 Mutation Suite"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-3.js",
+          63,
+          63,
+          "H1.3 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-6-unique-subdivision-normalization.js",
+          82,
+          82,
+          "H1.2 Unique Subdivision Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-2.js",
+          36,
+          36,
+          "H1.2 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-5-district-normalization.js",
+          76,
+          76,
+          "B2.5 District Normalization"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-4-ga4-city-partial.js",
+          139,
+          139,
+          "B2.4 City Partial"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-live-geo.js",
+          212,
+          212,
+          "G1 geo-live"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-a-ga4-backend-correctness.js",
+          140,
+          140,
+          "G1.5-A Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-5-a.js",
+          77,
+          77,
+          "G1.5-A Static Audit"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-qa.js",
+          22,
+          22,
+          "H1 QA"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-ga4-h1-credential-guard.js",
+          17,
+          17,
+          "H1 Credential Guard"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-ga4-h1.js",
+          108,
+          108,
+          "H1 Targeted Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1.js",
+          190,
+          190,
+          "H1 Static Audit"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-frontend-runtime.js",
+          81,
+          81,
+          "H1 Frontend Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-1-browser-auth-runtime.js",
+          47,
+          47,
+          "H1.1 Browser Auth Runtime"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-ga4-h1-1-auth-mutations.js",
+          24,
+          24,
+          "H1.1 Auth Mutation"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-1-ga4-diagnostic-contract.js",
+          40,
+          40,
+          "H1.1 Diagnostic Contract"
+        ],
+        [
+          "scripts/verify-authoritative-admin-points.js",
+          57,
+          57,
+          "A1.2 Catalog Verify"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-2-authoritative-points.js",
+          261,
+          261,
+          "A1.2 Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-a1-2.js",
+          125,
+          125,
+          "A1.2 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-2-1-time-and-marker-qa.js",
+          190,
+          190,
+          "A1.2.1 Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-a1-2-1.js",
+          106,
+          106,
+          "A1.2.1 Static Audit"
+        ],
+        [
+          "scripts/run-g1-6-a1-2-1-manual-qa.js",
+          41,
+          41,
+          "A1.2.1 QA"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-1-runtime-wiring.js",
+          160,
+          160,
+          "A1.1 Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-a1-1.js",
+          90,
+          90,
+          "A1.1 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-marker-unification.js",
+          50,
+          50,
+          "A1 Smoke"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b2-geo-map.js",
+          620,
+          620,
+          "Geo Map Settings"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b3-geo-settings-ui.js",
+          157,
+          157,
+          "Geo Settings UI"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-3-a1-geo-heatmap.js",
+          128,
+          128,
+          "Order Heatmap"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b1-1-dashboard-rewire.js",
+          108,
+          108,
+          "Dashboard Rewire"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-3-ga4-endpoint-unification.js",
+          75,
+          75,
+          "B2.3"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-2-ga4-layer-auth.js",
+          95,
+          95,
+          "B2.2"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-1-ga4-settings-persistence.js",
+          85,
+          85,
+          "B2.1"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-ga4-settings.js",
+          187,
+          187,
+          "B2 Settings"
+        ],
+        [
+          "scripts/static-audit-g1-5-b2.js",
+          82,
+          82,
+          "B2 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2a-ga4-settings-ui.js",
+          106,
+          106,
+          "B2a"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b1-ga4-frontend-choropleth.js",
+          168,
+          168,
+          "B1"
+        ],
+        [
+          "scripts/smoke-g1-6-a2-t1-client-ip-trust-diagnostic.js",
+          12,
+          12,
+          "A2-T1 Smoke"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-layer-cleanup-runtime.js",
+          30,
+          30,
+          "H1.4 Layer Cleanup Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-range-backend-runtime.js",
+          25,
+          25,
+          "H1.4 Range Backend Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-timezone-parity-runtime.js",
+          17,
+          17,
+          "H1.4 Timezone Parity Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-range-runtime.js",
+          45,
+          45,
+          "H1.4 Range Resolver Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-range-ui-runtime.js",
+          37,
+          37,
+          "H1.4 Range UI Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-h1-range-integration-runtime.js",
+          35,
+          35,
+          "H1.4 H1 Range Integration Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-persisted-range-runtime.js",
+          23,
+          23,
+          "H1.4 Persisted Range Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-dashboard-source-runtime.js",
+          59,
+          59,
+          "H1.4 Dashboard Source Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-map-state-runtime.js",
+          100,
+          100,
+          "H1.4 Map State Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-lifecycle-aba-runtime.js",
+          22,
+          22,
+          "H1.4 Lifecycle ABA Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-map-state-mutations.js",
+          30,
+          30,
+          "H1.4 Mutation Suite"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-browser-entry-runtime.js",
+          24,
+          24,
+          "H1.4 Browser Entry Runtime"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-4.js",
+          230,
+          230,
+          "H1.4 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-3-a1-1-heatmap-dashboard-integration.js",
+          112,
+          112,
+          "Inherited Hash Smoke (Heatmap-Dashboard Integration)"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-1-c-geo-ui.js",
+          203,
+          203,
+          "H1.4.1 Legacy Migration: R5.1-C Geo UI"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b1-5-geo-dashboard-ui.js",
+          315,
+          315,
+          "H1.4.1 Legacy Migration: B1-5 Geo Dashboard UI"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b1-6-geo-explorer.js",
+          376,
+          376,
+          "H1.4.1 Legacy Migration: B1-6 Geo Explorer"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-3-a1-2-visitor-geo-sync.js",
+          189,
+          189,
+          "H1.4.1 Legacy Migration: A1.2 Visitor Geo Sync"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-3-a2-geo-event-engine.js",
+          229,
+          229,
+          "H1.4.1 Legacy Migration: A2 Geo Event Engine"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-3-a7-geo-kpi-single-source.js",
+          87,
+          87,
+          "H1.4.1 Legacy Migration: A7 Geo KPI Single Source"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-1-geo-dashboard-cleanup-runtime.js",
+          112,
+          112,
+          "H1.4.1 Target Runtime"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-4-1.js",
+          106,
+          106,
+          "H1.4.1 Static Audit"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-2-range-map-wheel-runtime.js",
+          129,
+          129,
+          "H1.4.2 Browser Target Runtime (Range/Map/Wheel/Sync CTA/DOM Replacement)"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-2-persisted-identity-runtime.js",
+          44,
+          44,
+          "H1.4.2 Persisted Identity Round-Trip Runtime"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-4-2.js",
+          134,
+          134,
+          "H1.4.2 Static Audit"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-3-heatmap-range-runtime.js",
+          64,
+          64,
+          "H1.4.3 Heatmap Range Runtime (10 ranges + race + empty + cross-range stale fallback guard + custom-transport collision guard + search + Overseas disambiguation)"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-3-data-lineage-runtime.js",
+          33,
+          33,
+          "H1.4.3 Data Lineage Runtime (Raw→Normalize→Persist→Read→Heatmap/Dashboard ViewModel, real SQLite)"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-4-3.js",
+          161,
+          161,
+          "H1.4.3 Static Audit (Cross-range cache identity / Overseas display / No snapshot summing / Single payload / Search / Realtime-Historical split / H1.4.2 freeze / Backend scope)"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-4-view-item-runtime.js",
+          25,
+          25,
+          "H1.4.4 View Item Semantics Runtime (real line-order.html/line-shipping.html DOM + real analytics-platforms.js: 9-card impression regression, card-click has no sender, add_to_cart/remove_from_cart independence, ecommerce smoke, init idempotence) — H1.4.6: card-click assertions SUPERSEDED (25 vs original 24; see file CHANGELOG)"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-4-4.js",
+          23,
+          23,
+          "H1.4.4 Static Audit (view_product not mapped to GA4 view_item / no view_item sender in either page / ecommerce mapping preserved / Meta+internal preserved / H1.4.3 freeze)"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-5-exposure-runtime.js",
+          31,
+          31,
+          "H1.4.5 Product Exposure-to-Cart Rate Runtime (real getProductRanking() + real sql.js DB: 1/1=100, 3/10=30, view=0→null, 1/2=200 no-cap, delisted product, store isolation, date range, channel filter)"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-4-5.js",
+          40,
+          40,
+          "H1.4.5 Static/UI Audit (主儀表板/Analytics V2/AI Insights 曝光語意標籤 + view_to_cart_rate/view_to_add_rate API 欄位未破壞性改名 + GA4 view_item/Meta Pixel/GA4即時地圖 語意保護 Hard Gate)"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-6-runtime.js",
+          37,
+          37,
+          "H1.4.6 Product Detail Modal Runtime (real jsdom + real public/js/product-detail-modal.js: open/close/backdrop/Esc/qty/subtotal/maxQty/無圖無介紹fallback/快速連點防護/blocked商品/onOpen單次觸發/長文字不噴錯)"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-4-6.js",
+          72,
+          72,
+          "H1.4.6 Static/UI/Analytics Audit (LINE外帶外送/宅配共用同一份Modal元件 + 商品卡點擊/鍵盤開啟 + 加入購物車呼叫既有addCart()/changeQty() + 不繞過售完判斷 + Modal UI要求 + 固定購物車列 + view_product/view_item語意分離 + GA4 items[] + 規格加料界線 + 後端驗證未放寬；H1.4.7 更新：5 項過期 checkout 斷言已 supersede，66→72)"
+        ]
+      ]
+    },
+    "GA4_H1_4_7": {
+      "orchestratorFile": "scripts/run-regression-g1-6-ga4-h1-4-7.js",
+      "tupleCount": 79,
+      "orderedSuiteSha256": "c52d6c5034ff5792c33b2617758f9c7cf606578a875a6920778c91cd988ec303",
+      "entries": [
+        [
+          "scripts/run-g1-6-ga4-h1-3-request-builder-contract.js",
+          68,
+          68,
+          "H1.3 Request Builder Contract"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-3-event-compat-connection-test.js",
+          48,
+          48,
+          "H1.3 Event Compat Connection Test"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-3-realtime-event-runtime.js",
+          65,
+          65,
+          "H1.3 Realtime Event Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-3-historical-runtime.js",
+          44,
+          44,
+          "H1.3 Historical Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-3-mutations.js",
+          37,
+          37,
+          "H1.3 Mutation Suite"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-3.js",
+          63,
+          63,
+          "H1.3 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-6-unique-subdivision-normalization.js",
+          82,
+          82,
+          "H1.2 Unique Subdivision Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-2.js",
+          36,
+          36,
+          "H1.2 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-5-district-normalization.js",
+          76,
+          76,
+          "B2.5 District Normalization"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-4-ga4-city-partial.js",
+          139,
+          139,
+          "B2.4 City Partial"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-live-geo.js",
+          212,
+          212,
+          "G1 geo-live"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-a-ga4-backend-correctness.js",
+          140,
+          140,
+          "G1.5-A Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-5-a.js",
+          77,
+          77,
+          "G1.5-A Static Audit"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-qa.js",
+          22,
+          22,
+          "H1 QA"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-ga4-h1-credential-guard.js",
+          17,
+          17,
+          "H1 Credential Guard"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-ga4-h1.js",
+          108,
+          108,
+          "H1 Targeted Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1.js",
+          190,
+          190,
+          "H1 Static Audit"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-frontend-runtime.js",
+          81,
+          81,
+          "H1 Frontend Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-1-browser-auth-runtime.js",
+          47,
+          47,
+          "H1.1 Browser Auth Runtime"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-ga4-h1-1-auth-mutations.js",
+          24,
+          24,
+          "H1.1 Auth Mutation"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-1-ga4-diagnostic-contract.js",
+          40,
+          40,
+          "H1.1 Diagnostic Contract"
+        ],
+        [
+          "scripts/verify-authoritative-admin-points.js",
+          57,
+          57,
+          "A1.2 Catalog Verify"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-2-authoritative-points.js",
+          261,
+          261,
+          "A1.2 Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-a1-2.js",
+          125,
+          125,
+          "A1.2 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-2-1-time-and-marker-qa.js",
+          190,
+          190,
+          "A1.2.1 Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-a1-2-1.js",
+          106,
+          106,
+          "A1.2.1 Static Audit"
+        ],
+        [
+          "scripts/run-g1-6-a1-2-1-manual-qa.js",
+          41,
+          41,
+          "A1.2.1 QA"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-1-runtime-wiring.js",
+          160,
+          160,
+          "A1.1 Smoke"
+        ],
+        [
+          "scripts/static-audit-g1-6-a1-1.js",
+          90,
+          90,
+          "A1.1 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-marker-unification.js",
+          50,
+          50,
+          "A1 Smoke"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b2-geo-map.js",
+          620,
+          620,
+          "Geo Map Settings"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b3-geo-settings-ui.js",
+          157,
+          157,
+          "Geo Settings UI"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-3-a1-geo-heatmap.js",
+          128,
+          128,
+          "Order Heatmap"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b1-1-dashboard-rewire.js",
+          108,
+          108,
+          "Dashboard Rewire"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-3-ga4-endpoint-unification.js",
+          75,
+          75,
+          "B2.3"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-2-ga4-layer-auth.js",
+          95,
+          95,
+          "B2.2"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-1-ga4-settings-persistence.js",
+          85,
+          85,
+          "B2.1"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-ga4-settings.js",
+          187,
+          187,
+          "B2 Settings"
+        ],
+        [
+          "scripts/static-audit-g1-5-b2.js",
+          82,
+          82,
+          "B2 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2a-ga4-settings-ui.js",
+          106,
+          106,
+          "B2a"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-4-g1-5-b1-ga4-frontend-choropleth.js",
+          168,
+          168,
+          "B1"
+        ],
+        [
+          "scripts/smoke-g1-6-a2-t1-client-ip-trust-diagnostic.js",
+          12,
+          12,
+          "A2-T1 Smoke"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-layer-cleanup-runtime.js",
+          30,
+          30,
+          "H1.4 Layer Cleanup Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-range-backend-runtime.js",
+          25,
+          25,
+          "H1.4 Range Backend Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-timezone-parity-runtime.js",
+          17,
+          17,
+          "H1.4 Timezone Parity Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-range-runtime.js",
+          45,
+          45,
+          "H1.4 Range Resolver Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-range-ui-runtime.js",
+          37,
+          37,
+          "H1.4 Range UI Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-h1-range-integration-runtime.js",
+          35,
+          35,
+          "H1.4 H1 Range Integration Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-persisted-range-runtime.js",
+          23,
+          23,
+          "H1.4 Persisted Range Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-dashboard-source-runtime.js",
+          59,
+          59,
+          "H1.4 Dashboard Source Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-map-state-runtime.js",
+          100,
+          100,
+          "H1.4 Map State Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-lifecycle-aba-runtime.js",
+          22,
+          22,
+          "H1.4 Lifecycle ABA Runtime"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-map-state-mutations.js",
+          30,
+          30,
+          "H1.4 Mutation Suite"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-browser-entry-runtime.js",
+          24,
+          24,
+          "H1.4 Browser Entry Runtime"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-4.js",
+          230,
+          230,
+          "H1.4 Static Audit"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-3-a1-1-heatmap-dashboard-integration.js",
+          112,
+          112,
+          "Inherited Hash Smoke (Heatmap-Dashboard Integration)"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-1-c-geo-ui.js",
+          203,
+          203,
+          "H1.4.1 Legacy Migration: R5.1-C Geo UI"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b1-5-geo-dashboard-ui.js",
+          315,
+          315,
+          "H1.4.1 Legacy Migration: B1-5 Geo Dashboard UI"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-2-b1-6-geo-explorer.js",
+          376,
+          376,
+          "H1.4.1 Legacy Migration: B1-6 Geo Explorer"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-3-a1-2-visitor-geo-sync.js",
+          189,
+          189,
+          "H1.4.1 Legacy Migration: A1.2 Visitor Geo Sync"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-3-a2-geo-event-engine.js",
+          229,
+          229,
+          "H1.4.1 Legacy Migration: A2 Geo Event Engine"
+        ],
+        [
+          "scripts/smoke-hotfix30-b5-r5-3-a7-geo-kpi-single-source.js",
+          87,
+          87,
+          "H1.4.1 Legacy Migration: A7 Geo KPI Single Source"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-1-geo-dashboard-cleanup-runtime.js",
+          112,
+          112,
+          "H1.4.1 Target Runtime"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-4-1.js",
+          106,
+          106,
+          "H1.4.1 Static Audit"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-2-range-map-wheel-runtime.js",
+          129,
+          129,
+          "H1.4.2 Browser Target Runtime (Range/Map/Wheel/Sync CTA/DOM Replacement)"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-2-persisted-identity-runtime.js",
+          44,
+          44,
+          "H1.4.2 Persisted Identity Round-Trip Runtime"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-4-2.js",
+          134,
+          134,
+          "H1.4.2 Static Audit"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-3-heatmap-range-runtime.js",
+          64,
+          64,
+          "H1.4.3 Heatmap Range Runtime (10 ranges + race + empty + cross-range stale fallback guard + custom-transport collision guard + search + Overseas disambiguation)"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-3-data-lineage-runtime.js",
+          33,
+          33,
+          "H1.4.3 Data Lineage Runtime (Raw→Normalize→Persist→Read→Heatmap/Dashboard ViewModel, real SQLite)"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-4-3.js",
+          161,
+          161,
+          "H1.4.3 Static Audit (Cross-range cache identity / Overseas display / No snapshot summing / Single payload / Search / Realtime-Historical split / H1.4.2 freeze / Backend scope)"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-4-view-item-runtime.js",
+          25,
+          25,
+          "H1.4.4 View Item Semantics Runtime (real line-order.html/line-shipping.html DOM + real analytics-platforms.js: 9-card impression regression, card-click has no sender, add_to_cart/remove_from_cart independence, ecommerce smoke, init idempotence) — H1.4.6: card-click assertions SUPERSEDED (25 vs original 24; see file CHANGELOG)"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-4-4.js",
+          23,
+          23,
+          "H1.4.4 Static Audit (view_product not mapped to GA4 view_item / no view_item sender in either page / ecommerce mapping preserved / Meta+internal preserved / H1.4.3 freeze)"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-5-exposure-runtime.js",
+          31,
+          31,
+          "H1.4.5 Product Exposure-to-Cart Rate Runtime (real getProductRanking() + real sql.js DB: 1/1=100, 3/10=30, view=0→null, 1/2=200 no-cap, delisted product, store isolation, date range, channel filter)"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-4-5.js",
+          40,
+          40,
+          "H1.4.5 Static/UI Audit (主儀表板/Analytics V2/AI Insights 曝光語意標籤 + view_to_cart_rate/view_to_add_rate API 欄位未破壞性改名 + GA4 view_item/Meta Pixel/GA4即時地圖 語意保護 Hard Gate)"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-6-runtime.js",
+          37,
+          37,
+          "H1.4.6 Product Detail Modal Runtime (real jsdom + real public/js/product-detail-modal.js: open/close/backdrop/Esc/qty/subtotal/maxQty/無圖無介紹fallback/快速連點防護/blocked商品/onOpen單次觸發/長文字不噴錯)"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-4-6.js",
+          72,
+          72,
+          "H1.4.6 Static/UI/Analytics Audit (LINE外帶外送/宅配共用同一份Modal元件 + 商品卡點擊/鍵盤開啟 + 加入購物車呼叫既有addCart()/changeQty() + 不繞過售完判斷 + Modal UI要求 + 固定購物車列 + view_product/view_item語意分離 + GA4 items[] + 規格加料界線 + 後端驗證未放寬；H1.4.7 更新：5 項過期 checkout 斷言已 supersede，66→72)"
+        ],
+        [
+          "scripts/static-audit-g1-6-ga4-h1-4-7.js",
+          40,
+          40,
+          "H1.4.7 Static Audit (line-order/line-shipping 兩階段結構、cartBar 只開 cartStage、view_cart 在 openCartSheet、checkout_click 在 _enterCheckoutStage、無 begin_checkout 呼叫、submit_order 路徑分離、Meta trackCustom/track 分流、GA4 canonical map、Funnel 七階段順序、getIncomplete 排除已購買、Geo 相容別名)"
+        ],
+        [
+          "scripts/run-g1-6-ga4-h1-4-7-two-stage-checkout-runtime.js",
+          113,
+          113,
+          "H1.4.7 Two-Stage Checkout Runtime (real jsdom + 真實 public/line-order.html/public/line-shipping.html：查看購物車→cartStage→前往結帳→checkoutStage→確認下單，view_cart/checkout_click/begin_checkout 事件契約，LIFF/Gate 導回，清空購物車，商品詳情 modal 回歸)"
+        ],
+        [
+          "scripts/run-h1-4-7-analytics-contract-runtime.js",
+          61,
+          61,
+          "H1.4.7 Analytics Contract Runtime (真實 utils/db.js sql.js schema + fixture：EVENT_WHITELIST、getFunnel()/getIncomplete()/getProductFunnel()/getGeoFunnel() 真實數字、平台真實派送 fbq/gtag stub、真實 HTTP 路由接收、fixture 時間戳落在 resolveDateRange 區間內自我診斷)"
+        ]
+      ]
+    }
+  }
+}

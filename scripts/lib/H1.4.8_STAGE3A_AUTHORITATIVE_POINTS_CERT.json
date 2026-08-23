@@ -1,0 +1,298 @@
+{
+  "file": "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-2-authoritative-points.js",
+  "certifiedAt": "2026-08-16T15:26:04.338Z",
+  "childRuntimeExecuted": false,
+  "verificationMethod": "staticSourceAudit (node --check is syntax-only, not execution; TypeScript AST parsing is read-only source analysis)",
+  "preModificationBaseline": {
+    "gitHashObjectMatchedLockedRecord": true,
+    "lockedHash": "b8476351a95573d4ee205ed422f26e98771ab512",
+    "lockedSha256": "49b98b1eb087e22708a78665ddec89e487f0bfc66a93536c4b12bd2e1502a9a9",
+    "astAssertCallCount": 212,
+    "sectionMarkerCount": 16,
+    "sourceLineCount": 535,
+    "method": "TypeScript compiler AST (ts.createSourceFile + walk)"
+  },
+  "postModificationVerification": {
+    "astAssertCallCount": 222,
+    "allArgumentsStructurallyIdentical": true,
+    "fullCallOrderedHash": "f6b0c81bc765a13a251875786318d1a52cad87742dbcd2ce1bff15e6a3ebaa4a",
+    "fullCallHashMatch": true,
+    "sectionMarkerCount": 16,
+    "sectionsDeepStrictEqualBaseline": true,
+    "note": "Total is 222 (212 original preserved exactly + 10 new additive Q1-Q10 self-proving assertions, corrected from an initial 9 to 10 after adding Q10 for post-persistence file-level containment) -- see selfProvingAssertions and correctionsThisTurn for the full breakdown."
+  },
+  "preExistingTestDefectFound": {
+    "claim": "The original code did NOT actually use two separate databases, despite naming variables DB_FILE and DB_FILE2 and unlinking each separately.",
+    "evidence": [
+      "DB_FILE = path.join(DATA_DIR, 'pos.db') where DATA_DIR = path.join(ROOT, 'data') -> resolves to ROOT/data/pos.db (the REAL production database).",
+      "DB_FILE2 = path.join(ROOT, 'data/pos.db') -> resolves to the IDENTICAL path, ROOT/data/pos.db. Not a different file at all.",
+      "Both section O and section P did `const { initDb, getDb } = require(path.join(ROOT, 'utils/db.js'))` -- the exact same resolved absolute path both times, with ZERO require.cache eviction anywhere in the file (confirmed by grep).",
+      "utils/db.js's initDb() has an internal guard `if (wrappedDb) return wrappedDb;` -- so section P's initDb() call did not create a new in-memory database; it returned the SAME already-created wrappedDb object from section O.",
+      "Consequence: section P's `db2` was literally the same JS object reference as section O's `db`. Deleting the real data/pos.db FILE on disk between sections had no effect on this already-loaded in-memory object -- section O's fixture data (store_a12, store_a12_other, and their geo visit logs) remained present in memory when section P ran."
+    ],
+    "whyAssertionsStillPassedDespiteTheDefect": "Section P's assertions all query specifically for 'store_partial' (a store_id never used in section O), so the leftover section-O data in the shared in-memory object never became visible to section P's queries. This was accidental correctness from store_id-based filtering, not real isolation by design.",
+    "reportedNotSilentlyPreserved": true,
+    "fixApplied": "Section P now: computes a genuinely separate sibling temp DB path via dbHelper.createChildDbPath(dbContext.tmpRoot, 'db2'); sets POS_DB_PATH to it (full replacement, never unset/emptied); evicts require.cache ONLY for utils/db.js's own resolved absolute path (confirmed safe -- see moduleCacheEvictionAudit below); re-requires utils/db.js, producing a genuinely fresh module instance with its own independent wrappedDb. Section O and section P now use two REAL, independent, isolated temp databases, matching the code's apparent original intent.",
+    "assertionBehaviorUnchanged": "Confirmed via the AST full-argument comparison above (212/212 identical) -- fixing the underlying defect required zero changes to any assertion condition, since none of them depend on DB1/DB2 sharing or not sharing state (section P always filters by the disjoint store_partial store_id)."
+  },
+  "moduleCacheEvictionAudit": {
+    "evictedModule": "utils/db.js only (require.resolve(path.join(ROOT, \"utils/db.js\")) -- single targeted delete, not a broad require.cache wipe)",
+    "otherRequiredProductionModules": [
+      {
+        "module": "utils/authoritativeAdminPointCatalog.js (catalogTool)",
+        "requiresUtilsDb": false,
+        "note": "grep-confirmed: no require of utils/db anywhere in this module"
+      },
+      {
+        "module": "utils/geoVisitLog.js (geoVisitLog)",
+        "requiresUtilsDb": false,
+        "note": "grep-confirmed: no require of utils/db; logGeoVisit(db, fields) and getGeoLiveMarkerModel(db, storeId, options) both take `db` as an explicit function PARAMETER, never a closure-captured module-level reference -- so re-requiring utils/db.js cannot leave either function holding a stale handle"
+      },
+      {
+        "module": "routes/geo-live.js",
+        "requiresUtilsDb": true,
+        "note": "only its SOURCE TEXT is read via fs.readFileSync for static pattern-matching assertions (routeSrc) -- it is never actually require()'d/executed as a module in this file, so its own internal utils/db require is never invoked here at all"
+      }
+    ],
+    "conclusion": "No other module in this file's dependency chain closure-captures a stale utils/db reference; evicting only utils/db.js's cache entry is sufficient and correctly scoped."
+  },
+  "posDbPathStateTable": [
+    {
+      "step": "file load / module scope",
+      "posDbPath": "(unset by this file; whatever bootstrapChildDb() will set)",
+      "posDbTempRoot": "(unset)",
+      "loadedUtilsDbGeneration": "none",
+      "activeHandle": "none"
+    },
+    {
+      "step": "runEntry() bootstrap",
+      "posDbPath": "DB1 path (validated, inside a fresh mkdtemp root)",
+      "posDbTempRoot": "set (validated)",
+      "loadedUtilsDbGeneration": "none yet",
+      "activeHandle": "none"
+    },
+    {
+      "step": "section O: require utils/db.js + initDb()",
+      "posDbPath": "DB1 path (unchanged)",
+      "posDbTempRoot": "unchanged",
+      "loadedUtilsDbGeneration": "generation 1 (fresh module load)",
+      "activeHandle": "handle1 (registered)"
+    },
+    {
+      "step": "between O and P: compute DB2 path",
+      "posDbPath": "still DB1 path (not yet switched)",
+      "posDbTempRoot": "unchanged",
+      "loadedUtilsDbGeneration": "generation 1",
+      "activeHandle": "handle1"
+    },
+    {
+      "step": "between O and P: process.env.POS_DB_PATH = db2Path",
+      "posDbPath": "DB2 path (full replacement, atomic single assignment -- never unset/emptied in between)",
+      "posDbTempRoot": "unchanged (still the same validated root, DB2 is a sibling path inside it)",
+      "loadedUtilsDbGeneration": "generation 1 (stale utils/db.js instance still cached at this exact instant)",
+      "activeHandle": "handle1 (still valid, unaffected)"
+    },
+    {
+      "step": "require.cache eviction for utils/db.js",
+      "posDbPath": "DB2 path",
+      "posDbTempRoot": "unchanged",
+      "loadedUtilsDbGeneration": "generation 1 evicted from cache (module code itself unaffected, only the cache entry removed)",
+      "activeHandle": "handle1 (object itself untouched by the cache eviction)"
+    },
+    {
+      "step": "section P: re-require utils/db.js + initDb()",
+      "posDbPath": "DB2 path (unchanged)",
+      "posDbTempRoot": "unchanged",
+      "loadedUtilsDbGeneration": "generation 2 (fresh module load, fresh wrappedDb = undefined internally, so initDb() creates a genuinely new object)",
+      "activeHandle": "handle1 AND handle2 (both registered, both valid)"
+    },
+    {
+      "step": "runEntry() finally: cleanup",
+      "posDbPath": "DB2 path (env untouched during cleanup itself)",
+      "posDbTempRoot": "unchanged until final root removal (standalone-owned only)",
+      "loadedUtilsDbGeneration": "generation 2 (irrelevant at this point)",
+      "activeHandle": "handle2 closed first, then handle1 (reverse creation order)"
+    }
+  ],
+  "ownershipModel": {
+    "threeWaySeparation": {
+      "filesystemRootOwnership": "governed by dbContext.ownsTempRoot -- only deleted if this process created the root (standalone mode)",
+      "dbFileOwnership": "DB1 = dbContext.dbPath (from bootstrapChildDb); DB2 = dbHelper.createChildDbPath(dbContext.tmpRoot, \"db2\") -- both are always siblings inside the SAME validated root, whether that root is standalone-owned or parent-provided",
+      "processLocalHandleOwnership": "handle1 and handle2 (the in-memory sql.js wrapped DB objects) are always closed by this process regardless of root ownership -- closing an in-memory handle is a process-local operation independent of who owns the underlying file/root"
+    },
+    "standaloneMode": {
+      "singleBootstrapCall": true,
+      "db1FromBootstrap": true,
+      "db2AsSiblingViaCreateChildDbPath": true,
+      "secondBootstrapCallToFakeDb2": false,
+      "handlesClosedBeforeFileCleanup": true
+    },
+    "parentProvidedMode": {
+      "bothOrNeitherEnvContractEnforced": "via bootstrapChildDb()/validateParentProvidedDb() in scripts/lib/qa-temp-db.js -- unchanged, this file does not duplicate that logic",
+      "db2BuiltInSameParentProvidedRoot": true,
+      "childClosesOwnProcessLocalHandles": true,
+      "childNeverUnlinksDb1Db2OrRoot": "dbContext.cleanup() (the only step that deletes anything) is gated on dbContext.ownsTempRoot === true, which validateParentProvidedDb() always sets to false",
+      "parentResponsibleForFinalRootRemoval": true
+    },
+    "prohibitedPatternsConfirmed": {
+      "posDbPathUnsetOrEmptiedMidSwitch": false,
+      "temporaryFallbackToRealDb": false,
+      "db2InBareTmpOrRepoRootOrData": false,
+      "stringPrefixUsedForContainment": "no -- containment is enforced entirely by dbHelper.createChildDbPath() and the existing validateParentProvidedDb() path.relative()-based checks in qa-temp-db.js, not reimplemented in this file",
+      "dbDeletedBeforeHandleClose": false
+    }
+  },
+  "handleRegistry": {
+    "mechanism": "plain array (_dbHandles) with an explicit .includes() identity check before push -- registers each handle exactly once",
+    "registrationTiming": "immediately after getDb() returns, before any subsequent operation that could throw (db.run(...) calls come after registration)",
+    "cleanupOrder": "reverse of creation order (handle2 closed before handle1) via [..._dbHandles].reverse().map(...) passed to runCleanupStepsAsync()",
+    "eachHandleClosedAtMostOnce": true,
+    "oneHandleCloseFailureDoesNotBlockOthers": "true -- runCleanupStepsAsync() runs every step regardless of individual failures, collecting all errors"
+  },
+  "cleanupPolicy": {
+    "usesRunCleanupStepsAsync": true,
+    "stepOrder": [
+      "db-handle-close-0 (handle2, most recently created)",
+      "db-handle-close-1 (handle1)",
+      "dbContext-cleanup (only if ownsTempRoot)"
+    ],
+    "noPrimaryPlusCleanupFailure": "throws (surfaced as real failure, not exit 0)",
+    "primaryPlusCleanupFailure": "primary identity preserved via the shared catch(err){primaryError=err;throw err;} + runCleanupStepsAsync(steps, primaryError) pattern used by all 17 remediated Batch C files",
+    "idempotent": "each db._db.close() call is itself idempotent per sql.js internal guard (verified in the first HTTP child's certification), and this file never calls close on the same handle twice regardless",
+    "processExitCallCount": 0
+  },
+  "exitCodeTruthTableConfirmed": {
+    "assertions all pass + cleanup success": 0,
+    "assertion failure": "non-zero (printSummary() sets process.exitCode = 1 when any FAIL exists)",
+    "primary exception": "non-zero (runEntry().catch() sets process.exitCode = 1)",
+    "no primary error but cleanup failure": "non-zero (thrown by runCleanupStepsAsync with no primaryError)",
+    "primary error AND cleanup failure": "non-zero, primary error identity preserved, cleanup failure(s) retrievable via primaryError.secondaryCleanupErrors[]"
+  },
+  "processExitCallCount": 0,
+  "realDbPathMutationCount": 0,
+  "candidateJsCount": 186,
+  "gitDiffCheckPass": true,
+  "productionDbSentinel": {
+    "sha256": "78254c1b972a57ca184ab9645542c407b1b8752b605ec2378832d78ff6a84ccf",
+    "gitHashObject": "86eea5859a6879ed113ffbaa3f4220494de0814a",
+    "size": 651264,
+    "mtime": 1786712225,
+    "walShmJournalPresent": false
+  },
+  "selfProvingAssertions": {
+    "addedAt": "2026-08-16T15:39:26.448Z",
+    "purpose": "Make the original \"DB2 was actually the same object as DB1\" regression impossible to silently reintroduce.",
+    "originalAssertionsPreserved": {
+      "method": "TypeScript AST full-argument comparison, filtering out the new Q-labeled assertions from the current file and comparing the remainder against the baseline in order",
+      "originalCount": 212,
+      "afterFilteringNewOnes": 212,
+      "fullyIdenticalInOrder": true,
+      "orderedArgumentHashMatch": true
+    },
+    "newAssertions": {
+      "count": 10,
+      "section": "Q (new, explicitly additive, documented as such in its own header comment)",
+      "labels": [
+        "Q1",
+        "Q2",
+        "Q3",
+        "Q4",
+        "Q5",
+        "Q6",
+        "Q7",
+        "Q8",
+        "Q9",
+        "Q10"
+      ],
+      "proofs": {
+        "Q1": "DB1 and DB2 paths differ (path.resolve-based comparison, not realpathSync on DB2 since its file may not exist on disk yet at this point -- see bugFoundDuringImplementation below)",
+        "Q2a": "DB1 parent directory is inside the validated temp root",
+        "Q2b": "DB2 parent directory is inside the SAME validated temp root",
+        "Q3": "DB1 and DB2 use different utils/db.js module generations (dbModule1 !== dbModule2 -- proves require.cache eviction genuinely took effect)",
+        "Q4": "db2 !== db (wrapped handle object identity differs)",
+        "Q5": "Section O's store_a12/store_a12_other rows are absent from DB2 immediately after DB2 init, before section P writes anything -- proves DB2 starts genuinely empty, not inheriting DB1's data",
+        "Q6": "DB1 still has Section O's rows intact after DB2 creation -- proves creating DB2 did not delete or replace DB1",
+        "Q7": "Section P's store_partial row exists in DB2",
+        "Q8": "The same store_partial row does NOT exist in DB1 -- final cross-check that the two databases remained independent through to the end"
+      },
+      "uniqueFixtureIdsUsed": "store_a12, store_a12_other (Section O, pre-existing), store_partial (Section P, pre-existing) -- all already-unique IDs from the file's own existing fixtures, no new IDs invented that could collide with migration seed data"
+    },
+    "totalAssertionCountNow": 222,
+    "arithmeticVerification": "212 (baseline) + 9 (Q1-Q8, note Q2 is split into Q2a/Q2b) = 221 -- confirmed by direct AST count",
+    "bugFoundDuringImplementation": "Initial Q1/Q2b design used fs.realpathSync(db2Path), which would have thrown ENOENT: DB2's underlying file does not exist on disk at that point in execution, because utils/db.js's initTables() (called inside initDb()) uses the RAW sql.js .run() method, not the save()-triggering wrapped one -- nothing is persisted to disk until the first real data-modifying write. Fixed by using path.resolve() (pure string resolution) for db2Path instead of realpathSync, while still using realpathSync for db1RealPath and the temp root (both guaranteed to exist by that point: DB1's file was already written via section O's INSERT statements, and the temp root is created synchronously by mkdtempSync during bootstrap).",
+    "secondBugFoundDuringImplementation": "The initial edit declared `const dbModule1 = require(...)` inside section O's own block scope, then referenced `dbModule1` from section P's separate block in the new Q3 assertion -- a genuine block-scoping error that would have thrown ReferenceError at runtime. Caught by manually re-reading the full modified code end-to-end (node --check does not catch this class of error, since it is a valid parse, only an invalid runtime reference). Fixed by hoisting `dbModule1`/`db` to main()-function scope (declared with `let` immediately before section O's block) so both section O and section P/Q can reference them."
+  },
+  "initFailureHandleSafety": {
+    "addedAt": "2026-08-16T15:39:26.448Z",
+    "utilsDbJsSourceCitations": {
+      "underlyingSqlJsHandleCreatedAt": "utils/db.js line 84-86 (const sqlDb = fs.existsSync(DB_PATH) ? new SQL.Database(...) : new SQL.Database())",
+      "wrappedDbAssignedAt": "utils/db.js line 88 (wrappedDb = wrap(sqlDb);) -- happens BEFORE migrations run",
+      "migrationsRunAt": "utils/db.js line 89 (initTables(wrappedDb);) -- happens AFTER wrappedDb is already assigned",
+      "consequenceIfMigrationsThrow": "wrappedDb is already a truthy, partially-initialized object by the time initTables() could throw. getDb() (line 76-79) only checks truthiness, so it would happily return this partial handle -- but the caller's own `await initDb()` promise has already rejected, so a caller who only calls getDb() AFTER a successful initDb() (as this file does) would never reach that getDb() call and would never learn about or register this partially-initialized handle.",
+      "failedModuleGenerationCacheStatus": "require.cache is NOT automatically cleared on a thrown initDb() -- the module instance (and its now-partially-initialized wrappedDb) remains cached under its resolved absolute path unless explicitly evicted, which this file does not do after a failure (only proactively before DB2's intentional fresh generation)."
+    },
+    "fixApplied": "initDbSafely(dbModule) wrapper: on success, registers the handle immediately after getDb() (before any subsequent operation that could throw). On initDb() failure, makes a best-effort attempt to retrieve whatever partial handle exists via getDb() (wrapped in its own try/catch so a further getDb() failure -- meaning wrappedDb was never assigned at all, e.g. initSqlJs() itself failed before line 84 -- does not mask anything), registers it if found, then ALWAYS rethrows the ORIGINAL initDb() error, never the best-effort retrieval's own error.",
+    "usedForBothDb1AndDb2": true,
+    "handleRegistrationTiming": "immediately after getDb() returns (success path) or immediately after the best-effort getDb() retrieval (failure path) -- in both cases, before any subsequent db.run()/other operation that could throw",
+    "failedGenerationNeverReusedAsSuccessful": "each of the two initDbSafely() calls operates on its own freshly-required module instance (dbModule1, dbModule2) -- there is no retry-without-cache-eviction logic anywhere in this file that could accidentally reuse a failed generation as if it had succeeded",
+    "staticVsRuntimeProvenClarification": "This entire initDbSafely() analysis is verificationMethod: staticSourceAudit throughout -- no failure injection was actually run against the dual-DB child (which remains unexecuted per the Batch C child execution prohibition). No claim of runtimeProven is made anywhere in this evidence file for the dual-DB child itself. Separately, the SHARED helper functions (dbHelper.runCleanupSteps/runCleanupStepsAsync/handleOwnedCleanup) DO have real, executed, runtime-proven failure-injection tests (CLEANUP-POLICY1-4, ASYNC-CLEANUP-POLICY1-7, etc. in scripts/run-h1-4-8-product-funnel-semantics-runtime.js) -- but those tests exercise the shared helper directly with synthetic dbContext objects, not this specific file's initDbSafely() wrapper or its two real utils/db.js call sites."
+  },
+  "correctionsThisTurn": {
+    "correctedAt": "2026-08-17T01:50:58.928Z",
+    "vmExecutionClarification": "No vm module (vm.Script, runInContext, runInNewContext, or any execution mechanism) was ever used anywhere in this session for the dual-DB scoping verification. The two bugs found (db2Path realpathSync-before-file-exists, and the dbModule1 block-scoping error) were both caught via manual source re-reading and node --check (syntax-only), never via any code execution. childSourceExecutedInVm: false is accurate specifically because no VM was used at all.",
+    "labelUniquenessAudit": {
+      "method": "TypeScript AST walk extracting every assert() call's label argument across the full 222-assertion file",
+      "duplicateNonNullLabelsFound": 0,
+      "qLabelsRenamed": "Q2a/Q2b were renamed to sequential Q2/Q3 (they were already unique strings, not duplicates, but renamed anyway per explicit request for a clean Q1-Q9 style sequence); a 10th assertion (Q10, the post-persistence file-level containment check, see containmentCheckCorrection below) was added during this turn's correction, making the final additive set Q1-Q10 (10 total, all unique)"
+    },
+    "finalAdditiveCount": {
+      "original": 212,
+      "additive": 10,
+      "total": 222,
+      "labels": [
+        "Q1",
+        "Q2",
+        "Q3",
+        "Q4",
+        "Q5",
+        "Q6",
+        "Q7",
+        "Q8",
+        "Q9",
+        "Q10"
+      ],
+      "originalPreservationReVerified": "AST comparison filtering out all Q-prefixed labels from current file, comparing the remaining 212 against baseline in order -- fully identical, hash-matched, after the Q10 addition (the filter-based method is insensitive to additions elsewhere in the file)"
+    },
+    "containmentCheckCorrection": {
+      "problem": "The prior turn's Q1(old)/Q2b(old) used path.resolve(db2Path) for BOTH the distinctness check AND as if it were a containment proof -- path.resolve() is pure string resolution and proves nothing about actual filesystem location/escape safety.",
+      "fix": "Split into two explicitly separate, differently-named checks: distinctPathCheck (Q1, path.resolve-based, only proves DB1 != DB2 as paths, explicitly labeled as NOT a containment proof) and containmentCheck (Q2 for DB1, Q3 for DB2, both using fs.realpathSync() on the PARENT DIRECTORY -- which is guaranteed to exist even before the DB file itself is persisted, since createChildDbPath() places files directly inside dbContext.tmpRoot, never a not-yet-created subdirectory -- combined with path.relative(rootReal, parentReal) and explicit escape-pattern checks: rel !== \"..\", !rel.startsWith(\"..\" + path.sep), !path.isAbsolute(rel). This mirrors the exact escape-detection method already used in scripts/lib/qa-temp-db.js's validateParentProvidedDb(), not a new/different method.",
+      "supplementaryFileLevelCheck": "Q10 added: AFTER section P's writes guarantee the DB2 file is actually persisted to disk (db2.run() triggers the wrapped save()), a supplementary FILE-level (not just parent-directory-level) realpath containment check is performed. Before that point, a file-level check would have either thrown ENOENT or required fabricating a result for a non-existent file -- neither acceptable, so it is correctly deferred to when it can be genuinely performed, not skipped or faked.",
+      "filenameArgvEnvIndependence": "DB2's filename itself is generated entirely inside createChildDbPath() via `${safeLabel}-${crypto.randomBytes(6).toString('hex')}.db` -- the label this file passes in is the fixed literal string 'db2' (not from argv/env), and the random suffix is generated by the helper itself, not by this file or any external input."
+    },
+    "originalContainmentCheckWasNotFullyWrong": "The Q1(old) distinctness comparison itself (db1RealPath !== db2ResolvedPath) was a valid distinctness check, just mislabeled/conflated with containment in the surrounding commentary. It is preserved as Q1 with corrected, narrower labeling."
+  },
+  "exactSectionSequence": {
+    "fullOrderedSequence": [
+      "A",
+      "B",
+      "C",
+      "D",
+      "E",
+      "F",
+      "G",
+      "H",
+      "I",
+      "J",
+      "K",
+      "L",
+      "M",
+      "N",
+      "O",
+      "P",
+      "Q"
+    ],
+    "originalABPSequencePreserved": "A through P (16 sections) form a fully contiguous, unbroken, ordered block from line 103 through line 560 -- confirmed via direct grep of section marker comment lines, not assumed.",
+    "qPosition": "Q begins at line 589, structurally nested INSIDE section P's own outer {...} block (as P's dual-DB self-proof), not as a sibling top-level section interleaved between P and anything else, and not inserted inside any of sections A-O. Q1-Q7 sit between DB2's initialization and section P's original fixture writes; Q8-Q10 sit after section P's original assertions, still within P's block.",
+    "notMisdescribedAsAppendedAfterP": "Correcting any prior implication that Q was simply \"the 17th section after P\" without noting it is P-nested, not P-sibling."
+  }
+}

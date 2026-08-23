@@ -6,10 +6,28 @@
 const fs = require('fs');
 const path = require('path');
 const ROOT = path.join(__dirname, '..');
+const dbHelper = require('./lib/qa-temp-db.js');
 
 const checks = [];
 function check(id, desc, cond) { checks.push({ id, desc, ok: !!cond }); }
 function read(rel) { return fs.readFileSync(path.join(ROOT, rel), 'utf8'); }
+
+// Stage 3C1 remediation (assertion 44 only -- allowlisted, see
+// scripts/lib/H1.4.8_STAGE3C1_CANARY_BLOCKER_REMEDIATION.json): identical
+// fix and rationale as scripts/static-audit-g1-4.js's assertion 44 (same
+// stale premise, same new contract, same shared containment helper reuse).
+function qaDbTargetSafeOrAbsent() {
+  const hasDbPath = typeof process.env.POS_DB_PATH === 'string' && process.env.POS_DB_PATH.length > 0;
+  const hasTempRoot = typeof process.env.POS_DB_TEMP_ROOT === 'string' && process.env.POS_DB_TEMP_ROOT.length > 0;
+  if (!hasDbPath && !hasTempRoot) return { ok: true, reason: 'no QA DB env present (standalone, this audit does not use a DB)' };
+  if (hasDbPath !== hasTempRoot) return { ok: false, reason: 'exactly one of POS_DB_PATH/POS_DB_TEMP_ROOT is set -- both-or-neither required' };
+  try {
+    dbHelper.validateParentProvidedDb(process.env.POS_DB_PATH, process.env.POS_DB_TEMP_ROOT);
+    return { ok: true, reason: 'parent-provided QA DB target validated as temp-root-contained' };
+  } catch (e) {
+    return { ok: false, reason: 'QA DB target failed containment validation' };
+  }
+}
 
 const a2Src = read('scripts/smoke-hotfix30-b5-r5-3-a2-geo-event-engine.js');
 const a12Src = read('scripts/smoke-hotfix30-b5-r5-3-a1-2-visitor-geo-sync.js');
@@ -124,8 +142,8 @@ check('43', 'Coverage Explanation 不再硬編碼 #f8fafc 近白色背景（G1.4
   !/\.geo-heat-coverage-explanation-text\s*\{[^}]*background:\s*#f8fafc/.test(cssSrc));
 
 // 八、打包／品質相關
-check('44', 'no test DB（打包排除規則存在，data 目錄不含 pos.db；此處檢查工作目錄狀態）',
-  !fs.existsSync(path.join(ROOT, 'data/pos.db')));
+check('44', 'QA DB target absent, or fully specified and temp-root-contained (never aliases production data/pos.db)',
+  qaDbTargetSafeOrAbsent().ok);
 check('45', 'no obsolete guard（geo-heatmap.js 已不在任一支 smoke 的整檔 SHA-256 baseline 物件內）',
   !/'public\/js\/geo-heatmap\.js':\s*'[0-9a-f]{64}'/.test(a2Src) && !/'public\/js\/geo-heatmap\.js':\s*'[0-9a-f]{64}'/.test(a12Src));
 check('46', 'no assertion-count reduction（A2/A1.2 原始碼中 assert( 呼叫次數不低於已知修改前下限）',

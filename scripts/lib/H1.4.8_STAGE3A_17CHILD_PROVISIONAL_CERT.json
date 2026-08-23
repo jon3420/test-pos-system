@@ -1,0 +1,145 @@
+{
+  "certifiedAt": "2026-08-16T15:26:54.434Z",
+  "verificationMethod": "staticSourceAudit",
+  "childRuntimeExecuted": false,
+  "note": "This is a PROVISIONAL 17-child static certification -- all 17 locked Batch C children have now been statically modified and individually verified (node --check, AST assertion comparison where applicable, ownership/cleanup-policy review). It does NOT constitute runtime verification of any child, and does NOT authorize the 17-child runtime layer or the 34-file combined static+runtime gate, both of which remain outstanding per the explicit stop condition for this turn.",
+  "machineComputedSets": {
+    "ownershipVerified": [
+      "scripts/run-g1-6-ga4-h1-3-event-compat-connection-test.js",
+      "scripts/run-g1-6-ga4-h1-3-historical-runtime.js",
+      "scripts/run-g1-6-ga4-h1-3-realtime-event-runtime.js",
+      "scripts/run-g1-6-ga4-h1-4-5-exposure-runtime.js",
+      "scripts/run-g1-6-ga4-h1-4-map-state-mutations.js",
+      "scripts/run-g1-6-ga4-h1-4-range-backend-runtime.js",
+      "scripts/smoke-hotfix30-b5-r5-3-a1-2-visitor-geo-sync.js",
+      "scripts/smoke-hotfix30-b5-r5-3-a1-geo-heatmap.js",
+      "scripts/smoke-hotfix30-b5-r5-3-a2-geo-event-engine.js",
+      "scripts/smoke-hotfix30-b5-r5-4-g1-3-2-regression-guard.js",
+      "scripts/smoke-hotfix30-b5-r5-4-g1-4-map-label-rendering.js",
+      "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-1-ga4-settings-persistence.js",
+      "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-4-ga4-city-partial.js",
+      "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-ga4-settings.js",
+      "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-2-authoritative-points.js",
+      "scripts/smoke-hotfix30-b5-r5-4-g1-live-geo.js",
+      "scripts/run-g1-6-ga4-h1-3-mutations.js"
+    ],
+    "ownershipVerifiedCount": 17,
+    "provisionalModified": [],
+    "provisionalModifiedCount": 0,
+    "remainingUntouched": [],
+    "remainingUntouchedCount": 0
+  },
+  "setValidation": {
+    "unionEqualsLocked17": true,
+    "unionSize": 17,
+    "pairwiseIntersectionsEmpty": true,
+    "allPathsExist": true,
+    "allPathsInLockedFixedSet": true
+  },
+  "syntaxCheck": {
+    "totalFiles": 17,
+    "passed": 17,
+    "failed": 0
+  },
+  "perFileSummary": [
+    {
+      "file": "scripts/run-g1-6-ga4-h1-3-event-compat-connection-test.js",
+      "pattern": "single-DB, standard bootstrapChildDb + runEntry",
+      "ownershipPolicyUsed": "handleOwnedCleanup (sync)"
+    },
+    {
+      "file": "scripts/run-g1-6-ga4-h1-3-historical-runtime.js",
+      "pattern": "single-DB, indirect via services/ga4GeoSyncService.js",
+      "ownershipPolicyUsed": "handleOwnedCleanup (sync)"
+    },
+    {
+      "file": "scripts/run-g1-6-ga4-h1-3-realtime-event-runtime.js",
+      "pattern": "single-DB, module-top-level unlink removed",
+      "ownershipPolicyUsed": "handleOwnedCleanup (sync)"
+    },
+    {
+      "file": "scripts/run-g1-6-ga4-h1-4-5-exposure-runtime.js",
+      "pattern": "single-DB, most dangerous original pattern (unconditional module-top-level real-DB unlink), removed",
+      "ownershipPolicyUsed": "handleOwnedCleanup (sync)"
+    },
+    {
+      "file": "scripts/run-g1-6-ga4-h1-4-map-state-mutations.js",
+      "pattern": "single-DB, dynamic require(p) mutation testing, all targets confirmed literal/allowlisted",
+      "ownershipPolicyUsed": "handleOwnedCleanup (sync) + deterministic finally-based temp-file cleanup, registration-before-write"
+    },
+    {
+      "file": "scripts/run-g1-6-ga4-h1-4-range-backend-runtime.js",
+      "pattern": "single-DB, sync main(), indirect via services/ga4GeoSyncService.js",
+      "ownershipPolicyUsed": "handleOwnedCleanup (sync), plain try/finally wrapper (no runEntry async wrapper needed)"
+    },
+    {
+      "file": "scripts/smoke-hotfix30-b5-r5-3-a1-2-visitor-geo-sync.js",
+      "pattern": "single-DB, standard pattern",
+      "ownershipPolicyUsed": "handleOwnedCleanup (sync)"
+    },
+    {
+      "file": "scripts/smoke-hotfix30-b5-r5-3-a1-geo-heatmap.js",
+      "pattern": "single-DB, full IIFE+process.exit() restructure into main()/runEntry()",
+      "ownershipPolicyUsed": "handleOwnedCleanup (sync); 117-vs-116 assertion count correction documented and retracted honestly"
+    },
+    {
+      "file": "scripts/smoke-hotfix30-b5-r5-3-a2-geo-event-engine.js",
+      "pattern": "single-DB, standard pattern",
+      "ownershipPolicyUsed": "handleOwnedCleanup (sync)"
+    },
+    {
+      "file": "scripts/smoke-hotfix30-b5-r5-4-g1-3-2-regression-guard.js",
+      "pattern": "single-DB, no real-DB unlink originally (unisolated require only)",
+      "ownershipPolicyUsed": "handleOwnedCleanup (sync)"
+    },
+    {
+      "file": "scripts/smoke-hotfix30-b5-r5-4-g1-4-map-label-rendering.js",
+      "pattern": "single-DB, no real-DB unlink originally (unisolated require only)",
+      "ownershipPolicyUsed": "handleOwnedCleanup (sync)"
+    },
+    {
+      "file": "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-1-ga4-settings-persistence.js",
+      "pattern": "in-process HTTP server (single), full multi-step async cleanup (bounded close -> DB handle close -> root)",
+      "ownershipPolicyUsed": "runCleanupStepsAsync + shared dbHelper.closeHttpServerBounded()"
+    },
+    {
+      "file": "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-4-ga4-city-partial.js",
+      "pattern": "single-DB, standard pattern",
+      "ownershipPolicyUsed": "handleOwnedCleanup (sync)"
+    },
+    {
+      "file": "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-ga4-settings.js",
+      "pattern": "in-process HTTP server (two independent instances), each closed inline + safety-net in outer finally",
+      "ownershipPolicyUsed": "runCleanupStepsAsync + shared dbHelper.closeHttpServerBounded() for both server and server2; single DB handle confirmed via require.resolve() identity chain (3 requires, 1 singleton, 0 cache eviction)"
+    },
+    {
+      "file": "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-2-authoritative-points.js",
+      "pattern": "dual-DB (genuinely two independent temp DBs after fix; pre-existing test defect found and reported -- original code accidentally shared one handle due to unevicted require.cache)",
+      "ownershipPolicyUsed": "runCleanupStepsAsync with identity-based handle registry, reverse-order close"
+    },
+    {
+      "file": "scripts/smoke-hotfix30-b5-r5-4-g1-live-geo.js",
+      "pattern": "single-DB, module-top-level unlink removed",
+      "ownershipPolicyUsed": "handleOwnedCleanup (sync)"
+    },
+    {
+      "file": "scripts/run-g1-6-ga4-h1-3-mutations.js",
+      "pattern": "single-DB, mutation testing with 4 separate utils/db.js require call sites all inside main(), all literal repo-path targets",
+      "ownershipPolicyUsed": "handleOwnedCleanup (sync) + deterministic finally-based temp-file cleanup, registration-before-write"
+    }
+  ],
+  "outstandingWork": [
+    "17-child combined RUNTIME verification (each remediated child actually executed, not just statically audited) -- NOT performed this session, explicitly out of scope per the stop condition",
+    "34-file (17 orchestrators + 17 children) combined static+runtime gate -- NOT performed",
+    "general regression / orchestrator runtime -- NOT performed"
+  ],
+  "candidateJsCount": 186,
+  "gitDiffCheckPass": true,
+  "productionDbSentinel": {
+    "sha256": "78254c1b972a57ca184ab9645542c407b1b8752b605ec2378832d78ff6a84ccf",
+    "gitHashObject": "86eea5859a6879ed113ffbaa3f4220494de0814a",
+    "size": 651264,
+    "mtime": 1786712225,
+    "walShmJournalPresent": false
+  }
+}

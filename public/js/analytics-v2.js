@@ -367,7 +367,7 @@ function _av2RenderDashboard(data, v2) {
     ${_card('總訪客', uniqUsers('page_view') + ' 人')}
     ${cardWithUnique('商品曝光', evtCount('view_product'), uniqUsers('view_product'), ' 次')}
     ${cardWithUnique('加入購物車', evtCount('add_to_cart'), uniqUsers('add_to_cart'), ' 次')}
-    ${cardWithUnique('開始結帳', evtCount('begin_checkout'), uniqUsers('begin_checkout'), ' 次')}
+    ${cardWithUnique('前往結帳', evtCount('checkout_click'), uniqUsers('checkout_click'), ' 次')}
     ${_card('完成付款', (purchaseStage?purchaseStage.count:0) + ' 筆', '', '#10b981')}
     ${_card('訂單數', (kpi.orders||0) + ' 筆')}
     ${_card('營收', _nt(kpi.revenue), '', '#10b981')}
@@ -475,8 +475,8 @@ function _av2RenderFunnel(v2) {
         <div style="font-weight:700">${escHtml(p.product_name)}${p.is_delisted ? '　<span style="font-size:.72rem;color:var(--accent)">（已下架）</span>' : ''}</div>
         <button onclick="document.getElementById('${detailId}').style.display=document.getElementById('${detailId}').style.display==='none'?'flex':'none'"
           style="font-size:.75rem;padding:3px 10px;border-radius:99px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);cursor:pointer;white-space:nowrap">展開詳細數據 ▾</button>
-        <button onclick="av2ExplorerApplyProductFilter(${Number(p.product_id)||0}, '${escHtml(p.product_name).replace(/'/g,"\\'")}'); av2ExplorerApplyStageFilter('begin_checkout')"
-          title="查看這個商品「開始結帳」階段的購物車明細"
+        <button onclick="av2ExplorerApplyProductFilter(${Number(p.product_id)||0}, '${escHtml(p.product_name).replace(/'/g,"\\'")}'); av2ExplorerApplyStageFilter('checkout_click')"
+          title="查看這個商品「前往結帳」階段的購物車明細"
           style="font-size:.75rem;padding:3px 10px;border-radius:99px;border:1px solid var(--border);background:transparent;color:#6366f1;cursor:pointer;white-space:nowrap">🔎 結帳中明細</button>
       </div>
       <div class="analytics-funnel-metrics">
@@ -605,12 +605,13 @@ const AV2_EXPLORER_AGE_BUCKET = [
   ['1d_3d', '1~3天'], ['3d_7d', '3~7天'], ['7d_plus', '7天以上'],
 ];
 const AV2_EXPLORER_EVENT = [
-  ['', '全部'], ['add_to_cart', '加入購物車'], ['begin_checkout', '開始結帳'],
+  ['', '全部'], ['add_to_cart', '加入購物車'], ['checkout_click', '前往結帳'],
   ['payment_started', '開始付款'], ['purchase', '完成購買'], ['line_login_success', 'LINE登入成功'],
 ];
 const AV2_STATUS_BADGE = {
   active:    { label: '活躍中',     color: '#10b981', tip: '活躍中：最近仍有事件' },
   checkout:  { label: '結帳中',     color: '#6366f1', tip: '結帳中：最後一筆事件屬於結帳流程' },
+  submitted: { label: '已送出訂單', color: '#3b82f6', tip: '已送出訂單：訂單已成立，可能仍在等待付款確認（例如 LINE Pay）' },
   abandoned: { label: '可能已放棄', color: '#f59e0b', tip: '可能已放棄：超過設定時間沒有活動' },
   purchased: { label: '已完成購買', color: '#10b981', tip: '已完成購買：已有可關聯的 purchase/order' },
 };
@@ -1389,7 +1390,7 @@ const AV2_AUDIENCE_VISIT = [
 const AV2_AUDIENCE_PURCHASE = [
   ['all', '全部'], ['never_purchased', '從未購買'], ['has_purchased', '曾購買'],
   ['repeat', '回購客'], ['2plus_orders', '2 筆訂單以上'], ['cart_no_order', '有購物車但無訂單'],
-  ['multi_cart_no_purchase', '多次加購物車未購買'], ['checkout_no_purchase', '有開始結帳但未購買'],
+  ['multi_cart_no_purchase', '多次加購物車未購買'], ['checkout_no_purchase', '有前往結帳但未購買'],
 ];
 const AV2_AUDIENCE_ACTIVITY = [
   ['all', '全部'], ['last_24h', '最近 24 小時'], ['last_7d', '最近 7 天'], ['last_30d', '最近 30 天'],
@@ -1397,7 +1398,7 @@ const AV2_AUDIENCE_ACTIVITY = [
 ];
 const AV2_AUDIENCE_SORT = [
   ['last_activity', '最近活動'], ['visit_count', '來訪次數'], ['cart_count', '購物車次數'],
-  ['checkout_count', '開始結帳次數'], ['order_count', '訂單數'], ['total_revenue', '累積消費'],
+  ['checkout_count', '前往結帳次數'], ['order_count', '訂單數'], ['total_revenue', '累積消費'],
   ['avg_order_value', '平均客單'], ['last_purchase', '最近購買'], ['revisit_score', '回訪分數'],
 ];
 
@@ -1506,7 +1507,7 @@ async function av2AudienceFetchAndRender() {
 }
 
 const AV2_AUDIENCE_TAG_COLOR = {
-  '新訪客': '#6366f1', '回訪訪客': '#0ea5e9', '高互動未購買': '#f59e0b', '已開始結帳未購買': '#f97316',
+  '新訪客': '#6366f1', '回訪訪客': '#0ea5e9', '高互動未購買': '#f59e0b', '已前往結帳未購買': '#f97316',
   '首購客': '#10b981', '回購客': '#10b981', '高價值顧客': '#a855f7', '久未回訪顧客': '#ef4444', '身份未解析': '#94a3b8',
 };
 

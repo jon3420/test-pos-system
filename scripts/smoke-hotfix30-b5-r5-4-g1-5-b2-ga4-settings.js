@@ -11,11 +11,7 @@ const path = require('path');
 const fs = require('fs');
 const { execFileSync } = require('child_process');
 const ROOT = path.join(__dirname, '..');
-
-const DATA_DIR = path.join(ROOT, 'data');
-const DB_FILE = path.join(DATA_DIR, 'pos.db');
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);
+const dbHelper = require('./lib/qa-temp-db.js');
 
 const results = [];
 function pass(name) { results.push({ name, status: 'PASS' }); console.log(`[PASS] ${name}`); }
@@ -37,6 +33,25 @@ function ga4Row(dims, activeUsers, eventCount) {
   return { dimensionValues: dims.map((v) => ({ value: v })), metricValues: [{ value: String(activeUsers) }, { value: String(eventCount) }] };
 }
 
+// Hoisted to module scope so runEntry()'s cleanup can reach them regardless
+// of where in main() an exception occurs. This file has TWO independent
+// server instances (sections C and E), each normally closed inline
+// mid-flow as part of its own section -- these module-scope variables let
+// the outer cleanup close them too as an exception-path safety net (via
+// closeHttpServerBounded()'s server.listening === false guard, which makes
+// re-closing an already-closed server a safe no-op).
+let server;
+let server2;
+let dbHandle;
+
+// Bounded server-close timeout, applied independently to each of the two
+// server instances this file creates. See scripts/lib/qa-temp-db.js
+// closeHttpServerBounded() for the full algorithm/guarantee documentation
+// and executable tests (HTTPCLOSE1-6 + sentinel, shared with
+// smoke-hotfix30-b5-r5-4-g1-5-b2-1-ga4-settings-persistence.js, which uses
+// the identical algorithm for its single server instance).
+const SERVER_CLOSE_TIMEOUT_MS = 5000;
+
 async function main() {
   ['utils/ga4RealtimeConfig.js', 'utils/ga4Realtime/index.js', 'utils/ga4Realtime/connectionTest.js', 'routes/settings.js', 'routes/geo-live.js', 'public/js/geo-ga4-settings.js', 'public/js/geo-ga4-realtime-layer.js'].forEach((rel) => {
     try { execFileSync(process.execPath, ['--check', path.join(ROOT, rel)]); pass(`0-parse ${rel} node --check 通過`); }
@@ -46,6 +61,7 @@ async function main() {
   const { initDb, getDb } = require(path.join(ROOT, 'utils/db.js'));
   await initDb();
   const db = getDb();
+  dbHandle = db;
   db.run('INSERT OR IGNORE INTO stores (store_id, active) VALUES (?,?)', ['store_b2_a', 1]);
   db.run('INSERT OR IGNORE INTO stores (store_id, active) VALUES (?,?)', ['store_b2_b', 1]);
 
@@ -142,7 +158,7 @@ async function main() {
     app.use(bodyParser.json());
     app.use((req, res, next) => { req.storeId = req.headers['x-test-store'] || 'store_b2_a'; next(); });
     app.use('/api/settings', settingsRoute);
-    const server = app.listen(0);
+    server = app.listen(0);
     const port = server.address().port;
     const fetch = (await import('node-fetch')).default;
 
@@ -183,7 +199,7 @@ async function main() {
     assert(configAAfter.cacheSeconds === 123, 'C52 Store A settings written correctly, only Store A');
     assert(configBAfter.propertyId === '222222', 'C53 Store B settings unaffected by Store A writes');
 
-    server.close();
+    await dbHelper.closeHttpServerBounded(server, SERVER_CLOSE_TIMEOUT_MS);
   }
 
   // ══════════════════════════════════════════════════════════════
@@ -286,7 +302,7 @@ async function main() {
     app2.use(require('body-parser').json());
     app2.use((req, res, next) => { req.storeId = 'store_b2_a'; next(); });
     app2.use('/api/geo-live', geoLiveRoute);
-    const server2 = app2.listen(0);
+    server2 = app2.listen(0);
     const port2 = server2.address().port;
     const fetch2 = (await import('node-fetch')).default;
 
@@ -374,7 +390,7 @@ async function main() {
     }
     assert(!JSON.stringify(await (await fetch2(`http://localhost:${port2}/api/geo-live/ga4-realtime-test`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).json()).includes('stack'), 'E96 no stack in any test response');
 
-    server2.close();
+    await dbHelper.closeHttpServerBounded(server2, SERVER_CLOSE_TIMEOUT_MS);
   }
 
   // ══════════════════════════════════════════════════════════════
@@ -699,8 +715,47 @@ async function main() {
   }
 
   printSummary();
-  if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);
-  process.exit(process.exitCode || 0);
 }
 
-main().catch((e) => { console.error(e); if (fs.existsSync(DB_FILE)) { try { fs.unlinkSync(DB_FILE); } catch (e2) {} } process.exitCode = 1; });
+async function runEntry() {
+  let dbContext;
+  let primaryError;
+  try {
+    dbContext = dbHelper.bootstrapChildDb('ga4-settings-standalone');
+    return await main();
+  } catch (err) {
+    primaryError = err;
+    throw err;
+  } finally {
+    // Dependency-ordered, UNCONDITIONAL for process-local resources (only
+    // the final step is gated on ownsTempRoot). Both server and server2
+    // are independently closed via the shared closeHttpServerBounded()
+    // helper -- each is a safe no-op if it was already closed inline
+    // earlier in its own section during normal execution (guarded by
+    // server.listening === false inside the helper), and still gets
+    // closed here as an exception-path safety net if main() threw before
+    // reaching its section's own inline close call.
+    await dbHelper.runCleanupStepsAsync([
+      { name: 'server-close', fn: () => dbHelper.closeHttpServerBounded(server, SERVER_CLOSE_TIMEOUT_MS) },
+      { name: 'server2-close', fn: () => dbHelper.closeHttpServerBounded(server2, SERVER_CLOSE_TIMEOUT_MS) },
+      {
+        name: 'db-handle-close',
+        fn: () => {
+          if (dbHandle && dbHandle._db && typeof dbHandle._db.close === 'function') {
+            dbHandle._db.close();
+            dbHandle = null;
+          }
+        },
+      },
+      {
+        name: 'dbContext-cleanup',
+        fn: () => { if (dbContext && dbContext.ownsTempRoot) dbContext.cleanup(); },
+      },
+    ], primaryError);
+  }
+}
+
+runEntry().catch((e) => {
+  console.error(e);
+  process.exitCode = 1;
+});

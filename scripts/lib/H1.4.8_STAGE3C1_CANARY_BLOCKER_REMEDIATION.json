@@ -1,0 +1,200 @@
+{
+  "generatedAt": "2026-08-17T23:04:00.486Z",
+  "scope": "Stage 3C1 two-file stale DB-presence contract remediation + round-summary label inventory. No orchestrator/child runtime beyond isolated scenario-matrix execution of the two remediated static-audit scripts themselves.",
+  "orchestratorRuntimeExecuted": false,
+  "childRuntimeExecuted": {
+    "staticAuditIsolatedScenarios": true,
+    "otherChildren": false
+  },
+  "generalRegressionExecuted": false,
+  "attempt1": {
+    "passed": 0,
+    "failed": 1,
+    "notRun": 16,
+    "total": 17,
+    "failure": "static-audit-g1-4.js assertion 44 (stale DB-presence contract)",
+    "checkpointFile": "/tmp/stage3c_orchestrator_checkpoint.json",
+    "checkpointSha256": "ea5d0a16ffb45897805935ec13abff3e0ebbfdf01ef946d8796ace23a54afdb4",
+    "stdoutLogFile": "/tmp/stage3c-O1-B2_5-stdout.log",
+    "stdoutLogSha256": "18a13df774ad26aecd0bf9dca509f8403181c25d95d6837152dd765124df4a80",
+    "stderrLogFile": "/tmp/stage3c-O1-B2_5-stderr.log",
+    "stderrLogSha256": "c687f8675d1dc4546c24e8b69795ec968145f40c6eeeb16335d37f7df48c023c",
+    "artifactsPreservedNotOverwritten": true,
+    "productionDbGitTmpUnchangedDuringAttempt1": true
+  },
+  "defectClassification": "pre-existing stale test contract, predating all Stage 3A/3B/3C0 work (confirmed via git show HEAD byte-identical to the pre-remediation baseline for both files)",
+  "reachabilityAndWhySingleFixInsufficient": {
+    "method": "catalog reachability scan across all 17 orchestrator suites",
+    "static-audit-g1-4.js": {
+      "reachableFrom": [
+        "B2_5",
+        "A1",
+        "A1_1",
+        "A1_2"
+      ]
+    },
+    "static-audit-g1-3-2.js": {
+      "reachableFrom": [
+        "B2_5",
+        "A1",
+        "A1_1",
+        "A1_2"
+      ]
+    },
+    "explanation": "Both files share the exact same stale assertion 44 (identical condition, same defect family) and are both reachable from the B2_5 canary. Fixing only static-audit-g1-4.js would have left B2_5 still blocked -- both were addressed before re-attempting the canary."
+  },
+  "sameDefectFamilyConfirmed": {
+    "method": "full manual read of both files’ assertion-44 surrounding structure, custom check() signature, entry/main structure, DB/path imports, standalone and parent-provided behavior",
+    "bothUseIdenticalCustomCheckSignature": "function check(id, desc, cond) { checks.push({ id, desc, ok: !!cond }); }",
+    "neitherFileHadAnyOtherDbPresenceAssertion": true,
+    "minimalPerFileFix": "each file got its own qaDbTargetSafeOrAbsent() helper function (not a shared cross-file import, since these are independent standalone scripts) with byte-identical logic, reusing dbHelper.validateParentProvidedDb() from the existing scripts/lib/qa-temp-db.js rather than duplicating any containment algorithm"
+  },
+  "repoWideInventoryFull": [
+    {
+      "location": "scripts/static-audit-g1-4.js (assertion 44)",
+      "category": "1: stale, requires production DB absent",
+      "action": "FIXED (allowlisted)"
+    },
+    {
+      "location": "scripts/static-audit-g1-3-2.js (assertion 44)",
+      "category": "1: stale, requires production DB absent",
+      "action": "FIXED (allowlisted, newly authorized this turn)"
+    },
+    {
+      "location": "scripts/run-h1-4-8-product-funnel-semantics-runtime.js (DB_ISOLATION2/3)",
+      "category": "2: valid, checks WAL/SHM sidecar absence, not the DB itself",
+      "action": "NOT MODIFIED"
+    },
+    {
+      "location": "scripts/smoke-hotfix30-b5-r5-3-a2-geo-event-engine.js (A14-10)",
+      "category": "already-neutralized tautology: `!fs.existsSync(...) || true` always evaluates true",
+      "action": "NOT MODIFIED",
+      "separateKnownIssue": true,
+      "outOfScopeForStage3C1": true,
+      "notModified": true
+    },
+    {
+      "location": "scripts/static-audit-g1-4-1.js",
+      "category": "source-text content check (pos.test.db/test_pos.db string absence), not real-DB filesystem existence",
+      "action": "NOT MODIFIED"
+    },
+    {
+      "location": "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-2-1-time-and-marker-qa.js",
+      "category": "checks a differently-named marker file (pos.db_TEST_MARKER_SHOULD_NOT_EXIST), not the real DB",
+      "action": "NOT MODIFIED"
+    }
+  ],
+  "newContract": {
+    "text": "QA DB target is absent, or fully specified and temp-root-contained; it never aliases production data/pos.db",
+    "legalStandalone": "neither POS_DB_PATH nor POS_DB_TEMP_ROOT set -> PASS, production data/pos.db presence irrelevant",
+    "legalParentProvided": "both env vars set, validated via dbHelper.validateParentProvidedDb() (existing, unmodified, already-proven helper) -> PASS if containment holds",
+    "mustFail": [
+      "exactly one env var set",
+      "DB path equals production data/pos.db",
+      "DB path escapes temp root",
+      "sibling-prefix escape",
+      "broad root",
+      "any other containment validation error"
+    ],
+    "prohibitedPatternsAvoided": [
+      "reversing to require production DB present",
+      "hardcoding current production DB hash",
+      "deleting/renaming/hiding production DB",
+      "skipping the assertion",
+      "unconditional true",
+      "duplicating containment logic instead of reusing dbHelper",
+      "initializing a DB",
+      "creating a standalone temp DB"
+    ]
+  },
+  "assertionPreservation": {
+    "method": "zero-dependency regex-based check(id, desc) extraction, compared against git HEAD (no global TypeScript used)",
+    "static-audit-g1-4.js": {
+      "headCheckCount": 49,
+      "currentCheckCount": 49,
+      "diffCount": 1,
+      "diffIds": [
+        "44"
+      ]
+    },
+    "static-audit-g1-3-2.js": {
+      "headCheckCount": 48,
+      "currentCheckCount": 48,
+      "diffCount": 1,
+      "diffIds": [
+        "44"
+      ]
+    },
+    "gitDiffConfirmation": "git diff --stat and line-level grep for ^[+-]check( on both files confirms only the two check(’44’, ...) lines changed in each file -- all other diff lines are purely additive (new helper function + explanatory comment)",
+    "productionFilesChanged": 0
+  },
+  "scenarioMatrixResults": {
+    "method": "direct node execution of each file with controlled env, execSync per scenario, DB sentinel captured before/after the full 14-run batch",
+    "perFile": [
+      {
+        "file": "scripts/static-audit-g1-4.js",
+        "1_standalone_no_env": "exit 0, assertion 44 PASS",
+        "2_legit_parent_provided": "exit 0, assertion 44 PASS, parent root NOT deleted by child (confirmed existsSync===true immediately after run, before harness cleanup)",
+        "3_only_POS_DB_PATH": "non-zero exit, confirmed via direct stdout inspection that failure is specifically [FAIL] 44, not an unrelated crash",
+        "4_only_POS_DB_TEMP_ROOT": "non-zero exit, assertion 44 FAIL",
+        "5_both_point_to_production_db": "non-zero exit, assertion 44 FAIL, production DB never opened/deleted/modified",
+        "6_db_path_escapes_root": "non-zero exit, assertion 44 FAIL",
+        "7_sibling_prefix_escape": "non-zero exit, assertion 44 FAIL, cleanup targets were exact test-created /tmp dirs only"
+      },
+      {
+        "file": "scripts/static-audit-g1-3-2.js",
+        "1_standalone_no_env": "exit 0, assertion 44 PASS",
+        "2_legit_parent_provided": "exit 0, assertion 44 PASS, parent root NOT deleted by child (confirmed existsSync===true immediately after run, before harness cleanup)",
+        "3_only_POS_DB_PATH": "non-zero exit, confirmed via direct stdout inspection that failure is specifically [FAIL] 44, not an unrelated crash",
+        "4_only_POS_DB_TEMP_ROOT": "non-zero exit, assertion 44 FAIL",
+        "5_both_point_to_production_db": "non-zero exit, assertion 44 FAIL, production DB never opened/deleted/modified",
+        "6_db_path_escapes_root": "non-zero exit, assertion 44 FAIL",
+        "7_sibling_prefix_escape": "non-zero exit, assertion 44 FAIL, cleanup targets were exact test-created /tmp dirs only"
+      }
+    ],
+    "dbSentinelUnchangedAcrossAll14Runs": true,
+    "negativeFailuresConfirmedAsAssertion44NotHarnessError": true
+  },
+  "roundSummaryLabelInventory": {
+    "searchPatterns": [
+      "3 rounds",
+      "three rounds",
+      "三輪",
+      "3-round"
+    ],
+    "findings": {
+      "hardcodedDisplayLabelsFoundAndAlreadyDynamic": "17/17 roots -- no hardcoded \"3 rounds\"-style summary label remains anywhere; all either use `${roundCount} round${roundCount === 1 ? '' : 's'}` or wording that never mentioned a round count at all",
+      "remainingTextMatches": "a handful of Chinese-language CODE COMMENTS (not output text) mentioning round-consistency semantics as historical/explanatory prose -- these are comments, not display strings, not modified (category 4, out of scope)",
+      "functionalRoundLogicChanged": false,
+      "passFailLogicChanged": false,
+      "resultsLengthLogicChanged": false,
+      "expectedRoundCountLogicChanged": false
+    },
+    "conclusion": "No further round-summary label changes were needed this turn -- verified via direct scan, not assumed already-fixed."
+  },
+  "staticAndSafetyGates": {
+    "nodeCheckBothFiles": "PASS",
+    "seventeenRootSuiteOrderHash": "unaffected -- neither modified file is an orchestrator root",
+    "seventeenRootStrictCliGate": "unaffected -- no orchestrator plumbing touched this turn",
+    "thirtyFourFileSafetyGate": {
+      "overallPass": true,
+      "reRunAgainstCurrentSource": true
+    },
+    "closureQuarantineIntersection": 0,
+    "safeRuntimeTotal": 413,
+    "parserSelfTest": "22/22",
+    "candidateJsCount": 186,
+    "executableRepoTypescriptUsage": 0,
+    "packageJsonChanged": false,
+    "packageLockChanged": false,
+    "gitDiffCheckPass": true,
+    "productionDbSentinel": {
+      "sha256": "78254c1b972a57ca184ab9645542c407b1b8752b605ec2378832d78ff6a84ccf",
+      "gitHashObject": "86eea5859a6879ed113ffbaa3f4220494de0814a",
+      "size": 651264,
+      "mtime": 1786712225,
+      "walShmJournalPresent": false
+    }
+  },
+  "conclusion": "Stage 3C1 two-file stale DB contract remediated. Proceeding to Stage 3C attempt 2 (B2_5 only)."
+}

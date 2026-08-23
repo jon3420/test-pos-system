@@ -21,91 +21,34 @@ const fs = require('fs');
 const os = require('os');
 const { execFileSync } = require('child_process');
 const ROOT = path.join(__dirname, '..');
-const DB_FILE = path.join(ROOT, 'data', 'pos.db');
+const dbHelper = require('./lib/qa-temp-db.js');
 
 // 登記表：[suiteLabel] -> { note }。目前為空表——本輪沒有發現任何新的
 // Stale Expectation／Baseline Mismatch。
 const KNOWN_MISMATCHES = {};
 
-// [scriptPath, expectedPass, expectedTotal, label]
-const SUITE = [
-  // ══════════════════ H1.3（本輪新增，見需求文件十三）══════════════════
-  ['scripts/run-g1-6-ga4-h1-3-request-builder-contract.js', 68, 68, 'H1.3 Request Builder Contract'],
-  ['scripts/run-g1-6-ga4-h1-3-event-compat-connection-test.js', 48, 48, 'H1.3 Event Compat Connection Test'],
-  ['scripts/run-g1-6-ga4-h1-3-realtime-event-runtime.js', 65, 65, 'H1.3 Realtime Event Runtime'],
-  ['scripts/run-g1-6-ga4-h1-3-historical-runtime.js', 44, 44, 'H1.3 Historical Runtime'],
-  ['scripts/run-g1-6-ga4-h1-3-mutations.js', 37, 37, 'H1.3 Mutation Suite'],
-  ['scripts/static-audit-g1-6-ga4-h1-3.js', 63, 63, 'H1.3 Static Audit'],
-
-  // ══════════════════ H1.2 ══════════════════
-  ['scripts/audit-taiwan-unique-subdivision-aliases.js', null, null, 'H1.2 Unique Alias Audit'],
-  ['scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-6-unique-subdivision-normalization.js', 82, 82, 'H1.2 Unique Subdivision Smoke'],
-  ['scripts/static-audit-g1-6-ga4-h1-2.js', 36, 36, 'H1.2 Static Audit'],
-
-  // ══════════════════ B2.5 / B2.4 / G1 geo-live ══════════════════
-  ['scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-5-district-normalization.js', 76, 76, 'B2.5 District Normalization'],
-  ['scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-4-ga4-city-partial.js', 139, 139, 'B2.4 City Partial'],
-  ['scripts/smoke-hotfix30-b5-r5-4-g1-live-geo.js', 212, 212, 'G1 geo-live'],
-
-  // ══════════════════ G1.5-A ══════════════════
-  ['scripts/smoke-hotfix30-b5-r5-4-g1-5-a-ga4-backend-correctness.js', 140, 140, 'G1.5-A Smoke'],
-  ['scripts/static-audit-g1-5-a.js', 77, 77, 'G1.5-A Static Audit'],
-
-  // ══════════════════ H1 (GA4-H1) ══════════════════
-  ['scripts/run-g1-6-ga4-h1-qa.js', 22, 22, 'H1 QA'],
-  ['scripts/smoke-hotfix30-b5-r5-4-g1-6-ga4-h1-credential-guard.js', 17, 17, 'H1 Credential Guard'],
-  ['scripts/smoke-hotfix30-b5-r5-4-g1-6-ga4-h1.js', 108, 108, 'H1 Targeted Smoke'],
-  ['scripts/static-audit-g1-6-ga4-h1.js', 190, 190, 'H1 Static Audit'],
-  ['scripts/run-g1-6-ga4-h1-frontend-runtime.js', 81, 81, 'H1 Frontend Runtime'],
-
-  // ══════════════════ H1.1 Auth ══════════════════
-  ['scripts/run-g1-6-ga4-h1-1-browser-auth-runtime.js', 47, 47, 'H1.1 Browser Auth Runtime'],
-  ['scripts/smoke-hotfix30-b5-r5-4-g1-6-ga4-h1-1-auth-mutations.js', 24, 24, 'H1.1 Auth Mutation'],
-  ['scripts/run-g1-6-ga4-h1-1-ga4-diagnostic-contract.js', 40, 40, 'H1.1 Diagnostic Contract'],
-
-  // ══════════════════ A1.2 / A1.2.1 / A1.1 / A1 ══════════════════
-  ['scripts/verify-authoritative-admin-points.js', 57, 57, 'A1.2 Catalog Verify'],
-  ['scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-2-authoritative-points.js', 251, 251, 'A1.2 Smoke'],
-  ['scripts/static-audit-g1-6-a1-2.js', 125, 125, 'A1.2 Static Audit'],
-  ['scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-2-1-time-and-marker-qa.js', 190, 190, 'A1.2.1 Smoke'],
-  ['scripts/static-audit-g1-6-a1-2-1.js', 106, 106, 'A1.2.1 Static Audit'],
-  ['scripts/run-g1-6-a1-2-1-manual-qa.js', 41, 41, 'A1.2.1 QA'],
-  ['scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-1-runtime-wiring.js', 160, 160, 'A1.1 Smoke'],
-  ['scripts/static-audit-g1-6-a1-1.js', 90, 90, 'A1.1 Static Audit'],
-  ['scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-marker-unification.js', 50, 50, 'A1 Smoke'],
-
-  // ══════════════════ Geo Map / Settings / 其餘既有 B1/B2 ══════════════════
-  ['scripts/smoke-hotfix30-b5-r5-2-b2-geo-map.js', 620, 620, 'Geo Map Settings'],
-  ['scripts/smoke-hotfix30-b5-r5-2-b3-geo-settings-ui.js', 157, 157, 'Geo Settings UI'],
-  ['scripts/smoke-hotfix30-b5-r5-3-a1-geo-heatmap.js', 128, 128, 'Order Heatmap'],
-  ['scripts/smoke-hotfix30-b5-r5-2-b1-1-dashboard-rewire.js', 101, 101, 'Dashboard Rewire'],
-  ['scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-3-ga4-endpoint-unification.js', 75, 75, 'B2.3'],
-  ['scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-2-ga4-layer-auth.js', 95, 95, 'B2.2'],
-  ['scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-1-ga4-settings-persistence.js', 85, 85, 'B2.1'],
-  ['scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-ga4-settings.js', 187, 187, 'B2 Settings'],
-  ['scripts/static-audit-g1-5-b2.js', 82, 82, 'B2 Static Audit'],
-  ['scripts/smoke-hotfix30-b5-r5-4-g1-5-b2a-ga4-settings-ui.js', 106, 106, 'B2a'],
-  ['scripts/smoke-hotfix30-b5-r5-4-g1-5-b1-ga4-frontend-choropleth.js', 168, 168, 'B1'],
-  ['scripts/smoke-g1-6-a2-t1-client-ip-trust-diagnostic.js', 12, 12, 'A2-T1 Smoke'],
-
-  // ══════════════════ H1.4 MAP-STATE（本輪新增，見需求文件二）══════════════════
-  ['scripts/run-g1-6-ga4-h1-4-layer-cleanup-runtime.js', 30, 30, 'H1.4 Layer Cleanup Runtime'],
-  ['scripts/run-g1-6-ga4-h1-4-range-backend-runtime.js', 25, 25, 'H1.4 Range Backend Runtime'],
-  ['scripts/run-g1-6-ga4-h1-4-timezone-parity-runtime.js', 17, 17, 'H1.4 Timezone Parity Runtime'],
-  ['scripts/run-g1-6-ga4-h1-4-range-runtime.js', 45, 45, 'H1.4 Range Resolver Runtime'],
-  ['scripts/run-g1-6-ga4-h1-4-range-ui-runtime.js', 37, 37, 'H1.4 Range UI Runtime'],
-  ['scripts/run-g1-6-ga4-h1-4-h1-range-integration-runtime.js', 35, 35, 'H1.4 H1 Range Integration Runtime'],
-  ['scripts/run-g1-6-ga4-h1-4-persisted-range-runtime.js', 23, 23, 'H1.4 Persisted Range Runtime'],
-  ['scripts/run-g1-6-ga4-h1-4-dashboard-source-runtime.js', 55, 55, 'H1.4 Dashboard Source Runtime'],
-  ['scripts/run-g1-6-ga4-h1-4-map-state-runtime.js', 99, 99, 'H1.4 Map State Runtime'],
-  ['scripts/run-g1-6-ga4-h1-4-lifecycle-aba-runtime.js', 22, 22, 'H1.4 Lifecycle ABA Runtime'],
-  ['scripts/run-g1-6-ga4-h1-4-map-state-mutations.js', 30, 30, 'H1.4 Mutation Suite'],
-  ['scripts/run-g1-6-ga4-h1-4-browser-entry-runtime.js', 24, 24, 'H1.4 Browser Entry Runtime'],
-  ['scripts/static-audit-g1-6-ga4-h1-4.js', 227, 227, 'H1.4 Static Audit'],
-
-  // ══════════════════ Inherited SHA Smoke（見需求文件三：H1.3 Runner 原本沒有這支，這輪補上）══════════════════
-  ['scripts/smoke-hotfix30-b5-r5-3-a1-1-heatmap-dashboard-integration.js', 112, 112, 'Inherited Hash Smoke (Heatmap-Dashboard Integration)'],
-];
+// Stage 3A remediation: SUITE read from side-effect-free JSON catalog
+// (verified byte-identical to the pre-remediation literal array). Real
+// data/pos.db is never touched; each child gets its own mkdtemp-isolated
+// temp DB.
+const CATALOG_PATH = path.join(ROOT, 'scripts/lib/H1.4.8_REGRESSION_SUITE_CATALOG.json');
+const CATALOG_KEY = 'GA4_H1_4';
+const rawCatalog = JSON.parse(fs.readFileSync(CATALOG_PATH, 'utf8'));
+if (!rawCatalog.suites || !rawCatalog.suites[CATALOG_KEY]) {
+  throw new Error(`[FATAL] Suite catalog missing key "${CATALOG_KEY}" in ${CATALOG_PATH}`);
+}
+const catalogEntry = rawCatalog.suites[CATALOG_KEY];
+if (!Array.isArray(catalogEntry.entries) || catalogEntry.entries.length !== catalogEntry.tupleCount) {
+  throw new Error(`[FATAL] Suite catalog entry "${CATALOG_KEY}" is malformed (tupleCount mismatch or entries not an array)`);
+}
+const SUITE = Object.freeze(catalogEntry.entries.map(([p, pass, total, label]) => {
+  const passOk = pass === null || typeof pass === 'number';
+  const totalOk = total === null || typeof total === 'number';
+  if (typeof p !== 'string' || !passOk || !totalOk || typeof label !== 'string') {
+    throw new Error(`[FATAL] Malformed suite tuple in catalog "${CATALOG_KEY}": ${JSON.stringify([p, pass, total, label])}`);
+  }
+  return Object.freeze([p, pass, total, label]);
+}));
 
 const NODE_CHECK_FILES = [
   'utils/taiwanGeoNormalize.js',
@@ -173,9 +116,9 @@ function parseSummary(output) {
   return { pass, fail, total };
 }
 
-function detectResidue() {
+function detectResidue(tmpRoot) {
   const issues = [];
-  if (fs.existsSync(DB_FILE)) issues.push('data/pos.db');
+  if (tmpRoot && fs.existsSync(tmpRoot)) issues.push('temp DB root: ' + tmpRoot);
   ['.sqlite', '.sqlite3'].forEach((ext) => {
     if (fs.readdirSync(path.join(ROOT, 'data')).some((f) => f.endsWith(ext))) issues.push(`data/*${ext}`);
   });
@@ -213,22 +156,25 @@ function classify(rel, expectPass, expectTotal, pass, fail, total, exitCode, cra
   return 'FAIL';
 }
 
-function runRound(roundNum) {
+function runRound(roundNum, tmpRoot) {
   console.log(`\n========================= ROUND ${roundNum} =========================`);
   let allOk = true;
   const roundResults = [];
   for (const [rel, expectPass, expectTotal, label] of SUITE) {
-    if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);
+    const childDbPath = dbHelper.createChildDbPath(tmpRoot, label);
+    const childEnv = dbHelper.buildChildEnv(childDbPath, tmpRoot);
     const envBefore = JSON.stringify(Object.keys(process.env).sort());
     let output = '';
     let crashed = false;
     let exitCode = 0;
     try {
-      output = execFileSync(process.execPath, [path.join(ROOT, rel)], { cwd: ROOT, encoding: 'utf8' });
+      output = execFileSync(process.execPath, [path.join(ROOT, rel)], { cwd: ROOT, encoding: 'utf8', env: childEnv });
     } catch (e) {
       output = (e.stdout || '') + (e.stderr || '');
       crashed = true;
       exitCode = e.status === undefined ? 1 : e.status;
+    } finally {
+      dbHelper.cleanupDbFileAndSidecars(childDbPath);
     }
     const envAfter = JSON.stringify(Object.keys(process.env).sort());
     const { pass, fail, total } = parseSummary(output);
@@ -242,8 +188,7 @@ function runRound(roundNum) {
       console.log('----------------------');
     }
   }
-  if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);
-  const residue = detectResidue();
+  const residue = detectResidue(null);
   if (residue.length) { allOk = false; console.log(`[RESIDUE] Round ${roundNum} flagged: ${residue.join('; ')}`); }
   else { console.log(`[RESIDUE] Round ${roundNum}: clean`); }
   return { allOk, roundResults, residue };
@@ -262,17 +207,26 @@ function main() {
     }
   }
 
-  const roundCount = Number(process.argv[2]) > 0 ? Number(process.argv[2]) : 3;
-  const rounds = [];
-  for (let i = 1; i <= roundCount; i += 1) rounds.push(runRound(i));
+  const roundCount = dbHelper.parseRegressionCliArgs(process.argv.slice(2)).roundCount;
+  const { tmpRoot, cleanupRoot } = dbHelper.createOrchestratorTempRoot('regression-ga4-h1-4');
+  let rounds;
+  try {
+    rounds = [];
+    for (let i = 1; i <= roundCount; i += 1) rounds.push(runRound(i, tmpRoot));
+  } finally {
+    cleanupRoot();
+  }
+  const finalResidue = detectResidue(tmpRoot);
+  const finalResidueOk = finalResidue.length === 0;
+  if (!finalResidueOk) console.log(`[RESIDUE] final: ${finalResidue.join('; ')}`);
 
-  const allRoundsOk = rounds.every((r) => r.allOk) && checkOk;
+  const allRoundsOk = rounds.every((r) => r.allOk) && checkOk && finalResidueOk;
   const anyKnownMismatch = rounds.some((r) => r.roundResults.some((x) => x.classification === 'KNOWN_BASELINE_MISMATCH'));
 
   let consistent = true;
   for (let s = 0; s < SUITE.length; s += 1) {
     const vals = rounds.map((r) => JSON.stringify({ p: r.roundResults[s].pass, f: r.roundResults[s].fail, t: r.roundResults[s].total, e: r.roundResults[s].exitCode, c: r.roundResults[s].classification }));
-    if (new Set(vals).size !== 1) { consistent = false; console.log(`[INCONSISTENT] ${SUITE[s][3]} 三輪數字不一致：${vals.join(' | ')}`); }
+    if (new Set(vals).size !== 1) { consistent = false; console.log(`[INCONSISTENT] ${SUITE[s][3]} ${roundCount}輪數字不一致：${vals.join(' | ')}`); }
   }
 
   const h1_4Labels = ['H1.4 Layer Cleanup Runtime', 'H1.4 Range Backend Runtime', 'H1.4 Timezone Parity Runtime',
@@ -288,9 +242,10 @@ function main() {
   console.log(`  node --check: ${checkOk ? 'OK' : 'FAIL'}`);
   console.log(`  H1.4 new suites FAIL count: ${h1_4Fails.length}`);
   console.log(`  Known baseline mismatches present: ${anyKnownMismatch ? 'YES' : 'NO'}`);
-  console.log(`  3 rounds all green (no unexplained FAIL): ${allRoundsOk ? 'YES' : 'NO'}`);
-  console.log(`  3 rounds consistent: ${consistent ? 'YES' : 'NO'}`);
-  console.log(`  data/pos.db residue: ${fs.existsSync(DB_FILE) ? 'YES (BAD)' : 'no'}`);
+  console.log(`  ${roundCount} round${roundCount === 1 ? '' : 's'} all green (no unexplained FAIL): ${allRoundsOk ? 'YES' : 'NO'}`);
+  console.log(`  ${roundCount} round${roundCount === 1 ? '' : 's'} consistent: ${consistent ? 'YES' : 'NO'}`);
+  console.log(`  temp DB root residue: ${fs.existsSync(tmpRoot) ? 'YES (BAD)' : 'no'}`);
+  console.log('  real data/pos.db: never touched by this runner (Stage 3A remediated)');
   console.log('======================================================================');
 
   process.exitCode = (allRoundsOk && consistent) ? 0 : 1;

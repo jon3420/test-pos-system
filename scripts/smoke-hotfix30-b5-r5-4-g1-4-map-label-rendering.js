@@ -8,6 +8,10 @@ const path = require('path');
 const fs = require('fs');
 const { execFileSync } = require('child_process');
 const ROOT = path.join(__dirname, '..');
+const dbHelper = require('./lib/qa-temp-db.js');
+
+// Stage 3A remediation: bootstrap + DB-touching requires all live inside the
+// same outer try/finally (see tail of this file).
 
 const results = [];
 function pass(name) { results.push({ name, status: 'PASS' }); console.log(`[PASS] ${name}`); }
@@ -698,7 +702,22 @@ async function main() {
   printSummary();
 }
 
-main().catch((e) => {
-  console.error('[FATAL]', e);
-  process.exitCode = 1;
-});
+async function runEntry() {
+  let dbContext;
+  let primaryError;
+  try {
+    dbContext = dbHelper.bootstrapChildDb('map-label-standalone');
+    return await main();
+  } catch (err) {
+    primaryError = err;
+    throw err;
+  } finally {
+    dbHelper.handleOwnedCleanup(dbContext, primaryError);
+  }
+}
+
+runEntry()
+  .catch((e) => {
+    console.error('[FATAL]', e);
+    process.exitCode = 1;
+  });

@@ -12,35 +12,38 @@ const path = require('path');
 const fs = require('fs');
 const { execFileSync } = require('child_process');
 const ROOT = path.join(__dirname, '..');
-const DB_FILE = path.join(ROOT, 'data', 'pos.db');
+const dbHelper = require('./lib/qa-temp-db.js');
 
-// [scriptPath, expectedPass, expectedTotal, label]
-const SUITE = [
-  ['scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-5-district-normalization.js', 76, 76, 'B2.5 Smoke'],
-  ['scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-4-ga4-city-partial.js', 139, 139, 'B2.4 Smoke'],
-  ['scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-3-ga4-endpoint-unification.js', 75, 75, 'B2.3 Smoke'],
-  ['scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-2-ga4-layer-auth.js', 95, 95, 'B2.2 Smoke'],
-  ['scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-1-ga4-settings-persistence.js', 85, 85, 'B2.1 Smoke'],
-  ['scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-ga4-settings.js', 187, 187, 'B2 Settings Smoke'],
-  ['scripts/static-audit-g1-5-b2.js', 82, 82, 'B2 Static Audit'],
-  ['scripts/smoke-hotfix30-b5-r5-4-g1-5-b2a-ga4-settings-ui.js', 106, 106, 'B2a Smoke'],
-  ['scripts/smoke-hotfix30-b5-r5-4-g1-5-b1-ga4-frontend-choropleth.js', 168, 168, 'B1 Smoke'],
-  ['scripts/static-audit-g1-5-b1.js', 71, 71, 'B1 Static Audit'],
-  ['scripts/smoke-hotfix30-b5-r5-4-g1-5-a-ga4-backend-correctness.js', 140, 140, 'G1.5-A Smoke'],
-  ['scripts/static-audit-g1-5-a.js', 77, 77, 'G1.5-A Static Audit'],
-  ['scripts/smoke-hotfix30-b5-r5-2-b2-geo-map.js', 620, 620, 'Geo Map Settings'],
-  ['scripts/smoke-hotfix30-b5-r5-2-b3-geo-settings-ui.js', 157, 157, 'Geo Settings UI'],
-  ['scripts/smoke-hotfix30-b5-r5-4-g1-live-geo.js', 212, 212, 'G1 geo-live'],
-  ['scripts/smoke-hotfix30-b5-r5-4-g1-4-1-dark-card-metric-rendering.js', 149, 149, 'G1.4.1'],
-  ['scripts/smoke-hotfix30-b5-r5-4-g1-4-map-label-rendering.js', 148, 148, 'G1.4'],
-  ['scripts/smoke-hotfix30-b5-r5-4-g1-3-2-regression-guard.js', 148, 148, 'G1.3.2'],
-  ['scripts/smoke-hotfix30-b5-r5-4-g1-2-layer-switch.js', 83, 83, 'G1.2'],
-  ['scripts/smoke-hotfix30-b5-r5-3-a2-geo-event-engine.js', 229, 229, 'A2'],
-  ['scripts/smoke-hotfix30-b5-r5-3-a1-2-visitor-geo-sync.js', 189, 189, 'A1.2'],
-  ['scripts/static-audit-g1-4-1.js', 56, 56, 'Static Audit G1.4.1'],
-  ['scripts/static-audit-g1-4.js', 52, 52, 'Static Audit G1.4'],
-  ['scripts/static-audit-g1-3-2.js', 48, 48, 'Static Audit G1.3.2'],
-];
+// ════════════════════════════════════════════════════════════════
+// Stage 3A remediation (H1.4.8 destructive-script cleanup):
+//   - SUITE is no longer a hand-maintained literal array in this file; it is
+//     read from the side-effect-free JSON catalog (single source of truth,
+//     verified byte-identical to the pre-remediation literal array via
+//     scripts/lib/H1.4.8_STAGE3A_SUITE_BASELINE.json + deepStrictEqual).
+//   - The real data/pos.db is never touched by this runner anymore. Each
+//     child gets its own mkdtemp-isolated temp DB via scripts/lib/qa-temp-db.js,
+//     passed through POS_DB_PATH in the child's env. No fallback to the real
+//     DB path is possible: dbHelper throws fail-fast if a path can't be
+//     verified as a safe temp path.
+// ════════════════════════════════════════════════════════════════
+const CATALOG_PATH = path.join(ROOT, 'scripts/lib/H1.4.8_REGRESSION_SUITE_CATALOG.json');
+const CATALOG_KEY = 'B2_5';
+const rawCatalog = JSON.parse(fs.readFileSync(CATALOG_PATH, 'utf8'));
+if (!rawCatalog.suites || !rawCatalog.suites[CATALOG_KEY]) {
+  throw new Error(`[FATAL] Suite catalog missing key "${CATALOG_KEY}" in ${CATALOG_PATH}`);
+}
+const catalogEntry = rawCatalog.suites[CATALOG_KEY];
+if (!Array.isArray(catalogEntry.entries) || catalogEntry.entries.length !== catalogEntry.tupleCount) {
+  throw new Error(`[FATAL] Suite catalog entry "${CATALOG_KEY}" is malformed (tupleCount mismatch or entries not an array)`);
+}
+// Independent immutable copy -- never share the require() cache's array/object
+// references with anything else that might load the same JSON module.
+const SUITE = Object.freeze(catalogEntry.entries.map(([p, pass, total, label]) => {
+  if (typeof p !== 'string' || typeof pass !== 'number' || typeof total !== 'number' || typeof label !== 'string') {
+    throw new Error(`[FATAL] Malformed suite tuple in catalog "${CATALOG_KEY}": ${JSON.stringify([p, pass, total, label])}`);
+  }
+  return Object.freeze([p, pass, total, label]);
+}));
 
 const NODE_CHECK_FILES = [
   'utils/taiwanGeoNormalize.js',
@@ -75,19 +78,26 @@ function parseSummary(output) {
   return { pass, fail, total };
 }
 
-function runRound(roundNum) {
+function runRound(roundNum, tmpRoot) {
   console.log(`\n========================= ROUND ${roundNum} =========================`);
   let allOk = true;
   const roundResults = [];
   for (const [rel, expectPass, expectTotal, label] of SUITE) {
-    if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);
+    // Fresh, isolated temp DB per child -- equivalent "clean DB before each
+    // test" semantics as the old real-DB unlink, but never touches the real
+    // data/pos.db. dbHelper.createChildDbPath fail-fasts if tmpRoot isn't a
+    // verified mkdtemp path.
+    const childDbPath = dbHelper.createChildDbPath(tmpRoot, label);
+    const childEnv = dbHelper.buildChildEnv(childDbPath, tmpRoot);
     let output = '';
     let crashed = false;
     try {
-      output = execFileSync(process.execPath, [path.join(ROOT, rel)], { cwd: ROOT, encoding: 'utf8' });
+      output = execFileSync(process.execPath, [path.join(ROOT, rel)], { cwd: ROOT, encoding: 'utf8', env: childEnv });
     } catch (e) {
       output = (e.stdout || '') + (e.stderr || '');
       crashed = true;
+    } finally {
+      dbHelper.cleanupDbFileAndSidecars(childDbPath);
     }
     const { pass, fail, total } = parseSummary(output);
     const ok = !crashed && fail === 0 && pass === expectPass && total === expectTotal;
@@ -100,7 +110,6 @@ function runRound(roundNum) {
       console.log('----------------------');
     }
   }
-  if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);
   return { allOk, roundResults };
 }
 
@@ -117,8 +126,15 @@ function main() {
     }
   }
 
-  const rounds = [];
-  for (let i = 1; i <= 3; i += 1) rounds.push(runRound(i));
+  const roundCount = dbHelper.parseRegressionCliArgs(process.argv.slice(2)).roundCount;
+  const { tmpRoot, cleanupRoot } = dbHelper.createOrchestratorTempRoot('regression-b2-5');
+  let rounds;
+  try {
+    rounds = [];
+    for (let i = 1; i <= roundCount; i += 1) rounds.push(runRound(i, tmpRoot));
+  } finally {
+    cleanupRoot();
+  }
 
   const allRoundsOk = rounds.every((r) => r.allOk) && checkOk;
 
@@ -126,15 +142,16 @@ function main() {
   let consistent = true;
   for (let s = 0; s < SUITE.length; s += 1) {
     const vals = rounds.map((r) => JSON.stringify({ p: r.roundResults[s].pass, f: r.roundResults[s].fail, t: r.roundResults[s].total }));
-    if (new Set(vals).size !== 1) { consistent = false; console.log(`[INCONSISTENT] ${SUITE[s][3]} 三輪數字不一致：${vals.join(' | ')}`); }
+    if (new Set(vals).size !== 1) { consistent = false; console.log(`[INCONSISTENT] ${SUITE[s][3]} ${roundCount}輪數字不一致：${vals.join(' | ')}`); }
   }
 
   console.log('\n======================================================================');
   console.log('REGRESSION RUNNER SUMMARY — fix18-10-hotfix30-B5-R5.4-G1.5-B2.5');
   console.log(`  node --check: ${checkOk ? 'OK' : 'FAIL'}`);
-  console.log(`  3 rounds all green: ${allRoundsOk ? 'YES' : 'NO'}`);
-  console.log(`  3 rounds consistent: ${consistent ? 'YES' : 'NO'}`);
-  console.log(`  data/pos.db residue: ${fs.existsSync(DB_FILE) ? 'YES (BAD)' : 'no'}`);
+  console.log(`  ${roundCount} round${roundCount === 1 ? '' : 's'} all green: ${allRoundsOk ? 'YES' : 'NO'}`);
+  console.log(`  ${roundCount} round${roundCount === 1 ? '' : 's'} consistent: ${consistent ? 'YES' : 'NO'}`);
+  console.log(`  temp DB root residue: ${fs.existsSync(tmpRoot) ? 'YES (BAD)' : 'no'}`);
+  console.log(`  real data/pos.db: never touched by this runner (Stage 3A remediated)`);
   console.log('======================================================================');
 
   process.exitCode = (allRoundsOk && consistent) ? 0 : 1;

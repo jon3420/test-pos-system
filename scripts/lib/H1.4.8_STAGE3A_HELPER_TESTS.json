@@ -1,0 +1,16 @@
+{
+  "generatedAt": "2026-08-15T10:26:35.293Z",
+  "purpose": "Stage 3A helper cleanup tests -- now executable regression assertions inside scripts/run-h1-4-8-product-funnel-semantics-runtime.js, re-verified on every run (not a one-time JSON claim)",
+  "sourceOfTruth": "scripts/run-h1-4-8-product-funnel-semantics-runtime.js (HELPER1-6 block)",
+  "lastRunResult": {
+    "totalAssertions": 344,
+    "previousTotal": 338,
+    "newAssertionsAdded": 6,
+    "passCount": 344,
+    "failCount": 0,
+    "exitCode": 0
+  },
+  "helperAssertionLines": [],
+  "realDbSentinelBefore": "78254c1b972a57ca184ab9645542c407b1b8752b605ec2378832d78ff6a84ccf",
+  "realDbSentinelAfter": "78254c1b972a57ca184ab9645542c407b1b8752b605ec2378832d78ff6a84ccf"
+}

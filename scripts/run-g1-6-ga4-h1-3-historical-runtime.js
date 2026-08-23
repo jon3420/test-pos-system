@@ -24,6 +24,13 @@ const fs = require('fs');
 const { execFileSync } = require('child_process');
 const { JSDOM } = require('jsdom');
 const ROOT = path.join(__dirname, '..');
+const dbHelper = require('./lib/qa-temp-db.js');
+
+// Stage 3A remediation: never touch the real data/pos.db. bootstrapChildDb()
+// enforces the full POS_DB_PATH/POS_DB_TEMP_ROOT root-containment contract.
+// Bootstrap and every DB-touching require (here: services/ga4GeoSyncService.js,
+// which itself requires utils/db) live inside the SAME outer try/finally in
+// runEntry() below.
 
 const results = [];
 function pass(name) { results.push({ name, status: 'PASS' }); console.log(`[PASS] ${name}`); }
@@ -188,7 +195,21 @@ async function main() {
   printSummary();
 }
 
-main().catch((e) => {
+async function runEntry() {
+  let dbContext;
+  let primaryError;
+  try {
+    dbContext = dbHelper.bootstrapChildDb('h13-historical-standalone');
+    return await main();
+  } catch (err) {
+    primaryError = err;
+    throw err;
+  } finally {
+    dbHelper.handleOwnedCleanup(dbContext, primaryError);
+  }
+}
+
+runEntry().catch((e) => {
   console.error(e);
   process.exitCode = 1;
 });

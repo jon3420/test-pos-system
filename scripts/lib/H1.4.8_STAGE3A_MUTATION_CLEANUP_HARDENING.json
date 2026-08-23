@@ -1,0 +1,74 @@
+{
+  "correctedAt": "2026-08-16T03:40:21.144Z",
+  "statusCorrection": {
+    "previouslyClaimed": "Part 2 — mutation partial-write cleanup hardened",
+    "actualPriorState": "finally cleanup had been added; partial-write registration ordering had NOT yet been completed. The prior turn's section title was inaccurate and is corrected here.",
+    "currentState": "hardened -- both partial-write registration ordering AND finally cleanup are now complete and verified for both mutation scripts."
+  },
+  "files": [
+    "scripts/run-g1-6-ga4-h1-3-mutations.js",
+    "scripts/run-g1-6-ga4-h1-4-map-state-mutations.js"
+  ],
+  "writeFunctionsFixed": [
+    "writeAdjacent()",
+    "writeTmp()",
+    "writeTempCopy()"
+  ],
+  "safeOrderingApplied": "validate temp path differs from tracked original -> register in owned tempFiles[]/tempFilesCreated[] registry -> attempt write inside try/catch -> on write failure: unlink exact path (best-effort) + rethrow -> caller (runScenario/mutateFn) propagates -> outer runEntry() finally always runs cleanup regardless of where the throw occurred",
+  "coveragePathsVerified": {
+    "throwBeforeWrite": {
+      "description": "Covered -- registration happens before fs.writeFileSync, so even a throw from writeFileSync itself is safe (file, if partially created, gets unlinked in the local catch; path is already in registry so outer finally would catch it too as a backstop).",
+      "verificationMethod": "staticSourceAudit",
+      "runtimeProven": false
+    },
+    "partialWriteThenThrow": {
+      "description": "Covered -- same mechanism; the local try/catch around fs.writeFileSync unlinks whatever partial bytes exist before rethrowing.",
+      "verificationMethod": "staticSourceAudit",
+      "runtimeProven": false
+    },
+    "writeSuccessRequireEvalThrow": {
+      "description": "Covered -- path already registered before write; require()/eval() failures happen after writeFileSync returns successfully, so the registered path is cleaned by the outer finally.",
+      "verificationMethod": "staticSourceAudit",
+      "runtimeProven": false
+    },
+    "success": {
+      "description": "Covered -- normal path cleanup via cleanupTempFiles() (mutations.js, called at main() tail, ALSO idempotently re-run in runEntry() finally) or the runEntry() finally forEach (map-state-mutations.js).",
+      "verificationMethod": "staticSourceAudit",
+      "runtimeProven": false
+    },
+    "cleanupOnAlreadyMissingFile": {
+      "description": "Covered -- both cleanup loops wrap each fs.unlinkSync in try/catch, silently continuing if the file is already gone.",
+      "verificationMethod": "staticSourceAudit",
+      "runtimeProven": false
+    }
+  },
+  "tmpDirOwnership": {
+    "file": "scripts/run-g1-6-ga4-h1-4-map-state-mutations.js",
+    "uniquePerProcess": true,
+    "mechanism": "path.join(os.tmpdir(), ) -- unique per process id, not a fixed shared directory",
+    "creationMovedInsideProtectedLifecycle": true,
+    "note": "Previously created at module top-level (before any try/finally existed). Moved inside runEntry()'s try block, immediately before bootstrapChildDb(), so its creation now lives within the same protected try/finally as bootstrap and main() -- a throw during or after its creation is guaranteed to reach the finally cleanup, not just the process.on(\"exit\") fallback.",
+    "currentlyUnusedNote": "TMP_DIR is not currently written into by any code path in this file (writeTempCopy() writes adjacent to originals instead) -- kept reserved/cleaned defensively, not dead-code-removed, since removing it was out of scope for this safety pass."
+  },
+  "cleanupOwnershipVerification": {
+    "cleanupOnlyTouchesOwnedRegistryOrTmpDir": true,
+    "noGlobOrBroadRecursiveTarget": true,
+    "trackedSourceNeverInRegistry": "Verified: writeAdjacent()/writeTempCopy() both throw a [SAFETY] error if the computed temp path resolves equal to the tracked original path, before any registration or write occurs."
+  },
+  "primaryErrorPreservation": {
+    "problem": "A throw inside a finally block replaces/masks any pending exception from the try block (JS semantics) -- if dbContext.cleanup() itself throws, it would silently discard the real test failure that caused main() to throw in the first place.",
+    "fix": "dbContext.cleanup() is now wrapped in its own try/catch inside the finally block in BOTH files; a cleanup failure is logged via console.error but never rethrown, so it cannot override a primary error from main(). The tempFiles/tempFilesCreated forEach loops already had per-file try/catch from the start (unaffected by this change)."
+  },
+  "processExitFallbackIdempotency": {
+    "idempotent": true,
+    "noDoubleLogOutput": "fs.rmSync(..., { recursive: true, force: true }) does not throw or log when the target is already gone -- confirmed by force:true semantics -- so the process.on(\"exit\") second-layer fallback produces no duplicate output whether or not the finally-based primary cleanup already ran."
+  },
+  "dynamicExecutionEvidenceStatus": "Unchanged from the corrected H1.4.8_STAGE3A_DYNAMIC_EXECUTION_AUDIT.json (site count 1, statically reachable invocation count 19, allowlisted source file count 9, unsafe/unresolved count 0) -- this turn's changes were cleanup-ordering only, no eval/require/dynamic-target logic was touched.",
+  "verificationMethod": "staticSourceAudit",
+  "childRuntimeExecuted": false,
+  "registrationBeforeWrite": true,
+  "localRollbackOnWriteFailure": true,
+  "deterministicFinallyCleanup": true,
+  "processExitFallbackOnly": true,
+  "cleanupPolicyUpdate": "This turn: both mutation scripts additionally migrated from a catch-and-log-only (never rethrow) cleanup pattern to the shared dbHelper.handleOwnedCleanup()/runCleanupSteps() policy, which correctly surfaces a cleanup failure as a real failure when there is no primary error, while still preserving primary-error identity when one exists. See H1.4.8_STAGE3A_14CHILD_CLEANUP_CERT.json for the full 14-child re-certification."
+}

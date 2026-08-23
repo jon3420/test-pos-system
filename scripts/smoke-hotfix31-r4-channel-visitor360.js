@@ -99,6 +99,18 @@ async function main() {
       fulfillment_type: opts.fulfillment_type || null, order_source: opts.order_source || null,
     });
   }
+  // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.8（CHECKOUT-ANALYTICS-UNIFICATION）：
+  // checkout_click 是「前往結帳」的正式權威事件（H1.4.7 起前台只送這個）。
+  // beginCheckout() 上面那個 helper 保留，但只用來建立「純舊資料」fixture
+  // （驗證 begin_checkout 不得混入新版 CRM/KPI），正式流程一律用這個新 helper。
+  function checkoutClick(storeId, opts) {
+    return insertEvent(db, {
+      store_id: storeId, visitor_id: opts.visitor_id || 'v_default', session_id: opts.session_id || 's_default',
+      cart_id: opts.cart_id, event_name: 'checkout_click', order_mode: opts.order_mode,
+      source: opts.source || null, line_user_id: opts.line_user_id || null,
+      fulfillment_type: opts.fulfillment_type || null, order_source: opts.order_source || null,
+    });
+  }
   function submitOrder(storeId, opts) {
     return insertEvent(db, {
       store_id: storeId, visitor_id: opts.visitor_id || 'v_default', session_id: opts.session_id || 's_default',
@@ -250,9 +262,14 @@ async function main() {
   ['aud_b_s1', 'aud_b_s2', 'aud_b_s3'].forEach((sid, i) => viewProduct(STORE_AUD, { visitor_id: 'aud_b', session_id: sid, product_id: 9101 }));
   addToCart(STORE_AUD, { visitor_id: 'aud_b', session_id: 'aud_b_s1', cart_id: 'aud_b_cart1', product_id: 9101 });
   addToCart(STORE_AUD, { visitor_id: 'aud_b', session_id: 'aud_b_s2', cart_id: 'aud_b_cart2', product_id: 9101 });
-  // 訪客 C：開始結帳但未購買
+  // 訪客 C：前往結帳（checkout_click）但未購買
   addToCart(STORE_AUD, { visitor_id: 'aud_c', session_id: 'aud_c_s1', cart_id: 'aud_c_cart1', product_id: 9101 });
-  beginCheckout(STORE_AUD, { visitor_id: 'aud_c', session_id: 'aud_c_s1', cart_id: 'aud_c_cart1' });
+  checkoutClick(STORE_AUD, { visitor_id: 'aud_c', session_id: 'aud_c_s1', cart_id: 'aud_c_cart1' });
+  // 訪客 C2：只有舊 begin_checkout（沒有 checkout_click）——H1.4.8 契約：
+  // 舊事件不得混入新版 CRM checkout count／分群，checkout_count 必須是 0，
+  // 也不會被標記「已前往結帳未購買」。
+  addToCart(STORE_AUD, { visitor_id: 'aud_c2', session_id: 'aud_c2_s1', cart_id: 'aud_c2_cart1', product_id: 9101 });
+  beginCheckout(STORE_AUD, { visitor_id: 'aud_c2', session_id: 'aud_c2_s1', cart_id: 'aud_c2_cart1' });
   // 訪客 D：首購（1 筆訂單）
   addToCart(STORE_AUD, { visitor_id: 'aud_d', session_id: 'aud_d_s1', cart_id: 'aud_d_cart1', product_id: 9101 });
   beginCheckout(STORE_AUD, { visitor_id: 'aud_d', session_id: 'aud_d_s1', cart_id: 'aud_d_cart1' });
@@ -283,8 +300,14 @@ async function main() {
     assert(rowB.customer_status_tags.includes('回訪訪客'), '21. 訪客 B 被標記「回訪訪客」（visit_count>1）');
 
     const rowC = list.rows.find((r) => r.canonical_key === 'aud_c');
-    assert(!!rowC && rowC.checkout_count === 1 && rowC.order_count === 0, '22. 訪客 C：checkout_count=1, order_count=0');
-    assert(rowC.customer_status_tags.includes('已開始結帳未購買'), '23. 訪客 C 被標記「已開始結帳未購買」');
+    assert(!!rowC && rowC.checkout_count === 1 && rowC.order_count === 0, '22. 訪客 C：checkout_count=1, order_count=0（來自 checkout_click）');
+    assert(rowC.customer_status_tags.includes('已前往結帳未購買'), '23. 訪客 C 被標記「已前往結帳未購買」');
+
+    // H1.4.8：只有舊 begin_checkout（沒有 checkout_click）的訪客，checkout_count
+    // 必須是 0，且不得被標記「已前往結帳未購買」——證明舊事件不會混入新版 KPI。
+    const rowC2 = list.rows.find((r) => r.canonical_key === 'aud_c2');
+    assert(!!rowC2 && rowC2.checkout_count === 0, '23b. 訪客 C2（只有舊 begin_checkout）：checkout_count=0（舊事件不混入新版 KPI）', JSON.stringify(rowC2));
+    assert(!rowC2.customer_status_tags.includes('已前往結帳未購買'), '23c. 訪客 C2 不得被標記「已前往結帳未購買」（只有舊 begin_checkout，沒有 checkout_click）');
 
     const rowD = list.rows.find((r) => r.canonical_key === 'aud_d');
     assert(!!rowD && rowD.order_count === 1, '24. 訪客 D：order_count=1');

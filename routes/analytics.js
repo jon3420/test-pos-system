@@ -64,8 +64,10 @@ const {
 const {
   getProductFunnel, getCartAbandonmentByProduct, getProductRankings,
   getSourcePerformance, getCampaignPerformance, getAdsDashboard,
-  getCrmOverview, getAiInsightsV2,
+  getCrmOverview, getAiInsightsV2, getGlobalFunnelCanonicalMetrics,
+  primeFunnelIdentityContext,
 } = require('../utils/analyticsV2');
+const { createCanonicalIdentityContext } = require('../utils/analyticsIdentity');
 // fix18-10-hotfix24-A1（Part 2/3/4：Tracking Health × Purchase 去重稽核 × Funnel Validation）
 const { getAnalyticsHealthReport } = require('../utils/analyticsHealth');
 const { getTrackingPeriodInfo } = require('../utils/dashboardDate');
@@ -426,7 +428,18 @@ router.get('/dashboard', (req, res) => {
     try {
       // fix18-10-hotfix31-R4（需求文件 B/C）：同上，analytics_v2 底下的商品漏斗／
       // 來源分析／Campaign 分析也要接住同一個 channel，跟 KPI/Funnel 保持一致。
-      const productFunnel = getProductFunnel(db, storeId, range, channel);
+      // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.8（四次修正）：global 與
+      // product-funnel 這兩次 canonical 計算共用同一份 request-scoped
+      // identity cache（同一個 visitor_id 若同時出現在全局統計與某個商品
+      // 統計裡，只解析一次），不是各自建立一份各自查詢。
+      // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.8（七次修正）：Route 自己
+      // 顯式 prime 一次（在呼叫 getProductFunnel()／
+      // getGlobalFunnelCanonicalMetrics() 之前），這樣兩個 helper 的
+      // 正確性與效能保證不依賴「剛好先呼叫哪一個」——不管接下來先呼叫誰，
+      // 這裡都已經把整個 request 需要的 canonical identity 查完了。
+      const sharedIdentityContext = createCanonicalIdentityContext(storeId, channel);
+      primeFunnelIdentityContext(db, storeId, range, channel, sharedIdentityContext);
+      const productFunnel = getProductFunnel(db, storeId, range, channel, sharedIdentityContext);
       const cartAbandonment = getCartAbandonmentByProduct(productFunnel);
       const productRankings = getProductRankings(productFunnel);
       const sourcePerformance = getSourcePerformance(db, storeId, range, channel);
@@ -448,10 +461,23 @@ router.get('/dashboard', (req, res) => {
              evidence: '此區間尚無足夠的瀏覽與訂單事件',
              actions: [], values: {},
              message: '目前資料量不足，累積更多瀏覽與訂單後才能提供可靠建議。' }];
+      // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.8（CHECKOUT-ANALYTICS-UNIFICATION）：
+      // 全局（不分商品）三階段 canonical 統計——獨立查詢，不是把上面
+      // productFunnel 逐商品列加總（同一個 cart 可能同時出現在多個商品列，
+      // 加總會膨脹；全局數字必須直接對 analytics_events 做不分商品的
+      // DISTINCT 計算）。
+      const globalCanonical = getGlobalFunnelCanonicalMetrics(db, storeId, range, channel, sharedIdentityContext);
       analytics_v2 = {
         insufficient_data: !hasAnalyticsData,
         rule_engine_only: true, // 需求文件十一：本版僅 Rule Engine，未串接外部 AI API
         product_funnel: hasAnalyticsData ? productFunnel : [],
+        // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.8：全局三階段 canonical
+        // 統計（event_count／unique_users／unique_carts），additive 新欄位。
+        global_canonical: hasAnalyticsData ? globalCanonical : {
+          add_to_cart: { event_count: 0, unique_users: 0, unique_carts: 0 },
+          checkout_click: { event_count: 0, unique_users: 0, unique_carts: 0 },
+          purchase: { event_count: 0, unique_users: 0, unique_carts: 0 },
+        },
         cart_abandonment: hasAnalyticsData ? cartAbandonment : { rows: [], top_abandon_products: [] },
         product_rankings: hasAnalyticsData ? productRankings : {
           top_sales: [], top_revenue: [], top_conversion: [], highest_cart: [], lowest_conversion: [], highest_abandon: [],
@@ -464,12 +490,29 @@ router.get('/dashboard', (req, res) => {
         ai_insights: aiInsightsFinal,
       };
     } catch (v2Err) {
+      // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.8（correctness 修正）：
+      // identity evidence 查詢失敗（utils/analyticsIdentity.js 標記
+      // err.identityIntegrityFailure=true）不是「這個區塊的資料量不足」
+      // 這種可以優雅降級的情況——如果吞掉它、照樣回傳 200 加上全 0 的
+      // canonical 數字，前端／老闆會把「查詢失敗」誤讀成「這段期間真的沒人
+      // 前往結帳」，是會造成誤導的錯誤資料，不是保守降級。這裡改成往外
+      // 重新拋出，讓最外層的 catch（見本檔案 GET /dashboard 最後的
+      // `catch (e) { res.status(500)... }`）用 500 回應，不是靜默生出一筆
+      // 看起來正常、其實完全不可信的 200 回應。
+      if (v2Err && v2Err.identityIntegrityFailure) {
+        throw v2Err;
+      }
       console.error('[analytics] analytics_v2 computation failed:', v2Err.message, v2Err.stack);
       analytics_v2 = {
         insufficient_data: true,
         rule_engine_only: true,
         message: 'POS Analytics V2 計算失敗',
         product_funnel: [], cart_abandonment: { rows: [], top_abandon_products: [] },
+        global_canonical: {
+          add_to_cart: { event_count: 0, unique_users: 0, unique_carts: 0 },
+          checkout_click: { event_count: 0, unique_users: 0, unique_carts: 0 },
+          purchase: { event_count: 0, unique_users: 0, unique_carts: 0 },
+        },
         product_rankings: { top_sales: [], top_revenue: [], top_conversion: [], highest_cart: [], lowest_conversion: [], highest_abandon: [] },
         source_performance: [], campaigns: { available: false, message: '尚未取得 Campaign 資料', rows: [] },
         ads_dashboard: [], crm: { insufficient_data: true, message: 'CRM 資料計算失敗', total_members: 0 },

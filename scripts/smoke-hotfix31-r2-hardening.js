@@ -11,11 +11,47 @@
 
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 
-const DATA_DIR = path.join(__dirname, '..', 'data');
-const DB_FILE = path.join(DATA_DIR, 'pos.db');
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);
+// fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.8（Gate B DB 隔離修正——與
+// scripts/smoke-hotfix31-r1-backend.js 相同的安全模型）：這支測試原本跟
+// r1-backend.js 有一模一樣的缺陷——直接刪除並重建正式 data/pos.db。這是
+// 這輪 forensic audit 找到的真正污染來源：這支檔案先前在本輪對話中被
+// 執行過，把 CURRENT 正式 data/pos.db 洗成了它自己的 fixture 資料
+// （store_id 前綴 r31_store_a 等）。改成跟 r1-backend.js 一致的做法：
+// mkdtemp 建立獨立 tmpdir，透過 utils/db.js 既有支援的
+// process.env.POS_DB_PATH 覆寫機制指向臨時檔案，在第一次 require
+// ../utils/db 之前設定好。
+const REAL_DATA_DIR = path.join(__dirname, '..', 'data');
+const REAL_DB_PATH = path.join(REAL_DATA_DIR, 'pos.db');
+const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'h1-4-8-r2-hardening-'));
+const tmpDbPath = path.join(tmpDir, 'test.db');
+
+// Fail-fast 安全檢查（測試自己的防護，不是 production hook）。
+{
+  const resolvedTmpDbPath = path.resolve(tmpDbPath);
+  const resolvedRealDbPath = fs.existsSync(REAL_DB_PATH) ? fs.realpathSync(REAL_DB_PATH) : path.resolve(REAL_DB_PATH);
+  const resolvedTmpDir = fs.realpathSync(tmpDir);
+  if (resolvedTmpDbPath === resolvedRealDbPath) {
+    throw new Error(`[SAFETY] 臨時 DB 路徑意外等於正式 data/pos.db（${resolvedRealDbPath}），拒絕繼續執行`);
+  }
+  if (!resolvedTmpDbPath.startsWith(resolvedTmpDir)) {
+    throw new Error(`[SAFETY] 臨時 DB 路徑（${resolvedTmpDbPath}）不在這次 mkdtemp 建立的 tmpdir（${resolvedTmpDir}）底下，拒絕繼續執行`);
+  }
+}
+process.env.POS_DB_PATH = tmpDbPath; // 必須在第一次 require('../utils/db') 之前設定
+
+function cleanupTmp() {
+  try {
+    ['', '-wal', '-shm', '-journal'].forEach((suffix) => {
+      const p = tmpDbPath + suffix;
+      if (fs.existsSync(p)) fs.unlinkSync(p);
+    });
+  } catch (e) { console.warn('[cleanup] DB 附屬檔清理失敗（不影響測試結果）:', e.message); }
+  try {
+    if (fs.existsSync(tmpDir)) fs.rmSync(tmpDir, { recursive: true, force: true });
+  } catch (e) { console.warn('[cleanup] tmpdir 清理失敗（不影響測試結果）:', e.message); }
+}
 
 const results = [];
 function pass(name) { results.push({ name, status: 'PASS' }); console.log(`[PASS] ${name}`); }
@@ -40,6 +76,18 @@ async function main() {
   const { initDb, getDb } = require('../utils/db');
   await initDb();
   const db = getDb();
+
+  // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.8：DB path proof——證明這個
+  // process 全程使用臨時 DB，不是正式 data/pos.db。
+  {
+    const resolvedTmpDbPath = path.resolve(tmpDbPath);
+    const resolvedRealDbPath = fs.existsSync(REAL_DB_PATH) ? fs.realpathSync(REAL_DB_PATH) : path.resolve(REAL_DB_PATH);
+    assert(resolvedTmpDbPath !== resolvedRealDbPath, 'DB_PATH_PROOF1：臨時 DB 的路徑與正式 data/pos.db 不同', JSON.stringify({ resolvedTmpDbPath, resolvedRealDbPath }));
+    const resolvedTmpDir = fs.realpathSync(tmpDir);
+    assert(resolvedTmpDbPath.startsWith(resolvedTmpDir), 'DB_PATH_PROOF2：臨時 DB 路徑確實位於這次 mkdtemp 建立的 tmpdir 底下', JSON.stringify({ resolvedTmpDbPath, resolvedTmpDir }));
+    const { getDb: getDbAgain } = require('../utils/db');
+    assert(getDbAgain() === db, 'DB_PATH_PROOF3：後續 require 的 utils/db.js 使用同一個 getDb() 物件參照（同一份 module cache，同一個臨時 DB 實例）', JSON.stringify({ same: getDbAgain() === db }));
+  }
 
   const { insertEvent } = require('../utils/analyticsLog');
   const { sanitizeCartSnapshotMetadata } = require('../utils/cartSnapshot');
@@ -287,10 +335,14 @@ async function main() {
   // ── 統計 ──
   const failCount = results.filter((r) => r.status === 'FAIL').length;
   console.log(`\n合計：${results.length} 項，PASS ${results.length - failCount}，FAIL ${failCount}`);
+  const tmpDirPath = tmpDir;
+  cleanupTmp();
+  console.log(`[cleanup] tmpdir removed: ${!fs.existsSync(tmpDirPath)}`);
   process.exit(failCount > 0 ? 1 : 0);
 }
 
 main().catch((e) => {
   console.error('[smoke-hotfix31-r2-hardening] 未預期錯誤：', e);
+  cleanupTmp();
   process.exit(1);
 });

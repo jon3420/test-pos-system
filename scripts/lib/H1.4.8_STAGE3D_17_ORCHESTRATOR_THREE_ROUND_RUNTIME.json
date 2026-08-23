@@ -1,0 +1,456 @@
+{
+  "generatedAt": "2026-08-23T15:42:39.833Z",
+  "verificationMethod": "genuine childRuntimeExecution for all 17 orchestrators at 3 rounds each, using a durable tmux-based foreground harness with immediate disk writes, 30s heartbeats, and atomic checkpoint persistence",
+  "stage3CEvidenceReference": {
+    "path": "scripts/lib/H1.4.8_STAGE3C_17_ORCHESTRATOR_ONE_ROUND_RUNTIME.json",
+    "sha256": "f14f92b516afa8a3affb2d89f28726134bbaa614f9e93ee6d4812e547cc25eee"
+  },
+  "harnessLocation": "/tmp/stage3d_foreground_harness.js, /tmp/stage3d_d3_launch.sh, /tmp/stage3d_d2_retry_harness.js (parameterized, /tmp only, not added to the repo)",
+  "harnessUsesBuiltinsOnly": true,
+  "typescriptUsedByHarness": false,
+  "orchestratorsPassed": 17,
+  "orchestratorsFailed": 0,
+  "orchestratorsNotRun": 0,
+  "acceptedCompletedRounds": 51,
+  "threeRoundsPerOrchestrator": true,
+  "expectedSuiteEntryExecutions": 2544,
+  "actualSuiteEntryExecutions": 2544,
+  "globalUniqueChildPathCount": 90,
+  "duplicateAcceptedResults": 0,
+  "seventeenRootRecords": [
+    {
+      "label": "D1-B2_5",
+      "script": "scripts/run-regression-b2-5.js",
+      "argv": [
+        "3"
+      ],
+      "expectedPerRound": 24,
+      "acceptedTotal": 72,
+      "exitCode": 0,
+      "durationMs": 250234,
+      "stdoutLog": "/tmp/stage3d-D1-B2_5-stdout.log",
+      "stdoutSha256": "5e28708ed0a689daf3d8d1bf015a67b5efaaac7d77321e5180986466913312a1",
+      "stderrLog": "/tmp/stage3d-D1-B2_5-stderr.log",
+      "stderrSha256": "369258d4b76f48a587bd1d6040ac2191fd854c6a71214c37fed430ac4074e81c"
+    },
+    {
+      "label": "D2-GA4_H1_4_7-attempt2",
+      "script": "scripts/run-regression-g1-6-ga4-h1-4-7.js",
+      "argv": [
+        "3"
+      ],
+      "expectedPerRound": 79,
+      "acceptedTotal": 237,
+      "exitCode": 0,
+      "durationMs": 667393,
+      "stdoutLog": "/tmp/stage3d-D2-GA4_H1_4_7-attempt2-stdout.log",
+      "stdoutSha256": "44241b672d2492cb7a0b2274ab6e294decda7bf7c5dcdda3c52ec127b9fee573",
+      "stderrLog": "/tmp/stage3d-D2-GA4_H1_4_7-attempt2-stderr.log",
+      "stderrSha256": "3b5e641e0a7eb467740591c7038becb408d9366d8191256a35cc6ebafbc0be54"
+    },
+    {
+      "label": "A1_2_1",
+      "script": "scripts/run-regression-g1-6-a1-2-1.js",
+      "argv": [
+        "3"
+      ],
+      "expectedPerRound": 26,
+      "acceptedTotal": 78,
+      "exitCode": 0,
+      "durationMs": 231332,
+      "stdoutLog": "/tmp/stage3d-D3-A1_2_1-stdout.log",
+      "stdoutSha256": "c1d2d1e862643aa6ce67971738c0ffefbdbfa8d93264c97a5c65953a51d7d1c2",
+      "stderrLog": "/tmp/stage3d-D3-A1_2_1-stderr.log",
+      "stderrSha256": "f805273ff42c40715ba9ececa3d9e99718bafb67921100389c7c700e52fb3350"
+    },
+    {
+      "label": "A1",
+      "script": "scripts/run-regression-g1-6-a1.js",
+      "argv": [
+        "3"
+      ],
+      "expectedPerRound": 30,
+      "acceptedTotal": 90,
+      "exitCode": 0,
+      "durationMs": 251189,
+      "stdoutLog": "/tmp/stage3d-D3-A1-stdout.log",
+      "stdoutSha256": "362bff3998c5705e1462462b2cf6f47f82a37698b3f66ab7123171cf5c7456d2",
+      "stderrLog": "/tmp/stage3d-D3-A1-stderr.log",
+      "stderrSha256": "6bb4476d0e44d3b816c46ebf5246c2df3eb3228bd08fd6d6c60b940dfd75fea6"
+    },
+    {
+      "label": "GA4_H1_attempt2",
+      "script": "scripts/run-regression-g1-6-ga4-h1.js",
+      "argv": [
+        "3"
+      ],
+      "expectedPerRound": 31,
+      "acceptedTotal": 93,
+      "exitCode": 0,
+      "durationMs": 246053,
+      "stdoutLog": "/tmp/stage3d-D3-GA4_H1_attempt2-stdout.log",
+      "stdoutSha256": "e0558cf651b4cd900fe7e79b29cda8926be2767843af7ac905a5160d827d65a3",
+      "stderrLog": "/tmp/stage3d-D3-GA4_H1_attempt2-stderr.log",
+      "stderrSha256": "24a1e3b26cadf6ef46c73ad70729c00a6bd54692d3c6cc549eb5323a1794a943"
+    },
+    {
+      "label": "A1_1",
+      "script": "scripts/run-regression-g1-6-a1-1.js",
+      "argv": [
+        "3"
+      ],
+      "expectedPerRound": 32,
+      "acceptedTotal": 96,
+      "exitCode": 0,
+      "durationMs": 281404,
+      "stdoutLog": "/tmp/stage3d-D3-A1_1-stdout.log",
+      "stdoutSha256": "3c9c34a71c85670689d431ba48606601bf6096acd5b4602a22ef5fd8bc159360",
+      "stderrLog": "/tmp/stage3d-D3-A1_1-stderr.log",
+      "stderrSha256": "3edfe18232c64829f7dfba842d1390030a4a854f57df92b9e216e2bc55f80932"
+    },
+    {
+      "label": "GA4_H1_1_AUTH",
+      "script": "scripts/run-regression-g1-6-ga4-h1-1-auth.js",
+      "argv": [
+        "3"
+      ],
+      "expectedPerRound": 34,
+      "acceptedTotal": 102,
+      "exitCode": 0,
+      "durationMs": 336699,
+      "stdoutLog": "/tmp/stage3d-D3-GA4_H1_1_AUTH-stdout.log",
+      "stdoutSha256": "f81b3646cb1f66d7cad29017adbc0d16f022a9b3df803954018867261a345b71",
+      "stderrLog": "/tmp/stage3d-D3-GA4_H1_1_AUTH-stderr.log",
+      "stderrSha256": "e4b6d234690a87fdcff4a6e8b6d5de97d20dc0343968621dd5fa4a3f355f3305"
+    },
+    {
+      "label": "A1_2",
+      "script": "scripts/run-regression-g1-6-a1-2.js",
+      "argv": [
+        "3"
+      ],
+      "expectedPerRound": 35,
+      "acceptedTotal": 105,
+      "exitCode": 0,
+      "durationMs": 287595,
+      "stdoutLog": "/tmp/stage3d-D3-A1_2-stdout.log",
+      "stdoutSha256": "052b7734836e41ebe426241c97a585182813ee512f70cb838406c7e756f04a07",
+      "stderrLog": "/tmp/stage3d-D3-A1_2-stderr.log",
+      "stderrSha256": "9e5064f74b65e58421554511b853d8c8b93b9049789a6e843186a68fa3fdb877"
+    },
+    {
+      "label": "GA4_H1_2",
+      "script": "scripts/run-regression-g1-6-ga4-h1-2.js",
+      "argv": [
+        "3"
+      ],
+      "expectedPerRound": 36,
+      "acceptedTotal": 108,
+      "exitCode": 0,
+      "durationMs": 341708,
+      "stdoutLog": "/tmp/stage3d-D3-GA4_H1_2-stdout.log",
+      "stdoutSha256": "7a7369b3ebcf9872f57a30938e07290802732bfbdac8baef298e1dd74300e255",
+      "stderrLog": "/tmp/stage3d-D3-GA4_H1_2-stderr.log",
+      "stderrSha256": "a4fdf4fcef73bc2adfa1d6d49c9bc6d2181dddf9c7ec4be7326d8f435b90b59b"
+    },
+    {
+      "label": "GA4_H1_3",
+      "script": "scripts/run-regression-g1-6-ga4-h1-3.js",
+      "argv": [
+        "3"
+      ],
+      "expectedPerRound": 42,
+      "acceptedTotal": 126,
+      "exitCode": 0,
+      "durationMs": 372291,
+      "stdoutLog": "/tmp/stage3d-D3-GA4_H1_3-stdout.log",
+      "stdoutSha256": "52fdeca50cee748297f0de18dfd5366660430cfa44b1b9ed5c317689fb5dd14b",
+      "stderrLog": "/tmp/stage3d-D3-GA4_H1_3-stderr.log",
+      "stderrSha256": "8acdca1d247e5505161ded2c58165835ae755d650148836ed13f0d3ff3a93989"
+    },
+    {
+      "label": "GA4_H1_4",
+      "script": "scripts/run-regression-g1-6-ga4-h1-4.js",
+      "argv": [
+        "3"
+      ],
+      "expectedPerRound": 56,
+      "acceptedTotal": 168,
+      "exitCode": 0,
+      "durationMs": 386174,
+      "stdoutLog": "/tmp/stage3d-D3-GA4_H1_4-stdout.log",
+      "stdoutSha256": "df63dba82ac366c1563fba5cb7fa3ec0a5359cf648e6d2c63c30094d880402fc",
+      "stderrLog": "/tmp/stage3d-D3-GA4_H1_4-stderr.log",
+      "stderrSha256": "25df1575e8f3479593586cc498e76fc863a06f1d9b1a18f9df951b3ad4b05c43"
+    },
+    {
+      "label": "GA4_H1_4_1",
+      "script": "scripts/run-regression-g1-6-ga4-h1-4-1.js",
+      "argv": [
+        "3"
+      ],
+      "expectedPerRound": 64,
+      "acceptedTotal": 192,
+      "exitCode": 0,
+      "durationMs": 449775,
+      "stdoutLog": "/tmp/stage3d-D3-GA4_H1_4_1-stdout.log",
+      "stdoutSha256": "c52766f0058ba4e67dad00c03c0d9c82d7d2a0552284c4110152273529196e32",
+      "stderrLog": "/tmp/stage3d-D3-GA4_H1_4_1-stderr.log",
+      "stderrSha256": "4147abf5c4438f7c54c3fd1e3f8b8a4f991f9a71224026ebdf1f041f8bdc9417"
+    },
+    {
+      "label": "GA4_H1_4_2",
+      "script": "scripts/run-regression-g1-6-ga4-h1-4-2.js",
+      "argv": [
+        "3"
+      ],
+      "expectedPerRound": 67,
+      "acceptedTotal": 201,
+      "exitCode": 0,
+      "durationMs": 470564,
+      "stdoutLog": "/tmp/stage3d-D3-GA4_H1_4_2-stdout.log",
+      "stdoutSha256": "ac63a38c4a891022bbb99ee89a5f19efbaaef5956638844089abd4b2c59c6a60",
+      "stderrLog": "/tmp/stage3d-D3-GA4_H1_4_2-stderr.log",
+      "stderrSha256": "11566c105fb37174103902b10fe4da4455e4b100065387905d13591e0cbaf8f5"
+    },
+    {
+      "label": "GA4_H1_4_3",
+      "script": "scripts/run-regression-g1-6-ga4-h1-4-3.js",
+      "argv": [
+        "3"
+      ],
+      "expectedPerRound": 70,
+      "acceptedTotal": 210,
+      "exitCode": 0,
+      "durationMs": 472264,
+      "stdoutLog": "/tmp/stage3d-D3-GA4_H1_4_3-stdout.log",
+      "stdoutSha256": "5d2b5e2623c53889162775535a3ddfa4029e0108e9bef7773a49aa64d012bdcf",
+      "stderrLog": "/tmp/stage3d-D3-GA4_H1_4_3-stderr.log",
+      "stderrSha256": "7efb13d16c6dc28d1d2ac90f13e684e7f6773f9a5d60255f8840dd671b1e7d2d"
+    },
+    {
+      "label": "GA4_H1_4_4",
+      "script": "scripts/run-regression-g1-6-ga4-h1-4-4.js",
+      "argv": [
+        "3"
+      ],
+      "expectedPerRound": 72,
+      "acceptedTotal": 216,
+      "exitCode": 0,
+      "durationMs": 471509,
+      "stdoutLog": "/tmp/stage3d-D3-GA4_H1_4_4-stdout.log",
+      "stdoutSha256": "da48344b59b914e6e2eb7864c49f53ddb57f3923cf29780681df30f3bae951ad",
+      "stderrLog": "/tmp/stage3d-D3-GA4_H1_4_4-stderr.log",
+      "stderrSha256": "af3c246314bd693d150e18ee071f55294a473f635c5970b17faef561d6fc29b3"
+    },
+    {
+      "label": "GA4_H1_4_5_attempt2",
+      "script": "scripts/run-regression-g1-6-ga4-h1-4-5.js",
+      "argv": [
+        "3"
+      ],
+      "expectedPerRound": 74,
+      "acceptedTotal": 222,
+      "exitCode": 0,
+      "durationMs": 573970,
+      "stdoutLog": "/tmp/stage3d-D3-GA4_H1_4_5_attempt2-stdout.log",
+      "stdoutSha256": "4df1d0362ec93336d68bbe3c6fecc55fce798f14f1a038ef1282c68e7d458d89",
+      "stderrLog": "/tmp/stage3d-D3-GA4_H1_4_5_attempt2-stderr.log",
+      "stderrSha256": "5fc288d4f8b3dded43d6fb9e8713f05f1c9a6d455b30d1158cd2114231492863"
+    },
+    {
+      "label": "GA4_H1_4_6",
+      "script": "scripts/run-regression-g1-6-ga4-h1-4-6.js",
+      "argv": [
+        "3"
+      ],
+      "expectedPerRound": 76,
+      "acceptedTotal": 228,
+      "exitCode": 0,
+      "durationMs": 573855,
+      "stdoutLog": "/tmp/stage3d-D3-GA4_H1_4_6-stdout.log",
+      "stdoutSha256": "1859b5a7920880169330460a3e6378580bb2457f2a932b888ef8e2be50d524ca",
+      "stderrLog": "/tmp/stage3d-D3-GA4_H1_4_6-stderr.log",
+      "stderrSha256": "7d2e376733e7cbe7ccbae858685ac0ebf52c0ec7db533a5ea23850e3e13a1a20"
+    }
+  ],
+  "attemptHistory": {
+    "D2_GA4_H1_4_7": {
+      "attempt1": {
+        "classification": "infrastructureInconclusiveContainerRestart",
+        "testResult": "none",
+        "acceptedRounds": 0,
+        "lastHeartbeat": "t+270s",
+        "doneJsonWritten": false
+      },
+      "attempt2": {
+        "classification": "accepted",
+        "exitCode": 0,
+        "roundsRun": 3,
+        "acceptedTotal": 237
+      }
+    },
+    "GA4_H1": {
+      "attempt1": {
+        "classification": "testFailure",
+        "causalSubtype": "preExistingOrphanResidueFromD2Attempt1InfrastructureTermination",
+        "exitCode": 1,
+        "childAssertionsPassed": "93/93",
+        "residueDetected": "/tmp/ga4-h1-persisted-range-6274-1787118355228.db"
+      },
+      "orphanCleanup": {
+        "path": "/tmp/stage3d_orphan_cleanup_record.json",
+        "sha256": "8a4c8217339808d8940c19154ad0764ad3cdae886680d0fed622fd0e56ee598c"
+      },
+      "attempt2": {
+        "classification": "accepted",
+        "exitCode": 0,
+        "roundsRun": 3,
+        "acceptedTotal": 93
+      }
+    },
+    "GA4_H1_4_5": {
+      "attempt1": {
+        "classification": "infrastructureInconclusive",
+        "causalSubtype": [
+          "sessionEndedWithoutDoneJson",
+          "orphanTempRootFromInterruptedExecution"
+        ],
+        "confirmedContainerRestart": true,
+        "evidenceForRestart": "direct /proc/uptime reading of 3.54 seconds at discovery time",
+        "incidentRecord": {
+          "path": "/tmp/stage3d_ga4h145_incident_record.json",
+          "sha256": "46dd3e82972dd9eac1b6066c11332c9482e6889033524c83218515bf167fe8a8"
+        }
+      },
+      "orphanCleanup": {
+        "path": "/tmp/stage3d_ga4h145_orphan_cleanup_record.json",
+        "sha256": "e4d4de02bb798b7cdb52ef21c8c23d427ffc6d079652362270c72932b7d899bd",
+        "target": "/tmp/h148-regression-ga4-h1-4-5-ECEvws",
+        "method": "3x literal-path rm -- followed by literal-path rmdir --, no wildcards"
+      },
+      "attempt2": {
+        "classification": "accepted",
+        "exitCode": 0,
+        "roundsRun": 3,
+        "acceptedTotal": 222
+      }
+    },
+    "GA4_H1_4_6_finalRoot": {
+      "launchedAfterBootIdChange": true,
+      "note": "launch-time boot_id/uptime differed from prior checks, but done.json completion timestamp (14:46:47Z) predated the discovery of that change, and full content verification (exit 0, 76/76/76, zero FAIL, zero residue) confirmed a genuine clean completion -- not judged by restart timing alone, per instruction",
+      "exitCode": 0,
+      "roundsRun": 3,
+      "acceptedTotal": 228
+    }
+  },
+  "tmuxInstallation": {
+    "initialCheckResult": "tmux not found (exit 127) -- recorded in /tmp/stage3d_tmux_unavailable_halt_record.json",
+    "haltRecordSha256": "528206ec2b27030cd326331680ca01e05c95d6089f78d7082ce8feef04a84753",
+    "installMethod": "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends tmux",
+    "dryRunConfirmedBeforeRealInstall": "0 upgraded, 3 newly installed, 0 removed, 145 not upgraded",
+    "packagesInstalled": 3,
+    "existingPackagesUpgraded": 0,
+    "repoFilesChanged": 0,
+    "version": "3.4",
+    "binarySha256": "034b15c64035f783d43862f2775eb4828f61571ca62c8199796000b97d556ecd",
+    "remainsInstalled": true
+  },
+  "durabilityCanary": {
+    "durationMs": 810775,
+    "requiredMinimumMs": 780000,
+    "exitCode": 0,
+    "totalHeartbeats": 28,
+    "doneJsonSha256": "086d6932f7dd1b0c6e17acbe29bc3fcdda07b1e9baa6021f2653b1739d11b85a",
+    "fingerprintDiagnosticFlaw": {
+      "recordedFlag": "fingerprintUnchanged: false",
+      "rootCause": "the fingerprint design included volatile /proc/1/stat counters (minflt/majflt/utime/stime) that naturally increase for a continuously-running process, rather than isolating a true restart indicator",
+      "actualDurabilityEvidence": "process name/state prefix stayed identical throughout; /proc/uptime increased monotonically and continuously (73.01s -> 883.79s, a ~810s gain matching the canary duration almost exactly) across 15 independent real-time polls with zero resets observed -- this is the actual basis for confirming no restart occurred during the canary itself",
+      "notCorrectedRetroactively": true
+    }
+  },
+  "residuePatternUnionAndBlindSpots": {
+    "initialScopeUsedThroughoutMostOfStage3D": [
+      "qa-",
+      "h148-",
+      "pos-tmp"
+    ],
+    "firstBlindSpotFound": {
+      "incident": "GA4_H1 attempt 1",
+      "missedPattern": "ga4-h1-persisted-range-*.db written directly to os.tmpdir(), not inside a h148-* subdirectory",
+      "fix": "extracted each remaining orchestrator’s actual detectResidue()/snapshotTmpMatches() regex patterns from source: /ga4-h1.*\\.db$/, /unique-subdivision.*\\.db$/, /h14-mutations.*\\.db$/, /^h13-baseline-static-/"
+    },
+    "secondBlindSpotFound": {
+      "incident": "GA4_H1_4_5 attempt 1",
+      "missedPattern": "h148-regression-ga4-h1-4-5-* top-level temp DIRECTORY (createOrchestratorTempRoot() naming convention), not a file pattern",
+      "fix": "added directory patterns ^h148-regression-ga4-h1-4-5-, ^h148-regression-ga4-h1-4-6- extracted directly from scripts/lib/qa-temp-db.js’s createOrchestratorTempRoot() implementation, scanning top-level temp directories in addition to files"
+    },
+    "finalUnionScopeAtCompletion": {
+      "filePatterns": [
+        "/ga4-h1.*\\.db$/",
+        "/unique-subdivision.*\\.db$/",
+        "/h14-mutations.*\\.db$/",
+        "/^h13-baseline-static-/"
+      ],
+      "directoryPatterns": [
+        "/^h148-regression-ga4-h1-4-5-/",
+        "/^h148-regression-ga4-h1-4-6-/"
+      ],
+      "intersectionAtFinalCompletion": 0
+    }
+  },
+  "orphanCleanupsSummary": [
+    {
+      "source": "GA4_H1 attempt 1",
+      "target": "/tmp/ga4-h1-persisted-range-6274-1787118355228.db",
+      "type": "single file",
+      "method": "literal-path rm --"
+    },
+    {
+      "source": "GA4_H1_4_5 attempt 1",
+      "target": "/tmp/h148-regression-ga4-h1-4-5-ECEvws",
+      "type": "directory with 3 children",
+      "method": "3x literal-path rm -- then literal-path rmdir --"
+    }
+  ],
+  "dbGitPackageNodeInvariants": {
+    "productionDbSentinel": {
+      "sha256": "78254c1b972a57ca184ab9645542c407b1b8752b605ec2378832d78ff6a84ccf",
+      "gitHashObject": "86eea5859a6879ed113ffbaa3f4220494de0814a",
+      "size": 651264,
+      "mtime": 1786712225,
+      "walShmJournalPresent": false
+    },
+    "verifiedUnchangedAfterEveryOneOf17AcceptedRoots": true,
+    "packageJsonSha256": "ef78a283fc9373f31c912678dd93efd22b5dc150cf35165743d9e98a1f8934d4",
+    "packageLockSha256": "fb6c9c22f30424809dbc1e41ecae9936a74b5869a727b0dd3a8a15b20c196110",
+    "nodeVersion": "v22.22.2",
+    "nodeExecPath": "/usr/bin/node",
+    "unchangedThroughoutStage3D": true
+  },
+  "checkpointPersistenceAndDedup": {
+    "checkpointPath": "/tmp/stage3d_three_round_checkpoint.json",
+    "atomicWriteMethod": "temp file in same directory + fsync + rename (same pattern as Stage 3C’s checkpoint-writer self-test)",
+    "reReadConfirmedAfterEveryRoot": true,
+    "seventeenUniqueAcceptedLabels": 17,
+    "duplicateAcceptedResults": 0
+  },
+  "timeoutKillProcessCleanupStatistics": {
+    "timeoutsTriggered": 0,
+    "killsIssued": 0,
+    "infrastructureInconclusiveEvents": 2,
+    "containerRestartsObservedDuringStage3D": "multiple (at least 3 distinct boot_id/uptime changes observed across the session), all confirmed non-destructive to /tmp artifacts, checkpoint, and the production DB",
+    "partialExecutionsExcludedFromAcceptedTotal": 2
+  },
+  "totalExecutionAttempts": 20,
+  "infrastructureInconclusiveAttempts": 2,
+  "testFailureAttempts": 1,
+  "acceptedRetries": 3,
+  "authorizedOrphanCleanups": 2,
+  "multiRoundConsistencyExecuted": false,
+  "generalRegressionExecuted": false,
+  "repoSourceModifiedDuringRuntime": false,
+  "evidenceAddedAfterRuntime": true,
+  "packagingExecuted": false,
+  "conclusion": "Stage 3D 17-orchestrator three-round consistency complete: 17/17 orchestrators, 51/51 rounds, 2544/2544 accepted suite-entry executions."
+}

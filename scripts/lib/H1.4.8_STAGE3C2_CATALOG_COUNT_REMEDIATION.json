@@ -1,0 +1,247 @@
+{
+  "generatedAt": "2026-08-18T04:42:05.071Z",
+  "attempt2FullRecord": {
+    "checkpointFile": "/tmp/stage3c_orchestrator_checkpoint_attempt2.json",
+    "checkpointSha256": "b9776c6cb46b21f2e3bd3f6724dc1a1896838c88000ed69ab155318a420b625d",
+    "o2DryRun": {
+      "stdoutSha256": "8a5d81d496169bde24f0edb0cb839ff41adeb1c7996a2f536336f730a822775b",
+      "exitCode": 0
+    },
+    "o2Formal": {
+      "argv": [
+        "1"
+      ],
+      "exitCode": 1,
+      "signal": null,
+      "timedOut": false,
+      "elapsedMs": 209578,
+      "stdoutFile": "/tmp/stage3c-attempt2-O2-formal-stdout.log",
+      "stdoutSha256": "0b42badd7b9a2ed75d091f5988e597be66f7be9b81243112710debc655447532",
+      "stderrFile": "/tmp/stage3c-attempt2-O2-formal-stderr.log",
+      "stderrSha256": "2bc66c0ac6e1a785c00153fb565dead905942cf3dd2251bbd4758a40633f6f10",
+      "dbUnchanged": true,
+      "gitStatusUnchanged": true,
+      "trackedDiffUnchanged": true
+    },
+    "permanentRecord": {
+      "passed": 1,
+      "failed": 1,
+      "notRun": 15,
+      "passedRoot": "B2_5",
+      "failedRoot": "GA4_H1_4_7",
+      "dryRun": "passed",
+      "formalRootExit": 1,
+      "childExits": "79/79 successful",
+      "childAssertionFailures": 0,
+      "catalogExactCountMismatches": 3,
+      "acceptedSuccessfulSuiteEntryExecutions": 24,
+      "physicalSuiteEntryExecutionsIncludingFailedRoot": 103,
+      "neverToBeRewrittenAsPassing": true
+    },
+    "doesNotHideFailedAttemptExecutions": "79 children physically executed under the failed GA4_H1_4_7 root attempt are recorded here (103 = 24 accepted B2_5 + 79 GA4_H1_4_7), not hidden by this remediation turn's success."
+  },
+  "proofCatalogIsWrongNotParser": {
+    "method": "each child's OWN self-reported final summary line located directly in the raw stdout log and compared against the orchestrator's parsed count",
+    "authoritative-points.js": {
+      "ownSummaryLine": "PASS:  261 / FAIL:  0 / TOTAL: 261 (lines 527-529 of raw log)",
+      "matchesOrchestratorParse": true
+    },
+    "static-audit-g1-6-ga4-h1-4-7.js": {
+      "ownSummaryLine": "PASS: 40 / FAIL: 0 (lines 629-630 of raw log)",
+      "matchesOrchestratorParse": true
+    },
+    "run-h1-4-7-analytics-contract-runtime.js": {
+      "ownSummaryLine": "TOTAL=61 PASS=61 FAIL=0 (line 1020 of raw log)",
+      "matchesOrchestratorParse": true
+    },
+    "duplicateAssertionIdCheck": {
+      "static-audit-g1-6-ga4-h1-4-7.js": {
+        "rawIdMatches": 40,
+        "duplicates": 0
+      },
+      "run-h1-4-7-analytics-contract-runtime.js": {
+        "rawAssertCallSiteCount": 61,
+        "note": "An initial loose regex flagged a false \"duplicate T1\" -- investigated and found to be two DIFFERENT, MUTUALLY EXCLUSIVE code paths: a defensive early-return pass('T1 沒有任何 fixture...') branch (fires only if zero fixtures exist, which never happens in normal execution) and the real assert('T1 所有 fixture...') in the normal path. Only one ever executes per run, contributing exactly 1 to the total regardless -- confirmed via direct assert( call-site count (61), matching the self-reported total exactly. Not a real duplicate."
+      }
+    },
+    "conditionalCountCheck": "No environment-dependent branching found that would alter the total count -- results.length (or equivalent) is computed directly from a fixed, unconditional sequence of push()/assert() calls in all 3 files",
+    "failNotExcludedFromSummary": "Confirmed FAIL: 0 in all 3 self-reported summaries -- no failures were excluded, all 3 genuinely have zero assertion failures",
+    "rawLogInventoryMatchesSummary": true,
+    "allThreeChildExitCode": 0
+  },
+  "assertionIdInventory": {
+    "authoritative-points.js Q1-Q10": [
+      "Q1: distinctPathCheck",
+      "Q2: containmentCheck DB1",
+      "Q3: containmentCheck DB2",
+      "Q4: module generation identity",
+      "Q5: handle identity",
+      "Q6: DB2 empty of Section O data",
+      "Q7: DB1 retains Section O data",
+      "Q8: DB2 has Section P data",
+      "Q9: DB1 lacks Section P data",
+      "Q10: post-persistence file-level containment check"
+    ],
+    "static-audit-g1-6-ga4-h1-4-7.js extra assertion": "requires direct source inspection of the 40th check() call not present in the 39-count catalog baseline -- file itself was never modified this session (byte-identical to git HEAD), so this extra assertion has existed in the file since before Stage 3A/3B/3C0/3C1 and the catalog was simply never generated to match it",
+    "run-h1-4-7-analytics-contract-runtime.js extra assertions": "similarly, 2 extra assert() calls beyond the 59-count catalog baseline, present in the file since before this session (byte-identical to git HEAD)"
+  },
+  "rootCauseClassification": {
+    "method": "compared current child file content against git show HEAD for all 3; compared catalog staleness against which files were modified during Stage 3A/3B (the only session phase that touched any of these 3 children)",
+    "authoritative-points.js": {
+      "childModifiedThisSession": true,
+      "childModifiedInStage": "3A/3B (Q1-Q10 dual-DB self-proving assertions added)",
+      "classification": "Stage3A/3B additive assertion propagation omission",
+      "explanation": "251 + 10 (Q1-Q10) = 261, exact match -- the catalog's expected count was captured before these assertions were added and never refreshed afterward."
+    },
+    "static-audit-g1-6-ga4-h1-4-7.js": {
+      "childModifiedThisSession": false,
+      "childByteIdenticalToGitHead": true,
+      "classification": "preExistingCatalogMetadataDefect",
+      "explanation": "File was never touched by any Stage 3A/3B/3C0/3C1 work; the catalog's 39/39 entry was already wrong relative to this file's actual (and always-was) content. Note: the catalog JSON itself is an untracked file with no git history to diff against directly -- this classification instead relies on the more reliable signal of whether the CHILD file was ever modified."
+    },
+    "run-h1-4-7-analytics-contract-runtime.js": {
+      "childModifiedThisSession": false,
+      "childByteIdenticalToGitHead": true,
+      "classification": "preExistingCatalogMetadataDefect",
+      "explanation": "Same reasoning as static-audit-g1-6-ga4-h1-4-7.js."
+    }
+  },
+  "isolatedSafetyVerification": {
+    "method": "each child run once via node <file> with POS_DB_PATH/POS_DB_TEMP_ROOT set to a harness-owned parent-provided mkdtemp root",
+    "results": {
+      "authoritative-points.js": {
+        "exit": 0,
+        "dbUnchanged": true,
+        "gitUnchanged": true,
+        "parentRootStillExists": true,
+        "observedCount": "261/261"
+      },
+      "static-audit-g1-6-ga4-h1-4-7.js": {
+        "exit": 0,
+        "dbUnchanged": true,
+        "gitUnchanged": true,
+        "parentRootStillExists": true,
+        "observedCount": "40/40"
+      },
+      "run-h1-4-7-analytics-contract-runtime.js": {
+        "exit": 0,
+        "dbUnchanged": true,
+        "gitUnchanged": true,
+        "parentRootStillExists": true,
+        "observedCount": "61/61"
+      }
+    },
+    "productionDbUsedAsTestDb": false,
+    "childDeletedParentRoot": false,
+    "notCalledStage3DMultiRoundConsistency": true,
+    "labeledAs": "remediation isolated validation"
+  },
+  "catalogOccurrenceInventory": {
+    "method": "scanned all 17 orchestrators' catalog suite entries for the 3 target child paths",
+    "authoritative-points.js": {
+      "staleOccurrences": 14,
+      "keys": [
+        "A1_2",
+        "A1_2_1",
+        "GA4_H1",
+        "GA4_H1_1_AUTH",
+        "GA4_H1_2",
+        "GA4_H1_3",
+        "GA4_H1_4",
+        "GA4_H1_4_1",
+        "GA4_H1_4_2",
+        "GA4_H1_4_3",
+        "GA4_H1_4_4",
+        "GA4_H1_4_5",
+        "GA4_H1_4_6",
+        "GA4_H1_4_7"
+      ],
+      "notReachableFrom": "B2_5 or A1 or A1_1 (not part of those suites, which is why B2_5 passed cleanly)"
+    },
+    "static-audit-g1-6-ga4-h1-4-7.js": {
+      "staleOccurrences": 1,
+      "keys": [
+        "GA4_H1_4_7"
+      ]
+    },
+    "run-h1-4-7-analytics-contract-runtime.js": {
+      "staleOccurrences": 1,
+      "keys": [
+        "GA4_H1_4_7"
+      ]
+    },
+    "fourthMismatchChildFound": false,
+    "inconsistentContractsAcrossCatalogsFound": false,
+    "oldValuesUsedInNonCatalogLogicFound": false,
+    "allStaleEntriesConsistentAcrossOccurrences": true
+  },
+  "changesApplied": {
+    "fixedEntries": "251/251 -> 261/261 (14 occurrences), 39/39 -> 40/40 (1 occurrence), 59/59 -> 61/61 (1 occurrence)",
+    "alreadyCorrectEntriesRewritten": 0,
+    "filesModified": [
+      "scripts/lib/H1.4.8_REGRESSION_SUITE_CATALOG.json",
+      "scripts/lib/H1.4.8_STAGE3A_SUITE_BASELINE.json (additive fields only)"
+    ],
+    "childSourceModified": false,
+    "assertionsModified": false,
+    "parserModified": false,
+    "comparatorRelaxed": false,
+    "suitePathOrOrderChanged": false,
+    "productionCodeModified": false,
+    "exactEqualityStillEnforced": "261===261, 40===40, 61===61 -- no >=, no skip, no exit-0-only shortcut"
+  },
+  "hashHandling": {
+    "generatorFormulaConfirmed": "orderedSuiteSha256 = sha256(JSON.stringify(entries)) -- reverse-engineered by testing against the actual stored hash for B2_5, confirmed match, not hand-guessed",
+    "hashCoversCountsToo": true,
+    "action": "recomputed new orderedSuiteSha256 for all 14 affected catalog keys using the exact same formula",
+    "historicalHashesPreserved": {
+      "location": "scripts/lib/H1.4.8_STAGE3A_SUITE_BASELINE.json entries -- original orderedSuiteSha256 field left completely untouched for all 17 roots",
+      "newFieldsAddedAdditively": [
+        "stage3C2CurrentOrderedSuiteSha256",
+        "stage3C2CurrentResolvedOrderedSuite",
+        "stage3C1HistoricalOrderedSuiteSha256Preserved (explicit marker copy)"
+      ],
+      "overwroteNothing": true
+    },
+    "beforeAfterHashesFile": "/tmp/stage3c2_hash_changes.json (old/new hash per affected key)",
+    "catalogBeforeSnapshot": {
+      "path": "/tmp/catalog_before_3c2.json",
+      "sha256": "edba77b580df7e24cd97c75738cf260ada07cc95bef434e6fbee66fd3c88888c"
+    },
+    "suiteBaselineBeforeSnapshot": {
+      "path": "/tmp/suitebaseline_before_3c2.json",
+      "sha256": "5ec115646fc9005311f6ef82a6c101b776eb5b58243f0509bb408f47ef073b38"
+    },
+    "inventoryStillSeventyNine": true,
+    "childPathOrderUnchanged": true,
+    "closureQuarantineIntersectionStillZero": true
+  },
+  "gateResultsAfterFix": {
+    "nodeCheckAffectedFiles": "PASS (3 children + all 17 orchestrator roots)",
+    "seventeenRootSuiteOrderGate": "17/17 pass (verified via updated closure-check script using additive current-hash fields)",
+    "seventeenRootStrictCliGate": "unaffected -- no orchestrator plumbing touched this turn",
+    "thirtyFourFileSafetyGate": {
+      "overallPass": true,
+      "note": "Gate 6 (behavior/suite preservation) script itself needed a corresponding update to check the new additive stage3C2Current* fields before falling back to the original fields -- found and fixed during this verification, not silently left stale"
+    },
+    "closureQuarantineIntersection": 0,
+    "safeRuntimeTotal": 413,
+    "parserSelfTest": "22/22",
+    "regressionGuardStandalone": "not re-executed this turn (static verification only for catalog-metadata scope); last known good result remains 148/148",
+    "candidateJsCount": 186,
+    "executableRepoTypescriptUsage": 0,
+    "packageJsonChanged": false,
+    "packageLockChanged": false,
+    "gitDiffCheckPass": true,
+    "noEmbeddedStaleValuesFoundOutsideCatalogScope": true,
+    "productionDbSentinel": {
+      "sha256": "78254c1b972a57ca184ab9645542c407b1b8752b605ec2378832d78ff6a84ccf",
+      "gitHashObject": "86eea5859a6879ed113ffbaa3f4220494de0814a",
+      "size": 651264,
+      "mtime": 1786712225,
+      "walShmJournalPresent": false
+    }
+  },
+  "attempt3Required": true,
+  "conclusion": "Stage 3C2 catalog count remediation complete. Proceeding to establish a fresh attempt 3 (O1-O2 only)."
+}

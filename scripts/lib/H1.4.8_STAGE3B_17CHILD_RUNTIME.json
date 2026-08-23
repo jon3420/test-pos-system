@@ -1,0 +1,223 @@
+{
+  "generatedAt": "2026-08-17T03:15:02.840Z",
+  "childRuntimeExecuted": true,
+  "orchestratorRuntimeExecuted": false,
+  "generalRegressionExecuted": false,
+  "harnessNotes": {
+    "location": "/tmp/stage3b_harness.js (and layer driver scripts), not added to the repo",
+    "spawnBased": true,
+    "sequentialOnly": "confirmed -- no Promise.all/parallel spawning anywhere in the harness",
+    "perFileTimeoutMs": 300000,
+    "gracePeriodMs": 5000,
+    "standaloneEnvHandling": "new env object per child, explicit delete of POS_DB_PATH/POS_DB_TEMP_ROOT, parent process.env never mutated",
+    "parentProvidedEnvHandling": "harness mkdtemp's its own root + constructs a containment-validated child DB path (mirroring validateParentProvidedDb logic) before spawning, sets both env vars only in the child's env object",
+    "knownHarnessBugsFoundAndFixed": [
+      {
+        "bug": "Summary-parsing regex required a literal colon (PASS:\\s*(\\d+)), but some children (e.g. geo-heatmap.js) report their summary in Chinese format without a colon (總計：128 項，PASS 128，FAIL 0), causing the harness to read reportedFail as null and incorrectly fail a run that had actually passed cleanly.",
+        "discoveredVia": "geo-heatmap.js run showing exitCode 0 but reportedFail: null triggering a false failure",
+        "fix": "regex widened to make the colon optional and to recognize the 總計：N項 total format; re-ran geo-heatmap.js after the fix and confirmed genuine 128/128"
+      }
+    ]
+  },
+  "layer1_canary": {
+    "file": "scripts/run-g1-6-ga4-h1-4-range-backend-runtime.js",
+    "selectionRationale": "smallest locked-17 file (184 lines) with zero HTTP/eval/mutation/multi-DB patterns, confirmed via static grep before selection",
+    "standalone": {
+      "exitCode": 0,
+      "reportedPassFailTotal": "25/0/25",
+      "dbUnchanged": true,
+      "gitStatusUnchanged": true,
+      "newTmpEntries": []
+    },
+    "parentProvided": {
+      "exitCode": 0,
+      "reportedPassFailTotal": "25/0/25",
+      "dbUnchanged": true,
+      "gitStatusUnchanged": true,
+      "parentRootStillExists": true
+    },
+    "pass": true
+  },
+  "layer2_dualDb": {
+    "file": "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-2-authoritative-points.js",
+    "firstAttemptResult": "FAILED (259/2/261) -- Q7 and Q8 failed on first standalone run",
+    "rootCauseFound": "The original section O/P INSERT statements (\"INSERT OR IGNORE INTO stores (store_id, active) VALUES (?,?)\") omit the NOT-NULL `store_name` column defined in utils/db.js's stores table schema. INSERT OR IGNORE silently swallows this constraint violation rather than throwing, so the stores table has ALWAYS ended up with zero rows for store_a12/store_a12_other/store_partial -- a pre-existing characteristic of the original 212 assertions' fixture setup (confirmed unchanged via AST diff against baseline), never observed before because none of the original 212 assertions query the stores table directly.",
+    "fixApplied": "Q6-Q9 rewritten to query geo_visit_log (which log()/logGeoVisit() calls DO successfully populate) instead of the never-actually-populated stores table -- this only changed MY OWN Q6-Q9 additive assertions (added this session), not any of the original 212.",
+    "rerunResult": "PASS (261/0/261)",
+    "q1ToQ10Observed": {
+      "Q1": "PASS",
+      "Q2": "PASS",
+      "Q3": "PASS",
+      "Q4": "PASS",
+      "Q5": "PASS",
+      "Q6": "PASS",
+      "Q7": "PASS",
+      "Q8": "PASS",
+      "Q9": "PASS",
+      "Q10": "PASS"
+    },
+    "standalone": {
+      "exitCode": 0,
+      "reportedPassFailTotal": "261/0/261",
+      "dbUnchanged": true,
+      "gitStatusUnchanged": true,
+      "newTmpEntries": []
+    },
+    "parentProvided": {
+      "exitCode": 0,
+      "reportedPassFailTotal": "261/0/261",
+      "dbUnchanged": true,
+      "gitStatusUnchanged": true,
+      "parentRootStillExists": true,
+      "externalFileLevelVerification": {
+        "method": "read-only sql.js inspection of the parent-provided root's file contents, performed by the HARNESS (external to the child), BEFORE cleanup -- not relying on the child's internal Q assertions as a substitute",
+        "dbArtifactCount": 2,
+        "result": {
+          "authpoints-*.db": {
+            "hasSectionOFixture": true,
+            "hasSectionPFixture": false
+          },
+          "db2-*.db": {
+            "hasSectionOFixture": false,
+            "hasSectionPFixture": true
+          }
+        }
+      }
+    },
+    "pass": true
+  },
+  "layer3_httpChildren": {
+    "files": [
+      "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-1-ga4-settings-persistence.js",
+      "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-ga4-settings.js"
+    ],
+    "results": {
+      "ga4-settings-persistence.js": {
+        "standalone": "85/0/85 PASS",
+        "parentProvided": "85/0/85 PASS",
+        "unhandledRejectionDetected": false,
+        "cleanupErrorLogged": false
+      },
+      "ga4-settings.js": {
+        "standalone": "187/0/187 PASS",
+        "parentProvided": "187/0/187 PASS",
+        "unhandledRejectionDetected": false,
+        "cleanupErrorLogged": false
+      }
+    },
+    "allDbUnchanged": true,
+    "allGitStatusUnchanged": true,
+    "allParentRootsPreserved": true,
+    "allStandaloneRootsCleanedUp": true,
+    "pass": true
+  },
+  "layer4_mutationChildren": {
+    "files": [
+      "scripts/run-g1-6-ga4-h1-3-mutations.js",
+      "scripts/run-g1-6-ga4-h1-4-map-state-mutations.js"
+    ],
+    "results": {
+      "mutations.js": {
+        "standalone": "37/0/37 PASS",
+        "parentProvided": "37/0/37 PASS (representative case run)"
+      },
+      "map-state-mutations.js": {
+        "standalone": "30/0/30 PASS"
+      }
+    },
+    "trackedSourceHashesUnchangedAfterEveryRun": true,
+    "leftoverMutationFilesInRepoTree": 0,
+    "pass": true
+  },
+  "layer5_remaining11": {
+    "initialRunStoppedAt": "scripts/smoke-hotfix30-b5-r5-4-g1-3-2-regression-guard.js (2/148 failures on first attempt)",
+    "correctedFinalState": {
+      "passed": 11,
+      "failed": 0,
+      "notRun": 0,
+      "total": 11
+    },
+    "regressionGuardStaleHashIncident": {
+      "firstAttempt": "146/2/148 -- assertions 3c and 3d failed",
+      "rootCause": "This guard file hardcoded a STALE geo-intelligence-map.js SHA-256 prefix (05a38b4a...) that predates a separately, earlier-authorized H1.4.1 production change to that file. The two consumer files (geo-event-engine.js, visitor-geo-sync.js) were correctly re-baselined to the new hash (9997c0b8...) at that time; this guard's own expected value was simply never updated to match -- a pre-existing staleness bug unrelated to any Stage 3A/3B DB-safety work.",
+      "threeWayHashVerification": "actual file hash === geo-event-engine.js baseline === visitor-geo-sync.js baseline, all full 64-hex, confirmed before making any change",
+      "fixEvidenceFile": "scripts/lib/H1.4.8_STAGE3B_REGRESSION_GUARD_STALE_HASH_FIX.json",
+      "fixScope": "ONLY assertions 3c/3d's condition logic changed (hardcoded-prefix match -> TypeScript AST extraction + real-hash comparison); all other 128 static call-sites confirmed byte-identical to baseline via full-argument AST diff",
+      "productionFilesChanged": false,
+      "rerunResult": "148/0/148 PASS (standalone), 148/0/148 PASS (parent-provided)"
+    },
+    "perFileResults": [
+      {
+        "script": "scripts/run-g1-6-ga4-h1-3-event-compat-connection-test.js",
+        "result": "48/0/48 PASS"
+      },
+      {
+        "script": "scripts/run-g1-6-ga4-h1-3-historical-runtime.js",
+        "result": "44/0/44 PASS"
+      },
+      {
+        "script": "scripts/run-g1-6-ga4-h1-3-realtime-event-runtime.js",
+        "result": "65/0/65 PASS"
+      },
+      {
+        "script": "scripts/run-g1-6-ga4-h1-4-5-exposure-runtime.js",
+        "result": "31/0/31 PASS"
+      },
+      {
+        "script": "scripts/smoke-hotfix30-b5-r5-3-a1-2-visitor-geo-sync.js",
+        "result": "189/0/189 PASS"
+      },
+      {
+        "script": "scripts/smoke-hotfix30-b5-r5-3-a1-geo-heatmap.js",
+        "result": "128/0/128 PASS (after harness regex fix)"
+      },
+      {
+        "script": "scripts/smoke-hotfix30-b5-r5-3-a2-geo-event-engine.js",
+        "result": "229/0/229 PASS"
+      },
+      {
+        "script": "scripts/smoke-hotfix30-b5-r5-4-g1-3-2-regression-guard.js",
+        "result": "148/0/148 PASS (after authorized 3c/3d fix)"
+      },
+      {
+        "script": "scripts/smoke-hotfix30-b5-r5-4-g1-4-map-label-rendering.js",
+        "result": "148/0/148 PASS"
+      },
+      {
+        "script": "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-4-ga4-city-partial.js",
+        "result": "139/0/139 PASS"
+      },
+      {
+        "script": "scripts/smoke-hotfix30-b5-r5-4-g1-live-geo.js",
+        "result": "212/0/212 PASS"
+      }
+    ],
+    "pass": true
+  },
+  "parentProvidedRepresentativeCoverage": {
+    "canary": true,
+    "dualDb": true,
+    "http1": true,
+    "http2": true,
+    "mutation1": true,
+    "regressionGuard": true,
+    "note": "Per Stage 3B instruction, parent-provided mode was run for the canary, dual-DB, both HTTP children, one mutation child, and regression-guard (as the file requiring re-verification) -- not for all 17 children. Full 17-child parent-provided runtime remains pending and will be covered by the orchestrator phase."
+  },
+  "finalGates": {
+    "allSeventeenChildrenStandaloneResultsCollected": true,
+    "failuresArray": [],
+    "mainSafeRuntimeTotal": 390,
+    "mainSafeRuntimePass": true,
+    "thirtyFourFileStaticGateOverallPass": true,
+    "candidateJsCount": 186,
+    "gitDiffCheckPass": true,
+    "productionDbSentinel": {
+      "sha256": "78254c1b972a57ca184ab9645542c407b1b8752b605ec2378832d78ff6a84ccf",
+      "gitHashObject": "86eea5859a6879ed113ffbaa3f4220494de0814a",
+      "size": 651264,
+      "mtime": 1786712225,
+      "walShmJournalPresent": false
+    }
+  },
+  "conclusion": "Stage 3B 17-child standalone runtime complete. Full orchestrator runtime and general regression remain pending."
+}

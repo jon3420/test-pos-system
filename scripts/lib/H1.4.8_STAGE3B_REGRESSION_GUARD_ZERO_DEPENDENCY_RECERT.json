@@ -1,0 +1,159 @@
+{
+  "generatedAt": "2026-08-17T06:26:21.030Z",
+  "supersedesRuntimeImplementation": "scripts/lib/H1.4.8_STAGE3B_REGRESSION_GUARD_STALE_HASH_FIX.json documents the ORIGINAL TypeScript-AST-based implementation of the 3c/3d fix. That document is NOT overwritten or deleted -- it remains as an accurate historical record of what was actually built and executed at that time (using a global, undeclared TypeScript install). This document supersedes ONLY the runtime IMPLEMENTATION (require('typescript')/ts.createSourceFile() replaced with a zero-dependency parser), not the historical fact that TypeScript was used, nor the root-cause analysis of the stale hash itself (which remains valid and unchanged).",
+  "whyReplaced": {
+    "originalTypescriptResolutionPath": "/home/claude/.npm-global/lib/node_modules/typescript/lib/typescript.js (version 6.0.3)",
+    "declaredDependencyStatus": "NOT a declared dependency in any form -- absent from package.json dependencies/devDependencies/optionalDependencies, absent from package-lock.json (including its root package entry and any transitive path), and `npm ls typescript --depth=0` returned empty. Confirmed via direct inspection, not assumption.",
+    "reasonThisWasAProblem": "require('typescript') only succeeded because Node's module resolution fell back to a GLOBAL npm install that happened to exist in this specific sandbox container -- coincidental to this environment, not guaranteed on any other machine (CI, production, another developer's machine) that would run this test file. This made scripts/smoke-hotfix30-b5-r5-4-g1-3-2-regression-guard.js's own runtime unstable across environments in a way inconsistent with the rest of this Stage 3A/3B remediation, which has been zero-external-dependency throughout."
+  },
+  "packageJsonChanged": false,
+  "packageLockChanged": false,
+  "packagesInstalled": false,
+  "repoWideTypescriptUsageInventory": {
+    "method": "grep -rl for require('typescript')/require(\"typescript\")/from 'typescript'/from \"typescript\"/ts.createSourceFile/require.resolve('typescript'), excluding node_modules",
+    "executableRepoRuntimeJsFiles": {
+      "count": 1,
+      "files": [
+        "scripts/smoke-hotfix30-b5-r5-4-g1-3-2-regression-guard.js"
+      ],
+      "status": "FIXED this turn -- 0 executable TypeScript usage remains (2 remaining textual matches are inside an explanatory code comment describing this historical fact, not executable code, confirmed by direct line inspection)"
+    },
+    "jsonMarkdownEvidenceTextOnlyRecords": {
+      "count": 4,
+      "files": [
+        "scripts/lib/H1.4.8_STAGE3A_GA4_SETTINGS_PERSISTENCE_CERT.json",
+        "scripts/lib/H1.4.8_STAGE3A_AUTHORITATIVE_POINTS_CERT.json",
+        "scripts/lib/H1.4.8_STAGE3B_REGRESSION_GUARD_STALE_HASH_FIX.json",
+        "scripts/lib/H1.4.8_STAGE3A_GA4_SETTINGS_CERT.json"
+      ],
+      "note": "Pure JSON data files, never require()d or executed as code by anything -- each contains exactly 1 textual mention of \"TypeScript\"/\"createSourceFile\" as descriptive prose. Left unchanged; these remain accurate historical records."
+    },
+    "tmpOneTimeAuditTools": {
+      "count": 7,
+      "note": "/tmp scratch scripts used during prior turns' editing sessions (ast_assert_compare.js, ast_full_compare.js, ast_verify_212_plus_9.js, and 4 write_*_evidence.js helpers) -- never persisted to the repo, never part of any test/production code path. Not modified; one (ast_full_compare.js) was reused in THIS turn purely for my own verification convenience (confirming the static call-site structure), explicitly disclosed as such, not claimed to be part of the fix."
+    },
+    "otherUnknownSources": {
+      "count": 0
+    },
+    "conclusion": "The only persisted, runtime-affecting TypeScript dependency was scripts/smoke-hotfix30-b5-r5-4-g1-3-2-regression-guard.js, now fixed. No other repo runtime .js file was found using TypeScript."
+  },
+  "parserGrammar": {
+    "functionName": "extractLiteralHashFromNamedObject(source, { objectName, key })",
+    "location": "module scope (not nested inside main()), scripts/smoke-hotfix30-b5-r5-4-g1-3-2-regression-guard.js -- hoisted so the exact same function is callable from both the normal 3c/3d assertions and --self-test-baseline-hash-parser mode",
+    "scope": "ONLY the exact narrow grammar both real consumer baseline objects actually use -- NOT a general-purpose JS parser",
+    "algorithm": [
+      "1. Locate the line `const <objectName> = {` -- must occur EXACTLY once in the whole source (0 or >1 throws).",
+      "2. Scan forward line-by-line until a line that is exactly `};` (optionally indented) -- terminates the object body.",
+      "3. Every line in between must be: blank/whitespace-only, OR a full single-line `//` comment, OR a full single-line `'key': 'value',` property (single-quoted key, single-quoted value, trailing comma, nothing else on the line).",
+      "4. ANY other content throws immediately: double-quoted strings, block comments, spread, computed keys, function calls, template strings, concatenation, non-string values, wrong-length/non-hex values, multiline values, unclosed object body.",
+      "5. Duplicate keys within the object body throw.",
+      "6. The target key must be found exactly once among collected properties (0 or >1 throws) -- exact string match on the full quoted key content, so a prefix/suffix-similar key can never be mistaken for the target.",
+      "7. Returns the single matched value, already validated as exactly 64 lowercase hex characters."
+    ],
+    "failClosedConditions": "Every deviation from the narrow grammar above throws rather than returning null/undefined/a partial answer -- confirmed by 15 distinct negative self-test cases (see selfTestResults below), each proving an actual throw, not a silent fallback.",
+    "neverUses": [
+      "eval",
+      "new Function",
+      "vm",
+      "require() of the file being checked",
+      "whole-file .includes(expectedHash)"
+    ],
+    "onlyReadsSourceText": true
+  },
+  "selfTestResults": {
+    "invocationCommand": "node scripts/smoke-hotfix30-b5-r5-4-g1-3-2-regression-guard.js --self-test-baseline-hash-parser",
+    "callsTheActualProductionHelper": true,
+    "returnsBeforeDbBootstrapJsdomOrMainFlow": true,
+    "createsNoTempDb": true,
+    "doesNotRunNormalAssertions": true,
+    "doesNotChangeNormalModeTotal": "148/148 unchanged (confirmed separately below)",
+    "addsNoNewRepoJsFile": true,
+    "totalCases": 22,
+    "passed": 22,
+    "failed": 0,
+    "exitCode": 0,
+    "caseList": [
+      "1. double-quoted entry unsupported -> throws",
+      "2. legit single-quoted entry -> correct value",
+      "3. CRLF source -> correct value",
+      "4. key only in // comment -> throws (no match)",
+      "5. key only in block comment -> throws",
+      "6. key only inside plain string/expression -> throws",
+      "7. key only inside template string -> throws",
+      "8. key exists only in a different object -> throws",
+      "9. duplicate object declaration -> throws",
+      "10. duplicate target key -> throws",
+      "11. missing target key -> throws",
+      "12. 63-char hash -> throws",
+      "13. 65-char hash -> throws",
+      "14. non-hex hash -> throws",
+      "15. prefix/suffix similar key does not match target -> throws",
+      "16a. spread syntax -> throws",
+      "16b. computed property key -> throws",
+      "16c. non-string (expression) value -> throws",
+      "17. multiline value -> throws",
+      "18a. real geo-event-engine.js positive extraction, 64-hex format confirmed",
+      "18b. real visitor-geo-sync.js positive extraction, 64-hex format confirmed",
+      "19. both real consumers' extracted hashes equal actual geo-intelligence-map.js SHA-256 AND each other"
+    ],
+    "dbGitTmpUnchangedBeforeAfterSelfTest": true
+  },
+  "assertionPreservation": {
+    "method": "AST full-argument comparison (one-time reuse of the global-TypeScript-based /tmp comparison tool for MY OWN verification convenience, explicitly disclosed -- not part of the fix's runtime)",
+    "staticCallSiteCount": {
+      "headBaseline": 130,
+      "current": 130,
+      "unchanged": true
+    },
+    "mismatchedIndices": [
+      4,
+      5
+    ],
+    "mismatchedLabels": [
+      "3c",
+      "3d"
+    ],
+    "allOtherCallSitesByteIdentical": true,
+    "consistentWithPriorStaleHashFixRecertification": "identical result to the earlier stale-hash-only fix -- the zero-dependency rewrite changed only the INTERNAL IMPLEMENTATION of the shared helper, not the assertion structure itself"
+  },
+  "runtimeVerification": {
+    "standalone": {
+      "exitCode": 0,
+      "reportedPassFailTotal": "148/0/148",
+      "dbUnchanged": true,
+      "gitStatusUnchanged": true,
+      "newTmpEntries": []
+    },
+    "parentProvided": {
+      "exitCode": 0,
+      "reportedPassFailTotal": "148/0/148",
+      "dbUnchanged": true,
+      "gitStatusUnchanged": true,
+      "parentRootStillExists": true
+    }
+  },
+  "threeWayHashEquality": {
+    "actualMapFileHash": "9997c0b84a867e27b11a1a499b06de0b83f78403dd9feba401a6edbc49f1970d",
+    "geoEventEngineExtracted": "9997c0b84a867e27b11a1a499b06de0b83f78403dd9feba401a6edbc49f1970d",
+    "visitorGeoSyncExtracted": "9997c0b84a867e27b11a1a499b06de0b83f78403dd9feba401a6edbc49f1970d",
+    "allEqual": true,
+    "extractedByTheZeroDependencyParser": true
+  },
+  "finalGates": {
+    "mainSafeRuntimeTotal": 390,
+    "mainSafeRuntimePass": true,
+    "thirtyFourFileStaticGateOverallPass": true,
+    "candidateJsCount": 186,
+    "gitDiffCheckPass": true,
+    "productionDbSentinel": {
+      "sha256": "78254c1b972a57ca184ab9645542c407b1b8752b605ec2378832d78ff6a84ccf",
+      "gitHashObject": "86eea5859a6879ed113ffbaa3f4220494de0814a",
+      "size": 651264,
+      "mtime": 1786712225,
+      "walShmJournalPresent": false
+    }
+  },
+  "orchestratorRuntimeExecuted": false,
+  "generalRegressionExecuted": false,
+  "conclusion": "regression-guard zero-dependency recertification complete. Awaiting confirmation before proceeding to Stage 3C."
+}

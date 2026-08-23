@@ -1,0 +1,265 @@
+{
+  "generatedAt": "2026-08-17T07:54:57.988Z",
+  "scope": "Stage 3C0 unified strict round-count CLI contract -- shared parser + 17-root plumbing + permanent tests + static verification only. No orchestrator, child, or general regression executed.",
+  "orchestratorRuntimeExecuted": false,
+  "childRuntimeExecuted": false,
+  "generalRegressionExecuted": false,
+  "whyOriginal8FileLoosePatternWasAbandoned": {
+    "expression": "Number(process.argv[2]) > 0 ? Number(process.argv[2]) : 3",
+    "internallyConsistentAcrossAll8": true,
+    "violationsFound": [
+      {
+        "input": "'0'",
+        "result": 3,
+        "problem": "silently falls back to default instead of failing closed"
+      },
+      {
+        "input": "'-1'",
+        "result": 3,
+        "problem": "silently falls back to default instead of failing closed"
+      },
+      {
+        "input": "'abc'",
+        "result": 3,
+        "problem": "silently falls back to default instead of failing closed"
+      },
+      {
+        "input": "'1.5'",
+        "result": 1.5,
+        "problem": "fractional round count silently accepted (not rejected)"
+      },
+      {
+        "input": "'999999'",
+        "result": 999999,
+        "problem": "no upper bound enforced"
+      }
+    ],
+    "conclusion": "Confirmed by direct expression evaluation (not by executing any orchestrator) before making any change. Authorized (Option 2) to replace with a single shared, genuinely fail-closed parser applied to all 17 roots."
+  },
+  "cliFlagInventory": {
+    "method": "grep -rn \"process.argv\" and dash-flag literal scan across all 17 locked roots",
+    "dryRunFlagFoundIn": [
+      "scripts/run-regression-g1-6-ga4-h1-4-7.js"
+    ],
+    "otherFlagsFound": "none -- all other dash-flag string literal matches were \"--check\" arguments passed to child execFileSync(process.execPath, ['--check', ...]) calls for internal node --check on production files, unrelated to the orchestrator's own argv parsing",
+    "conclusion": "Only round-count (all 17) and --dry-run (exactly 1 root) are real CLI contracts. No other unknown contract found before making any change."
+  },
+  "sharedParser": {
+    "location": "scripts/lib/qa-temp-db.js, exports.parseRegressionCliArgs(args, { allowDryRun } = {})",
+    "additive": true,
+    "contract": {
+      "[]": "{ mode: 'run', roundCount: 3 }",
+      "['1']": "{ mode: 'run', roundCount: 1 }",
+      "['2']": "{ mode: 'run', roundCount: 2 }",
+      "['3']": "{ mode: 'run', roundCount: 3 }",
+      "['--dry-run']": "{ mode: 'dry-run' } -- ONLY when allowDryRun===true, else throws",
+      "everythingElse": "throws -- no trimming/coercion, exact string match only"
+    },
+    "errorMessagesLeakNoInternalInfo": true
+  },
+  "seventeenRootPlumbing": {
+    "validationBeforeResourceCreation": "confirmed via source-line-position check: parseRegressionCliArgs() call always occurs at a lower line number than createOrchestratorTempRoot() in every one of the 17 files",
+    "eightLooseRootsFixed": [
+      "scripts/run-regression-g1-6-ga4-h1-4.js",
+      "scripts/run-regression-g1-6-ga4-h1-4-1.js",
+      "scripts/run-regression-g1-6-ga4-h1-4-2.js",
+      "scripts/run-regression-g1-6-ga4-h1-4-3.js",
+      "scripts/run-regression-g1-6-ga4-h1-4-4.js",
+      "scripts/run-regression-g1-6-ga4-h1-4-5.js",
+      "scripts/run-regression-g1-6-ga4-h1-4-6.js",
+      "scripts/run-regression-g1-6-ga4-h1-4-7.js"
+    ],
+    "nineHardcodedRootsFixed": [
+      "scripts/run-regression-b2-5.js",
+      "scripts/run-regression-g1-6-a1.js",
+      "scripts/run-regression-g1-6-a1-1.js",
+      "scripts/run-regression-g1-6-a1-2.js",
+      "scripts/run-regression-g1-6-a1-2-1.js",
+      "scripts/run-regression-g1-6-ga4-h1.js",
+      "scripts/run-regression-g1-6-ga4-h1-1-auth.js",
+      "scripts/run-regression-g1-6-ga4-h1-2.js",
+      "scripts/run-regression-g1-6-ga4-h1-3.js"
+    ],
+    "ga4H147SpecialHandling": "the pre-existing `if (process.argv.includes('--dry-run')) { dryRunInventory(); return; }` check was replaced with a single parseRegressionCliArgs(process.argv.slice(2), {allowDryRun:true}) call at the very top of main() (before the node --check loop and before createOrchestratorTempRoot) -- dryRunInventory() itself, and its own zero-side-effect guarantee, were not touched.",
+    "allowDryRunTrueCount": 1,
+    "allowDryRunTrueRoots": [
+      "scripts/run-regression-g1-6-ga4-h1-4-7.js"
+    ],
+    "matchesActualCliFlagInventory": true
+  },
+  "preservationChecks": {
+    "suiteReferenceUnchanged": "17/17 -- catalog key still present in source, orderedSuiteSha256 still matches Stage 3A baseline for all 17",
+    "catalogKeyUnchanged": true,
+    "childOrderUnchanged": "unaffected -- SUITE loading logic itself was never touched, only CLI-parsing/loop-bound code",
+    "expectedCountUnchanged": "17/17 still match the locked expected entry counts (B2_5=24 ... GA4_H1_4_7=79)",
+    "buildChildEnvUnchanged": "17/17 still call buildChildEnv(childDbPath, tmpRoot)",
+    "cleanupFinallyUnchanged": "17/17 still have the finally{...cleanupRoot...} pattern",
+    "dbOwnershipUnchanged": true,
+    "assertionsUnchanged": "orchestrators have no assert()-style test assertions of their own (they run children and aggregate PASS/FAIL) -- not applicable",
+    "noNewProcessExit": "0 process.exit( across all 17 (confirmed via source scan, comments excluded)",
+    "zeroRealDbDelete": "0 across all 17",
+    "zeroDynamicSuiteExecution": "0 new Function/eval/vm across all 17",
+    "noNewRepoJsFiles": true
+  },
+  "permanentTests": {
+    "location": "scripts/run-h1-4-8-product-funnel-semantics-runtime.js, CLIARGS1-22 (23 distinct assertions -- 19 split into 19a/19b)",
+    "callsRealProductionFunction": true,
+    "assertionCountChange": {
+      "before": 390,
+      "after": 413,
+      "delta": 23,
+      "exactCountConfirmedViaSourceLabelScan": true
+    },
+    "allCasesCovered": [
+      "1: [] -> run/3",
+      "2: ['1'] -> run/1",
+      "3: ['2'] -> run/2",
+      "4: ['3'] -> run/3",
+      "5: dry-run allowed when allowDryRun:true",
+      "6: dry-run throws when allowDryRun:false",
+      "7: empty string throws",
+      "8: whitespace throws",
+      "9: '0' throws",
+      "10: negative throws",
+      "11: fraction throws",
+      "12: leading zero throws",
+      "13: plus sign throws",
+      "14: exponent notation throws",
+      "15: non-numeric throws",
+      "16: '4' (out of range) throws",
+      "17: huge integer throws",
+      "18: multiple args throws",
+      "19a/19b: dry-run+round mixed (both orders) throws",
+      "20: unknown flag throws",
+      "21: non-array input throws",
+      "22: DB sentinel unchanged"
+    ],
+    "allPass": true,
+    "newLockedSafeRuntimeBaseline": 413
+  },
+  "preAndPostHashes": {
+    "nineFormerlyHardcodedRoots": [
+      {
+        "file": "scripts/run-regression-b2-5.js",
+        "preSha256": "1c47705cc133a93574cde14ab859ac9d18b3feb83b2f87d3b415870923922c1e",
+        "preGitHash": "cf5e20c98e77073fdec5e257cad5b9c57f52bc49",
+        "postSha256": "da5be052ad1c881167fb6a1e25dd41142ccf991078ccba9e3352db0d8bed4c17",
+        "postGitHash": "cd10a2750ff1f758fccb48cbe8cb287c664a72ab",
+        "changed": true
+      },
+      {
+        "file": "scripts/run-regression-g1-6-a1.js",
+        "preSha256": "58b726c4cc2713905ed1b51e27f177916219810973f540d99016db9b2f70fdd1",
+        "preGitHash": "5882f471b0ccd8baa2f55a1f36c63901c27de688",
+        "postSha256": "58709b5582912c172943cbd631bc2d5bed262f36586eee738f0d585dd66e7508",
+        "postGitHash": "0e7cfc43c4ab0a69cf66e4f948e9aa0638cd4890",
+        "changed": true
+      },
+      {
+        "file": "scripts/run-regression-g1-6-a1-1.js",
+        "preSha256": "d5b11794abca10324aa7606151c61f32486829bdd3e8c465ead9924f73a47d41",
+        "preGitHash": "6d38341f38eab0c1e65aee1eeca4f53992c528b6",
+        "postSha256": "bc4259f17daea6395aa289090a8bf3dfb20fc1ee6b4d6bd47ffff69c18cde585",
+        "postGitHash": "cefe37e4ea7d15db850ee7a48da761970755bb99",
+        "changed": true
+      },
+      {
+        "file": "scripts/run-regression-g1-6-a1-2.js",
+        "preSha256": "760234394b0e0692c9cd4ff6abe25f891544187c3bcbe04bda3cc508cea86ba6",
+        "preGitHash": "4e323360c26382ff47ba8b78c3108ce2615f55fe",
+        "postSha256": "2f72d184898c92c83037ab80aacadf02a1d5762e9d4b3bb0354514970b49e993",
+        "postGitHash": "366285e21ffb41723b5a883a25eee6a917d71128",
+        "changed": true
+      },
+      {
+        "file": "scripts/run-regression-g1-6-a1-2-1.js",
+        "preSha256": "82200e19c9e3fb27bc7c352a4e4e89f94fe517801c15c184d6f062dd5538769c",
+        "preGitHash": "d0298bd4e2acc66fb4cdbc401e4ede30a28dd591",
+        "postSha256": "78704d8501099c03f25adba98fa4a1716f3f2cf0a0957548b5ba720b8b0c404a",
+        "postGitHash": "3c896436736ec36c0ec77812702038745838eba4",
+        "changed": true
+      },
+      {
+        "file": "scripts/run-regression-g1-6-ga4-h1.js",
+        "preSha256": "e32711df56e81e85331c538302fd39ae30176bdef2cd4847b92c73a6244925f8",
+        "preGitHash": "937cc143279d1116922a46136bef96f51c7a36ca",
+        "postSha256": "3aad6aea8543e20dfc8cc078d314f5038702903f64c196f88e1dd99288f1492e",
+        "postGitHash": "dff17b6ec3bd5679ea0f6eb6836e91f58bedfb26",
+        "changed": true
+      },
+      {
+        "file": "scripts/run-regression-g1-6-ga4-h1-1-auth.js",
+        "preSha256": "82b1bcc76b4fa39721d290d4648717e800bf0adcaf791da50558359115876d80",
+        "preGitHash": "2a224f3258a2a40e15178b76cada397c1283e31c",
+        "postSha256": "3e30b9cf88b6c78fc532d049375be8aae9a673d06d53e4c024fa2f29887552d9",
+        "postGitHash": "0f550209cbdb7347448c693331686c06cd28638e",
+        "changed": true
+      },
+      {
+        "file": "scripts/run-regression-g1-6-ga4-h1-2.js",
+        "preSha256": "fea194b48217e482f863f2d5af1e413f2677037c0c912d64d044d4ba646ce920",
+        "preGitHash": "3264d79f4a5c780f9aacf6f1d5d8dc1fe7bfa7ea",
+        "postSha256": "344f9a3e7c2c57b4276e4d9cbe8b3301db361d3ca7f341d740a26fe31a052697",
+        "postGitHash": "21cc1b57fa8b8404fbc87972911197491c522dff",
+        "changed": true
+      },
+      {
+        "file": "scripts/run-regression-g1-6-ga4-h1-3.js",
+        "preSha256": "71de653925e7e0df192b0d6a9a7e560330988c2a5663eb233aa9cfd79647a127",
+        "preGitHash": "561319ae9a515bdf79da07cdb2b780fd73e3d3a0",
+        "postSha256": "1422751809b36082c55517d7b082ad70ca3397aed44484d57ebcc253686b39d2",
+        "postGitHash": "f918a90d4da223cfba34ed5dae5191b535ec2f73",
+        "changed": true
+      }
+    ],
+    "qaTempDbJs": {
+      "postSha256": "de696ebebc2ba18cffa0a21b05d6d0991024f4dfa75b07dae4cb7769273e5c90",
+      "postGitHash": "90bb2dc0f4ed174c03c871e64eaf5062a033c488"
+    },
+    "note": "The 8 formerly-loose ga4-h1-4* roots were also modified this turn; their pre-hashes were not separately captured as a distinct group in this evidence object (all 17 are covered by the aggregate 17-root gate below), but each was individually node --check'd and verified post-edit."
+  },
+  "seventeenRootUnifiedContractGate": {
+    "sharedParserUsage": "17/17",
+    "defaultThreeRounds": "17/17 (verified via parser contract itself, which is shared and already permanently tested)",
+    "argv1Equals1Round": "17/17",
+    "argv2Equals2Rounds": "17/17",
+    "argv3Equals3Rounds": "17/17",
+    "invalidFailClosed": "17/17 (same shared parser)",
+    "validationBeforeTempRoot": "17/17",
+    "allowDryRunTrueCount": 1,
+    "allowDryRunFalseCount": 16,
+    "suiteCountHashPreserved": "17/17",
+    "nodeCheckPass": "17/17",
+    "cleanupFinallyPreserved": "17/17",
+    "childEnvPreserved": "17/17",
+    "realDbDeleteTotal": 0,
+    "dynamicSuiteExecutionTotal": 0,
+    "processExitBypassTotal": 0,
+    "candidateJsCount": 186
+  },
+  "finalVerification": {
+    "mainSafeRuntimeNewTotal": 413,
+    "mainSafeRuntimePass": true,
+    "parserSelfTest": "22/22 (regression-guard.js's own zero-dependency baseline-hash parser self-test, unrelated to this turn's CLI-args parser, unaffected by this turn's changes)",
+    "regressionGuardStandalone": "not re-executed this turn (no orchestrator/child runtime permitted) -- static verification only for this turn's scope; last known good runtime result remains 148/148 from the prior turn",
+    "thirtyFourFileGateOverallPass": true,
+    "thirtyFourFileGateReRunAgainstCurrentSource": true,
+    "closureRecomputation": {
+      "allSeventeenPass": true,
+      "totalReachableChildren": 90
+    },
+    "quarantinedIntersection": 0,
+    "candidateJsCount": 186,
+    "executableRepoTypescriptUsage": 0,
+    "packageJsonChanged": false,
+    "packageLockChanged": false,
+    "productionDbSentinel": {
+      "sha256": "78254c1b972a57ca184ab9645542c407b1b8752b605ec2378832d78ff6a84ccf",
+      "gitHashObject": "86eea5859a6879ed113ffbaa3f4220494de0814a",
+      "size": 651264,
+      "mtime": 1786712225,
+      "walShmJournalPresent": false
+    }
+  },
+  "conclusion": "Stage 3C0 unified strict round contract complete."
+}

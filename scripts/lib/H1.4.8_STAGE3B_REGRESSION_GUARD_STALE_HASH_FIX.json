@@ -1,0 +1,60 @@
+{
+  "file": "scripts/smoke-hotfix30-b5-r5-4-g1-3-2-regression-guard.js",
+  "fixedAt": "2026-08-17T03:12:13.230Z",
+  "allowlistedLabels": [
+    "3c",
+    "3d"
+  ],
+  "reasonThisIsAllowlisted": "This is the first authorized modification to an existing assertion CONDITION anywhere in Stage 3A/3B. All other 128 static assert() call-sites in this file (and all assertions in every other of the 34 remediated files) remain byte-identical to their locked pre-modification baselines.",
+  "rootCause": {
+    "staleHash": "05a38b4a...",
+    "staleHashOnlyInGuardsAndHistoricalDocs": "Repo-wide grep confirmed 05a38b4a appears ONLY in this guard file itself and two historical documentation files (H1.4.1_PRODUCTION_DIFF.md, R5.4-G1.3.2_REGRESSION_GUARD_ALIGNMENT.md) -- never as another active test's expected value.",
+    "currentHash": "9997c0b84a867e27b11a1a499b06de0b83f78403dd9feba401a6edbc49f1970d",
+    "currentHashActiveReferences": "visitor-geo-sync.js, geo-event-engine.js (both consumer baseline tables), and a third file, smoke-hotfix30-b5-r5-3-a1-1-heatmap-dashboard-integration.js, all independently reference this same current hash.",
+    "threeWayVerification": {
+      "actualMapFileHash": "9997c0b84a867e27b11a1a499b06de0b83f78403dd9feba401a6edbc49f1970d",
+      "geoEventEngineBaselineHash": "9997c0b84a867e27b11a1a499b06de0b83f78403dd9feba401a6edbc49f1970d",
+      "visitorGeoSyncBaselineHash": "9997c0b84a867e27b11a1a499b06de0b83f78403dd9feba401a6edbc49f1970d",
+      "allThreeFullyIdentical": true,
+      "comparisonMethod": "full 64-character string equality, not prefix comparison"
+    },
+    "whyOldValueExpired": "geo-intelligence-map.js was legitimately, separately authorized to change during an earlier H1.4.1 round (wheel-zoom-default-off + wheel-hint badge container -- confirmed by an explicit comment already present in both consumer files' baseline tables, predating this entire Stage 3A/3B session). Both consumer files' baseline tables were correctly re-baselined to the new hash at that time. This guard file's own hardcoded expected prefix was simply never updated to match -- a staleness bug in the guard itself, unrelated to and predating any Stage 3A/3B DB-safety work.",
+    "productionMapFileConfirmedUnchangedThisSession": "git status --short and git diff for public/js/geo-intelligence-map.js both empty -- confirms this file was not touched by this session at all, consistent with instruction not to modify it."
+  },
+  "fixApplied": {
+    "oldCondition": "/'public\\/js\\/geo-intelligence-map\\.js':\\s*'05a38b4a/.test(a2Src) && ... (regex substring match against a hardcoded stale prefix)",
+    "newCondition": "TypeScript AST extraction of the exact object-literal property value for the key 'public/js/geo-intelligence-map.js' from each consumer's source text (extractBaselineHashForKey()), verified to occur exactly once, be valid 64-hex, equal the REAL file's freshly-computed SHA-256, and be identical between both consumers -- no hardcoded expected hash anywhere in the new condition.",
+    "noHardcodedHashInNewCondition": true,
+    "doesNotRequireOrExecuteConsumerFiles": "Confirmed -- extractBaselineHashForKey() only calls ts.createSourceFile() (pure parse) on the already-read source TEXT (a2Src/a12Src, read via fs.readFileSync earlier in the same file), never require()s or executes either consumer file.",
+    "cannotMatchInsideAComment": "AST-based extraction only visits PropertyAssignment nodes with StringLiteral keys/values -- comments are not part of the AST at all, so this is structurally immune to matching inside a comment, unlike a text-based .includes()/regex approach.",
+    "otherTwoPartsOfConditionUnchanged": "The geo-map-settings.js (f7ab62d8...) and manifest.json (bdd969e0...) prefix checks within 3c/3d were left as their existing anchored regex form -- confirmed NOT stale (both still match correctly), so no change was needed or made to those two sub-checks."
+  },
+  "whyNotWeakerThanOldContract": [
+    "Old contract: hardcoded prefix match, silently wrong once the underlying file legitimately changed (as demonstrated) -- would keep \"passing\" a fully STALE expectation forever with no way to detect drift.",
+    "New contract: computes the REAL file hash fresh on every run, so it can never silently diverge from reality -- if geo-intelligence-map.js changes again in the future (authorized or not), this assertion will correctly re-evaluate against the new actual hash, and additionally cross-checks that both consumers agree with each other, which the old contract never verified at all.",
+    "Old contract only checked a partial prefix (8 hex chars); new contract requires full 64-hex exact match."
+  ],
+  "staticVerification": {
+    "method": "TypeScript AST full-argument comparison against locked git HEAD baseline",
+    "totalStaticCallSites": {
+      "baseline": 130,
+      "current": 130,
+      "unchanged": true
+    },
+    "mismatchedIndices": [
+      4,
+      5
+    ],
+    "mismatchedLabels": [
+      "3c",
+      "3d"
+    ],
+    "mismatchReason": "argCount 2->3 (added a diagnostic detail object as 3rd argument) -- condition logic itself also intentionally changed per this evidence file",
+    "allOtherCallSitesByteIdentical": true,
+    "labelsUnchangedExceptForAppendedExplanatoryText": "3c/3d label text itself was extended with additional explanation (not renamed, not renumbered, not reordered) -- the numeric/alphabetic prefix \"3c.\"/\"3d.\" is unchanged",
+    "runtimeTotalCaveat": "The RUNTIME-reported total (148 in the original failing run) is NOT the same number as the static AST call-site count (130) -- some call-sites execute multiple times inside loops (e.g. the \"0-parse\" file-check loop iterating 6 files from one call-site). Static count is the correct metric for \"did assertion content change\", not runtime total."
+  },
+  "productionFilesChanged": false,
+  "testContractChanged": true,
+  "newAssertionsAdded": 0
+}

@@ -1,0 +1,32 @@
+{
+  "computedAt": "2026-08-15T16:13:57.713Z",
+  "ownershipVerified": [
+    "scripts/run-g1-6-ga4-h1-3-event-compat-connection-test.js",
+    "scripts/run-g1-6-ga4-h1-3-historical-runtime.js",
+    "scripts/run-g1-6-ga4-h1-3-realtime-event-runtime.js",
+    "scripts/run-g1-6-ga4-h1-4-5-exposure-runtime.js",
+    "scripts/run-g1-6-ga4-h1-4-range-backend-runtime.js",
+    "scripts/smoke-hotfix30-b5-r5-3-a1-2-visitor-geo-sync.js",
+    "scripts/smoke-hotfix30-b5-r5-3-a2-geo-event-engine.js",
+    "scripts/smoke-hotfix30-b5-r5-4-g1-3-2-regression-guard.js",
+    "scripts/smoke-hotfix30-b5-r5-4-g1-4-map-label-rendering.js"
+  ],
+  "provisionalModified": [],
+  "remainingUntouched": [
+    "scripts/run-g1-6-ga4-h1-3-mutations.js",
+    "scripts/run-g1-6-ga4-h1-4-map-state-mutations.js",
+    "scripts/smoke-hotfix30-b5-r5-3-a1-geo-heatmap.js",
+    "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-1-ga4-settings-persistence.js",
+    "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-4-ga4-city-partial.js",
+    "scripts/smoke-hotfix30-b5-r5-4-g1-5-b2-ga4-settings.js",
+    "scripts/smoke-hotfix30-b5-r5-4-g1-6-a1-2-authoritative-points.js",
+    "scripts/smoke-hotfix30-b5-r5-4-g1-live-geo.js"
+  ],
+  "unionSize": 17,
+  "lockedSize": 17,
+  "pairwiseIntersections": {
+    "verifiedVsProvisional": [],
+    "verifiedVsRemaining": [],
+    "provisionalVsRemaining": []
+  }
+}

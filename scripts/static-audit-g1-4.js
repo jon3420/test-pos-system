@@ -6,9 +6,36 @@
 const fs = require('fs');
 const path = require('path');
 const ROOT = path.join(__dirname, '..');
+const dbHelper = require('./lib/qa-temp-db.js');
 
 const checks = [];
 function check(id, desc, cond) { checks.push({ id, desc, ok: !!cond }); }
+
+// Stage 3C1 remediation (assertion 44 only -- allowlisted, see
+// scripts/lib/H1.4.8_STAGE3C1_CANARY_BLOCKER_REMEDIATION.json): the
+// original condition here required the REAL production data/pos.db to be
+// absent from the working directory -- a premise that has never held true
+// for this repository (the file is deliberately tracked/present). New
+// contract: "QA DB target is absent, or fully specified and
+// temp-root-contained; it never aliases production data/pos.db." Reuses
+// the EXISTING dbHelper.validateParentProvidedDb() containment logic
+// (already proven throughout this session) rather than duplicating any
+// path-containment algorithm. Never initializes a DB, never creates a
+// standalone temp DB, never deletes/renames/hides the production file --
+// this static audit does not need a DB at all; it only validates that IF
+// a QA DB target is specified via env, it is safely scoped.
+function qaDbTargetSafeOrAbsent() {
+  const hasDbPath = typeof process.env.POS_DB_PATH === 'string' && process.env.POS_DB_PATH.length > 0;
+  const hasTempRoot = typeof process.env.POS_DB_TEMP_ROOT === 'string' && process.env.POS_DB_TEMP_ROOT.length > 0;
+  if (!hasDbPath && !hasTempRoot) return { ok: true, reason: 'no QA DB env present (standalone, this audit does not use a DB)' };
+  if (hasDbPath !== hasTempRoot) return { ok: false, reason: 'exactly one of POS_DB_PATH/POS_DB_TEMP_ROOT is set -- both-or-neither required' };
+  try {
+    dbHelper.validateParentProvidedDb(process.env.POS_DB_PATH, process.env.POS_DB_TEMP_ROOT);
+    return { ok: true, reason: 'parent-provided QA DB target validated as temp-root-contained' };
+  } catch (e) {
+    return { ok: false, reason: 'QA DB target failed containment validation' };
+  }
+}
 function read(rel) { return fs.readFileSync(path.join(ROOT, rel), 'utf8'); }
 function stripComments(text) { return text.split('\n').filter((l) => !/^\s*\/\//.test(l.trim())).join('\n'); }
 
@@ -106,7 +133,7 @@ check('43', "no datetime now localtime（fixture helper 本身、G1.3.1/G1.3.2 s
 })());
 
 // 九、清潔度
-check('44', 'no test DB（data/pos.db 不在工作目錄殘留）', !fs.existsSync(path.join(ROOT, 'data/pos.db')));
+check('44', 'QA DB target absent, or fully specified and temp-root-contained (never aliases production data/pos.db)', qaDbTargetSafeOrAbsent().ok);
 check('45', 'no console.log（G1.4 新增段落無殘留 debug log）', !/console\.log\(|console\.debug\(/.test(heatCode.slice(heatCode.indexOf('function geoHeatComputeDrawableState'))) && !/console\.log\(|console\.debug\(/.test(uiCode.slice(uiCode.indexOf('_geoHeatUiOrderMapOverlayMessage'))));
 check('46', 'no debug（無 debugger 陳述式）', !/\bdebugger\b/.test(heatCode) && !/\bdebugger\b/.test(uiCode));
 check('47', 'no Math.random（G1.4 新增段落無假資料產生器）', !/Math\.random\(\)/.test(heatCode.slice(heatCode.indexOf('function geoHeatComputeDrawableState'))) && !/Math\.random\(\)/.test(uiCode.slice(uiCode.indexOf('_geoHeatUiOrderMapOverlayMessage'))));

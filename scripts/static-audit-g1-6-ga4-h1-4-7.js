@@ -155,8 +155,15 @@ const geoQueries = read('utils/geoAnalyticsQueries.js');
   const trackMetaBody = extractFunctionBody(platforms, 'trackMeta');
   check('[analytics-platforms.js] GA4_EVENT_MAP 保留 canonical view_cart → view_cart',
     /view_cart\s*:\s*'view_cart'/.test(platforms));
-  check('[analytics-platforms.js] GA4_EVENT_MAP 保留 canonical checkout_click → checkout_click',
-    /checkout_click\s*:\s*'checkout_click'/.test(platforms));
+  // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.8（CHECKOUT-ANALYTICS-UNIFICATION）：
+  // 這條 H1.4.7 契約已過期（需求文件四明確要求更新）。H1.4.7 原本要求
+  // GA4_EVENT_MAP.checkout_click 對應 GA4 自訂事件 'checkout_click'；H1.4.8
+  // 起改為對應 GA4 標準事件 'begin_checkout'（GA4 電子商務標準事件本身就叫
+  // begin_checkout，這是 GA4 平台命名，不是我們內部事件名稱）。
+  check('[analytics-platforms.js] GA4_EVENT_MAP：內部 checkout_click 對應到 GA4 標準事件 begin_checkout（H1.4.8 起，取代已過期的 checkout_click→checkout_click 映射）',
+    /checkout_click\s*:\s*'begin_checkout'/.test(platforms));
+  check('[analytics-platforms.js] GA4_EVENT_MAP 不再把 checkout_click 對應成 GA4 自訂事件 checkout_click（避免同一動作在 GA4 報表上產生兩筆不同事件）',
+    !/checkout_click\s*:\s*'checkout_click'/.test(platforms));
   check('[analytics-platforms.js] view_cart 被分類為 Meta 自訂事件（META_CUSTOM_EVENTS 內含 view_cart）',
     /META_CUSTOM_EVENTS\s*=\s*new Set\(\[[^\]]*'view_cart'[^\]]*\]\)/.test(platforms));
   check('[analytics-platforms.js] Meta checkout_click 映射為 InitiateCheckout（META_EVENT_MAP）',

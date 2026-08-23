@@ -13,11 +13,19 @@ const path = require('path');
 const fs = require('fs');
 const { execFileSync } = require('child_process');
 const ROOT = path.join(__dirname, '..');
+const dbHelper = require('./lib/qa-temp-db.js');
 
-const DATA_DIR = path.join(ROOT, 'data');
-const DB_FILE = path.join(DATA_DIR, 'pos.db');
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);
+// Stage 3A remediation: never touch the real data/pos.db. bootstrapChildDb()
+// enforces the full POS_DB_PATH/POS_DB_TEMP_ROOT root-containment contract.
+// Bootstrap happens before the first DB-touching require (utils/db.js,
+// L~44 inside main()), inside the same outer try/finally as main() itself
+// -- see runEntry() at the tail of this file. Cleanup is multi-step and
+// dependency-ordered: stop accepting new connections -> await server
+// close -> close DB handle -> cleanup owned temp root -- via the shared
+// async cleanup-error policy (runCleanupStepsAsync/handleOwnedCleanupAsync
+// in scripts/lib/qa-temp-db.js), which preserves a primary test failure's
+// identity even if a cleanup step itself fails, and surfaces a cleanup
+// failure as a real failure when the tests themselves passed.
 
 const results = [];
 function pass(name) { results.push({ name, status: 'PASS' }); console.log(`[PASS] ${name}`); }
@@ -35,6 +43,13 @@ function printSummary() {
   if (f > 0) process.exitCode = 1;
 }
 
+// Hoisted to module scope (not just main()-local) so runEntry()'s cleanup
+// steps can reach them regardless of whether main() completed normally or
+// threw partway through. Both start undefined/null; cleanup steps check
+// for existence before acting on them.
+let server;
+let dbHandle;
+
 async function main() {
   ['utils/ga4RealtimeConfig.js', 'routes/settings.js', 'public/js/geo-ga4-settings.js'].forEach((rel) => {
     try { execFileSync(process.execPath, ['--check', path.join(ROOT, rel)]); pass(`0-parse ${rel} node --check 通過`); }
@@ -44,6 +59,7 @@ async function main() {
   const { initDb, getDb } = require(path.join(ROOT, 'utils/db.js'));
   await initDb();
   const db = getDb();
+  dbHandle = db; // registered immediately on creation, before any use, so cleanup can reach it even if a later line throws
   db.run('INSERT OR IGNORE INTO stores (store_id, active) VALUES (?,?)', ['store_b21_a', 1]);
   db.run('INSERT OR IGNORE INTO stores (store_id, active) VALUES (?,?)', ['store_b21_b', 1]);
 
@@ -96,7 +112,7 @@ async function main() {
   // ══════════════════════════════════════════════════════════════
   // B. GET Route (11-20)
   // ══════════════════════════════════════════════════════════════
-  let server; let port; let fetchFn;
+  let port; let fetchFn; // server is the module-scope variable declared above main(), not re-declared here
   {
     const settingsRoute = require(path.join(ROOT, 'routes/settings.js'));
     const express = require('express');
@@ -459,15 +475,82 @@ async function main() {
     assert(scenarioEB.ga4_realtime_property_id === 'stored_property_fixture_b', 'H75 場景E：Store A Runtime disabled 不影響 Store B Stored 顯示（B 仍讀到自己的值）');
   }
 
-  printSummary();
-  if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);
-  if (server) { try { server.close(); } catch (e) { /* ignore */ } }
-  process.exit(process.exitCode || 0);
+printSummary();
 }
 
-main().catch((e) => {
+// server.close() timeout bound: node-fetch is used here with no explicit
+// keep-alive agent (confirmed by source inspection -- no `agent:`/
+// `keepAlive` option anywhere in this file), and every request in this
+// file is sequentially awaited to completion (`await res.json()`) before
+// the next one starts, so no request is left in-flight when cleanup runs.
+// In practice server.close() should resolve promptly. This bound exists
+// only as a defensive backstop against an unexpected lingering
+// connection, not because one is expected.
+const SERVER_CLOSE_TIMEOUT_MS = 5000;
+
+// Bounded server-close algorithm extracted to scripts/lib/qa-temp-db.js as
+// dbHelper.closeHttpServerBounded() -- shared with
+// smoke-hotfix30-b5-r5-4-g1-5-b2-ga4-settings.js, which needs the exact
+// same close algorithm for two independent server instances. Full
+// algorithm/guarantee documentation and executable tests
+// (HTTPCLOSE1-6 + sentinel) live in scripts/lib/qa-temp-db.js and
+// scripts/run-h1-4-8-product-funnel-semantics-runtime.js respectively, not
+// duplicated here. Scope note specific to THIS file: closeAllConnections()
+// only force-closes ordinary HTTP connections, not WebSocket/upgrade/
+// HTTP2 -- confirmed by source inspection this file has none of those.
+
+async function runEntry() {
+  let dbContext;
+  let primaryError;
+  try {
+    dbContext = dbHelper.bootstrapChildDb('ga4-settings-persistence-standalone');
+    return await main();
+  } catch (err) {
+    primaryError = err;
+    throw err;
+  } finally {
+    // Dependency-ordered cleanup steps, run UNCONDITIONALLY via
+    // runCleanupStepsAsync() regardless of dbContext.ownsTempRoot -- the
+    // server and DB handle belong to THIS process either way (parent- vs
+    // standalone-owned only affects whether the temp DB FILE/ROOT gets
+    // deleted, step 3 below). Only step 3 is conditional on ownsTempRoot.
+    // 1. server-close: see closeServerBounded() above.
+    // 2. db-handle-close: releases the underlying sql.js WASM database
+    //    object's memory (db._db.close() -- the wrapped `db` returned by
+    //    utils/db.js's getDb() does not expose `close` itself, but the raw
+    //    sql.js Database object on `_db` does; sql.js's own close()
+    //    implementation is internally idempotent -- it guards on
+    //    `this.db !== null` before doing anything, confirmed by reading
+    //    node_modules/sql.js/dist/sql-wasm.js directly).
+    // 3. dbContext-cleanup: only runs (and only deletes anything) if this
+    //    process owns the temp root (ownsTempRoot === true); a
+    //    parent-provided root/DB is never deleted here -- steps 1/2 above
+    //    still run regardless, to release this child's own process-local
+    //    server/DB handles even when the DB file/root itself belongs to a
+    //    parent orchestrator.
+    await dbHelper.runCleanupStepsAsync([
+      {
+        name: 'server-close',
+        fn: () => dbHelper.closeHttpServerBounded(server, SERVER_CLOSE_TIMEOUT_MS),
+      },
+      {
+        name: 'db-handle-close',
+        fn: () => {
+          if (dbHandle && dbHandle._db && typeof dbHandle._db.close === 'function') {
+            dbHandle._db.close();
+            dbHandle = null; // prevents any later cleanup step from double-closing or querying a closed handle
+          }
+        },
+      },
+      {
+        name: 'dbContext-cleanup',
+        fn: () => { if (dbContext && dbContext.ownsTempRoot) dbContext.cleanup(); },
+      },
+    ], primaryError);
+  }
+}
+
+runEntry().catch((e) => {
   console.error(e);
-  if (fs.existsSync(DB_FILE)) { try { fs.unlinkSync(DB_FILE); } catch (e2) {} }
   process.exitCode = 1;
-  process.exit(1); // 避免尚未關閉的 http server 讓事件迴圈掛住，測試失敗時強制結束。
 });

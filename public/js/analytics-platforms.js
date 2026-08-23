@@ -85,10 +85,11 @@
     view_product: 'ViewContent',
     add_to_cart: 'AddToCart',
     begin_checkout: 'InitiateCheckout',
-    // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.7（TWO-STAGE-CHECKOUT）：
-    // checkout_click＝使用者按下「前往結帳」，語意等同 Meta 標準轉換事件
-    // InitiateCheckout（沿用既有 begin_checkout 的映射目標，因為兩者在各自
-    // 版本裡代表的都是「開始結帳」這件事，只是 H1.4.7 換了事件名稱來源）。
+    // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.8（CHECKOUT-ANALYTICS-UNIFICATION）：
+    // checkout_click＝使用者按下「前往結帳」，對應 Meta 標準轉換事件
+    // InitiateCheckout。這個 Meta 映射從 H1.4.7 就是這樣，H1.4.8 不變——這輪
+    // 只修正 GA4 那邊的映射（原本誤送 GA4 自訂事件 checkout_click，應改送
+    // GA4 標準事件 begin_checkout，見下方 GA4_EVENT_MAP 的註解）。
     // view_cart（打開購物車摘要）語意上不是開始結帳，故意不映射到
     // InitiateCheckout，讓 Meta 那邊留一個獨立的自訂事件名稱，不失真、不
     // 誤增 InitiateCheckout 次數。
@@ -135,13 +136,20 @@
     add_to_cart: 'add_to_cart',
     view_item: 'view_item',
     begin_checkout: 'begin_checkout',
-    // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.7（TWO-STAGE-CHECKOUT）：正式
-    // 事件契約——view_cart／checkout_click 各自 1:1 對應到同名 GA4 事件，
-    // 不得另外多送一筆 begin_checkout（H1.4.7 前端本身也已經不呼叫
-    // _trackEvent('begin_checkout')，這裡的 begin_checkout 映射保留純粹是
-    // 相容性宣告，不會再被觸發）。
+    // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.8（CHECKOUT-ANALYTICS-UNIFICATION）：
+    // 事件契約修正——內部 checkout_click 是「前往結帳」的唯一權威來源，但
+    // GA4 端要送的是 GA4 的標準事件名稱 begin_checkout（GA4 電子商務標準事件
+    // 清單本身就叫 begin_checkout，這是 GA4 這個平台的命名，不是我們內部
+    // 事件名稱）。H1.4.7 版本曾經把 checkout_click 對應到 GA4 自訂事件
+    // 「checkout_click」，這個契約已過期：H1.4.8 起改為
+    //   內部 checkout_click → GA4 begin_checkout（送出，計 1 次）
+    //   GA4 自訂事件 checkout_click → 不再送出（0 次）
+    // 不得同時送兩筆（那會讓同一次「按下前往結帳」在 GA4 報表上變成兩個
+    //不同事件、報表對不上 Meta InitiateCheckout 的 1 次)。
+    // view_cart 依然獨立映射到 GA4 view_cart（打開購物車摘要，語意上不是
+    // 開始結帳，維持 H1.4.7 既有判斷不變）。
     view_cart: 'view_cart',
-    checkout_click: 'checkout_click',
+    checkout_click: 'begin_checkout',
     payment_started: 'add_payment_info',
     purchase: 'purchase',
   };

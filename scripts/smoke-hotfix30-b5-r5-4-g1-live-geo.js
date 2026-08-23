@@ -13,11 +13,7 @@ const path = require('path');
 const fs = require('fs');
 const { execFileSync } = require('child_process');
 const ROOT = path.join(__dirname, '..');
-
-const DATA_DIR = path.join(ROOT, 'data');
-const DB_FILE = path.join(DATA_DIR, 'pos.db');
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);
+const dbHelper = require('./lib/qa-temp-db.js');
 
 const results = [];
 function pass(name) { results.push({ name, status: 'PASS' }); console.log(`[PASS] ${name}`); }
@@ -530,7 +526,21 @@ async function main() {
   printSummary();
 }
 
-main().catch((e) => {
+async function runEntry() {
+  let dbContext;
+  let primaryError;
+  try {
+    dbContext = dbHelper.bootstrapChildDb('g1-live-geo-standalone');
+    return await main();
+  } catch (err) {
+    primaryError = err;
+    throw err;
+  } finally {
+    dbHelper.handleOwnedCleanup(dbContext, primaryError);
+  }
+}
+
+runEntry().catch((e) => {
   console.error('[smoke-hotfix30-b5-r5-4-g1-live-geo] FATAL:', e);
   process.exitCode = 1;
   printSummary();

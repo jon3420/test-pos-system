@@ -117,7 +117,7 @@ function computeRevisitScore({ visitCount, cartCount, checkoutCount, orderCount,
   if (cartCount > 0) { items.push({ label: `購物車 ${cartCount} 次`, points: cartPoints }); score += cartPoints; }
 
   const checkoutPoints = checkoutCount * 4;
-  if (checkoutCount > 0) { items.push({ label: `開始結帳 ${checkoutCount} 次`, points: checkoutPoints }); score += checkoutPoints; }
+  if (checkoutCount > 0) { items.push({ label: `前往結帳 ${checkoutCount} 次`, points: checkoutPoints }); score += checkoutPoints; }
 
   const orderPoints = orderCount * 10;
   if (orderCount > 0) { items.push({ label: `訂單 ${orderCount} 筆`, points: orderPoints }); score += orderPoints; }
@@ -159,7 +159,7 @@ function deriveCustomerStatusTags({ identity, visitCount, cartCount, checkoutCou
   else tags.push('回訪訪客');
 
   if (orderCount === 0 && (cartCount >= 2 || checkoutCount >= 1) && visitCount >= 2) tags.push('高互動未購買');
-  if (orderCount === 0 && checkoutCount >= 1) tags.push('已開始結帳未購買');
+  if (orderCount === 0 && checkoutCount >= 1) tags.push('已前往結帳未購買');
   if (orderCount === 1) tags.push('首購客');
   if (orderCount >= 2) tags.push('回購客');
   if (highValueThreshold && totalRevenue >= highValueThreshold) tags.push('高價值顧客');
@@ -223,7 +223,13 @@ function _summarizeEvents(events) {
   events.forEach((e) => {
     if (e.session_id) sessions.add(e.session_id);
     if (e.event_name === 'add_to_cart' && e.cart_id) carts.add(e.cart_id);
-    if (e.event_name === 'begin_checkout' && e.cart_id) checkoutCarts.add(e.cart_id);
+    // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.8（CHECKOUT-ANALYTICS-UNIFICATION）：
+    // checkout_click 是「前往結帳」的唯一正式權威事件。舊 begin_checkout 不得
+    // 混入新版 CRM／KPI checkout count（即使用 Set 去重也不行——這是「事件
+    // 來源被污染」的問題，不是「重複計算」的問題，COUNT DISTINCT 只解決後者）。
+    // 舊 begin_checkout 只允許出現在歷史 Timeline 顯示（見 utils/cartSnapshot.js
+    // 的 CHECKOUT_STAGE_EVENTS／LEGACY_CHECKOUT_STAGE_EVENTS 拆分）。
+    if (e.event_name === 'checkout_click' && e.cart_id) checkoutCarts.add(e.cart_id);
     const t = e.created_at_local;
     if (t && (!firstAt || t < firstAt)) firstAt = t;
     if (t && (!lastAt || t > lastAt)) { lastAt = t; lastEvt = e; }
@@ -331,7 +337,10 @@ function buildAudienceUniverse(db, storeId) {
     `SELECT visitor_id,
             COUNT(DISTINCT session_id) as visit_count,
             COUNT(DISTINCT CASE WHEN event_name='add_to_cart' THEN cart_id END) as cart_count,
-            COUNT(DISTINCT CASE WHEN event_name='begin_checkout' THEN cart_id END) as checkout_count,
+            -- fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.8：checkout_click 是「前往
+            -- 結帳」唯一正式權威事件。舊 begin_checkout 不得混入（不做 OR／IN
+            -- 合併查詢），避免舊資料污染新版 CRM checkout count。
+            COUNT(DISTINCT CASE WHEN event_name='checkout_click' THEN cart_id END) as checkout_count,
             COUNT(DISTINCT CASE WHEN event_name='purchase' THEN order_id END) as order_count,
             MIN(${A_LOCAL}) as first_visit_at,
             MAX(${A_LOCAL}) as last_visit_at,

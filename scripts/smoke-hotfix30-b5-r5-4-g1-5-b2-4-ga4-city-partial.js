@@ -26,6 +26,7 @@ const path = require('path');
 const fs = require('fs');
 const { execFileSync } = require('child_process');
 const ROOT = path.join(__dirname, '..');
+const dbHelper = require('./lib/qa-temp-db.js');
 
 const results = [];
 function pass(name) { results.push({ name, status: 'PASS' }); console.log(`[PASS] ${name}`); }
@@ -65,11 +66,6 @@ async function main() {
     try { execFileSync(process.execPath, ['--check', path.join(ROOT, rel)]); pass(`0-parse ${rel} node --check 通過`); }
     catch (e) { fail(`0-parse ${rel} node --check 通過`, e.message.slice(0, 200)); }
   });
-
-  const DATA_DIR = path.join(ROOT, 'data');
-  const DB_FILE = path.join(DATA_DIR, 'pos.db');
-  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-  if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);
 
   const { initDb, getDb } = require(path.join(ROOT, 'utils/db.js'));
   await initDb();
@@ -588,7 +584,21 @@ async function main() {
   printSummary();
 }
 
-main().catch((e) => {
+async function runEntry() {
+  let dbContext;
+  let primaryError;
+  try {
+    dbContext = dbHelper.bootstrapChildDb('city-partial-standalone');
+    return await main();
+  } catch (err) {
+    primaryError = err;
+    throw err;
+  } finally {
+    dbHelper.handleOwnedCleanup(dbContext, primaryError);
+  }
+}
+
+runEntry().catch((e) => {
   console.error('[FATAL]', e);
   process.exitCode = 1;
 });

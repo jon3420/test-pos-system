@@ -18,6 +18,10 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const ROOT = path.join(__dirname, '..');
+const dbHelper = require('./lib/qa-temp-db.js');
+
+// Stage 3A remediation: bootstrap + DB-touching requires all live inside the
+// same outer try/finally (see tail of this file).
 
 const results = [];
 function pass(name) { results.push({ name, status: 'PASS' }); console.log(`[PASS] ${name}`); }
@@ -41,9 +45,6 @@ function printSummary() {
 }
 
 async function main() {
-  const DB_FILE = path.join(ROOT, 'data', 'pos.db');
-  if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);
-
   const { initDb, getDb } = require(path.join(ROOT, 'utils/db'));
   const { insertEvent } = require(path.join(ROOT, 'utils/analyticsLog'));
   const GVL = require(path.join(ROOT, 'utils/geoVisitLog'));
@@ -871,4 +872,19 @@ async function main() {
   printSummary();
 }
 
-main().catch((e) => { console.error(e); process.exitCode = 1; });
+async function runEntry() {
+  let dbContext;
+  let primaryError;
+  try {
+    dbContext = dbHelper.bootstrapChildDb('geo-event-engine-standalone');
+    return await main();
+  } catch (err) {
+    primaryError = err;
+    throw err;
+  } finally {
+    dbHelper.handleOwnedCleanup(dbContext, primaryError);
+  }
+}
+
+runEntry()
+  .catch((e) => { console.error(e); process.exitCode = 1; });

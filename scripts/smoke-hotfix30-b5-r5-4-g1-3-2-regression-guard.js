@@ -14,6 +14,99 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { execFileSync } = require('child_process');
 const ROOT = path.join(__dirname, '..');
+const dbHelper = require('./lib/qa-temp-db.js');
+
+// Stage 3A remediation: bootstrap + DB-touching requires all live inside the
+// same outer try/finally (see tail of this file).
+
+// Stage 3B zero-dependency recertification: extractLiteralHashFromNamedObject
+// hoisted to MODULE scope (not nested inside main()) so it can be called
+// both by the normal test flow (inside main(), section 3c/3d below) AND by
+// the --self-test-baseline-hash-parser CLI mode at the tail of this file --
+// the self-test calls this EXACT SAME function, not a duplicated copy. See
+// scripts/lib/H1.4.8_STAGE3B_REGRESSION_GUARD_ZERO_DEPENDENCY_RECERT.json
+// for the full rationale, grammar spec, and self-test case list.
+//
+// extractLiteralHashFromNamedObject(source, { objectName, key }): a narrow,
+// object-declaration-scoped, fail-closed parser with ZERO external
+// dependencies, purpose-built for the exact, narrow grammar the
+// ORDER_HEATMAP_BASELINE_SHA256 table actually uses (single-line `//`
+// comments, blank lines, and single-quoted `'key': '64-hex-value',`
+// property lines) -- not a general-purpose JS parser. Any source shape
+// outside that narrow grammar causes an immediate throw rather than a
+// silent wrong/partial answer.
+//   1. Finds the line `const <objectName> = {` -- must occur EXACTLY once
+//      in the whole source, else throws.
+//   2. Scans forward line-by-line from there until a line that is exactly
+//      a closing `};` (optionally indented) -- that terminates the object
+//      body. Every line in between must be one of:
+//        - blank/whitespace-only
+//        - a full single-line `//` comment (nothing else on the line)
+//        - a full single-line property `'key': 'value',` where `value` is
+//          validated to be exactly 64 lowercase hex characters
+//      ANY other content (block comments, spread, computed keys, function
+//      calls, template strings, concatenation, double-quoted strings,
+//      non-hex or wrong-length values, multiline values, etc.) throws
+//      immediately -- fail closed, never silently skipped.
+//   3. Duplicate keys within the object body throw.
+//   4. If the object body never closes before the source ends, throws.
+//   5. The requested `key` must appear in the collected properties EXACTLY
+//      once (0 or >1 throws) -- a similarly-named key with an extra
+//      prefix/suffix is a DIFFERENT key (exact string match on the quoted
+//      key content, not a substring/prefix test), so it can never be
+//      mistaken for the target.
+//   6. Returns the single matched value (already validated as 64
+//      lowercase hex characters).
+// Never uses eval/new Function/vm, never require()s the file being
+// checked -- only reads the already-provided source TEXT.
+function extractLiteralHashFromNamedObject(source, opts) {
+  const objectName = opts.objectName;
+  const targetKey = opts.key;
+  const HEX64_RE = /^[0-9a-f]{64}$/;
+
+  const lines = source.replace(/\r\n/g, '\n').split('\n');
+
+  const declRe = new RegExp('^\\s*(?:const|let|var)\\s+' + objectName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*=\\s*\\{\\s*$');
+  const declMatches = [];
+  lines.forEach((line, idx) => { if (declRe.test(line)) declMatches.push(idx); });
+  if (declMatches.length !== 1) {
+    throw new Error(`[extractLiteralHashFromNamedObject] expected exactly 1 declaration of "const ${objectName} = {" in source, found ${declMatches.length}`);
+  }
+  const startIdx = declMatches[0];
+
+  const closeRe = /^\s*\};\s*$/;
+  const blankRe = /^\s*$/;
+  const commentRe = /^\s*\/\/.*$/;
+  const propRe = /^\s*'([^'\\]*)'\s*:\s*'([^'\\]*)'\s*,\s*$/;
+
+  let endIdx = -1;
+  const props = {};
+  for (let i = startIdx + 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (closeRe.test(line)) { endIdx = i; break; }
+    if (blankRe.test(line)) continue;
+    if (commentRe.test(line)) continue;
+    const m = propRe.exec(line);
+    if (!m) {
+      throw new Error(`[extractLiteralHashFromNamedObject] unexpected syntax inside ${objectName} body at line ${i + 1}: ${JSON.stringify(line)}`);
+    }
+    const [, k, v] = m;
+    if (Object.prototype.hasOwnProperty.call(props, k)) {
+      throw new Error(`[extractLiteralHashFromNamedObject] duplicate key "${k}" inside ${objectName} at line ${i + 1}`);
+    }
+    if (!HEX64_RE.test(v)) {
+      throw new Error(`[extractLiteralHashFromNamedObject] value for key "${k}" at line ${i + 1} is not exactly 64 lowercase hex characters: ${JSON.stringify(v)}`);
+    }
+    props[k] = v;
+  }
+  if (endIdx === -1) {
+    throw new Error(`[extractLiteralHashFromNamedObject] ${objectName} declaration at line ${startIdx + 1} never closed with a "};" line before end of source`);
+  }
+  if (!Object.prototype.hasOwnProperty.call(props, targetKey)) {
+    throw new Error(`[extractLiteralHashFromNamedObject] key "${targetKey}" not found in ${objectName}`);
+  }
+  return props[targetKey];
+}
 
 const results = [];
 function pass(name) { results.push({ name, status: 'PASS' }); console.log(`[PASS] ${name}`); }
@@ -65,10 +158,40 @@ async function main() {
   assert(/scopeGuard\.computeScopedBaselineCheck\(ROOT\)/.test(a2Src), '3a. A2 改用 computeScopedBaselineCheck()，不再對 geo-heatmap.js 做整檔相等');
   assert(/scopeGuard\.computeScopedBaselineCheck\(ROOT\)/.test(a12Src), '3b. A1.2 改用 computeScopedBaselineCheck()，同上');
   // 其餘 3 個未修改檔案的整檔 hash 仍保留（沒有被連帶放寬）
-  assert(/'public\/js\/geo-intelligence-map\.js':\s*'05a38b4a/.test(a2Src) && /'public\/js\/geo-map-settings\.js':\s*'f7ab62d8/.test(a2Src) && /'public\/data\/geo\/taiwan\/manifest\.json':\s*'bdd969e0/.test(a2Src),
-    '3c. A2 對其餘 3 個未修改檔案仍維持整檔 SHA-256 相等（沒有一併放寬保護範圍）');
-  assert(/'public\/js\/geo-intelligence-map\.js':\s*'05a38b4a/.test(a12Src) && /'public\/js\/geo-map-settings\.js':\s*'f7ab62d8/.test(a12Src) && /'public\/data\/geo\/taiwan\/manifest\.json':\s*'bdd969e0/.test(a12Src),
-    '3d. A1.2 對其餘 3 個未修改檔案仍維持整檔 SHA-256 相等，同上');
+  //
+  // Stage 3B fix (authorized, allowlisted for labels 3c/3d ONLY -- see
+  // scripts/lib/H1.4.8_STAGE3B_REGRESSION_GUARD_STALE_HASH_FIX.json and
+  // scripts/lib/H1.4.8_STAGE3B_REGRESSION_GUARD_ZERO_DEPENDENCY_RECERT.json
+  // for full before/after evidence): the previous condition here hardcoded
+  // a STALE geo-intelligence-map.js hash prefix ('05a38b4a...'). Replaced
+  // with extractLiteralHashFromNamedObject() (module-scope, defined near
+  // the top of this file so it is also reachable from
+  // --self-test-baseline-hash-parser mode) -- a narrow, fail-closed,
+  // zero-dependency static parser, computing the REAL production file's
+  // actual hash and comparing it against each consumer's own claimed
+  // baseline for that exact key.
+
+  const MAP_FILE_REL = 'public/js/geo-intelligence-map.js';
+  const HEX64 = /^[a-f0-9]{64}$/;
+  const actualMapHash = crypto.createHash('sha256').update(fs.readFileSync(path.join(ROOT, MAP_FILE_REL))).digest('hex');
+  const a2MapHash = extractLiteralHashFromNamedObject(a2Src, { objectName: 'ORDER_HEATMAP_BASELINE_SHA256', key: MAP_FILE_REL });
+  const a12MapHash = extractLiteralHashFromNamedObject(a12Src, { objectName: 'ORDER_HEATMAP_BASELINE_SHA256', key: MAP_FILE_REL });
+
+  assert(
+    HEX64.test(a2MapHash)
+      && a2MapHash === actualMapHash
+      && /'public\/js\/geo-map-settings\.js':\s*'f7ab62d8/.test(a2Src)
+      && /'public\/data\/geo\/taiwan\/manifest\.json':\s*'bdd969e0/.test(a2Src),
+    '3c. A2 對其餘 3 個未修改檔案仍維持整檔 SHA-256 相等（沒有一併放寬保護範圍；geo-intelligence-map.js 一項改為零外部依賴的 fail-closed 靜態解析器精確抽取單一 property 並與檔案實際 hash 做完整 64-hex 相等比對，取代先前寫死的過期 prefix）',
+    { a2MapHash, actualMapHash });
+  assert(
+    HEX64.test(a12MapHash)
+      && a12MapHash === actualMapHash
+      && a12MapHash === a2MapHash
+      && /'public\/js\/geo-map-settings\.js':\s*'f7ab62d8/.test(a12Src)
+      && /'public\/data\/geo\/taiwan\/manifest\.json':\s*'bdd969e0/.test(a12Src),
+    '3d. A1.2 對其餘 3 個未修改檔案仍維持整檔 SHA-256 相等，同上；並額外確認 A2 與 A1.2 兩個 consumer 對 geo-intelligence-map.js 的期待值彼此相同（不是兩份互相衝突的獨立版本）',
+    { a12MapHash, actualMapHash });
 
   // ══════════════════════════════════════════════════════════════
   // 二、Scope Allowlist 存在且範圍有限
@@ -710,7 +833,169 @@ async function main() {
   printSummary();
 }
 
-main().catch((e) => {
-  console.error('[FATAL]', e);
-  process.exitCode = 1;
-});
+// --self-test-baseline-hash-parser: exercises
+// extractLiteralHashFromNamedObject() directly (the exact function used by
+// the normal 3c/3d assertions above, not a copy) against synthetic source
+// snippets AND the two real consumer files. Returns/exits BEFORE any DB
+// bootstrap, jsdom, consumer require, or the normal main() test flow --
+// see the guard immediately below, which runs before runEntry() is ever
+// invoked. Does not create a temp DB, does not run normal regression
+// assertions, does not change the normal mode's 148/148 total, and is not
+// a new repo .js file (candidate count unaffected).
+if (process.argv.includes('--self-test-baseline-hash-parser')) {
+  (function selfTest() {
+    const cases = [];
+    function expectValue(name, fn, expected) {
+      let actual;
+      let threw = false;
+      let err = null;
+      try { actual = fn(); } catch (e) { threw = true; err = e; }
+      const ok = !threw && actual === expected;
+      cases.push({ name, ok, expected, actual, threw, err: err && err.message });
+    }
+    function expectThrow(name, fn) {
+      let threw = false;
+      let err = null;
+      try { fn(); } catch (e) { threw = true; err = e; }
+      cases.push({ name, ok: threw, threw, err: err && err.message });
+    }
+
+    const VALID_HASH_A = 'a'.repeat(64);
+    const VALID_HASH_B = 'b'.repeat(64);
+    const OBJ = 'MY_BASELINE';
+
+    function wrap(body) {
+      return `const OTHER = 1;\nconst ${OBJ} = {\n${body}\n};\nconst AFTER = 2;\n`;
+    }
+
+    expectThrow('1. double-quoted entry is unsupported and throws (parser is single-quote-only, matching real consumer grammar)', () => {
+      extractLiteralHashFromNamedObject(wrap(`  "key/a": "${VALID_HASH_A}",`), { objectName: OBJ, key: 'key/a' });
+    });
+
+    expectValue('2. legit single-quoted entry', () => {
+      return extractLiteralHashFromNamedObject(wrap(`  'key/a': '${VALID_HASH_A}',`), { objectName: OBJ, key: 'key/a' });
+    }, VALID_HASH_A);
+
+    expectValue('3. CRLF source', () => {
+      const src = wrap(`  'key/a': '${VALID_HASH_A}',`).replace(/\n/g, '\r\n');
+      return extractLiteralHashFromNamedObject(src, { objectName: OBJ, key: 'key/a' });
+    }, VALID_HASH_A);
+
+    expectThrow('4. key only in // comment does not match', () => {
+      extractLiteralHashFromNamedObject(wrap(`  // 'key/a': '${VALID_HASH_A}',`), { objectName: OBJ, key: 'key/a' });
+    });
+
+    expectThrow('5. key only in block comment does not match (block comments are unsupported syntax and throw)', () => {
+      extractLiteralHashFromNamedObject(wrap(`  /* 'key/a': '${VALID_HASH_A}', */`), { objectName: OBJ, key: 'key/a' });
+    });
+
+    expectThrow('6. key only inside a plain string/expression (not a property line) throws', () => {
+      extractLiteralHashFromNamedObject(wrap(`  helper('key/a', '${VALID_HASH_A}');`), { objectName: OBJ, key: 'key/a' });
+    });
+
+    expectThrow('7. key only inside a template string throws', () => {
+      extractLiteralHashFromNamedObject(wrap('  const x = `key/a ${1}`;'), { objectName: OBJ, key: 'key/a' });
+    });
+
+    expectThrow('8. key exists only in a different object throws (object-name-scoped, not global search)', () => {
+      const src = `const WRONG_OBJ = {\n  'key/a': '${VALID_HASH_A}',\n};\n`;
+      extractLiteralHashFromNamedObject(src, { objectName: OBJ, key: 'key/a' });
+    });
+
+    expectThrow('9. duplicate object declaration throws', () => {
+      const src = `const ${OBJ} = {\n  'key/a': '${VALID_HASH_A}',\n};\nconst ${OBJ} = {\n  'key/b': '${VALID_HASH_B}',\n};\n`;
+      extractLiteralHashFromNamedObject(src, { objectName: OBJ, key: 'key/a' });
+    });
+
+    expectThrow('10. duplicate target key within the object throws', () => {
+      extractLiteralHashFromNamedObject(wrap(`  'key/a': '${VALID_HASH_A}',\n  'key/a': '${VALID_HASH_B}',`), { objectName: OBJ, key: 'key/a' });
+    });
+
+    expectThrow('11. missing target key throws', () => {
+      extractLiteralHashFromNamedObject(wrap(`  'key/other': '${VALID_HASH_A}',`), { objectName: OBJ, key: 'key/a' });
+    });
+
+    expectThrow('12. 63-char hash throws', () => {
+      extractLiteralHashFromNamedObject(wrap(`  'key/a': '${'a'.repeat(63)}',`), { objectName: OBJ, key: 'key/a' });
+    });
+
+    expectThrow('13. 65-char hash throws', () => {
+      extractLiteralHashFromNamedObject(wrap(`  'key/a': '${'a'.repeat(65)}',`), { objectName: OBJ, key: 'key/a' });
+    });
+
+    expectThrow('14. non-hex characters in hash throws', () => {
+      extractLiteralHashFromNamedObject(wrap(`  'key/a': '${'g'.repeat(64)}',`), { objectName: OBJ, key: 'key/a' });
+    });
+
+    expectThrow('15. prefix/suffix similar key does not match target (exact key match only)', () => {
+      extractLiteralHashFromNamedObject(wrap(`  'key/a-extra': '${VALID_HASH_A}',`), { objectName: OBJ, key: 'key/a' });
+    });
+
+    expectThrow('16a. spread syntax in object body throws', () => {
+      extractLiteralHashFromNamedObject(wrap(`  ...OTHER,`), { objectName: OBJ, key: 'key/a' });
+    });
+    expectThrow('16b. computed property key throws', () => {
+      extractLiteralHashFromNamedObject(wrap(`  [dynamicKey]: '${VALID_HASH_A}',`), { objectName: OBJ, key: 'key/a' });
+    });
+    expectThrow('16c. non-string (expression) value throws', () => {
+      extractLiteralHashFromNamedObject(wrap(`  'key/a': someVariable,`), { objectName: OBJ, key: 'key/a' });
+    });
+
+    expectThrow('17. multiline value throws', () => {
+      extractLiteralHashFromNamedObject(wrap(`  'key/a': '${VALID_HASH_A.slice(0, 32)}` + `\n${VALID_HASH_A.slice(32)}',`), { objectName: OBJ, key: 'key/a' });
+    });
+
+    const a2SrcSelfTest = fs.readFileSync(path.join(ROOT, 'scripts/smoke-hotfix30-b5-r5-3-a2-geo-event-engine.js'), 'utf8');
+    const a12SrcSelfTest = fs.readFileSync(path.join(ROOT, 'scripts/smoke-hotfix30-b5-r5-3-a1-2-visitor-geo-sync.js'), 'utf8');
+    const realKey = 'public/js/geo-intelligence-map.js';
+    let a2Real = null;
+    let a12Real = null;
+    let a2Threw = false;
+    try { a2Real = extractLiteralHashFromNamedObject(a2SrcSelfTest, { objectName: 'ORDER_HEATMAP_BASELINE_SHA256', key: realKey }); }
+    catch (e) { a2Threw = true; }
+    cases.push({ name: '18a. real geo-event-engine.js ORDER_HEATMAP_BASELINE_SHA256 extraction succeeds and is 64-hex', ok: !a2Threw && typeof a2Real === 'string' && /^[0-9a-f]{64}$/.test(a2Real), a2Real });
+
+    let a12Threw = false;
+    try { a12Real = extractLiteralHashFromNamedObject(a12SrcSelfTest, { objectName: 'ORDER_HEATMAP_BASELINE_SHA256', key: realKey }); }
+    catch (e) { a12Threw = true; }
+    cases.push({ name: '18b. real visitor-geo-sync.js ORDER_HEATMAP_BASELINE_SHA256 extraction succeeds and is 64-hex', ok: !a12Threw && typeof a12Real === 'string' && /^[0-9a-f]{64}$/.test(a12Real), a12Real });
+
+    const actualMapHashSelfTest = crypto.createHash('sha256').update(fs.readFileSync(path.join(ROOT, realKey))).digest('hex');
+    cases.push({
+      name: "19. both real consumers' extracted hashes equal the actual geo-intelligence-map.js SHA-256 (and each other)",
+      ok: a2Real === actualMapHashSelfTest && a12Real === actualMapHashSelfTest && a2Real === a12Real,
+      a2Real, a12Real, actualMapHashSelfTest,
+    });
+
+    const total = cases.length;
+    const passed = cases.filter((c) => c.ok).length;
+    const failed = total - passed;
+    cases.forEach((c) => {
+      console.log(`[${c.ok ? 'PASS' : 'FAIL'}] ${c.name}` + (c.ok ? '' : ` -- ${JSON.stringify(c)}`));
+    });
+    console.log(`\nSELF-TEST SUMMARY: ${passed}/${total} passed, ${failed} failed`);
+    process.exitCode = failed > 0 ? 1 : 0;
+  })();
+} else {
+
+async function runEntry() {
+  let dbContext;
+  let primaryError;
+  try {
+    dbContext = dbHelper.bootstrapChildDb('regression-guard-standalone');
+    return await main();
+  } catch (err) {
+    primaryError = err;
+    throw err;
+  } finally {
+    dbHelper.handleOwnedCleanup(dbContext, primaryError);
+  }
+}
+
+runEntry()
+  .catch((e) => {
+    console.error('[FATAL]', e);
+    process.exitCode = 1;
+  });
+
+}

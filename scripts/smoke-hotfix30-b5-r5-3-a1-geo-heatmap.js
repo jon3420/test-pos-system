@@ -13,6 +13,7 @@
 const path = require('path');
 const fs = require('fs');
 const ROOT = path.join(__dirname, '..');
+const dbHelper = require('./lib/qa-temp-db.js');
 
 const results = [];
 function pass(name) { results.push({ name, status: 'PASS' }); console.log(`[PASS] ${name}`); }
@@ -20,6 +21,15 @@ function fail(name, detail) { results.push({ name, status: 'FAIL', detail }); co
 function assert(cond, name, detail) { cond ? pass(name) : fail(name, detail); }
 
 const H = require(path.join(ROOT, 'public/js/geo-heatmap.js'));
+
+// Stage 3A remediation: the entire test body below (originally a mix of
+// top-level statements followed by a separate `(async () => { ... })();`
+// IIFE ending in process.exit()) has been merged into a single
+// `async function main()`. Nothing in the test logic, assertion order, or
+// section numbering below was changed -- only the function boundary and
+// the exit mechanism (process.exit() -> process.exitCode, so runEntry()'s
+// outer finally is never bypassed).
+async function main() {
 
 // ────────────────────────────────────────────────────────────────
 // 1. Metric / Channel / Display enum
@@ -230,7 +240,7 @@ assert(H.geoHeatState.selectedAreaId === null, 'A1-87 再次點擊同一個行�
 // ────────────────────────────────────────────────────────────────
 // 12. Request Guard / Debounce（防止舊 request 蓋掉新 request）
 // ────────────────────────────────────────────────────────────────
-(async () => {
+{
   H._geoHeatResetStateForTest();
   H.geoHeatState.layerGroup = { clearLayers() {}, addLayer() {} };
   let resolvedOrder = [];
@@ -263,10 +273,6 @@ assert(H.geoHeatState.selectedAreaId === null, 'A1-87 再次點擊同一個行�
   // 14. 後端真實 DB 驗證（sql.js，真的寫入 delivery_lat/delivery_lng 再查）
   // ────────────────────────────────────────────────────────────
   try {
-    const DATA_DIR = path.join(ROOT, 'data');
-    const DB_FILE = path.join(DATA_DIR, 'pos.db');
-    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-    if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);
     const { initDb, getDb } = require(path.join(ROOT, 'utils/db'));
     await initDb();
     const db = getDb();
@@ -295,7 +301,6 @@ assert(H.geoHeatState.selectedAreaId === null, 'A1-87 再次點擊同一個行�
     assert(geoQ.geoHeatClassifyCoordinateConfidence(3) === 'medium', 'A1-106 confidence 分類：3 筆 → medium');
     assert(geoQ.geoHeatClassifyCoordinateConfidence(5) === 'high', 'A1-107 confidence 分類：5 筆 → high');
     assert(geoQ.geoHeatClassifyCoordinateConfidence(-1) === 'unavailable', 'A1-108 confidence 分類：負數輸入安全 fallback 為 unavailable');
-    if (fs.existsSync(DB_FILE)) fs.unlinkSync(DB_FILE);
   } catch (e) {
     fail('A1-98..108 真實 DB 驗證區塊', e.message);
   }
@@ -338,5 +343,25 @@ assert(H.geoHeatState.selectedAreaId === null, 'A1-87 再次點擊同一個行�
   const passed = results.filter((r) => r.status === 'PASS').length;
   const failed = total - passed;
   console.log(`\n總計：${total} 項，PASS ${passed}，FAIL ${failed}`);
-  process.exit(failed > 0 ? 1 : 0);
-})();
+  process.exitCode = failed > 0 ? 1 : 0;
+} // closes the section-12 plain block (was the inner IIFE body)
+}
+
+async function runEntry() {
+  let dbContext;
+  let primaryError;
+  try {
+    dbContext = dbHelper.bootstrapChildDb('geo-heatmap-standalone');
+    return await main();
+  } catch (err) {
+    primaryError = err;
+    throw err;
+  } finally {
+    dbHelper.handleOwnedCleanup(dbContext, primaryError);
+  }
+}
+
+runEntry().catch((e) => {
+  console.error('[FATAL]', e);
+  process.exitCode = 1;
+});

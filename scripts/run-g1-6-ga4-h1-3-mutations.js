@@ -20,6 +20,7 @@ const os = require('os');
 const fs = require('fs');
 const { JSDOM } = require('jsdom');
 const ROOT = path.join(__dirname, '..');
+const dbHelper = require('./lib/qa-temp-db.js');
 
 const results = [];
 function pass(name) { results.push({ name, status: 'PASS' }); console.log(`[PASS] ${name}`); }
@@ -49,15 +50,36 @@ function writeAdjacent(originalPath, mutatedSrc, tag) {
   const dir = path.dirname(originalPath);
   const base = path.basename(originalPath, '.js');
   const p = path.join(dir, `.__mut_${base}_${tag}_${process.pid}_${Date.now()}_${Math.random().toString(36).slice(2)}.js`);
-  fs.writeFileSync(p, mutatedSrc, 'utf8');
+  // Safety ordering: validate the computed temp path is genuinely different
+  // from the tracked original BEFORE registering or writing anything, then
+  // register into the owned registry BEFORE attempting the write. This way
+  // a partial-write failure (e.g. throw mid-write) still leaves the exact
+  // path in tempFiles[], so the outer finally's cleanup will unlink
+  // whatever partial bytes made it to disk -- no leak is possible even on
+  // a write failure, not just on require/eval failure after a successful
+  // write.
+  if (path.resolve(p) === path.resolve(originalPath)) {
+    throw new Error(`[SAFETY] writeAdjacent computed temp path equals the tracked original (${p}) -- refusing to write`);
+  }
   tempFiles.push(p);
+  try {
+    fs.writeFileSync(p, mutatedSrc, 'utf8');
+  } catch (e) {
+    try { if (fs.existsSync(p)) fs.unlinkSync(p); } catch (e2) { /* best-effort partial-write cleanup */ }
+    throw e;
+  }
   delete require.cache[p];
   return p;
 }
 function writeTmp(mutatedSrc, tag) {
   const p = path.join(os.tmpdir(), `mut-${tag}-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}.js`);
-  fs.writeFileSync(p, mutatedSrc, 'utf8');
   tempFiles.push(p);
+  try {
+    fs.writeFileSync(p, mutatedSrc, 'utf8');
+  } catch (e) {
+    try { if (fs.existsSync(p)) fs.unlinkSync(p); } catch (e2) { /* best-effort partial-write cleanup */ }
+    throw e;
+  }
   delete require.cache[p];
   return p;
 }
@@ -530,16 +552,42 @@ async function main() {
   }
 
   cleanupTempFiles();
-  try {
-    const dbFile = path.join(ROOT, 'data', 'pos.db');
-    if (fs.existsSync(dbFile)) fs.unlinkSync(dbFile);
-  } catch (e) { /* best effort */ }
   console.log(`[RESIDUE] unhandledRejection listeners: ${process.listenerCount('unhandledRejection')}, temp files remaining: ${tempFiles.length}`);
   printSummary();
 }
 
-main().catch((e) => {
+async function runEntry() {
+  let dbContext;
+  let primaryError;
+  try {
+    dbContext = dbHelper.bootstrapChildDb('h13-mutations-standalone');
+    return await main();
+  } catch (err) {
+    primaryError = err;
+    throw err;
+  } finally {
+    // Deterministic PRIMARY cleanup backstop: main() already calls
+    // cleanupTempFiles() at its own tail (preserving the original
+    // "[RESIDUE] ... temp files remaining: N" log semantics, which reports
+    // the count *after* that in-main cleanup, matching original behavior
+    // exactly). This finally-level call is idempotent (cleanupTempFiles()
+    // empties tempFiles[] each time, so a second call is a harmless no-op)
+    // and guarantees cleanup fires even if main() throws BEFORE reaching
+    // its own tail -- not conditional on execution reaching that point, and
+    // not relying solely on the process.on('exit') fallback at module load.
+    // Only exact registered paths are ever deleted, never a glob/directory.
+    cleanupTempFiles();
+    // Cleanup-error policy (shared, see scripts/lib/qa-temp-db.js): if
+    // main() succeeded (no primaryError) but dbContext.cleanup() fails,
+    // that failure IS surfaced as the failure (thrown) -- success + broken
+    // cleanup must never silently report as exit 0. If main() already
+    // failed, the primary error is preserved and the cleanup error is
+    // attached as a non-throwing secondary diagnostic only.
+    dbHelper.handleOwnedCleanup(dbContext, primaryError);
+  }
+}
+
+runEntry().catch((e) => {
   console.error(e);
-  cleanupTempFiles();
   process.exitCode = 1;
 });
