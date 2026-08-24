@@ -204,13 +204,13 @@ check('[line-order.html] openCartSheet() 不再觸發 begin_checkout（整份檔
 check('[line-order.html] openCartSheet() 改為觸發 view_cart（打開購物車摘要的正式事件）',
   /function openCartSheet\(opts\)\{[\s\S]{0,900}_trackEvent\('view_cart'/.test(lineOrder));
 check('[line-order.html] checkout_click 由獨立的 openCheckoutStep()（前往結帳）觸發，不在 openCartSheet() 內',
-  /function openCheckoutStep\(\)\{[\s\S]{0,400}_enterCheckoutStage/.test(lineOrder) && !/function openCartSheet\(opts\)\{[\s\S]{0,2000}_trackEvent\('checkout_click'/.test(lineOrder));
+  /function openCheckoutStep\([^)]*\)\{[\s\S]{0,400}_enterCheckoutStage/.test(lineOrder) && !/function openCartSheet\(opts\)\{[\s\S]{0,2000}_trackEvent\('checkout_click'/.test(lineOrder));
 check('[line-shipping.html] openCartSheet() 不再觸發 begin_checkout（整份檔案都沒有任何 _trackEvent(\'begin_checkout\') 呼叫）',
   !/_trackEvent\('begin_checkout'\)/.test(lineShipping));
 check('[line-shipping.html] openCartSheet() 改為觸發 view_cart（打開購物車摘要的正式事件）',
   /function openCartSheet\(opts\)\s*\{[\s\S]{0,1200}_trackEvent\('view_cart'/.test(lineShipping));
 check('[line-shipping.html] checkout_click 由獨立的 openCheckoutStep()（前往結帳）觸發，不在 openCartSheet() 內',
-  /function openCheckoutStep\(\)\s*\{[\s\S]{0,400}_enterCheckoutStage/.test(lineShipping) && !/function openCartSheet\(opts\)\s*\{[\s\S]{0,1060}_trackEvent\('checkout_click'/.test(lineShipping));
+  /function openCheckoutStep\([^)]*\)\s*\{[\s\S]{0,400}_enterCheckoutStage/.test(lineShipping) && !/function openCartSheet\(opts\)\s*\{[\s\S]{0,1060}_trackEvent\('checkout_click'/.test(lineShipping));
 check('[line-order.html] add_to_cart 仍由 _trackAddToCart()（真正加入成功後）送出，Modal 沒有繞過它另外送出',
   /function _trackAddToCart/.test(lineOrder) && !/ProductDetailModal[\s\S]{0,50}add_to_cart/.test(lineOrder));
 

@@ -85,15 +85,14 @@ const geoQueries = read('utils/geoAnalyticsQueries.js');
 
   check('[line-order.html] cartBar 只呼叫 openCartSheet()（沒有直接呼叫任何 checkout/submit 相關函式）',
     /id="cartBar"[^>]*onclick="openCartSheet\(\)"/.test(lineOrder));
-  check('[line-order.html] 購物車階段（#cartStage）內含獨立「前往結帳」入口（#goCheckoutBtn，呼叫 openCheckoutStep()）',
-    /id="goCheckoutBtn"[^>]*onclick="openCheckoutStep\(\)"/.test(lineOrder));
+  check('[line-order.html] 購物車階段（#cartStage）內含獨立「前往結帳」入口（#goCheckoutBtn，呼叫 openCheckoutStep(event)，H1.4.9 起帶入 event 供因果驗證）',
+    /id="goCheckoutBtn"[^>]*onclick="openCheckoutStep\(event\)"/.test(lineOrder));
   check('[line-order.html] openCartSheet() 與第二階段函式（openCheckoutStep/_enterCheckoutStage）是分離的獨立函式，不是同一個函式',
     !!openCartSheetBody && !!openCheckoutStepBody && openCartSheetBody !== openCheckoutStepBody);
   check('[line-order.html] view_cart 位於 openCartSheet()（購物車開啟路徑）內',
     !!openCartSheetBody && /_trackEvent\('view_cart'/.test(stripComments(openCartSheetBody)));
-  check('[line-order.html] checkout_click 位於 _enterCheckoutStage()（真正進入第二階段的路徑）內，不在 openCartSheet() 內',
-    !!enterCheckoutStageBody && /_trackEvent\('checkout_click'/.test(stripComments(enterCheckoutStageBody))
-    && !(openCartSheetBody && /_trackEvent\('checkout_click'/.test(stripComments(openCartSheetBody))));
+  check('[line-order.html] H1.4.9：_enterCheckoutStage() 是純 UI transition，內部不含任何 _trackEvent() 呼叫（checkout_click 不得再靠這個共用函式送出）',
+    !!enterCheckoutStageBody && !/_trackEvent\(/.test(stripComments(enterCheckoutStageBody)));
   check('[line-order.html] 顧客資料表單（#cName 姓名欄位）位於第二階段 #checkoutStage 內，且該區塊預設 hidden（不在第一階段直接顯示）',
     /<div id="checkoutStage" hidden>/.test(lineOrder) && (() => {
       const idxStage = lineOrder.indexOf('<div id="checkoutStage" hidden>');
@@ -122,15 +121,14 @@ const geoQueries = read('utils/geoAnalyticsQueries.js');
 
   check('[line-shipping.html] cartBar 只呼叫 openCartSheet()',
     /id="cartBar"[^>]*onclick="openCartSheet\(\)"/.test(lineShipping));
-  check('[line-shipping.html] 購物車階段內含獨立「前往結帳」入口（#goCheckoutBtn，呼叫 openCheckoutStep()）',
-    /id="goCheckoutBtn"[^>]*onclick="openCheckoutStep\(\)"/.test(lineShipping));
+  check('[line-shipping.html] 購物車階段內含獨立「前往結帳」入口（#goCheckoutBtn，呼叫 openCheckoutStep(event)，H1.4.9 起帶入 event 供因果驗證）',
+    /id="goCheckoutBtn"[^>]*onclick="openCheckoutStep\(event\)"/.test(lineShipping));
   check('[line-shipping.html] openCartSheet() 與第二階段函式是分離的獨立函式',
     !!openCartSheetBodyS && !!openCheckoutStepBodyS && openCartSheetBodyS !== openCheckoutStepBodyS);
   check('[line-shipping.html] view_cart 位於 openCartSheet() 內',
     !!openCartSheetBodyS && /_trackEvent\('view_cart'/.test(stripComments(openCartSheetBodyS)));
-  check('[line-shipping.html] checkout_click 位於 _enterCheckoutStage() 內，不在 openCartSheet() 內',
-    !!enterCheckoutStageBodyS && /_trackEvent\('checkout_click'/.test(stripComments(enterCheckoutStageBodyS))
-    && !(openCartSheetBodyS && /_trackEvent\('checkout_click'/.test(stripComments(openCartSheetBodyS))));
+  check('[line-shipping.html] H1.4.9：_enterCheckoutStage() 是純 UI transition，內部不含任何 _trackEvent() 呼叫（checkout_click 不得再靠這個共用函式送出）',
+    !!enterCheckoutStageBodyS && !/_trackEvent\(/.test(stripComments(enterCheckoutStageBodyS)));
   check('[line-shipping.html] 顧客資料表單（#rName 收件人姓名欄位）位於第二階段 #checkoutStage 內，且該區塊預設 hidden',
     /<div id="checkoutStage" hidden>/.test(lineShipping) && (() => {
       const idxStage = lineShipping.indexOf('<div id="checkoutStage" hidden>');

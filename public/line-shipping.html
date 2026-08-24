@@ -111,6 +111,19 @@ img{max-width:100%;display:block}
 /* fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.7：兩階段結帳 stage 樣式（與 line-order.html 一致）。*/
 #cartStage,#checkoutStage{display:block}
 #cartStage[hidden],#checkoutStage[hidden]{display:none!important}
+/* H1.4.9：結帳頁「本次訂單摘要」──位於結帳表單上方，重用購物車權威金額，不建立第二套計價。*/
+.checkout-order-summary{background:#f5f8fc;border:1px solid var(--bd);border-radius:var(--r);padding:12px 14px;margin-bottom:14px}
+.checkout-order-summary__title{font-size:13px;font-weight:700;color:var(--gd);margin-bottom:8px}
+.checkout-order-summary__items{display:flex;flex-direction:column;gap:6px;margin-bottom:8px}
+.checkout-order-summary__item{display:flex;justify-content:space-between;gap:8px;font-size:13px;line-height:1.4}
+.checkout-order-summary__item-main{flex:1;min-width:0;overflow-wrap:anywhere}
+.checkout-order-summary__item-name{color:var(--text)}
+.checkout-order-summary__item-spec{color:var(--sub);font-size:12px}
+.checkout-order-summary__item-price{flex-shrink:0;color:var(--text);font-weight:600;white-space:nowrap}
+.checkout-order-summary__totals{border-top:1px dashed var(--bd);padding-top:8px;display:flex;flex-direction:column;gap:4px}
+.checkout-order-summary__row{display:flex;justify-content:space-between;font-size:13px;color:var(--sub)}
+.checkout-order-summary__row--grand{font-size:15px;font-weight:700;color:var(--text);border-top:1px solid var(--bd);padding-top:6px;margin-top:2px}
+.checkout-order-summary__pending{color:#e65100}
 .cart-stage-footer{position:sticky;bottom:0;left:0;right:0;background:#fff;padding:10px 16px calc(10px + env(safe-area-inset-bottom));border-top:1px solid var(--bd);z-index:2}
 .go-checkout-btn{width:100%;padding:14px;background:var(--g);color:#fff;border-radius:var(--r);font-size:16px;font-weight:700;cursor:pointer;border:none}
 .go-checkout-btn:disabled{background:#ccc;cursor:not-allowed}
@@ -241,7 +254,7 @@ img{max-width:100%;display:block}
       <button type="button" class="continue-shopping-btn" id="continueShoppingBtn" onclick="closeSheet()">繼續選購</button>
     </div>
     <div class="cart-stage-footer" id="cartStageFooter">
-      <button type="button" class="go-checkout-btn" id="goCheckoutBtn" onclick="openCheckoutStep()">前往結帳｜NT$0</button>
+      <button type="button" class="go-checkout-btn" id="goCheckoutBtn" onclick="openCheckoutStep(event)">前往結帳｜NT$0</button>
     </div>
   </div>
 
@@ -251,6 +264,14 @@ img{max-width:100%;display:block}
       <button type="button" class="back-to-cart-btn" id="backToCartBtn" onclick="backToCartStep()">← 返回購物車</button>
       <h4 class="checkout-stage-title">填寫收件資料</h4>
     </div>
+    <!-- H1.4.9：本次訂單摘要——顯示於結帳表單上方，金額一律讀取既有 authoritative
+         購物車/計價狀態（cartList()/calcFee() 等），不另外建立第二套價格公式。
+         內容由 renderCheckoutOrderSummary() 產生。 -->
+    <section class="checkout-order-summary" id="checkoutOrderSummary" aria-label="本次訂單摘要">
+      <div class="checkout-order-summary__title">🧾 本次訂單摘要</div>
+      <div class="checkout-order-summary__items" id="checkoutOrderSummaryItems"></div>
+      <div class="checkout-order-summary__totals" id="checkoutOrderSummaryTotals"></div>
+    </section>
     <div class="cf" style="padding-bottom:88px">
       <div class="fg"><label class="fl">收件人姓名 <span class="req">*</span></label><input class="fi" id="rName" placeholder="收件人姓名" oninput="debouncedPersistCart()"></div>
       <div class="fr">
@@ -1182,8 +1203,41 @@ function refreshCartSheetTotals() {
   // H1.4.7：購物車摘要「前往結帳」與結帳表單「確認下單」兩個 CTA 金額必須同步，
   // refreshCartSheetTotals() 是既有系統唯一的金額重算入口，這裡統一觸發即可。
   updateCheckoutActionAmounts();
+  // H1.4.9：結帳頁「本次訂單摘要」同樣掛在這個單一金額重算入口上，商品增減／
+  // 刪除／優惠券／到貨方式／購物車 restore 都會經過這裡，摘要因此自動與
+  // #orderTotal／兩個 CTA 保持同步，不需另外監聽。
+  renderCheckoutOrderSummary({ sub, fee, meetsFree, discount, total });
 
   renderCartShipInfo();
+}
+
+// H1.4.9：結帳頁「本次訂單摘要」。所有金額都是呼叫方（refreshCartSheetTotals()）
+// 已經用 authoritative 來源（cartList()/calcFee()）算好傳進來的，這裡只負責畫面
+// 呈現，不重新計價、不建立第二套公式。
+function renderCheckoutOrderSummary(state) {
+  const itemsEl = document.getElementById('checkoutOrderSummaryItems');
+  const totalsEl = document.getElementById('checkoutOrderSummaryTotals');
+  if (!itemsEl || !totalsEl) return;
+  const list = cartList();
+  if (!list.length) {
+    itemsEl.innerHTML = '<p style="padding:4px 0;color:#888;font-size:13px">購物車是空的</p>';
+    totalsEl.innerHTML = '';
+    return;
+  }
+  itemsEl.innerHTML = list.map(c => {
+    const name = esc(c.product.name);
+    const spec = c.product.spec ? `<div class="checkout-order-summary__item-spec">${esc(c.product.spec)}</div>` : '';
+    return `<div class="checkout-order-summary__item"><div class="checkout-order-summary__item-main"><div class="checkout-order-summary__item-name">${name} × ${c.qty}</div>${spec}</div><div class="checkout-order-summary__item-price">$${c.product.price * c.qty}</div></div>`;
+  }).join('');
+  const rows = [];
+  rows.push(`<div class="checkout-order-summary__row"><span>商品件數</span><span>${cartCount()}</span></div>`);
+  rows.push(`<div class="checkout-order-summary__row"><span>商品小計</span><span>$${state.sub}</span></div>`);
+  if (state.discount > 0) {
+    rows.push(`<div class="checkout-order-summary__row"><span>優惠折扣</span><span>-$${state.discount}</span></div>`);
+  }
+  rows.push(`<div class="checkout-order-summary__row"><span>宅配運費${state.meetsFree ? '（已達免運）' : ''}</span><span>$${state.fee}</span></div>`);
+  rows.push(`<div class="checkout-order-summary__row checkout-order-summary__row--grand"><span>應付金額</span><span>$${state.total}</span></div>`);
+  totalsEl.innerHTML = rows.join('');
 }
 
 // hotfix22-C：優惠券套用／清除（直接共用 /api/coupons/validate，與 line-order.html 相同流程與規則）
@@ -1290,7 +1344,7 @@ function openCartSheet(opts) {
   refreshCartSheetTotals();
   document.getElementById('overlay').classList.add('show');
   document.getElementById('cartSheet').classList.add('show');
-  if (opts.step === 'checkout') { _enterCheckoutStage({ silent: true }); }
+  if (opts.step === 'checkout') { _enterCheckoutStage(); }
   else { _enterCartStage(); }
 }
 
@@ -1303,33 +1357,45 @@ function _enterCartStage() {
   const chs = document.getElementById('checkoutStage'); if (chs) chs.hidden = true;
 }
 
-function _enterCheckoutStage(opts) {
-  opts = opts || {};
+// H1.4.9：純 UI 狀態切換，不含任何 analytics 發送。是否送出 checkout_click 完全
+// 由呼叫端（目前只有 openCheckoutStep() 的真實按鈕 handler）自行決定。
+function _enterCheckoutStage() {
   cartUIStage = 'checkout';
   const cs = document.getElementById('cartStage'); if (cs) cs.hidden = true;
   const chs = document.getElementById('checkoutStage'); if (chs) chs.hidden = false;
-  updateCheckoutActionAmounts();
-  if (!opts.silent) {
-    try {
-      const cid = _getCartId(true);
-      const ccKey = 'line_cc_sent_' + STORE_ID;
-      let sentFor = null;
-      try { sentFor = sessionStorage.getItem(ccKey); } catch (e) {}
-      if (cid && sentFor !== cid) {
-        _trackEvent('checkout_click', _buildCartAnalyticsPayload());
-        try { sessionStorage.setItem(ccKey, cid); } catch (e) {}
-      }
-    } catch (e) {}
-  }
+  // H1.4.9：refreshCartSheetTotals() 是唯一金額重算入口（含
+  // updateCheckoutActionAmounts()／renderCheckoutOrderSummary()），進入結帳頁時
+  // 直接呼叫，確保訂單摘要在畫面顯示前就已經是最新狀態。
+  refreshCartSheetTotals();
 }
 
-// 購物車摘要底部「前往結帳｜NT$金額」——只切換畫面，不得直接呼叫 submitOrder()。
-// 購物車無效（未達最低訂購金額）時不得成功進入第二階段，也就不送 checkout_click。
-function openCheckoutStep() {
-  if (!cartCount()) return;
+// H1.4.9 explicit-button-only hardening：checkout_click 只能由「真正的
+// #goCheckoutBtn click」觸發，不能只因為 openCheckoutStep() 被呼叫就送出——
+// 直接呼叫 openCheckoutStep()（無 event 或 event 來源不是 #goCheckoutBtn）
+// 一律 return，不切換 stage、不送事件。不使用 event.isTrusted（會擋掉鍵盤觸發
+// 的 click 與 jsdom 測試），改用 event.type/currentTarget 判斷因果。
+function openCheckoutStep(event) {
+  if (!event || event.type !== 'click') return;
   const goBtn = document.getElementById('goCheckoutBtn');
-  if (goBtn && goBtn.disabled) { toast('尚未達最低訂購金額，請調整購物車內容'); return; }
-  _enterCheckoutStage({ silent: false });
+  if (!goBtn || event.currentTarget !== goBtn) return;
+  if (!cartCount()) return;
+  if (goBtn.disabled) { toast('尚未達最低訂購金額，請調整購物車內容'); return; }
+  _enterCheckoutStage();
+  // 相同 cart_id 只計一次的既有去重契約，沿用 H1.4.7 的 sessionStorage 機制，
+  // 只是現在只會從這個真正的按鈕 handler 觸發。
+  try {
+    const cid = _getCartId(true);
+    const ccKey = 'line_cc_sent_' + STORE_ID;
+    let sentFor = null;
+    try { sentFor = sessionStorage.getItem(ccKey); } catch (e) {}
+    if (cid && sentFor !== cid) {
+      _trackEvent('checkout_click', Object.assign({}, _buildCartAnalyticsPayload(), {
+        checkout_trigger: 'go_checkout_button',
+        checkout_stage: 'checkout',
+      }));
+      try { sessionStorage.setItem(ccKey, cid); } catch (e) {}
+    }
+  } catch (e) {}
 }
 
 // 返回購物車：只切畫面，不清除任何資料、不重算金額、不重新觸發 view_cart。
