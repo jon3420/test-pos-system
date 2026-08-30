@@ -2661,6 +2661,29 @@ const LINE_MEMBER_GATE_KEYS = [
   'line_member_title', 'line_member_description', 'line_member_friend_button_text',
   'line_member_login_button_text', 'line_member_skip_button_text',
 ];
+// H1.4.10 Phase 2：friend_entry／friend_checkout 是柔性、免登入的加好友引導，
+// 與 checkout／entry（強制 LINE 登入 Gate）語意完全不同（需求文件三／四）。
+// 選到 friend mode 時：顯示柔性引導說明、弱化「要求加入官方帳號」（那是舊
+// Gate 專用設定，不影響 friend mode），並在 Auto Identify 已開啟時額外提示
+// 兩者是獨立機制。純 UI 顯示邏輯，不影響任何欄位是否送出／儲存。
+function updateLineMemberGateModeUI() {
+  const modeEl = document.getElementById('set-line_member_gate_mode');
+  const mode = modeEl ? modeEl.value : 'disabled';
+  const isFriendMode = mode === 'friend_entry' || mode === 'friend_checkout';
+  const friendHint = document.getElementById('lmgFriendModeHint');
+  if (friendHint) friendHint.style.display = isFriendMode ? 'block' : 'none';
+  const requireFriendNote = document.getElementById('lmgRequireFriendFriendModeNote');
+  if (requireFriendNote) requireFriendNote.style.display = isFriendMode ? 'block' : 'none';
+  const requireFriendEl = document.getElementById('set-line_member_require_friend');
+  // 只是弱化（disable），不刪除、不清空既有值——避免切回 checkout/entry 時
+  // 店家原本的設定被意外抹除。
+  if (requireFriendEl) requireFriendEl.disabled = isFriendMode;
+  const autoIdentifyHint = document.getElementById('lmgAutoIdentifyHint');
+  if (autoIdentifyHint) {
+    const autoIdentifyOn = settings && settings.line_member_auto_identify_enabled === '1';
+    autoIdentifyHint.style.display = autoIdentifyOn ? 'block' : 'none';
+  }
+}
 async function loadLineMemberGateSettings() {
   await loadSettings();
   const enEl = document.getElementById('set-line_member_gate_enabled');
@@ -2679,6 +2702,8 @@ async function loadLineMemberGateSettings() {
     if (el) el.value = settings[k] || '';
   });
   updateLineMemberTestUrlHint();
+  updateLineMemberGateModeUI();
+  loadCartRecoverySettings();
   // fix18-10-hotfix25：登入成功返回網址改由系統自動判斷，這裡只顯示預設
   // fallback 網址供店家參考，不再提供可編輯欄位。
   const fbEl = document.getElementById('lmgFallbackReturnUrlHint');
@@ -2695,6 +2720,164 @@ function updateLineMemberTestUrlHint() {
   const sid = (window.currentStore && window.currentStore.store_id) || (JSON.parse(localStorage.getItem('pos_store_info')||'{}').store_id) || '';
   hint.textContent = sid ? `測試網址：/line-order.html?store_id=${sid}&member_gate_test=1` : '尚未取得 store_id';
 }
+
+// H1.4.10 Phase 4B：購物車找回設定卡。沿用既有 settings API（loadSettings/
+// PUT /api/settings），不新增第二套 settings backend。
+const CART_RECOVERY_DELAY_DEFAULTS = { cart: 60, checkout: 30, payment: 15 };
+function updateCartRecoverySettingsUI() {
+  const masterEl = document.getElementById('set-cart_recovery_enabled');
+  const lineEl = document.getElementById('set-cart_recovery_line_enabled');
+  const lineHint = document.getElementById('cartRecoveryLineDisabledHint');
+  const masterOn = !!(masterEl && masterEl.checked);
+  if (lineEl) lineEl.disabled = !masterOn;
+  if (lineHint) lineHint.style.display = masterOn ? 'none' : 'block';
+}
+async function loadCartRecoverySettings() {
+  // settings 已經由 loadLineMemberGateSettings() 呼叫 loadSettings() 載入過，
+  // 這裡直接讀同一份 module 層級 settings 物件，不重複打 API。
+  const masterEl = document.getElementById('set-cart_recovery_enabled');
+  if (masterEl) masterEl.checked = settings.cart_recovery_enabled === '1';
+  const lineEl = document.getElementById('set-cart_recovery_line_enabled');
+  if (lineEl) lineEl.checked = settings.cart_recovery_line_enabled === '1';
+  const cartDelayEl = document.getElementById('set-cart_recovery_cart_delay_minutes');
+  if (cartDelayEl) cartDelayEl.value = settings.cart_recovery_cart_delay_minutes || CART_RECOVERY_DELAY_DEFAULTS.cart;
+  const checkoutDelayEl = document.getElementById('set-cart_recovery_checkout_delay_minutes');
+  if (checkoutDelayEl) checkoutDelayEl.value = settings.cart_recovery_checkout_delay_minutes || CART_RECOVERY_DELAY_DEFAULTS.checkout;
+  const paymentDelayEl = document.getElementById('set-cart_recovery_payment_delay_minutes');
+  if (paymentDelayEl) paymentDelayEl.value = settings.cart_recovery_payment_delay_minutes || CART_RECOVERY_DELAY_DEFAULTS.payment;
+  const maxAttemptsEl = document.getElementById('set-cart_recovery_max_attempts');
+  if (maxAttemptsEl) maxAttemptsEl.value = settings.cart_recovery_max_attempts || 1;
+  updateCartRecoverySettingsUI();
+  // LINE Messaging 只顯示 boolean readiness（是否有設定 line_channel_token），
+  // 絕不把 token 值、前幾碼、後幾碼回填到畫面或印到 console。
+  const statusEl = document.getElementById('cartRecoveryLineStatus');
+  if (statusEl) {
+    const hasToken = !!(settings.line_channel_token && String(settings.line_channel_token).trim());
+    statusEl.textContent = hasToken ? '已設定' : '未設定';
+    statusEl.style.color = hasToken ? '#06C755' : '#999';
+  }
+  // H1.4.10 Phase 4C：n8n 設定載入。secret 一律不回填明文（GET /api/settings
+  // 已經在後端 redact 成 cart_recovery_n8n_secret_set 布林值）。
+  const n8nEnabledEl = document.getElementById('set-cart_recovery_n8n_enabled');
+  if (n8nEnabledEl) n8nEnabledEl.checked = settings.cart_recovery_n8n_enabled === '1';
+  const n8nUrlEl = document.getElementById('set-cart_recovery_n8n_webhook_url');
+  if (n8nUrlEl) n8nUrlEl.value = settings.cart_recovery_n8n_webhook_url || '';
+  const n8nSecretEl = document.getElementById('set-cart_recovery_n8n_secret');
+  if (n8nSecretEl) n8nSecretEl.value = ''; // 絕不回填，留空代表「保留原設定」
+  const n8nSecretStatusEl = document.getElementById('cartRecoveryN8nSecretStatus');
+  if (n8nSecretStatusEl) {
+    const hasSecret = !!settings.cart_recovery_n8n_secret_set;
+    n8nSecretStatusEl.textContent = hasSecret ? '已設定' : '未設定';
+    n8nSecretStatusEl.style.color = hasSecret ? '#06C755' : '#999';
+  }
+}
+// H1.4.10 Phase 4C：由 server 產生高熵 secret，只有這次 rotate 呼叫回傳明文
+// 一次給店家複製到 n8n，之後 loadCartRecoverySettings() 永遠只顯示布林狀態。
+// H1.4.10 Phase 4D：直接顯示後端 GET /overview 算好的真實數字，前端不重新
+// 計算/估算任何欄位（付款以外階段的 revenue 是 null 就直接顯示「無法計算」，
+// 不用任何前端公式去填補）。
+async function loadCartRecoveryDashboard() {
+  const panel = document.getElementById('cartRecoveryDashboardPanel');
+  if (!panel) return;
+  panel.textContent = '載入中…';
+  try {
+    const res = await apiFetch('/api/cart-recovery-dashboard/overview?days=30');
+    const json = await res.json();
+    if (!json.success) { panel.textContent = '載入失敗，請稍後再試'; return; }
+    const d = json.data;
+    const stageLabel = { cart_abandoned: '購物車未結帳', checkout_abandoned: '結帳未送出', payment_abandoned: 'LINE Pay 未完成付款' };
+    const rows = ['cart_abandoned', 'checkout_abandoned', 'payment_abandoned'].map((stage) => {
+      const f = d.funnel[stage];
+      const r = d.reminder_stats[stage];
+      const rev = d.recovered_revenue[stage];
+      const revText = rev.total === null ? '無法計算' : ('NT$' + rev.total.toLocaleString());
+      const rateText = r.conversion_rate_of_resolved === null ? '—' : (r.conversion_rate_of_resolved + '%（' + r.converted_count + '/' + r.resolved_count + '）');
+      const ttrText = r.avg_minutes_to_recovery === null ? '—' : (r.avg_minutes_to_recovery + ' 分鐘');
+      return `<tr>
+        <td style="padding:4px 8px">${stageLabel[stage] || stage}</td>
+        <td style="padding:4px 8px;text-align:right">${f.sent || 0}</td>
+        <td style="padding:4px 8px;text-align:right">${f.converted || 0}</td>
+        <td style="padding:4px 8px;text-align:right">${rateText}</td>
+        <td style="padding:4px 8px;text-align:right">${ttrText}</td>
+        <td style="padding:4px 8px;text-align:right">${revText}</td>
+      </tr>`;
+    }).join('');
+    panel.innerHTML = `
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead><tr style="border-bottom:2px solid #ddd">
+          <th style="padding:4px 8px;text-align:left">階段</th>
+          <th style="padding:4px 8px;text-align:right">已送提醒</th>
+          <th style="padding:4px 8px;text-align:right">已成交</th>
+          <th style="padding:4px 8px;text-align:right">成交率</th>
+          <th style="padding:4px 8px;text-align:right">平均追回時間</th>
+          <th style="padding:4px 8px;text-align:right">追回營收</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <p style="margin:8px 0 0;font-size:12px;color:#999">統計區間：最近 ${d.range_days} 天。「成交率」只計算已有最終結果的提醒（不含還在等待中的）。「追回營收」目前只有付款階段可靠計算，其餘階段顯示「無法計算」是誠實限制，不是資料遺失。</p>
+    `;
+  } catch (e) {
+    panel.textContent = '載入失敗，請稍後再試';
+  }
+}
+
+async function rotateCartRecoveryN8nSecret() {
+  try {
+    const res = await apiFetch('/api/cart-recovery/orchestration/secret/rotate', { method: 'POST' });
+    const json = await res.json();
+    if (json.success && json.secret) {
+      const n8nSecretEl = document.getElementById('set-cart_recovery_n8n_secret');
+      if (n8nSecretEl) n8nSecretEl.value = json.secret;
+      toast('新 Secret 已產生，請立即複製到 n8n（離開頁面後將無法再次看到明文）');
+      await loadCartRecoverySettings();
+      if (n8nSecretEl) n8nSecretEl.value = json.secret; // load 會清空欄位，rotate 當次特別再填回去讓店家複製
+    } else {
+      toast(json.message || '產生失敗，請稍後再試');
+    }
+  } catch (e) { toast('產生失敗，請稍後再試'); }
+}
+
+async function saveCartRecoverySettings() {
+  const clamp = (v, min, max, fallback) => {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return fallback;
+    return Math.max(min, Math.min(max, Math.trunc(n)));
+  };
+  const masterEl = document.getElementById('set-cart_recovery_enabled');
+  const lineEl = document.getElementById('set-cart_recovery_line_enabled');
+  const cartDelayEl = document.getElementById('set-cart_recovery_cart_delay_minutes');
+  const checkoutDelayEl = document.getElementById('set-cart_recovery_checkout_delay_minutes');
+  const paymentDelayEl = document.getElementById('set-cart_recovery_payment_delay_minutes');
+  const maxAttemptsEl = document.getElementById('set-cart_recovery_max_attempts');
+  // 需求文件八：Delay 5～1440 分鐘，max attempts 1～3——與 backend
+  // utils/cartRecovery.js 的 fallback 邏輯一致（backend 對超出範圍或非數字
+  // 一律 fallback 回預設值），這裡在送出前先做同一組限制，UI／backend 不得
+  // 各自維持不同上下限。
+  const payload = {
+    cart_recovery_enabled: masterEl && masterEl.checked ? '1' : '0',
+    cart_recovery_line_enabled: lineEl && lineEl.checked ? '1' : '0',
+    cart_recovery_cart_delay_minutes: String(clamp(cartDelayEl && cartDelayEl.value, 5, 1440, CART_RECOVERY_DELAY_DEFAULTS.cart)),
+    cart_recovery_checkout_delay_minutes: String(clamp(checkoutDelayEl && checkoutDelayEl.value, 5, 1440, CART_RECOVERY_DELAY_DEFAULTS.checkout)),
+    cart_recovery_payment_delay_minutes: String(clamp(paymentDelayEl && paymentDelayEl.value, 5, 1440, CART_RECOVERY_DELAY_DEFAULTS.payment)),
+    cart_recovery_max_attempts: String(clamp(maxAttemptsEl && maxAttemptsEl.value, 1, 3, 1)),
+  };
+  // H1.4.10 Phase 4C：n8n 設定一併儲存。secret 欄位留空時完全不放進
+  // payload（不是放空字串）——雙重保險：即使 backend 的空字串保留邏輯
+  // （routes/settings.js）改了，前端這裡也不會主動送出會清空 secret 的請求。
+  const n8nEnabledEl = document.getElementById('set-cart_recovery_n8n_enabled');
+  const n8nUrlEl = document.getElementById('set-cart_recovery_n8n_webhook_url');
+  const n8nSecretEl = document.getElementById('set-cart_recovery_n8n_secret');
+  if (n8nEnabledEl) payload.cart_recovery_n8n_enabled = n8nEnabledEl.checked ? '1' : '0';
+  if (n8nUrlEl) payload.cart_recovery_n8n_webhook_url = n8nUrlEl.value.trim();
+  if (n8nSecretEl && n8nSecretEl.value.trim()) payload.cart_recovery_n8n_secret = n8nSecretEl.value.trim();
+  try {
+    const res = await apiFetch('/api/settings', { method: 'PUT', body: JSON.stringify(payload) });
+    const json = await res.json();
+    if (json.success) { toast('購物車找回設定已儲存'); await loadCartRecoverySettings(); }
+    else { toast(json.message || '儲存失敗'); }
+  } catch (e) { toast('儲存失敗，請稍後再試'); }
+}
+
 function _lineMemberTestUrl() {
   const sid = (window.currentStore && window.currentStore.store_id) || (JSON.parse(localStorage.getItem('pos_store_info')||'{}').store_id) || '';
   return `${location.origin}/line-order.html?store_id=${encodeURIComponent(sid)}&member_gate_test=1`;

@@ -2109,16 +2109,33 @@
             <span>啟用 LINE 會員登入</span>
           </label>
           <label>入口模式
-            <select id="set-line_member_gate_mode">
-              <option value="disabled">不限制（disabled）</option>
-              <option value="checkout">結帳前要求登入（checkout）</option>
-              <option value="entry">進站即要求登入（entry）</option>
+            <select id="set-line_member_gate_mode" onchange="updateLineMemberGateModeUI()">
+              <option value="disabled">不啟用</option>
+              <option value="friend_entry">進站引導加入官方 LINE（免登入）</option>
+              <option value="friend_checkout">結帳前引導加入官方 LINE（免登入）</option>
+              <option value="checkout">結帳前要求 LINE 登入</option>
+              <option value="entry">進站要求 LINE 登入</option>
             </select>
           </label>
+          <!-- H1.4.10 Phase 2：friend_entry／friend_checkout 是柔性、免登入的
+               加好友引導，語意上與 checkout／entry（強制 LINE 登入 Gate）完全
+               不同，這裡明確標示避免店家混淆兩種模式。 -->
+          <p class="settings-hint" id="lmgFriendModeHint" style="display:none;margin-top:6px">
+            💬 此模式只引導顧客加入官方 LINE，不會要求 LINE Login，也不會阻止顧客下單。可略過，不需要 LIFF ID／LINE Login Channel ID。
+          </p>
+          <p class="settings-hint" id="lmgAutoIdentifyHint" style="display:none;margin-top:6px">
+            📶 目前已啟用 LIFF 自動辨識；從官方 LINE LIFF 進入的顧客仍可在背景被自動辨識為會員（與此處的加好友引導是兩件事）。
+          </p>
           <label style="display:flex;align-items:center;gap:8px;margin:10px 0">
             <input type="checkbox" id="set-line_member_require_friend" style="width:auto">
             <span>要求加入官方帳號</span>
           </label>
+          <!-- H1.4.10 Phase 2：line_member_require_friend 是 checkout／entry
+               舊登入 Gate 專用的好友資格要求，friend_entry／friend_checkout
+               柔性引導模式不使用這個設定，避免店家誤以為兩者有關聯。 -->
+          <p class="settings-hint" id="lmgRequireFriendFriendModeNote" style="display:none;margin:0 0 10px">
+            ℹ️ 免登入好友引導模式不使用此設定（此設定僅用於「結帳前／進站要求 LINE 登入」模式）。
+          </p>
           <label style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
             <input type="checkbox" id="set-line_member_allow_skip" style="width:auto">
             <span>允許略過（僅 entry 模式生效）</span>
@@ -2169,6 +2186,89 @@
         </div>
       </div>
       <button class="btn-primary" onclick="saveLineMemberGateSettings()">💾 儲存 LINE 會員登入設定</button>
+
+      <!-- H1.4.10 Phase 4B：購物車找回設定卡。沿用既有 settings API，不新增
+           第二套 settings backend；只是同一個分頁內新增一個區塊，不另開複雜
+           Dashboard。 -->
+      <div class="settings-card" id="cartRecoveryCard" style="margin-top:24px;padding-top:20px;border-top:1px solid #eee">
+        <h3 style="margin:0 0 8px">購物車找回</h3>
+        <p class="settings-hint" style="margin:0 0 16px">
+          針對尚未完成購物、結帳或 LINE Pay 付款的顧客，在符合條件且顧客已主動同意時，可透過 LINE 提醒一次。
+        </p>
+        <p class="settings-hint" style="margin:0 0 8px">
+          只有顧客主動勾選「若本次尚未完成訂單，同意透過 LINE 提醒我一次」，且系統已辨識 LINE 會員身分、確認為好友時，才可能發送提醒。
+        </p>
+        <p class="settings-hint" style="margin:0 0 16px">
+          顧客已完成訂單、完成付款、取消同意、封鎖或非好友時，不會發送。
+        </p>
+
+        <label style="display:flex;align-items:center;gap:8px;margin:10px 0">
+          <input type="checkbox" id="set-cart_recovery_enabled" style="width:auto" onchange="updateCartRecoverySettingsUI()">
+          <span>啟用購物車找回</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;margin:10px 0">
+          <input type="checkbox" id="set-cart_recovery_line_enabled" style="width:auto">
+          <span>啟用 LINE 一次提醒</span>
+        </label>
+        <p class="settings-hint" id="cartRecoveryLineDisabledHint" style="display:none;margin:0 0 12px">
+          請先啟用「購物車找回」，才能開啟 LINE 一次提醒。
+        </p>
+
+        <label>購物車未前往結帳（分鐘）
+          <input class="fi" type="number" min="5" max="1440" id="set-cart_recovery_cart_delay_minutes" style="max-width:120px">
+        </label>
+        <label>已前往結帳未送單（分鐘）
+          <input class="fi" type="number" min="5" max="1440" id="set-cart_recovery_checkout_delay_minutes" style="max-width:120px">
+        </label>
+        <label>LINE Pay 已開始但未付款（分鐘）
+          <input class="fi" type="number" min="5" max="1440" id="set-cart_recovery_payment_delay_minutes" style="max-width:120px">
+        </label>
+        <label>最大提醒次數
+          <input class="fi" type="number" min="1" max="3" id="set-cart_recovery_max_attempts" style="max-width:120px">
+        </label>
+
+        <p style="margin:16px 0 8px">
+          LINE Messaging：
+          <span id="cartRecoveryLineStatus" style="font-weight:600">尚未確認</span>
+        </p>
+
+        <button class="btn-primary" onclick="saveCartRecoverySettings()">💾 儲存購物車找回設定</button>
+
+        <!-- H1.4.10 Phase 4D（此輪最小可用切面）：Recovery Dashboard 唯讀摘要，
+             直接顯示 GET /api/cart-recovery-dashboard/overview 的真實回傳值，
+             不在前端重新計算/估算任何數字。 -->
+        <div style="margin-top:24px;padding-top:16px;border-top:1px solid #eee">
+          <h4 style="margin:0 0 8px">購物車找回成效</h4>
+          <p class="settings-hint" style="margin:0 0 12px">
+            只顯示後端算好的真實數字；付款階段以外的「追回營收」目前無法可靠歸因，一律顯示「無法計算」而非估算值。
+          </p>
+          <button class="btn-secondary" onclick="loadCartRecoveryDashboard()">🔄 重新整理成效資料</button>
+          <div id="cartRecoveryDashboardPanel" style="margin-top:12px;font-size:14px;color:#333"></div>
+        </div>
+
+        <!-- H1.4.10 Phase 4C：n8n 自動排程（獨立小節，不另開新管理頁）。 -->
+        <div style="margin-top:24px;padding-top:16px;border-top:1px solid #eee">
+          <h4 style="margin:0 0 8px">n8n 自動排程</h4>
+          <p class="settings-hint" style="margin:0 0 12px">
+            n8n 只負責排程；每次真正發送前，POS 都會重新確認顧客是否仍符合提醒條件。
+          </p>
+          <label style="display:flex;align-items:center;gap:8px;margin:10px 0">
+            <input type="checkbox" id="set-cart_recovery_n8n_enabled" style="width:auto">
+            <span>啟用 n8n 自動排程</span>
+          </label>
+          <label>Recovery n8n Webhook URL
+            <input class="fi" type="text" id="set-cart_recovery_n8n_webhook_url" placeholder="https://your-n8n.example.com/webhook/...">
+          </label>
+          <label>Recovery n8n Shared Secret
+            <input class="fi" type="password" id="set-cart_recovery_n8n_secret" placeholder="留空＝保留原本設定">
+          </label>
+          <p style="margin:8px 0">
+            目前狀態：<span id="cartRecoveryN8nSecretStatus" style="font-weight:600">尚未確認</span>
+          </p>
+          <button class="btn-secondary" onclick="rotateCartRecoveryN8nSecret()">🔄 重新產生 Secret</button>
+          <button class="btn-primary" onclick="saveCartRecoverySettings()">💾 儲存 n8n 設定</button>
+        </div>
+      </div>
     </div>
 
     <!-- fix18-10-hotfix26-E：LINE Verify Health Dashboard × LINE Analytics Center -->

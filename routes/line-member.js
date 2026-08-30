@@ -19,7 +19,7 @@ const express = require('express');
 const router = express.Router();
 const { getDb } = require('../utils/db');
 const { verifyLineIdToken, getFriendshipStatus } = require('../utils/lineMemberAuth');
-const { createMemberSession } = require('../utils/lineMemberSession');
+const { createMemberSession, verifyMemberSession } = require('../utils/lineMemberSession');
 const {
   upsertMemberProfile, linkMemberSession, updateTouchAttribution,
   maskLineUserId, computeLifecycleStage,
@@ -241,6 +241,14 @@ router.post('/verify', async (req, res) => {
           retry_attempt: clientRetryAttempt,
           client_event: ap.gate_stage || null,
         } });
+      // H1.4.10 section F：被動辨識（gate_stage=liff_auto_identify）失敗時，
+      // 額外記錄專用事件供 Dashboard／回歸測試判讀，metadata 只含允許欄位，
+      // 完全不影響上面既有的 line_login_failed 事件與既有回應內容。
+      if (ap.gate_stage === 'liff_auto_identify') {
+        const liffFailReasonMap = { EXPIRED_ID_TOKEN: 'id_token_expired', MISSING_ID_TOKEN: 'id_token_missing', ID_TOKEN_MISSING: 'id_token_missing' };
+        logServerEvent(db, { ...evtBase, event_name: 'line_liff_auto_identify_failed',
+          metadata: { page_type: ap.order_mode || null, reason_code: liffFailReasonMap[verifyResult.code] || 'verify_failed', is_in_client: true, is_logged_in: true } });
+      }
       // 不得因 LINE API 錯誤回 500 破壞點餐（需求文件六）
       const failurePayload = {
         success: false, reason: verifyResult.reason, message: verifyResult.message,
@@ -338,6 +346,13 @@ router.post('/verify', async (req, res) => {
     logServerEvent(db, { ...evtBase, event_name: 'line_login_success',
       metadata: { is_friend: finalIsFriend, gate_stage: ap.gate_stage || null, http_status: 200, elapsed_ms: verifyElapsedMs, diagnostic_only: false } });
     logServerEvent(db, { ...evtBase, event_name: 'member_login', metadata: { gate_stage: ap.gate_stage || null } });
+    // H1.4.10 section F：被動辨識成功時額外記錄專用事件（真實性已由後端驗證
+    // 完成，見上方 verifyLineIdToken()），不影響既有 line_login_success／
+    // member_login 事件與既有回應內容，純 additive。
+    if (ap.gate_stage === 'liff_auto_identify') {
+      logServerEvent(db, { ...evtBase, event_name: 'line_liff_auto_identify_success',
+        metadata: { page_type: ap.order_mode || null, is_in_client: true, is_logged_in: true } });
+    }
 
     if (upsertResult && upsertResult.friendEvent) {
       logServerEvent(db, { ...evtBase, event_name: upsertResult.friendEvent, metadata: {} });
@@ -388,6 +403,60 @@ router.post('/verify', async (req, res) => {
     console.error('[line-member] POST /verify error:', e.message);
     // 不得讓例外破壞點餐流程，回傳結構化失敗，前端安全 fallback
     res.status(200).json({ success: false, reason: 'exception', code: 'UNKNOWN_VERIFY_ERROR', message: '驗證發生錯誤，請稍後再試' });
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════
+// POST /api/line-member/link-context — H1.4.10 section I
+//
+// LIFF 被動辨識成功後，購物車 cart_id 可能還沒建立（顧客第一次 add_to_cart
+// 才會建立），因此需要一支獨立、可重複呼叫的「補綁定」端點，把已驗證的
+// LINE 會員與目前 visitor_id/session_id/cart_id 對齊。
+//
+// 安全原則（需求文件九）：
+//   - 絕不接受前端直接傳入的 raw line_user_id；一律透過 member_session
+//     （verifyMemberSession，內部同時檢查簽章與 store_id 是否相符，天生
+//     防止跨店綁定）換得可信 line_user_id。
+//   - idempotent：linkMemberSession() 內部本來就是依
+//     (store_id, line_user_id, visitor_id) unique 做 upsert，重複呼叫只會
+//     更新 session_id/cart_id，不會建立重複資料列。
+//   - 不得因每次 cart_updated 都被瘋狂呼叫：這裡只做輕量 rate limit，前端
+//     呼叫時機的節流（signature 去重）由呼叫端（line-member-gate.js /
+//     line-order.html／line-shipping.html）負責。
+// ══════════════════════════════════════════════════════════════════
+router.post('/link-context', (req, res) => {
+  try {
+    const db = getDb();
+    const storeId = req.storeId;
+    const ip = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'unknown';
+
+    if (!checkRateLimit(storeId, `link-context|${ip}`)) {
+      return res.status(429).json({ success: false, reason: 'rate_limited', code: 'RATE_LIMITED' });
+    }
+
+    const { member_session, visitor_id, session_id, cart_id } = req.body || {};
+    if (!member_session || typeof member_session !== 'string') {
+      return res.status(200).json({ success: false, reason: 'missing_member_session' });
+    }
+    const lineUserId = verifyMemberSession(member_session, storeId);
+    if (!lineUserId) {
+      // 簽章錯誤／過期／店家不符：一律安全 fallback，不得 500，不得暴露原因細節。
+      return res.status(200).json({ success: false, reason: 'invalid_session' });
+    }
+    const visitorId = typeof visitor_id === 'string' ? visitor_id.slice(0, 200) : '';
+    if (!visitorId) {
+      return res.status(200).json({ success: false, reason: 'missing_visitor_id' });
+    }
+    const linked = linkMemberSession(db, storeId, lineUserId, {
+      visitor_id: visitorId,
+      session_id: typeof session_id === 'string' ? session_id.slice(0, 200) : '',
+      cart_id: typeof cart_id === 'string' ? cart_id.slice(0, 200) : '',
+    });
+    res.json({ success: !!linked });
+  } catch (e) {
+    console.error('[line-member] POST /link-context error:', e.message);
+    // 不得讓例外破壞下單流程（需求文件九）
+    res.status(200).json({ success: false, reason: 'exception' });
   }
 });
 

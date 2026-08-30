@@ -300,9 +300,19 @@ img{max-width:100%;display:block}
       </div>
 
       <div class="fg"><label class="fl">備註</label><input class="fi" id="rNote" placeholder="給店家的話（選填）" oninput="debouncedPersistCart()"></div>
+      <!-- H1.4.10 Phase 4B：Recovery consent checkbox（與 line-order.html 完全一致，見該檔案對應註解）。 -->
+      <div class="fg" id="cartRecoveryConsentRow" style="display:none">
+        <label style="display:flex;align-items:flex-start;gap:8px;font-size:13px;color:#666;cursor:pointer">
+          <input type="checkbox" id="cartRecoveryConsentCheckbox" style="width:auto;margin-top:2px" onchange="onCartRecoveryConsentChange()">
+          <span>若本次尚未完成訂單，同意透過 LINE 提醒我一次</span>
+        </label>
+      </div>
+      <div class="fg" id="cartRecoveryConsentDisabledHint" style="display:none;font-size:12px;color:#999">
+        從官方 LINE 進入並辨識會員後，可啟用一次提醒。
+      </div>
     </div>
     <div class="cart-stage-footer" id="checkoutStageFooter">
-      <button class="sub-btn" id="submitBtn" onclick="submitOrder()">確認下單</button>
+      <button class="sub-btn" id="submitBtn" onclick="submitOrder(event)">確認下單</button>
     </div>
   </div>
 </div>
@@ -363,6 +373,26 @@ const STORE_ID = params.get('store_id') || '';
 let SHOP_DATA = null;
 let cart = {}; // product_id -> {product, qty}
 let arrivalType = 'asap';
+
+// H1.4.10 Phase 4B：Recovery Token（見 public/line-order.html 對應註解，
+// 兩頁使用同一套 contract）。
+let _recoveryResumeToken='';
+let _recoveryWasLinePayCancel=false;
+let _recoveryResumeHandled=false;
+(function _captureRecoveryTokenFromUrl(){
+  try{
+    const rawToken=params.get('recovery_token');
+    if(rawToken){
+      _recoveryResumeToken=String(rawToken).trim().slice(0,200);
+      _recoveryWasLinePayCancel=params.get('linepay')==='cancel';
+      const cleanParams=new URLSearchParams(location.search);
+      cleanParams.delete('recovery_token');
+      const cleanUrl=new URL(location.href);
+      cleanUrl.search=cleanParams.toString();
+      window.history.replaceState({}, '', cleanUrl.toString());
+    }
+  }catch(e){ /* URL 清理失敗絕不可阻擋頁面載入 */ }
+})();
 let selectedPayment = '';
 // hotfix22-C：優惠券狀態（共用 /api/coupons/validate，與 line-order.html 相同結構）
 let appliedCoupon = null; // { code, discount_amount, coupon: {...} }
@@ -448,9 +478,13 @@ function _trackEvent(eventName, extra){
 let _lineMemberGateConfig=null;
 function _buildLineMemberGateConfig(d){
   return {
-    liff_id:d.line_member_liff_id||'',
+    // H1.4.10 section 十二：冷藏宅配優先使用專屬 LIFF ID，未設定時 fallback
+    // 回線上點餐共用的 line_member_liff_id，不得寫死本店實際 LIFF ID。
+    liff_id:d.line_shipping_liff_id||d.line_member_liff_id||'',
     gate_enabled:d.line_member_gate_enabled==='1',
     gate_mode:d.line_member_gate_mode||'disabled',
+    // H1.4.10 section D：與 gate_enabled 完全分開的獨立開關（見 line-order.html 註解）。
+    auto_identify_enabled:d.line_member_auto_identify_enabled==='1',
     require_friend:d.line_member_require_friend==='1',
     allow_skip:d.line_member_allow_skip==='1',
     add_friend_url:d.add_friend_url||d.line_add_friend_url||d.line_member_add_friend_url||'',
@@ -464,11 +498,24 @@ function _buildLineMemberGateConfig(d){
 function _gateIds(){ return { visitor_id:_getVisitorId(), session_id:_getSessionId(), cart_id:_getCartId(false), order_mode:'shipping', attribution:_getAnalyticsContext() }; }
 async function _initLineMemberGateFromShopData(d){
   _lineMemberGateConfig=_buildLineMemberGateConfig(d);
-  if(!_lineMemberGateConfig.gate_enabled || _lineMemberGateConfig.gate_mode==='disabled') return;
+  // H1.4.10 section E：shouldInitLiff = gate_enabled OR auto_identify_enabled
+  // （宅配頁沒有 cart_token handoff 流程，見 line-order.html 對應註解）。
+  // H1.4.10 Phase 2：friend_entry／friend_checkout 不需要 LIFF（免登入），
+  // gate_enabled 本身已經涵蓋這兩種 mode 的情況，這裡不需要額外判斷。
+  const shouldInitLiff=_lineMemberGateConfig.gate_enabled || _lineMemberGateConfig.auto_identify_enabled;
+  if(shouldInitLiff && !(_lineMemberGateConfig.gate_mode==='disabled' && !_lineMemberGateConfig.auto_identify_enabled)){
   let gateState=null;
-  try{ gateState=await LineMemberGate.initLineMemberGate({ store_id:STORE_ID, liff_id:_lineMemberGateConfig.liff_id }, _gateIds(), _trackEvent); }catch(e){ return; }
-  if(_lineMemberGateConfig.gate_mode==='entry'){
+  const skipLoginCallback=!_lineMemberGateConfig.gate_enabled;
+  try{ gateState=await LineMemberGate.initLineMemberGate({ store_id:STORE_ID, liff_id:_lineMemberGateConfig.liff_id }, _gateIds(), _trackEvent, { skipLoginCallback }); }catch(e){ gateState=null; }
+  if(_lineMemberGateConfig.gate_enabled && _lineMemberGateConfig.gate_mode==='entry'){
     LineMemberGate.requireMemberOnEntry(STORE_ID, _lineMemberGateConfig, _gateIds(), _trackEvent);
+  }
+  // H1.4.10 section D/E/F：被動辨識，規則與 line-order.html 完全一致。
+  if(_lineMemberGateConfig.auto_identify_enabled){
+    try{
+      const passiveResult=await LineMemberGate.tryPassiveLiffIdentification(STORE_ID, _lineMemberGateConfig, _gateIds(), _trackEvent);
+      if(passiveResult && passiveResult.ok){ _linkLineMemberContext('liff_auto_identify_success'); }
+    }catch(e){ /* 被動辨識失敗絕不可阻擋點餐流程 */ }
   }
   // fix18-10-hotfix25：checkout 模式下，剛從 LINE 登入導回並自動完成驗證時，
   // 收件人/電話/地址/備註已由既有 restoreCart() 還原機制保留，這裡把宅配購物車
@@ -477,10 +524,228 @@ async function _initLineMemberGateFromShopData(d){
   if(_lineMemberGateConfig.gate_mode==='checkout' && cbResult && cbResult.ok && cbResult.autoVerified){
     try{ if(Object.keys(cart||{}).length) openCartSheet({step:'checkout'}); }catch(e){}
   }
+  }
+  // H1.4.10 Phase 2：friend_entry 進站引導（見 line-order.html 對應註解）。
+  if(_lineMemberGateConfig.gate_enabled && _lineMemberGateConfig.gate_mode==='friend_entry'){
+    try{ LineMemberGate.maybeShowFriendEntryGuide(STORE_ID, _lineMemberGateConfig, _gateIds(), _trackEvent); }catch(e){}
+  }
 }
 function _currentMemberSession(){
   try{ const s=LineMemberGate.getMemberSession(STORE_ID); return s?s.member_session:null; }catch(e){ return null; }
 }
+// H1.4.10 section I：與 line-order.html 完全一致的補綁定邏輯（見該檔案註解）。
+function _linkLineMemberContext(reasonTag){
+  try{
+    const memberSession=_currentMemberSession();
+    if(!memberSession) return;
+    const cartId=_getCartId(false)||'';
+    const sigKey='line_link_context_sig_'+STORE_ID;
+    const signature=memberSession.slice(-24)+'|'+cartId;
+    let lastSig='';
+    try{ lastSig=sessionStorage.getItem(sigKey)||''; }catch(e){}
+    if(lastSig===signature) return;
+    try{ sessionStorage.setItem(sigKey,signature); }catch(e){}
+    fetch(apiUrl('/api/line-member/link-context'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+      member_session:memberSession, visitor_id:_getVisitorId(), session_id:_getSessionId(), cart_id:cartId,
+    })}).then(r=>r.json()).then(json=>{
+      _trackEvent('line_member_context_linked',{metadata:{
+        page_type:'shipping', reason_code: json&&json.success ? undefined : 'context_missing',
+        has_cart: !!cartId,
+      }});
+    }).catch(()=>{});
+  }catch(e){ /* 補綁定失敗絕不可阻擋下單流程 */ }
+}
+
+// H1.4.10 Phase 4B：Cart Recovery Consent UI（與 line-order.html 完全一致的
+// contract，見該檔案對應註解）。
+function updateCartRecoveryConsentUI(){
+  try{
+    const row=document.getElementById('cartRecoveryConsentRow');
+    const hint=document.getElementById('cartRecoveryConsentDisabledHint');
+    const cb=document.getElementById('cartRecoveryConsentCheckbox');
+    if(!row||!hint||!cb) return;
+    const s=(SHOP_DATA&&SHOP_DATA.settings)||{};
+    const recoveryOn=s.cart_recovery_enabled==='1' && s.cart_recovery_line_enabled==='1';
+    if(!recoveryOn){ row.style.display='none'; hint.style.display='none'; cb.disabled=true; cb.checked=false; return; }
+    const hasSession=!!_currentMemberSession();
+    const hasCart=!!_getCartId(false);
+    if(hasSession && hasCart){
+      row.style.display='';
+      hint.style.display='none';
+      cb.disabled=false;
+    } else {
+      row.style.display='none';
+      hint.style.display=hasCart?'block':'none';
+      cb.disabled=true;
+      cb.checked=false;
+    }
+  }catch(e){ /* UI 更新失敗絕不可阻擋下單流程 */ }
+}
+async function onCartRecoveryConsentChange(){
+  const cb=document.getElementById('cartRecoveryConsentCheckbox');
+  if(!cb) return;
+  const desired=cb.checked;
+  const memberSession=_currentMemberSession();
+  const cartId=_getCartId(false);
+  if(!memberSession || !cartId){ cb.checked=!desired; return; }
+  try{
+    const res=await fetch(apiUrl('/api/cart-recovery/consent'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+      member_session:memberSession, cart_id:cartId, visitor_id:_getVisitorId(), session_id:_getSessionId(), consent:desired,
+    })});
+    const json=await res.json();
+    if(!json||!json.success){ cb.checked=!desired; }
+  }catch(e){ cb.checked=!desired; }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// H1.4.10 Phase 4B：Frontend Recovery Resume（與 line-order.html 完全一致
+// 的 contract，見該檔案對應註解；這裡只是沿用 shipping 頁自己既有的
+// SHIP_CART_KEY／restoreCart()／openCartSheet() 實作，不 import line-order
+// 的 global helper）。
+// ══════════════════════════════════════════════════════════════════
+function showRecoveryNotice(kind, message){
+  try{
+    const existing=document.getElementById('recoveryNoticeOverlay');
+    if(existing) existing.remove();
+    const overlay=document.createElement('div');
+    overlay.id='recoveryNoticeOverlay';
+    overlay.style.cssText='position:fixed;inset:0;z-index:99997;background:rgba(0,0,0,.5);display:flex;align-items:flex-end;justify-content:center;padding:16px;padding-bottom:calc(16px + env(safe-area-inset-bottom, 0px));';
+    overlay.innerHTML=`
+      <div style="background:#fff;border-radius:16px;max-width:400px;width:100%;padding:20px;text-align:center;box-shadow:0 8px 30px rgba(0,0,0,.2)">
+        <p style="margin:0 0 16px;color:#333;font-size:14px;white-space:pre-line"></p>
+        <button id="recoveryNoticeCloseBtn" style="width:100%;padding:12px;border:0;border-radius:10px;background:#06C755;color:#fff;font-size:15px;font-weight:600;cursor:pointer">知道了</button>
+      </div>`;
+    overlay.querySelector('p').textContent=String(message||'').slice(0,200);
+    document.body.appendChild(overlay);
+    const closeBtn=document.getElementById('recoveryNoticeCloseBtn');
+    if(closeBtn) closeBtn.addEventListener('click', ()=>{ overlay.remove(); });
+  }catch(e){}
+}
+function _mapRecoveryRestoreFailureMessage(reason){
+  const map={
+    expired:'這個提醒連結已失效，可能訂單已完成或連結已過期。',
+    consumed:'這個提醒連結已失效，可能訂單已完成或連結已過期。',
+    cancelled:'這個提醒連結已失效，可能訂單已完成或連結已過期。',
+    already_completed:'這個提醒連結已失效，可能訂單已完成或連結已過期。',
+    wrong_page:'無法在目前頁面恢復這筆購物車。',
+    member_not_identified:'無法驗證 LINE 會員身分，請從原 LINE 提醒訊息重新開啟。',
+    uid_mismatch:'無法驗證 LINE 會員身分，請從原 LINE 提醒訊息重新開啟。',
+    not_found:'這個提醒連結已失效，可能訂單已完成或連結已過期。',
+    invalid_target:'這個提醒連結已失效，可能訂單已完成或連結已過期。',
+  };
+  return map[reason]||'目前無法恢復這筆購物車，請稍後再試。';
+}
+function _mapRecoveryPaymentFailureMessage(reason){
+  const map={
+    payment_request_in_progress:'付款頁正在建立，請稍候。',
+    already_paid:'這筆訂單已完成付款。',
+    already_converted:'這筆訂單已完成付款。',
+  };
+  return map[reason]||'目前無法建立付款頁，請稍後再試。';
+}
+async function _applyRecoveryCart(cartItems){
+  const cartQtyMap={};
+  (cartItems||[]).forEach(it=>{ cartQtyMap[it.product_id]=it.qty; });
+  let _existing=null;
+  try{ _existing=JSON.parse(localStorage.getItem(SHIP_CART_KEY)||'null'); }catch(e){}
+  const cartData=Object.assign({}, _existing||{}, {
+    version:1, store_id:STORE_ID,
+    session_id:_getSessionId(), visitor_id:_getVisitorId(),
+    cart_created_at:(_existing&&_existing.cart_created_at)||Date.now(), cart_updated_at:Date.now(),
+    cart:cartQtyMap, order_mode:'shipping',
+  });
+  localStorage.setItem(SHIP_CART_KEY, JSON.stringify(cartData));
+  await restoreCart();
+}
+function _navigateRecoveryPayment(url){
+  window.location.href = url;
+}
+function _showPaymentRecoveryPanel(){
+  try{
+    const existing=document.getElementById('recoveryPaymentPanel');
+    if(existing) existing.remove();
+    const overlay=document.createElement('div');
+    overlay.id='recoveryPaymentPanel';
+    overlay.style.cssText='position:fixed;inset:0;z-index:99996;background:rgba(0,0,0,.5);display:flex;align-items:flex-end;justify-content:center;padding:16px;padding-bottom:calc(16px + env(safe-area-inset-bottom, 0px));';
+    overlay.innerHTML=`
+      <div style="background:#fff;border-radius:16px;max-width:400px;width:100%;padding:20px;text-align:center;box-shadow:0 8px 30px rgba(0,0,0,.2)">
+        <h3 style="margin:0 0 8px;font-size:17px">LINE Pay 付款尚未完成</h3>
+        <p style="margin:0 0 16px;color:#666;font-size:14px">如果仍要完成這筆訂單，可以繼續前往 LINE Pay。</p>
+        <button id="recoveryPaymentPrimaryBtn" style="width:100%;padding:12px;border:0;border-radius:10px;background:#06C755;color:#fff;font-size:15px;font-weight:600;margin-bottom:8px;cursor:pointer">繼續 LINE Pay 付款</button>
+        <button id="recoveryPaymentSecondaryBtn" style="width:100%;padding:10px;border:0;background:transparent;color:#999;font-size:13px;cursor:pointer">稍後再說</button>
+      </div>`;
+    document.body.appendChild(overlay);
+    const primaryBtn=document.getElementById('recoveryPaymentPrimaryBtn');
+    const secondaryBtn=document.getElementById('recoveryPaymentSecondaryBtn');
+    if(primaryBtn) primaryBtn.addEventListener('click', async ()=>{
+      if(primaryBtn.disabled) return;
+      primaryBtn.disabled=true; primaryBtn.textContent='處理中…';
+      try{
+        const res=await fetch(apiUrl('/api/cart-recovery/resume-payment'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+          member_session:_currentMemberSession(), recovery_token:_recoveryResumeToken,
+        })}).then(r=>r.json());
+        if(res && res.success && res.payment_url){
+          _navigateRecoveryPayment(res.payment_url);
+          return;
+        }
+        primaryBtn.disabled=false; primaryBtn.textContent='繼續 LINE Pay 付款';
+        showRecoveryNotice('payment_failure', _mapRecoveryPaymentFailureMessage(res&&res.reason));
+      }catch(e){
+        primaryBtn.disabled=false; primaryBtn.textContent='繼續 LINE Pay 付款';
+        showRecoveryNotice('payment_failure', '目前無法建立付款頁，請稍後再試。');
+      }
+    });
+    if(secondaryBtn) secondaryBtn.addEventListener('click', ()=>{ overlay.remove(); });
+  }catch(e){}
+}
+async function _handleRecoveryRestore(memberSession){
+  try{
+    const res=await fetch(apiUrl('/api/cart-recovery/restore'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+      member_session:memberSession, recovery_token:_recoveryResumeToken, page_type:'line_shipping',
+    })}).then(r=>r.json());
+    if(!res || !res.success){
+      showRecoveryNotice('restore_failure', _mapRecoveryRestoreFailureMessage(res&&res.reason));
+      return;
+    }
+    if(res.resume_type==='payment'){
+      _showPaymentRecoveryPanel();
+      return;
+    }
+    await _applyRecoveryCart(res.cart&&res.cart.items);
+    if(res.resume_type==='checkout'){
+      openCartSheet({step:'checkout'});
+    } else {
+      openCartSheet({silent:true});
+    }
+  }catch(e){}
+}
+async function _handleRecoveryCancelReturn(memberSession){
+  try{
+    const res=await fetch(apiUrl('/api/cart-recovery/payment-cancelled'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+      member_session:memberSession, recovery_token:_recoveryResumeToken,
+    })}).then(r=>r.json());
+    if(!res || !res.success){
+      showRecoveryNotice('restore_failure', _mapRecoveryRestoreFailureMessage(res&&res.reason));
+      return;
+    }
+    _showPaymentRecoveryPanel();
+  }catch(e){}
+}
+async function handleRecoveryResumeFromUrl(){
+  if(_recoveryResumeHandled || !_recoveryResumeToken) return;
+  _recoveryResumeHandled=true;
+  const memberSession=_currentMemberSession();
+  if(!memberSession){
+    showRecoveryNotice('identity','無法驗證 LINE 會員身分，請從原 LINE 提醒訊息重新開啟。');
+    return;
+  }
+  if(_recoveryWasLinePayCancel){
+    await _handleRecoveryCancelReturn(memberSession);
+    return;
+  }
+  await _handleRecoveryRestore(memberSession);
+}
+
 function _analyticsPayloadForOrder(){
   const fields=_getAnalyticsContext();
   const orderAttr=(function(){ try{ return AnalyticsAttribution.buildOrderAnalyticsContext(STORE_ID); }catch(e){ return {first_touch:null,last_touch:null}; } })();
@@ -518,8 +783,10 @@ function _firePurchaseOnce(order){
   }catch(e){ /* Pixel/GA4 失敗不影響訂單，訂單本身已經成立 */ }
 }
 function _trackAddToCart(id, qtyDelta){
+  const _hadCartIdBefore=!!_getCartId(false);
   _getCartId(true);
   _trackEvent('add_to_cart',{product_id:Number(id), quantity:Math.max(1,Number(qtyDelta)||1)});
+  if(!_hadCartIdBefore){ try{ _linkLineMemberContext('first_cart_id_created'); }catch(e){} }
 }
 function _trackRemoveFromCart(id, qtyDelta){
   _trackEvent('remove_from_cart',{product_id:Number(id), quantity:Math.max(1,Number(qtyDelta)||1)});
@@ -591,7 +858,11 @@ async function init() {
     try{ AnalyticsPlatforms.init(SHOP_DATA.settings || {}); }catch(e){}
     // fix18-10-hotfix23-E：LINE 會員入口 —— disabled 模式或未設定 liff_id 時安全略過，
     // 完全不影響既有宅配點餐流程。
-    try{ _initLineMemberGateFromShopData(SHOP_DATA.settings || {}); }catch(e){}
+    // H1.4.10 Phase 4B（Reality Audit 修正，與 line-order.html 對應）：不在這裡
+    // 立即 .then() 觸發 Recovery bootstrap——下面還有既有正常 restoreCart()
+    // 尚未執行，必須先讓它完成，Recovery（如果有）才是最後、權威的購物車狀態。
+    let _memberGateInitPromise=Promise.resolve();
+    try{ _memberGateInitPromise=_initLineMemberGateFromShopData(SHOP_DATA.settings || {}); }catch(e){}
     if (!SHOP_DATA.settings.shipping_enabled) {
       document.getElementById('loading').style.display = 'none';
       document.getElementById('closedScreen').style.display = 'flex';
@@ -603,6 +874,10 @@ async function init() {
     if (couponAreaEl) couponAreaEl.style.display = couponFeatureEnabled ? '' : 'none';
     renderShop();
     await restoreCart();
+    // H1.4.10 Phase 4B：既有正常 restoreCart() 已完成，現在才等 LINE 會員
+    // Gate 初始化完成，接著才觸發 Recovery bootstrap。
+    try{ await _memberGateInitPromise; }catch(e){}
+    try{ handleRecoveryResumeFromUrl(); }catch(e){}
     document.getElementById('loading').style.display = 'none';
     document.getElementById('content').style.display = 'block';
     // fix18-10-hotfix23-A：page_view — 頁面初始化成功後記錄一次，同一 session 不重複
@@ -1367,6 +1642,8 @@ function _enterCheckoutStage() {
   // updateCheckoutActionAmounts()／renderCheckoutOrderSummary()），進入結帳頁時
   // 直接呼叫，確保訂單摘要在畫面顯示前就已經是最新狀態。
   refreshCartSheetTotals();
+  // H1.4.10 Phase 4B：純 UI 狀態同步（不送任何 analytics event）。
+  updateCartRecoveryConsentUI();
 }
 
 // H1.4.9 explicit-button-only hardening：checkout_click 只能由「真正的
@@ -1396,6 +1673,11 @@ function openCheckoutStep(event) {
       try { sessionStorage.setItem(ccKey, cid); } catch (e) {}
     }
   } catch (e) {}
+  // H1.4.10 Phase 2：friend_checkout 引導（見 line-order.html 對應註解，兩頁
+  // 完全共用同一套 LineMemberGate.maybeShowFriendCheckoutGuide 實作）。
+  if (_lineMemberGateConfig && _lineMemberGateConfig.gate_enabled && _lineMemberGateConfig.gate_mode === 'friend_checkout') {
+    try { LineMemberGate.maybeShowFriendCheckoutGuide(STORE_ID, _lineMemberGateConfig, _gateIds(), _trackEvent); } catch (e) {}
+  }
 }
 
 // 返回購物車：只切畫面，不清除任何資料、不重算金額、不重新觸發 view_cart。
@@ -1535,9 +1817,37 @@ function setArrivalType(type) {
   persistCart();
 }
 
-async function submitOrder() {
-  if (!cartList().length) { toast('購物車是空的'); return; }
-  if (calcFee().belowMin) { toast(`未達最低訂購金額 NT$${SHOP_DATA.settings.shipping_min_order_amount}`); return; }
+async function submitOrder(event) {
+  // H1.4.10 Phase 3：與 line-order.html 完全一致的 explicit-button-only
+  // 因果契約（見該檔案對應註解）。submitOrder() 目前只有 #submitBtn 的
+  // onclick 一個呼叫點。
+  const _submitBtnEl=document.getElementById('submitBtn');
+  const _isRealSubmitAttempt=!!(event && event.type==='click' && _submitBtnEl && event.currentTarget===_submitBtnEl);
+  let _validationFailedSent=false;
+  function trackCheckoutValidationFailed(reasonCode, extra){
+    if(!_isRealSubmitAttempt || _validationFailedSent) return;
+    _validationFailedSent=true;
+    try{
+      _trackEvent('checkout_validation_failed',{metadata:Object.assign({
+        reason_code:reasonCode,
+        order_mode:'shipping',
+        checkout_stage:cartUIStage||'checkout',
+        has_cart:!!cartList().length,
+        item_count:cartList().length,
+      }, extra||{})});
+    }catch(e){ /* 追蹤失敗絕不可阻擋送單流程 */ }
+  }
+  if(_isRealSubmitAttempt){
+    try{
+      _trackEvent('checkout_submit_click',{metadata:{
+        checkout_stage:'checkout', submit_trigger:'confirm_order_button',
+        order_mode:'shipping', item_count:cartList().length,
+        cart_value:cartSubtotal(),
+      }});
+    }catch(e){ /* 追蹤失敗絕不可阻擋送單流程 */ }
+  }
+  if (!cartList().length) { trackCheckoutValidationFailed('empty_cart'); toast('購物車是空的'); return; }
+  if (calcFee().belowMin) { trackCheckoutValidationFailed('minimum_order_not_met'); toast(`未達最低訂購金額 NT$${SHOP_DATA.settings.shipping_min_order_amount}`); return; }
   const name = document.getElementById('rName').value.trim();
   const phone = document.getElementById('rPhone').value.trim();
   const postal = document.getElementById('rPostal').value.trim();
@@ -1548,20 +1858,20 @@ async function submitOrder() {
   const note = document.getElementById('rNote').value.trim();
   const arrivalDate = document.getElementById('rArrivalDate').value;
 
-  if (!name || !phone) { toast('請填寫收件人姓名與電話'); return; }
-  if (!city || !district || !address) { toast('請填寫完整收件地址'); return; }
-  if (!selectedPayment) { toast('請選擇付款方式'); return; }
+  if (!name || !phone) { trackCheckoutValidationFailed(!name ? 'missing_name' : 'missing_phone'); toast('請填寫收件人姓名與電話'); return; }
+  if (!city || !district || !address) { trackCheckoutValidationFailed('missing_address'); toast('請填寫完整收件地址'); return; }
+  if (!selectedPayment) { trackCheckoutValidationFailed('missing_payment'); toast('請選擇付款方式'); return; }
 
   const btn = document.getElementById('submitBtn');
   btn.disabled = true; btn.textContent = '送出中…';
   // fix18-10-hotfix23-E：checkout 模式在真正送單前要求登入
   if(_lineMemberGateConfig && _lineMemberGateConfig.gate_enabled && _lineMemberGateConfig.gate_mode==='checkout'){
     const gateResult=await LineMemberGate.requireMemberBeforeCheckout(STORE_ID,_lineMemberGateConfig,_gateIds(),_trackEvent);
-    if(!gateResult.ok){ btn.disabled=false; updateCheckoutActionAmounts(); return; }
+    if(!gateResult.ok){ trackCheckoutValidationFailed('line_member_required'); btn.disabled=false; updateCheckoutActionAmounts(); return; }
   }
   // fix18-10-hotfix23-A：payment_started — 非 LINE Pay（無跳轉）選擇付款方式並送出時記錄；
   // LINE Pay 改在跳轉前記錄（見下方 lpRes.payment_url 導轉處）
-  if (selectedPayment !== 'linepay') { _trackEvent('payment_started'); }
+  if (selectedPayment !== 'linepay') { _trackEvent('payment_started',{metadata:{payment_method:selectedPayment}}); }
   try {
     const res = await apiPost('/api/line-shipping', {
       items: cartList().map(c => ({ product_id: c.product.id, name: c.product.name, qty: c.qty })),
@@ -1599,7 +1909,7 @@ async function submitOrder() {
           cancel_url: `${baseUrl}/line-shipping.html?store_id=${STORE_ID}&linepay=cancel`,
         });
         if (lpRes.success && lpRes.payment_url) {
-          _trackEvent('payment_started');
+          _trackEvent('payment_started',{metadata:{payment_method:'linepay'}});
           // hotfix22-F：導轉 LINE Pay 前不得清空購物車/優惠券——只有付款成功導回（linepay=success，
           // 見 init()）才是唯一的清空時機；取消或失敗導回時購物車必須完整保留。
           persistCart();

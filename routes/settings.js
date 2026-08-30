@@ -178,6 +178,37 @@ const LINE_MEMBER_KEYS = [
   'line_member_login_channel_id', 'line_member_liff_id', 'line_member_return_url',
   'line_member_title', 'line_member_description', 'line_member_friend_button_text',
   'line_member_login_button_text', 'line_member_skip_button_text',
+  // H1.4.10 section D：「由 LINE LIFF 進入時自動辨識會員」——與
+  // line_member_gate_enabled 完全分開的獨立開關（需求文件四）。預設關閉，
+  // 不需要 LINE Login Channel 設定完成即可先儲存（實際生效仍需 liff_id）。
+  'line_member_auto_identify_enabled',
+  // H1.4.10 section 十二：冷藏宅配專用 LIFF ID，獨立於線上點餐的
+  // line_member_liff_id。line-shipping.html 優先使用這個，未設定時 fallback
+  // 回 line_member_liff_id（見該頁 _buildLineMemberGateConfig）。
+  'line_shipping_liff_id',
+];
+
+// H1.4.10 Phase 4A：Cart Recovery State Engine 設定（需求文件七）。UI 目前
+// deferred（見 Implementation Report），先只建立 backend settings contract，
+// 不 hardcode 60/30/15 這些預設值——沒設定時由 utils/cartRecovery.js 內的
+// DEFAULT_* 常數 fallback，設定過就一律採用 settings 的值。
+const CART_RECOVERY_KEYS = [
+  'cart_recovery_enabled',
+  'cart_recovery_cart_delay_minutes',
+  'cart_recovery_checkout_delay_minutes',
+  'cart_recovery_payment_delay_minutes',
+  'cart_recovery_max_attempts',
+  // H1.4.10 Phase 4B：LINE 一次提醒開關，與 cart_recovery_enabled 分開——
+  // 兩者都必須是 '1' 才可能真的發送 LINE Push（需求文件十五）。
+  'cart_recovery_line_enabled',
+  // H1.4.10 Phase 4C：n8n orchestration 專屬設定，完全獨立於既有
+  // n8n_webhook_url（那是訂單通知 webhook，routes/line-orders.js／
+  // routes/line-shipping.js／routes/orders.js 在用，Phase 4C 絕對不共用）。
+  // 舊店升級後預設 disabled，即使 cart_recovery_enabled/line_enabled 都是
+  // 1，只要這個是 0 就不會把 Recovery 工作交給 n8n。
+  'cart_recovery_n8n_enabled',
+  'cart_recovery_n8n_webhook_url',
+  'cart_recovery_n8n_secret',
 ];
 
 // 所有允許修改的 key（包含 LINE key）
@@ -201,6 +232,7 @@ const ALL_ALLOWED = [
   ...SHIPPING_ANNOUNCEMENT_KEYS,
   ...ANALYTICS_KEYS,
   ...LINE_MEMBER_KEYS,
+  ...CART_RECOVERY_KEYS,
   // fix18-10-hotfix30-B5-R5.2-B2：Geo Map 聚焦範圍設定——沿用既有 key-value
   // settings 表，不另建第二套設定框架（需求文件四）。
   ...GEO_MAP_SETTINGS_KEYS,
@@ -260,6 +292,12 @@ function redactSensitiveSettings(s) {
   if (Object.prototype.hasOwnProperty.call(out, 'line_channel_secret')) {
     out.line_channel_secret_set = !!(out.line_channel_secret && out.line_channel_secret.trim());
     delete out.line_channel_secret;
+  }
+  // H1.4.10 Phase 4C（需求文件四十）：n8n orchestration shared secret 同樣
+  // 不得明文回傳，GET /api/settings 只給布林 readiness，UI 不回填真值。
+  if (Object.prototype.hasOwnProperty.call(out, 'cart_recovery_n8n_secret')) {
+    out.cart_recovery_n8n_secret_set = !!(out.cart_recovery_n8n_secret && out.cart_recovery_n8n_secret.trim());
+    delete out.cart_recovery_n8n_secret;
   }
   // line_channel_token：既有（F8 之前就存在）的「Bearer Token」欄位，目前
   // 基本設定頁的舊版 UI（set-line_channel_token）仍依賴這裡回傳明文才能正常
@@ -348,7 +386,13 @@ router.put('/', (req, res) => {
       const merged = { ...existing, ...req.body };
 
       const gateEnabled = String(merged.line_member_gate_enabled) === '1' || merged.line_member_gate_enabled === true;
-      if (gateEnabled) {
+      const gateModeForValidation = merged.line_member_gate_mode ? String(merged.line_member_gate_mode).trim() : '';
+      // H1.4.10 Phase 2（需求文件十七）：friend_entry／friend_checkout 只是
+      // 引導加好友，不呼叫 liff.login()、不要求 LINE Login，因此不強制要求
+      // liff_id／login_channel_id（欄位本身仍保留，Auto Identify 仍可能用到）。
+      // checkout／entry 既有必填規則完全不變。
+      const isFriendOnlyMode = gateModeForValidation === 'friend_entry' || gateModeForValidation === 'friend_checkout';
+      if (gateEnabled && !isFriendOnlyMode) {
         if (!merged.line_member_liff_id || !String(merged.line_member_liff_id).trim()) {
           return res.status(400).json({ success: false, message: '啟用 LINE 會員入口時，LIFF ID 不可空白' });
         }
@@ -400,8 +444,14 @@ router.put('/', (req, res) => {
         }
       }
       const mode = merged.line_member_gate_mode ? String(merged.line_member_gate_mode).trim() : '';
-      if (mode && !['disabled', 'checkout', 'entry'].includes(mode)) {
-        return res.status(400).json({ success: false, message: '入口模式必須是 disabled / checkout / entry 其中之一' });
+      // H1.4.10 Phase 2：向下相容新增 friend_entry／friend_checkout（免登入
+      // 加好友引導），不改變既有 checkout／entry 語意。friend_* 不需要
+      // LIFF Login Channel（不呼叫 liff.login()），因此不受上面 gateEnabled
+      // 時強制要求 line_member_login_channel_id 的檢查影響——那段檢查只在
+      // liff_id 缺漏時擋，Login Channel ID 目前對所有 mode 一視同仁要求，
+      // 這是既有行為，本輪不放寬（Auto Identify 仍可能用到）。
+      if (mode && !['disabled', 'checkout', 'entry', 'friend_entry', 'friend_checkout'].includes(mode)) {
+        return res.status(400).json({ success: false, message: '入口模式必須是 disabled / checkout / entry / friend_entry / friend_checkout 其中之一' });
       }
       const textFields = ['line_member_title', 'line_member_description', 'line_member_friend_button_text', 'line_member_login_button_text', 'line_member_skip_button_text'];
       for (const f of textFields) {
@@ -473,6 +523,35 @@ router.put('/', (req, res) => {
       // 正規化後的結果（例如 fixed/full 模式強制歸零的 free_discount）才是真正落地儲存的值，
       // 避免前端送來的原始字串裡帶有未經正規化的雜訊欄位。
       req.body.delivery_distance_fee_rules = JSON.stringify(normResult.rules);
+    }
+
+    // ── H1.4.10 Phase 4C（需求文件二十三）：Recovery n8n webhook URL 基本
+    // 格式驗證，literal local/private 直接拒絕。真正 DNS 解析在
+    // utils/cartRecoveryOrchestration.js 的 sendWakeUp() 每次真的要送出前
+    // 重新做（DNS 可能之後才變成內網）。
+    if (req.body.cart_recovery_n8n_webhook_url !== undefined && String(req.body.cart_recovery_n8n_webhook_url).trim() !== '') {
+      const { isSafeWebhookUrlByHostname } = require('../utils/cartRecoveryOrchestration');
+      if (!isSafeWebhookUrlByHostname(String(req.body.cart_recovery_n8n_webhook_url).trim())) {
+        return res.status(400).json({ success: false, message: 'Recovery n8n Webhook URL 格式不安全（必須是 https:// 且不得指向內網/本機位址）' });
+      }
+    }
+    // 需求文件二十四（本輪改用 SSOT 格式驗證，取代原本單純的長度檢查）：
+    // 手動輸入的 secret 必須符合 utils/cartRecoveryOrchestration.js 的
+    // validateSharedSecret()——正式格式固定為 crypto.randomBytes(32) 的
+    // base64url 編碼（43 字元），不是「隨便湊 32 個字元就算數」。
+    if (req.body.cart_recovery_n8n_secret !== undefined && String(req.body.cart_recovery_n8n_secret).trim() !== '') {
+      const { validateSharedSecret } = require('../utils/cartRecoveryOrchestration');
+      const secretCheck = validateSharedSecret(String(req.body.cart_recovery_n8n_secret).trim());
+      if (!secretCheck.valid) {
+        return res.status(400).json({ success: false, message: 'Recovery n8n Shared Secret 格式不符（必須是 32 bytes 高熵隨機值的 base64url 編碼，43 個字元；建議使用「重新產生」按鈕），拒絕理由：' + secretCheck.reason });
+      }
+    }
+
+    // ── H1.4.10 Phase 4C（需求文件三十九）：n8n secret 空字串代表「保留原值」
+    // 不是「清空」，避免店家儲存其他無關欄位時意外把 secret 洗掉。真的要清除
+    // 必須用專屬的 rotate/clear 端點。───────────────────────
+    if (req.body.cart_recovery_n8n_secret === '') {
+      delete req.body.cart_recovery_n8n_secret;
     }
 
     // ── 寫入允許的 key ─────────────────────────────────────

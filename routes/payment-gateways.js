@@ -122,16 +122,16 @@ router.post('/:provider/test', async (req, res) => {
 
     if (provider === 'linepay') {
       // 直接使用 linepay 測試邏輯（避免 HTTP 自呼叫的複雜性）
-      const crypto = require('crypto');
+      // H1.4.10 Phase 4B：簽章/API base 一律用 utils/linePayClient.js 的
+      // SSOT，不再自己重寫一份公式（見 Reality Audit）。
       const fetch2 = require('node-fetch');
       const { v4: uuidv4 } = require('uuid');
+      const { getApiBase: linePayGetApiBase, signLinePayPost: linePaySignPost, makePostHeaders: linePayMakePostHeaders } = require('../utils/linePayClient');
 
       const channelId     = (req.body?.channel_id     || gw.merchant_id || '').trim();
       const channelSecret = (req.body?.channel_secret  || gw.secret_key  || '').trim();
       const mode          = (req.body?.mode            || gw.mode        || 'test').trim();
-      const apiBase       = (mode === 'live' || mode === 'prod')
-        ? 'https://api-pay.line.me'
-        : 'https://sandbox-api-pay.line.me';
+      const apiBase       = linePayGetApiBase(mode);
 
       if (!channelId)     return res.status(400).json({ success: false, message: 'Channel ID 未填寫' });
       if (!channelSecret) return res.status(400).json({ success: false, message: 'Channel Secret 未填寫' });
@@ -144,9 +144,7 @@ router.post('/:provider/test', async (req, res) => {
         packages: [{ id: 'test', amount: 1, products: [{ name: 'Auth Test', quantity: 1, price: 1 }] }],
         redirectUrls: { confirmUrl: 'https://example.com/confirm', cancelUrl: 'https://example.com/cancel' },
       };
-      const bodyStr  = JSON.stringify(testBody);
-      const message  = channelSecret + testUri + bodyStr + nonce;
-      const signature = crypto.createHmac('sha256', channelSecret).update(message, 'utf8').digest('base64');
+      const { bodyStr, signature } = linePaySignPost(channelSecret, testUri, testBody, nonce);
 
       console.log('[LINEPAY TEST via gateway]', {
         mode, apiBase, channelIdLen: channelId.length, secretLen: channelSecret.length,
@@ -156,12 +154,7 @@ router.post('/:provider/test', async (req, res) => {
       try {
         const testRes  = await fetch2(apiBase + testUri, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-LINE-ChannelId': String(channelId),
-            'X-LINE-Authorization-Nonce': String(nonce),
-            'X-LINE-Authorization': signature,
-          },
+          headers: linePayMakePostHeaders(channelId, signature, nonce),
           body: bodyStr,
           timeout: 10000,
         });

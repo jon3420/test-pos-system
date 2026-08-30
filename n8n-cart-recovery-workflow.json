@@ -1,0 +1,183 @@
+{
+  "name": "POS Cart Recovery Orchestration",
+  "meta": {
+    "description": "H1.4.10 Phase 4C — n8n 只負責排程（何時叫醒 POS），不判斷是否可以發送提醒。POS 才是 authority：每次真正發送前，POS 都會重新確認顧客是否仍符合提醒條件（consent／好友／是否已購買／是否超過次數上限等）。這個 workflow 完全不接觸顧客資料（姓名、電話、地址、LINE UID、購物車內容、Recovery Token 一律不經過這裡）。",
+    "note_secret": "POS_RECOVERY_SHARED_SECRET 與 POS_BASE_URL 必須用環境變數設定（n8n 部署層級的 environment variable，或對應的 n8n Credential），不要把真實 secret 寫進這份 JSON。部署前請參考 H1.4.10_PHASE4C_N8N_ORCHESTRATION_MANUAL_QA.md。",
+    "note_ack_ordering": "重要：Webhook 收到 POS Wake-Up 後，必須先驗證簽章、立即回應 202（Immediate ACK），才能進入 Wait 節點。因為 POS 端 sendWakeUp() 的 HTTP timeout 是 8 秒，而 Recovery 延遲通常是 15～60 分鐘——如果 workflow 等 Wait 結束才回應，POS 一定會 timeout 並把這次 wake-up 記成失敗（可重試，但沒有意義地一直重試）。這份 template 的節點順序刻意是 Verify → Respond → Wait，不是 Verify → Wait → Respond，不要調換。",
+    "note_loop_context": "Loop 中每次呼叫 POS process-due 後，HTTP Response 節點的輸出會取代 $json 成為 POS 回應本身（success/processed/sent/skipped/failed/has_more），不會自動保留呼叫前的 store_id/stage/_loopCount。這份 template 用 Merge 節點把 POS 回應（processor_result）與呼叫前保存的 context 併回同一個 item，之後所有判斷都讀 processor_result.has_more，不是裸的 $json.has_more。"
+  },
+  "nodes": [
+    {
+      "id": "webhook-receive-wakeup",
+      "name": "接收 POS Wake-Up",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [200, 300],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "pos-cart-recovery-wakeup",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "pos-cart-recovery-wakeup"
+    },
+    {
+      "id": "verify-signature",
+      "name": "驗證 POS Signature (HMAC-SHA256)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [420, 300],
+      "notes": "驗證 X-POS-Recovery-Signature header：canonical string = v1\\n<store_id>\\n<timestamp>\\n<request_id>\\n<due_at>，用 crypto.createHmac('sha256', secret) 計算後與收到的 signature 比對，比對用 crypto.timingSafeEqual（不是字串 ===）。secret 來自環境變數 POS_RECOVERY_SHARED_SECRET，不是 hardcode。timestamp 超過 ±5 分鐘視為過期，一律拒絕、不進入 ACK/Wait。due_at 期待是明確帶 timezone 的 ISO8601（POS 端已轉換過，不是裸的 'YYYY-MM-DD HH:MM:SS'）。",
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\nconst secret = process.env.POS_RECOVERY_SHARED_SECRET;\nconst headers = $input.item.json.headers || {};\nconst body = $input.item.json.body || {};\nconst timestamp = headers['x-pos-recovery-timestamp'];\nconst requestId = headers['x-pos-recovery-request-id'];\nconst providedSig = String(headers['x-pos-recovery-signature'] || '').replace('sha256=', '');\nconst now = Date.now();\nconst withinWindow = Math.abs(now - Number(timestamp)) <= 5 * 60 * 1000;\nconst canonical = ['v1', body.store_id, timestamp, requestId, body.due_at || ''].join('\\n');\nconst expected = crypto.createHmac('sha256', secret).update(canonical, 'utf8').digest('hex');\nconst a = Buffer.from(expected, 'hex');\nconst b = Buffer.from(providedSig, 'hex');\nconst validSig = a.length === b.length && crypto.timingSafeEqual(a, b);\nif (!secret || !withinWindow || !validSig) {\n  return [{ json: { _valid: false } }];\n}\nreturn [{ json: { _valid: true, store_id: body.store_id, original_due_at: body.due_at, stage: body.stage, _loopCount: 0 } }];"
+      }
+    },
+    {
+      "id": "check-signature-valid",
+      "name": "If Signature Valid",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [640, 300],
+      "notes": "簽章驗證失敗的請求直接安全結束，不 Respond、不進入 Wait、不排程任何東西。",
+      "parameters": {
+        "conditions": { "boolean": [{ "value1": "={{ $json._valid }}", "value2": true }] }
+      }
+    },
+    {
+      "id": "respond-ack",
+      "name": "立即 ACK（HTTP 202）",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [860, 220],
+      "notes": "簽章驗證成功後立即回 202，讓 POS 端 sendWakeUp()（8 秒 timeout）視為成功。真正的排程（Wait）在這之後才開始，不會被 POS 的短 timeout 卡到。POS 端只要求 2xx 就視為 wake-up 已送達，202 符合這個 2xx-only 的 success 判定。",
+      "parameters": {
+        "respondWith": "json",
+        "responseCode": 202,
+        "responseBody": "={{ JSON.stringify({ accepted: true }) }}"
+      }
+    },
+    {
+      "id": "respond-rejected",
+      "name": "拒絕（HTTP 401）",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [860, 400],
+      "parameters": {
+        "respondWith": "json",
+        "responseCode": 401,
+        "responseBody": "={{ JSON.stringify({ accepted: false }) }}"
+      }
+    },
+    {
+      "id": "wait-until-due",
+      "name": "Wait Until due_at",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [1080, 220],
+      "notes": "若 original_due_at 已經 <= now，n8n 的 Wait 節點會直接繼續（不會真的等待過去的時間）。這個節點接在 ACK 之後，不會影響 POS 端已經收到的 202 回應。",
+      "parameters": {
+        "resume": "specificTime",
+        "dateTime": "={{ $json.original_due_at }}"
+      }
+    },
+    {
+      "id": "build-due-request",
+      "name": "組新的 request_id + timestamp",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1300, 220],
+      "notes": "每次呼叫 POS process-due 都要用全新的 request_id 與 timestamp（絕不 replay Wake-Up 收到的那組），並保留 store_id/stage/_loopCount，供之後 Merge 回 processor_result 使用。",
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\nreturn [{ json: { store_id: $json.store_id, stage: $json.stage, _loopCount: $json._loopCount, request_id: crypto.randomUUID(), timestamp: Date.now() } }];"
+      }
+    },
+    {
+      "id": "sign-due-request",
+      "name": "HMAC 簽章（呼叫 POS process-due 用）",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1520, 220],
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\nconst secret = process.env.POS_RECOVERY_SHARED_SECRET;\nconst canonical = ['v1', $json.store_id, $json.timestamp, $json.request_id, ''].join('\\n');\nconst signature = crypto.createHmac('sha256', secret).update(canonical, 'utf8').digest('hex');\nreturn [{ json: { ...$json, signature } }];"
+      }
+    },
+    {
+      "id": "http-request-pos-process-due",
+      "name": "POST POS /api/cart-recovery/orchestration/process-due",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1740, 220],
+      "notes": "只傳 version/store_id/timestamp/request_id——不傳 job_id/cart_id/order_id/UID，POS 自己查 due jobs。這個節點的輸出會是 POS 的回應本身（不含 store_id/stage/_loopCount），下一個 Merge 節點會把這個輸出當成 processor_result，與呼叫前保存的 context 併回同一個 item。",
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.POS_BASE_URL }}/api/cart-recovery/orchestration/process-due",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-N8N-Recovery-Version", "value": "v1" },
+            { "name": "X-N8N-Recovery-Timestamp", "value": "={{ $json.timestamp }}" },
+            { "name": "X-N8N-Recovery-Request-Id", "value": "={{ $json.request_id }}" },
+            { "name": "X-N8N-Recovery-Signature", "value": "=sha256={{ $json.signature }}" }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "version", "value": "v1" },
+            { "name": "store_id", "value": "={{ $json.store_id }}" },
+            { "name": "timestamp", "value": "={{ $json.timestamp }}" },
+            { "name": "request_id", "value": "={{ $json.request_id }}" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "merge-context-with-result",
+      "name": "Merge：context + processor_result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1960, 220],
+      "notes": "把 呼叫 POS 前的 context（來自 build-due-request 節點的輸出）與 POS 的回應（來自 HTTP Request 節點的輸出）明確合併成一個 item，避免 HTTP Response 直接覆蓋掉 store_id/stage/_loopCount。之後所有判斷一律讀 processor_result.*，不讀裸的 $json.has_more。",
+      "parameters": {
+        "jsCode": "const context = $('組新的 request_id + timestamp').item.json;\nconst processorResult = $input.item.json;\nreturn [{ json: {\n  store_id: context.store_id,\n  stage: context.stage,\n  _loopCount: context._loopCount + 1,\n  processor_result: processorResult\n} }];"
+      }
+    },
+    {
+      "id": "check-has-more",
+      "name": "If processor_result.has_more",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2180, 220],
+      "notes": "讀 processor_result.has_more（合併後的明確欄位），不是裸的 $json.has_more。同時檢查 loop guard（最多 10 圈），避免無限循環。",
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            { "value1": "={{ $json.processor_result.has_more === true && $json._loopCount < 10 }}", "value2": true }
+          ]
+        }
+      }
+    }
+  ],
+  "connections": {
+    "接收 POS Wake-Up": { "main": [[{ "node": "驗證 POS Signature (HMAC-SHA256)", "type": "main", "index": 0 }]] },
+    "驗證 POS Signature (HMAC-SHA256)": { "main": [[{ "node": "If Signature Valid", "type": "main", "index": 0 }]] },
+    "If Signature Valid": {
+      "main": [
+        [{ "node": "立即 ACK（HTTP 202）", "type": "main", "index": 0 }],
+        [{ "node": "拒絕（HTTP 401）", "type": "main", "index": 0 }]
+      ]
+    },
+    "立即 ACK（HTTP 202）": { "main": [[{ "node": "Wait Until due_at", "type": "main", "index": 0 }]] },
+    "Wait Until due_at": { "main": [[{ "node": "組新的 request_id + timestamp", "type": "main", "index": 0 }]] },
+    "組新的 request_id + timestamp": { "main": [[{ "node": "HMAC 簽章（呼叫 POS process-due 用）", "type": "main", "index": 0 }]] },
+    "HMAC 簽章（呼叫 POS process-due 用）": { "main": [[{ "node": "POST POS /api/cart-recovery/orchestration/process-due", "type": "main", "index": 0 }]] },
+    "POST POS /api/cart-recovery/orchestration/process-due": { "main": [[{ "node": "Merge：context + processor_result", "type": "main", "index": 0 }]] },
+    "Merge：context + processor_result": { "main": [[{ "node": "If processor_result.has_more", "type": "main", "index": 0 }]] },
+    "If processor_result.has_more": {
+      "main": [
+        [{ "node": "組新的 request_id + timestamp", "type": "main", "index": 0 }],
+        []
+      ]
+    }
+  }
+}

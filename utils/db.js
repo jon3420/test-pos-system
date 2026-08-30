@@ -1987,6 +1987,26 @@ function initTables(w) {
     "ALTER TABLE line_cart_handoff_tokens ADD COLUMN created_user_agent TEXT DEFAULT ''",
     "ALTER TABLE line_cart_handoff_tokens ADD COLUMN bound_at TEXT DEFAULT ''",
     "ALTER TABLE line_cart_handoff_tokens ADD COLUMN opened_at TEXT DEFAULT ''",
+    // H1.4.10 Phase 4B（需求文件二十）：additive 補上 purpose 欄位，safe
+    // migration，預設 'checkout' 保證既有 row／既有查詢（webhook「我要結帳
+    // CART-XXXXXX」流程）完全不受影響。新增值 'recovery_resume' 供 Recovery
+    // Push 內的安全連結使用（見 utils/lineCheckoutHandoff.js 新增的
+    // createRecoveryResumeToken()／restoreRecoveryToken()）。
+    "ALTER TABLE line_cart_handoff_tokens ADD COLUMN purpose TEXT DEFAULT 'checkout'",
+    // recovery_resume token 需要直接綁定 line_user_id（建立當下就已知道，不像
+    // checkout 流程要等 webhook 才綁定）與所屬 cart_recovery_jobs 的 cart_id，
+    // 才能在 restore 時驗證 store/cart/line_user 三者都相符。
+    "ALTER TABLE line_cart_handoff_tokens ADD COLUMN recovery_cart_id TEXT DEFAULT ''",
+    // resume_type 區分 recovery_resume token 究竟是要「還原購物車」還是「續走
+    // 既有未付款訂單的付款」，payment resume 絕不能被當成普通 cart restore
+    // 重新建立第二張訂單（見 Reality Audit）。
+    "ALTER TABLE line_cart_handoff_tokens ADD COLUMN resume_type TEXT DEFAULT 'cart'",
+    // H1.4.10 Phase 4B（本輪收緊）：token 必須知道自己原本屬於哪一頁
+    // （line_order／line_shipping），否則同一個 recovery_token 被貼到錯的
+    // LIFF／頁面時，backend 無從得知該拒絕。這個欄位只給
+    // purpose='recovery_resume' 的 row 使用，不影響既有 checkout handoff
+    // token 的任何既有語意。
+    "ALTER TABLE line_cart_handoff_tokens ADD COLUMN recovery_page_type TEXT DEFAULT ''",
   ];
   cartHandoffF8BMigrations.forEach(sql => { try { w._db.run(sql); w._save(); } catch {} });
   try {
@@ -2217,6 +2237,132 @@ function initTables(w) {
     w._db.run('CREATE INDEX IF NOT EXISTS idx_crm_action_targets_store_action ON crm_action_targets(store_id, action_id)');
     w._save();
   } catch(e) { console.warn('[DB] crm_action_targets index:', e.message); }
+
+  // ══════════════════════════════════════════════════════════════════
+  // H1.4.10 Phase 4A｜cart_recovery_jobs（CART RECOVERY STATE ENGINE）
+  //
+  // 需求文件二十三：本表只是「未完成購物車／結帳／付款排程狀態機」，不是
+  // CRM 會員資料庫（沿用既有 crm_segments/crm_action_targets，不重建第二套
+  // CRM）。三個 canonical stage：cart_abandoned／checkout_abandoned／
+  // payment_abandoned，狀態轉移規則集中在 utils/cartRecovery.js。
+  //
+  // 本 Phase 4A 只建立 job／狀態機／idempotency，不寄送任何訊息（LINE
+  // Push／n8n／優惠券留待 Phase 4B 之後），status 欄位因此本輪實際只會出現
+  // pending/waiting/converted/cancelled，其餘（sent/failed/not_contactable/
+  // not_configured）先建好欄位與白名單，避免之後又要 ALTER TABLE。
+  // ══════════════════════════════════════════════════════════════════
+  w._db.run(`CREATE TABLE IF NOT EXISTS cart_recovery_jobs (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    store_id        TEXT NOT NULL,
+    cart_id         TEXT DEFAULT '',
+    visitor_id      TEXT DEFAULT '',
+    session_id      TEXT DEFAULT '',
+    order_id        TEXT DEFAULT '',
+    line_user_id    TEXT DEFAULT '',
+    stage           TEXT NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'pending',
+    trigger_event   TEXT DEFAULT '',
+    last_event      TEXT DEFAULT '',
+    recoverable_value REAL DEFAULT NULL,
+    due_at          TEXT DEFAULT '',
+    last_event_at   TEXT DEFAULT (datetime('now')),
+    attempt_count   INTEGER DEFAULT 0,
+    max_attempts    INTEGER DEFAULT 1,
+    channel         TEXT DEFAULT '',
+    idempotency_key TEXT DEFAULT '',
+    cancel_reason   TEXT DEFAULT '',
+    sent_at         TEXT DEFAULT '',
+    converted_at    TEXT DEFAULT '',
+    cancelled_at    TEXT DEFAULT '',
+    created_at      TEXT DEFAULT (datetime('now')),
+    updated_at      TEXT DEFAULT (datetime('now'))
+  )`);
+  w._save();
+  try {
+    // 需求文件六：idempotency protection——同一 store+cart+stage（cart／
+    // checkout 兩個 stage）正常情況不得建立無限重複 pending/waiting job；
+    // payment stage 有 order_id 時優先以 store+order_id+stage 識別（同一張
+    // LINE Pay 訂單只能有一筆 payment_abandoned）。用 idempotency_key 欄位
+    // 承載這個組合鍵，並在其上建立 partial-like unique（sql.js 不支援
+    // partial index，改用應用層 idempotency：write 前先查詢是否已有
+    // pending/waiting 的同 idempotency_key，詳見 utils/cartRecovery.js）。
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_cart_recovery_store ON cart_recovery_jobs(store_id)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_cart_recovery_cart ON cart_recovery_jobs(store_id, cart_id)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_cart_recovery_order ON cart_recovery_jobs(store_id, order_id)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_cart_recovery_due ON cart_recovery_jobs(store_id, due_at)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_cart_recovery_status ON cart_recovery_jobs(store_id, status)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_cart_recovery_stage ON cart_recovery_jobs(store_id, stage)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_cart_recovery_idempotency ON cart_recovery_jobs(store_id, idempotency_key)');
+    w._save();
+  } catch(e) { console.warn('[DB] cart_recovery_jobs index:', e.message); }
+
+  // ══════════════════════════════════════════════════════════════════
+  // H1.4.10 Phase 4B｜cart_recovery_consents
+  //
+  // 需求文件重申：Recovery Job 存在 ≠ 可以 Push。這張表是「顧客是否同意透過
+  // LINE 收到一次購物車/結帳/付款提醒」的唯一權威來源，與好友狀態
+  // （line_members.is_friend）、LINE 身分辨識（member_session）、加好友引導
+  // （Phase 2 friend_entry/friend_checkout）完全分開，缺一不可。
+  // ══════════════════════════════════════════════════════════════════
+  w._db.run(`CREATE TABLE IF NOT EXISTS cart_recovery_consents (
+    id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+    store_id              TEXT NOT NULL,
+    cart_id               TEXT NOT NULL,
+    visitor_id            TEXT DEFAULT '',
+    session_id            TEXT DEFAULT '',
+    line_user_id          TEXT DEFAULT '',
+    status                TEXT NOT NULL DEFAULT 'granted',
+    consent_text_version  TEXT DEFAULT 'v1',
+    source                TEXT DEFAULT '',
+    granted_at            TEXT DEFAULT '',
+    revoked_at            TEXT DEFAULT '',
+    created_at            TEXT DEFAULT (datetime('now')),
+    updated_at            TEXT DEFAULT (datetime('now'))
+  )`);
+  w._save();
+  try {
+    w._db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_cart_recovery_consents_unique ON cart_recovery_consents(store_id, cart_id)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_cart_recovery_consents_store ON cart_recovery_consents(store_id)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_cart_recovery_consents_cart ON cart_recovery_consents(store_id, cart_id)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_cart_recovery_consents_line_user ON cart_recovery_consents(store_id, line_user_id)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_cart_recovery_consents_status ON cart_recovery_consents(store_id, status)');
+    w._save();
+  } catch(e) { console.warn('[DB] cart_recovery_consents index:', e.message); }
+
+  // ══════════════════════════════════════════════════════════════════
+  // H1.4.10 Phase 4C｜cart_recovery_orchestration_requests
+  //
+  // n8n orchestration 的 replay protection 必須持久化（不能只用
+  // in-memory Map/Set，process restart 會失去保護）。只記 store_id／
+  // request_id／direction／狀態／時間戳，絕不記 UID／cart／order／payload
+  // body／secret／signature。
+  // ══════════════════════════════════════════════════════════════════
+  w._db.run(`CREATE TABLE IF NOT EXISTS cart_recovery_orchestration_requests (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    store_id       TEXT NOT NULL,
+    request_id     TEXT NOT NULL,
+    direction      TEXT NOT NULL,
+    status         TEXT DEFAULT 'received',
+    http_status    INTEGER DEFAULT 0,
+    error_code     TEXT DEFAULT '',
+    requested_at   TEXT DEFAULT (datetime('now')),
+    processed_at   TEXT DEFAULT '',
+    created_at     TEXT DEFAULT (datetime('now'))
+  )`);
+  w._save();
+  try {
+    w._db.run('CREATE UNIQUE INDEX IF NOT EXISTS idx_cro_requests_unique ON cart_recovery_orchestration_requests(store_id, request_id, direction)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_cro_requests_store ON cart_recovery_orchestration_requests(store_id)');
+    w._save();
+  } catch(e) { console.warn('[DB] cart_recovery_orchestration_requests index:', e.message); }
+  try {
+    // 需求文件九（Phase 4C outbound retry）：additive，不做 destructive migration。
+    w._db.run("ALTER TABLE cart_recovery_orchestration_requests ADD COLUMN attempt_count INTEGER DEFAULT 0");
+  } catch(e) { /* 欄位已存在時安全忽略 */ }
+  try {
+    w._db.run("ALTER TABLE cart_recovery_orchestration_requests ADD COLUMN updated_at TEXT DEFAULT ''");
+  } catch(e) { /* 欄位已存在時安全忽略 */ }
+  w._save();
 
   // ══════════════════════════════════════════════════════════════════
   // fix18-10-hotfix31-R2｜CRM Action 生命週期硬化（Architecture Correction）

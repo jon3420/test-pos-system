@@ -97,6 +97,13 @@ const SERVER_ONLY_EVENTS = new Set([
   'friend_added', 'friend_removed', 'friend_restored',
   'member_login', 'member_profile_updated', 'member_first_cart',
   'member_first_purchase', 'member_repeat_purchase', 'member_source_updated',
+  // H1.4.10 section F：LIFF 被動辨識「成功／失敗」只能由後端在真正呼叫 LINE
+  // 官方 API 驗證完成後確認（見 routes/line-member.js POST /verify），前端
+  // 只能送出 started/skipped（觀察到的條件判斷，見下方 EVENT_WHITELIST 註解）。
+  // H1.4.10 Phase 3：payment_success 的真實性只能由後端在金流真正 Confirm
+  // 成功後確認（見 routes/linepay.js /confirm），前端絕對不可宣稱付款已成功。
+  'line_liff_auto_identify_success', 'line_liff_auto_identify_failed',
+  'payment_success',
   // fix18-10-hotfix30-B5-R5.1-B：只能由 routes/delivery.js 在真正完成地址/
   // 費用/距離解析後寫入，前端不可宣稱自己已經解析完成。
   'delivery_address_resolved', 'delivery_fee_calculated',
@@ -164,6 +171,152 @@ function sanitizeFulfillmentMetadata(eventName, metadata) {
       }
       return Object.keys(safe).length ? safe : null;
     }).filter(Boolean);
+  }
+  return out;
+}
+
+// H1.4.10 section F：line_liff_auto_identify_* 的 metadata 欄位級白名單——
+// 只允許 page_type/environment/reason_code/is_in_client/is_logged_in/
+// has_existing_session/has_cart，絕不允許 Token／UID／電話／地址／stack
+// trace 等（需求文件六）。
+const LIFF_AUTO_IDENTIFY_EVENTS = new Set([
+  'line_liff_auto_identify_started', 'line_liff_auto_identify_success',
+  'line_liff_auto_identify_skipped', 'line_liff_auto_identify_failed',
+  'line_member_context_linked',
+]);
+const LIFF_AUTO_IDENTIFY_REASON_CODES = new Set([
+  'already_identified', 'auto_identify_disabled', 'missing_liff_id',
+  'not_in_line_client', 'not_logged_in', 'liff_init_failed',
+  'id_token_missing', 'id_token_expired', 'verify_failed', 'network_error',
+  'context_missing', 'unknown',
+]);
+function sanitizeLiffAutoIdentifyMetadata(eventName, metadata) {
+  if (!LIFF_AUTO_IDENTIFY_EVENTS.has(eventName)) return metadata; // 其他事件維持既有行為
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return null;
+  const out = {};
+  if (metadata.page_type !== undefined) out.page_type = String(metadata.page_type).slice(0, 40);
+  if (metadata.environment !== undefined) out.environment = String(metadata.environment).slice(0, 40);
+  if (metadata.gate_mode !== undefined) out.gate_mode = String(metadata.gate_mode).slice(0, 40);
+  if (metadata.reason_code !== undefined) {
+    const rc = String(metadata.reason_code).slice(0, 60);
+    out.reason_code = LIFF_AUTO_IDENTIFY_REASON_CODES.has(rc) ? rc : 'unknown';
+  }
+  if (typeof metadata.is_in_client === 'boolean') out.is_in_client = metadata.is_in_client;
+  if (typeof metadata.is_logged_in === 'boolean') out.is_logged_in = metadata.is_logged_in;
+  if (typeof metadata.has_existing_session === 'boolean') out.has_existing_session = metadata.has_existing_session;
+  if (typeof metadata.has_cart === 'boolean') out.has_cart = metadata.has_cart;
+  return out;
+}
+
+// H1.4.10 Phase 2：line_friend_guide_* 的 metadata 欄位級白名單——只允許
+// gate_mode/page_type/checkout_stage/has_member_session/known_friend_status/
+// skip_reason，絕不允許 LINE UID／Token／姓名／電話／地址／購物車內容
+// （需求文件十三）。
+const FRIEND_GUIDE_EVENTS = new Set([
+  'line_friend_guide_view', 'line_friend_link_clicked', 'line_friend_guide_skipped',
+]);
+const FRIEND_GUIDE_SKIP_REASONS = new Set(['browse', 'continue_checkout', 'close']);
+const FRIEND_GUIDE_MODES = new Set(['friend_entry', 'friend_checkout']);
+function sanitizeFriendGuideMetadata(eventName, metadata) {
+  if (!FRIEND_GUIDE_EVENTS.has(eventName)) return metadata; // 其他事件維持既有行為
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return null;
+  const out = {};
+  if (metadata.gate_mode !== undefined) {
+    const gm = String(metadata.gate_mode).slice(0, 40);
+    out.gate_mode = FRIEND_GUIDE_MODES.has(gm) ? gm : 'unknown';
+  }
+  if (metadata.page_type !== undefined) out.page_type = String(metadata.page_type).slice(0, 40);
+  if (metadata.checkout_stage !== undefined) out.checkout_stage = String(metadata.checkout_stage).slice(0, 40);
+  if (typeof metadata.has_member_session === 'boolean') out.has_member_session = metadata.has_member_session;
+  if (metadata.known_friend_status !== undefined) {
+    const kfs = String(metadata.known_friend_status);
+    out.known_friend_status = ['friend', 'non_friend', 'unknown'].includes(kfs) ? kfs : 'unknown';
+  }
+  if (metadata.skip_reason !== undefined) {
+    const sr = String(metadata.skip_reason).slice(0, 40);
+    out.skip_reason = FRIEND_GUIDE_SKIP_REASONS.has(sr) ? sr : undefined;
+  }
+  return out;
+}
+
+// H1.4.10 Phase 3：checkout_submit_click／checkout_validation_failed 的
+// metadata 欄位級白名單。checkout_submit_click 只允許
+// checkout_stage/submit_trigger/order_mode/item_count/cart_value；
+// checkout_validation_failed 額外允許 reason_code/has_cart/
+// payment_method_type，reason_code 與 payment_method_type 都各自有獨立
+// 白名單，不接受任意字串（需求文件六：不得送姓名/電話/地址/座標/LINE UID/
+// member_session/coupon code/Token/完整 error message/stack trace）。
+const CHECKOUT_SUBMIT_DIAGNOSTIC_EVENTS = new Set(['checkout_submit_click', 'checkout_validation_failed']);
+const CHECKOUT_VALIDATION_REASON_CODES = new Set([
+  'missing_name', 'missing_phone', 'empty_cart', 'missing_fulfillment',
+  'mode_unavailable', 'product_mode_conflict', 'missing_payment',
+  'missing_date', 'missing_time', 'missing_address', 'address_not_resolved',
+  'delivery_fee_pending', 'delivery_out_of_range', 'minimum_order_not_met',
+  'order_cutoff', 'inventory_unavailable', 'coupon_invalid',
+  'line_member_required', 'unknown',
+]);
+const PAYMENT_METHOD_TYPES = new Set(['cash', 'linepay', 'card', 'transfer', 'other']);
+function sanitizeCheckoutSubmitMetadata(eventName, metadata) {
+  if (!CHECKOUT_SUBMIT_DIAGNOSTIC_EVENTS.has(eventName)) return metadata; // 其他事件維持既有行為
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return null;
+  const out = {};
+  if (metadata.checkout_stage !== undefined) out.checkout_stage = String(metadata.checkout_stage).slice(0, 40);
+  if (metadata.submit_trigger !== undefined) out.submit_trigger = String(metadata.submit_trigger).slice(0, 40);
+  if (metadata.order_mode !== undefined) out.order_mode = String(metadata.order_mode).slice(0, 40);
+  if (Number.isFinite(Number(metadata.item_count))) out.item_count = Math.max(0, Math.min(999, Math.trunc(Number(metadata.item_count))));
+  if (Number.isFinite(Number(metadata.cart_value))) out.cart_value = Math.max(0, Math.round(Number(metadata.cart_value)));
+  if (eventName === 'checkout_validation_failed') {
+    if (metadata.reason_code !== undefined) {
+      const rc = String(metadata.reason_code).slice(0, 60);
+      out.reason_code = CHECKOUT_VALIDATION_REASON_CODES.has(rc) ? rc : 'unknown';
+    }
+    if (typeof metadata.has_cart === 'boolean') out.has_cart = metadata.has_cart;
+    if (metadata.payment_method_type !== undefined) {
+      const pmt = String(metadata.payment_method_type).slice(0, 20);
+      if (PAYMENT_METHOD_TYPES.has(pmt)) out.payment_method_type = pmt;
+    }
+  }
+  return out;
+}
+
+// H1.4.10 Phase 3：payment_success 的 metadata 欄位級白名單——只允許
+// order_id/order_number/payment_provider/payment_method/currency/value，
+// 且 payment_provider 有自己的白名單（需求文件十三）。這支事件只能由
+// routes/linepay.js 在後端 Confirm 成功分支寫入，前端完全不可觸碰。
+const PAYMENT_SUCCESS_PROVIDERS = new Set(['linepay', 'other']);
+function sanitizePaymentSuccessMetadata(eventName, metadata) {
+  if (eventName !== 'payment_success') return metadata; // 其他事件維持既有行為
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return null;
+  const out = {};
+  if (metadata.order_number !== undefined) out.order_number = String(metadata.order_number).slice(0, 60);
+  if (metadata.payment_provider !== undefined) {
+    const pp = String(metadata.payment_provider).slice(0, 20);
+    out.payment_provider = PAYMENT_SUCCESS_PROVIDERS.has(pp) ? pp : 'other';
+  }
+  if (metadata.payment_method !== undefined) {
+    const pm = String(metadata.payment_method).slice(0, 20);
+    if (PAYMENT_METHOD_TYPES.has(pm)) out.payment_method = pm;
+  }
+  if (metadata.currency !== undefined) out.currency = String(metadata.currency).slice(0, 10);
+  if (Number.isFinite(Number(metadata.value))) out.value = Math.max(0, Math.round(Number(metadata.value)));
+  return out;
+}
+
+// H1.4.10 Phase 4A（需求文件十）：payment_started 的 metadata 欄位級白名單。
+// 這支事件本來沒有專屬 sanitizer（其他既有 sanitizer 都各自只認自己負責的
+// event_name，對 payment_started 一律 pass-through），代表理論上前端可以夾帶
+// 任意欄位。這裡明確只允許 payment_method（且必須是已知白名單值），是
+// Recovery Engine 判斷「是否為線上付款」的唯一依據——Cart Recovery Engine
+// 本身完全不對這個欄位做任何猜測或 fallback，若這裡被拿掉，
+// payment_started 的 metadata 就會變成 null，cartRecovery.onAnalyticsEvent()
+// 對應分支會直接安全跳過（不建立 payment_abandoned），不會誤建也不會猜測。
+function sanitizePaymentStartedMetadata(eventName, metadata) {
+  if (eventName !== 'payment_started') return metadata; // 其他事件維持既有行為
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return null;
+  const out = {};
+  if (metadata.payment_method !== undefined) {
+    const pm = String(metadata.payment_method).slice(0, 20);
+    if (PAYMENT_METHOD_TYPES.has(pm)) out.payment_method = pm;
   }
   return out;
 }
@@ -284,7 +437,7 @@ router.post('/events', async (req, res) => {
       gclid: gclid || null,
       // fix18-10-hotfix30-B5-R5：cart_updated / cart_restored 的 metadata 欄位級白名單
       // （sanitizeFulfillmentMetadata 對其他事件維持既有行為，兩者互不影響對方事件）。
-      metadata: sanitizeCartSnapshotMetadata(event_name, sanitizeFulfillmentMetadata(event_name, metadata)) || null,
+      metadata: sanitizePaymentStartedMetadata(event_name, sanitizePaymentSuccessMetadata(event_name, sanitizeCheckoutSubmitMetadata(event_name, sanitizeFriendGuideMetadata(event_name, sanitizeLiffAutoIdentifyMetadata(event_name, sanitizeCartSnapshotMetadata(event_name, sanitizeFulfillmentMetadata(event_name, metadata))))))) || null,
       // fix18-10-hotfix24-A3：Identity × Channel × Page Type（需求文件四／六／七）
       line_user_id: knownLineUserId || null,
       // 前台一般事件只可能來自 LINE 點餐／宅配頁面（POS 收銀端本身不呼叫這支 API，

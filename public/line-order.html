@@ -480,9 +480,22 @@ img{max-width:100%;display:block}
       </section>
       <div class="fg"><label class="fl">付款方式</label><div class="pay-btns" id="payBtns"></div></div>
       <div class="fg"><label class="fl">備註</label><input class="fi" id="oNote" placeholder="特殊需求…" oninput="debouncedPersistCart()"></div>
+      <!-- H1.4.10 Phase 4B（需求文件十）：Recovery consent checkbox。與
+           friend_entry/friend_checkout（Phase 2 加好友引導）、Auto Identify
+           （Phase 1 LINE 身分辨識）完全分開的第四件事。預設未勾選，只有在
+           有效 member_session 存在時才啟用。 -->
+      <div class="fg" id="cartRecoveryConsentRow" style="display:none">
+        <label style="display:flex;align-items:flex-start;gap:8px;font-size:13px;color:#666;cursor:pointer">
+          <input type="checkbox" id="cartRecoveryConsentCheckbox" style="width:auto;margin-top:2px" onchange="onCartRecoveryConsentChange()">
+          <span>若本次尚未完成訂單，同意透過 LINE 提醒我一次</span>
+        </label>
+      </div>
+      <div class="fg" id="cartRecoveryConsentDisabledHint" style="display:none;font-size:12px;color:#999">
+        從官方 LINE 進入並辨識會員後，可啟用一次提醒。
+      </div>
     </div>
     <div class="cart-stage-footer" id="checkoutStageFooter">
-      <button class="sub-btn" id="subBtn" onclick="submitOrder()">確認下單</button>
+      <button class="sub-btn" id="subBtn" onclick="submitOrder(event)">確認下單</button>
     </div>
   </div>
 </div>
@@ -543,6 +556,30 @@ img{max-width:100%;display:block}
 'use strict';
 // ── SaaS store_id 綁定 ──
 const LINE_STORE_ID = new URLSearchParams(window.location.search).get('store_id') || 'store_001';
+
+// H1.4.10 Phase 4B：Recovery Token 立即從 URL 讀入短期記憶體，再馬上從網址
+// 移除（history.replaceState），降低 browser history／複製網址／referrer／
+// 截圖長時間暴露 token 的風險。token 是 opaque secret，這裡不解析、不
+// decode，也不嘗試從中讀出 cart_id/order_id/UID（那些都是 backend 才知道
+// 的事）。不存進 localStorage／sessionStorage／analytics metadata／cart
+// payload，只活在這幾個模組層級變數裡。
+let _recoveryResumeToken='';
+let _recoveryWasLinePayCancel=false;
+let _recoveryResumeHandled=false;
+(function _captureRecoveryTokenFromUrl(){
+  try{
+    const params=new URLSearchParams(window.location.search);
+    const rawToken=params.get('recovery_token');
+    if(rawToken){
+      _recoveryResumeToken=String(rawToken).trim().slice(0,200);
+      _recoveryWasLinePayCancel=params.get('linepay')==='cancel';
+      params.delete('recovery_token');
+      const cleanUrl=new URL(window.location.href);
+      cleanUrl.search=params.toString();
+      window.history.replaceState({}, '', cleanUrl.toString());
+    }
+  }catch(e){ /* URL 清理失敗絕不可阻擋頁面載入 */ }
+})();
 // hotfix22-F：購物車永久保留（不做 24 小時到期判斷）。key 加上 target=line_order，
 // 與冷藏宅配（line_shipping_cart_）完全獨立，互不干擾。
 const ORDER_CART_KEY = 'line_order_cart_' + LINE_STORE_ID;
@@ -662,8 +699,12 @@ function _firePurchaseOnce(orderNumber, orderTotal, itemsForPixel){
 // fix18-10-hotfix23-A：加入購物車時若尚未有 cart_id（購物車原本是空的），先建立一個；
 // 移除商品降到 0 時記錄 remove_from_cart。quantity 帶「這次異動」的數量，不是購物車總量。
 function _trackAddToCart(id, qtyDelta){
+  const _hadCartIdBefore=!!_getCartId(false);
   _getCartId(true); // 確保購物車已有 cart_id
   _trackEvent('add_to_cart',{product_id:Number(id), quantity:Math.max(1,Number(qtyDelta)||1)});
+  // H1.4.10 section I 觸發時機二：第一次建立 cart_id 後補綁定（已有 session
+  // 才會真的送出，見 _linkLineMemberContext 內部檢查）。
+  if(!_hadCartIdBefore){ try{ _linkLineMemberContext('first_cart_id_created'); }catch(e){} }
 }
 function _trackRemoveFromCart(id, qtyDelta){
   _trackEvent('remove_from_cart',{product_id:Number(id), quantity:Math.max(1,Number(qtyDelta)||1)});
@@ -684,6 +725,9 @@ function _buildLineMemberGateConfig(d){
     liff_id:d.line_member_liff_id||'',
     gate_enabled:d.line_member_gate_enabled==='1',
     gate_mode:d.line_member_gate_mode||'disabled',
+    // H1.4.10 section D：與 gate_enabled 完全分開的獨立開關，不強制登入、
+    // 不顯示 Gate，只在 LINE App 內背景辨識會員（見 tryPassiveLiffIdentification）。
+    auto_identify_enabled:d.line_member_auto_identify_enabled==='1',
     require_friend:d.line_member_require_friend==='1',
     allow_skip:d.line_member_allow_skip==='1',
     add_friend_url:d.add_friend_url||d.line_add_friend_url||d.line_member_add_friend_url||'',
@@ -728,16 +772,37 @@ async function _initLineMemberGateFromShopData(d){
     toast('此結帳連結已失效，請返回點餐頁重新操作。');
     return;
   }
-  if(!_lineMemberGateConfig.gate_enabled && !cartToken) return;
-  if(_lineMemberGateConfig.gate_mode==='disabled' && !cartToken) return;
+  // H1.4.10 section E：shouldInitLiff = gate_enabled OR auto_identify_enabled
+  // OR cart_handoff_required（cartToken 存在）。init LIFF 不等於 liff.login()——
+  // 被動辨識／Handoff 還原都只需要初始化 LIFF SDK，不會主動跳轉登入頁。
+  const shouldInitLiff=_lineMemberGateConfig.gate_enabled || _lineMemberGateConfig.auto_identify_enabled || !!cartToken;
+  // H1.4.10 Phase 2：friend_entry／friend_checkout 明確定義為「免登入」，
+  // 不需要 LIFF（純靠 add_friend_url 開啟連結），因此即使沒有 liff_id 也要
+  // 讓下面的 Friend Guide 邏輯有機會執行，不能直接 return。
+  const isFriendOnlyMode=_lineMemberGateConfig.gate_mode==='friend_entry' || _lineMemberGateConfig.gate_mode==='friend_checkout';
+  if(!shouldInitLiff && !isFriendOnlyMode) return;
+  if(_lineMemberGateConfig.gate_mode==='disabled' && !cartToken && !_lineMemberGateConfig.auto_identify_enabled) return;
   if(!_lineMemberGateConfig.liff_id){
     if(cartToken) toast('商家尚未完成 LINE 結帳設定，請聯絡店家');
-    return;
-  }
+    if(!isFriendOnlyMode) return;
+  } else {
   let gateState=null;
-  try{ gateState=await LineMemberGate.initLineMemberGate({ store_id:LINE_STORE_ID, liff_id:_lineMemberGateConfig.liff_id }, _gateIds(), _trackEvent); }catch(e){ return; }
+  // H1.4.10：只有在「唯一理由是 auto_identify_enabled」（gate 未啟用、也不是
+  // handoff）時才跳過既有登入返回自動驗證流程，交給 tryPassiveLiffIdentification
+  // 專責處理；gate_enabled 或 cartToken 觸發的初始化完全保留原行為。
+  const skipLoginCallback=!_lineMemberGateConfig.gate_enabled && !cartToken;
+  try{ gateState=await LineMemberGate.initLineMemberGate({ store_id:LINE_STORE_ID, liff_id:_lineMemberGateConfig.liff_id }, _gateIds(), _trackEvent, { skipLoginCallback }); }catch(e){ gateState=null; }
   if(_lineMemberGateConfig.gate_enabled && _lineMemberGateConfig.gate_mode==='entry'){
     LineMemberGate.requireMemberOnEntry(LINE_STORE_ID, _lineMemberGateConfig, _gateIds(), _trackEvent);
+  }
+  // H1.4.10 section D/E/F：被動辨識——不論 Gate 是否啟用，只要
+  // auto_identify_enabled 且條件符合（LINE App 內、已登入、尚無 session）就
+  // 背景嘗試一次；函式內部本身已保證絕不呼叫 liff.login()、絕不阻擋流程。
+  if(_lineMemberGateConfig.auto_identify_enabled){
+    try{
+      const passiveResult=await LineMemberGate.tryPassiveLiffIdentification(LINE_STORE_ID, _lineMemberGateConfig, _gateIds(), _trackEvent);
+      if(passiveResult && passiveResult.ok){ _linkLineMemberContext('liff_auto_identify_success'); }
+    }catch(e){ /* 被動辨識失敗絕不可阻擋點餐流程 */ }
   }
   // fix18-10-hotfix25：checkout 模式下，若剛從 LINE 登入導回並自動完成驗證，
   // 購物車本來就已由既有 persistCart()/還原機制保留，這裡再把結帳畫面（購物車
@@ -748,6 +813,14 @@ async function _initLineMemberGateFromShopData(d){
   }
   if(cartToken){
     try{ await _restoreCartFromHandoffToken(cartToken); }catch(e){ console.warn('[cart-handoff] restore failed:', e.message); }
+  }
+  }
+  // H1.4.10 Phase 2：friend_entry 進站引導。放在整段 LIFF 初始化／被動辨識
+  // 之後才呼叫，讓 knownFriendStatus() 能拿到最新（若 Auto Identify 剛成功）
+  // 的好友狀態；即使上面因為缺 liff_id 而完全沒有初始化 LIFF，這裡仍會執行
+  // （friend_entry 本身不需要 LIFF，見上方 isFriendOnlyMode 判斷）。
+  if(_lineMemberGateConfig.gate_enabled && _lineMemberGateConfig.gate_mode==='friend_entry'){
+    try{ LineMemberGate.maybeShowFriendEntryGuide(LINE_STORE_ID, _lineMemberGateConfig, _gateIds(), _trackEvent); }catch(e){}
   }
 }
 
@@ -831,6 +904,8 @@ async function _restoreCartFromHandoffToken(cartToken){
 
     openCartSheet({step:'checkout'});
     toast('購物車已成功還原，請確認內容後完成結帳。');
+    // H1.4.10 section I 觸發時機三：Handoff restore 完成後補綁定。
+    try{ _linkLineMemberContext('handoff_restore_completed'); }catch(e){}
   } finally {
     document.getElementById('loading').style.display='none';
   }
@@ -858,6 +933,266 @@ function _showCheckoutHandoffFailure(message){
 }
 function _currentMemberSession(){
   try{ const s=LineMemberGate.getMemberSession(LINE_STORE_ID); return s?s.member_session:null; }catch(e){ return null; }
+}
+// H1.4.10 section I：LIFF 辨識成功後，購物車補綁定。POST /api/line-member/
+// link-context 是 idempotent 的（後端依 store_id+line_user_id+visitor_id
+// upsert），但仍在前端做輕量 signature 去重，避免每次 cart_updated 都重複
+// 呼叫（需求文件明確禁止）。呼叫時機：被動辨識成功／第一次建立 cart_id／
+// Handoff 還原完成後（見各呼叫點）。絕不阻擋下單流程、絕不拋出例外。
+function _linkLineMemberContext(reasonTag){
+  try{
+    const memberSession=_currentMemberSession();
+    if(!memberSession) return;
+    const cartId=_getCartId(false)||'';
+    const sigKey='line_link_context_sig_'+LINE_STORE_ID;
+    const signature=memberSession.slice(-24)+'|'+cartId;
+    let lastSig='';
+    try{ lastSig=sessionStorage.getItem(sigKey)||''; }catch(e){}
+    if(lastSig===signature) return; // 同一 session/cart 組合已經呼叫過，跳過
+    try{ sessionStorage.setItem(sigKey,signature); }catch(e){}
+    apiFetch('/api/line-member/link-context',{method:'POST',body:JSON.stringify({
+      member_session:memberSession, visitor_id:_getVisitorId(), session_id:_getSessionId(), cart_id:cartId,
+    })}).then(r=>r.json()).then(json=>{
+      _trackEvent('line_member_context_linked',{metadata:{
+        page_type:currentMode||'', reason_code: json&&json.success ? undefined : 'context_missing',
+        has_cart: !!cartId,
+      }});
+    }).catch(()=>{});
+  }catch(e){ /* 補綁定失敗絕不可阻擋下單流程 */ }
+}
+
+// H1.4.10 Phase 4B：Cart Recovery Consent UI（需求文件十／十一）。與
+// _linkLineMemberContext（LIFF 身分歸戶）、Friend Guide（Phase 2 加好友引導）
+// 完全分開的第四件事——這裡只負責「顧客是否同意透過 LINE 收到一次購物車/
+// 結帳/付款提醒」，不做任何身分判斷本身。
+function updateCartRecoveryConsentUI(){
+  try{
+    const row=document.getElementById('cartRecoveryConsentRow');
+    const hint=document.getElementById('cartRecoveryConsentDisabledHint');
+    const cb=document.getElementById('cartRecoveryConsentCheckbox');
+    if(!row||!hint||!cb) return;
+    // H1.4.10 Phase 4B（需求文件二十一）：店家沒開啟 Recovery 或沒開 LINE
+    // 一次提醒時，不該讓顧客同意一個根本不存在的功能。
+    const recoveryOn=shopData && shopData.cart_recovery_enabled==='1' && shopData.cart_recovery_line_enabled==='1';
+    if(!recoveryOn){ row.style.display='none'; hint.style.display='none'; cb.disabled=true; cb.checked=false; return; }
+    const hasSession=!!_currentMemberSession();
+    const hasCart=!!_getCartId(false);
+    if(hasSession && hasCart){
+      row.style.display='';
+      hint.style.display='none';
+      cb.disabled=false;
+    } else {
+      row.style.display='none';
+      // 沒有會員身分但有購物車：顯示說明文字，不強迫登入（需求文件十）。
+      hint.style.display=hasCart?'block':'none';
+      cb.disabled=true;
+      cb.checked=false;
+    }
+  }catch(e){ /* UI 更新失敗絕不可阻擋下單流程 */ }
+}
+// checkbox 變更立即送出，不等到 submitOrder()（需求文件十一：cart_abandoned／
+// checkout_abandoned 可能發生在送單之前）。失敗時 UI 回復原狀，但絕不阻止
+// 點餐／結帳／下單。
+async function onCartRecoveryConsentChange(){
+  const cb=document.getElementById('cartRecoveryConsentCheckbox');
+  if(!cb) return;
+  const desired=cb.checked;
+  const memberSession=_currentMemberSession();
+  const cartId=_getCartId(false);
+  if(!memberSession || !cartId){ cb.checked=!desired; return; }
+  try{
+    const res=await apiFetch('/api/cart-recovery/consent',{method:'POST',body:JSON.stringify({
+      member_session:memberSession, cart_id:cartId, visitor_id:_getVisitorId(), session_id:_getSessionId(), consent:desired,
+    })});
+    const json=await res.json();
+    if(!json||!json.success){ cb.checked=!desired; }
+  }catch(e){ cb.checked=!desired; }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// H1.4.10 Phase 4B：Frontend Recovery Resume（LINE Push 提醒點回來的還原
+// 流程）。全部 additive，正常訪客（URL 沒有 recovery_token）完全不受影響。
+// ══════════════════════════════════════════════════════════════════
+
+// 安全提示 Panel（不用 alert()，vanilla DOM，與既有 _showCheckoutHandoffFailure
+// 同一種輕量做法，不重做大 UI framework）。
+function showRecoveryNotice(kind, message){
+  try{
+    const existing=document.getElementById('recoveryNoticeOverlay');
+    if(existing) existing.remove();
+    const overlay=document.createElement('div');
+    overlay.id='recoveryNoticeOverlay';
+    overlay.style.cssText='position:fixed;inset:0;z-index:99997;background:rgba(0,0,0,.5);display:flex;align-items:flex-end;justify-content:center;padding:16px;padding-bottom:calc(16px + env(safe-area-inset-bottom, 0px));';
+    overlay.innerHTML=`
+      <div style="background:#fff;border-radius:16px;max-width:400px;width:100%;padding:20px;text-align:center;box-shadow:0 8px 30px rgba(0,0,0,.2)">
+        <p style="margin:0 0 16px;color:#333;font-size:14px;white-space:pre-line"></p>
+        <button id="recoveryNoticeCloseBtn" style="width:100%;padding:12px;border:0;border-radius:10px;background:#06C755;color:#fff;font-size:15px;font-weight:600;cursor:pointer">知道了</button>
+      </div>`;
+    // 用 textContent 賦值，避免任何情況下把 backend 原始文字當 HTML 注入（防呆）。
+    overlay.querySelector('p').textContent=String(message||'').slice(0,200);
+    document.body.appendChild(overlay);
+    const closeBtn=document.getElementById('recoveryNoticeCloseBtn');
+    if(closeBtn) closeBtn.addEventListener('click', ()=>{ overlay.remove(); });
+  }catch(e){ /* 提示失敗絕不可影響其他功能 */ }
+}
+
+// 需求文件十六：backend reason 一律 mapping 成少量安全文案，不直接顯示
+// raw reason 字串。
+function _mapRecoveryRestoreFailureMessage(reason){
+  const map={
+    expired:'這個提醒連結已失效，可能訂單已完成或連結已過期。',
+    consumed:'這個提醒連結已失效，可能訂單已完成或連結已過期。',
+    cancelled:'這個提醒連結已失效，可能訂單已完成或連結已過期。',
+    already_completed:'這個提醒連結已失效，可能訂單已完成或連結已過期。',
+    wrong_page:'無法在目前頁面恢復這筆購物車。',
+    member_not_identified:'無法驗證 LINE 會員身分，請從原 LINE 提醒訊息重新開啟。',
+    uid_mismatch:'無法驗證 LINE 會員身分，請從原 LINE 提醒訊息重新開啟。',
+    not_found:'這個提醒連結已失效，可能訂單已完成或連結已過期。',
+    invalid_target:'這個提醒連結已失效，可能訂單已完成或連結已過期。',
+  };
+  return map[reason]||'目前無法恢復這筆購物車，請稍後再試。';
+}
+function _mapRecoveryPaymentFailureMessage(reason){
+  const map={
+    payment_request_in_progress:'付款頁正在建立，請稍候。',
+    already_paid:'這筆訂單已完成付款。',
+    already_converted:'這筆訂單已完成付款。',
+  };
+  return map[reason]||'目前無法建立付款頁，請稍後再試。';
+}
+
+// 需求文件十七／十八：reuse 既有 Cart Handoff 的「server items → localStorage
+// ORDER_CART_KEY → restoreCart()」還原機制，不新造第二套 cart mapping。
+async function _applyRecoveryCart(cartItems){
+  const cartQtyMap={};
+  (cartItems||[]).forEach(it=>{ cartQtyMap[it.product_id]=it.qty; });
+  let _existingCreatedAt=null;
+  try{ const _prev=JSON.parse(localStorage.getItem(ORDER_CART_KEY)||'null'); _existingCreatedAt=_prev?.cart_created_at||null; }catch(e){}
+  let _existing=null;
+  try{ _existing=JSON.parse(localStorage.getItem(ORDER_CART_KEY)||'null'); }catch(e){}
+  const cartData=Object.assign({}, _existing||{}, {
+    version:1, store_id:LINE_STORE_ID,
+    session_id:_getSessionId(), visitor_id:_getVisitorId(),
+    cart_created_at:_existingCreatedAt||Date.now(), cart_updated_at:Date.now(),
+    cart:cartQtyMap,
+  });
+  localStorage.setItem(ORDER_CART_KEY, JSON.stringify(cartData));
+  await restoreCart();
+}
+
+// 正式 release：只保留這個 wrapper，避免直接把 window.location.href 賦值散落
+// 在兩個呼叫點，方便未來如果要換成其他安全導頁機制時只改一處。
+function _navigateRecoveryPayment(url){
+  window.location.href = url;
+}
+
+// Payment Recovery Panel（resume_type='payment'，不 restore 購物車）。
+function _showPaymentRecoveryPanel(){
+  try{
+    const existing=document.getElementById('recoveryPaymentPanel');
+    if(existing) existing.remove();
+    const overlay=document.createElement('div');
+    overlay.id='recoveryPaymentPanel';
+    overlay.style.cssText='position:fixed;inset:0;z-index:99996;background:rgba(0,0,0,.5);display:flex;align-items:flex-end;justify-content:center;padding:16px;padding-bottom:calc(16px + env(safe-area-inset-bottom, 0px));';
+    overlay.innerHTML=`
+      <div style="background:#fff;border-radius:16px;max-width:400px;width:100%;padding:20px;text-align:center;box-shadow:0 8px 30px rgba(0,0,0,.2)">
+        <h3 style="margin:0 0 8px;font-size:17px">LINE Pay 付款尚未完成</h3>
+        <p style="margin:0 0 16px;color:#666;font-size:14px">如果仍要完成這筆訂單，可以繼續前往 LINE Pay。</p>
+        <button id="recoveryPaymentPrimaryBtn" style="width:100%;padding:12px;border:0;border-radius:10px;background:#06C755;color:#fff;font-size:15px;font-weight:600;margin-bottom:8px;cursor:pointer">繼續 LINE Pay 付款</button>
+        <button id="recoveryPaymentSecondaryBtn" style="width:100%;padding:10px;border:0;background:transparent;color:#999;font-size:13px;cursor:pointer">稍後再說</button>
+      </div>`;
+    document.body.appendChild(overlay);
+    const primaryBtn=document.getElementById('recoveryPaymentPrimaryBtn');
+    const secondaryBtn=document.getElementById('recoveryPaymentSecondaryBtn');
+    // 需求文件二十八～二十九：只有真正的 click 才 POST /resume-payment，
+    // page load 本身絕不自動請求付款。Backend concurrency guard 才是最終
+    // authority，這裡 disabled 只是 UX。
+    if(primaryBtn) primaryBtn.addEventListener('click', async ()=>{
+      // 需求文件二十四：不能只依賴 DOM disabled 屬性本身阻止重複觸發（某些
+      // 合成事件/邊界情況下 disabled 元素仍可能收到 click），handler 自己
+      // 也要有明確的 re-entrancy guard。Backend atomic claim 才是最終
+      // authority，這裡純粹是額外一層 UX/一致性保護。
+      if(primaryBtn.disabled) return;
+      primaryBtn.disabled=true; primaryBtn.textContent='處理中…';
+      try{
+        const res=await apiFetch('/api/cart-recovery/resume-payment',{method:'POST',body:JSON.stringify({
+          member_session:_currentMemberSession(), recovery_token:_recoveryResumeToken,
+        })}).then(r=>r.json());
+        if(res && res.success && res.payment_url){
+          // 需求文件二十九：Recovery payment_started 已由 backend authority
+          // 寫入（見 routes/cart-recovery.js /resume-payment），這裡絕不重複
+          // _trackEvent('payment_started')，避免 double count。
+          _navigateRecoveryPayment(res.payment_url);
+          return;
+        }
+        primaryBtn.disabled=false; primaryBtn.textContent='繼續 LINE Pay 付款';
+        showRecoveryNotice('payment_failure', _mapRecoveryPaymentFailureMessage(res&&res.reason));
+      }catch(e){
+        primaryBtn.disabled=false; primaryBtn.textContent='繼續 LINE Pay 付款';
+        showRecoveryNotice('payment_failure', '目前無法建立付款頁，請稍後再試。');
+      }
+    });
+    if(secondaryBtn) secondaryBtn.addEventListener('click', ()=>{ overlay.remove(); });
+  }catch(e){ /* Panel 顯示失敗絕不可影響其他功能 */ }
+}
+
+async function _handleRecoveryRestore(memberSession){
+  try{
+    const res=await apiFetch('/api/cart-recovery/restore',{method:'POST',body:JSON.stringify({
+      member_session:memberSession, recovery_token:_recoveryResumeToken, page_type:'line_order',
+    })}).then(r=>r.json());
+    if(!res || !res.success){
+      showRecoveryNotice('restore_failure', _mapRecoveryRestoreFailureMessage(res&&res.reason));
+      return;
+    }
+    if(res.resume_type==='payment'){
+      _showPaymentRecoveryPanel();
+      return;
+    }
+    await _applyRecoveryCart(res.cart&&res.cart.items);
+    if(res.resume_type==='checkout'){
+      // 需求文件二十一：純 UI 還原，不得呼叫 openCheckoutStep(event)、不得
+      // fake #goCheckoutBtn click、不得 _trackEvent('checkout_click')——原本
+      // 的 checkout_click 已經在顧客第一次進結帳頁時發生過了。
+      openCartSheet({step:'checkout'});
+    } else {
+      openCartSheet({silent:true});
+    }
+  }catch(e){ /* Recovery 還原失敗絕不可影響其他功能 */ }
+}
+
+async function _handleRecoveryCancelReturn(memberSession){
+  try{
+    const res=await apiFetch('/api/cart-recovery/payment-cancelled',{method:'POST',body:JSON.stringify({
+      member_session:memberSession, recovery_token:_recoveryResumeToken,
+    })}).then(r=>r.json());
+    if(!res || !res.success){
+      showRecoveryNotice('restore_failure', _mapRecoveryRestoreFailureMessage(res&&res.reason));
+      return;
+    }
+    // 需求文件三十：reset 成功後只顯示付款面板，不自動再次 /resume-payment，
+    // 使用者自己再按一次才會建立第二次合法的 LINE Pay Request。
+    _showPaymentRecoveryPanel();
+  }catch(e){ /* Cancel-return 失敗絕不可影響其他功能 */ }
+}
+
+// 需求文件十二：同一次 page load 最多執行一次，不用 localStorage 永久
+// dedupe（顧客之後從別的 LINE 提醒訊息重新開啟仍應該能再次處理）。
+async function handleRecoveryResumeFromUrl(){
+  if(_recoveryResumeHandled || !_recoveryResumeToken) return;
+  _recoveryResumeHandled=true;
+  const memberSession=_currentMemberSession();
+  if(!memberSession){
+    // 需求文件十三：沒有可信身分，不得 liff.login()、不得相信 token 本身、
+    // 不得使用 visitor_id 代替，只顯示提示，一般點餐功能繼續可用。
+    showRecoveryNotice('identity','無法驗證 LINE 會員身分，請從原 LINE 提醒訊息重新開啟。');
+    return;
+  }
+  if(_recoveryWasLinePayCancel){
+    await _handleRecoveryCancelReturn(memberSession);
+    return;
+  }
+  await _handleRecoveryRestore(memberSession);
 }
 
 // ── 全域狀態 ──
@@ -1516,7 +1851,14 @@ async function init(){
       try{ AnalyticsPlatforms.init(shopData); }catch(e){}
       // fix18-10-hotfix23-E：LINE 會員入口 —— 初始化 LIFF；disabled 模式下
       // liff_id 通常也未設定，initLineMemberGate 內部會安全略過，完全不影響既有流程。
-      try{ _initLineMemberGateFromShopData(shopData); }catch(e){}
+      // H1.4.10 Phase 4B（Reality Audit 修正）：不在這裡立即 .then() 觸發
+      // Recovery bootstrap——下面還有既有正常 restoreCart()（hotfix22-F，還原
+      // 永久保留的購物車）尚未執行，若 Recovery 先還原、正常 restoreCart()
+      // 後執行，會把 Recovery 剛還原的購物車覆蓋掉。改成先把這個 Promise
+      // 存起來，等正常 restoreCart() 完成之後才 await 它、再觸發 Recovery
+      // bootstrap，讓 Recovery（如果有）是最後、權威的購物車狀態。
+      let _memberGateInitPromise=Promise.resolve();
+      try{ _memberGateInitPromise=_initLineMemberGateFromShopData(shopData); }catch(e){}
       // fix18-05: 依 coupon_feature_enabled 顯示/隱藏優惠券區塊
       couponFeatureEnabled = shopData.coupon_feature_enabled === true;
       const couponAreaEl = document.getElementById('couponArea');
@@ -1640,6 +1982,12 @@ async function init(){
     // hotfix22-F：還原永久保留的購物車（不設 24hr 到期），需在 allProducts/日期時段/付款方式
     // 都已建立好之後執行，才能正確重新驗證商品是否仍存在、日期時段是否仍合法。
     await restoreCart();
+    // H1.4.10 Phase 4B：既有正常 restoreCart() 已完成，現在才等 LINE 會員
+    // Gate（含 Phase 1 Passive Identify）初始化完成，接著才觸發 Recovery
+    // bootstrap——這樣如果這次是 Recovery 連結，它的還原結果會是最後、
+    // 權威的購物車狀態，不會被上面這行已經跑完的 restoreCart() 蓋掉。
+    try{ await _memberGateInitPromise; }catch(e){}
+    try{ handleRecoveryResumeFromUrl(); }catch(e){}
     document.getElementById('loading').style.display='none';
     document.getElementById('content').style.display='block';
     renderLastOrderCard();
@@ -3674,6 +4022,14 @@ function openCheckoutStep(event){
       try{ sessionStorage.setItem(ccKey,cid); }catch(e){}
     }
   }catch(e){}
+  // H1.4.10 Phase 2：friend_checkout 引導只能在這裡（真實 #goCheckoutBtn
+  // click，checkout_click 已經送出、畫面已經切到結帳頁「之後」）呼叫。純
+  // UI 引導，不影響上面 checkout_click 的送出與去重，也不阻擋任何後續操作；
+  // maybeShowFriendCheckoutGuide() 內部有自己的 sessionStorage 去重，同一
+  // session 只會真的顯示一次。
+  if(_lineMemberGateConfig && _lineMemberGateConfig.gate_enabled && _lineMemberGateConfig.gate_mode==='friend_checkout'){
+    try{ LineMemberGate.maybeShowFriendCheckoutGuide(LINE_STORE_ID, _lineMemberGateConfig, _gateIds(), _trackEvent); }catch(e){}
+  }
 }
 
 // 返回購物車：只切畫面，不清除任何資料、不重算金額、不重新觸發 view_cart。
@@ -3689,6 +4045,9 @@ function renderCheckoutStep(){
   // renderCheckoutOrderSummary()），進入結帳頁時直接呼叫，確保訂單摘要在畫面
   // 顯示前就已經是最新狀態，不需要等下一次購物車變更才補上。
   updateBar();
+  // H1.4.10 Phase 4B：純 UI 狀態同步（不送任何 analytics event），沿用既有
+  // 「結帳頁 render 時同步一次」的模式，與 updateBar() 完全並列、互不影響。
+  updateCartRecoveryConsentUI();
 }
 
 // 兩個 CTA（前往結帳／確認下單）的金額必須永遠與 #orderTotal 同步——由
@@ -3750,7 +4109,43 @@ function renderCartItems(){
 }
 
 // ── 送單（結帳前再次驗證）────────────────────────────────
-async function submitOrder(){
+async function submitOrder(event){
+  // H1.4.10 Phase 3：checkout_submit_click／checkout_validation_failed 的
+  // explicit-button-only 因果契約，與 H1.4.9 openCheckoutStep(event) 同一套
+  // 判斷方式（event.type==='click' && event.currentTarget===真實按鈕）。
+  // submitOrder() 目前只有 #subBtn 的 onclick 一個呼叫點（無 render/restore/
+  // auto-resume/LINE callback 會直接呼叫它），這裡的判斷是額外的因果保險，
+  // 不改變 submitOrder() 本身可以被安全呼叫的既有能力。
+  const _submitBtnEl=document.getElementById('subBtn');
+  const _isRealSubmitAttempt=!!(event && event.type==='click' && _submitBtnEl && event.currentTarget===_submitBtnEl);
+  // 每次真正 submit attempt 最多記一筆 checkout_validation_failed（需求文件
+  // 五：即使同時缺多個欄位，只記第一個真正阻擋送出的 reason）。
+  let _validationFailedSent=false;
+  function trackCheckoutValidationFailed(reasonCode, extra){
+    if(!_isRealSubmitAttempt || _validationFailedSent) return;
+    _validationFailedSent=true;
+    try{
+      _trackEvent('checkout_validation_failed',{metadata:Object.assign({
+        reason_code:reasonCode,
+        order_mode:currentMode,
+        checkout_stage:cartUIStage||'checkout',
+        has_cart:!!Object.keys(cart).length,
+        item_count:Object.keys(cart).length,
+      }, extra||{})});
+    }catch(e){ /* 追蹤失敗絕不可阻擋送單流程 */ }
+  }
+  if(_isRealSubmitAttempt){
+    // 需求文件四：不做 checkout_click 那種永久 cart_id 去重——同一顧客多次
+    // 真正點擊「確認下單」（例如第一次資料錯誤、修正後再點）都要各自留下
+    // 一筆，用來分析真實嘗試送單次數。
+    try{
+      _trackEvent('checkout_submit_click',{metadata:{
+        checkout_stage:'checkout', submit_trigger:'confirm_order_button',
+        order_mode:currentMode, item_count:Object.keys(cart).length,
+        cart_value:getCartProductSubtotal(),
+      }});
+    }catch(e){ /* 追蹤失敗絕不可阻擋送單流程 */ }
+  }
   const name=document.getElementById('cName').value.trim();
   const phone=document.getElementById('cPhone').value.trim();
   const note=document.getElementById('oNote').value.trim();
@@ -3758,10 +4153,10 @@ async function submitOrder(){
   const type=document.getElementById('oType').value;
   const pickupDate=document.getElementById('pDate')?.value;
 
-  if(!name){toast('請填寫姓名');return;}
-  if(!phone){toast('請填寫電話');return;}
-  if(!Object.keys(cart).length){toast('購物車是空的');return;}
-  if(!type){toast('請選擇取餐方式');return;}
+  if(!name){trackCheckoutValidationFailed('missing_name');toast('請填寫姓名');return;}
+  if(!phone){trackCheckoutValidationFailed('missing_phone');toast('請填寫電話');return;}
+  if(!Object.keys(cart).length){trackCheckoutValidationFailed('empty_cart');toast('購物車是空的');return;}
+  if(!type){trackCheckoutValidationFailed('missing_fulfillment');toast('請選擇取餐方式');return;}
   // hotfix22-F 補正：目前模式被店家關閉時一律擋下送單（不清空購物車），
   // 与 updateModeAvailabilityUI()/buildDateSelector() 的 UI 層限制互為保險。
   // fix18-10-hotfix30-B3 root cause fix：這裡改用 .selectable（= canOrderNow || canPreorder），
@@ -3771,6 +4166,7 @@ async function submitOrder(){
   const _submitToStatus=getFulfillmentStatus('takeout');
   const _submitDlStatus=getFulfillmentStatus('delivery');
   if((type==='takeout' && !_submitToStatus.selectable) || (type==='delivery' && !_submitDlStatus.selectable)){
+    trackCheckoutValidationFailed('mode_unavailable');
     toast((type==='delivery'?'外送':'外帶')+'目前未開放，請切換模式或稍後再試');return;
   }
   // fix18-10-hotfix30-A 第九點：購物車商品相容性——即使模式本身開放，若購物車內有商品
@@ -3778,28 +4174,29 @@ async function submitOrder(){
   const _cartModes=getCartAvailableModes();
   if(!_cartModes[type]){
     const conflictNames=(_cartModes.reasons[type]||[]).map(r=>r.product_name).join('、');
+    trackCheckoutValidationFailed('product_mode_conflict');
     toast(`購物車內「${conflictNames}」不支援${type==='delivery'?'外送':'外帶'}，請移除該商品或切換取餐方式`);
     return;
   }
-  if(!selectedPay){toast('請選擇付款方式');return;}
-  if(!pickupDate){toast('請選擇日期');return;}
-  if(!time){toast('請選擇時間');return;}
+  if(!selectedPay){trackCheckoutValidationFailed('missing_payment');toast('請選擇付款方式');return;}
+  if(!pickupDate){trackCheckoutValidationFailed('missing_date');toast('請選擇日期');return;}
+  if(!time){trackCheckoutValidationFailed('missing_time');toast('請選擇時間');return;}
 
   // fix18-06: 外送模式驗證地址與費用
   const isDelivery = type === 'delivery';
   if(isDelivery){
     const addrVal=(document.getElementById('deliveryAddress')?.value||'').trim();
-    if(!addrVal){toast('外送訂單請填寫外送地址');return;}
-    if(!deliveryLatLng.lat||!deliveryLatLng.lng){toast('請重新選擇外送地址（需取得座標）');return;}
-    if(!deliveryFeeCalculated){toast('請稍候，外送費計算中…');return;}
+    if(!addrVal){trackCheckoutValidationFailed('missing_address');toast('外送訂單請填寫外送地址');return;}
+    if(!deliveryLatLng.lat||!deliveryLatLng.lng){trackCheckoutValidationFailed('address_not_resolved');toast('請重新選擇外送地址（需取得座標）');return;}
+    if(!deliveryFeeCalculated){trackCheckoutValidationFailed('delivery_fee_pending');toast('請稍候，外送費計算中…');return;}
   }
 
   // 送單前雙重驗證：呼叫後端重新確認
   const now=twNow(),nowStr=fmtD(now);
   const isNextDayOrder = pickupDate > nowStr;
   if(!isNextDayOrder){
-    if(type==='takeout'&&_submitToStatus.state==='cutoff'){toast('外帶今日接單已截止');return;}
-    if(type==='delivery'&&_submitDlStatus.state==='cutoff'){toast('外送今日接單已截止');return;}
+    if(type==='takeout'&&_submitToStatus.state==='cutoff'){trackCheckoutValidationFailed('order_cutoff');toast('外帶今日接單已截止');return;}
+    if(type==='delivery'&&_submitDlStatus.state==='cutoff'){trackCheckoutValidationFailed('order_cutoff');toast('外送今日接單已截止');return;}
   }
 
   const items=Object.values(cart).map(({product:p,qty})=>({
@@ -3821,13 +4218,19 @@ async function submitOrder(){
 
   const btn=document.getElementById('subBtn');btn.disabled=true;btn.textContent='送出中…';
   // fix18-10-hotfix23-E：checkout 模式在送單前要求登入（entry 模式已經在進站時擋過）
+  // H1.4.10 Phase 3（需求文件九）：line_member_required 只在真正的強制登入 Gate
+  // （gate_mode==='checkout'）擋下時記錄；friend_checkout 不是 blocking Gate，
+  // 這個 if 區塊本身就已經排除 friend_checkout（見上方條件式），不會誤記。
   if(_lineMemberGateConfig && _lineMemberGateConfig.gate_enabled && _lineMemberGateConfig.gate_mode==='checkout'){
     const gateResult=await LineMemberGate.requireMemberBeforeCheckout(LINE_STORE_ID,_lineMemberGateConfig,_gateIds(),_trackEvent);
-    if(!gateResult.ok){ btn.disabled=false;updateCheckoutActionAmounts(); return; }
+    if(!gateResult.ok){ trackCheckoutValidationFailed('line_member_required'); btn.disabled=false;updateCheckoutActionAmounts(); return; }
   }
   // fix18-10-hotfix23-A：payment_started — 非 LINE Pay（無跳轉）選擇付款方式並送出時記錄；
   // LINE Pay 改在跳轉前記錄（見下方 lpRes.payment_url 導轉處）
-  if(selectedPay!=='linepay'){ _trackEvent('payment_started'); }
+  // H1.4.10 Phase 4A：additive 補上 payment_method metadata（僅此一個安全欄位，
+  // 白名單值 cash/linepay/card/transfer/other），讓 Recovery Engine 能判斷這是
+  // 不是「線上付款」而決定要不要排 payment_abandoned；不影響事件本身觸發時機。
+  if(selectedPay!=='linepay'){ _trackEvent('payment_started',{metadata:{payment_method:selectedPay}}); }
   try{
     const orderRes=await apiFetch('/api/line-orders',{
       method:'POST',
@@ -3921,7 +4324,7 @@ async function submitOrder(){
           })
         }).then(r=>r.json());
         if(lpRes.success&&lpRes.payment_url){
-          _trackEvent('payment_started');
+          _trackEvent('payment_started',{metadata:{payment_method:'linepay'}});
           // hotfix22-F：LINE Pay 導轉付款前不得清空購物車／優惠券 —— 只有「付款成功」導回時
           // （linepay=success，見 init()）才真正 clearCartStorage()。若使用者取消或付款失敗，
           // 購物車（含 localStorage）維持原樣，讓顧客回來後仍能繼續結帳。

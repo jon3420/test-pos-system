@@ -469,6 +469,22 @@ initDb().then((db) => {
   // 沿用既有 LINE 相關路由的授權慣例（requireStore + line_order 授權）。
   app.use('/api/line-member', requireStore, requireFeature('line_order'), require('./routes/line-member'));
 
+  // H1.4.10 Phase 4B：Cart Recovery Consent（同意透過 LINE 提醒）。沿用既有
+  // LINE 相關路由的授權慣例（requireStore + line_order 授權），與
+  // /api/line-member 同一層級，但職責完全分開（consent 不是身分驗證本身）。
+  app.use('/api/cart-recovery', requireStore, requireFeature('line_order'), require('./routes/cart-recovery'));
+
+  // H1.4.10 Phase 4C：n8n orchestration。/process-due 是 server-to-server
+  // 呼叫（HMAC 驗證於路由內部），不走 requireStore；/secret/rotate 是
+  // Admin 動作，路由檔案內部自行套用 requireStore（見
+  // routes/cart-recovery-orchestration.js 對兩支端點的不同中介層）。
+  app.use('/api/cart-recovery/orchestration', require('./routes/cart-recovery-orchestration')(requireStore));
+
+  // H1.4.10 Phase 4D（此輪僅做最小可靠切面，見 Reality Audit）：Recovery
+  // Analytics Dashboard，只讀 API，requireStaffJwt（沿用既有
+  // /api/line-analytics 慣例，不是瀏覽器 member_session）。
+  app.use('/api/cart-recovery-dashboard', requireStore, requireFeature('line_order'), require('./routes/cart-recovery-dashboard'));
+
   // fix18-10-hotfix26-E：LINE Verify Health Dashboard × LINE Analytics Center。
   // 純唯讀報表 API，只讀取 routes/line-member.js 早就寫好的 analytics_events／
   // line_members／line_member_history，不是第二套 Verify／Login API，路由內

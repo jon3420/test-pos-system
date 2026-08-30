@@ -224,7 +224,16 @@
 
   const state = {}; // per-store 執行期狀態（不落地）
 
-  async function initLineMemberGate(config, ids, onEvent) {
+  // H1.4.10 section E/F：opts.skipLoginCallback（新增第 4 個選填參數，預設
+  // undefined／false，完全不影響既有呼叫端行為）——當這次初始化 LIFF「唯一」
+  // 的理由是 auto_identify_enabled（gate 未啟用、也不是 cart handoff）時，
+  // 呼叫端會傳 true，跳過既有 hotfix25「登入返回自動驗證」流程。原因：該
+  // 既有流程只檢查 isLoggedIn()，不檢查 isInClient()，且送出的 gate_stage
+  // 固定是 'callback'，與被動辨識需要的 6 條件（含 isInClient）／
+  // gate_stage='liff_auto_identify' 不符，交由 tryPassiveLiffIdentification()
+  // 專責處理，避免同一次頁面載入意外送出兩筆語意不同的 verify 請求。
+  // gate_enabled=true 的既有呼叫路徑完全不受影響（不傳這個參數）。
+  async function initLineMemberGate(config, ids, onEvent, opts) {
     const storeId = config.store_id;
     state[storeId] = { config, liffReady: false };
     if (!config.liff_id) return state[storeId];
@@ -232,9 +241,11 @@
       await loadLiffSdk();
       await global.liff.init({ liffId: config.liff_id });
       state[storeId].liffReady = true;
-      try {
-        state[storeId].loginCallbackResult = await handleLineMemberLoginCallback(storeId, ids, onEvent);
-      } catch (e) { /* never let callback handling block the page */ }
+      if (!(opts && opts.skipLoginCallback)) {
+        try {
+          state[storeId].loginCallbackResult = await handleLineMemberLoginCallback(storeId, ids, onEvent);
+        } catch (e) { /* never let callback handling block the page */ }
+      }
     } catch (e) {
       console.warn('[line-member-gate] LIFF 初始化失敗:', e.message);
       state[storeId].liffReady = false;
@@ -619,6 +630,142 @@
     }
   }
 
+  // ══════════════════════════════════════════════════════════════════
+  // H1.4.10 section D/E/F：LIFF 內被動辨識會員（「由 LINE LIFF 進入時自動
+  // 辨識會員」，line_member_auto_identify_enabled）。
+  //
+  // 與既有 verifyWithBackend() 的關鍵差異：verifyWithBackend() 在 Token
+  // 過期時會呼叫 recoverLineLoginSession()，該函式內部會呼叫
+  // global.liff.login()（見上方）。被動辨識絕對不能觸發 liff.login()（需求
+  // 文件五／七：不強迫登入、外部瀏覽器不能被強制登入），因此這裡改用獨立、
+  // 不含任何 login()/recovery 呼叫的精簡驗證路徑：Token 沒準備好就直接視為
+  // 「略過」，絕不嘗試重新登入或重試。
+  // ══════════════════════════════════════════════════════════════════
+
+  // metadata 白名單（需求文件十四）：只允許這幾個欄位，絕不含 Token／UID／
+  // 電話／地址等個資。page_type 用既有 order_mode 欄位當值即可，不新建欄位。
+  function _buildAutoIdentifyMetadata(config, ids, extra) {
+    const env = detectBrowserEnvironment();
+    const meta = {
+      page_type: (ids && ids.order_mode) || '',
+      environment: env.browser || 'other',
+      gate_mode: (config && config.gate_mode) || 'disabled',
+    };
+    if (extra && typeof extra === 'object') {
+      ['reason_code', 'is_in_client', 'is_logged_in', 'has_existing_session', 'has_cart'].forEach((k) => {
+        if (extra[k] !== undefined) meta[k] = extra[k];
+      });
+    }
+    return meta;
+  }
+
+  function _emitAutoIdentifyEvent(onEvent, eventName, config, ids, extra) {
+    try { onEvent && onEvent(eventName, { metadata: _buildAutoIdentifyMetadata(config, ids, extra) }); }
+    catch (e) { /* Analytics 失敗絕不可阻擋下單流程 */ }
+  }
+
+  // getFreshLineIdToken() 回傳的內部代碼 → 對外 reason_code 白名單（需求文件
+  // 十四）的對應表，避免把內部診斷代碼（例如 ID_TOKEN_EXPIRED_OR_EXPIRING）
+  // 直接外洩成事件欄位值。
+  function _reasonCodeFromTokenCode(code) {
+    if (code === 'ID_TOKEN_MISSING') return 'id_token_missing';
+    if (code === 'ID_TOKEN_EXPIRED_OR_EXPIRING') return 'id_token_expired';
+    if (code === 'LINE_NOT_LOGGED_IN') return 'not_logged_in';
+    if (code === 'LIFF_NOT_AVAILABLE') return 'liff_init_failed';
+    return 'unknown';
+  }
+  function _reasonCodeFromVerifyResult(result) {
+    if (!result) return 'network_error';
+    if (result.reason === 'exception') return 'network_error';
+    if (result.reason === 'token_not_ready') return _reasonCodeFromTokenCode(result.code);
+    return 'verify_failed';
+  }
+
+  // 不含 liff.login()／recoverLineLoginSession() 呼叫的精簡驗證路徑，專供
+  // tryPassiveLiffIdentification() 使用。Token 未就緒／過期一律直接回傳
+  // 失敗，交由呼叫端記錄 skipped/failed，絕不嘗試恢復登入。
+  async function _passiveVerifyWithBackend(storeId, extra) {
+    try {
+      const tokenResult = await getFreshLineIdToken(storeId, { minValiditySeconds: 60 });
+      if (!tokenResult.ok) return { success: false, reason: 'token_not_ready', code: tokenResult.code };
+      const idToken = tokenResult.idToken;
+      const accessToken = global.liff.getAccessToken();
+      const friendFlag = await getClientFriendFlag();
+      const body = {
+        id_token: idToken,
+        access_token: accessToken,
+        friend_flag: friendFlag,
+        visitor_id: extra && extra.visitor_id,
+        session_id: extra && extra.session_id,
+        cart_id: extra && extra.cart_id,
+        attribution: extra && extra.attribution,
+        analytics: { gate_stage: 'liff_auto_identify', order_mode: extra && extra.order_mode },
+      };
+      const res = await fetch('/api/line-member/verify?store_id=' + encodeURIComponent(storeId), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const json = await res.json();
+      if (json && json.success) { saveMemberSession(storeId, json); }
+      return json;
+    } catch (e) {
+      return { success: false, reason: 'exception', code: 'UNKNOWN_VERIFY_ERROR' };
+    }
+  }
+
+  // 同一頁 load 期間，同一店家最多真正嘗試一次（需求文件十六第 7 點：「同一頁
+  // load → 不重複 Auto Identify」）。這是記憶體旗標（per store_id），不落地，
+  // 重新整理頁面會重置，允許下一次頁面載入重新嘗試。
+  const _autoIdentifyAttemptedThisLoad = {};
+
+  // 供 line-order.html／line-shipping.html 共用呼叫（需求文件六）。config 需含
+  // auto_identify_enabled（line_member_auto_identify_enabled==='1'）與 liff_id。
+  // 條件缺一不可才會真正嘗試背景驗證；任何條件不符一律安全 skip，絕不拋出
+  // 例外、絕不呼叫 liff.login()、絕不阻擋外部瀏覽器的匿名下單流程。
+  async function tryPassiveLiffIdentification(storeId, config, ids, onEvent) {
+    const hasCart = !!(ids && ids.cart_id);
+    if (!config || !config.auto_identify_enabled) return { attempted: false, reason: 'auto_identify_disabled' };
+    if (!config.liff_id) return { attempted: false, reason: 'missing_liff_id' };
+    const existingSession = getMemberSession(storeId);
+    if (existingSession) {
+      _emitAutoIdentifyEvent(onEvent, 'line_liff_auto_identify_skipped', config, ids, { reason_code: 'already_identified', has_existing_session: true, has_cart: hasCart });
+      return { attempted: false, reason: 'already_identified' };
+    }
+    if (_autoIdentifyAttemptedThisLoad[storeId]) {
+      return { attempted: false, reason: 'already_identified' };
+    }
+    if (!isLiffAvailable(storeId)) {
+      _emitAutoIdentifyEvent(onEvent, 'line_liff_auto_identify_skipped', config, ids, { reason_code: 'liff_init_failed', has_cart: hasCart });
+      return { attempted: false, reason: 'liff_init_failed' };
+    }
+    const isInClient = typeof global.liff.isInClient === 'function' ? !!global.liff.isInClient() : false;
+    if (!isInClient) {
+      _emitAutoIdentifyEvent(onEvent, 'line_liff_auto_identify_skipped', config, ids, { reason_code: 'not_in_line_client', is_in_client: false, has_cart: hasCart });
+      return { attempted: false, reason: 'not_in_line_client' };
+    }
+    const isLoggedIn = typeof global.liff.isLoggedIn === 'function' ? !!global.liff.isLoggedIn() : false;
+    if (!isLoggedIn) {
+      _emitAutoIdentifyEvent(onEvent, 'line_liff_auto_identify_skipped', config, ids, { reason_code: 'not_logged_in', is_in_client: true, is_logged_in: false, has_cart: hasCart });
+      return { attempted: false, reason: 'not_logged_in' };
+    }
+    _autoIdentifyAttemptedThisLoad[storeId] = true;
+    _emitAutoIdentifyEvent(onEvent, 'line_liff_auto_identify_started', config, ids, { is_in_client: true, is_logged_in: true, has_existing_session: false, has_cart: hasCart });
+    try {
+      const result = await _passiveVerifyWithBackend(storeId, ids || {});
+      if (result && result.success) {
+        // success 事件由後端 /verify（gate_stage=liff_auto_identify）負責記錄
+        // （需求文件六：真實辨識成功與否只能由後端確認），前端不重複送出。
+        return { attempted: true, ok: true };
+      }
+      _emitAutoIdentifyEvent(onEvent, 'line_liff_auto_identify_failed', config, ids, { reason_code: _reasonCodeFromVerifyResult(result), is_in_client: true, is_logged_in: true, has_cart: hasCart });
+      return { attempted: true, ok: false, code: result && result.code };
+    } catch (e) {
+      _emitAutoIdentifyEvent(onEvent, 'line_liff_auto_identify_failed', config, ids, { reason_code: 'network_error', is_in_client: true, is_logged_in: true, has_cart: hasCart });
+      return { attempted: true, ok: false, error: true };
+    }
+  }
+
   // fix18-10-hotfix26：重新確認好友狀態＝重新呼叫一次 verify。用旗標防止連續
   // 點擊造成併發更新（需求文件二十三）。
   let _friendRecheckInFlight = false;
@@ -794,6 +941,230 @@
       </div>`;
     document.body.appendChild(gateEl);
     return gateEl;
+  }
+
+  // ══════════════════════════════════════════════════════════════════
+  // H1.4.10 Phase 2：friend_entry／friend_checkout 免登入加好友引導
+  // （public/js/line-member-gate.js 是唯一共用實作，line-order.html／
+  // line-shipping.html 都呼叫這裡，不各寫一套）。
+  //
+  // 與既有 showMemberGate()／showFriendRequiredGate() 的關鍵差異：那兩個是
+  // 「強制」Gate（Promise 直到使用者完成登入／加好友才 resolve，用來擋
+  // checkout/entry）。這裡是柔性引導——顯示與否完全不影響任何既有流程的
+  // 時序，呼叫端不需要、也不應該 await 這個函式來決定是否可以繼續下單。
+  // ══════════════════════════════════════════════════════════════════
+  let friendGuideEl = null;
+
+  function closeFriendGuideModal() {
+    if (friendGuideEl && friendGuideEl.parentNode) friendGuideEl.parentNode.removeChild(friendGuideEl);
+    friendGuideEl = null;
+  }
+
+  // 同一瀏覽器 session、同一店家、同一 mode 最多顯示一次（需求文件十一）。
+  // 只存布林旗標，不含 LINE UID 或任何識別資訊。
+  function _friendGuideSeenKey(storeId, mode) { return `line_friend_guide_seen_${storeId}_${mode}`; }
+  function hasSeenFriendGuide(storeId, mode) {
+    try { return sessionStorage.getItem(_friendGuideSeenKey(storeId, mode)) === '1'; } catch (e) { return false; }
+  }
+  function markFriendGuideSeen(storeId, mode) {
+    try { sessionStorage.setItem(_friendGuideSeenKey(storeId, mode), '1'); } catch (e) {}
+  }
+
+  // 目前已知的好友狀態（需求文件十：Case B/C 判斷依據）。只讀取既有、已由
+  // 後端驗證過的 member_session 本地快取（saveMemberSession() 寫入的
+  // is_friend 欄位），絕不自行猜測或因為使用者按過「加入官方 LINE」就當作
+  // true——那個按鈕只代表「被導去加好友頁」，不代表已驗證成為好友（需求
+  // 文件九）。
+  function knownFriendStatus(storeId) {
+    const session = getMemberSession(storeId);
+    if (!session) return 'unknown';
+    return normalizeServerFriendStatus(session) === true ? 'friend'
+      : (normalizeServerFriendStatus(session) === false ? 'non_friend' : 'unknown');
+  }
+
+  // metadata 白名單（需求文件十三），與 routes/analytics.js 的
+  // sanitizeFriendGuideMetadata() 兩端各自驗證一次（defense in depth）。
+  function _buildFriendGuideMetadata(storeId, gateMode, ids, extra) {
+    const meta = {
+      gate_mode: gateMode,
+      page_type: (ids && ids.order_mode) || '',
+      checkout_stage: (ids && ids.checkout_stage) || '',
+      has_member_session: !!getMemberSession(storeId),
+      known_friend_status: knownFriendStatus(storeId),
+    };
+    if (extra && extra.skip_reason) meta.skip_reason = extra.skip_reason;
+    return meta;
+  }
+  function _emitFriendGuideEvent(onEvent, eventName, storeId, gateMode, ids, extra) {
+    try { onEvent && onEvent(eventName, { metadata: _buildFriendGuideMetadata(storeId, gateMode, ids, extra) }); }
+    catch (e) { /* Analytics 失敗絕不可阻擋下單流程 */ }
+  }
+
+  // 只打開加好友連結，不呼叫 liff.requestFriendship()（那支 API 需要使用者
+  // 已透過 LIFF 登入，friend_entry／friend_checkout 明確定義為「免登入」，
+  // 不應該有任何隱性登入要求）。沿用既有 config.add_friend_url 這個唯一
+  // Single Source of Truth（由頁面的 _buildLineMemberGateConfig() 依
+  // add_friend_url || line_add_friend_url || line_member_add_friend_url
+  // 既有優先順序解析好），不新增第三個網址設定。
+  function openFriendGuideLink(config) {
+    const url = config && config.add_friend_url;
+    if (!url) return { opened: false, reason: 'no_url' };
+    try {
+      if (global.liff && typeof global.liff.isInClient === 'function' && global.liff.isInClient() && typeof global.liff.openWindow === 'function') {
+        global.liff.openWindow({ url, external: true });
+      } else {
+        global.window.open(url, '_blank');
+      }
+      return { opened: true };
+    } catch (e) {
+      try { global.window.open(url, '_blank'); return { opened: true }; } catch (e2) { return { opened: false, reason: 'open_failed' }; }
+    }
+  }
+
+  // 共用 Modal 渲染。手機安全：max-height + overflow:auto 避免超出
+  // viewport；padding 使用 env(safe-area-inset-*) fallback；深色/淺色沿用
+  // 既有 Gate 同一套白底卡片風格（與點餐頁既有 Modal 視覺一致）；不鎖
+  // body scroll（與既有 showMemberGate()/showFriendRequiredGate() 行為一致，
+  // 不引入新的 scroll-lock 風險）。
+  function _renderFriendGuideModal({ title, description, primaryText, secondaryText }) {
+    closeFriendGuideModal();
+    friendGuideEl = document.createElement('div');
+    friendGuideEl.id = 'lineFriendGuideModal';
+    friendGuideEl.style.cssText = `position:fixed;inset:0;z-index:99998;background:rgba(0,0,0,.5);
+      display:flex;align-items:flex-end;justify-content:center;
+      padding:16px;padding-bottom:calc(16px + env(safe-area-inset-bottom, 0px));`;
+    friendGuideEl.innerHTML = `
+      <div style="background:#fff;border-radius:16px;max-width:400px;width:100%;
+          max-height:calc(100vh - 32px);overflow:auto;padding:20px;text-align:center;
+          font-family:inherit;box-shadow:0 8px 30px rgba(0,0,0,.2)" role="dialog" aria-modal="true">
+        <button id="lfgCloseBtn" aria-label="關閉" style="position:absolute;margin-top:-12px;margin-left:calc(100% - 44px);
+            width:32px;height:32px;border:0;background:transparent;color:#999;font-size:20px;cursor:pointer">✕</button>
+        <div style="font-size:36px;line-height:1;margin-bottom:8px">💬</div>
+        <h3 style="margin:0 0 8px;font-size:17px">${escapeHtml(title)}</h3>
+        <p style="margin:0 0 16px;color:#666;font-size:14px;white-space:pre-line">${escapeHtml(description)}</p>
+        <button id="lfgPrimaryBtn" style="width:100%;padding:12px;border:0;border-radius:10px;background:#06C755;color:#fff;font-size:15px;font-weight:600;margin-bottom:8px;cursor:pointer">${escapeHtml(primaryText)}</button>
+        <button id="lfgSecondaryBtn" style="width:100%;padding:10px;border:0;background:transparent;color:#999;font-size:13px;cursor:pointer">${escapeHtml(secondaryText)}</button>
+      </div>`;
+    document.body.appendChild(friendGuideEl);
+    return friendGuideEl;
+  }
+
+  // 需求文件八：Friend Mode 已開啟，但沒有有效加好友網址時的安全 fallback。
+  // 只顯示提示 + 一顆「繼續」按鈕，不報錯、不顯示空白按鈕、不阻擋 checkout、
+  // 不自動跳 LINE Login。
+  function _renderFriendGuideMissingUrlModal() {
+    closeFriendGuideModal();
+    friendGuideEl = document.createElement('div');
+    friendGuideEl.id = 'lineFriendGuideModal';
+    friendGuideEl.style.cssText = `position:fixed;inset:0;z-index:99998;background:rgba(0,0,0,.5);
+      display:flex;align-items:flex-end;justify-content:center;
+      padding:16px;padding-bottom:calc(16px + env(safe-area-inset-bottom, 0px));`;
+    friendGuideEl.innerHTML = `
+      <div style="background:#fff;border-radius:16px;max-width:400px;width:100%;
+          max-height:calc(100vh - 32px);overflow:auto;padding:20px;text-align:center;
+          font-family:inherit;box-shadow:0 8px 30px rgba(0,0,0,.2)" role="dialog" aria-modal="true">
+        <p style="margin:0 0 16px;color:#666;font-size:14px">尚未設定官方 LINE 加好友網址，您仍可繼續下單。</p>
+        <button id="lfgContinueBtn" style="width:100%;padding:12px;border:0;border-radius:10px;background:#06C755;color:#fff;font-size:15px;font-weight:600;cursor:pointer">繼續</button>
+      </div>`;
+    document.body.appendChild(friendGuideEl);
+    return friendGuideEl;
+  }
+
+  function _showMissingUrlFallback(storeId, gateMode, ids, onEvent) {
+    _renderFriendGuideMissingUrlModal();
+    _emitFriendGuideEvent(onEvent, 'line_friend_guide_view', storeId, gateMode, ids);
+    const btn = document.getElementById('lfgContinueBtn');
+    if (btn) btn.addEventListener('click', () => {
+      _emitFriendGuideEvent(onEvent, 'line_friend_guide_skipped', storeId, gateMode, ids, { skip_reason: gateMode === 'friend_checkout' ? 'continue_checkout' : 'browse' });
+      closeFriendGuideModal();
+    });
+  }
+
+  // friend_entry：進站引導。非阻塞——顯示與否、使用者選擇什麼，完全不影響
+  // 點餐／加入購物車／checkout_click／送單（需求文件四）。
+  function maybeShowFriendEntryGuide(storeId, config, ids, onEvent) {
+    if (!config || !config.gate_enabled || config.gate_mode !== 'friend_entry') return { shown: false, reason: 'mode_mismatch' };
+    if (hasSeenFriendGuide(storeId, 'friend_entry')) return { shown: false, reason: 'already_seen' };
+    // Case B：已可信確認是好友，可以選擇不再顯示（需求文件十）。
+    if (knownFriendStatus(storeId) === 'friend') {
+      markFriendGuideSeen(storeId, 'friend_entry');
+      return { shown: false, reason: 'already_friend' };
+    }
+    markFriendGuideSeen(storeId, 'friend_entry');
+    if (!config.add_friend_url) {
+      _showMissingUrlFallback(storeId, 'friend_entry', ids, onEvent);
+      return { shown: true, missingUrl: true };
+    }
+    _renderFriendGuideModal({
+      title: '加入官方 LINE',
+      description: '加入後可接收訂單通知、優惠與購物車找回。\n您也可以先逛逛，不影響本次下單。',
+      primaryText: '加入官方 LINE',
+      secondaryText: '先逛逛',
+    });
+    _emitFriendGuideEvent(onEvent, 'line_friend_guide_view', storeId, 'friend_entry', ids);
+    const primaryBtn = document.getElementById('lfgPrimaryBtn');
+    const secondaryBtn = document.getElementById('lfgSecondaryBtn');
+    const closeBtn = document.getElementById('lfgCloseBtn');
+    if (primaryBtn) primaryBtn.addEventListener('click', () => {
+      openFriendGuideLink(config);
+      _emitFriendGuideEvent(onEvent, 'line_friend_link_clicked', storeId, 'friend_entry', ids);
+      closeFriendGuideModal();
+    });
+    if (secondaryBtn) secondaryBtn.addEventListener('click', () => {
+      _emitFriendGuideEvent(onEvent, 'line_friend_guide_skipped', storeId, 'friend_entry', ids, { skip_reason: 'browse' });
+      closeFriendGuideModal();
+    });
+    if (closeBtn) closeBtn.addEventListener('click', () => {
+      _emitFriendGuideEvent(onEvent, 'line_friend_guide_skipped', storeId, 'friend_entry', ids, { skip_reason: 'close' });
+      closeFriendGuideModal();
+    });
+    return { shown: true };
+  }
+
+  // friend_checkout：只能在真正的 checkout_click 已經成立、畫面已經切換到
+  // 結帳頁「之後」呼叫（呼叫端負責這個時序，見 line-order.html／
+  // line-shipping.html 的 openCheckoutStep() 真實按鈕 handler）。這裡本身
+  // 不重新判斷是否為真實點擊，也絕不送出／影響 checkout_click 本身。
+  function maybeShowFriendCheckoutGuide(storeId, config, ids, onEvent) {
+    if (!config || !config.gate_enabled || config.gate_mode !== 'friend_checkout') return { shown: false, reason: 'mode_mismatch' };
+    if (hasSeenFriendGuide(storeId, 'friend_checkout')) return { shown: false, reason: 'already_seen' };
+    // Case C：LIFF 內已確認是好友 → 直接 checkout，不顯示引導。
+    if (knownFriendStatus(storeId) === 'friend') {
+      markFriendGuideSeen(storeId, 'friend_checkout');
+      return { shown: false, reason: 'already_friend' };
+    }
+    markFriendGuideSeen(storeId, 'friend_checkout');
+    const checkoutIds = { ...(ids || {}), checkout_stage: 'checkout' };
+    if (!config.add_friend_url) {
+      _showMissingUrlFallback(storeId, 'friend_checkout', checkoutIds, onEvent);
+      return { shown: true, missingUrl: true };
+    }
+    _renderFriendGuideModal({
+      title: '加入官方 LINE',
+      description: '加入後可接收訂單通知、優惠與購物車找回。\n您也可以直接繼續結帳，不影響本次下單。',
+      primaryText: '加入官方 LINE',
+      secondaryText: '繼續結帳',
+    });
+    _emitFriendGuideEvent(onEvent, 'line_friend_guide_view', storeId, 'friend_checkout', checkoutIds);
+    const primaryBtn = document.getElementById('lfgPrimaryBtn');
+    const secondaryBtn = document.getElementById('lfgSecondaryBtn');
+    const closeBtn = document.getElementById('lfgCloseBtn');
+    // 需求文件六：按「加入官方 LINE」只開啟連結、保留購物車與結帳狀態，
+    // 絕不要求「確認已加入」才放行——這裡完成後同樣直接關閉 Modal，不阻擋。
+    if (primaryBtn) primaryBtn.addEventListener('click', () => {
+      openFriendGuideLink(config);
+      _emitFriendGuideEvent(onEvent, 'line_friend_link_clicked', storeId, 'friend_checkout', checkoutIds);
+      closeFriendGuideModal();
+    });
+    if (secondaryBtn) secondaryBtn.addEventListener('click', () => {
+      _emitFriendGuideEvent(onEvent, 'line_friend_guide_skipped', storeId, 'friend_checkout', checkoutIds, { skip_reason: 'continue_checkout' });
+      closeFriendGuideModal();
+    });
+    if (closeBtn) closeBtn.addEventListener('click', () => {
+      _emitFriendGuideEvent(onEvent, 'line_friend_guide_skipped', storeId, 'friend_checkout', checkoutIds, { skip_reason: 'close' });
+      closeFriendGuideModal();
+    });
+    return { shown: true };
   }
 
   // ══════════════════════════════════════════════════════════════════
@@ -2156,6 +2527,11 @@
     // Response Normalize／Timeout／Retry／錯誤碼顯示 helper。
     normalizeHandoffResponse, fetchWithTimeout, handoffErrorCodeToDisplay,
     classifyHandoffDeviceBrowser, setHandoffDebugEnabled, shouldRetryHandoff,
+    // H1.4.10 新增：LIFF 內被動辨識會員（不呼叫 liff.login()）
+    tryPassiveLiffIdentification,
+    // H1.4.10 Phase 2 新增：friend_entry／friend_checkout 免登入加好友引導
+    maybeShowFriendEntryGuide, maybeShowFriendCheckoutGuide,
+    closeFriendGuideModal, hasSeenFriendGuide, knownFriendStatus, openFriendGuideLink,
   };
 
 })(window);

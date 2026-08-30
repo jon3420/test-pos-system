@@ -13,74 +13,12 @@ const { getDb }      = require('../utils/db');
 const { broadcastToStore } = require('../utils/wssBroadcast');
 const { logServerEvent, getOrderTrackingContext } = require('../utils/analyticsLog'); // fix18-10-hotfix23-A
 const { recordMemberPurchase } = require('../utils/lineMemberStats'); // fix18-10-hotfix23-E：LINE 會員入口
-
-// ── API endpoint（依 mode 決定）──────────────────────────
-function getApiBase(mode) {
-  // mode='test' → sandbox；mode='live'/'prod' → 正式
-  return (mode === 'live' || mode === 'prod')
-    ? 'https://api-pay.line.me'
-    : 'https://sandbox-api-pay.line.me';
-}
-
-// ── 讀 LINE Pay 設定（不過濾 is_active，測試時也能讀）────
-function getLinePayConfig(db, storeId, requireActive = true) {
-  const sql = requireActive
-    ? "SELECT * FROM payment_gateways WHERE store_id=? AND code='linepay' AND is_active=1"
-    : "SELECT * FROM payment_gateways WHERE store_id=? AND code='linepay'";
-  const gw = db.get(sql, [storeId]);
-  if (!gw) return null;
-  return {
-    channelId:     (gw.merchant_id || '').trim(),  // Channel ID 存在 merchant_id
-    channelSecret: (gw.secret_key  || '').trim(),  // Channel Secret 存在 secret_key
-    mode:          gw.mode || 'test',
-    apiBase:       getApiBase(gw.mode || 'test'),
-    webhookUrl:    gw.webhook_url  || '',
-    callbackUrl:   gw.callback_url || '',
-  };
-}
-
-// ══════════════════════════════════════════════════════════
-// LINE Pay v3 簽章函數（精確對應官方文件）
-// POST: message = channelSecret + uri + requestBodyString + nonce
-// GET:  message = channelSecret + uri + queryString + nonce
-// ══════════════════════════════════════════════════════════
-function signLinePayPost(channelSecret, uri, bodyObj, nonce) {
-  // 必須用 JSON.stringify 且確保無 BOM / 無多餘空白
-  const bodyStr  = JSON.stringify(bodyObj);
-  const message  = channelSecret + uri + bodyStr + nonce;
-  const signature = crypto
-    .createHmac('sha256', channelSecret)
-    .update(message, 'utf8')
-    .digest('base64');
-  return { bodyStr, message, signature };
-}
-
-function signLinePayGet(channelSecret, uri, queryStr, nonce) {
-  const message  = channelSecret + uri + queryStr + nonce;
-  const signature = crypto
-    .createHmac('sha256', channelSecret)
-    .update(message, 'utf8')
-    .digest('base64');
-  return { message, signature };
-}
-
-function makePostHeaders(channelId, signature, nonce) {
-  return {
-    'Content-Type':               'application/json',
-    'X-LINE-ChannelId':           String(channelId),
-    'X-LINE-Authorization-Nonce': String(nonce),
-    'X-LINE-Authorization':       signature,
-  };
-}
-
-function makeGetHeaders(channelId, signature, nonce) {
-  return {
-    'Content-Type':               'application/json',
-    'X-LINE-ChannelId':           String(channelId),
-    'X-LINE-Authorization-Nonce': String(nonce),
-    'X-LINE-Authorization':       signature,
-  };
-}
+// H1.4.10 Phase 4B：LINE Pay config／簽章 primitives 的唯一 SSOT，避免
+// utils/linePayService.js（Recovery Payment Resume）各自重複定義一套一模一樣
+// 的簽章公式（見 utils/linePayClient.js 與 Reality Audit）。這裡 import 進來
+// 的函式名稱與行為跟原本這個檔案自己定義的完全相同，下面所有呼叫端一個字元
+//都不用改。
+const { getApiBase, getLinePayConfig, signLinePayPost, signLinePayGet, makePostHeaders, makeGetHeaders } = require('../utils/linePayClient');
 
 // ── 廣播付款成功 ──────────────────────────────────────────
 function broadcastOrderPaid(wss, db, storeId, orderUuid) {
@@ -149,9 +87,15 @@ router.post('/test', async (req, res) => {
       },
     };
 
-    const { bodyStr, message, signature } = signLinePayPost(channelSecret, testUri, testBody, nonce);
+    const { bodyStr, signature } = signLinePayPost(channelSecret, testUri, testBody, nonce);
 
     // === Debug Log ===
+    // H1.4.10 Phase 4B（Reality Audit 發現的既有安全問題）：這裡原本印出
+    // messagePreview:message.slice(0,60)——message 是
+    // channelSecret+uri+bodyStr+nonce 的簽章 preimage，開頭就是完整
+    // channelSecret 本身，等於把商家的 LINE Pay Channel Secret 印進 log。
+    // 拿掉 message 欄位（見 utils/linePayClient.js 的 signLinePayPost() 已不
+    // 再回傳 message）之後這裡改印無害的 diagnostic 欄位。
     console.log('[LINEPAY TEST]', {
       mode,
       apiBase,
@@ -161,7 +105,6 @@ router.post('/test', async (req, res) => {
       uri: testUri,
       nonce,
       nonceLen: nonce.length,
-      messagePreview: message.slice(0, 60) + '...',
       signature: signature.slice(0, 20) + '...',
       bodyPreview: bodyStr.slice(0, 80) + '...',
     });
@@ -548,6 +491,61 @@ router.get('/confirm', async (req, res) => {
       });
     } catch (evtErr) {
       console.warn('[linepay/confirm] analytics event write failed:', evtErr.message);
+    }
+
+    // ── H1.4.10 Phase 3：payment_success（server-authoritative）──────────
+    // 這是全系統唯一寫入 payment_success 的分支：此刻已經確認
+    // data.returnCode === '0000'（LINE Pay 官方 Confirm API 回傳成功），
+    // 且 confirmBody.amount 就是後端 order.total（不是前端宣稱的金額）。
+    // 前端完全無法、也不被允許直接 POST 這個事件（見 routes/analytics.js
+    // 的 SERVER_ONLY_EVENTS）。value 一律用 order.total（後端權威金額），
+    // 不使用前端傳來的任何金額欄位。
+    //
+    // 去重：logServerEvent() 內部對 payment_success 套用與 purchase 相同的
+    // 「同一 store+order_id 只能有一筆」查重（見 utils/analyticsLog.js），
+    // Callback／使用者重新整理 confirm 頁面／LINE Pay 重送同一筆
+    // transaction 都不會重複累計，不需要另建第二套支付交易資料庫。
+    //
+    // payment_success ≠ purchase：purchase 事件（上方）維持既有語意與觸發
+    // 時機完全不變；這裡是額外、獨立的一筆事件，用來讓 Dashboard 能夠分清
+    // 「訂單成立」與「線上金流真正付款成功」兩件事。這支事件也刻意不映射
+    // 任何 GA4/Meta 平台事件（見 public/js/analytics-platforms.js 的
+    // GA4_EVENT_MAP／META_EVENT_MAP 未包含 payment_success，不會造成
+    // Purchase 被重複計算)。
+    try {
+      const ctx = getOrderTrackingContext(db, storeId, order.uuid) || {};
+      logServerEvent(db, {
+        store_id: storeId,
+        visitor_id: ctx.visitor_id || `unknown_${order.uuid}`,
+        session_id: ctx.session_id || `unknown_${order.uuid}`,
+        cart_id: ctx.cart_id || null,
+        order_id: order.uuid,
+        event_name: 'payment_success',
+        order_mode: ctx.order_mode || order.order_mode || null,
+        source: ctx.source || null,
+        medium: ctx.medium || null,
+        campaign: ctx.campaign || null,
+        referrer: ctx.referrer || null,
+        landing_page: ctx.landing_page || null,
+        fbclid: ctx.fbclid || null,
+        gclid: ctx.gclid || null,
+        // metadata 只允許 order_number/payment_provider/payment_method/
+        // currency/value，全部由後端自行組成，不採信任何前端輸入（需求
+        // 文件十三）。
+        metadata: {
+          order_number: order.order_number || null,
+          payment_provider: 'linepay',
+          payment_method: 'linepay',
+          currency: 'TWD',
+          value: Number(order.total || 0),
+        },
+        line_user_id: order.line_user_id || null,
+        channel_source: 'line',
+        fulfillment_type: order.fulfillment_type || null,
+        order_source: order.order_source || null,
+      });
+    } catch (payEvtErr) {
+      console.warn('[linepay/confirm] payment_success event write failed:', payEvtErr.message);
     }
 
     // ── fix18-10-hotfix23-E：LINE Pay 付款成功才更新會員 total_spent/LTV/首購/回購 ──

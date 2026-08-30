@@ -137,6 +137,35 @@ const EVENT_WHITELIST = [
   'member_first_purchase',
   'member_repeat_purchase',
   'member_source_updated',
+  // H1.4.10 section D/E/F：LIFF 內被動辨識會員（line_member_auto_identify_enabled）。
+  // started/skipped 是前端可觀察的條件判斷結果（是否在 LINE App 內、是否已
+  // 登入等），不涉及身分真偽，可由前端直接送出；success/failed 的真實性只能
+  // 由後端確認（見 routes/analytics.js 的 SERVER_ONLY_EVENTS 與
+  // routes/line-member.js 的 /verify），這裡列在白名單只是讓
+  // logServerEvent() 可以合法寫入。
+  'line_liff_auto_identify_started',
+  'line_liff_auto_identify_success',
+  'line_liff_auto_identify_skipped',
+  'line_liff_auto_identify_failed',
+  // H1.4.10 Phase 2：friend_entry／friend_checkout 免登入加好友引導。純顯示/
+  // 操作類事件（不涉及是否真的成為好友，那必須來自 Webhook／後端 verify），
+  // 沒有安全疑慮，可由前端直接送出。
+  'line_friend_guide_view',
+  'line_friend_link_clicked',
+  'line_friend_guide_skipped',
+  // H1.4.10 Phase 3：更深一層的結帳診斷事件。checkout_submit_click／
+  // checkout_validation_failed 是前端可觀察的操作結果（是否真的按下確認
+  // 下單、按下後有沒有被擋），可由前端直接送出；payment_success 的真實性
+  // 只能由金流後端在真正 Confirm 成功後確認（見 routes/analytics.js 的
+  // SERVER_ONLY_EVENTS 與 routes/linepay.js），這裡列在白名單只是讓
+  // logServerEvent() 可以合法寫入。
+  'checkout_submit_click',
+  'checkout_validation_failed',
+  'payment_success',
+  // H1.4.10 section I：purely observational — 前端記錄「已呼叫 link-context」，
+  // 不代表後端一定綁定成功（那由 link-context 回應本身決定），沒有身分真偽
+  // 疑慮，可由前端直接送出。
+  'line_member_context_linked',
   // fix18-10-hotfix26-I（需求文件十八）：Facebook／Instagram 內建瀏覽器環境偵測
   // 相關事件，純顯示/操作類事件，不計入 Funnel（page_view/add_to_cart/
   // begin_checkout/purchase 等既有轉換事件維持原樣，不受影響）。
@@ -369,6 +398,22 @@ function insertEvent(db, fields) {
       });
     } catch (e3) { /* 絕不讓 Geo Visit Log 寫入影響事件主流程 */ }
 
+    // ── H1.4.10 Phase 4A：Cart Recovery State Engine hook ──────────────
+    // 需求文件九：事件驅動，單一集中入口——insertEvent() 是所有 canonical
+    // 事件（client 經 routes/analytics.js、server 經 routes/line-orders.js／
+    // routes/linepay.js 呼叫 logServerEvent()）最終寫入的唯一函式，在這裡
+    // 掛一個 hook 就能涵蓋全部事件來源，不需要在各路由檔案各寫一份狀態機。
+    // 只在真正成功寫入 analytics_events 之後才呼叫（此行之前已確認寫入成功），
+    // 且完全 try/catch 保護，任何 Recovery 內部錯誤絕不影響事件主流程或呼叫端
+    // 的下單/付款流程（fail-open，需求文件九）。
+    try {
+      const { onAnalyticsEvent } = require('./cartRecovery');
+      onAnalyticsEvent(db, {
+        store_id, visitor_id, session_id, cart_id, order_id, event_name,
+        line_user_id, metadata,
+      });
+    } catch (e4) { /* 絕不讓 Recovery Engine 影響事件主流程 */ }
+
     return true;
   } catch (e) {
     console.warn('[analyticsLog] insertEvent failed:', e.message);
@@ -423,7 +468,11 @@ function getOrderTrackingContext(db, storeId, orderId) {
 // 兩者皆會自動查重（同一 store_id + order_id + event_name 只寫一次）。
 function logServerEvent(db, fields) {
   if (!isValidEventName(fields.event_name)) return false;
-  if (fields.event_name === 'submit_order' || fields.event_name === 'purchase') {
+  // H1.4.10 Phase 3：payment_success 與 submit_order／purchase 共用同一套
+  // 「同一 store+order_id 只能有一筆」查重機制（需求文件十二：idempotent，
+  // 不新建第二套支付交易資料庫）。LINE Pay callback／使用者重新整理 confirm
+  // 頁面重送同一個 order 時，第二次呼叫會在這裡被安全擋下，不會重複累計。
+  if (fields.event_name === 'submit_order' || fields.event_name === 'purchase' || fields.event_name === 'payment_success') {
     if (hasEventForOrder(db, fields.store_id, fields.order_id, fields.event_name)) return false; // 已存在，略過
   }
   return insertEvent(db, fields);
