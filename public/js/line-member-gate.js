@@ -611,6 +611,9 @@
         _verifyRetryAttempt = 0;
         clearReauthAttemptedFlag();
         saveMemberSession(storeId, json);
+        // B4：backend verify 是「可信狀態更新」的來源之一，成功後立即 reconcile，
+        // 讓已經開著的 friend_entry／friend_checkout Guide（若有）跟著關閉。
+        reconcileFriendGuide(storeId, json);
         return json;
       }
       // fix18-10-hotfix26-G（需求文件二十一）：後端仍回傳 EXPIRED_ID_TOKEN（例如
@@ -707,7 +710,12 @@
         body: JSON.stringify(body),
       });
       const json = await res.json();
-      if (json && json.success) { saveMemberSession(storeId, json); }
+      if (json && json.success) {
+        saveMemberSession(storeId, json);
+        // B4：被動辨識（Auto Identify）成功也是一種「可信狀態更新」，同樣要
+        // reconcile——即使 Guide 是在被動辨識完成之前就已經開著。
+        reconcileFriendGuide(storeId, json);
+      }
       return json;
     } catch (e) {
       return { success: false, reason: 'exception', code: 'UNKNOWN_VERIFY_ERROR' };
@@ -982,6 +990,106 @@
       : (normalizeServerFriendStatus(session) === false ? 'non_friend' : 'unknown');
   }
 
+  // ══════════════════════════════════════════════════════════════════
+  // H1.4.10 hotfix30-FRIEND-SECRET-UX（Friend Guide race condition 修正）
+  //
+  // 根因：maybeShowFriendEntryGuide()／maybeShowFriendCheckoutGuide() 原本
+  // 只靠 knownFriendStatus() 判斷是否已是好友，而 knownFriendStatus() 只讀
+  // 本地 member_session 快取——這份快取只有在真的跑過一次 verifyWithBackend
+  // （登入／被動辨識／重新確認）後才會寫入，且 24 小時後會過期。friend_entry／
+  // friend_checkout 本身是「免登入」模式，很多情況下（尚未 auto_identify、
+  // session 已過期、或這是全新的 LIFF session）根本沒有機會建立這份快取，
+  // 於是即使 LINE Follow Webhook 早已把後端 friend 狀態更新成 true，前端
+  // 判斷用的 knownFriendStatus() 仍然是 'unknown'，導致 Guide 反覆出現。
+  //
+  // 修正：新增「可信任狀態」解析／回寫單一入口，優先順序：
+  //   1. backend verified member_session（knownFriendStatus() 已經是 true——
+  //      這份 session 本身可能來自任何一次真正打過 /api/line-member/verify
+  //      的流程：登入／被動辨識／重新確認）
+  //   2. LIFF 本身可用時的 trusted friendship refresh（liff.getFriendship()，
+  //      直接呼叫 LINE 官方 API，不需要完整 login/verify 往返，也不算「第二套
+  //      member DB」——沒有另外落地儲存，只是即時判斷用）
+  // 任何一個回傳 true，就視為 friend，並讓已經開著的 Guide 立即關閉／這個
+  // session 內不再顯示（reconcileFriendGuide）。查不到 true 時一律維持既有
+  // fail-open：false → 允許顯示 Guide；unknown → 同樣允許顯示 Guide（不阻擋
+  // 下單，也不假裝已確認）。
+  //
+  // Reality note（誠實揭露技術邊界，避免誤導）：LINE Follow Webhook 更新的
+  // 是「backend 這邊的 member state」（見 routes/line-webhook.js），本輪
+  // refreshAuthoritativeFriendState() 完全不呼叫 backend、不打
+  // /api/line-member/verify，只使用（1）既有的 backend-verified
+  // member_session，或（2）LIFF SDK 自己的 getFriendship()。兩者最終認定的
+  // 好友關係會是同一個 LINE Platform 事實，但技術路徑不同——如果 LIFF
+  // getFriendship() 不可用（例如非 LINE App 內建瀏覽器）且 local session
+  // 恰好是 stale/absent，本輪不宣稱前端能主動查回 backend 因 Follow
+  // Webhook 才更新的最新 member state；這種情況下維持既有 fail-open（顯示
+  // Guide，不阻擋下單），不是誤判為好友，也不是掛住流程。若未來真的需要
+  // 「前端主動查一次 backend 最新 friend 狀態、且不觸發 liff.login()」，
+  // 現成可用的路徑是既有的 _passiveVerifyWithBackend()（本來就是為了不
+  // 強迫登入而設計），但它目前的 analytics.gate_stage 固定寫死
+  // 'liff_auto_identify'，直接借用會讓 backend 的 Auto Identify 分析語意
+  // 被污染（friend_entry/checkout 觸發的 refresh 會被誤記成 Auto Identify
+  // 事件）。這屬於需要小幅 backend 調整（例如讓 gate_stage 可由呼叫端傳入）
+  // 才能乾淨支援的後續工作，本輪未實作，也未擅自擴大 scope 新增第二套
+  // API／資料庫。
+  // ══════════════════════════════════════════════════════════════════
+
+  // B4：單一邏輯——任何「可信」狀態更新後都呼叫這裡，讓 modal open/close
+  // 狀態與 member 狀態保持一致，不讓兩者各自獨立判斷。memberState 可以是
+  // 布林值（已經確定 true）或後端/verify 回應物件（內部用
+  // normalizeServerFriendStatus() 判斷）。
+  function reconcileFriendGuide(storeId, memberState) {
+    try {
+      const isFriend = memberState === true ? true : normalizeServerFriendStatus(memberState) === true;
+      if (!isFriend) return;
+      if (friendGuideEl) closeFriendGuideModal();
+      // 已確認為好友：這個 session 內 friend_entry／friend_checkout 兩種
+      // Guide 都不應該再出現（即使某一種原本還沒被評估過）。
+      if (storeId) {
+        markFriendGuideSeen(storeId, 'friend_entry');
+        markFriendGuideSeen(storeId, 'friend_checkout');
+      }
+    } catch (e) { /* reconcile 失敗絕不可拋出例外影響其他流程 */ }
+  }
+
+  // B2/B3：可信任好友狀態的「主動 refresh」。這是獨立、async 的 internal
+  // helper，刻意不是 maybeShowFriendEntryGuide()／maybeShowFriendCheckoutGuide()
+  // 本身的一部分——那兩個 Guide 函式維持既有同步 public API 契約（呼叫端遍布
+  // line-order.html／line-shipping.html 的同步 click handler openCheckoutStep()，
+  // 且既有 Phase 2 T4 明確驗證同步回傳，見 CHANGELOG 說明），不得因為這次
+  // race condition 修正而改變。
+  //
+  // 呼叫方式：
+  //   - async bootstrap（_initLineMemberGateFromShopData 等）：await 這支函式
+  //     完成後，再呼叫同步的 maybeShowFriendEntryGuide()／…CheckoutGuide()，
+  //     讓 Guide 評估當下就拿得到最新狀態（正常路徑，不會有 race）。
+  //   - 同步的 openCheckoutStep() click handler：無法 await，改成
+  //     「fire-and-forget＋.catch(()=>{})」，在呼叫同步 Guide 函式之後才觸發；
+  //     若稍後才確認 friend=true，交由 reconcileFriendGuide() 把剛顯示的
+  //     Guide 關閉（不阻擋 checkout、不重複送 guide_view、不會有 unhandled
+  //     rejection）。
+  //
+  // 回傳 'friend' / 'non_friend' / 'unknown'。絕不拋出例外、絕不呼叫
+  // liff.login()、絕不阻擋任何下單流程。
+  async function refreshAuthoritativeFriendState(storeId) {
+    let sessionFriend = null;
+    try {
+      const session = getMemberSession(storeId);
+      sessionFriend = session ? normalizeServerFriendStatus(session) : null;
+    } catch (e) { sessionFriend = null; }
+    if (sessionFriend === true) { reconcileFriendGuide(storeId, true); return 'friend'; }
+    try {
+      if (global.liff && typeof global.liff.isLoggedIn === 'function' && global.liff.isLoggedIn()) {
+        const flag = await getClientFriendFlag();
+        if (flag === true) {
+          reconcileFriendGuide(storeId, true);
+          return 'friend';
+        }
+      }
+    } catch (e) { /* 不可阻擋流程，維持既有 fail-open */ }
+    return sessionFriend === false ? 'non_friend' : 'unknown';
+  }
+
   // metadata 白名單（需求文件十三），與 routes/analytics.js 的
   // sanitizeFriendGuideMetadata() 兩端各自驗證一次（defense in depth）。
   function _buildFriendGuideMetadata(storeId, gateMode, ids, extra) {
@@ -1082,10 +1190,21 @@
 
   // friend_entry：進站引導。非阻塞——顯示與否、使用者選擇什麼，完全不影響
   // 點餐／加入購物車／checkout_click／送單（需求文件四）。
+  //
+  // 維持同步 public API（不 async／不回傳 Promise）——production call site
+  // （line-order.html／line-shipping.html 的 openCheckoutStep() 是同步 click
+  // handler，不能安全 await）與既有 Phase 2 T4 都明確要求同步回傳。真正需要
+  // async 的「trusted friendship refresh」在呼叫端另外用 refreshAuthoritativeFriendState()
+  // 處理（bootstrap 階段 await；checkout click handler fire-and-forget +
+  // reconcileFriendGuide 事後修正），這裡只讀取當下已經 resolve 好的同步狀態。
   function maybeShowFriendEntryGuide(storeId, config, ids, onEvent) {
     if (!config || !config.gate_enabled || config.gate_mode !== 'friend_entry') return { shown: false, reason: 'mode_mismatch' };
     if (hasSeenFriendGuide(storeId, 'friend_entry')) return { shown: false, reason: 'already_seen' };
-    // Case B：已可信確認是好友，可以選擇不再顯示（需求文件十）。
+    // Case B：已可信確認是好友（backend verified member_session），可以選擇
+    // 不再顯示（需求文件十）。呼叫端若想在評估「之前」就把 unknown 更新成
+    // true，應先 await refreshAuthoritativeFriendState()，那支函式成功時會
+    // 自己呼叫 reconcileFriendGuide() 把 hasSeenFriendGuide 標記為已看過，
+    // 所以即使這裡才第一次呼叫，也不會誤顯示。
     if (knownFriendStatus(storeId) === 'friend') {
       markFriendGuideSeen(storeId, 'friend_entry');
       return { shown: false, reason: 'already_friend' };
@@ -1106,6 +1225,11 @@
     const secondaryBtn = document.getElementById('lfgSecondaryBtn');
     const closeBtn = document.getElementById('lfgCloseBtn');
     if (primaryBtn) primaryBtn.addEventListener('click', () => {
+      // B5：點擊只代表「被導去加好友頁」，不代表 friend=true（需求文件七
+      // 禁止清單第一條）。這裡只標記「等待從外部加好友頁返回」，交由既有
+      // visibilitychange/pageshow/focus（attemptAutoFriendshipResume，已有
+      // debounce + in-flight guard）返回時做真正的 trusted refresh。
+      markAwaitingFriendshipReturn();
       openFriendGuideLink(config);
       _emitFriendGuideEvent(onEvent, 'line_friend_link_clicked', storeId, 'friend_entry', ids);
       closeFriendGuideModal();
@@ -1125,6 +1249,11 @@
   // 結帳頁「之後」呼叫（呼叫端負責這個時序，見 line-order.html／
   // line-shipping.html 的 openCheckoutStep() 真實按鈕 handler）。這裡本身
   // 不重新判斷是否為真實點擊，也絕不送出／影響 checkout_click 本身。
+  //
+  // 同 maybeShowFriendEntryGuide：維持同步 public API（不 async），呼叫端
+  // openCheckoutStep() 本身是同步 click handler，不能安全 await——真正的
+  // async trusted refresh 由呼叫端另外用 refreshAuthoritativeFriendState()
+  // fire-and-forget 觸發，稍後靠 reconcileFriendGuide() 修正。
   function maybeShowFriendCheckoutGuide(storeId, config, ids, onEvent) {
     if (!config || !config.gate_enabled || config.gate_mode !== 'friend_checkout') return { shown: false, reason: 'mode_mismatch' };
     if (hasSeenFriendGuide(storeId, 'friend_checkout')) return { shown: false, reason: 'already_seen' };
@@ -1152,6 +1281,10 @@
     // 需求文件六：按「加入官方 LINE」只開啟連結、保留購物車與結帳狀態，
     // 絕不要求「確認已加入」才放行——這裡完成後同樣直接關閉 Modal，不阻擋。
     if (primaryBtn) primaryBtn.addEventListener('click', () => {
+      // B5：同 friend_entry，點擊不代表 friend=true，只標記等待返回時
+      // 用既有 debounce/in-flight guard 的 attemptAutoFriendshipResume 做
+      // 真正的 trusted refresh。
+      markAwaitingFriendshipReturn();
       openFriendGuideLink(config);
       _emitFriendGuideEvent(onEvent, 'line_friend_link_clicked', storeId, 'friend_checkout', checkoutIds);
       closeFriendGuideModal();
@@ -2304,7 +2437,10 @@
   async function attemptAutoFriendshipResume() {
     if (document.visibilityState && document.visibilityState !== 'visible') return;
     const gate = _activeFriendGate;
-    if (!gate && !isAwaitingFriendshipReturn()) return;
+    // B5：friend_entry／friend_checkout 的柔性 Guide 開著時，返回前景也要
+    // 一併嘗試 refresh（不只是硬性 Gate），才能在「使用者按了加入官方 LINE
+    // 之後切回來」時即時 reconcile，而不必等下一次頁面重新載入。
+    if (!gate && !friendGuideEl && !isAwaitingFriendshipReturn()) return;
     clearTimeout(_friendshipResumeTimer);
     _friendshipResumeTimer = setTimeout(async () => {
       if (_friendshipResumeInFlight) return;
@@ -2532,6 +2668,9 @@
     // H1.4.10 Phase 2 新增：friend_entry／friend_checkout 免登入加好友引導
     maybeShowFriendEntryGuide, maybeShowFriendCheckoutGuide,
     closeFriendGuideModal, hasSeenFriendGuide, knownFriendStatus, openFriendGuideLink,
+    // H1.4.10 hotfix30-FRIEND-SECRET-UX 新增：Friend Guide race condition 修正
+    // （Authoritative Priority／Modal Reconciliation，供頁面與測試共用）。
+    refreshAuthoritativeFriendState, reconcileFriendGuide,
   };
 
 })(window);

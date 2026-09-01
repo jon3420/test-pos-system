@@ -2271,6 +2271,31 @@
       </div>
     </div>
 
+    <!-- H1.4.10 hotfix30-FRIEND-SECRET-UX：Recovery n8n Shared Secret 一次性顯示／複製
+         Modal。只在 rotate 成功「當次」由 showCartRecoverySecretOnce() 動態填入明文，
+         關閉後 closeCartRecoverySecretModal() 會清空 input.value 與記憶體變數，
+         reload 後無法再次讀回（GET /api/settings 本來就只回布林值）。 -->
+    <div class="modal-overlay" id="cartRecoverySecretModal" style="display:none" onclick="if(event.target===this)closeCartRecoverySecretModal()">
+      <div class="modal" style="max-width:460px">
+        <div class="modal-header">
+          <h3>🔑 新的 Recovery n8n Shared Secret</h3>
+          <button class="modal-close" id="cartRecoverySecretCloseBtn" onclick="closeCartRecoverySecretModal()">✕</button>
+        </div>
+        <div class="modal-body">
+          <p style="margin:0 0 12px;font-size:13px;color:var(--text-secondary,#94a3b8)">
+            此 Secret 僅顯示這一次。請立即複製並保存到 n8n 的 POS_RECOVERY_SHARED_SECRET。關閉後系統不會再次顯示此 Secret。
+          </p>
+          <input class="fi" type="text" id="cartRecoverySecretOneTimeValue" readonly
+            style="width:100%;font-family:monospace;font-size:13px;box-sizing:border-box">
+          <div id="cartRecoverySecretCopyStatus" style="margin-top:8px;font-size:12px;color:#06C755;min-height:16px"></div>
+        </div>
+        <div class="modal-footer" style="display:flex;gap:8px;justify-content:flex-end;padding:16px">
+          <button class="btn-secondary" id="cartRecoverySecretCopyBtn" onclick="copyCartRecoverySecretOnce()">📋 複製 Secret</button>
+          <button class="btn-primary" onclick="closeCartRecoverySecretModal()">關閉</button>
+        </div>
+      </div>
+    </div>
+
     <!-- fix18-10-hotfix26-E：LINE Verify Health Dashboard × LINE Analytics Center -->
     <div class="settings-tab-panel" id="stab-line_analytics" style="display:none">
       <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px">

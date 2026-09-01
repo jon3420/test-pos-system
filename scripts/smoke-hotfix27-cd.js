@@ -78,7 +78,32 @@ async function main() {
     // 讀目前網址來清掉 cart_token query string，不是導頁）。
     const navigationCalls = fnBody.match(/window\.location\.href\s*=[^=]|window\.location\.(assign|replace)\s*\(/g) || [];
     assert(navigationCalls.length === 0, 'Restore 成功流程內沒有任何 window.location 導轉（改用 openCartSheet() 既有函式；window.location.href 出現處只是讀取目前網址，非導頁）', navigationCalls.join(','));
-    assert(fnBody.includes('openCartSheet()'), 'Restore 成功後呼叫既有 openCartSheet() 開啟顧客結帳面板（非虛構函式）');
+    // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.10-LIFF-CART-RECOVERY-N8N-QA-FRIEND-SECRET-UX
+    // ── Historical Regression Test Modernization ──────────────────────
+    // 這裡原本硬鎖「fnBody.includes('openCartSheet()')」這個 bare 無參數
+    // 字串，是 hotfix27 當時的呼叫形狀。後續 H1.4.7（真正兩階段結帳）把
+    // openCartSheet(opts) 正式參數化，opts.step==='checkout' 專門用於
+    // 「LIFF/gate 導回後恢復使用者原本所在的第二階段」——正是這裡 Restore
+    // 成功要做的事，H1.4.9 的 authoritative runtime 測試（H149-G，見
+    // run-h1-4-9-checkout-order-summary-runtime.js）也是直接呼叫
+    // openCartSheet({ step: 'checkout' }) 並驗證 checkoutStage 真的展開。
+    // production 本身是正確、frozen 的最新 contract，只有這支歷史測試的
+    // exact-string 判斷過時，故只更新測試判斷式，不改動任何 production
+    // Restore/checkout 程式碼。
+    //
+    // 新判斷式改為驗證「語意」而非「單一格式的字面字串」：允許空白／換行／
+    // 單雙引號差異，但仍必須是真的呼叫既有 openCartSheet()、且真的傳入
+    // step:'checkout'，不接受只出現函式名稱、參數不完整、或呼叫到虛構函式
+    // 的情況——保留原本測試要保護的 historical intent：「Restore 成功後，
+    // 顧客一定會回到可操作的購物車／結帳 UI，不能只恢復資料卻什麼畫面都
+    // 沒有」。
+    const restoreCallRe = /openCartSheet\(\s*\{\s*step\s*:\s*(['"])checkout\1\s*\}\s*\)/;
+    assert(restoreCallRe.test(fnBody), 'Restore 成功後使用既有 openCartSheet({step:\'checkout\'}) 恢復顧客到 checkout stage（不是虛構函式，且真的傳入 checkout step，非僅呼叫函式名稱）', fnBody.match(/openCartSheet\([^)]*\)/g)?.join(' / ') || '(找不到任何 openCartSheet(...) 呼叫)');
+
+    // HOTFIX27-RESTORE-CONTRACT：避免上面的 regex 只匹配到「呼叫一個根本
+    // 不存在的函式名稱」也被誤判 PASS——額外確認 openCartSheet 這個函式本身
+    // 真的在同一份 production HTML 裡有定義（不是虛構/已刪除的函式）。
+    assert(/function\s+openCartSheet\s*\(/.test(orderHtmlSrc), 'HOTFIX27-RESTORE-CONTRACT openCartSheet 在同一份 production HTML 內真的有函式定義（不是呼叫虛構/不存在的函式）');
   } else {
     fail('找不到 _restoreCartFromHandoffToken 函式本體可供檢查', '');
   }

@@ -2826,15 +2826,64 @@ async function rotateCartRecoveryN8nSecret() {
     const res = await apiFetch('/api/cart-recovery/orchestration/secret/rotate', { method: 'POST' });
     const json = await res.json();
     if (json.success && json.secret) {
-      const n8nSecretEl = document.getElementById('set-cart_recovery_n8n_secret');
-      if (n8nSecretEl) n8nSecretEl.value = json.secret;
-      toast('新 Secret 已產生，請立即複製到 n8n（離開頁面後將無法再次看到明文）');
+      // hotfix30-FRIEND-SECRET-UX：rotate 成功後改用一次性 Modal 顯示明文
+      // （見 showCartRecoverySecretOnce()），不再依靠 #set-cart_recovery_n8n_secret
+      // 這個 password input 做 rotate 後複製——那個欄位只保留「手動輸入」用途，
+      // rotate 完全不碰它。
+      showCartRecoverySecretOnce(json.secret);
       await loadCartRecoverySettings();
-      if (n8nSecretEl) n8nSecretEl.value = json.secret; // load 會清空欄位，rotate 當次特別再填回去讓店家複製
     } else {
       toast(json.message || '產生失敗，請稍後再試');
     }
   } catch (e) { toast('產生失敗，請稍後再試'); }
+}
+
+// H1.4.10 hotfix30-FRIEND-SECRET-UX：Recovery n8n Shared Secret 一次性顯示／
+// 複製。這個明文只活在這個模組內的 oneTimeSecret 變數與 modal 的 input.value
+// 裡，絕不寫入 localStorage／sessionStorage／cookie／analytics／console。
+// 關閉 Modal（closeCartRecoverySecretModal）會清空兩者，reload 後也無法再
+// 讀回（GET /api/settings 只回 cart_recovery_n8n_secret_set 布林值）。
+let oneTimeSecret = null;
+function showCartRecoverySecretOnce(secret) {
+  oneTimeSecret = secret;
+  const input = document.getElementById('cartRecoverySecretOneTimeValue');
+  if (input) input.value = secret;
+  const statusEl = document.getElementById('cartRecoverySecretCopyStatus');
+  if (statusEl) statusEl.textContent = '';
+  showModal18('cartRecoverySecretModal'); // 沿用既有 Modal open/close 共用 helper
+}
+function closeCartRecoverySecretModal() {
+  hideModal18('cartRecoverySecretModal');
+  const input = document.getElementById('cartRecoverySecretOneTimeValue');
+  if (input) input.value = '';
+  const statusEl = document.getElementById('cartRecoverySecretCopyStatus');
+  if (statusEl) statusEl.textContent = '';
+  oneTimeSecret = null;
+}
+async function copyCartRecoverySecretOnce() {
+  const input = document.getElementById('cartRecoverySecretOneTimeValue');
+  const secret = oneTimeSecret || (input && input.value) || '';
+  const statusEl = document.getElementById('cartRecoverySecretCopyStatus');
+  if (!secret) return;
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(secret);
+      if (statusEl) statusEl.textContent = '已複製到剪貼簿';
+      return;
+    }
+    throw new Error('clipboard_api_unavailable');
+  } catch (e) {
+    // fallback：input.select() + document.execCommand('copy')
+    try {
+      if (input) {
+        input.select();
+        document.execCommand('copy');
+        if (statusEl) statusEl.textContent = '已複製到剪貼簿';
+        return;
+      }
+    } catch (e2) { /* 複製失敗不阻擋關閉/其他操作 */ }
+    if (statusEl) statusEl.textContent = '複製失敗，請手動選取複製';
+  }
 }
 
 async function saveCartRecoverySettings() {

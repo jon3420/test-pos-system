@@ -525,6 +525,13 @@ async function _initLineMemberGateFromShopData(d){
     try{ if(Object.keys(cart||{}).length) openCartSheet({step:'checkout'}); }catch(e){}
   }
   }
+  // hotfix30-FRIEND-SECRET-UX（見 line-order.html 對應註解）：Guide 評估前
+  // 先 await 一次可信任好友狀態 refresh。這裡本來就在 async 函式內，可以
+  // 安全 await；maybeShowFriendEntryGuide()／…CheckoutGuide() 仍是同步 API。
+  const _isFriendOnlyMode=_lineMemberGateConfig.gate_mode==='friend_entry' || _lineMemberGateConfig.gate_mode==='friend_checkout';
+  if(_lineMemberGateConfig.gate_enabled && _isFriendOnlyMode){
+    try{ await LineMemberGate.refreshAuthoritativeFriendState(STORE_ID); }catch(e){}
+  }
   // H1.4.10 Phase 2：friend_entry 進站引導（見 line-order.html 對應註解）。
   if(_lineMemberGateConfig.gate_enabled && _lineMemberGateConfig.gate_mode==='friend_entry'){
     try{ LineMemberGate.maybeShowFriendEntryGuide(STORE_ID, _lineMemberGateConfig, _gateIds(), _trackEvent); }catch(e){}
@@ -1677,6 +1684,13 @@ function openCheckoutStep(event) {
   // 完全共用同一套 LineMemberGate.maybeShowFriendCheckoutGuide 實作）。
   if (_lineMemberGateConfig && _lineMemberGateConfig.gate_enabled && _lineMemberGateConfig.gate_mode === 'friend_checkout') {
     try { LineMemberGate.maybeShowFriendCheckoutGuide(STORE_ID, _lineMemberGateConfig, _gateIds(), _trackEvent); } catch (e) {}
+    // hotfix30-FRIEND-SECRET-UX（見 line-order.html 對應註解）：同步 click
+    // handler 不能 await，改 fire-and-forget，稍後靠 reconcileFriendGuide()
+    // 修正，不阻擋本次 checkout。
+    try {
+      const _p = LineMemberGate.refreshAuthoritativeFriendState(STORE_ID);
+      if (_p && typeof _p.catch === 'function') _p.catch(() => {});
+    } catch (e) {}
   }
 }
 

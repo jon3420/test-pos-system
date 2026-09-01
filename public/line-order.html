@@ -815,10 +815,23 @@ async function _initLineMemberGateFromShopData(d){
     try{ await _restoreCartFromHandoffToken(cartToken); }catch(e){ console.warn('[cart-handoff] restore failed:', e.message); }
   }
   }
-  // H1.4.10 Phase 2：friend_entry 進站引導。放在整段 LIFF 初始化／被動辨識
-  // 之後才呼叫，讓 knownFriendStatus() 能拿到最新（若 Auto Identify 剛成功）
-  // 的好友狀態；即使上面因為缺 liff_id 而完全沒有初始化 LIFF，這裡仍會執行
-  // （friend_entry 本身不需要 LIFF，見上方 isFriendOnlyMode 判斷）。
+  // H1.4.10 hotfix30-FRIEND-SECRET-UX（Friend Guide race condition 修正）：
+  // 在評估 Guide 之前，先 await 一次可信任好友狀態 refresh（backend verified
+  // member_session 或 LIFF trusted getFriendship()）。這支函式本身是 async，
+  // 但 maybeShowFriendEntryGuide()／maybeShowFriendCheckoutGuide() 仍維持
+  // 同步 API 不變——這裡本來就在 async 的 _initLineMemberGateFromShopData()
+  // 內，可以安全 await，不影響任何同步呼叫端（openCheckoutStep()）。
+  // isFriendOnlyMode 涵蓋 friend_entry／friend_checkout 兩種免登入模式，即使
+  // 這次 bootstrap 只會顯示 friend_entry，也讓 friend_checkout 提早拿到最新
+  // 狀態（refresh 成功時 reconcileFriendGuide() 會直接標記兩種 mode 都已看過）。
+  if(isFriendOnlyMode){
+    try{ await LineMemberGate.refreshAuthoritativeFriendState(LINE_STORE_ID); }catch(e){}
+  }
+  // H1.4.10 Phase 2：friend_entry 進站引導。放在整段 LIFF 初始化／被動辨識／
+  // 上面的 refreshAuthoritativeFriendState() 之後才呼叫，讓 knownFriendStatus()
+  // 能拿到最新（若 Auto Identify 或 trusted refresh 剛成功）的好友狀態；即使
+  // 上面因為缺 liff_id 而完全沒有初始化 LIFF，這裡仍會執行（friend_entry 本身
+  // 不需要 LIFF，見上方 isFriendOnlyMode 判斷）。
   if(_lineMemberGateConfig.gate_enabled && _lineMemberGateConfig.gate_mode==='friend_entry'){
     try{ LineMemberGate.maybeShowFriendEntryGuide(LINE_STORE_ID, _lineMemberGateConfig, _gateIds(), _trackEvent); }catch(e){}
   }
@@ -4029,6 +4042,17 @@ function openCheckoutStep(event){
   // session 只會真的顯示一次。
   if(_lineMemberGateConfig && _lineMemberGateConfig.gate_enabled && _lineMemberGateConfig.gate_mode==='friend_checkout'){
     try{ LineMemberGate.maybeShowFriendCheckoutGuide(LINE_STORE_ID, _lineMemberGateConfig, _gateIds(), _trackEvent); }catch(e){}
+    // hotfix30-FRIEND-SECRET-UX：openCheckoutStep() 是同步 click handler，
+    // 不能 await——這裡改成 fire-and-forget 的可信任好友狀態 refresh，
+    // 完全不阻擋本次 checkout。多數情況下上面 bootstrap 階段已經 await 過
+    // 一次（見 _initLineMemberGateFromShopData），這裡只是額外補一次（例如
+    // 好友狀態在瀏覽期間才變成 true）；若稍後才確認 true，
+    // reconcileFriendGuide() 會把剛顯示的 Guide 關閉，不會有 unhandled
+    // rejection，也不會重複送出 guide_view。
+    try{
+      const _p=LineMemberGate.refreshAuthoritativeFriendState(LINE_STORE_ID);
+      if(_p && typeof _p.catch==='function') _p.catch(()=>{});
+    }catch(e){}
   }
 }
 

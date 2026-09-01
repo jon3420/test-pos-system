@@ -204,7 +204,7 @@ function initTables(w) {
     ['line_preorder_high_threshold', 'INTEGER DEFAULT 10'],
   ];
   try {
-    const _existCols = w._db.all('PRAGMA table_info(products)').map(r => r.name);
+    const _existCols = w.all('PRAGMA table_info(products)').map(r => r.name);
     let _added = 0;
     for (const [col, def] of _preorderColDefs) {
       if (!_existCols.includes(col)) {

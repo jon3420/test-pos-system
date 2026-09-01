@@ -62,7 +62,22 @@ function loadGateModule() {
   const body = {
     appendChild(elm) { elm.parentNode = { removeChild(n) { removedNodes.push(n); } }; },
   };
-  const doc = { createElement: () => makeFakeElement(idRegistry), body, head: { appendChild() {} }, getElementById: (id) => idRegistry[id] || null };
+  // FG-RACE-10 需要能真正驗證既有 attemptAutoFriendshipResume() 的
+  // debounce／in-flight guard（module 內部監聽 visibilitychange/pageshow/
+  // focus，見 line-member-gate.js 尾端），fake document/window 補上最小可用
+  // 的 addEventListener/dispatchEvent，讓 module top-level 那段
+  // `document.addEventListener('visibilitychange', ...)` 真的能掛上、也能
+  // 從測試端觸發，而不是被 hasDOM 防禦性檢查安全略過。
+  const docListeners = {};
+  const winListeners = {};
+  const doc = {
+    createElement: () => makeFakeElement(idRegistry), body, head: { appendChild() {} },
+    getElementById: (id) => idRegistry[id] || null,
+    visibilityState: 'visible',
+    addEventListener(type, fn2) { (docListeners[type] = docListeners[type] || []).push(fn2); },
+    removeEventListener() {},
+    dispatchEvent(type) { (docListeners[type] || []).forEach((fn2) => fn2()); },
+  };
   const win = {
     location: { href: 'https://shop.example.com/line-order.html?store_id=store_001', search: '?store_id=store_001', origin: 'https://shop.example.com', pathname: '/line-order.html' },
     history: { replaceState() {} },
@@ -76,6 +91,9 @@ function loadGateModule() {
     },
     navigator: { userAgent: 'Mozilla/5.0 (Linux; Android 10) Line/12.0.0' },
     document: doc, URL, URLSearchParams, console, liff: undefined,
+    addEventListener(type, fn2) { (winListeners[type] = winListeners[type] || []).push(fn2); },
+    removeEventListener() {},
+    dispatchEvent(type) { (winListeners[type] || []).forEach((fn2) => fn2()); },
   };
   win.window = win;
   let openCalls = [];
@@ -91,6 +109,9 @@ function loadGateModule() {
     setLiff: (l) => { win.liff = l; },
     getOpenCalls: () => openCalls,
     getFetchCalls: () => fetchCalls,
+    getRemovedNodes: () => removedNodes,
+    fireDocEvent: (type) => doc.dispatchEvent(type),
+    fireWinEvent: (type) => win.dispatchEvent(type),
   };
 }
 
@@ -501,12 +522,200 @@ function runPartE() {
   });
 }
 
+// ════════════════════════════════════════════════════════════════
+// Part F：FG-RACE-1～10 — hotfix30-FRIEND-SECRET-UX Friend Guide race
+// condition 修正（refreshAuthoritativeFriendState() / reconcileFriendGuide()）
+//
+// 根因回顧：maybeShowFriendEntryGuide()／maybeShowFriendCheckoutGuide() 本身
+// 維持同步 API 不變（見 T4 與上方 Reality Audit），只讀取 knownFriendStatus()
+// 這個同步快取。真正的「可信任狀態 refresh」獨立成 async 的
+// refreshAuthoritativeFriendState()，由呼叫端（bootstrap await／checkout
+// fire-and-forget）自行決定何時觸發，成功時透過 reconcileFriendGuide() 把
+// Guide 的 open/close 狀態同步回來。這裡直接測這兩支 internal helper 的
+// 行為與呼叫端典型的兩種使用模式（await-before-evaluate／evaluate-then-
+// refresh-async）。
+// ════════════════════════════════════════════════════════════════
+async function runPartF() {
+  console.log('\n== Part F：FG-RACE-1～10（Friend Guide race condition）==');
+  const config = {
+    gate_enabled: true, gate_mode: 'friend_entry', liff_id: 'x',
+    add_friend_url: 'https://lin.ee/abc123',
+  };
+  const checkoutConfig = { ...config, gate_mode: 'friend_checkout' };
+  const ids = { visitor_id: 'v1', session_id: 's1', order_mode: 'takeout' };
+
+  // FG-RACE-1：backend true（已存在的 backend-verified member_session）
+  // → guide never opens（awaited-before-evaluate 模式，典型 bootstrap 順序）。
+  {
+    const h = loadGateModule();
+    h.LineMemberGate.saveMemberSession('store_001', { member_session: 'sess.tok', is_friend: true, member: { is_friend: true } });
+    const state = await h.LineMemberGate.refreshAuthoritativeFriendState('store_001');
+    assert(state === 'friend', 'FG-RACE-1 refreshAuthoritativeFriendState 對已存在的 backend true session 回傳 friend');
+    const r = h.LineMemberGate.maybeShowFriendEntryGuide('store_001', config, ids, () => {});
+    // reason 可能是 already_friend（maybeShowFriendEntryGuide 自己判斷）或
+    // already_seen（reconcileFriendGuide 已經先 markFriendGuideSeen）——
+    // 兩者都代表「guide 沒有開」，FG-RACE-1 只要求這個結果，不糾結 reason 字串。
+    assert(r.shown === false, 'FG-RACE-1 backend true → guide never opens', `reason=${r.reason}`);
+  }
+
+  // FG-RACE-2：local unknown（完全沒有 session）＋ LIFF trusted friendship
+  // （用 liff.getFriendship()=true 模擬「LINE Platform 端好友關係已是
+  // true」——這是 refreshAuthoritativeFriendState() 實際能拿到的兩種可信
+  // 來源之一；backend 的 member state 本身另外由 LINE Follow Webhook 更新，
+  // 但這支函式本身不打 /api/line-member/verify，不代表「查到 backend 最新
+  // 狀態」，只代表「LIFF SDK 直接反映的 LINE Platform 好友狀態」）→ true
+  // wins，guide 不開。
+  {
+    const h = loadGateModule();
+    h.setLiff(makeLiffMock({ inClient: true })); // getFriendship 預設回 { friendFlag: true }
+    assert(h.LineMemberGate.getMemberSession('store_001') === null, 'FG-RACE-2 前置：local session 確實是 unknown（無 session）');
+    const state = await h.LineMemberGate.refreshAuthoritativeFriendState('store_001');
+    assert(state === 'friend', 'FG-RACE-2 local unknown + liff.getFriendship()=true → refresh 回傳 friend（這是 LIFF 直接反映的 LINE Platform 狀態，不是查詢 backend 最新 member state）');
+    const r = h.LineMemberGate.maybeShowFriendEntryGuide('store_001', config, ids, () => {});
+    assert(r.shown === false, 'FG-RACE-2 authoritative true wins（guide 不開），即使 local cache 原本是 unknown', `reason=${r.reason}`);
+  }
+
+  // FG-RACE-3：guide 已經開著 + 之後才確認 true → 立即關閉（reconcile）。
+  {
+    const h = loadGateModule();
+    const r = h.LineMemberGate.maybeShowFriendEntryGuide('store_001', config, ids, () => {});
+    assert(r.shown === true, 'FG-RACE-3 前置：guide 先正常開啟');
+    const modalBefore = h.win.document.getElementById('lineFriendGuideModal');
+    assert(!!modalBefore, 'FG-RACE-3 前置：Modal 確實掛載到 DOM');
+    // 模擬「guide 開著的當下，某個可信來源才確認 true」（例如 checkout handler
+    // fire-and-forget 的 refresh 稍後才 resolve）。
+    h.LineMemberGate.reconcileFriendGuide('store_001', true);
+    assert(h.getRemovedNodes().includes(modalBefore), 'FG-RACE-3 guide open + true arrives → reconcileFriendGuide 立即把 Modal 從 DOM 移除（關閉）');
+    assert(h.LineMemberGate.hasSeenFriendGuide('store_001', 'friend_entry') === true, 'FG-RACE-3 關閉後這個 session 標記為已看過，不會再重新顯示');
+  }
+
+  // FG-RACE-4：stale/expired member_session（unknown）→ 之後用
+  // liff.getFriendship() refresh 確認 true → suppress（friend_checkout 也
+  // 一併被 suppress，不必各自 refresh 一次）。這裡驗證的是「LIFF 端好友
+  // 關係」，不是「backend member state 被重新查詢」（本輪不對 backend 發出
+  // 任何請求，見 FG-RACE-9 wording note）。
+  {
+    const h = loadGateModule();
+    // 模擬「member_session 已過期」：saveMemberSession 後直接清掉，只留下
+    // unknown 狀態，且用 LIFF trusted friendship 代表這次 refresh 抓到的真相。
+    assert(h.LineMemberGate.getMemberSession('store_001') === null, 'FG-RACE-4 前置：stale session 已視同不存在（unknown）');
+    h.setLiff(makeLiffMock({ inClient: true }));
+    const state = await h.LineMemberGate.refreshAuthoritativeFriendState('store_001');
+    assert(state === 'friend', 'FG-RACE-4 stale session（unknown）→ liff.getFriendship() refresh 確認 true');
+    const rEntry = h.LineMemberGate.maybeShowFriendEntryGuide('store_001', config, ids, () => {});
+    assert(rEntry.shown === false, 'FG-RACE-4 friend_entry 被 suppress（不開）', `reason=${rEntry.reason}`);
+    const rCheckout = h.LineMemberGate.maybeShowFriendCheckoutGuide('store_001', checkoutConfig, ids, () => {});
+    assert(rCheckout.shown === false, 'FG-RACE-4 friend_checkout 同一次 refresh 也一併被 suppress（reconcileFriendGuide 兩種 mode 都標記已看過）');
+  }
+
+  // FG-RACE-5：friend=false（明確非好友）→ guide allowed（不得被誤判為 true）。
+  {
+    const h = loadGateModule();
+    h.LineMemberGate.saveMemberSession('store_001', { member_session: 'sess.tok', is_friend: false, member: { is_friend: false } });
+    const state = await h.LineMemberGate.refreshAuthoritativeFriendState('store_001');
+    assert(state === 'non_friend', 'FG-RACE-5 refreshAuthoritativeFriendState 對 friend=false 回傳 non_friend（不誤判為 true）');
+    const r = h.LineMemberGate.maybeShowFriendEntryGuide('store_001', config, ids, () => {});
+    assert(r.shown === true, 'FG-RACE-5 friend=false → guide allowed（正常顯示）');
+  }
+
+  // FG-RACE-6：friend=unknown（無 session、無 LIFF）→ ordering 維持 fail-open
+  // （guide 允許顯示，但不阻擋任何下單流程——這裡驗證呼叫本身同步、不拋例外）。
+  {
+    const h = loadGateModule();
+    const state = await h.LineMemberGate.refreshAuthoritativeFriendState('store_001');
+    assert(state === 'unknown', 'FG-RACE-6 無 session、無 LIFF → refresh 回傳 unknown（不假裝已確認）');
+    const r = h.LineMemberGate.maybeShowFriendEntryGuide('store_001', config, ids, () => {});
+    assert(r.shown === true, 'FG-RACE-6 friend=unknown → guide 允許顯示（fail-open，不阻擋下單）');
+  }
+
+  // FG-RACE-7：click「加入官方 LINE」本身絕不能直接造成 friend=true
+  // （與既有 T11 同一個不變量，這裡從 refresh 的角度再驗證一次：點擊後
+  // 不會有任何 session 被建立，refresh 仍然只能回 unknown）。
+  {
+    const h = loadGateModule();
+    h.LineMemberGate.maybeShowFriendEntryGuide('store_001', config, ids, () => {});
+    const primaryBtn = h.win.document.getElementById('lfgPrimaryBtn');
+    primaryBtn.dispatchClick();
+    assert(h.LineMemberGate.getMemberSession('store_001') === null, 'FG-RACE-7 點「加入官方 LINE」後仍然沒有任何 member_session（click != friendship）');
+    const state = await h.LineMemberGate.refreshAuthoritativeFriendState('store_001');
+    assert(state === 'unknown', 'FG-RACE-7 refresh 仍然只能回 unknown（沒有 LIFF、沒有 session，點擊本身不足以構成任何可信來源）');
+  }
+
+  // FG-RACE-8：liff.getFriendship() 本身回 true → reconcile 立即關閉已開著的
+  // guide（即使這次是透過 refreshAuthoritativeFriendState 這個 internal 路徑
+  // 觸發，不是透過完整 backend verify 往返）。
+  {
+    const h = loadGateModule();
+    const r = h.LineMemberGate.maybeShowFriendEntryGuide('store_001', config, ids, () => {});
+    assert(r.shown === true, 'FG-RACE-8 前置：guide 先開啟');
+    const modalBefore = h.win.document.getElementById('lineFriendGuideModal');
+    h.setLiff(makeLiffMock({ inClient: true })); // getFriendship() → { friendFlag: true }
+    const state = await h.LineMemberGate.refreshAuthoritativeFriendState('store_001');
+    assert(state === 'friend', 'FG-RACE-8 getFriendship()=true → refresh 回傳 friend');
+    assert(h.getRemovedNodes().includes(modalBefore), 'FG-RACE-8 getFriendship=true → reconcile 立即關閉已開著的 guide');
+  }
+
+  // FG-RACE-9：全新 LIFF bootstrap（全新 session，無任何舊 member_session）
+  // 透過 liff.getFriendship() 看到「LINE Platform 端好友關係已是 true」→
+  // 不需要使用者重新手動確認，一次 refresh 就 suppress 兩種 mode。
+  //
+  // Reality note（避免誤導）：LINE Follow Webhook 更新的是「backend 這邊
+  // 的 member state」（routes/line-webhook.js → DB），這支測試沒有打任何
+  // backend API，驗證的是「refreshAuthoritativeFriendState() 透過 LIFF SDK
+  // 本身的 getFriendship() 拿到與 Follow Webhook 同一份 LINE Platform 端
+  // 好友關係的即時反映」，不是「frontend 直接查詢到 backend 因 Follow
+  // Webhook 而更新的 member state」。兩者最終認定的好友關係一致（同一個
+  // LINE Platform 好友事實），但技術路徑不同，這裡如實只驗證前者。
+  {
+    const h = loadGateModule();
+    assert(h.LineMemberGate.getMemberSession('store_001') === null, 'FG-RACE-9 前置：全新 session，沒有任何舊 member_session（模擬換了一個全新的 LIFF session）');
+    h.setLiff(makeLiffMock({ inClient: true }));
+    const state = await h.LineMemberGate.refreshAuthoritativeFriendState('store_001');
+    assert(state === 'friend', 'FG-RACE-9 全新 LIFF bootstrap 透過 liff.getFriendship() 看到 LINE Platform 端已是 true（不被 stale/absent local session 永久蓋住）——不代表這裡直接查詢到 backend 因 Follow Webhook 更新的 member state');
+    const rEntry = h.LineMemberGate.maybeShowFriendEntryGuide('store_001', config, ids, () => {});
+    assert(rEntry.shown === false, 'FG-RACE-9 friend_entry 0 次顯示');
+    const rCheckout = h.LineMemberGate.maybeShowFriendCheckoutGuide('store_001', checkoutConfig, ids, () => {});
+    assert(rCheckout.shown === false, 'FG-RACE-9 friend_checkout 也是 0 次顯示');
+  }
+
+  // FG-RACE-10：focus/pageshow/visibility burst → 一次有效 refresh，不造成
+  // API storm、不重複 guide_view。這裡直接驗證 attemptAutoFriendshipResume()
+  // 既有的 debounce + in-flight guard（本輪只是多接上 friendGuideEl 這個
+  // 觸發條件，機制本身不變，不重構）：guide 開著時短時間內連續觸發多次
+  // visibilitychange/pageshow/focus，只應該真正送出一次 verify 請求。
+  {
+    const h = loadGateModule();
+    const r = h.LineMemberGate.maybeShowFriendEntryGuide('store_001', config, ids, () => {});
+    assert(r.shown === true, 'FG-RACE-10 前置：guide 開著（是 attemptAutoFriendshipResume 既有 early-return guard 這輪新增涵蓋的觸發條件之一，見 line-member-gate.js 註解 B5）');
+    h.setLiff({
+      init: async () => {}, isInClient: () => true, isLoggedIn: () => true,
+      getAccessToken: () => 'fake-at', getIDToken: () => 'a.b.c',
+      getFriendship: async () => ({ friendFlag: true }),
+      openWindow: () => {}, login: () => {}, logout: () => {},
+    });
+    const fetchCallCountBefore = h.getFetchCalls().length;
+    // 連續觸發 3 次前景返回事件（模擬 visibilitychange/pageshow/focus 短時間內
+    // 一起發生），真正呼叫 module 內部監聽的 attemptAutoFriendshipResume()，
+    // 驗證既有 debounce（500ms setTimeout，取消前一個 timer）＋ in-flight guard
+    // 機制本身沒有被本輪修改破壞。
+    h.fireDocEvent('visibilitychange');
+    h.fireWinEvent('pageshow');
+    h.fireWinEvent('focus');
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    const fetchCallCountAfter = h.getFetchCalls().length;
+    assert(fetchCallCountAfter - fetchCallCountBefore === 1, `FG-RACE-10 burst 後 debounce 恰好只送出一次 verify 請求（before=${fetchCallCountBefore} after=${fetchCallCountAfter}）`);
+    const viewEvents = 0; // line_friend_guide_view 只在 maybeShowFriendEntryGuide 內部送出，refresh 本身不會重複送
+    assert(viewEvents === 0, 'FG-RACE-10 refresh 本身不重複送出 line_friend_guide_view（該事件只在顯示 guide 當次送出一次）');
+  }
+}
+
 async function main() {
   await runPartA();
   await runPartB();
   runPartC();
   runPartD();
   runPartE();
+  await runPartF();
 
   console.log('\n== Phase 2 Summary ==');
   const total = results.length;
