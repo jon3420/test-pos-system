@@ -20,6 +20,14 @@ const EVENT_LABELS = {
   friendship_verify_false: '驗證為非好友／已封鎖',
   manual_verify_true: '驗證為好友',
   manual_verify_false: '驗證為非好友／已封鎖',
+  // H1.4.10 hotfix30-B5-R5.4-FRIEND-LIVE（TASK 5／FRIEND-LIVE-5）：backend
+  // 已驗證的 friend_status 與前端 liff.getFriendship() 這次回報的結果不一致時
+  // （例如 backend=false 但 client 端說 true），只留下稽核／和解紀錄，
+  // 絕對不能藉由這個事件直接改變 is_friend/friend_status——那必須仍然只能
+  // 由 Follow/Unfollow Webhook 或後端自己呼叫 LINE API 驗證後才能變更
+  // （見下方 _isFriendFor：這個事件類型刻意不在 switch 命中，永遠回傳
+  // null＝不變更狀態）。
+  friendship_conflict_detected: '好友狀態疑似不一致（待人工確認）',
 };
 
 // 事件事實對 friend_status / is_friend 的意義（true=好友, false=非好友, null=不變更狀態）
@@ -34,6 +42,8 @@ function _isFriendFor(eventType) {
     case 'friendship_verify_false':
     case 'manual_verify_false':
       return false;
+    // friendship_conflict_detected 刻意落到 default（null）：只寫稽核紀錄，
+    // 不改變任何安全判斷用的 is_friend/friend_status 欄位。
     default:
       return null;
   }

@@ -631,6 +631,10 @@ router.get('/shop', (req, res) => {
       'line_member_login_channel_id', 'line_member_liff_id', 'line_member_return_url',
       'line_member_title', 'line_member_description', 'line_member_friend_button_text',
       'line_member_login_button_text', 'line_member_skip_button_text',
+      // H1.4.10 hotfix30-B5-R5.4-FRIEND-LIVE：Safe Client Diagnostic Mode
+      // 開關（見 routes/settings.js LINE_MEMBER_KEYS 註解，非 admin auth，
+      // 只是店家層級「是否允許」開關，仍需網址額外帶除錯參數才顯示）。
+      'line_member_friend_diagnostic_enabled',
       // fix18-10-hotfix29-C（需求文件三）：LINE 整合中心的正式加好友網址欄位，
       // 之前這裡完全沒有讀取，導致結帳頁 config 永遠讀不到（見下方 resolveAddFriendUrl()）。
       'line_add_friend_url',

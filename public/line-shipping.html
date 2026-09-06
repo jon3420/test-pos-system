@@ -493,6 +493,9 @@ function _buildLineMemberGateConfig(d){
     friend_button_text:d.line_member_friend_button_text||'加入官方帳號',
     login_button_text:d.line_member_login_button_text||'使用 LINE 登入',
     skip_button_text:d.line_member_skip_button_text||'略過',
+    // H1.4.10 hotfix30-B5-R5.4-FRIEND-LIVE（TASK 4／Security Gate 3）：與
+    // line-order.html 同一套 Safe Client Diagnostic Mode 開關。
+    friend_diagnostic_enabled:d.line_member_friend_diagnostic_enabled==='1',
   };
 }
 function _gateIds(){ return { visitor_id:_getVisitorId(), session_id:_getSessionId(), cart_id:_getCartId(false), order_mode:'shipping', attribution:_getAnalyticsContext() }; }
@@ -532,6 +535,9 @@ async function _initLineMemberGateFromShopData(d){
   if(_lineMemberGateConfig.gate_enabled && _isFriendOnlyMode){
     try{ await LineMemberGate.refreshAuthoritativeFriendState(STORE_ID); }catch(e){}
   }
+  // H1.4.10 hotfix30-B5-R5.4-FRIEND-LIVE（TASK 4）：Safe Client Diagnostic
+  // Mode，與 line-order.html 對應邏輯一致。
+  try{ LineMemberGate.maybeShowFriendDiagnosticPanel(STORE_ID, _lineMemberGateConfig); }catch(e){}
   // H1.4.10 Phase 2：friend_entry 進站引導（見 line-order.html 對應註解）。
   if(_lineMemberGateConfig.gate_enabled && _lineMemberGateConfig.gate_mode==='friend_entry'){
     try{ LineMemberGate.maybeShowFriendEntryGuide(STORE_ID, _lineMemberGateConfig, _gateIds(), _trackEvent); }catch(e){}

@@ -178,6 +178,13 @@ const LINE_MEMBER_KEYS = [
   'line_member_login_channel_id', 'line_member_liff_id', 'line_member_return_url',
   'line_member_title', 'line_member_description', 'line_member_friend_button_text',
   'line_member_login_button_text', 'line_member_skip_button_text',
+  // H1.4.10 hotfix30-B5-R5.4-FRIEND-LIVE（TASK 4／Security Gate 3）：
+  // Safe Client Diagnostic Mode 開關——不是 admin authentication，只是
+  // 「這個店家願意在顧客端 LIFF 頁面顯示無敏感資訊的 getFriendship() 診斷
+  // 面板」的店家層級開關，且仍需網址額外帶 ?line_friend_debug=1 才會顯示
+  // （見 public/js/line-member-gate.js maybeShowFriendDiagnosticPanel()）。
+  // 正式環境預設關閉（getSetting 查無值時回傳 ''，前端一律視為 false）。
+  'line_member_friend_diagnostic_enabled',
   // H1.4.10 section D：「由 LINE LIFF 進入時自動辨識會員」——與
   // line_member_gate_enabled 完全分開的獨立開關（需求文件四）。預設關閉，
   // 不需要 LINE Login Channel 設定完成即可先儲存（實際生效仍需 liff_id）。

@@ -1540,8 +1540,37 @@ router.post('/migration/import', migrationJsonParser, (req, res) => {
               if (mode === 'overwrite') {
                 // 覆蓋更新：只更新非敏感欄位（lmInsertCandidates 已預先排除 token／secret 類欄位）。
                 // 不新增重複會員（同一 line_user_id 只會 UPDATE，不會 INSERT 第二筆）。
-                const updCols = lmInsertCandidates.filter(c =>
+                let updCols = lmInsertCandidates.filter(c =>
                   c !== 'store_id' && c !== 'line_user_id' && lmCols.has(c));
+                // H1.4.10 hotfix30-B5-R5.4-FRIEND-LIVE（TASK 7 資料保存稽核）：
+                // 根因——overwrite 模式先前會無條件用匯入檔案裡的 is_friend／
+                // is_blocked／friend_since／last_friend_check 蓋掉 DB 目前的值。
+                // 若匯入的是一份「較舊」的備份（例如匯出當下客人還沒加好友，
+                // 之後才透過 Follow Webhook 更新成好友），重新匯入會把 DB 目前
+                // 較新的好友狀態打回舊值，且不會自動觸發新的 Follow Webhook，
+                // 使用者只能靠封鎖再解除才能救回（此為「系統覆蓋後，原本好友
+                // 都要封鎖再解除才能識別」這個回報的其中一個真實成因，見本輪
+                // TASK 7）。修法：這幾個好友相關欄位只在「匯入值本身沒有比 DB
+                // 目前紀錄的 last_friend_check 舊」時才覆蓋；查無時間戳可比較
+                // （DB 尚無任何檢查紀錄，或匯入值本身缺 last_friend_check）一律
+                // 視為不擋（沿用 utils/lineFriendSync.js 既有「無法比較就不擋」
+                // 安全預設），不影響其餘欄位（display_name／消費統計等）照常
+                // 覆蓋。
+                const FRIEND_PROTECTED_COLS = new Set(['is_friend', 'is_blocked', 'friend_since', 'last_friend_check']);
+                if (updCols.some((c) => FRIEND_PROTECTED_COLS.has(c))) {
+                  const existingFriendRow = safeGet(db,
+                    'SELECT last_friend_check FROM line_members WHERE store_id=? AND line_user_id=?',
+                    [storeId, lineUserId]);
+                  const existingCheckedAt = (existingFriendRow && existingFriendRow.last_friend_check) || '';
+                  const incomingCheckedAt = m.last_friend_check || '';
+                  const existingMs = existingCheckedAt ? Date.parse(existingCheckedAt) : NaN;
+                  const incomingMs = incomingCheckedAt ? Date.parse(incomingCheckedAt) : NaN;
+                  const incomingIsOlderOrUnknown = Number.isFinite(existingMs) &&
+                    (!Number.isFinite(incomingMs) || incomingMs < existingMs);
+                  if (incomingIsOlderOrUnknown) {
+                    updCols = updCols.filter((c) => !FRIEND_PROTECTED_COLS.has(c));
+                  }
+                }
                 if (updCols.length) {
                   const updVals = [...updCols.map(c => src[c] ?? null), storeId, lineUserId];
                   const updSql = `UPDATE line_members SET ${updCols.map(c => `${c}=?`).join(',')},updated_at=datetime('now','localtime') WHERE store_id=? AND line_user_id=?`;

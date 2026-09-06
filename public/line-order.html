@@ -736,6 +736,11 @@ function _buildLineMemberGateConfig(d){
     friend_button_text:d.line_member_friend_button_text||'加入官方帳號',
     login_button_text:d.line_member_login_button_text||'使用 LINE 登入',
     skip_button_text:d.line_member_skip_button_text||'略過',
+    // H1.4.10 hotfix30-B5-R5.4-FRIEND-LIVE（TASK 4／Security Gate 3）：
+    // Safe Client Diagnostic Mode——不是 admin authentication，只是店家層級
+    // 開關；實際顯示仍需網址額外帶 ?line_friend_debug=1（見
+    // public/js/line-member-gate.js maybeShowFriendDiagnosticPanel()）。
+    friend_diagnostic_enabled:d.line_member_friend_diagnostic_enabled==='1',
   };
 }
 function _gateIds(){ return { visitor_id:_getVisitorId(), session_id:_getSessionId(), cart_id:_getCartId(false), order_mode:currentMode, attribution:_getAnalyticsContext() }; }
@@ -827,6 +832,10 @@ async function _initLineMemberGateFromShopData(d){
   if(isFriendOnlyMode){
     try{ await LineMemberGate.refreshAuthoritativeFriendState(LINE_STORE_ID); }catch(e){}
   }
+  // H1.4.10 hotfix30-B5-R5.4-FRIEND-LIVE（TASK 4）：Safe Client Diagnostic
+  // Mode——條件缺一不可（店家設定開關 + 網址帶 ?line_friend_debug=1）才會
+  // 顯示，不影響任何既有流程，失敗也不可阻擋點餐。
+  try{ LineMemberGate.maybeShowFriendDiagnosticPanel(LINE_STORE_ID, _lineMemberGateConfig); }catch(e){}
   // H1.4.10 Phase 2：friend_entry 進站引導。放在整段 LIFF 初始化／被動辨識／
   // 上面的 refreshAuthoritativeFriendState() 之後才呼叫，讓 knownFriendStatus()
   // 能拿到最新（若 Auto Identify 或 trusted refresh 剛成功）的好友狀態；即使

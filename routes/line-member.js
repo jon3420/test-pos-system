@@ -84,6 +84,29 @@ function getSetting(db, storeId, key) {
   return row ? row.value : '';
 }
 
+// H1.4.10 hotfix30-B5-R5.4-FRIEND-LIVE（TASK 5）：/friend-conflict 只寫稽核
+// 紀錄，但顧客頁面 lifecycle（pageshow/focus/visibilitychange burst）可能
+// 短時間內重複觸發同一個 member 的同一種衝突，這裡用「同一 store+member+
+// 衝突類型」的短效 in-memory 去重（與上面 rateBucket 相同慣例，皆為單一
+// process 記憶體、不需要落地成資料表），短時間內只真的寫入一次，其餘直接
+// 回 success（idempotent，前端不需要特殊處理重複回應）。
+const CONFLICT_DEDUPE_WINDOW_MS = 5 * 60 * 1000; // 5 分鐘
+const conflictDedupeBucket = new Map();
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, ts] of conflictDedupeBucket.entries()) {
+    if (now - ts > CONFLICT_DEDUPE_WINDOW_MS) conflictDedupeBucket.delete(key);
+  }
+}, 10 * 60 * 1000).unref?.();
+function shouldSkipConflictWrite(storeId, lineUserId, conflictType) {
+  const key = `${storeId}|${lineUserId}|${conflictType}`;
+  const now = Date.now();
+  const last = conflictDedupeBucket.get(key);
+  if (last && now - last < CONFLICT_DEDUPE_WINDOW_MS) return true;
+  conflictDedupeBucket.set(key, now);
+  return false;
+}
+
 // fix18-10-hotfix26-E（需求文件十）：verify_debug 三個條件之一——呼叫端必須帶
 // 這個 store 的有效管理員 JWT。純唯讀檢查，不影響一般顧客 verify 流程（一般
 // 顧客本來就不會、也不需要帶這個 header）。
@@ -456,6 +479,111 @@ router.post('/link-context', (req, res) => {
   } catch (e) {
     console.error('[line-member] POST /link-context error:', e.message);
     // 不得讓例外破壞下單流程（需求文件九）
+    res.status(200).json({ success: false, reason: 'exception' });
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════
+// POST /api/line-member/friend-state — H1.4.10 hotfix30-B5-R5.4-FRIEND-LIVE
+// （TASK 2：Backend authoritative refresh）
+//
+// 根因（見本輪需求文件 CASE 1～3）：friend_entry／friend_checkout 這類「免
+// 登入」模式的前端只讀本地 member_session 快取（saveMemberSession() 寫入的
+// is_friend），這份快取只在真的跑過一次完整 /verify（登入／被動辨識／手動
+// 重新確認）後才會建立，且之後不會自己更新——即使 LINE Follow/Unfollow
+// Webhook 已經把後端 line_members.is_friend 改成最新值，本地快取仍是舊的。
+//
+// 這支端點只做一件事：拿既有（已簽章過、已驗證身份）的 member_session，
+// 直接重新查一次 line_members 目前的 is_friend/friend_status，回傳給前端
+// 更新本地快取——完全不呼叫 LINE 官方 API、不建立/更新任何會員資料、不寫
+// CRM Timeline、不呼叫 upsertMemberProfile()/applyFriendEvent()、也不呼叫
+// logServerEvent()（見 TASK 3：不得新增 GA4/Meta 事件）。純唯讀。
+//
+// 安全性：不接受前端直接傳入的 line_user_id，一律透過 verifyMemberSession()
+// 換得可信身份（與 /link-context 相同原則），且此 token 早已是真正登入／
+// 被動辨識流程核發，不是新的信任來源，不新增第二套 member database。
+router.post('/friend-state', (req, res) => {
+  try {
+    const db = getDb();
+    const storeId = req.storeId;
+    const ip = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'unknown';
+    if (!checkRateLimit(storeId, `friend-state|${ip}`)) {
+      return res.status(429).json({ success: false, reason: 'rate_limited', code: 'RATE_LIMITED' });
+    }
+    const { member_session } = req.body || {};
+    if (!member_session || typeof member_session !== 'string') {
+      return res.status(200).json({ success: false, reason: 'missing_member_session' });
+    }
+    const lineUserId = verifyMemberSession(member_session, storeId);
+    if (!lineUserId) {
+      // 簽章錯誤／過期／店家不符：安全 fallback，不得 500、不得暴露原因細節
+      // （與 /link-context 相同慣例）。
+      return res.status(200).json({ success: false, reason: 'invalid_session' });
+    }
+    const row = db.get(
+      'SELECT is_friend, friend_status, last_friend_check, last_friend_check_at, friend_source FROM line_members WHERE store_id=? AND line_user_id=?',
+      [storeId, lineUserId]
+    );
+    const requireFriend = getSetting(db, storeId, 'line_member_require_friend') === '1';
+    const isFriend = row ? (row.is_friend === 1 ? true : row.is_friend === 0 ? false : null) : null;
+    // 內部診斷用途（TASK 3：只用來標示這是「重新取得 Backend member state」
+    // 這條路徑，不是分析事件，也不會出現在任何 GA4/Meta 回報裡）。
+    if (process.env.LINE_MEMBER_DEBUG === '1') {
+      console.log('[line-member][friend-state]', JSON.stringify({ store_id: storeId, reason: 'friend_status_refresh', is_friend: isFriend }));
+    }
+    res.json({
+      success: true,
+      is_friend: isFriend,
+      friend_status: friendStatusLabel(isFriend),
+      require_friend: requireFriend,
+      require_follow: requireFriend,
+      meets_requirement: meetsRequirement(requireFriend, isFriend),
+      last_friend_check_at: (row && (row.last_friend_check_at || row.last_friend_check)) || '',
+    });
+  } catch (e) {
+    console.error('[line-member] POST /friend-state error:', e.message);
+    res.status(200).json({ success: false, reason: 'exception' });
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════
+// POST /api/line-member/friend-conflict — H1.4.10 hotfix30-B5-R5.4-FRIEND-LIVE
+// （TASK 5／FRIEND-LIVE-5：backend friend=false 但前端 liff.getFriendship()
+// 這次回報 true 時的稽核紀錄）
+//
+// 不改變 is_friend/friend_status（那是安全判斷用的欄位，只能由 Follow／
+// Unfollow Webhook 或後端自己呼叫 LINE API 驗證後才能變更），只寫一筆
+// append-only 的 line_friend_events／line_member_history 紀錄，供人工／
+// 後續 reverify 排查用。同樣不呼叫 logServerEvent()（不得新增 GA4/Meta 事件）。
+router.post('/friend-conflict', (req, res) => {
+  try {
+    const db = getDb();
+    const storeId = req.storeId;
+    const ip = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'unknown';
+    if (!checkRateLimit(storeId, `friend-conflict|${ip}`)) {
+      return res.status(429).json({ success: false, reason: 'rate_limited', code: 'RATE_LIMITED' });
+    }
+    const { member_session, client_signal } = req.body || {};
+    if (!member_session || typeof member_session !== 'string') {
+      return res.status(200).json({ success: false, reason: 'missing_member_session' });
+    }
+    const lineUserId = verifyMemberSession(member_session, storeId);
+    if (!lineUserId) {
+      return res.status(200).json({ success: false, reason: 'invalid_session' });
+    }
+    const conflictType = 'backend_false_client_true';
+    if (shouldSkipConflictWrite(storeId, lineUserId, conflictType)) {
+      return res.json({ success: true, data: { logged: false, deduped: true } });
+    }
+    const { applyFriendEvent } = require('../utils/lineFriendSync');
+    const result = applyFriendEvent(db, storeId, lineUserId, {
+      eventType: 'friendship_conflict_detected',
+      source: 'client_liff_reconcile',
+      metadata: { client_signal: (typeof client_signal === 'string' ? client_signal.slice(0, 100) : '') },
+    });
+    res.json({ success: true, data: { logged: true, applied: result.applied } });
+  } catch (e) {
+    console.error('[line-member] POST /friend-conflict error:', e.message);
     res.status(200).json({ success: false, reason: 'exception' });
   }
 });

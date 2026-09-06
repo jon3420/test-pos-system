@@ -95,6 +95,9 @@ function getShippingSettings(db, storeId) {
     'line_member_login_channel_id', 'line_member_liff_id', 'line_member_return_url',
     'line_member_title', 'line_member_description', 'line_member_friend_button_text',
     'line_member_login_button_text', 'line_member_skip_button_text',
+    // H1.4.10 hotfix30-B5-R5.4-FRIEND-LIVE：Safe Client Diagnostic Mode 開關
+    // （與 line-order 頁同一套 key，見 routes/settings.js 註解）。
+    'line_member_friend_diagnostic_enabled',
     // fix18-10-hotfix29-C（需求文件三）：與 line-order 頁同一個修正——之前這裡
     // 沒有讀取 line_add_friend_url，結帳頁永遠讀不到 LINE 整合中心設定的值。
     'line_add_friend_url',

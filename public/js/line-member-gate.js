@@ -428,16 +428,134 @@
     try { return await global.liff.getProfile(); } catch (e) { return null; }
   }
 
+  // ══════════════════════════════════════════════════════════════════
+  // H1.4.10 hotfix30-B5-R5.4-FRIEND-LIVE（TASK 4／Security Gate 3：Safe
+  // Client Diagnostic Mode，不是 admin authentication）——這支模組跑在
+  // 顧客的 LIFF 點餐頁，沒有 staff JWT／後台登入可以重用，所以這個面板
+  // 「不能」宣稱是 admin-only。它只是一個店家自己選擇開啟、且需要額外在
+  // 網址帶一次性參數才會出現的診斷面板，目的只是讓真機能直接看到
+  // getFriendship() 到底回傳 true／false／還是 error，不是新的信任來源，
+  // 不影響任何既有判斷邏輯。明確禁止項目：不記錄 ID token／access
+  // token／原始 LINE userId／member_session token／JWT／任何 Secret／
+  // 完整後端回應／PII，只記錄布林值／字串代碼／訊息這幾種安全欄位。
+  // ══════════════════════════════════════════════════════════════════
+  let _friendDiagnostic = {
+    liffId: '', isInClient: null, isLoggedIn: null,
+    getFriendshipCalled: false, friendFlag: null,
+    errorCode: '', errorMessage: '', updatedAt: 0,
+  };
+  function _resetFriendDiagnostic(liffId) {
+    _friendDiagnostic = {
+      liffId: liffId || '', isInClient: null, isLoggedIn: null,
+      getFriendshipCalled: false, friendFlag: null,
+      errorCode: '', errorMessage: '', updatedAt: Date.now(),
+    };
+  }
+  // 供管理端／診斷面板讀取目前快照（純讀取，不含任何敏感欄位）。
+  function getFriendDiagnosticSnapshot() { return Object.assign({}, _friendDiagnostic); }
+
+  // TASK 4／Security Gate 3：Safe Client Diagnostic Mode——只在明確的
+  // 「店家自己選擇開啟」+「網址帶一次性除錯參數」兩個條件同時成立才顯示
+  // （config.friend_diagnostic_enabled === true 且 ?line_friend_debug=1）。
+  // 這不是 admin authentication（顧客頁沒有 staff JWT 可用），所以內容
+  // 必須完全無敏感資訊：只顯示 LIFF ID／isInClient／isLoggedIn／
+  // getFriendship called／friendFlag／safe error code／generic error
+  // message。明確禁止：LINE UID／idToken／accessToken／member_session／
+  // JWT／Secret／完整後端回應／PII。正式環境 config flag 預設 false，
+  // 不會加入永久顯示給一般顧客的 debug UI。
+  let friendDiagnosticEl = null;
+  function hideFriendDiagnosticPanel() {
+    if (friendDiagnosticEl && friendDiagnosticEl.parentNode) friendDiagnosticEl.parentNode.removeChild(friendDiagnosticEl);
+    friendDiagnosticEl = null;
+  }
+  function _isFriendDiagnosticRequested() {
+    try { return new URLSearchParams(window.location.search).get('line_friend_debug') === '1'; }
+    catch (e) { return false; }
+  }
+  function _renderFriendDiagnosticRows() {
+    const d = getFriendDiagnosticSnapshot();
+    const rows = [
+      ['LIFF ID', d.liffId || '(empty)'],
+      ['isInClient', d.isInClient === null ? '(unknown)' : String(d.isInClient)],
+      ['isLoggedIn', d.isLoggedIn === null ? '(unknown)' : String(d.isLoggedIn)],
+      ['getFriendship called', String(!!d.getFriendshipCalled)],
+      ['friendFlag', d.friendFlag === null ? '(null)' : String(d.friendFlag)],
+      ['error code', d.errorCode || '(none)'],
+      ['error message', d.errorMessage || '(none)'],
+    ];
+    return rows.map(([k, v]) => `<div style="display:flex;justify-content:space-between;gap:12px;padding:4px 0;border-bottom:1px solid #eee">
+      <span style="color:#888">${escapeHtml(k)}</span><span style="font-family:monospace;text-align:right;word-break:break-all">${escapeHtml(v)}</span>
+    </div>`).join('');
+  }
+  function showFriendDiagnosticPanel(storeId, config) {
+    hideFriendDiagnosticPanel();
+    friendDiagnosticEl = document.createElement('div');
+    friendDiagnosticEl.id = 'lineFriendDiagnosticPanel';
+    friendDiagnosticEl.style.cssText = `position:fixed;right:12px;bottom:12px;z-index:100000;background:#fff;
+      border:1px solid #ddd;border-radius:12px;max-width:320px;width:calc(100vw - 24px);
+      box-shadow:0 4px 20px rgba(0,0,0,.2);font-family:inherit;padding:12px;`;
+    friendDiagnosticEl.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <strong style="font-size:13px">LINE Friendship 診斷（Safe Client Diagnostic Mode，測試用）</strong>
+        <button id="lfdCloseBtn" aria-label="關閉" style="border:0;background:transparent;color:#999;font-size:16px;cursor:pointer">✕</button>
+      </div>
+      <div id="lfdRows" style="font-size:12px">${_renderFriendDiagnosticRows()}</div>
+      <button id="lfdRefreshBtn" style="margin-top:8px;width:100%;padding:8px;border:1px solid #06C755;border-radius:8px;background:#fff;color:#06C755;font-size:12px;cursor:pointer">重新呼叫 getFriendship()</button>
+    `;
+    document.body.appendChild(friendDiagnosticEl);
+    const closeBtn = document.getElementById('lfdCloseBtn');
+    const refreshBtn = document.getElementById('lfdRefreshBtn');
+    if (closeBtn) closeBtn.addEventListener('click', hideFriendDiagnosticPanel);
+    if (refreshBtn) refreshBtn.addEventListener('click', async () => {
+      await getClientFriendFlag();
+      const rowsEl = document.getElementById('lfdRows');
+      if (rowsEl) rowsEl.innerHTML = _renderFriendDiagnosticRows();
+    });
+    return friendDiagnosticEl;
+  }
+  // 供頁面 bootstrap 呼叫的唯一入口：條件缺一不可才會真的顯示面板，絕不
+  // 因為呼叫這支函式本身而觸發任何登入／驗證流程。
+  function maybeShowFriendDiagnosticPanel(storeId, config) {
+    try {
+      if (!config || !config.friend_diagnostic_enabled) return { shown: false, reason: 'disabled' };
+      if (!_isFriendDiagnosticRequested()) return { shown: false, reason: 'not_requested' };
+      _resetFriendDiagnostic(config.liff_id || '');
+      showFriendDiagnosticPanel(storeId, config);
+      return { shown: true };
+    } catch (e) { return { shown: false, reason: 'exception' }; }
+  }
+
   // fix18-10-hotfix26（需求文件三）：取得目前登入者的好友狀態。每次登入／每次
   // verify 都重新呼叫一次（不只在第一次建立會員時取得），使用者今天才加入的話
   // 狀態才能被更新。API 失敗一律回傳 null（未知），絕不拋出例外阻擋登入流程，
   // 也絕不把例外直接顯示給顧客（只 console.warn）。
   async function getClientFriendFlag() {
+    _friendDiagnostic.updatedAt = Date.now();
     try {
-      if (!global.liff || typeof global.liff.getFriendship !== 'function') return null;
+      _friendDiagnostic.isInClient = (global.liff && typeof global.liff.isInClient === 'function') ? !!global.liff.isInClient() : null;
+      _friendDiagnostic.isLoggedIn = (global.liff && typeof global.liff.isLoggedIn === 'function') ? !!global.liff.isLoggedIn() : null;
+      if (!global.liff || typeof global.liff.getFriendship !== 'function') {
+        _friendDiagnostic.getFriendshipCalled = false;
+        _friendDiagnostic.errorCode = 'GET_FRIENDSHIP_UNAVAILABLE';
+        _friendDiagnostic.errorMessage = 'liff.getFriendship() 不存在（LIFF SDK 未載入或版本過舊）';
+        return null;
+      }
+      _friendDiagnostic.getFriendshipCalled = true;
       const friendship = await global.liff.getFriendship();
-      return typeof (friendship && friendship.friendFlag) === 'boolean' ? friendship.friendFlag : null;
+      const flag = typeof (friendship && friendship.friendFlag) === 'boolean' ? friendship.friendFlag : null;
+      _friendDiagnostic.friendFlag = flag;
+      if (flag === null) {
+        _friendDiagnostic.errorCode = 'FRIENDFLAG_NOT_BOOLEAN';
+        _friendDiagnostic.errorMessage = 'getFriendship() 有回傳，但 friendFlag 不是布林值';
+      } else {
+        _friendDiagnostic.errorCode = '';
+        _friendDiagnostic.errorMessage = '';
+      }
+      return flag;
     } catch (e) {
+      _friendDiagnostic.friendFlag = null;
+      _friendDiagnostic.errorCode = (e && e.code) || 'GET_FRIENDSHIP_ERROR';
+      _friendDiagnostic.errorMessage = (e && e.message) || String(e);
       console.warn('[LINE Member] Unable to get friendship status:', e.message);
       return null;
     }
@@ -1069,19 +1187,111 @@
   //     Guide 關閉（不阻擋 checkout、不重複送 guide_view、不會有 unhandled
   //     rejection）。
   //
+  // ══════════════════════════════════════════════════════════════════
+  // H1.4.10 hotfix30-B5-R5.4-FRIEND-LIVE（TASK 2：Backend authoritative
+  // refresh）—— 呼叫 POST /api/line-member/friend-state，用既有（已驗證
+  // 過身份的）member_session 直接重新讀一次 DB 目前的 is_friend，完全不
+  // 呼叫 LINE API、不觸發 liff.login()、不建立/更新會員資料、不送出任何
+  // analytics／GA4/Meta 事件（見 routes/line-member.js 對應端點註解、
+  // 需求文件 TASK 3）。沒有 member_session 時直接回傳 null（沒有可信身份
+  // 可以查詢，不新增任何未驗證來源）。
+  // ══════════════════════════════════════════════════════════════════
+  async function _fetchBackendFriendState(storeId, memberSessionToken) {
+    if (!memberSessionToken) return null;
+    try {
+      const res = await fetch('/api/line-member/friend-state?store_id=' + encodeURIComponent(storeId), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ member_session: memberSessionToken }),
+      });
+      return await res.json();
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // 把 backend 剛查回的最新 is_friend 寫回本地快取，讓同一個 session 內
+  // 之後的 knownFriendStatus() 判斷立即拿到最新值，不用等下一次完整
+  // verify（登入／被動辨識）才會更新這份快取。只更新既有快取內容，不建立
+  // 新的 member_session（沒有 session 就代表沒有可信身份，不能無中生有）。
+  function _updateCachedFriendStatus(storeId, isFriend, lastCheckAt) {
+    try {
+      const raw = localStorage.getItem(sessionKey(storeId));
+      if (!raw) return;
+      const data = JSON.parse(raw);
+      if (!data) return;
+      data.is_friend = isFriend;
+      if (lastCheckAt) data.last_friend_check_at = lastCheckAt;
+      localStorage.setItem(sessionKey(storeId), JSON.stringify(data));
+    } catch (e) { /* 本地快取更新失敗不可影響流程 */ }
+  }
+
+  // TASK 5／FRIEND-LIVE-5：backend 已驗證的 friend_status=false，但這次
+  // liff.getFriendship() 回報 true 時，只留稽核紀錄（line_friend_events／
+  // line_member_history），絕不藉此直接把 is_friend 改成 true——那必須仍然
+  // 只能由 Follow/Unfollow Webhook 或後端自己呼叫 LINE API 驗證後才能變更
+  // （見 routes/line-member.js POST /friend-conflict、utils/lineFriendSync.js
+  // 的 friendship_conflict_detected 事件類型）。best-effort，失敗不阻擋流程。
+  async function _reportFriendStateConflict(storeId, memberSessionToken) {
+    if (!memberSessionToken) return;
+    try {
+      await fetch('/api/line-member/friend-conflict?store_id=' + encodeURIComponent(storeId), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ member_session: memberSessionToken, client_signal: 'liff_getFriendship_true' }),
+      });
+    } catch (e) { /* 稽核紀錄失敗不可阻擋流程 */ }
+  }
+
   // 回傳 'friend' / 'non_friend' / 'unknown'。絕不拋出例外、絕不呼叫
   // liff.login()、絕不阻擋任何下單流程。
+  //
+  // TASK 5 precedence（不得顛倒）：
+  //   1. Backend refreshed member.friend === true         → 'friend'（NO GUIDE）
+  //   2. 否則 LIFF getFriendship().friendFlag === true     → 'friend'（NO GUIDE，並 reconcile）
+  //   3. 兩者都無法確認                                     → 依既有 friend_entry／
+  //      friend_checkout 規則顯示 Guide（'non_friend' 或 'unknown'）
+  // 禁止：任何 local unknown 覆蓋已確認的 backend true。
   async function refreshAuthoritativeFriendState(storeId) {
+    let session = null;
     let sessionFriend = null;
     try {
-      const session = getMemberSession(storeId);
+      session = getMemberSession(storeId);
       sessionFriend = session ? normalizeServerFriendStatus(session) : null;
-    } catch (e) { sessionFriend = null; }
+    } catch (e) { session = null; sessionFriend = null; }
+
+    // Step 1：Backend authoritative refresh（TASK 2）。即使本地快取目前是
+    // unknown／stale，只要 backend DB 目前已經是 true，一律優先採用（TASK 5
+    // 禁止清單第一條）。
+    if (session && session.member_session) {
+      try {
+        const backendState = await _fetchBackendFriendState(storeId, session.member_session);
+        if (backendState && backendState.success) {
+          if (backendState.is_friend === true) {
+            _updateCachedFriendStatus(storeId, true, backendState.last_friend_check_at);
+            reconcileFriendGuide(storeId, true);
+            return 'friend';
+          }
+          if (backendState.is_friend === false) {
+            _updateCachedFriendStatus(storeId, false, backendState.last_friend_check_at);
+            sessionFriend = false;
+          }
+        }
+      } catch (e) { /* 不可阻擋流程，維持既有 fail-open */ }
+    }
+
     if (sessionFriend === true) { reconcileFriendGuide(storeId, true); return 'friend'; }
+
+    // Step 2：LIFF 本身的 trusted friendship refresh（既有行為，維持不變）。
     try {
       if (global.liff && typeof global.liff.isLoggedIn === 'function' && global.liff.isLoggedIn()) {
         const flag = await getClientFriendFlag();
         if (flag === true) {
+          // FRIEND-LIVE-5：backend 剛確認過 false，但這次 client 端說 true——
+          // 只做 UX 層 suppress + 留稽核紀錄，不動安全欄位。
+          if (sessionFriend === false) {
+            try { await _reportFriendStateConflict(storeId, session && session.member_session); } catch (e) {}
+          }
           reconcileFriendGuide(storeId, true);
           return 'friend';
         }
@@ -2671,6 +2881,11 @@
     // H1.4.10 hotfix30-FRIEND-SECRET-UX 新增：Friend Guide race condition 修正
     // （Authoritative Priority／Modal Reconciliation，供頁面與測試共用）。
     refreshAuthoritativeFriendState, reconcileFriendGuide,
+    // H1.4.10 hotfix30-B5-R5.4-FRIEND-LIVE 新增：TASK 4 真機診斷（只讀，
+    // 不含任何 token／原始 LINE userId）、TASK 2 backend authoritative
+    // refresh 內部 helper（供頁面／測試直接檢查，不改變既有公開行為）。
+    getFriendDiagnosticSnapshot, _fetchBackendFriendState, _updateCachedFriendStatus,
+    _reportFriendStateConflict,
   };
 
 })(window);
