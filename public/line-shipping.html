@@ -275,7 +275,7 @@ img{max-width:100%;display:block}
     <div class="cf" style="padding-bottom:88px">
       <div class="fg"><label class="fl">收件人姓名 <span class="req">*</span></label><input class="fi" id="rName" placeholder="收件人姓名" oninput="debouncedPersistCart()"></div>
       <div class="fr">
-        <div class="fg"><label class="fl">收件電話 <span class="req">*</span></label><input class="fi" id="rPhone" placeholder="聯絡電話" type="tel" oninput="debouncedPersistCart()"></div>
+        <div class="fg"><label class="fl">收件人手機 <span class="req">*</span></label><input class="fi" id="rPhone" placeholder="0912345678" type="tel" inputmode="numeric" autocomplete="tel" oninput="debouncedPersistCart()" onblur="phoneUtilsNormalizeField('rPhone')"><div class="fhint" style="font-size:12px;color:#888;margin-top:2px">台灣 +886｜請輸入 09 開頭，共 10 碼</div><div class="fpherr" id="rPhoneErr" style="display:none;color:#e53935;font-size:12px;margin-top:2px">請輸入正確的台灣手機號碼（09 開頭，共 10 碼）</div></div>
         <div class="fg"><label class="fl">郵遞區號</label><input class="fi" id="rPostal" placeholder="郵遞區號" oninput="debouncedPersistCart()"></div>
       </div>
       <div class="fr">
@@ -365,6 +365,7 @@ img{max-width:100%;display:block}
 
 <script src="/js/analytics-attribution.js"></script>
 <script src="/js/analytics-platforms.js"></script>
+<script src="/js/phone-utils.js"></script>
 <script src="/js/line-member-gate.js"></script>
 <script src="/js/product-detail-modal.js"></script>
 <script>
@@ -824,6 +825,17 @@ function toast(msg) {
   const t = document.getElementById('toast');
   t.textContent = msg; t.classList.add('show');
   setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+// H1.4.10 PHONE-VALIDATION：blur 時 normalize 顯示，authoritative validation 仍在
+// submit 時執行。單一 PhoneUtils 來源，不在此另外撰寫任何 regex。
+function phoneUtilsNormalizeField(fieldId) {
+  const el = document.getElementById(fieldId); if (!el || typeof window.PhoneUtils === 'undefined') return;
+  const errEl = document.getElementById(fieldId + 'Err');
+  const v = el.value.trim();
+  if (!v) { if (errEl) errEl.style.display = 'none'; return; }
+  const r = window.PhoneUtils.normalizeTaiwanMobile(v);
+  if (r.valid) { el.value = r.local; if (errEl) errEl.style.display = 'none'; }
 }
 
 // hotfix22-B：冷藏宅配 LINE Pay 正式付款流程已確認可用（見 routes/line-shipping.js 與
@@ -1869,7 +1881,7 @@ async function submitOrder(event) {
   if (!cartList().length) { trackCheckoutValidationFailed('empty_cart'); toast('購物車是空的'); return; }
   if (calcFee().belowMin) { trackCheckoutValidationFailed('minimum_order_not_met'); toast(`未達最低訂購金額 NT$${SHOP_DATA.settings.shipping_min_order_amount}`); return; }
   const name = document.getElementById('rName').value.trim();
-  const phone = document.getElementById('rPhone').value.trim();
+  let phone = document.getElementById('rPhone').value.trim();
   const postal = document.getElementById('rPostal').value.trim();
   const city = document.getElementById('rCity').value.trim();
   const district = document.getElementById('rDistrict').value.trim();
@@ -1878,7 +1890,21 @@ async function submitOrder(event) {
   const note = document.getElementById('rNote').value.trim();
   const arrivalDate = document.getElementById('rArrivalDate').value;
 
-  if (!name || !phone) { trackCheckoutValidationFailed(!name ? 'missing_name' : 'missing_phone'); toast('請填寫收件人姓名與電話'); return; }
+  if (!name || !phone) { trackCheckoutValidationFailed(!name ? 'missing_name' : 'missing_phone'); toast('請填寫收件人姓名與收件人手機'); return; }
+  // H1.4.10 PHONE-VALIDATION：authoritative frontend validation，單一 PhoneUtils 來源。
+  // invalid 時 focus 欄位、不送 create-order request、不進 payment、不清 cart。
+  {
+    const _phoneCheck=(typeof window.PhoneUtils!=='undefined')?window.PhoneUtils.normalizeTaiwanMobile(phone):{valid:true,local:phone};
+    if(!_phoneCheck.valid){
+      trackCheckoutValidationFailed('invalid_phone');
+      toast(window.PhoneUtils.messageForReason(_phoneCheck.reason));
+      document.getElementById('rPhoneErr')&&(document.getElementById('rPhoneErr').style.display='block');
+      document.getElementById('rPhone')?.focus();
+      return;
+    }
+    // Storage Decision A：DB 繼續保存 local format（0912xxxxxx），送出前正規化成 local。
+    if(_phoneCheck.local) phone=_phoneCheck.local;
+  }
   if (!city || !district || !address) { trackCheckoutValidationFailed('missing_address'); toast('請填寫完整收件地址'); return; }
   if (!selectedPayment) { trackCheckoutValidationFailed('missing_payment'); toast('請選擇付款方式'); return; }
 

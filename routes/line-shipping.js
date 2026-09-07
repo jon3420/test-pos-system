@@ -23,6 +23,7 @@ const { resolveAddFriendUrl } = require('../utils/lineCheckoutHandoff'); // fix1
 // 不重做驗證規則（期限／最低消費／每人次數上限／tenant 隔離皆沿用同一份邏輯），
 // 也不影響 routes/line-shipping.js 本來「不共用外帶/外送購物車與驗證流程」的獨立設計。
 const { validateCoupon } = require('./coupons');
+const { normalizeTaiwanMobile } = require('../public/js/phone-utils'); // H1.4.10 PHONE-VALIDATION SSOT
 const { getStoreFeatures } = require('../middleware/featureGate');
 // fix18-10-hotfix22D：冷藏宅配公告的「自動休假公告」唯讀共用 routes/line-orders.js 已匯出的
 // Business Calendar 查詢函式（不修改 Business Calendar 本身、不影響 LINE 點餐公告既有邏輯）。
@@ -439,6 +440,16 @@ router.post('/', (req, res) => {
       return res.status(400).json({ success: false, message: '請填寫收件地址' });
     }
 
+    // H1.4.10 PHONE-VALIDATION：backend authoritative validation（單一 PhoneUtils 來源）。
+    // invalid 時一律 400，不建立 shipping order／payment／shipping fee side effect／
+    // analytics，不得部分寫入。Storage Decision A：既有 DB phone 欄位繼續保存 local format。
+    const _phoneCheck = normalizeTaiwanMobile(phone);
+    if (!_phoneCheck.valid) {
+      return res.status(400).json({ success: false, error: 'INVALID_PHONE',
+        message: '請輸入正確的台灣手機號碼（09 開頭，共 10 碼）' });
+    }
+    const phoneNormalized = _phoneCheck.local;
+
     // ── 商品重新驗證 + 計價（後端不信任前端金額）──────────────────────
     let subtotal = 0;
     const finalItems = [];
@@ -488,7 +499,7 @@ router.post('/', (req, res) => {
           message: '優惠券功能未啟用',
         });
       }
-      const cvResult = validateCoupon(db, storeId, normalCouponCode, subtotal, phone);
+      const cvResult = validateCoupon(db, storeId, normalCouponCode, subtotal, phoneNormalized);
       if (!cvResult.ok) {
         return res.status(400).json({ success: false, message: cvResult.message, reason: 'coupon_invalid' });
       }
@@ -559,12 +570,12 @@ router.post('/', (req, res) => {
       ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         uuid, uuid, orderNo, storeId, 'shipping', 'pending', 'pending',
-        recipient_name, phone,
+        recipient_name, phoneNormalized,
         itemsJson, payment_method, payment_method === 'cash' ? 'cash' : 'non_cash', 'pending',
         subtotal, discAmt > 0 ? 'coupon' : 'none', discAmt, subtotal, appliedCouponCode, total,
         note || '', 'synced', 'LINE', 'line', nowStr, nowStr,
         'shipping', 'line_shipping',
-        recipient_name, phone, postal_code || '', city || '',
+        recipient_name, phoneNormalized, postal_code || '', city || '',
         district || '', address, address_note || '',
         finalArrivalType, finalArrivalType === 'date' ? (arrival_date || '') : '', feeResult.shipping_fee, feeResult.free_discount,
         settings.shipping_carrier_name || '', 'pending', knownLineUserId || '',
@@ -587,7 +598,7 @@ router.post('/', (req, res) => {
           [
             storeId, appliedCouponId, appliedCouponCode,
             uuid, orderNo,
-            String(phone || '').trim(),
+            String(phoneNormalized || '').trim(),
             discAmt, subtotal, total, nowStr
           ]
         );
@@ -615,7 +626,7 @@ router.post('/', (req, res) => {
       broadcastToStore(wss, storeId, { type: 'line_shipping_order_created', order: { ...newOrder, items: finalItems } });
     } catch {}
     triggerN8nWebhook(db, storeId, 'line_shipping_new_order', {
-      order_number: orderNo, recipient_name, phone, total, items: finalItems,
+      order_number: orderNo, recipient_name, phone: phoneNormalized, total, items: finalItems,
     });
 
     // ── fix18-10-hotfix23-A：Analytics Foundation ──────────────────────
@@ -669,7 +680,7 @@ router.post('/', (req, res) => {
         subtotal, shipping_fee: feeResult.shipping_fee, free_discount: feeResult.free_discount,
         coupon_code: appliedCouponCode, discount_amount: discAmt,
         arrival_type: finalArrivalType, arrival_date: finalArrivalType === 'date' ? arrival_date : '',
-        recipient_name, phone, address, payment_method,
+        recipient_name, phone: phoneNormalized, address, payment_method,
         items: finalItems,
       },
     });
