@@ -401,14 +401,23 @@ function runPartC() {
   assert(/LineMemberGate\.maybeShowFriendEntryGuide/.test(shippingHtml), 'T21 line-shipping.html 呼叫共用 maybeShowFriendEntryGuide');
   assert(/LineMemberGate\.maybeShowFriendCheckoutGuide/.test(shippingHtml), 'T21 line-shipping.html 呼叫共用 maybeShowFriendCheckoutGuide');
 
-  // friend_checkout 呼叫點必須在 openCheckoutStep() 函式內、checkout_click 送出之後
+  // friend_checkout 呼叫點必須在 checkout_click 送出之後——H1.4.10 REQUIRED
+  // LINE FRIEND GATE（本輪核准新增）把這段邏輯從 openCheckoutStep() 抽成獨立的
+  // _proceedToCheckout()（讓 required-gate 分支與既有同步分支共用同一套真正
+  // 進入 checkout 的邏輯，見該檔案內對應註解），因此改為在
+  // openCheckoutStep()+_proceedToCheckout() 兩個函式本體合併後檢查，而不是
+  // 只看 openCheckoutStep() 單一函式——實際執行順序（checkout_click 先送出、
+  // friend_checkout guide 之後才呼叫）本身完全沒有改變，只是所在函式重新
+  // 組織，用 Part B（REQ-C 系列）已經用真正執行驗證過同一件事。
   function assertCheckoutGuideAfterClick(html, label) {
-    const fnMatch = html.match(/function openCheckoutStep\(event\)[\s\S]*?\n}\n/);
-    assert(!!fnMatch, `${label} 找得到 openCheckoutStep() 函式本體`);
-    if (!fnMatch) return;
-    const fnBody = fnMatch[0];
-    const clickIdx = fnBody.indexOf("_trackEvent('checkout_click'");
-    const guideIdx = fnBody.indexOf('maybeShowFriendCheckoutGuide');
+    const openMatch = html.match(/function openCheckoutStep\(event\)[\s\S]*?\n}\n/);
+    const proceedMatch = html.match(/function _proceedToCheckout\(\)[\s\S]*?\n}\n/);
+    assert(!!openMatch, `${label} 找得到 openCheckoutStep() 函式本體`);
+    assert(!!proceedMatch, `${label} 找得到 _proceedToCheckout() 函式本體（H1.4.10 REQUIRED GATE 新增，承接原本在 openCheckoutStep() 內的真正 checkout 進入邏輯）`);
+    if (!openMatch || !proceedMatch) return;
+    const combinedBody = openMatch[0] + '\n' + proceedMatch[0];
+    const clickIdx = combinedBody.indexOf("_trackEvent('checkout_click'");
+    const guideIdx = combinedBody.indexOf('maybeShowFriendCheckoutGuide');
     assert(clickIdx !== -1 && guideIdx !== -1 && guideIdx > clickIdx, `${label} friend_checkout 呼叫點在 checkout_click 送出程式碼「之後」`);
   }
   assertCheckoutGuideAfterClick(orderHtml, 'line-order.html');
@@ -461,7 +470,11 @@ function runPartD() {
       assert(re.test(optionsBlock), `Dropdown 選項 value="${value}" label="${label}" 存在且正確`);
     });
     const optionCount = (optionsBlock.match(/<option /g) || []).length;
-    assert(optionCount === 5, 'Dropdown 恰好 5 個 value（不多不少）', `found ${optionCount}`);
+    // H1.4.10 REQUIRED LINE FRIEND GATE（本輪核准新增）：dropdown 從 5 個
+    // 選項擴充為 7 個（新增 friend_entry_required／friend_checkout_required），
+    // 舊 5 個既有 value/label 仍逐一驗證存在且未變（見上面 expectedPairs），
+    // 這裡的總數期望值同步更新為 7，反映本輪核准的 scope 擴充，不是回歸。
+    assert(optionCount === 7, 'Dropdown 恰好 7 個 value（原 5 個 + H1.4.10 REQUIRED GATE 新增 2 個，不多不少）', `found ${optionCount}`);
   }
 
   // friend mode 說明存在，且預設不顯示（display:none，由 JS 依選擇動態切換）
