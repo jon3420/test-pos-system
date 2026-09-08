@@ -414,7 +414,7 @@ img{max-width:100%;display:block}
     </section>
     <div class="cf" style="padding-bottom:88px">
       <div class="fg"><label class="fl">姓名 <span class="req">*</span></label><input class="fi" id="cName" placeholder="您的姓名" type="text" oninput="debouncedPersistCart()"></div>
-      <div class="fg"><label class="fl">電話 <span class="req">*</span></label><input class="fi" id="cPhone" placeholder="聯絡電話" type="tel" oninput="debouncedPersistCart()"></div>
+      <div class="fg"><label class="fl">手機號碼 <span class="req">*</span></label><input class="fi" id="cPhone" placeholder="0912345678" type="tel" inputmode="numeric" autocomplete="tel" oninput="debouncedPersistCart()" onblur="phoneUtilsNormalizeField('cPhone')"><div class="fhint" style="font-size:12px;color:#888;margin-top:2px">台灣 +886｜請輸入 09 開頭，共 10 碼</div><div class="fpherr" id="cPhoneErr" style="display:none;color:#e53935;font-size:12px;margin-top:2px">請輸入正確的台灣手機號碼（09 開頭，共 10 碼）</div></div>
       <!-- fix18-10-hotfix30-A 第三點：購物車內商品沒有共同取餐方式時，列出衝突商品清單 -->
       <div class="conflict-box" id="modeConflictBox"></div>
       <!-- fix18-10-hotfix30-A 第二點：取餐方式改為大按鈕單選，不使用 select -->
@@ -545,6 +545,7 @@ img{max-width:100%;display:block}
 
 <script src="/js/analytics-attribution.js"></script>
 <script src="/js/analytics-platforms.js"></script>
+<script src="/js/phone-utils.js"></script>
 <script src="/js/line-member-gate.js"></script>
 <script src="/js/product-detail-modal.js"></script>
 <script src="/js/delivery-free-progress.js"></script>
@@ -809,6 +810,11 @@ async function _initLineMemberGateFromShopData(d){
       if(passiveResult && passiveResult.ok){ _linkLineMemberContext('liff_auto_identify_success'); }
     }catch(e){ /* 被動辨識失敗絕不可阻擋點餐流程 */ }
   }
+  // H1.4.10 HISTORICAL-FRIEND-FIRST-TOUCH：一次性、opportunistic backfill，
+  // 補齊「早於 POS 會員系統就已加入官方帳號、但從未進過 LIFF」的歷史好友。
+  // 不強制登入、失敗一律 fail-open，絕不阻擋點餐流程；函式內部本身已判斷
+  // 是否符合觸發條件（LIFF ready／已登入／本地已知好友狀態非 friend）。
+  try{ await LineMemberGate.triggerHistoricalFriendSync(LINE_STORE_ID); }catch(e){ /* best-effort，絕不可阻擋點餐流程 */ }
   // fix18-10-hotfix25：checkout 模式下，若剛從 LINE 登入導回並自動完成驗證，
   // 購物車本來就已由既有 persistCart()/還原機制保留，這裡再把結帳畫面（購物車
   // 面板）重新打開，客人不需要重新操作，只需再按一次「送出訂單」即可完成。
@@ -1804,6 +1810,18 @@ function bizCalRangeWarning(dateList){
 function twNow(){return new Date(new Date().toLocaleString('en-US',{timeZone:'Asia/Taipei'}));}
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2800);}
+// H1.4.10 PHONE-VALIDATION：blur 時 normalize 顯示（不 aggressive 改 cursor，只在失焦後套用），
+// authoritative validation 仍在 submit 時執行（見 submitOrder()）。單一 PhoneUtils 來源，
+// 不在此另外撰寫任何 regex。
+function phoneUtilsNormalizeField(fieldId){
+  const el=document.getElementById(fieldId); if(!el || typeof window.PhoneUtils==='undefined') return;
+  const errEl=document.getElementById(fieldId+'Err');
+  const v=el.value.trim();
+  if(!v){ if(errEl) errEl.style.display='none'; return; }
+  const r=window.PhoneUtils.normalizeTaiwanMobile(v);
+  if(r.valid){ el.value=r.local; if(errEl) errEl.style.display='none'; }
+  // invalid 時不強制清空/改值，讓顧客看到自己輸入的內容，submit 時才擋下並顯示錯誤。
+}
 function timeToMins(hhmm){const[h,m]=String(hhmm||'00:00').split(':').map(Number);return (h||0)*60+(m||0);}
 
 // ── 初始化 ──────────────────────────────────────────────
@@ -4180,14 +4198,26 @@ async function submitOrder(event){
     }catch(e){ /* 追蹤失敗絕不可阻擋送單流程 */ }
   }
   const name=document.getElementById('cName').value.trim();
-  const phone=document.getElementById('cPhone').value.trim();
+  let phone=document.getElementById('cPhone').value.trim();
   const note=document.getElementById('oNote').value.trim();
   const time=document.getElementById('pTime').value.trim();
   const type=document.getElementById('oType').value;
   const pickupDate=document.getElementById('pDate')?.value;
 
   if(!name){trackCheckoutValidationFailed('missing_name');toast('請填寫姓名');return;}
-  if(!phone){trackCheckoutValidationFailed('missing_phone');toast('請填寫電話');return;}
+  if(!phone){trackCheckoutValidationFailed('missing_phone');toast('請填寫手機號碼');document.getElementById('cPhone')?.focus();return;}
+  // H1.4.10 PHONE-VALIDATION：authoritative frontend validation，單一 PhoneUtils 來源。
+  // invalid 時 focus 欄位、不送 create-order request、不進 payment、不清 cart。
+  const _phoneCheck=(typeof window.PhoneUtils!=='undefined')?window.PhoneUtils.normalizeTaiwanMobile(phone):{valid:true,local:phone};
+  if(!_phoneCheck.valid){
+    trackCheckoutValidationFailed('invalid_phone');
+    toast(window.PhoneUtils.messageForReason(_phoneCheck.reason));
+    document.getElementById('cPhoneErr')&&(document.getElementById('cPhoneErr').style.display='block');
+    document.getElementById('cPhone')?.focus();
+    return;
+  }
+  // Storage Decision A：DB 繼續保存 local format（0912xxxxxx），送出前正規化成 local。
+  if(_phoneCheck.local) phone=_phoneCheck.local;
   if(!Object.keys(cart).length){trackCheckoutValidationFailed('empty_cart');toast('購物車是空的');return;}
   if(!type){trackCheckoutValidationFailed('missing_fulfillment');toast('請選擇取餐方式');return;}
   // hotfix22-F 補正：目前模式被店家關閉時一律擋下送單（不清空購物車），

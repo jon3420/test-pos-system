@@ -1109,6 +1109,49 @@
   }
 
   // ══════════════════════════════════════════════════════════════════
+  // H1.4.10 HISTORICAL-FRIEND-FIRST-TOUCH
+  //
+  // 一次性、opportunistic 的 first-touch backfill：處理「在 POS 會員系統
+  // 完成以前就已經加入官方帳號，但從未進過 LIFF」的歷史好友。呼叫後端
+  // authoritative-friend-sync（後端親自向 LINE Platform 驗證 access
+  // token／好友狀態，不信任前端自報），不強制登入、失敗一律 fail-open，
+  // 絕不阻擋點餐／宅配下單。
+  //
+  // 安全：liff.getAccessToken() 的原始值只在這個函式的區域變數存活，
+  // request 送出後立即失去所有參照（不寫入 sessionStorage／localStorage／
+  // console／analytics／DB／CRM Timeline）。
+  async function triggerHistoricalFriendSync(storeId) {
+    try {
+      if (!isLiffAvailable(storeId)) return { success: false, reason: 'liff_not_ready' };
+      if (typeof global.liff.isLoggedIn !== 'function' || !global.liff.isLoggedIn()) {
+        return { success: false, reason: 'not_logged_in' };
+      }
+      // 需求文件：backend friend=true → STOP（避免浪費 LINE API quota，也
+      // 避免每次 page render 都無限制呼叫）。這裡先看本地已知的 member_session
+      // 快取；快取沒有／unknown 才 opportunistically 呼叫後端（後端自己也會
+      // 再做一次「已經 friend=true 就不重複打 LINE API」的權威判斷，見
+      // routes/line-member.js，兩層防浪費互相獨立、互不取代）。
+      if (knownFriendStatus(storeId) === 'friend') return { success: true, friend_verified: true, source: 'client_cache' };
+
+      let accessToken;
+      try { accessToken = global.liff.getAccessToken(); } catch (e) { accessToken = null; }
+      if (!accessToken) return { success: false, reason: 'no_access_token' };
+
+      const res = await fetch('/api/line-member/authoritative-friend-sync?store_id=' + encodeURIComponent(storeId), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userAccessToken: accessToken }),
+      });
+      const json = await res.json().catch(() => ({ success: false, reason: 'parse_error' }));
+      // accessToken 變數在這行之後不再被使用；函式結束即被 GC，不做任何額外保存。
+      return json;
+    } catch (e) {
+      // Fail-open：LINE API / 網路例外絕不可影響下單流程，只是不建立 historical friend。
+      return { success: false, reason: 'exception' };
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════════
   // H1.4.10 hotfix30-FRIEND-SECRET-UX（Friend Guide race condition 修正）
   //
   // 根因：maybeShowFriendEntryGuide()／maybeShowFriendCheckoutGuide() 原本
@@ -2878,6 +2921,8 @@
     // H1.4.10 Phase 2 新增：friend_entry／friend_checkout 免登入加好友引導
     maybeShowFriendEntryGuide, maybeShowFriendCheckoutGuide,
     closeFriendGuideModal, hasSeenFriendGuide, knownFriendStatus, openFriendGuideLink,
+    // H1.4.10 HISTORICAL-FRIEND-FIRST-TOUCH 新增
+    triggerHistoricalFriendSync,
     // H1.4.10 hotfix30-FRIEND-SECRET-UX 新增：Friend Guide race condition 修正
     // （Authoritative Priority／Modal Reconciliation，供頁面與測試共用）。
     refreshAuthoritativeFriendState, reconcileFriendGuide,

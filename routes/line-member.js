@@ -589,6 +589,130 @@ router.post('/friend-conflict', (req, res) => {
 });
 
 // ══════════════════════════════════════════════════════════════════
+// POST /api/line-member/authoritative-friend-sync — H1.4.10
+// HISTORICAL-FRIEND-FIRST-TOUCH：backfill 早於 POS 會員系統就已加入官方帳號、
+// 但從未進過 LIFF 的歷史好友。Best-effort、opportunistic，絕不阻擋下單。
+//
+// 安全原則：
+//   - 前端只送 LIFF user access token（request 結束即丟棄，不落地）。
+//   - line_user_id／friend 狀態一律由後端親自向 LINE Platform 驗證後才可信，
+//     不接受前端聲稱的 friend=true 或 line_user_id。
+//   - Access Token 絕不寫入 log／DB／response／CRM Timeline。
+//   - store 隔離依 req.storeId（來自 requireStore middleware 的驗證結果），
+//     request body 的 store_id（如果有）僅作路由提示，不被信任。
+//
+// 與既有 Follow/Unfollow Webhook／applyFriendEvent() 的關係：
+//   本 endpoint 只是 applyFriendEvent() 的另一個「事件來源」（source=
+//   'historical_friend_first_touch'），沿用同一份好友狀態 SSOT，不新建
+//   平行的 line_members 寫入邏輯。刻意不使用 utils/lineMemberStats.js 的
+//   upsertMemberProfile()——audit 發現該函式在建立新會員且 is_friend=1 時，
+//   會把 friend_since 設成「這次登入的當下時間」，對正常首次登入是合理的，
+//   但對「早就加了好友、只是現在才第一次進 LIFF」的歷史好友來說，會偽造出
+//   一個錯誤的「剛加入好友」時間。applyFriendEvent() 對
+//   friendship_verify_true 這類事件則刻意不觸碰 friend_since（只有
+//   follow/refollow 事件類型才會），符合需求文件「不得偽造歷史加入時間」。
+router.post('/authoritative-friend-sync', async (req, res) => {
+  try {
+    const db = getDb();
+    const storeId = req.storeId;
+    const ip = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'unknown';
+    if (!checkRateLimit(storeId, `friend-sync|${ip}`)) {
+      return res.status(429).json({ success: false, friend_verified: false, reason: 'RATE_LIMITED' });
+    }
+
+    const { userAccessToken } = req.body || {};
+    if (!userAccessToken || typeof userAccessToken !== 'string') {
+      return res.status(400).json({ success: false, friend_verified: false, reason: 'TOKEN_MISSING' });
+    }
+
+    const channelId = getSetting(db, storeId, 'line_member_login_channel_id');
+    if (!channelId) {
+      return res.status(400).json({ success: false, friend_verified: false, reason: 'STORE_CONFIG_MISSING' });
+    }
+
+    // ── Step 1：驗證 access token（client_id／scope，絕不信任前端自報）──
+    const { verifyLineAccessToken, getLineProfile, getFriendshipStatus } = require('../utils/lineMemberAuth');
+    const tokenCheck = await verifyLineAccessToken(userAccessToken, channelId);
+    if (!tokenCheck.ok) {
+      // 安全 fallback：一律 400 + 通用 reason，不回傳 LINE 原始回應內容，
+      // 不得因此更新任何 DB 資料。
+      return res.status(400).json({ success: false, friend_verified: false, reason: 'TOKEN_INVALID' });
+    }
+
+    // ── Step 2：取得 authoritative LINE userId（backend 自己向 LINE Platform 要，
+    //    不是前端 liff.getProfile() 回報的值）──────────────────────────
+    const profile = await getLineProfile(userAccessToken);
+    if (!profile.ok) {
+      return res.status(200).json({ success: false, friend_verified: false, reason: 'LINE_API_UNAVAILABLE' });
+    }
+    const lineUserId = profile.userId;
+
+    // ── 已經 friend=true：不重複打 LINE Friendship API，省 quota ─────
+    const existing = db.get('SELECT is_friend FROM line_members WHERE store_id=? AND line_user_id=?', [storeId, lineUserId]);
+    const existingIsFriend = existing ? (existing.is_friend === 1 ? true : existing.is_friend === 0 ? false : null) : null;
+    if (existingIsFriend === true) {
+      return res.json({ success: true, friend_verified: true, source: 'backend_current' });
+    }
+
+    // ── Step 3：向 LINE Friendship API 驗證（同一顆已驗證過的 access token）──
+    const friendResult = await getFriendshipStatus(userAccessToken);
+    if (!friendResult.ok) {
+      // Timeout／5xx／invalid：fail-open，不建立 historical friend，不阻擋下單。
+      return res.status(200).json({ success: false, friend_verified: false, reason: 'LINE_API_UNAVAILABLE' });
+    }
+
+    const { applyFriendEvent } = require('../utils/lineFriendSync');
+
+    if (friendResult.is_friend === true) {
+      // 建立／補齊 member（applyFriendEvent 本身處理「不存在就建立最小 row」、
+      // 「row 存在但 unknown 就更新，不重建」兩種情況，且不偽造 friend_since）。
+      let applied;
+      try {
+        applied = applyFriendEvent(db, storeId, lineUserId, {
+          eventType: 'friendship_verify_true',
+          source: 'historical_friend_first_touch',
+          displayName: profile.displayName,
+          pictureUrl: profile.pictureUrl,
+          metadata: { trigger: 'historical_first_touch' },
+        });
+      } catch (raceErr) {
+        // 併發競態：另一個同時進來的請求已經先建立了這筆 row（UNIQUE
+        // constraint），視為冪等成功，不視為錯誤。
+        applied = { applied: true, raced: true };
+      }
+      return res.json({ success: true, friend_verified: true, source: 'line_platform_verified' });
+    }
+
+    // friendFlag === false：保守處理，不自動創造「已封鎖」事件。
+    if (!existing) {
+      // POS 本來就沒有這個人的資料，且確認不是好友 → 不建立任何 row。
+      return res.json({ success: true, friend_verified: false, reason: 'NOT_FRIEND' });
+    }
+    if (existingIsFriend === null) {
+      // 既有 row 但好友狀態 unknown → 只更新 last_friend_check，不寫任何
+      // 好友狀態轉換事件（不經過 applyFriendEvent，避免誤觸發狀態變更語意）。
+      const nowStr = new Date().toISOString().slice(0, 19).replace('T', ' ');
+      db.run('UPDATE line_members SET last_friend_check=?, last_friend_check_at=? WHERE store_id=? AND line_user_id=?',
+        [nowStr, nowStr, storeId, lineUserId]);
+      return res.json({ success: true, friend_verified: false, reason: 'NOT_FRIEND' });
+    }
+    // existingIsFriend === false 或衝突（DB 之前是 true，這裡不會走到此分支，
+    // 因為上面 existingIsFriend===true 已經 early-return）：都不是真正的
+    // conflict（DB 本來就不是 true），保守只記稽核、不改狀態。
+    applyFriendEvent(db, storeId, lineUserId, {
+      eventType: 'friendship_conflict_detected',
+      source: 'historical_friend_first_touch',
+      metadata: { trigger: 'historical_first_touch' },
+    });
+    return res.json({ success: true, friend_verified: false, reason: 'FRIENDSHIP_CONFLICT' });
+  } catch (e) {
+    console.error('[line-member] POST /authoritative-friend-sync error:', e.message);
+    // Fail-open：任何未預期例外都不得讓下單流程受影響。
+    res.status(200).json({ success: false, friend_verified: false, reason: 'LINE_API_UNAVAILABLE' });
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════
 // GET /api/line-member/members — 後台會員列表
 // ══════════════════════════════════════════════════════════════════
 router.get('/members', requireStaffJwt, (req, res) => {

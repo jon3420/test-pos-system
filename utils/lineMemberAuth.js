@@ -301,8 +301,80 @@ async function getFriendshipStatus(accessToken) {
   }
 }
 
+// H1.4.10 HISTORICAL-FRIEND-FIRST-TOUCH：驗證 LINE Login 使用者的 Access
+// Token（GET /oauth2/v2.1/verify?access_token=...）。與上面 verifyLineIdToken()
+// 的差異：這支驗證的是 access_token（用來後續呼叫 Friendship / Profile API），
+// 不是 id_token；LINE 官方回應包含 client_id／scope／expires_in，必須確認
+// client_id 等於店家設定的 LINE Login Channel ID，且 scope 含 profile，
+// 否則一律視為無效——不得讓呼叫端拿別的 Channel／缺少 profile 授權的 token
+// 通過驗證。絕不在任何 log／回傳值中輸出 access_token 本身。
+const LINE_ACCESS_TOKEN_VERIFY_URL = 'https://api.line.me/oauth2/v2.1/verify';
+const LINE_PROFILE_URL = 'https://api.line.me/v2/profile';
+
+async function verifyLineAccessToken(accessToken, channelId) {
+  if (!accessToken || !channelId) {
+    return { ok: false, reason: 'missing_params', code: !accessToken ? 'MISSING_ACCESS_TOKEN' : 'STORE_CONFIG_MISSING' };
+  }
+  try {
+    const res = await fetch(
+      `${LINE_ACCESS_TOKEN_VERIFY_URL}?access_token=${encodeURIComponent(String(accessToken))}`,
+      { method: 'GET', timeout: 5000 }
+    );
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data) {
+      return { ok: false, reason: 'verify_failed', code: res.status >= 500 ? 'LINE_VERIFY_API_FAILED' : 'INVALID_ACCESS_TOKEN' };
+    }
+    if (String(data.client_id || '') !== String(channelId)) {
+      return { ok: false, reason: 'client_id_mismatch', code: 'CHANNEL_ID_MISMATCH' };
+    }
+    const scopes = String(data.scope || '').split(/\s+/).filter(Boolean);
+    if (!scopes.includes('profile')) {
+      return { ok: false, reason: 'missing_profile_scope', code: 'MISSING_PROFILE_SCOPE' };
+    }
+    // expires_in <= 0 一律視為過期（LINE 官方以正數秒數表示剩餘有效期）
+    if (typeof data.expires_in === 'number' && data.expires_in <= 0) {
+      return { ok: false, reason: 'expired', code: 'EXPIRED_ACCESS_TOKEN' };
+    }
+    return { ok: true, client_id: String(data.client_id), scopes };
+  } catch (e) {
+    const isTimeout = e && (e.type === 'request-timeout' || e.name === 'AbortError' || /timeout/i.test(String(e.message || '')));
+    console.warn('[lineMemberAuth] verifyLineAccessToken error:', e.message);
+    return { ok: false, reason: 'exception', code: isTimeout ? 'NETWORK_TIMEOUT' : 'UNKNOWN_VERIFY_ERROR' };
+  }
+}
+
+// H1.4.10 HISTORICAL-FRIEND-FIRST-TOUCH：向 LINE 官方 Profile API 取得
+// authoritative userId／displayName／pictureUrl（backend 親自跟 LINE Platform
+// 要，不是信任前端 liff.getProfile() 回報的值）。呼叫前必須已經先
+// verifyLineAccessToken() 通過，這裡本身不重複驗證 scope/channel。
+async function getLineProfile(accessToken) {
+  if (!accessToken) return { ok: false, reason: 'missing_access_token' };
+  try {
+    const res = await fetch(LINE_PROFILE_URL, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${accessToken}` },
+      timeout: 5000,
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data || !data.userId) {
+      return { ok: false, reason: 'profile_api_failed', code: 'LINE_PROFILE_API_FAILED' };
+    }
+    return {
+      ok: true,
+      userId: String(data.userId),
+      displayName: data.displayName ? String(data.displayName).slice(0, 200) : '',
+      pictureUrl: data.pictureUrl ? String(data.pictureUrl).slice(0, 500) : '',
+    };
+  } catch (e) {
+    const isTimeout = e && (e.type === 'request-timeout' || e.name === 'AbortError' || /timeout/i.test(String(e.message || '')));
+    console.warn('[lineMemberAuth] getLineProfile error:', e.message);
+    return { ok: false, reason: 'exception', code: isTimeout ? 'NETWORK_TIMEOUT' : 'UNKNOWN_VERIFY_ERROR' };
+  }
+}
+
 module.exports = {
   verifyLineIdToken, getFriendshipStatus,
   classifyVerifyApiFailure, classifyVerifyException, isAudienceMatch, isTokenExpired,
   isVerifyDebugEnabled, headersToObject, buildVerifyDebugObject,
+  verifyLineAccessToken, getLineProfile,
 };

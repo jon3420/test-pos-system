@@ -18,6 +18,7 @@ const { broadcastToStore } = require('../utils/wssBroadcast');
 const { v4: uuidv4 } = require('uuid');
 const fetch = require('node-fetch');
 const { validateCoupon } = require('./coupons'); // fix18-05
+const { normalizeTaiwanMobile } = require('../public/js/phone-utils'); // H1.4.10 PHONE-VALIDATION SSOT
 const { getStoreFeatures } = require('../middleware/featureGate'); // fix18-05 coupon gate
 const { applyOrderStatusChange } = require('../utils/orderStatusFlow'); // hotfix13-BUG7：統一狀態機（單一來源，orders.js / online-orders.js 共用）
 const { computeTodayStatus: computeCalendarStatus } = require('./business-calendar'); // Business Calendar V2：營業行事曆覆蓋層
@@ -1368,6 +1369,16 @@ router.post('/', async (req, res) => {
     if (!customer_name || !customer_phone)
       return res.status(400).json({ success: false, message: '請填寫姓名與電話' });
 
+    // H1.4.10 PHONE-VALIDATION：backend authoritative validation（單一 PhoneUtils 來源）。
+    // invalid 時一律 400，不建立 order／payment／shipping order／analytics purchase，
+    // 不得部分寫入。Storage Decision A：既有 DB phone 欄位繼續保存 local format。
+    const _phoneCheck = normalizeTaiwanMobile(customer_phone);
+    if (!_phoneCheck.valid) {
+      return res.status(400).json({ success: false, error: 'INVALID_PHONE',
+        message: '請輸入正確的台灣手機號碼（09 開頭，共 10 碼）' });
+    }
+    const customerPhoneNormalized = _phoneCheck.local;
+
     // ── fix18-06：外送模式必填地址與座標 ────────────────
     const isDelivery = order_type === 'delivery';
     if (isDelivery) {
@@ -1503,7 +1514,7 @@ router.post('/', async (req, res) => {
           message: '優惠券功能未啟用'
         });
       }
-      const phone = String(customer_phone || '').trim();
+      const phone = customerPhoneNormalized;
       const cvResult = validateCoupon(db, storeId, normalCouponCode, sub, phone);
       if (!cvResult.ok) {
         return res.status(400).json({ success: false, message: cvResult.message, reason: 'coupon_invalid' });
@@ -1584,7 +1595,7 @@ router.post('/', async (req, res) => {
         const couponBase = sub + calcDelivFee;
         if (normalCouponCode && appliedCouponId) {
           // 重新以含運費金額計算折扣（需 re-validate）
-          const phone = String(customer_phone || '').trim();
+          const phone = customerPhoneNormalized;
           const cvResult2 = validateCoupon(db, storeId, normalCouponCode, couponBase, phone);
           if (cvResult2.ok) {
             discAmt    = cvResult2.discount_amount;
@@ -1658,7 +1669,7 @@ router.post('/', async (req, res) => {
       ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         uuid, uuid, orderNo, storeId, orderMode, 'pending', 'pending',
-        customer_name, customer_phone, customer_line_id||'',
+        customer_name, customerPhoneNormalized, customer_line_id||'',
         pickupTimeVal, delivery_address||'', delivery_address_note||'',
         'LINE', '',
         isDelivery ? String(parseFloat(delivery_lat)||'') : '',
@@ -1696,7 +1707,7 @@ router.post('/', async (req, res) => {
           [
             storeId, appliedCouponId, appliedCouponCode,
             uuid, orderNo,
-            String(customer_phone || '').trim(),
+            String(customerPhoneNormalized || '').trim(),
             discAmt, sub, finalTotal, nowStr
           ]
         );
@@ -1748,7 +1759,7 @@ router.post('/', async (req, res) => {
       broadcastToStore(wss, storeId, { type: 'line_order_created', order: { ...newOrder, items } });
     } catch {}
     triggerN8nWebhook(db, storeId, 'line_new_order', {
-      order_number: orderNo, customer_name, customer_phone,
+      order_number: orderNo, customer_name, customer_phone: customerPhoneNormalized,
       customer_line_id: customer_line_id||'', order_type, total: finalTotal,
       payment_method: payment_method||'cash', items
     });
