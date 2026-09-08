@@ -398,12 +398,7 @@ router.put('/', (req, res) => {
       // 引導加好友，不呼叫 liff.login()、不要求 LINE Login，因此不強制要求
       // liff_id／login_channel_id（欄位本身仍保留，Auto Identify 仍可能用到）。
       // checkout／entry 既有必填規則完全不變。
-      // H1.4.10 REQUIRED LINE FRIEND GATE：friend_entry_required／
-      // friend_checkout_required 同樣「免登入」（不呼叫 liff.login()、不要求
-      // LINE Login UI），只是「不可略過」，因此與 friend_entry／friend_checkout
-      // 一樣不強制要求 liff_id／login_channel_id。
-      const isFriendOnlyMode = gateModeForValidation === 'friend_entry' || gateModeForValidation === 'friend_checkout'
-        || gateModeForValidation === 'friend_entry_required' || gateModeForValidation === 'friend_checkout_required';
+      const isFriendOnlyMode = gateModeForValidation === 'friend_entry' || gateModeForValidation === 'friend_checkout';
       if (gateEnabled && !isFriendOnlyMode) {
         if (!merged.line_member_liff_id || !String(merged.line_member_liff_id).trim()) {
           return res.status(400).json({ success: false, message: '啟用 LINE 會員入口時，LIFF ID 不可空白' });
@@ -462,12 +457,8 @@ router.put('/', (req, res) => {
       // 時強制要求 line_member_login_channel_id 的檢查影響——那段檢查只在
       // liff_id 缺漏時擋，Login Channel ID 目前對所有 mode 一視同仁要求，
       // 這是既有行為，本輪不放寬（Auto Identify 仍可能用到）。
-      // H1.4.10 REQUIRED LINE FRIEND GATE：新增 friend_entry_required／
-      // friend_checkout_required 兩個 enum 值，其餘 5 個既有值原樣保留、
-      // 順序與行為完全不變。
-      const VALID_GATE_MODES = ['disabled', 'checkout', 'entry', 'friend_entry', 'friend_checkout', 'friend_entry_required', 'friend_checkout_required'];
-      if (mode && !VALID_GATE_MODES.includes(mode)) {
-        return res.status(400).json({ success: false, message: `入口模式必須是 ${VALID_GATE_MODES.join(' / ')} 其中之一` });
+      if (mode && !['disabled', 'checkout', 'entry', 'friend_entry', 'friend_checkout'].includes(mode)) {
+        return res.status(400).json({ success: false, message: '入口模式必須是 disabled / checkout / entry / friend_entry / friend_checkout 其中之一' });
       }
       const textFields = ['line_member_title', 'line_member_description', 'line_member_friend_button_text', 'line_member_login_button_text', 'line_member_skip_button_text'];
       for (const f of textFields) {

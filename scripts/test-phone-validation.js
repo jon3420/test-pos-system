@@ -49,14 +49,14 @@ check('PHONE-FE-9', !PhoneUtils.normalizeTaiwanMobile('').valid && PhoneUtils.no
 // and call window.PhoneUtils in their submit-validation logic (no local regex).
 {
   const orderHtml = fs.readFileSync(path.join(ROOT, 'public/line-order.html'), 'utf8');
-  const usesScript = /<script\s+src="\/js\/phone-utils\.js(?:\?v=[^"]*)?"><\/script>/.test(orderHtml);
+  const usesScript = /<script\s+src="\/js\/phone-utils\.js"><\/script>/.test(orderHtml);
   const usesApi = /window\.PhoneUtils\.normalizeTaiwanMobile\(phone\)/.test(orderHtml);
-  const noOwnRegex = !/09\\d\{8\}/.test(orderHtml.replace(/<script\s+src="\/js\/phone-utils\.js(?:\?v=[^"]*)?"><\/script>/g, ''));
+  const noOwnRegex = !/09\\d\{8\}/.test(orderHtml.replace(/<script\s+src="\/js\/phone-utils\.js"><\/script>/g, ''));
   check('PHONE-FE-10', usesScript && usesApi && noOwnRegex, `script=${usesScript} api=${usesApi} noOwnRegex=${noOwnRegex}`);
 }
 {
   const shipHtml = fs.readFileSync(path.join(ROOT, 'public/line-shipping.html'), 'utf8');
-  const usesScript = /<script\s+src="\/js\/phone-utils\.js(?:\?v=[^"]*)?"><\/script>/.test(shipHtml);
+  const usesScript = /<script\s+src="\/js\/phone-utils\.js"><\/script>/.test(shipHtml);
   const usesApi = /window\.PhoneUtils\.normalizeTaiwanMobile\(phone\)/.test(shipHtml);
   check('PHONE-FE-11', usesScript && usesApi, `script=${usesScript} api=${usesApi}`);
 }
@@ -162,8 +162,8 @@ check('PHONE-BE-12', !PhoneUtils.normalizeTaiwanMobile('09123456789').valid);
   const shipHtml = fs.readFileSync(path.join(ROOT, 'public/line-shipping.html'), 'utf8');
   const usesInOrders = /require\(['"]\.\.\/public\/js\/phone-utils['"]\)/.test(ordersSrc);
   const usesInShipping = /require\(['"]\.\.\/public\/js\/phone-utils['"]\)/.test(shippingSrc);
-  const usesInOrderHtml = /<script\s+src="\/js\/phone-utils\.js(?:\?v=[^"]*)?"><\/script>/.test(orderHtml);
-  const usesInShipHtml = /<script\s+src="\/js\/phone-utils\.js(?:\?v=[^"]*)?"><\/script>/.test(shipHtml);
+  const usesInOrderHtml = /<script\s+src="\/js\/phone-utils\.js"><\/script>/.test(orderHtml);
+  const usesInShipHtml = /<script\s+src="\/js\/phone-utils\.js"><\/script>/.test(shipHtml);
   check('PHONE-SSOT-1', usesInOrders && usesInShipping && usesInOrderHtml && usesInShipHtml,
     `orders=${usesInOrders} shipping=${usesInShipping} orderHtml=${usesInOrderHtml} shipHtml=${usesInShipHtml}`);
 }

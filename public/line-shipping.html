@@ -365,8 +365,8 @@ img{max-width:100%;display:block}
 
 <script src="/js/analytics-attribution.js"></script>
 <script src="/js/analytics-platforms.js"></script>
-<script src="/js/phone-utils.js?v=h1-4-10-phone-1"></script>
-<script src="/js/line-member-gate.js?v=h1-4-10-required-gate-1"></script>
+<script src="/js/phone-utils.js"></script>
+<script src="/js/line-member-gate.js"></script>
 <script src="/js/product-detail-modal.js"></script>
 <script>
 const params = new URLSearchParams(location.search);
@@ -514,11 +514,6 @@ async function _initLineMemberGateFromShopData(d){
   if(_lineMemberGateConfig.gate_enabled && _lineMemberGateConfig.gate_mode==='entry'){
     LineMemberGate.requireMemberOnEntry(STORE_ID, _lineMemberGateConfig, _gateIds(), _trackEvent);
   }
-  // H1.4.10 REQUIRED LINE FRIEND GATE：進站要求加入官方 LINE（免登入・
-  // 不可略過），規則與 line-order.html 完全一致（見該檔案對應註解）。
-  if(_lineMemberGateConfig.gate_enabled && _lineMemberGateConfig.gate_mode==='friend_entry_required'){
-    try{ LineMemberGate.requireFriendOnEntryNoLogin(STORE_ID, _lineMemberGateConfig, _gateIds(), _trackEvent); }catch(e){}
-  }
   // H1.4.10 section D/E/F：被動辨識，規則與 line-order.html 完全一致。
   if(_lineMemberGateConfig.auto_identify_enabled){
     try{
@@ -540,8 +535,7 @@ async function _initLineMemberGateFromShopData(d){
   // hotfix30-FRIEND-SECRET-UX（見 line-order.html 對應註解）：Guide 評估前
   // 先 await 一次可信任好友狀態 refresh。這裡本來就在 async 函式內，可以
   // 安全 await；maybeShowFriendEntryGuide()／…CheckoutGuide() 仍是同步 API。
-  const _isFriendOnlyMode=_lineMemberGateConfig.gate_mode==='friend_entry' || _lineMemberGateConfig.gate_mode==='friend_checkout'
-    || _lineMemberGateConfig.gate_mode==='friend_entry_required' || _lineMemberGateConfig.gate_mode==='friend_checkout_required';
+  const _isFriendOnlyMode=_lineMemberGateConfig.gate_mode==='friend_entry' || _lineMemberGateConfig.gate_mode==='friend_checkout';
   if(_lineMemberGateConfig.gate_enabled && _isFriendOnlyMode){
     try{ await LineMemberGate.refreshAuthoritativeFriendState(STORE_ID); }catch(e){}
   }
@@ -1685,39 +1679,12 @@ function _enterCheckoutStage() {
 // 直接呼叫 openCheckoutStep()（無 event 或 event 來源不是 #goCheckoutBtn）
 // 一律 return，不切換 stage、不送事件。不使用 event.isTrusted（會擋掉鍵盤觸發
 // 的 click 與 jsdom 測試），改用 event.type/currentTarget 判斷因果。
-// H1.4.10 REQUIRED LINE FRIEND GATE：pending checkout intent，只存在記憶體，
-// 規則與 line-order.html 完全一致（見該檔案對應註解）。
-let _pendingRequiredFriendCheckout = false;
-
 function openCheckoutStep(event) {
   if (!event || event.type !== 'click') return;
   const goBtn = document.getElementById('goCheckoutBtn');
   if (!goBtn || event.currentTarget !== goBtn) return;
   if (!cartCount()) return;
   if (goBtn.disabled) { toast('尚未達最低訂購金額，請調整購物車內容'); return; }
-  // H1.4.10 REQUIRED LINE FRIEND GATE：friend_checkout_required 必須插在
-  // 真正切 checkout stage 之前（見 line-order.html 對應註解，兩頁邏輯完全
-  // 一致）。這支頁面真正的 authoritative checkout submit boundary就是這個
-  // #goCheckoutBtn click handler（與 line-order.html 相同的 H1.4.9
-  // explicit-button-only 契約），不是後面的送出訂單按鈕——那一個屬於填寫
-  // 收件資訊之後的另一個階段，不是「進入 checkout」本身的邊界。
-  if (_lineMemberGateConfig && _lineMemberGateConfig.gate_enabled && _lineMemberGateConfig.gate_mode === 'friend_checkout_required') {
-    if (_pendingRequiredFriendCheckout) return;
-    _pendingRequiredFriendCheckout = true;
-    LineMemberGate.requireFriendBeforeCheckoutNoLogin(STORE_ID, _lineMemberGateConfig, _gateIds(), _trackEvent).then(function (res) {
-      if (!_pendingRequiredFriendCheckout) return;
-      _pendingRequiredFriendCheckout = false;
-      if (res && res.ok) { _proceedToCheckout(); }
-    });
-    return;
-  }
-  _proceedToCheckout();
-}
-
-// H1.4.10 REQUIRED LINE FRIEND GATE：真正的 checkout stage 切換／
-// checkout_click 送出／friend_checkout 柔性引導，抽成獨立函式（見
-// line-order.html 對應註解，兩頁共用同一套結構）。
-function _proceedToCheckout() {
   _enterCheckoutStage();
   // 相同 cart_id 只計一次的既有去重契約，沿用 H1.4.7 的 sessionStorage 機制，
   // 只是現在只會從這個真正的按鈕 handler 觸發。

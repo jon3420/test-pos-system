@@ -2113,9 +2113,6 @@
               <option value="disabled">不啟用</option>
               <option value="friend_entry">進站引導加入官方 LINE（免登入）</option>
               <option value="friend_checkout">結帳前引導加入官方 LINE（免登入）</option>
-              <!-- H1.4.10 REQUIRED LINE FRIEND GATE 新增：免登入・不可略過。 -->
-              <option value="friend_entry_required">進站要求加入官方 LINE（免登入・不可略過）</option>
-              <option value="friend_checkout_required">結帳前要求加入官方 LINE（免登入・不可略過）</option>
               <option value="checkout">結帳前要求 LINE 登入</option>
               <option value="entry">進站要求 LINE 登入</option>
             </select>
@@ -2125,11 +2122,6 @@
                不同，這裡明確標示避免店家混淆兩種模式。 -->
           <p class="settings-hint" id="lmgFriendModeHint" style="display:none;margin-top:6px">
             💬 此模式只引導顧客加入官方 LINE，不會要求 LINE Login，也不會阻止顧客下單。可略過，不需要 LIFF ID／LINE Login Channel ID。
-          </p>
-          <!-- H1.4.10 REQUIRED LINE FRIEND GATE 新增：與柔性引導的關鍵差異
-               提示——「要求」代表不可略過、必須確認好友身份才能通過。 -->
-          <p class="settings-hint" id="lmgFriendRequiredModeHint" style="display:none;margin-top:6px">
-            🔒 此模式要求顧客必須是官方 LINE 好友才可以繼續（不可略過），但同樣不會要求 LINE Login，也不需要 LIFF ID／LINE Login Channel ID。非 LINE App 內開啟時會引導改用 LINE 開啟。
           </p>
           <p class="settings-hint" id="lmgAutoIdentifyHint" style="display:none;margin-top:6px">
             📶 目前已啟用 LIFF 自動辨識；從官方 LINE LIFF 進入的顧客仍可在背景被自動辨識為會員（與此處的加好友引導是兩件事）。
@@ -2148,12 +2140,6 @@
             <input type="checkbox" id="set-line_member_allow_skip" style="width:auto">
             <span>允許略過（僅 entry 模式生效）</span>
           </label>
-          <!-- H1.4.10 REQUIRED LINE FRIEND GATE 新增：required 模式選中時，
-               上方 checkbox 會被 JS disable，這裡明確說明原因，避免店家誤以
-               為勾選／取消勾選這個 checkbox 能讓 required 模式變成可略過。 -->
-          <p class="settings-hint" id="lmgAllowSkipRequiredModeNote" style="display:none;margin:0 0 10px">
-            🔒 此模式固定不可略過（此設定對「要求加入官方 LINE」模式無效）。
-          </p>
           <p class="settings-hint" style="margin-top:8px">此設定同時套用於 LINE 點餐（外帶／外送）與冷藏宅配入口，不需分開設定。</p>
         </div>
         <div class="settings-card">
@@ -3679,7 +3665,7 @@
 <!-- Toast 通知 -->
 <div class="toast-container" id="toastContainer"></div>
 
-<script src="/js/line-member-gate.js?v=h1-4-10-required-gate-1"></script>
+<script src="/js/line-member-gate.js?v=fix18-10-hotfix26-D"></script>
 <script src="/js/app.js?v=fix18-10-hotfix22"></script>
 <script src="/js/analytics-v2.js?v=fix18-10-hotfix24-UI"></script>
 <!-- fix18-10-hotfix30-B5-R5.4-G1.6-A1.2.1: 共用 Asia/Taipei 顯示 Helper（唯一的

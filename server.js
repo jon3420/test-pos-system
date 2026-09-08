@@ -134,19 +134,9 @@ app.use(bodyParser.urlencoded({ extended: true }));
 // fix18-10-hotfix22A：LINE 內建瀏覽器（尤其 iOS）對 .html 進入頁常有過度快取問題，
 // 導致客戶端點開 line-order.html / line-shipping.html 時吃到舊版畫面。
 // 僅對 .html 文件關閉快取，其餘靜態資源（js/css/圖片）不受影響、行為不變。
-//
-// H1.4.10 REQUIRED GATE｜LINE MEMBER ASSET CACHE-BUST FIX（真機回報：部署
-// REQUIRED GATE 後既有會員自動辨識失效、非好友通知不出現）：
-// query version（?v=h1-4-10-required-gate-1／?v=h1-4-10-phone-1）已經處理
-// 大部分情況，但 query string 快取失效在部分中間層 CDN／代理設定下不保證
-// 生效，這裡再加一層 defense-in-depth——只針對這兩支「新版 HTML 呼叫了新
-// API、若拿到舊版就會被 try/catch 靜默吞掉」的關鍵 runtime 檔案關閉快取，
-// 不對全部 js/css/圖片全面 no-cache（避免不必要的效能退化）。
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders: (res, filePath) => {
     if (filePath.endsWith('.html')) {
-      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
-    } else if (filePath.endsWith(path.join('js', 'line-member-gate.js')) || filePath.endsWith(path.join('js', 'phone-utils.js'))) {
       res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
     }
   },
