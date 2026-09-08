@@ -2669,15 +2669,30 @@ const LINE_MEMBER_GATE_KEYS = [
 function updateLineMemberGateModeUI() {
   const modeEl = document.getElementById('set-line_member_gate_mode');
   const mode = modeEl ? modeEl.value : 'disabled';
-  const isFriendMode = mode === 'friend_entry' || mode === 'friend_checkout';
+  const isSoftFriendMode = mode === 'friend_entry' || mode === 'friend_checkout';
+  // H1.4.10 REQUIRED LINE FRIEND GATE 新增：required 模式與柔性引導模式一樣
+  // 不使用「要求加入官方帳號」這個舊 checkout/entry 專用設定，UI 提示沿用
+  // 同一段文字（isFriendMode 涵蓋兩種免登入 friend 模式，柔性＋required）。
+  const isRequiredFriendMode = mode === 'friend_entry_required' || mode === 'friend_checkout_required';
+  const isFriendMode = isSoftFriendMode || isRequiredFriendMode;
   const friendHint = document.getElementById('lmgFriendModeHint');
-  if (friendHint) friendHint.style.display = isFriendMode ? 'block' : 'none';
+  if (friendHint) friendHint.style.display = isSoftFriendMode ? 'block' : 'none';
+  const friendRequiredHint = document.getElementById('lmgFriendRequiredModeHint');
+  if (friendRequiredHint) friendRequiredHint.style.display = isRequiredFriendMode ? 'block' : 'none';
   const requireFriendNote = document.getElementById('lmgRequireFriendFriendModeNote');
   if (requireFriendNote) requireFriendNote.style.display = isFriendMode ? 'block' : 'none';
   const requireFriendEl = document.getElementById('set-line_member_require_friend');
   // 只是弱化（disable），不刪除、不清空既有值——避免切回 checkout/entry 時
   // 店家原本的設定被意外抹除。
   if (requireFriendEl) requireFriendEl.disabled = isFriendMode;
+  // H1.4.10 REQUIRED LINE FRIEND GATE 新增：required 模式固定不可略過，
+  // disable「允許略過」checkbox 並顯示說明，避免店家誤以為勾掉它能讓
+  // required 模式變成可略過（後端／前端本身也已忽略這個 mode 下的
+  // allow_skip 值，這裡只是同步 UI，不是唯一防線）。同樣只 disable，不清值。
+  const allowSkipEl = document.getElementById('set-line_member_allow_skip');
+  if (allowSkipEl) allowSkipEl.disabled = isRequiredFriendMode;
+  const allowSkipRequiredNote = document.getElementById('lmgAllowSkipRequiredModeNote');
+  if (allowSkipRequiredNote) allowSkipRequiredNote.style.display = isRequiredFriendMode ? 'block' : 'none';
   const autoIdentifyHint = document.getElementById('lmgAutoIdentifyHint');
   if (autoIdentifyHint) {
     const autoIdentifyOn = settings && settings.line_member_auto_identify_enabled === '1';

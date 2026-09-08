@@ -545,8 +545,8 @@ img{max-width:100%;display:block}
 
 <script src="/js/analytics-attribution.js"></script>
 <script src="/js/analytics-platforms.js"></script>
-<script src="/js/phone-utils.js"></script>
-<script src="/js/line-member-gate.js"></script>
+<script src="/js/phone-utils.js?v=h1-4-10-phone-1"></script>
+<script src="/js/line-member-gate.js?v=h1-4-10-required-gate-1"></script>
 <script src="/js/product-detail-modal.js"></script>
 <script src="/js/delivery-free-progress.js"></script>
 <!-- fix18-10-hotfix30-B5-R5.4-G1: Geo Intelligence V2 — 顧客頁面端 Consent-driven
@@ -785,7 +785,13 @@ async function _initLineMemberGateFromShopData(d){
   // H1.4.10 Phase 2：friend_entry／friend_checkout 明確定義為「免登入」，
   // 不需要 LIFF（純靠 add_friend_url 開啟連結），因此即使沒有 liff_id 也要
   // 讓下面的 Friend Guide 邏輯有機會執行，不能直接 return。
-  const isFriendOnlyMode=_lineMemberGateConfig.gate_mode==='friend_entry' || _lineMemberGateConfig.gate_mode==='friend_checkout';
+  // H1.4.10 REQUIRED LINE FRIEND GATE：friend_entry_required／
+  // friend_checkout_required 同樣「免登入」（不需要 LIFF Login，只是
+  // opportunistically 使用 LIFF 做 authoritative friendship 驗證），因此和
+  // 柔性引導兩個 mode 一樣要讓下面的邏輯有機會執行，不能因為缺 liff_id 就
+  // 直接 return。
+  const isFriendOnlyMode=_lineMemberGateConfig.gate_mode==='friend_entry' || _lineMemberGateConfig.gate_mode==='friend_checkout'
+    || _lineMemberGateConfig.gate_mode==='friend_entry_required' || _lineMemberGateConfig.gate_mode==='friend_checkout_required';
   if(!shouldInitLiff && !isFriendOnlyMode) return;
   if(_lineMemberGateConfig.gate_mode==='disabled' && !cartToken && !_lineMemberGateConfig.auto_identify_enabled) return;
   if(!_lineMemberGateConfig.liff_id){
@@ -849,6 +855,14 @@ async function _initLineMemberGateFromShopData(d){
   // 不需要 LIFF，見上方 isFriendOnlyMode 判斷）。
   if(_lineMemberGateConfig.gate_enabled && _lineMemberGateConfig.gate_mode==='friend_entry'){
     try{ LineMemberGate.maybeShowFriendEntryGuide(LINE_STORE_ID, _lineMemberGateConfig, _gateIds(), _trackEvent); }catch(e){}
+  }
+  // H1.4.10 REQUIRED LINE FRIEND GATE：進站要求加入官方 LINE（免登入・
+  // 不可略過）。放在 refreshAuthoritativeFriendState()／Historical Sync
+  // 之後呼叫，讓 knownFriendStatus() 有機會拿到最新狀態，大多數已是好友的
+  // 情況這裡會直接同步放行、不顯示 Modal。沿用既有 requireMemberOnEntry()
+  // 呼叫慣例（fire-and-forget，不 await），Modal 本身負責視覺阻擋。
+  if(_lineMemberGateConfig.gate_enabled && _lineMemberGateConfig.gate_mode==='friend_entry_required'){
+    try{ LineMemberGate.requireFriendOnEntryNoLogin(LINE_STORE_ID, _lineMemberGateConfig, _gateIds(), _trackEvent); }catch(e){}
   }
 }
 
@@ -4037,6 +4051,17 @@ function _enterCheckoutStage(){
 // 直接呼叫 openCheckoutStep()（無 event 或 event 來源不是 #goCheckoutBtn）
 // 一律 return，不切換 stage、不送事件。不使用 event.isTrusted（會擋掉鍵盤觸發
 // 的 click 與 jsdom 測試），改用 event.type/currentTarget 判斷因果。
+// H1.4.10 REQUIRED LINE FRIEND GATE：pending checkout intent，只存在記憶體
+// （模組層級變數），刻意不寫 localStorage／sessionStorage／analytics／DB
+// （需求文件：避免任何持久化）。用來確保「被 Gate 擋下 → 加入好友 → 返回」
+// 之後自動繼續，但只執行一次，不會 double checkout_click。
+let _pendingRequiredFriendCheckout=false;
+
+// H1.4.9 explicit-button-only hardening：checkout_click 只能由「真正的
+// #goCheckoutBtn click」觸發，不能只因為 openCheckoutStep() 被呼叫就送出——
+// 直接呼叫 openCheckoutStep()（無 event 或 event 來源不是 #goCheckoutBtn）
+// 一律 return，不切換 stage、不送事件。不使用 event.isTrusted（會擋掉鍵盤觸發
+// 的 click 與 jsdom 測試），改用 event.type/currentTarget 判斷因果。
 function openCheckoutStep(event){
   if(!event || event.type!=='click') return;
   const goBtn=document.getElementById('goCheckoutBtn');
@@ -4045,6 +4070,36 @@ function openCheckoutStep(event){
   if(goBtn.disabled)return;
   const subBtn=document.getElementById('subBtn');
   if(subBtn && subBtn.disabled){ toast('目前沒有可用的取餐方式，請調整購物車內容'); return; }
+  // H1.4.10 REQUIRED LINE FRIEND GATE：friend_checkout_required 必須插在
+  // 「真正切 checkout stage」之前——friend!=true 時完全不呼叫
+  // _enterCheckoutStage()、不送 checkout_click、不送 begin_checkout、
+  // 不送 payment，購物車維持原樣不受影響。這是本次 required checkout gate
+  // 唯一的 checkout_click 生成點守門位置。
+  if(_lineMemberGateConfig && _lineMemberGateConfig.gate_enabled && _lineMemberGateConfig.gate_mode==='friend_checkout_required'){
+    // 已經有一個 pending gate 在等待使用者操作（例如重複點擊前往結帳），
+    // 不重新開一個第二個 Gate/Promise，避免之後 double resolve／
+    // double checkout_click。
+    if(_pendingRequiredFriendCheckout) return;
+    _pendingRequiredFriendCheckout=true;
+    LineMemberGate.requireFriendBeforeCheckoutNoLogin(LINE_STORE_ID, _lineMemberGateConfig, _gateIds(), _trackEvent).then(function(res){
+      if(!_pendingRequiredFriendCheckout) return; // 已經被取消／清除，不重複處理
+      _pendingRequiredFriendCheckout=false;
+      if(res && res.ok){
+        _proceedToCheckout();
+      }
+      // res.ok===false（使用者按「返回購物車」，或非 LIFF 環境使用者自行
+      // 取消）：什麼都不做，維持在購物車畫面，購物車內容完整保留。
+    });
+    return;
+  }
+  _proceedToCheckout();
+}
+
+// H1.4.10 REQUIRED LINE FRIEND GATE：把「真正切 checkout stage ＋
+// 送出 checkout_click ＋ friend_checkout 柔性引導」抽成獨立函式，讓
+// openCheckoutStep() 的 required-gate 分支與非 required 分支共用同一套
+// 真正的 checkout 進入邏輯，不重寫第二套。
+function _proceedToCheckout(){
   _enterCheckoutStage();
   // 相同 cart_id 只計一次的既有去重契約，沿用 H1.4.7 的 sessionStorage 機制，
   // 只是現在只會從這個真正的按鈕 handler 觸發，不會再被 silent restore 路徑

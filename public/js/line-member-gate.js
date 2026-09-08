@@ -2884,6 +2884,260 @@
     } catch (e) { /* status display is best-effort only */ }
   }
 
+  // ══════════════════════════════════════════════════════════════════
+  // H1.4.10 REQUIRED LINE FRIEND GATE — friend_entry_required／
+  // friend_checkout_required（本輪新增，見 zip 需求文件「H1.4.10｜REQUIRED
+  // LINE FRIEND GATE」）。
+  //
+  // 與既有兩組 Gate 的關係／差異：
+  //   - 與 friend_entry／friend_checkout（柔性引導）共用：knownFriendStatus()、
+  //     triggerHistoricalFriendSync()、refreshAuthoritativeFriendState()、
+  //     openFriendGuideLink()、markAwaitingFriendshipReturn()——同一套好友
+  //     狀態判斷與「開連結」邏輯，不重寫第二套。
+  //   - 與 checkout／entry（強制 LINE 登入 Gate，showFriendRequiredGate／
+  //     ensureFriendRequirement）不同：這裡完全不呼叫 liff.login()、不要求
+  //     member_session，只要求「backend authoritative friend=true」。
+  //
+  // 解鎖條件唯一：只有 knownFriendStatus()==='friend'（來自 backend 已驗證
+  // 的狀態，非 client 自報）才會 resolve({ok:true})。點擊「加入官方 LINE」
+  // 本身絕不視為放行條件（見 _showRequiredFriendModal 內的按鈕 handler，
+  // 只負責開連結＋標記等待返回，不直接 resolve）。
+  //
+  // allow_skip 對這兩個 mode 完全無效——這裡的 Modal 從頭到尾不渲染任何
+  // 「略過」按鈕，呼叫端（line-order.html／line-shipping.html）也不會傳入
+  // allow_skip，物理上不存在可以略過的路徑。
+  // ══════════════════════════════════════════════════════════════════
+  let _activeRequiredFriendGate = null; // { storeId, config, mode, ids, onEvent, resolve, external }
+  let requiredFriendGateEl = null;
+
+  function closeRequiredFriendGate() {
+    if (requiredFriendGateEl && requiredFriendGateEl.parentNode) requiredFriendGateEl.parentNode.removeChild(requiredFriendGateEl);
+    requiredFriendGateEl = null;
+  }
+  function _setRequiredGateStatus(text) {
+    const el = document.getElementById('lrfgStatus');
+    if (el) el.textContent = text || '';
+  }
+
+  // 不可略過 Modal：刻意不渲染任何關閉按鈕／不綁定背景點擊關閉／不監聽 ESC。
+  // 唯一可能的第二顆按鈕是「返回購物車」（僅 checkout 模式、且只是取消這次
+  // 進入 checkout，不等於放行 Gate——見呼叫端 wrappedResolve({ok:false,
+  // reason:'cancelled'})，購物車內容完全不受影響）。
+  function _renderRequiredFriendGateModal({ title, description, primaryText, showCancel, cancelText }) {
+    closeRequiredFriendGate();
+    requiredFriendGateEl = document.createElement('div');
+    requiredFriendGateEl.id = 'lineRequiredFriendGate';
+    requiredFriendGateEl.style.cssText = `position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.6);
+      display:flex;align-items:center;justify-content:center;padding:16px;`;
+    requiredFriendGateEl.innerHTML = `
+      <div style="background:#fff;border-radius:16px;max-width:360px;width:100%;
+          max-height:calc(100vh - 32px);overflow:auto;padding:24px;text-align:center;
+          font-family:inherit;box-shadow:0 8px 30px rgba(0,0,0,.2)" role="dialog" aria-modal="true">
+        <div style="font-size:40px;line-height:1;margin-bottom:8px">💬</div>
+        <h3 style="margin:0 0 8px;font-size:18px">${escapeHtml(title)}</h3>
+        <p style="margin:0 0 16px;color:#666;font-size:14px;white-space:pre-line">${escapeHtml(description)}</p>
+        <div id="lrfgStatus" style="font-size:13px;color:#888;margin-bottom:12px"></div>
+        <button id="lrfgAddFriendBtn" style="width:100%;padding:12px;border:0;border-radius:10px;background:#06C755;color:#fff;font-size:15px;font-weight:600;margin-bottom:8px;cursor:pointer">${escapeHtml(primaryText)}</button>
+        ${showCancel ? `<button id="lrfgCancelBtn" style="width:100%;padding:10px;border:0;background:transparent;color:#999;font-size:13px;cursor:pointer">${escapeHtml(cancelText || '返回購物車')}</button>` : ''}
+      </div>`;
+    document.body.appendChild(requiredFriendGateEl);
+    return requiredFriendGateEl;
+  }
+
+  // 外部一般瀏覽器（非 LIFF environment，例如直接用 Chrome 打開點餐連結）：
+  // 不可安全取得 authoritative friendship，也不能顯示一個永遠無法解鎖的
+  // Required Modal。改導去 store 設定的 LIFF URL；沒有設定 LIFF URL 時顯示
+  // 通用安全錯誤（不 expose 技術細節），同樣不建立假的 friend=true、不清 cart。
+  function _renderExternalBrowserRequiredModal(config, opts) {
+    closeRequiredFriendGate();
+    requiredFriendGateEl = document.createElement('div');
+    requiredFriendGateEl.id = 'lineRequiredFriendGate';
+    requiredFriendGateEl.style.cssText = `position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.6);
+      display:flex;align-items:center;justify-content:center;padding:16px;`;
+    const liffUrl = (config && config.liff_id) ? ('https://liff.line.me/' + config.liff_id) : '';
+    const body = liffUrl
+      ? `<button id="lrfgOpenLiffBtn" style="width:100%;padding:12px;border:0;border-radius:10px;background:#06C755;color:#fff;font-size:15px;font-weight:600;margin-bottom:8px;cursor:pointer">使用 LINE 開啟</button>`
+      : `<p style="margin:0 0 8px;color:#c00;font-size:13px">目前無法使用 LINE 好友驗證，請聯絡店家。</p>`;
+    requiredFriendGateEl.innerHTML = `
+      <div style="background:#fff;border-radius:16px;max-width:360px;width:100%;padding:24px;text-align:center;font-family:inherit">
+        <div style="font-size:40px;line-height:1;margin-bottom:8px">📱</div>
+        <h3 style="margin:0 0 8px;font-size:18px">請使用 LINE 開啟點餐</h3>
+        <p style="margin:0 0 16px;color:#666;font-size:14px">此模式需要透過 LINE App 驗證官方帳號好友身份。</p>
+        ${body}
+        ${opts && opts.showCancel ? `<button id="lrfgCancelBtn" style="width:100%;padding:10px;border:0;background:transparent;color:#999;font-size:13px;cursor:pointer;margin-top:4px">返回購物車</button>` : ''}
+      </div>`;
+    document.body.appendChild(requiredFriendGateEl);
+    const openBtn = document.getElementById('lrfgOpenLiffBtn');
+    if (openBtn) openBtn.addEventListener('click', () => { try { global.location.href = liffUrl; } catch (e) {} });
+    return requiredFriendGateEl;
+  }
+
+  // 是否處於「可以安全嘗試 authoritative friendship 驗證」的環境。純外部
+  // 一般瀏覽器（沒有 liff 物件，或 liff 已載入但既不在 LINE App 內、也沒有
+  // 既有登入態）視為不安全環境，走 external-browser fallback。
+  function _isSafeLiffEnvironmentForRequiredGate() {
+    try {
+      if (!global.liff) return false;
+      if (typeof global.liff.isInClient === 'function' && global.liff.isInClient()) return true;
+      if (typeof global.liff.isLoggedIn === 'function' && global.liff.isLoggedIn()) return true;
+      return false;
+    } catch (e) { return false; }
+  }
+
+  // 回傳 'friend' / 'non_friend' / 'unknown'。依序：
+  //   1) 本地已知 friend=true（不重打 API）
+  //   2) Historical Friend Sync（backend 向 LINE Platform 驗證，補齊「早就
+  //      是好友但 POS 沒 member」的情況，不需要重新加入／解除封鎖／重新登入）
+  //   3) refreshAuthoritativeFriendState（backend member_session current
+  //      friend=true ＞ LIFF trusted getFriendship() 訊號）
+  // 三步都查不到 true 時，區分「明確 false」與「無法確認（timeout/error）」，
+  // 讓 Required Gate 可以顯示不同文案，且絕不把 unknown 當成 non_friend 使用
+  // ——两者都保持 Gate，但 unknown 顯示「無法確認」而不是「請加入好友」。
+  async function _resolveRequiredFriendStatus(storeId) {
+    if (knownFriendStatus(storeId) === 'friend') return 'friend';
+    // 修正（targeted test REQ-2 發現）：triggerHistoricalFriendSync() 只更新
+    // backend DB（POS member 建立／friend 狀態寫入），刻意不寫入前端本地
+    // member_session 快取（這支頁面本來就是免登入，沒有 session 可寫）。
+    // 因此不能只靠事後重查 knownFriendStatus()（純本地快取）判斷這次
+    // Historical Sync 是否成立——那樣即使 backend 已經 authoritative 驗證
+    // friend=true，本地判斷仍會停在 'unknown'，導致 Required Gate 永遠卡住。
+    // 直接採用這支端點自己回傳的 friend_verified（來自 backend 向 LINE
+    // Platform 驗證後的結果，不是 client 自報，符合「backend authoritative
+    // 驗證」的安全要求）。
+    try {
+      const histRes = await triggerHistoricalFriendSync(storeId);
+      if (histRes && histRes.friend_verified === true) return 'friend';
+    } catch (e) {}
+    try {
+      const state = await refreshAuthoritativeFriendState(storeId);
+      if (state === 'friend') return 'friend';
+      if (state === 'non_friend') return 'non_friend';
+      return 'unknown';
+    } catch (e) { return 'unknown'; }
+  }
+
+  function _showRequiredFriendModal(mode, storeId, config, ids, onEvent, opts, status) {
+    const isCheckout = mode === 'checkout';
+    const gateModeName = isCheckout ? 'friend_checkout_required' : 'friend_entry_required';
+    const description = isCheckout
+      ? '完成加入官方 LINE 後即可繼續結帳，\n並可接收訂單通知與購物車找回。'
+      : '加入官方 LINE 後即可使用 LINE 點餐，\n並可接收訂單通知、優惠與購物車找回。';
+    _renderRequiredFriendGateModal({
+      title: '加入官方 LINE',
+      description,
+      primaryText: '加入官方 LINE',
+      showCancel: isCheckout && !!(opts && opts.showCancel),
+      cancelText: '返回購物車',
+    });
+    if (status === 'unknown') _setRequiredGateStatus('目前無法確認 LINE 好友狀態，請點選下方按鈕重新確認。');
+    _emitFriendGuideEvent(onEvent, 'line_friend_guide_view', storeId, gateModeName, ids);
+    const addBtn = document.getElementById('lrfgAddFriendBtn');
+    const cancelBtn = document.getElementById('lrfgCancelBtn');
+    if (addBtn) addBtn.addEventListener('click', () => {
+      // B5 semantics（與柔性引導一致）：點擊只代表「被導去加好友頁」，絕不
+      // 直接 mark friend／關閉 Gate／放行——真正的解鎖只能靠下面
+      // attemptRequiredFriendGateResume()（從加好友頁返回時）重新驗證。
+      markAwaitingFriendshipReturn();
+      openFriendGuideLink(config);
+      _emitFriendGuideEvent(onEvent, 'line_friend_link_clicked', storeId, gateModeName, ids);
+    });
+    if (cancelBtn) cancelBtn.addEventListener('click', () => {
+      closeRequiredFriendGate();
+      const gate = _activeRequiredFriendGate;
+      if (gate) gate.resolve({ ok: false, reason: 'cancelled' });
+    });
+  }
+
+  // 核心：entry／checkout 共用同一套判斷＋Modal 邏輯，只差 mode 名稱與是否
+  // 顯示「返回購物車」。回傳 Promise，只有 friend=true 才會 resolve
+  // {ok:true}；使用者按「返回購物車」時 resolve {ok:false, reason:'cancelled'}
+  // （呼叫端據此判斷不要進入 checkout stage、不要送 checkout_click）。
+  function _requireFriendGateCore(mode, storeId, config, ids, onEvent, opts) {
+    return new Promise((resolve) => {
+      const wrappedResolve = (result) => { _activeRequiredFriendGate = null; resolve(result); };
+      (async () => {
+        if (knownFriendStatus(storeId) === 'friend') { wrappedResolve({ ok: true }); return; }
+        onEvent && onEvent('friend_prompt_shown');
+        if (!_isSafeLiffEnvironmentForRequiredGate()) {
+          _renderExternalBrowserRequiredModal(config, { showCancel: !!(opts && opts.showCancel) });
+          const cancelBtn = document.getElementById('lrfgCancelBtn');
+          if (cancelBtn) cancelBtn.addEventListener('click', () => { closeRequiredFriendGate(); wrappedResolve({ ok: false, reason: 'cancelled' }); });
+          _activeRequiredFriendGate = { storeId, config, mode, ids, onEvent, resolve: wrappedResolve, external: true };
+          return;
+        }
+        const status = await _resolveRequiredFriendStatus(storeId);
+        if (status === 'friend') { wrappedResolve({ ok: true }); return; }
+        _activeRequiredFriendGate = { storeId, config, mode, ids, onEvent, resolve: wrappedResolve };
+        _showRequiredFriendModal(mode, storeId, config, ids, onEvent, opts, status);
+      })();
+    });
+  }
+
+  // 進站要求加入官方 LINE（免登入・不可略過）。呼叫端（line-order.html／
+  // line-shipping.html bootstrap）沿用既有 requireMemberOnEntry() 的呼叫
+  // 慣例（fire-and-forget，不 await），視覺上 Modal 會阻擋整頁互動，直到
+  // resolve({ok:true})。
+  function requireFriendOnEntryNoLogin(storeId, config, ids, onEvent) {
+    return _requireFriendGateCore('entry', storeId, config, ids, onEvent, { showCancel: false });
+  }
+
+  // 結帳前要求加入官方 LINE（免登入・不可略過）。呼叫端必須在真正切換到
+  // checkout stage／送出 checkout_click「之前」呼叫並 await 這個 Promise，
+  // 只有 resolve({ok:true}) 才可以繼續（見 line-order.html／
+  // line-shipping.html 的 openCheckoutStep() 修改）。
+  function requireFriendBeforeCheckoutNoLogin(storeId, config, ids, onEvent) {
+    return _requireFriendGateCore('checkout', storeId, config, ids, onEvent, { showCancel: true });
+  }
+
+  // 從加好友頁／解除封鎖頁返回時的自動重新驗證。刻意獨立於既有
+  // attemptAutoFriendshipResume()（那支函式服務 login-based
+  // showFriendRequiredGate／柔性 Guide，走 recheckFriendship()＝
+  // verifyWithBackend()，需要 member_session／liff.login() 流程）——這裡的
+  // Required Gate 免登入，重新驗證必須改用 _resolveRequiredFriendStatus()
+  // （Historical Sync ＋ refreshAuthoritativeFriendState()），不能共用同一個
+  // 函式本體，但沿用同一組 pageshow/visibilitychange/focus 監聽器（見下方
+  // 註冊處），不建立第二組 lifecycle listener。
+  let _requiredFriendResumeTimer = null;
+  let _requiredFriendResumeInFlight = false;
+  async function attemptRequiredFriendGateResume() {
+    if (document.visibilityState && document.visibilityState !== 'visible') return;
+    const gate = _activeRequiredFriendGate;
+    if (!gate || gate.external) return; // external-browser fallback 沒有「返回」可偵測，維持原樣
+    clearTimeout(_requiredFriendResumeTimer);
+    _requiredFriendResumeTimer = setTimeout(async () => {
+      if (_requiredFriendResumeInFlight) return;
+      _requiredFriendResumeInFlight = true;
+      try {
+        const target = _activeRequiredFriendGate;
+        if (!target) return;
+        _setRequiredGateStatus('正在向 LINE 確認好友狀態…');
+        const status = await _resolveRequiredFriendStatus(target.storeId);
+        const stillActive = _activeRequiredFriendGate === target;
+        if (!stillActive) return; // 這期間已經被其他路徑 resolve（例如使用者自己重新整理頁面重跑 bootstrap）
+        if (status === 'friend') {
+          clearAwaitingFriendshipReturn();
+          closeRequiredFriendGate();
+          target.resolve({ ok: true });
+        } else if (status === 'non_friend') {
+          _setRequiredGateStatus('LINE 目前仍回傳尚未加入或仍在封鎖中，請完成加入後再重新確認。');
+        } else {
+          _setRequiredGateStatus('目前無法確認 LINE 好友狀態，請稍後再試。');
+        }
+      } finally {
+        _requiredFriendResumeInFlight = false;
+      }
+    }, 500);
+  }
+  try {
+    if (hasDOM && typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+      document.addEventListener('visibilitychange', attemptRequiredFriendGateResume);
+    }
+    if (typeof global.addEventListener === 'function') {
+      global.addEventListener('pageshow', attemptRequiredFriendGateResume);
+      global.addEventListener('focus', attemptRequiredFriendGateResume);
+    }
+  } catch (e) { /* 非標準瀏覽器環境，安全略過 */ }
+
   global.LineMemberGate = {
     // 既有 API（維持相容，勿刪除／勿變更行為）
     initLineMemberGate, isLiffAvailable, loginWithLine, getLineProfile,
@@ -2931,6 +3185,11 @@
     // refresh 內部 helper（供頁面／測試直接檢查，不改變既有公開行為）。
     getFriendDiagnosticSnapshot, _fetchBackendFriendState, _updateCachedFriendStatus,
     _reportFriendStateConflict,
+    // H1.4.10 REQUIRED LINE FRIEND GATE 新增：friend_entry_required／
+    // friend_checkout_required（免登入・不可略過）。
+    requireFriendOnEntryNoLogin, requireFriendBeforeCheckoutNoLogin,
+    closeRequiredFriendGate, attemptRequiredFriendGateResume,
+    _resolveRequiredFriendStatus, _isSafeLiffEnvironmentForRequiredGate,
   };
 
 })(window);
