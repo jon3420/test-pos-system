@@ -318,7 +318,12 @@ async function main() {
     // ══════════════════════════════════════════════════════════
     {
       const gateSrc = fs.readFileSync(path.join(ROOT, 'public', 'js', 'line-member-gate.js'), 'utf8');
-      const hasSharedFn = /async function triggerHistoricalFriendSync/.test(gateSrc);
+      // H1.4.10 BACKEND-RECONCILIATION：triggerHistoricalFriendSync() 現在是
+      // 一個同步 wrapper function（做 per-store in-flight dedupe），真正的
+      // async 邏輯移到 _triggerHistoricalFriendSyncInner()——外部呼叫端行為
+      // 完全不變（一樣回傳可 await 的 Promise），這裡放寬成同時接受
+      // `async function` 或一般 `function` 兩種宣告形式。
+      const hasSharedFn = /(?:async )?function triggerHistoricalFriendSync/.test(gateSrc);
       const postsToEndpoint = /\/api\/line-member\/authoritative-friend-sync/.test(gateSrc);
       const orderHtml = fs.readFileSync(path.join(ROOT, 'public', 'line-order.html'), 'utf8');
       const shipHtml = fs.readFileSync(path.join(ROOT, 'public', 'line-shipping.html'), 'utf8');

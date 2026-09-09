@@ -533,6 +533,14 @@ router.post('/friend-state', (req, res) => {
     }
     res.json({
       success: true,
+      // H1.4.10 BACKEND-RECONCILIATION：新增 member_exists 欄位（真機 CASE A
+      // 根因修正）。原本 is_friend 在「member row 不存在」與「member row
+      // 存在但好友狀態 unknown（row.is_friend 為 NULL）」兩種情況下都回傳
+      // null，前端完全無法區分，導致「本地快取仍記得舊會員」時，前端誤以為
+      // backend 目前仍然認識這個人。這裡明確拆開，不影響既有 is_friend 欄位
+      // 語意/型別，是新增欄位，非破壞性變更。不含 raw UID／member_session／
+      // token／PII／secret，只是布林值。
+      member_exists: !!row,
       is_friend: isFriend,
       friend_status: friendStatusLabel(isFriend),
       require_friend: requireFriend,

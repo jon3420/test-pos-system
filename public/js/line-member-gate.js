@@ -1120,18 +1120,61 @@
   // 安全：liff.getAccessToken() 的原始值只在這個函式的區域變數存活，
   // request 送出後立即失去所有參照（不寫入 sessionStorage／localStorage／
   // console／analytics／DB／CRM Timeline）。
-  async function triggerHistoricalFriendSync(storeId) {
+  //
+  // H1.4.10 BACKEND-RECONCILIATION（真機 CASE A 根因修正）：per-store
+  // in-flight dedupe——entry bootstrap、focus/pageshow/visibilitychange
+  // resume、checkout required gate 等多個呼叫點都可能在短時間內各自呼叫這
+  // 支函式，這裡確保同一個 storeId 同時最多只有一個真正在飛的請求，其餘
+  // 呼叫共用同一個 Promise（見需求文件十三：不要新增輪詢風暴）。
+  const _historicalSyncInFlight = {};
+  function triggerHistoricalFriendSync(storeId) {
+    if (_historicalSyncInFlight[storeId]) return _historicalSyncInFlight[storeId];
+    const p = (async () => {
+      try {
+        return await _triggerHistoricalFriendSyncInner(storeId);
+      } finally {
+        delete _historicalSyncInFlight[storeId];
+      }
+    })();
+    _historicalSyncInFlight[storeId] = p;
+    return p;
+  }
+
+  async function _triggerHistoricalFriendSyncInner(storeId) {
     try {
       if (!isLiffAvailable(storeId)) return { success: false, reason: 'liff_not_ready' };
       if (typeof global.liff.isLoggedIn !== 'function' || !global.liff.isLoggedIn()) {
         return { success: false, reason: 'not_logged_in' };
       }
-      // 需求文件：backend friend=true → STOP（避免浪費 LINE API quota，也
-      // 避免每次 page render 都無限制呼叫）。這裡先看本地已知的 member_session
-      // 快取；快取沒有／unknown 才 opportunistically 呼叫後端（後端自己也會
-      // 再做一次「已經 friend=true 就不重複打 LINE API」的權威判斷，見
-      // routes/line-member.js，兩層防浪費互相獨立、互不取代）。
-      if (knownFriendStatus(storeId) === 'friend') return { success: true, friend_verified: true, source: 'client_cache' };
+      // H1.4.10 BACKEND-RECONCILIATION（真機 CASE A 根因修正）：原本這裡是
+      // `if (knownFriendStatus(storeId) === 'friend') return {success:true,
+      // friend_verified:true, source:'client_cache'};`——純本地快取
+      // short-circuit。問題：member_session 是簽章過的 token，簽章本身可能
+      // 仍在有效期內，但對應的 backend line_members row 可能已經被刪除（例如
+      // 後台清過會員資料、或資料庫重建）。這種情況下本地快取仍然是
+      // friend=true，卻完全不代表 backend 現在真的認得這個人，於是這支
+      // repair 函式被永遠跳過，POS 永遠不會補建會員（真機回報的 CASE A）。
+      //
+      // 修正原則：local friend cache 只能是 UX hint，不能決定「backend
+      // repair 不需要執行」。改成：如果手上有 member_session，先用便宜的
+      // 唯讀 /friend-state 查一次「backend 現在真正的狀態」；只有 backend
+      // 明確回報 member_exists=true 且 is_friend=true，才可以安全
+      // short-circuit、不打 LINE Platform API（省 quota、避免輪詢風暴）。
+      // backend 回報 member_exists=false（或查詢失敗／沒有 session）時，
+      // 一律繼續往下執行真正的 authoritative LINE Platform 驗證＋補建
+      // ——這一段完全沒有改動既有 security architecture：frontend 依然只
+      // 提供 access token，是否真的 friend=true／要不要補建 member，仍然
+      // 100% 由 backend 向 LINE Platform 驗證後決定（見下方 fetch）。
+      let session = null;
+      try { session = getMemberSession(storeId); } catch (e) { session = null; }
+      if (session && session.member_session) {
+        try {
+          const backendState = await _fetchBackendFriendState(storeId, session.member_session);
+          if (backendState && backendState.success && backendState.member_exists === true && backendState.is_friend === true) {
+            return { success: true, friend_verified: true, source: 'backend_current' };
+          }
+        } catch (e) { /* 查詢失敗不阻擋，繼續往下走 authoritative 驗證，維持既有 fail-open 精神 */ }
+      }
 
       let accessToken;
       try { accessToken = global.liff.getAccessToken(); } catch (e) { accessToken = null; }
@@ -1303,6 +1346,18 @@
       sessionFriend = session ? normalizeServerFriendStatus(session) : null;
     } catch (e) { session = null; sessionFriend = null; }
 
+    // H1.4.10 BACKEND-RECONCILIATION：backend 明確回報 member_exists===false
+    // 時的旗標——即使本地 session 快取（member_session 簽章可能仍有效，但
+    // 對應的 backend line_members row 已經被刪除）宣稱 is_friend=true，也
+    // 不能讓下面的 `sessionFriend === true` fast path 直接 return 'friend'
+    // （見需求文件 Section 2：「backend member missing + local sessionFriend
+    // =true → 不得直接 return friend」）。注意：只有 backend 明確回報
+    // member_exists===false 時才會設這個旗標；backend 回應缺少這個欄位
+    // （例如較舊的 mock／未升級的呼叫端測試）或查詢失敗時，member_exists
+    // 是 undefined（不是 false），這裡刻意用嚴格比較 === false，行為
+    // 完全向下相容既有呼叫端。
+    let backendMemberMissing = false;
+
     // Step 1：Backend authoritative refresh（TASK 2）。即使本地快取目前是
     // unknown／stale，只要 backend DB 目前已經是 true，一律優先採用（TASK 5
     // 禁止清單第一條）。
@@ -1310,20 +1365,24 @@
       try {
         const backendState = await _fetchBackendFriendState(storeId, session.member_session);
         if (backendState && backendState.success) {
-          if (backendState.is_friend === true) {
-            _updateCachedFriendStatus(storeId, true, backendState.last_friend_check_at);
-            reconcileFriendGuide(storeId, true);
-            return 'friend';
-          }
-          if (backendState.is_friend === false) {
-            _updateCachedFriendStatus(storeId, false, backendState.last_friend_check_at);
-            sessionFriend = false;
+          if (backendState.member_exists === false) {
+            backendMemberMissing = true;
+          } else {
+            if (backendState.is_friend === true) {
+              _updateCachedFriendStatus(storeId, true, backendState.last_friend_check_at);
+              reconcileFriendGuide(storeId, true);
+              return 'friend';
+            }
+            if (backendState.is_friend === false) {
+              _updateCachedFriendStatus(storeId, false, backendState.last_friend_check_at);
+              sessionFriend = false;
+            }
           }
         }
       } catch (e) { /* 不可阻擋流程，維持既有 fail-open */ }
     }
 
-    if (sessionFriend === true) { reconcileFriendGuide(storeId, true); return 'friend'; }
+    if (!backendMemberMissing && sessionFriend === true) { reconcileFriendGuide(storeId, true); return 'friend'; }
 
     // Step 2：LIFF 本身的 trusted friendship refresh（既有行為，維持不變）。
     try {
@@ -1335,11 +1394,36 @@
           if (sessionFriend === false) {
             try { await _reportFriendStateConflict(storeId, session && session.member_session); } catch (e) {}
           }
+          if (backendMemberMissing) {
+            // LIFF 端確認目前確實是好友，但 backend member row 不存在——
+            // 觸發既有 Historical authoritative repair（fire-and-forget，
+            // 不阻擋這次 UX 判斷；triggerHistoricalFriendSync() 內部本身有
+            // per-store in-flight dedupe，不會造成重複請求），讓 backend
+            // member 補建，之後 /friend-state 才會看到 member_exists=true。
+            try {
+              const _p = triggerHistoricalFriendSync(storeId);
+              if (_p && typeof _p.catch === 'function') _p.catch(() => {});
+            } catch (e) {}
+          }
           reconcileFriendGuide(storeId, true);
           return 'friend';
         }
       }
     } catch (e) { /* 不可阻擋流程，維持既有 fail-open */ }
+
+    if (backendMemberMissing) {
+      // 這裡走到代表：backend 明確回報 member 不存在，且上面 Step 2 也沒能
+      // 在這次呼叫裡確認 LIFF trusted friendship（例如非 LIFF 環境／未登入／
+      // 目前查到的 friendFlag 不是 true）。仍然背景嘗試一次 repair（同樣
+      // fire-and-forget、共用 in-flight dedupe），不阻擋這次回傳；回傳
+      // 'unknown' 而不是沿用可能過期的 sessionFriend，避免任何呼叫端把這次
+      // 結果誤當成「backend 目前確認是好友」。
+      try {
+        const _p = triggerHistoricalFriendSync(storeId);
+        if (_p && typeof _p.catch === 'function') _p.catch(() => {});
+      } catch (e) {}
+      return 'unknown';
+    }
     return sessionFriend === false ? 'non_friend' : 'unknown';
   }
 
@@ -2994,20 +3078,19 @@
   // 讓 Required Gate 可以顯示不同文案，且絕不把 unknown 當成 non_friend 使用
   // ——两者都保持 Gate，但 unknown 顯示「無法確認」而不是「請加入好友」。
   async function _resolveRequiredFriendStatus(storeId) {
-    if (knownFriendStatus(storeId) === 'friend') return 'friend';
-    // 修正（targeted test REQ-2 發現）：triggerHistoricalFriendSync() 只更新
-    // backend DB（POS member 建立／friend 狀態寫入），刻意不寫入前端本地
-    // member_session 快取（這支頁面本來就是免登入，沒有 session 可寫）。
-    // 因此不能只靠事後重查 knownFriendStatus()（純本地快取）判斷這次
-    // Historical Sync 是否成立——那樣即使 backend 已經 authoritative 驗證
-    // friend=true，本地判斷仍會停在 'unknown'，導致 Required Gate 永遠卡住。
-    // 直接採用這支端點自己回傳的 friend_verified（來自 backend 向 LINE
-    // Platform 驗證後的結果，不是 client 自報，符合「backend authoritative
-    // 驗證」的安全要求）。
-    try {
-      const histRes = await triggerHistoricalFriendSync(storeId);
-      if (histRes && histRes.friend_verified === true) return 'friend';
-    } catch (e) {}
+    // H1.4.10 BACKEND-RECONCILIATION：移除原本 `if (knownFriendStatus(storeId)
+    // === 'friend') return 'friend';` 這行純本地快取 short-circuit——理由與
+    // triggerHistoricalFriendSync() 的修正完全相同（見該函式內註解）：
+    // member_session 簽章可能仍有效，但對應的 backend line_members row 可能
+    // 已經被刪除，local cache 只能是 UX hint，不能是 Required Gate 的
+    // security authority（見需求文件 Section 9）。一律先呼叫
+    // triggerHistoricalFriendSync()——它本身已經是「backend reality
+    // first」：真正 backend 確認 member_exists && is_friend=true 時才會
+    // 用便宜的唯讀查詢直接 short-circuit（不打 LINE API、不會造成輪詢風暴），
+    // 否則會繼續往下執行真正的 authoritative LINE Platform 驗證＋補建。
+    let histRes = null;
+    try { histRes = await triggerHistoricalFriendSync(storeId); } catch (e) {}
+    if (histRes && histRes.friend_verified === true) return 'friend';
     try {
       const state = await refreshAuthoritativeFriendState(storeId);
       if (state === 'friend') return 'friend';
@@ -3056,7 +3139,24 @@
     return new Promise((resolve) => {
       const wrappedResolve = (result) => { _activeRequiredFriendGate = null; resolve(result); };
       (async () => {
-        if (knownFriendStatus(storeId) === 'friend') { wrappedResolve({ ok: true }); return; }
+        // H1.4.10 BACKEND-RECONCILIATION：原本這裡是
+        // `if (knownFriendStatus(storeId) === 'friend') { wrappedResolve({ok:
+        // true}); return; }`——這是本輪修正裡最關鍵的一處，因為這是 Required
+        // Gate 真正的「放行」決策點。純本地快取（member_session 簽章可能仍
+        // 有效，但對應的 backend line_members row 可能已經被刪除）絕對不能
+        // 單獨決定 Required Gate 放行，否則就是允許「local cache 自報
+        // friend=true」繞過 Required Gate 的安全承諾（見需求文件 Section 9：
+        // 「Required Gate 最終放行需要可信 friend truth」）。
+        //
+        // 改成：一律先呼叫 _resolveRequiredFriendStatus()（本輪已修正為
+        // backend-reality-first：真正 backend 確認 member 存在且 friend=true
+        // 才會用便宜的唯讀查詢直接判定，否則會執行真正的 authoritative LINE
+        // Platform 驗證＋補建），只有這個權威結果是 'friend' 才放行。為了
+        // 保留既有「已知好友完全不該看到任何 Gate UI／不送 friend_prompt_shown
+        // 事件」的 UX 承諾，這裡把這次判定放在送出 friend_prompt_shown 事件
+        // 之前，判定通過就直接放行、不進入下面任何顯示 Modal 的分支。
+        const preStatus = await _resolveRequiredFriendStatus(storeId);
+        if (preStatus === 'friend') { wrappedResolve({ ok: true }); return; }
         onEvent && onEvent('friend_prompt_shown');
         if (!_isSafeLiffEnvironmentForRequiredGate()) {
           _renderExternalBrowserRequiredModal(config, { showCancel: !!(opts && opts.showCancel) });
@@ -3065,10 +3165,8 @@
           _activeRequiredFriendGate = { storeId, config, mode, ids, onEvent, resolve: wrappedResolve, external: true };
           return;
         }
-        const status = await _resolveRequiredFriendStatus(storeId);
-        if (status === 'friend') { wrappedResolve({ ok: true }); return; }
         _activeRequiredFriendGate = { storeId, config, mode, ids, onEvent, resolve: wrappedResolve };
-        _showRequiredFriendModal(mode, storeId, config, ids, onEvent, opts, status);
+        _showRequiredFriendModal(mode, storeId, config, ids, onEvent, opts, preStatus);
       })();
     });
   }
