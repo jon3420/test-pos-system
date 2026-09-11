@@ -1815,8 +1815,97 @@ function applyFeatureGateUI() {
 
 // ── LINE 點餐入口 Tab 渲染 ─────────────────────────────────
 function loadLineEntryPage() {
+  renderLineOrderPageModeCard();
   renderLineOrderEntry();
   renderShippingEntry();
+}
+
+// ══════════════════════════════════════════════════════════════════
+// H1.4.11｜LINE 點餐頁模式設定（需求文件四）
+// 放在「LINE 點餐入口」頁籤、LINE 點餐網址卡片上方，管「入口／點餐頁呈現方式」，
+// 不放在「LINE 營業」（那裡管的是營業開關/時間/預訂，兩者分工，見需求文件四）。
+// 沿用既有 settings 的 loadSettings()/PUT /api/settings 架構，不新增第二套設定
+// 系統；儲存後不改變 LINE 點餐網址或 QR Code（renderLineOrderEntry() 完全獨立）。
+// ══════════════════════════════════════════════════════════════════
+const LINE_ORDER_PAGE_MODES = [
+  {
+    value: 'combined_checkout',
+    title: '合併點餐｜結帳時選擇',
+    desc: '外帶與外送共用商品頁，商品頁可查看兩種服務狀態，顧客於結帳時正式選擇取餐方式。',
+  },
+  {
+    value: 'fulfillment_switcher',
+    title: '取餐切換｜商品頁先選擇',
+    desc: '商品頁可直接切換外送或外帶，選擇結果會帶入結帳，結帳前仍可更改。',
+  },
+];
+
+async function renderLineOrderPageModeCard() {
+  const container = document.getElementById('lineEntryModeContent');
+  if (!container) return;
+  await loadSettings().catch(() => {});
+  const hasLine = hasFeature('line_order');
+  if (!hasLine) {
+    container.innerHTML = '<p style="color:var(--text-secondary,#64748b);font-size:.875rem">需先啟用 LINE 點餐功能才能設定點餐頁模式。</p>';
+    return;
+  }
+  // 既有店家沒有此設定值時，前端顯示同樣以 'combined_checkout' 為 fallback，
+  // 與 GET /api/line-orders/shop（routes/line-orders.js）給顧客端的 fallback 一致。
+  const current = settings.line_order_page_mode === 'fulfillment_switcher' ? 'fulfillment_switcher' : 'combined_checkout';
+  container.innerHTML = `
+    <p class="settings-hint" style="margin-top:-4px;margin-bottom:14px">兩種模式的商品頁都會顯示外送／外帶雙圖塊，差異只在圖塊的操作意義（詳見下方說明）。切換模式不會改變 LINE 點餐網址或 QR Code。</p>
+    <div id="lineOrderPageModeCards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin-bottom:14px">
+      ${LINE_ORDER_PAGE_MODES.map(m => `
+        <label class="lopm-card${m.value === current ? ' lopm-active' : ''}" data-mode="${m.value}"
+          style="display:block;cursor:pointer;padding:14px;border-radius:10px;border:2px solid ${m.value === current ? 'var(--g,#06C755)' : 'var(--bd,#e2e8f0)'};background:${m.value === current ? 'rgba(6,199,85,.08)' : 'rgba(0,0,0,.15)'};transition:.15s">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+            <input type="radio" name="lineOrderPageMode" value="${m.value}" ${m.value === current ? 'checked' : ''} onchange="onLineOrderPageModeCardChange(this)">
+            <strong style="font-size:.9rem">${m.title}</strong>
+          </div>
+          <div style="font-size:.8rem;color:var(--text-secondary,#64748b);line-height:1.5">${m.desc}</div>
+        </label>
+      `).join('')}
+    </div>
+    <div style="display:flex;align-items:center;gap:10px">
+      <button class="btn-primary" id="lopmSaveBtn" onclick="saveLineOrderPageMode()">💾 儲存設定</button>
+      <span id="lopmCurrentLabel" style="font-size:.8rem;color:var(--text-secondary,#64748b)">目前已儲存：${LINE_ORDER_PAGE_MODES.find(m => m.value === current).title}</span>
+    </div>`;
+}
+
+function onLineOrderPageModeCardChange(radioEl) {
+  document.querySelectorAll('#lineOrderPageModeCards .lopm-card').forEach(card => {
+    const isSel = card.getAttribute('data-mode') === radioEl.value;
+    card.style.borderColor = isSel ? 'var(--g,#06C755)' : 'var(--bd,#e2e8f0)';
+    card.style.background = isSel ? 'rgba(6,199,85,.08)' : 'rgba(0,0,0,.15)';
+    card.classList.toggle('lopm-active', isSel);
+  });
+}
+
+async function saveLineOrderPageMode() {
+  const checked = document.querySelector('input[name="lineOrderPageMode"]:checked');
+  if (!checked) return;
+  const mode = checked.value;
+  const btn = document.getElementById('lopmSaveBtn');
+  if (btn) { btn.disabled = true; btn.textContent = '儲存中...'; }
+  try {
+    const res = await apiFetch('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ line_order_page_mode: mode }),
+    });
+    const json = await res.json();
+    if (json.success) {
+      settings = json.data;
+      showToast('LINE 點餐頁模式已儲存', 'success');
+      renderLineOrderPageModeCard();
+    } else {
+      showToast(json.message || '儲存失敗', 'error');
+    }
+  } catch (e) {
+    showToast('網路錯誤，儲存失敗', 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '💾 儲存設定'; }
+  }
 }
 
 function renderLineOrderEntry() {

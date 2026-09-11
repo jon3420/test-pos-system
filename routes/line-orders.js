@@ -669,9 +669,18 @@ router.get('/shop', (req, res) => {
       // 純粹額外回傳既有設定值本身，不新增資料表欄位、不改變 routes/delivery.js 既有
       // 計算公式（真正的計算仍然只發生在後端 utils/deliveryFeeCalc.js）。
       'delivery_distance_fee_rules',
+      // H1.4.11（需求文件四）：LINE 點餐頁模式。
+      'line_order_page_mode',
     ];
     const settings = {};
     keys.forEach(k => { settings[k] = getSetting(db, storeId, k, ''); });
+
+    // H1.4.11（需求文件四第七點／需求文件三）：原始值可能是空字串（既有店家從未
+    // 設定過）或非法字串，這裡統一正規化成唯一權威的兩個合法值之一，fallback 為
+    // 'combined_checkout'（向下相容）。前端 getLineOrderPageMode() 直接讀這個
+    // 已正規化欄位，不得再自行另外判斷一次 fallback 規則。
+    settings.line_order_page_mode = settings.line_order_page_mode === 'fulfillment_switcher'
+      ? 'fulfillment_switcher' : 'combined_checkout';
 
     // Hotfix16 BUG-003：今日休假狀態改用單一函式判斷，優先序改為 fix18-10-hotfix30-B5-R6：今日臨時休息 > Business Calendar > 固定公休
     const todayClosedStatus = getDateClosedStatus(db, storeId, todayStr);
@@ -783,6 +792,41 @@ router.get('/shop', (req, res) => {
     }
     settings.takeout_next_dates  = nextAvailableDates(takeoutMode, 'takeout', 3);
     settings.delivery_next_dates = nextAvailableDates(deliveryMode, 'delivery', 3);
+
+    // ── H1.4.11.1（需求文件二）：下一次服務日期／開始時間（純資訊顯示用）──
+    // 與 nextAvailableDates()／takeout_next_dates 是兩個不同概念：nextAvailableDates()
+    // 回答「現在能不能預訂到這個日期」（會受 allowNextDay／preorder 限制影響），這裡的
+    // findNextServiceInfo() 只回答「這個模式下一次真正營業是哪一天幾點」，與能不能預訂
+    // 無關（需求文件二第四、五點）——即使店家沒開放預訂明日，圖塊仍要能顯示「明日/週一
+    // 16:00 開始接單」這個單純資訊。完全沿用既有 getDateClosedStatus()／
+    // getEffectiveModeSchedule()（含 Business Calendar／每週營業時間／今日覆寫優先序），
+    // 不新增第二套時間判斷；只讀資料，不寫回、不影響任何預訂/送單邏輯，不會意外開放
+    // 原本禁止的預訂日期（需求文件二第六點）。
+    // H1.4.11.2（需求文件四）：findNextServiceInfo() 必須代表「validateOrderConditions()
+    // 真正會允許的服務日」的資訊性推估，不能只看週班表 enabled 就回傳——特別是當這個
+    // 服務方式被店家整個關閉（modeSettings.enabled===false，等同
+    // resolveFulfillmentState() 的 reason:'global_disabled'）時，不管未來哪一天的每週
+    // 班表寫什麼，這個服務方式本身就是關閉的，不該再顯示任何「下一次開始接單時間」，
+    // 否則會誤導顧客以為之後還會恢復。這裡用跟 resolveFulfillmentState() 完全相同的
+    // toBooleanFlag(modeSettings.enabled, true) 判斷式，不新增第二套布林判斷規則。
+    function findNextServiceInfo(mode, modeSettingsForMode) {
+      if (!toBooleanFlag(modeSettingsForMode.enabled, true)) return null;
+      const d = new Date(now);
+      d.setDate(d.getDate() + 1); // 「下一次」定義為明天起算，今天本身的情況已由 today_state 表達
+      for (let i = 0; i < 60; i++) { // 60 天上限：純防呆避免異常設定造成無窮迴圈，不是預訂視窗限制
+        const ds = twDateStr(d);
+        const cInfo = getDateClosedStatus(db, storeId, ds);
+        if (!cInfo.closed) {
+          const sched = getEffectiveModeSchedule(db, storeId, mode, ds, modeSettingsForMode);
+          if (sched.enabled && sched.start) return { date: ds, start_time: sched.start };
+        }
+        d.setDate(d.getDate() + 1);
+      }
+      return null; // 後端確實找不到（例如異常設定連續 60 天都休息）→ 前端才可用通用文案
+    }
+    settings.takeout_next_service  = findNextServiceInfo('takeout',  takeoutMode);
+    settings.delivery_next_service = findNextServiceInfo('delivery', deliveryMode);
+
     settings.today_closed_info   = closedInfo;
     settings.today = todayStr;
     settings.now_mins = nowMins;
@@ -909,7 +953,7 @@ router.get('/shop', (req, res) => {
     // fix18-10-hotfix30-B2 第一、六點：非敏感診斷欄位——build_version 供前台確認實際
     // 載入的後端版本（避免正式環境 CDN/快取殘留舊版時，誤以為是邏輯 bug）；store_id
     // 供前台核對「目前頁面使用的 store_id」與「API 實際解析出的 store_id」是否一致。
-    settings.build_version = 'fix18-10-hotfix30-B2';
+    settings.build_version = 'H1.4.11.3';
     settings.store_id = storeId;
     res.json({ success: true, data: settings });
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
@@ -2097,3 +2141,9 @@ module.exports.getEffectiveModeSchedule = getEffectiveModeSchedule;
 // fix18-10-hotfix30-C1-回退：匯出供 scripts/smoke-hotfix30-c1-rollback.js 做純函式回歸測試，
 // 不需要啟動完整伺服器／資料庫即可驗證共同販售時段的讀取優先順序。
 module.exports.getEffectiveProductSaleWindow = getEffectiveProductSaleWindow;
+// H1.4.11：匯出 resolveFulfillmentState()／getEffectiveCutoffMins()，供
+// scripts/smoke-h1-4-11-*.js 直接對 8 種服務狀態組合做純函式測試，不需要另外
+// 起 HTTP server／不需要另寫一套判斷（沿用既有匯出慣例，純新增測試可見性，
+// 不改變函式本身任何行為）。
+module.exports.resolveFulfillmentState = resolveFulfillmentState;
+module.exports.getEffectiveCutoffMins = getEffectiveCutoffMins;

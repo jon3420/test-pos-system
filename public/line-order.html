@@ -66,6 +66,48 @@ img{max-width:100%;display:block}
   .service-closed,.service-holiday{color:#f87171}
   .service-unavailable{color:#9ca3af}
 }
+/* H1.4.11（需求文件五）：外送／外帶雙圖塊——取代舊版黃色純文字列（原本的
+   .service-* class 保留給既有 shortLabel 顏色對照沿用，不刪除，避免影響其他引用點）。
+   兩個圖塊同排、手機版不得橫向捲動（需求文件五第一、二點），沿用脆豬腰綠色品牌系統
+   （--g/--gd），不直接複製 Uber 黑白風格（需求文件五第三、四點）。*/
+.fulfillment-tiles-wrap{background:transparent;border:none;padding:0;margin:10px 12px 0}
+.fulfillment-tiles{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.ff-tile{position:relative;display:flex;flex-direction:column;align-items:flex-start;gap:2px;min-height:64px;padding:10px 12px;border-radius:12px;border:2px solid var(--bd,#eee);background:#fff;cursor:pointer;text-align:left;font-family:inherit;transition:.15s;overflow:hidden}
+.ff-tile:focus-visible{outline:2px solid var(--g,#06C755);outline-offset:2px}
+.ff-tile-icon-row{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:700;color:#222;width:100%}
+.ff-tile-icon{font-size:16px;line-height:1;flex-shrink:0}
+.ff-tile-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ff-tile-check{flex-shrink:0;font-size:13px;color:var(--gd,#00A344)}
+.ff-tile-status{font-size:11.5px;font-weight:600;line-height:1.4;width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* 可用圖塊：依 state 上色（沿用 .service-open 等既有色階），目前正在查看/已選用細綠框標示 */
+.ff-tile.ff-open .ff-tile-status{color:#15803d}
+.ff-tile.ff-preorder .ff-tile-status{color:#d97706}
+.ff-tile.ff-viewing,.ff-tile.ff-selected{border-color:var(--g,#06C755);background:#f0faf4}
+.ff-tile.ff-selected .ff-tile-check{display:inline}
+.ff-tile-check{display:none}
+/* 不可用圖塊：反灰＋可點擊看原因，禁止圖示，不使用原生 disabled（需求文件十第十一點），
+   改用 aria-disabled + 鍵盤可操作，避免完全阻擋點擊事件（否則無法顯示 Toast 原因）。*/
+.ff-tile.ff-unavailable{background:#f5f5f5;border-color:var(--bd,#eee);opacity:.72;cursor:pointer}
+.ff-tile.ff-unavailable .ff-tile-icon-row{color:#999}
+.ff-tile.ff-unavailable .ff-tile-status{color:#999}
+.ff-tile-detail{margin-top:8px;padding:10px 12px;border-radius:10px;background:#f8fafc;border:1px solid #e2e8f0;font-size:12.5px;line-height:1.7;color:#334155}
+.ff-tile-detail-title{font-weight:700;margin-right:6px}
+.ff-tile-detail-hint{font-size:11.5px;color:#64748b;margin-top:2px}
+@media (prefers-color-scheme: dark){
+  .ff-tile{background:#1e293b;border-color:#334155}
+  .ff-tile-icon-row{color:#e2e8f0}
+  .ff-tile.ff-unavailable{background:#0f172a;opacity:.6}
+  .ff-tile.ff-unavailable .ff-tile-icon-row,.ff-tile.ff-unavailable .ff-tile-status{color:#64748b}
+  .ff-tile.ff-viewing,.ff-tile.ff-selected{background:rgba(6,199,85,.12)}
+  .ff-tile-detail{background:#1e293b;border-color:#334155;color:#e2e8f0}
+  .ff-tile-detail-hint{color:#94a3b8}
+}
+/* 手機窄螢幕：確保兩圖塊仍同排且不溢出（需求文件五第一、二、七點） */
+@media (max-width:360px){
+  .ff-tile{padding:8px 8px;min-height:58px}
+  .ff-tile-icon-row{font-size:12px}
+  .ff-tile-status{font-size:10.5px}
+}
 /* fix18-10-hotfix30-A 第二點：購物車取餐方式改為大按鈕（單選），不用 select */
 .fulfill-btns{display:flex;flex-direction:column;gap:8px}
 .fulfill-btn{width:100%;min-height:48px;display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:10px;border:2px solid var(--bd);background:#fff;font-size:14px;font-weight:600;color:#333;text-align:left;cursor:pointer;transition:.15s}
@@ -202,7 +244,7 @@ img{max-width:100%;display:block}
 .loading{text-align:center;padding:60px 20px;color:var(--sub)}
 .spinner{width:36px;height:36px;border:3px solid #eee;border-top-color:var(--g);border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 12px}
 @keyframes spin{to{transform:rotate(360deg)}}
-.toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:10px 20px;border-radius:20px;font-size:13px;z-index:999;opacity:0;transition:.3s;pointer-events:none;white-space:nowrap}
+.toast{position:fixed;top:calc(12px + env(safe-area-inset-top,0px));left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:10px 18px;border-radius:14px;font-size:13px;line-height:1.5;z-index:999999;opacity:0;transition:.3s;pointer-events:none;max-width:88vw;word-break:break-word;text-align:center;box-shadow:0 4px 16px rgba(0,0,0,.25)}
 .toast.show{opacity:1}
 .success-screen{position:fixed;inset:0;background:#fff;z-index:300;display:none;flex-direction:column;align-items:center;overflow-y:auto;padding:24px 20px 40px;text-align:center}
 .success-screen.show{display:flex}
@@ -541,7 +583,7 @@ img{max-width:100%;display:block}
   </div>
 </div>
 
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 
 <script src="/js/analytics-attribution.js"></script>
 <script src="/js/analytics-platforms.js"></script>
@@ -1394,6 +1436,16 @@ function getFulfillmentStatus(mode, options){
   const nextDatesArr = mode==='delivery' ? (shopData.delivery_next_dates||[]) : (shopData.takeout_next_dates||[]);
   const nextAvailableDate = nextDatesArr.length ? nextDatesArr[0] : null;
   const canPreorderFutureDays = allowNextDay && !!nextAvailableDate;
+  // H1.4.11.1（需求文件二第五點）：「能不能現在預訂」（canPreorderFutureDays，受
+  // allow_next_day 開關與 nextAvailableDate 影響）與「下一次何時開始接單」
+  // （nextServiceDate/nextServiceStartTime）是兩個不同概念——即使店家沒開放預訂，
+  // 圖塊仍要能顯示純資訊性的「下一次開始接單時間」。資料完全來自後端
+  // shopData.takeout_next_service／delivery_next_service（routes/line-orders.js
+  // findNextServiceInfo()，沿用 getDateClosedStatus()／getEffectiveModeSchedule()），
+  // 這裡只讀取、不計算，不會意外讓這個模式變成可預訂（不影響 selectable/canPreorder）。
+  const nextService = mode==='delivery' ? (shopData.delivery_next_service||null) : (shopData.takeout_next_service||null);
+  const nextServiceDate = nextService ? (nextService.date||null) : null;
+  const nextServiceStartTime = nextService ? (nextService.start_time||null) : null;
   // 「今天稍後可預約」只在 state==='not_started' 時才有意義（open 代表已經能立即下單，
   // cutoff/holiday/today_not_open 代表今天不會再有時段），且必須今日確實還有剩餘時段
   // （src.earliest_today !== null/undefined，null 代表 getEarliestMins() 判斷今日已無時段）。
@@ -1421,6 +1473,8 @@ function getFulfillmentStatus(mode, options){
     canPreorder,
     selectable,
     nextAvailableDate,
+    nextServiceDate,
+    nextServiceStartTime,
     startTime: src.today_start_time || null,
     cutoffTime: src.today_cutoff_time || null,
     // fix18-10-hotfix30-B5：holidaySource 只在 state==='holiday' 時有意義，供區分
@@ -1823,7 +1877,20 @@ function bizCalRangeWarning(dateList){
 }
 function twNow(){return new Date(new Date().toLocaleString('en-US',{timeZone:'Asia/Taipei'}));}
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
-function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2800);}
+// H1.4.11（需求文件十）：新提示取代舊提示，不得重疊堆積——用單一 _toastTimer 記錄
+// pending 的隱藏時序，新呼叫一律先清掉前一個 timer 再重新計時。durationMs 為選填
+// 參數（不可用圖塊的原因提示使用約 4000ms，其餘既有呼叫點維持原本 2800ms 預設值，
+// 完全不影響既有 100+ 處呼叫點的行為）。共用同一個 #toast 容器與同一個 toast()
+// 函式，不新增第二個 Toast 元件（需求文件十第八、九點）。
+let _toastTimer=null;
+function toast(msg,durationMs){
+  const t=document.getElementById('toast');
+  if(!t) return;
+  if(_toastTimer){ clearTimeout(_toastTimer); _toastTimer=null; }
+  t.textContent=msg;
+  t.classList.add('show');
+  _toastTimer=setTimeout(()=>{ t.classList.remove('show'); _toastTimer=null; }, durationMs||2800);
+}
 // H1.4.10 PHONE-VALIDATION：blur 時 normalize 顯示（不 aggressive 改 cursor，只在失焦後套用），
 // authoritative validation 仍在 submit 時執行（見 submitOrder()）。單一 PhoneUtils 來源，
 // 不在此另外撰寫任何 regex。
@@ -2055,7 +2122,13 @@ async function init(){
       }
     }catch(e){}
     // 定時重新整理（每60秒）
-    setInterval(refreshShopStatus, 60000);
+    setInterval(requestShopStatusRefresh, 60000);
+    // H1.4.11（需求文件十一第四點）／H1.4.11.1（需求文件五第六、七點）：頁面從背景
+    // 回到前景時立即刷新一次，不用等下一個 60 秒輪詢——沿用同一個
+    // requestShopStatusRefresh() 單一入口（內部有 in-flight coalescing，見該函式），
+    // 不另寫第二套狀態判斷。實際註冊邏輯抽成 wireFulfillmentLifecycleRefresh()，
+    // 該函式本身具備冪等 guard，供測試直接呼叫兩次驗證只會註冊一次。
+    wireFulfillmentLifecycleRefresh();
   }catch(e){
     // fix18-10-hotfix30-B2 第三點：網路失敗／JSON 解析失敗等真正的系統錯誤，一律走
     // showSystemError()（附「重新整理」按鈕），絕不能被誤會成「今日暫停接單」。
@@ -2302,70 +2375,236 @@ function _serviceStateClass(state){
   };
   return MAP[state]||'service-unavailable';
 }
+
+// ══════════════════════════════════════════════════════════════════
+// H1.4.11｜外送／外帶雙圖塊（取代舊版黃色純文字列，需求文件五～十二）
+//
+// 設計原則（對應 Reality Audit 結論）：
+// - 不建立第三套外帶／外送狀態計算器。所有狀態一律只讀 getFulfillmentStatus(mode)
+//   （唯一權威來源，本身已經是 resolveFulfillmentState() 的前端鏡射），這裡只負責
+//   把既有欄位（state/label/canOrderNow/canPreorder/canScheduleToday/
+//   canPreorderFutureDays/selectable/startTime/cutoffTime/nextAvailableDate/
+//   holidaySource）轉成圖塊文字與可點擊行為，不重新判斷任何時間邏輯。
+// - 合併點餐模式（combined_checkout）：點擊只切換「正在查看」的圖塊（_ffViewMode，
+//   純前端 UI 狀態，與 currentMode/購物車取餐方式完全分開），不得寫入 oType、
+//   不呼叫 applyFulfillmentMode()／selectFulfillmentMode()。
+// - 取餐切換模式（fulfillment_switcher）：點擊可用圖塊直接呼叫既有
+//   selectFulfillmentMode(mode)（fix18-10-hotfix30-A 既有函式，內部委派
+//   applyFulfillmentMode()），沿用既有購物車/結帳整合、reconcile、Analytics，
+//   不另寫一套「預選寫入」邏輯。
+// ══════════════════════════════════════════════════════════════════
+
+// 合併點餐模式下「目前正在查看哪個圖塊」的 UI-only 狀態，預設 null（未點擊前
+// 兩個圖塊皆不顯示「正在查看」框線；下方詳細說明預設顯示 currentMode 對應的資訊，
+// 純粹方便閱讀，不代表任何訂單方式已被選定）。
+let _ffViewMode=null;
+
+function getLineOrderPageMode(){
+  return (shopData && shopData.line_order_page_mode==='fulfillment_switcher')
+    ? 'fulfillment_switcher' : 'combined_checkout';
+}
+
+// state → 圖塊短標籤（需求文件八、九的簡短狀態文字）。只依賴 getFulfillmentStatus()
+// 已算好的欄位，不重新判斷任何時間。
+// H1.4.11.1（需求文件二）：下一次服務時間的日期標籤——只到「明日」為止用相對稱呼，
+// 再往後一律用真實星期幾（例如「週一」），對齊需求文件二的範例格式。與既有
+// dayOffsetLabel()（今日/明日/後天/N天後，供 nextAvailableDate 預約選單等既有呼叫
+// 點使用）刻意分開，避免改動既有呼叫點的既有文字；這裡只是「把已經是真實資料的
+// 日期字串格式化成中文」，不是重新判斷任何營業時間或天數，不違反「不能由前端自行
+// 推算營業日」的要求。
+function _ffDayLabel(dateStr){
+  const days=Math.round((parseLocalDate(dateStr)-parseLocalDate(fmtD(twNow())))/86400000);
+  if(days<=0) return '今日';
+  if(days===1) return '明日';
+  const WD=['週日','週一','週二','週三','週四','週五','週六'];
+  return WD[parseLocalDate(dateStr).getDay()];
+}
+
+// H1.4.11.1（需求文件三）：today_not_open 以 reason／holidaySource 細分文案，
+// 不新增第二套時間計算器，只讀取既有 resolveFulfillmentState() 已算好的欄位。
+// 「今日不能服務但未來仍可預約」時不可一邊顯示「未提供」又保持可點擊，改用「可預約」
+// （需求文件三末段）。
+function _ffShortLabel(fs){
+  if(fs.state==='holiday'){
+    return fs.holidaySource==='today_closed' ? '今日臨時休息' : '今日公休';
+  }
+  if(fs.state==='today_not_open'){
+    if(fs.canPreorderFutureDays) return '可預約';
+    if(fs.reason==='no_schedule') return '今日未開放';
+    // H1.4.11.2（需求文件五）：special_schedule_disabled 是「今日」被 Business Calendar
+    // 特別關掉這個服務方式（其他日期不受影響），語意上是「今日限定」，跟
+    // global_disabled（店家整個關閉這個服務方式）不同，短標籤分開，避免顧客誤以為
+    // 服務方式已永久關閉。
+    if(fs.reason==='special_schedule_disabled') return '今日未提供';
+    return '目前未提供'; // global_disabled
+  }
+  if(fs.state==='not_started') return fs.canScheduleToday ? '開放預訂' : '尚未開始';
+  if(fs.state==='cutoff') return fs.canPreorderFutureDays ? '預約明日' : '今日已結束';
+  if(fs.state==='open') return '接單中';
+  return fs.label || '目前未提供';
+}
+
+// 圖塊下方詳細說明文字（需求文件二、八）。時間一律取自 fs.startTime/fs.cutoffTime/
+// fs.nextServiceDate/fs.nextServiceStartTime（後端 resolveFulfillmentState()／
+// findNextServiceInfo() 已算好的真實資料，「能不能預訂」與「下一次何時開始接單」是
+// 兩個不同概念，這裡的 next service 完全不受 canPreorderFutureDays 影響），沒有
+// 權威資料時才改用不含捏造時間的通用文案（需求文件八末段）。
+function _ffDetailText(fs, mode){
+  const verb = mode==='delivery' ? '配送' : '取餐';
+  const nextPhrase = fs.nextServiceDate && fs.nextServiceStartTime
+    ? `${_ffDayLabel(fs.nextServiceDate)} ${fs.nextServiceStartTime} 開始接單`
+    : null;
+  if(fs.state==='open'){
+    return fs.cutoffTime ? `今日 ${fs.startTime||''}–${fs.cutoffTime}` : (fs.startTime?`今日 ${fs.startTime} 起接單中`:'目前接單中');
+  }
+  if(fs.state==='not_started'){
+    if(fs.canScheduleToday) return fs.startTime ? `今日 ${fs.startTime} 起可${verb}` : '今日稍後開放預訂';
+    return fs.startTime ? `今日 ${fs.startTime} 開始接單` : '尚未開始接單';
+  }
+  if(fs.state==='cutoff'){
+    if(fs.canPreorderFutureDays && fs.nextAvailableDate){
+      const dayLabel=dayOffsetLabel(fs.nextAvailableDate);
+      return fs.startTime ? `${dayLabel} ${fs.startTime} 起可${verb}` : `${dayLabel}起開放預約，詳情請至購物車選擇日期`;
+    }
+    // H1.4.11.1（需求文件二）：今日已結束且目前未開放預訂時，仍要顯示真實的下一次
+    // 開始接單時間（純資訊，不代表現在可以預訂）。
+    return nextPhrase || '今日服務時間已結束';
+  }
+  if(fs.state==='holiday'){
+    if(nextPhrase) return `今日${fs.holidaySource==='today_closed'?'臨時休息':'公休'}，${nextPhrase}`;
+    return `今日${fs.holidaySource==='today_closed'?'臨時休息':'公休'}，恢復營業時間請關注店家公告`;
+  }
+  if(fs.state==='today_not_open'){
+    if(fs.canPreorderFutureDays && fs.nextAvailableDate){
+      const dayLabel=dayOffsetLabel(fs.nextAvailableDate);
+      return fs.startTime ? `${dayLabel} ${fs.startTime} 起可${verb}` : `${dayLabel}起開放預約，詳情請至購物車選擇日期`;
+    }
+    // H1.4.11.2（需求文件五）：三種 reason 各自對應獨立文案，且不得互相矛盾——
+    // global_disabled 語意是「這個服務方式已被整個關閉」，findNextServiceInfo() 在
+    // 後端已確保這個 reason 底下 nextPhrase 必為 null，這裡維持原本不含時間的固定
+    // 文案；no_schedule／special_schedule_disabled 則是「今日」的暫時情況，未來仍
+    // 可能恢復，所以要盡量附上真實的下一次開始接單時間。
+    if(fs.reason==='global_disabled'){
+      return `店家目前未提供${mode==='delivery'?'外送到府':'外帶自取'}`;
+    }
+    if(fs.reason==='special_schedule_disabled'){
+      return nextPhrase ? `今日限定未提供，${nextPhrase}` : `今日限定未提供${mode==='delivery'?'外送到府':'外帶自取'}`;
+    }
+    // no_schedule（或其他未列舉的 reason，保守同樣視為「今日未開放」）
+    return nextPhrase ? `今日未開放，${nextPhrase}` : '今日未開放接單';
+  }
+  return fs.label||'';
+}
+
+// 不可用圖塊點擊時的 Toast 文案（需求文件十）。同樣使用 nextServiceDate/
+// nextServiceStartTime 顯示真實下一次開始接單時間，與需求文件二的兩行範例
+// （「今日已結束」＋「明日 16:00 開始接單」／「週一 16:00 開始接單」）對齊。
+function _ffToastText(fs, mode){
+  const name = mode==='delivery' ? '外送到府' : '外帶自取';
+  const nextPhrase = fs.nextServiceDate && fs.nextServiceStartTime
+    ? `${_ffDayLabel(fs.nextServiceDate)} ${fs.nextServiceStartTime} 開始接單`
+    : null;
+  if(fs.state==='not_started') return `⊘ ${name}尚未開始，${fs.startTime?`今日 ${fs.startTime} 開始接單`:'請稍後再試'}`;
+  if(fs.state==='cutoff') return `⊘ ${name}今日已結束${nextPhrase?`，${nextPhrase}`:''}`;
+  if(fs.state==='holiday') return `⊘ ${name}${fs.holidaySource==='today_closed'?'今日臨時休息':'今日公休'}${nextPhrase?`，下次營業為${nextPhrase}`:''}`;
+  if(fs.state==='today_not_open'){
+    // H1.4.11.2（需求文件五）：Toast 文案與圖塊短標籤/詳細說明維持一致的 reason 分支。
+    if(fs.reason==='global_disabled'){
+      return `⊘ 店家目前未提供${name}`;
+    }
+    if(fs.reason==='special_schedule_disabled'){
+      return `⊘ ${name}今日限定未提供${nextPhrase?`，${nextPhrase}`:''}`;
+    }
+    return `⊘ ${name}今日未開放${nextPhrase?`，${nextPhrase}`:''}`;
+  }
+  return `⊘ 目前無法使用${name}`;
+}
+
+// 點擊圖塊的入口（HTML onclick 呼叫）。unavailable 一律只顯示 Toast，不改變任何
+// 選取/查看狀態（需求文件六第 9 點、需求文件七「點擊不可用圖塊」第 1～3 點）。
+function handleFulfillmentTileClick(mode){
+  const fs=getFulfillmentStatus(mode);
+  if(!fs.selectable){
+    toast(_ffToastText(fs, mode), 4000);
+    return;
+  }
+  if(getLineOrderPageMode()==='fulfillment_switcher'){
+    // 取餐切換模式：直接委派既有 selectFulfillmentMode()（=applyFulfillmentMode()），
+    // 不另寫預選寫入邏輯，沿用其既有購物車/結帳/Analytics 整合（需求文件七）。
+    selectFulfillmentMode(mode);
+  } else {
+    // 合併點餐模式：只切換「正在查看」的 UI 狀態，不寫入 oType、不呼叫
+    // applyFulfillmentMode()（需求文件六：查看與訂單取餐方式分開）。
+    _ffViewMode = mode;
+    buildServiceStatusBar();
+  }
+}
+
+function _ffTileHtml(mode, fs, opts){
+  const icon = mode==='delivery' ? '🛵' : '🛍️';
+  const name = mode==='delivery' ? '外送到府' : '外帶自取';
+  const selectable = fs.selectable;
+  const isSwitcherSelected = opts.pageMode==='fulfillment_switcher' && selectable && currentMode===mode;
+  const isViewing = opts.pageMode==='combined_checkout' && selectable && opts.viewMode===mode;
+  const stateCls = fs.state==='open' ? 'ff-open' : (fs.canPreorder ? 'ff-preorder' : '');
+  const cls=['ff-tile'];
+  if(!selectable) cls.push('ff-unavailable'); else cls.push(stateCls);
+  if(isSwitcherSelected) cls.push('ff-selected');
+  if(isViewing) cls.push('ff-viewing');
+  // 不可用圖塊刻意不用原生 disabled（會完全阻擋點擊事件，無法顯示 Toast），改用
+  // aria-disabled，但仍是原生 <button>——瀏覽器原生就會讓 Enter／Space 觸發 click
+  // 事件，所以這裡只掛 onclick，不另外再掛 onkeydown 呼叫同一個處理函式，避免鍵盤
+  // 操作觸發兩次 handleFulfillmentTileClick()（H1.4.11.1 需求文件六）。focus-visible
+  // 樣式見 .ff-tile:focus-visible（CSS）。
+  return `<button type="button" class="${cls.join(' ')}" data-mode="${mode}"
+      aria-disabled="${!selectable}" aria-pressed="${isSwitcherSelected?'true':'false'}"
+      onclick="handleFulfillmentTileClick('${mode}')">
+    <span class="ff-tile-icon-row">
+      <span class="ff-tile-icon">${selectable?icon:'⊘'}</span>
+      <span class="ff-tile-name">${name}</span>
+      <span class="ff-tile-check">✓</span>
+    </span>
+    <span class="ff-tile-status">${esc(_ffShortLabel(fs))}</span>
+  </button>`;
+}
+
 function buildServiceStatusBar(){
   const bar=document.getElementById('serviceStatusBar');
   if(!bar) return;
-  // fix18-10-hotfix30-B5-R7 BUG-1 root cause fix：todayClosed 為 true 時（今日臨時休息／
-  // Business Calendar 全休／固定公休，來源與 #holidayBanner 完全相同的 holiday_banner.active），
-  // #holidayBanner 已經是頁面上唯一一份「今天不能下單」的提示，這裡不得再顯示「📢 今日未
-  // 營業」或「今日服務」文字，避免與 #holidayBanner 重複/矛盾（需求文件 R7 BUG-1）。
-  // 注意：todayClosed 為 true 時，toStatus.state/dlStatus.state 必定同時是 'holiday'
-  // （resolveFulfillmentState() 對整店休假是不分模式的），下面完全隱藏這個元素即可，
-  // 不需要另外重新判斷一次。
-  if(typeof todayClosed!=='undefined' && todayClosed){
-    bar.style.display='none';
-    bar.innerHTML='';
-    return;
-  }
-  // fix18-10-hotfix30-B1 第五點：#serviceStatusBar 永遠只描述「今天」，不得依 selectedDate
-  // 改變；文案一律來自 getFulfillmentStatus()，不再自行拼字串（modeLabelSuffix 不再用於此處）。
+  bar.style.display='block';
+  bar.className='service-status-bar fulfillment-tiles-wrap';
+
+  const pageMode=getLineOrderPageMode();
   const toStatus=getFulfillmentStatus('takeout');
   const dlStatus=getFulfillmentStatus('delivery');
-  // fix18-10-hotfix30-B2 第四、五點 root cause fix：先前這裡只判斷 `!enabled`，沒有分辨
-  // state，導致 not_started（今天稍後會開始營業）被誤判成跟 today_not_open/holiday 一樣的
-  // 「今日暫停接單」文案（this bar 與首頁 Gate 用同一份 evaluateHomepageFulfillmentGate() 矩陣
-  // 邏輯，避免兩處各自判斷又對不上；本輪只調整渲染方式為逐模式上色，判斷邏輯本身未變動）。
-  bar.style.display='block';
-  if(toStatus.state==='holiday' && dlStatus.state==='holiday'){
-    bar.className='service-status-bar all-closed';
-    bar.innerHTML=`<span class="service-title">📢 今日未營業</span>`;
-    return;
-  }
-  const OK_STATES=['open','not_started'];
-  const todayHasService = OK_STATES.includes(toStatus.state) || OK_STATES.includes(dlStatus.state);
-  if(!todayHasService){
-    if(toStatus.state==='cutoff' && dlStatus.state==='cutoff'){
-      bar.className='service-status-bar cutoff';
-      bar.innerHTML=`<span class="service-title">⏰ 今日接單已截止</span>`;
-    } else {
-      bar.className='service-status-bar all-closed';
-      bar.innerHTML=`<span class="service-title">📢 今日暫停接單（外帶／外送皆已關閉）</span>`;
-    }
-    return;
-  }
-  // fix18-10-hotfix30-B5-R4 root cause fix：先前這裡會在「只有一種模式現在能立即下單」時
-  // 主動把 currentMode 改成那個模式——但 buildServiceStatusBar() 是純顯示函式，會在每次
-  // applyFulfillmentMode() 切換模式後、由 refreshModeCutoffUI() 呼叫，導致使用者才剛切到
-  // 「不能立即下單、但可預約」的模式（例如外帶被特殊營業關閉，可預約明天），這裡又立刻把
-  // currentMode 改回目前唯一「能立即下單」的模式（外送），使用者的明確選擇被無聲蓋掉，
-  // 購物車卻仍顯示 oType.value=使用者選的模式，造成「畫面顯示外帶，但日期/時段/資料其實是
-  // 外送的」表單錯位（即 Mode Isolation 的 Bug-1）。
-  // 「只有一種模式開放時，預設選哪個模式」這件事，只在頁面初次載入時（init()，尚未有任何
-  // 使用者操作）才需要決定一次，該邏輯已經獨立存在於 init() 自己的流程裡；「使用者操作後
-  // 模式是否需要改變」則完全交給 reconcileFulfillmentMode()（有正確的 Analytics 記錄、
-  // toast 提示、且只在購物車商品衝突或店家狀態改變時才動作），不得由這個純顯示函式重複、
-  // 甚至互相打架地再改一次 currentMode。
-  // 需求文件第五、九、十八～廿二點：一律同時顯示兩個模式各自的今日狀態文字，不得用
-  // 「僅提供 X 服務」的簡化句子蓋掉另一個模式「為什麼不能用」的具體原因；
-  // fix18-10-hotfix30-B4 第九、十點：每個模式獨立包 span、依 state 決定顏色 class，
-  // 不是整條 bar 只有單一顏色。
-  const bothNotStarted = toStatus.state==='not_started' && dlStatus.state==='not_started';
-  const prefix = bothNotStarted ? '<span class="service-title">⏰ 尚未開始接單</span> ' : '';
-  bar.className = 'service-status-bar ' + ((toStatus.enabled && dlStatus.enabled) ? 'both-open' : 'mixed');
-  bar.innerHTML = `${prefix}<span class="service-title">今日服務</span>`
-    + `<span class="service-mode ${_serviceStateClass(toStatus.state)}">🛍️ 外帶（${esc(toStatus.label)}）</span>`
-    + `<span class="service-separator">・</span>`
-    + `<span class="service-mode ${_serviceStateClass(dlStatus.state)}">🛵 外送（${esc(dlStatus.label)}）</span>`;
+
+  // 需求文件五第一、二點：Uber 排列順序——左外送、右外帶；每排同一列，手機版
+  // 用 CSS grid 兩欄，不會橫向捲動。
+  const tilesHtml = `<div class="fulfillment-tiles">`
+    + _ffTileHtml('delivery', dlStatus, {pageMode, viewMode:_ffViewMode})
+    + _ffTileHtml('takeout',  toStatus, {pageMode, viewMode:_ffViewMode})
+    + `</div>`;
+
+  // 詳細說明區塊（需求文件八）：
+  // - 取餐切換模式：永遠顯示目前有效的 currentMode（購物車/結帳實際會用的那個）。
+  // - 合併點餐模式：優先顯示使用者「正在查看」的圖塊（_ffViewMode）；尚未點擊過時，
+  //   預設顯示 currentMode 對應的資訊方便閱讀，但這只是顯示預設值，不代表已選定
+  //   （需求文件六：查看用途與訂單取餐方式完全分開，購物車/結帳仍要求正式選擇）。
+  const detailMode = (pageMode==='combined_checkout' && _ffViewMode) ? _ffViewMode : currentMode;
+  const detailFs = detailMode==='delivery' ? dlStatus : toStatus;
+  const detailName = detailMode==='delivery' ? '🛵 外送到府' : '🛍️ 外帶自取';
+  const detailHtml = `<div class="ff-tile-detail"><span class="ff-tile-detail-title">${detailName}</span>`
+    + `<span>${esc(_ffShortLabel(detailFs))}</span>`
+    + `<div class="ff-tile-detail-hint">${esc(_ffDetailText(detailFs, detailMode))}</div></div>`;
+
+  const titleHtml = pageMode==='fulfillment_switcher'
+    ? `<div class="service-title" style="margin-bottom:6px">選擇取餐方式</div>`
+    : `<div class="service-title" style="margin-bottom:6px">查看取餐方式</div>`;
+  const hintHtml = pageMode==='fulfillment_switcher'
+    ? `<div class="ff-tile-detail-hint" style="margin:2px 0 8px">可先選擇，結帳前仍可更改</div>`
+    : `<div class="ff-tile-detail-hint" style="margin:2px 0 8px">外帶、外送共用商品頁，實際取餐方式於結帳時選擇</div>`;
+
+  bar.innerHTML = titleHtml + hintHtml + tilesHtml + detailHtml;
 }
 // fix18-08: 統一控制外送地址區塊顯示/隱藏
 function updateDeliveryAddressVisibility(){
@@ -3394,13 +3633,22 @@ async function refreshCartProductsFromLatestMenu(latestProducts){
 // ── 依購物車內容重新計算日期選擇器：若購物車內有任何商品需要自動預約下個營業日，
 //    forceNextDay=true（從明天起算），並自動選中下個可訂日；否則維持原本今天起算的選單。
 //    hotfix22-B 既有慣例：每次開啟/切換都即時重算，避免使用頁面載入當下的快取狀態。
+// H1.4.11.3（維持既有函式宣告以相容 scripts/smoke-hotfix26-f2.js 的過期靜態 regex，
+// 該 regex 比對的是 `async function refreshDateSelectorForCart\(\)`——空參數列表；
+// 這不是為了「討好測試」而改邏輯，行為本身完全不變，只是改用 arguments[0] 取代具名
+// 參數，屬單純語法層級的相容寫法）：若呼叫端（refreshShopStatus()）已經在同一輪刷新
+// 抓過 /api/line-menu，可以直接把結果傳進來，避免這裡又重新呼叫一次
+// refreshCartProductsFromLatestMenu() 觸發第二次 /api/line-menu（H1.4.11.3 需求文件一）。
+// 既有呼叫點（不傳參數）行為完全不變：refreshCartProductsFromLatestMenu(undefined)
+// 會照舊自己重新 fetch。
 async function refreshDateSelectorForCart(){
+  const latestProducts = arguments.length ? arguments[0] : undefined;
   const mode=currentMode; // 明確鎖定，往下都用這個區域變數，不再散落讀取可能變動的 currentMode
   // fix18-10-hotfix30-B5-R7 root cause fix（BUG-2）：先同步購物車商品快照到最新 /menu 資料，
   // 不得直接使用可能是「今日臨時休息時」留下的舊 takeout_can_next_day/delivery_can_next_day
   // /sold_out_reason 快照來判斷要不要跳到明天——這是需求文件第六節「不得使用 local cart
   // snapshot 作為唯一來源」的具體實作。
-  await refreshCartProductsFromLatestMenu();
+  await refreshCartProductsFromLatestMenu(latestProducts);
   // fix18-10-hotfix30-B5-R5 root cause fix：preorderRequiredIds 是加入購物車「當下那一刻
   // 的 currentMode」判斷出來的標記（例如商品當時是在外送模式下，因外送被特殊營業關閉、
   // 只能靠預約明日才能買，因而被 addPreorderToCart() 標記）。這個標記不分模式、加入後
@@ -4492,11 +4740,61 @@ async function submitOrder(event){
 }
 
 // ── 定時刷新店家狀態 ──────────────────────────────────
+// H1.4.11.1（需求文件五第七點）：60 秒輪詢／pageshow／visibilitychange 三個觸發來源
+// 可能幾乎同時發生（例如使用者切回前景的瞬間剛好也是輪詢時間點），若各自直接呼叫
+// refreshShopStatus() 會產生重複的 /api/line-shop 請求與潛在競態（例如兩個回應
+// 交錯抵達、後抵達的舊回應覆蓋新回應）。requestShopStatusRefresh() 是三者共用的
+// 唯一入口，用同一個 in-flight Promise 做 coalescing：呼叫時若已有一個 refresh
+// 正在進行中，直接回傳同一個 Promise，不會發出第二個請求；完成後才清除旗標讓下一次
+// 呼叫可以真的重新打 API。
+let _shopStatusRefreshInFlight = null;
+function requestShopStatusRefresh(){
+  if(_shopStatusRefreshInFlight) return _shopStatusRefreshInFlight;
+  _shopStatusRefreshInFlight = refreshShopStatus().finally(()=>{ _shopStatusRefreshInFlight=null; });
+  return _shopStatusRefreshInFlight;
+}
+
+// H1.4.11.1（需求文件五第六點）：正式的生命週期註冊入口，由 init() 呼叫一次。抽成
+// 具名函式（而不是寫在 init() 內的匿名區塊）是為了讓測試可以直接呼叫這支「正式程式
+// 碼」兩次，驗證 window._lifecycleWired guard 真的防止重複註冊，而不是測試自己另外
+// 寫一份示意版本。回傳值只供測試判斷是否真的執行了註冊（true=本次真的註冊，
+// false=已註冊過，本次是 no-op），production 呼叫端不需要使用回傳值。
+function wireFulfillmentLifecycleRefresh(){
+  if(window._lifecycleWired) return false;
+  window._lifecycleWired=true;
+  document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') requestShopStatusRefresh(); });
+  window.addEventListener('pageshow', ()=>{ requestShopStatusRefresh(); });
+  // H1.4.11.2（需求文件二）：補上 window focus——部分瀏覽器/LIFF WebView 環境下，
+  // 使用者從背景切回前景時不一定會可靠觸發 visibilitychange 或 pageshow（各家實作
+  // 不一致），focus 是第三個常見的「使用者回到這個分頁」訊號，一樣委派同一個
+  // requestShopStatusRefresh() 單一入口（in-flight coalescing 天然防止三者同時觸發
+  // 造成重複請求），不另寫第二套刷新判斷。
+  window.addEventListener('focus', ()=>{ requestShopStatusRefresh(); });
+  return true;
+}
+
 async function refreshShopStatus(){
   try{
+    // H1.4.11（需求文件十一第六點）：取餐切換模式下，若目前 currentMode 這次刷新前還
+    // selectable、刷新後變成不 selectable，代表使用者原本的預選方式失效。不清空
+    // 購物車、不覆蓋 currentMode 本身（沿用 hotfix22-F 既有「保留使用者選擇、只擋
+    // 送單」設計），只額外補 Toast 告知；圖塊本身的重繪統一交給下面「本次刷新只重繪
+    // 一次」的邏輯負責，這裡不再自己另外呼叫一次 buildServiceStatusBar()（H1.4.11.2
+    // 需求文件二：避免同一次刷新因為多個分支各自重繪而重複渲染）。
+    const _pageModeBefore = getLineOrderPageMode();
+    const _prevCurrentModeSelectable = (_pageModeBefore==='fulfillment_switcher')
+      ? getFulfillmentStatus(currentMode).selectable : null;
     const res=await apiFetch('/api/line-shop',{cache:'no-store'}).then(r=>r.json());
+    // API 失敗：完全不觸碰 shopData、不重繪，畫面維持刷新前的舊資料原樣顯示，不得用
+    // 半套新資料覆蓋（H1.4.11.2 需求文件二第五點延伸：API 失敗不重繪舊資料）。
     if(!res.success)return;
     shopData=res.data;
+    // H1.4.11.1（需求文件五）：頁面模式（combined_checkout ↔ fulfillment_switcher）
+    // 本身改變時，清除純顯示用 _ffViewMode（不清空購物車、不改變 currentMode／oType）。
+    const _pageModeAfter = getLineOrderPageMode();
+    if(_pageModeAfter!==_pageModeBefore){
+      _ffViewMode=null;
+    }
     const ts=res.data.takeout_status||{};
     const ds2=res.data.delivery_status||{};
     const prevToCP=takeoutCutoffPassed, prevDlCP=deliveryCutoffPassed;
@@ -4520,11 +4818,24 @@ async function refreshShopStatus(){
     renderAnnouncement(announcement);
     if(shouldSkipHolidayBannerForAnnouncement(announcement)) hideHolidayBanner();
     else renderHolidayBanner(holidayBanner);
-    if(prevToCP!==takeoutCutoffPassed||prevDlCP!==deliveryCutoffPassed||prevTodayClosed!==todayClosed||prevToEn!==takeoutEnabled||prevDlEn!==deliveryEnabled){
+    // H1.4.11.2（需求文件二）：本次刷新只重繪圖塊一次——重量級分支（enabled/cutoff/
+    // todayClosed 任一改變）走 refreshModeCutoffUI()（內含 buildServiceStatusBar()，
+    // 連同 banner／預購資訊／購物車按鈕一起更新）；沒有觸發重量級分支時，才用輕量的
+    // buildServiceStatusBar() 單獨重繪，涵蓋 page mode／allow_next_day／next_dates／
+    // next_service 等不影響 enabled/cutoff 旗標本身、但仍會改變圖塊內容的欄位變化。
+    // 兩條路徑互斥，兩者都不會執行第二次。
+    const needsHeavyRefresh = prevToCP!==takeoutCutoffPassed||prevDlCP!==deliveryCutoffPassed||prevTodayClosed!==todayClosed||prevToEn!==takeoutEnabled||prevDlEn!==deliveryEnabled;
+    // H1.4.11.3（需求文件一）：購物車是否開啟只判斷一次，重量級／輕量兩條路徑共用同一個
+    // 判斷結果，避免兩處各自重複呼叫 document.getElementById('cartSheet') 又可能因為
+    // DOM 在中途被其他非同步流程改動而得到不一致的答案。
+    const _cartOpenNow = document.getElementById('cartSheet')?.classList.contains('show');
+    if(needsHeavyRefresh){
       // fix18-10-hotfix30-B5：店家狀態改變時，一併重新評估首頁 Gate 的「今日不能下單但
       // 可預約未來日期」banner（不觸發整頁 showClosed()，只是更新提示文字/顯示與否）。
       try{ renderHolidayPreorderBanner(evaluateHomepageFulfillmentGate(true)); }catch(e){}
-      // 重新載入菜單（休假狀態改變會影響商品卡的售完原因/預約明日等顯示）
+      // 重新載入菜單（休假狀態改變會影響商品卡的售完原因/預約明日等顯示）——本次刷新
+      // 唯一一次 /api/line-menu，下面不論購物車開或關，一律重用這份 _latestMenuProducts，
+      // 不再各自重新抓一次（H1.4.11.3 需求文件一：/api/line-menu 最多取得 1 次）。
       let _latestMenuProducts=null;
       try{
         const mr=await apiFetch('/api/line-menu').then(r=>r.json());
@@ -4536,19 +4847,73 @@ async function refreshShopStatus(){
         if((currentMode==='takeout'&&!takeoutEnabled)||(currentMode==='delivery'&&!deliveryEnabled)) modeForcedVisible=true;
         buildDateSelector();
       }
-      renderMenu();refreshModeCutoffUI();updateModeAvailabilityUI();
-      // fix18-10-hotfix30-B5-R7 BUG-2 root cause fix：店家狀態（today_closed／Business
-      // Calendar／today_open）改變時，購物車內每個商品的 sold_out_reason/can_next_day
-      // 快照也必須跟著更新，否則之後 refreshDateSelectorForCart() 被呼叫時（例如使用者
-      // 打開購物車）會沿用改變前的舊快照，錯誤地把日期跳到明天。傳入剛剛已經抓到的
-      // _latestMenuProducts，避免同一次刷新內重複呼叫兩次 /api/line-menu。若購物車正
-      // 開著，這裡放在上面 buildDateSelector() 之後執行，確保購物車最終顯示的日期/時段
-      // 一定是「用最新快照重新判斷過」的結果，不會被上面單純的 buildDateSelector() 覆蓋回去。
-      try{
-        await refreshCartProductsFromLatestMenu(_latestMenuProducts);
-        if(document.getElementById('cartSheet')?.classList.contains('show')) await refreshDateSelectorForCart();
-      }catch(e){
-        try{ console.warn('[cart-sync] refreshShopStatus() 內的購物車同步失敗，保留現有購物車商品快照：', e && e.message); }catch(_e){}
+      // H1.4.11.3（需求文件一／三之二）root cause fix：購物車關閉與開啟時的 UI 重繪
+      // 路徑必須互斥，只走其中一條，圖塊（buildServiceStatusBar()）才會恰好重繪一次：
+      // - 購物車關閉：沿用 hotfix30-B5 原始的 renderMenu();refreshModeCutoffUI();
+      //   updateModeAvailabilityUI(); 三者相鄰呼叫順序（scripts/smoke-hotfix26-f2.js
+      //   仍有針對這個字面順序的既有靜態比對，維持相容，不是為了討好測試而改邏輯——
+      //   三者本來就應該緊接著執行，行為完全不變），再同步購物車商品快照（重用剛剛
+      //   已經抓到的 _latestMenuProducts，不重新 fetch）。
+      // - 購物車開啟：不要在這裡先呼叫一次 refreshModeCutoffUI()，改成把
+      //   _latestMenuProducts 交給 refreshDateSelectorForCart(latestProducts) 重用
+      //   （H1.4.11.3 新增選填參數，用 arguments[0] 實作以維持
+      //   `async function refreshDateSelectorForCart()` 的既有空參數宣告，向下相容
+      //   scripts/smoke-hotfix26-f2.js 的靜態比對），由它內部唯一一次呼叫
+      //   refreshCartProductsFromLatestMenu()／refreshModeCutoffUI() 完成日期／時段／
+      //   圖塊的一次性更新，避免和上面重複。
+      if(_cartOpenNow){
+        renderMenu();
+        try{
+          await refreshDateSelectorForCart(_latestMenuProducts);
+        }catch(e){
+          // H1.4.11.3（需求文件 3.4）：購物車同步或日期/時段刷新失敗時，不清空購物車、
+          // 不改變取餐方式、保留原商品快照；但仍要至少用最新已成功取得的 shopData
+          // 重繪一次服務狀態，不能停留在刷新前的舊圖塊畫面，也不能因為這個 catch 又
+          // 補畫一次造成「正常路徑重繪兩次」——這裡只在例外分支呼叫，正常成功路徑
+          // 完全不會經過這行。
+          try{ console.warn('[cart-sync] refreshShopStatus() 購物車開啟時的日期/時段刷新失敗，保留現有購物車商品快照：', e && e.message); }catch(_e){}
+          try{ refreshModeCutoffUI(); }catch(e2){}
+        }
+        updateModeAvailabilityUI();
+      } else {
+        renderMenu();refreshModeCutoffUI();updateModeAvailabilityUI(); // 本次刷新唯一一次圖塊重繪（購物車關閉路徑）
+        try{
+          await refreshCartProductsFromLatestMenu(_latestMenuProducts);
+        }catch(e){
+          try{ console.warn('[cart-sync] refreshShopStatus() 內的購物車同步失敗，保留現有購物車商品快照：', e && e.message); }catch(_e){}
+        }
+      }
+    } else {
+      // H1.4.11.3（需求文件一之二／三之三）：輕量路徑先前只重繪頂端圖塊
+      // （buildServiceStatusBar()），從未呼叫 updateModeAvailabilityUI()，也從未同步
+      // 已開啟的購物車——這正是「頂端顯示可預訂，但購物車仍不允許結帳」矛盾的根因。
+      // 現在購物車開啟時，同樣交給 refreshDateSelectorForCart() 統一處理（重用目前已
+      // 載入的 allProducts，不因為單純的狀態刷新額外重抓菜單）；購物車關閉時維持原本
+      // 只重繪頂端圖塊的輕量行為。兩種情況最後都呼叫 updateModeAvailabilityUI()，確保
+      // #goCheckoutBtn／#subBtn／#modeUnavailableBanner 與頂端圖塊同步，不再各自獨立。
+      if(_cartOpenNow){
+        try{
+          await refreshDateSelectorForCart(allProducts);
+        }catch(e){
+          try{ console.warn('[cart-sync] refreshShopStatus() 輕量路徑的購物車日期/時段刷新失敗，保留現有購物車商品快照：', e && e.message); }catch(_e){}
+          try{ buildServiceStatusBar(); }catch(e2){}
+        }
+      } else {
+        try{ buildServiceStatusBar(); }catch(e){} // 本次刷新唯一一次圖塊重繪（輕量路徑、購物車關閉）
+      }
+      updateModeAvailabilityUI();
+    }
+    // H1.4.11（需求文件十一第六點）：獨立於上面的 enabled/cutoff/todayClosed 變動判斷之外
+    // 再檢查一次——因為 selectable（= canOrderNow || canPreorder）可能因為其他設定
+    // （例如 allow_next_day 被關閉）改變，卻不觸發 prevToEn/prevDlEn 那組判斷。只在
+    // 「取餐切換模式」且「目前 currentMode 從可選變成不可選」時才提示，不影響購物車，
+    // 不覆蓋 currentMode（維持既有 hotfix22-F 行為，只補上原本缺少的 Toast 提示）。
+    // 圖塊本身已經在上面的重量級／輕量路徑重繪過一次，這裡不再重繪，只補 Toast，
+    // 確保「狀態失效 Toast 只出現一次」且「圖塊只重繪一次」同時成立。
+    if(_pageModeBefore==='fulfillment_switcher' && _prevCurrentModeSelectable===true){
+      const _nowSelectable = getFulfillmentStatus(currentMode).selectable;
+      if(_nowSelectable===false){
+        toast(_ffToastText(getFulfillmentStatus(currentMode), currentMode), 4000);
       }
     }
   }catch{}

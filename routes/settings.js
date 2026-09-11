@@ -12,6 +12,9 @@ const { validateLineMemberReturnUrl } = require('../utils/returnUrlValidator');
 const { resolveSameAsStoreFlag } = require('../utils/pickupLocation');
 const { resolveAddFriendUrl } = require('../utils/lineCheckoutHandoff'); // fix18-10-hotfix29-C：加好友網址單一來源
 const { normalizeDeliveryDistanceFeeRules } = require('../utils/deliveryFeeCalc'); // C3：距離級距滿額免運設定驗證單一來源
+// H1.4.11.1（需求文件四）：line_order_page_mode 合法值只定義這一份，驗證邏輯與
+// router.__test 匯出共用同一個陣列參照，不維護兩份清單。
+const VALID_LINE_ORDER_PAGE_MODES = ['combined_checkout', 'fulfillment_switcher'];
 // fix18-10-hotfix30-B5-R5.2-B2：Geo Map 商家層級聚焦設定——單一 pure function
 // 集合，GET/PATCH /api/settings/geo-map 與 smoke test 共用同一份規則，不得
 // 另建第二套設定框架（需求文件四）。
@@ -86,6 +89,11 @@ const LINE_KEYS = new Set([
   // line_channel_token 沿用既有欄位，不重複造第二組。
   'line_official_name', 'line_official_home_url', 'line_messaging_channel_id',
   'line_checkout_handoff_enabled',
+  // H1.4.11（需求文件四）：LINE 點餐頁模式——'combined_checkout'（合併點餐｜結帳時選擇，
+  // 預設值/向下相容 fallback）或 'fulfillment_switcher'（取餐切換｜商品頁先選擇）。
+  // 放在 settings 既有 key-value 架構內，不新增資料表／不新增第二套設定系統；
+  // 合法值驗證見下方 PUT /api/settings 內的 VALID_LINE_ORDER_PAGE_MODES 檢查。
+  'line_order_page_mode',
 ]);
 
 // fix18-10-hotfix26-F5：上面 LINE_KEYS 內「取餐地點」設定 key 的清單（給 PUT /api/settings
@@ -370,6 +378,24 @@ router.put('/', (req, res) => {
       }
     }
 
+    // ── H1.4.11.1（需求文件四）：LINE 點餐頁模式 enum 驗證，改為嚴格模式 ──────
+    // 沒有送出這個欄位：完全不驗證、不影響其他 key（允許）。
+    // 只要明確送出這個欄位（即使是空字串／空白／null／陣列／物件）：一律要求
+    // trim 後嚴格等於兩個合法 enum 值之一，否則 400，且不得寫入 DB（下面直接
+    // return，不會走到後面的寫入迴圈）。合法值 trim 後正規化寫回 req.body，
+    // 讓下面的「寫入允許的 key」共用同一份寫入邏輯，不重複寫 DB 程式碼。
+    if (Object.prototype.hasOwnProperty.call(req.body, 'line_order_page_mode')) {
+      const raw = req.body.line_order_page_mode;
+      const pageMode = typeof raw === 'string' ? raw.trim() : null;
+      if (!pageMode || !VALID_LINE_ORDER_PAGE_MODES.includes(pageMode)) {
+        return res.status(400).json({
+          success: false,
+          message: `LINE 點餐頁模式必須是 ${VALID_LINE_ORDER_PAGE_MODES.join(' / ')} 其中之一`,
+        });
+      }
+      req.body.line_order_page_mode = pageMode;
+    }
+
     // ── fix18-10-hotfix29-C（需求文件五）：LINE 整合中心正式欄位驗證 ────────
     // 與下面 line_member_add_friend_url 用同一套規則（格式＋拒絕 placeholder），
     // 確保兩個頁面存進資料庫的值都經過同一套檢查，不會一邊寬鬆一邊嚴格。
@@ -622,6 +648,8 @@ router.__test = {
   getCurrentSettingVal,
   // C3
   normalizeDeliveryDistanceFeeRules,
+  // H1.4.11.1
+  VALID_LINE_ORDER_PAGE_MODES,
 };
 
 // fix18-10-hotfix26-F7：讀取單一 settings 目前值（給下面 PATCH 端點的驗證邏輯用，
