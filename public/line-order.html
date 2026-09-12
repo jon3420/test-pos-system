@@ -2802,6 +2802,10 @@ async function applyFulfillmentMode(mode, opts){
   if(fromMode!==mode && mode==='takeout'){ _lastResolvedDeliveryTier = null; }
   const oType=document.getElementById('oType'); if(oType) oType.value=mode;
   restoreModeFormState(mode);
+  // H1.4.11.4（需求文件七）：合法切換取餐方式後，先重建分類（可能有分類因為新模式
+  // 沒有可見商品而需要隱藏／currentCat 需要重設），再重繪商品——兩者都只呼叫一次，
+  // 整合進這條既有的唯一模式切換流程，不在圖塊 click handler 另外建立第二條路徑。
+  buildCats();
   renderMenu();
   refreshModeCutoffUI();
   renderFulfillmentMode(mode);
@@ -3196,16 +3200,58 @@ async function buildTimeSelector(mode=currentMode, dateOverride=null){
 }
 
 // ── 分類 / 菜單 ────────────────────────────────────────
+// H1.4.11.4（需求文件五）：商品是否「永久支援」目前取餐方式——只讀取商品自身的
+// line_takeout_enabled／line_delivery_enabled（商家對這個商品的固定通路設定），
+// 不得混入任何「今天暫時能不能買」的判斷（sold_out/today_open/cutoff_passed/
+// allow_next_day/pre_sale_available/份數/公休等——那些屬於 _productModeStatus()／
+// getFulfillmentStatus() 的職責，本函式完全不重複、不新增第二套判斷）。欄位缺失時
+// 視為啟用（true），沿用既有 toBooleanFlag() 處理 0/1/"0"/"1"/布林值/缺失。
+function isProductSupportedForFulfillmentMode(product, mode){
+  const raw = mode==='delivery' ? product.line_delivery_enabled : product.line_takeout_enabled;
+  return toBooleanFlag(raw, true);
+}
+// H1.4.11.4（需求文件五）：取得「目前頁面模式」應該可見的商品集合，renderMenu() 與
+// buildCats() 共用同一份，不得各寫一套過濾判斷。combined_checkout 維持既有行為
+// （回傳全部商品，任一模式可買即顯示，繼續用既有「僅外帶/僅外送」徽章呈現）；
+// fulfillment_switcher 依目前真正選中的 currentMode 過濾成只顯示永久支援該模式的商品。
+function getVisibleProductsForCurrentPage(){
+  if(getLineOrderPageMode()!=='fulfillment_switcher') return allProducts;
+  return allProducts.filter(p=>isProductSupportedForFulfillmentMode(p, currentMode));
+}
 function buildCats(){
   const bar=document.getElementById('catBar');
-  const cats=[{id:'all',name:'全部',icon:'🍽️'},...categories];
-  bar.innerHTML=cats.map(c=>`<button class="cat-btn${c.id==='all'?' active':''}" data-cat="${c.id}" onclick="selectCat('${c.id}')">${c.icon||''} ${c.name}</button>`).join('');
+  // H1.4.11.4（需求文件六）：fulfillment_switcher 模式下，分類列只顯示「目前模式至少有
+  // 一項可見商品」的分類；「全部」固定保留。若目前 currentCat 已經沒有任何可見商品，
+  // 自動重設為 all（不留下永遠空白的無效分類）；combined_checkout 模式維持既有行為
+  // （顯示全部分類，不受取餐方式影響）。
+  let catsToShow = categories;
+  if(getLineOrderPageMode()==='fulfillment_switcher'){
+    const visibleProducts = getVisibleProductsForCurrentPage();
+    const catIdsWithProducts = new Set(visibleProducts.map(p=>String(p.display_cat_id||0)));
+    catsToShow = categories.filter(c=>catIdsWithProducts.has(String(c.id)));
+    if(currentCat!=='all' && !catIdsWithProducts.has(String(currentCat))){
+      currentCat='all';
+    }
+  }
+  const cats=[{id:'all',name:'全部',icon:'🍽️'},...catsToShow];
+  bar.innerHTML=cats.map(c=>`<button class="cat-btn${String(c.id)===String(currentCat)?' active':''}" data-cat="${c.id}" onclick="selectCat('${c.id}')">${c.icon||''} ${c.name}</button>`).join('');
 }
 function selectCat(id){currentCat=id;document.querySelectorAll('.cat-btn').forEach(b=>b.classList.toggle('active',b.dataset.cat==id));renderMenu();}
 
 function renderMenu(){
   const area=document.getElementById('menuArea');
-  const prods=currentCat==='all'?allProducts:allProducts.filter(p=>String(p.display_cat_id||0)===String(currentCat));
+  // H1.4.11.4（需求文件五、十三）：renderMenu() 與 buildCats() 共用同一份
+  // getVisibleProductsForCurrentPage()，不得各寫一套過濾判斷。fulfillment_switcher
+  // 模式下，若目前選中的取餐方式完全沒有任何永久支援的商品，顯示模式專屬空狀態文案
+  // （不是「系統錯誤/今日售完/今日公休/載入失敗」，因為這純粹是「沒有商品支援這個
+  // 取餐方式」，不是暫時性的營業狀態問題）。
+  const visibleProducts = getVisibleProductsForCurrentPage();
+  if(getLineOrderPageMode()==='fulfillment_switcher' && !visibleProducts.length){
+    const emptyMsg = currentMode==='delivery' ? '目前沒有提供外送到府的商品' : '目前沒有提供外帶自取的商品';
+    area.innerHTML=`<p style="text-align:center;padding:40px;color:#888">${emptyMsg}</p>`;
+    return;
+  }
+  const prods=currentCat==='all'?visibleProducts:visibleProducts.filter(p=>String(p.display_cat_id||0)===String(currentCat));
   if(!prods.length){area.innerHTML='<p style="text-align:center;padding:40px;color:#888">此分類目前沒有商品</p>';return;}
   area.innerHTML=`<div class="grid">${prods.map(p=>buildCard(p)).join('')}</div>`;
   _setupViewProductObserver();
@@ -3397,6 +3443,13 @@ function onProdCardKeydown(evt, id) {
 function openProductDetail(id) {
   const p = allProducts.find(x => x.id == id);
   if (!p) return;
+  // H1.4.11.4（需求文件九）：商品卡隱藏只是顯示層，直接呼叫 openProductDetail() 仍須
+  // 擋下——fulfillment_switcher 模式下商品不永久支援目前 currentMode 時，不得正常開啟
+  // 詳情（不自動改用另一模式，不使用 _representativeMode()），只顯示簡短 Toast。
+  if (getLineOrderPageMode()==='fulfillment_switcher' && !isProductSupportedForFulfillmentMode(p, currentMode)) {
+    toast(currentMode==='delivery' ? '此商品僅提供外帶' : '此商品僅提供外送');
+    return;
+  }
   const name = p.effective_line_name || p.line_name || p.name;
   const price = Number(p.effective_line_price || p.price) || 0;
   const image = p.line_image_url || p.image || '';
@@ -3457,6 +3510,15 @@ function _trackViewItem(p, name, price) {
 // ── 購物車操作 ─────────────────────────────────────────
 function addCart(id,evt){
   const p=allProducts.find(x=>x.id==id);if(!p)return;
+  // H1.4.11.4（需求文件九）：fulfillment_switcher 模式下，商品卡隱藏只是顯示層，仍要
+  // 防止舊 DOM／直接函式呼叫／競態繞過——若商品不永久支援目前 currentMode，一律拒絕
+  // 加入購物車，不自動改用另一模式（不使用 _representativeMode()），用既有 toast()
+  // 顯示簡短原因，不使用 alert()。combined_checkout 模式完全不受影響（任一模式可買
+  // 即可加入，交由結帳時處理模式交集，維持既有規則）。
+  if(getLineOrderPageMode()==='fulfillment_switcher' && !isProductSupportedForFulfillmentMode(p, currentMode)){
+    toast(currentMode==='delivery' ? '此商品僅提供外帶' : '此商品僅提供外送');
+    return;
+  }
   // fix18-10-hotfix30-A：不再要求顧客先選外帶/外送才能加入購物車。
   // 只要「任一模式」可買，就用該模式的規則放行；currentMode 本身不可用時，
   // 改用另一個可用模式的判斷依據（並在加入後由 reconcileFulfillmentMode() 決定
@@ -4891,6 +4953,18 @@ async function refreshShopStatus(){
       // 載入的 allProducts，不因為單純的狀態刷新額外重抓菜單）；購物車關閉時維持原本
       // 只重繪頂端圖塊的輕量行為。兩種情況最後都呼叫 updateModeAvailabilityUI()，確保
       // #goCheckoutBtn／#subBtn／#modeUnavailableBanner 與頂端圖塊同步，不再各自獨立。
+      const _pageModeChangedLight = _pageModeAfter!==_pageModeBefore;
+      if(_pageModeChangedLight){
+        // H1.4.11.4（需求文件二）：後台只把 line_order_page_mode 改變（其餘 enabled/
+        // cutoff/todayClosed 都不變）時仍會走輕量路徑，但商品可見性
+        // （getVisibleProductsForCurrentPage()）與分類（buildCats()）是依頁面模式篩選，
+        // 不會被上面任何既有的輕量重繪覆蓋到——必須在這裡補上恰好一次的
+        // buildCats()／renderMenu()。重用目前已載入的 allProducts，不重新 fetch
+        // /api/line-menu（不論購物車是否開啟都需要，因為商品格與購物車內的日期/時段
+        // UI 是不同的 DOM 區塊，互不影響、不會重複重繪彼此）。
+        buildCats();
+        renderMenu();
+      }
       if(_cartOpenNow){
         try{
           await refreshDateSelectorForCart(allProducts);
