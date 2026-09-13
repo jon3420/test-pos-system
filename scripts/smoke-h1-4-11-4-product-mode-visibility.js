@@ -143,9 +143,18 @@ async function main() {
     // 1～9：getVisibleProductsForCurrentPage() / renderMenu() 真值表
     // ══════════════════════════════════════════════════════════════
     {
+      // H1.4.11.4.1 修正過期預期：H1.4.11.4 原本把這項預期為「回傳全部商品（含 ID 4
+      // 皆停用商品）」，但這與 H1.4.11.4 changelog 真值表本身寫的「外帶、外送皆停用時
+      // 合併模式隱藏」互相矛盾——真正原因是 H1.4.11.4 的 getVisibleProductsForCurrentPage()
+      // 在 combined_checkout 分支直接 return allProducts，從未排除皆停用商品，程式與
+      // 文件、測試三者不一致。這不是為了迎合 production 而降低測試強度，而是依 H1.4.11.4.1
+      // 需求文件三的最終真值表（皆停用 → 合併模式也隱藏）修正這一項過期預期：期望值改為
+      // PRODUCTS_FIXTURE 扣除 ID 4，其餘商品（1,2,3,5,6,7,8,9,10,11）維持不變、全部保留。
       setupPage('combined_checkout', 'takeout');
       const visibleIds = ev(`getVisibleProductsForCurrentPage().map(p=>p.id)`);
-      assert(JSON.stringify(visibleIds.sort()) === JSON.stringify(PRODUCTS_FIXTURE.map(p=>p.id).sort()), '1 combined_checkout：getVisibleProductsForCurrentPage() 回傳全部商品（不論支援哪個模式）', JSON.stringify(visibleIds));
+      const expectedIds = PRODUCTS_FIXTURE.map(p=>p.id).filter(id=>id!==4);
+      assert(JSON.stringify(visibleIds.sort((a,b)=>a-b)) === JSON.stringify(expectedIds.sort((a,b)=>a-b)), '1 combined_checkout：getVisibleProductsForCurrentPage() 回傳除「兩者皆停用」商品(4)外的所有商品（H1.4.11.4.1 修正：皆停用商品合併模式也必須隱藏）', JSON.stringify(visibleIds));
+      assert(!visibleIds.includes(4), '1b combined_checkout：兩者皆停用商品(4)不得出現在合併模式可見清單', JSON.stringify(visibleIds));
     }
     {
       // 2：合併模式點擊 _ffViewMode 不會過濾商品——直接呼叫 handleFulfillmentTileClick()

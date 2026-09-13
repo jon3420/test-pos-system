@@ -953,7 +953,7 @@ router.get('/shop', (req, res) => {
     // fix18-10-hotfix30-B2 第一、六點：非敏感診斷欄位——build_version 供前台確認實際
     // 載入的後端版本（避免正式環境 CDN/快取殘留舊版時，誤以為是邏輯 bug）；store_id
     // 供前台核對「目前頁面使用的 store_id」與「API 實際解析出的 store_id」是否一致。
-    settings.build_version = 'H1.4.11.4';
+    settings.build_version = 'H1.4.11.4.1';
     settings.store_id = storeId;
     res.json({ success: true, data: settings });
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }

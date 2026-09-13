@@ -513,10 +513,32 @@ async function main() {
   printSummary();
 }
 
+// H1.4.11.4.1 續作：修正測試本身的日期相依問題——production 的 _ffDayLabel() 是以
+// fmtD(twNow())（Asia/Taipei 當地日期）作為「今天」基準，不是 host local date。
+// 舊版 _futureDateStr() 用 `new Date(); d.setDate(...)` 依賴 host local timezone，
+// 當測試主機仍是 UTC 前一天、但台北已經跨到下一天時，「兩天後」在 production 眼中
+// 會變成「明日」，造成 D2c 誤判。改用與 production 相同的台北日期基準
+// （taipeiTodayStr，以 Intl.DateTimeFormat 明確指定 timeZone，不依賴 host 時區）
+// 搭配純 UTC 曆法加減日期（addDaysToDateStr，用 Date.UTC() 做日期運算，避開任何
+// local timezone 的 DST／日界線問題），確保在任何 host 時區下都與 production 認定
+// 的「今天」一致。
+function taipeiTodayStr() {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(new Date());
+  const y = parts.find((p) => p.type === 'year').value;
+  const m = parts.find((p) => p.type === 'month').value;
+  const d = parts.find((p) => p.type === 'day').value;
+  return `${y}-${m}-${d}`;
+}
+function addDaysToDateStr(dateStr, daysAhead) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const utcMs = Date.UTC(y, m - 1, d) + daysAhead * 86400000;
+  const dt = new Date(utcMs);
+  return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`;
+}
 function _futureDateStr(daysAhead) {
-  const d = new Date();
-  d.setDate(d.getDate() + daysAhead);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return addDaysToDateStr(taipeiTodayStr(), daysAhead);
 }
 
 main()

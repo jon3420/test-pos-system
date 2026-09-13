@@ -3210,28 +3210,37 @@ function isProductSupportedForFulfillmentMode(product, mode){
   const raw = mode==='delivery' ? product.line_delivery_enabled : product.line_takeout_enabled;
   return toBooleanFlag(raw, true);
 }
-// H1.4.11.4（需求文件五）：取得「目前頁面模式」應該可見的商品集合，renderMenu() 與
-// buildCats() 共用同一份，不得各寫一套過濾判斷。combined_checkout 維持既有行為
-// （回傳全部商品，任一模式可買即顯示，繼續用既有「僅外帶/僅外送」徽章呈現）；
-// fulfillment_switcher 依目前真正選中的 currentMode 過濾成只顯示永久支援該模式的商品。
+// H1.4.11.4.1（需求文件四之一）：商品是否「至少支援一種」取餐方式（外帶或外送任一啟用）。
+// 只依商品永久支援欄位判斷，重用 isProductSupportedForFulfillmentMode()，renderMenu()／
+// buildCats()／addCart()／openProductDetail() 全部共用這一份，不得各自重寫一套布林判斷。
+function isProductSupportedForAnyFulfillmentMode(product){
+  return isProductSupportedForFulfillmentMode(product, 'takeout')
+    || isProductSupportedForFulfillmentMode(product, 'delivery');
+}
+// H1.4.11.4.1（需求文件二、三）：取得「目前頁面模式」應該可見的商品集合，renderMenu() 與
+// buildCats() 共用同一份，不得各寫一套過濾判斷。
+// 不論 combined_checkout 或 fulfillment_switcher，一律先全域排除「外帶、外送皆停用」的
+// 商品（isProductSupportedForAnyFulfillmentMode）——這是 H1.4.11.4 遺留的不一致：舊版
+// combined_checkout 直接回傳 allProducts，會讓兩者皆停用的商品仍出現在合併點餐模式，
+// 與 changelog 真值表（皆停用 → 隱藏）不符。修正後：
+//   combined_checkout    → 排除皆停用商品後，任一模式可買即顯示（僅外帶/僅外送徽章不變）。
+//   fulfillment_switcher → 再依目前真正選中的 currentMode 過濾成只顯示永久支援該模式的商品。
 function getVisibleProductsForCurrentPage(){
-  if(getLineOrderPageMode()!=='fulfillment_switcher') return allProducts;
-  return allProducts.filter(p=>isProductSupportedForFulfillmentMode(p, currentMode));
+  const supportedProducts = allProducts.filter(isProductSupportedForAnyFulfillmentMode);
+  if(getLineOrderPageMode()!=='fulfillment_switcher') return supportedProducts;
+  return supportedProducts.filter(p=>isProductSupportedForFulfillmentMode(p, currentMode));
 }
 function buildCats(){
   const bar=document.getElementById('catBar');
-  // H1.4.11.4（需求文件六）：fulfillment_switcher 模式下，分類列只顯示「目前模式至少有
-  // 一項可見商品」的分類；「全部」固定保留。若目前 currentCat 已經沒有任何可見商品，
-  // 自動重設為 all（不留下永遠空白的無效分類）；combined_checkout 模式維持既有行為
-  // （顯示全部分類，不受取餐方式影響）。
-  let catsToShow = categories;
-  if(getLineOrderPageMode()==='fulfillment_switcher'){
-    const visibleProducts = getVisibleProductsForCurrentPage();
-    const catIdsWithProducts = new Set(visibleProducts.map(p=>String(p.display_cat_id||0)));
-    catsToShow = categories.filter(c=>catIdsWithProducts.has(String(c.id)));
-    if(currentCat!=='all' && !catIdsWithProducts.has(String(currentCat))){
-      currentCat='all';
-    }
+  // H1.4.11.4.1（需求文件五）：兩種頁面模式都只顯示「目前模式至少有一項可見商品」的分類
+  // （getVisibleProductsForCurrentPage() 已經處理好皆停用商品的排除與 switcher 的模式過濾，
+  // 這裡不重複判斷）；「全部」固定保留。若目前 currentCat 已經沒有任何可見商品，自動重設
+  // 為 all（不留下永遠空白的無效分類）。
+  const visibleProducts = getVisibleProductsForCurrentPage();
+  const catIdsWithProducts = new Set(visibleProducts.map(p=>String(p.display_cat_id||0)));
+  const catsToShow = categories.filter(c=>catIdsWithProducts.has(String(c.id)));
+  if(currentCat!=='all' && !catIdsWithProducts.has(String(currentCat))){
+    currentCat='all';
   }
   const cats=[{id:'all',name:'全部',icon:'🍽️'},...catsToShow];
   bar.innerHTML=cats.map(c=>`<button class="cat-btn${String(c.id)===String(currentCat)?' active':''}" data-cat="${c.id}" onclick="selectCat('${c.id}')">${c.icon||''} ${c.name}</button>`).join('');
@@ -3240,14 +3249,16 @@ function selectCat(id){currentCat=id;document.querySelectorAll('.cat-btn').forEa
 
 function renderMenu(){
   const area=document.getElementById('menuArea');
-  // H1.4.11.4（需求文件五、十三）：renderMenu() 與 buildCats() 共用同一份
-  // getVisibleProductsForCurrentPage()，不得各寫一套過濾判斷。fulfillment_switcher
-  // 模式下，若目前選中的取餐方式完全沒有任何永久支援的商品，顯示模式專屬空狀態文案
-  // （不是「系統錯誤/今日售完/今日公休/載入失敗」，因為這純粹是「沒有商品支援這個
-  // 取餐方式」，不是暫時性的營業狀態問題）。
+  // H1.4.11.4.1（需求文件五、十三）：renderMenu() 與 buildCats() 共用同一份
+  // getVisibleProductsForCurrentPage()，不得各寫一套過濾判斷。
   const visibleProducts = getVisibleProductsForCurrentPage();
-  if(getLineOrderPageMode()==='fulfillment_switcher' && !visibleProducts.length){
-    const emptyMsg = currentMode==='delivery' ? '目前沒有提供外送到府的商品' : '目前沒有提供外帶自取的商品';
+  if(!visibleProducts.length){
+    // fulfillment_switcher 模式下，若目前選中的取餐方式完全沒有任何永久支援的商品，
+    // 顯示模式專屬空狀態文案；combined_checkout 模式下，若全店商品都是外帶、外送皆停用，
+    // 顯示明確的「沒有可供 LINE 點餐的商品」空狀態（不是系統錯誤/今日售完/今日公休）。
+    const emptyMsg = getLineOrderPageMode()==='fulfillment_switcher'
+      ? (currentMode==='delivery' ? '目前沒有提供外送到府的商品' : '目前沒有提供外帶自取的商品')
+      : '目前沒有可供 LINE 點餐的商品';
     area.innerHTML=`<p style="text-align:center;padding:40px;color:#888">${emptyMsg}</p>`;
     return;
   }
@@ -3443,6 +3454,13 @@ function onProdCardKeydown(evt, id) {
 function openProductDetail(id) {
   const p = allProducts.find(x => x.id == id);
   if (!p) return;
+  // H1.4.11.4.1（需求文件六）：商品卡隱藏只是顯示層，直接呼叫 openProductDetail() 仍須
+  // 擋下舊 DOM／console／生命週期競態繞過。外帶、外送皆停用的商品優先擋下（不論頁面
+  // 模式），顯示專屬 Toast，不開啟詳情、不觸發 view_item、不自動切換取餐方式。
+  if (!isProductSupportedForAnyFulfillmentMode(p)) {
+    toast('此商品目前未提供外帶或外送');
+    return;
+  }
   // H1.4.11.4（需求文件九）：商品卡隱藏只是顯示層，直接呼叫 openProductDetail() 仍須
   // 擋下——fulfillment_switcher 模式下商品不永久支援目前 currentMode 時，不得正常開啟
   // 詳情（不自動改用另一模式，不使用 _representativeMode()），只顯示簡短 Toast。
@@ -3510,6 +3528,13 @@ function _trackViewItem(p, name, price) {
 // ── 購物車操作 ─────────────────────────────────────────
 function addCart(id,evt){
   const p=allProducts.find(x=>x.id==id);if(!p)return;
+  // H1.4.11.4.1（需求文件六）：商品卡隱藏只是顯示層，仍要防止舊 DOM／直接函式呼叫／
+  // 生命週期競態繞過。外帶、外送皆停用的商品優先擋下（不論頁面模式），不得加入購物車、
+  // 不得修改既有數量、不自動改成外帶或外送，用既有 toast() 顯示專屬原因，不使用 alert()。
+  if(!isProductSupportedForAnyFulfillmentMode(p)){
+    toast('此商品目前未提供外帶或外送');
+    return;
+  }
   // H1.4.11.4（需求文件九）：fulfillment_switcher 模式下，商品卡隱藏只是顯示層，仍要
   // 防止舊 DOM／直接函式呼叫／競態繞過——若商品不永久支援目前 currentMode，一律拒絕
   // 加入購物車，不自動改用另一模式（不使用 _representativeMode()），用既有 toast()

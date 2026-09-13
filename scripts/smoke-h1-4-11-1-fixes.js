@@ -672,9 +672,17 @@ async function runBackendTests() {
       const d = new Date(nextSvc.date + 'T00:00:00');
       assert(d.getDay() === 1, '二-3 takeout_next_service.date 確實是星期一', `date=${nextSvc.date} getDay=${d.getDay()}`);
     }
-    // 外送未特別設定 → 應維持每日預設營業，next service 應該是「明天」而非跟外帶一樣的週一
+    // 外送未特別設定 → 沿用預設全日班表（09:00 開始），與外帶（僅週一 16:00）各自獨立
+    // 使用自己的班表計算 next service。兩者「日期恰好相同」是合法結果（例如外帶下一個
+    // 週一，剛好也是外送下一個有營業的日子），不能拿「日期不同」當作「分開計算」的
+    // 判斷依據；真正能證明兩者沒有互相污染的，是各自的開始時間分別正確反映各自班表
+    // （外帶 16:00、外送 09:00，且外送沒有錯誤繼承外帶的 16:00）。
     const nextSvcDelivery = r.data.delivery_next_service;
-    assert(!!nextSvcDelivery && nextSvcDelivery.date !== (nextSvc && nextSvc.date), '二-4 外帶／外送的 next service 分開計算，外送不受外帶週一限制影響（需求文件二第三點）', JSON.stringify({ takeout: nextSvc, delivery: nextSvcDelivery }));
+    const bothExist = !!nextSvc && !!nextSvc.date && !!nextSvcDelivery && !!nextSvcDelivery.date;
+    const takeoutCorrect = !!nextSvc && nextSvc.start_time === '16:00';
+    const deliveryCorrect = !!nextSvcDelivery && nextSvcDelivery.start_time === '09:00';
+    const deliveryDidNotInheritTakeout = !!nextSvcDelivery && nextSvcDelivery.start_time !== '16:00';
+    assert(bothExist && takeoutCorrect && deliveryCorrect && deliveryDidNotInheritTakeout, '二-4 外帶／外送的 next service 分開使用各自班表與開始時間（外帶 16:00、外送 09:00，外送未繼承外帶的 16:00；日期是否相同不是判斷依據，因為兩者合法地落在同一天是可能的）', JSON.stringify({ takeout: nextSvc, delivery: nextSvcDelivery }));
   }
   {
     // 完全找不到下一次營業（連續 60 天皆休息）→ 允許前端使用通用文字（後端回 null，
