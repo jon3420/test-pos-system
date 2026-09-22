@@ -216,15 +216,46 @@ function resolveRecoveryTarget(db, storeId, job) {
 // 使用 LIFF URL 才能延續 Phase 1 的 member_session/LINE UID 安全邊界——
 // 拿掉 LIFF、改用一般網頁 URL 等於允許「token 本身當身分」的降級路徑，
 // 這裡明確禁止，找不到對應 LIFF ID 一律 { ok:false, reason:'missing_liff_id' }。
-function buildRecoveryUrl(db, storeId, { token, pageType }) {
+//
+// H1.4.12 Phase 3B（Popup Recovery Identity Bridge，經核准的第三方案）：
+// pageType==='popup_order' 沿用完全相同的「沒有 LIFF ID 就拒絕、絕不 fallback
+// 成一般網頁 URL」原則，不因為是 popup 就放寬。popupSessionPublicCode 會
+// 一起編碼進 LIFF URL 的 query，讓 LIFF app 端能在完成身分驗證後，把使用者
+// 導去正確的 `/popup-order?session=<code>` 而不是隨便一個場次。若店家沒有
+// 另外設定 popup 專用 LIFF ID（line_popup_liff_id），退回沿用一般會員
+// LIFF ID（line_member_liff_id）——這是「沿用既有可信設定」，不是身分降級，
+// 因為仍然強制通過同一個 LIFF 登入流程。
+function buildRecoveryUrl(db, storeId, { token, pageType, popupSessionPublicCode }) {
   return _safe(() => {
     const memberLiffId = _getSetting(db, storeId, 'line_member_liff_id', '');
     const shippingLiffId = _getSetting(db, storeId, 'line_shipping_liff_id', '');
-    const liffId = pageType === 'line_shipping' ? (shippingLiffId || memberLiffId) : memberLiffId;
+    const popupLiffId = _getSetting(db, storeId, 'line_popup_liff_id', '');
+    let liffId;
+    if (pageType === 'line_shipping') liffId = shippingLiffId || memberLiffId;
+    else if (pageType === 'popup_order') liffId = popupLiffId || memberLiffId;
+    else liffId = memberLiffId;
     if (!liffId) return { ok: false, reason: 'missing_liff_id', url: null };
-    return { ok: true, reason: null, url: `https://liff.line.me/${encodeURIComponent(liffId)}?recovery_token=${encodeURIComponent(token)}` };
+    let url = `https://liff.line.me/${encodeURIComponent(liffId)}?recovery_token=${encodeURIComponent(token)}`;
+    if (pageType === 'popup_order') {
+      if (!popupSessionPublicCode || typeof popupSessionPublicCode !== 'string' || !popupSessionPublicCode.trim()) {
+        // popup_order 的 Recovery URL 沒有場次代碼就沒有意義（LIFF 端無從知道
+        // 要把使用者導去哪個 popup-order 頁面），視為建構失敗，不得生出一個
+        // 「等 restore 時才發現場次不明」的殘缺連結。
+        return { ok: false, reason: 'missing_popup_session', url: null };
+      }
+      url += `&popup_session=${encodeURIComponent(popupSessionPublicCode.trim())}`;
+    }
+    return { ok: true, reason: null, url };
   }, { ok: false, reason: 'exception', url: null });
 }
+
+// H1.4.12 Phase 3B：resolveRecoveryTargetPath() 現在定義在
+// utils/lineCheckoutHandoff.js（避免 lineCheckoutHandoff.js 反過來 require
+// 這個檔案造成循環依賴——這個檔案本來就已經在檔案最上面 require
+// lineCheckoutHandoff.js 的 createRecoveryResumeToken/cancelRecoveryToken），
+// 這裡只是重新 re-export，維持既有呼叫端（若有）不必改 import 位置。
+const { resolveRecoveryTargetPath } = require('./lineCheckoutHandoff');
+
 
 // 需求文件二十三：柔性提醒文案，三個 stage 各自固定，不做倒數/緊迫感字眼。
 function buildRecoveryMessageText(stage, url) {
@@ -389,4 +420,5 @@ module.exports = {
   evaluateLineRecoveryEligibility, buildRecoveryMessageText,
   processDueLineRecoveryJobs, isLineRecoveryEnabled, getChannelAccessToken, getFriendStatus,
   resolvePageType, resolveRestorableCartSnapshot, resolveRecoveryTarget, buildRecoveryUrl,
+  resolveRecoveryTargetPath,
 };

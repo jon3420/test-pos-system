@@ -94,6 +94,10 @@ const LINE_KEYS = new Set([
   // 放在 settings 既有 key-value 架構內，不新增資料表／不新增第二套設定系統；
   // 合法值驗證見下方 PUT /api/settings 內的 VALID_LINE_ORDER_PAGE_MODES 檢查。
   'line_order_page_mode',
+  // H1.4.12 Phase 2（需求文件七.4）：快閃取餐總開關，沿用同一個 line_order
+  // feature gate；不新增資料表、不新增第二個重複開關、不新增新的 license
+  // feature。合法值驗證見下方 PUT /api/settings 內的正規化區塊。
+  'popup_pickup_enabled',
 ]);
 
 // fix18-10-hotfix26-F5：上面 LINE_KEYS 內「取餐地點」設定 key 的清單（給 PUT /api/settings
@@ -394,6 +398,24 @@ router.put('/', (req, res) => {
         });
       }
       req.body.line_order_page_mode = pageMode;
+    }
+
+    // ── H1.4.12 Phase 2（需求文件七.4）：popup_pickup_enabled 正規化驗證 ──
+    // 只接受 true/false/1/0/'1'/'0'；落地一律正規化為字串 '1' 或 '0'。
+    // null、陣列、物件、'true'（字串）、'yes' 等一律 400，且不寫入任何資料。
+    // 沒有送這個欄位時完全不驗證、不影響既有值。
+    if (Object.prototype.hasOwnProperty.call(req.body, 'popup_pickup_enabled')) {
+      const raw = req.body.popup_pickup_enabled;
+      const normalized = (raw === true || raw === 1 || raw === '1') ? '1'
+        : (raw === false || raw === 0 || raw === '0') ? '0'
+        : null;
+      if (normalized === null) {
+        return res.status(400).json({
+          success: false,
+          message: 'popup_pickup_enabled 只接受 true/false/1/0（布林或對應字串），其他值一律拒絕',
+        });
+      }
+      req.body.popup_pickup_enabled = normalized;
     }
 
     // ── fix18-10-hotfix29-C（需求文件五）：LINE 整合中心正式欄位驗證 ────────

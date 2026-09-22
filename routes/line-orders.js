@@ -27,6 +27,8 @@ const { touchMemberOnOrder, recordMemberPurchase } = require('../utils/lineMembe
 const { verifyMemberSession } = require('../utils/lineMemberSession'); // fix18-10-hotfix23-E：安全 Member Session
 const { buildPickupSnapshot, resolvePickupLocation, resolveSameAsStoreFlag } = require('../utils/pickupLocation'); // fix18-10-hotfix26-F4/F5：取餐門市/地址/取餐地點設定共用 helper
 const { calculateDeliveryFeeWithPromotion } = require('../utils/deliveryFeeCalc'); // C3：距離級距滿額免運（與 routes/delivery.js 共用同一份計算引擎）
+const { resolveLineProductPricing } = require('../utils/lineProductPricing'); // H1.4.12 Phase 3A.2：LINE 商品價格/名稱 SSOT，與 popup 公開頁面/結帳共用
+const { resolveLineChannelPaymentCodes } = require('../utils/linePaymentMethods'); // H1.4.12 Phase 3A.4：LINE 通路付款代碼 SSOT，與 popup checkout 共用
 // fix18-10-hotfix30-B5-R5.1-B：Geo Event Wiring —— 外送訂單履約區域（geo_context=
 // fulfillment，geo_source=delivery_address）。本檔案目前只有 delivery_address
 // 字串 + 已驗證過的 delivery_lat/delivery_lng 數字座標，沒有 Google
@@ -392,24 +394,15 @@ function resolveFulfillmentState(mode, schedule, modeSettings, closedInfo, nowMi
 // fix18-10-hotfix22A：外帶/外送付款方式改為與冷藏宅配一致的「通路獨立開關」架構。
 // 若店家尚未設定新版 JSON 陣列（takeout_payment_methods / delivery_payment_methods），
 // 自動 fallback 沿用舊版全域 line_payment_*_enabled 設定，確保既有店家設定/行為完全不變。
+//
+// H1.4.12 Phase 3A.4 修正：本體邏輯已經抽到 `utils/linePaymentMethods.js` 的
+// `resolveLineChannelPaymentCodes()`——這是 popup checkout（`utils/
+// popupCheckout.js` 的 `resolveLineTakeoutAllowedPaymentCodes()`）現在也在
+// 呼叫的同一個函式，不是各自維護一份規則。這裡保留 `getModePaymentMethods`
+// 這個名稱與既有簽名，只是薄包裝，本檔案內既有呼叫端（`GET /shop` 等）完全
+// 不用改呼叫方式。
 function getModePaymentMethods(db, storeId, settingKey) {
-  const raw = getSetting(db, storeId, settingKey, '');
-  if (raw) {
-    try {
-      const arr = JSON.parse(raw);
-      if (Array.isArray(arr) && arr.length) return arr;
-    } catch {}
-  }
-  const legacyMap = [
-    ['cash', 'line_payment_cash_enabled'],
-    ['linepay', 'line_payment_linepay_enabled'],
-    ['transfer', 'line_payment_transfer_enabled'],
-    ['platform', 'line_payment_platform_enabled'],
-    ['credit_card', 'line_payment_credit_card_enabled'],
-  ];
-  return legacyMap
-    .filter(([, key]) => getSetting(db, storeId, key, '') === '1')
-    .map(([code]) => code);
+  return resolveLineChannelPaymentCodes(db, storeId, settingKey);
 }
 
 function getModeSettings(db, storeId, mode) {
@@ -1051,10 +1044,15 @@ router.get('/menu', (req, res) => {
     const hotNames = new Set(Object.entries(saleMap).sort((a,b)=>b[1]-a[1]).slice(0,8).map(([n])=>n));
 
     const enriched = filteredProducts.map(p => {
+      // H1.4.12 Phase 3A.2：basePrice/linePrice/lineName/saleStatus 改為呼叫
+      // utils/lineProductPricing.js 的共用 SSOT（popup 公開頁面與結帳共用
+      // 同一份），計算結果與原本內嵌邏輯完全一致，只是把判斷式抽出去，這支
+      // 路由其餘所有邏輯（份數、時段、休假、截止等）完全未變。
+      const _pricing = resolveLineProductPricing(p);
       const basePrice  = Number(p.takeaway_price) > 0 ? Number(p.takeaway_price) : (Number(p.price) || 0);
-      const linePrice  = Number(p.line_price) > 0 ? Number(p.line_price) : basePrice;
-      const lineName   = (p.line_name||'').trim() || p.name;
-      const saleStatus = p.sale_status || 'available';
+      const linePrice  = _pricing.price;
+      const lineName   = _pricing.name;
+      const saleStatus = _pricing.sale_status;
 
       // ── LINE 專屬可售份數（優先判斷）──────────────────────
       const quota = getLineQuotaStatus(p);

@@ -139,6 +139,9 @@ router.post('/stores', requireSuperAdmin, (req, res) => {
     sd('printer_enabled', '0'); sd('line_order_enabled', '1');
     sd('line_ordering_enabled', '1'); sd('pickup_enabled', '1'); sd('delivery_enabled', '1');
     sd('line_today_closed', '0'); sd('line_today_closed_date', '');
+    // H1.4.12 Phase 1.1：新店家建立當下直接 seed 快閃取餐總開關預設值（關閉），
+    // 不需等到下次伺服器重啟才由 utils/db.js migration 補上。
+    sd('popup_pickup_enabled', '0');
 
     invalidateStoreCache(store_id);
     // fix16k-02: 新增店家後補齊付款方式（先 schema 補欄位，再 seed）

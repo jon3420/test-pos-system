@@ -609,8 +609,56 @@ const LINE_STORE_ID = new URLSearchParams(window.location.search).get('store_id'
 let _recoveryResumeToken='';
 let _recoveryWasLinePayCancel=false;
 let _recoveryResumeHandled=false;
+// H1.4.12 Phase 3B（Popup Recovery Identity Landing）：popup 專用的 URL
+// 參數擷取＋清除，必須跑在下面那個一般 _captureRecoveryTokenFromUrl() 之前
+// ——否則一般流程會先把 recovery_token 從網址偷走、存進跟 popup 完全無關的
+// _recoveryResumeToken，而且它目前完全不 popup-aware，也不知道要清除
+// recovery_handoff。這裡只做「擷取＋清除」這兩件事，不做任何驗證/身分/
+// 網路呼叫（那些留給 initPopupRecoveryLanding()／resolvePopupEntryContext()）。
+let _popupRecoveryRawToken=null;
+let _popupRecoveryHandoffIdFromUrl=null;
+let _popupRecoverySessionCodeClaimFromUrl=null; // 僅供 landing 階段 UI 顯示用的「未驗證宣稱值」，絕不當權威
+let _popupRecoveryParamConflict=false; // 同名參數重複且值衝突
+(function _capturePopupRecoveryParamsFromUrl(){
+  try{
+    const path=String((window.location&&window.location.pathname)||'');
+    const isPopupPath = path==='/popup-order' || /\/popup-order\/?$/.test(path);
+    if(!isPopupPath) return;
+    const params=new URLSearchParams(window.location.search||'');
+    function distinctValues(name){ return Array.from(new Set(params.getAll(name))); }
+    const tokenValues=distinctValues('recovery_token');
+    const handoffValues=distinctValues('recovery_handoff');
+    const popupSessionValues=distinctValues('popup_session');
+    if(tokenValues.length>1 || handoffValues.length>1 || popupSessionValues.length>1){
+      // 規格七.21：同名參數重複且值衝突 → 直接視為 malformed，完全不擷取任何值。
+      _popupRecoveryParamConflict=true;
+    }else{
+      if(tokenValues.length===1) _popupRecoveryRawToken=String(tokenValues[0]).trim().slice(0,500);
+      if(handoffValues.length===1) _popupRecoveryHandoffIdFromUrl=String(handoffValues[0]).trim().slice(0,200);
+      if(popupSessionValues.length===1) _popupRecoverySessionCodeClaimFromUrl=String(popupSessionValues[0]).trim().slice(0,200);
+    }
+    // 規格四：capture 之後立刻用 history.replaceState() 移除 recovery_token／
+    // recovery_handoff，不得讓 raw token 留在網址列、後續 navigation 或
+    // referrer。popup_session 本身不是敏感值（只是一個未驗證宣稱），但既然
+    // landing 階段完成後就不再需要，這裡一併清除，保持網址乾淨。
+    if(params.has('recovery_token') || params.has('recovery_handoff') || params.has('popup_session')){
+      params.delete('recovery_token');
+      params.delete('recovery_handoff');
+      params.delete('popup_session');
+      const cleanUrl=new URL(window.location.href);
+      cleanUrl.search=params.toString();
+      window.history.replaceState({}, '', cleanUrl.toString());
+    }
+  }catch(e){ /* URL 清理失敗絕不可阻擋頁面載入 */ }
+})();
+
 (function _captureRecoveryTokenFromUrl(){
   try{
+    // popup 專用擷取已經在上面那個 IIFE 處理過（而且已經把 recovery_token
+    // 從網址移除），這裡不得再重複處理、也不得把 popup 的 recovery token
+    // 誤存進這個變數（那是給一般外帶/外送流程用的）。
+    const path=String((window.location&&window.location.pathname)||'');
+    if(path==='/popup-order' || /\/popup-order\/?$/.test(path)) return;
     const params=new URLSearchParams(window.location.search);
     const rawToken=params.get('recovery_token');
     if(rawToken){
@@ -1262,6 +1310,13 @@ async function _handleRecoveryCancelReturn(memberSession){
 
 // 需求文件十二：同一次 page load 最多執行一次，不用 localStorage 永久
 // dedupe（顧客之後從別的 LINE 提醒訊息重新開啟仍應該能再次處理）。
+//
+// H1.4.12 Phase 3B（Popup Recovery Identity Landing）：在呼叫既有
+// _handleRecoveryRestore()（假設目標是 line_order）之前，先呼叫
+// /api/cart-recovery/resolve-target 問一次「這個 token 真正的目標到底是
+// 什麼」——只有在目標是 popup_order 時才建立 handoff 並導向
+// /popup-order；line_order/line_shipping（或任何非 popup 的結果）完全落回
+// 既有、未改動的 _handleRecoveryRestore() 路徑，行為與安全模型不變。
 async function handleRecoveryResumeFromUrl(){
   if(_recoveryResumeHandled || !_recoveryResumeToken) return;
   _recoveryResumeHandled=true;
@@ -1276,6 +1331,28 @@ async function handleRecoveryResumeFromUrl(){
     await _handleRecoveryCancelReturn(memberSession);
     return;
   }
+  try{
+    const targetRes=await apiFetch('/api/cart-recovery/resolve-target',{method:'POST',body:JSON.stringify({
+      recovery_token:_recoveryResumeToken, member_session:memberSession,
+    })}).then(r=>r.json());
+    if(targetRes && targetRes.success && targetRes.data && targetRes.data.page_type==='popup_order'){
+      const sessionCode=targetRes.data.popup_session_public_code;
+      if(typeof sessionCode==='string' && sessionCode){
+        const handoffId=await createPopupRecoveryHandoff(memberSession, sessionCode, _recoveryResumeToken);
+        if(handoffId){
+          // 規格三：session 一律使用「後端解析結果」，不是原網址或任何
+          // client input；target path 也只信任後端回傳、經過 allowlist 的值。
+          const target=new URL(targetRes.data.target_path, window.location.origin);
+          target.searchParams.set('recovery_token', _recoveryResumeToken);
+          target.searchParams.set('recovery_handoff', handoffId);
+          window.location.replace(target.pathname+'?'+target.searchParams.toString());
+          return;
+        }
+      }
+      showRecoveryNotice('identity','無法建立安全的恢復連結，請從原 LINE 提醒訊息重新開啟。');
+      return;
+    }
+  }catch(e){ /* resolve-target 呼叫失敗時，安靜落回既有 line_order 還原路徑，不阻擋既有行為 */ }
   await _handleRecoveryRestore(memberSession);
 }
 
@@ -1905,11 +1982,1422 @@ function phoneUtilsNormalizeField(fieldId){
 }
 function timeToMins(hhmm){const[h,m]=String(hhmm||'00:00').split(':').map(Number);return (h||0)*60+(m||0);}
 
+// ══════════════════════════════════════════════════════════════════════
+// H1.4.12 Phase 3B — 快閃取貨（popup）入口分流與獨立狀態
+//
+// 這一整個區塊（到下一個「── 初始化 ──」為止）刻意跟一般外帶/外送流程完全
+// 獨立：不讀寫 currentMode／allProducts／一般 cart storage key，也不呼叫
+// apiFetch()（那個 helper 會自動帶上可能 fallback 成 'store_001' 的
+// LINE_STORE_ID——popup 的 session/campaign 端點本來就不需要、也不可以信任
+// 任何 store_id，store 永遠由 public_code 在後端反查）。
+// ══════════════════════════════════════════════════════════════════════
+
+// currentMode 硬性契約（規格四）：全檔案只允許 'takeout'／'delivery' 兩個值，
+// 這裡刻意不提供、也不會有任何程式碼把 currentMode 設成 'popup'。popup 的
+// 入口/場次/商品/付款狀態一律活在下面這些獨立變數裡。
+let popupEntryContextResult=null; // resolvePopupEntryContext() 的結果快取
+let popupSession=null;
+let popupCampaign=null;
+let popupSessions=[]; // campaign/store entry 用的公開場次列表摘要（僅供選單顯示，不當作商品/付款權威資料）
+let popupProducts=[];
+let popupPaymentMethods=[];
+let popupCart={ schema_version:1, entry_context:'popup', session_public_code:null, items:[], customer_name:'', customer_phone:'', payment_method:'', note:'' };
+let popupLoading=false;
+let popupError=null;
+let popupLoadGeneration=0; // 競態防護用的世代計數器（規格八）
+
+// 純函式：只讀 window.location，不觸發任何網路請求或畫面變化。只有
+// pathname 精確等於 /popup-order 時才進入 popup 分支——一般
+// /line-order.html 即使帶了 ?session=... 也完全不受影響（規格四）。
+function resolvePopupEntryContext(){
+  try{
+    const path=String((window.location&&window.location.pathname)||'');
+    const isPopupPath = path==='/popup-order' || /\/popup-order\/?$/.test(path);
+    if(!isPopupPath) return { entryContext:'standard' };
+    const params=new URLSearchParams(window.location.search||'');
+    // 規格（本輪）：同名參數重複且值有衝突時一律 malformed。recovery_token／
+    // recovery_handoff／popup_session 的衝突檢查已經在最早執行的
+    // _capturePopupRecoveryParamsFromUrl() IIFE 做過（那時網址還沒被清掉），
+    // 結果記在 _popupRecoveryParamConflict；這裡只需要再檢查 session／
+    // campaign／store_id 這三個 primary entry 參數本身的重複衝突。
+    const dupCheckKeys=['session','campaign','store_id'];
+    for(const k of dupCheckKeys){
+      const all=params.getAll(k);
+      if(all.length>1 && new Set(all).size>1){
+        return { entryContext:'popup', popupEntryType:null, popupEntryCode:null, popupStoreId:null, malformed:true };
+      }
+    }
+    if(_popupRecoveryParamConflict){
+      return { entryContext:'popup', popupEntryType:null, popupEntryCode:null, popupStoreId:null, malformed:true };
+    }
+    const sessionCode=params.get('session');
+    const campaignCode=params.get('campaign');
+    const storeIdParam=params.get('store_id');
+    // 規格（本輪）：recovery_token／recovery_handoff 已經被最早執行的
+    // _capturePopupRecoveryParamsFromUrl() 從網址擷取並清除，這裡改讀那時
+    // 存下來的模組變數，不重新解析網址（網址上這兩個參數本來就已經沒了）。
+    const recoveryToken=_popupRecoveryRawToken;
+    const recoveryHandoff=_popupRecoveryHandoffIdFromUrl;
+
+    // 規格（本輪）：LIFF landing 觸發點——沒有任何 primary entry 參數，但有
+    // recovery_token + popup_session（buildRecoveryUrl() 產生的 LIFF URL
+    // 帶的就是這兩個參數，不是 session）。這裡的 popup_session 只是「未經
+    // 驗證的宣稱值」（供 landing 畫面顯示用），絕不能當成權威——真正的
+    // session code 只能來自 /resolve-target 的伺服器回應。必須放在下面
+    // 「recovery entry」判斷之前檢查，否則 token-present-without-handoff
+    // 會先被下面那段判定成 malformed（token-only 對「最終 recovery entry」
+    // 而言是不合法的，但對「landing」而言那正是合法的起始狀態）。
+    if(recoveryToken && !recoveryHandoff && !sessionCode && !campaignCode && !storeIdParam && _popupRecoverySessionCodeClaimFromUrl){
+      return {
+        entryContext:'popup', popupEntryType:'recovery_landing', popupEntryCode:null, popupStoreId:null, malformed:false,
+        recoveryToken:recoveryToken, popupSessionCodeClaim:_popupRecoverySessionCodeClaimFromUrl,
+      };
+    }
+
+    // 規格四：「recovery entry」是 session 入口的一個變體，不是第二種
+    // primary entry——必須同時存在 session + recovery_token +
+    // recovery_handoff，三者缺一律 fail closed（不接受 handoff-only 或
+    // token-only），且不得跟 campaign/store_id 併存。
+    const hasAnyRecoveryParam = !!recoveryToken || !!recoveryHandoff;
+    if(hasAnyRecoveryParam){
+      if(campaignCode || storeIdParam){
+        return { entryContext:'popup', popupEntryType:null, popupEntryCode:null, popupStoreId:null, malformed:true };
+      }
+      const sessionOk = sessionCode!=null && sessionCode.trim()!=='';
+      const tokenOk = !!recoveryToken;
+      const handoffOk = !!recoveryHandoff;
+      if(!sessionOk || !tokenOk || !handoffOk){
+        return { entryContext:'popup', popupEntryType:null, popupEntryCode:null, popupStoreId:null, malformed:true };
+      }
+      return {
+        entryContext:'popup', popupEntryType:'session', popupEntryCode:sessionCode.trim(), popupStoreId:null, malformed:false,
+        isRecoveryEntry:true, recoveryToken:recoveryToken, recoveryHandoff:recoveryHandoff,
+      };
+    }
+
+    const providedKinds=[
+      ['session', sessionCode],
+      ['campaign', campaignCode],
+      ['store', storeIdParam],
+    ].filter(([,v])=> v!=null && String(v).trim()!=='');
+    // 規格四：同時存在衝突參數（例如 session+campaign、session+store_id）
+    // 或完全缺少入口參數，一律視為 malformed，不得 fallback 一般外帶、不得
+    // fallback store_001。
+    if(providedKinds.length!==1){
+      return { entryContext:'popup', popupEntryType:null, popupEntryCode:null, popupStoreId:null, malformed:true };
+    }
+    const [kind, rawValue]=providedKinds[0];
+    const value=String(rawValue).trim();
+    if(kind==='session') return { entryContext:'popup', popupEntryType:'session', popupEntryCode:value, popupStoreId:null, malformed:false };
+    if(kind==='campaign') return { entryContext:'popup', popupEntryType:'campaign', popupEntryCode:value, popupStoreId:null, malformed:false };
+    return { entryContext:'popup', popupEntryType:'store', popupEntryCode:null, popupStoreId:value, malformed:false };
+  }catch(e){
+    return { entryContext:'popup', popupEntryType:null, popupEntryCode:null, popupStoreId:null, malformed:true };
+  }
+}
+
+// popup 專用 fetch：刻意不經過 apiFetch()（不自動帶 LINE_STORE_ID／不會
+// fallback store_001）。只有 store-entry 這一種入口本身就需要明確
+// store_id 時，才由呼叫端自己把已驗證過的 popupStoreId 組進 URL。
+function popupApiFetch(url){
+  return fetch(url, { headers:{ 'Content-Type':'application/json' } });
+}
+
+// H1.4.12 Phase 3B（Popup Recovery Storage Verification 修正）：最小 storage
+// seam——production 預設就是直接呼叫真正的 localStorage，不含任何
+// try/catch（錯誤處理留給呼叫端自己決定：一般 popup 流程的 savePopupCart/
+// loadPopupCart 繼續維持它們自己既有的容錯行為；recovery 專用的嚴格持久化
+// helper 則完全不吞錯，讓呼叫端能準確判斷寫入/讀回是否真的成功）。測試
+// harness 可以在 window 建構完成後，把這三個函式整個換成別的實作
+// （例如會丟例外的版本），不需要、也不會去碰 jsdom 本身不可設定的
+// Storage 原生物件——不讀取任何 __test 開頭的全域變數。
+function _popupStorageGetItem(key){
+  return window.localStorage.getItem(key);
+}
+function _popupStorageSetItem(key, value){
+  window.localStorage.setItem(key, value);
+}
+function _popupStorageRemoveItem(key){
+  window.localStorage.removeItem(key);
+}
+
+function popupCartStorageKey(sessionPublicCode){
+  return 'line_popup_cart_v1_'+encodeURIComponent(String(sessionPublicCode||''));
+}
+
+function popupEmptyCart(sessionPublicCode){
+  return { schema_version:1, entry_context:'popup', session_public_code:sessionPublicCode, items:[], customer_name:'', customer_phone:'', payment_method:'', note:'' };
+}
+
+// 規格九：保存內容只能是 schema version／entry_context／session public
+// code／{product_id,qty}／尚未送單的顧客資料——不得把 price/subtotal/quota/
+// 狀態/地點快照當作可恢復的權威資料寫進 storage。
+function popupSanitizeCartForStorage(cart){
+  return {
+    schema_version:1,
+    entry_context:'popup',
+    session_public_code:cart.session_public_code||null,
+    items:Array.isArray(cart.items) ? cart.items
+      .filter((it)=>it && Number.isInteger(it.product_id) && it.product_id>0 && Number.isInteger(it.qty) && it.qty>0)
+      .map((it)=>({ product_id:it.product_id, qty:it.qty }))
+      .sort((a,b)=>a.product_id-b.product_id) : [],
+    customer_name:typeof cart.customer_name==='string' ? cart.customer_name.slice(0,100) : '',
+    customer_phone:typeof cart.customer_phone==='string' ? cart.customer_phone.slice(0,20) : '',
+    payment_method:typeof cart.payment_method==='string' ? cart.payment_method.slice(0,50) : '',
+    note:typeof cart.note==='string' ? cart.note.slice(0,500) : '',
+  };
+}
+
+// 兩份 sanitize 後的 cart 內容是否「值相同」（忽略物件 key 順序；items 在
+// popupSanitizeCartForStorage() 裡已經固定排序過，避免陣列順序造成假不
+// 一致）。只比較會被保存的欄位，不比較執行期才有的欄位。
+function _popupCartValuesEqual(a, b){
+  const sa=popupSanitizeCartForStorage(a);
+  const sb=popupSanitizeCartForStorage(b);
+  return JSON.stringify(sa)===JSON.stringify(sb);
+}
+
+function savePopupCart(sessionPublicCode, cart){
+  try{
+    _popupStorageSetItem(popupCartStorageKey(sessionPublicCode), JSON.stringify(popupSanitizeCartForStorage(cart)));
+  }catch(e){ /* 一般 popup 流程：storage 滿了或被封鎖時安靜跳過，不影響當前記憶體內的購物車狀態 */ }
+}
+
+// 規格九：一般 cart 絕不會被讀進這裡（key 前綴完全獨立），還原時只信任
+// product_id/qty，其餘欄位（price/subtotal/quota/狀態/地點）一律由當前
+// fresh fetch 到的 popupProducts/popupSession 決定，不使用 storage 裡的
+// 任何舊值。context 或 session public code 不吻合、JSON 損毀時，直接清除
+// 這個 popup key（不影響一般 cart 或其他 session 的 popup cart），回傳全新
+// 的空購物車。
+function loadPopupCart(sessionPublicCode){
+  const key=popupCartStorageKey(sessionPublicCode);
+  try{
+    const raw=_popupStorageGetItem(key);
+    if(!raw) return popupEmptyCart(sessionPublicCode);
+    const parsed=JSON.parse(raw);
+    if(!parsed || typeof parsed!=='object'
+      || parsed.entry_context!=='popup'
+      || parsed.session_public_code!==sessionPublicCode
+      || !Array.isArray(parsed.items)){
+      _popupStorageRemoveItem(key);
+      return popupEmptyCart(sessionPublicCode);
+    }
+    return popupSanitizeCartForStorage(parsed);
+  }catch(e){
+    try{ _popupStorageRemoveItem(key); }catch(e2){}
+    return popupEmptyCart(sessionPublicCode);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// H1.4.12 Phase 3B（Popup Recovery Storage Verification 修正）：
+// persistRecoveredPopupCartStrict(sessionCode, canonicalCart)
+//
+// recovery 專用的嚴格持久化 helper——跟一般 savePopupCart() 完全分開，不
+// 呼叫、也不假設它的容錯行為。任何一步（write／read-back／parse／值比對）
+// 失敗，都必須把 storage 精確 rollback 回寫入前的原始狀態（原本不存在就
+// 刪除，原本存在就寫回原值），並把 runtime popupCart 也恢復成寫入前的值，
+// 絕不能讓呼叫端誤以為已經恢復成功。
+// ══════════════════════════════════════════════════════════════════════
+async function persistRecoveredPopupCartStrict(sessionCode, canonicalCart){
+  const key=popupCartStorageKey(sessionCode);
+  // 1. 寫入前先精確 snapshot：原始 raw value（含「本來就不存在」這個狀態）
+  //    與目前 runtime popupCart，供任何失敗時 rollback 用。
+  let originalRawExists=true;
+  let originalRaw=null;
+  try{ originalRaw=_popupStorageGetItem(key); }catch(e){ originalRawExists=false; }
+  if(originalRaw==null) originalRawExists=false;
+  const originalRuntimeCart=popupCart;
+
+  function rollback(){
+    try{
+      if(originalRawExists) _popupStorageSetItem(key, originalRaw);
+      else _popupStorageRemoveItem(key);
+    }catch(e){ /* rollback 本身失敗時，呼叫端仍必須視為整體失敗（見下方回傳值），不得假裝已恢復 */ }
+    popupCart=originalRuntimeCart;
+  }
+
+  const candidate={ ...popupEmptyCart(sessionCode), ...canonicalCart, session_public_code:sessionCode };
+  const sanitizedCandidate=popupSanitizeCartForStorage(candidate);
+  const serialized=JSON.stringify(sanitizedCandidate);
+
+  try{
+    _popupStorageSetItem(key, serialized);
+  }catch(e){
+    rollback();
+    return { ok:false, reason:'storage_write_failed' };
+  }
+
+  let readBackRaw;
+  try{
+    readBackRaw=_popupStorageGetItem(key);
+  }catch(e){
+    rollback();
+    return { ok:false, reason:'storage_read_failed' };
+  }
+  let readBackParsed;
+  try{
+    readBackParsed=JSON.parse(readBackRaw);
+  }catch(e){
+    rollback();
+    return { ok:false, reason:'readback_malformed' };
+  }
+  if(!_popupCartValuesEqual(readBackParsed, sanitizedCandidate)){
+    rollback();
+    return { ok:false, reason:'readback_mismatch' };
+  }
+
+  // 2. 只有完全一致才更新 runtime popupCart。
+  popupCart=popupSanitizeCartForStorage(readBackParsed);
+  return { ok:true };
+}
+
+// 規格九：回到同一場次時，先用 fresh fetch 到的 popupProducts 校正購物車——
+// 不存在／已下架的商品移除，超過目前剩餘量的數量縮減。回傳的 notices 供
+// UI 顯示「已為您移除／調整」之類的提示。
+function reconcilePopupCartWithFreshProducts(cart, freshProducts){
+  const productMap=new Map((freshProducts||[]).map((p)=>[p.product_id, p]));
+  const notices=[];
+  const nextItems=[];
+  (cart.items||[]).forEach((it)=>{
+    const fresh=productMap.get(it.product_id);
+    if(!fresh || fresh.sold_out){
+      notices.push({ type:'removed', product_id:it.product_id, name:fresh?fresh.name:null });
+      return;
+    }
+    let qty=it.qty;
+    if(fresh.remaining_qty!=null && qty>fresh.remaining_qty){
+      if(fresh.remaining_qty<=0){
+        notices.push({ type:'removed', product_id:it.product_id, name:fresh.name });
+        return;
+      }
+      notices.push({ type:'clamped', product_id:it.product_id, name:fresh.name, from:qty, to:fresh.remaining_qty });
+      qty=fresh.remaining_qty;
+    }
+    nextItems.push({ product_id:it.product_id, qty });
+  });
+  return { cart:{ ...cart, items:nextItems }, notices };
+}
+
+function popupRootEl(){
+  let el=document.getElementById('popupRoot');
+  if(!el){
+    el=document.createElement('div');
+    el.id='popupRoot';
+    el.setAttribute('role','main');
+    document.body.appendChild(el);
+  }
+  return el;
+}
+
+// 規格四／八：所有公開文字一律用 textContent 寫入，不得對外部資料使用
+// innerHTML（campaign/session/product/address 全部走這裡）。
+function popupRenderTextScreen(lines, opts){
+  const root=popupRootEl();
+  root.textContent='';
+  const wrap=document.createElement('div');
+  wrap.setAttribute('aria-live','polite');
+  if(opts && opts.busy) wrap.setAttribute('aria-busy','true');
+  lines.forEach((line)=>{
+    const p=document.createElement('p');
+    p.textContent=String(line==null?'':line);
+    wrap.appendChild(p);
+  });
+  if(opts && typeof opts.onRetry==='function'){
+    const retryBtn=document.createElement('button');
+    retryBtn.type='button';
+    retryBtn.textContent='重試';
+    retryBtn.setAttribute('aria-label','重新載入');
+    retryBtn.addEventListener('click', opts.onRetry);
+    wrap.appendChild(retryBtn);
+  }
+  root.appendChild(wrap);
+}
+
+function renderPopupLoading(){
+  popupRenderTextScreen(['正在載入快閃取貨資訊…'], { busy:true });
+}
+
+// 規格三／八：malformed、draft、disabled、nonexistent 一律顯示同一種不可
+// 區分內部原因的安全訊息，不顯示 error code 或任何內部細節。加入 retry
+// （規格六：network error／malformed JSON 需要可操作的重試 UI，鍵盤可達）。
+function renderPopupError(message){
+  const retry=_popupLastRetryFn;
+  popupRenderTextScreen([message||'此快閃場次不存在或目前不可用'], retry ? { onRetry:retry } : undefined);
+}
+let _popupLastRetryFn=null;
+
+// 只調整記憶體內＋storage 的 qty，不送出任何 checkout request（本回合只
+// 建立 state，不送單）；不可超過 fresh remaining_qty，也不可低於 0。
+function popupAdjustCartQty(productId, delta){
+  if(!popupSession || popupSession.can_order!==true) return;
+  const product=(popupProducts||[]).find((p)=>p.product_id===productId);
+  if(!product || product.sold_out) return;
+  const items=(popupCart.items||[]).slice();
+  const idx=items.findIndex((it)=>it.product_id===productId);
+  const currentQty=idx>=0 ? items[idx].qty : 0;
+  let nextQty=currentQty+delta;
+  if(nextQty<0) nextQty=0;
+  if(product.remaining_qty!=null && nextQty>product.remaining_qty) nextQty=product.remaining_qty;
+  if(nextQty<=0){
+    if(idx>=0) items.splice(idx,1);
+  }else if(idx>=0){
+    items[idx]={ ...items[idx], qty:nextQty };
+  }else{
+    items.push({ product_id:productId, qty:nextQty });
+  }
+  popupCart={ ...popupCart, items };
+  savePopupCart(popupSession.public_code, popupCart);
+  renderPopupSessionScreen();
+}
+
+function popupFormatPaymentLabel(code){
+  const labels={ cash:'現金', credit_card:'信用卡', transfer:'轉帳', platform:'平台付款', jkopay:'街口支付' };
+  // 規格十：未知代碼使用安全 fallback 標籤，但絕不自行轉成另一個已知的
+  // 付款代碼（不得把未知代碼偷偷當成 cash 之類的顯示）。
+  return labels[code] || ('付款方式：'+code);
+}
+
+function renderPopupSessionScreen(){
+  const root=popupRootEl();
+  root.textContent='';
+  const wrap=document.createElement('div');
+  wrap.setAttribute('aria-live','polite');
+
+  // 規格六：依目前 restore 流程階段顯示對應狀態，不假裝已完成、不隱藏
+  // 需要使用者操作的步驟（衝突選擇、空購物車確認、commit 失敗重試）。
+  if(popupRecoveryContext && popupRecoveryContext.active){
+    const stage=popupRestoreUI.stage;
+    const noticeP=document.createElement('p');
+    noticeP.setAttribute('data-testid','popup-recovery-pending-notice');
+    if(stage==='idle' || stage==='restoring'){
+      noticeP.textContent='身分已驗證，訂單恢復準備中（尚未完成）。';
+      wrap.appendChild(noticeP);
+    }else if(stage==='empty-confirm'){
+      noticeP.textContent='之前的購物車商品目前已無法購買，恢復後購物車會是空的。要繼續嗎？';
+      wrap.appendChild(noticeP);
+      const confirmBtn=document.createElement('button');
+      confirmBtn.type='button';
+      confirmBtn.textContent='確認（空購物車）';
+      confirmBtn.setAttribute('aria-label','確認以空購物車完成恢復');
+      confirmBtn.addEventListener('click', ()=>{ retryPopupCartRestoreCommit(); });
+      wrap.appendChild(confirmBtn);
+    }else if(stage==='commit-failed' || stage==='failed'){
+      noticeP.textContent=popupRestoreUI.error||'恢復購物車時發生問題，請稍後再試。';
+      wrap.appendChild(noticeP);
+      const retryBtn=document.createElement('button');
+      retryBtn.type='button';
+      retryBtn.textContent='重試';
+      retryBtn.setAttribute('aria-label','重新嘗試恢復購物車');
+      retryBtn.addEventListener('click', ()=>{
+        if(popupRestoreUI.preparedReceipt) retryPopupCartRestoreCommit();
+        else proceedWithPopupCartRestore();
+      });
+      wrap.appendChild(retryBtn);
+    }else if(stage==='done'){
+      noticeP.textContent='購物車已恢復。';
+      wrap.appendChild(noticeP);
+    }
+  }
+
+  const title=document.createElement('h2');
+  title.textContent=(popupCampaign&&popupCampaign.name ? popupCampaign.name+' － ' : '')+(popupSession.name||'');
+  wrap.appendChild(title);
+
+  const meta=document.createElement('p');
+  meta.textContent=`取貨時間：${popupSession.pickup_date||''} ${popupSession.pickup_start_time||''}-${popupSession.pickup_end_time||''}`;
+  wrap.appendChild(meta);
+
+  if(popupSession.place_name || popupSession.address){
+    const loc=document.createElement('p');
+    loc.textContent=`地點：${popupSession.place_name||''} ${popupSession.address||''} ${popupSession.address_note||''}`.trim();
+    wrap.appendChild(loc);
+    if(popupSession.lat!=null && popupSession.lng!=null){
+      const mapLink=document.createElement('a');
+      mapLink.href=`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(popupSession.lat+','+popupSession.lng)}`;
+      mapLink.target='_blank';
+      mapLink.rel='noopener noreferrer';
+      mapLink.textContent='開啟地圖';
+      wrap.appendChild(mapLink);
+    }
+  }
+
+  const stateP=document.createElement('p');
+  stateP.textContent=`場次狀態：${popupSession.effective_state||''}`;
+  wrap.appendChild(stateP);
+
+  if(popupSession.max_orders!=null){
+    const quotaP=document.createElement('p');
+    quotaP.textContent=`總單量：${popupSession.order_count!=null?popupSession.order_count:0} / ${popupSession.max_orders}`;
+    wrap.appendChild(quotaP);
+  }
+
+  const canOrder=popupSession.can_order===true;
+  const productList=document.createElement('ul');
+  if(!popupProducts || popupProducts.length===0){
+    const emptyP=document.createElement('p');
+    emptyP.textContent='目前沒有可訂購的商品';
+    wrap.appendChild(emptyP);
+  }
+  (popupProducts||[]).forEach((p)=>{
+    const li=document.createElement('li');
+    li.setAttribute('data-product-id', String(p.product_id));
+    const disabled=!canOrder || p.sold_out;
+    if(disabled) li.setAttribute('data-disabled','true');
+
+    const qtyInCart=(popupCart.items||[]).find((it)=>it.product_id===p.product_id);
+    const currentQty=qtyInCart ? qtyInCart.qty : 0;
+
+    const label=document.createElement('span');
+    label.textContent=`${p.name}｜NT$${p.price}${p.sold_out?'（售罄）':(p.remaining_qty!=null?`（剩 ${p.remaining_qty}）`:'')}`;
+    li.appendChild(label);
+
+    const minusBtn=document.createElement('button');
+    minusBtn.type='button';
+    minusBtn.textContent='－';
+    minusBtn.setAttribute('aria-label', `減少 ${p.name} 數量`);
+    minusBtn.disabled=disabled || currentQty<=0;
+    minusBtn.addEventListener('click', ()=>{ popupAdjustCartQty(p.product_id, -1); });
+    li.appendChild(minusBtn);
+
+    const qtySpan=document.createElement('span');
+    qtySpan.textContent=String(currentQty);
+    qtySpan.setAttribute('aria-label', `${p.name} 購物車數量：${currentQty}`);
+    li.appendChild(qtySpan);
+
+    const plusBtn=document.createElement('button');
+    plusBtn.type='button';
+    plusBtn.textContent='＋';
+    plusBtn.setAttribute('aria-label', `增加 ${p.name} 數量`);
+    plusBtn.disabled=disabled || (p.remaining_qty!=null && currentQty>=p.remaining_qty);
+    plusBtn.addEventListener('click', ()=>{ popupAdjustCartQty(p.product_id, 1); });
+    li.appendChild(plusBtn);
+
+    productList.appendChild(li);
+  });
+  wrap.appendChild(productList);
+
+  const payWrap=document.createElement('div');
+  payWrap.setAttribute('role','group');
+  if(!popupPaymentMethods || popupPaymentMethods.length===0){
+    const noPay=document.createElement('p');
+    noPay.textContent='目前無可用付款方式';
+    payWrap.appendChild(noPay);
+  }else{
+    popupPaymentMethods.forEach((code)=>{
+      const btn=document.createElement('button');
+      btn.type='button';
+      btn.textContent=popupFormatPaymentLabel(code);
+      btn.setAttribute('data-payment-code', code);
+      btn.disabled=!canOrder;
+      if(popupCart.payment_method===code) btn.setAttribute('aria-pressed','true');
+      btn.addEventListener('click', ()=>{
+        popupCart={ ...popupCart, payment_method:code };
+        savePopupCart(popupSession.public_code, popupCart);
+        renderPopupSessionScreen();
+      });
+      payWrap.appendChild(btn);
+    });
+  }
+  wrap.appendChild(payWrap);
+
+  if(!canOrder){
+    const readOnlyNotice=document.createElement('p');
+    readOnlyNotice.textContent='此場次目前為唯讀狀態，無法調整購物車或送出訂單。';
+    wrap.appendChild(readOnlyNotice);
+  }
+
+  wrap.appendChild(renderPopupCheckoutSection(canOrder));
+
+  root.appendChild(wrap);
+}
+
+// 規格三：顧客姓名／電話／付款方式／備註／購物車摘要／小計／送出按鈕／
+// 錯誤狀態區，全部集中在這裡，跟一般外帶/外送的表單完全分開。
+function renderPopupCheckoutSection(canOrder){
+  const section=document.createElement('section');
+  section.setAttribute('aria-label','結帳資訊');
+
+  const items=(popupCart.items||[]).filter((it)=>it.qty>0);
+  const cartEmpty=items.length===0;
+
+  const summaryHeading=document.createElement('h3');
+  summaryHeading.textContent='購物車';
+  section.appendChild(summaryHeading);
+
+  if(cartEmpty){
+    const emptyP=document.createElement('p');
+    emptyP.textContent='購物車是空的';
+    section.appendChild(emptyP);
+  }else{
+    const list=document.createElement('ul');
+    let subtotal=0;
+    items.forEach((it)=>{
+      // 規格三：小計只用「這次 fresh session products」現算，絕不讀
+      // localStorage 裡任何舊的 price/subtotal。
+      const product=(popupProducts||[]).find((p)=>p.product_id===it.product_id);
+      const lineTotal=product ? product.price*it.qty : null;
+      if(lineTotal!=null) subtotal+=lineTotal;
+      const li=document.createElement('li');
+      li.textContent=product
+        ? `${product.name} x${it.qty} = NT$${lineTotal}`
+        : `商品 #${it.product_id} x${it.qty}（已從目前場次移除，送出前會自動移除）`;
+      list.appendChild(li);
+    });
+    section.appendChild(list);
+    const totalP=document.createElement('p');
+    totalP.setAttribute('data-testid','popup-checkout-total');
+    totalP.textContent=`小計：NT$${subtotal}`;
+    section.appendChild(totalP);
+  }
+
+  const nameLabel=document.createElement('label');
+  nameLabel.textContent='姓名';
+  const nameInput=document.createElement('input');
+  nameInput.type='text';
+  nameInput.id='popupCustomerName';
+  nameInput.value=popupCart.customer_name||'';
+  nameInput.disabled=!canOrder;
+  nameInput.setAttribute('aria-label','顧客姓名');
+  nameInput.addEventListener('input', ()=>{
+    popupCart={ ...popupCart, customer_name:nameInput.value };
+    savePopupCart(popupSession.public_code, popupCart);
+  });
+  nameLabel.appendChild(nameInput);
+  section.appendChild(nameLabel);
+
+  const phoneLabel=document.createElement('label');
+  phoneLabel.textContent='電話';
+  const phoneInput=document.createElement('input');
+  phoneInput.type='tel';
+  phoneInput.id='popupCustomerPhone';
+  phoneInput.value=popupCart.customer_phone||'';
+  phoneInput.disabled=!canOrder;
+  phoneInput.setAttribute('aria-label','顧客電話');
+  phoneInput.addEventListener('input', ()=>{
+    popupCart={ ...popupCart, customer_phone:phoneInput.value };
+    savePopupCart(popupSession.public_code, popupCart);
+  });
+  phoneLabel.appendChild(phoneInput);
+  section.appendChild(phoneLabel);
+
+  const noteLabel=document.createElement('label');
+  noteLabel.textContent='備註（選填）';
+  const noteInput=document.createElement('textarea');
+  noteInput.id='popupCustomerNote';
+  noteInput.value=popupCart.note||'';
+  noteInput.disabled=!canOrder;
+  noteInput.setAttribute('aria-label','訂單備註');
+  noteInput.addEventListener('input', ()=>{
+    popupCart={ ...popupCart, note:noteInput.value };
+    savePopupCart(popupSession.public_code, popupCart);
+  });
+  noteLabel.appendChild(noteInput);
+  section.appendChild(noteLabel);
+
+  const errorRegion=document.createElement('p');
+  errorRegion.id='popupCheckoutErrorRegion';
+  errorRegion.setAttribute('aria-live','assertive');
+  errorRegion.textContent=_popupCheckoutError||'';
+  section.appendChild(errorRegion);
+
+  const submitBtn=document.createElement('button');
+  submitBtn.type='button';
+  submitBtn.id='popupCheckoutSubmitBtn';
+  submitBtn.textContent=_popupCheckoutInFlight ? '送出中…' : '送出訂單';
+  const validation=popupValidateCheckout();
+  submitBtn.disabled=!canOrder || cartEmpty || !validation.ok || _popupCheckoutInFlight;
+  submitBtn.setAttribute('aria-label','送出快閃取貨訂單');
+  submitBtn.addEventListener('click', ()=>{ submitPopupCheckout(); });
+  section.appendChild(submitBtn);
+
+  return section;
+}
+
+// 規格三：純粹的「目前是否可以送出」判斷，UI（disable 按鈕）跟送出前的
+// 最後一道防線（submitPopupCheckout 內重複呼叫這個函式）共用同一份規則，
+// 不是分開維護兩套。任何一項不成立就必須整個擋下，不得只看部分條件。
+function popupValidateCheckout(){
+  if(!popupSession || popupSession.can_order!==true) return { ok:false, reason:'not_orderable' };
+  const items=(popupCart.items||[]).filter((it)=>it.qty>0);
+  if(items.length===0) return { ok:false, reason:'empty_cart' };
+  for(const it of items){
+    if(!Number.isInteger(it.product_id) || it.product_id<=0) return { ok:false, reason:'bad_item' };
+    if(!Number.isInteger(it.qty) || it.qty<=0) return { ok:false, reason:'bad_item' };
+  }
+  const name=(popupCart.customer_name||'').trim();
+  if(!name) return { ok:false, reason:'missing_name' };
+  const phone=popupCart.customer_phone||'';
+  // 規格三：跟後端完全同一份台灣手機驗證 SSOT（window.PhoneUtils，見
+  // public/js/phone-utils.js），不得另外寫一套更嚴格或更寬鬆的 regex。
+  if(typeof window.PhoneUtils==='undefined' || !window.PhoneUtils.normalizeTaiwanMobile(phone).valid){
+    return { ok:false, reason:'bad_phone' };
+  }
+  const paymentMethod=popupCart.payment_method||'';
+  // 規格三：付款方式必須存在於「這次 fresh」的 popupPaymentMethods，且絕不
+  // 接受內部代碼 card 或 linepay（即使被竄改進 popupCart 裡）。
+  if(!paymentMethod || paymentMethod==='card' || paymentMethod==='linepay' || !(popupPaymentMethods||[]).includes(paymentMethod)){
+    return { ok:false, reason:'bad_payment_method' };
+  }
+  return { ok:true };
+}
+
+let _popupCheckoutInFlight=false;
+let _popupCheckoutError=null;
+let _popupCheckoutGeneration=0; // 跟 popupLoadGeneration 分開，避免 refresh 打斷有效送單或舊送單污染新 session
+
+// popup 專用送單 fetch：一樣不經過會附加 LINE_STORE_ID 的 apiFetch()。
+function popupApiPost(url, body){
+  return fetch(url, { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body) });
+}
+
+// 規格六：只允許這些後端 error code 對應到明確、安全的前端文案；任何未
+// 列在這裡的 code 一律 fallback 到最保守的通用訊息，絕不把後端原始
+// message 直接插入畫面（避免非預期的內部訊息被顯示或被利用）。
+const POPUP_CHECKOUT_ERROR_ALLOWLIST={
+  POPUP_VALIDATION_ERROR: '您填寫的資料有誤，請確認姓名、電話、付款方式與購物車內容後再試一次。',
+  POPUP_SESSION_NOT_FOUND: '此快閃場次不存在或目前不可用。',
+  POPUP_SESSION_NOT_ORDERABLE: '此快閃場次目前無法下單，請重新整理查看最新狀態。',
+  POPUP_SESSION_FULL: '此場次訂單已達上限，請選擇其他場次。',
+  POPUP_PRODUCT_NOT_AVAILABLE: '購物車內有商品目前不開放購買，畫面已為您更新。',
+  POPUP_PRODUCT_NOT_IN_SESSION: '購物車內有商品不在此場次可售清單中，畫面已為您更新。',
+  POPUP_PRODUCT_SOLD_OUT: '購物車內有商品剩餘份數不足，畫面已為您更新。',
+  POPUP_PAYMENT_METHOD_NOT_READY: '此付款方式尚未開放於快閃取餐，請選擇其他已開放的付款方式。',
+  POPUP_PAYMENT_METHOD_NOT_ALLOWED: '此付款方式不適用於快閃取餐，請選擇其他付款方式。',
+  POPUP_INTERNAL_ERROR: '系統發生錯誤，請稍後再試。',
+};
+// 遇到這些 code 時，代表場次/商品/付款狀態已經改變：保留購物車、fresh
+// reload session，但絕不自動重新送單（規格六）。
+const POPUP_CHECKOUT_RELOAD_CODES=new Set([
+  'POPUP_SESSION_NOT_ORDERABLE','POPUP_SESSION_FULL','POPUP_PRODUCT_NOT_AVAILABLE',
+  'POPUP_PRODUCT_NOT_IN_SESSION','POPUP_PRODUCT_SOLD_OUT','POPUP_PAYMENT_METHOD_NOT_READY',
+]);
+
+async function submitPopupCheckout(){
+  // 規格五：單一 in-flight、double-click/Enter 重複觸發只會真正送出一次。
+  if(_popupCheckoutInFlight) return;
+  const validation=popupValidateCheckout();
+  if(!validation.ok) return; // 按鈕本身理論上已經 disabled，這裡是最後一道防線
+  const sessionCodeAtSubmit=popupSession.public_code;
+  const myCheckoutGen=++_popupCheckoutGeneration;
+  _popupCheckoutInFlight=true;
+  _popupCheckoutError=null;
+  renderPopupSessionScreen();
+  try{
+    const items=(popupCart.items||[]).filter((it)=>it.qty>0).map((it)=>({ product_id:it.product_id, qty:it.qty }));
+    // 規格四：payload 只包含這幾個欄位，不含 store_id/name/price/subtotal/
+    // total/地點/session state/quota/內部 card 代碼。
+    const payload={
+      popup_session_public_code: sessionCodeAtSubmit,
+      customer_name: popupCart.customer_name.trim(),
+      customer_phone: popupCart.customer_phone,
+      payment_method: popupCart.payment_method,
+      items,
+    };
+    if(popupCart.note && popupCart.note.trim()) payload.note=popupCart.note.trim();
+    const res=await popupApiPost('/api/line-orders/popup-checkout', payload);
+    const json=await res.json().catch(()=>({}));
+    // 規格五：checkout generation 跟 refresh(load) generation 分開比對——
+    // 如果使用者在送單期間切換到別的 session，這裡的 myCheckoutGen 仍然是
+    //「當時那次送單」的世代，跟目前的 _popupCheckoutGeneration 或
+    // popupSession.public_code 不吻合時，這個 response 就不該再套用到畫面。
+    if(myCheckoutGen!==_popupCheckoutGeneration || !popupSession || popupSession.public_code!==sessionCodeAtSubmit) return;
+    if(res.status===201 && json.success && json.data && json.data.order_number && json.data.popup_session_public_code){
+      renderPopupCheckoutSuccess(json.data);
+      // 規格五：只清除「這個 session」的 popup cart key；不動一般 cart，
+      // 也不動其他 popup session 的 cart。成功後決定：連同姓名/電話/付款
+      // 草稿一起清空（訂單已完成，不留下可能被誤重複送出的殘留草稿）。
+      try{ localStorage.removeItem(popupCartStorageKey(sessionCodeAtSubmit)); }catch(e){}
+      popupCart=popupEmptyCart(sessionCodeAtSubmit);
+      return;
+    }
+    // 非成功或 malformed 201：一律保留購物車，不清除任何欄位。
+    const code=(json && json.error) || 'POPUP_INTERNAL_ERROR';
+    _popupCheckoutError=POPUP_CHECKOUT_ERROR_ALLOWLIST[code] || '系統發生錯誤，請稍後再試。';
+    renderPopupSessionScreen();
+    if(POPUP_CHECKOUT_RELOAD_CODES.has(code)){
+      // 場次/商品/付款狀態已改變：fresh reload，但不自動重送。
+      loadPopupDirectSession(sessionCodeAtSubmit);
+    }
+  }catch(e){
+    if(myCheckoutGen!==_popupCheckoutGeneration) return;
+    // network/未知例外：一般錯誤，不洩漏例外文字本身，也不自動 retry。
+    _popupCheckoutError='網路異常，請稍後再試一次。';
+    renderPopupSessionScreen();
+  }finally{
+    if(myCheckoutGen===_popupCheckoutGeneration) _popupCheckoutInFlight=false;
+  }
+}
+
+// 規格五：成功畫面完全使用後端 response snapshot（order_number/日期時間/
+// 地點/items/total），不使用送出當時的 request payload 或 localStorage
+// 裡的任何值——即使兩者理論上該一致，畫面上顯示的權威來源只能是 response。
+function renderPopupCheckoutSuccess(data){
+  const root=popupRootEl();
+  root.textContent='';
+  const wrap=document.createElement('div');
+  wrap.setAttribute('aria-live','polite');
+  const title=document.createElement('h2');
+  title.textContent='訂購成功';
+  wrap.appendChild(title);
+  const orderP=document.createElement('p');
+  orderP.textContent=`訂單編號：${data.order_number}`;
+  wrap.appendChild(orderP);
+  const timeP=document.createElement('p');
+  timeP.textContent=`取貨時間：${data.pickup_date||''} ${data.pickup_start_time||''}-${data.pickup_end_time||''}`;
+  wrap.appendChild(timeP);
+  if(data.place_name || data.address){
+    const locP=document.createElement('p');
+    locP.textContent=`地點：${data.place_name||''} ${data.address||''} ${data.address_note||''}`.trim();
+    wrap.appendChild(locP);
+  }
+  const itemsList=document.createElement('ul');
+  (Array.isArray(data.items) ? data.items : []).forEach((it)=>{
+    const li=document.createElement('li');
+    li.textContent=`商品 #${it.product_id} x${it.qty}`;
+    itemsList.appendChild(li);
+  });
+  wrap.appendChild(itemsList);
+  const totalP=document.createElement('p');
+  totalP.textContent=`總計：NT$${data.total}`;
+  wrap.appendChild(totalP);
+  root.appendChild(wrap);
+}
+
+function renderPopupEntryPicker(kindLabel, sessions){
+  const root=popupRootEl();
+  root.textContent='';
+  const wrap=document.createElement('div');
+  wrap.setAttribute('aria-live','polite');
+  const title=document.createElement('h2');
+  title.textContent=(popupCampaign&&popupCampaign.name) || kindLabel;
+  wrap.appendChild(title);
+  if(!sessions || sessions.length===0){
+    const empty=document.createElement('p');
+    empty.textContent='目前沒有可訂購的場次';
+    wrap.appendChild(empty);
+  }else{
+    const list=document.createElement('ul');
+    sessions.forEach((s)=>{
+      const li=document.createElement('li');
+      const btn=document.createElement('button');
+      btn.type='button';
+      btn.textContent=`${s.name||''}（${s.pickup_date||''} ${s.pickup_start_time||''}）`;
+      btn.setAttribute('data-session-code', s.public_code);
+      // 規格七：只把 public_code 記下來，選中後一律重新呼叫 direct session
+      // detail 端點，不把這個列表摘要（沒有商品/付款方式）當作權威資料。
+      btn.addEventListener('click', ()=>{ loadPopupDirectSession(s.public_code); });
+      li.appendChild(btn);
+      list.appendChild(li);
+    });
+    wrap.appendChild(list);
+  }
+  root.appendChild(wrap);
+}
+
+async function loadPopupDirectSession(sessionPublicCode){
+  _popupLastRetryFn=()=>loadPopupDirectSession(sessionPublicCode);
+  // 規格八（競態防護）：generation token——只有目前仍是「最新一次」的
+  // 呼叫，await 回來後才允許真的套用結果／畫面渲染；較舊的呼叫即使比較晚
+  // resolve，也會在這裡被直接丟棄，不會覆蓋掉更新的 response。
+  const myGen=++popupLoadGeneration;
+  popupLoading=true;
+  renderPopupLoading();
+  try{
+    const res=await popupApiFetch('/api/line-orders/popup-session/'+encodeURIComponent(sessionPublicCode));
+    const json=await res.json().catch(()=>({}));
+    if(myGen!==popupLoadGeneration) return; // 已經有更新的呼叫，這次結果整份丟棄
+    if(!res.ok || !json.success){
+      popupError={ code:(json&&json.error)||'POPUP_SESSION_NOT_FOUND', message:'此快閃場次不存在或目前不可用' };
+      renderPopupError(popupError.message);
+      return;
+    }
+    popupSession=json.data;
+    popupCampaign=json.data.campaign||popupCampaign;
+    popupProducts=Array.isArray(json.data.products) ? json.data.products : [];
+    popupPaymentMethods=Array.isArray(json.data.payment_methods) ? json.data.payment_methods : [];
+    const loaded=loadPopupCart(popupSession.public_code);
+    const { cart, notices }=reconcilePopupCartWithFreshProducts(loaded, popupProducts);
+    popupCart=cart;
+    savePopupCart(popupSession.public_code, popupCart);
+    popupError=null;
+    renderPopupSessionScreen();
+    registerPopupRefreshListeners();
+    if(notices.length){
+      // 規格九：停售移除／qty 縮減必須提示，這裡用最小可行方式接到既有
+      // toast()（畫面用途，不影響已經寫回 storage 的購物車內容）。
+      try{ if(typeof toast==='function') toast('部分商品已異動，購物車已自動更新'); }catch(e){}
+    }
+    // 規格六：verified recovery entry 成功 fresh 載入 session 後，才啟動
+    // popup cart restore 流程（只在這裡觸發一次，refresh/重新整理不會重複
+    // 觸發已經處理過的 restore）。一般匿名 popup entry 的 popupRecoveryContext
+    // 永遠是 { active:false }，這個條件永遠不成立，完全不會呼叫任何
+    // restore API。
+    if(popupRecoveryContext.active && !popupRecoveryContext.restoreAttempted && popupRecoveryContext.popupSessionPublicCode===popupSession.public_code){
+      popupRecoveryContext={ ...popupRecoveryContext, restoreAttempted:true };
+      triggerPopupCartRestoreFlow();
+    }
+  }catch(e){
+    if(myGen!==popupLoadGeneration) return;
+    popupError={ code:'POPUP_INIT_ERROR', message:'快閃取貨頁面暫時無法載入，請稍後再試' };
+    renderPopupError(popupError.message);
+  }finally{
+    if(myGen===popupLoadGeneration) popupLoading=false;
+  }
+}
+
+// 規格八：popup 專用 refresh controller——pageshow／focus／visibilitychange
+// 回到 visible 時重新 fresh fetch 目前這個 session；只在 popup context 註冊
+// 一次（initPopup 完成 direct session 載入後才呼叫，不會在一般頁生效，因為
+// 一般頁的 init() 從未呼叫過 initPopup()/loadPopupDirectSession()）。多個
+// 事件幾乎同時觸發時，用短暫 debounce 合併成一次真正的 fetch，避免重複
+// request；重新整理不會清除購物車（loadPopupDirectSession 本身只在
+// fresh fetch 成功後才 reconcile，不會主動清空 popupCart）。
+let popupRefreshListenersRegistered=false;
+let _popupRefreshDebounceTimer=null;
+function _popupTriggerRefresh(){
+  if(!popupSession || !popupSession.public_code) return;
+  if(_popupRefreshDebounceTimer) clearTimeout(_popupRefreshDebounceTimer);
+  _popupRefreshDebounceTimer=setTimeout(()=>{
+    _popupRefreshDebounceTimer=null;
+    loadPopupDirectSession(popupSession.public_code);
+  }, 50);
+}
+function registerPopupRefreshListeners(){
+  if(popupRefreshListenersRegistered) return;
+  popupRefreshListenersRegistered=true;
+  window.addEventListener('pageshow', _popupTriggerRefresh);
+  window.addEventListener('focus', _popupTriggerRefresh);
+  document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') _popupTriggerRefresh(); });
+}
+
+async function loadPopupCampaignEntry(campaignPublicCode){
+  _popupLastRetryFn=()=>loadPopupCampaignEntry(campaignPublicCode);
+  popupLoading=true;
+  renderPopupLoading();
+  try{
+    const res=await popupApiFetch('/api/line-orders/popup-campaign/'+encodeURIComponent(campaignPublicCode));
+    const json=await res.json().catch(()=>({}));
+    if(!res.ok || !json.success){
+      popupError={ code:(json&&json.error)||'POPUP_CAMPAIGN_NOT_FOUND', message:'此快閃活動不存在或目前不可用' };
+      renderPopupError(popupError.message);
+      return;
+    }
+    popupCampaign=json.data;
+    popupSessions=Array.isArray(json.data.sessions) ? json.data.sessions : [];
+    renderPopupEntryPicker('快閃活動', popupSessions);
+  }catch(e){
+    popupError={ code:'POPUP_INIT_ERROR', message:'快閃取貨頁面暫時無法載入，請稍後再試' };
+    renderPopupError(popupError.message);
+  }finally{
+    popupLoading=false;
+  }
+}
+
+// 規格三：唯一允許明確帶 store_id 的入口——已在 resolvePopupEntryContext()
+// 驗證過非空字串，這裡不做任何 fallback（絕不 fallback 'store_001'）。
+async function loadPopupStoreEntry(storeId){
+  _popupLastRetryFn=()=>loadPopupStoreEntry(storeId);
+  popupLoading=true;
+  renderPopupLoading();
+  try{
+    const res=await popupApiFetch('/api/line-orders/popup-entry?store_id='+encodeURIComponent(storeId));
+    const json=await res.json().catch(()=>({}));
+    if(!res.ok || !json.success || !json.data || json.data.enabled===false){
+      popupError={ code:'POPUP_ENTRY_NOT_AVAILABLE', message:'此店家目前沒有可訂購的快閃活動' };
+      renderPopupError(popupError.message);
+      return;
+    }
+    const campaigns=Array.isArray(json.data.campaigns) ? json.data.campaigns : [];
+    popupSessions=campaigns.reduce((acc,c)=>acc.concat(Array.isArray(c.sessions)?c.sessions:[]), []);
+    renderPopupEntryPicker('快閃取貨', popupSessions);
+  }catch(e){
+    popupError={ code:'POPUP_INIT_ERROR', message:'快閃取貨頁面暫時無法載入，請稍後再試' };
+    renderPopupError(popupError.message);
+  }finally{
+    popupLoading=false;
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// H1.4.12 Phase 3B（Popup Recovery Identity Landing — 精簡版選項 2）
+//
+// 短效、同分頁 sessionStorage handoff：唯一負責把「LIFF landing 已經驗證過
+// 的 member_session」安全跨頁帶到 /popup-order，本身不是身分權威——後端
+// /api/cart-recovery/resolve-target 收到 member_session 後仍會重新驗證。
+// 不使用 localStorage（不永久保存）、不把 member_session 放進 URL、不信任
+// 任何 client 自稱的 store_id。
+// ══════════════════════════════════════════════════════════════════════
+let popupRecoveryContext={ active:false, recoveryToken:null, memberSession:null, popupSessionPublicCode:null, restoreAttempted:false };
+
+const POPUP_RECOVERY_ENVELOPE_VERSION=1;
+const POPUP_RECOVERY_ENVELOPE_TTL_MS=5*60*1000; // 規格：TTL 最長 5 分鐘
+
+function popupRecoveryHandoffKey(handoffId){
+  return 'line_popup_recovery_identity_v1_'+encodeURIComponent(String(handoffId||''));
+}
+
+function _b64urlFromBytes(bytes){
+  let bin='';
+  bytes.forEach((b)=>{ bin+=String.fromCharCode(b); });
+  return btoa(bin).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+
+// 規格二：至少 128-bit 隨機度，一律用 Web Crypto getRandomValues()，絕不用
+// Date.now()／Math.random() 之類可推測的來源。
+function _generatePopupRecoveryHandoffId(){
+  const bytes=new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return _b64urlFromBytes(bytes);
+}
+
+async function _sha256Hex(rawString){
+  const data=new TextEncoder().encode(String(rawString||''));
+  const digestBuf=await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(digestBuf)).map((b)=>b.toString(16).padStart(2,'0')).join('');
+}
+
+// 規格二：envelope 只允許這幾個欄位——不含 raw token、不含 store_id/
+// line_user_id/cart/order/價格/付款資料。由 LIFF landing 呼叫，寫入
+// sessionStorage 後回傳 handoff id（供組進導向 /popup-order 的網址）。
+async function createPopupRecoveryHandoff(memberSession, popupSessionPublicCode, rawRecoveryToken){
+  if(typeof memberSession!=='string' || !memberSession) return null;
+  if(typeof popupSessionPublicCode!=='string' || !popupSessionPublicCode) return null;
+  if(typeof rawRecoveryToken!=='string' || !rawRecoveryToken) return null;
+  const handoffId=_generatePopupRecoveryHandoffId();
+  const digest=await _sha256Hex(rawRecoveryToken);
+  const now=Date.now();
+  const envelope={
+    version:POPUP_RECOVERY_ENVELOPE_VERSION,
+    member_session:memberSession,
+    popup_session_public_code:popupSessionPublicCode,
+    recovery_token_sha256:digest,
+    created_at:now,
+    expires_at:now+POPUP_RECOVERY_ENVELOPE_TTL_MS,
+  };
+  try{
+    sessionStorage.setItem(popupRecoveryHandoffKey(handoffId), JSON.stringify(envelope));
+  }catch(e){ return null; }
+  return handoffId;
+}
+
+// 規格二／四：讀取後立即刪除該 key（無論成功或失敗），嚴格驗證每個欄位的
+// 型別/非空/時間範圍，session code 與 raw token 的 SHA-256 都必須完全比對
+// 得上，任何一項不符一律 fail closed。絕不主動掃描其他 sessionStorage key。
+async function consumePopupRecoveryHandoff(handoffId, urlSessionCode, rawRecoveryToken){
+  if(typeof handoffId!=='string' || !handoffId) return { ok:false, reason:'missing_handoff' };
+  const key=popupRecoveryHandoffKey(handoffId);
+  let raw=null;
+  try{ raw=sessionStorage.getItem(key); }catch(e){ return { ok:false, reason:'storage_unavailable' }; }
+  try{ sessionStorage.removeItem(key); }catch(e){ /* 就算刪除失敗也不影響後續判斷結果 */ }
+  if(!raw) return { ok:false, reason:'not_found' };
+  let envelope;
+  try{ envelope=JSON.parse(raw); }catch(e){ return { ok:false, reason:'malformed_json' }; }
+  if(!envelope || typeof envelope!=='object' || Array.isArray(envelope)) return { ok:false, reason:'malformed_json' };
+  if(envelope.version!==POPUP_RECOVERY_ENVELOPE_VERSION) return { ok:false, reason:'unknown_version' };
+  if(typeof envelope.member_session!=='string' || !envelope.member_session) return { ok:false, reason:'missing_field' };
+  if(typeof envelope.popup_session_public_code!=='string' || !envelope.popup_session_public_code) return { ok:false, reason:'missing_field' };
+  if(typeof envelope.recovery_token_sha256!=='string' || !/^[0-9a-f]{64}$/.test(envelope.recovery_token_sha256)) return { ok:false, reason:'missing_field' };
+  if(typeof envelope.created_at!=='number' || !Number.isFinite(envelope.created_at) || envelope.created_at<=0) return { ok:false, reason:'missing_field' };
+  if(typeof envelope.expires_at!=='number' || !Number.isFinite(envelope.expires_at) || envelope.expires_at<=0) return { ok:false, reason:'missing_field' };
+  const now=Date.now();
+  const CLOCK_SKEW_TOLERANCE_MS=5000;
+  if(envelope.created_at > now+CLOCK_SKEW_TOLERANCE_MS) return { ok:false, reason:'future_timestamp' };
+  if(envelope.expires_at <= envelope.created_at) return { ok:false, reason:'invalid_ttl' };
+  if(envelope.expires_at - envelope.created_at > POPUP_RECOVERY_ENVELOPE_TTL_MS+1000) return { ok:false, reason:'invalid_ttl' };
+  if(envelope.expires_at < now) return { ok:false, reason:'expired' };
+  if(envelope.popup_session_public_code !== urlSessionCode) return { ok:false, reason:'session_mismatch' };
+  const actualDigest=await _sha256Hex(rawRecoveryToken);
+  if(actualDigest !== envelope.recovery_token_sha256) return { ok:false, reason:'digest_mismatch' };
+  return { ok:true, memberSession:envelope.member_session, popupSessionPublicCode:envelope.popup_session_public_code };
+}
+
+async function initPopup(entryCtx){
+  popupEntryContextResult=entryCtx;
+  if(entryCtx.malformed || !entryCtx.popupEntryType){
+    popupError={ code:'POPUP_MALFORMED_ENTRY', message:'快閃取貨連結不正確或已失效' };
+    renderPopupError(popupError.message);
+    return;
+  }
+  if(entryCtx.isRecoveryEntry){
+    return initPopupRecoveryLanding(entryCtx);
+  }
+  if(entryCtx.popupEntryType==='recovery_landing'){
+    return initPopupRecoveryLiffLanding(entryCtx);
+  }
+  if(entryCtx.popupEntryType==='session') return loadPopupDirectSession(entryCtx.popupEntryCode);
+  if(entryCtx.popupEntryType==='campaign') return loadPopupCampaignEntry(entryCtx.popupEntryCode);
+  if(entryCtx.popupEntryType==='store') return loadPopupStoreEntry(entryCtx.popupStoreId);
+  popupError={ code:'POPUP_MALFORMED_ENTRY', message:'快閃取貨連結不正確或已失效' };
+  renderPopupError(popupError.message);
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// H1.4.12 Phase 3B（Popup Recovery Identity Landing）：LIFF landing 階段。
+//
+// 這是 buildRecoveryUrl() 產生的 LIFF URL 實際打開的那一刻（帶
+// recovery_token + popup_session，兩者都還沒有 recovery_handoff）。這裡
+// 只做「拿到已驗證的 member_session → 呼叫 /resolve-target → 建立 handoff
+// → location.replace() 導向最終 recovery entry」，絕不啟動一般 /shop、
+// /menu、timeslots、coupon、delivery fee、Maps 或一般 WebSocket（本檔案
+// 頂層已經用 POPUP_ENTRY_CONTEXT 統一擋掉，這裡不需要、也不應該重複判斷）。
+//
+// 已知架構缺口（見本回合 Reality Audit 回報）：取得 member_session 目前
+// 唯一的既有管道是 /api/line-member/verify，而那個端點是用
+// requireStore（需要一個已知 store_id）掛載的——popup 依設計原則從不讓
+// client 知道 store_id。這裡把「取得 member_session」獨立成
+// _acquirePopupRecoveryMemberSession()，讓這個已知缺口有一個明確、單一、
+// 可以之後替換實作的入口，不在這裡用任何降級方式（token-only／visitor
+// id／client 自稱 line_user_id）繞過去。目前這個函式在缺口未解決前一律
+// 回傳 null，landing 會安全顯示「身分驗證功能尚未完成」錯誤，不會假裝
+// 成功、不會 consume token、不會寫入任何 cart。
+// ══════════════════════════════════════════════════════════════════════
+// H1.4.12 Phase 3B（Popup Recovery Cart Restore／Reconcile）：
+// prepare → client 防禦性 reconcile → 寫入 session cart key → round-trip
+// 驗證 → commit。任何一步失敗都保留現況、不 commit、不覆蓋既有 cart。
+// ══════════════════════════════════════════════════════════════════════
+let popupRestoreUI={ stage:'idle', preparedReceipt:null, preparedSessionCode:null, preparedCanonicalCartDigest:null, commitInFlight:false, committed:false, error:null };
+
+async function triggerPopupCartRestoreFlow(){
+  const existing=loadPopupCart(popupSession.public_code);
+  if(existing.items && existing.items.length>0){
+    // 規格六：既有非空 popup cart 時，不得自動覆蓋——必須讓使用者明確選擇。
+    popupRestoreUI={ stage:'conflict', prepared:null, error:null };
+    renderPopupCartConflictChoice();
+    return;
+  }
+  return proceedWithPopupCartRestore();
+}
+
+function renderPopupCartConflictChoice(){
+  const root=popupRootEl();
+  root.textContent='';
+  const wrap=document.createElement('div');
+  wrap.setAttribute('aria-live','polite');
+  wrap.setAttribute('role','group');
+  wrap.setAttribute('aria-label','購物車恢復選擇');
+  const msg=document.createElement('p');
+  msg.textContent='這個場次目前已經有購物車內容。要使用之前恢復的購物車，還是保留目前的購物車？';
+  wrap.appendChild(msg);
+  const useBtn=document.createElement('button');
+  useBtn.type='button';
+  useBtn.textContent='使用恢復的購物車';
+  useBtn.setAttribute('aria-label','使用恢復的購物車，取代目前購物車');
+  useBtn.addEventListener('click', ()=>{ proceedWithPopupCartRestore(); });
+  const keepBtn=document.createElement('button');
+  keepBtn.type='button';
+  keepBtn.textContent='保留目前購物車';
+  keepBtn.setAttribute('aria-label','保留目前購物車，不套用恢復內容');
+  keepBtn.addEventListener('click', ()=>{ keepExistingPopupCart(); });
+  wrap.appendChild(useBtn);
+  wrap.appendChild(keepBtn);
+  root.appendChild(wrap);
+}
+
+function keepExistingPopupCart(){
+  // 規格六：選「保留目前購物車」——不寫 recovery cart、不 commit token
+  // （token 仍是 opened，理論上可以稍後重新嘗試 restore，但這次 landing
+  // 就此結束，維持目前畫面）。
+  popupRestoreUI={ stage:'idle', preparedReceipt:null, preparedSessionCode:null, preparedCanonicalCartDigest:null, commitInFlight:false, committed:false, error:null };
+  renderPopupSessionScreen();
+}
+
+let _popupRestoreInFlight=false;
+async function proceedWithPopupCartRestore(){
+  if(_popupRestoreInFlight) return; // 規格七：Double-click 最多一個 pipeline
+  _popupRestoreInFlight=true;
+  const sessionCodeAtStart=popupSession.public_code;
+  const genAtStart=popupLoadGeneration;
+  popupRestoreUI={ stage:'restoring', preparedReceipt:null, preparedSessionCode:null, preparedCanonicalCartDigest:null, commitInFlight:false, committed:false, error:null };
+  popupRenderTextScreen(['正在恢復您的購物車…'], { busy:true });
+  try{
+    const prepRes=await popupApiPost('/api/cart-recovery/prepare-popup-restore', {
+      recovery_token: popupRecoveryContext.recoveryToken,
+      member_session: popupRecoveryContext.memberSession,
+      popup_session_public_code: popupRecoveryContext.popupSessionPublicCode,
+    });
+    const prepJson=await prepRes.json().catch(()=>({}));
+    // 規格：session 已經切換（generation 改變）時，這次 prepare 的結果整份丟棄，
+    // 不覆蓋已經切換過去的新畫面/新 session 狀態。
+    if(genAtStart!==popupLoadGeneration || !popupSession || popupSession.public_code!==sessionCodeAtStart) return;
+    if(prepRes.status===400 && prepJson && prepJson.reason==='invalid_snapshot'){
+      // 規格一：快照本身不可信（資料毀損），不是「reconcile 後合法變空」。
+      // 絕不能顯示成「購物車是空的」或提供空購物車確認按鈕——那樣會讓
+      // 使用者誤以為自己原本就沒放東西，進而確認掉一個其實是資料毀損的
+      // 快照。這裡改用明確、不同的錯誤訊息，並且沿用一般錯誤重試路徑
+      // （重新 prepare，不會顯示任何「確認空購物車」的選項）。
+      popupRestoreUI={ stage:'failed', preparedReceipt:null, preparedSessionCode:null, preparedCanonicalCartDigest:null, commitInFlight:false, committed:false, error:'原始購物車資料無法辨識，恢復失敗，請聯繫店家協助處理。' };
+      renderPopupSessionScreen();
+      return;
+    }
+    if(!prepJson || prepJson.success!==true || !prepJson.data || typeof prepJson.data.restore_receipt!=='string' || !Array.isArray(prepJson.data.items)){
+      popupRestoreUI={ stage:'failed', preparedReceipt:null, preparedSessionCode:null, preparedCanonicalCartDigest:null, commitInFlight:false, committed:false, error:'恢復購物車時發生問題，請稍後再試。' };
+      renderPopupSessionScreen();
+      return;
+    }
+    // 規格六：對 server canonical items 再做一次 client 端防禦性 reconcile
+    // ——只能刪除/降低數量，絕不能增加 server 沒有回傳的商品或數量。
+    const serverItems=prepJson.data.items;
+    const clampedItems=serverItems
+      .map((it)=>{
+        const fresh=(popupProducts||[]).find((p)=>p.product_id===it.product_id);
+        if(!fresh || fresh.sold_out) return null;
+        let qty=Math.min(it.qty, fresh.remaining_qty==null ? it.qty : fresh.remaining_qty);
+        if(!Number.isSafeInteger(qty) || qty<=0) return null;
+        return { product_id:it.product_id, qty };
+      })
+      .filter(Boolean);
+
+    const digest=JSON.stringify(clampedItems.slice().sort((a,b)=>a.product_id-b.product_id));
+    const persistResult=await persistRecoveredPopupCartStrict(sessionCodeAtStart, { items:clampedItems });
+    if(genAtStart!==popupLoadGeneration || !popupSession || popupSession.public_code!==sessionCodeAtStart) return;
+    if(!persistResult.ok){
+      // 規格四：任何一步失敗，storage／runtime 已經在
+      // persistRecoveredPopupCartStrict() 內部 rollback 回寫入前的原始值，
+      // 這裡只需要保留 receipt 供重試、顯示安全錯誤，不得顯示成功。
+      popupRestoreUI={ stage:'failed', preparedReceipt:prepJson.data.restore_receipt, preparedSessionCode:sessionCodeAtStart, preparedCanonicalCartDigest:digest, commitInFlight:false, committed:false, error:'瀏覽器無法安全保存購物車，請重試或重新整理頁面。' };
+      renderPopupSessionScreen();
+      return;
+    }
+
+    if(clampedItems.length===0){
+      // 規格五：所有商品都失效時，prepare 可回空 canonical cart，但不得
+      // 自動 commit——讓使用者確認空購物車狀態。
+      popupRestoreUI={ stage:'empty-confirm', preparedReceipt:prepJson.data.restore_receipt, preparedSessionCode:sessionCodeAtStart, preparedCanonicalCartDigest:digest, commitInFlight:false, committed:false, error:null };
+      renderPopupSessionScreen();
+      return;
+    }
+
+    popupRestoreUI={ stage:'restoring', preparedReceipt:prepJson.data.restore_receipt, preparedSessionCode:sessionCodeAtStart, preparedCanonicalCartDigest:digest, commitInFlight:false, committed:false, error:null };
+    await _commitPopupCartRestore();
+  }catch(e){
+    if(genAtStart!==popupLoadGeneration || !popupSession || popupSession.public_code!==sessionCodeAtStart) return;
+    popupRestoreUI={ stage:'failed', preparedReceipt:null, preparedSessionCode:null, preparedCanonicalCartDigest:null, commitInFlight:false, committed:false, error:'恢復購物車時發生問題，請稍後再試。' };
+    renderPopupSessionScreen();
+  }finally{
+    _popupRestoreInFlight=false;
+  }
+}
+
+// 規格六：唯一真正呼叫 commit-popup-restore 的地方，供 proceedWithPopupCartRestore()
+// 首次呼叫，也供 retryPopupCartRestoreCommit() 重試呼叫——沿用同一份邏輯，
+// 不重複維護兩套 commit 呼叫方式。
+async function _commitPopupCartRestore(){
+  popupRestoreUI={ ...popupRestoreUI, commitInFlight:true };
+  try{
+    const commitRes=await popupApiPost('/api/cart-recovery/commit-popup-restore', {
+      restore_receipt: popupRestoreUI.preparedReceipt,
+      member_session: popupRecoveryContext.memberSession,
+      popup_session_public_code: popupRecoveryContext.popupSessionPublicCode,
+    });
+    const commitJson=await commitRes.json().catch(()=>({}));
+    if(!commitJson || commitJson.success!==true || (commitJson.data && commitJson.data.consumed!==true)){
+      popupRestoreUI={ ...popupRestoreUI, stage:'commit-failed', commitInFlight:false, error:'購物車已載入，但恢復確認尚未完成，請重試。' };
+      renderPopupSessionScreen();
+      return;
+    }
+    popupRestoreUI={ ...popupRestoreUI, stage:'done', commitInFlight:false, committed:true, error:null };
+    renderPopupSessionScreen();
+    try{ if(typeof toast==='function') toast('購物車已恢復'); }catch(e){}
+  }catch(e){
+    popupRestoreUI={ ...popupRestoreUI, stage:'commit-failed', commitInFlight:false, error:'購物車已載入，但恢復確認尚未完成，請重試。' };
+    renderPopupSessionScreen();
+  }
+}
+
+// commit 失敗後的重試：沿用同一張 preparedReceipt，絕不重新 prepare（不
+// 會產生第二張 receipt、不會重新覆蓋 cart、不會重新顯示 conflict 選擇）。
+// session 已經切換（generation 或 session code 改變）時，舊的 retry state
+// 直接視為失效，不得用舊 receipt 對新 session commit。
+async function retryPopupCartRestoreCommit(){
+  if(_popupRestoreInFlight) return; // 規格：double-click retry 只允許一個 active commit
+  if(!popupRestoreUI.preparedReceipt || popupRestoreUI.committed) return;
+  if(!popupSession || popupSession.public_code!==popupRestoreUI.preparedSessionCode){
+    // 資料已經變更（切換了 session）：清除 retry state，不得用舊 receipt commit。
+    popupRestoreUI={ stage:'idle', preparedReceipt:null, preparedSessionCode:null, preparedCanonicalCartDigest:null, commitInFlight:false, committed:false, error:'資料已變更，請重新整理後再試一次。' };
+    renderPopupSessionScreen();
+    return;
+  }
+  _popupRestoreInFlight=true;
+  try{
+    await _commitPopupCartRestore();
+  }finally{
+    _popupRestoreInFlight=false;
+  }
+}
+
+// H1.4.12 Phase 3B（Popup Recovery LIFF Member Bootstrap — Corrective
+// Increment，已解決架構缺口）：透過新增的兩個 token-scoped 端點
+// （/api/cart-recovery/liff-config、/api/cart-recovery/bootstrap-member）
+// 完成真正的 LIFF 登入＋LINE 身分驗證＋member_session 簽發，不使用
+// token-only、visitor id 或 client 自稱的 line_user_id。
+function _popupRecoveryLiffSdkPromise(){
+  if(window.liff) return Promise.resolve(window.liff);
+  if(_popupRecoveryLiffSdkPromiseCache) return _popupRecoveryLiffSdkPromiseCache;
+  _popupRecoveryLiffSdkPromiseCache=new Promise((resolve, reject)=>{
+    const s=document.createElement('script');
+    s.src='https://static.line-scdn.net/liff/edge/2/sdk.js';
+    s.onload=()=>resolve(window.liff);
+    s.onerror=()=>reject(new Error('LIFF SDK load failed'));
+    document.head.appendChild(s);
+  });
+  return _popupRecoveryLiffSdkPromiseCache;
+}
+let _popupRecoveryLiffSdkPromiseCache=null;
+
+async function _acquirePopupRecoveryMemberSession(rawRecoveryToken){
+  try{
+    // 1/2：只在 recovery landing 呼叫，raw token 已經由 entryCtx 傳入，
+    // 不重新讀網址（網址上這個參數已經被最早的 IIFE 清除）。
+    // 3：取得 token-bound 的 popup 專用 LIFF ID（store 完全由後端從 token
+    // 反查，這裡完全不知道、也不需要知道 store_id）。
+    const liffConfigRes=await popupApiPost('/api/cart-recovery/liff-config', { recovery_token:rawRecoveryToken });
+    const liffConfigJson=await liffConfigRes.json().catch(()=>({}));
+    if(!liffConfigJson || liffConfigJson.success!==true || !liffConfigJson.data || typeof liffConfigJson.data.liff_id!=='string' || !liffConfigJson.data.liff_id){
+      return null; // fail closed：缺少 popup 專用 LIFF 設定時不 fallback 任何降級路徑
+    }
+    const liffId=liffConfigJson.data.liff_id;
+
+    // 4：liff.init()。
+    const liff=await _popupRecoveryLiffSdkPromise();
+    await liff.init({ liffId });
+
+    // 5：未登入時才呼叫 liff.login()，redirectUri 固定用目前這個（已經
+    // scrub 過 token/handoff 的）landing 網址本身，不接受任何其他導向值，
+    // 也不在這裡帶 member session。
+    if(!liff.isLoggedIn()){
+      liff.login({ redirectUri: window.location.href });
+      // liff.login() 會離開頁面（真實瀏覽器導向 LINE 登入），這裡沒有
+      // 「登入完成後」可以接著執行的同步路徑，直接回傳 null 讓目前這次
+      // landing 安全結束；使用者從 LINE 登入導回同一個 landing URL 後，
+      // 會是全新的一次 initPopup() 呼叫，liff.isLoggedIn() 屆時才會是 true。
+      return null;
+    }
+
+    // 6：取得已登入使用者的 LINE ID Token（由 LIFF SDK 簽發，後端會用
+    // LINE 官方 verify API 重新驗證，這裡不自行 decode 或信任其內容）。
+    const idToken=liff.getIDToken ? liff.getIDToken() : null;
+    if(!idToken) return null;
+
+    // 7/8：呼叫 bootstrap-member，只送 recovery_token + line_id_token。
+    const bootstrapRes=await popupApiPost('/api/cart-recovery/bootstrap-member', { recovery_token:rawRecoveryToken, line_id_token:idToken });
+    const bootstrapJson=await bootstrapRes.json().catch(()=>({}));
+    if(!bootstrapJson || bootstrapJson.success!==true || !bootstrapJson.data || typeof bootstrapJson.data.member_session!=='string' || !bootstrapJson.data.member_session){
+      return null;
+    }
+    return bootstrapJson.data.member_session;
+  }catch(e){
+    return null;
+  }
+}
+
+// 規格六：用 location.replace()，不把含 token 的網址留在 history。獨立成
+// 一個小函式而不是直接寫 window.location.replace(url)，純粹是為了讓自動化
+// 測試可以在不改變任何實際導向行為/時機的前提下驗證「導去了哪裡」（jsdom
+// 對 Location.replace 是不可覆寫的原生實作，無法在測試裡直接觀察呼叫參數）；
+// production 行為完全等同直接呼叫 window.location.replace(url)。
+function _popupNavigateTo(url){
+  window.location.replace(url);
+}
+
+async function initPopupRecoveryLiffLanding(entryCtx){
+  popupRootEl().textContent='';
+  popupRenderTextScreen(['正在驗證您的身分…'], { busy:true });
+  const rawToken=entryCtx.recoveryToken;
+  try{
+    const memberSession=await _acquirePopupRecoveryMemberSession(rawToken);
+    if(!memberSession){
+      popupError={ code:'POPUP_RECOVERY_IDENTITY_UNAVAILABLE', message:'身分驗證功能尚未完成，請改由原本的點餐連結進入。' };
+      renderPopupError(popupError.message);
+      return;
+    }
+    const res=await fetch('/api/cart-recovery/resolve-target', {
+      method:'POST', headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({ recovery_token:rawToken, member_session:memberSession }),
+    });
+    const json=await res.json().catch(()=>({}));
+    // 規格四第 5／9／10 點：只接受後端回傳、經過 allowlist 產生的
+    // targetPath；client 端的 popupSessionCodeClaim（entryCtx 裡未驗證的
+    // popup_session 宣稱值）只能用於 landing 畫面文字，絕不能用來決定要
+    // 導去哪裡，也絕不 fallback 到任何未驗證網址。
+    if(!json || json.success!==true || !json.data || json.data.page_type!=='popup_order' || !json.data.popup_session_public_code || typeof json.data.target_path!=='string'){
+      popupError={ code:'POPUP_RECOVERY_INVALID', message:'此恢復連結已失效或不正確，請重新從原提醒訊息開啟。' };
+      renderPopupError(popupError.message);
+      return;
+    }
+    const serverSessionCode=json.data.popup_session_public_code;
+    const handoffId=await createPopupRecoveryHandoff(memberSession, serverSessionCode, rawToken);
+    if(!handoffId){
+      popupError={ code:'POPUP_RECOVERY_INVALID', message:'此裝置目前無法完成身分驗證流程，請稍後再試。' };
+      renderPopupError(popupError.message);
+      return;
+    }
+    const nextUrl='/popup-order'
+      +'?session='+encodeURIComponent(serverSessionCode)
+      +'&recovery_token='+encodeURIComponent(rawToken)
+      +'&recovery_handoff='+encodeURIComponent(handoffId);
+    // 規格六：用 location.replace()，不把含 token 的網址留在 history。
+    _popupNavigateTo(nextUrl);
+  }catch(e){
+    popupError={ code:'POPUP_RECOVERY_INVALID', message:'身分驗證過程發生問題，請重新從原提醒訊息開啟。' };
+    renderPopupError(popupError.message);
+  }
+}
+
+// 規格四：Recovery entry 進來的第一件事永遠是立刻用 history.replaceState()
+// 把 recovery_token／recovery_handoff 從網址移除（保留 session），確保
+// raw token 不會留在 address bar、之後的 navigation 或錯誤畫面裡；不論
+// envelope 驗證結果如何都要先做這一步。
+function initPopupRecoveryLanding(entryCtx){
+  const sessionCode=entryCtx.popupEntryCode;
+  const rawToken=entryCtx.recoveryToken;
+  const handoffId=entryCtx.recoveryHandoff;
+  try{
+    const scrubbed=new URLSearchParams(window.location.search||'');
+    scrubbed.delete('recovery_token');
+    scrubbed.delete('recovery_handoff');
+    scrubbed.set('session', sessionCode);
+    const nextUrl=window.location.pathname+'?'+scrubbed.toString();
+    window.history.replaceState(null, '', nextUrl);
+  }catch(e){ /* replaceState 失敗不可阻擋後續驗證，但 raw token 就只能停留在記憶體變數裡，不再重複讀網址 */ }
+
+  return consumePopupRecoveryHandoff(handoffId, sessionCode, rawToken).then((result)=>{
+    if(!result.ok){
+      popupRecoveryContext={ active:false, recoveryToken:null, memberSession:null, popupSessionPublicCode:null };
+      popupError={ code:'POPUP_RECOVERY_INVALID', message:'此恢復連結已失效或不正確，請重新從原提醒訊息開啟。' };
+      renderPopupError(popupError.message);
+      return;
+    }
+    // 規格五：只放進這裡的 runtime 記憶體變數，不寫入一般 localStorage
+    // key、不寫入 line_member_session_${store_id}、不寫入 URL、不寫入
+    // 一般或 popup 專用 cart。
+    popupRecoveryContext={
+      active:true,
+      recoveryToken:rawToken,
+      memberSession:result.memberSession,
+      popupSessionPublicCode:result.popupSessionPublicCode,
+      restoreAttempted:false,
+    };
+    return loadPopupDirectSession(result.popupSessionPublicCode);
+  });
+}
+
+// 模組載入時就先算好一次（純函式、無副作用），init() 與檔案最下方的
+// loadGoogleMapsScript()／WSS 連線都要看這個值來決定要不要繼續一般流程。
+const POPUP_ENTRY_CONTEXT=resolvePopupEntryContext();
+
 // ── 初始化 ──────────────────────────────────────────────
 async function init(){
+  // 規格四／五：popup guard 必須是整個 init() 的第一件事，在 LINE Pay
+  // redirect 處理、一般 /shop、/menu、timeslot、coupon、delivery fee、
+  // 標準 cart restore 之前就分流，不得讓一般畫面先短暫出現。
+  if(POPUP_ENTRY_CONTEXT.entryContext==='popup'){
+    return initPopup(POPUP_ENTRY_CONTEXT);
+  }
   // ── LINE Pay redirect 結果處理 ──────────────────────
   const _lpP=new URLSearchParams(window.location.search);
   if(_lpP.get('linepay')==='success'){
+
     // hotfix22-F：LINE Pay 付款成功才是唯一清空購物車的時機之一，這裡才真正清除 localStorage
     clearCartStorage();
     document.getElementById('loading').style.display='none';
@@ -5895,7 +7383,7 @@ async function loadGoogleMapsScript(){
 }
 
 init();
-loadGoogleMapsScript();
+if(POPUP_ENTRY_CONTEXT.entryContext!=='popup') loadGoogleMapsScript();
 </script>
 
 <script>
@@ -5953,8 +7441,8 @@ loadGoogleMapsScript();
     ws.onclose=()=>{const d=Math.min(1000*Math.pow(2,_retry++),30000);setTimeout(connect,d);};
     ws.onerror=()=>ws.close();
   }
-  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',connect);
-  else connect();
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>{ if(typeof POPUP_ENTRY_CONTEXT==='undefined'||POPUP_ENTRY_CONTEXT.entryContext!=='popup') connect(); });
+  else if(typeof POPUP_ENTRY_CONTEXT==='undefined'||POPUP_ENTRY_CONTEXT.entryContext!=='popup') connect();
 })();
 </script>
 <script>
@@ -5965,6 +7453,9 @@ loadGoogleMapsScript();
 // 已拒絕過的使用者反覆彈出。
 (function () {
   if (typeof GeoLiveCoordinate === 'undefined') return; // 腳本載入失敗時安靜跳過，不影響點餐流程
+  // Phase 3B：popup context 完全不需要外送地址定位輔助，且這裡會用到可能
+  // fallback 成 'store_001' 的 LINE_STORE_ID——一併排除，避免任何歧義。
+  if (typeof POPUP_ENTRY_CONTEXT!=='undefined' && POPUP_ENTRY_CONTEXT.entryContext==='popup') return;
   GeoLiveCoordinate.init({
     storeId: LINE_STORE_ID,
     getVisitorId: _getVisitorId,

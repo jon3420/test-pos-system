@@ -2015,6 +2015,79 @@ function initTables(w) {
     w._save();
   } catch(e) { console.warn('[DB] line_cart_handoff_tokens F8-B index:', e.message); }
 
+  // H1.4.12 Phase 3B（Popup Recovery Identity Bridge，經核准的第三方案）：
+  // additive、冪等 migration，只給 purpose='recovery_resume' 且
+  // recovery_page_type='popup_order' 的 row 使用。不改動既有欄位語意、不
+  // 影響任何舊 row（預設 NULL，向後相容視為「非 popup」）。刻意不新增獨立
+  // 資料表——這一個欄位足以把 recovery token 綁定到「建立當下、經伺服器驗證
+  // 過的」快閃場次 public_code，其餘身分驗證（member_session/line_user_id/
+  // expiry/one-time consume）完全沿用既有欄位與既有規則，不重複造一套。
+  try {
+    w._db.run("ALTER TABLE line_cart_handoff_tokens ADD COLUMN popup_session_public_code TEXT DEFAULT NULL");
+    w._save();
+  } catch(e) {}
+  try {
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_lcht_popup_session ON line_cart_handoff_tokens(store_id, popup_session_public_code)');
+    w._save();
+  } catch(e) { console.warn('[DB] line_cart_handoff_tokens popup_session_public_code index:', e.message); }
+
+  // H1.4.12 Phase 3B（Popup Recovery Cart Restore／Reconcile — 兩階段
+  // prepare/commit，經核准設計）：獨立新表，不擴充 line_cart_handoff_tokens
+  // 既有欄位語意。只存 receipt 的 SHA-256 hash，不存 raw receipt 本身
+  // （跟 recovery token 明文保存的既有慣例不同——這裡刻意更嚴格，因為
+  // receipt 本身在 prepare 之後、commit 之前這段時間視同「已通過身分驗證
+  // 的暫時憑證」）。additive、冪等（CREATE TABLE IF NOT EXISTS）。
+  try {
+    w._db.run(`CREATE TABLE IF NOT EXISTS popup_restore_receipts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      receipt_hash TEXT NOT NULL UNIQUE,
+      store_id TEXT NOT NULL,
+      token_id INTEGER NOT NULL,
+      line_user_id TEXT NOT NULL,
+      popup_session_public_code TEXT NOT NULL,
+      cart_digest TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'prepared',
+      issued_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      consumed_at TEXT DEFAULT ''
+    )`);
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_prr_token ON popup_restore_receipts(token_id)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_prr_store ON popup_restore_receipts(store_id)');
+    w._save();
+  } catch(e) { console.warn('[DB] popup_restore_receipts:', e.message); }
+
+  // H1.4.12 Phase 3B（Cart Restore Final Corrective Verification）：DB 層級
+  // 不變量——同一個 recovery token 最多只能有一筆 status='prepared' 的
+  // receipt。single-process 同步 transaction（見 utils/popupRestore.js 的
+  // BEGIN/COMMIT）是目前唯一已證明的並行邊界；這個 partial unique index
+  // 是額外一層、DB 自己強制執行的保險，不是取代前者，也不構成「已證明
+  // multi-instance/multi-process 安全」的證據——多實例部署仍需要外部
+  // single-writer 或 DB 層級鎖，這裡不宣稱已經解決那個問題。
+  //
+  // 建立 index 前，先安全掃描是否已經存在重複的 prepared rows（理論上
+  // 不該發生，但如果曾經有過在這個修正之前的資料，必須 fail closed 並
+  // 明確記錄，不能靜默刪除或忽略衝突資料、也不能讓 index 建立失敗就悄悄
+  // 跳過保護）。這個區塊刻意「不」用 try/catch 吞掉例外——這是一個安全
+  // 不變量，不是一般可以容忍失敗、印個 warning 就繼續開機的 migration；
+  // 發現衝突資料或 CREATE INDEX 本身失敗都必須讓 initDb() 整個 throw，
+  // 讓應用啟動失敗，而不是在沒有這個 DB 不變量保護的情況下繼續運作。
+  {
+    const dupRows = w._db.exec(
+      `SELECT token_id, COUNT(*) as c FROM popup_restore_receipts WHERE status='prepared' GROUP BY token_id HAVING c > 1`
+    );
+    const hasDup = dupRows && dupRows[0] && dupRows[0].values && dupRows[0].values.length > 0;
+    if (hasDup) {
+      const detail = JSON.stringify(dupRows[0].values);
+      console.error('[DB] FATAL：popup_restore_receipts 發現重複的 prepared receipt（同一 token_id 有 >1 筆），拒絕啟動，需要人工排查：', detail);
+      throw new Error('popup_restore_receipts has duplicate status=prepared rows for the same token_id; refusing to start without the DB-level uniqueness invariant. Conflicting token_id/count: ' + detail);
+    }
+    // CREATE INDEX 本身失敗（非 duplicate-data 原因，例如 SQL 語法或
+    // sql.js 版本問題）同樣不得被吞掉——沒有成功建立這個不變量，就不能
+    // 假裝系統已經受到保護。
+    w._db.run("CREATE UNIQUE INDEX IF NOT EXISTS idx_prr_token_single_prepared ON popup_restore_receipts(token_id) WHERE status='prepared'");
+    w._save();
+  }
+
   // ── line_member_history：CRM Timeline（好友歷程／購買歷程等事件流水帳）───
   w._db.run(`CREATE TABLE IF NOT EXISTS line_member_history (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2512,6 +2585,10 @@ function initTables(w) {
   _initGeoLiveCoordinatesTable(w);
   // fix18-10-hotfix30-B5-R5.4-G1-C｜座標同意狀態稽核表
   _initGeoCoordinateStatusLogTable(w);
+
+  // H1.4.12｜快閃取餐排程中心 — Phase 1：資料表 + orders 相容欄位
+  _initPopupPickupTables(w);
+  _runPopupPickupOrdersMigration(w);
 }
 
 
@@ -2778,6 +2855,576 @@ function _initGa4GeoSyncRunsTable(w) {
     w._db.run('CREATE INDEX IF NOT EXISTS idx_ga4geo_syncruns_store_type ON ga4_geo_sync_runs(store_id, sync_type, started_at_utc)');
     w._save();
   } catch (e) { console.warn('[DB] ga4_geo_sync_runs table:', e.message); }
+}
+
+// ============================================================
+// H1.4.12｜快閃取餐排程中心 × 多日期多地點場次 — Phase 1 / Phase 1.1 資料模型
+//
+// 原則（沿用專案既有 safe migration 慣例）：
+//   - 新表一律 CREATE TABLE IF NOT EXISTS + CREATE INDEX IF NOT EXISTS。
+//   - orders 既有欄位一律不動；只用 try/catch ALTER TABLE ADD COLUMN 補新欄位。
+//   - 絕不 DROP / 重建 / 清空既有 orders、settings、products 或任何既有資料表。
+//   - 所有新表都以 store_id 隔離，不使用 tenant_id（沿用專案既有慣例）。
+//   - 六張表逐一在 Reality Audit 中確認過現有結構（settings 的 key-value、
+//     既有 pickup_*_snapshot 欄位、既有 line_cart_handoff_tokens 等）皆無法
+//     安全承載「多場次、多地點、每場次獨立商品份數與競態安全扣減」的需求，
+//     因此六張表全部必要，細節見 H1.4.12_POPUP_PICKUP_DATA_MODEL.md。
+//
+// Phase 1.1 修正（見 H1.4.12_PHASE1_1_CORRECTION_REPORT.md）：
+//   1. popup_session_products.product_id / popup_order_allocations.product_id
+//      改為 INTEGER NOT NULL（對齊 products.id 型別）。若偵測到 Phase 1
+//      checkpoint 留下的舊版 TEXT schema，就地重建保留資料（settings 表
+//      複合 PK 重建的同一套手法：CREATE ..._new → 搬移資料 → DROP → RENAME）；
+//      若既有資料混有非整數值，明確拋錯，不靜默略過、不刪資料。
+//   2. popup_order_allocations 新增 UNIQUE(store_id, session_id, order_id,
+//      product_id) 資料庫層唯一保護；建立前先檢查既有重複，重複則明確拋錯。
+//   3. popup_pickup_enabled 改為對「目前資料庫裡所有 store」逐一 seed（而非
+//      寫死 store_001），已存在的值一律不覆蓋。
+//   4. 移除吞掉所有錯誤的外層大 try/catch：各建表/修復步驟失敗會直接向上
+//      拋出（讓 initDb() 明確失敗），並在整個 migration 結尾做 schema
+//      postcondition 驗證，任何缺漏一律拋錯，不允許「看起來啟動成功但其實
+//      漏了一部分」。
+// ============================================================
+
+function _popupMigrationStep(label, fn) {
+  try {
+    fn();
+  } catch (e) {
+    // 不吞錯誤：補上是哪一個 migration 步驟失敗的上下文後，原樣向上拋出，
+    // 讓 initDb() 明確失敗，而不是印一行 warning 就當作啟動成功。
+    const err = new Error(`[H1.4.12 popup pickup migration] 步驟「${label}」失敗：${e.message}`);
+    err.cause = e;
+    throw err;
+  }
+}
+
+function _initPopupPickupTables(w) {
+  _popupMigrationStep('popup_campaigns 建表', () => {
+    w._db.run(`CREATE TABLE IF NOT EXISTS popup_campaigns (
+      id            TEXT PRIMARY KEY,
+      store_id      TEXT NOT NULL,
+      public_code   TEXT NOT NULL,
+      name          TEXT NOT NULL DEFAULT '',
+      description   TEXT NOT NULL DEFAULT '',
+      image_url     TEXT NOT NULL DEFAULT '',
+      status        TEXT NOT NULL DEFAULT 'draft',
+      sort_order    INTEGER NOT NULL DEFAULT 0,
+      created_at    TEXT DEFAULT (datetime('now','localtime')),
+      updated_at    TEXT DEFAULT (datetime('now','localtime'))
+    )`);
+    w._save();
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_popup_campaigns_store ON popup_campaigns(store_id, status, sort_order)');
+    w._save();
+  });
+  _popupMigrationStep('popup_campaigns public_code 精確唯一索引驗證／修復', () => {
+    _ensureExactUniqueIndex(w, {
+      indexName: 'idx_popup_campaigns_public_code',
+      table: 'popup_campaigns',
+      columns: ['public_code'],
+      findDuplicatesSql: `SELECT public_code, COUNT(*) as c FROM popup_campaigns GROUP BY public_code HAVING COUNT(*) > 1`,
+    });
+  });
+
+  _popupMigrationStep('popup_locations 建表', () => {
+    w._db.run(`CREATE TABLE IF NOT EXISTS popup_locations (
+      id            TEXT PRIMARY KEY,
+      store_id      TEXT NOT NULL,
+      name          TEXT NOT NULL DEFAULT '',
+      place_id      TEXT NOT NULL DEFAULT '',
+      address       TEXT NOT NULL DEFAULT '',
+      address_note  TEXT NOT NULL DEFAULT '',
+      lat           REAL,
+      lng           REAL,
+      active        INTEGER NOT NULL DEFAULT 1,
+      created_at    TEXT DEFAULT (datetime('now','localtime')),
+      updated_at    TEXT DEFAULT (datetime('now','localtime'))
+    )`);
+    w._save();
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_popup_locations_store ON popup_locations(store_id, active)');
+    w._save();
+  });
+
+  _popupMigrationStep('popup_sessions 建表', () => {
+    // 場次地點資料於建立時複製，避免地點庫日後修改靜默變更已發布場次（規格 5.2）。
+    w._db.run(`CREATE TABLE IF NOT EXISTS popup_sessions (
+      id                  TEXT PRIMARY KEY,
+      store_id            TEXT NOT NULL,
+      campaign_id         TEXT NOT NULL,
+      public_code         TEXT NOT NULL,
+      name                TEXT NOT NULL DEFAULT '',
+      pickup_date         TEXT NOT NULL DEFAULT '',
+      pickup_start_time   TEXT NOT NULL DEFAULT '',
+      pickup_end_time     TEXT NOT NULL DEFAULT '',
+      order_open_at       TEXT NOT NULL DEFAULT '',
+      order_cutoff_at     TEXT NOT NULL DEFAULT '',
+      location_id         TEXT NOT NULL DEFAULT '',
+      place_name          TEXT NOT NULL DEFAULT '',
+      place_id            TEXT NOT NULL DEFAULT '',
+      address             TEXT NOT NULL DEFAULT '',
+      address_note        TEXT NOT NULL DEFAULT '',
+      lat                 REAL,
+      lng                 REAL,
+      status              TEXT NOT NULL DEFAULT 'draft',
+      product_scope       TEXT NOT NULL DEFAULT 'all_takeout',
+      max_orders          INTEGER NOT NULL DEFAULT 0,
+      sort_order          INTEGER NOT NULL DEFAULT 0,
+      revision            INTEGER NOT NULL DEFAULT 1,
+      created_at          TEXT DEFAULT (datetime('now','localtime')),
+      updated_at          TEXT DEFAULT (datetime('now','localtime'))
+    )`);
+    w._save();
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_popup_sessions_store ON popup_sessions(store_id, status, pickup_date)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_popup_sessions_campaign ON popup_sessions(campaign_id)');
+    w._save();
+  });
+  _popupMigrationStep('popup_sessions public_code 精確唯一索引驗證／修復', () => {
+    _ensureExactUniqueIndex(w, {
+      indexName: 'idx_popup_sessions_public_code',
+      table: 'popup_sessions',
+      columns: ['public_code'],
+      findDuplicatesSql: `SELECT public_code, COUNT(*) as c FROM popup_sessions GROUP BY public_code HAVING COUNT(*) > 1`,
+    });
+  });
+
+  _popupMigrationStep('popup_session_products 建表／product_id 型別修復（atomic）', () => {
+    _createOrRepairIntegerProductIdTable(w, {
+      table: 'popup_session_products',
+      createSql: `CREATE TABLE IF NOT EXISTS popup_session_products (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        store_id    TEXT NOT NULL,
+        session_id  TEXT NOT NULL,
+        product_id  INTEGER NOT NULL,
+        enabled     INTEGER NOT NULL DEFAULT 1,
+        quota_qty   INTEGER NOT NULL DEFAULT 0,
+        created_at  TEXT DEFAULT (datetime('now','localtime')),
+        updated_at  TEXT DEFAULT (datetime('now','localtime'))
+      )`,
+      // 舊 TEXT schema 重建時要搬移的欄位（順序需對齊 createSql）
+      columns: ['id', 'store_id', 'session_id', 'product_id', 'enabled', 'quota_qty', 'created_at', 'updated_at'],
+      // preflight 碰撞檢查鍵——必須跟下面 idx_popup_session_products_uniq 完全一致
+      uniqueKeyColumns: ['session_id', 'product_id'],
+      // 只有非唯一性、輔助查詢用的 index 在這裡建；唯一索引另外用
+      // _ensureExactUniqueIndex 統一處理（涵蓋「假同名 index」情境）。
+      otherIndexes: [
+        'CREATE INDEX IF NOT EXISTS idx_popup_session_products_store ON popup_session_products(store_id)',
+      ],
+    });
+  });
+  _popupMigrationStep('popup_session_products 精確唯一索引驗證／修復', () => {
+    _ensureExactUniqueIndex(w, {
+      indexName: 'idx_popup_session_products_uniq',
+      table: 'popup_session_products',
+      columns: ['session_id', 'product_id'],
+      findDuplicatesSql: `SELECT session_id, product_id, COUNT(*) as c FROM popup_session_products GROUP BY session_id, product_id HAVING COUNT(*) > 1`,
+    });
+  });
+
+  _popupMigrationStep('popup_order_allocations 建表／product_id 型別修復（atomic）', () => {
+    // status='active' 佔用份數；status='released' 已因取消/作廢釋放。
+    // 冪等釋放：釋放時一律用 UPDATE ... WHERE status='active'，只有真正從
+    // active 轉為 released 的那一次才算成功，重複呼叫不會重複改變任何列
+    // （這只證明「狀態轉換」冪等，不代表已完成份數扣減/負數保護的驗證——
+    // 後者屬於 Phase 3 扣減交易邏輯範圍，見 REALITY_AUDIT 的證據邊界說明）。
+    _createOrRepairIntegerProductIdTable(w, {
+      table: 'popup_order_allocations',
+      createSql: `CREATE TABLE IF NOT EXISTS popup_order_allocations (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        store_id     TEXT NOT NULL,
+        session_id   TEXT NOT NULL,
+        order_id     TEXT NOT NULL,
+        product_id   INTEGER NOT NULL,
+        qty          INTEGER NOT NULL DEFAULT 0,
+        status       TEXT NOT NULL DEFAULT 'active',
+        created_at   TEXT DEFAULT (datetime('now','localtime')),
+        released_at  TEXT NOT NULL DEFAULT ''
+      )`,
+      columns: ['id', 'store_id', 'session_id', 'order_id', 'product_id', 'qty', 'status', 'created_at', 'released_at'],
+      uniqueKeyColumns: ['store_id', 'session_id', 'order_id', 'product_id'],
+      otherIndexes: [
+        'CREATE INDEX IF NOT EXISTS idx_popup_alloc_session_product ON popup_order_allocations(session_id, product_id, status)',
+        'CREATE INDEX IF NOT EXISTS idx_popup_alloc_order ON popup_order_allocations(order_id)',
+        'CREATE INDEX IF NOT EXISTS idx_popup_alloc_store ON popup_order_allocations(store_id)',
+      ],
+    });
+  });
+  _popupMigrationStep('popup_order_allocations 精確唯一索引驗證／修復（store_id+session_id+order_id+product_id）', () => {
+    _ensureExactUniqueIndex(w, {
+      indexName: 'idx_popup_alloc_unique',
+      table: 'popup_order_allocations',
+      columns: ['store_id', 'session_id', 'order_id', 'product_id'],
+      findDuplicatesSql: `
+        SELECT store_id, session_id, order_id, product_id, COUNT(*) as c
+        FROM popup_order_allocations
+        GROUP BY store_id, session_id, order_id, product_id
+        HAVING COUNT(*) > 1
+      `,
+    });
+  });
+
+  _popupMigrationStep('popup_session_change_logs 建表', () => {
+    w._db.run(`CREATE TABLE IF NOT EXISTS popup_session_change_logs (
+      id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+      store_id               TEXT NOT NULL,
+      session_id             TEXT NOT NULL,
+      revision_before        INTEGER NOT NULL DEFAULT 0,
+      revision_after         INTEGER NOT NULL DEFAULT 0,
+      before_json            TEXT NOT NULL DEFAULT '{}',
+      after_json             TEXT NOT NULL DEFAULT '{}',
+      change_reason          TEXT NOT NULL DEFAULT '',
+      affected_order_count   INTEGER NOT NULL DEFAULT 0,
+      created_at             TEXT DEFAULT (datetime('now','localtime'))
+    )`);
+    w._save();
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_popup_change_logs_session ON popup_session_change_logs(session_id, created_at)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_popup_change_logs_store ON popup_session_change_logs(store_id)');
+    w._save();
+  });
+  // 注意：schema postcondition 驗證（含 orders 九欄位）移到
+  // _runPopupPickupOrdersMigration() 執行完之後才做——orders 的九個欄位是在
+  // 那個函式裡才被 ALTER TABLE 加上，這裡（_initPopupPickupTables）只建立
+  // 六張快閃表，此時 orders 欄位還沒補上，太早驗證一定會誤判失敗。
+}
+
+// ── Phase 1.2：canonical 正整數字串判斷 ─────────────────────────────────
+// 只接受「0」或「不含前導零的正整數」，且必須落在 JS 安全整數範圍內（遠小於
+// SQLite INTEGER 實際可容納的 64-bit 範圍，但足以涵蓋任何實際商品 ID，選用
+// 更保守的邊界可避免 CAST 後在 JS 端計算/比較時失真）。明確拒絕：空白、正
+// 負號、小數點、前導零（'01'）、非數字字元、超出安全整數範圍的超長數字。
+const _CANONICAL_INT_RE = /^(0|[1-9][0-9]*)$/;
+function _isCanonicalIntegerString(v) {
+  if (typeof v !== 'string') return false;
+  if (!_CANONICAL_INT_RE.test(v)) return false;
+  const n = Number(v);
+  return Number.isSafeInteger(n) && n >= 0;
+}
+
+// ── Phase 1.2：TEXT → INTEGER 轉換前的完整 preflight ────────────────────
+// 1. 逐筆檢查 product_id 是否為 canonical 正整數字串；只要有一筆不是，明確
+//    拋錯，不嘗試「盡量轉換」。
+// 2. 即使全部 canonical，仍需檢查「轉型後在 uniqueKeyColumns 範圍內是否會
+//    產生重複鍵」——canonical 字串彼此不會碰撞（bijective），但這裡刻意保留
+//    獨立的碰撞檢查作為第二道防線，涵蓋任何 canonical 判斷本身可能有疏漏的
+//    情境，且明確對應規格要求的「驗證轉型後不會產生唯一鍵碰撞」。
+function _preflightIntegerConversion(w, table, uniqueKeyColumns) {
+  const rows = w.all(`SELECT id, product_id FROM ${table}`);
+  const badFormat = rows.filter((r) => !_isCanonicalIntegerString(String(r.product_id)));
+  if (badFormat.length > 0) {
+    const sample = badFormat.slice(0, 5).map((r) => `id=${r.id} product_id=${JSON.stringify(r.product_id)}`).join('; ');
+    throw new Error(
+      `${table} 有 ${badFormat.length} 筆 product_id 不是 canonical 正整數字串` +
+      `（拒絕空白、正負號、小數點、前導零如 '01'、非數字字元、超出安全整數範圍等情況），` +
+      `拒絕自動修復以避免資料損毀或轉型後失真。範例：${sample}。請先人工修正這些資料列後再重跑 migration。`
+    );
+  }
+
+  const groupCols = uniqueKeyColumns.map((c) => (c === 'product_id' ? 'CAST(product_id AS INTEGER)' : c));
+  const dupRows = w.all(`
+    SELECT ${groupCols.join(', ')}, COUNT(*) as c, GROUP_CONCAT(id) as ids
+    FROM ${table}
+    GROUP BY ${groupCols.join(', ')}
+    HAVING COUNT(*) > 1
+  `);
+  if (dupRows.length > 0) {
+    const sample = dupRows.slice(0, 5).map((r) => JSON.stringify(r)).join('; ');
+    throw new Error(
+      `${table} 轉換為 INTEGER 後會在 (${uniqueKeyColumns.join(', ')}) 產生重複鍵` +
+      `（例如不同 product_id 字串表示法碰撞成同一個整數值），拒絕自動修復以避免資料損毀。` +
+      `範例：${sample}。請先人工排查這些資料列後再重跑 migration。`
+    );
+  }
+}
+
+// ── 通用 helper：確保 <table>.product_id 是 INTEGER。────────────────────
+// 三種情況：
+//   A) 表不存在                      → 直接用新版 createSql 建立（INTEGER，一步到位）。
+//   B) 表已存在，product_id 已是 INTEGER → 什麼都不做（idempotent）。
+//   C) 表已存在，product_id 是「明確的 Phase 1 TEXT schema」→ preflight
+//      通過後，在單一 SQLite transaction 內完成整個重建（建新表→搬資料→
+//      驗證筆數與逐列資料→DROP 舊表→RENAME→驗證 schema），任一步驟失敗
+//      皆 ROLLBACK 且不呼叫 _save()，讓磁碟上的檔案維持修復前的狀態。
+//   D) 表已存在，product_id 是 REAL / BLOB / 無型別 / 其他未知型別 → 明確
+//      拋錯，拒絕自動修復（只允許修復明確辨識出的 Phase 1 TEXT schema）。
+//
+// 唯一索引（idx_popup_session_products_uniq / idx_popup_alloc_unique）刻意
+// 不在這裡建立，統一交給呼叫端接續呼叫 _ensureExactUniqueIndex()——這樣
+// 「全新安裝」「已是 INTEGER」「剛修復完成」三條路徑都會經過同一份「假同名
+// index」防護邏輯，不必各自重複實作一次。
+function _createOrRepairIntegerProductIdTable(w, opts) {
+  const { table, createSql, columns, uniqueKeyColumns, otherIndexes } = opts;
+
+  const existing = w.all(`PRAGMA table_info(${table})`);
+  const tableExists = existing.length > 0;
+
+  if (!tableExists) {
+    // 情況 A：全新安裝，直接用 INTEGER 版本建表。
+    w._db.run(createSql);
+    w._save();
+    otherIndexes.forEach((sql) => w._db.run(sql));
+    w._save();
+    return;
+  }
+
+  const productIdMeta = existing.find((c) => String(c.name).toLowerCase() === 'product_id');
+  if (!productIdMeta) {
+    throw new Error(`${table} 已存在但缺少 product_id 欄位，型別未知，無法安全判斷是否需要修復`);
+  }
+  const currentType = String(productIdMeta.type || '').toUpperCase();
+
+  if (currentType === 'INTEGER') {
+    // 情況 B：已經是正確型別，僅確保輔助 index 存在（idempotent）。
+    otherIndexes.forEach((sql) => w._db.run(sql));
+    w._save();
+    return;
+  }
+
+  if (currentType !== 'TEXT') {
+    // 情況 D：REAL / BLOB / 無型別 / 其他未知 schema——不是本函式能辨識的
+    // 「明確 Phase 1 TEXT schema」，一律拒絕自動修復。
+    throw new Error(
+      `${table}.product_id 目前型別為 ${currentType || '(無型別)'}，不是已知的 Phase 1 TEXT schema，` +
+      `拒絕自動修復（只允許修復明確辨識出的 TEXT → INTEGER 情境，避免對未知 schema 做出錯誤假設）。`
+    );
+  }
+
+  // 情況 C：偵測到明確的 Phase 1 TEXT schema，開始 preflight + atomic 重建。
+  console.warn(`[DB] ${table}: 偵測到 product_id 為 Phase 1 舊版 TEXT 型別，開始 preflight 檢查...`);
+  _preflightIntegerConversion(w, table, uniqueKeyColumns);
+  console.warn(`[DB] ${table}: preflight 通過，開始 atomic 重建為 INTEGER...`);
+
+  const newTable = `${table}_new_h1412`;
+  w._db.run('BEGIN');
+  try {
+    try { w._db.run(`DROP TABLE IF EXISTS ${newTable}`); } catch {}
+
+    const newCreateSql = createSql.replace(new RegExp(`CREATE TABLE IF NOT EXISTS ${table}`), `CREATE TABLE ${newTable}`);
+    w._db.run(newCreateSql);
+
+    const colList = columns.join(', ');
+    const selectList = columns.map((c) => (c === 'product_id' ? 'CAST(product_id AS INTEGER)' : c)).join(', ');
+    w._db.run(`INSERT INTO ${newTable} (${colList}) SELECT ${selectList} FROM ${table}`);
+
+    // 驗證搬移筆數。
+    const oldCount = w.get(`SELECT COUNT(*) as c FROM ${table}`).c;
+    const newCount = w.get(`SELECT COUNT(*) as c FROM ${newTable}`).c;
+    if (oldCount !== newCount) {
+      throw new Error(`資料搬移筆數不符：舊表 ${oldCount} 筆，新表 ${newCount} 筆`);
+    }
+
+    // 驗證逐列資料（不只驗證筆數）：以 id 為鍵，比對每個欄位（product_id 用
+    // CAST 後比較）在新表中是否完全一致，任何缺漏或不一致都視為失敗。
+    const rowCheckConds = columns
+      .map((c) => (c === 'product_id' ? `n.product_id IS NOT CAST(o.product_id AS INTEGER)` : `n.${c} IS NOT o.${c}`))
+      .join(' OR ');
+    const mismatch = w.get(`
+      SELECT COUNT(*) as c FROM ${table} o
+      LEFT JOIN ${newTable} n ON n.id = o.id
+      WHERE n.id IS NULL OR (${rowCheckConds})
+    `).c;
+    if (mismatch > 0) {
+      throw new Error(`資料搬移逐列驗證失敗：有 ${mismatch} 筆資料在新表中缺漏或欄位值不一致`);
+    }
+
+    w._db.run(`DROP TABLE ${table}`);
+    w._db.run(`ALTER TABLE ${newTable} RENAME TO ${table}`);
+
+    otherIndexes.forEach((sql) => w._db.run(sql));
+
+    // 交易內再次驗證型別（RENAME 後表名已還原成原名）。
+    const afterMeta = w.all(`PRAGMA table_info(${table})`);
+    const afterProductId = afterMeta.find((c) => String(c.name).toLowerCase() === 'product_id');
+    if (!afterProductId || String(afterProductId.type || '').toUpperCase() !== 'INTEGER') {
+      throw new Error(`${table} 重建後 product_id 型別驗證失敗，目前型別為 ${afterProductId ? afterProductId.type : '(欄位遺失)'}`);
+    }
+
+    w._db.run('COMMIT');
+  } catch (e) {
+    try { w._db.run('ROLLBACK'); } catch (e2) { /* ROLLBACK 本身失敗也不掩蓋原始錯誤 */ }
+    throw e;
+  }
+  // 只有 COMMIT 成功後才落地寫檔；任何失敗都在 ROLLBACK 之後拋出，此時記憶體
+  // 內的 sql.js Database 已經還原成交易前狀態，且因為還沒呼叫過 _save()，
+  // 磁碟上的檔案完全沒被觸碰，原表型別／資料／索引維持修復前原樣。
+  w._save();
+  console.warn(`[DB] ${table}: product_id 型別修復完成並已 commit，schema 已為 INTEGER`);
+}
+
+// ── Phase 1.2：index 精確定義查詢 helper（table/unique/欄位順序/欄位名稱）──
+function _getIndexActualDefinition(w, table, indexName) {
+  const list = w.all(`PRAGMA index_list(${table})`);
+  const found = list.find((r) => r.name === indexName);
+  if (!found) return null;
+  const info = w.all(`PRAGMA index_info(${indexName})`).slice().sort((a, b) => a.seqno - b.seqno);
+  return { unique: Number(found.unique) === 1, columns: info.map((r) => r.name) };
+}
+function _indexDefinitionMatches(actual, expectedColumns) {
+  if (!actual || !actual.unique) return false;
+  if (actual.columns.length !== expectedColumns.length) return false;
+  return actual.columns.every((c, i) => c === expectedColumns[i]);
+}
+
+// ── Phase 1.2：確保「精確定義」的 UNIQUE index 存在——不只看名稱。────────
+// 若同名 index 已存在但定義不符（非 UNIQUE、欄位數/順序/名稱不對，例如被
+// 舊版程式或人為操作建立的「假同名 index」)，DROP INDEX 本身不會遺失任何
+// 資料列（index 只是加速查詢用的衍生結構），因此可以安全地先 DROP 再依照
+// 期望定義重建；重建前一樣要先檢查底層資料有沒有重複，避免建出一個「看起
+// 來是 UNIQUE，但其實建立當下就選擇性忽略了重複資料」的假象。
+function _ensureExactUniqueIndex(w, opts) {
+  const { indexName, table, columns, findDuplicatesSql } = opts;
+  const actual = _getIndexActualDefinition(w, table, indexName);
+  if (_indexDefinitionMatches(actual, columns)) return; // 已經完全正確，idempotent no-op
+
+  if (actual) {
+    console.warn(
+      `[DB] index ${indexName}（table=${table}）定義不符期望：實際 unique=${actual.unique}, columns=[${actual.columns.join(',')}]，` +
+      `期望 unique=true, columns=[${columns.join(',')}]。DROP INDEX 不會遺失資料列，準備安全重建...`
+    );
+    w._db.run(`DROP INDEX ${indexName}`);
+  }
+
+  const dupRows = w.all(findDuplicatesSql);
+  if (dupRows.length > 0) {
+    const sample = dupRows.slice(0, 5).map((r) => JSON.stringify(r)).join('; ');
+    throw new Error(
+      `${table} 存在 ${dupRows.length} 組重複的 (${columns.join(', ')})，無法建立/修復 UNIQUE index ${indexName}，` +
+      `不會自動刪除任何資料。請先人工排查衝突資料。範例：${sample}`
+    );
+  }
+
+  w._db.run(`CREATE UNIQUE INDEX ${indexName} ON ${table}(${columns.join(', ')})`);
+  w._save();
+}
+
+// ── schema postcondition：啟動完成時必須確認六張表、必要 index（含精確定義：
+//    表、UNIQUE、欄位順序與名稱，不只看名稱是否存在）、orders 九欄位全部
+//    存在，任何缺漏一律拋錯（不允許「看起來啟動成功但其實漏了一部分」）。──
+function _verifyPopupPickupSchemaPostcondition(w) {
+  const requiredTables = [
+    'popup_campaigns', 'popup_locations', 'popup_sessions',
+    'popup_session_products', 'popup_order_allocations', 'popup_session_change_logs',
+  ];
+  const existingTables = new Set(w.all("SELECT name FROM sqlite_master WHERE type='table'").map((r) => r.name));
+  const missingTables = requiredTables.filter((t) => !existingTables.has(t));
+  if (missingTables.length > 0) {
+    throw new Error(`popup pickup schema postcondition 失敗：缺少資料表 ${missingTables.join(', ')}`);
+  }
+
+  const requiredUniqueIndexes = [
+    { name: 'idx_popup_campaigns_public_code', table: 'popup_campaigns', columns: ['public_code'] },
+    { name: 'idx_popup_sessions_public_code', table: 'popup_sessions', columns: ['public_code'] },
+    { name: 'idx_popup_session_products_uniq', table: 'popup_session_products', columns: ['session_id', 'product_id'] },
+    { name: 'idx_popup_alloc_unique', table: 'popup_order_allocations', columns: ['store_id', 'session_id', 'order_id', 'product_id'] },
+  ];
+  requiredUniqueIndexes.forEach(({ name, table, columns }) => {
+    const actual = _getIndexActualDefinition(w, table, name);
+    if (!actual) {
+      throw new Error(`popup pickup schema postcondition 失敗：缺少 index ${name}（table=${table}）`);
+    }
+    if (!_indexDefinitionMatches(actual, columns)) {
+      throw new Error(
+        `popup pickup schema postcondition 失敗：index ${name}（table=${table}）定義不符，` +
+        `實際 unique=${actual.unique} columns=[${actual.columns.join(',')}]，` +
+        `期望 unique=true columns=[${columns.join(',')}]`
+      );
+    }
+  });
+
+  const spCols = w.all('PRAGMA table_info(popup_session_products)');
+  const spProductId = spCols.find((c) => String(c.name).toLowerCase() === 'product_id');
+  if (!spProductId || String(spProductId.type || '').toUpperCase() !== 'INTEGER') {
+    throw new Error('popup pickup schema postcondition 失敗：popup_session_products.product_id 不是 INTEGER');
+  }
+
+  const allocCols = w.all('PRAGMA table_info(popup_order_allocations)');
+  const allocProductId = allocCols.find((c) => String(c.name).toLowerCase() === 'product_id');
+  if (!allocProductId || String(allocProductId.type || '').toUpperCase() !== 'INTEGER') {
+    throw new Error('popup pickup schema postcondition 失敗：popup_order_allocations.product_id 不是 INTEGER');
+  }
+
+  const orderCols = new Set(w.all('PRAGMA table_info(orders)').map((c) => c.name));
+  const requiredOrderCols = [
+    'pickup_type', 'popup_campaign_id', 'popup_session_id',
+    'popup_campaign_name_snapshot', 'popup_session_name_snapshot',
+    'popup_session_public_code_snapshot', 'popup_pickup_date_snapshot',
+    'popup_pickup_start_time_snapshot', 'popup_pickup_end_time_snapshot',
+  ];
+  const missingOrderCols = requiredOrderCols.filter((c) => !orderCols.has(c));
+  if (missingOrderCols.length > 0) {
+    throw new Error(`popup pickup schema postcondition 失敗：orders 缺少欄位 ${missingOrderCols.join(', ')}`);
+  }
+}
+
+// ── orders 向下相容欄位（規格 5.7）——安全、可重複執行的 ALTER TABLE，
+//    絕不影響既有一般外帶／外送訂單資料；backfill 只補「目前是空值」的列，
+//    重複執行不會覆蓋已經被本功能寫入過的 pickup_type。──────────────
+function _runPopupPickupOrdersMigration(w) {
+  const popupOrderCols = [
+    ['pickup_type',                          "TEXT DEFAULT ''"],
+    ['popup_campaign_id',                    "TEXT DEFAULT ''"],
+    ['popup_session_id',                     "TEXT DEFAULT ''"],
+    ['popup_campaign_name_snapshot',         "TEXT DEFAULT ''"],
+    ['popup_session_name_snapshot',          "TEXT DEFAULT ''"],
+    ['popup_session_public_code_snapshot',   "TEXT DEFAULT ''"],
+    ['popup_pickup_date_snapshot',           "TEXT DEFAULT ''"],
+    ['popup_pickup_start_time_snapshot',     "TEXT DEFAULT ''"],
+    ['popup_pickup_end_time_snapshot',       "TEXT DEFAULT ''"],
+  ];
+  popupOrderCols.forEach(([col, def]) => {
+    try { w._db.run(`ALTER TABLE orders ADD COLUMN ${col} ${def}`); w._save(); } catch {}
+  });
+
+  // Backfill（規格 5.7）：
+  //   舊外帶訂單 → pickup_type='store'
+  //   舊外送訂單 → pickup_type=''（維持空字串，不得誤標成門市自取）
+  // 條件限定 pickup_type 目前為空字串/NULL 時才補，天然具備重複執行安全性：
+  // 未來由快閃流程建立的訂單會在寫入當下就明確帶入 pickup_type='popup'，
+  // 不會被這段 backfill 覆蓋。
+  _popupMigrationStep('orders backfill（舊外帶）', () => {
+    w._db.run(`
+      UPDATE orders SET pickup_type='store'
+      WHERE (pickup_type IS NULL OR pickup_type='')
+        AND order_mode='takeout'
+    `);
+    w._save();
+  });
+
+  _popupMigrationStep('orders backfill（舊外送）', () => {
+    // 明確排除快閃訂單自己（保險：即使 order_mode 誤植為 delivery 也不動 popup 訂單）。
+    w._db.run(`
+      UPDATE orders SET pickup_type=''
+      WHERE order_mode='delivery'
+        AND (popup_session_id IS NULL OR popup_session_id='')
+        AND pickup_type != ''
+        AND pickup_type != 'popup'
+    `);
+    w._save();
+  });
+
+  _popupMigrationStep('orders popup index', () => {
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_orders_popup_session ON orders(store_id, popup_session_id)');
+    w._db.run('CREATE INDEX IF NOT EXISTS idx_orders_pickup_type ON orders(store_id, pickup_type)');
+    w._save();
+  });
+
+  // 快閃取餐總開關（規格 7.4，Phase 1.1 修正）：對「目前資料庫裡所有 store」
+  // 逐一 seed 預設值 '0'（INSERT OR IGNORE，已存在的值一律不覆蓋）。未來透過
+  // routes/superAdmin.js 建立的新店家，該路由本身也會在建立當下直接 seed
+  // 一次（見 routes/superAdmin.js 的 sd('popup_pickup_enabled','0')），不需
+  // 等到下次伺服器重啟才補上。正式的 line_order feature-gate 白名單／管理
+  // API 邏輯留到 Phase 2 實作 routes/popup-pickup.js 時一併處理。
+  _popupMigrationStep('popup_pickup_enabled 全店 seed', () => {
+    const stores = w.all('SELECT store_id FROM stores');
+    stores.forEach((row) => {
+      const sid = row.store_id;
+      if (!sid) return;
+      w._db.run("INSERT OR IGNORE INTO settings (store_id,key,value) VALUES (?, 'popup_pickup_enabled', '0')", [sid]);
+    });
+    w._save();
+  });
+
+  // 全部欄位/表/index 都處理完後，最後做一次完整 schema postcondition 驗證。
+  _popupMigrationStep('schema postcondition 驗證', () => {
+    _verifyPopupPickupSchemaPostcondition(w);
+  });
 }
 
 module.exports = { getDb, initDb };

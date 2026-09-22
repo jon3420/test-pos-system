@@ -846,29 +846,69 @@ router.post('/:id/void', (req, res) => {
     if (!reason?.trim()) return res.status(400).json({ success: false, message: '作廢原因為必填' });
 
     const items = typeof order.items === 'string' ? JSON.parse(order.items) : order.items;
-    db.run(
-      `INSERT INTO order_logs (store_id,order_id,order_number,action,reason,operator,before_data,after_data,
-         before_total,after_total,amount_diff,before_payment,after_payment,
-         before_received,after_received,before_change,after_change)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [storeId, order.id, order.order_number, 'void', reason.trim(), operator,
-       order.items, order.items,
-       Number(order.total), 0, -Number(order.total),
-       order.payment_method, order.payment_method,
-       Number(order.received_amount || 0), 0, Number(order.change_amount || 0), 0]
-    );
-    // hotfix13-BUG5：改用共用的回補函式（同時支援食材配方商品 + 秤重庫存商品），
-    // 跟取消訂單（PATCH /:id/status）、LINE 訂單取消用同一套回補規則
-    restockOrderItems(db, items, order.order_number || order.id, storeId, '訂單作廢回補');
-
-    // hotfix13-BUG6：LinePay 已付款訂單作廢 → 待退款，不當作單純作廢結案
+    const isPopupOrder = order.pickup_type === 'popup';
     const needsRefund = requiresRefundOnCancel(order);
-    db.run(
-      `UPDATE orders SET status='void',order_status='cancelled',void_reason=?,voided_at=datetime('now','localtime'),
-         ${needsRefund ? "refund_status='pending_refund'," : ''}
-         updated_at=datetime('now','localtime') WHERE id=? AND store_id=?`,
-      [reason.trim(), order.id, storeId]
-    );
+
+    if (isPopupOrder && order.popup_session_id) {
+      // H1.4.12 Phase 3A.2 修正：popup 訂單作廢時，order_log + 訂單狀態變更 +
+      // allocation release 必須是同一個 raw BEGIN/COMMIT transaction。交易內
+      // 完全使用 db._db.run()（不會自行 _save()），COMMIT 成功後才手動呼叫
+      // 一次 db._save()。任一步驟失敗都 ROLLBACK 並往外拋出例外（外層
+      // try/catch 轉成 500），不吞錯誤、不回傳假成功。popup 訂單本來就不
+      // 跑 restockOrderItems()（見上方 Phase 3A.1 說明），所以這個分支完全
+      // 不需要處理一般庫存回補。
+      const { releasePopupOrderAllocations } = require('../utils/popupCheckout');
+      db._db.run('BEGIN');
+      try {
+        db._db.run(
+          `INSERT INTO order_logs (store_id,order_id,order_number,action,reason,operator,before_data,after_data,
+             before_total,after_total,amount_diff,before_payment,after_payment,
+             before_received,after_received,before_change,after_change)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          [storeId, order.id, order.order_number, 'void', reason.trim(), operator,
+           order.items, order.items,
+           Number(order.total), 0, -Number(order.total),
+           order.payment_method, order.payment_method,
+           Number(order.received_amount || 0), 0, Number(order.change_amount || 0), 0]
+        );
+        db._db.run(
+          `UPDATE orders SET status='void',order_status='cancelled',void_reason=?,voided_at=datetime('now','localtime'),
+             ${needsRefund ? "refund_status='pending_refund'," : ''}
+             updated_at=datetime('now','localtime') WHERE id=? AND store_id=?`,
+          [reason.trim(), order.id, storeId]
+        );
+        releasePopupOrderAllocations(db, storeId, order.id, order.popup_session_id);
+        db._db.run('COMMIT');
+      } catch (e) {
+        try { db._db.run('ROLLBACK'); } catch (e2) { /* 不掩蓋原始錯誤 */ }
+        throw e;
+      }
+      db._save();
+    } else {
+      db.run(
+        `INSERT INTO order_logs (store_id,order_id,order_number,action,reason,operator,before_data,after_data,
+           before_total,after_total,amount_diff,before_payment,after_payment,
+           before_received,after_received,before_change,after_change)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        [storeId, order.id, order.order_number, 'void', reason.trim(), operator,
+         order.items, order.items,
+         Number(order.total), 0, -Number(order.total),
+         order.payment_method, order.payment_method,
+         Number(order.received_amount || 0), 0, Number(order.change_amount || 0), 0]
+      );
+      // hotfix13-BUG5：改用共用的回補函式（同時支援食材配方商品 + 秤重庫存商品），
+      // 跟取消訂單（PATCH /:id/status）、LINE 訂單取消用同一套回補規則。
+      restockOrderItems(db, items, order.order_number || order.id, storeId, '訂單作廢回補');
+
+      // hotfix13-BUG6：LinePay 已付款訂單作廢 → 待退款，不當作單純作廢結案
+      db.run(
+        `UPDATE orders SET status='void',order_status='cancelled',void_reason=?,voided_at=datetime('now','localtime'),
+           ${needsRefund ? "refund_status='pending_refund'," : ''}
+           updated_at=datetime('now','localtime') WHERE id=? AND store_id=?`,
+        [reason.trim(), order.id, storeId]
+      );
+    }
+
     res.json({
       success: true,
       data: parseOrder(db.get('SELECT * FROM orders WHERE id=? AND store_id=?', [order.id, storeId])),

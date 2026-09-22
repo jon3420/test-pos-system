@@ -148,54 +148,85 @@ function applyOrderStatusChange(db, storeId, order, newStatus) {
 
   const needsRefund = newStatus === 'cancelled' && requiresRefundOnCancel(order);
   const wasCancellableBefore = isCancellable(order.order_status);
+  const isPopupOrder = order.pickup_type === 'popup';
 
   const sets   = ['status=?', 'order_status=?', 'kitchen_status=?', "updated_at=datetime('now','localtime')"];
   const params = [newStatus === 'cancelled' ? order.status : newStatus, newStatus, newStatus];
   // 注意：POS 訂單的 status 欄位（completed/void/modified）跟 order_status（工作流程狀態）意義不同，
   // 這裡的 status 只在明確取消時保留原值，避免誤把 POS 的 status 覆蓋掉；order_status 才是流程狀態。
   if (needsRefund) { sets.push("refund_status='pending_refund'"); }
+  const updateSql = `UPDATE orders SET ${sets.join(',')} WHERE id=? AND store_id=?`;
+  const updateParams = [...params, order.id, storeId];
 
-  db.run(
-    `UPDATE orders SET ${sets.join(',')} WHERE id=? AND store_id=?`,
-    [...params, order.id, storeId]
-  );
+  if (newStatus === 'cancelled' && wasCancellableBefore && isPopupOrder && order.popup_session_id) {
+    // H1.4.12 Phase 3A.2 修正：popup 訂單取消時，「訂單狀態變更」與
+    // 「allocation release」必須是同一個 raw BEGIN/COMMIT transaction——
+    // 交易內完全使用 db._db.run()（不會自行 _save() 的版本），COMMIT 成功
+    // 後才手動呼叫一次 db._save()。任一步驟失敗（含 release SQL 本身失敗）
+    // 都會 ROLLBACK，讓這個函式往外拋出例外（不吞錯誤、不回傳「假成功」），
+    // 呼叫端的 route handler 會被外層 try/catch 接住轉成 500——訂單狀態與
+    // allocation 都會維持交易前的狀態，不會出現「訂單已取消但份數沒放出來」
+    // 或「份數放出來了但訂單其實沒有真的被取消」這種不一致。
+    const { releasePopupOrderAllocations } = require('./popupCheckout');
+    db._db.run('BEGIN');
+    try {
+      db._db.run(updateSql, updateParams);
+      releasePopupOrderAllocations(db, storeId, order.id, order.popup_session_id);
+      db._db.run('COMMIT');
+    } catch (e) {
+      try { db._db.run('ROLLBACK'); } catch (e2) { /* 不掩蓋原始錯誤 */ }
+      throw e;
+    }
+    db._save();
+  } else {
+    db.run(updateSql, updateParams);
 
-  if (newStatus === 'cancelled' && wasCancellableBefore) {
-    const items = (() => {
-      try { return typeof order.items === 'string' ? JSON.parse(order.items || '[]') : (order.items || []); }
-      catch { return []; }
-    })();
-    const isLineOrder = order.source === 'line' || !!order.customer_line_id;
-    // hotfix13：LINE 訂單下單時不扣秤重庫存（只扣食材配方），取消時也不能回補秤重庫存，否則會多補
-    restockOrderItems(db, items, order.order_number || order.id, storeId, '訂單取消回補', { includeGramsStock: !isLineOrder });
-
-    // LINE 今日份數 / 預購份數回補（僅 LINE 來源訂單需要）
-    if (isLineOrder) {
-      // hotfix13-BUG-A：修正「今日 vs 預購」判斷方式。
-      // 舊寫法用 pickup_time 字串跟今天日期做「字串大小比較」（cancelDateStr > todayForCancel），
-      // 對「盡快」這種非日期字串來說，中文字元的 Unicode 編碼點遠大於日期字串的數字字元，
-      // 會被誤判成「比今天的日期還大」→ 誤判為預購單 → 回補到 line_preorder_sold，
-      // 導致真正該回補的 line_quota_sold（今日已售）完全沒有變動，商家看起來就是「沒有回補」。
-      // 改用跟 Web app.js（renderOrdersTable 的 pickupTag 判斷）完全一致的格式偵測：
-      // 只有「長度 > 10 且同時包含 '-' 與空白」才是「YYYY-MM-DD HH:MM」的預購格式，其餘一律視為今日單。
-      const pt = order.pickup_time || '';
-      const cancelIsPreorder = pt.length > 10 && pt.includes('-') && pt.includes(' ');
-      const items2 = (() => {
+    if (newStatus === 'cancelled' && wasCancellableBefore && !isPopupOrder) {
+      // H1.4.12 Phase 3A.1 修正（重大 bug）：popup 結帳目前完全不會扣減一般
+      // ingredients／line_quota_sold／line_preorder_sold（POST /popup-checkout
+      // 只寫 popup_order_allocations），因此快閃訂單取消時「絕對不可以」再去
+      // 跑一般的 restockOrderItems() 或 line_quota_sold/line_preorder_sold
+      // 回補邏輯——那樣等於平白幫「從未被扣過」的商品多加了一次庫存/份數，
+      // 而且這個商品很可能同時也被一般 LINE 點餐在賣，會直接污染一般點餐的
+      // 剩餘份數計算。popup 訂單的「回補」語意完全由上面的原子交易分支負責，
+      // 跟這裡的一般庫存/份數機制互不相干（這個分支本來就不會被 popup 訂單
+      // 走到，因為 popup 訂單一律走上面的 if 分支）。
+      const items = (() => {
         try { return typeof order.items === 'string' ? JSON.parse(order.items || '[]') : (order.items || []); }
         catch { return []; }
       })();
-      items2.forEach(item => {
-        const pid = item.product_id || item.id;
-        if (!pid) return;
-        const qty = Number(item.qty || 1);
-        if (cancelIsPreorder) {
-          db.run(`UPDATE products SET line_preorder_sold = MAX(0, line_preorder_sold - ?),
-            updated_at=datetime('now','localtime') WHERE id=? AND store_id=?`, [qty, pid, storeId]);
-        } else {
-          db.run(`UPDATE products SET line_quota_sold = MAX(0, line_quota_sold - ?),
-            updated_at=datetime('now','localtime') WHERE id=? AND store_id=?`, [qty, pid, storeId]);
-        }
-      });
+      const isLineOrder = order.source === 'line' || !!order.customer_line_id;
+      // hotfix13：LINE 訂單下單時不扣秤重庫存（只扣食材配方），取消時也不能回補秤重庫存，否則會多補
+      restockOrderItems(db, items, order.order_number || order.id, storeId, '訂單取消回補', { includeGramsStock: !isLineOrder });
+
+      // LINE 今日份數 / 預購份數回補（僅 LINE 來源訂單需要）
+      if (isLineOrder) {
+        // hotfix13-BUG-A：修正「今日 vs 預購」判斷方式。
+        // 舊寫法用 pickup_time 字串跟今天日期做「字串大小比較」（cancelDateStr > todayForCancel），
+        // 對「盡快」這種非日期字串來說，中文字元的 Unicode 編碼點遠大於日期字串的數字字元，
+        // 會被誤判成「比今天的日期還大」→ 誤判為預購單 → 回補到 line_preorder_sold，
+        // 導致真正該回補的 line_quota_sold（今日已售）完全沒有變動，商家看起來就是「沒有回補」。
+        // 改用跟 Web app.js（renderOrdersTable 的 pickupTag 判斷）完全一致的格式偵測：
+        // 只有「長度 > 10 且同時包含 '-' 與空白」才是「YYYY-MM-DD HH:MM」的預購格式，其餘一律視為今日單。
+        const pt = order.pickup_time || '';
+        const cancelIsPreorder = pt.length > 10 && pt.includes('-') && pt.includes(' ');
+        const items2 = (() => {
+          try { return typeof order.items === 'string' ? JSON.parse(order.items || '[]') : (order.items || []); }
+          catch { return []; }
+        })();
+        items2.forEach(item => {
+          const pid = item.product_id || item.id;
+          if (!pid) return;
+          const qty = Number(item.qty || 1);
+          if (cancelIsPreorder) {
+            db.run(`UPDATE products SET line_preorder_sold = MAX(0, line_preorder_sold - ?),
+              updated_at=datetime('now','localtime') WHERE id=? AND store_id=?`, [qty, pid, storeId]);
+          } else {
+            db.run(`UPDATE products SET line_quota_sold = MAX(0, line_quota_sold - ?),
+              updated_at=datetime('now','localtime') WHERE id=? AND store_id=?`, [qty, pid, storeId]);
+          }
+        });
+      }
     }
   }
 

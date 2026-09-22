@@ -152,6 +152,31 @@ app.use(express.static(path.join(__dirname, 'public'), {
   },
 }));
 
+// H1.4.12 Phase 3（規格三.2）：快閃取餐獨立網址——不複製第二份完整的
+// line-order.html，一律回傳既有檔案，由前端依 pathname／query parameters
+// （store_id/campaign/session）切換為快閃入口情境。快取策略沿用上面
+// express.static 對 .html 的 no-store/no-cache 設定精神（快閃場次狀態會
+// 隨時間變化，不應該被瀏覽器快取舊畫面）。
+// H1.4.12 Phase 3A.2（規格三.2 修正）：Phase 3B（public/line-order.html 的
+// entry_context／快閃 UI 整合）尚未開始，這裡絕不能繼續把 /popup-order
+// 導向「完全沒有 popup 模式」的一般外帶／外送點餐頁——那樣會讓顧客真的
+// 點開一個看起來正常、卻完全沒有場次概念的一般外帶頁面，誤導成一般外帶
+// 訂單（而且一般外帶結帳完全不會走 popup 的 allocation／snapshot 邏輯）。
+// 在 Phase 3B 真正把 popup 模式整合進 line-order.html 之前，回傳明確的
+// 503 placeholder，讓前端／QA 清楚知道這個網址目前尚未可用，不會誤觸一般
+// 外帶流程。
+// H1.4.12 Phase 3B（Popup Recovery Identity Landing 輪）：popup 前端
+// entry_context／checkout／recovery identity bridge 已經完成並通過測試，
+// 這裡改為直接回傳既有 line-order.html（不複製第二份檔案），由前端
+// resolvePopupEntryContext() 依 pathname/query 決定是「一般匿名 popup
+// entry」還是「recovery entry」（session+recovery_token+recovery_handoff
+// 三者必須同時存在，缺一律 fail closed，見該函式）。完整購物車
+// restore/reconcile 仍在後續回合完成，本檔案本身尚未宣稱 Phase 3B 完成。
+app.get('/popup-order', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.sendFile(path.join(__dirname, 'public', 'line-order.html'));
+});
+
 app.post('/webhook/n8n', (req, res) => {
   console.log('[n8n Webhook]', JSON.stringify(req.body, null, 2));
   res.json({ success: true, message: 'received', data: req.body });
@@ -452,6 +477,13 @@ initDb().then((db) => {
   app.use('/api/kitchen',          requireStore, require('./routes/kitchen'));
   app.use('/api/ingredients',      requireStore, requireFeature('inventory'), require('./routes/ingredients'));
 
+  // H1.4.12 Phase 3A.1：快閃取餐公開端點獨立掛載，不套用 requireStore——
+  // session/campaign 的 public_code 全域唯一，store_id 由 code 本身反查，
+  // 不信任 query/body/header 的 store_id（見 routes/popup-public.js 開頭
+  // 說明）。掛在 /api/line-orders 前綴、且比下面一般 requireStore 版路由早
+  // 註冊，Express 會先讓這個 router 處理它認得的路徑，其餘一般 LINE 點餐
+  // API 落到下面 requireStore 版本，兩者互不影響。
+  app.use('/api/line-orders', require('./routes/popup-public'));
   const lineOrderRouter = require('./routes/line-orders');
   app.use('/api/line-shop',    requireStore, requireFeature('line_order'), (req, res, next) => { req.url = '/shop'; lineOrderRouter(req, res, next); });
   app.use('/api/line-menu',    requireStore, requireFeature('line_order'), (req, res, next) => { req.url = '/menu'; lineOrderRouter(req, res, next); });
@@ -460,6 +492,12 @@ initDb().then((db) => {
   app.use('/api/line-validate-cart', requireStore, requireFeature('line_order'), (req, res, next) => { req.url = '/validate-cart'; lineOrderRouter(req, res, next); });
   app.use('/api/line-orders',  requireStore, requireFeature('line_order'), lineOrderRouter);
   app.use('/api/online-orders', requireStore, requireFeature('line_order'), require('./routes/online-orders'));
+
+  // H1.4.12 Phase 2：🚐 快閃取餐排程中心 — 管理端 API。requireStaffJwt +
+  // requireFeature('line_order') 已內建在 routes/popup-pickup.js 的
+  // router.use() 裡（store_id 只信任已驗證 JWT），這裡不再額外掛 requireStore，
+  // 避免 query/x-store-id 有機會被誤用為店家依據。
+  app.use('/api/popup-pickup', require('./routes/popup-pickup'));
 
   // fix18-10-hotfix26-F8-B（需求文件五／十二）：Messenger →「到 LINE 完成結帳」
   // Cart Handoff Token create/restore API。
@@ -478,6 +516,23 @@ initDb().then((db) => {
   // fix18-10-hotfix23-E：LINE 會員入口 × LIFF 登入 × 好友狀態綁定 × LINE CRM
   // 沿用既有 LINE 相關路由的授權慣例（requireStore + line_order 授權）。
   app.use('/api/line-member', requireStore, requireFeature('line_order'), require('./routes/line-member'));
+
+  // H1.4.12 Phase 3B（Popup Recovery Identity Bridge — Corrective
+  // Completion）：identity landing 專用的 resolve-target 端點，故意獨立、
+  // 不掛 requireStore（store 要從 token 反查，驗證前根本沒有已知 store）。
+  // 必須掛在下面那個 requireStore 版本的 /api/cart-recovery 之前，Express
+  // 才會用這個更精確、無 requireStore 的路徑處理 /resolve-target，不會落到
+  // 下面那個需要 store_id 的一般 middleware chain。
+  app.use('/api/cart-recovery/resolve-target', require('./routes/cart-recovery-resolve-target'));
+
+  // H1.4.12 Phase 3B（Popup Recovery LIFF Member Bootstrap）：bootstrap-member
+  // 與 liff-config 同樣獨立、不掛 requireStore（store 要從 recovery_token
+  // 反查），必須掛在下面 requireStore 版本的 /api/cart-recovery 之前。
+  app.use('/api/cart-recovery', require('./routes/cart-recovery-bootstrap'));
+
+  // H1.4.12 Phase 3B（Popup Recovery Cart Restore／Reconcile）：兩階段
+  // prepare/commit，同樣獨立、不掛 requireStore。
+  app.use('/api/cart-recovery', require('./routes/cart-recovery-popup-restore'));
 
   // H1.4.10 Phase 4B：Cart Recovery Consent（同意透過 LINE 提醒）。沿用既有
   // LINE 相關路由的授權慣例（requireStore + line_order 授權），與
