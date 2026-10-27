@@ -138,6 +138,7 @@ router.get('/line-products/list', requireFeature('line_order'), (req, res) => {
   try {
     const db = getDb();
     const storeId = req.storeId;
+    const { resolveLineProductPricing } = require('../utils/lineProductPricing');
     // 回傳全部 enabled 商品，show_on_line 不限（管理頁需看到未上架）
     const products = db.all(
       'SELECT * FROM products WHERE store_id=? AND enabled=1 ORDER BY sort_order, id',
@@ -145,7 +146,17 @@ router.get('/line-products/list', requireFeature('line_order'), (req, res) => {
     ).map(p => {
       const fc = db.get('SELECT COUNT(*) as c FROM product_ingredient_formulas WHERE product_id=?', [p.id]);
       p._has_formula = fc && Number(fc.c) > 0;
-      return enrichProduct(p);
+      const enriched = enrichProduct(p);
+      // H1.4.12 Phase 3C 稽核發現：這裡既有的 effective_line_price／
+      // effective_line_name 計算（enrichProduct 內建）跟 popup checkout 真正
+      // 使用的權威 resolveLineProductPricing()（line_price > takeaway_price >
+      // price）不一致——enrichProduct 漏掉了 takeaway_price 這一階。不修
+      // enrichProduct 本身（其他既有頁面還在用它，範圍太大），改成額外附加
+      // 一份用「同一顆」checkout 權威函式算出的欄位，讓本輪快閃取餐 admin
+      // picker 可以改讀這份，不必再造第三份邏輯，也不影響其他既有呼叫端。
+      const ssot = resolveLineProductPricing(p);
+      enriched.line_eligibility = ssot; // { product_id, name, price, is_line_takeout_orderable, ... }
+      return enriched;
     });
     res.json({ success: true, data: products });
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }

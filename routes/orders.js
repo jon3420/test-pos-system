@@ -2,6 +2,7 @@
 'use strict';
 
 const express = require('express');
+const { isDurableError } = require('../utils/db');
 const router  = express.Router();
 const { getDb }  = require('../utils/db');
 const { toGrams, fromGrams } = require('../utils/unitConvert');
@@ -10,7 +11,7 @@ const { v4: uuidv4 } = require('uuid');
 const fetch    = require('node-fetch');
 const { writeInventoryLog } = require('./inventory');
 const {
-  applyOrderStatusChange, restockOrderItems, requiresRefundOnCancel,
+  applyOrderStatusChange, restockOrderItems, requiresRefundOnCancel, restoreLineQuotaCounters, classifyPersistedOrder,
 } = require('../utils/orderStatusFlow'); // hotfix13-BUG7：統一狀態機（單一來源，line-orders.js / online-orders.js 也引用同一份）
 
 // ── fix18-09：safe migration（不重建資料庫）────────────────
@@ -58,13 +59,23 @@ function orderNumber() {
   return `${n.getFullYear()}${p(n.getMonth()+1)}${p(n.getDate())}-${p(n.getHours())}${p(n.getMinutes())}${p(n.getSeconds())}`;
 }
 
+// R44.1B-4B Phase B：consumer audit（完整搜尋 public/、routes/、utils/、
+// scripts/ 以外沒有任何 export/report endpoint，以及所有非測試檔案）確認
+// line_counter_bucket／line_counter_allocation_snapshot 這兩個 internal
+// mutation authority 欄位，除了本檔案自己（透過 parseOrder 把 raw row
+// spread 進 response）之外，沒有任何 production consumer（public/ 目錄
+// 完全沒有命中，後端也只有 schema／writer／restore logic 三類，沒有任何
+// 一處讀取 response 裡的這兩個欄位）。既然沒有真實用途，這裡從共用
+// serializer 排除，detail／list／PATCH／void 這些全部經過 parseOrder()
+// 的 response 會同時套用，不影響 DB row 本身或 restore 邏輯本身的讀寫。
+const INTERNAL_ORDER_FIELDS = ['line_counter_bucket', 'line_counter_allocation_snapshot'];
 function parseOrder(o) {
   if (!o) return null;
   const discountAmt = Number(o.discount_amount || 0);
   const total       = Number(o.total || 0);
   // fix18-09：若無 original_total，倒推
   const originalTotal = o.original_total ? Number(o.original_total) : total + discountAmt;
-  return {
+  const result = {
     ...o,
     items:                    typeof o.items === 'string' ? JSON.parse(o.items) : o.items,
     received_amount:          Number(o.received_amount          || 0),
@@ -92,6 +103,8 @@ function parseOrder(o) {
     platform_order_no:        o.platform_order_no || '',
     delivery_status:          o.delivery_status   || '',
   };
+  for (const f of INTERNAL_ORDER_FIELDS) delete result[f];
+  return result;
 }
 
 function deductInventory(db, items, orderId, action, storeId) {
@@ -770,7 +783,10 @@ router.patch('/:id/status', (req, res) => {
       requires_refund: result.requiresRefund,
       message: result.message,
     });
-  } catch(e) { res.status(500).json({ success: false, message: e.message }); }
+  } catch(e) {
+    if (isDurableError(e)) return res.status(503).json({ success: false, error: 'STORAGE_UNAVAILABLE', message: '系統忙碌中，請稍後再試' });
+    res.status(500).json({ success: false, message: e.message });
+  }
 });
 
 // POST /:id/refund-complete — hotfix13-BUG6：店家完成退款後，標記待退款訂單為已退款
@@ -853,13 +869,12 @@ router.post('/:id/void', (req, res) => {
       // H1.4.12 Phase 3A.2 修正：popup 訂單作廢時，order_log + 訂單狀態變更 +
       // allocation release 必須是同一個 raw BEGIN/COMMIT transaction。交易內
       // 完全使用 db._db.run()（不會自行 _save()），COMMIT 成功後才手動呼叫
-      // 一次 db._save()。任一步驟失敗都 ROLLBACK 並往外拋出例外（外層
+      // durable file write（R44.2F：由 db.runDurableTransaction() 管理，取代舊的手動 save）。任一步驟失敗都 ROLLBACK 並往外拋出例外（外層
       // try/catch 轉成 500），不吞錯誤、不回傳假成功。popup 訂單本來就不
       // 跑 restockOrderItems()（見上方 Phase 3A.1 說明），所以這個分支完全
       // 不需要處理一般庫存回補。
       const { releasePopupOrderAllocations } = require('../utils/popupCheckout');
-      db._db.run('BEGIN');
-      try {
+      db.runDurableTransaction(() => { // R44.2F：durable transaction（memory＋disk 一致）
         db._db.run(
           `INSERT INTO order_logs (store_id,order_id,order_number,action,reason,operator,before_data,after_data,
              before_total,after_total,amount_diff,before_payment,after_payment,
@@ -878,35 +893,68 @@ router.post('/:id/void', (req, res) => {
           [reason.trim(), order.id, storeId]
         );
         releasePopupOrderAllocations(db, storeId, order.id, order.popup_session_id);
-        db._db.run('COMMIT');
-      } catch (e) {
-        try { db._db.run('ROLLBACK'); } catch (e2) { /* 不掩蓋原始錯誤 */ }
-        throw e;
-      }
-      db._save();
+      });
     } else {
-      db.run(
-        `INSERT INTO order_logs (store_id,order_id,order_number,action,reason,operator,before_data,after_data,
-           before_total,after_total,amount_diff,before_payment,after_payment,
-           before_received,after_received,before_change,after_change)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-        [storeId, order.id, order.order_number, 'void', reason.trim(), operator,
-         order.items, order.items,
-         Number(order.total), 0, -Number(order.total),
-         order.payment_method, order.payment_method,
-         Number(order.received_amount || 0), 0, Number(order.change_amount || 0), 0]
-      );
-      // hotfix13-BUG5：改用共用的回補函式（同時支援食材配方商品 + 秤重庫存商品），
-      // 跟取消訂單（PATCH /:id/status）、LINE 訂單取消用同一套回補規則。
-      restockOrderItems(db, items, order.order_number || order.id, storeId, '訂單作廢回補');
-
-      // hotfix13-BUG6：LinePay 已付款訂單作廢 → 待退款，不當作單純作廢結案
-      db.run(
-        `UPDATE orders SET status='void',order_status='cancelled',void_reason=?,voided_at=datetime('now','localtime'),
-           ${needsRefund ? "refund_status='pending_refund'," : ''}
-           updated_at=datetime('now','localtime') WHERE id=? AND store_id=?`,
-        [reason.trim(), order.id, storeId]
-      );
+      const isLineOrderForVoid = order.source === 'line' || !!order.customer_line_id;
+      // H1.4.12 Phase 3C R44：舊的 classifyPersistedOrder() pre-check（R34）
+      // 是在 versioned snapshot 機制出現之前設計的，現在真正的 authority
+      // 是 restoreLineQuotaCounters() 自己依 snapshot 做的判斷（snapshot=
+      // NULL 時一律 fail closed，不再看 bucket 或 pickup_time）。這裡移除
+      // 舊的 pre-check，改成在交易內呼叫 restoreLineQuotaCounters() 並檢查
+      // 它真正的回傳值——這是本輪稽核發現的真實 bug：先前這個回傳值完全
+      // 沒被檢查，導致 snapshot=NULL 的訂單仍然能被成功 void。
+      // H1.4.12 Phase 3C R35：order_log INSERT、庫存/食材回補、LINE
+      // counter 回補、狀態 UPDATE，四者現在是同一個 BEGIN/COMMIT/ROLLBACK
+      // 交易——先前這四步是各自獨立的 auto-save 呼叫，任一步失敗都可能
+      // 留下「log 寫了但狀態沒變」或「狀態變了但庫存沒補」這種半套狀態。
+      db.runDurableTransaction(() => { // R44.2F：durable transaction（memory＋disk 一致）
+        db._db.run(
+          `INSERT INTO order_logs (store_id,order_id,order_number,action,reason,operator,before_data,after_data,
+             before_total,after_total,amount_diff,before_payment,after_payment,
+             before_received,after_received,before_change,after_change)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          [storeId, order.id, order.order_number, 'void', reason.trim(), operator,
+           order.items, order.items,
+           Number(order.total), 0, -Number(order.total),
+           order.payment_method, order.payment_method,
+           Number(order.received_amount || 0), 0, Number(order.change_amount || 0), 0]
+        );
+        // H1.4.12 Phase 3C R38 稽核修正（P0，已用 mixed-transition 矩陣
+        // 重現，不是臆測）：這裡原本不論訂單是否已經被 PATCH /:id/status
+        // cancel 過（order_status 已經是 'cancelled'、資源已經被那次
+        // cancel 釋放過一次），void 都會無條件再跑一次
+        // restockOrderItems()／restoreLineQuotaCounters()，導致
+        // cancelled→void 這個 transition 把 counter／ingredient 又恢復了
+        // 第二次。這裡只在「資源還沒被釋放過」（order_status 還不是
+        // cancelled，等同 isCancellable(order.order_status) 用在 void
+        // 場景）時才真正回補；已經是 cancelled 的訂單轉成 void，只補上
+        // void 的 metadata／log，不再動 counter／ingredient。
+        const alreadyReleased = order.order_status === 'cancelled';
+        if (!alreadyReleased) {
+          // hotfix13-BUG5：改用共用的回補函式（同時支援食材配方商品 + 秤重庫存商品），
+          // 跟取消訂單（PATCH /:id/status）、LINE 訂單取消用同一套回補規則。
+          restockOrderItems(db, items, order.order_number || order.id, storeId, '訂單作廢回補', { includeGramsStock: !isLineOrderForVoid });
+          // H1.4.12 Phase 3C 稽核修正（P0）：void 先前完全沒有呼叫這個函式，
+          // 代表作廢一張 LINE 今日單/預購單之後，line_quota_sold/
+          // line_preorder_sold 永遠不會恢復——跟 cancel 的行為不對稱。用跟
+          // cancel 完全相同的 canonical 回補函式，維持兩條路徑一致；
+          // voidCounterClassification 已經在上面驗證過不是 invalid。
+          const restoreResult = restoreLineQuotaCounters(db, storeId, order, null);
+          if (isLineOrderForVoid && restoreResult && restoreResult.ok === false) {
+            const err = new Error(restoreResult.message);
+            err.httpStatus = restoreResult.code || 409;
+            err.errorCode = restoreResult.error || 'LINE_COUNTER_RESTORE_FAILED';
+            throw err;
+          }
+        }
+        // hotfix13-BUG6：LinePay 已付款訂單作廢 → 待退款，不當作單純作廢結案
+        db._db.run(
+          `UPDATE orders SET status='void',order_status='cancelled',void_reason=?,voided_at=datetime('now','localtime'),
+             ${needsRefund ? "refund_status='pending_refund'," : ''}
+             updated_at=datetime('now','localtime') WHERE id=? AND store_id=?`,
+          [reason.trim(), order.id, storeId]
+        );
+      });
     }
 
     res.json({
@@ -915,7 +963,13 @@ router.post('/:id/void', (req, res) => {
       requires_refund: needsRefund,
       message: needsRefund ? '訂單已作廢，該筆為 LINE Pay 已付款訂單，請至待退款清單處理退款' : undefined,
     });
-  } catch(e) { res.status(500).json({ success: false, message: e.message }); }
+  } catch(e) {
+    if (isDurableError(e)) return res.status(503).json({ success: false, error: 'STORAGE_UNAVAILABLE', message: '系統忙碌中，請稍後再試' });
+    if (e && e.httpStatus) {
+      return res.status(e.httpStatus).json({ success: false, error: e.errorCode, message: e.message });
+    }
+    res.status(500).json({ success: false, message: e.message });
+  }
 });
 
 // POST /:id/reprint

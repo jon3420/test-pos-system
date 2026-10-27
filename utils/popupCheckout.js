@@ -503,6 +503,14 @@ function validatePopupCheckoutAuthority(db, { storeId, sessionPublicCode, items,
   }
 
   const subtotal = priced.reduce((sum, it) => sum + it.price * it.qty, 0);
+  // 規格七：每一行的 price*qty 個別都已經檢查過安全整數範圍，但把最多 50
+  // 行加總起來的 subtotal 本身從未再檢查過一次——50 行「個別安全」的極端
+  // 大金額加總後可能超出 Number.MAX_SAFE_INTEGER，靜默失去精度卻沒有任何
+  // 錯誤，等於一張金額被悄悄算錯的訂單。這裡補上加總後的安全檢查，跟
+  // 逐行檢查用同一個判斷式，不是另外發明一套。
+  if (!Number.isFinite(subtotal) || !Number.isSafeInteger(subtotal)) {
+    pp.fail('POPUP_VALIDATION_ERROR', '訂單總金額超出安全範圍，請減少購買數量或分開下單');
+  }
   if (!Number.isFinite(subtotal) || subtotal < 0 || !Number.isSafeInteger(Math.round(subtotal))) {
     pp.fail('POPUP_VALIDATION_ERROR', '訂單金額超出安全範圍');
   }

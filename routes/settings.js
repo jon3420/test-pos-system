@@ -2,6 +2,7 @@
 // fix14：LINE 相關設定 key 需通過 line_order feature gate
 'use strict';
 const express = require('express');
+const { isDurableError } = require('../utils/db');
 const router  = express.Router();
 const { getDb } = require('../utils/db');
 const { broadcastToStore } = require('../utils/wssBroadcast');
@@ -619,19 +620,17 @@ router.put('/', (req, res) => {
     }
 
     // ── 寫入允許的 key ─────────────────────────────────────
-    ALL_ALLOWED.forEach(k => {
-      if (req.body[k] !== undefined) {
-        const updated = db.run(
-          'UPDATE settings SET value=? WHERE store_id=? AND key=?',
-          [String(req.body[k]), storeId, k]
-        );
-        if (!updated.changes) {
-          db.run(
-            'INSERT OR IGNORE INTO settings (store_id,key,value) VALUES (?,?,?)',
-            [storeId, k, String(req.body[k])]
-          );
+    // R44.2F.1：所有 key 在同一個 durable transaction 寫入（含 popup_pickup_enabled）——disk 失敗時
+    // 全部 key 的 memory／disk 皆維持舊值，回固定 503；不再每個 key 各自 auto-save（會吞錯、非原子）。
+    db.runDurableTransaction(() => {
+      ALL_ALLOWED.forEach(k => {
+        if (req.body[k] !== undefined) {
+          db._db.run('UPDATE settings SET value=? WHERE store_id=? AND key=?', [String(req.body[k]), storeId, k]);
+          if (!(db._db.getRowsModified ? db._db.getRowsModified() : 0)) {
+            db._db.run('INSERT OR IGNORE INTO settings (store_id,key,value) VALUES (?,?,?)', [storeId, k, String(req.body[k])]);
+          }
         }
-      }
+      });
     });
 
     // ── fix18-10-hotfix26-F5：同步外送距離計算起點（需求文件九）───────────
@@ -654,7 +653,10 @@ router.put('/', (req, res) => {
     const s = {};
     rows.forEach(r => { s[r.key] = r.value; });
     res.json({ success: true, data: redactSensitiveSettings(s) });
-  } catch(e) { res.status(500).json({ success: false, message: e.message }); }
+  } catch(e) {
+    if (isDurableError(e)) return res.status(503).json({ success: false, error: 'STORAGE_UNAVAILABLE', message: '系統忙碌中，請稍後再試' }); // R44.2F.1
+    res.status(500).json({ success: false, message: e.message });
+  }
 });
 
 // fix18-10-hotfix26-F5：供 scripts/smoke-hotfix26-f5.js 直接呼叫驗證，不需要真的

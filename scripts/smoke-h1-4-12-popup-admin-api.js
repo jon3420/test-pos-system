@@ -891,6 +891,55 @@ async function main() {
     assert(!!stillExists, '46-location-soft-delete 該筆資料仍存在於資料表（未被硬刪除）', JSON.stringify(stillExists));
   }
 
+  // ══════════════════════════════════════════════════════════════════
+  // R44.2F.1：popup admin／settings durable mutation——每種代表案例注入 disk failure（rename／write／fsync），
+  // 驗證固定 503、memory／disk hash／fresh process 皆 before-state、無 temp 殘留、後續無關 save 不復活、retry 只生效一次。
+  // ══════════════════════════════════════════════════════════════════
+  {
+    const crypto2 = require('crypto'); const { execFile } = require('child_process'); const execP = require('util').promisify(execFile);
+    const dbFile = process.env.POS_DB_PATH, dbDir = require('path').dirname(dbFile);
+    const fileSha = () => crypto2.createHash('sha256').update(fs.readFileSync(dbFile)).digest('hex');
+    const freshDisk = async (sql) => JSON.parse((await execP('node', ['-e', `const i=require('sql.js');i().then(S=>{const d=new S.Database(require('fs').readFileSync(process.env.POS_DB_PATH));const x=d.exec(${JSON.stringify(sql)});console.log(JSON.stringify(x[0]?x[0].values:[]))})`], { cwd: require('path').join(__dirname, '..'), env: process.env })).stdout.trim().split('\n').pop());
+    const FAULTS = {
+      rename: () => { const o = fs.renameSync; fs.renameSync = function (a, b) { if (b === dbFile) throw new Error('inj rename'); return o.apply(this, arguments); }; return () => { fs.renameSync = o; }; },
+      write: () => { const o = fs.writeSync; fs.writeSync = function () { throw new Error('inj write'); }; return () => { fs.writeSync = o; }; },
+      fsync: () => { const o = fs.fsyncSync; fs.fsyncSync = function () { throw new Error('inj fsync'); }; return () => { fs.fsyncSync = o; }; },
+    };
+    async function adminDiskCase(label, fault, spec) {
+      const memBefore = JSON.stringify(spec.mem()), h0 = fileSha(), bytes0 = fs.readFileSync(dbFile), diskBefore = JSON.stringify(await freshDisk(spec.diskSql));
+      const undo = FAULTS[fault](); let r; try { r = await spec.run(); } finally { undo(); }
+      const tag = `R44.2F.1-admin-${label}-${fault}`;
+      assert(r.status === 503 && r.json.error === 'STORAGE_UNAVAILABLE' && !/inj|tmp|\.db|SELECT|INSERT|UPDATE|\/tmp/i.test(JSON.stringify(r.json)), `${tag}-safe-503 API 收到固定 503 STORAGE_UNAVAILABLE（不是成功、不含 path／SQL）`, JSON.stringify(r).slice(0, 140));
+      assert(JSON.stringify(spec.mem()) === memBefore, `${tag}-memory-before memory 維持 before-state`, JSON.stringify({ memBefore, now: spec.mem() }));
+      assert(fileSha() === h0 && Buffer.compare(fs.readFileSync(dbFile), bytes0) === 0 && JSON.stringify(await freshDisk(spec.diskSql)) === diskBefore, `${tag}-disk-before DB 檔 SHA-256／bytes 與 fresh child process 讀回皆為 before-state`, '');
+      assert(fs.readdirSync(dbDir).filter((f) => f.includes('.tmp-')).length === 0, `${tag}-no-temp-residue 無 temp 檔殘留`, '');
+      await call('PATCH', `/api/popup-pickup/locations/${lidOther}`, { token: T1, body: { address: '無關 save ' + label + fault } }); // 之後任何一次成功 save
+      assert(JSON.stringify(spec.mem()) === memBefore && JSON.stringify(await freshDisk(spec.diskSql)) === diskBefore, `${tag}-not-resurrected 之後無關的成功 save 不會讓失敗的 mutation 復活（memory＋disk）`, '');
+      const retry = await spec.run();
+      assert(retry.status < 300 && JSON.stringify(spec.mem()) !== memBefore && JSON.stringify(await freshDisk(spec.diskSql)) !== diskBefore, `${tag}-retry-once retry 成功一次，memory＝fresh process 一致`, `status=${retry.status}`);
+    }
+    const rl = await call('POST', '/api/popup-pickup/locations', { token: T1, body: { name: 'R44F1 other', address: 'x', lat: 24.9, lng: 121.3 } });
+    const lidOther = rl.json.data.id;
+    // campaign create
+    await adminDiskCase('campaign-create', 'rename', { run: () => call('POST', '/api/popup-pickup/campaigns', { token: T1, body: { name: 'R44F1-campaign' } }), mem: () => db.get("SELECT COUNT(*) AS c FROM popup_campaigns WHERE name='R44F1-campaign'").c, diskSql: "SELECT COUNT(*) FROM popup_campaigns WHERE name='R44F1-campaign'" });
+    // location soft-delete
+    const rl2 = await call('POST', '/api/popup-pickup/locations', { token: T1, body: { name: 'R44F1 del', address: 'y', lat: 24.8, lng: 121.2 } });
+    const lidDel = rl2.json.data.id;
+    await adminDiskCase('location-soft-delete', 'write', { run: () => call('DELETE', `/api/popup-pickup/locations/${lidDel}`, { token: T1 }), mem: () => db.get('SELECT active FROM popup_locations WHERE id=?', [lidDel]).active, diskSql: `SELECT active FROM popup_locations WHERE id='${lidDel}'` });
+    // session batch create（整批）
+    const mkSess = (n) => ({ name: n, pickup_date: '2026-12-01', pickup_start_time: '10:00', pickup_end_time: '12:00', order_open_at: '2026-11-01T00:00', order_cutoff_at: '2026-11-30T00:00', location_id: lidOther, product_scope: 'all_takeout' });
+    await adminDiskCase('session-batch', 'rename', { run: () => call('POST', '/api/popup-pickup/sessions/batch', { token: T1, body: { campaign_id: campaignId, sessions: [mkSess('R44F1-B1'), mkSess('R44F1-B2')] } }), mem: () => db.get("SELECT COUNT(*) AS c FROM popup_sessions WHERE name LIKE 'R44F1-B%'").c, diskSql: "SELECT COUNT(*) FROM popup_sessions WHERE name LIKE 'R44F1-B%'" });
+    // session update with revision
+    const rs = await call('POST', '/api/popup-pickup/sessions', { token: T1, body: Object.assign({ campaign_id: campaignId }, mkSess('R44F1-S')) });
+    const sid = rs.json.data.id;
+    let nextOrder = 50;
+    await adminDiskCase('session-update-revision', 'fsync', { run: () => { const cur = db.get('SELECT revision FROM popup_sessions WHERE id=?', [sid]).revision; return call('PATCH', `/api/popup-pickup/sessions/${sid}`, { token: T1, body: { expected_revision: cur, sort_order: nextOrder++ } }); }, mem: () => { const r = db.get('SELECT revision, sort_order FROM popup_sessions WHERE id=?', [sid]); return [r.revision, r.sort_order]; }, diskSql: `SELECT revision, sort_order FROM popup_sessions WHERE id='${sid}'` });
+    // settings：popup_pickup_enabled
+    db._db.run("DELETE FROM settings WHERE store_id='store_001' AND key='popup_pickup_enabled'"); db._save();
+    await adminDiskCase('settings-popup-enabled', 'rename', { run: () => call('PUT', '/api/settings', { token: T1, body: { popup_pickup_enabled: true } }), mem: () => { const r = db.get("SELECT value FROM settings WHERE store_id='store_001' AND key='popup_pickup_enabled'"); return r ? r.value : null; }, diskSql: "SELECT value FROM settings WHERE store_id='store_001' AND key='popup_pickup_enabled'" });
+    assert(db.get("SELECT value FROM settings WHERE store_id='store_001' AND key='popup_pickup_enabled'").value === '1', 'R44.2F.1-admin-settings-final-value retry 後 popup_pickup_enabled 為 1', '');
+  }
+
   server.close();
   fs.rmSync(tmpDir, { recursive: true, force: true });
   } finally {

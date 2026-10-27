@@ -146,12 +146,18 @@ function _isExpired(row, nowStr) {
  * 需求文件八～九：webhook 收到「我要結帳 CART-XXXXXX」，用短碼查詢並綁定 UID。
  * 找不到／過期／已消費，回傳 { ok:false, reason }，呼叫端決定要回覆什麼訊息。
  */
+// R44.2F.2：token 狀態轉換（bound→opened、→expired）改走 durable transaction，避免 disk 寫入失敗時
+// 「memory 已轉態、disk 沒有」。若已在 durable transaction 內（nested），退回同一個 raw 寫入（由外層統一提交）。
+function _tokenStateUpdate(db, sql, params) {
+  db.runDurableTransaction(() => { db._db.run(sql, params); });
+}
+
 function bindTokenToLineUser(db, storeId, cartCode, lineUserId) {
   const row = db.get('SELECT * FROM line_cart_handoff_tokens WHERE store_id=? AND cart_code=?', [storeId, cartCode]);
   if (!row) return { ok: false, reason: 'not_found' };
   const now = _nowLocal();
   if (_isExpired(row, now) && row.status !== 'expired') {
-    db.run("UPDATE line_cart_handoff_tokens SET status='expired' WHERE id=?", [row.id]);
+    _tokenStateUpdate(db, "UPDATE line_cart_handoff_tokens SET status='expired' WHERE id=?", [row.id]);
     return { ok: false, reason: 'expired' };
   }
   if (row.status === 'consumed') return { ok: false, reason: 'consumed' };
@@ -160,7 +166,7 @@ function bindTokenToLineUser(db, storeId, cartCode, lineUserId) {
   if (row.line_user_id && row.line_user_id !== lineUserId) {
     return { ok: false, reason: 'already_bound_other_user' };
   }
-  db.run(
+  _tokenStateUpdate(db,
     "UPDATE line_cart_handoff_tokens SET line_user_id=?, status='bound', bound_at=? WHERE id=?",
     [lineUserId, now, row.id]
   );
@@ -175,7 +181,7 @@ function restoreCartToken(db, storeId, fullToken, lineUserId) {
   if (!row) return { ok: false, reason: 'not_found' };
   const now = _nowLocal();
   if (_isExpired(row, now)) {
-    if (row.status !== 'expired') db.run("UPDATE line_cart_handoff_tokens SET status='expired' WHERE id=?", [row.id]);
+    if (row.status !== 'expired') _tokenStateUpdate(db, "UPDATE line_cart_handoff_tokens SET status='expired' WHERE id=?", [row.id]);
     return { ok: false, reason: 'expired' };
   }
   if (row.status === 'consumed') return { ok: false, reason: 'consumed' };
@@ -184,7 +190,7 @@ function restoreCartToken(db, storeId, fullToken, lineUserId) {
   if (!['bound', 'opened'].includes(row.status)) return { ok: false, reason: 'invalid_state' };
 
   if (row.status === 'bound') {
-    db.run("UPDATE line_cart_handoff_tokens SET status='opened', opened_at=? WHERE id=?", [now, row.id]);
+    _tokenStateUpdate(db, "UPDATE line_cart_handoff_tokens SET status='opened', opened_at=? WHERE id=?", [now, row.id]);
   }
 
   let cartPayload = {}; let checkoutContext = {};
@@ -212,6 +218,21 @@ function consumeCartToken(db, storeId, fullToken, orderId) {
   if (row.status === 'consumed') return { ok: false, reason: 'already_consumed' };
   const now = _nowLocal();
   db.run("UPDATE line_cart_handoff_tokens SET status='consumed', consumed_at=?, order_id=? WHERE id=?", [now, String(orderId || ''), row.id]);
+  return { ok: true };
+}
+
+/**
+ * R44.2F.1：在呼叫端的 durable transaction 內消費 token（raw db._db.run、不 auto-save）。
+ * 合約沿用既有（需求文件十五）：token 不存在／已 consumed → 回 {ok:false,reason}，不阻擋訂單；
+ * token 有效 → 必須「剛好」更新 1 列，否則 throw（整筆 order 一起 rollback，token 維持可重試）。
+ */
+function consumeCartTokenInTransaction(db, storeId, fullToken, orderId) {
+  const row = db.get('SELECT * FROM line_cart_handoff_tokens WHERE store_id=? AND token=?', [storeId, fullToken]);
+  if (!row) return { ok: false, reason: 'not_found' };
+  if (row.status === 'consumed') return { ok: false, reason: 'already_consumed' };
+  db._db.run("UPDATE line_cart_handoff_tokens SET status='consumed', consumed_at=?, order_id=? WHERE id=? AND status<>'consumed'", [_nowLocal(), String(orderId || ''), row.id]);
+  const n = db._db.getRowsModified ? db._db.getRowsModified() : 1;
+  if (n !== 1) throw new Error('cart token consume affected ' + n + ' rows, expected exactly 1');
   return { ok: true };
 }
 
@@ -382,7 +403,7 @@ function restoreRecoveryToken(db, storeId, fullToken, lineUserId, requestPageTyp
   if (!row) return { ok: false, reason: 'not_found' };
   const now = _nowLocal();
   if (_isExpired(row, now)) {
-    if (row.status !== 'expired') db.run("UPDATE line_cart_handoff_tokens SET status='expired' WHERE id=?", [row.id]);
+    if (row.status !== 'expired') _tokenStateUpdate(db, "UPDATE line_cart_handoff_tokens SET status='expired' WHERE id=?", [row.id]);
     return { ok: false, reason: 'expired' };
   }
   if (row.status === 'consumed') return { ok: false, reason: 'consumed' };
@@ -422,7 +443,7 @@ function restoreRecoveryToken(db, storeId, fullToken, lineUserId, requestPageTyp
   // 的邏輯，難以個別稽核。
   // ══════════════════════════════════════════════════════════════════
   if (pageType === 'popup_order') {
-    if (row.status === 'bound') db.run("UPDATE line_cart_handoff_tokens SET status='opened', opened_at=? WHERE id=?", [now, row.id]);
+    if (row.status === 'bound') _tokenStateUpdate(db, "UPDATE line_cart_handoff_tokens SET status='opened', opened_at=? WHERE id=?", [now, row.id]);
     if (!requestPopupSessionPublicCode || typeof requestPopupSessionPublicCode !== 'string' || !requestPopupSessionPublicCode.trim()) {
       return { ok: false, reason: 'missing_popup_session' };
     }
@@ -443,7 +464,7 @@ function restoreRecoveryToken(db, storeId, fullToken, lineUserId, requestPageTyp
   }
 
   if (row.status === 'bound') {
-    db.run("UPDATE line_cart_handoff_tokens SET status='opened', opened_at=? WHERE id=?", [now, row.id]);
+    _tokenStateUpdate(db, "UPDATE line_cart_handoff_tokens SET status='opened', opened_at=? WHERE id=?", [now, row.id]);
   }
 
   const resumeType = row.resume_type || 'cart';
@@ -553,7 +574,7 @@ async function bootstrapMemberSessionFromRecoveryToken(db, recoveryToken, lineId
 
   const now = _nowLocal();
   if (_isExpired(row, now)) {
-    if (row.status !== 'expired') db.run("UPDATE line_cart_handoff_tokens SET status='expired' WHERE id=?", [row.id]);
+    if (row.status !== 'expired') _tokenStateUpdate(db, "UPDATE line_cart_handoff_tokens SET status='expired' WHERE id=?", [row.id]);
     return { ok: false, reason: 'expired' };
   }
   if (row.status === 'consumed') return { ok: false, reason: 'consumed' };
@@ -675,7 +696,7 @@ function resolveRecoveryTargetForVerifiedMember(db, recoveryToken, memberSession
   //    發明）。過期時允許把 status 轉成 'expired'（這是既有的終態標記行為，
   //    不是「消費」token 的意思，本身也不會設定 consumed_at）。
   if (_isExpired(row, now)) {
-    if (row.status !== 'expired') db.run("UPDATE line_cart_handoff_tokens SET status='expired' WHERE id=?", [row.id]);
+    if (row.status !== 'expired') _tokenStateUpdate(db, "UPDATE line_cart_handoff_tokens SET status='expired' WHERE id=?", [row.id]);
     return { ok: false, reason: 'expired' };
   }
   if (row.status === 'consumed') return { ok: false, reason: 'consumed' };
@@ -709,7 +730,7 @@ function resolveRecoveryTargetForVerifiedMember(db, recoveryToken, memberSession
   // verified user 對已經是 opened 的 token 重複呼叫這裡，本來就會直接跳過
   // 這個 UPDATE（WHERE 條件不成立，0 rows affected），達成冪等，不會因為
   // 「已經 opened 過」而被擋下或報錯。
-  db.run("UPDATE line_cart_handoff_tokens SET status='opened', opened_at=? WHERE id=? AND status='bound'", [now, row.id]);
+  _tokenStateUpdate(db, "UPDATE line_cart_handoff_tokens SET status='opened', opened_at=? WHERE id=? AND status='bound'", [now, row.id]);
 
   return {
     ok: true,
@@ -848,7 +869,7 @@ function resolveAddFriendUrl(settings) {
 
 module.exports = {
   generateFullToken, generateCartCode, maskCartCode, recomputeCart,
-  createCartHandoffToken, bindTokenToLineUser, restoreCartToken, consumeCartToken,
+  createCartHandoffToken, bindTokenToLineUser, restoreCartToken, consumeCartToken, consumeCartTokenInTransaction,
   resolveAddFriendUrl,
   // H1.4.10 Phase 4B 新增：Recovery Push 安全連結（沿用同一張表，purpose 區分）
   createRecoveryResumeToken, restoreRecoveryToken, consumeRecoveryToken, cancelRecoveryToken,

@@ -19,7 +19,12 @@ const { JSDOM, VirtualConsole } = require('jsdom');
 
 const ROOT = path.join(__dirname, '..');
 const HTML_PATH = path.join(ROOT, 'public/line-order.html');
-const PRISTINE_HTML_PATH = '/home/claude/work/pristine/base/public/line-order.html';
+// Committed, reproducible fixture path (was previously a private absolute
+// path only present on one author's machine: /home/claude/work/pristine/base/...
+// — that made this a non-reproducible test). See scripts/fixtures/README.md
+// for the required provenance (origin checkpoint zip name/hash) that this
+// file must be extracted from and hash-verified against before use.
+const PRISTINE_HTML_PATH = path.join(__dirname, 'fixtures', 'phase3a4-pristine-line-order.html');
 const PRISTINE_EXPECTED_SHA256 = 'f314269c197b7ef594a1457838e04a72693676ffcaa059ffce72ab33bfbf28cc';
 
 const results = [];
@@ -68,6 +73,11 @@ async function createHarness(url, opts = {}) {
     virtualConsole,
     pretendToBeVisual: true,
     beforeParse(window) {
+      // Optional per-harness localStorage preload. Only runs when opts.initialLocalStorage is a non-null object;
+      // when it is not passed this block is a no-op. It runs before any production script executes.
+      if (opts.initialLocalStorage !== null && typeof opts.initialLocalStorage === 'object') {
+        for (const [key, value] of Object.entries(opts.initialLocalStorage)) window.localStorage.setItem(key, value);
+      }
       // jsdom 沒有內建 crypto.subtle／TextEncoder，這裡用 Node 內建的
       // Web Crypto 實作補上，讓 handoff/digest 相關程式碼可以在測試裡真的
       // 執行（不是另外模擬一套假的雜湊邏輯）。
@@ -407,12 +417,14 @@ async function main() {
   // ══════════════════════════════════════════════════════════════════
   {
     const calls = [];
-    const routes = [{ test: (u) => u.includes('/api/line-orders/popup-session/sess-abc'), response: fixtureSession() }];
-    const ctx = await createHarness('http://localhost/popup-order?session=sess-abc', { fetchImpl: jsonFetchImpl(routes, calls) });
+    const sessionCode = 'sess-r05iso6azufsqzqg';
+    const routes = [{ test: (u) => u.includes('/api/line-orders/popup-session/' + sessionCode), response: fixtureSession({ public_code: sessionCode }) }];
+    const ctx = await createHarness('http://localhost/popup-order?session=' + sessionCode, { fetchImpl: jsonFetchImpl(routes, calls) });
     try {
-      await waitFor(() => ctx.w.eval('popupSession') !== null, { timeoutMs: 800 });
+      const sessionLoaded = await waitFor(() => ctx.w.eval('popupSession') !== null, { timeoutMs: 800 });
       assertNoForbiddenCalls(calls, '4-session-entry');
-      assert(calls.some((u) => u.includes('/api/line-orders/popup-session/sess-abc')), '4-session-entry-calls-allowed direct session 呼叫了 popup-session 端點', JSON.stringify(calls));
+      const loadedSessionCode = ctx.w.eval('popupSession && popupSession.public_code');
+      assert(sessionLoaded === true && loadedSessionCode === sessionCode && calls.some((u) => u.includes('/api/line-orders/popup-session/' + sessionCode)), '4-session-entry-calls-allowed direct session 呼叫了 popup-session 端點', JSON.stringify({ sessionLoaded, loadedSessionCode, calls }));
       assert(!calls.some((u) => /store_id=/.test(u)), '4-session-entry-no-store-id direct session request 沒有附加任何 store_id', JSON.stringify(calls));
     } finally { await ctx.settle(null, { timeoutMs: 250 }); assertNoUnexpectedErrors(ctx, 'case2'); ctx.cleanup(); }
   }
@@ -438,9 +450,12 @@ async function main() {
   }
   {
     const calls = [];
+    const sessionCode = 'sess-r09isould4cdqklw';
+    const entryFixture = fixtureEntry();
+    entryFixture.data.campaigns[0].sessions[0].public_code = sessionCode;
     const routes = [
-      { test: (u) => u.includes('/api/line-orders/popup-entry'), response: fixtureEntry() },
-      { test: (u) => u.includes('/api/line-orders/popup-session/sess-abc'), response: fixtureSession() },
+      { test: (u) => u.includes('/api/line-orders/popup-entry'), response: entryFixture },
+      { test: (u) => u.includes('/api/line-orders/popup-session/' + sessionCode), response: fixtureSession({ public_code: sessionCode }) },
     ];
     const ctx = await createHarness('http://localhost/popup-order?store_id=store_xyz', { fetchImpl: jsonFetchImpl(routes, calls) });
     try {
@@ -449,8 +464,9 @@ async function main() {
       assert(calls.some((u) => u.includes('popup-entry?store_id=store_xyz')), '4-store-entry-uses-explicit-store-id store 入口用了明確、未被 fallback 的 store_id', JSON.stringify(calls));
       assert(!calls.some((u) => u.includes('store_001')), '4-store-entry-no-fallback-store001 store 入口沒有 fallback 成 store_001', JSON.stringify(calls));
       ctx.w.eval("document.querySelector('#popupRoot button[data-session-code]').click();");
-      await waitFor(() => ctx.w.eval('popupSession') !== null, { timeoutMs: 800 });
-      assert(calls.some((u) => u.includes('popup-session/sess-abc')), '4-store-entry-refetches-detail 選中場次後重新呼叫 direct session detail', JSON.stringify(calls));
+      const sessionLoaded = await waitFor(() => ctx.w.eval('popupSession') !== null, { timeoutMs: 800 });
+      const loadedSessionCode = ctx.w.eval('popupSession && popupSession.public_code');
+      assert(sessionLoaded === true && loadedSessionCode === sessionCode && calls.some((u) => u.includes('popup-session/' + sessionCode)), '4-store-entry-refetches-detail 選中場次後重新呼叫 direct session detail', JSON.stringify({ sessionLoaded, loadedSessionCode, calls }));
     } finally { await ctx.settle(null, { timeoutMs: 250 }); assertNoUnexpectedErrors(ctx, 'case4'); ctx.cleanup(); }
   }
 
@@ -575,38 +591,51 @@ async function main() {
   // 八、Cart isolation / reconcile
   // ══════════════════════════════════════════════════════════════════
   {
-    const routes = [{ test: (u) => u.includes('popup-session/sess-abc'), response: fixtureSession() }];
-    const ctx = await createHarness('http://localhost/popup-order?session=sess-abc', { fetchImpl: jsonFetchImpl(routes, []) });
+    const sessionCode = 'sess-r20isofs9ksqlqaazm';
+    const routes = [{ test: (u) => u.includes('popup-session/' + sessionCode), response: fixtureSession({ public_code: sessionCode }) }];
+    const ctx = await createHarness('http://localhost/popup-order?session=' + sessionCode, { fetchImpl: jsonFetchImpl(routes, []) });
     try {
       await waitFor(() => ctx.w.eval('popupSession') !== null, { timeoutMs: 800 });
       ctx.w.eval("document.querySelector('#popupRoot li[data-product-id=\"301\"] button[aria-label*=\"增加\"]').click();");
-      await waitFor(() => ctx.w.eval("popupCart.items.find(i=>i.product_id===301)") !== undefined, { timeoutMs: 400 });
-      const stored = ctx.w.localStorage.getItem('line_popup_cart_v1_sess-abc');
-      assert(!!stored, '8-storage-key-written popup cart 寫入了獨立的 line_popup_cart_v1_<code> key', String(stored));
+      const itemAdded = await waitFor(() => ctx.w.eval("popupCart.items.find(i=>i.product_id===301)") !== undefined, { timeoutMs: 400 });
+      const memory301 = JSON.parse(ctx.w.eval('JSON.stringify(popupCart.items.filter((i) => i.product_id === 301).map((i) => i.qty))'));
+      const stored = ctx.w.localStorage.getItem('line_popup_cart_v1_' + sessionCode);
+      const rowExists = !!stored;
+      let storage301 = [];
+      try { storage301 = (JSON.parse(stored).items || []).filter((i) => i.product_id === 301).map((i) => i.qty); } catch (e) { storage301 = []; }
+      assert(itemAdded === true && rowExists && memory301.length === 1 && memory301[0] === 1 && storage301.length === 1 && storage301[0] === 1,
+        '8-storage-key-written popup cart 寫入了獨立的 line_popup_cart_v1_<code> key',
+        JSON.stringify({ itemAdded, rowExists, memory301Count: memory301.length, memory301Qty: memory301.length ? memory301[0] : null, storage301Count: storage301.length, storage301Qty: storage301.length ? storage301[0] : null }));
       const parsed = JSON.parse(stored);
-      assert(parsed.entry_context === 'popup' && parsed.session_public_code === 'sess-abc', '8-storage-shape storage 內容包含 entry_context/session_public_code', JSON.stringify(parsed));
+      assert(parsed.entry_context === 'popup' && parsed.session_public_code === sessionCode, '8-storage-shape storage 內容包含 entry_context/session_public_code', JSON.stringify(parsed));
       assert(!('price' in parsed) && !('total' in parsed) && !('subtotal' in parsed) && !('quota_qty' in parsed) && !('location' in parsed), '8-storage-no-authority-fields storage 不包含 price/total/subtotal/quota/location', JSON.stringify(parsed));
       assert(ctx.w.localStorage.getItem('line_order_cart_store_001') === null, '8-general-cart-untouched 一般 cart key（line_order_cart_*）沒有被 popup 寫入', String(ctx.w.localStorage.getItem('line_order_cart_store_001')));
     } finally { await ctx.settle(null, { timeoutMs: 250 }); assertNoUnexpectedErrors(ctx, 'case14'); ctx.cleanup(); }
   }
   {
     // corrupted JSON fail closed
-    const routes = [{ test: (u) => u.includes('popup-session/sess-abc'), response: fixtureSession() }];
-    const ctx = await createHarness('http://localhost/popup-order?session=sess-abc', { fetchImpl: jsonFetchImpl(routes, []) });
+    const sessionCode = 'sess-r21iso4p7vnq3igh';
+    const routes = [{ test: (u) => u.includes('popup-session/' + sessionCode), response: fixtureSession({ public_code: sessionCode }) }];
+    const w21Calls = [];
+    const ctx = await createHarness('http://localhost/popup-order?session=' + sessionCode, { fetchImpl: jsonFetchImpl(routes, w21Calls) });
     try {
-      ctx.w.localStorage.setItem('line_popup_cart_v1_sess-abc', '{not valid json');
-      await waitFor(() => ctx.w.eval('popupSession') !== null, { timeoutMs: 800 });
-      assert(ctx.w.eval('popupCart.items.length') === 0, '8-corrupted-json-fail-closed 損毀 JSON 時，購物車視為空（fail closed）而非 crash', String(ctx.w.eval('popupCart.items.length')));
+      ctx.w.localStorage.setItem('line_popup_cart_v1_' + sessionCode, '{not valid json');
+      const sessionLoaded = await waitFor(() => ctx.w.eval('popupSession') !== null, { timeoutMs: 800 });
+      const loadedSessionCode = ctx.w.eval('popupSession && popupSession.public_code');
+      assert(sessionLoaded === true && loadedSessionCode === sessionCode && ctx.w.eval('popupCart.items.length') === 0, '8-corrupted-json-fail-closed 損毀 JSON 時，購物車視為空（fail closed）而非 crash', JSON.stringify({ sessionLoaded, loadedSessionCode, cartItemCount: ctx.w.eval('popupCart.items.length'), requestCount: w21Calls.length }));
     } finally { await ctx.settle(null, { timeoutMs: 250 }); assertNoUnexpectedErrors(ctx, 'case15'); ctx.cleanup(); }
   }
   {
     // context/session code 不符時拒絕還原
-    const routes = [{ test: (u) => u.includes('popup-session/sess-abc'), response: fixtureSession() }];
-    const ctx = await createHarness('http://localhost/popup-order?session=sess-abc', { fetchImpl: jsonFetchImpl(routes, []) });
+    const sessionCode = 'sess-r22isoxa0vy3aryr';
+    const routes = [{ test: (u) => u.includes('popup-session/' + sessionCode), response: fixtureSession({ public_code: sessionCode }) }];
+    const w22Calls = [];
+    const ctx = await createHarness('http://localhost/popup-order?session=' + sessionCode, { fetchImpl: jsonFetchImpl(routes, w22Calls) });
     try {
-      ctx.w.localStorage.setItem('line_popup_cart_v1_sess-abc', JSON.stringify({ schema_version: 1, entry_context: 'popup', session_public_code: 'OTHER-SESSION', items: [{ product_id: 301, qty: 3 }] }));
-      await waitFor(() => ctx.w.eval('popupSession') !== null, { timeoutMs: 800 });
-      assert(ctx.w.eval('popupCart.items.length') === 0, '8-session-mismatch-rejected session_public_code 不符時拒絕還原（視為空購物車）', String(ctx.w.eval('popupCart.items.length')));
+      ctx.w.localStorage.setItem('line_popup_cart_v1_' + sessionCode, JSON.stringify({ schema_version: 1, entry_context: 'popup', session_public_code: 'OTHER-SESSION', items: [{ product_id: 301, qty: 3 }] }));
+      const sessionLoaded = await waitFor(() => ctx.w.eval('popupSession') !== null, { timeoutMs: 800 });
+      const loadedSessionCode = ctx.w.eval('popupSession && popupSession.public_code');
+      assert(sessionLoaded === true && loadedSessionCode === sessionCode && ctx.w.eval('popupCart.items.length') === 0, '8-session-mismatch-rejected session_public_code 不符時拒絕還原（視為空購物車）', JSON.stringify({ sessionLoaded, loadedSessionCode, cartItemCount: ctx.w.eval('popupCart.items.length'), requestCount: w22Calls.length }));
     } finally { await ctx.settle(null, { timeoutMs: 250 }); assertNoUnexpectedErrors(ctx, 'case16'); ctx.cleanup(); }
   }
   {
@@ -630,23 +659,49 @@ async function main() {
   }
   {
     // session A / B 使用不同 key，互不合併
-    const routesA = [{ test: (u) => u.includes('popup-session/sess-A'), response: fixtureSession({ public_code: 'sess-A', name: 'Session A' }) }];
-    const ctxA = await createHarness('http://localhost/popup-order?session=sess-A', { fetchImpl: jsonFetchImpl(routesA, []) });
+    const sessionCodeA = 'sess-r25isoaa34le5iuy6';
+    const sessionCodeB = 'sess-r25isobjljnq9rhjd';
+    const routesA = [{ test: (u) => u.includes('popup-session/' + sessionCodeA), response: fixtureSession({ public_code: sessionCodeA, name: 'Session A' }) }];
+    const ctxA = await createHarness('http://localhost/popup-order?session=' + sessionCodeA, { fetchImpl: jsonFetchImpl(routesA, []) });
     let keyA;
+    let aRawSnapshot = null;
     try {
       await waitFor(() => ctxA.w.eval('popupSession') !== null, { timeoutMs: 800 });
       ctxA.w.eval("document.querySelector('#popupRoot li[data-product-id=\"301\"] button[aria-label*=\"增加\"]').click();");
-      await waitFor(() => ctxA.w.eval("popupCart.items.length") > 0, { timeoutMs: 400 });
+      const itemAdded = await waitFor(() => ctxA.w.eval("popupCart.items.length") > 0, { timeoutMs: 400 });
       keyA = ctxA.w.eval('popupCartStorageKey(popupSession.public_code)');
+      const loadedSessionCodeA = ctxA.w.eval('popupSession && popupSession.public_code');
+      const memRows301 = JSON.parse(ctxA.w.eval('JSON.stringify(popupCart.items)')).filter((i) => i.product_id === 301);
+      aRawSnapshot = ctxA.w.localStorage.getItem(keyA);
+      let persistedA = null;
+      try { persistedA = JSON.parse(aRawSnapshot); } catch (e) { persistedA = null; }
+      const persistedRows301 = persistedA && Array.isArray(persistedA.items) ? persistedA.items.filter((i) => i.product_id === 301) : [];
+      const bKeyAbsentInA = ctxA.w.localStorage.getItem(ctxA.w.eval('popupCartStorageKey(' + JSON.stringify(sessionCodeB) + ')')) === null;
+      assert(itemAdded === true && loadedSessionCodeA === sessionCodeA && memRows301.length === 1 && memRows301[0].qty === 1
+        && typeof aRawSnapshot === 'string' && persistedA !== null && typeof persistedA === 'object' && persistedA.session_public_code === sessionCodeA
+        && persistedRows301.length === 1 && persistedRows301[0].qty === 1 && bKeyAbsentInA,
+        '8-session-a-add-persists-before-switch session A 加入商品 301 後，切換前已以 A 的 key 持久化（單列 qty 1）',
+        JSON.stringify({ itemAdded, loadedSessionCodeA, memRows301: memRows301.length, memQty301: memRows301.length ? memRows301[0].qty : null,
+          persistedRowPresent: typeof aRawSnapshot === 'string', persistedSessionMatches: !!persistedA && persistedA.session_public_code === sessionCodeA,
+          persistedRows301: persistedRows301.length, persistedQty301: persistedRows301.length ? persistedRows301[0].qty : null, bKeyAbsentInA }));
     } finally { await ctxA.settle(null, { timeoutMs: 250 }); assertNoUnexpectedErrors(ctxA, 'case18'); ctxA.cleanup(); }
 
-    const routesB = [{ test: (u) => u.includes('popup-session/sess-B'), response: fixtureSession({ public_code: 'sess-B', name: 'Session B' }) }];
-    const ctxB = await createHarness('http://localhost/popup-order?session=sess-B', { fetchImpl: jsonFetchImpl(routesB, []) });
+    const routesB = [{ test: (u) => u.includes('popup-session/' + sessionCodeB), response: fixtureSession({ public_code: sessionCodeB, name: 'Session B' }) }];
+    const ctxB = await createHarness('http://localhost/popup-order?session=' + sessionCodeB, { fetchImpl: jsonFetchImpl(routesB, []), initialLocalStorage: { [keyA]: aRawSnapshot } });
     try {
       await waitFor(() => ctxB.w.eval('popupSession') !== null, { timeoutMs: 800 });
       const keyB = ctxB.w.eval('popupCartStorageKey(popupSession.public_code)');
-      assert(keyA !== keyB, '8-session-ab-different-keys session A/B 使用不同的 storage key', JSON.stringify({ keyA, keyB }));
-      assert(ctxB.w.eval('popupCart.items.length') === 0, '8-session-ab-no-merge session B 沒有沿用 session A 的購物車內容', String(ctxB.w.eval('popupCart.items.length')));
+      const aRawInB = ctxB.w.localStorage.getItem(keyA);
+      assert(keyA !== keyB && typeof aRawSnapshot === 'string' && aRawInB === aRawSnapshot, '8-session-ab-different-keys session A/B 使用不同的 storage key',
+        JSON.stringify({ keyA, keyB, aRowPresentInB: aRawInB !== null, aRowByteIdentical: aRawInB === aRawSnapshot }));
+      const bMemItems = JSON.parse(ctxB.w.eval('JSON.stringify(popupCart.items)'));
+      let bRow = null;
+      try { bRow = JSON.parse(ctxB.w.localStorage.getItem(keyB)); } catch (e) { bRow = null; }
+      const aRawAfterB = ctxB.w.localStorage.getItem(keyA);
+      assert(bMemItems.length === 0 && bRow !== null && typeof bRow === 'object' && bRow.session_public_code === sessionCodeB && Array.isArray(bRow.items) && bRow.items.length === 0
+        && aRawAfterB === aRawSnapshot, '8-session-ab-no-merge session B 沒有沿用 session A 的購物車內容',
+        JSON.stringify({ bMemItemCount: bMemItems.length, bRowPresent: bRow !== null, bRowSessionMatches: !!bRow && bRow.session_public_code === sessionCodeB,
+          bRowItemCount: bRow && Array.isArray(bRow.items) ? bRow.items.length : null, aRowUnchanged: aRawAfterB === aRawSnapshot }));
     } finally { await ctxB.settle(null, { timeoutMs: 250 }); assertNoUnexpectedErrors(ctxB, 'case19'); ctxB.cleanup(); }
   }
 
@@ -710,25 +765,28 @@ async function main() {
   }
   {
     // session 變為不可下單時立即停用操作，但保留 cart。
+    const sessionCode = 'sess-r37isojsm6dtadixdx';
     let resolveCount = 0;
     const responses = [
-      fixtureSession({ can_order: true }),
-      fixtureSession({ can_order: false, effective_state: 'ordering_closed' }),
+      fixtureSession({ public_code: sessionCode, can_order: true }),
+      fixtureSession({ public_code: sessionCode, can_order: false, effective_state: 'ordering_closed' }),
     ];
     const fetchImpl = () => {
       const r = responses[Math.min(resolveCount, responses.length - 1)];
       resolveCount += 1;
       return Promise.resolve({ ok: true, status: 200, json: async () => r });
     };
-    const ctx = await createHarness('http://localhost/popup-order?session=sess-abc', { fetchImpl });
+    const ctx = await createHarness('http://localhost/popup-order?session=' + sessionCode, { fetchImpl });
     try {
       await waitFor(() => ctx.w.eval('popupSession') !== null, { timeoutMs: 800 });
       ctx.w.eval("document.querySelector('#popupRoot li[data-product-id=\"301\"] button[aria-label*=\"增加\"]').click();");
       await waitFor(() => ctx.w.eval('popupCart.items.length') > 0, { timeoutMs: 400 });
-      ctx.w.eval('loadPopupDirectSession("sess-abc")'); // 模擬 refresh 拿到「已關閉」的新狀態
-      await waitFor(() => ctx.w.eval('popupSession.can_order') === false, { timeoutMs: 800 });
+      ctx.w.eval('loadPopupDirectSession(' + JSON.stringify(sessionCode) + ')'); // 模擬 refresh 拿到「已關閉」的新狀態
+      const stateChanged = await waitFor(() => ctx.w.eval('popupSession.can_order') === false, { timeoutMs: 800 });
       const buttons = [...ctx.w.document.querySelectorAll('#popupRoot li[data-product-id] button')];
-      assert(buttons.every((b) => b.disabled), '9-state-change-disables 狀態變為不可下單後，商品按鈕立即停用', JSON.stringify(buttons.map((b) => b.disabled)));
+      assert(stateChanged === true && buttons.length > 0 && buttons.every((b) => b.disabled),
+        '9-state-change-disables 狀態變為不可下單後，商品按鈕立即停用',
+        JSON.stringify({ stateChanged, buttonCount: buttons.length, disabled: buttons.map((b) => b.disabled) }));
       assert(ctx.w.eval('popupCart.items.length') > 0, '9-state-change-keeps-cart 狀態變化沒有清除購物車內容', String(ctx.w.eval('popupCart.items.length')));
     } finally { await ctx.settle(null, { timeoutMs: 250 }); assertNoUnexpectedErrors(ctx, 'case23'); ctx.cleanup(); }
   }
@@ -941,7 +999,7 @@ async function main() {
     const { ctx } = await setupCheckoutSession(null, (u, init, baseFetch) => {
       if (init && init.method === 'POST') {
         posts.push(String(u));
-        return new Promise((r) => { resolvePost = () => r({ ok: true, status: 201, json: async () => successCheckoutFixture() }); });
+        return new Promise((r) => { resolvePost = () => r({ ok: true, status: 201, json: async () => successCheckoutFixture({ order_number: 'POPUP-20990101-100000-r51iso3kzzdpvl4i' }) }); });
       }
       return baseFetch(String(u), init);
     });
@@ -955,8 +1013,9 @@ async function main() {
       const btnAfterClick = ctx.w.document.getElementById('popupCheckoutSubmitBtn');
       assert(btnAfterClick.disabled === true, '11-3-button-disabled-while-pending request 進行中按鈕是真正的 disabled', 'n/a');
       resolvePost();
-      await waitFor(() => ctx.w.eval('_popupCheckoutInFlight') === false, { timeoutMs: 400 });
-      assert(true, '11-3-finally-restores request 結束後 in-flight 狀態在 finally 正確恢復', 'n/a');
+      const restored = await waitFor(() => ctx.w.eval('_popupCheckoutInFlight') === false, { timeoutMs: 400 });
+      const inFlightAfterFinally = ctx.w.eval('_popupCheckoutInFlight');
+      assert(restored === true && inFlightAfterFinally === false, '11-3-finally-restores request 結束後 in-flight 狀態在 finally 正確恢復', JSON.stringify({ restored, inFlightAfterFinally }));
     } finally { await ctx.settle(null, { timeoutMs: 250 }); assertNoUnexpectedErrors(ctx, '11-3-double-click'); ctx.cleanup(); }
   }
   {
@@ -1003,8 +1062,9 @@ async function main() {
       const reloadBefore = reloadCalls;
       ctx.w.document.getElementById('popupCheckoutSubmitBtn').click();
       await waitFor(() => posts.length > 0, { timeoutMs: 400 });
-      await waitFor(() => ctx.w.eval('_popupCheckoutInFlight') === false, { timeoutMs: 400 });
-      assert(ctx.w.eval('popupCart.items.length') > 0, `11-4-${c.label}-cart-kept 錯誤時保留購物車`, String(ctx.w.eval('popupCart.items.length')));
+      const restored = await waitFor(() => ctx.w.eval('_popupCheckoutInFlight') === false, { timeoutMs: 400 });
+      const inFlightAfterFinally = ctx.w.eval('_popupCheckoutInFlight');
+      assert(restored === true && inFlightAfterFinally === false && ctx.w.eval('popupCart.items.length') > 0, `11-4-${c.label}-cart-kept 錯誤時保留購物車`, JSON.stringify({ label: c.label, restored, inFlightAfterFinally, cartItems: ctx.w.eval('popupCart.items.length') }));
       const errText = ctx.w.document.getElementById('popupCheckoutErrorRegion').textContent;
       assert(!/stack trace|server\.js|SQL/i.test(errText), `11-4-${c.label}-no-leak 錯誤訊息不洩漏 stack/SQL/path`, errText);
       if (c.expectGenericMsg) assert(errText.includes('場次不存在或目前不可用'), `11-4-${c.label}-generic-message 404 顯示統一「場次不存在或目前不可用」`, errText);
@@ -1032,8 +1092,9 @@ async function main() {
       await waitFor(() => ctx.w.eval('popupValidateCheckout().ok') === true, { timeoutMs: 400 });
       ctx.w.document.getElementById('popupCheckoutSubmitBtn').click();
       await waitFor(() => posts.length > 0, { timeoutMs: 400 });
-      await waitFor(() => ctx.w.eval('_popupCheckoutInFlight') === false, { timeoutMs: 400 });
-      assert(ctx.w.eval('popupCart.items.length') > 0, `11-4-${c.label}-cart-kept 保留購物車`, String(ctx.w.eval('popupCart.items.length')));
+      const restored = await waitFor(() => ctx.w.eval('_popupCheckoutInFlight') === false, { timeoutMs: 400 });
+      const inFlightAfterFinally = ctx.w.eval('_popupCheckoutInFlight');
+      assert(restored === true && inFlightAfterFinally === false && ctx.w.eval('popupCart.items.length') > 0, `11-4-${c.label}-cart-kept 保留購物車`, JSON.stringify({ label: c.label, restored, inFlightAfterFinally, cartItems: ctx.w.eval('popupCart.items.length') }));
       assert(posts.length === 1, `11-4-${c.label}-no-auto-retry 不自動重送`, JSON.stringify(posts));
       const root = ctx.w.document.getElementById('popupRoot').textContent;
       assert(!/network down|bad json/i.test(root), `11-4-${c.label}-no-raw-exception-leak 不直接顯示原始例外文字`, root);
@@ -1063,23 +1124,31 @@ async function main() {
   }
   {
     // malformed 201（缺少必要 snapshot 欄位）不得清 cart。
+    let postCount = 0;
     const { ctx } = await setupCheckoutSession(null, (u, init, baseFetch) => {
-      if (init && init.method === 'POST') return Promise.resolve({ ok: true, status: 201, json: async () => ({ success: true, data: { id: 'x' } }) });
+      if (init && init.method === 'POST') {
+        if (String(u) === '/api/line-orders/popup-checkout') postCount += 1;
+        return Promise.resolve({ ok: true, status: 201, json: async () => ({ success: true, data: { id: 'w64isoeg419kp4qk' } }) });
+      }
       return baseFetch(String(u), init);
     });
     try {
-      fillPopupCheckoutForm(ctx);
-      await waitFor(() => ctx.w.eval('popupValidateCheckout().ok') === true, { timeoutMs: 400 });
+      fillPopupCheckoutForm(ctx, { name: 'w63iso39jvetvqcobp' });
+      const validated = await waitFor(() => ctx.w.eval('popupValidateCheckout().ok') === true, { timeoutMs: 400 });
       ctx.w.document.getElementById('popupCheckoutSubmitBtn').click();
-      await waitFor(() => ctx.w.eval('_popupCheckoutInFlight') === false, { timeoutMs: 600 });
-      assert(ctx.w.eval('popupCart.items.length') > 0, '11-5-malformed-201-keeps-cart response 缺少必要欄位（order_number/popup_session_public_code）時不清購物車', String(ctx.w.eval('popupCart.items.length')));
+      const restored = await waitFor(() => ctx.w.eval('_popupCheckoutInFlight') === false, { timeoutMs: 600 });
+      const inFlightAfterFinally = ctx.w.eval('_popupCheckoutInFlight');
+      const validationOkAfterWait = ctx.w.eval('popupValidateCheckout().ok');
+      assert(validated === true && validationOkAfterWait === true && postCount === 1 && restored === true && inFlightAfterFinally === false && ctx.w.eval('popupCart.items.length') > 0,
+        '11-5-malformed-201-keeps-cart response 缺少必要欄位（order_number/popup_session_public_code）時不清購物車',
+        JSON.stringify({ validated, validationOkAfterWait, postCount, restored, inFlightAfterFinally, cartItems: ctx.w.eval('popupCart.items.length') }));
       assert(!ctx.w.document.getElementById('popupRoot').textContent.includes('訂購成功'), '11-5-malformed-201-no-success-screen 不顯示成功畫面', ctx.w.document.getElementById('popupRoot').textContent);
     } finally { await ctx.settle(null, { timeoutMs: 250 }); assertNoUnexpectedErrors(ctx, '11-5-malformed-201'); ctx.cleanup(); }
   }
   {
     // session A 成功不清 session B、不清一般 cart。
     const { ctx } = await setupCheckoutSession(null, (u, init, baseFetch) => {
-      if (init && init.method === 'POST') return Promise.resolve({ ok: true, status: 201, json: async () => successCheckoutFixture() });
+      if (init && init.method === 'POST') return Promise.resolve({ ok: true, status: 201, json: async () => successCheckoutFixture({ order_number: 'w66isoahn4kp0nje' }) });
       return baseFetch(String(u), init);
     });
     try {
@@ -1087,10 +1156,26 @@ async function main() {
       ctx.w.localStorage.setItem('line_order_cart_store_001', JSON.stringify({ some: 'general-cart-data' }));
       fillPopupCheckoutForm(ctx);
       await waitFor(() => ctx.w.eval('popupValidateCheckout().ok') === true, { timeoutMs: 400 });
+      const otherRowBefore = ctx.w.localStorage.getItem('line_popup_cart_v1_sess-OTHER');
+      const generalRowBefore = ctx.w.localStorage.getItem('line_order_cart_store_001');
+      const ownKey = ctx.w.eval('popupCartStorageKey(popupSession.public_code)');
       ctx.w.document.getElementById('popupCheckoutSubmitBtn').click();
-      await waitFor(() => ctx.w.document.getElementById('popupRoot').textContent.includes('訂購成功'), { timeoutMs: 600 });
-      assert(ctx.w.localStorage.getItem('line_popup_cart_v1_sess-OTHER') !== null, '11-5-other-session-not-cleared session A 成功不清 session B 的 popup cart', String(ctx.w.localStorage.getItem('line_popup_cart_v1_sess-OTHER')));
+      const successReached = await waitFor(() => ctx.w.document.getElementById('popupRoot').textContent.includes('訂購成功'), { timeoutMs: 600 });
+      const w66Marker = 'w66isoahn4kp0nje';
+      const w66RootText = ctx.w.document.getElementById('popupRoot').textContent;
+      const successShown = w66RootText.includes('訂購成功');
+      const successMarkerShown = w66RootText.includes(w66Marker);
+      assert(successReached === true && successShown && successMarkerShown && ctx.w.localStorage.getItem('line_popup_cart_v1_sess-OTHER') !== null, '11-5-other-session-not-cleared session A 成功不清 session B 的 popup cart',
+        JSON.stringify({ successReached, successShown, successMarkerShown, otherRowPresent: ctx.w.localStorage.getItem('line_popup_cart_v1_sess-OTHER') !== null }));
       assert(ctx.w.localStorage.getItem('line_order_cart_store_001') !== null, '11-5-general-cart-not-cleared session 成功不清一般 cart', String(ctx.w.localStorage.getItem('line_order_cart_store_001')));
+      const ownRootText = ctx.w.document.getElementById('popupRoot').textContent;
+      const ownMem = JSON.parse(ctx.w.eval('JSON.stringify({ code: popupCart.session_public_code, n: Array.isArray(popupCart.items) ? popupCart.items.length : -1 })'));
+      const ownRowAfter = ctx.w.localStorage.getItem(ownKey);
+      const otherRowUnchanged = ctx.w.localStorage.getItem('line_popup_cart_v1_sess-OTHER') === otherRowBefore;
+      const generalRowUnchanged = ctx.w.localStorage.getItem('line_order_cart_store_001') === generalRowBefore;
+      assert(ownRootText.includes('訂購成功') && ownRootText.includes(w66Marker) && ownMem.code === 'sess-abc' && ownMem.n === 0 && ownRowAfter === null && otherRowUnchanged && generalRowUnchanged,
+        '11-5-own-session-cart-cleared 成功後本 session 的記憶體與 storage 購物車確實清除（其他 session／一般 cart 原樣保留）',
+        JSON.stringify({ successShown: ownRootText.includes('訂購成功'), successMarkerShown: ownRootText.includes(w66Marker), ownSessionMatches: ownMem.code === 'sess-abc', ownMemoryItemCount: ownMem.n, ownRowExists: ownRowAfter !== null, otherRowUnchanged, generalRowUnchanged }));
     } finally { await ctx.settle(null, { timeoutMs: 250 }); assertNoUnexpectedErrors(ctx, '11-5-other-carts-untouched'); ctx.cleanup(); }
   }
 
@@ -1098,6 +1183,8 @@ async function main() {
   {
     let resolveA;
     const pendingA = new Promise((r) => { resolveA = r; });
+    let postCount = 0;
+    let aResponseJsonReads = 0;
     const routes = [
       { test: (u) => u.includes('popup-session/sess-A'), response: fixtureSession({ public_code: 'sess-A', name: 'Session A' }) },
       { test: (u) => u.includes('popup-session/sess-B'), response: fixtureSession({ public_code: 'sess-B', name: 'Session B' }) },
@@ -1105,7 +1192,10 @@ async function main() {
     const baseFetch = jsonFetchImpl(routes, []);
     const ctx = await createHarness('http://localhost/popup-order?session=sess-A', {
       fetchImpl: (u, init) => {
-        if (init && init.method === 'POST') return pendingA.then(() => ({ ok: true, status: 201, json: async () => successCheckoutFixture({ popup_session_public_code: 'sess-A', popup_session_name: 'Session A result' }) }));
+        if (init && init.method === 'POST') {
+          if (String(u) === '/api/line-orders/popup-checkout') postCount += 1;
+          return pendingA.then(() => ({ ok: true, status: 201, json: async () => { aResponseJsonReads += 1; return successCheckoutFixture({ popup_session_public_code: 'sess-A', popup_session_name: 'Session A result' }); } }));
+        }
         return baseFetch(String(u), init);
       },
     });
@@ -1114,14 +1204,20 @@ async function main() {
       fillPopupCheckoutForm(ctx);
       await waitFor(() => ctx.w.eval('popupValidateCheckout().ok') === true, { timeoutMs: 400 });
       ctx.w.document.getElementById('popupCheckoutSubmitBtn').click();
-      await waitFor(() => ctx.w.eval('_popupCheckoutInFlight') === true, { timeoutMs: 400 });
+      const postStarted = await waitFor(() => ctx.w.eval('_popupCheckoutInFlight') === true && postCount === 1, { timeoutMs: 400 });
       // 使用者切換到 session B（例如點了 campaign 選單裡的另一場次）。
       ctx.w.eval("loadPopupDirectSession('sess-B');");
-      await waitFor(() => ctx.w.eval('popupSession') !== null && ctx.w.eval('popupSession.public_code') === 'sess-B', { timeoutMs: 800 });
+      const sessionBLoaded = await waitFor(() => ctx.w.eval('popupSession') !== null && ctx.w.eval('popupSession.public_code') === 'sess-B', { timeoutMs: 800 });
+      const loadedSessionCode = ctx.w.eval('popupSession && popupSession.public_code');
+      const jsonReadsBeforeResolve = aResponseJsonReads;
       // A 的 checkout response 現在才回來。
       resolveA();
-      await waitFor(() => true, { timeoutMs: 300 });
-      assert(ctx.w.eval('popupSession.public_code') === 'sess-B', '11-6-session-race-state session B 的 state 沒有被慢回來的 session A checkout response 覆蓋', String(ctx.w.eval('popupSession.public_code')));
+      const staleResponseProcessed = await waitFor(() => aResponseJsonReads === 1 && ctx.w.eval('_popupCheckoutInFlight') === false, { timeoutMs: 300 });
+      const inFlightAfterStale = ctx.w.eval('_popupCheckoutInFlight');
+      assert(postStarted === true && postCount === 1 && sessionBLoaded === true && loadedSessionCode === 'sess-B' && jsonReadsBeforeResolve === 0
+        && staleResponseProcessed === true && aResponseJsonReads === 1 && inFlightAfterStale === false && ctx.w.eval('popupSession.public_code') === 'sess-B',
+        '11-6-session-race-state session B 的 state 沒有被慢回來的 session A checkout response 覆蓋',
+        JSON.stringify({ postStarted, postCount, sessionBLoaded, loadedSessionCode, jsonReadsBeforeResolve, staleResponseProcessed, aResponseJsonReads, inFlightAfterStale, sessionCodeAtAssert: ctx.w.eval('popupSession && popupSession.public_code') }));
       assert(!ctx.w.document.getElementById('popupRoot').textContent.includes('訂購成功'), '11-6-session-race-no-success-screen session B 畫面上沒有出現 session A 的成功畫面', ctx.w.document.getElementById('popupRoot').textContent);
     } finally { await ctx.settle(null, { timeoutMs: 250 }); assertNoUnexpectedErrors(ctx, '11-6-session-race'); ctx.cleanup(); }
   }
@@ -1132,7 +1228,7 @@ async function main() {
   // 需要的 DOM 元素，證明兩邊互不干擾）。
   {
     const { ctx } = await setupCheckoutSession(null, (u, init, baseFetch) => {
-      if (init && init.method === 'POST') return Promise.resolve({ ok: true, status: 201, json: async () => successCheckoutFixture() });
+      if (init && init.method === 'POST') return Promise.resolve({ ok: true, status: 201, json: async () => successCheckoutFixture({ order_number: 'w73isoobdjs8yymz' }) });
       return baseFetch(String(u), init);
     });
     try {
@@ -1140,8 +1236,13 @@ async function main() {
       fillPopupCheckoutForm(ctx);
       await waitFor(() => ctx.w.eval('popupValidateCheckout().ok') === true, { timeoutMs: 400 });
       ctx.w.document.getElementById('popupCheckoutSubmitBtn').click();
-      await waitFor(() => ctx.w.document.getElementById('popupRoot').textContent.includes('訂購成功'), { timeoutMs: 600 });
-      assert(ctx.w.eval('cartUIStage') === 'cart', '11-7-no-general-stage-mutation popup 送單沒有動到一般 cartUIStage（兩套流程互不干擾）', String(ctx.w.eval('cartUIStage')));
+      const successReached = await waitFor(() => ctx.w.document.getElementById('popupRoot').textContent.includes('訂購成功'), { timeoutMs: 600 });
+      const w73Marker = 'w73isoobdjs8yymz';
+      const w73RootText = ctx.w.document.getElementById('popupRoot').textContent;
+      const successShown = w73RootText.includes('訂購成功');
+      const successMarkerShown = w73RootText.includes(w73Marker);
+      assert(successReached === true && successShown && successMarkerShown && ctx.w.eval('cartUIStage') === 'cart', '11-7-no-general-stage-mutation popup 送單沒有動到一般 cartUIStage（兩套流程互不干擾）',
+        JSON.stringify({ successReached, successShown, successMarkerShown, cartUIStage: String(ctx.w.eval('cartUIStage')) }));
     } finally { await ctx.settle(null, { timeoutMs: 250 }); assertNoUnexpectedErrors(ctx, '11-7-analytics-isolation'); ctx.cleanup(); }
   }
 

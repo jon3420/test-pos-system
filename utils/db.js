@@ -13,15 +13,106 @@ if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 
 let wrappedDb = null;
 
-function wrap(sqlDb) {
+// ── R44.2F：durable persistence（atomic file replace）──────────────────────
+// 舊 save() 直接 writeFileSync 覆寫正式 DB 檔且吞掉錯誤（partial write 可能留下壞檔、
+// 失敗時 memory 已改而 disk 沒改）。以下 API 一律：同目錄 temp file → 寫滿 → fsync →
+// atomic rename → best-effort fsync parent dir；任一步失敗：清 temp、throw、正式檔不動。
+class DurableCommitError extends Error {
+  constructor() { super('STORAGE_UNAVAILABLE'); this.name = 'DurableCommitError'; this.code = 'DURABLE_COMMIT_FAILED'; }
+}
+function isDurableError(e) { return !!(e && e.code === 'DURABLE_COMMIT_FAILED'); }
+
+const TMP_PREFIX_RE = (base) => new RegExp('^\\.' + base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\.tmp-\\d+-\\d+-[a-z0-9]{6}$');
+const durabilityMetrics = { dirFsyncWarnings: 0 }; // 觀測用計數：rename 之後 parent-dir fsync 失敗次數
+
+// R44.2F.1 commit point 語意：
+//   - atomic rename 之前的任何失敗 → mutation 未 commit（呼叫端 restore memory、disk 舊版不動、throw）。
+//   - atomic rename 成功 → disk 可見版本已切換＝commit point；之後 parent-dir fsync 失敗只記 durability warning，
+//     不 throw、不 restore（否則 memory 舊／disk 新 分裂，且會誘導 client 重試已成功的 mutation）。
+//     誠實限制：此時無法保證「突然斷電」後 directory entry 已持久化。
+function durableWriteFile(filePath, bytes) {
+  const dir = path.dirname(filePath);
+  const tmp = path.join(dir, `.${path.basename(filePath)}.tmp-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8).padEnd(6, '0')}`);
+  let mode = 0o644;
+  try { mode = fs.statSync(filePath).mode & 0o777; } catch {}
+  let fd = null;
+  try {
+    fd = fs.openSync(tmp, 'wx', mode);
+    try { fs.fchmodSync(fd, mode); } catch {}
+    let off = 0;
+    while (off < bytes.length) {
+      const n = fs.writeSync(fd, bytes, off, bytes.length - off);
+      if (!(n > 0)) throw new Error('short write');
+      off += n;
+    }
+    fs.fsyncSync(fd);
+    fs.closeSync(fd); fd = null;
+    fs.renameSync(tmp, filePath); // commit point：atomic replace
+  } catch (e) {
+    if (fd !== null) { try { fs.closeSync(fd); } catch {} }
+    try { fs.unlinkSync(tmp); } catch {}
+    throw e;
+  }
+  try { const dfd = fs.openSync(dir, 'r'); try { fs.fsyncSync(dfd); } finally { fs.closeSync(dfd); } }
+  catch (we) { durabilityMetrics.dirFsyncWarnings++; console.warn('[db] DURABILITY_WARNING: rename committed but parent-directory fsync failed (power-loss durability of the directory entry not guaranteed):', we && we.code || 'unknown'); }
+}
+
+// 啟動時只清除「本 helper 自己」的殘留 temp（嚴格 prefix＋pid-timestamp-6碼格式），不使用寬泛 glob。
+function cleanupStaleDurableTemps(filePath) {
+  const dir = path.dirname(filePath), re = TMP_PREFIX_RE(path.basename(filePath));
+  let removed = 0;
+  try { for (const f of fs.readdirSync(dir)) { if (re.test(f)) { try { fs.unlinkSync(path.join(dir, f)); removed++; } catch {} } } } catch {}
+  return removed;
+}
+
+function wrap(sqlDb, SQL) {
   const save = () => {
     try {
       fs.writeFileSync(DB_PATH, Buffer.from(sqlDb.export()));
     } catch(e) { console.error('DB save error:', e.message); }
   };
 
-  return {
-    _db: sqlDb, _save: save,
+  let txActive = false;
+  // 以 checkpoint bytes 重建 live DB 並 swap（singleton wrapper 不變；所有 method 都經由 closure 的 sqlDb）。
+  const restoreFromCheckpoint = (checkpoint) => {
+    const restored = new SQL.Database(checkpoint);
+    const old = sqlDb;
+    sqlDb = restored; obj._db = restored;
+    try { old.close(); } catch {}
+  };
+  // runDurableTransaction(work)：work 必須是同步函式（不得 await／回傳 Promise）。
+  // 契約：BEGIN → work → COMMIT → durable file write 全部成功才算成功；
+  // 任一步失敗：memory 與 disk 都回到 before-state（disk 從未被替換；memory 依 checkpoint 還原），
+  // 並 throw（persistence 失敗 throw DurableCommitError，訊息固定、不含 path／SQL）。
+  const runDurableTransaction = (work) => {
+    if (typeof work !== 'function') throw new Error('work must be a function');
+    if (txActive) throw new Error('nested durable transaction');
+    txActive = true;
+    try {
+      const checkpoint = sqlDb.export(); // 必須在 BEGIN 前（export 會重開 DB，交易中呼叫會毀掉 transaction）
+      let result;
+      try {
+        obj._db.run('BEGIN');
+        result = work(obj);
+        if (result && typeof result.then === 'function') throw new Error('durable transaction work must be synchronous');
+        obj._db.run('COMMIT');
+      } catch (e) {
+        try { obj._db.run('ROLLBACK'); } catch { restoreFromCheckpoint(checkpoint); }
+        throw e;
+      }
+      try {
+        durableWriteFile(DB_PATH, Buffer.from(obj._db.export()));
+      } catch (e) {
+        console.error('[db] durable commit failed, restoring checkpoint:', e && e.message);
+        restoreFromCheckpoint(checkpoint);
+        throw new DurableCommitError();
+      }
+      return result;
+    } finally { txActive = false; }
+  };
+
+  const obj = {
+    _db: sqlDb, _save: save, runDurableTransaction, 
 
     exec(sql) { sqlDb.run(sql); save(); },
 
@@ -71,6 +162,7 @@ function wrap(sqlDb) {
       };
     }
   };
+  return obj;
 }
 
 function getDb() {
@@ -85,7 +177,8 @@ async function initDb() {
     ? new SQL.Database(fs.readFileSync(DB_PATH))
     : new SQL.Database();
 
-  wrappedDb = wrap(sqlDb);
+  cleanupStaleDurableTemps(DB_PATH); // R44.2F.1：只清本 helper 自己 prefix 的殘留 temp
+  wrappedDb = wrap(sqlDb, SQL);
   initTables(wrappedDb);
   return wrappedDb;
 }
@@ -175,6 +268,17 @@ function initTables(w) {
     'ALTER TABLE products ADD COLUMN line_sold_out INTEGER DEFAULT 0',
     'ALTER TABLE products ADD COLUMN sale_status TEXT DEFAULT \'available\'',
     'ALTER TABLE products ADD COLUMN sold_out_until TEXT DEFAULT ""',
+    // R44.2F.3A-2 稽核發現：utils/popupCheckout.js 的 fresh-authority
+    // reconcile 查詢明確引用 line_takeout_enabled／line_delivery_enabled
+    // 這兩個欄位，但從未被實際 migrate 過——只要真的走到那條 SELECT 就會
+    // 拋出「no such column」。standard 訂單路徑是用「SELECT * 之後 JS 端
+    // ?? 1 fallback」讀這兩個欄位，不會踩到這個問題，這也是為什麼主要的
+    // popup checkout suite（1445 條斷言）從未抓到——它從未真正走到 popup
+    // restore 的 reconcile 路徑。這裡用既有的 idempotent migration 陣列
+    // 補上，default=1（未設定視為「啟用」，跟其他地方既有的 JS fallback
+    // 語意一致，不是新發明的預設值）。
+    'ALTER TABLE products ADD COLUMN line_takeout_enabled INTEGER DEFAULT 1',
+    'ALTER TABLE products ADD COLUMN line_delivery_enabled INTEGER DEFAULT 1',
     'ALTER TABLE products ADD COLUMN auto_restore_next_day INTEGER DEFAULT 1',
     'ALTER TABLE products ADD COLUMN line_category_id INTEGER DEFAULT 0',
     'ALTER TABLE products ADD COLUMN product_barcode TEXT DEFAULT ""',
@@ -583,6 +687,21 @@ function initTables(w) {
     // fix18-10-hotfix23-E：LINE 會員入口 —— 訂單會員綁定（未登入訂單維持空字串，不影響
     // 既有訂單；沿用專案既有「try/catch ALTER TABLE」safe migration 慣例，可重複執行）
     'ALTER TABLE orders ADD COLUMN line_user_id TEXT DEFAULT ""',
+    // H1.4.12 Phase 3C R34：標準 LINE 訂單建立當下就把「這張訂單消耗的是
+    // line_quota_sold 還是 line_preorder_sold」明確記下來，cancel/void
+    // 從此不用再從 persisted pickup_time 字串猜。只允許 'quota'／
+    // 'preorder'／NULL 三種值；NULL 代表「非標準 LINE 訂單，或既有 legacy
+    // 資料尚未／無法安全判定」，絕對不能預設成 'quota'。不對外公開 API。
+    'ALTER TABLE orders ADD COLUMN line_counter_bucket TEXT DEFAULT NULL',
+    // H1.4.12 Phase 3C R42：只知道「這張訂單占用 quota 還是 preorder」
+    // （line_counter_bucket）還不夠——同一張訂單可能混合「quota-enabled」
+    // 與「quota-disabled」商品，取消時如果對 order.items 裡每一項都無條件
+    // 扣，會錯誤地把從未真正被扣過的商品也一起扣掉（phantom decrement，
+    // 已用真實混合商品訂單重現）。這裡另外記下「建立當下、逐商品」真正
+    // 讓 counter 增加的 product_id/qty 快照，取消/作廢時只依這份快照
+    // 精確恢復，不重新用 order.items 或當前商品設定去猜。只允許 NULL 或
+    // 合法 JSON 陣列字串。
+    'ALTER TABLE orders ADD COLUMN line_counter_allocation_snapshot TEXT DEFAULT NULL',
   ];
   orderMigrations.forEach(sql => { try { w._db.run(sql); w._save(); } catch {} });
 
@@ -3427,7 +3546,7 @@ function _runPopupPickupOrdersMigration(w) {
   });
 }
 
-module.exports = { getDb, initDb };
+module.exports = { getDb, initDb, isDurableError, DurableCommitError, durabilityMetrics, cleanupStaleDurableTemps };
 
 // Note: migration_logs table is created on-demand in routes/migration.js
 // to keep backward compatibility with existing DB instances.

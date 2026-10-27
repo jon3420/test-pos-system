@@ -11,6 +11,8 @@
 'use strict';
 
 const express = require('express');
+const { buildLineCounterAllocationSnapshot, assertOneRowModified } = require('../utils/lineCounterAllocation');
+const { isDurableError } = require('../utils/db');
 const router  = express.Router();
 const { getDb } = require('../utils/db');
 const { broadcastToStore } = require('../utils/wssBroadcast');
@@ -452,7 +454,7 @@ router.post('/', (req, res) => {
 
     // ── 商品重新驗證 + 計價（後端不信任前端金額）──────────────────────
     let subtotal = 0;
-    const finalItems = [];
+    let finalItems = [];
     for (const item of items) {
       const pid = item.product_id || item.id;
       const prod = pid ? db.get('SELECT * FROM products WHERE id=? AND store_id=?', [pid, storeId]) : null;
@@ -514,9 +516,9 @@ router.post('/', (req, res) => {
     //   total = discounted_subtotal + shipping_fee
     // 不得發生「前端顯示免運，後端卻重新加運費」的不一致，所以前後端共用同一套算法。
     const discountedSubtotal = Math.max(0, subtotal - discAmt);
-    const feeResult = calcShippingFee(settings, discountedSubtotal);
+    let feeResult = calcShippingFee(settings, discountedSubtotal);
     // 應付金額 = 商品小計 - 優惠折扣 + 宅配運費（運費本身不受折扣影響）
-    const finalTotal = discountedSubtotal + feeResult.shipping_fee;
+    let finalTotal = discountedSubtotal + feeResult.shipping_fee;
 
     // ── 到貨日期驗證 ─────────────────────────────────────────────────
     const finalArrivalType = arrival_type === 'date' ? 'date' : 'asap';
@@ -537,8 +539,8 @@ router.post('/', (req, res) => {
     const orderNo = orderNumber();
     const pad = (n, l = 2) => String(n).padStart(l, '0');
     const nowStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
-    const itemsJson = JSON.stringify(finalItems);
-    const total = finalTotal;
+    let itemsJson = JSON.stringify(finalItems);
+    let total = finalTotal;
 
     // fix18-10-hotfix30-B5-R5.1-B：宅配履約區域——直接用結構化 city/district
     // （見上方說明），confidence=high、resolution 依是否有 district 決定。
@@ -552,7 +554,61 @@ router.post('/', (req, res) => {
       distanceKm: null, // 宅配走貨運，沒有店家外送距離，不得拿外送距離代替
     });
 
-    db.run(
+    // H1.4.12 Phase 3C R44.2A：order INSERT、coupon redemption、counter
+    // UPDATE 是同一個 BEGIN/COMMIT/ROLLBACK 交易，交易內全部用 raw
+    // db._db.run()，COMMIT 後才 _save() 一次。（稽核：本 route 沒有任何
+    // ingredient deduction 呼叫，見 grep 結果與測試中的控制案例。）
+    // R44.2F：BEGIN／COMMIT／durable file write 由 db.runDurableTransaction() 統一管理；
+    // work 為同步函式，persistence 失敗時 memory 與 disk 都回到 before-state，side effect 只在 durable 成功後。
+    db.runDurableTransaction(() => {
+    // R44.2D：交易內 fresh 重建所有價格／名稱／小計／優惠折扣／運費／總額
+    // （fresh 讀 settings 與 products；BEGIN 前的計算只用於 UX 驗證，不作為寫入依據）。
+    {
+      const bad = (status, message, reason) => { const e = new Error('shipping pricing: ' + reason); e.httpStatus = status; e.publicBody = { success: false, message, reason }; return e; };
+      const stTx = getShippingSettings(db, storeId);
+      let subTx = 0; const fiTx = [];
+      for (const item of items) {
+        const pid = Number(item.product_id != null ? item.product_id : item.id);
+        if (!Number.isSafeInteger(pid) || pid <= 0) throw bad(400, '購物車商品格式錯誤', 'invalid_product_id');
+        const qtyTx = item.qty == null ? 1 : item.qty;
+        if (typeof qtyTx !== 'number' || !Number.isSafeInteger(qtyTx) || qtyTx <= 0) throw bad(400, '商品數量格式錯誤', 'invalid_qty');
+        const pTx = db.get('SELECT * FROM products WHERE id=? AND store_id=?', [pid, storeId]);
+        if (!pTx || !pTx.enabled || !Number(pTx.shipping_enabled)) throw bad(400, '購物車中有商品目前無法宅配，請重新確認', 'product_not_available');
+        const priceTx = Number(pTx.shipping_price) > 0 ? Number(pTx.shipping_price) : Number(pTx.price) || 0;
+        if (!Number.isFinite(priceTx) || priceTx < 0 || !Number.isSafeInteger(Math.round(priceTx * qtyTx))) throw bad(400, '訂單金額超出範圍', 'amount_overflow');
+        subTx += priceTx * qtyTx;
+        if (!Number.isFinite(subTx) || !Number.isSafeInteger(Math.round(subTx))) throw bad(400, '訂單金額超出範圍', 'amount_overflow');
+        fiTx.push({ product_id: pTx.id, name: (pTx.shipping_name && pTx.shipping_name.trim()) ? pTx.shipping_name : pTx.name, price: priceTx, qty: qtyTx, spec: pTx.shipping_spec || '' });
+      }
+      if (calcShippingFee(stTx, subTx).below_min_order) throw bad(400, '未達最低訂購金額', 'below_min_order');
+      let discTx = 0;
+      if (appliedCouponId) {
+        const cvTx = validateCoupon(db, storeId, normalCouponCode, subTx, phoneNormalized);
+        if (!cvTx.ok || cvTx.coupon.id !== appliedCouponId) throw bad(400, '優惠券目前無法使用', 'coupon_invalid');
+        discTx = cvTx.discount_amount;
+      }
+      const discountedTx = Math.max(0, subTx - discTx);
+      feeResult = calcShippingFee(stTx, discountedTx);
+      subtotal = subTx; discAmt = discTx; finalItems = fiTx;
+      finalTotal = discountedTx + feeResult.shipping_fee; total = finalTotal; itemsJson = JSON.stringify(finalItems);
+    }
+    // R44.2B：shipping share 判斷／final snapshot 在 BEGIN 之後由 transaction
+    // 內 fresh SELECT 的商品資料決定，並交給共用 builder。
+    // 註：本輪只把「counter participation」移入交易重讀；單價與商品資格驗證
+    // 仍在 BEGIN 前完成（未於交易內重讀，見報告的未完成項目）。
+    const freshShipRows = [];
+    finalItems.forEach(item => {
+      const prod = db.get('SELECT * FROM products WHERE id=? AND store_id=?', [item.product_id, storeId]);
+      // R44.2C：BEGIN 後 fresh 重驗 shipping 資格；不符 → 固定 business 400，整筆 rollback。
+      if (!prod || !prod.enabled || !Number(prod.shipping_enabled)) {
+        const ee = new Error('product eligibility changed'); ee.httpStatus = 400; ee.publicBody = { success: false, message: '購物車中有商品目前無法宅配，請重新確認', reason: 'product_not_available' }; throw ee;
+      }
+      if (Number(prod.shipping_share_line_stock) !== 0 && (Number(prod.line_quota_daily) > 0 || Number(prod.line_quota_enabled))) {
+        freshShipRows.push({ product_id: Number(item.product_id), counter_bucket: 'quota', qty: Number(item.qty) });
+      }
+    });
+    const shippingCounterAllocationSnapshot = buildLineCounterAllocationSnapshot(freshShipRows);
+    db._db.run(
       `INSERT INTO orders (
         id, uuid, order_number, store_id, order_mode, order_status, kitchen_status,
         customer_name, customer_phone,
@@ -566,8 +622,9 @@ router.post('/', (req, res) => {
         shipping_carrier_name, shipping_status, line_user_id,
         fulfillment_geo_city, fulfillment_geo_district, fulfillment_geo_source,
         fulfillment_geo_confidence, fulfillment_geo_resolution, fulfillment_distance_band,
-        fulfillment_geo_county_code, fulfillment_geo_subdivision_code
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        fulfillment_geo_county_code, fulfillment_geo_subdivision_code,
+        line_counter_bucket, line_counter_allocation_snapshot
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         uuid, uuid, orderNo, storeId, 'shipping', 'pending', 'pending',
         recipient_name, phoneNormalized,
@@ -584,40 +641,45 @@ router.post('/', (req, res) => {
         // fix18-10-hotfix30-B5-R5.2-A（Stage 8）：重用 normalizeDeliveryGeo()
         // 已算好的 geo_county_code/geo_subdivision_code，不重新解析。
         shippingGeo.geo_county_code, shippingGeo.geo_subdivision_code,
+        'quota', JSON.stringify(shippingCounterAllocationSnapshot),
       ]
     );
 
+    assertOneRowModified(db, 'shipping order INSERT');
     // ── hotfix22-C：寫入 coupon_redemptions（訂單建立成功後，與 line-orders.js 相同做法）──
     if (appliedCouponId) {
-      try {
-        db.run(
-          `INSERT OR IGNORE INTO coupon_redemptions
-             (store_id, coupon_id, coupon_code, order_id, order_number,
-              customer_phone, discount_amount, original_total, final_total, created_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?)`,
-          [
-            storeId, appliedCouponId, appliedCouponCode,
-            uuid, orderNo,
-            String(phoneNormalized || '').trim(),
-            discAmt, subtotal, total, nowStr
-          ]
-        );
-      } catch (rErr) {
-        console.error('[line-shipping] coupon_redemptions 寫入失敗:', rErr.message);
-        // redemption 寫入失敗不中斷訂單，但記錄錯誤（與 line-orders.js 行為一致）
+      // R44.2C：同 standard——一般 INSERT、恰好 1 列、不 swallow-error；BEGIN 後 fresh 重驗 coupon。
+      const cvFresh = validateCoupon(db, storeId, String(coupon_code || '').trim().toUpperCase(), subtotal, phoneNormalized);
+      if (!cvFresh.ok || cvFresh.coupon.id !== appliedCouponId) {
+        const ce = new Error('coupon revalidation failed'); ce.httpStatus = 400; ce.publicBody = { success: false, message: '優惠券目前無法使用', reason: 'coupon_invalid' }; throw ce;
       }
+      db._db.run(
+        `INSERT INTO coupon_redemptions
+           (store_id, coupon_id, coupon_code, order_id, order_number,
+            customer_phone, discount_amount, original_total, final_total, created_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?)`,
+        [
+          storeId, appliedCouponId, appliedCouponCode,
+          uuid, orderNo,
+          String(phoneNormalized || '').trim(),
+          discAmt, subtotal, total, nowStr
+        ]
+      );
+      assertOneRowModified(db, 'shipping coupon redemption INSERT');
     }
 
     // ── 扣 LINE 共用份數（若商品設定共用）──────────────────────────
-    finalItems.forEach(item => {
-      const prod = db.get('SELECT * FROM products WHERE id=? AND store_id=?', [item.product_id, storeId]);
-      if (!prod) return;
-      if (Number(prod.shipping_share_line_stock) !== 0 && (Number(prod.line_quota_daily) > 0 || Number(prod.line_quota_enabled))) {
-        db.run(
-          `UPDATE products SET line_quota_sold = MAX(0, line_quota_sold + ?), updated_at=datetime('now','localtime') WHERE id=? AND store_id=?`,
-          [Number(item.qty), item.product_id, storeId]
-        );
-      }
+    // R44.2：這裡不再重新判斷「誰該扣」——上面已經用同一份 server-fresh
+    // 商品資料算過一次（shippingAllocationMap），這裡只依那份結果執行真正
+    // 的 UPDATE，避免兩處各自判斷、萬一商品資料在極短時間內被改動導致
+    // INSERT 寫的 snapshot 跟實際扣的 counter 對不上。
+    shippingCounterAllocationSnapshot.allocations.forEach(({ product_id: pid, qty }) => {
+      db._db.run(
+        `UPDATE products SET line_quota_sold = MAX(0, line_quota_sold + ?), updated_at=datetime('now','localtime') WHERE id=? AND store_id=?`,
+        [qty, pid, storeId]
+      );
+      assertOneRowModified(db, 'shipping counter UPDATE product ' + pid);
+    });
     });
 
     const newOrder = db.get('SELECT * FROM orders WHERE uuid=? AND store_id=?', [uuid, storeId]);
@@ -685,8 +747,11 @@ router.post('/', (req, res) => {
       },
     });
   } catch (e) {
-    console.error('[line-shipping] POST error:', e.message);
-    res.status(500).json({ success: false, message: e.message });
+    console.error('[line-shipping] POST error:', e && e.stack ? e.stack : e); // server 端保留完整錯誤
+    if (isDurableError(e)) return res.status(503).json({ success: false, error: 'STORAGE_UNAVAILABLE', message: '系統忙碌中，請稍後再試' }); // R44.2F：固定 payload，不含 path／SQL／stack
+    if (e && e.httpStatus && e.publicBody) return res.status(e.httpStatus).json(e.publicBody);
+    // R44.2B：client 只收到固定、非枚舉、無內部資訊的 500 payload（不再回傳 e.message）
+    res.status(500).json({ success: false, error: 'INTERNAL_ERROR', message: '系統忙碌中，請稍後再試' });
   }
 });
 

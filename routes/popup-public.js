@@ -24,11 +24,13 @@ const { verifyMemberSession } = require('../utils/lineMemberSession');
 const pp = require('../utils/popupPickup');
 const popupCheckout = require('../utils/popupCheckout');
 
+const { isDurableError } = require('../utils/db');
 function sendPopupError(res, err) {
   if (err instanceof pp.PopupValidationError) {
     return res.status(err.status).json({ success: false, error: err.code, message: err.message, ...(err.extra || {}) });
   }
   console.error('[popup-public] internal error:', err && err.stack ? err.stack : err);
+  if (isDurableError(err)) return res.status(503).json({ success: false, error: 'STORAGE_UNAVAILABLE', message: '系統忙碌中，請稍後再試' }); // R44.2F
   return res.status(500).json({ success: false, error: 'POPUP_INTERNAL_ERROR', message: '系統發生錯誤，請稍後再試' });
 }
 
@@ -179,8 +181,8 @@ router.post('/popup-checkout', (req, res) => {
 
     let session, campaign, items, subtotal, paymentMethodCode;
 
-    db._db.run('BEGIN');
-    try {
+    // R44.2F：durable transaction（COMMIT 後 disk 寫入失敗 → memory／disk 都回到 before-state，回 503）
+    db.runDurableTransaction(() => {
       const authResult = popupCheckout.validatePopupCheckoutAuthority(db, {
         storeId,
         sessionPublicCode,
@@ -227,12 +229,7 @@ router.post('/popup-checkout', (req, res) => {
         ]
       );
       popupCheckout.allocatePopupOrderItemsInTransaction(db, storeId, session, orderId, items);
-      db._db.run('COMMIT');
-    } catch (e) {
-      try { db._db.run('ROLLBACK'); } catch (e2) { /* 不掩蓋原始錯誤 */ }
-      throw e;
-    }
-    db._save();
+    });
 
     res.status(201).json({
       success: true,

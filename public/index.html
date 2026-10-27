@@ -48,6 +48,9 @@
     <button class="nav-btn" data-page="line_preorders" id="nav-btn-line_preorders" onclick="showPage('line_preorders')" style="display:none">
       <span class="nav-icon">📅</span><span>LINE預購</span>
     </button>
+    <button class="nav-btn" data-page="popup_pickup" id="nav-btn-popup_pickup" onclick="showPage('popup_pickup')" style="display:none">
+      <span class="nav-icon">🚐</span><span>快閃取餐</span>
+    </button>
     <button class="nav-btn" data-page="coupons" id="nav-btn-coupons" onclick="showPage('coupons')" style="display:none">
       <span class="nav-icon">🎟️</span><span>優惠券</span>
     </button>
@@ -724,6 +727,300 @@
   </div>
 </div>
 
+<!-- 🚐 快閃取餐管理頁 (H1.4.12 Phase 3C) -->
+<div id="page-popup_pickup" class="page">
+  <div class="page-inner" style="max-width:100%;padding:16px 20px">
+    <h1 class="page-title">🚐 快閃取餐管理</h1>
+
+    <div id="ppa-disabled-banner" style="display:none;background:#3a2e0a;border:1px solid #7a5b00;border-radius:8px;padding:12px 16px;margin-bottom:16px;color:#ffd76a">
+      <strong>⚠️ 快閃取餐功能目前已關閉</strong>
+      <div style="margin-top:4px;font-size:13px">關閉後所有快閃公開入口及結帳將不可使用，既有資料不會刪除。您仍可在此管理活動、地點與場次資料。</div>
+      <button class="btn-primary" style="margin-top:8px" onclick="ppaGoToSettingsToggle()">前往開啟</button>
+    </div>
+
+    <div id="ppa-load-error" style="display:none;background:#3a0a0a;border:1px solid #7a1a1a;border-radius:8px;padding:12px 16px;margin-bottom:16px;color:#ff9a9a">
+      <span id="ppa-load-error-msg"></span>
+      <button class="btn-secondary" style="margin-left:12px" onclick="ppaRetryLoad()">重試</button>
+    </div>
+
+    <div style="margin-bottom:16px;border-bottom:1px solid var(--border,#334155)">
+      <button class="order-tab-btn active" id="ppa-tabbtn-campaigns" onclick="ppaSwitchTab('campaigns')">🎪 活動</button>
+      <button class="order-tab-btn" id="ppa-tabbtn-locations" onclick="ppaSwitchTab('locations')">📍 取貨地點</button>
+      <button class="order-tab-btn" id="ppa-tabbtn-sessions" onclick="ppaSwitchTab('sessions')">🗓️ 場次</button>
+      <button class="order-tab-btn" id="ppa-tabbtn-links" onclick="ppaSwitchTab('links')">🔗 公開連結／測試</button>
+    </div>
+
+    <!-- ── 活動 ── -->
+    <div id="ppa-panel-campaigns" class="ppa-panel">
+      <div style="display:flex;justify-content:flex-end;margin-bottom:12px">
+        <button class="btn-primary" id="ppa-btn-new-campaign" onclick="ppaOpenCampaignForm(null)">＋ 新增活動</button>
+      </div>
+      <table class="data-table">
+        <thead><tr><th>活動名稱</th><th>狀態</th><th>公開代碼</th><th>場次數</th><th>建立／更新時間</th><th>操作</th></tr></thead>
+        <tbody id="ppa-campaigns-tbody"><tr><td colspan="6" style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">載入中…</td></tr></tbody>
+      </table>
+    </div>
+
+    <!-- ── 取貨地點 ── -->
+    <div id="ppa-panel-locations" class="ppa-panel" style="display:none">
+      <div style="display:flex;justify-content:flex-end;margin-bottom:12px">
+        <button class="btn-primary" id="ppa-btn-new-location" onclick="ppaOpenLocationForm(null)">＋ 新增地點</button>
+      </div>
+      <table class="data-table">
+        <thead><tr><th>地點名稱</th><th>地址</th><th>使用中場次</th><th>狀態</th><th>操作</th></tr></thead>
+        <tbody id="ppa-locations-tbody"><tr><td colspan="5" style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">載入中…</td></tr></tbody>
+      </table>
+    </div>
+
+    <!-- ── 場次 ── -->
+    <div id="ppa-panel-sessions" class="ppa-panel" style="display:none">
+      <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px">
+        <select id="ppa-session-filter-campaign" onchange="ppaLoadSessions()" style="max-width:100%;min-width:0;padding:6px 8px;border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9);border:1px solid var(--border,#334155)">
+          <option value="">全部活動</option>
+        </select>
+        <select id="ppa-session-filter-status" onchange="ppaLoadSessions()" style="padding:6px 8px;border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9);border:1px solid var(--border,#334155)">
+          <option value="">全部狀態</option>
+          <option value="draft">草稿</option>
+          <option value="published">已發布</option>
+          <option value="paused">已暫停</option>
+          <option value="cancelled">已取消</option>
+          <option value="archived">已封存</option>
+        </select>
+        <input type="date" id="ppa-session-filter-from" onchange="ppaLoadSessions()" style="padding:6px 8px;border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9);border:1px solid var(--border,#334155)">
+        <input type="date" id="ppa-session-filter-to" onchange="ppaLoadSessions()" style="padding:6px 8px;border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9);border:1px solid var(--border,#334155)">
+        <div style="flex:1"></div>
+        <button class="btn-secondary" onclick="ppaOpenBatchSessionForm()">📆 批次建立場次</button>
+        <button class="btn-primary" onclick="ppaOpenSessionForm(null)">＋ 新增場次</button>
+      </div>
+      <table class="data-table">
+        <thead><tr>
+          <th>場次名稱</th><th>活動</th><th>日期／時段</th><th>下單開放／截止</th><th>地點</th>
+          <th>狀態</th><th>訂單／上限</th><th>公開代碼</th><th>商品範圍</th><th>操作</th>
+        </tr></thead>
+        <tbody id="ppa-sessions-tbody"><tr><td colspan="10" style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">載入中…</td></tr></tbody>
+      </table>
+    </div>
+
+    <!-- ── 公開連結／測試 ── -->
+    <div id="ppa-panel-links" class="ppa-panel" style="display:none">
+      <div style="font-size:13px;color:var(--text-secondary,#94a3b8);margin-bottom:12px">
+        只有「已發布」的場次／活動可以分享；草稿／暫停／取消的場次會顯示不可分享原因。
+      </div>
+      <div id="ppa-links-list"><div style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">載入中…</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- 🚐 快閃取餐：活動 新增/編輯 Modal -->
+<div class="modal-overlay" id="ppa-modal-campaign" style="display:none" onclick="if(event.target===this)ppaCloseCampaignForm()">
+  <div class="modal" style="max-width:480px">
+    <div class="modal-header">
+      <h3 id="ppa-campaign-modal-title">🎪 新增活動</h3>
+      <button class="modal-close" onclick="ppaCloseCampaignForm()">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="ppa-campaign-id">
+      <label style="display:block;margin-bottom:12px">
+        <span style="font-size:13px;color:var(--text-secondary,#94a3b8)">活動名稱 *</span>
+        <input type="text" id="ppa-campaign-name" maxlength="200" style="display:block;width:100%;margin-top:6px;padding:8px;border:1px solid var(--border,#334155);border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
+        <span class="ppa-field-error" id="ppa-campaign-name-err" style="display:none;color:#ff9a9a;font-size:12px"></span>
+      </label>
+      <label style="display:block;margin-bottom:12px">
+        <span style="font-size:13px;color:var(--text-secondary,#94a3b8)">說明</span>
+        <textarea id="ppa-campaign-desc" maxlength="2000" rows="3" style="display:block;width:100%;margin-top:6px;padding:8px;border:1px solid var(--border,#334155);border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)"></textarea>
+      </label>
+      <label style="display:block;margin-bottom:12px">
+        <span style="font-size:13px;color:var(--text-secondary,#94a3b8)">狀態</span>
+        <select id="ppa-campaign-status" style="display:block;width:100%;margin-top:6px;padding:8px;border:1px solid var(--border,#334155);border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
+          <option value="draft">草稿</option>
+          <option value="published">發布</option>
+          <option value="paused">暫停</option>
+        </select>
+        <div id="ppa-campaign-draft-hint" style="display:none;margin-top:6px;font-size:12px;color:#ffd76a">草稿活動不會出現在顧客公開頁</div>
+      </label>
+    </div>
+    <div class="modal-footer" style="display:flex;gap:8px;justify-content:flex-end;padding:16px">
+      <button class="btn-secondary" onclick="ppaCloseCampaignForm()">取消</button>
+      <button class="btn-primary" id="ppa-campaign-save-btn" onclick="ppaSaveCampaign()">儲存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 🚐 快閃取餐：地點 新增/編輯 Modal -->
+<div class="modal-overlay" id="ppa-modal-location" style="display:none" onclick="if(event.target===this)ppaCloseLocationForm()">
+  <div class="modal" style="max-width:480px">
+    <div class="modal-header">
+      <h3 id="ppa-location-modal-title">📍 新增地點</h3>
+      <button class="modal-close" onclick="ppaCloseLocationForm()">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="ppa-location-id">
+      <label style="display:block;margin-bottom:12px">
+        <span style="font-size:13px;color:var(--text-secondary,#94a3b8)">地點名稱 *</span>
+        <input type="text" id="ppa-location-name" maxlength="200" style="display:block;width:100%;margin-top:6px;padding:8px;border:1px solid var(--border,#334155);border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
+      </label>
+      <label style="display:block;margin-bottom:12px">
+        <span style="font-size:13px;color:var(--text-secondary,#94a3b8)">地址 *</span>
+        <input type="text" id="ppa-location-address" maxlength="500" style="display:block;width:100%;margin-top:6px;padding:8px;border:1px solid var(--border,#334155);border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
+      </label>
+      <label style="display:block;margin-bottom:12px">
+        <span style="font-size:13px;color:var(--text-secondary,#94a3b8)">地址備註</span>
+        <input type="text" id="ppa-location-note" maxlength="500" style="display:block;width:100%;margin-top:6px;padding:8px;border:1px solid var(--border,#334155);border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
+      </label>
+      <div style="display:flex;gap:12px">
+        <label style="flex:1">
+          <span style="font-size:13px;color:var(--text-secondary,#94a3b8)">緯度 lat</span>
+          <input type="number" step="any" id="ppa-location-lat" style="display:block;width:100%;margin-top:6px;padding:8px;border:1px solid var(--border,#334155);border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
+        </label>
+        <label style="flex:1">
+          <span style="font-size:13px;color:var(--text-secondary,#94a3b8)">經度 lng</span>
+          <input type="number" step="any" id="ppa-location-lng" style="display:block;width:100%;margin-top:6px;padding:8px;border:1px solid var(--border,#334155);border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
+        </label>
+      </div>
+    </div>
+    <div class="modal-footer" style="display:flex;gap:8px;justify-content:flex-end;padding:16px">
+      <button class="btn-secondary" onclick="ppaCloseLocationForm()">取消</button>
+      <button class="btn-primary" id="ppa-location-save-btn" onclick="ppaSaveLocation()">儲存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 🚐 快閃取餐：場次 新增/編輯 Modal -->
+<div class="modal-overlay" id="ppa-modal-session" style="display:none" onclick="if(event.target===this)ppaCloseSessionForm()">
+  <div class="modal" style="max-width:640px;max-height:88vh;overflow-y:auto">
+    <div class="modal-header">
+      <h3 id="ppa-session-modal-title">🗓️ 新增場次</h3>
+      <button class="modal-close" onclick="ppaCloseSessionForm()">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="ppa-session-id">
+      <input type="hidden" id="ppa-session-revision">
+      <div id="ppa-session-conflict-banner" style="display:none;background:#3a2e0a;border:1px solid #7a5b00;border-radius:8px;padding:10px;margin-bottom:12px;color:#ffd76a;font-size:13px"></div>
+      <label style="display:block;margin-bottom:10px">
+        <span style="font-size:13px;color:var(--text-secondary,#94a3b8)">所屬活動 *</span>
+        <select id="ppa-session-campaign" style="display:block;width:100%;margin-top:6px;padding:8px;border:1px solid var(--border,#334155);border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)"></select>
+      </label>
+      <label style="display:block;margin-bottom:10px">
+        <span style="font-size:13px;color:var(--text-secondary,#94a3b8)">場次名稱 *</span>
+        <input type="text" id="ppa-session-name" maxlength="200" style="display:block;width:100%;margin-top:6px;padding:8px;border:1px solid var(--border,#334155);border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
+      </label>
+      <label style="display:block;margin-bottom:10px">
+        <span style="font-size:13px;color:var(--text-secondary,#94a3b8)">取貨地點 *</span>
+        <select id="ppa-session-location" style="display:block;width:100%;margin-top:6px;padding:8px;border:1px solid var(--border,#334155);border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)"></select>
+      </label>
+      <div style="font-size:12px;color:var(--text-muted,#64748b);margin-bottom:10px">以下時間一律為 Asia/Taipei（+08:00），伺服器將以此時區為準</div>
+      <div style="display:flex;gap:10px;margin-bottom:10px">
+        <label style="flex:1"><span style="font-size:13px;color:var(--text-secondary,#94a3b8)">取貨日期 *</span>
+          <input type="date" id="ppa-session-date" style="display:block;width:100%;margin-top:6px;padding:8px;border:1px solid var(--border,#334155);border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)"></label>
+      </div>
+      <div style="display:flex;gap:10px;margin-bottom:10px">
+        <label style="flex:1"><span style="font-size:13px;color:var(--text-secondary,#94a3b8)">取貨開始時間 *</span>
+          <input type="time" id="ppa-session-start" style="display:block;width:100%;margin-top:6px;padding:8px;border:1px solid var(--border,#334155);border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)"></label>
+        <label style="flex:1"><span style="font-size:13px;color:var(--text-secondary,#94a3b8)">取貨結束時間 *</span>
+          <input type="time" id="ppa-session-end" style="display:block;width:100%;margin-top:6px;padding:8px;border:1px solid var(--border,#334155);border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)"></label>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:10px">
+        <label style="flex:1 1 200px;min-width:0"><span style="font-size:13px;color:var(--text-secondary,#94a3b8)">下單開放時間 *</span>
+          <input type="datetime-local" id="ppa-session-order-open" style="display:block;width:100%;margin-top:6px;padding:8px;border:1px solid var(--border,#334155);border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)"></label>
+        <label style="flex:1 1 200px;min-width:0"><span style="font-size:13px;color:var(--text-secondary,#94a3b8)">下單截止時間 *</span>
+          <input type="datetime-local" id="ppa-session-order-cutoff" style="display:block;width:100%;margin-top:6px;padding:8px;border:1px solid var(--border,#334155);border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)"></label>
+      </div>
+      <div style="display:flex;gap:10px;margin-bottom:10px">
+        <label style="flex:1"><span style="font-size:13px;color:var(--text-secondary,#94a3b8)">上限訂單數（留空＝不限量）</span>
+          <input type="number" min="0" step="1" id="ppa-session-max-orders" style="display:block;width:100%;margin-top:6px;padding:8px;border:1px solid var(--border,#334155);border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)"></label>
+        <label style="flex:1"><span style="font-size:13px;color:var(--text-secondary,#94a3b8)">狀態</span>
+          <select id="ppa-session-status" style="display:block;width:100%;margin-top:6px;padding:8px;border:1px solid var(--border,#334155);border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
+            <option value="draft">草稿</option><option value="published">發布</option>
+            <option value="paused">暫停</option><option value="cancelled">取消</option>
+          </select></label>
+      </div>
+
+      <div style="margin:14px 0 6px;font-weight:600">商品範圍</div>
+      <label style="display:block;margin-bottom:6px">
+        <input type="radio" name="ppa-session-scope" value="all_takeout" onchange="ppaOnProductScopeChange()"> 所有符合 LINE 外帶資格商品
+      </label>
+      <label style="display:block;margin-bottom:6px">
+        <input type="radio" name="ppa-session-scope" value="selected" onchange="ppaOnProductScopeChange()"> 選擇特定商品
+      </label>
+      <div id="ppa-session-all-takeout-info" style="display:none;font-size:12px;color:var(--text-muted,#64748b);margin-bottom:10px"></div>
+      <div id="ppa-session-product-picker" style="display:none;border:1px solid var(--border,#334155);border-radius:8px;padding:10px;margin-bottom:10px">
+        <input type="text" id="ppa-product-search" placeholder="搜尋商品…" oninput="ppaRenderProductPicker()" style="display:block;width:100%;margin-bottom:8px;padding:6px 8px;border:1px solid var(--border,#334155);border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
+        <div id="ppa-product-picker-list" style="max-height:240px;overflow-y:auto"></div>
+      </div>
+
+      <label style="display:block;margin:10px 0">
+        <span style="font-size:13px;color:var(--text-secondary,#94a3b8)">變更原因（已有訂單時的重要變更必填）</span>
+        <input type="text" id="ppa-session-change-reason" maxlength="500" style="display:block;width:100%;margin-top:6px;padding:8px;border:1px solid var(--border,#334155);border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
+      </label>
+    </div>
+    <div class="modal-footer" style="display:flex;gap:8px;justify-content:flex-end;padding:16px">
+      <button class="btn-secondary" onclick="ppaCloseSessionForm()">取消</button>
+      <button class="btn-primary" id="ppa-session-save-btn" onclick="ppaSaveSession()">儲存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 🚐 快閃取餐：批次建立場次 Modal -->
+<div class="modal-overlay" id="ppa-modal-batch" style="display:none" onclick="if(event.target===this)ppaCloseBatchSessionForm()">
+  <div class="modal" style="max-width:520px">
+    <div class="modal-header">
+      <h3>📆 批次建立場次</h3>
+      <button class="modal-close" onclick="ppaCloseBatchSessionForm()">✕</button>
+    </div>
+    <div class="modal-body">
+      <label style="display:block;margin-bottom:10px">
+        <span style="font-size:13px;color:var(--text-secondary,#94a3b8)">所屬活動 *</span>
+        <select id="ppa-batch-campaign" style="display:block;width:100%;margin-top:6px;padding:8px;border:1px solid var(--border,#334155);border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)"></select>
+      </label>
+      <div style="font-size:12px;color:var(--text-muted,#64748b);margin-bottom:8px">每列一個日期（YYYY-MM-DD），將套用下方共同設定，最多 100 筆</div>
+      <textarea id="ppa-batch-dates" rows="5" placeholder="2026-10-01&#10;2026-10-02&#10;2026-10-03" style="display:block;width:100%;margin-bottom:10px;padding:8px;border:1px solid var(--border,#334155);border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9);font-family:monospace"></textarea>
+      <label style="display:block;margin-bottom:10px">
+        <span style="font-size:13px;color:var(--text-secondary,#94a3b8)">場次名稱 *</span>
+        <input type="text" id="ppa-batch-name" maxlength="200" style="display:block;width:100%;margin-top:6px;padding:8px;border:1px solid var(--border,#334155);border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
+      </label>
+      <label style="display:block;margin-bottom:10px">
+        <span style="font-size:13px;color:var(--text-secondary,#94a3b8)">取貨地點 *</span>
+        <select id="ppa-batch-location" style="display:block;width:100%;margin-top:6px;padding:8px;border:1px solid var(--border,#334155);border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)"></select>
+      </label>
+      <div style="display:flex;gap:10px;margin-bottom:10px">
+        <label style="flex:1"><span style="font-size:13px;color:var(--text-secondary,#94a3b8)">取貨開始 *</span>
+          <input type="time" id="ppa-batch-start" style="display:block;width:100%;margin-top:6px;padding:8px;border:1px solid var(--border,#334155);border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)"></label>
+        <label style="flex:1"><span style="font-size:13px;color:var(--text-secondary,#94a3b8)">取貨結束 *</span>
+          <input type="time" id="ppa-batch-end" style="display:block;width:100%;margin-top:6px;padding:8px;border:1px solid var(--border,#334155);border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)"></label>
+      </div>
+      <div style="display:flex;gap:10px;margin-bottom:10px">
+        <label style="flex:1"><span style="font-size:13px;color:var(--text-secondary,#94a3b8)">下單開放（每日同一時刻） *</span>
+          <input type="time" id="ppa-batch-order-open" style="display:block;width:100%;margin-top:6px;padding:8px;border:1px solid var(--border,#334155);border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)"></label>
+        <label style="flex:1"><span style="font-size:13px;color:var(--text-secondary,#94a3b8)">下單截止（每日同一時刻） *</span>
+          <input type="time" id="ppa-batch-order-cutoff" style="display:block;width:100%;margin-top:6px;padding:8px;border:1px solid var(--border,#334155);border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)"></label>
+      </div>
+      <label style="display:block;margin-bottom:6px">
+        <span style="font-size:13px;color:var(--text-secondary,#94a3b8)">上限訂單數（留空＝不限量）</span>
+        <input type="number" min="0" step="1" id="ppa-batch-max-orders" style="display:block;width:100%;margin-top:6px;padding:8px;border:1px solid var(--border,#334155);border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
+      </label>
+      <div style="font-size:12px;color:var(--text-muted,#64748b);margin:6px 0 10px">商品範圍將設為「所有符合 LINE 外帶資格商品」；建立後可個別編輯場次改為指定商品。</div>
+    </div>
+    <div class="modal-footer" style="display:flex;gap:8px;justify-content:flex-end;padding:16px">
+      <button class="btn-secondary" onclick="ppaCloseBatchSessionForm()">取消</button>
+      <button class="btn-primary" id="ppa-batch-save-btn" onclick="ppaSaveBatchSessions()">批次建立</button>
+    </div>
+  </div>
+</div>
+
+<!-- 🚐 快閃取餐：QR Code Modal -->
+<div class="modal-overlay" id="ppa-modal-qr" style="display:none" onclick="if(event.target===this)ppaCloseQrModal()">
+  <div class="modal" style="max-width:320px;text-align:center">
+    <div class="modal-header">
+      <h3>QR Code</h3>
+      <button class="modal-close" onclick="ppaCloseQrModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="ppa-qr-container" style="display:flex;justify-content:center;padding:10px"></div>
+      <div id="ppa-qr-url" style="word-break:break-all;font-size:12px;color:var(--text-muted,#64748b);margin-top:8px"></div>
+    </div>
+  </div>
+</div>
+
 <!-- 報表分析頁（fix16c-hotfix：全寬老闆儀表板）-->
 <div id="page-reports" class="page">
   <div id="reports-container"></div>
@@ -805,6 +1102,10 @@
         <div class="settings-card full" id="lineEntryModeCard">
           <h3>🧭 LINE 點餐頁模式</h3>
           <div id="lineEntryModeContent">載入中...</div>
+        </div>
+        <div class="settings-card full" id="ppaEnabledCard">
+          <h3>🚐 快閃取餐總開關</h3>
+          <div id="ppaEnabledContent">載入中...</div>
         </div>
         <div class="settings-card full" id="lineEntryCard">
           <h3>📲 LINE 點餐入口資訊</h3>
@@ -3686,7 +3987,7 @@
 <div class="toast-container" id="toastContainer"></div>
 
 <script src="/js/line-member-gate.js?v=h1-4-10-backend-reconcile-1"></script>
-<script src="/js/app.js?v=h1-4-11-4-1"></script>
+<script src="/js/app.js?v=h1-4-12-r33-checkbox-recheck-1"></script>
 <script src="/js/analytics-v2.js?v=fix18-10-hotfix24-UI"></script>
 <!-- fix18-10-hotfix30-B5-R5.4-G1.6-A1.2.1: 共用 Asia/Taipei 顯示 Helper（唯一的
      瀏覽器端時間格式化來源）。必須排在 geo-visitor-layer.js／geo-live-layer.js
@@ -3787,7 +4088,7 @@
 <script src="/js/geo-ga4-dashboard-layer.js?v=fix18-10-hotfix30-B5-R5-4-G1-6-GA4-H1-4-MAP-STATE"></script>
 <script src="/js/geo-ga4-h1-panel.js?v=fix18-10-hotfix30-B5-R5-4-G1-6-GA4-H1"></script>
 <script src="/js/coupons.js?v=fix18-06"></script>
-<script src="/js/qrcode.min.js?v=fix18-09F-h2"></script>
+<script src="/js/qrcode.min.js?v=h1-4-12-r26-qr-local-1"></script>
 <script src="/license.js?v=fix18-06"></script>
 
 <!-- LINE 商品設定 Modal (v16) -->

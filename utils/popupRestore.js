@@ -8,6 +8,7 @@
 // 這裡刻意不讓「HTTP 200 已送出」等於「瀏覽器已經把 cart 存好」——那正是
 // 兩階段設計要避免的單階段 consume 風險。
 'use strict';
+const { isDurableError } = require('./db');
 
 const crypto = require('crypto');
 const { getDb } = require('./db');
@@ -92,7 +93,7 @@ function _resolveTokenRowForPopupRestore(db, recoveryToken) {
   if (!row) return { ok: false, reason: 'not_found' };
   const now = _nowLocal();
   if (_isExpired(row, now)) {
-    if (row.status !== 'expired') db.run("UPDATE line_cart_handoff_tokens SET status='expired' WHERE id=?", [row.id]);
+    if (row.status !== 'expired') db.runDurableTransaction(() => { db._db.run("UPDATE line_cart_handoff_tokens SET status='expired' WHERE id=?", [row.id]); }); // R44.2F.2
     return { ok: false, reason: 'expired' };
   }
   if (row.status === 'consumed') return { ok: false, reason: 'consumed' };
@@ -173,21 +174,22 @@ function preparePopupRestore(db, recoveryToken, memberSession, popupSessionPubli
   const receiptHash = _sha256Hex(rawReceipt);
   const expiresAt = _addMinutes(RECEIPT_TTL_MINUTES);
   const digest = _cartDigest(items);
-  db._db.run('BEGIN');
+  // R44.2F.1：改用 db.runDurableTransaction()——supersede＋新 receipt 同一個 durable transaction，
+  // disk 寫入失敗時 memory／disk 皆維持舊 receipt 狀態，並以 DurableCommitError 往外傳（route 回 503）。
   try {
-    db._db.run("UPDATE popup_restore_receipts SET status='superseded' WHERE token_id=? AND status='prepared'", [row.id]);
-    db._db.run(
-      `INSERT INTO popup_restore_receipts
-        (receipt_hash, store_id, token_id, line_user_id, popup_session_public_code, cart_digest, status, issued_at, expires_at, consumed_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?)`,
-      [receiptHash, derivedStoreId, row.id, verifiedLineUserId, row.popup_session_public_code, digest, 'prepared', now, expiresAt, '']
-    );
-    db._db.run('COMMIT');
+    db.runDurableTransaction(() => {
+      db._db.run("UPDATE popup_restore_receipts SET status='superseded' WHERE token_id=? AND status='prepared'", [row.id]);
+      db._db.run(
+        `INSERT INTO popup_restore_receipts
+          (receipt_hash, store_id, token_id, line_user_id, popup_session_public_code, cart_digest, status, issued_at, expires_at, consumed_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?)`,
+        [receiptHash, derivedStoreId, row.id, verifiedLineUserId, row.popup_session_public_code, digest, 'prepared', now, expiresAt, '']
+      );
+    });
   } catch (e) {
-    try { db._db.run('ROLLBACK'); } catch (e2) { /* 不掩蓋原始錯誤 */ }
+    if (isDurableError(e)) throw e;
     return { ok: false, reason: 'exception' };
   }
-  db._save();
 
   return {
     ok: true,
@@ -240,8 +242,8 @@ function commitPopupRestore(db, rawReceipt, memberSession, popupSessionPublicCod
   if (tokenRow.status !== 'opened') return { ok: false, reason: 'invalid_status' };
   if (_isExpired(tokenRow, now)) return { ok: false, reason: 'expired' };
 
-  db._db.run('BEGIN');
   try {
+    db.runDurableTransaction(() => {
     db._db.run("UPDATE popup_restore_receipts SET status='consumed', consumed_at=? WHERE id=? AND status='prepared'", [now, receiptRow.id]);
     // RC2 修正（規格五）：每個條件 UPDATE 之後都必須確認真的剛好影響 1
     // 筆——不能只看有沒有丟例外。如果影響 0 筆（代表這期間狀態已經被別的
@@ -254,13 +256,11 @@ function commitPopupRestore(db, rawReceipt, memberSession, popupSessionPublicCod
     db._db.run("UPDATE line_cart_handoff_tokens SET status='consumed', consumed_at=? WHERE id=? AND status='opened'", [now, tokenRow.id]);
     const tokenAffected = db._db.getRowsModified ? db._db.getRowsModified() : null;
     if (tokenAffected !== 1) throw new Error('token UPDATE affected ' + tokenAffected + ' rows, expected exactly 1');
-
-    db._db.run('COMMIT');
+    });
   } catch (e) {
-    try { db._db.run('ROLLBACK'); } catch (e2) { /* 不掩蓋原始錯誤 */ }
+    if (isDurableError(e)) throw e; // R44.2F.1：durable 失敗 → memory／disk 皆維持 prepared／opened，route 回 503
     return { ok: false, reason: 'exception' };
   }
-  db._save();
 
   return { ok: true, alreadyConsumed: false };
 }

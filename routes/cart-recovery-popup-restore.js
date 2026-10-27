@@ -17,6 +17,7 @@
 
 const express = require('express');
 const { getDb } = require('../utils/db');
+const { isDurableError } = require('../utils/db');
 const { preparePopupRestore, commitPopupRestore } = require('../utils/popupRestore');
 const { createRateLimiter } = require('../utils/rateLimiter');
 
@@ -63,6 +64,7 @@ function createPopupRestoreRouter() {
         },
       });
     } catch (e) {
+      if (isDurableError(e)) return res.status(503).json({ success: false, error: 'STORAGE_UNAVAILABLE' }); // R44.2F.1
       return res.status(401).json({ success: false, reason: 'prepare_failed' });
     }
   });
@@ -81,6 +83,7 @@ function createPopupRestoreRouter() {
       }
       return res.status(200).json({ success: true, data: { consumed: true } });
     } catch (e) {
+      if (isDurableError(e)) return res.status(503).json({ success: false, error: 'STORAGE_UNAVAILABLE' }); // R44.2F.1
       return res.status(401).json({ success: false, reason: 'commit_failed' });
     }
   });

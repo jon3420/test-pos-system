@@ -19,6 +19,7 @@ const { getDb } = require('../utils/db');
 const { requireStaffJwt } = require('../middleware/storeGuard');
 const { requireFeature } = require('../middleware/featureGate');
 const pp = require('../utils/popupPickup');
+const { countActivePopupOrdersForSession } = require('../utils/popupCheckout');
 
 router.use(requireStaffJwt);
 router.use(requireFeature('line_order'));
@@ -26,11 +27,13 @@ router.use(requireFeature('line_order'));
 // ══════════════════════════════════════════════════════════════════════
 // 共用 helper
 // ══════════════════════════════════════════════════════════════════════
+const { isDurableError } = require('../utils/db');
 function sendError(res, err) {
   if (err instanceof pp.PopupValidationError) {
     return res.status(err.status).json({ success: false, error: err.code, message: err.message, ...(err.extra || {}) });
   }
   console.error('[popup-pickup] internal error:', err && err.stack ? err.stack : err);
+  if (isDurableError(err)) return res.status(503).json({ success: false, error: 'STORAGE_UNAVAILABLE', message: '系統忙碌中，請稍後再試' }); // R44.2F.1：固定 payload
   return res.status(500).json({ success: false, error: 'POPUP_INTERNAL_ERROR', message: '系統發生錯誤，請稍後再試' });
 }
 
@@ -150,6 +153,7 @@ function serializeLocation(row) {
 // 測試：手動塞一筆 store_002 的 popup_session_products，session_id 故意
 // 跟 store_001 的某個 session 相同，驗證不會混進回應）。
 function serializeSession(db, row, campaignStatus, now, storeId) {
+  const sessionOrderCount = countActivePopupOrdersForSession(db, storeId, row.id);
   const stateResult = pp.resolvePopupSessionState({
     campaignStatus,
     sessionStatus: row.status,
@@ -193,6 +197,16 @@ function serializeSession(db, row, campaignStatus, now, storeId) {
     effective_state: stateResult.state,
     can_order: stateResult.can_order,
     ...(stateResult.error_code ? { state_error_code: stateResult.error_code } : {}),
+    // H1.4.12 Phase 3C：管理端與 checkout 共用同一顆權威計數函式
+    // （countActivePopupOrdersForSession），確保「後台顯示已額滿」跟
+    // 「顧客端 checkout 真的擋下」永遠是同一套判斷，不是各自維護的第二份邏輯。
+    // 同一個 row 只查一次，order_count / remaining_orders / is_full 三個欄位
+    // 都從這一個數字推導，避免同一次序列化裡多次查詢可能不一致。
+    order_count: sessionOrderCount,
+    remaining_orders: (pp.isPositiveInt(row.max_orders) && row.max_orders > 0)
+      ? Math.max(0, row.max_orders - sessionOrderCount)
+      : null,
+    is_full: (pp.isPositiveInt(row.max_orders) && row.max_orders > 0) && sessionOrderCount >= row.max_orders,
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
@@ -238,12 +252,11 @@ router.post('/campaigns', (req, res) => {
 
     const id = uuidv4();
     const publicCode = generateUniquePublicCode(db, 'popup_campaigns');
-    db._db.run(
+    db.runDurableTransaction(() => { db._db.run(
       `INSERT INTO popup_campaigns (id, store_id, public_code, name, description, image_url, status, sort_order)
        VALUES (?,?,?,?,?,?,?,?)`,
       [id, storeId, publicCode, body.name.trim(), body.description || '', body.image_url || '', status, sortOrder]
-    );
-    db._save();
+    ); }); // R44.2F.1
 
     const row = db.get('SELECT * FROM popup_campaigns WHERE id=? AND store_id=?', [id, storeId]);
     res.status(201).json({ success: true, data: serializeCampaign(row) });
@@ -283,12 +296,11 @@ router.patch('/campaigns/:campaignId', (req, res) => {
     if (!pp.isNonNegativeInt(next.sort_order)) pp.fail('POPUP_VALIDATION_ERROR', 'sort_order 必須是大於等於 0 的整數');
     if (!pp.CAMPAIGN_STATUSES.includes(next.status)) pp.fail('POPUP_VALIDATION_ERROR', `status 必須是 ${pp.CAMPAIGN_STATUSES.join('/')} 其中之一`);
 
-    db._db.run(
+    db.runDurableTransaction(() => { db._db.run(
       `UPDATE popup_campaigns SET name=?, description=?, image_url=?, sort_order=?, status=?, updated_at=datetime('now','localtime')
        WHERE id=? AND store_id=?`,
       [next.name.trim(), next.description || '', next.image_url || '', next.sort_order, next.status, existing.id, storeId]
-    );
-    db._save();
+    ); }); // R44.2F.1
 
     const row = db.get('SELECT * FROM popup_campaigns WHERE id=? AND store_id=?', [existing.id, storeId]);
     res.json({ success: true, data: serializeCampaign(row) });
@@ -306,8 +318,7 @@ router.delete('/campaigns/:campaignId', (req, res) => {
       pp.fail('POPUP_CAMPAIGN_HAS_SESSIONS', '此活動已有場次，不得直接刪除，請改用封存（archived）', 409, { session_count: sessionCount });
     }
 
-    db._db.run('DELETE FROM popup_campaigns WHERE id=? AND store_id=?', [existing.id, storeId]);
-    db._save();
+    db.runDurableTransaction(() => { db._db.run('DELETE FROM popup_campaigns WHERE id=? AND store_id=?', [existing.id, storeId]); }); // R44.2F.1
     res.json({ success: true });
   } catch (e) { sendError(res, e); }
 });
@@ -360,12 +371,11 @@ router.post('/locations', (req, res) => {
     }
 
     const id = uuidv4();
-    db._db.run(
+    db.runDurableTransaction(() => { db._db.run(
       `INSERT INTO popup_locations (id, store_id, name, place_id, address, address_note, lat, lng, active)
        VALUES (?,?,?,?,?,?,?,?,?)`,
       [id, storeId, body.name.trim(), body.place_id || '', body.address.trim(), body.address_note || '', lat, lng, active]
-    );
-    db._save();
+    ); }); // R44.2F.1
     const row = db.get('SELECT * FROM popup_locations WHERE id=? AND store_id=?', [id, storeId]);
     res.status(201).json({ success: true, data: serializeLocation(row) });
   } catch (e) { sendError(res, e); }
@@ -401,12 +411,11 @@ router.patch('/locations/:locationId', (req, res) => {
     // 修改地點庫不得回寫任何既有 session——這裡只更新 popup_locations 本身，
     // 已建立的 popup_sessions 全部使用自己建立當下複製的 snapshot 欄位，
     // 完全不會因為這個 UPDATE 而被靜默改動（見規格 5.2／十四.3）。
-    db._db.run(
+    db.runDurableTransaction(() => { db._db.run(
       `UPDATE popup_locations SET name=?, address=?, address_note=?, place_id=?, lat=?, lng=?, active=?, updated_at=datetime('now','localtime')
        WHERE id=? AND store_id=?`,
       [next.name.trim(), next.address.trim(), next.address_note || '', next.place_id || '', lat, lng, next.active, existing.id, storeId]
-    );
-    db._save();
+    ); }); // R44.2F.1
     const row = db.get('SELECT * FROM popup_locations WHERE id=? AND store_id=?', [existing.id, storeId]);
     res.json({ success: true, data: serializeLocation(row) });
   } catch (e) { sendError(res, e); }
@@ -420,8 +429,7 @@ router.delete('/locations/:locationId', (req, res) => {
     // 軟停用，不硬刪——地點庫可能被歷史場次的 snapshot 間接引用（location_id
     // 欄位僅作為建立當下的參考來源，場次資料本身已複製，但保留地點庫紀錄
     // 供後台追溯用途）。
-    db._db.run("UPDATE popup_locations SET active=0, updated_at=datetime('now','localtime') WHERE id=? AND store_id=?", [existing.id, storeId]);
-    db._save();
+    db.runDurableTransaction(() => { db._db.run("UPDATE popup_locations SET active=0, updated_at=datetime('now','localtime') WHERE id=? AND store_id=?", [existing.id, storeId]); }); // R44.2F.1
     res.json({ success: true });
   } catch (e) { sendError(res, e); }
 });
@@ -505,19 +513,14 @@ router.post('/sessions/batch', (req, res) => {
     });
 
     const results = [];
-    db._db.run('BEGIN');
-    try {
+    // R44.2F.1：batch create 整批同一個 durable transaction（disk 失敗 → 整批 memory／disk 皆無變化，503）
+    db.runDurableTransaction(() => {
       prepared.forEach((p) => {
         const code = generateUniquePublicCode(db, 'popup_sessions');
         insertSessionRow(db, p, code);
         results.push({ id: p.id, public_code: code, revision: 1 });
       });
-      db._db.run('COMMIT');
-    } catch (e) {
-      try { db._db.run('ROLLBACK'); } catch (e2) { /* 不掩蓋原始錯誤 */ }
-      throw e;
-    }
-    db._save();
+    });
 
     const now = Date.now();
     const data = results.map((r) => {
@@ -625,15 +628,7 @@ router.post('/sessions', (req, res) => {
     const prepared = prepareSessionInsert(db, storeId, campaign.id, body);
     const publicCode = generateUniquePublicCode(db, 'popup_sessions');
 
-    db._db.run('BEGIN');
-    try {
-      insertSessionRow(db, prepared, publicCode);
-      db._db.run('COMMIT');
-    } catch (e) {
-      try { db._db.run('ROLLBACK'); } catch (e2) { /* 不掩蓋原始錯誤 */ }
-      throw e;
-    }
-    db._save();
+    db.runDurableTransaction(() => { insertSessionRow(db, prepared, publicCode); }); // R44.2F.1
 
     const row = db.get('SELECT * FROM popup_sessions WHERE id=? AND store_id=?', [prepared.id, storeId]);
     res.status(201).json({ success: true, data: serializeSession(db, row, campaign.status, Date.now(), storeId) });
@@ -829,11 +824,10 @@ router.patch('/sessions/:sessionId', (req, res) => {
     // Phase 2.1 修正核心：一律進入同一個 transaction，並在裡面用 fresh 讀取
     // 做完整權威判斷（revision、session 是否還存在、是否已被 archived、是否
     // 真的有 protected 變化、真正受影響的訂單數）。任何一步失敗都
-    // ROLLBACK，COMMIT 成功後才 _save()。
+    // ROLLBACK；COMMIT＋atomic file write 成功才算完成（db.runDurableTransaction）。
     // ════════════════════════════════════════════════════════════════
     let responseAffectedCount = 0;
-    db._db.run('BEGIN');
-    try {
+    db.runDurableTransaction(() => { // R44.2F.1：PATCH（revision／affected-orders 確認／change log）同一個 durable transaction
       const freshExisting = db.get('SELECT * FROM popup_sessions WHERE id=? AND store_id=?', [existing.id, storeId]);
       if (!freshExisting) {
         throw new pp.PopupValidationError('POPUP_RESOURCE_NOT_FOUND', '找不到指定的快閃場次', 404);
@@ -868,7 +862,6 @@ router.patch('/sessions/:sessionId', (req, res) => {
         if (db._db.getRowsModified() !== 1) {
           throw new pp.PopupValidationError('POPUP_SESSION_REVISION_CONFLICT', '場次資料已被其他操作更新，請重新整理後再試', 409, {});
         }
-        db._db.run('COMMIT');
       } else {
         // protected fields 真的有變化——用「交易內剛剛量到的」freshAffectedCount
         // 做出唯一權威決策，交易外任何先前算出的 affectedOrderCount 一律不採用。
@@ -934,14 +927,8 @@ router.patch('/sessions/:sessionId', (req, res) => {
             ]
           );
         }
-
-        db._db.run('COMMIT');
       }
-    } catch (e) {
-      try { db._db.run('ROLLBACK'); } catch (e2) { /* 不掩蓋原始錯誤 */ }
-      throw e;
-    }
-    db._save();
+    });
 
     const row = db.get('SELECT * FROM popup_sessions WHERE id=? AND store_id=?', [existing.id, storeId]);
     const campaignStatus = getCampaignStatusScoped(db, storeId, row.campaign_id);
@@ -968,16 +955,10 @@ router.delete('/sessions/:sessionId', (req, res) => {
       });
     }
 
-    db._db.run('BEGIN');
-    try {
+    db.runDurableTransaction(() => { // R44.2F.1
       db._db.run('DELETE FROM popup_session_products WHERE session_id=? AND store_id=?', [existing.id, storeId]);
       db._db.run('DELETE FROM popup_sessions WHERE id=? AND store_id=?', [existing.id, storeId]);
-      db._db.run('COMMIT');
-    } catch (e) {
-      try { db._db.run('ROLLBACK'); } catch (e2) {}
-      throw e;
-    }
-    db._save();
+    });
     res.json({ success: true });
   } catch (e) { sendError(res, e); }
 });

@@ -9,6 +9,10 @@
 'use strict';
 
 const express = require('express');
+const { buildLineCounterAllocationSnapshot, assertOneRowModified } = require('../utils/lineCounterAllocation');
+const { isDurableError } = require('../utils/db');
+const { buildCanonicalItems } = require('../utils/lineOrderPricing');
+const { consumeCartTokenInTransaction } = require('../utils/lineCheckoutHandoff');
 const router  = express.Router();
 const { getDb } = require('../utils/db');
 const { toGrams, fromGrams } = require('../utils/unitConvert');
@@ -190,6 +194,33 @@ function timeToMins(hhmm) {
 }
 function minsToTime(mins) {
   return `${String(Math.floor(mins/60)).padStart(2,'0')}:${String(mins%60).padStart(2,'0')}`;
+}
+
+// R5（ledger row 6）：pickup_time 嚴格格式解析——只驗證「格式」，不改日期 precedence。
+// 允許：null／undefined／空字串／純空白（=未指定時間）、'盡快'、H:mm／HH:mm[:ss]、
+// YYYY-MM-DD[ 或 T]H:mm[:ss]。其餘（尾隨垃圾、部分數字、時區後綴、超出範圍、非字串）
+// 一律 invalid。不使用 Date 字串解析；完整 datetime 的日期由 POST 的 mismatch guard 處理。
+const PICKUP_TIME_RE = /^([01]?\d|2[0-3]):([0-5]\d)(?::([0-5]\d))?$/;
+const PICKUP_DATETIME_RE = /^(\d{4}-\d{2}-\d{2})([ T])(.+)$/;
+function parseStrictPickupTime(raw) {
+  if (raw === null || raw === undefined) return { ok: true, kind: 'none' };
+  if (typeof raw !== 'string') return { ok: false };
+  const s = raw.trim();
+  if (s === '') return { ok: true, kind: 'none' };
+  if (s === '盡快') return { ok: true, kind: 'asap' };
+  const dt = PICKUP_DATETIME_RE.exec(s);
+  const timePart = dt ? dt[3] : s;
+  const tm = PICKUP_TIME_RE.exec(timePart);
+  if (!tm) return { ok: false };
+  const mins = Number(tm[1]) * 60 + Number(tm[2]);
+  return dt ? { ok: true, kind: 'datetime', separator: dt[2], date: dt[1], mins } : { ok: true, kind: 'time', mins };
+}
+// R6（ledger row 7）：完整 datetime 的內嵌日期與 orderDate 不一致 → 時間類檢查（今日截止、商品販售時段）
+// 一律略過，交由 POST 既有 mismatch guard 固定回 400 PICKUP_TIME_DATE_MISMATCH。格式不合法不屬此類
+// （parse 失敗 → false，仍由 R5 step 6 回 403 invalid_pickup_time）；內嵌日期相同或純時間維持既有規則。
+function pickupEmbeddedDateMismatch(raw, orderDate) {
+  const p = parseStrictPickupTime(raw);
+  return p.ok && p.kind === 'datetime' && p.date !== orderDate;
 }
 
 // ── parseLocalDate：安全解析 YYYY-MM-DD，不受伺服器時區影響 ──
@@ -555,7 +586,10 @@ function broadcastNewOrder(app, order) {
 }
 
 // ── 扣食材冷藏可販售 ──────────────────────────────────────
-function deductIngredients(db, storeId, items, orderId) {
+function deductIngredients(db, storeId, items, orderId, raw) {
+  // R44.2A：raw=true 時所有寫入改用 db._db.run()（不自動 _save()），供呼叫端
+  // 放進自己的 BEGIN/COMMIT 交易；其他既有呼叫端維持原行為。
+  const runW = raw ? (sql, params) => db._db.run(sql, params) : (sql, params) => db.run(sql, params);
   (items || []).forEach(item => {
     const pid = item.product_id || item.id;
     if (!pid) return;
@@ -568,9 +602,10 @@ function deductIngredients(db, storeId, items, orderId) {
       const bRefrig  = Number(ing.refrigerated_stock || 0);
       const newRefrig = Math.max(0, bRefrig - deductInUnit);
       const newTotal  = Math.max(0, Number(ing.total_stock || 0) - deductInUnit);
-      db.run(`UPDATE ingredients SET refrigerated_stock=?,total_stock=?,updated_at=datetime('now','localtime') WHERE id=? AND store_id=?`,
+      runW(`UPDATE ingredients SET refrigerated_stock=?,total_stock=?,updated_at=datetime('now','localtime') WHERE id=? AND store_id=?`,
         [newRefrig, newTotal, ing.id, storeId]);
-      db.run(`INSERT INTO ingredient_logs
+      if (raw && db._db.getRowsModified() !== 1) throw new Error('affected-row check failed: ingredient UPDATE ' + ing.id); // R44.2B
+      runW(`INSERT INTO ingredient_logs
         (ingredient_id,ingredient_name,log_type,before_refrigerated,change_amount,after_refrigerated,
          before_frozen,before_thawing,after_frozen,after_thawing,reason,related_order_id)
         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
@@ -1363,7 +1398,9 @@ function validateOrderConditions(db, storeId, mode, dateStr, pickupTime, nowMins
   // fix18-10-hotfix30-B1 第九點 root cause fix：改用「有效截止時間」（Business Calendar
   // 覆蓋時段的結束時間 與 今日臨時截止 取較早者），不再只比對全域 cutoffTime 設定，
   // 與 GET /menu、GET /shop 的判斷邏輯一致（見 getEffectiveCutoffMins()）。
-  if (orderDate === todayStr) {
+  // R6（ledger row 7）：pickup_time 內嵌日期與 orderDate 不一致時不做今日截止（時間類）判斷，交給 POST mismatch guard。
+  const embeddedDateMismatch = pickupEmbeddedDateMismatch(pickupTime, orderDate);
+  if (orderDate === todayStr && !embeddedDateMismatch) {
     const effCutoffMins = getEffectiveCutoffMins(effSchedule, modeSettings.todayCutoff);
     if (effCutoffMins != null && nowMins > effCutoffMins) {
       return { ok: false, reason: 'cutoff_sold_out',
@@ -1372,9 +1409,14 @@ function validateOrderConditions(db, storeId, mode, dateStr, pickupTime, nowMins
   }
 
   // 6. 取餐時間有效性
-  if (pickupTime && pickupTime !== '盡快' && orderDate === todayStr) {
-    const [ph, pm] = pickupTime.split(':').map(Number);
-    const pTotal = ph * 60 + pm;
+  // R5（ledger row 6）：先做嚴格格式解析，格式不合法一律 403 invalid_pickup_time。
+  // 只有純時間（kind=time）的今日單才比較備餐時間；完整 datetime 維持既有行為
+  // （不做今日時間比較；日期 precedence 由 POST 的 mismatch guard 處理，屬 ledger row 7）。
+  const parsedPickup = parseStrictPickupTime(pickupTime);
+  if (!parsedPickup.ok)
+    return { ok: false, reason: 'invalid_pickup_time', message: '取餐時間格式不正確' };
+  if (parsedPickup.kind === 'time' && orderDate === todayStr) {
+    const pTotal = parsedPickup.mins;
     if (pTotal < nowMins + modeSettings.prepMins)
       return { ok: false, reason: 'time_too_early',
         message: `此時段距離現在太近，最短備餐時間 ${modeSettings.prepMins} 分鐘` };
@@ -1487,7 +1529,8 @@ router.post('/', async (req, res) => {
             });
         }
         // 今日商品販售時段驗證（只限今日）
-        if (prod.line_sell_start || prod.line_sell_end) {
+        // R6（ledger row 7）：pickup_time 內嵌日期與 orderDate 不一致 → 略過販售時段（時間類）判斷，交給 mismatch guard。
+        if (!pickupEmbeddedDateMismatch(pickup_time, orderDate) && (prod.line_sell_start || prod.line_sell_end)) {
           const nowHHMM = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
           if (prod.line_sell_end && nowHHMM >= prod.line_sell_end)
             return res.status(400).json({ success: false, message: `「${prod.name}」今日販售時段已結束，可選擇預購` });
@@ -1539,7 +1582,14 @@ router.post('/', async (req, res) => {
     const payment_category = payment_method === 'cash' ? 'cash' : 'non_cash';
 
     // ── fix18-05：優惠券後端重新驗證（不信任前端金額）──────
-    const sub = Number(subtotal) || 0;
+    // R44.2D：金額一律由 server 依 resolveLineProductPricing() 重建，client 的
+    // items.price／items.name／subtotal／total／discount_amount 完全不被信任、不被持久化。
+    // BEGIN 前的計算只用於外送費（需外部查詢，不能放進交易）與 coupon 預驗證；
+    // 真正寫入的 items／subtotal／discount／total 會在交易內重新計算。
+    let canonPre;
+    try { canonPre = buildCanonicalItems(db, storeId, items); }
+    catch (pe) { if (pe && pe.httpStatus && pe.publicBody) return res.status(pe.httpStatus).json(pe.publicBody); throw pe; }
+    let sub = canonPre.subtotal;
     let discAmt    = 0;
     let finalTotal = sub;
     let appliedCouponId   = null;
@@ -1658,14 +1708,42 @@ router.post('/', async (req, res) => {
     const uuid = uuidv4(), orderNo = orderNumber();
     const pad = (n,l=2) => String(n).padStart(l,'0');
     const nowStr = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
-    const itemsJson = JSON.stringify(items);
+    let itemsJson = JSON.stringify(canonPre.items); // 交易內會以 fresh canonical items 覆寫
+    let txItems = canonPre.items;
     const orderMode  = order_type === 'delivery' ? 'delivery' : 'takeout';
     // 預購訂單：將日期合入 pickup_time，格式 "YYYY-MM-DD HH:MM"，方便後台辨識
     let pickupTimeVal = (pickup_time && pickup_time.trim()) ? pickup_time.trim() : '';
-    if (isPreorderOrder && pickupTimeVal && !pickupTimeVal.includes('-')) {
-      // 預購且只有時間（HH:MM），補上日期
-      pickupTimeVal = `${orderDate} ${pickupTimeVal}`;
+    // H1.4.12 Phase 3C R32 稽核修正（P0，已用真實 conflict-detection 矩陣
+    // 重現，不是臆測）：canonical 持久化契約如下，建立、cancel、void 三處
+    // 全部共用同一份規則（cancel/void 端見 utils/orderStatusFlow.js 的
+    // classifyOrderAsPreorder，只認「有沒有可辨識的日期標記」，不會重新
+    // 判斷「現在是不是還沒到取貨日」）：
+    //   - 同日單（isPreorderOrder=false）：一律只持久化 HH:mm，絕對不能
+    //     帶日期／dash，否則 cancel 端會誤判成預購單。
+    //   - 預約單（isPreorderOrder=true）：一律正規化成
+    //     "{orderDate} HH:mm"；沒有時間部分時用 00:00。
+    //   - 如果 client 自己在 pickup_time 裡帶了完整日期，且那個日期跟
+    //     orderDate（=pickup_date，本次唯一的日期 authority）對不上，
+    //     直接 fail-closed 回 400，不寫入 DB——不能悄悄留下「建立時依
+    //     pickup_date 判斷是同日單，但 persisted pickup_time 卻帶著別的
+    //     日期」這種會讓 cancel 端誤判的資料。
+    const pickupTimeDateMatch = pickupTimeVal.match(/^(\d{4}-\d{2}-\d{2})[ T](.+)$/);
+    if (pickupTimeDateMatch) {
+      const [, embeddedDate, embeddedTime] = pickupTimeDateMatch;
+      if (embeddedDate !== orderDate) {
+        return res.status(400).json({
+          success: false, error: 'PICKUP_TIME_DATE_MISMATCH',
+          message: 'pickup_time 內的日期與 pickup_date 不一致',
+        });
+      }
+      pickupTimeVal = embeddedTime; // 先還原成純時間部分，下面統一依 isPreorderOrder 決定要不要重新補回日期
     }
+    if (isPreorderOrder) {
+      pickupTimeVal = `${orderDate} ${pickupTimeVal || '00:00'}`;
+    }
+    // isPreorderOrder===false 時 pickupTimeVal 此刻必然已經不含日期（原本
+    // 沒帶，或上面已經拆掉一致的日期部分），維持純 HH:mm 或空字串即可，
+    // 不需要額外處理。
 
     // fix18-10-hotfix23-E：line_user_id 只信任伺服器簽章過的 member_session；
     // 驗證失敗（過期／簽章錯誤／store_id 不符）一律視為未登入，不阻擋下單。
@@ -1691,7 +1769,59 @@ router.post('/', async (req, res) => {
         })
       : null;
 
-    db.run(
+    // H1.4.12 Phase 3C R44.2A：訂單建立的所有 DB 寫入（order INSERT、
+    // coupon redemption、counter UPDATE、ingredient deduction）現在是
+    // 單一 BEGIN/COMMIT/ROLLBACK 交易，交易內一律使用 db._db.run()（不會
+    // 自動 _save() 的 raw 版本），COMMIT 成功後才 _save() 一次。任何一步
+    // 失敗都整筆 ROLLBACK，不會留下「order 已存在但 counter/ingredient
+    // 只做了一半」的半套狀態。通知／webhook／analytics 都在 COMMIT＋
+    // _save() 之後才執行（見下方）。
+    // R44.2F：BEGIN／COMMIT／durable file write 由 db.runDurableTransaction() 統一管理；
+    // work 為同步函式，persistence 失敗時 memory 與 disk 都回到 before-state，side effect 只在 durable 成功後。
+    let cartTokenConsumed = false;
+    db.runDurableTransaction(() => {
+    // R44.2D：交易內 fresh 重建 canonical items／subtotal，再重算 coupon 折扣與總額。
+    {
+      const canon = buildCanonicalItems(db, storeId, items);
+      txItems = canon.items;
+      itemsJson = JSON.stringify(txItems);
+      if (canon.subtotal !== sub) {
+        if (isDelivery) { // 外送費依 subtotal 由外部查詢決定，無法在交易內重算 → 請 client 重新確認
+          const pe = new Error('price changed'); pe.httpStatus = 409; pe.publicBody = { success: false, message: '商品價格已更新，請重新確認訂單', reason: 'price_changed' }; throw pe;
+        }
+        sub = canon.subtotal;
+        if (appliedCouponId) {
+          const cvTx = validateCoupon(db, storeId, normalCouponCode, sub, customerPhoneNormalized);
+          if (!cvTx.ok) { const ce = new Error('coupon revalidation failed'); ce.httpStatus = 400; ce.publicBody = { success: false, message: '優惠券目前無法使用', reason: 'coupon_invalid' }; throw ce; }
+          discAmt = cvTx.discount_amount; finalTotal = cvTx.final_total;
+        } else { discAmt = 0; finalTotal = sub; }
+      }
+    }
+    // R44.2B：counter participation／final snapshot 在 BEGIN「之後」由
+    // transaction 內 fresh SELECT 的商品資料決定（不沿用 BEGIN 前的讀取），
+    // 並統一交給共用 builder（utils/lineCounterAllocation.js）。
+    // 註：本輪只把「counter participation」移入交易重讀；單價／庫存驗證仍在
+    // BEGIN 前完成（未於交易內重讀，見報告的未完成項目）。
+    const freshAllocRows = [];
+    txItems.forEach(item => {
+      const pid = Number(item.product_id || item.id);
+      if (!pid) return;
+      const prod = db.get('SELECT * FROM products WHERE id=? AND store_id=?', [pid, storeId]);
+      // R44.2C：BEGIN 後 fresh 重驗 product 資格（存在／上架／通路開關／售完狀態）；
+      // 不符 → 固定 business 400，整筆 rollback（order/coupon/counter/ingredient 零寫入）。
+      const modeField = mode === 'delivery' ? 'line_delivery_enabled' : 'line_takeout_enabled';
+      if (!prod || !prod.enabled || !prod.show_on_line || Number(prod[modeField] ?? 1) === 0 || prod.sale_status !== 'available') {
+        const ee = new Error('product eligibility changed'); ee.httpStatus = 400; ee.publicBody = { success: false, message: '購物車中有商品目前無法購買，請重新確認', reason: 'product_not_available' }; throw ee;
+      }
+      const qty = Number(item.qty || 1);
+      if (isPreorderOrder) {
+        if (Number(prod.line_preorder_daily) > 0 || Number(prod.line_preorder_enabled)) freshAllocRows.push({ product_id: pid, counter_bucket: 'preorder', qty });
+      } else if (Number(prod.line_quota_daily) > 0 || Number(prod.line_quota_enabled)) {
+        freshAllocRows.push({ product_id: pid, counter_bucket: 'quota', qty });
+      }
+    });
+    const counterAllocationSnapshot = buildLineCounterAllocationSnapshot(freshAllocRows);
+    db._db.run(
       `INSERT INTO orders (
         id, uuid, order_number, store_id, order_mode, order_status, kitchen_status,
         customer_name, customer_phone, customer_line_id,
@@ -1707,8 +1837,9 @@ router.post('/', async (req, res) => {
         note, sync_status, device_id, source, created_at, updated_at, line_user_id,
         fulfillment_geo_city, fulfillment_geo_district, fulfillment_geo_source,
         fulfillment_geo_confidence, fulfillment_geo_resolution, fulfillment_distance_band,
-        fulfillment_geo_county_code, fulfillment_geo_subdivision_code
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        fulfillment_geo_county_code, fulfillment_geo_subdivision_code, line_counter_bucket,
+        line_counter_allocation_snapshot
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         uuid, uuid, orderNo, storeId, orderMode, 'pending', 'pending',
         customer_name, customerPhoneNormalized, customer_line_id||'',
@@ -1735,62 +1866,78 @@ router.post('/', async (req, res) => {
         // 只有外送（isDelivery）訂單才有 orderGeo；外帶訂單 orderGeo 為 null，
         // 兩個 code 欄位維持 NULL，符合需求文件「外帶／現場不需強行新增」。
         orderGeo ? orderGeo.geo_county_code : null, orderGeo ? orderGeo.geo_subdivision_code : null,
+        isPreorderOrder ? 'preorder' : 'quota',
+        JSON.stringify(counterAllocationSnapshot),
       ]
     );
 
+    assertOneRowModified(db, 'order INSERT');
     // ── fix18-05：寫入 coupon_redemptions（訂單建立成功後）
     if (appliedCouponId) {
-      try {
-        db.run(
-          `INSERT OR IGNORE INTO coupon_redemptions
-             (store_id, coupon_id, coupon_code, order_id, order_number,
-              customer_phone, discount_amount, original_total, final_total, created_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?)`,
-          [
-            storeId, appliedCouponId, appliedCouponCode,
-            uuid, orderNo,
-            String(customerPhoneNormalized || '').trim(),
-            discAmt, sub, finalTotal, nowStr
-          ]
-        );
-      } catch (rErr) {
-        console.error('[line-orders] coupon_redemptions 寫入失敗:', rErr.message);
-        // redemption 寫入失敗不中斷訂單，但記錄錯誤
+      // R44.2C：coupon contract（已稽核 schema）：coupon_redemptions 有 UNIQUE(store_id, order_id)，
+      // order_id 是本次新產生的 uuid，所以合法 redemption 必然「恰好寫入 1 列」；
+      // 0 列 = 異常，不是合法情況。因此改用一般 INSERT（不再 INSERT OR IGNORE 掩蓋
+      // 未知 constraint 失敗）、不再 swallow-error，任何失敗整筆 rollback。
+      // 使用次數上限／每支手機上限／有效期間：BEGIN 後用 validateCoupon 重新驗證（fresh），
+      // 不通過 → 固定 business 400、整筆 rollback，coupon 維持可用。
+      const cvFresh = validateCoupon(db, storeId, normalCouponCode, sub, customerPhoneNormalized);
+      if (!cvFresh.ok || cvFresh.coupon.id !== appliedCouponId) {
+        const ce = new Error('coupon revalidation failed'); ce.httpStatus = 400; ce.publicBody = { success: false, message: '優惠券目前無法使用', reason: 'coupon_invalid' }; throw ce;
       }
+      db._db.run(
+        `INSERT INTO coupon_redemptions
+           (store_id, coupon_id, coupon_code, order_id, order_number,
+            customer_phone, discount_amount, original_total, final_total, created_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?)`,
+        [
+          storeId, appliedCouponId, appliedCouponCode,
+          uuid, orderNo,
+          String(customerPhoneNormalized || '').trim(),
+          discAmt, sub, finalTotal, nowStr
+        ]
+      );
+      assertOneRowModified(db, 'coupon redemption INSERT');
     }
 
     // ── 扣 LINE 份數（不動主庫存）────────────────────
     // 規則：
     //   今日訂單 → 扣 line_quota_sold（只要 line_quota_daily > 0 即扣，不需 enabled=1）
     //   預購訂單 → 扣 line_preorder_sold（只要 line_preorder_daily > 0 即扣）
-    items.forEach(item => {
-      const pid = item.product_id || item.id;
-      if (!pid) return;
-      const prod = db.get('SELECT * FROM products WHERE id=? AND store_id=?', [pid, storeId]);
-      if (!prod) return;
-      const qty = Number(item.qty || 1);
-      if (isPreorderOrder) {
-        // 預購：扣 line_preorder_sold（不扣今日 quota）
-        if (Number(prod.line_preorder_daily) > 0 || Number(prod.line_preorder_enabled)) {
-          db.run(
-            `UPDATE products SET line_preorder_sold = MAX(0, line_preorder_sold + ?),
-             updated_at=datetime('now','localtime') WHERE id=? AND store_id=?`,
-            [qty, pid, storeId]
-          );
-        }
+    // H1.4.12 Phase 3C R42：同時記下「真正讓 counter 增加的 product_id/
+    // qty」快照，取消/作廢時只依這份快照精確恢復，不再對 order.items
+    // 裡每一項都無條件扣（那樣會誤扣從未真正增加過的商品，已用真實混合
+    // 商品訂單重現這個 bug）。
+    // H1.4.12 Phase 3C R44.2：這裡不再重新判斷「誰該扣」——上面 INSERT
+    // 之前已經用同一份 server-fresh 商品資料算過一次
+    // （counterAllocationMap），這裡只依那份結果執行真正的 UPDATE，不
+    // 再有 follow-up UPDATE 補寫 snapshot 這個步驟（那個步驟如果失敗，
+    // 會讓 order 已存在、counter 已經真的增加，但 persisted snapshot
+    // 卻是空的，造成配額永久流失，已用真實 fault injection 重現並修正）。
+    counterAllocationSnapshot.allocations.forEach(({ product_id: pid, counter_bucket: bucket, qty }) => {
+      if (bucket === 'preorder') {
+        db._db.run(
+          `UPDATE products SET line_preorder_sold = MAX(0, line_preorder_sold + ?),
+           updated_at=datetime('now','localtime') WHERE id=? AND store_id=?`,
+          [qty, pid, storeId]
+        );
       } else {
-        // 今日：扣 line_quota_sold（只要有設定今日份數即扣）
-        if (Number(prod.line_quota_daily) > 0 || Number(prod.line_quota_enabled)) {
-          db.run(
-            `UPDATE products SET line_quota_sold = MAX(0, line_quota_sold + ?),
-             updated_at=datetime('now','localtime') WHERE id=? AND store_id=?`,
-            [qty, pid, storeId]
-          );
-        }
+        db._db.run(
+          `UPDATE products SET line_quota_sold = MAX(0, line_quota_sold + ?),
+           updated_at=datetime('now','localtime') WHERE id=? AND store_id=?`,
+          [qty, pid, storeId]
+        );
       }
+      assertOneRowModified(db, 'counter UPDATE product ' + pid);
     });
 
-    deductIngredients(db, storeId, items, orderNo);
+    deductIngredients(db, storeId, txItems, orderNo, true /* raw：交易內不 auto-save */);
+    // R44.2F.1：cart-token 消費與 order 同一個 durable transaction（不再於 save 後另做 auto-save mutation）：
+    // order rollback／disk 失敗 → token 維持可重試；order durable 成功 → token 恰好 consume 一次。
+    if (cart_token) {
+      const tokenResult = consumeCartTokenInTransaction(db, storeId, String(cart_token), uuid);
+      cartTokenConsumed = !!(tokenResult && tokenResult.ok);
+    }
+    });
 
     const newOrder = db.get('SELECT * FROM orders WHERE uuid=? AND store_id=?', [uuid, storeId]);
     // ── 訂單建立通知 ─────────────────────────────────
@@ -1865,25 +2012,17 @@ router.post('/', async (req, res) => {
     // order_mode==='delivery' 回傳 null）。
     const pickupLocation = resolvePickupLocation(newOrder, db, storeId);
 
-    // fix18-10-hotfix26-F8-B（需求文件十五）：token 消費是「盡力而為」的收尾動作，
-    // 失敗（token 不存在/已過期/已用過）不得影響訂單本身已經成立這件事，只記 log。
-    if (cart_token) {
+    // fix18-10-hotfix26-F8-B（需求文件十五）：token 已在上面的 durable transaction 內與 order 一起消費；
+    // 這裡只剩 durable 成功後的 analytics side effect（失敗不影響已成立訂單）。
+    if (cartTokenConsumed) {
       try {
-        const { consumeCartToken } = require('../utils/lineCheckoutHandoff');
-        const consumeResult = consumeCartToken(db, storeId, String(cart_token), uuid);
-        if (consumeResult && consumeResult.ok) {
-          try {
-            logServerEvent(db, {
-              store_id: storeId,
-              visitor_id: `order_${uuid}`, session_id: `order_${uuid}`,
-              order_id: uuid, event_name: 'line_checkout_handoff_consumed',
-              line_user_id: knownLineUserId || null, metadata: {},
-            });
-          } catch (analyticsErr) { /* Analytics 失敗不影響訂單已成立 */ }
-        }
-      } catch (tokErr) {
-        console.warn('[line-orders] cart_token consume failed:', tokErr.message);
-      }
+        logServerEvent(db, {
+          store_id: storeId,
+          visitor_id: `order_${uuid}`, session_id: `order_${uuid}`,
+          order_id: uuid, event_name: 'line_checkout_handoff_consumed',
+          line_user_id: knownLineUserId || null, metadata: {},
+        });
+      } catch (analyticsErr) { /* Analytics 失敗不影響訂單已成立 */ }
     }
 
     res.json({ success: true, data: {
@@ -1892,8 +2031,11 @@ router.post('/', async (req, res) => {
       pickup_location: pickupLocation,
     } });
   } catch(e) {
-    console.error('[line-orders] POST error:', e.message);
-    res.status(500).json({ success: false, message: e.message });
+    console.error('[line-orders] POST error:', e && e.stack ? e.stack : e); // server 端保留完整錯誤
+    if (isDurableError(e)) return res.status(503).json({ success: false, error: 'STORAGE_UNAVAILABLE', message: '系統忙碌中，請稍後再試' }); // R44.2F：固定 payload，不含 path／SQL／stack
+    if (e && e.httpStatus && e.publicBody) return res.status(e.httpStatus).json(e.publicBody); // 已知 business 錯誤：固定安全 payload
+    // R44.2B：client 只收到固定、非枚舉、無內部資訊的 500 payload（不再回傳 e.message）
+    res.status(500).json({ success: false, error: 'INTERNAL_ERROR', message: '系統忙碌中，請稍後再試' });
   }
 });
 
