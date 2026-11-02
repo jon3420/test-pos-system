@@ -526,3 +526,344 @@ body.popup-order-mode #announceOverlay {
     animation: none;
   }
 }
+
+/* ══ R49：完整購物流程（步驟列／分類／商品圖片／固定購物車列／購物車明細／確認頁）══
+   同樣只使用 #popupRoot／.popup-order-* scope；不引用外部資源。 */
+#popupRoot.popup-order-root [hidden] {
+  display: none !important;
+}
+#popupRoot.popup-order-root[data-popup-step="select"] {
+  padding-bottom: calc(132px + env(safe-area-inset-bottom, 0px));
+}
+
+/* 步驟列 */
+.popup-order-steps-nav {
+  margin-bottom: 12px;
+}
+.popup-order-steps {
+  list-style: none;
+  margin: 0;
+  padding: 10px 8px;
+  display: flex;
+  gap: 4px;
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 2px 10px rgba(16, 24, 20, .08);
+}
+.popup-order-step {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: #667085;
+  text-align: center;
+}
+.popup-order-step-no {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1.5px solid #d0d5dd;
+  line-height: 23px;
+  font-weight: 800;
+  background: #fff;
+}
+.popup-order-step[data-state="current"] { color: #04893c; font-weight: 800; }
+.popup-order-step[data-state="current"] .popup-order-step-no { background: #06c755; border-color: #06c755; color: #fff; }
+.popup-order-step[data-state="done"] .popup-order-step-no { border-color: #06c755; color: #04893c; }
+.popup-order-step-label { overflow-wrap: anywhere; }
+.popup-order-step-heading {
+  font-size: 17px;
+  font-weight: 800;
+  margin-bottom: 10px;
+  color: #101828;
+}
+.popup-order-step-heading:focus { outline: none; }
+.popup-order-step-heading:focus-visible { outline: 3px solid #0b6b34; outline-offset: 2px; }
+
+/* 分類 chips */
+.popup-order-chips {
+  display: flex;
+  gap: 8px;
+  max-width: 100%;
+  overflow-x: auto;
+  padding-bottom: 6px;
+  margin-bottom: 8px;
+  -webkit-overflow-scrolling: touch;
+}
+.popup-order-chip {
+  flex: 0 0 auto;
+  min-height: 44px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1.5px solid #d0d5dd;
+  background: #fff;
+  color: #344054;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.popup-order-chip[aria-pressed="true"] {
+  border-color: #06c755;
+  background: #06c755;
+  color: #fff;
+}
+
+/* 商品圖片（CSS 背景層＋文字 fallback；不使用 <img>） */
+.popup-order-product-media {
+  position: relative;
+  flex: 0 0 64px;
+  width: 64px;
+  height: 64px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #eef8f1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.popup-order-product-fallback {
+  font-size: 24px;
+  font-weight: 800;
+  color: #05732f;
+}
+.popup-order-product-image {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+.popup-order-product-media[data-img-state="error"] .popup-order-product-image {
+  display: none;
+}
+.popup-order-product-desc {
+  display: block;
+  margin-top: 2px;
+  font-size: 13px;
+  color: #667085;
+  line-height: 1.45;
+}
+
+/* 固定購物車列 */
+.popup-order-cartbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 40;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+  background: #fff;
+  border-top: 1px solid #e4e7ec;
+  box-shadow: 0 -4px 16px rgba(16, 24, 20, .10);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.popup-order-cartbar-inner {
+  flex: 1 1 180px;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.popup-order-cartbar-count {
+  flex: 0 0 auto;
+  font-size: 14px;
+  font-weight: 700;
+  color: #344054;
+}
+.popup-order-cartbar-view {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1.5px solid #06c755;
+  background: #fff;
+  color: #04893c;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.popup-order-cartbar-view:disabled {
+  border-color: #d0d5dd;
+  color: #98a2b3;
+  cursor: not-allowed;
+}
+.popup-order-cartbar-amount {
+  margin-left: auto;
+  font-size: 17px;
+  font-weight: 800;
+  color: #04893c;
+  white-space: nowrap;
+}
+.popup-order-cartbar-next {
+  flex: 1 0 120px;
+  min-height: 48px;
+  border-radius: 12px;
+  background: #06c755;
+  color: #fff;
+  font-size: 16px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.popup-order-cartbar-next:disabled {
+  background: #d0d5dd;
+  cursor: not-allowed;
+}
+
+/* 購物車明細 drawer */
+.popup-order-drawer-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(16, 24, 20, .45);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.popup-order-drawer {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 720px;
+  max-height: 82vh;
+  overflow-y: auto;
+  background: #fff;
+  border-radius: 18px 18px 0 0;
+  padding: 18px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+}
+.popup-order-drawer-title {
+  font-size: 18px;
+  font-weight: 800;
+  margin-bottom: 8px;
+}
+.popup-order-drawer-title:focus { outline: none; }
+.popup-order-drawer-lines {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.popup-order-drawer-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 0;
+  border-bottom: 1px dashed #e4e7ec;
+}
+.popup-order-drawer-line-info {
+  flex: 1 1 140px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.popup-order-drawer-line-name { font-weight: 700; }
+.popup-order-drawer-line-unit { font-size: 13px; color: #667085; }
+.popup-order-drawer-line-subtotal {
+  min-width: 64px;
+  text-align: right;
+  font-weight: 800;
+}
+.popup-order-drawer-del {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid #fecdca;
+  background: #fff4f3;
+  color: #b42318;
+  font-weight: 700;
+  cursor: pointer;
+}
+.popup-order-drawer-sum {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 16px;
+  font-weight: 800;
+}
+.popup-order-drawer-amount { color: #04893c; }
+.popup-order-drawer-actions,
+.popup-order-step-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.popup-order-drawer-actions .popup-order-btn,
+.popup-order-step-nav .popup-order-btn {
+  flex: 1 1 140px;
+  margin: 0;
+}
+.popup-order-btn:disabled {
+  background: #d0d5dd;
+  color: #fff;
+  border-color: #d0d5dd;
+  cursor: not-allowed;
+}
+
+/* 唯讀取貨資料／確認頁 */
+.popup-order-readonly {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 12px;
+  background: #f8faf9;
+  border: 1px solid #eef1ef;
+}
+.popup-order-readonly-title {
+  font-size: 14px;
+  font-weight: 800;
+  margin-bottom: 6px;
+  color: #344054;
+}
+.popup-order-field-help {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #667085;
+}
+.popup-order-confirm-line {
+  flex-wrap: wrap;
+}
+.popup-order-confirm-unit {
+  flex: 1 1 auto;
+  font-size: 13px;
+  color: #667085;
+  text-align: right;
+}
+.popup-order-confirm-count {
+  margin-top: 10px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #344054;
+}
+.popup-order-confirm-note {
+  margin-top: 10px;
+  font-size: 12px;
+  color: #667085;
+}
+.popup-order-save-reminder {
+  margin-top: 14px;
+}
+
+@media (min-width: 760px) {
+  .popup-order-drawer-overlay {
+    align-items: center;
+  }
+  .popup-order-drawer {
+    border-radius: 18px;
+  }
+  .popup-order-cartbar {
+    border-radius: 16px 16px 0 0;
+  }
+}

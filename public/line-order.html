@@ -335,7 +335,7 @@ img{max-width:100%;display:block}
 </style>
 <link rel="stylesheet" href="/css/product-detail-modal.css">
 <!-- R48：快閃取餐（/popup-order）顧客前台專用樣式；所有 selector 皆限定在 popup scope，一般 LINE 點餐頁不受影響。 -->
-<link rel="stylesheet" href="/css/popup-order.css?v=r48-popup-ui-1">
+<link rel="stylesheet" href="/css/popup-order.css?v=r49-popup-commerce-1">
 </head>
 <body>
 
@@ -2445,16 +2445,221 @@ function popupAdjustCartQty(productId, delta){
 }
 
 function popupFormatPaymentLabel(code){
-  const labels={ cash:'現金', credit_card:'信用卡', transfer:'轉帳', platform:'平台付款', jkopay:'街口支付' };
+  const labels={ cash:'現金', credit_card:'信用卡', transfer:'轉帳', platform:'平台付款', jkopay:'街口支付', linepay:'LINE Pay' };
   // 規格十：未知代碼使用安全 fallback 標籤，但絕不自行轉成另一個已知的
   // 付款代碼（不得把未知代碼偷偷當成 cash 之類的顯示）。
   return labels[code] || ('付款方式：'+code);
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// R49：快閃取餐完整購物流程（商品圖片／分類／固定購物車列／購物車明細／
+// 階段式結帳：1 選擇商品 → 2 填寫資料 → 3 確認訂單 → 訂單完成）。
+// - 狀態全部活在 popup 專用變數，不讀寫 currentMode／一般 cart。
+// - 既有 R47/R48 DOM 契約（#popupCustomerName／#popupCustomerPhone／
+//   [data-payment-code]／#popupCheckoutSubmitBtn／#popupCheckoutErrorRegion／
+//   li[data-product-id] 加減按鈕）完整保留；非目前步驟的面板以 hidden 收起，
+//   使用者無法跳過步驟（真實瀏覽器中 hidden 元素不可見、不可聚焦、不可點擊）。
+// - 金額一律由 cart line × fresh session 商品單價重算（popupComputeCartTotals），
+//   不讀 DOM 顯示值；送單後 server 仍會依 product_id／qty 重新計價。
+// - 外部資料一律 textContent；商品圖片只接受同源路徑，以 CSS 背景層呈現（不
+//   產生 <img> 標籤），載入失敗或缺圖時顯示文字 fallback。
+// ══════════════════════════════════════════════════════════════════════
+const POPUP_STEPS=Object.freeze(['select','details','confirm']);
+const POPUP_STEP_LABELS=Object.freeze({ select:'選擇商品', details:'填寫資料', confirm:'確認訂單', done:'訂單完成' });
+let popupCheckoutStep='select';
+let popupCategoryFilter='';
+let popupCartDrawerOpen=false;
+let _popupFocusAfterRender=null;
+let _popupStepHistoryArmed=false;
+
+// 純函式：只接受同源、無協定、無上層路徑的圖片路徑（與 server 端
+// sanitizePopupImageUrl 同一份規則）。其餘（外部 host、data:、javascript:、
+// 相對路徑、空值）一律視為缺圖。
+const POPUP_SAFE_IMAGE_RE=/^\/(?!\/)[A-Za-z0-9._~\-\/]{1,300}\.(?:png|jpe?g|webp|gif)$/i;
+function popupSafeImageUrl(raw){
+  if(typeof raw!=='string') return null;
+  const v=raw.trim();
+  if(!POPUP_SAFE_IMAGE_RE.test(v) || v.indexOf('..')!==-1) return null;
+  return v;
+}
+
+// 純函式：cart line × fresh 商品單價（不讀 DOM、不讀 storage 內任何金額）。
+function popupComputeCartTotals(cart, products){
+  const map=new Map((products||[]).map((p)=>[p.product_id, p]));
+  const lines=[];
+  let count=0; let amount=0; let unknown=0;
+  ((cart&&cart.items)||[]).forEach((it)=>{
+    if(!it || !Number.isInteger(it.qty) || it.qty<=0) return;
+    const p=map.get(it.product_id);
+    if(!p){ unknown+=1; lines.push({ product_id:it.product_id, qty:it.qty, name:null, price:null, subtotal:null }); return; }
+    const price=Number(p.price);
+    const subtotal=Number.isFinite(price) ? price*it.qty : null;
+    count+=it.qty;
+    if(subtotal!=null) amount+=subtotal;
+    lines.push({ product_id:it.product_id, qty:it.qty, name:p.name, price, subtotal });
+  });
+  return { lines, count, amount, unknown };
+}
+
+function popupFormatMoney(n){
+  return 'NT$'+(Number.isFinite(Number(n)) ? Number(n) : 0);
+}
+
+function popupCategoryOf(p){
+  return (p && typeof p.category==='string' && p.category.trim()) ? p.category.trim() : '';
+}
+
+// 步驟守門：任何時候重新渲染都會把「不合法的步驟」拉回前一步，避免以竄改
+// 狀態或重新整理的方式跳過資料／確認步驟。送單進行中不變更步驟。
+function popupNormalizeStep(){
+  if(_popupCheckoutInFlight) return;
+  if(!POPUP_STEPS.includes(popupCheckoutStep)) popupCheckoutStep='select';
+  const canOrder=!!(popupSession && popupSession.can_order===true);
+  const totals=popupComputeCartTotals(popupCart, popupProducts);
+  if(!canOrder || totals.count<=0){ popupCheckoutStep='select'; return; }
+  if(popupCheckoutStep==='confirm' && !popupValidateCheckout().ok) popupCheckoutStep='details';
+}
+
+function popupGoToStep(step, focusId){
+  if(!POPUP_STEPS.includes(step)) return;
+  const prev=popupCheckoutStep;
+  popupCheckoutStep=step;
+  popupCartDrawerOpen=false;
+  popupNormalizeStep();
+  _popupFocusAfterRender=focusId||('popupStepHeading-'+popupCheckoutStep);
+  if(prev!==popupCheckoutStep){
+    try{
+      if(window.history && typeof window.history.pushState==='function'){
+        window.history.pushState({ popupStep:popupCheckoutStep, popupSessionCode:popupSession&&popupSession.public_code }, '');
+        _popupStepHistoryArmed=true;
+      }
+    }catch(e){}
+  }
+  renderPopupSessionScreen();
+  try{ window.scrollTo(0,0); }catch(e){}
+}
+
+// 瀏覽器「上一頁」：只在使用者曾以步驟按鈕前進後才處理，回到前一步，不送單、
+// 不清除購物車與已填資料。
+function _popupHandleStepPopState(ev){
+  if(!_popupStepHistoryArmed || !popupSession) return;
+  const st=ev && ev.state;
+  const target=(st && st.popupStep && POPUP_STEPS.includes(st.popupStep) && st.popupSessionCode===popupSession.public_code) ? st.popupStep : 'select';
+  popupCheckoutStep=target;
+  popupCartDrawerOpen=false;
+  popupNormalizeStep();
+  const root=document.getElementById('popupRoot');
+  if(root && root.getAttribute('data-popup-view')==='session') renderPopupSessionScreen();
+}
+try{ window.addEventListener('popstate', _popupHandleStepPopState); }catch(e){}
+
+function popupOpenCartDrawer(){
+  popupCartDrawerOpen=true;
+  _popupFocusAfterRender='popupCartDrawerTitle';
+  renderPopupSessionScreen();
+}
+function popupCloseCartDrawer(){
+  popupCartDrawerOpen=false;
+  _popupFocusAfterRender='popupCartBarViewBtn';
+  renderPopupSessionScreen();
+}
+function popupRemoveCartLine(productId){
+  if(!popupSession || popupSession.can_order!==true) return;
+  popupCart={ ...popupCart, items:(popupCart.items||[]).filter((it)=>it.product_id!==productId) };
+  savePopupCart(popupSession.public_code, popupCart);
+  _popupFocusAfterRender=popupCartDrawerOpen ? 'popupCartDrawerTitle' : null;
+  renderPopupSessionScreen();
+}
+
+function popupApplyFocusAfterRender(){
+  const id=_popupFocusAfterRender;
+  _popupFocusAfterRender=null;
+  if(!id) return;
+  try{ const el=document.getElementById(id); if(el && typeof el.focus==='function') el.focus(); }catch(e){}
+}
+
+// 商品圖片：缺圖／不安全網址／載入失敗一律顯示文字 fallback；圖片層是純裝飾，
+// 失敗不影響選購或送單。
+function popupBuildProductMedia(p){
+  const media=popupEl('div','popup-order-product-media');
+  const name=String(p.name||'');
+  const fallback=popupEl('span','popup-order-product-fallback',name ? name.slice(0,1) : '餐');
+  fallback.setAttribute('aria-hidden','true');
+  media.appendChild(fallback);
+  const safe=popupSafeImageUrl(p.image_url);
+  if(safe){
+    const layer=popupEl('div','popup-order-product-image');
+    layer.setAttribute('role','img');
+    layer.setAttribute('aria-label', name ? `${name} 商品圖片` : '商品圖片');
+    layer.style.backgroundImage='url("'+safe+'")';
+    media.setAttribute('data-img-state','loading');
+    media.appendChild(layer);
+    try{
+      const probe=new Image();
+      probe.onload=()=>{ media.setAttribute('data-img-state','loaded'); };
+      probe.onerror=()=>{ media.setAttribute('data-img-state','error'); layer.style.backgroundImage=''; layer.removeAttribute('role'); layer.setAttribute('aria-hidden','true'); };
+      probe.src=safe;
+    }catch(e){ /* 無 Image 建構子的環境：維持背景層，不影響流程 */ }
+  }else{
+    media.setAttribute('data-img-state','missing');
+    media.setAttribute('role','img');
+    media.setAttribute('aria-label', name ? `${name}（無商品圖片）` : '無商品圖片');
+  }
+  return media;
+}
+
+function popupBuildStepper(){
+  const nav=popupEl('nav','popup-order-steps-nav');
+  nav.setAttribute('aria-label','訂購步驟');
+  const ol=popupEl('ol','popup-order-steps');
+  const all=['select','details','confirm','done'];
+  const curIdx=all.indexOf(popupCheckoutStep);
+  all.forEach((s, i)=>{
+    const li=popupEl('li','popup-order-step');
+    li.setAttribute('data-step', s);
+    li.setAttribute('data-state', i<curIdx ? 'done' : (i===curIdx ? 'current' : 'todo'));
+    if(i===curIdx) li.setAttribute('aria-current','step');
+    li.appendChild(popupEl('span','popup-order-step-no', s==='done' ? '✓' : String(i+1)));
+    li.appendChild(popupEl('span','popup-order-step-label', POPUP_STEP_LABELS[s]));
+    ol.appendChild(li);
+  });
+  nav.appendChild(ol);
+  return nav;
+}
+
+function popupBuildStepHeading(step, text){
+  const h=popupEl('h3','popup-order-step-heading',text);
+  h.id='popupStepHeading-'+step;
+  h.tabIndex=-1;
+  return h;
+}
+
+function popupBuildPickupRows(container, opts){
+  const addRow=(label, value)=>{
+    if(value==null || value==='') return;
+    const row=popupEl('div','popup-order-info-row');
+    row.appendChild(popupEl('span','popup-order-info-label',label));
+    row.appendChild(popupEl('span','popup-order-info-value',value));
+    container.appendChild(row);
+  };
+  if(opts && opts.withNames){
+    addRow('活動', (popupCampaign && popupCampaign.name) || '');
+    addRow('場次', popupSession.name || '');
+  }
+  addRow('取貨日期', popupSession.pickup_date||'');
+  addRow('取貨時段', `${popupSession.pickup_start_time||''}～${popupSession.pickup_end_time||''}`);
+  if(popupSession.place_name) addRow('地點', popupSession.place_name);
+  if(popupSession.address) addRow('地址', popupSession.address);
+  if(popupSession.address_note) addRow('地點備註', popupSession.address_note);
+  return addRow;
 }
 
 function renderPopupSessionScreen(){
   const root=popupRootEl();
   root.textContent='';
   popupSetView(root,'session');
+  popupNormalizeStep();
+  root.setAttribute('data-popup-step', popupCheckoutStep);
   const wrap=popupEl('div','popup-order-shell');
   wrap.setAttribute('aria-live','polite');
 
@@ -2517,24 +2722,22 @@ function renderPopupSessionScreen(){
     body.appendChild(stateBox);
   }
 
-  // 取貨資訊卡
+  body.appendChild(popupBuildStepper());
+
+  const totals=popupComputeCartTotals(popupCart, popupProducts);
+
+  // ── 步驟一：選擇商品 ─────────────────────────────────
+  const selectPanel=popupEl('div','popup-order-step-panel');
+  selectPanel.setAttribute('data-popup-step-panel','select');
+  if(popupCheckoutStep!=='select') selectPanel.hidden=true;
+
   const infoCard=popupEl('section','popup-order-card popup-order-info-card');
   infoCard.setAttribute('aria-label','取貨資訊');
   infoCard.appendChild(popupEl('h3','popup-order-card-title','取貨資訊'));
   if(popupCampaign && typeof popupCampaign.description==='string' && popupCampaign.description.trim()){
     infoCard.appendChild(popupEl('p','popup-order-desc',popupCampaign.description.trim()));
   }
-  const addInfoRow=(label, value)=>{
-    const row=popupEl('div','popup-order-info-row');
-    row.appendChild(popupEl('span','popup-order-info-label',label));
-    row.appendChild(popupEl('span','popup-order-info-value',value));
-    infoCard.appendChild(row);
-  };
-  addInfoRow('取貨日期', popupSession.pickup_date||'');
-  addInfoRow('取貨時段', `${popupSession.pickup_start_time||''}～${popupSession.pickup_end_time||''}`);
-  if(popupSession.place_name) addInfoRow('地點', popupSession.place_name);
-  if(popupSession.address) addInfoRow('地址', popupSession.address);
-  if(popupSession.address_note) addInfoRow('地點備註', popupSession.address_note);
+  const addInfoRow=popupBuildPickupRows(infoCard, { withNames:false });
   const openAtText=popupFormatTaipeiDateTime(popupSession.order_open_at);
   if(popupSession.effective_state==='scheduled' && openAtText) addInfoRow('開放預訂', openAtText);
   const cutoffText=popupFormatTaipeiDateTime(popupSession.order_cutoff_at);
@@ -2549,12 +2752,29 @@ function renderPopupSessionScreen(){
     mapLink.rel='noopener noreferrer';
     infoCard.appendChild(mapLink);
   }
-  body.appendChild(infoCard);
+  selectPanel.appendChild(infoCard);
 
-  // 商品卡
   const productCard=popupEl('section','popup-order-card popup-order-product-card');
   productCard.setAttribute('aria-label','選擇商品');
-  productCard.appendChild(popupEl('h3','popup-order-card-title','選擇商品'));
+  productCard.appendChild(popupBuildStepHeading('select','選擇商品'));
+  const categories=[];
+  (popupProducts||[]).forEach((p)=>{ const c=popupCategoryOf(p); if(c && !categories.includes(c)) categories.push(c); });
+  if(popupCategoryFilter && !categories.includes(popupCategoryFilter)) popupCategoryFilter='';
+  if(categories.length>0){
+    const chips=popupEl('div','popup-order-chips');
+    chips.setAttribute('role','group');
+    chips.setAttribute('aria-label','商品分類');
+    [''].concat(categories).forEach((c)=>{
+      const chip=popupEl('button','popup-order-chip', c || '全部');
+      chip.type='button';
+      chip.setAttribute('data-category', c);
+      chip.setAttribute('aria-pressed', popupCategoryFilter===c ? 'true' : 'false');
+      chip.setAttribute('aria-label', c ? `只顯示分類：${c}` : '顯示全部分類');
+      chip.addEventListener('click', ()=>{ popupCategoryFilter=c; _popupFocusAfterRender=null; renderPopupSessionScreen(); });
+      chips.appendChild(chip);
+    });
+    productCard.appendChild(chips);
+  }
   const productList=popupEl('ul','popup-order-products');
   if(!popupProducts || popupProducts.length===0){
     productCard.appendChild(popupEl('p','popup-order-empty','目前沒有可訂購的商品'));
@@ -2564,12 +2784,20 @@ function renderPopupSessionScreen(){
     li.setAttribute('data-product-id', String(p.product_id));
     const disabled=!canOrder || p.sold_out;
     if(disabled) li.setAttribute('data-disabled','true');
+    const cat=popupCategoryOf(p);
+    if(cat) li.setAttribute('data-category', cat);
+    if(popupCategoryFilter && cat!==popupCategoryFilter) li.hidden=true;
 
     const qtyInCart=(popupCart.items||[]).find((it)=>it.product_id===p.product_id);
     const currentQty=qtyInCart ? qtyInCart.qty : 0;
 
+    li.appendChild(popupBuildProductMedia(p));
+
     const info=popupEl('div','popup-order-product-info');
     info.appendChild(popupEl('span','popup-order-product-name',p.name));
+    if(typeof p.description==='string' && p.description.trim()){
+      info.appendChild(popupEl('span','popup-order-product-desc',p.description.trim()));
+    }
     const meta=popupEl('span','popup-order-product-meta');
     meta.appendChild(popupEl('span','popup-order-price',`NT$${p.price}`));
     if(p.sold_out){
@@ -2610,9 +2838,10 @@ function renderPopupSessionScreen(){
     productList.appendChild(li);
   });
   productCard.appendChild(productList);
-  body.appendChild(productCard);
+  selectPanel.appendChild(productCard);
+  body.appendChild(selectPanel);
 
-  // 付款方式（放入結帳卡內顯示；按鈕語意與 R47 相同）
+  // ── 步驟二：填寫資料（姓名／電話／備註／付款方式；取貨資料唯讀）──
   const payWrap=popupEl('div','popup-order-pay');
   payWrap.setAttribute('role','group');
   payWrap.setAttribute('aria-labelledby','popupPaymentLabel');
@@ -2633,11 +2862,155 @@ function renderPopupSessionScreen(){
       payWrap.appendChild(btn);
     });
   }
+  if(popupPaymentConfigured()){
+    const pinfo=popupSession.popup_payment;
+    const sel=(pinfo.methods||[]).find((m)=>m.code===popupCart.payment_method);
+    if(sel && (sel.description || sel.online)){
+      const d=popupEl('p','popup-order-field-help', (sel.online ? '線上付款：送出訂單後前往付款，'+(pinfo.timeout_minutes||15)+' 分鐘內未完成將自動取消並釋放名額。' : '')+(sel.description ? sel.description : ''));
+      d.setAttribute('data-testid','popup-payment-method-desc');
+      payWrap.appendChild(d);
+    }
+    if(pinfo.accepting===false){
+      const n=popupEl('p','popup-order-empty','此活動目前沒有可用的付款方式，暫停接單。');
+      n.setAttribute('data-testid','popup-payment-not-accepting');
+      payWrap.appendChild(n);
+    }
+  }
+  const detailsPanel=popupEl('div','popup-order-step-panel');
+  detailsPanel.setAttribute('data-popup-step-panel','details');
+  if(popupCheckoutStep!=='details') detailsPanel.hidden=true;
+  detailsPanel.appendChild(renderPopupCheckoutSection(canOrder, payWrap));
+  body.appendChild(detailsPanel);
 
-  body.appendChild(renderPopupCheckoutSection(canOrder, payWrap));
+  // ── 步驟三：確認訂單 ─────────────────────────────────
+  const confirmPanel=popupEl('div','popup-order-step-panel');
+  confirmPanel.setAttribute('data-popup-step-panel','confirm');
+  if(popupCheckoutStep!=='confirm') confirmPanel.hidden=true;
+  confirmPanel.appendChild(renderPopupConfirmSection(canOrder, totals));
+  body.appendChild(confirmPanel);
 
   wrap.appendChild(body);
+
+  // ── 固定購物車列（只在選擇商品步驟）＋購物車明細 drawer ─────
+  if(popupCheckoutStep==='select'){
+    wrap.appendChild(renderPopupCartBar(canOrder, totals));
+    if(popupCartDrawerOpen) wrap.appendChild(renderPopupCartDrawer(canOrder, totals));
+  }else{
+    popupCartDrawerOpen=false;
+  }
   root.appendChild(wrap);
+  popupApplyFocusAfterRender();
+}
+
+function renderPopupCartBar(canOrder, totals){
+  const bar=popupEl('div','popup-order-cartbar');
+  bar.setAttribute('data-testid','popup-cart-bar');
+  bar.setAttribute('role','region');
+  bar.setAttribute('aria-label','購物車摘要');
+  const inner=popupEl('div','popup-order-cartbar-inner');
+  const count=popupEl('span','popup-order-cartbar-count',`已選 ${totals.count} 件`);
+  count.id='popupCartBarCount';
+  count.setAttribute('aria-live','polite');
+  inner.appendChild(count);
+  const view=popupEl('button','popup-order-cartbar-view','查看購物車');
+  view.type='button';
+  view.id='popupCartBarViewBtn';
+  view.setAttribute('aria-haspopup','dialog');
+  view.setAttribute('aria-expanded', popupCartDrawerOpen ? 'true' : 'false');
+  view.setAttribute('aria-label', totals.count>0 ? `查看購物車，已選 ${totals.count} 件，合計 ${popupFormatMoney(totals.amount)}` : '購物車是空的');
+  view.disabled=totals.count<=0;
+  view.addEventListener('click', ()=>{ popupOpenCartDrawer(); });
+  inner.appendChild(view);
+  const amount=popupEl('span','popup-order-cartbar-amount',popupFormatMoney(totals.amount));
+  amount.id='popupCartBarAmount';
+  inner.appendChild(amount);
+  bar.appendChild(inner);
+  const next=popupEl('button','popup-order-cartbar-next','前往結帳');
+  next.type='button';
+  next.id='popupGoDetailsBtn';
+  next.setAttribute('aria-label','前往結帳：填寫資料');
+  next.disabled=!canOrder || totals.count<=0;
+  next.addEventListener('click', ()=>{ popupGoToStep('details'); });
+  bar.appendChild(next);
+  return bar;
+}
+
+function renderPopupCartDrawer(canOrder, totals){
+  const overlay=popupEl('div','popup-order-drawer-overlay');
+  overlay.addEventListener('click', (ev)=>{ if(ev.target===overlay) popupCloseCartDrawer(); });
+  const drawer=popupEl('div','popup-order-drawer');
+  drawer.id='popupCartDrawer';
+  drawer.setAttribute('role','dialog');
+  drawer.setAttribute('aria-modal','true');
+  drawer.setAttribute('aria-labelledby','popupCartDrawerTitle');
+  drawer.addEventListener('keydown', (ev)=>{
+    if(ev.key==='Escape'){ ev.preventDefault(); popupCloseCartDrawer(); return; }
+    if(ev.key==='Tab'){
+      const f=[...drawer.querySelectorAll('button:not([disabled]), [tabindex="-1"]')];
+      if(!f.length) return;
+      const first=f[0], last=f[f.length-1];
+      if(ev.shiftKey && document.activeElement===first){ ev.preventDefault(); last.focus(); }
+      else if(!ev.shiftKey && document.activeElement===last){ ev.preventDefault(); first.focus(); }
+    }
+  });
+  const title=popupEl('h3','popup-order-drawer-title','購物車明細');
+  title.id='popupCartDrawerTitle';
+  title.tabIndex=-1;
+  drawer.appendChild(title);
+  const list=popupEl('ul','popup-order-drawer-lines');
+  totals.lines.forEach((ln)=>{
+    const li=popupEl('li','popup-order-drawer-line');
+    li.setAttribute('data-cart-product-id', String(ln.product_id));
+    const left=popupEl('div','popup-order-drawer-line-info');
+    left.appendChild(popupEl('span','popup-order-drawer-line-name', ln.name!=null ? ln.name : `商品 #${ln.product_id}（目前場次已無此商品）`));
+    left.appendChild(popupEl('span','popup-order-drawer-line-unit', ln.price!=null ? `單價 ${popupFormatMoney(ln.price)}` : ''));
+    li.appendChild(left);
+    const ctl=popupEl('div','popup-order-qty');
+    ctl.setAttribute('role','group');
+    ctl.setAttribute('aria-label',`${ln.name||'商品'} 購物車數量調整`);
+    const product=(popupProducts||[]).find((p)=>p.product_id===ln.product_id);
+    const mb=popupEl('button','popup-order-qty-btn','－');
+    mb.type='button'; mb.setAttribute('data-cart-action','minus');
+    mb.setAttribute('aria-label',`購物車內減少 ${ln.name||'商品'}`);
+    mb.disabled=!canOrder || !product;
+    mb.addEventListener('click', ()=>{ _popupFocusAfterRender='popupCartDrawerTitle'; popupAdjustCartQty(ln.product_id,-1); });
+    ctl.appendChild(mb);
+    ctl.appendChild(popupEl('span','popup-order-qty-value',String(ln.qty)));
+    const pb=popupEl('button','popup-order-qty-btn','＋');
+    pb.type='button'; pb.setAttribute('data-cart-action','plus');
+    pb.setAttribute('aria-label',`購物車內加一份 ${ln.name||'商品'}`);
+    pb.disabled=!canOrder || !product || product.sold_out || (product.remaining_qty!=null && ln.qty>=product.remaining_qty);
+    pb.addEventListener('click', ()=>{ _popupFocusAfterRender='popupCartDrawerTitle'; popupAdjustCartQty(ln.product_id,1); });
+    ctl.appendChild(pb);
+    li.appendChild(ctl);
+    li.appendChild(popupEl('span','popup-order-drawer-line-subtotal', ln.subtotal!=null ? popupFormatMoney(ln.subtotal) : ''));
+    const del=popupEl('button','popup-order-drawer-del','刪除');
+    del.type='button';
+    del.setAttribute('aria-label',`從購物車刪除 ${ln.name||'商品'}`);
+    del.disabled=!canOrder;
+    del.addEventListener('click', ()=>{ popupRemoveCartLine(ln.product_id); });
+    li.appendChild(del);
+    list.appendChild(li);
+  });
+  drawer.appendChild(list);
+  if(totals.lines.length===0) drawer.appendChild(popupEl('p','popup-order-empty','購物車是空的'));
+  const sum=popupEl('div','popup-order-drawer-sum');
+  sum.appendChild(popupEl('span','popup-order-drawer-count',`共 ${totals.count} 件`));
+  sum.appendChild(popupEl('span','popup-order-drawer-amount',`應付總額 ${popupFormatMoney(totals.amount)}`));
+  drawer.appendChild(sum);
+  const actions=popupEl('div','popup-order-drawer-actions');
+  const cont=popupEl('button','popup-order-btn','繼續選購');
+  cont.type='button'; cont.setAttribute('data-variant','secondary');
+  cont.addEventListener('click', ()=>{ popupCloseCartDrawer(); });
+  actions.appendChild(cont);
+  const go=popupEl('button','popup-order-btn','前往結帳');
+  go.type='button'; go.id='popupDrawerCheckoutBtn';
+  go.disabled=!canOrder || totals.count<=0;
+  go.addEventListener('click', ()=>{ popupGoToStep('details'); });
+  actions.appendChild(go);
+  drawer.appendChild(actions);
+  overlay.appendChild(drawer);
+  return overlay;
 }
 
 // R48：送出按鈕旁的提示文字（只依 popupValidateCheckout() 的結果顯示，
@@ -2665,46 +3038,22 @@ function popupRefreshSubmitState(){
   submitBtn.disabled=!canOrder || cartEmpty || !validation.ok || _popupCheckoutInFlight;
   const hint=document.getElementById('popupCheckoutHint');
   if(hint) hint.textContent=popupCheckoutHintText(canOrder, validation);
+  popupRefreshDetailsNav(canOrder);
 }
 
-// 規格三：顧客姓名／電話／付款方式／備註／購物車摘要／小計／送出按鈕／
-// 錯誤狀態區，全部集中在這裡，跟一般外帶/外送的表單完全分開。
+// R49 步驟二：顧客姓名／電話／備註／付款方式（R47/R48 欄位 id 與事件語意完全
+// 保留），取貨資料唯讀顯示；「下一步：確認訂單」只在 popupValidateCheckout()
+// 通過時可按。
 function renderPopupCheckoutSection(canOrder, paymentGroupEl){
   const section=popupEl('section','popup-order-card popup-order-checkout');
   section.setAttribute('aria-label','結帳資訊');
+  section.appendChild(popupBuildStepHeading('details','填寫資料'));
 
-  const items=(popupCart.items||[]).filter((it)=>it.qty>0);
-  const cartEmpty=items.length===0;
-
-  section.appendChild(popupEl('h3','popup-order-card-title','購物車'));
-
-  if(cartEmpty){
-    section.appendChild(popupEl('p','popup-order-empty','購物車是空的'));
-  }else{
-    const list=popupEl('ul','popup-order-cart-lines');
-    let subtotal=0;
-    items.forEach((it)=>{
-      // 規格三：小計只用「這次 fresh session products」現算，絕不讀
-      // localStorage 裡任何舊的 price/subtotal。
-      const product=(popupProducts||[]).find((p)=>p.product_id===it.product_id);
-      const lineTotal=product ? product.price*it.qty : null;
-      if(lineTotal!=null) subtotal+=lineTotal;
-      const li=popupEl('li','popup-order-cart-line');
-      if(product){
-        li.appendChild(popupEl('span','popup-order-cart-line-name',`${product.name} x${it.qty}`));
-        li.appendChild(popupEl('span','popup-order-cart-line-amount',`NT$${lineTotal}`));
-      }else{
-        li.appendChild(popupEl('span','popup-order-cart-line-name',`商品 #${it.product_id} x${it.qty}（已從目前場次移除，送出前會自動移除）`));
-      }
-      list.appendChild(li);
-    });
-    section.appendChild(list);
-    const totalP=popupEl('p','popup-order-subtotal');
-    totalP.setAttribute('data-testid','popup-checkout-total');
-    totalP.appendChild(popupEl('span','popup-order-subtotal-label','小計：'));
-    totalP.appendChild(popupEl('span','popup-order-subtotal-value',`NT$${subtotal}`));
-    section.appendChild(totalP);
-  }
+  const pickup=popupEl('div','popup-order-readonly');
+  pickup.setAttribute('aria-label','取貨資料（唯讀）');
+  pickup.appendChild(popupEl('p','popup-order-readonly-title','取貨資料'));
+  popupBuildPickupRows(pickup, { withNames:true });
+  section.appendChild(pickup);
 
   const addField=(id, labelText, control, required)=>{
     const field=popupEl('div','popup-order-field');
@@ -2744,12 +3093,16 @@ function renderPopupCheckoutSection(canOrder, paymentGroupEl){
   phoneInput.value=popupCart.customer_phone||'';
   phoneInput.disabled=!canOrder;
   phoneInput.setAttribute('aria-label','顧客電話');
+  phoneInput.setAttribute('aria-describedby','popupPhoneHelp');
   phoneInput.addEventListener('input', ()=>{
     popupCart={ ...popupCart, customer_phone:phoneInput.value };
     savePopupCart(popupSession.public_code, popupCart);
     popupRefreshSubmitState();
   });
   addField('popupCustomerPhone','電話',phoneInput,true);
+  const phoneHelp=popupEl('p','popup-order-field-help','台灣手機號碼，09 開頭共 10 碼');
+  phoneHelp.id='popupPhoneHelp';
+  section.appendChild(phoneHelp);
 
   const noteInput=popupEl('textarea','popup-order-input popup-order-textarea');
   noteInput.id='popupCustomerNote';
@@ -2772,17 +3125,93 @@ function renderPopupCheckoutSection(canOrder, paymentGroupEl){
     section.appendChild(payField);
   }
 
+  const detailsHint=popupEl('p','popup-order-hint');
+  detailsHint.id='popupDetailsHint';
+  detailsHint.setAttribute('aria-live','polite');
+  section.appendChild(detailsHint);
+
+  const nav=popupEl('div','popup-order-step-nav');
+  const back=popupEl('button','popup-order-btn','返回選購');
+  back.type='button'; back.id='popupBackToSelectBtn';
+  back.setAttribute('data-variant','secondary');
+  back.addEventListener('click', ()=>{ popupGoToStep('select'); });
+  nav.appendChild(back);
+  const next=popupEl('button','popup-order-btn','下一步：確認訂單');
+  next.type='button'; next.id='popupGoConfirmBtn';
+  next.addEventListener('click', ()=>{ if(popupValidateCheckout().ok) popupGoToStep('confirm'); });
+  nav.appendChild(next);
+  section.appendChild(nav);
+  popupRefreshDetailsNav(canOrder, next, detailsHint);
+  return section;
+}
+
+function popupRefreshDetailsNav(canOrder, nextBtn, hintEl){
+  const btn=nextBtn || document.getElementById('popupGoConfirmBtn');
+  const hint=hintEl || document.getElementById('popupDetailsHint');
+  const validation=popupValidateCheckout();
+  if(btn) btn.disabled=!canOrder || !validation.ok || _popupCheckoutInFlight;
+  if(hint) hint.textContent=popupCheckoutHintText(canOrder, validation);
+}
+
+// R49 步驟三：送出前完整顯示訂單內容；只有這一步可以送出（#popupCheckoutSubmitBtn）。
+function renderPopupConfirmSection(canOrder, totals){
+  const section=popupEl('section','popup-order-card popup-order-confirm');
+  section.setAttribute('aria-label','確認訂單');
+  section.appendChild(popupBuildStepHeading('confirm','確認訂單'));
+
+  const list=popupEl('ul','popup-order-cart-lines popup-order-confirm-lines');
+  totals.lines.forEach((ln)=>{
+    const li=popupEl('li','popup-order-cart-line popup-order-confirm-line');
+    if(ln.name!=null){
+      const left=popupEl('span','popup-order-cart-line-name',`${ln.name} x${ln.qty}`);
+      li.appendChild(left);
+      li.appendChild(popupEl('span','popup-order-confirm-unit',`單價 ${popupFormatMoney(ln.price)} × ${ln.qty}`));
+      li.appendChild(popupEl('span','popup-order-cart-line-amount',popupFormatMoney(ln.subtotal)));
+    }else{
+      li.appendChild(popupEl('span','popup-order-cart-line-name',`商品 #${ln.product_id} x${ln.qty}（已從目前場次移除，送出前會自動移除）`));
+    }
+    list.appendChild(li);
+  });
+  section.appendChild(list);
+  const countP=popupEl('p','popup-order-confirm-count',`商品總件數：${totals.count} 件`);
+  section.appendChild(countP);
+  const totalP=popupEl('p','popup-order-subtotal');
+  totalP.setAttribute('data-testid','popup-checkout-total');
+  totalP.appendChild(popupEl('span','popup-order-subtotal-label','應付總額：'));
+  totalP.appendChild(popupEl('span','popup-order-subtotal-value',popupFormatMoney(totals.amount)));
+  section.appendChild(totalP);
+
+  const info=popupEl('div','popup-order-readonly');
+  info.appendChild(popupEl('p','popup-order-readonly-title','取貨與顧客資料'));
+  const addRow=popupBuildPickupRows(info, { withNames:true });
+  addRow('姓名', (popupCart.customer_name||'').trim());
+  addRow('電話', popupCart.customer_phone||'');
+  addRow('付款方式', popupCart.payment_method ? popupFormatPaymentLabel(popupCart.payment_method) : '');
+  addRow('備註', (popupCart.note||'').trim() || '（無）');
+  section.appendChild(info);
+  section.appendChild(popupEl('p','popup-order-confirm-note','送出後金額以店家系統依商品與數量重新計算為準。'));
+
   const errorRegion=popupEl('p','popup-order-error');
   errorRegion.id='popupCheckoutErrorRegion';
   errorRegion.setAttribute('aria-live','assertive');
   errorRegion.textContent=_popupCheckoutError||'';
   section.appendChild(errorRegion);
 
+  const nav=popupEl('div','popup-order-step-nav');
+  const back=popupEl('button','popup-order-btn','返回修改');
+  back.type='button'; back.id='popupBackToDetailsBtn';
+  back.setAttribute('data-variant','secondary');
+  back.disabled=_popupCheckoutInFlight;
+  back.addEventListener('click', ()=>{ popupGoToStep('details'); });
+  nav.appendChild(back);
+  section.appendChild(nav);
+
   const submitBtn=popupEl('button','popup-order-submit');
   submitBtn.type='button';
   submitBtn.id='popupCheckoutSubmitBtn';
-  submitBtn.textContent=_popupCheckoutInFlight ? '送出中…' : '送出訂單';
+  submitBtn.textContent=_popupCheckoutInFlight ? '送出中…' : '確認送出';
   const validation=popupValidateCheckout();
+  const cartEmpty=(popupCart.items||[]).filter((it)=>it.qty>0).length===0;
   submitBtn.disabled=!canOrder || cartEmpty || !validation.ok || _popupCheckoutInFlight;
   submitBtn.setAttribute('aria-label','送出快閃取貨訂單');
   submitBtn.setAttribute('aria-describedby','popupCheckoutHint');
@@ -2793,7 +3222,6 @@ function renderPopupCheckoutSection(canOrder, paymentGroupEl){
   hint.id='popupCheckoutHint';
   hint.setAttribute('aria-live','polite');
   section.appendChild(hint);
-
   return section;
 }
 
@@ -2819,7 +3247,9 @@ function popupValidateCheckout(){
   const paymentMethod=popupCart.payment_method||'';
   // 規格三：付款方式必須存在於「這次 fresh」的 popupPaymentMethods，且絕不
   // 接受內部代碼 card 或 linepay（即使被竄改進 popupCart 裡）。
-  if(!paymentMethod || paymentMethod==='card' || paymentMethod==='linepay' || !(popupPaymentMethods||[]).includes(paymentMethod)){
+  // R50：只有店家已啟用快閃付款設定（server 回傳 popup_payment）時，線上付款代碼才可能出現在 fresh 清單；未設定時 linepay 一律拒絕（R48 契約不變）。
+  const onlineAllowed=popupPaymentConfigured();
+  if(!paymentMethod || paymentMethod==='card' || (paymentMethod==='linepay' && !onlineAllowed) || !(popupPaymentMethods||[]).includes(paymentMethod)){
     return { ok:false, reason:'bad_payment_method' };
   }
   return { ok:true };
@@ -2830,8 +3260,8 @@ let _popupCheckoutError=null;
 let _popupCheckoutGeneration=0; // 跟 popupLoadGeneration 分開，避免 refresh 打斷有效送單或舊送單污染新 session
 
 // popup 專用送單 fetch：一樣不經過會附加 LINE_STORE_ID 的 apiFetch()。
-function popupApiPost(url, body){
-  return fetch(url, { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body) });
+function popupApiPost(url, body, extraHeaders){
+  return fetch(url, { method:'POST', headers:{ 'Content-Type':'application/json', ...(extraHeaders||{}) }, body: JSON.stringify(body) });
 }
 
 // 規格六：只允許這些後端 error code 對應到明確、安全的前端文案；任何未
@@ -2878,7 +3308,9 @@ async function submitPopupCheckout(){
       items,
     };
     if(popupCart.note && popupCart.note.trim()) payload.note=popupCart.note.trim();
-    const res=await popupApiPost('/api/line-orders/popup-checkout', payload);
+    // R50：已啟用快閃付款設定時帶 Idempotency-Key（同一次結帳的重送只會建立一筆訂單、一筆名額保留）。
+    if(popupPaymentConfigured() && !_popupIdemKey) _popupIdemKey=popupNewIdemKey();
+    const res=await popupApiPost('/api/line-orders/popup-checkout', payload, popupPaymentConfigured() ? { 'Idempotency-Key':_popupIdemKey } : undefined);
     const json=await res.json().catch(()=>({}));
     // 規格五：checkout generation 跟 refresh(load) generation 分開比對——
     // 如果使用者在送單期間切換到別的 session，這裡的 myCheckoutGen 仍然是
@@ -2886,7 +3318,17 @@ async function submitPopupCheckout(){
     // popupSession.public_code 不吻合時，這個 response 就不該再套用到畫面。
     if(myCheckoutGen!==_popupCheckoutGeneration || !popupSession || popupSession.public_code!==sessionCodeAtSubmit) return;
     if(res.status===201 && json.success && json.data && json.data.order_number && json.data.popup_session_public_code){
-      renderPopupCheckoutSuccess(json.data);
+      popupCheckoutStep='select';
+      popupCartDrawerOpen=false;
+      _popupStepHistoryArmed=false;
+      _popupIdemKey=null;
+      if(json.data.payment && json.data.payment.required===true){
+        popupRememberPayToken(json.data.payment.ref, json.data.payment.token);
+        renderPopupPaymentScreen(json.data, json.data.payment);
+      }else{
+        renderPopupCheckoutSuccess(json.data);
+      }
+      try{ const h=document.getElementById('popupStepHeading-done'); if(h) h.focus(); }catch(e){}
       // 規格五：只清除「這個 session」的 popup cart key；不動一般 cart，
       // 也不動其他 popup session 的 cart。成功後決定：連同姓名/電話/付款
       // 草稿一起清空（訂單已完成，不留下可能被誤重複送出的殘留草稿）。
@@ -2912,13 +3354,26 @@ async function submitPopupCheckout(){
   }
 }
 
+// R49 付款狀態顧客文字（內部狀態碼不輸出；未知值一律安全 fallback）。
+function popupPaymentStatusLabel(method, status){
+  if(status==='paid') return '已付款';
+  if(status==='pending'){
+    if(method==='cash') return '取貨時付款';
+    return '待付款／待店家確認';
+  }
+  if(status==='failed') return '付款未完成';
+  if(status==='cancelled') return '已取消';
+  return '付款狀態確認中';
+}
+
 // 規格五：成功畫面完全使用後端 response snapshot（order_number/日期時間/
-// 地點/items/total），不使用送出當時的 request payload 或 localStorage
-// 裡的任何值——即使兩者理論上該一致，畫面上顯示的權威來源只能是 response。
+// 地點/items/total/顧客資料/付款方式），不使用送出當時的 request payload 或
+// localStorage 裡的任何值——畫面上顯示的權威來源只能是 response。
 function renderPopupCheckoutSuccess(data){
   const root=popupRootEl();
   root.textContent='';
   popupSetView(root,'success');
+  root.setAttribute('data-popup-step','done');
   const wrap=popupEl('div','popup-order-shell');
   wrap.setAttribute('aria-live','polite');
   wrap.appendChild(popupBuildHeader('訂購成功', null));
@@ -2928,24 +3383,179 @@ function renderPopupCheckoutSuccess(data){
   const mark=popupEl('div','popup-order-success-mark','✓');
   mark.setAttribute('aria-hidden','true');
   card.appendChild(mark);
+  const title=popupEl('h3','popup-order-step-heading','訂單完成');
+  title.id='popupStepHeading-done';
+  title.tabIndex=-1;
+  card.appendChild(title);
   const addRow=(text)=>{ card.appendChild(popupEl('p','popup-order-info-row popup-order-success-row',text)); };
   addRow(`訂單編號：${data.order_number}`);
+  if(data.popup_campaign_name || data.popup_session_name){
+    addRow(`活動場次：${[data.popup_campaign_name, data.popup_session_name].filter(Boolean).join(' － ')}`);
+  }
   addRow(`取貨時間：${data.pickup_date||''} ${data.pickup_start_time||''}-${data.pickup_end_time||''}`);
   if(data.place_name || data.address){
     addRow(`地點：${data.place_name||''} ${data.address||''} ${data.address_note||''}`.trim());
   }
   const itemsList=popupEl('ul','popup-order-success-lines');
+  let totalQty=0;
   (Array.isArray(data.items) ? data.items : []).forEach((it)=>{
-    itemsList.appendChild(popupEl('li','popup-order-cart-line',`商品 #${it.product_id} x${it.qty}`));
+    const qty=Number(it && it.qty) || 0;
+    totalQty+=qty;
+    const li=popupEl('li','popup-order-cart-line');
+    const hasName=it && typeof it.name==='string' && it.name;
+    const hasPrice=it && Number.isFinite(Number(it.price)) && it.price!==null && it.price!==undefined;
+    li.appendChild(popupEl('span','popup-order-cart-line-name', hasName ? `${it.name} x${qty}` : `商品 #${it && it.product_id} x${qty}`));
+    if(hasPrice){
+      li.appendChild(popupEl('span','popup-order-confirm-unit',`單價 ${popupFormatMoney(it.price)} × ${qty}`));
+      li.appendChild(popupEl('span','popup-order-cart-line-amount',popupFormatMoney(Number(it.price)*qty)));
+    }
+    itemsList.appendChild(li);
   });
   card.appendChild(itemsList);
+  const qtyShown=Number.isInteger(data.total_qty) ? data.total_qty : totalQty;
+  card.appendChild(popupEl('p','popup-order-confirm-count',`商品總件數：${qtyShown} 件`));
   const totalP=popupEl('p','popup-order-subtotal');
   totalP.appendChild(popupEl('span','popup-order-subtotal-label','總計：'));
   totalP.appendChild(popupEl('span','popup-order-subtotal-value',`NT$${data.total}`));
   card.appendChild(totalP);
+  if(data.customer_name || data.customer_phone){
+    addRow(`取貨人：${data.customer_name||''}${data.customer_phone ? '（'+data.customer_phone+'）' : ''}`);
+  }
+  if(data.payment_method){
+    addRow(`付款方式：${popupFormatPaymentLabel(data.payment_method)}`);
+    addRow(`付款狀態：${popupPaymentStatusLabel(data.payment_method, data.payment_status)}`);
+  }
+  if(typeof data.note==='string' && data.note.trim()) addRow(`備註：${data.note.trim()}`);
+  const keep=popupEl('p','popup-order-notice popup-order-save-reminder','請截圖或記下訂單編號，取貨時出示給店家核對。重新整理此頁不會重複下單。');
+  keep.setAttribute('data-tone','info');
+  card.appendChild(keep);
   body.appendChild(card);
   wrap.appendChild(body);
   root.appendChild(wrap);
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// R50：快閃線上付款（顧客端）。付款狀態一律以 server 回傳為準（/popup-payment/
+// status），畫面只顯示中文狀態文字，不顯示內部狀態碼；付款憑證 token 只存在
+// sessionStorage（同一分頁），不寫入一般 cart storage。
+// ══════════════════════════════════════════════════════════════════════
+let _popupIdemKey=null;
+let _popupPayReturnHandled=false;
+const _popupPayReturnRef=(function(){ try{ const v=new URLSearchParams(window.location.search||'').get('popup_pay_ref'); return (v && /^[0-9a-f-]{36}$/.test(v)) ? v : null; }catch(e){ return null; } })();
+function popupPaymentConfigured(){
+  return !!(popupSession && popupSession.popup_payment && popupSession.popup_payment.configured===true);
+}
+function popupNewIdemKey(){
+  try{ const a=new Uint8Array(16); window.crypto.getRandomValues(a); return 'pk'+[...a].map((b)=>b.toString(16).padStart(2,'0')).join(''); }
+  catch(e){ return 'pk'+Date.now().toString(16)+Math.random().toString(16).slice(2,14); }
+}
+function popupRememberPayToken(ref, token){
+  try{ if(/^[0-9a-f-]{36}$/.test(ref) && /^[0-9a-f]{48}$/.test(token)) window.sessionStorage.setItem('line_popup_pay_v1_'+ref, token); }catch(e){}
+}
+function popupRecallPayToken(ref){
+  try{ const t=window.sessionStorage.getItem('line_popup_pay_v1_'+ref); return (t && /^[0-9a-f]{48}$/.test(t)) ? t : null; }catch(e){ return null; }
+}
+function popupSafeLinePayUrl(u){
+  try{ const x=new URL(String(u)); return (x.protocol==='https:' && /(^|\.)line\.me$/.test(x.hostname)) ? x.href : null; }catch(e){ return null; }
+}
+// 線上付款待付款／結果畫面（資料來源：checkout response 或 server status）。
+function renderPopupPaymentScreen(order, pay, notice){
+  const root=popupRootEl();
+  root.textContent='';
+  popupSetView(root,'payment');
+  root.setAttribute('data-popup-step','done');
+  const wrap=popupEl('div','popup-order-shell');
+  wrap.setAttribute('aria-live','polite');
+  const state=pay && typeof pay.state==='string' ? pay.state : 'unknown';
+  wrap.appendChild(popupBuildHeader(state==='paid' ? '付款完成' : '線上付款', null));
+  const body=popupEl('div','popup-order-body');
+  const card=popupEl('section','popup-order-card popup-order-success');
+  card.setAttribute('aria-label','付款資訊');
+  const title=popupEl('h3','popup-order-step-heading', state==='paid' ? '訂單完成' : '付款');
+  title.id='popupStepHeading-done'; title.tabIndex=-1;
+  card.appendChild(title);
+  const row=(t)=>{ card.appendChild(popupEl('p','popup-order-info-row popup-order-success-row',t)); };
+  if(order && order.order_number) row(`訂單編號：${order.order_number}`);
+  row(`付款方式：${popupFormatPaymentLabel(pay && pay.method ? pay.method : (order && order.payment_method))}`);
+  const st=popupEl('p','popup-order-info-row popup-order-success-row',`付款狀態：${(pay && pay.state_label) || '付款狀態確認中'}`);
+  st.setAttribute('data-testid','popup-payment-state');
+  card.appendChild(st);
+  const total=order && (order.total!=null ? order.total : (order.order && order.order.total));
+  if(total!=null) row(`應付總額：NT$${total}`);
+  const o=(order && order.order) ? order.order : order;
+  if(o && (o.pickup_date || o.place_name)) row(`取貨：${o.pickup_date||''} ${o.pickup_start_time||''}-${o.pickup_end_time||''} ${o.place_name||''}`.trim());
+  if(pay && pay.expires_at && state==='pending_payment'){
+    const ex=new Date(pay.expires_at);
+    if(!isNaN(ex.getTime())) row(`請於 ${String(ex.getHours()).padStart(2,'0')}:${String(ex.getMinutes()).padStart(2,'0')} 前完成付款，逾時將自動取消並釋放名額。`);
+  }
+  if(notice){ const n=popupEl('p','popup-order-notice',notice); n.setAttribute('data-tone','info'); card.appendChild(n); }
+  const err=popupEl('p','popup-order-error'); err.id='popupPaymentErrorRegion'; err.setAttribute('aria-live','assertive'); card.appendChild(err);
+  const ref=pay && pay.ref;
+  const nav=popupEl('div','popup-order-step-nav');
+  if(state==='pending_payment' && (pay.can_pay!==false)){
+    const go=popupEl('button','popup-order-btn','前往 LINE Pay 付款');
+    go.type='button'; go.id='popupPayGoBtn';
+    go.addEventListener('click', ()=>{ popupStartLinePay(ref, go, err); });
+    nav.appendChild(go);
+  }
+  if(pay && pay.can_switch_to_cash===true){
+    const cash=popupEl('button','popup-order-btn','改用現金（取貨時付款）');
+    cash.type='button'; cash.id='popupPaySwitchCashBtn'; cash.setAttribute('data-variant','secondary');
+    cash.addEventListener('click', ()=>{ popupSwitchToCash(ref, cash, err); });
+    nav.appendChild(cash);
+  }
+  if(ref){
+    const re=popupEl('button','popup-order-btn','重新查詢付款狀態');
+    re.type='button'; re.id='popupPayRefreshBtn'; re.setAttribute('data-variant','secondary');
+    re.addEventListener('click', ()=>{ popupHandlePaymentReturn(ref); });
+    nav.appendChild(re);
+  }
+  card.appendChild(nav);
+  const keep=popupEl('p','popup-order-notice popup-order-save-reminder','請記下訂單編號；重新整理此頁不會重複下單或重複扣款。');
+  keep.setAttribute('data-tone','info');
+  card.appendChild(keep);
+  body.appendChild(card);
+  wrap.appendChild(body);
+  root.appendChild(wrap);
+}
+async function popupStartLinePay(ref, btn, errEl){
+  const token=popupRecallPayToken(ref);
+  if(!token){ errEl.textContent='此瀏覽器找不到付款憑證，請洽店家確認訂單。'; return; }
+  btn.disabled=true;
+  try{
+    const res=await popupApiPost('/api/line-orders/popup-payment/linepay-request', { token });
+    const json=await res.json().catch(()=>({}));
+    const url=json && json.success && json.data ? popupSafeLinePayUrl(json.data.payment_url) : null;
+    if(url){ window.location.assign(url); return; }
+    errEl.textContent=(json && json.error==='POPUP_PAYMENT_NOT_PAYABLE') ? '此付款已結束或逾時，請重新查詢付款狀態。' : '目前無法前往付款，請稍後再試。';
+  }catch(e){ errEl.textContent='網路異常，請稍後再試一次。'; }
+  finally{ btn.disabled=false; }
+}
+async function popupSwitchToCash(ref, btn, errEl){
+  const token=popupRecallPayToken(ref);
+  if(!token){ errEl.textContent='此瀏覽器找不到付款憑證，請洽店家確認訂單。'; return; }
+  btn.disabled=true;
+  try{
+    const res=await popupApiPost('/api/line-orders/popup-payment/switch-to-cash', { token });
+    const json=await res.json().catch(()=>({}));
+    if(json && json.success && json.data){ renderPopupPaymentScreen(json.data, json.data, '已改為取貨時以現金付款。'); return; }
+    errEl.textContent='無法改用現金付款。';
+  }catch(e){ errEl.textContent='網路異常，請稍後再試一次。'; }
+  finally{ btn.disabled=false; }
+}
+async function popupHandlePaymentReturn(ref){
+  const token=popupRecallPayToken(ref);
+  if(!token){ renderPopupPaymentScreen(null, { state:'unknown', state_label:'付款狀態確認中' }, '此瀏覽器找不到付款憑證，請以訂單編號洽店家確認。'); return; }
+  try{
+    const res=await popupApiFetch('/api/line-orders/popup-payment/status?token='+encodeURIComponent(token));
+    const json=await res.json().catch(()=>({}));
+    if(!json || !json.success || !json.data){ renderPopupPaymentScreen(null, { state:'unknown', state_label:'付款狀態確認中', ref }, '暫時無法取得付款狀態，請稍後再查詢。'); return; }
+    const d=json.data;
+    const notices={ paid:'付款成功，訂單已成立。', payment_failed:'付款未完成。', payment_expired:'付款已逾時，訂單已取消並釋放名額。', cancelled:'訂單已取消。', refund_pending:'退款處理中。', refunded:'已退款。' };
+    renderPopupPaymentScreen(d, d, notices[d.state]||null);
+  }catch(e){
+    renderPopupPaymentScreen(null, { state:'unknown', state_label:'付款狀態確認中', ref }, '網路異常，請稍後再查詢付款狀態。');
+  }
 }
 
 function renderPopupEntryPicker(kindLabel, sessions){
@@ -3001,7 +3611,9 @@ async function loadPopupDirectSession(sessionPublicCode){
     popupSession=json.data;
     popupCampaign=json.data.campaign||popupCampaign;
     popupProducts=Array.isArray(json.data.products) ? json.data.products : [];
-    popupPaymentMethods=Array.isArray(json.data.payment_methods) ? json.data.payment_methods : [];
+    popupPaymentMethods=(json.data.popup_payment && json.data.popup_payment.configured===true && Array.isArray(json.data.popup_payment.methods))
+      ? json.data.popup_payment.methods.map((m)=>m.code).filter((c)=>typeof c==='string')
+      : (Array.isArray(json.data.payment_methods) ? json.data.payment_methods : []);
     const loaded=loadPopupCart(popupSession.public_code);
     const { cart, notices }=reconcilePopupCartWithFreshProducts(loaded, popupProducts);
     popupCart=cart;
@@ -3009,6 +3621,7 @@ async function loadPopupDirectSession(sessionPublicCode){
     popupError=null;
     renderPopupSessionScreen();
     registerPopupRefreshListeners();
+    if(_popupPayReturnRef && !_popupPayReturnHandled){ _popupPayReturnHandled=true; popupHandlePaymentReturn(_popupPayReturnRef); }
     if(notices.length){
       // 規格九：停售移除／qty 縮減必須提示，這裡用最小可行方式接到既有
       // toast()（畫面用途，不影響已經寫回 storage 的購物車內容）。

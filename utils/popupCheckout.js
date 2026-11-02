@@ -39,6 +39,25 @@ function resolvePopupProductSSOT(p) {
   return resolveLineProductPricing(p);
 }
 
+// R49：公開商品的圖片／分類／說明（唯讀；與一般 LINE 點餐同一份 products
+// 權威欄位：圖片 line_image_url 優先、否則 image；分類 line_category 優先、
+// 否則 category；說明 line_description）。圖片只接受同源路徑（例如
+// /uploads/xxx.png），外部 host、data:、javascript:、相對路徑、含 .. 一律
+// 回 null，前端顯示文字 fallback——不新增第二份商品圖片資料。
+const POPUP_SAFE_IMAGE_RE = /^\/(?!\/)[A-Za-z0-9._~\-\/]{1,300}\.(?:png|jpe?g|webp|gif)$/i;
+function sanitizePopupImageUrl(raw) {
+  if (typeof raw !== 'string') return null;
+  const v = raw.trim();
+  if (!POPUP_SAFE_IMAGE_RE.test(v) || v.indexOf('..') !== -1) return null;
+  return v;
+}
+function popupPublicProductPresentation(r) {
+  const img = (typeof r.line_image_url === 'string' && r.line_image_url.trim()) ? r.line_image_url : r.image;
+  const cat = (typeof r.line_category === 'string' && r.line_category.trim()) ? r.line_category.trim() : (typeof r.category === 'string' ? r.category.trim() : '');
+  const desc = typeof r.line_description === 'string' ? r.line_description.trim().slice(0, 500) : '';
+  return { image_url: sanitizePopupImageUrl(img), category: cat ? cat.slice(0, 50) : null, description: desc || null };
+}
+
 function getActiveAllocatedQty(db, storeId, sessionId, productId) {
   const row = db.get(
     `SELECT COALESCE(SUM(qty),0) as q FROM popup_order_allocations
@@ -51,7 +70,8 @@ function getActiveAllocatedQty(db, storeId, sessionId, productId) {
 function serializeSelectedScopeProducts(db, storeId, session) {
   const rows = db.all(
     `SELECT sp.product_id, sp.quota_qty, p.name, p.price, p.takeaway_price, p.line_name, p.line_price,
-            p.enabled, p.show_on_line, p.sale_status, p.line_sold_out, p.line_takeout_enabled
+            p.enabled, p.show_on_line, p.sale_status, p.line_sold_out, p.line_takeout_enabled,
+            p.image, p.line_image_url, p.category, p.line_category, p.line_description
      FROM popup_session_products sp
      JOIN products p ON p.id = sp.product_id AND p.store_id = sp.store_id
      WHERE sp.session_id=? AND sp.store_id=? AND sp.enabled=1
@@ -71,6 +91,7 @@ function serializeSelectedScopeProducts(db, storeId, session) {
         quota_qty: r.quota_qty,
         remaining_qty: remaining,
         sold_out: r.quota_qty > 0 && remaining === 0,
+        ...popupPublicProductPresentation(r),
       };
     })
     .filter(Boolean);
@@ -90,7 +111,8 @@ function serializeSelectedScopeProducts(db, storeId, session) {
 function serializeAllTakeoutScopeProducts(db, storeId) {
   const rows = db.all(
     `SELECT id as product_id, name, price, takeaway_price, line_name, line_price,
-            enabled, show_on_line, sale_status, line_sold_out, line_takeout_enabled
+            enabled, show_on_line, sale_status, line_sold_out, line_takeout_enabled,
+            image, line_image_url, category, line_category, line_description
      FROM products
      WHERE store_id=? AND enabled=1 AND show_on_line=1
      ORDER BY sort_order ASC, id ASC`,
@@ -107,6 +129,7 @@ function serializeAllTakeoutScopeProducts(db, storeId) {
         quota_qty: null,
         remaining_qty: null,
         sold_out: false,
+        ...popupPublicProductPresentation(r),
       };
     })
     .filter(Boolean);
@@ -218,6 +241,20 @@ function serializePublicSession(db, storeId, row, campaignStatus, now) {
     payment_methods: resolvePublicPopupPaymentMethods(db, storeId),
     effective_state: stateResult.state,
     can_order: stateResult.can_order,
+    ...popupPaymentPublicFields(db, storeId, row),
+  };
+}
+
+// R50：只有店家已儲存快閃付款設定時才附加 popup_payment（快閃獨立規則），並把
+// 既有 payment_methods 改為快閃實際可用的非線上付款代碼；未設定時不附加任何欄位，
+// 公開回應與 R48/R49 逐欄相同。
+function popupPaymentPublicFields(db, storeId, row) {
+  const ppay = require('./popupPayment');
+  if (!ppay.isPopupPaymentConfigured(db, storeId)) return {};
+  const info = ppay.publicPaymentInfo(db, storeId, row.campaign_id);
+  return {
+    payment_methods: info.methods.filter((m) => !m.online).map((m) => m.code),
+    popup_payment: info,
   };
 }
 
@@ -301,7 +338,7 @@ const PAYMENT_METHODS_TABLE_INTERNAL_ONLY_CODES = new Set(Object.values(EXTERNAL
 // 結帳權威驗證（規格十二）：前端送出的活動/場次名稱、地址、日期、時間、
 // 剩餘份數、場次狀態一律不信任；只認 store_id + popup_session_public_code。
 // ══════════════════════════════════════════════════════════════════════
-function validatePopupCheckoutAuthority(db, { storeId, sessionPublicCode, items, paymentMethodCode, now }) {
+function validatePopupCheckoutAuthority(db, { storeId, sessionPublicCode, items, paymentMethodCode, now, paymentResolver }) {
   // Phase 3A.2 修正：stores.active／licenses.active／
   // licenses.features.line_order 全部在這裡（transaction 內、唯一權威呼叫
   // 點）用 fresh 查詢重新驗證一次，不依賴呼叫端在 BEGIN 之前用
@@ -460,6 +497,16 @@ function validatePopupCheckoutAuthority(db, { storeId, sessionPublicCode, items,
   //   - 只有「完全沒有送這個欄位」（undefined）才會被正規化成預設值 'cash'。
   //   - null、空字串、陣列、物件、數字等「有送但送了不合法的東西」一律視為
   //     嚴格型別錯誤，直接 400，不會被寬鬆地當成「沒送」處理。
+  // R50：店家已儲存「快閃付款方式管理」設定時，付款方式改由快閃自己的規則
+  // （utils/popupPayment.js makeCheckoutPaymentResolver）權威判斷，不再讀取一般
+  // LINE 外帶付款設定；未設定時（legacy）下方既有判斷逐字不變。
+  if (typeof paymentResolver === 'function') {
+    const subtotalR = priced.reduce((sum, it) => sum + it.price * it.qty, 0);
+    if (!Number.isFinite(subtotalR) || !Number.isSafeInteger(subtotalR) || subtotalR < 0) {
+      pp.fail('POPUP_VALIDATION_ERROR', '訂單總金額超出安全範圍，請減少購買數量或分開下單');
+    }
+    return { session, campaign, items: priced, subtotal: subtotalR, paymentMethodCode: paymentResolver(paymentMethodCode, { session, campaign }) };
+  }
   const paymentMethodCodeOmitted = paymentMethodCode === undefined;
   const normalizedPaymentCode = paymentMethodCodeOmitted ? 'cash' : paymentMethodCode;
   if (typeof normalizedPaymentCode !== 'string' || !normalizedPaymentCode.trim()) {
@@ -670,4 +717,5 @@ module.exports = {
   allocatePopupOrderItemsInTransaction,
   releasePopupOrderAllocations,
   reconcilePopupCartItemsAgainstFreshAuthority,
+  sanitizePopupImageUrl,
 };

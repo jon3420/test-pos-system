@@ -747,6 +747,7 @@
       <button class="order-tab-btn active" id="ppa-tabbtn-campaigns" onclick="ppaSwitchTab('campaigns')">🎪 活動</button>
       <button class="order-tab-btn" id="ppa-tabbtn-locations" onclick="ppaSwitchTab('locations')">📍 取貨地點</button>
       <button class="order-tab-btn" id="ppa-tabbtn-sessions" onclick="ppaSwitchTab('sessions')">🗓️ 場次</button>
+      <button class="order-tab-btn" id="ppa-tabbtn-payments" onclick="ppaSwitchTab('payments')">💳 付款方式管理</button>
       <button class="order-tab-btn" id="ppa-tabbtn-links" onclick="ppaSwitchTab('links')">🔗 公開連結／測試</button>
     </div>
 
@@ -801,6 +802,42 @@
       </table>
     </div>
 
+    <!-- ── 💳 快閃付款方式管理（R50：快閃獨立通路；不影響一般 LINE 外帶／外送／冷藏宅配／POS） ── -->
+    <div id="ppa-panel-payments" class="ppa-panel" style="display:none">
+      <h3 style="font-size:16px;margin:0 0 6px">💳 快閃付款方式管理</h3>
+      <div style="font-size:13px;color:var(--text-secondary,#94a3b8);margin-bottom:12px">
+        這裡只設定「快閃取餐」的付款方式，與一般 LINE 外帶／外送／冷藏宅配／POS 付款設定完全分開。LINE Pay 等金流帳號沿用「金流設定」既有設定，這裡不保存任何金鑰。
+      </div>
+      <div id="ppa-pay-status" role="status" aria-live="polite" style="font-size:13px;margin-bottom:12px;padding:10px 12px;border-radius:8px;border:1px solid var(--border,#334155)">載入中…</div>
+      <table class="data-table">
+        <thead><tr><th>付款方式</th><th>啟用</th><th>可用性</th><th>顧客看到的說明</th></tr></thead>
+        <tbody id="ppa-pay-methods-tbody"><tr><td colspan="4" style="text-align:center;padding:24px;color:var(--text-muted,#64748b)">載入中…</td></tr></tbody>
+      </table>
+      <fieldset style="margin-top:16px;border:1px solid var(--border,#334155);border-radius:8px;padding:12px 14px">
+        <legend style="padding:0 6px;font-size:14px">付款規則</legend>
+        <label style="display:block;margin:6px 0"><input type="checkbox" id="ppa-pay-customer-choice"> 顧客可自行選擇付款方式</label>
+        <label style="display:block;margin:6px 0"><input type="checkbox" id="ppa-pay-online-only"> 僅限線上付款</label>
+        <label style="display:block;margin:6px 0">預設付款方式
+          <select id="ppa-pay-default" style="margin-left:8px;padding:6px 8px;border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9);border:1px solid var(--border,#334155)"></select>
+        </label>
+        <label style="display:block;margin:6px 0">線上付款逾時（分鐘）
+          <input type="number" id="ppa-pay-timeout" min="5" max="60" step="1" style="width:90px;margin-left:8px;padding:6px 8px;border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9);border:1px solid var(--border,#334155)">
+        </label>
+        <label style="display:block;margin:6px 0"><input type="checkbox" id="ppa-pay-fallback"> 線上付款失敗時允許顧客改用現金</label>
+        <label style="display:block;margin:6px 0"><input type="checkbox" id="ppa-pay-expire-release"> 付款逾時自動取消訂單並釋放名額</label>
+      </fieldset>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:12px">
+        <button class="btn-primary" id="ppa-pay-save-btn" onclick="ppaSavePayments()">儲存快閃付款設定</button>
+        <span id="ppa-pay-msg" role="status" aria-live="polite" style="font-size:13px"></span>
+      </div>
+      <h4 style="font-size:14px;margin:20px 0 8px">活動付款設定</h4>
+      <div style="font-size:12px;color:var(--text-secondary,#94a3b8);margin-bottom:8px">每個活動可「沿用快閃預設」或在活動編輯視窗中「自訂付款方式」。</div>
+      <table class="data-table">
+        <thead><tr><th>活動</th><th>狀態</th><th>付款設定</th><th>實際可用付款方式</th></tr></thead>
+        <tbody id="ppa-pay-campaigns-tbody"><tr><td colspan="4" style="text-align:center;padding:24px;color:var(--text-muted,#64748b)">載入中…</td></tr></tbody>
+      </table>
+    </div>
+
     <!-- ── 公開連結／測試 ── -->
     <div id="ppa-panel-links" class="ppa-panel" style="display:none">
       <div style="font-size:13px;color:var(--text-secondary,#94a3b8);margin-bottom:12px">
@@ -838,6 +875,13 @@
         </select>
         <div id="ppa-campaign-draft-hint" style="display:none;margin-top:6px;font-size:12px;color:#ffd76a">草稿活動不會出現在顧客公開頁</div>
       </label>
+      <fieldset id="ppa-campaign-payfs" style="margin-bottom:12px;border:1px solid var(--border,#334155);border-radius:6px;padding:8px 12px">
+        <legend style="padding:0 6px;font-size:13px;color:var(--text-secondary,#94a3b8)">付款設定</legend>
+        <label style="display:block;margin:4px 0"><input type="radio" name="ppa-campaign-paymode" id="ppa-campaign-paymode-inherit" value="inherit" checked> 沿用快閃預設</label>
+        <label style="display:block;margin:4px 0"><input type="radio" name="ppa-campaign-paymode" id="ppa-campaign-paymode-custom" value="custom"> 自訂付款方式</label>
+        <div id="ppa-campaign-paymethods" style="display:none;margin:6px 0 0 22px"></div>
+        <div id="ppa-campaign-payhint" style="font-size:12px;color:var(--text-secondary,#94a3b8);margin-top:4px"></div>
+      </fieldset>
     </div>
     <div class="modal-footer" style="display:flex;gap:8px;justify-content:flex-end;padding:16px">
       <button class="btn-secondary" onclick="ppaCloseCampaignForm()">取消</button>

@@ -20,6 +20,7 @@ const { requireStaffJwt } = require('../middleware/storeGuard');
 const { requireFeature } = require('../middleware/featureGate');
 const pp = require('../utils/popupPickup');
 const { countActivePopupOrdersForSession } = require('../utils/popupCheckout');
+const ppay = require('../utils/popupPayment');
 
 router.use(requireStaffJwt);
 router.use(requireFeature('line_order'));
@@ -29,6 +30,9 @@ router.use(requireFeature('line_order'));
 // ══════════════════════════════════════════════════════════════════════
 const { isDurableError } = require('../utils/db');
 function sendError(res, err) {
+  if (err instanceof ppay.PopupPaymentError) {
+    return res.status(err.status).json({ success: false, error: err.code, message: err.message });
+  }
   if (err instanceof pp.PopupValidationError) {
     return res.status(err.status).json({ success: false, error: err.code, message: err.message, ...(err.extra || {}) });
   }
@@ -295,6 +299,11 @@ router.patch('/campaigns/:campaignId', (req, res) => {
     if (!pp.isOptionalString(next.image_url, 1000)) pp.fail('POPUP_VALIDATION_ERROR', 'image_url 長度超出限制');
     if (!pp.isNonNegativeInt(next.sort_order)) pp.fail('POPUP_VALIDATION_ERROR', 'sort_order 必須是大於等於 0 的整數');
     if (!pp.CAMPAIGN_STATUSES.includes(next.status)) pp.fail('POPUP_VALIDATION_ERROR', `status 必須是 ${pp.CAMPAIGN_STATUSES.join('/')} 其中之一`);
+    // R50：已啟用快閃付款設定的店家，沒有任何可用付款方式的活動不得發布。
+    if (next.status === 'published' && existing.status !== 'published' && ppay.isPopupPaymentConfigured(db, storeId)
+      && (ppay.effectiveCampaignMethods(db, storeId, existing.id) || []).length === 0) {
+      pp.fail('POPUP_PAYMENT_NO_USABLE_METHOD', '此活動目前沒有可用的付款方式，請先在「💳 付款方式管理」完成設定再發布', 409);
+    }
 
     db.runDurableTransaction(() => { db._db.run(
       `UPDATE popup_campaigns SET name=?, description=?, image_url=?, sort_order=?, status=?, updated_at=datetime('now','localtime')
@@ -320,6 +329,52 @@ router.delete('/campaigns/:campaignId', (req, res) => {
 
     db.runDurableTransaction(() => { db._db.run('DELETE FROM popup_campaigns WHERE id=? AND store_id=?', [existing.id, storeId]); }); // R44.2F.1
     res.json({ success: true });
+  } catch (e) { sendError(res, e); }
+});
+
+// ══════════════════════════════════════════════════════════════════════
+// R50：💳 快閃付款方式管理（快閃獨立通路設定；store_id 只來自 JWT）
+// 回應只含啟用狀態／可用性／原因／顧客說明，絕不含任何 provider credential。
+// ══════════════════════════════════════════════════════════════════════
+function paymentAdminView(db, storeId) {
+  const configured = ppay.isPopupPaymentConfigured(db, storeId);
+  const settings = ppay.loadPopupPaymentSettings(db, storeId) || ppay.defaultPopupPaymentSettings();
+  const campaigns = db.all('SELECT id, name, status FROM popup_campaigns WHERE store_id=? ORDER BY sort_order ASC, created_at DESC LIMIT 500', [storeId]).map((c) => {
+    const ov = ppay.getCampaignOverride(db, storeId, c.id);
+    return { id: c.id, name: c.name, status: c.status, mode: ov.mode, methods: ov.methods, effective: configured ? ppay.effectiveCampaignMethods(db, storeId, c.id) : null };
+  });
+  const { updated_by, ...pub } = settings;
+  return { configured, settings: pub, methods: ppay.describeMethods(db, storeId, settings), store_usable: configured ? ppay.storeUsableMethods(db, storeId, settings) : [],
+    limits: { timeout_min: ppay.TIMEOUT_MIN, timeout_max: ppay.TIMEOUT_MAX }, campaigns };
+}
+router.get('/payment-settings', (req, res) => {
+  try {
+    const db = getDb();
+    if (ppay.isPopupPaymentConfigured(db, req.storeId)) ppay.reconcileExpiredPopupPayments(db, req.storeId);
+    res.json({ success: true, data: paymentAdminView(db, req.storeId) });
+  } catch (e) { sendError(res, e); }
+});
+router.put('/payment-settings', (req, res) => {
+  try {
+    const db = getDb();
+    ppay.savePopupPaymentSettings(db, req.storeId, req.body || {}, req.auth && req.auth.role ? String(req.auth.role) : 'staff');
+    res.json({ success: true, data: paymentAdminView(db, req.storeId) });
+  } catch (e) { sendError(res, e); }
+});
+router.get('/campaigns/:campaignId/payment-settings', (req, res) => {
+  try {
+    const db = getDb();
+    const c = getOwnedCampaign(db, req.storeId, req.params.campaignId);
+    const configured = ppay.isPopupPaymentConfigured(db, req.storeId);
+    res.json({ success: true, data: { campaign_id: c.id, configured, ...ppay.getCampaignOverride(db, req.storeId, c.id), store_usable: configured ? ppay.storeUsableMethods(db, req.storeId) : [], effective: configured ? ppay.effectiveCampaignMethods(db, req.storeId, c.id) : null } });
+  } catch (e) { sendError(res, e); }
+});
+router.put('/campaigns/:campaignId/payment-settings', (req, res) => {
+  try {
+    const db = getDb();
+    const c = getOwnedCampaign(db, req.storeId, req.params.campaignId);
+    const ov = ppay.saveCampaignOverride(db, req.storeId, c.id, req.body || {});
+    res.json({ success: true, data: { campaign_id: c.id, configured: true, ...ov, store_usable: ppay.storeUsableMethods(db, req.storeId), effective: ppay.effectiveCampaignMethods(db, req.storeId, c.id) } });
   } catch (e) { sendError(res, e); }
 });
 

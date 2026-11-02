@@ -14742,12 +14742,13 @@ async function executeMigrationImport() {
   // ── Tab 切換 ─────────────────────────────────────────────────────────
   window.ppaSwitchTab = function ppaSwitchTab(tab) {
     PPA.tab = tab;
-    ['campaigns', 'locations', 'sessions', 'links'].forEach((t) => {
+    ['campaigns', 'locations', 'sessions', 'payments', 'links'].forEach((t) => {
       const panel = document.getElementById('ppa-panel-' + t);
       const btn = document.getElementById('ppa-tabbtn-' + t);
       if (panel) panel.style.display = (t === tab) ? '' : 'none';
       if (btn) btn.classList.toggle('active', t === tab);
     });
+    if (tab === 'payments') ppaLoadPayments();
     if (tab === 'campaigns') ppaLoadCampaigns();
     if (tab === 'locations') ppaLoadLocations();
     if (tab === 'sessions') { ppaEnsureCampaignFilterOptions(); ppaLoadSessions(); }
@@ -14903,7 +14904,171 @@ async function executeMigrationImport() {
     document.getElementById('ppa-campaign-name-err').style.display = 'none';
     ppaOnCampaignStatusHint();
     document.getElementById('ppa-campaign-status').onchange = ppaOnCampaignStatusHint;
+    ppaCampaignPayReset(c ? c.id : null);
     showModal18('ppa-modal-campaign');
+  };
+
+  // ── R50：活動付款設定（沿用快閃預設／自訂）────────────────────────────
+  // 只有使用者實際變更過（dirty）才會在活動儲存成功後另外 PUT，未變更時活動
+  // 儲存流程與 R49 完全相同（不多送任何寫入請求）。
+  PPA.campPay = { campaignId: null, dirty: false, usable: [], loaded: false, mode: 'inherit', methods: [] };
+  const PPA_PAY_LABELS = { cash: '現金', linepay: 'LINE Pay', transfer: '轉帳', credit_card: '信用卡', platform: '平台付款' };
+  function ppaCampaignPayRenderMethods() {
+    const box = document.getElementById('ppa-campaign-paymethods');
+    const hint = document.getElementById('ppa-campaign-payhint');
+    const custom = document.getElementById('ppa-campaign-paymode-custom');
+    if (!box || !hint || !custom) return;
+    box.textContent = '';
+    box.style.display = custom.checked ? '' : 'none';
+    if (!PPA.campPay.loaded) { hint.textContent = custom.checked ? '讀取快閃付款設定中…' : ''; return; }
+    if (!PPA.campPay.usable.length) {
+      hint.textContent = '尚未在「💳 付款方式管理」儲存可用的快閃付款方式，目前只能沿用預設。';
+      if (custom.checked) { custom.checked = false; document.getElementById('ppa-campaign-paymode-inherit').checked = true; box.style.display = 'none'; }
+      return;
+    }
+    hint.textContent = custom.checked ? '只能選擇快閃預設中已啟用且可用的付款方式。' : '';
+    PPA.campPay.usable.forEach((code) => {
+      const lab = document.createElement('label');
+      lab.style.display = 'inline-block'; lab.style.marginRight = '12px';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox'; cb.value = code; cb.className = 'ppa-campaign-paymethod';
+      cb.checked = PPA.campPay.methods.includes(code);
+      cb.addEventListener('change', () => {
+        PPA.campPay.dirty = true;
+        PPA.campPay.methods = [...document.querySelectorAll('#ppa-campaign-paymethods .ppa-campaign-paymethod')].filter((x) => x.checked).map((x) => x.value);
+      });
+      lab.appendChild(cb);
+      lab.appendChild(document.createTextNode(' ' + (PPA_PAY_LABELS[code] || code)));
+      box.appendChild(lab);
+    });
+  }
+  async function ppaCampaignPayLoad(campaignId) {
+    try {
+      const url = campaignId ? `/api/popup-pickup/campaigns/${encodeURIComponent(campaignId)}/payment-settings` : '/api/popup-pickup/payment-settings';
+      const res = await apiFetch(url);
+      const json = await res.json();
+      if (!json.success || PPA.campPay.campaignId !== campaignId) return;
+      const d = json.data || {};
+      PPA.campPay.usable = Array.isArray(d.store_usable) ? d.store_usable : [];
+      if (campaignId && !PPA.campPay.dirty) {
+        PPA.campPay.mode = d.mode === 'custom' ? 'custom' : 'inherit';
+        PPA.campPay.methods = Array.isArray(d.methods) ? d.methods.slice() : [];
+        document.getElementById('ppa-campaign-paymode-custom').checked = PPA.campPay.mode === 'custom';
+        document.getElementById('ppa-campaign-paymode-inherit').checked = PPA.campPay.mode !== 'custom';
+      }
+      PPA.campPay.loaded = true;
+      ppaCampaignPayRenderMethods();
+    } catch (e) { /* 付款設定讀取失敗不影響活動本身的編輯與儲存 */ }
+  }
+  function ppaCampaignPayReset(campaignId) {
+    PPA.campPay = { campaignId, dirty: false, usable: [], loaded: false, mode: 'inherit', methods: [] };
+    const inh = document.getElementById('ppa-campaign-paymode-inherit');
+    const cus = document.getElementById('ppa-campaign-paymode-custom');
+    if (!inh || !cus) return;
+    inh.checked = true; cus.checked = false;
+    inh.onchange = () => { PPA.campPay.dirty = true; ppaCampaignPayRenderMethods(); };
+    cus.onchange = () => { PPA.campPay.dirty = true; ppaCampaignPayRenderMethods(); if (!PPA.campPay.loaded) ppaCampaignPayLoad(PPA.campPay.campaignId); };
+    ppaCampaignPayRenderMethods();
+    if (campaignId) ppaCampaignPayLoad(campaignId);
+  }
+  async function ppaCampaignPaySave(campaignId) {
+    if (!PPA.campPay.dirty || !campaignId) return true;
+    const custom = document.getElementById('ppa-campaign-paymode-custom').checked;
+    const body = custom ? { mode: 'custom', methods: PPA.campPay.methods } : { mode: 'inherit' };
+    try {
+      const res = await apiFetch(`/api/popup-pickup/campaigns/${encodeURIComponent(campaignId)}/payment-settings`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      });
+      const json = await res.json();
+      if (!json.success) { showToast('活動已儲存，但付款設定未儲存：' + (json.message || '失敗'), 'error'); return false; }
+      return true;
+    } catch (e) { showToast('活動已儲存，但付款設定未儲存（網路錯誤）', 'error'); return false; }
+  }
+
+  // ── R50：💳 快閃付款方式管理 tab ─────────────────────────────────────
+  PPA.pay = { data: null, saving: false };
+  async function ppaLoadPayments() {
+    const status = document.getElementById('ppa-pay-status');
+    try {
+      const res = await apiFetch('/api/popup-pickup/payment-settings');
+      const json = await res.json();
+      if (!json.success) throw new Error(json.message || '載入失敗');
+      PPA.pay.data = json.data;
+      ppaRenderPayments();
+    } catch (e) {
+      if (status) status.textContent = '載入快閃付款設定失敗：' + e.message;
+    }
+  }
+  window.ppaLoadPayments = ppaLoadPayments;
+  function ppaRenderPayments() {
+    const d = PPA.pay.data; if (!d) return;
+    const status = document.getElementById('ppa-pay-status');
+    status.textContent = d.configured
+      ? ('快閃付款設定已啟用：目前可用 ' + (d.store_usable.length ? d.store_usable.map((c) => PPA_PAY_LABELS[c] || c).join('、') : '（無）'))
+      : '尚未儲存快閃付款設定：快閃訂單目前沿用既有（R48）付款判斷。儲存後即改為快閃獨立規則。';
+    const tb = document.getElementById('ppa-pay-methods-tbody'); tb.textContent = '';
+    d.methods.forEach((m) => {
+      const tr = document.createElement('tr'); tr.setAttribute('data-pay-code', m.code);
+      tr.appendChild(ppaTd(m.label + (m.online ? '（線上）' : '')));
+      const tdE = document.createElement('td');
+      const cb = document.createElement('input'); cb.type = 'checkbox'; cb.className = 'ppa-pay-enabled'; cb.checked = !!m.enabled;
+      cb.setAttribute('aria-label', '啟用 ' + m.label);
+      if (!m.ready && !m.enabled) cb.disabled = true;
+      tdE.appendChild(cb); tr.appendChild(tdE);
+      const tdR = document.createElement('td');
+      tdR.textContent = m.ready ? '✅ 可用' : ('⚠️ 尚未完成金流設定：' + (m.reason || ''));
+      tr.appendChild(tdR);
+      const tdD = document.createElement('td');
+      const inp = document.createElement('input'); inp.type = 'text'; inp.maxLength = 200; inp.className = 'ppa-pay-desc'; inp.value = m.description || '';
+      inp.setAttribute('aria-label', m.label + ' 顧客說明');
+      inp.style.width = '100%';
+      tdD.appendChild(inp); tr.appendChild(tdD);
+      tb.appendChild(tr);
+    });
+    const s = d.settings || {};
+    document.getElementById('ppa-pay-customer-choice').checked = s.customer_choice !== false;
+    document.getElementById('ppa-pay-online-only').checked = !!s.online_only;
+    document.getElementById('ppa-pay-fallback').checked = !!s.allow_fallback_cash;
+    document.getElementById('ppa-pay-expire-release').checked = s.expire_cancel_release !== false;
+    const t = document.getElementById('ppa-pay-timeout'); t.value = String(s.timeout_minutes || 15);
+    t.min = String(d.limits.timeout_min); t.max = String(d.limits.timeout_max);
+    const sel = document.getElementById('ppa-pay-default'); sel.textContent = '';
+    d.methods.forEach((m) => { const o = document.createElement('option'); o.value = m.code; o.textContent = m.label; if (m.code === s.default_method) o.selected = true; sel.appendChild(o); });
+    const ct = document.getElementById('ppa-pay-campaigns-tbody'); ct.textContent = '';
+    if (!d.campaigns.length) { const tr = document.createElement('tr'); const td = ppaTd('尚無活動'); td.colSpan = 4; tr.appendChild(td); ct.appendChild(tr); }
+    d.campaigns.forEach((c) => {
+      const tr = document.createElement('tr');
+      tr.appendChild(ppaTd(c.name)); tr.appendChild(ppaTd(c.status));
+      tr.appendChild(ppaTd(c.mode === 'custom' ? '自訂付款方式' : '沿用快閃預設'));
+      tr.appendChild(ppaTd(c.effective === null ? '（未設定快閃付款）' : (c.effective.length ? c.effective.map((x) => PPA_PAY_LABELS[x] || x).join('、') : '⚠️ 無可用付款方式，無法接單')));
+      ct.appendChild(tr);
+    });
+  }
+  window.ppaSavePayments = async function ppaSavePayments() {
+    if (PPA.pay.saving || !PPA.pay.data) return;
+    const msg = document.getElementById('ppa-pay-msg');
+    const methods = {};
+    document.querySelectorAll('#ppa-pay-methods-tbody tr[data-pay-code]').forEach((tr) => {
+      methods[tr.getAttribute('data-pay-code')] = { enabled: tr.querySelector('.ppa-pay-enabled').checked, description: tr.querySelector('.ppa-pay-desc').value };
+    });
+    const body = {
+      methods,
+      customer_choice: document.getElementById('ppa-pay-customer-choice').checked,
+      online_only: document.getElementById('ppa-pay-online-only').checked,
+      default_method: document.getElementById('ppa-pay-default').value,
+      timeout_minutes: parseInt(document.getElementById('ppa-pay-timeout').value, 10),
+      allow_fallback_cash: document.getElementById('ppa-pay-fallback').checked,
+      expire_cancel_release: document.getElementById('ppa-pay-expire-release').checked,
+    };
+    const btn = document.getElementById('ppa-pay-save-btn');
+    PPA.pay.saving = true; btn.disabled = true; msg.textContent = '儲存中…';
+    try {
+      const res = await apiFetch('/api/popup-pickup/payment-settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const json = await res.json();
+      if (!json.success) { msg.textContent = '未儲存：' + (json.message || '失敗'); return; }
+      PPA.pay.data = json.data; ppaRenderPayments(); msg.textContent = '已儲存快閃付款設定';
+    } catch (e) { msg.textContent = '網路錯誤：' + e.message; }
+    finally { PPA.pay.saving = false; btn.disabled = false; }
   };
   function ppaOnCampaignStatusHint() {
     const s = document.getElementById('ppa-campaign-status').value;
@@ -14934,6 +15099,7 @@ async function executeMigrationImport() {
       });
       const json = await res.json();
       if (!json.success) { showToast(json.message || '儲存失敗', 'error'); return; }
+      if (PPA.campPay && PPA.campPay.dirty) await ppaCampaignPaySave(id || (json.data && json.data.id));
       showToast('已儲存', 'success');
       ppaCloseCampaignForm();
       ppaLoadCampaigns();
