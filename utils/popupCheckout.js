@@ -80,13 +80,98 @@ function sanitizePopupImageUrl(raw) {
     if (q !== -1) v = v.slice(0, q);
   }
   if (!POPUP_SAFE_IMAGE_RE.test(v) || v.indexOf('..') !== -1 || v.indexOf('//') !== -1) return null;
+  // R52：同源路徑也只接受系統上傳目錄 /uploads/（規格：非 /uploads/ 路徑一律拒絕）。
+  if (!v.startsWith('/uploads/')) return null;
   return v;
 }
-function popupPublicProductPresentation(r) {
-  const img = (typeof r.line_image_url === 'string' && r.line_image_url.trim()) ? r.line_image_url : r.image;
+// R52：實機驗收發現後台「商品管理」的縮圖其實來自 products.image，而後台上傳流程
+// （public/js/app.js handleImageFile → compressImage）把圖片壓成 600px JPEG 後，
+// 以 `data:image/jpeg;base64,…` 直接存進 products.image（≤300KB）。R49～R51 的
+// sanitizer 一律拒絕 data:，所以這些「後台看得到」的圖片在快閃前台全部變成文字。
+// 修正方式：瀏覽器仍然永遠拿不到 data: 網址——伺服器只解碼「本系統自己 DB 內」的
+// data:image（MIME 白名單 png/jpeg/webp/gif、不含 SVG、嚴格 base64、magic bytes 必須
+// 與實際格式一致、解碼後 ≤5MB），經由同源端點
+//   /api/line-orders/popup-media/<場次公開代碼>/<商品ID>-<內容雜湊>.<副檔名>
+// 以正確 Content-Type 回傳。網址符合既有 POPUP_SAFE_IMAGE_RE，前端仍以 CSS 背景層呈現。
+// 不抓任何遠端網址（無 SSRF）。圖片來源優先序沿用 LINE 點餐：line_image_url 優先，
+// 但它無法安全提供（外部網域、檔案不存在…）時改用後台主圖 products.image，兩者
+// 都無法提供才回 null（前端文字 fallback）。/uploads/ 圖片會確認檔案確實存在，
+// 不存在（例如未掛持久化磁碟、重新部署後遺失）時視為無法提供。
+const POPUP_UPLOAD_DIR = require('path').join(__dirname, '..', 'public', 'uploads');
+const POPUP_DATA_IMAGE_RE = /^data:image\/(png|jpeg|jpg|webp|gif);base64,([A-Za-z0-9+/]+={0,2})$/;
+const POPUP_DATA_IMAGE_MAX_CHARS = 7 * 1024 * 1024; // base64 長度上限（約 5MB 原始資料）
+const POPUP_DATA_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+const POPUP_MEDIA_EXT = Object.freeze({ png: 'png', jpeg: 'jpg', webp: 'webp', gif: 'gif' });
+const POPUP_MEDIA_MIME = Object.freeze({ png: 'image/png', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif' });
+function popupSniffImageType(buf) {
+  if (!buf || buf.length < 12) return null;
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47 && buf[4] === 0x0d && buf[5] === 0x0a && buf[6] === 0x1a && buf[7] === 0x0a) return 'png';
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'jpeg';
+  if (buf.toString('latin1', 0, 4) === 'GIF8') return 'gif';
+  if (buf.toString('latin1', 0, 4) === 'RIFF' && buf.toString('latin1', 8, 12) === 'WEBP') return 'webp';
+  return null;
+}
+// 只解析（不解碼全部）：回傳 { type, hash } 或 null。hash 用於網址版本，內容變更即換網址。
+function popupParseStoredDataImage(raw) {
+  if (typeof raw !== 'string') return null;
+  const v = raw.trim();
+  if (!v.startsWith('data:image/') || v.length > POPUP_DATA_IMAGE_MAX_CHARS) return null;
+  const m = POPUP_DATA_IMAGE_RE.exec(v);
+  if (!m || m[2].length % 4 !== 0) return null;
+  const declared = m[1] === 'jpg' ? 'jpeg' : m[1];
+  const head = Buffer.from(m[2].slice(0, 24), 'base64');
+  const sniffed = popupSniffImageType(head);
+  if (!sniffed || sniffed !== declared) return null;
+  if (Math.floor(m[2].length * 3 / 4) > POPUP_DATA_IMAGE_MAX_BYTES + 2) return null;
+  const hash = require('crypto').createHash('sha256').update(v).digest('hex').slice(0, 24);
+  return { type: sniffed, hash, b64: m[2] };
+}
+function popupDecodeStoredDataImage(raw) {
+  const parsed = popupParseStoredDataImage(raw);
+  if (!parsed) return null;
+  const buf = Buffer.from(parsed.b64, 'base64');
+  if (!buf.length || buf.length > POPUP_DATA_IMAGE_MAX_BYTES || popupSniffImageType(buf) !== parsed.type) return null;
+  return { type: parsed.type, mime: POPUP_MEDIA_MIME[parsed.type], hash: parsed.hash, buf };
+}
+function popupUploadExists(sameOriginPath) {
+  try {
+    const path = require('path');
+    const fs = require('fs');
+    const abs = path.resolve(POPUP_UPLOAD_DIR, '.' + sameOriginPath.slice('/uploads'.length));
+    if (!abs.startsWith(POPUP_UPLOAD_DIR + path.sep)) return false;
+    return fs.statSync(abs).isFile();
+  } catch (e) { return false; }
+}
+function popupMediaPath(sessionPublicCode, productId, parsed) {
+  return `/api/line-orders/popup-media/${sessionPublicCode}/${productId}-${parsed.hash}.${POPUP_MEDIA_EXT[parsed.type]}`;
+}
+const POPUP_MEDIA_CODE_RE = /^[A-Za-z0-9_-]{8,64}$/;
+// 單一候選來源 → 可提供的同源網址（或 null）。
+function resolvePopupImageCandidate(raw, productId, sessionPublicCode) {
+  if (typeof raw !== 'string' || !raw.trim()) return null;
+  if (/^\s*data:/i.test(raw)) {
+    if (!sessionPublicCode || !POPUP_MEDIA_CODE_RE.test(sessionPublicCode) || !Number.isSafeInteger(Number(productId))) return null;
+    const parsed = popupParseStoredDataImage(raw);
+    return parsed ? popupMediaPath(sessionPublicCode, Number(productId), parsed) : null;
+  }
+  const p = sanitizePopupImageUrl(raw);
+  if (!p) return null;
+  if (p.startsWith('/uploads/') && !popupUploadExists(p)) return null;
+  return p;
+}
+// 公開商品圖片的單一事實來源（公開 API 與 popup-media 端點共用）。
+function resolvePopupProductImage(r, sessionPublicCode) {
+  const pid = r.product_id != null ? r.product_id : r.id;
+  for (const field of ['line_image_url', 'image']) {
+    const url = resolvePopupImageCandidate(r[field], pid, sessionPublicCode);
+    if (url) return { url, field };
+  }
+  return { url: null, field: null };
+}
+function popupPublicProductPresentation(r, sessionPublicCode) {
   const cat = (typeof r.line_category === 'string' && r.line_category.trim()) ? r.line_category.trim() : (typeof r.category === 'string' ? r.category.trim() : '');
   const desc = typeof r.line_description === 'string' ? r.line_description.trim().slice(0, 500) : '';
-  return { image_url: sanitizePopupImageUrl(img), category: cat ? cat.slice(0, 50) : null, description: desc || null };
+  return { image_url: resolvePopupProductImage(r, sessionPublicCode).url, category: cat ? cat.slice(0, 50) : null, description: desc || null };
 }
 
 function getActiveAllocatedQty(db, storeId, sessionId, productId) {
@@ -122,7 +207,7 @@ function serializeSelectedScopeProducts(db, storeId, session) {
         quota_qty: r.quota_qty,
         remaining_qty: remaining,
         sold_out: r.quota_qty > 0 && remaining === 0,
-        ...popupPublicProductPresentation(r),
+        ...popupPublicProductPresentation(r, session.public_code),
       };
     })
     .filter(Boolean);
@@ -139,7 +224,7 @@ function serializeSelectedScopeProducts(db, storeId, session) {
 // all_takeout 場次沒有 popup_session_products 白名單、也沒有逐商品配額，
 // 因此 quota_qty / remaining_qty 一律是 null（不限量；唯一限制是場次層級
 // 的 max_orders 總單量，由 serializePublicSession 另外回傳）。
-function serializeAllTakeoutScopeProducts(db, storeId) {
+function serializeAllTakeoutScopeProducts(db, storeId, session) {
   const rows = db.all(
     `SELECT id as product_id, name, price, takeaway_price, line_name, line_price,
             enabled, show_on_line, sale_status, line_sold_out, line_takeout_enabled,
@@ -160,7 +245,7 @@ function serializeAllTakeoutScopeProducts(db, storeId) {
         quota_qty: null,
         remaining_qty: null,
         sold_out: false,
-        ...popupPublicProductPresentation(r),
+        ...popupPublicProductPresentation(r, session && session.public_code),
       };
     })
     .filter(Boolean);
@@ -168,7 +253,7 @@ function serializeAllTakeoutScopeProducts(db, storeId) {
 
 function serializePublicSessionProducts(db, storeId, session) {
   if (session.product_scope === 'selected') return serializeSelectedScopeProducts(db, storeId, session);
-  if (session.product_scope === 'all_takeout') return serializeAllTakeoutScopeProducts(db, storeId);
+  if (session.product_scope === 'all_takeout') return serializeAllTakeoutScopeProducts(db, storeId, session);
   return [];
 }
 
@@ -762,4 +847,6 @@ module.exports = {
   releasePopupOrderAllocations,
   reconcilePopupCartItemsAgainstFreshAuthority,
   sanitizePopupImageUrl,
+  resolvePopupProductImage,
+  popupDecodeStoredDataImage,
 };

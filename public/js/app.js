@@ -15032,7 +15032,26 @@ async function executeMigrationImport() {
     const envName = String(app.signing_secret_env || '');
     line(true, '快閃付款回呼驗證：每筆付款一次性簽章（不依賴應用程式簽章秘密）');
     line(!!app.signing_secret_configured, app.signing_secret_configured ? `應用程式簽章秘密 ${envName} 已設定` : `應用程式簽章秘密 ${envName} 尚未設定：系統登入目前使用內建預設值，請在部署環境設定並持久保存（不影響快閃付款）`, true);
-    line(!!app.public_base_url_configured, app.public_base_url_configured ? `公開網址來源：${app.public_base_source}` : '尚未設定 PUBLIC_BASE_URL：測試模式暫以目前網域推導回呼網址；正式模式必須設定', true);
+    // R52：PUBLIC_BASE_URL 精確狀態與可執行的設定步驟（只顯示公開網址，永不顯示任何秘密）。
+    const baseOk = app.public_base_state === 'ok' && (lp.mode !== 'live' || app.public_base_https);
+    if (app.public_base_state === 'ok') {
+      line(baseOk, baseOk ? `公開網址（${app.public_base_source}）：${app.public_base_value}` : `${app.public_base_source}=${app.public_base_value} 不是 https，正式模式無法使用 LINE Pay`);
+    } else if (app.public_base_state === 'invalid') {
+      line(false, `${app.public_base_source} 格式不正確：必須是 https://網域（不含路徑與結尾斜線）`);
+    } else {
+      line(false, lp.mode === 'live' ? '伺服器尚未設定 PUBLIC_BASE_URL：正式模式的快閃 LINE Pay 因此停用（fail closed）' : '尚未設定 PUBLIC_BASE_URL：測試模式暫以目前網域推導回呼網址；正式模式必須設定', lp.mode !== 'live');
+    }
+    if (!baseOk || app.public_base_state !== 'ok') {
+      const steps = document.createElement('ol');
+      steps.className = 'ppa-pay-diag-steps';
+      steps.style.cssText = 'margin:4px 0 6px 20px;padding:0;font-size:13px;color:var(--text-primary,#e2e8f0)';
+      [`在 Zeabur 服務的「環境變數」新增：${app.suggested_env_line || 'PUBLIC_BASE_URL=https://<目前對外網域>'}`,
+        '重新啟動（或重新部署）服務，讓環境變數生效',
+        '回到本頁重新整理，確認上方顯示「公開網址」為 ✅，再於下方啟用 LINE Pay 並儲存'].forEach((t) => {
+        const li = document.createElement('li'); li.textContent = t; steps.appendChild(li);
+      });
+      box.appendChild(steps);
+    }
     const u = d.urls || {};
     if (u.derived_base) line(true, '系統推導的建議回呼網址：' + u.suggested_line_callback + '（快閃：' + u.suggested_popup_confirm + '）');
     [['Callback URL', u.provider_callback], ['Webhook URL', u.provider_webhook]].forEach(([label, info]) => {
@@ -15043,7 +15062,7 @@ async function executeMigrationImport() {
     if (u.provider_urls_used_for_requests === false) {
       const note = document.createElement('div');
       note.style.cssText = 'padding-top:4px;font-size:12px;color:var(--text-secondary,#94a3b8)';
-      note.textContent = '說明：LINE Pay 付款的導回網址由系統每次依公開網址產生；「金流 API」內儲存的 Callback／Webhook 欄位目前只作為顯示與 LINE Pay 商家後台核對用。';
+      note.textContent = '說明：LINE Pay 付款的導回網址由系統每次依公開網址產生（快閃：/api/line-orders/popup-payment/linepay-confirm 與 /api/line-orders/popup-payment/linepay-cancel，不需在 LINE Pay 商家後台登錄）；「金流 API」內儲存的 Callback／Webhook 欄位目前只作為顯示與 LINE Pay 商家後台核對用。';
       box.appendChild(note);
     }
   }

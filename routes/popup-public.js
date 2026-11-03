@@ -155,6 +155,51 @@ router.get('/popup-session/:publicCode', (req, res) => {
   } catch (e) { sendPopupError(res, e); }
 });
 
+// R52：快閃商品圖片（後台上傳、以 data:image 存於 products.image 的圖片）。
+// - 只提供「目前公開場次內、目前公開商品清單計算出來的同一個網址」——網址內含內容雜湊，
+//   與 GET /popup-session 回傳的 image_url 完全相同才會回應，其餘一律 404。
+// - 公開可見規則與 GET /popup-session 相同（店家授權、快閃開關、場次／活動非 draft）。
+// - 只解碼本系統 DB 內的資料，不抓取任何遠端網址；Content-Type 依實際 magic bytes。
+const POPUP_MEDIA_FILE_RE = /^(\d{1,12})-([a-f0-9]{24})\.(png|jpg|webp|gif)$/;
+router.get('/popup-media/:publicCode/:file', (req, res) => {
+  const notFound = () => res.status(404).type('text/plain').set('Cache-Control', 'no-store').send('not found');
+  try {
+    const db = getDb();
+    const code = String(req.params.publicCode || '');
+    const m = POPUP_MEDIA_FILE_RE.exec(String(req.params.file || ''));
+    if (!m || !/^[A-Za-z0-9_-]{8,64}$/.test(code)) return notFound();
+    const storeId = resolveStoreIdByPublicCode(db, 'popup_sessions', code);
+    if (!storeId) return notFound();
+    const authority = popupCheckout.fetchFreshStoreAuthority(db, storeId);
+    if (!authority.storeActive || !authority.licenseActive || !authority.lineOrderEnabled || !pp.isPopupPickupEnabled(db, storeId)) return notFound();
+    const found = popupCheckout.findPublicSessionByCode(db, storeId, code);
+    if (!found || found.session.status === 'draft' || found.campaign.status === 'draft') return notFound();
+    const productId = Number(m[1]);
+    const visible = popupCheckout.serializePublicSessionProducts(db, storeId, found.session).find((p) => p.product_id === productId);
+    const expected = `/api/line-orders/popup-media/${code}/${m[0]}`;
+    if (!visible || visible.image_url !== expected) return notFound();
+    const row = db.get('SELECT id, image, line_image_url FROM products WHERE id=? AND store_id=?', [productId, storeId]);
+    const pick = row ? popupCheckout.resolvePopupProductImage(row, code) : null;
+    if (!pick || pick.url !== expected) return notFound();
+    const img = popupCheckout.popupDecodeStoredDataImage(row[pick.field]);
+    if (!img) return notFound();
+    res.set({
+      'Content-Type': img.mime,
+      'Content-Length': String(img.buf.length),
+      'X-Content-Type-Options': 'nosniff',
+      'Cache-Control': 'public, max-age=86400, immutable',
+      'Content-Security-Policy': "default-src 'none'",
+      'Cross-Origin-Resource-Policy': 'same-origin',
+      ETag: `"${img.hash}"`,
+    });
+    if (req.get('If-None-Match') === `"${img.hash}"`) return res.status(304).end();
+    return res.status(200).end(img.buf);
+  } catch (e) {
+    console.error('[popup-media] error:', e && e.message ? e.message : 'unknown');
+    return notFound();
+  }
+});
+
 router.post('/popup-checkout', (req, res) => {
   try {
     const db = getDb();

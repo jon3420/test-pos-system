@@ -127,7 +127,9 @@ function providerReadiness(db, storeId, code, settings) {
     const cfg = getLinePayConfig(db, storeId, true);
     if (!(cfg && cfg.channelId && cfg.channelSecret)) return { ready: false, reason: 'LINE Pay 尚未在「系統設定 → 金流 API」啟用，或缺少 Channel ID／Channel Secret' };
     const mode = cfg.mode === 'live' || cfg.mode === 'prod' ? 'live' : 'test';
-    if (mode === 'live' && !canonicalPublicBase()) return { ready: false, reason: 'LINE Pay 為正式模式，但伺服器尚未設定 PUBLIC_BASE_URL（https），無法產生可信任的付款回呼網址', mode };
+    // R52：正式模式只接受合法 https PUBLIC_BASE_URL（fail closed，原因精確到缺少／格式錯誤／非 https）。
+    if (mode === 'live') { const p = liveBaseProblem(); if (p) return { ready: false, reason: p.reason, code: p.code, mode }; }
+    else if (publicBaseStatus().state === 'invalid') return { ready: false, reason: `${publicBaseStatus().source} 格式不正確，請設定為 https://<目前對外網域> 後重新啟動服務`, code: 'PUBLIC_BASE_URL_INVALID', mode };
     return { ready: true, reason: null, mode };
   }
   if (code === 'credit_card') {
@@ -311,20 +313,37 @@ function verifyAttemptCallback(attempt, orderNumber, cb) {
 // R51：canonical 公開網址（不信任瀏覽器 Host）。PUBLIC_BASE_URL 優先，其次 APP_BASE_URL；
 // 只接受 http(s)://host[:port] 形式（尾斜線可有可無）。
 const _BASE_RE = /^(https?):\/\/([A-Za-z0-9.-]{1,253})(?::(\d{1,5}))?\/?$/;
-function canonicalPublicBase() {
+// R52：逐一回報每個候選環境變數的狀態（missing／invalid／ok），不再「格式錯誤就默默改用下一個」。
+// PUBLIC_BASE_URL 有設定（即使格式錯誤）時以它為準；只有完全未設定時才看 APP_BASE_URL。
+function publicBaseStatus() {
   for (const k of ['PUBLIC_BASE_URL', 'APP_BASE_URL']) {
     const v = String(process.env[k] || '').trim();
+    if (!v) continue;
     const m = _BASE_RE.exec(v);
-    if (m) return { base: v.replace(/\/+$/, ''), source: k, host: m[2].toLowerCase(), https: m[1] === 'https' };
+    if (!m) return { state: 'invalid', source: k };
+    return { state: 'ok', source: k, base: v.replace(/\/+$/, ''), host: m[2].toLowerCase(), https: m[1] === 'https' };
   }
+  return { state: 'missing', source: null };
+}
+function canonicalPublicBase() {
+  const s = publicBaseStatus();
+  return s.state === 'ok' ? { base: s.base, source: s.source, host: s.host, https: s.https } : null;
+}
+// R52：正式模式的導回網址必須是 https 的 canonical 公開網址；回傳 null 代表可用，否則為精確原因。
+function liveBaseProblem() {
+  const s = publicBaseStatus();
+  if (s.state === 'missing') return { code: 'PUBLIC_BASE_URL_MISSING', reason: 'LINE Pay 為正式模式，但伺服器尚未設定 PUBLIC_BASE_URL。請在部署環境變數加入 PUBLIC_BASE_URL=https://<目前對外網域>（不含路徑與結尾斜線），重新啟動服務後即可啟用。' };
+  if (s.state === 'invalid') return { code: 'PUBLIC_BASE_URL_INVALID', reason: `LINE Pay 為正式模式，但 ${s.source} 格式不正確。請設定為 https://<目前對外網域>（只含通訊協定與網域，不含路徑），重新啟動服務。` };
+  if (!s.https) return { code: 'PUBLIC_BASE_URL_NOT_HTTPS', reason: `LINE Pay 為正式模式，但 ${s.source} 不是 https 網址。正式付款回呼網址必須使用 https，請改為 https://<目前對外網域> 後重新啟動服務。` };
   return null;
 }
-// 付款導回網址的 base：有 canonical 設定就只用它；沒有時，僅測試模式允許使用格式嚴格
-// 驗證過的 request host（正式模式在 providerReadiness 已被擋下）。
+// 付款導回網址的 base：有 canonical 設定就只用它（正式模式另要求 https）；沒有時，僅測試
+// 模式允許使用格式嚴格驗證過的 request host（正式模式在 providerReadiness 已被擋下）。
 function resolvePaymentReturnBase(req, mode) {
+  if (mode === 'live') { const c = canonicalPublicBase(); return (c && c.https && !liveBaseProblem()) ? c.base : null; }
+  if (publicBaseStatus().state === 'invalid') return null;
   const c = canonicalPublicBase();
   if (c) return c.base;
-  if (mode === 'live') return null;
   const host = req && typeof req.get === 'function' ? String(req.get('host') || '') : '';
   if (!/^[A-Za-z0-9.-]{1,253}(?::\d{1,5})?$/.test(host)) return null;
   const proto = req.protocol === 'https' ? 'https' : 'http';
@@ -356,6 +375,16 @@ function paymentDiagnostics(db, storeId, req) {
       popup_callback_signing: 'per_attempt_nonce',
       public_base_url_configured: !!canon,
       public_base_source: canon ? canon.source : (base ? 'request_host' : 'none'),
+      // R52：精確狀態（missing／invalid／ok）、是否 https、正式模式是否可用；值本身是公開網址，可顯示。
+      public_base_state: publicBaseStatus().state,
+      public_base_https: !!(canon && canon.https),
+      public_base_value: canon ? canon.base : '',
+      live_base_problem: liveBaseProblem() ? liveBaseProblem().code : null,
+      // 只作為「請 owner 設定什麼」的提示：依目前管理者瀏覽的網域推得，從不用於產生付款網址。
+      suggested_env_line: (() => {
+        const h = req && typeof req.get === 'function' ? String(req.get('host') || '').toLowerCase() : '';
+        return /^[a-z0-9.-]{1,253}$/.test(h) && h.includes('.') && !/^\d+\.\d+\.\d+\.\d+$/.test(h) ? `PUBLIC_BASE_URL=https://${h}` : 'PUBLIC_BASE_URL=https://<目前對外網域>';
+      })(),
     },
     urls: {
       derived_base: base || '',
@@ -501,7 +530,7 @@ module.exports = {
   loadPopupPaymentSettings, loadCampaignOverrides, providerReadiness, describeMethods, validateAndNormalizeSettings,
   savePopupPaymentSettings, getCampaignOverride, saveCampaignOverride, storeUsableMethods, effectiveCampaignMethods,
   publicPaymentInfo, makeCheckoutPaymentResolver, newToken, hashToken, callbackSig, verifyCallbackSig,
-  issueCallbackNonce, verifyAttemptCallback, canonicalPublicBase, resolvePaymentReturnBase, paymentDiagnostics, LEGACY_SYSTEM_HOSTS,
+  issueCallbackNonce, verifyAttemptCallback, canonicalPublicBase, publicBaseStatus, liveBaseProblem, resolvePaymentReturnBase, paymentDiagnostics, LEGACY_SYSTEM_HOSTS,
   createAttemptInTransaction, findAttemptByToken, findAttemptById, reconcileExpiredPopupPayments,
   markAttemptFailed, markAttemptPaid, switchFailedAttemptToCash, derivePopupPaymentState, stateLabel,
 };
