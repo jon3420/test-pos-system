@@ -335,7 +335,7 @@ img{max-width:100%;display:block}
 </style>
 <link rel="stylesheet" href="/css/product-detail-modal.css">
 <!-- R48：快閃取餐（/popup-order）顧客前台專用樣式；所有 selector 皆限定在 popup scope，一般 LINE 點餐頁不受影響。 -->
-<link rel="stylesheet" href="/css/popup-order.css?v=r49-popup-commerce-1">
+<link rel="stylesheet" href="/css/popup-order.css?v=r51-popup-region-1">
 </head>
 <body>
 
@@ -3558,10 +3558,116 @@ async function popupHandlePaymentReturn(ref){
   }
 }
 
+// R51：店家入口／活動入口的「縣市 → 行政區 → 場次」導航。分組、計數與排序都只
+// 依後端回傳的 city／district／region_pending／display_order；計數＝該分組實際
+// 渲染的場次卡數。沒有地區資料的場次一律歸入「地區待補」（排在最後），不猜測。
+const POPUP_REGION_PENDING_LABEL='地區待補';
+let _popupPickerContext=null;
+function popupGroupSessionsByRegion(sessions){
+  const order=(s, i)=>(Number.isFinite(Number(s && s.display_order)) ? Number(s.display_order) : 100000+i);
+  const cities=new Map();
+  (Array.isArray(sessions) ? sessions : []).forEach((s, i)=>{
+    if(!s || typeof s!=='object' || typeof s.public_code!=='string') return;
+    const pending=s.region_pending===true || typeof s.city!=='string' || !s.city || typeof s.district!=='string' || !s.district;
+    const city=pending ? POPUP_REGION_PENDING_LABEL : s.city;
+    const district=pending ? POPUP_REGION_PENDING_LABEL : s.district;
+    if(!cities.has(city)) cities.set(city, { city, pending, districts:new Map() });
+    const c=cities.get(city);
+    if(!c.districts.has(district)) c.districts.set(district, { district, sessions:[] });
+    c.districts.get(district).sessions.push({ s, o:order(s, i) });
+  });
+  const byCountThenFirst=(a, b)=>(b.count-a.count) || (a.first-b.first);
+  return Array.from(cities.values()).map((c)=>{
+    const districts=Array.from(c.districts.values()).map((d)=>{
+      d.sessions.sort((x, y)=>x.o-y.o);
+      return { district:d.district, count:d.sessions.length, first:d.sessions[0].o, sessions:d.sessions.map((x)=>x.s) };
+    }).sort(byCountThenFirst);
+    const count=districts.reduce((n, d)=>n+d.count, 0);
+    return { city:c.city, pending:c.pending, count, first:Math.min.apply(null, districts.map((d)=>d.first)), districts };
+  }).sort((a, b)=>(a.pending-b.pending) || byCountThenFirst(a, b));
+}
+
+function popupBuildRegionNav(label, items, selected, onPick){
+  const nav=popupEl('div','popup-order-region-nav');
+  nav.setAttribute('role','group');
+  nav.setAttribute('aria-label', label);
+  items.forEach((it)=>{
+    const b=popupEl('button','popup-order-region-btn',`${it.name}｜${it.count} 場`);
+    b.type='button';
+    b.setAttribute('aria-pressed', it.name===selected ? 'true' : 'false');
+    b.setAttribute('data-region', it.name);
+    b.setAttribute('data-count', String(it.count));
+    b.addEventListener('click', ()=>onPick(it.name));
+    nav.appendChild(b);
+  });
+  return nav;
+}
+
+function popupBuildSessionCard(s){
+  const art=popupEl('article','popup-order-session-card');
+  const status=popupCustomerStatus(s);
+  const head=popupEl('div','popup-order-session-card-head');
+  const titles=popupEl('div','popup-order-session-card-titles');
+  const campaignName=(typeof s.campaign_name==='string' && s.campaign_name) ? s.campaign_name : ((popupCampaign && popupCampaign.name) || '');
+  if(campaignName) titles.appendChild(popupEl('p','popup-order-session-card-campaign',campaignName));
+  titles.appendChild(popupEl('h4','popup-order-session-card-name',String(s.name||'')));
+  head.appendChild(titles);
+  const pill=popupEl('span','popup-order-status popup-order-session-card-status',status.label);
+  pill.setAttribute('data-tone', status.tone);
+  head.appendChild(pill);
+  art.appendChild(head);
+  const dl=popupEl('dl','popup-order-session-card-info');
+  const row=(k, v)=>{ if(v==null || v==='') return; const w=popupEl('div','popup-order-session-card-row'); w.appendChild(popupEl('dt','',k)); w.appendChild(popupEl('dd','',String(v))); dl.appendChild(w); };
+  const pending=s.region_pending===true || !s.city || !s.district;
+  row('地區', pending ? POPUP_REGION_PENDING_LABEL : `${s.city} ${s.district}`);
+  row('取餐地點', s.place_name || '');
+  row('地址', s.address || '');
+  if(s.address_note) row('地點說明', s.address_note);
+  row('取餐日期', s.pickup_date || '');
+  row('取餐時段', (s.pickup_start_time||'') + (s.pickup_end_time ? ' – '+s.pickup_end_time : ''));
+  const cutoff=popupFormatTaipeiDateTime(s.order_cutoff_at);
+  if(cutoff) row('預訂截止', cutoff);
+  if(s.max_orders!=null && s.order_count!=null && Number.isFinite(Number(s.max_orders))){
+    row('名額', `剩餘 ${Math.max(0, Number(s.max_orders)-Number(s.order_count))} ／ 共 ${Number(s.max_orders)}`);
+  }else{
+    row('名額', '不限名額');
+  }
+  art.appendChild(dl);
+  const btn=popupEl('button','popup-order-session-btn', s.can_order===true ? '選擇此場次' : '查看此場次');
+  btn.type='button';
+  btn.setAttribute('data-session-code', s.public_code);
+  btn.setAttribute('aria-label', `${s.can_order===true ? '選擇' : '查看'}場次：${String(s.name||'')} ${s.pickup_date||''} ${s.place_name||''}`);
+  // 規格七：只把 public_code 記下來，選中後一律重新呼叫 direct session
+  // detail 端點，不把這個列表摘要當作權威資料。
+  btn.addEventListener('click', ()=>{
+    try{
+      if(window.history && typeof window.history.pushState==='function'){
+        window.history.pushState({ popupView:'session', popupSessionCode:s.public_code }, '');
+      }
+    }catch(e){}
+    loadPopupDirectSession(s.public_code);
+  });
+  art.appendChild(btn);
+  return art;
+}
+
 function renderPopupEntryPicker(kindLabel, sessions){
   const root=popupRootEl();
   root.textContent='';
   popupSetView(root,'picker');
+  const prev=_popupPickerContext;
+  const groups=popupGroupSessionsByRegion(sessions);
+  const keep=prev && prev.sessions===sessions;
+  let city=keep && groups.some((g)=>g.city===prev.city) ? prev.city : (groups[0] ? groups[0].city : null);
+  const cityGroup=groups.find((g)=>g.city===city) || null;
+  let district=keep && cityGroup && cityGroup.districts.some((d)=>d.district===prev.district) ? prev.district : (cityGroup && cityGroup.districts[0] ? cityGroup.districts[0].district : null);
+  _popupPickerContext={ kindLabel, sessions, city, district };
+  try{
+    if(window.history && typeof window.history.replaceState==='function'){
+      // 列表畫面一律記錄為 picker 狀態（重新整理會保留舊的 history.state，不可沿用）。
+      window.history.replaceState({ popupView:'picker', city, district }, '');
+    }
+  }catch(e){}
   const wrap=popupEl('div','popup-order-shell');
   wrap.setAttribute('aria-live','polite');
   wrap.appendChild(popupBuildHeader((popupCampaign&&popupCampaign.name) || kindLabel, null));
@@ -3569,19 +3675,25 @@ function renderPopupEntryPicker(kindLabel, sessions){
   const card=popupEl('section','popup-order-card');
   card.setAttribute('aria-label','選擇場次');
   card.appendChild(popupEl('h3','popup-order-card-title','選擇取貨場次'));
-  if(!sessions || sessions.length===0){
+  if(!groups.length){
     card.appendChild(popupEl('p','popup-order-empty','目前沒有可訂購的場次'));
   }else{
+    const repick=(c, d)=>{ _popupPickerContext={ kindLabel, sessions, city:c, district:d }; renderPopupEntryPicker(kindLabel, sessions); };
+    card.appendChild(popupEl('p','popup-order-region-step','1. 選擇縣市'));
+    card.appendChild(popupBuildRegionNav('選擇縣市', groups.map((g)=>({ name:g.city, count:g.count })), city, (c)=>{
+      const g=groups.find((x)=>x.city===c);
+      repick(c, g && g.districts[0] ? g.districts[0].district : null);
+    }));
+    if(cityGroup && !cityGroup.pending){
+      card.appendChild(popupEl('p','popup-order-region-step','2. 選擇行政區'));
+      card.appendChild(popupBuildRegionNav('選擇行政區', cityGroup.districts.map((d)=>({ name:d.district, count:d.count })), district, (d)=>repick(city, d)));
+    }
+    const dGroup=cityGroup ? (cityGroup.districts.find((d)=>d.district===district) || null) : null;
     const list=popupEl('ul','popup-order-session-list');
-    sessions.forEach((s)=>{
+    list.setAttribute('aria-label', cityGroup && !cityGroup.pending ? `${city} ${district||''} 的場次` : POPUP_REGION_PENDING_LABEL+' 的場次');
+    (dGroup ? dGroup.sessions : []).forEach((s)=>{
       const li=popupEl('li','popup-order-session-item');
-      const btn=popupEl('button','popup-order-session-btn',`${s.name||''}（${s.pickup_date||''} ${s.pickup_start_time||''}）`);
-      btn.type='button';
-      btn.setAttribute('data-session-code', s.public_code);
-      // 規格七：只把 public_code 記下來，選中後一律重新呼叫 direct session
-      // detail 端點，不把這個列表摘要（沒有商品/付款方式）當作權威資料。
-      btn.addEventListener('click', ()=>{ loadPopupDirectSession(s.public_code); });
-      li.appendChild(btn);
+      li.appendChild(popupBuildSessionCard(s));
       list.appendChild(li);
     });
     card.appendChild(list);
@@ -3590,6 +3702,19 @@ function renderPopupEntryPicker(kindLabel, sessions){
   wrap.appendChild(body);
   root.appendChild(wrap);
 }
+
+// R51：從場次頁按瀏覽器「上一頁」回到場次列表（保留原本選的縣市／行政區）。
+function _popupHandlePickerPopState(ev){
+  const st=ev && ev.state;
+  if(!st || st.popupView!=='picker' || !_popupPickerContext) return;
+  popupLoadGeneration++;
+  popupLoading=false;
+  popupSession=null;
+  popupCheckoutStep='select';
+  _popupPickerContext={ ..._popupPickerContext, city:st.city || _popupPickerContext.city, district:st.district || _popupPickerContext.district };
+  renderPopupEntryPicker(_popupPickerContext.kindLabel, _popupPickerContext.sessions);
+}
+try{ window.addEventListener('popstate', _popupHandlePickerPopState); }catch(e){}
 
 async function loadPopupDirectSession(sessionPublicCode){
   _popupLastRetryFn=()=>loadPopupDirectSession(sessionPublicCode);
@@ -3708,7 +3833,7 @@ async function loadPopupStoreEntry(storeId){
       return;
     }
     const campaigns=Array.isArray(json.data.campaigns) ? json.data.campaigns : [];
-    popupSessions=campaigns.reduce((acc,c)=>acc.concat(Array.isArray(c.sessions)?c.sessions:[]), []);
+    popupSessions=campaigns.reduce((acc,c)=>acc.concat(Array.isArray(c.sessions)?c.sessions.map((x)=>Object.assign({}, x, { campaign_name:c.name })):[]), []);
     renderPopupEntryPicker('快閃取貨', popupSessions);
   }catch(e){
     popupError={ code:'POPUP_INIT_ERROR', message:'快閃取貨頁面暫時無法載入，請稍後再試' };

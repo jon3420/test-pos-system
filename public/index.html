@@ -768,8 +768,8 @@
         <button class="btn-primary" id="ppa-btn-new-location" onclick="ppaOpenLocationForm(null)">＋ 新增地點</button>
       </div>
       <table class="data-table">
-        <thead><tr><th>地點名稱</th><th>地址</th><th>使用中場次</th><th>狀態</th><th>操作</th></tr></thead>
-        <tbody id="ppa-locations-tbody"><tr><td colspan="5" style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">載入中…</td></tr></tbody>
+        <thead><tr><th>地點名稱</th><th>地址</th><th>縣市／行政區</th><th>使用中場次</th><th>狀態</th><th>操作</th></tr></thead>
+        <tbody id="ppa-locations-tbody"><tr><td colspan="6" style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">載入中…</td></tr></tbody>
       </table>
     </div>
 
@@ -809,6 +809,11 @@
         這裡只設定「快閃取餐」的付款方式，與一般 LINE 外帶／外送／冷藏宅配／POS 付款設定完全分開。LINE Pay 等金流帳號沿用「金流設定」既有設定，這裡不保存任何金鑰。
       </div>
       <div id="ppa-pay-status" role="status" aria-live="polite" style="font-size:13px;margin-bottom:12px;padding:10px 12px;border-radius:8px;border:1px solid var(--border,#334155)">載入中…</div>
+      <!-- R51：金流連線診斷（唯讀；只顯示「是否已設定」與網址網域，不顯示任何金鑰／秘密） -->
+      <div id="ppa-pay-diag" style="font-size:13px;margin-bottom:12px;padding:10px 12px;border-radius:8px;border:1px solid var(--border,#334155)">
+        <div style="font-weight:700;margin-bottom:6px">🔌 金流連線診斷（沿用「系統設定 → 金流 API」，此處不保存金鑰）</div>
+        <div id="ppa-pay-diag-body">載入中…</div>
+      </div>
       <table class="data-table">
         <thead><tr><th>付款方式</th><th>啟用</th><th>可用性</th><th>顧客看到的說明</th></tr></thead>
         <tbody id="ppa-pay-methods-tbody"><tr><td colspan="4" style="text-align:center;padding:24px;color:var(--text-muted,#64748b)">載入中…</td></tr></tbody>
@@ -892,7 +897,7 @@
 
 <!-- 🚐 快閃取餐：地點 新增/編輯 Modal -->
 <div class="modal-overlay" id="ppa-modal-location" style="display:none" onclick="if(event.target===this)ppaCloseLocationForm()">
-  <div class="modal" style="max-width:480px">
+  <div class="modal" style="max-width:640px;max-height:90vh;overflow-y:auto">
     <div class="modal-header">
       <h3 id="ppa-location-modal-title">📍 新增地點</h3>
       <button class="modal-close" onclick="ppaCloseLocationForm()">✕</button>
@@ -901,26 +906,66 @@
       <input type="hidden" id="ppa-location-id">
       <label style="display:block;margin-bottom:12px">
         <span style="font-size:13px;color:var(--text-secondary,#94a3b8)">地點名稱 *</span>
-        <input type="text" id="ppa-location-name" maxlength="200" style="display:block;width:100%;margin-top:6px;padding:8px;border:1px solid var(--border,#334155);border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
+        <input type="text" id="ppa-location-name" maxlength="200" style="display:block;width:100%;margin-top:6px;padding:8px;border:1px solid var(--border,#334155);border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9);box-sizing:border-box">
+      </label>
+      <!-- R51：沿用「外送費設定」同一份 Google 地圖能力（同一個 Browser Key、同一個 SDK 載入器、同一組 geocode proxy） -->
+      <div style="margin-bottom:12px">
+        <span style="font-size:13px;color:var(--text-secondary,#94a3b8)">搜尋商家、地址或地標</span>
+        <div style="display:flex;gap:6px;margin-top:6px">
+          <input type="text" id="ppa-location-search" maxlength="200" placeholder="例如：中壢火車站、桃園市中壢區中正路 100 號" style="display:block;width:100%;margin-top:6px;padding:8px;border:1px solid var(--border,#334155);border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9);box-sizing:border-box;margin-top:0;flex:1" onkeydown="if(event.key==='Enter'){event.preventDefault();ppaLocationSearch();}">
+          <button type="button" class="btn-secondary" style="font-size:12px;padding:6px 10px" id="ppa-location-search-btn" onclick="ppaLocationSearch()">🔍 搜尋</button>
+        </div>
+        <div id="ppa-location-search-results" style="display:none;margin-top:6px;border:1px solid var(--border,#334155);border-radius:6px;max-height:180px;overflow-y:auto"></div>
+      </div>
+      <div style="margin-bottom:12px">
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+          <button type="button" class="btn-secondary" style="font-size:12px;padding:6px 10px" id="ppa-location-map-load-btn" onclick="ppaLocationOpenMap()">🗺 開啟地圖</button>
+          <button type="button" class="btn-secondary" style="font-size:12px;padding:6px 10px" onclick="ppaLocationUseCurrent()">📡 使用目前位置</button>
+          <button type="button" class="btn-secondary" style="font-size:12px;padding:6px 10px" onclick="ppaLocationMapType('roadmap')">地圖</button>
+          <button type="button" class="btn-secondary" style="font-size:12px;padding:6px 10px" onclick="ppaLocationMapType('satellite')">衛星</button>
+        </div>
+        <div id="ppa-location-map" style="display:none;width:100%;height:260px;margin-top:8px;border-radius:8px;overflow:hidden;border:1px solid var(--border,#334155)"></div>
+        <div id="ppa-location-map-status" role="status" aria-live="polite" style="font-size:12px;margin-top:6px;color:var(--text-secondary,#94a3b8)">可直接手動輸入地址；開啟地圖後可搜尋、拖曳定位點微調位置。</div>
+      </div>
+      <label style="display:block;margin-bottom:12px">
+        <span style="font-size:13px;color:var(--text-secondary,#94a3b8)">完整地址 *</span>
+        <input type="text" id="ppa-location-address" maxlength="500" style="display:block;width:100%;margin-top:6px;padding:8px;border:1px solid var(--border,#334155);border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9);box-sizing:border-box">
       </label>
       <label style="display:block;margin-bottom:12px">
-        <span style="font-size:13px;color:var(--text-secondary,#94a3b8)">地址 *</span>
-        <input type="text" id="ppa-location-address" maxlength="500" style="display:block;width:100%;margin-top:6px;padding:8px;border:1px solid var(--border,#334155);border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
+        <span style="font-size:13px;color:var(--text-secondary,#94a3b8)">地址備註／取餐指引</span>
+        <input type="text" id="ppa-location-note" maxlength="500" style="display:block;width:100%;margin-top:6px;padding:8px;border:1px solid var(--border,#334155);border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9);box-sizing:border-box">
       </label>
-      <label style="display:block;margin-bottom:12px">
-        <span style="font-size:13px;color:var(--text-secondary,#94a3b8)">地址備註</span>
-        <input type="text" id="ppa-location-note" maxlength="500" style="display:block;width:100%;margin-top:6px;padding:8px;border:1px solid var(--border,#334155);border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
-      </label>
-      <div style="display:flex;gap:12px">
-        <label style="flex:1">
-          <span style="font-size:13px;color:var(--text-secondary,#94a3b8)">緯度 lat</span>
-          <input type="number" step="any" id="ppa-location-lat" style="display:block;width:100%;margin-top:6px;padding:8px;border:1px solid var(--border,#334155);border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
+      <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px">
+        <label style="flex:1;min-width:140px">
+          <span style="font-size:13px;color:var(--text-secondary,#94a3b8)">縣市</span>
+          <select id="ppa-location-city" style="display:block;width:100%;margin-top:6px;padding:8px;border:1px solid var(--border,#334155);border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9);box-sizing:border-box" onchange="ppaLocationCityChanged()"><option value="">（地區待補）</option></select>
         </label>
-        <label style="flex:1">
-          <span style="font-size:13px;color:var(--text-secondary,#94a3b8)">經度 lng</span>
-          <input type="number" step="any" id="ppa-location-lng" style="display:block;width:100%;margin-top:6px;padding:8px;border:1px solid var(--border,#334155);border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9)">
+        <label style="flex:1;min-width:140px">
+          <span style="font-size:13px;color:var(--text-secondary,#94a3b8)">行政區</span>
+          <select id="ppa-location-district" style="display:block;width:100%;margin-top:6px;padding:8px;border:1px solid var(--border,#334155);border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9);box-sizing:border-box"><option value="">（地區待補）</option></select>
+        </label>
+        <label style="flex:0 0 110px">
+          <span style="font-size:13px;color:var(--text-secondary,#94a3b8)">郵遞區號</span>
+          <input type="text" id="ppa-location-postal" maxlength="6" inputmode="numeric" style="display:block;width:100%;margin-top:6px;padding:8px;border:1px solid var(--border,#334155);border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9);box-sizing:border-box">
         </label>
       </div>
+      <details id="ppa-location-advanced" style="margin-bottom:4px">
+        <summary style="cursor:pointer;font-size:13px;color:var(--text-secondary,#94a3b8)">進階資料（經緯度、Google Place ID）</summary>
+        <div style="display:flex;gap:12px;margin-top:8px">
+          <label style="flex:1">
+            <span style="font-size:13px;color:var(--text-secondary,#94a3b8)">緯度 lat</span>
+            <input type="number" step="any" id="ppa-location-lat" style="display:block;width:100%;margin-top:6px;padding:8px;border:1px solid var(--border,#334155);border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9);box-sizing:border-box">
+          </label>
+          <label style="flex:1">
+            <span style="font-size:13px;color:var(--text-secondary,#94a3b8)">經度 lng</span>
+            <input type="number" step="any" id="ppa-location-lng" style="display:block;width:100%;margin-top:6px;padding:8px;border:1px solid var(--border,#334155);border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9);box-sizing:border-box">
+          </label>
+        </div>
+        <label style="display:block;margin-top:8px">
+          <span style="font-size:13px;color:var(--text-secondary,#94a3b8)">Google Place ID</span>
+          <input type="text" id="ppa-location-place-id" maxlength="300" style="display:block;width:100%;margin-top:6px;padding:8px;border:1px solid var(--border,#334155);border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9);box-sizing:border-box">
+        </label>
+      </details>
     </div>
     <div class="modal-footer" style="display:flex;gap:8px;justify-content:flex-end;padding:16px">
       <button class="btn-secondary" onclick="ppaCloseLocationForm()">取消</button>

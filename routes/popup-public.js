@@ -38,6 +38,13 @@ function sendPopupError(res, err) {
   return res.status(500).json({ success: false, error: 'POPUP_INTERNAL_ERROR', message: '系統發生錯誤，請稍後再試' });
 }
 
+function buildDisplayOrder(rows) {
+  const { compareSessionsForDisplay } = require('../utils/popupRegion');
+  const m = new Map();
+  rows.slice().sort(compareSessionsForDisplay).forEach((r, i) => m.set(r.id, i + 1));
+  return m;
+}
+
 function resolveStoreIdByPublicCode(db, table, publicCode) {
   if (typeof publicCode !== 'string' || !publicCode) return null;
   const row = db.get(`SELECT store_id FROM ${table} WHERE public_code=?`, [publicCode]);
@@ -76,12 +83,16 @@ router.get('/popup-entry', (req, res) => {
       "SELECT * FROM popup_campaigns WHERE store_id=? AND status='published' ORDER BY sort_order ASC, created_at DESC",
       [storeId]
     );
-    const data = campaigns.map((c) => {
-      const sessions = db.all(
-        "SELECT * FROM popup_sessions WHERE store_id=? AND campaign_id=? AND status='published' ORDER BY pickup_date ASC, sort_order ASC",
-        [storeId, c.id]
-      )
-        .map((s) => popupCheckout.serializePublicSession(db, storeId, s, c.status, now))
+    const rowsByCampaign = campaigns.map((c) => db.all(
+      "SELECT * FROM popup_sessions WHERE store_id=? AND campaign_id=? AND status='published' ORDER BY pickup_date ASC, sort_order ASC",
+      [storeId, c.id]
+    ));
+    // R51：全店穩定顯示順序（取餐開始時間由近到遠，相同時間用既有 id），前端地區
+    // 分組後只依 display_order 排序；不輸出 id。
+    const displayOrder = buildDisplayOrder([].concat(...rowsByCampaign));
+    const data = campaigns.map((c, ci) => {
+      const sessions = rowsByCampaign[ci]
+        .map((s) => ({ ...popupCheckout.serializePublicSession(db, storeId, s, c.status, now), display_order: displayOrder.get(s.id) }))
         .filter((s) => ORDERABLE_LIST_STATES.has(s.effective_state));
       return { ...popupCheckout.serializePublicCampaign(c), sessions };
     }).filter((c) => c.sessions.length > 0);
@@ -107,12 +118,13 @@ router.get('/popup-campaign/:publicCode', (req, res) => {
       return res.status(404).json({ success: false, error: 'POPUP_CAMPAIGN_NOT_FOUND', message: '找不到此快閃活動' });
     }
     const now = Date.now();
-    const sessions = db.all(
+    const rows = db.all(
       'SELECT * FROM popup_sessions WHERE store_id=? AND campaign_id=? ORDER BY pickup_date ASC, sort_order ASC',
       [storeId, campaign.id]
-    )
-      .filter((s) => s.status !== 'draft')
-      .map((s) => popupCheckout.serializePublicSession(db, storeId, s, campaign.status, now));
+    ).filter((s) => s.status !== 'draft');
+    const displayOrder = buildDisplayOrder(rows); // R51
+    const sessions = rows
+      .map((s) => ({ ...popupCheckout.serializePublicSession(db, storeId, s, campaign.status, now), display_order: displayOrder.get(s.id) }));
     res.json({ success: true, data: { ...popupCheckout.serializePublicCampaign(campaign), sessions } });
   } catch (e) { sendPopupError(res, e); }
 });
@@ -334,10 +346,10 @@ function popupPaymentSummary(db, attempt) {
     } : null,
   };
 }
-function popupBaseUrl(req) {
-  const env = process.env.PUBLIC_BASE_URL || process.env.APP_BASE_URL || '';
-  if (/^https?:\/\/[^\s/]+/.test(env)) return env.replace(/\/+$/, '');
-  return `${req.protocol}://${req.get('host')}`;
+// R51：不直接信任 Host header——canonical PUBLIC_BASE_URL／APP_BASE_URL 優先；沒有設定時
+// 只有測試模式可用格式嚴格驗證過的 request host（見 utils/popupPayment.resolvePaymentReturnBase）。
+function popupBaseUrl(req, mode) {
+  return ppay.resolvePaymentReturnBase(req, mode);
 }
 function popupReturnUrl(req, db, attempt, result) {
   const order = db.get('SELECT popup_session_public_code_snapshot AS c FROM orders WHERE id=? AND store_id=?', [attempt.order_id, attempt.store_id]);
@@ -368,8 +380,11 @@ router.post('/popup-payment/linepay-request', async (req, res) => {
       return res.status(409).json({ success: false, error: 'POPUP_PAYMENT_NOT_PAYABLE', message: '此付款已結束或逾時', data: popupPaymentSummary(db, fresh) });
     }
     if (!ppay.providerReadiness(db, fresh.store_id, 'linepay').ready) return res.status(409).json({ success: false, error: 'POPUP_PAYMENT_METHOD_NOT_READY', message: 'LINE Pay 目前無法使用' });
-    const base = popupBaseUrl(req);
-    const sig = ppay.callbackSig(fresh.attempt_id, order.order_number, fresh.amount);
+    const readiness = ppay.providerReadiness(db, fresh.store_id, 'linepay');
+    const base = popupBaseUrl(req, readiness.mode);
+    if (!base) return res.status(409).json({ success: false, error: 'POPUP_PAYMENT_METHOD_NOT_READY', message: 'LINE Pay 目前無法使用' });
+    const sig = ppay.issueCallbackNonce(db, fresh.attempt_id); // R51：一次性 nonce（只存 hash），不依賴 JWT_SECRET
+    if (!sig) return res.status(409).json({ success: false, error: 'POPUP_PAYMENT_NOT_PAYABLE', message: '此付款已結束或逾時' });
     const q = `ref=${encodeURIComponent(fresh.attempt_id)}&cb=${sig}`;
     const { requestLinePayPayment } = require('../utils/linePayService');
     const r = await requestLinePayPayment({ db, storeId: fresh.store_id, order: { ...order, total: fresh.amount },
@@ -388,7 +403,7 @@ router.get('/popup-payment/linepay-confirm', async (req, res) => {
   if (!attempt) return res.status(404).type('text/plain').send('payment not found');
   try {
     const order = db.get('SELECT * FROM orders WHERE id=? AND store_id=?', [attempt.order_id, attempt.store_id]);
-    if (!order || !ppay.verifyCallbackSig(attempt.attempt_id, order.order_number, attempt.amount, String(req.query.cb || ''))) {
+    if (!order || !ppay.verifyAttemptCallback(attempt, order.order_number, String(req.query.cb || ''))) {
       return res.status(400).type('text/plain').send('invalid callback signature');
     }
     if (attempt.status === 'paid') return res.redirect(popupReturnUrl(req, db, attempt, 'paid')); // 重複 callback：冪等 no-op
@@ -437,7 +452,7 @@ router.get('/popup-payment/linepay-cancel', (req, res) => {
   if (!attempt) return res.status(404).type('text/plain').send('payment not found');
   try {
     const order = db.get('SELECT order_number FROM orders WHERE id=? AND store_id=?', [attempt.order_id, attempt.store_id]);
-    if (!order || !ppay.verifyCallbackSig(attempt.attempt_id, order.order_number, attempt.amount, String(req.query.cb || ''))) {
+    if (!order || !ppay.verifyAttemptCallback(attempt, order.order_number, String(req.query.cb || ''))) {
       return res.status(400).type('text/plain').send('invalid callback signature');
     }
     if (attempt.status === 'pending') ppay.markAttemptFailed(db, attempt, 'customer_cancelled');

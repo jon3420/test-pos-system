@@ -71,7 +71,15 @@ function ensurePopupPaymentSchema(db) {
     created_at TEXT DEFAULT (datetime('now','localtime')),
     PRIMARY KEY (store_id, idem_key)
   )`);
+  _ensureCbHashColumn(raw);
   _schemaReady.add(raw);
+}
+// R51：每次 LINE Pay request 的一次性 callback nonce（只存 SHA-256）。舊表補欄位，可重複執行；
+// 不做記憶化（避免外層交易 rollback 後誤判欄位已存在）。
+function _ensureCbHashColumn(raw) {
+  const r = raw.exec('PRAGMA table_info(popup_payment_attempts)');
+  const cols = new Set((r[0] ? r[0].values : []).map((v) => v[1]));
+  if (cols.size && !cols.has('cb_hash')) raw.run("ALTER TABLE popup_payment_attempts ADD COLUMN cb_hash TEXT NOT NULL DEFAULT ''");
 }
 function _hasTable(db, name) {
   return !!db.get("SELECT name FROM sqlite_master WHERE type='table' AND name=?", [name]);
@@ -112,13 +120,22 @@ function providerReadiness(db, storeId, code, settings) {
   const desc = settings && settings.methods && settings.methods[code] ? String(settings.methods[code].description || '').trim() : '';
   if (code === 'cash') return { ready: true, reason: null };
   if (code === 'linepay') {
+    // R51：沿用「系統設定 → 金流 API」的同一筆 LINE Pay 設定與 adapter。回呼驗證改用
+    // 每筆付款一次性的 nonce（見 issueCallbackNonce），不再依賴 JWT_SECRET；
+    // 正式模式另外要求 canonical 公開網址（PUBLIC_BASE_URL／APP_BASE_URL）。
     const { getLinePayConfig } = require('./linePayClient');
     const cfg = getLinePayConfig(db, storeId, true);
-    if (!_cbKey()) return { ready: false, reason: '伺服器尚未設定 JWT_SECRET，無法簽署付款回呼' };
-    if (cfg && cfg.channelId && cfg.channelSecret) return { ready: true, reason: null, mode: cfg.mode === 'live' || cfg.mode === 'prod' ? 'live' : 'test' };
-    return { ready: false, reason: 'LINE Pay 尚未在「金流設定」啟用，或缺少 Channel 設定' };
+    if (!(cfg && cfg.channelId && cfg.channelSecret)) return { ready: false, reason: 'LINE Pay 尚未在「系統設定 → 金流 API」啟用，或缺少 Channel ID／Channel Secret' };
+    const mode = cfg.mode === 'live' || cfg.mode === 'prod' ? 'live' : 'test';
+    if (mode === 'live' && !canonicalPublicBase()) return { ready: false, reason: 'LINE Pay 為正式模式，但伺服器尚未設定 PUBLIC_BASE_URL（https），無法產生可信任的付款回呼網址', mode };
+    return { ready: true, reason: null, mode };
   }
-  if (code === 'credit_card') return { ready: false, reason: '目前系統尚未串接線上信用卡金流' };
+  if (code === 'credit_card') {
+    // 只有「真的支援線上刷卡」的 provider adapter 存在時才可能可用；目前系統沒有任何
+    // 線上刷卡 adapter（綠界／藍新只有設定欄位），LINE Pay 已設定也不代表信用卡可用。
+    const cc = db.all("SELECT code FROM payment_gateways WHERE store_id=? AND code IN ('ecpay','newebpay') AND is_active=1 AND merchant_id<>'' AND secret_key<>''", [storeId]).map((r) => r.code);
+    return { ready: false, reason: cc.length ? `已在「金流 API」設定${cc.map((c) => (c === 'ecpay' ? '綠界' : '藍新')).join('、')}，但系統尚未提供線上刷卡 adapter，暫不可啟用` : '尚未設定支援線上信用卡的金流（綠界／藍新），且系統尚未提供線上刷卡 adapter' };
+  }
   if (code === 'transfer') return desc ? { ready: true, reason: null } : { ready: false, reason: '請先填寫顧客看到的轉帳說明（帳號等）' };
   if (code === 'platform') return desc ? { ready: true, reason: null } : { ready: false, reason: '請先填寫顧客看到的平台付款說明' };
   return { ready: false, reason: '不支援的付款方式' };
@@ -252,10 +269,12 @@ function makeCheckoutPaymentResolver(db, storeId) {
   };
 }
 
-// ── token / 簽章（callback 參數以既有 JWT_SECRET 做 HMAC；不新增 secret）─────
+// ── token / 簽章 ───────────────────────────────────────────────────────
 function newToken() { return crypto.randomBytes(24).toString('hex'); }
 function hashToken(t) { return crypto.createHash('sha256').update(String(t)).digest('hex'); }
-function _cbKey() { return process.env.JWT_SECRET || ''; } // 沿用既有部署環境變數 JWT_SECRET；未設定時線上付款視為不可用（見 providerReadiness）
+// R50 舊機制：以 JWT_SECRET 對回呼參數做 HMAC。R51 起新付款改用 nonce；這裡只保留給
+// 「R50 已發出、尚未完成、沒有 nonce」的在途付款驗證用（JWT_SECRET 未設定時一律不通過）。
+function _cbKey() { return process.env.JWT_SECRET || ''; }
 function callbackSig(attemptId, orderNumber, amount) {
   return crypto.createHmac('sha256', _cbKey()).update(`popup-pay|${attemptId}|${orderNumber}|${amount}`).digest('hex');
 }
@@ -263,6 +282,92 @@ function verifyCallbackSig(attemptId, orderNumber, amount, sig) {
   if (!_cbKey() || typeof sig !== 'string' || !/^[0-9a-f]{64}$/.test(sig)) return false;
   const a = Buffer.from(callbackSig(attemptId, orderNumber, amount), 'hex'), b = Buffer.from(sig, 'hex');
   return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+// R51：每次向 LINE Pay 建立付款時，產生一次性 256-bit callback nonce，放進
+// confirm／cancel 導回網址；資料庫只存 SHA-256（與付款 token 同一作法）。沒有
+// 全域秘密可被猜到、每筆付款互相獨立、存在 DB 所以重啟不失效。重新建立付款會
+// 換新的 nonce，舊交易的導回網址即失效（不會改變任何狀態）。
+function issueCallbackNonce(db, attemptId) {
+  ensurePopupPaymentSchema(db);
+  _ensureCbHashColumn(db._db);
+  const raw = crypto.randomBytes(32).toString('hex');
+  let ok = false;
+  db.runDurableTransaction(() => {
+    db._db.run("UPDATE popup_payment_attempts SET cb_hash=?, updated_at=datetime('now','localtime') WHERE attempt_id=? AND status='pending'", [hashToken(raw), attemptId]);
+    ok = db._db.getRowsModified() === 1;
+  });
+  return ok ? raw : null;
+}
+function verifyAttemptCallback(attempt, orderNumber, cb) {
+  if (!attempt || typeof cb !== 'string' || !/^[0-9a-f]{64}$/.test(cb)) return false;
+  if (attempt.cb_hash) {
+    const a = Buffer.from(hashToken(cb), 'hex'), b = Buffer.from(String(attempt.cb_hash), 'hex');
+    return a.length === b.length && b.length === 32 && crypto.timingSafeEqual(a, b);
+  }
+  return verifyCallbackSig(attempt.attempt_id, orderNumber, attempt.amount, cb);
+}
+
+// R51：canonical 公開網址（不信任瀏覽器 Host）。PUBLIC_BASE_URL 優先，其次 APP_BASE_URL；
+// 只接受 http(s)://host[:port] 形式（尾斜線可有可無）。
+const _BASE_RE = /^(https?):\/\/([A-Za-z0-9.-]{1,253})(?::(\d{1,5}))?\/?$/;
+function canonicalPublicBase() {
+  for (const k of ['PUBLIC_BASE_URL', 'APP_BASE_URL']) {
+    const v = String(process.env[k] || '').trim();
+    const m = _BASE_RE.exec(v);
+    if (m) return { base: v.replace(/\/+$/, ''), source: k, host: m[2].toLowerCase(), https: m[1] === 'https' };
+  }
+  return null;
+}
+// 付款導回網址的 base：有 canonical 設定就只用它；沒有時，僅測試模式允許使用格式嚴格
+// 驗證過的 request host（正式模式在 providerReadiness 已被擋下）。
+function resolvePaymentReturnBase(req, mode) {
+  const c = canonicalPublicBase();
+  if (c) return c.base;
+  if (mode === 'live') return null;
+  const host = req && typeof req.get === 'function' ? String(req.get('host') || '') : '';
+  if (!/^[A-Za-z0-9.-]{1,253}(?::\d{1,5})?$/.test(host)) return null;
+  const proto = req.protocol === 'https' ? 'https' : 'http';
+  return `${proto}://${host}`;
+}
+
+// R51：管理端「金流連線診斷」——只回傳是否已設定與網址／網域，絕不回傳任何秘密值。
+const LEGACY_SYSTEM_HOSTS = Object.freeze(['pop-system-v13.zeabur.app']);
+function _hostOf(u) { try { return new URL(String(u)).hostname.toLowerCase(); } catch (e) { return ''; } }
+function paymentDiagnostics(db, storeId, req) {
+  const gw = db.get("SELECT is_active, mode, merchant_id, secret_key, webhook_url, callback_url FROM payment_gateways WHERE store_id=? AND code='linepay'", [storeId]);
+  const mode = gw && (gw.mode === 'live' || gw.mode === 'prod') ? 'live' : 'test';
+  const canon = canonicalPublicBase();
+  const base = resolvePaymentReturnBase(req, mode);
+  const baseHost = _hostOf(base);
+  const urlInfo = (u) => {
+    const h = _hostOf(u);
+    return { url: u ? String(u).slice(0, 300) : '', host: h, legacy_domain: LEGACY_SYSTEM_HOSTS.includes(h), mismatch: !!(u && h && baseHost && h !== baseHost) };
+  };
+  return {
+    linepay: {
+      gateway_exists: !!gw, active: !!(gw && Number(gw.is_active) === 1), mode,
+      has_channel_id: !!(gw && String(gw.merchant_id || '').trim()), has_channel_secret: !!(gw && String(gw.secret_key || '').trim()),
+      ready: providerReadiness(db, storeId, 'linepay').ready, reason: providerReadiness(db, storeId, 'linepay').reason,
+    },
+    app: {
+      signing_secret_env: 'JWT_SECRET', // 只回傳環境變數「名稱」與是否已設定，絕不回傳值
+      signing_secret_configured: !!process.env.JWT_SECRET,
+      popup_callback_signing: 'per_attempt_nonce',
+      public_base_url_configured: !!canon,
+      public_base_source: canon ? canon.source : (base ? 'request_host' : 'none'),
+    },
+    urls: {
+      derived_base: base || '',
+      suggested_popup_confirm: base ? `${base}/api/line-orders/popup-payment/linepay-confirm` : '',
+      suggested_popup_cancel: base ? `${base}/api/line-orders/popup-payment/linepay-cancel` : '',
+      suggested_line_callback: base ? `${base}/api/linepay/confirm` : '',
+      suggested_line_webhook: base ? `${base}/api/linepay/webhook` : '',
+      provider_callback: urlInfo(gw && gw.callback_url),
+      provider_webhook: urlInfo(gw && gw.webhook_url),
+      provider_urls_used_for_requests: false,
+    },
+  };
 }
 
 // 交易內呼叫：建立 pending 付款 attempt（呼叫端已在 runDurableTransaction 內）。
@@ -396,6 +501,7 @@ module.exports = {
   loadPopupPaymentSettings, loadCampaignOverrides, providerReadiness, describeMethods, validateAndNormalizeSettings,
   savePopupPaymentSettings, getCampaignOverride, saveCampaignOverride, storeUsableMethods, effectiveCampaignMethods,
   publicPaymentInfo, makeCheckoutPaymentResolver, newToken, hashToken, callbackSig, verifyCallbackSig,
+  issueCallbackNonce, verifyAttemptCallback, canonicalPublicBase, resolvePaymentReturnBase, paymentDiagnostics, LEGACY_SYSTEM_HOSTS,
   createAttemptInTransaction, findAttemptByToken, findAttemptById, reconcileExpiredPopupPayments,
   markAttemptFailed, markAttemptPaid, switchFailedAttemptToCash, derivePopupPaymentState, stateLabel,
 };

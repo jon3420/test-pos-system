@@ -45,10 +45,41 @@ function resolvePopupProductSSOT(p) {
 // /uploads/xxx.png），外部 host、data:、javascript:、相對路徑、含 .. 一律
 // 回 null，前端顯示文字 fallback——不新增第二份商品圖片資料。
 const POPUP_SAFE_IMAGE_RE = /^\/(?!\/)[A-Za-z0-9._~\-\/]{1,300}\.(?:png|jpe?g|webp|gif)$/i;
+// R51：系統自己的上傳流程把圖片存成「當時後台網域 + /uploads/…」的絕對網址
+// （public/js/app.js 上傳按鈕用 window.location.origin + json.url），網域搬家
+// 後就變成舊網域網址；R49 的 sanitizer 只收 / 開頭路徑，於是本系統自己的圖片
+// 也全部被當成外部網址拒絕。這裡只把「本系統網域」底下的 /uploads/ 圖片轉回
+// 同源路徑（瀏覽器永遠只向目前網域要圖，伺服器不代抓任何網址，無 SSRF）；
+// 其他外部網址、data:/javascript:、帳密、編碼過的路徑、.. 一律拒絕。
+// 本系統網域＝PUBLIC_BASE_URL／APP_BASE_URL 的 host、既有 ALLOWED_HOSTS，以及
+// 本系統已知的目前／舊網域（owner 於 R51 指定）。
+const POPUP_SYSTEM_IMAGE_HOSTS = Object.freeze(['pos-system.zeabur.app', 'pop-system-v13.zeabur.app']);
+function popupTrustedImageHosts() {
+  const hosts = new Set(POPUP_SYSTEM_IMAGE_HOSTS);
+  ['PUBLIC_BASE_URL', 'APP_BASE_URL'].forEach((k) => {
+    try { if (process.env[k]) hosts.add(new URL(process.env[k]).hostname.toLowerCase()); } catch (e) { /* 格式錯誤的 env 忽略 */ }
+  });
+  String(process.env.ALLOWED_HOSTS || '').split(',').map((h) => h.trim().toLowerCase()).filter((h) => /^[a-z0-9.-]{1,253}$/.test(h)).forEach((h) => hosts.add(h));
+  return hosts;
+}
 function sanitizePopupImageUrl(raw) {
   if (typeof raw !== 'string') return null;
-  const v = raw.trim();
-  if (!POPUP_SAFE_IMAGE_RE.test(v) || v.indexOf('..') !== -1) return null;
+  let v = raw.trim();
+  if (!v || v.length > 1000 || /[\s\\<>"'`\u0000-\u001f\u007f]/.test(v) || v.indexOf('%') !== -1) return null;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(v)) {
+    let u;
+    try { u = new URL(v); } catch (e) { return null; }
+    if ((u.protocol !== 'https:' && u.protocol !== 'http:') || u.username || u.password || u.port) return null;
+    if (!popupTrustedImageHosts().has(u.hostname.toLowerCase())) return null;
+    if (!u.pathname.startsWith('/uploads/')) return null;
+    v = u.pathname;
+  } else {
+    if (v.startsWith('//')) return null;
+    if (v.startsWith('uploads/')) v = '/' + v;
+    const q = v.search(/[?#]/);
+    if (q !== -1) v = v.slice(0, q);
+  }
+  if (!POPUP_SAFE_IMAGE_RE.test(v) || v.indexOf('..') !== -1 || v.indexOf('//') !== -1) return null;
   return v;
 }
 function popupPublicProductPresentation(r) {
@@ -218,6 +249,7 @@ function serializePublicSession(db, storeId, row, campaignStatus, now) {
     address_note: row.address_note,
     lat: row.lat,
     lng: row.lng,
+    ...popupPublicRegionFields(db, storeId, row),
     product_scope: row.product_scope,
     products: serializePublicSessionProducts(db, storeId, row),
     // 規格四要求場次畫面顯示「總單量限制」。max_orders 未設定或 <=0 視為
@@ -243,6 +275,18 @@ function serializePublicSession(db, storeId, row, campaignStatus, now) {
     can_order: stateResult.can_order,
     ...popupPaymentPublicFields(db, storeId, row),
   };
+}
+
+// R51：公開場次的縣市／行政區（場次 snapshot 優先；見 utils/popupRegion.js）。
+// 只輸出名稱與「地區待補」旗標，不輸出 location_id 或任何內部 ID。
+function popupPublicRegionFields(db, storeId, row) {
+  const { resolveSessionRegion } = require('./popupRegion');
+  let loc = null;
+  if (!(row.city && row.district) && row.location_id) {
+    loc = db.get('SELECT city, district, address FROM popup_locations WHERE id=? AND store_id=?', [row.location_id, storeId]) || null;
+  }
+  const r = resolveSessionRegion(row, loc);
+  return { city: r.city, district: r.district, region_pending: r.pending };
 }
 
 // R50：只有店家已儲存快閃付款設定時才附加 popup_payment（快閃獨立規則），並把

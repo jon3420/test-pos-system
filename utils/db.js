@@ -3198,6 +3198,30 @@ function _initPopupPickupTables(w) {
     w._db.run('CREATE INDEX IF NOT EXISTS idx_popup_change_logs_store ON popup_session_change_logs(store_id)');
     w._save();
   });
+  // R51：快閃地點／場次的結構化地區欄位（縣市、行政區、郵遞區號）。只新增欄位，
+  // 不重建表、不刪資料，可重複執行。回填只用系統既有的台灣行政區權威資料對
+  // 地址做開頭精確比對（utils/popupRegion.parseRegionFromAddress），比對不到
+  // 就保持空白＝「地區待補」，不呼叫任何外部地理編碼服務。已有值的列不覆蓋。
+  _popupMigrationStep('R51 popup 地區欄位（city/district/postal_code）', () => {
+    const { parseRegionFromAddress } = require('./popupRegion');
+    ['popup_locations', 'popup_sessions'].forEach((table) => {
+      const cols = new Set(w.all(`PRAGMA table_info(${table})`).map((c) => c.name));
+      ['city', 'district', 'postal_code'].forEach((col) => {
+        if (!cols.has(col)) w._db.run(`ALTER TABLE ${table} ADD COLUMN ${col} TEXT NOT NULL DEFAULT ''`);
+      });
+      w._save();
+      const rows = w.all(`SELECT id, address, postal_code FROM ${table} WHERE (city IS NULL OR city='') AND (district IS NULL OR district='')`);
+      let changed = 0;
+      rows.forEach((r) => {
+        const hit = parseRegionFromAddress(r.address);
+        if (!hit) return;
+        w._db.run(`UPDATE ${table} SET city=?, district=?, postal_code=CASE WHEN postal_code IS NULL OR postal_code='' THEN ? ELSE postal_code END WHERE id=? AND (city IS NULL OR city='')`,
+          [hit.city, hit.district, hit.postal_code || '', r.id]);
+        changed += 1;
+      });
+      if (changed) w._save();
+    });
+  });
   // 注意：schema postcondition 驗證（含 orders 九欄位）移到
   // _runPopupPickupOrdersMigration() 執行完之後才做——orders 的九個欄位是在
   // 那個函式裡才被 ALTER TABLE 加上，這裡（_initPopupPickupTables）只建立

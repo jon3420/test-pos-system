@@ -14998,8 +14998,55 @@ async function executeMigrationImport() {
     } catch (e) {
       if (status) status.textContent = '載入快閃付款設定失敗：' + e.message;
     }
+    ppaLoadPaymentDiagnostics();
   }
   window.ppaLoadPayments = ppaLoadPayments;
+  // R51：金流連線診斷——只顯示「是否已設定」、模式與網址網域；任何金鑰／秘密都不會出現在回應中。
+  async function ppaLoadPaymentDiagnostics() {
+    const box = document.getElementById('ppa-pay-diag-body');
+    if (!box) return;
+    try {
+      const res = await apiFetch('/api/popup-pickup/payment-diagnostics');
+      const json = await res.json();
+      if (!json.success) throw new Error(json.message || '載入失敗');
+      ppaRenderPaymentDiagnostics(json.data);
+    } catch (e) { box.textContent = '無法取得金流診斷：' + e.message; }
+  }
+  function ppaRenderPaymentDiagnostics(d) {
+    const box = document.getElementById('ppa-pay-diag-body');
+    if (!box || !d) return;
+    box.textContent = '';
+    const line = (ok, text, warn) => {
+      const div = document.createElement('div');
+      div.className = 'ppa-pay-diag-line';
+      div.setAttribute('data-state', ok ? 'ok' : (warn ? 'warn' : 'bad'));
+      div.style.cssText = 'padding:2px 0;color:' + (ok ? 'var(--text-primary,#e2e8f0)' : (warn ? '#fbbf24' : '#ff9a9a'));
+      div.textContent = (ok ? '✅ ' : '⚠️ ') + text;
+      box.appendChild(div);
+    };
+    const lp = d.linepay || {};
+    const providerOk = lp.active && lp.has_channel_id && lp.has_channel_secret;
+    line(providerOk, providerOk ? `LINE Pay provider 已設定（${lp.mode === 'live' ? '正式模式' : '測試模式'}，沿用「系統設定 → 金流 API」）` : 'LINE Pay provider 尚未完成設定：請到「系統設定 → 金流 API」啟用並填入 Channel ID／Channel Secret');
+    if (providerOk && !lp.ready && lp.reason) line(false, lp.reason);
+    const app = d.app || {};
+    const envName = String(app.signing_secret_env || '');
+    line(true, '快閃付款回呼驗證：每筆付款一次性簽章（不依賴應用程式簽章秘密）');
+    line(!!app.signing_secret_configured, app.signing_secret_configured ? `應用程式簽章秘密 ${envName} 已設定` : `應用程式簽章秘密 ${envName} 尚未設定：系統登入目前使用內建預設值，請在部署環境設定並持久保存（不影響快閃付款）`, true);
+    line(!!app.public_base_url_configured, app.public_base_url_configured ? `公開網址來源：${app.public_base_source}` : '尚未設定 PUBLIC_BASE_URL：測試模式暫以目前網域推導回呼網址；正式模式必須設定', true);
+    const u = d.urls || {};
+    if (u.derived_base) line(true, '系統推導的建議回呼網址：' + u.suggested_line_callback + '（快閃：' + u.suggested_popup_confirm + '）');
+    [['Callback URL', u.provider_callback], ['Webhook URL', u.provider_webhook]].forEach(([label, info]) => {
+      if (!info || !info.url) return;
+      const stale = info.legacy_domain || info.mismatch;
+      line(!stale, stale ? `金流 API 內的 ${label} 指向 ${info.host}，與目前網域不一致——回呼網址可能已過期（系統不會自動修改，請 owner 確認後於「金流 API」更新）` : `金流 API 內的 ${label}：${info.url}`, true);
+    });
+    if (u.provider_urls_used_for_requests === false) {
+      const note = document.createElement('div');
+      note.style.cssText = 'padding-top:4px;font-size:12px;color:var(--text-secondary,#94a3b8)';
+      note.textContent = '說明：LINE Pay 付款的導回網址由系統每次依公開網址產生；「金流 API」內儲存的 Callback／Webhook 欄位目前只作為顯示與 LINE Pay 商家後台核對用。';
+      box.appendChild(note);
+    }
+  }
   function ppaRenderPayments() {
     const d = PPA.pay.data; if (!d) return;
     const status = document.getElementById('ppa-pay-status');
@@ -15013,7 +15060,9 @@ async function executeMigrationImport() {
       const tdE = document.createElement('td');
       const cb = document.createElement('input'); cb.type = 'checkbox'; cb.className = 'ppa-pay-enabled'; cb.checked = !!m.enabled;
       cb.setAttribute('aria-label', '啟用 ' + m.label);
-      if (!m.ready && !m.enabled) cb.disabled = true;
+      // R51：轉帳／平台付款的可用性取決於「顧客看到的說明」，填寫後即可勾選（伺服器儲存時再驗證）；
+      // 需要金流 adapter 的方式（信用卡、未設定的 LINE Pay）未就緒時維持不可勾選。
+      if (!m.ready && !m.enabled && !(m.code === 'transfer' || m.code === 'platform')) cb.disabled = true;
       tdE.appendChild(cb); tr.appendChild(tdE);
       const tdR = document.createElement('td');
       tdR.textContent = m.ready ? '✅ 可用' : ('⚠️ 尚未完成金流設定：' + (m.reason || ''));
@@ -15170,7 +15219,7 @@ async function executeMigrationImport() {
   window.ppaLoadLocations = async function ppaLoadLocations() {
     const myGen = ++PPA.gen.locations;
     const tbody = document.getElementById('ppa-locations-tbody');
-    if (tbody) tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">載入中…</td></tr>';
+    if (tbody) tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">載入中…</td></tr>';
     try {
       const c = ppaController('locations');
       const res = await apiFetch('/api/popup-pickup/locations', { signal: c.signal });
@@ -15186,7 +15235,7 @@ async function executeMigrationImport() {
       if (tbody) {
         tbody.innerHTML = '';
         const tr = document.createElement('tr'); const td = document.createElement('td');
-        td.colSpan = 5; td.style.cssText = 'text-align:center;padding:24px;color:#ff9a9a;cursor:pointer';
+        td.colSpan = 6; td.style.cssText = 'text-align:center;padding:24px;color:#ff9a9a;cursor:pointer';
         td.textContent = '載入失敗：' + e.message + '（點此重試）';
         td.addEventListener('click', ppaLoadLocations);
         tr.appendChild(td); tbody.appendChild(tr);
@@ -15200,7 +15249,7 @@ async function executeMigrationImport() {
     tbody.innerHTML = '';
     if (PPA.locations.length === 0) {
       const tr = document.createElement('tr'); const td = document.createElement('td');
-      td.colSpan = 5; td.style.cssText = 'text-align:center;padding:40px;color:var(--text-muted,#64748b)';
+      td.colSpan = 6; td.style.cssText = 'text-align:center;padding:40px;color:var(--text-muted,#64748b)';
       td.textContent = '目前沒有任何取貨地點';
       tr.appendChild(td); tbody.appendChild(tr);
       return;
@@ -15213,6 +15262,9 @@ async function executeMigrationImport() {
       const tr = document.createElement('tr');
       tr.appendChild(ppaTd(loc.name));
       tr.appendChild(ppaTd(loc.address));
+      const regTd = ppaTd(loc.city && loc.district ? `${loc.city} ${loc.district}` : '⚠️ 地區待補');
+      if (!(loc.city && loc.district)) regTd.title = '請編輯此地點補上縣市與行政區，顧客端才會出現在正確的地區分組';
+      tr.appendChild(regTd);
       let usageLabel = '—';
       if (PPA.joinSessionsError) usageLabel = '無法取得';
       else if (!PPA.joinSessionsLoaded) usageLabel = '載入中…';
@@ -15253,9 +15305,233 @@ async function executeMigrationImport() {
     document.getElementById('ppa-location-lat').value = (loc && loc.lat != null) ? loc.lat : '';
     document.getElementById('ppa-location-lng').value = (loc && loc.lng != null) ? loc.lng : '';
     document.getElementById('ppa-location-modal-title').textContent = loc ? '📍 編輯地點' : '📍 新增地點';
+    ppaLocationResetGeo(loc);
     showModal18('ppa-modal-location');
   };
   window.ppaCloseLocationForm = function ppaCloseLocationForm() { hideModal18('ppa-modal-location'); };
+
+  // ── R51：快閃取餐地點 × Google 地圖 ─────────────────────────────────────
+  // 沿用「外送費設定」既有能力：ensureGoogleMapsSdk()（同一個 Browser Key 端點、同一份
+  // SDK 實例）、_geolocateFriendly()、/api/maps/reverse-geocode。不建立第二份 API Key、
+  // 不改動外送費設定的地圖 modal 狀態。地圖無法載入時，所有欄位仍可手動輸入並儲存。
+  PPA.geo = { catalog: null, catalogPromise: null, map: null, marker: null, sdk: null, placesService: null, autocomplete: null, gen: 0 };
+  function ppaGeoStatus(text, tone) {
+    const el = document.getElementById('ppa-location-map-status');
+    if (!el) return;
+    el.textContent = text || '';
+    el.style.color = tone === 'error' ? '#ff9a9a' : (tone === 'ok' ? '#4ade80' : 'var(--text-secondary,#94a3b8)');
+  }
+  function ppaLoadRegionCatalog() {
+    if (PPA.geo.catalog) return Promise.resolve(PPA.geo.catalog);
+    if (PPA.geo.catalogPromise) return PPA.geo.catalogPromise;
+    PPA.geo.catalogPromise = apiFetch('/api/popup-pickup/regions').then((r) => r.json()).then((j) => {
+      PPA.geo.catalog = (j && j.success && Array.isArray(j.data)) ? j.data : [];
+      return PPA.geo.catalog;
+    }).catch(() => { PPA.geo.catalogPromise = null; return []; });
+    return PPA.geo.catalogPromise;
+  }
+  function ppaFillCitySelect(city, district) {
+    const cs = document.getElementById('ppa-location-city');
+    if (!cs) return;
+    cs.textContent = '';
+    const o0 = document.createElement('option'); o0.value = ''; o0.textContent = '（地區待補）'; cs.appendChild(o0);
+    (PPA.geo.catalog || []).forEach((c) => { const o = document.createElement('option'); o.value = c.city; o.textContent = c.city; cs.appendChild(o); });
+    if (city && !(PPA.geo.catalog || []).some((c) => c.city === city)) { const o = document.createElement('option'); o.value = city; o.textContent = city; cs.appendChild(o); }
+    cs.value = city || '';
+    ppaFillDistrictSelect(district);
+  }
+  function ppaFillDistrictSelect(district) {
+    const cs = document.getElementById('ppa-location-city');
+    const ds = document.getElementById('ppa-location-district');
+    if (!cs || !ds) return;
+    ds.textContent = '';
+    const o0 = document.createElement('option'); o0.value = ''; o0.textContent = '（地區待補）'; ds.appendChild(o0);
+    const c = (PPA.geo.catalog || []).find((x) => x.city === cs.value);
+    (c ? c.districts : []).forEach((d) => { const o = document.createElement('option'); o.value = d; o.textContent = d; ds.appendChild(o); });
+    if (district && !(c && c.districts.includes(district))) { const o = document.createElement('option'); o.value = district; o.textContent = district; ds.appendChild(o); }
+    ds.value = district || '';
+  }
+  window.ppaLocationCityChanged = function ppaLocationCityChanged() { ppaFillDistrictSelect(''); };
+  function ppaLocationResetGeo(loc) {
+    PPA.geo.gen++;
+    const g = PPA.geo.gen;
+    document.getElementById('ppa-location-place-id').value = loc ? (loc.place_id || '') : '';
+    document.getElementById('ppa-location-postal').value = loc ? (loc.postal_code || '') : '';
+    document.getElementById('ppa-location-search').value = '';
+    const rl = document.getElementById('ppa-location-search-results'); if (rl) { rl.textContent = ''; rl.style.display = 'none'; }
+    const adv = document.getElementById('ppa-location-advanced'); if (adv) adv.open = false;
+    const mapEl = document.getElementById('ppa-location-map'); if (mapEl) { mapEl.style.display = 'none'; mapEl.textContent = ''; }
+    PPA.geo.map = null; PPA.geo.marker = null; PPA.geo.placesService = null; PPA.geo.autocomplete = null;
+    ppaGeoStatus('可直接手動輸入地址；開啟地圖後可搜尋、拖曳定位點微調位置。');
+    const city = loc ? (loc.city || '') : ''; const district = loc ? (loc.district || '') : '';
+    ppaFillCitySelect(city, district);
+    ppaLoadRegionCatalog().then(() => { if (g === PPA.geo.gen) ppaFillCitySelect(document.getElementById('ppa-location-city').value || city, document.getElementById('ppa-location-district').value || district); });
+  }
+  // 由 Google address_components／reverse-geocode geo 推出「權威清單內」的縣市與行政區。
+  function ppaRegionFromNames(names, postal) {
+    const cat = PPA.geo.catalog || [];
+    const norm = (x) => String(x || '').trim().replace(/^台/, '臺').replace(/^桃園縣$/, '桃園市');
+    const list = names.map((n) => String(n || '').trim()).filter(Boolean);
+    let city = null;
+    for (const n of list) { const c = cat.find((x) => x.city === n || x.city === norm(n)); if (c) { city = c; break; } }
+    let district = '';
+    if (city) for (const n of list) { if (city.districts.includes(n)) { district = n; break; } }
+    return { city: city ? city.city : '', district, postal_code: /^\d{3}(\d{2,3})?$/.test(String(postal || '')) ? String(postal) : '' };
+  }
+  function ppaRegionFromComponents(components) {
+    const pick = (t) => (components || []).filter((c) => Array.isArray(c.types) && c.types.includes(t)).map((c) => c.long_name);
+    const names = [].concat(pick('administrative_area_level_1'), pick('administrative_area_level_2'), pick('locality'), pick('administrative_area_level_3'), pick('sublocality_level_1'), pick('sublocality'));
+    return ppaRegionFromNames(names, (pick('postal_code')[0] || ''));
+  }
+  // 一次套用（地址、座標、縣市、行政區、郵遞區號、Place ID 同時更新，避免只改一半）。
+  function ppaApplyGeoResult(r, sourceLabel) {
+    if (!r) return;
+    if (typeof r.lat === 'number' && typeof r.lng === 'number' && Number.isFinite(r.lat) && Number.isFinite(r.lng)) {
+      document.getElementById('ppa-location-lat').value = Number(r.lat.toFixed(7));
+      document.getElementById('ppa-location-lng').value = Number(r.lng.toFixed(7));
+    }
+    if (r.address) document.getElementById('ppa-location-address').value = String(r.address).slice(0, 500);
+    if (r.name && !document.getElementById('ppa-location-name').value.trim()) document.getElementById('ppa-location-name').value = String(r.name).slice(0, 200);
+    document.getElementById('ppa-location-place-id').value = r.placeId ? String(r.placeId).slice(0, 300) : '';
+    if (r.region && r.region.city) {
+      ppaFillCitySelect(r.region.city, r.region.district || '');
+      if (r.region.postal_code) document.getElementById('ppa-location-postal').value = r.region.postal_code;
+    }
+    if (PPA.geo.marker && typeof r.lat === 'number') {
+      const pos = { lat: r.lat, lng: r.lng };
+      try { PPA.geo.marker.setPosition(pos); PPA.geo.map.panTo(pos); } catch (e) {}
+    }
+    const reg = r.region && r.region.city ? `${r.region.city}${r.region.district ? ' ' + r.region.district : ''}` : '地區待補（請手動選擇縣市／行政區）';
+    ppaGeoStatus(`✅ ${sourceLabel}：已帶入地址與座標（${reg}），可再手動修改，記得按「儲存」。`, 'ok');
+  }
+  async function ppaEnsureMapsReady() {
+    await ppaLoadRegionCatalog();
+    const ok = await ensureGoogleMapsSdk();
+    if (!ok) ppaGeoStatus('⚠️ Google 地圖目前無法載入（可能尚未設定 Browser Key 或網路異常）。仍可手動輸入地址、縣市、行政區與經緯度並儲存。', 'error');
+    return ok;
+  }
+  // regionOnly=true：只補縣市／行政區／郵遞區號（用於「已選定搜尋結果、但結果沒有行政區資料」，
+  // 不可覆蓋使用者剛選的地址與 Place ID）。
+  function ppaReverseGeocode(lat, lng, regionOnly) {
+    const g = PPA.geo.gen;
+    const done = (r) => {
+      if (g !== PPA.geo.gen) return;
+      if (!regionOnly) { ppaApplyGeoResult(r, '依定位點反查地址'); return; }
+      if (r && r.region && r.region.city) {
+        ppaFillCitySelect(r.region.city, r.region.district || '');
+        if (r.region.postal_code && !document.getElementById('ppa-location-postal').value) document.getElementById('ppa-location-postal').value = r.region.postal_code;
+        ppaGeoStatus(`✅ 已帶入縣市／行政區（${r.region.city}${r.region.district ? ' ' + r.region.district : ''}），可再手動修改，記得按「儲存」。`, 'ok');
+      }
+    };
+    try {
+      if (window.google && window.google.maps && window.google.maps.Geocoder) {
+        new google.maps.Geocoder().geocode({ location: { lat, lng } }, (results, status) => {
+          if (status === 'OK' && results && results[0]) {
+            done({ lat, lng, address: results[0].formatted_address || '', placeId: '', region: ppaRegionFromComponents(results[0].address_components) });
+          } else { ppaServerReverseGeocode(lat, lng, done, regionOnly); }
+        });
+        return;
+      }
+    } catch (e) {}
+    ppaServerReverseGeocode(lat, lng, done, regionOnly);
+  }
+  function ppaServerReverseGeocode(lat, lng, done, regionOnly) {
+    apiFetch('/api/maps/reverse-geocode', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lat, lng }) })
+      .then((r) => r.json()).then((j) => {
+        if (j && j.success) done({ lat, lng, address: j.formatted_address || '', placeId: '', region: ppaRegionFromNames([j.geo && j.geo.region, j.geo && j.geo.city, j.geo && j.geo.district], j.geo && j.geo.postal_code) });
+        else ppaReverseFailed(lat, lng, done, regionOnly);
+      }).catch(() => ppaReverseFailed(lat, lng, done, regionOnly));
+  }
+  function ppaReverseFailed(lat, lng, done, regionOnly) {
+    if (regionOnly) { ppaGeoStatus('⚠️ 已帶入搜尋結果，但無法判斷縣市／行政區，請手動選擇。', 'error'); return; }
+    done({ lat, lng, placeId: '' });
+    ppaGeoStatus('⚠️ 已更新座標，但無法反查地址，請手動確認地址與縣市／行政區。', 'error');
+  }
+  window.ppaLocationOpenMap = async function ppaLocationOpenMap() {
+    const g = PPA.geo.gen;
+    ppaGeoStatus('地圖載入中…');
+    const ok = await ppaEnsureMapsReady();
+    if (!ok || g !== PPA.geo.gen) return false;
+    const el = document.getElementById('ppa-location-map');
+    if (PPA.geo.map) { el.style.display = 'block'; return true; }
+    const lat = parseFloat(document.getElementById('ppa-location-lat').value);
+    const lng = parseFloat(document.getElementById('ppa-location-lng').value);
+    const has = Number.isFinite(lat) && Number.isFinite(lng);
+    const center = has ? { lat, lng } : { lat: 24.9639, lng: 121.2248 };
+    el.style.display = 'block';
+    PPA.geo.map = new google.maps.Map(el, { center, zoom: has ? 18 : 12, mapTypeId: 'roadmap' });
+    PPA.geo.marker = new google.maps.Marker({ position: center, map: PPA.geo.map, draggable: true });
+    PPA.geo.marker.addListener('dragend', () => {
+      const p = PPA.geo.marker.getPosition();
+      ppaGeoStatus('定位點已移動，反查地址中…');
+      ppaReverseGeocode(p.lat(), p.lng());
+    });
+    try {
+      const input = document.getElementById('ppa-location-search');
+      if (google.maps.places && google.maps.places.Autocomplete && input) {
+        PPA.geo.autocomplete = new google.maps.places.Autocomplete(input, { fields: ['place_id', 'name', 'formatted_address', 'geometry', 'address_components'], componentRestrictions: { country: 'tw' } });
+        PPA.geo.autocomplete.addListener('place_changed', () => {
+          const pl = PPA.geo.autocomplete.getPlace();
+          if (pl && pl.geometry && pl.geometry.location) ppaApplyPlace(pl, '搜尋結果');
+        });
+      }
+    } catch (e) {}
+    ppaGeoStatus(has ? '已定位到儲存的座標，可拖曳定位點微調。' : '尚未設定座標：請搜尋地點，或拖曳定位點到正確位置。');
+    return true;
+  };
+  function ppaApplyPlace(pl, label) {
+    const loc = pl.geometry.location;
+    const lat = typeof loc.lat === 'function' ? loc.lat() : loc.lat;
+    const lng = typeof loc.lng === 'function' ? loc.lng() : loc.lng;
+    const region = Array.isArray(pl.address_components) && pl.address_components.length ? ppaRegionFromComponents(pl.address_components) : null;
+    ppaApplyGeoResult({ lat, lng, address: pl.formatted_address || '', name: pl.name || '', placeId: pl.place_id || '', region }, label);
+    if (!region || !region.city) ppaReverseGeocode(lat, lng, true);
+  }
+  window.ppaLocationSearch = async function ppaLocationSearch() {
+    const q = document.getElementById('ppa-location-search').value.trim();
+    if (!q) { ppaGeoStatus('請先輸入商家、地址或地標', 'error'); return; }
+    const ok = await ppaLocationOpenMap();
+    if (!ok) return;
+    const g = PPA.geo.gen;
+    ppaGeoStatus('搜尋中…');
+    const list = document.getElementById('ppa-location-search-results');
+    list.textContent = ''; list.style.display = 'none';
+    try {
+      if (!PPA.geo.placesService) PPA.geo.placesService = new google.maps.places.PlacesService(PPA.geo.map);
+      PPA.geo.placesService.textSearch({ query: q, location: PPA.geo.map.getCenter() }, (results, status) => {
+        if (g !== PPA.geo.gen) return;
+        if (status === google.maps.places.PlacesServiceStatus.OK && results && results.length) {
+          if (results.length === 1) { ppaApplyPlace(results[0], '搜尋結果'); return; }
+          results.slice(0, 5).forEach((r, i) => {
+            const b = document.createElement('button');
+            b.type = 'button'; b.className = 'ppa-geo-result';
+            b.style.cssText = 'display:block;width:100%;text-align:left;padding:8px 10px;background:transparent;border:0;border-bottom:1px solid var(--border,#334155);color:inherit;cursor:pointer';
+            b.textContent = `${i + 1}. ${r.name || '（無名稱）'} — ${r.formatted_address || ''}`;
+            b.addEventListener('click', () => { list.textContent = ''; list.style.display = 'none'; ppaApplyPlace(r, '搜尋結果'); });
+            list.appendChild(b);
+          });
+          list.style.display = 'block';
+          ppaGeoStatus(`搜尋到 ${Math.min(results.length, 5)} 個結果，請選擇：`);
+        } else {
+          ppaGeoStatus('找不到符合的地點，請改用完整地址或附近地標搜尋；也可以直接手動輸入。', 'error');
+        }
+      });
+    } catch (e) { ppaGeoStatus('搜尋發生錯誤，可改用手動輸入：' + e.message, 'error'); }
+  };
+  window.ppaLocationUseCurrent = function ppaLocationUseCurrent() {
+    const g = PPA.geo.gen;
+    ppaGeoStatus('取得目前位置中…');
+    _geolocateFriendly((lat, lng) => {
+      if (g !== PPA.geo.gen) return;
+      ppaApplyGeoResult({ lat, lng, placeId: '' }, '目前位置');
+      ppaReverseGeocode(lat, lng);
+    }, (msg) => ppaGeoStatus('❌ ' + msg, 'error'));
+  };
+  window.ppaLocationMapType = async function ppaLocationMapType(type) {
+    const ok = PPA.geo.map ? true : await ppaLocationOpenMap();
+    if (!ok || !PPA.geo.map) return;
+    PPA.geo.map.setMapTypeId(type === 'satellite' ? 'satellite' : 'roadmap');
+  };
 
   let ppaLocationSaving = false;
   window.ppaSaveLocation = async function ppaSaveLocation() {
@@ -15268,6 +15544,11 @@ async function executeMigrationImport() {
     const lngRaw = document.getElementById('ppa-location-lng').value;
     // 不得用空白字串覆蓋既有合法座標：只有真的輸入了值才送出該欄位
     const body = { name, address, address_note: document.getElementById('ppa-location-note').value };
+    // R51：地區與 Place ID 與其他欄位同一次請求原子儲存（伺服器依權威行政區清單驗證）。
+    body.city = document.getElementById('ppa-location-city').value || '';
+    body.district = document.getElementById('ppa-location-district').value || '';
+    body.postal_code = document.getElementById('ppa-location-postal').value.trim();
+    body.place_id = document.getElementById('ppa-location-place-id').value.trim();
     if (latRaw !== '' || lngRaw !== '') {
       body.lat = latRaw === '' ? null : Number(latRaw);
       body.lng = lngRaw === '' ? null : Number(lngRaw);

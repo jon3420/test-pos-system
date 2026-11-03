@@ -21,6 +21,7 @@ const { requireFeature } = require('../middleware/featureGate');
 const pp = require('../utils/popupPickup');
 const { countActivePopupOrdersForSession } = require('../utils/popupCheckout');
 const ppay = require('../utils/popupPayment');
+const pregion = require('../utils/popupRegion'); // R51
 
 router.use(requireStaffJwt);
 router.use(requireFeature('line_order'));
@@ -146,6 +147,11 @@ function serializeLocation(row) {
     address_note: row.address_note,
     lat: row.lat,
     lng: row.lng,
+    // R51：結構化地區（空白＝地區待補；不影響既有欄位）
+    city: row.city || '',
+    district: row.district || '',
+    postal_code: row.postal_code || '',
+    region_pending: !(row.city && row.district),
     active: !!row.active,
     created_at: row.created_at,
     updated_at: row.updated_at,
@@ -192,6 +198,8 @@ function serializeSession(db, row, campaignStatus, now, storeId) {
     address_note: row.address_note,
     lat: row.lat,
     lng: row.lng,
+    city: row.city || '', // R51：場次地區 snapshot（空白＝地區待補）
+    district: row.district || '',
     status: row.status,
     product_scope: row.product_scope,
     max_orders: row.max_orders,
@@ -361,6 +369,13 @@ router.put('/payment-settings', (req, res) => {
     res.json({ success: true, data: paymentAdminView(db, req.storeId) });
   } catch (e) { sendError(res, e); }
 });
+// R51：金流連線診斷（唯讀；只回傳是否已設定、模式與網址網域，絕不回傳任何秘密值）。
+router.get('/payment-diagnostics', (req, res) => {
+  try {
+    const db = getDb();
+    res.json({ success: true, data: ppay.paymentDiagnostics(db, req.storeId, req) });
+  } catch (e) { sendError(res, e); }
+});
 router.get('/campaigns/:campaignId/payment-settings', (req, res) => {
   try {
     const db = getDb();
@@ -408,6 +423,31 @@ function validateLatLng(lat, lng) {
   return { lat: hasLat ? lat : null, lng: hasLng ? lng : null };
 }
 
+// R51：地點的縣市／行政區／郵遞區號。三欄一起處理（原子）：有送任何一欄就以
+// 送來的值為準（經權威行政區清單正規化／驗證）；都沒送時，新增或地址有變更
+// 的情況下才用地址開頭精確比對自動帶入，否則沿用既有值。
+function resolveLocationRegionInput(body, address, existing) {
+  const provided = ['city', 'district', 'postal_code'].some((k) => body[k] !== undefined);
+  if (provided) {
+    ['city', 'district', 'postal_code'].forEach((k) => { if (body[k] !== undefined && body[k] !== null && typeof body[k] !== 'string') pp.fail('POPUP_VALIDATION_ERROR', `${k} 必須是文字`); });
+    const r = pregion.normalizeRegionInput({ city: body.city || '', district: body.district || '', postal_code: body.postal_code || '' });
+    if (!r.city) {
+      const parsed = pregion.parseRegionFromAddress(address);
+      if (parsed) return { city: parsed.city, district: parsed.district, postal_code: r.postal_code || parsed.postal_code };
+    }
+    return r;
+  }
+  if (existing && String(existing.address || '').trim() === String(address || '').trim()) {
+    return { city: existing.city || '', district: existing.district || '', postal_code: existing.postal_code || '' };
+  }
+  const parsed = pregion.parseRegionFromAddress(address);
+  return parsed || { city: '', district: '', postal_code: '' };
+}
+
+router.get('/regions', (req, res) => {
+  try { res.json({ success: true, data: pregion.listRegionCatalog() }); } catch (e) { sendError(res, e); }
+});
+
 router.post('/locations', (req, res) => {
   try {
     const db = getDb();
@@ -419,6 +459,7 @@ router.post('/locations', (req, res) => {
     if (!pp.isOptionalString(body.address_note, 500)) pp.fail('POPUP_VALIDATION_ERROR', 'address_note 長度超出限制');
     if (!pp.isOptionalString(body.place_id, 300)) pp.fail('POPUP_VALIDATION_ERROR', 'place_id 長度超出限制');
     const { lat, lng } = validateLatLng(body.lat, body.lng);
+    const region = resolveLocationRegionInput(body, body.address, null);
     let active = 1;
     if (body.active !== undefined) {
       active = pp.normalizeStrictBoolTo01(body.active);
@@ -427,9 +468,9 @@ router.post('/locations', (req, res) => {
 
     const id = uuidv4();
     db.runDurableTransaction(() => { db._db.run(
-      `INSERT INTO popup_locations (id, store_id, name, place_id, address, address_note, lat, lng, active)
-       VALUES (?,?,?,?,?,?,?,?,?)`,
-      [id, storeId, body.name.trim(), body.place_id || '', body.address.trim(), body.address_note || '', lat, lng, active]
+      `INSERT INTO popup_locations (id, store_id, name, place_id, address, address_note, lat, lng, active, city, district, postal_code)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [id, storeId, body.name.trim(), body.place_id || '', body.address.trim(), body.address_note || '', lat, lng, active, region.city, region.district, region.postal_code]
     ); }); // R44.2F.1
     const row = db.get('SELECT * FROM popup_locations WHERE id=? AND store_id=?', [id, storeId]);
     res.status(201).json({ success: true, data: serializeLocation(row) });
@@ -462,14 +503,15 @@ router.patch('/locations/:locationId', (req, res) => {
     if (!pp.isOptionalString(next.address_note, 500)) pp.fail('POPUP_VALIDATION_ERROR', 'address_note 長度超出限制');
     if (!pp.isOptionalString(next.place_id, 300)) pp.fail('POPUP_VALIDATION_ERROR', 'place_id 長度超出限制');
     const { lat, lng } = validateLatLng(next.lat, next.lng);
+    const region = resolveLocationRegionInput(body, next.address, existing);
 
     // 修改地點庫不得回寫任何既有 session——這裡只更新 popup_locations 本身，
     // 已建立的 popup_sessions 全部使用自己建立當下複製的 snapshot 欄位，
     // 完全不會因為這個 UPDATE 而被靜默改動（見規格 5.2／十四.3）。
     db.runDurableTransaction(() => { db._db.run(
-      `UPDATE popup_locations SET name=?, address=?, address_note=?, place_id=?, lat=?, lng=?, active=?, updated_at=datetime('now','localtime')
+      `UPDATE popup_locations SET name=?, address=?, address_note=?, place_id=?, lat=?, lng=?, active=?, city=?, district=?, postal_code=?, updated_at=datetime('now','localtime')
        WHERE id=? AND store_id=?`,
-      [next.name.trim(), next.address.trim(), next.address_note || '', next.place_id || '', lat, lng, next.active, existing.id, storeId]
+      [next.name.trim(), next.address.trim(), next.address_note || '', next.place_id || '', lat, lng, next.active, region.city, region.district, region.postal_code, existing.id, storeId]
     ); }); // R44.2F.1
     const row = db.get('SELECT * FROM popup_locations WHERE id=? AND store_id=?', [existing.id, storeId]);
     res.json({ success: true, data: serializeLocation(row) });
@@ -638,6 +680,9 @@ function prepareSessionInsert(db, storeId, campaignId, body) {
     address_note: location.address_note,
     lat: location.lat,
     lng: location.lng,
+    city: location.city || '',
+    district: location.district || '',
+    postal_code: location.postal_code || '',
     status,
     product_scope: productScope,
     max_orders: maxOrders,
@@ -652,13 +697,13 @@ function insertSessionRow(db, p, publicCode) {
       id, store_id, campaign_id, public_code, name,
       pickup_date, pickup_start_time, pickup_end_time, order_open_at, order_cutoff_at,
       location_id, place_name, place_id, address, address_note, lat, lng,
-      status, product_scope, max_orders, sort_order, revision
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)`,
+      status, product_scope, max_orders, sort_order, revision, city, district, postal_code
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?)`,
     [
       p.id, p.store_id, p.campaign_id, publicCode, p.name,
       p.pickup_date, p.pickup_start_time, p.pickup_end_time, p.order_open_at, p.order_cutoff_at,
       p.location_id, p.place_name, p.place_id, p.address, p.address_note, p.lat, p.lng,
-      p.status, p.product_scope, p.max_orders, p.sort_order,
+      p.status, p.product_scope, p.max_orders, p.sort_order, p.city || '', p.district || '', p.postal_code || '',
     ]
   );
   if (p.product_scope === 'selected') {
@@ -952,6 +997,11 @@ router.patch('/sessions/:sessionId', (req, res) => {
         );
         if (db._db.getRowsModified() !== 1) {
           throw new pp.PopupValidationError('POPUP_SESSION_REVISION_CONFLICT', '場次資料已被其他操作更新，請重新整理後再試', 409, {});
+        }
+        if (wantsLocationChange) {
+          // R51：換地點時，地區 snapshot 與地址等 snapshot 一起從新地點複製（同一交易）。
+          db._db.run('UPDATE popup_sessions SET city=?, district=?, postal_code=? WHERE id=? AND store_id=?',
+            [targetLocation.city || '', targetLocation.district || '', targetLocation.postal_code || '', existing.id, storeId]);
         }
 
         if (nextProductScope === 'selected') {
