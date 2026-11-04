@@ -2707,6 +2707,10 @@ function initTables(w) {
 
   // H1.4.12｜快閃取餐排程中心 — Phase 1：資料表 + orders 相容欄位
   _initPopupPickupTables(w);
+  // R53：快閃場次商品販售設定表＋allocation stock_state（additive、idempotent；見 utils/popupSales.js）。
+  _popupMigrationStep('R53 popup_session_product_sales／stock_state', () => {
+    if (require('./popupSales').migrateRawAtStartup(w._db)) w._save();
+  });
   _runPopupPickupOrdersMigration(w);
 }
 

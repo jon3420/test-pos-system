@@ -1005,6 +1005,8 @@ router.patch('/sessions/:sessionId', (req, res) => {
         }
 
         if (nextProductScope === 'selected') {
+          // R53：記下重寫前的 quota，供販售設定同步（新上限不得低於已保留＋已成立）。
+          const r53BeforeProducts = db.all('SELECT product_id, quota_qty FROM popup_session_products WHERE session_id=? AND store_id=?', [existing.id, storeId]);
           db._db.run('DELETE FROM popup_session_products WHERE session_id=? AND store_id=?', [existing.id, storeId]);
           nextProducts.forEach((prod) => {
             db._db.run(
@@ -1012,6 +1014,7 @@ router.patch('/sessions/:sessionId', (req, res) => {
               [storeId, existing.id, prod.product_id, prod.enabled, prod.quota_qty]
             );
           });
+          require('../utils/popupSales').syncQuotaFromSessionFormInTransaction(db, storeId, existing.id, r53BeforeProducts, nextProducts);
         } else {
           // all_takeout：不得留下舊的白名單資料。
           db._db.run('DELETE FROM popup_session_products WHERE session_id=? AND store_id=?', [existing.id, storeId]);
@@ -1042,6 +1045,114 @@ router.patch('/sessions/:sessionId', (req, res) => {
       data: serializeSession(db, row, campaignStatus, Date.now(), storeId),
       affected_order_count: responseAffectedCount,
     });
+  } catch (e) { sendError(res, e); }
+});
+
+// ══════════════════════════════════════════════════════════════════════
+// R53：📦 商品販售管理（以快閃場次為單位；資料獨立於一般 LINE 今日販售管理）
+// ══════════════════════════════════════════════════════════════════════
+const psales = require('../utils/popupSales');
+function salesSessionView(db, storeId, row, now) {
+  const campaignStatus = getCampaignStatusScoped(db, storeId, row.campaign_id);
+  const allowed = psales.batchTargetAllowed(row, campaignStatus, false, now);
+  return {
+    id: row.id, name: row.name, campaign_id: row.campaign_id, status: row.status, product_scope: row.product_scope,
+    pickup_date: row.pickup_date, pickup_start_time: row.pickup_start_time, pickup_end_time: row.pickup_end_time,
+    effective_state: psales.sessionTimingState(row, campaignStatus, now), not_started: allowed.ok,
+  };
+}
+
+router.get('/sessions/:sessionId/sales', (req, res) => {
+  try {
+    const db = getDb();
+    psales.ensurePopupSalesSchema(db);
+    const storeId = req.storeId;
+    const row = getOwnedSession(db, storeId, req.params.sessionId);
+    res.set('Cache-Control', 'no-store');
+    res.json({ success: true, data: { session: salesSessionView(db, storeId, row, Date.now()), items: psales.listSessionSales(db, storeId, row) } });
+  } catch (e) { sendError(res, e); }
+});
+
+function parseSalesItems(body) {
+  const items = body && body.items;
+  if (!Array.isArray(items) || items.length === 0 || items.length > 500) pp.fail('POPUP_VALIDATION_ERROR', 'items 必須是 1~500 筆的陣列');
+  const seen = new Set();
+  return items.map((it, idx) => {
+    if (!it || !pp.isPositiveInt(it.product_id)) pp.fail('POPUP_VALIDATION_ERROR', `items[${idx}].product_id 必須是正整數`);
+    if (seen.has(it.product_id)) pp.fail('POPUP_VALIDATION_ERROR', `items[${idx}].product_id 重複`);
+    seen.add(it.product_id);
+    return { product_id: it.product_id, patch: psales.normalizeSalesPatch(it, idx) };
+  });
+}
+
+router.put('/sessions/:sessionId/sales', (req, res) => {
+  try {
+    const db = getDb();
+    psales.ensurePopupSalesSchema(db);
+    const storeId = req.storeId;
+    const row = getOwnedSession(db, storeId, req.params.sessionId);
+    const updates = parseSalesItems(req.body || {});
+    let result;
+    db.runDurableTransaction(() => {
+      const fresh = db.get('SELECT * FROM popup_sessions WHERE id=? AND store_id=?', [row.id, storeId]);
+      result = psales.applySalesUpdatesInTransaction(db, storeId, fresh, updates, true);
+    });
+    res.json({ success: true, data: { updated: result.updated, session: salesSessionView(db, storeId, row, Date.now()), items: psales.listSessionSales(db, storeId, row) } });
+  } catch (e) { sendError(res, e); }
+});
+
+// 將來源場次的指定商品設定套用到其他場次。預設只允許「尚未開放下單」的場次；
+// include_open=true 時另允許下單中場次；已截止／取貨中／已結束／已取消／封存一律拒絕。
+// dry_run=true 只回傳預覽（目標場次、可套用商品數、拒絕原因），不寫入；正式套用需 confirm=true。
+const SALES_APPLY_FIELDS = ['sale_enabled', 'stock_mode', 'stock_total', 'per_order_limit', 'manual_sold_out'];
+router.post('/sales/apply', (req, res) => {
+  try {
+    const db = getDb();
+    psales.ensurePopupSalesSchema(db);
+    const storeId = req.storeId;
+    const body = req.body || {};
+    const source = getOwnedSession(db, storeId, String(body.source_session_id || ''));
+    const fields = Array.isArray(body.fields) ? body.fields : [];
+    if (!fields.length || fields.some((f) => !SALES_APPLY_FIELDS.includes(f))) pp.fail('POPUP_VALIDATION_ERROR', `fields 只能包含 ${SALES_APPLY_FIELDS.join('/')}`);
+    const productIds = Array.isArray(body.product_ids) ? body.product_ids : [];
+    if (!productIds.length || productIds.length > 500 || productIds.some((x) => !pp.isPositiveInt(x))) pp.fail('POPUP_VALIDATION_ERROR', 'product_ids 必須是 1~500 個正整數');
+    const targetIds = Array.isArray(body.target_session_ids) ? [...new Set(body.target_session_ids)] : [];
+    if (!targetIds.length || targetIds.length > 100) pp.fail('POPUP_VALIDATION_ERROR', 'target_session_ids 必須是 1~100 個場次');
+    const includeOpen = body.include_open === true;
+    const dryRun = body.dry_run === true;
+    if (!dryRun && body.confirm !== true) pp.fail('POPUP_CONFIRM_REQUIRED', '批次套用前必須確認（confirm=true）', 400);
+    const now = Date.now();
+    const srcSales = new Map(psales.listSessionSales(db, storeId, source).map((r) => [r.product_id, r]));
+    const updates = productIds.filter((pid) => srcSales.has(pid)).map((pid) => {
+      const r = srcSales.get(pid); const patch = {};
+      fields.forEach((f) => {
+        if (f === 'stock_total') patch.stock_total = r.stock_total || 0;
+        else if (f === 'per_order_limit') patch.per_order_limit = r.per_order_limit || 0;
+        else patch[f] = r[f];
+      });
+      if (fields.includes('stock_total') && !fields.includes('stock_mode')) patch.stock_mode = r.stock_mode;
+      return { product_id: pid, patch };
+    });
+    const targets = targetIds.map((tid) => {
+      const t = db.get('SELECT * FROM popup_sessions WHERE id=? AND store_id=?', [String(tid), storeId]);
+      if (!t || t.id === source.id) return { session_id: String(tid), ok: false, reason: t ? '不可套用到來源場次本身' : '找不到指定場次' };
+      const campaignStatus = getCampaignStatusScoped(db, storeId, t.campaign_id);
+      const allowed = psales.batchTargetAllowed(t, campaignStatus, includeOpen, now);
+      return { session_id: t.id, name: t.name, pickup_date: t.pickup_date, row: t, ok: allowed.ok, reason: allowed.reason || '' };
+    });
+    const results = [];
+    const runAll = () => targets.forEach((t) => {
+      if (!t.ok) { results.push({ session_id: t.session_id, name: t.name || '', applied: 0, skipped_session: true, reason: t.reason }); return; }
+      const r = psales.applySalesUpdatesInTransaction(db, storeId, t.row, updates, false);
+      results.push({ session_id: t.session_id, name: t.name, pickup_date: t.pickup_date, applied: r.updated, rejected: r.rejected });
+    });
+    if (dryRun) {
+      // 預覽：在交易內試算後一律 rollback，不留下任何寫入。
+      try { db._db.run('BEGIN'); runAll(); } finally { db._db.run('ROLLBACK'); }
+    } else {
+      db.runDurableTransaction(runAll);
+    }
+    res.json({ success: true, data: { dry_run: dryRun, product_count: updates.length, source_session_id: source.id, targets: results } });
   } catch (e) { sendError(res, e); }
 });
 

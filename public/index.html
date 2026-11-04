@@ -747,6 +747,7 @@
       <button class="order-tab-btn active" id="ppa-tabbtn-campaigns" onclick="ppaSwitchTab('campaigns')">🎪 活動</button>
       <button class="order-tab-btn" id="ppa-tabbtn-locations" onclick="ppaSwitchTab('locations')">📍 取貨地點</button>
       <button class="order-tab-btn" id="ppa-tabbtn-sessions" onclick="ppaSwitchTab('sessions')">🗓️ 場次</button>
+      <button class="order-tab-btn" id="ppa-tabbtn-sales" onclick="ppaSwitchTab('sales')">📦 商品販售管理</button>
       <button class="order-tab-btn" id="ppa-tabbtn-payments" onclick="ppaSwitchTab('payments')">💳 付款方式管理</button>
       <button class="order-tab-btn" id="ppa-tabbtn-links" onclick="ppaSwitchTab('links')">🔗 公開連結／測試</button>
     </div>
@@ -802,6 +803,42 @@
       </table>
     </div>
 
+    <!-- ── 📦 商品販售管理（R53：以快閃場次為單位；與一般 LINE 今日販售管理資料完全分開） ── -->
+    <div id="ppa-panel-sales" class="ppa-panel" style="display:none">
+      <div style="font-size:13px;color:var(--text-secondary,#94a3b8);margin-bottom:12px">
+        每個快閃場次獨立設定商品是否販售、限量數量與每筆限購；不會影響一般 LINE 今日販售數量。剩餘數量 = 總販售數量 − 已保留 − 已成立。
+      </div>
+      <div class="ppa-sales-toolbar" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px">
+        <label style="font-size:13px">活動
+          <select id="ppa-sales-campaign" onchange="ppaSalesOnCampaignChange()" style="max-width:100%;min-width:0;margin-left:4px;padding:6px 8px;border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9);border:1px solid var(--border,#334155)"></select>
+        </label>
+        <label style="font-size:13px">場次
+          <select id="ppa-sales-session" onchange="ppaSalesLoad()" style="max-width:100%;min-width:0;margin-left:4px;padding:6px 8px;border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9);border:1px solid var(--border,#334155)"></select>
+        </label>
+        <span id="ppa-sales-session-hint" style="font-size:12px;color:var(--text-muted,#64748b)"></span>
+      </div>
+      <div id="ppa-sales-batchbar" style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:10px;padding:8px 10px;border:1px solid var(--border,#334155);border-radius:8px">
+        <span id="ppa-sales-selected-count" style="font-size:13px;margin-right:6px">已選 0 項</span>
+        <button class="btn-secondary" onclick="ppaSalesBatch('enable')">批次啟用</button>
+        <button class="btn-secondary" onclick="ppaSalesBatch('disable')">批次停用</button>
+        <label style="font-size:13px">數量 <input type="number" id="ppa-sales-batch-total" min="0" step="1" style="width:80px;padding:4px 6px;border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9);border:1px solid var(--border,#334155)"></label>
+        <button class="btn-secondary" onclick="ppaSalesBatch('total')">批次設定數量</button>
+        <label style="font-size:13px">每筆限購 <input type="number" id="ppa-sales-batch-limit" min="0" step="1" style="width:70px;padding:4px 6px;border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9);border:1px solid var(--border,#334155)"></label>
+        <button class="btn-secondary" onclick="ppaSalesBatch('limit')">批次設定限購</button>
+        <button class="btn-primary" onclick="ppaSalesOpenApply()">套用到其他場次…</button>
+      </div>
+      <div id="ppa-sales-msg" role="status" aria-live="polite" style="font-size:13px;margin-bottom:8px"></div>
+      <div class="ppa-sales-table-wrap" style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+        <table class="data-table ppa-sales-table">
+          <thead><tr>
+            <th><input type="checkbox" id="ppa-sales-check-all" aria-label="全選商品" onchange="ppaSalesToggleAll(this.checked)"></th>
+            <th>商品</th><th>售價</th><th>此場次販售</th><th>庫存模式</th><th>總販售數量</th><th>已保留</th><th>已成立／已售</th><th>剩餘</th><th>每筆限購</th><th>狀態</th><th>操作</th><th>最後更新</th>
+          </tr></thead>
+          <tbody id="ppa-sales-tbody"><tr><td colspan="13" style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">請先選擇活動與場次</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
     <!-- ── 💳 快閃付款方式管理（R50：快閃獨立通路；不影響一般 LINE 外帶／外送／冷藏宅配／POS） ── -->
     <div id="ppa-panel-payments" class="ppa-panel" style="display:none">
       <h3 style="font-size:16px;margin:0 0 6px">💳 快閃付款方式管理</h3>
@@ -849,6 +886,29 @@
         只有「已發布」的場次／活動可以分享；草稿／暫停／取消的場次會顯示不可分享原因。
       </div>
       <div id="ppa-links-list"><div style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">載入中…</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- R53 📦 商品販售管理：套用到其他場次（確認） -->
+<div class="modal-overlay" id="ppa-modal-sales-apply" style="display:none" onclick="if(event.target===this)ppaSalesCloseApply()">
+  <div class="modal" style="max-width:560px">
+    <div class="modal-header"><h3>📦 套用販售設定到其他場次</h3><button class="modal-close" onclick="ppaSalesCloseApply()">✕</button></div>
+    <div class="modal-body">
+      <div id="ppa-sales-apply-summary" style="font-size:13px;margin-bottom:8px"></div>
+      <fieldset style="border:1px solid var(--border,#334155);border-radius:8px;padding:8px 12px;margin-bottom:8px">
+        <legend style="font-size:13px;padding:0 4px">套用欄位</legend>
+        <label style="margin-right:10px"><input type="checkbox" class="ppa-sales-apply-field" value="sale_enabled" checked> 是否販售</label>
+        <label style="margin-right:10px"><input type="checkbox" class="ppa-sales-apply-field" value="stock_total" checked> 庫存模式與數量</label>
+        <label style="margin-right:10px"><input type="checkbox" class="ppa-sales-apply-field" value="per_order_limit" checked> 每筆限購</label>
+      </fieldset>
+      <label style="display:block;font-size:13px;margin-bottom:6px"><input type="checkbox" id="ppa-sales-apply-include-open" onchange="ppaSalesApplyPreview()"> 也套用到「下單中」場次（預設只套用尚未開放下單的場次；已截止／已結束／已取消一律不覆寫）</label>
+      <div id="ppa-sales-apply-targets" style="max-height:260px;overflow:auto;border:1px solid var(--border,#334155);border-radius:8px;padding:8px"></div>
+      <div id="ppa-sales-apply-preview" role="status" aria-live="polite" style="font-size:13px;margin-top:8px"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="ppaSalesCloseApply()">取消</button>
+      <button class="btn-primary" id="ppa-sales-apply-btn" onclick="ppaSalesConfirmApply()">確認套用</button>
     </div>
   </div>
 </div>

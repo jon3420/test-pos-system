@@ -335,7 +335,7 @@ img{max-width:100%;display:block}
 </style>
 <link rel="stylesheet" href="/css/product-detail-modal.css">
 <!-- R48：快閃取餐（/popup-order）顧客前台專用樣式；所有 selector 皆限定在 popup scope，一般 LINE 點餐頁不受影響。 -->
-<link rel="stylesheet" href="/css/popup-order.css?v=r52-popup-runtime-1">
+<link rel="stylesheet" href="/css/popup-order.css?v=r53-popup-ops-1">
 </head>
 <body>
 
@@ -2268,6 +2268,11 @@ function reconcilePopupCartWithFreshProducts(cart, freshProducts){
       return;
     }
     let qty=it.qty;
+    // R53：每筆限購（伺服器 fresh 值）同樣是上限。
+    if(fresh.per_order_limit!=null && qty>fresh.per_order_limit){
+      notices.push({ type:'clamped', product_id:it.product_id, name:fresh.name, from:qty, to:fresh.per_order_limit });
+      qty=fresh.per_order_limit;
+    }
     if(fresh.remaining_qty!=null && qty>fresh.remaining_qty){
       if(fresh.remaining_qty<=0){
         notices.push({ type:'removed', product_id:it.product_id, name:fresh.name });
@@ -2345,6 +2350,8 @@ function popupSetView(root, view){
 function popupBuildHeader(titleText, status){
   const header=popupEl('header','popup-order-header');
   header.appendChild(popupEl('p','popup-order-brand','快閃取餐'));
+  // R53：快閃訂單查詢／我的訂單（只查快閃訂單；載入／錯誤畫面不顯示）。
+  if(titleText!=null) header.appendChild(popupBuildLookupButtons());
   if(titleText!=null) header.appendChild(popupEl('h2','popup-order-title',titleText));
   if(status){
     const pill=popupEl('p','popup-order-status',status.label);
@@ -2444,6 +2451,7 @@ function popupAdjustCartQty(productId, delta){
   let nextQty=currentQty+delta;
   if(nextQty<0) nextQty=0;
   if(product.remaining_qty!=null && nextQty>product.remaining_qty) nextQty=product.remaining_qty;
+  if(product.per_order_limit!=null && nextQty>product.per_order_limit) nextQty=product.per_order_limit;
   if(nextQty<=0){
     if(idx>=0) items.splice(idx,1);
   }else if(idx>=0){
@@ -2534,7 +2542,7 @@ function popupRefreshCartViews(){
     const mb=li.querySelector('button[data-action="minus"]');
     if(mb) mb.disabled=disabled || q<=0;
     const pb=li.querySelector('button[data-action="plus"]');
-    if(pb) pb.disabled=disabled || (p.remaining_qty!=null && q>=p.remaining_qty);
+    if(pb) pb.disabled=disabled || (p.remaining_qty!=null && q>=p.remaining_qty) || (p.per_order_limit!=null && q>=p.per_order_limit);
     li.setAttribute('data-in-cart', q>0 ? 'true' : 'false');
   });
   const bar=root.querySelector('.popup-order-cartbar');
@@ -3036,6 +3044,11 @@ function renderPopupSessionScreen(){
     }else if(p.remaining_qty!=null){
       meta.appendChild(popupEl('span','popup-order-stock',`剩 ${p.remaining_qty}`));
     }
+    if(!p.sold_out && p.per_order_limit!=null){
+      const lim=popupEl('span','popup-order-stock',`每筆限購 ${p.per_order_limit}`);
+      lim.setAttribute('data-tone','limit');
+      meta.appendChild(lim);
+    }
     info.appendChild(meta);
     li.appendChild(info);
 
@@ -3060,6 +3073,7 @@ function renderPopupSessionScreen(){
     plusBtn.setAttribute('data-action','plus');
     plusBtn.setAttribute('aria-label', `增加 ${p.name} 數量`);
     plusBtn.disabled=disabled || (p.remaining_qty!=null && currentQty>=p.remaining_qty);
+    if(p.per_order_limit!=null && currentQty>=p.per_order_limit) plusBtn.disabled=true;
     plusBtn.addEventListener('click', ()=>{ popupAdjustCartQty(p.product_id, 1); });
     qtyWrap.appendChild(plusBtn);
 
@@ -3498,6 +3512,7 @@ const POPUP_CHECKOUT_ERROR_ALLOWLIST={
   POPUP_PRODUCT_NOT_AVAILABLE: '購物車內有商品目前不開放購買，畫面已為您更新。',
   POPUP_PRODUCT_NOT_IN_SESSION: '購物車內有商品不在此場次可售清單中，畫面已為您更新。',
   POPUP_PRODUCT_SOLD_OUT: '購物車內有商品剩餘份數不足，畫面已為您更新。',
+  POPUP_PRODUCT_OVER_LIMIT: '購物車內有商品超過每筆訂單限購數量，請調整後再送出。',
   POPUP_PAYMENT_METHOD_NOT_READY: '此付款方式尚未開放於快閃取餐，請選擇其他已開放的付款方式。',
   POPUP_PAYMENT_METHOD_NOT_ALLOWED: '此付款方式不適用於快閃取餐，請選擇其他付款方式。',
   POPUP_INTERNAL_ERROR: '系統發生錯誤，請稍後再試。',
@@ -3506,8 +3521,22 @@ const POPUP_CHECKOUT_ERROR_ALLOWLIST={
 // reload session，但絕不自動重新送單（規格六）。
 const POPUP_CHECKOUT_RELOAD_CODES=new Set([
   'POPUP_SESSION_NOT_ORDERABLE','POPUP_SESSION_FULL','POPUP_PRODUCT_NOT_AVAILABLE',
-  'POPUP_PRODUCT_NOT_IN_SESSION','POPUP_PRODUCT_SOLD_OUT','POPUP_PAYMENT_METHOD_NOT_READY',
+  'POPUP_PRODUCT_NOT_IN_SESSION','POPUP_PRODUCT_SOLD_OUT','POPUP_PAYMENT_METHOD_NOT_READY','POPUP_PRODUCT_OVER_LIMIT',
 ]);
+
+// R53：庫存衝突的結構化結果 → 顧客看得懂的逐項說明（名稱只取本機已載入的商品資料，不插入後端原始訊息）。
+const POPUP_CONFLICT_REASON_TEXT={ sold_out:'已售完', insufficient:'剩餘數量不足', over_limit:'超過每筆限購', not_in_session:'目前不在此場次販售', disabled:'目前不在此場次販售' };
+function popupDescribeStockConflicts(conflicts){
+  if(!Array.isArray(conflicts) || !conflicts.length) return '';
+  return conflicts.slice(0,10).map((c)=>{
+    const p=(popupProducts||[]).find((x)=>x && x.product_id===Number(c && c.product_id));
+    const name=p ? p.name : '商品';
+    const reason=POPUP_CONFLICT_REASON_TEXT[c && c.reason] || '數量不足';
+    const avail=Number(c && c.available);
+    return (c && (c.reason==='insufficient' || c.reason==='over_limit') && Number.isFinite(avail) && avail>0)
+      ? `「${name}」${reason}，目前最多可購 ${avail} 份` : `「${name}」${reason}`;
+  }).join('；');
+}
 
 async function submitPopupCheckout(){
   // 規格五：單一 in-flight、double-click/Enter 重複觸發只會真正送出一次。
@@ -3562,6 +3591,9 @@ async function submitPopupCheckout(){
     // 非成功或 malformed 201：一律保留購物車，不清除任何欄位。
     const code=(json && json.error) || 'POPUP_INTERNAL_ERROR';
     _popupCheckoutError=POPUP_CHECKOUT_ERROR_ALLOWLIST[code] || '系統發生錯誤，請稍後再試。';
+    // R53：庫存衝突：逐項說明哪些商品不足與目前可購數；購物車保留，顧客調整後可重新送出。
+    const conflictText=popupDescribeStockConflicts(json && json.conflicts);
+    if(conflictText) _popupCheckoutError=_popupCheckoutError+' '+conflictText+'。';
     popupApplySubmitState();
     if(POPUP_CHECKOUT_RELOAD_CODES.has(code)){
       // 場次/商品/付款狀態已改變：fresh reload，但不自動重送。
@@ -3942,6 +3974,384 @@ function _popupHandlePickerPopState(ev){
   renderPopupEntryPicker(_popupPickerContext.kindLabel, _popupPickerContext.sessions);
 }
 try{ window.addEventListener('popstate', _popupHandlePickerPopState); }catch(e){}
+
+// ══════════════════════════════════════════════════════════════════════
+// R53：快閃訂單查詢／我的訂單（與一般 LINE「查詢訂單／我的訂單」相同的查詢規則；
+// 只查快閃訂單，資料範圍與一般 LINE 完全分開）。
+// - 姓名／電話只放在 POST body，不放網址。
+// - 查詢成功後只保留伺服器發的 token（記憶體＋本分頁 sessionStorage，30 分鐘到期）；
+//   歷史訂單內容不寫入 localStorage。切換帳號會撤銷 token 並清除。
+// - 所有文字一律 textContent。
+// ══════════════════════════════════════════════════════════════════════
+const POPUP_LOOKUP_TOKEN_KEY='popup_lookup_token_v1';
+let _popupLookup={ token:null, view:'closed', mode:'query', orders:[], total:0, page:1, hasMore:false, busy:false, returnFocus:null, lastScrollY:0 };
+function popupLookupContextBody(){
+  const c=POPUP_ENTRY_CONTEXT||{};
+  if(popupSession && popupSession.public_code) return { session_code: popupSession.public_code };
+  if(c.popupEntryType==='session' && c.popupEntryCode) return { session_code:c.popupEntryCode };
+  if(c.popupEntryType==='campaign' && c.popupEntryCode) return { campaign_code:c.popupEntryCode };
+  if(c.popupEntryType==='store' && c.popupStoreId) return { store_id:c.popupStoreId };
+  return {};
+}
+function popupLookupLoadToken(){
+  if(_popupLookup.token) return _popupLookup.token;
+  try{ const t=window.sessionStorage.getItem(POPUP_LOOKUP_TOKEN_KEY); if(t && /^[0-9a-f]{64}$/.test(t)) _popupLookup.token=t; }catch(e){}
+  return _popupLookup.token;
+}
+function popupLookupSaveToken(t){
+  _popupLookup.token=t||null;
+  try{ if(t) window.sessionStorage.setItem(POPUP_LOOKUP_TOKEN_KEY, t); else window.sessionStorage.removeItem(POPUP_LOOKUP_TOKEN_KEY); }catch(e){}
+}
+function popupBuildLookupButtons(){
+  const bar=popupEl('div','popup-order-lookup-btns');
+  const q=popupEl('button','popup-order-lookup-btn','🔍 查詢訂單');
+  q.type='button'; q.setAttribute('data-lookup-open','query');
+  q.addEventListener('click',(ev)=>popupOpenLookup('query', ev.currentTarget));
+  const m=popupEl('button','popup-order-lookup-btn','📜 我的訂單');
+  m.type='button'; m.setAttribute('data-lookup-open','history');
+  m.addEventListener('click',(ev)=>popupOpenLookup('history', ev.currentTarget));
+  bar.appendChild(q); bar.appendChild(m);
+  return bar;
+}
+function popupLookupShell(){
+  let ov=document.getElementById('popupLookupOverlay');
+  if(ov) return ov;
+  ov=popupEl('div','popup-order-lookup');
+  ov.id='popupLookupOverlay';
+  ov.hidden=true;
+  ov.addEventListener('click',(ev)=>{ if(ev.target===ov) popupCloseLookup(); });
+  const panel=popupEl('div','popup-order-lookup-panel');
+  panel.setAttribute('role','dialog');
+  panel.setAttribute('aria-modal','true');
+  panel.setAttribute('aria-labelledby','popupLookupTitle');
+  const head=popupEl('div','popup-order-lookup-head');
+  const back=popupEl('button','popup-order-lookup-back','← 返回');
+  back.type='button'; back.id='popupLookupBack'; back.hidden=true;
+  back.addEventListener('click',()=>popupLookupBack());
+  const title=popupEl('h3','popup-order-lookup-title','查詢訂單');
+  title.id='popupLookupTitle';
+  const close=popupEl('button','popup-order-lookup-close','✕');
+  close.type='button'; close.setAttribute('aria-label','關閉');
+  close.addEventListener('click',()=>popupCloseLookup());
+  head.appendChild(back); head.appendChild(title); head.appendChild(close);
+  const body=popupEl('div','popup-order-lookup-body');
+  body.id='popupLookupBody';
+  panel.appendChild(head); panel.appendChild(body);
+  ov.appendChild(panel);
+  document.addEventListener('keydown',(ev)=>{ if(ev.key==='Escape' && !ov.hidden){ ev.preventDefault(); popupCloseLookup(); } });
+  document.body.appendChild(ov);
+  return ov;
+}
+function popupOpenLookup(kind, triggerEl){
+  const ov=popupLookupShell();
+  _popupLookup.returnFocus=triggerEl||null;
+  _popupLookup.lastScrollY=window.scrollY||0;
+  ov.hidden=false;
+  document.body.classList.add('popup-order-lookup-open');
+  if(kind==='history' && popupLookupLoadToken()) popupLookupLoadList(1, false);
+  else popupLookupRenderForm(kind);
+}
+function popupCloseLookup(){
+  const ov=document.getElementById('popupLookupOverlay');
+  if(!ov) return;
+  ov.hidden=true;
+  _popupLookup.view='closed';
+  document.body.classList.remove('popup-order-lookup-open');
+  try{ if(Math.abs((window.scrollY||0)-_popupLookup.lastScrollY)>1) window.scrollTo(0,_popupLookup.lastScrollY); }catch(e){}
+  try{ if(_popupLookup.returnFocus && document.body.contains(_popupLookup.returnFocus)) _popupLookup.returnFocus.focus({ preventScroll:true }); }catch(e){}
+}
+function popupLookupBack(){
+  if(_popupLookup.view==='detail' || _popupLookup.view==='rebuy'){
+    if(_popupLookup.orders.length) popupLookupRenderList(); else popupLookupRenderForm(_popupLookup.mode);
+  }else popupCloseLookup();
+}
+function popupLookupSetHead(title, showBack){
+  const t=document.getElementById('popupLookupTitle'); if(t) t.textContent=title;
+  const b=document.getElementById('popupLookupBack'); if(b) b.hidden=!showBack;
+}
+function popupLookupBody(){ const b=document.getElementById('popupLookupBody'); b.textContent=''; b.scrollTop=0; return b; }
+function popupLookupMsg(parent, text, tone){
+  const p=popupEl('p','popup-order-lookup-msg',text);
+  p.setAttribute('role', tone==='error' ? 'alert' : 'status');
+  if(tone) p.setAttribute('data-tone',tone);
+  parent.appendChild(p);
+  return p;
+}
+function popupLookupField(parent, id, label, type, placeholder, required){
+  const wrap=popupEl('div','popup-order-lookup-field');
+  const lab=popupEl('label','popup-order-lookup-label',label+(required?' *':''));
+  lab.setAttribute('for',id);
+  const inp=document.createElement('input');
+  inp.id=id; inp.className='popup-order-lookup-in'; inp.type=type; inp.placeholder=placeholder||'';
+  inp.autocomplete='off';
+  if(type==='tel') inp.inputMode='tel';
+  wrap.appendChild(lab); wrap.appendChild(inp); parent.appendChild(wrap);
+  return inp;
+}
+function popupLookupRenderForm(kind){
+  _popupLookup.view='form'; _popupLookup.mode=kind;
+  popupLookupSetHead(kind==='history' ? '📜 我的訂單' : '🔍 查詢訂單', false);
+  const body=popupLookupBody();
+  popupLookupMsg(body, kind==='history'
+    ? '請輸入電話查看快閃歷史訂單：完整電話可查全部歷史；後三碼＋姓名可查最近 3 天。'
+    : '只查詢快閃取餐訂單。只輸入電話後三碼可查今日訂單；後三碼＋姓名查最近 3 天；輸入完整電話可查全部歷史紀錄。', 'hint');
+  const form=document.createElement('form');
+  form.className='popup-order-lookup-form';
+  form.noValidate=true;
+  const orderNo= kind==='history' ? null : popupLookupField(form,'popupLookupOrderNo','訂單編號（選填）','text','POPUP-20260101-120000-xxxxxx',false);
+  const phone=popupLookupField(form,'popupLookupPhone','電話 / 後三碼','tel','輸入完整電話或後三碼',true);
+  const name=popupLookupField(form,'popupLookupName', kind==='history' ? '姓名（後三碼查詢需填）' : '姓名（選填）','text','您的姓名',false);
+  const err=popupEl('p','popup-order-lookup-msg','');
+  err.setAttribute('role','alert'); err.setAttribute('data-tone','error'); err.hidden=true;
+  form.appendChild(err);
+  const btn=popupEl('button','popup-order-lookup-submit', kind==='history' ? '查詢我的訂單' : '查詢');
+  btn.type='submit';
+  form.appendChild(btn);
+  form.addEventListener('submit',(ev)=>{ ev.preventDefault(); popupLookupSubmit(kind, orderNo, phone, name, btn, err); });
+  body.appendChild(form);
+  try{ phone.focus({ preventScroll:true }); }catch(e){}
+}
+async function popupLookupSubmit(kind, orderNoEl, phoneEl, nameEl, btn, errEl){
+  if(_popupLookup.busy) return;
+  const phone=(phoneEl.value||'').trim();
+  const name=(nameEl.value||'').trim();
+  const orderNo=orderNoEl ? (orderNoEl.value||'').trim() : '';
+  errEl.hidden=true;
+  if(!phone){ errEl.textContent='請輸入電話或後三碼'; errEl.hidden=false; phoneEl.focus(); return; }
+  const digits=phone.replace(/[-\s]/g,'');
+  if(kind==='history' && !/^\d{6,}$/.test(digits) && !name){ errEl.textContent='電話後三碼查詢需搭配姓名'; errEl.hidden=false; nameEl.focus(); return; }
+  _popupLookup.busy=true; btn.disabled=true; btn.textContent='查詢中…';
+  try{
+    const body={ ...popupLookupContextBody(), phone };
+    if(name) body.customer_name=name;
+    if(orderNo) body.order_number=orderNo;
+    const res=await popupApiPost('/api/line-orders/popup-orders/lookup', body);
+    const json=await res.json().catch(()=>({}));
+    if(!res.ok || !json.success || !json.data){
+      errEl.textContent=(json && typeof json.message==='string' && json.message.length<80) ? json.message : '找不到符合資料的快閃訂單，請確認輸入內容。';
+      errEl.hidden=false; return;
+    }
+    popupLookupSaveToken(json.data.token);
+    _popupLookup.orders=json.data.orders||[]; _popupLookup.total=json.data.total||0; _popupLookup.page=1; _popupLookup.hasMore=!!json.data.has_more;
+    if(kind==='query' && _popupLookup.total===1 && _popupLookup.orders.length===1) popupLookupOpenDetail(_popupLookup.orders[0].order_number);
+    else popupLookupRenderList();
+  }catch(e){ errEl.textContent='查詢失敗，請稍後再試'; errEl.hidden=false; }
+  finally{ _popupLookup.busy=false; if(document.body.contains(btn)){ btn.disabled=false; btn.textContent= kind==='history' ? '查詢我的訂單' : '查詢'; } }
+}
+function popupLookupHandleTokenError(json){
+  if(json && (json.error==='POPUP_LOOKUP_EXPIRED' || json.error==='POPUP_LOOKUP_INVALID')){
+    popupLookupSaveToken(null); _popupLookup.orders=[];
+    popupLookupRenderForm(_popupLookup.mode==='query' ? 'query' : 'history');
+    const b=document.getElementById('popupLookupBody');
+    if(b) popupLookupMsg(b, json.error==='POPUP_LOOKUP_EXPIRED' ? '查詢已逾時，請重新輸入資料。' : '查詢已失效，請重新輸入資料。', 'error');
+    return true;
+  }
+  return false;
+}
+async function popupLookupLoadList(page, append){
+  const token=popupLookupLoadToken();
+  if(!token){ popupLookupRenderForm('history'); return; }
+  _popupLookup.mode='history';
+  if(!append){ popupLookupSetHead('📜 我的訂單', false); const b=popupLookupBody(); popupLookupMsg(b,'載入中…','hint'); }
+  try{
+    const res=await popupApiPost('/api/line-orders/popup-orders/list', { token, page });
+    const json=await res.json().catch(()=>({}));
+    if(popupLookupHandleTokenError(json)) return;
+    if(!json.success || !json.data) throw new Error('bad');
+    _popupLookup.orders= append ? _popupLookup.orders.concat(json.data.orders||[]) : (json.data.orders||[]);
+    _popupLookup.total=json.data.total||0; _popupLookup.page=page; _popupLookup.hasMore=!!json.data.has_more;
+    popupLookupRenderList();
+  }catch(e){
+    const b=document.getElementById('popupLookupBody');
+    if(b) popupLookupMsg(b,'載入失敗，請稍後再試','error');
+  }
+}
+function popupLookupRenderList(){
+  _popupLookup.view='list';
+  popupLookupSetHead('📜 我的訂單', false);
+  const body=popupLookupBody();
+  const top=popupEl('div','popup-order-lookup-listhead');
+  top.appendChild(popupEl('span','popup-order-lookup-count',`共 ${_popupLookup.total} 筆快閃訂單`));
+  const sw=popupEl('button','popup-order-lookup-link','切換帳號');
+  sw.type='button';
+  sw.addEventListener('click',()=>popupLookupSwitchAccount());
+  top.appendChild(sw);
+  body.appendChild(top);
+  if(!_popupLookup.orders.length){ popupLookupMsg(body,'找不到符合資料的快閃訂單，請確認輸入內容。','hint'); return; }
+  const list=popupEl('ul','popup-order-lookup-list');
+  _popupLookup.orders.forEach((o)=>{
+    const li=popupEl('li','popup-order-lookup-card');
+    li.setAttribute('data-order-number', String(o.order_number||''));
+    const h=popupEl('div','popup-order-lookup-cardhead');
+    h.appendChild(popupEl('span','popup-order-lookup-no',o.order_number||''));
+    const badge=popupEl('span','popup-order-lookup-badge',o.status_label||'');
+    h.appendChild(badge);
+    li.appendChild(h);
+    li.appendChild(popupEl('p','popup-order-lookup-line',`建立：${String(o.created_at||'').slice(0,16)}`));
+    li.appendChild(popupEl('p','popup-order-lookup-line',`${o.campaign_name||''}${o.session_name?' － '+o.session_name:''}`));
+    li.appendChild(popupEl('p','popup-order-lookup-line',`取餐：${o.pickup_date||''} ${o.pickup_start_time||''}～${o.pickup_end_time||''}｜${o.place_name||''}`));
+    li.appendChild(popupEl('p','popup-order-lookup-line',o.items_summary||''));
+    li.appendChild(popupEl('p','popup-order-lookup-line',`付款：${o.payment_method_label||''}（${o.payment_status_label||''}）｜訂單：${o.order_status_label||''}`));
+    const foot=popupEl('div','popup-order-lookup-cardfoot');
+    foot.appendChild(popupEl('span','popup-order-lookup-amount',popupFormatMoney(o.total||0)));
+    const btns=popupEl('div','popup-order-lookup-actions');
+    const rb=popupEl('button','popup-order-lookup-btn2','🔄 再購'); rb.type='button';
+    rb.addEventListener('click',()=>popupLookupRebuy(o.order_number, null));
+    const db=popupEl('button','popup-order-lookup-btn2','查看詳情'); db.type='button';
+    db.addEventListener('click',()=>popupLookupOpenDetail(o.order_number));
+    btns.appendChild(rb); btns.appendChild(db);
+    foot.appendChild(btns);
+    li.appendChild(foot);
+    list.appendChild(li);
+  });
+  body.appendChild(list);
+  if(_popupLookup.hasMore){
+    const more=popupEl('button','popup-order-lookup-more','載入更多');
+    more.type='button';
+    more.addEventListener('click',()=>{ more.disabled=true; more.textContent='載入中…'; popupLookupLoadList(_popupLookup.page+1, true); });
+    body.appendChild(more);
+  }
+}
+async function popupLookupSwitchAccount(){
+  const t=popupLookupLoadToken();
+  popupLookupSaveToken(null);
+  _popupLookup.orders=[]; _popupLookup.total=0;
+  try{ if(t) await popupApiPost('/api/line-orders/popup-orders/logout', { token:t }); }catch(e){}
+  popupLookupRenderForm('history');
+}
+function popupLookupRow(parent, label, value){
+  const r=popupEl('div','popup-order-lookup-row');
+  r.appendChild(popupEl('span','popup-order-lookup-k',label));
+  r.appendChild(popupEl('span','popup-order-lookup-v',value==null?'':String(value)));
+  parent.appendChild(r);
+}
+async function popupLookupOpenDetail(orderNumber){
+  const token=popupLookupLoadToken();
+  if(!token){ popupLookupRenderForm('query'); return; }
+  _popupLookup.view='detail';
+  popupLookupSetHead('訂單詳情', true);
+  const body=popupLookupBody();
+  popupLookupMsg(body,'載入中…','hint');
+  try{
+    const res=await popupApiPost('/api/line-orders/popup-orders/detail', { token, order_number:orderNumber });
+    const json=await res.json().catch(()=>({}));
+    if(popupLookupHandleTokenError(json)) return;
+    if(!json.success || !json.data){ body.textContent=''; popupLookupMsg(body,'找不到符合資料的快閃訂單，請確認輸入內容。','error'); return; }
+    const d=json.data;
+    body.textContent='';
+    const sec=popupEl('div','popup-order-lookup-section');
+    popupLookupRow(sec,'訂單狀態',d.status_label);
+    popupLookupRow(sec,'訂單編號',d.order_number);
+    popupLookupRow(sec,'活動',d.campaign_name);
+    popupLookupRow(sec,'場次',d.session_name);
+    popupLookupRow(sec,'取餐日期',d.pickup_date);
+    popupLookupRow(sec,'取餐時段',`${d.pickup_start_time||''}～${d.pickup_end_time||''}`);
+    popupLookupRow(sec,'取餐地點',d.place_name);
+    if(d.address) popupLookupRow(sec,'地址',d.address);
+    if(d.address_note) popupLookupRow(sec,'地點備註',d.address_note);
+    popupLookupRow(sec,'顧客姓名',d.customer_name);
+    popupLookupRow(sec,'電話',d.phone_masked);
+    if(d.note) popupLookupRow(sec,'備註',d.note);
+    body.appendChild(sec);
+    const items=popupEl('div','popup-order-lookup-section');
+    items.appendChild(popupEl('p','popup-order-lookup-subtitle','商品明細'));
+    (d.items||[]).forEach((it)=>{
+      popupLookupRow(items, `${it.name} × ${it.qty}（單價 ${popupFormatMoney(it.price)}）`, popupFormatMoney(it.subtotal));
+    });
+    popupLookupRow(items,'總件數',`${d.total_qty} 件`);
+    popupLookupRow(items,'訂單總額',popupFormatMoney(d.total));
+    body.appendChild(items);
+    const pay=popupEl('div','popup-order-lookup-section');
+    popupLookupRow(pay,'付款方式',d.payment_method_label);
+    popupLookupRow(pay,'付款狀態',d.payment_status_label);
+    popupLookupRow(pay,'訂單進度',d.order_status_label);
+    popupLookupRow(pay,'建立時間',String(d.created_at||'').slice(0,16));
+    popupLookupRow(pay,'狀態更新',String(d.updated_at||'').slice(0,16));
+    body.appendChild(pay);
+    const rb=popupEl('button','popup-order-lookup-submit','🔄 再次購買');
+    rb.type='button';
+    rb.addEventListener('click',()=>popupLookupRebuy(d.order_number, null));
+    body.appendChild(rb);
+  }catch(e){ body.textContent=''; popupLookupMsg(body,'載入失敗，請稍後再試','error'); }
+}
+async function popupLookupRebuy(orderNumber, sessionCode){
+  const token=popupLookupLoadToken();
+  if(!token){ popupLookupRenderForm('history'); return; }
+  _popupLookup.view='rebuy';
+  popupLookupSetHead('🔄 再購', true);
+  const body=popupLookupBody();
+  popupLookupMsg(body,'正在確認目前可預訂的場次與商品…','hint');
+  try{
+    const req={ token, order_number:orderNumber };
+    if(sessionCode) req.session_code=sessionCode;
+    const res=await popupApiPost('/api/line-orders/popup-orders/rebuy', req);
+    const json=await res.json().catch(()=>({}));
+    if(popupLookupHandleTokenError(json)) return;
+    body.textContent='';
+    if(!json.success || !json.data){ popupLookupMsg(body,(json && typeof json.message==='string' && json.message.length<80) ? json.message : '目前無法再購，請稍後再試','error'); return; }
+    const d=json.data;
+    if(!d.sessions || !d.sessions.length){ popupLookupMsg(body,'目前沒有開放預訂的快閃場次，暫時無法再購。','hint'); return; }
+    if(d.need_choice){
+      popupLookupMsg(body,'有多個場次開放預訂，請選擇要再購的場次（不會重新開啟已結束的舊場次）：','hint');
+      const list=popupEl('ul','popup-order-lookup-list');
+      d.sessions.forEach((x)=>{
+        const li=popupEl('li','popup-order-lookup-card');
+        li.appendChild(popupEl('p','popup-order-lookup-line',`${x.campaign_name||''} － ${x.session_name||''}`));
+        li.appendChild(popupEl('p','popup-order-lookup-line',`${x.pickup_date||''} ${x.pickup_start_time||''}～${x.pickup_end_time||''}｜${x.place_name||''}`));
+        const b=popupEl('button','popup-order-lookup-btn2','選擇此場次'); b.type='button';
+        b.addEventListener('click',()=>popupLookupRebuy(orderNumber, x.session_code));
+        li.appendChild(b);
+        list.appendChild(li);
+      });
+      body.appendChild(list);
+      return;
+    }
+    const target=(d.sessions||[]).find((x)=>x.session_code===d.session_code);
+    if(target) popupLookupMsg(body,`再購場次：${target.campaign_name||''} － ${target.session_name||''}（${target.pickup_date||''} ${target.pickup_start_time||''}）`,'hint');
+    if(d.added && d.added.length){
+      const sec=popupEl('div','popup-order-lookup-section');
+      sec.appendChild(popupEl('p','popup-order-lookup-subtitle','可帶入的商品（使用目前售價）'));
+      d.added.forEach((a)=>popupLookupRow(sec, `${a.name} × ${a.qty}${a.note?'（'+a.note+'）':''}${a.price_changed?'（價格已更新）':''}`, popupFormatMoney(a.price)));
+      body.appendChild(sec);
+    }
+    if(d.skipped && d.skipped.length){
+      const sec=popupEl('div','popup-order-lookup-section');
+      sec.appendChild(popupEl('p','popup-order-lookup-subtitle','未帶入的商品'));
+      d.skipped.forEach((x)=>popupLookupRow(sec, x.name||'商品', x.reason||''));
+      body.appendChild(sec);
+    }
+    if(!d.added || !d.added.length){ popupLookupMsg(body,'原訂單商品目前都無法購買，未建立購物車。','error'); return; }
+    const go=popupEl('button','popup-order-lookup-submit','加入購物車並前往選購');
+    go.type='button';
+    go.addEventListener('click',()=>popupApplyRebuy(d.session_code, d.added));
+    body.appendChild(go);
+  }catch(e){ body.textContent=''; popupLookupMsg(body,'目前無法再購，請稍後再試','error'); }
+}
+// 再購只建立購物車（product_id／qty）；價格、庫存、限購與付款方式一律由結帳時的伺服器權威判斷。
+function popupApplyRebuy(sessionCode, added){
+  const items=(added||[]).filter((a)=>Number.isInteger(a.product_id) && a.product_id>0 && Number.isInteger(a.qty) && a.qty>0)
+    .map((a)=>({ product_id:a.product_id, qty:a.qty }));
+  if(!items.length) return;
+  if(popupSession && popupSession.public_code===sessionCode && popupCurrentView()==='session'){
+    const merged=new Map((popupCart.items||[]).map((it)=>[it.product_id, it.qty]));
+    items.forEach((it)=>{
+      const p=(popupProducts||[]).find((x)=>x.product_id===it.product_id);
+      let q=(merged.get(it.product_id)||0)+it.qty;
+      if(p && p.remaining_qty!=null && q>p.remaining_qty) q=p.remaining_qty;
+      if(p && p.per_order_limit!=null && q>p.per_order_limit) q=p.per_order_limit;
+      if(q>0) merged.set(it.product_id, q);
+    });
+    popupCart={ ...popupCart, items:[...merged.entries()].map(([product_id, qty])=>({ product_id, qty })) };
+    savePopupCart(popupSession.public_code, popupCart);
+    popupRefreshCartViews();
+    popupCloseLookup();
+    return;
+  }
+  const cart=popupEmptyCart(sessionCode);
+  cart.items=items;
+  savePopupCart(sessionCode, cart);
+  window.location.assign('/popup-order?session='+encodeURIComponent(sessionCode));
+}
 
 async function loadPopupDirectSession(sessionPublicCode){
   _popupLastRetryFn=()=>loadPopupDirectSession(sessionPublicCode);

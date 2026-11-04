@@ -484,6 +484,8 @@ function markAttemptPaid(db, attempt, transactionId) {
         `UPDATE orders SET payment_status='paid', updated_at=datetime('now','localtime') WHERE id=? AND store_id=? AND payment_status='pending'`,
         [attempt.order_id, attempt.store_id]
       );
+      // R53：付款成功 → 商品保留量轉為已成立（只在 attempt 單次轉態成功時執行；重複 callback 不重複轉換）。
+      require('./popupSales').commitReservedForOrder(db, attempt.store_id, attempt.order_id);
     }
   });
   return changed;
@@ -500,6 +502,8 @@ function switchFailedAttemptToCash(db, attempt) {
     db._db.run("UPDATE popup_payment_attempts SET status='cancelled', fail_reason='switched_to_cash', updated_at=datetime('now','localtime') WHERE attempt_id=? AND status='failed'", [attempt.attempt_id]);
     if (db._db.getRowsModified() !== 1) pfail('POPUP_PAYMENT_FALLBACK_NOT_ALLOWED', '目前付款狀態無法改用現金', 409);
     db._db.run("UPDATE orders SET payment_method='cash', payment_category='cash', updated_at=datetime('now','localtime') WHERE id=? AND store_id=? AND payment_status='pending'", [attempt.order_id, attempt.store_id]);
+    // R53：改現金 → 原保留量直接轉為已成立（不重扣、不重複保留）。
+    require('./popupSales').commitReservedForOrder(db, attempt.store_id, attempt.order_id);
   });
   return true;
 }

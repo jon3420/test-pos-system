@@ -2176,7 +2176,7 @@ router.post('/query', (req, res) => {
     const rawOrderNo = String(req.body.order_number||'').trim();
 
     if (!rawPhone && rawOrderNo) {
-      const order = db.get("SELECT * FROM orders WHERE store_id=? AND order_number=? AND source='line'", [storeId, rawOrderNo]);
+      const order = db.get("SELECT * FROM orders WHERE store_id=? AND order_number=? AND source='line' AND COALESCE(pickup_type,'')<>'popup'", [storeId, rawOrderNo]);
       if (!order) return res.status(404).json({ success: false, message: '查無此訂單' });
       return res.json({ success: true, mode: 'single', orders: [safeOrder(order, db, storeId)] });
     }
@@ -2188,7 +2188,7 @@ router.post('/query', (req, res) => {
     const fullPhone = isFullPhone(rawPhone);
 
     if (rawOrderNo) {
-      const order = db.get("SELECT * FROM orders WHERE store_id=? AND order_number=? AND source='line'", [storeId, rawOrderNo]);
+      const order = db.get("SELECT * FROM orders WHERE store_id=? AND order_number=? AND source='line' AND COALESCE(pickup_type,'')<>'popup'", [storeId, rawOrderNo]);
       if (!order) return res.status(404).json({ success: false, message: '查無此訂單，請確認訂單編號或電話' });
       const storedPhone = String(order.customer_phone||'');
       const cleaned = rawPhone.replace(/[-\s]/g,'');
@@ -2198,7 +2198,7 @@ router.post('/query', (req, res) => {
     }
     if (fullPhone) {
       const cleaned = rawPhone.replace(/[-\s]/g,'');
-      const orders = db.all("SELECT * FROM orders WHERE store_id=? AND source='line' AND customer_phone=? ORDER BY created_at DESC LIMIT 30", [storeId, cleaned]);
+      const orders = db.all("SELECT * FROM orders WHERE store_id=? AND source='line' AND COALESCE(pickup_type,'')<>'popup' AND customer_phone=? ORDER BY created_at DESC LIMIT 30", [storeId, cleaned]);
       if (!orders.length) return res.status(404).json({ success: false, message: '查無訂單記錄，請確認電話號碼' });
       return res.json({ success: true, mode: 'list', orders: orders.map(o => safeOrder(o, db, storeId)) });
     }
@@ -2206,14 +2206,14 @@ router.post('/query', (req, res) => {
     if (!/^\d{3}$/.test(last3)) return res.status(400).json({ success: false, message: '電話後三碼請輸入3位數字' });
     if (rawName) {
       const orders = db.all(
-        `SELECT * FROM orders WHERE store_id=? AND source='line' AND substr(customer_phone,-3)=? AND customer_name LIKE ? AND date(created_at) >= ? ORDER BY created_at DESC LIMIT 10`,
+        `SELECT * FROM orders WHERE store_id=? AND source='line' AND COALESCE(pickup_type,'')<>'popup' AND substr(customer_phone,-3)=? AND customer_name LIKE ? AND date(created_at) >= ? ORDER BY created_at DESC LIMIT 10`,
         [storeId, last3, `%${rawName}%`, threeDaysAgo]
       );
       if (!orders.length) return res.status(404).json({ success: false, message: '查無最近3天訂單，請確認資料或詢問店員' });
       return res.json({ success: true, mode: 'list', orders: orders.map(o => safeOrder(o, db, storeId)) });
     } else {
       const orders = db.all(
-        `SELECT * FROM orders WHERE store_id=? AND source='line' AND substr(customer_phone,-3)=? AND date(created_at)=? ORDER BY created_at DESC LIMIT 10`,
+        `SELECT * FROM orders WHERE store_id=? AND source='line' AND COALESCE(pickup_type,'')<>'popup' AND substr(customer_phone,-3)=? AND date(created_at)=? ORDER BY created_at DESC LIMIT 10`,
         [storeId, last3, todayStr2]
       );
       if (!orders.length) return res.status(404).json({ success: false, message: '查無今日訂單，請確認電話後三碼或詢問店員' });
@@ -2234,7 +2234,7 @@ router.post('/history', (req, res) => {
     const fullPhone = isFullPhone(rawPhone);
     if (fullPhone) {
       const cleaned = rawPhone.replace(/[-\s]/g,'');
-      const orders = db.all("SELECT * FROM orders WHERE store_id=? AND source='line' AND customer_phone=? ORDER BY created_at DESC LIMIT 30", [storeId, cleaned]);
+      const orders = db.all("SELECT * FROM orders WHERE store_id=? AND source='line' AND COALESCE(pickup_type,'')<>'popup' AND customer_phone=? ORDER BY created_at DESC LIMIT 30", [storeId, cleaned]);
       if (!orders.length) return res.status(404).json({ success: false, message: '查無訂單記錄，請確認電話號碼' });
       return res.json({ success: true, orders: orders.map(o => safeOrder(o, db, storeId)) });
     }
@@ -2242,7 +2242,7 @@ router.post('/history', (req, res) => {
     const last3 = rawPhone.slice(-3);
     if (!/^\d{3}$/.test(last3)) return res.status(400).json({ success: false, message: '電話後三碼請輸入3位數字' });
     const orders = db.all(
-      `SELECT * FROM orders WHERE store_id=? AND source='line' AND substr(customer_phone,-3)=? AND customer_name LIKE ? AND date(created_at) >= ? ORDER BY created_at DESC LIMIT 30`,
+      `SELECT * FROM orders WHERE store_id=? AND source='line' AND COALESCE(pickup_type,'')<>'popup' AND substr(customer_phone,-3)=? AND customer_name LIKE ? AND date(created_at) >= ? ORDER BY created_at DESC LIMIT 30`,
       [storeId, last3, `%${rawName}%`, threeDaysAgo2]
     );
     if (!orders.length) return res.status(404).json({ success: false, message: '查無最近3天訂單，請確認資料或詢問店員' });

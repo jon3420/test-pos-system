@@ -183,6 +183,21 @@ function getActiveAllocatedQty(db, storeId, sessionId, productId) {
   return row ? Number(row.q) : 0;
 }
 
+function popupSales() { return require('./popupSales'); }
+
+// R53：商品販售狀態一律由 utils/popupSales.js productSaleState() 決定（場次獨立設定；
+// 未設定＝啟用、不限量；R52 selected quota_qty>0 視為限量）。停用的商品不顯示。
+function popupSaleFields(db, storeId, session, productId, legacyQuota) {
+  const st = popupSales().productSaleState(db, storeId, session, productId);
+  if (!st.sale_enabled) return null;
+  return {
+    quota_qty: st.stock_mode === 'limited' ? st.stock_total : legacyQuota,
+    remaining_qty: st.remaining,
+    sold_out: st.sold_out,
+    per_order_limit: st.per_order_limit,
+  };
+}
+
 function serializeSelectedScopeProducts(db, storeId, session) {
   const rows = db.all(
     `SELECT sp.product_id, sp.quota_qty, p.name, p.price, p.takeaway_price, p.line_name, p.line_price,
@@ -198,15 +213,13 @@ function serializeSelectedScopeProducts(db, storeId, session) {
     .map((r) => {
       const ssot = resolvePopupProductSSOT(r);
       if (!ssot.is_line_takeout_orderable) return null; // show_on_line=0／sale_status 非 available／line_sold_out 等一律不顯示
-      const used = r.quota_qty > 0 ? getActiveAllocatedQty(db, storeId, session.id, r.product_id) : 0;
-      const remaining = r.quota_qty > 0 ? Math.max(0, r.quota_qty - used) : null; // null=不限量
+      const sale = popupSaleFields(db, storeId, session, r.product_id, r.quota_qty);
+      if (!sale) return null;
       return {
         product_id: r.product_id,
         name: ssot.name,
         price: ssot.price,
-        quota_qty: r.quota_qty,
-        remaining_qty: remaining,
-        sold_out: r.quota_qty > 0 && remaining === 0,
+        ...sale,
         ...popupPublicProductPresentation(r, session.public_code),
       };
     })
@@ -238,13 +251,14 @@ function serializeAllTakeoutScopeProducts(db, storeId, session) {
     .map((r) => {
       const ssot = resolvePopupProductSSOT(r);
       if (!ssot.is_line_takeout_orderable) return null;
+      const sale = session && session.id ? popupSaleFields(db, storeId, session, r.product_id, null)
+        : { quota_qty: null, remaining_qty: null, sold_out: false, per_order_limit: null };
+      if (!sale) return null;
       return {
         product_id: r.product_id,
         name: ssot.name,
         price: ssot.price,
-        quota_qty: null,
-        remaining_qty: null,
-        sold_out: false,
+        ...sale,
         ...popupPublicProductPresentation(r, session && session.public_code),
       };
     })
@@ -296,6 +310,11 @@ function reconcilePopupCartItemsAgainstFreshAuthority(db, storeId, session, rawI
       continue;
     }
     let finalQty = qty;
+    // R53：每筆限購同樣是 fresh 權威上限（與剩餘數量取較小者）。
+    if (fresh.per_order_limit != null && finalQty > fresh.per_order_limit) {
+      finalQty = fresh.per_order_limit;
+      removedItems.push({ product_id: productId, reason: 'quota_reduced' });
+    }
     if (fresh.remaining_qty != null && finalQty > fresh.remaining_qty) {
       if (fresh.remaining_qty <= 0) {
         removedItems.push({ product_id: productId, reason: 'unavailable' });
@@ -589,13 +608,10 @@ function validatePopupCheckoutAuthority(db, { storeId, sessionPublicCode, items,
     return { product_id: it.product_id, qty: it.qty, name: ssot.name, price: ssot.price };
   });
 
-  if (session.product_scope === 'selected') {
-    // Phase 3A 修正：先彙總購物車內重複的 product_id 再檢查份數，避免把同一
-    // 商品拆成兩筆（例如 qty=2 + qty=2）分別檢查都「看起來」沒超過，但加總
-    // 其實已經超額的繞過手法。這裡是「快速失敗」用的預先檢查（讓明顯會
-    // 超賣的請求不必等到進了 transaction 才被拒絕）；真正權威、不可繞過的
-    // 檢查一律是 allocatePopupOrderItemsInTransaction() 在交易內對同一份
-    // 彙總結果重新查一次目前已扣份數才算數。
+  // R53：所有 scope 一律先彙總同一商品數量，再以場次販售設定（啟用／手動售完／
+  // 每筆限購／限量剩餘）做「快速失敗」預檢；真正權威、不可繞過的檢查仍是
+  // allocatePopupOrderItemsInTransaction() 在同一交易內重新查詢。
+  {
     const groupedForCheck = new Map();
     priced.forEach((it) => {
       const nextQty = (groupedForCheck.get(it.product_id) || 0) + it.qty;
@@ -604,22 +620,8 @@ function validatePopupCheckoutAuthority(db, { storeId, sessionPublicCode, items,
       }
       groupedForCheck.set(it.product_id, nextQty);
     });
-    groupedForCheck.forEach((qty, productId) => {
-      const label = priced.find((it) => it.product_id === productId).name;
-      const spRow = db.get(
-        'SELECT quota_qty FROM popup_session_products WHERE session_id=? AND store_id=? AND product_id=? AND enabled=1',
-        [session.id, storeId, productId]
-      );
-      if (!spRow) pp.fail('POPUP_PRODUCT_NOT_IN_SESSION', `商品「${label}」不在此場次可售清單中`, 409);
-      if (spRow.quota_qty > 0) {
-        const used = getActiveAllocatedQty(db, storeId, session.id, productId);
-        if (used + qty > spRow.quota_qty) {
-          pp.fail('POPUP_PRODUCT_SOLD_OUT', `商品「${label}」剩餘份數不足`, 409, {
-            product_id: productId, remaining: Math.max(0, spRow.quota_qty - used),
-          });
-        }
-      }
-    });
+    const names = new Map(priced.map((it) => [it.product_id, it.name]));
+    popupSales().assertCheckoutStock(db, storeId, session, groupedForCheck, names);
   }
 
   // 付款方式（Phase 3A.2 修正）：
@@ -767,7 +769,7 @@ function resolvePublicPopupPaymentMethods(db, storeId) {
 // atomic 單位。同一商品若在 items 中出現多次，先加總再檢查一次，避免
 // 「拆成兩筆各自檢查都通過，但加總已經超額」的漏洞。
 // ══════════════════════════════════════════════════════════════════════
-function allocatePopupOrderItemsInTransaction(db, storeId, session, orderId, items) {
+function allocatePopupOrderItemsInTransaction(db, storeId, session, orderId, items, stockState) {
   const grouped = new Map();
   items.forEach((it) => {
     // Defense-in-depth（規格七）：即使 validatePopupCheckoutAuthority() 已經
@@ -783,26 +785,16 @@ function allocatePopupOrderItemsInTransaction(db, storeId, session, orderId, ite
     grouped.set(it.product_id, nextQty);
   });
 
+  // R53：交易內 fresh 權威檢查（全部商品一起檢查；任一不足整張訂單失敗、交易 rollback）。
+  const names = new Map(items.map((it) => [it.product_id, it.name || '']));
+  popupSales().assertCheckoutStock(db, storeId, session, grouped, names);
+  // R53：現金等非線上付款直接 committed；LINE Pay 等待付款為 reserved。
+  const state = stockState === 'reserved' ? 'reserved' : 'committed';
+  popupSales().ensureRaw(db);
   grouped.forEach((qty, productId) => {
-    if (session.product_scope === 'selected') {
-      const spRow = db.get(
-        'SELECT quota_qty FROM popup_session_products WHERE session_id=? AND store_id=? AND product_id=? AND enabled=1',
-        [session.id, storeId, productId]
-      );
-      if (!spRow) pp.fail('POPUP_PRODUCT_NOT_IN_SESSION', `商品 id=${productId} 不在此場次可售清單中`, 409);
-      if (spRow.quota_qty > 0) {
-        // 交易內重新查一次目前已扣的份數（權威值，不沿用交易外任何估計）。
-        const used = getActiveAllocatedQty(db, storeId, session.id, productId);
-        if (used + qty > spRow.quota_qty) {
-          pp.fail('POPUP_PRODUCT_SOLD_OUT', `商品 id=${productId} 剩餘份數不足`, 409, {
-            product_id: productId, remaining: Math.max(0, spRow.quota_qty - used),
-          });
-        }
-      }
-    }
     db._db.run(
-      'INSERT INTO popup_order_allocations (store_id, session_id, order_id, product_id, qty, status) VALUES (?,?,?,?,?,?)',
-      [storeId, session.id, orderId, productId, qty, 'active']
+      'INSERT INTO popup_order_allocations (store_id, session_id, order_id, product_id, qty, status, stock_state) VALUES (?,?,?,?,?,?,?)',
+      [storeId, session.id, orderId, productId, qty, 'active', state]
     );
   });
 }

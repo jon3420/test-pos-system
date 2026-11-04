@@ -14663,6 +14663,7 @@ async function executeMigrationImport() {
                               // window 已經關閉，不可再對 DOM 做任何操作（H1.4.12 Phase 3C
                               // corrective audit：post-summary stale-window crash 根因修正）。
     gen: { campaigns: 0, locations: 0, sessions: 0, links: 0 },
+    rendered: {},             // R53：各表格是否已成功顯示過（之後的更新一律靜默）
   };
   window._PPA = PPA;
 
@@ -14686,6 +14687,7 @@ async function executeMigrationImport() {
     PPA.epoch++;
     PPA.sessionFormEpoch++; // 離開頁面等同「表單也關了」，任何還在飛的 lookup 都該視為過期
     PPA.historicalProductInfo = {}; // 店家隔離：不沿用前一次登入／前一個店家的歷史商品名稱快取
+    PPA.rendered = {};
     Object.keys(PPA.controllers).forEach(ppaAbort);
   };
 
@@ -14742,18 +14744,46 @@ async function executeMigrationImport() {
   // ── Tab 切換 ─────────────────────────────────────────────────────────
   window.ppaSwitchTab = function ppaSwitchTab(tab) {
     PPA.tab = tab;
-    ['campaigns', 'locations', 'sessions', 'payments', 'links'].forEach((t) => {
+    ['campaigns', 'locations', 'sessions', 'sales', 'payments', 'links'].forEach((t) => {
       const panel = document.getElementById('ppa-panel-' + t);
       const btn = document.getElementById('ppa-tabbtn-' + t);
       if (panel) panel.style.display = (t === tab) ? '' : 'none';
       if (btn) btn.classList.toggle('active', t === tab);
     });
     if (tab === 'payments') ppaLoadPayments();
-    if (tab === 'campaigns') ppaLoadCampaigns();
-    if (tab === 'locations') ppaLoadLocations();
-    if (tab === 'sessions') { ppaEnsureCampaignFilterOptions(); ppaLoadSessions(); }
+    // R53：切換分頁一律重新取得最新資料；已有內容時靜默更新（不清空表格、不閃「載入中」）。
+    if (tab === 'campaigns') ppaLoadCampaigns({ silent: true });
+    if (tab === 'locations') ppaLoadLocations({ silent: true });
+    if (tab === 'sessions') { ppaEnsureCampaignFilterOptions(); ppaLoadSessions({ silent: true }); }
     if (tab === 'links') ppaLoadLinksTab();
+    if (tab === 'sales') ppaSalesInit();
   };
+
+  // ── R53：後台即時同步 ────────────────────────────────────────────────
+  // 根因（R53 Reality Audit）：活動／場次寫入成功後只重抓「目前分頁自己的清單」，
+  // 「公開連結／測試」與活動／地點的場次統計共用的 PPA.campaigns／PPA.joinSessions
+  // 只在第一次載入時抓取（joinSessionsLoaded 之後不再更新），因此要按 F5 才看到新資料。
+  // 修正：任何活動／地點／場次寫入「API 成功後」一律呼叫 ppaAfterMutation()，
+  // 靜默重抓共用資料（不顯示「載入中」、不清空表格、不整頁 reload），再重繪目前分頁；
+  // 「公開連結／測試」每次進入都重新取得最新資料。
+  async function ppaAfterMutation() {
+    const myEpoch = PPA.epoch;
+    const jobs = [ppaLoadCampaigns({ silent: true })];
+    if (PPA.tab === 'sessions') jobs.push(ppaLoadSessions({ silent: true }));
+    if (PPA.tab === 'locations') jobs.push(ppaLoadLocations({ silent: true }));
+    await Promise.all(jobs);
+    if (myEpoch !== PPA.epoch) return;
+    if (PPA.tab === 'links') ppaRenderLinksTab();
+    if (PPA.tab === 'sales') await ppaSalesRefreshSelectorsAsync();
+  }
+  PPA.afterMutation = ppaAfterMutation;
+  // 同一按鈕／同一資源的寫入在 API 回應前不重複送出（防快速連點）。
+  PPA.inflight = {};
+  function ppaOnce(key, fn) {
+    if (PPA.inflight[key]) return Promise.resolve(false);
+    PPA.inflight[key] = true;
+    return Promise.resolve().then(fn).finally(() => { delete PPA.inflight[key]; });
+  }
 
   // ── 小工具 ───────────────────────────────────────────────────────────
   function ppaTd(text) {
@@ -14799,10 +14829,11 @@ async function executeMigrationImport() {
     }
   }
 
-  window.ppaLoadCampaigns = async function ppaLoadCampaigns() {
+  window.ppaLoadCampaigns = async function ppaLoadCampaigns(opts) {
     const myGen = ++PPA.gen.campaigns;
     const tbody = document.getElementById('ppa-campaigns-tbody');
-    if (tbody) tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">載入中…</td></tr>';
+    const silent = !!(opts && opts.silent) && !!PPA.rendered.campaigns;
+    if (tbody && !silent) tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">載入中…</td></tr>';
     try {
       const c = ppaController('campaigns');
       const [res] = await Promise.all([
@@ -14817,9 +14848,11 @@ async function executeMigrationImport() {
       if (!json.success) throw new Error(json.message || '載入失敗');
       PPA.campaigns = json.data || [];
       ppaRenderCampaigns();
+      PPA.rendered.campaigns = true;
       ppaEnsureCampaignFilterOptions();
     } catch (e) {
       if (e.name === 'AbortError' || myGen !== PPA.gen.campaigns) return;
+      if (silent) { showToast('重新整理活動清單失敗：' + e.message, 'error'); return; }
       if (tbody) tbody.innerHTML = '';
       if (tbody) {
         const tr = document.createElement('tr');
@@ -15170,7 +15203,7 @@ async function executeMigrationImport() {
       if (PPA.campPay && PPA.campPay.dirty) await ppaCampaignPaySave(id || (json.data && json.data.id));
       showToast('已儲存', 'success');
       ppaCloseCampaignForm();
-      ppaLoadCampaigns();
+      ppaAfterMutation();
     } catch (e) {
       showToast('網路錯誤：' + e.message, 'error');
     } finally {
@@ -15178,7 +15211,10 @@ async function executeMigrationImport() {
     }
   };
 
-  window.ppaCampaignSetStatus = async function ppaCampaignSetStatus(id, status) {
+  window.ppaCampaignSetStatus = function ppaCampaignSetStatus(id, status) {
+    return ppaOnce('campaign-status:' + id, () => ppaCampaignSetStatusNow(id, status));
+  };
+  async function ppaCampaignSetStatusNow(id, status) {
     try {
       const res = await apiFetch(`/api/popup-pickup/campaigns/${encodeURIComponent(id)}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }),
@@ -15186,9 +15222,9 @@ async function executeMigrationImport() {
       const json = await res.json();
       if (!json.success) { showToast(json.message || '更新失敗', 'error'); return; }
       showToast('已更新狀態', 'success');
-      ppaLoadCampaigns();
+      await ppaAfterMutation();
     } catch (e) { showToast('網路錯誤：' + e.message, 'error'); }
-  };
+  }
 
   window.ppaDeleteCampaign = async function ppaDeleteCampaign(id) {
     const c = PPA.campaigns.find((x) => x.id === id);
@@ -15203,7 +15239,7 @@ async function executeMigrationImport() {
         return;
       }
       showToast('已刪除', 'success');
-      ppaLoadCampaigns();
+      ppaAfterMutation();
     } catch (e) { showToast('網路錯誤：' + e.message, 'error'); }
   };
 
@@ -15235,10 +15271,11 @@ async function executeMigrationImport() {
   // ═══════════════════════════════════════════════════════════════════
   // 取貨地點 Locations
   // ═══════════════════════════════════════════════════════════════════
-  window.ppaLoadLocations = async function ppaLoadLocations() {
+  window.ppaLoadLocations = async function ppaLoadLocations(opts) {
     const myGen = ++PPA.gen.locations;
     const tbody = document.getElementById('ppa-locations-tbody');
-    if (tbody) tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">載入中…</td></tr>';
+    const silent = !!(opts && opts.silent) && !!PPA.rendered.locations;
+    if (tbody && !silent) tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">載入中…</td></tr>';
     try {
       const c = ppaController('locations');
       const res = await apiFetch('/api/popup-pickup/locations', { signal: c.signal });
@@ -15246,8 +15283,9 @@ async function executeMigrationImport() {
       if (myGen !== PPA.gen.locations) return;
       if (!json.success) throw new Error(json.message || '載入失敗');
       PPA.locations = json.data || [];
-      if (!PPA.joinSessionsLoaded) await ppaLoadJoinSessions();
+      if (!PPA.joinSessionsLoaded || silent) await ppaLoadJoinSessions();
       ppaRenderLocations();
+      PPA.rendered.locations = true;
       ppaEnsureLocationSelectOptions();
     } catch (e) {
       if (e.name === 'AbortError' || myGen !== PPA.gen.locations) return;
@@ -15583,7 +15621,7 @@ async function executeMigrationImport() {
       if (!json.success) { showToast(json.message || '儲存失敗', 'error'); return; }
       showToast('已儲存', 'success');
       ppaCloseLocationForm();
-      ppaLoadLocations();
+      ppaAfterMutation(); if (PPA.tab !== 'locations') ppaLoadLocations({ silent: true });
     } catch (e) { showToast('網路錯誤：' + e.message, 'error'); }
     finally { ppaLocationSaving = false; btn.disabled = false; btn.textContent = '儲存'; }
   };
@@ -15598,7 +15636,7 @@ async function executeMigrationImport() {
       const json = await res.json();
       if (!json.success) { showToast(json.message || '停用失敗', 'error'); return; }
       showToast('已停用', 'success');
-      ppaLoadLocations();
+      ppaAfterMutation(); if (PPA.tab !== 'locations') ppaLoadLocations({ silent: true });
     } catch (e) { showToast('網路錯誤：' + e.message, 'error'); }
   };
 
@@ -15619,10 +15657,11 @@ async function executeMigrationImport() {
   // ═══════════════════════════════════════════════════════════════════
   // 場次 Sessions
   // ═══════════════════════════════════════════════════════════════════
-  window.ppaLoadSessions = async function ppaLoadSessions() {
+  window.ppaLoadSessions = async function ppaLoadSessions(opts) {
     const myGen = ++PPA.gen.sessions;
     const tbody = document.getElementById('ppa-sessions-tbody');
-    if (tbody) tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">載入中…</td></tr>';
+    const silent = !!(opts && opts.silent) && !!PPA.rendered.sessions;
+    if (tbody && !silent) tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">載入中…</td></tr>';
     const params = new URLSearchParams();
     const campaignId = document.getElementById('ppa-session-filter-campaign');
     const status = document.getElementById('ppa-session-filter-status');
@@ -15641,6 +15680,7 @@ async function executeMigrationImport() {
       if (!json.success) throw new Error(json.message || '載入失敗');
       PPA.sessions = json.data || [];
       ppaRenderSessions();
+      PPA.rendered.sessions = true;
     } catch (e) {
       if (e.name === 'AbortError' || myGen !== PPA.gen.sessions) return;
       if (tbody) {
@@ -15723,8 +15763,8 @@ async function executeMigrationImport() {
   }
 
   // 快速狀態變更：走跟表單相同的 revision + 409 確認流程
-  window.ppaSessionQuickStatus = async function ppaSessionQuickStatus(s, status) {
-    await ppaPatchSession(s.id, { expected_revision: s.revision, status }, s);
+  window.ppaSessionQuickStatus = function ppaSessionQuickStatus(s, status) {
+    return ppaOnce('session-status:' + s.id, () => ppaPatchSession(s.id, { expected_revision: s.revision, status }, s));
   };
 
   async function ppaPatchSession(id, body, sForConfirm) {
@@ -15735,12 +15775,12 @@ async function executeMigrationImport() {
       const json = await res.json();
       if (json.success) {
         showToast('已更新', 'success');
-        ppaLoadSessions();
+        await ppaAfterMutation();
         return true;
       }
       if (json.error === 'POPUP_SESSION_REVISION_CONFLICT') {
         showToast('資料已被其他操作更新，正在重新整理…', 'error');
-        await ppaLoadSessions();
+        await ppaAfterMutation();
         return false;
       }
       if (json.error === 'POPUP_SESSION_CHANGE_CONFIRM_REQUIRED') {
@@ -15765,7 +15805,7 @@ async function executeMigrationImport() {
       const json = await res.json();
       if (!json.success) { showToast(json.message || '刪除失敗', 'error'); return; }
       showToast('已刪除', 'success');
-      ppaLoadSessions();
+      ppaAfterMutation();
     } catch (e) { showToast('網路錯誤：' + e.message, 'error'); }
   };
 
@@ -16077,7 +16117,7 @@ async function executeMigrationImport() {
         if (!json.success) { showToast(json.message || '儲存失敗', 'error'); return; }
         showToast('已建立場次', 'success');
         ppaCloseSessionForm();
-        ppaLoadSessions();
+        await ppaAfterMutation();
       }
     } catch (e) {
       showToast('網路錯誤：' + e.message, 'error');
@@ -16157,7 +16197,7 @@ async function executeMigrationImport() {
       if (!json.success) { showToast(json.message || '批次建立失敗', 'error'); return; }
       showToast(`已建立 ${(json.data || []).length} 筆場次`, 'success');
       ppaCloseBatchSessionForm();
-      ppaLoadSessions();
+      await ppaAfterMutation();
     } catch (e) {
       showToast('網路錯誤：' + e.message, 'error');
     } finally {
@@ -16171,11 +16211,13 @@ async function executeMigrationImport() {
   window.ppaLoadLinksTab = async function ppaLoadLinksTab() {
     const myGen = ++PPA.gen.links;
     const box = document.getElementById('ppa-links-list');
-    if (box) box.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">載入中…</div>';
+    // R53：每次進入都重新取得最新活動與場次（不沿用舊快取）；已有內容時靜默更新、不清空畫面。
+    const hasContent = !!(box && box.childElementCount && PPA.gen.linksRendered);
+    if (box && !hasContent) box.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">載入中…</div>';
     try {
-      if (PPA.campaigns.length === 0) await ppaLoadCampaigns();
-      if (!PPA.joinSessionsLoaded) await ppaLoadJoinSessions();
+      await ppaLoadCampaigns({ silent: true });
       if (myGen !== PPA.gen.links) return;
+      PPA.gen.linksRendered = true;
       ppaRenderLinksTab();
     } catch (e) {
       if (box) box.textContent = '載入失敗：' + e.message;
@@ -16288,5 +16330,321 @@ async function executeMigrationImport() {
     }
   };
   window.ppaCloseQrModal = function ppaCloseQrModal() { hideModal18('ppa-modal-qr'); };
+
+  // ═══════════════════════════════════════════════════════════════════
+  // R53：📦 商品販售管理（以場次為單位；資料只存在快閃 popup_session_product_sales）
+  // ═══════════════════════════════════════════════════════════════════
+  PPA.sales = { sessionId: '', session: null, items: [], selected: new Set(), loadGen: 0, saving: false, sessions: [] };
+  const PPA_SALES_STATUS = { on_sale: '販售中', disabled: '此場次停售', manual_sold_out: '手動售完', sold_out: '已售完', product_unavailable: '商品已下架／不開放外帶' };
+
+  function ppaSalesSetMsg(text, tone) {
+    const el = document.getElementById('ppa-sales-msg');
+    if (!el) return;
+    el.textContent = text || '';
+    el.style.color = tone === 'error' ? '#ff9a9a' : (tone === 'ok' ? '#86efac' : 'var(--text-secondary,#94a3b8)');
+  }
+  async function ppaSalesLoadSessionList() {
+    try {
+      const res = await apiFetch('/api/popup-pickup/sessions?limit=100');
+      const json = await res.json();
+      if (json.success) PPA.sales.sessions = json.data || [];
+    } catch (e) { /* 保留舊清單並顯示提示 */ ppaSalesSetMsg('場次清單載入失敗，請稍後再試', 'error'); }
+  }
+  window.ppaSalesInit = async function ppaSalesInit() {
+    const myEpoch = PPA.epoch;
+    await Promise.all([ppaLoadCampaigns({ silent: true }), ppaSalesLoadSessionList()]);
+    if (myEpoch !== PPA.epoch) return;
+    ppaSalesRefreshSelectors();
+  };
+  async function ppaSalesRefreshSelectorsAsync() { await ppaSalesLoadSessionList(); ppaSalesRefreshSelectors(); }
+  function ppaSalesRefreshSelectors() {
+    const csel = document.getElementById('ppa-sales-campaign');
+    const ssel = document.getElementById('ppa-sales-session');
+    if (!csel || !ssel) return;
+    const curC = csel.value;
+    csel.textContent = '';
+    PPA.campaigns.filter((c) => c.status !== 'archived').forEach((c) => {
+      const o = document.createElement('option'); o.value = c.id; o.textContent = c.name + (c.status === 'draft' ? '（草稿）' : ''); csel.appendChild(o);
+    });
+    if (curC && [...csel.options].some((o) => o.value === curC)) csel.value = curC;
+    ppaSalesFillSessions();
+  }
+  function ppaSalesFillSessions() {
+    const csel = document.getElementById('ppa-sales-campaign');
+    const ssel = document.getElementById('ppa-sales-session');
+    const cur = PPA.sales.sessionId || ssel.value;
+    ssel.textContent = '';
+    const list = PPA.sales.sessions.filter((x) => x.campaign_id === csel.value);
+    if (!list.length) {
+      const o = document.createElement('option'); o.value = ''; o.textContent = '此活動尚無場次'; ssel.appendChild(o);
+    }
+    list.forEach((x) => {
+      const o = document.createElement('option'); o.value = x.id;
+      o.textContent = `${x.pickup_date} ${x.pickup_start_time}～${x.pickup_end_time} ${x.name}`;
+      ssel.appendChild(o);
+    });
+    if (cur && list.some((x) => x.id === cur)) ssel.value = cur;
+    ppaSalesLoad({ silent: PPA.sales.sessionId === ssel.value });
+  }
+  window.ppaSalesOnCampaignChange = function ppaSalesOnCampaignChange() { PPA.sales.sessionId = ''; ppaSalesFillSessions(); };
+
+  window.ppaSalesLoad = async function ppaSalesLoad(opts) {
+    const ssel = document.getElementById('ppa-sales-session');
+    const tbody = document.getElementById('ppa-sales-tbody');
+    const sid = ssel ? ssel.value : '';
+    const myGen = ++PPA.sales.loadGen;
+    if (sid !== PPA.sales.sessionId) PPA.sales.selected = new Set();
+    PPA.sales.sessionId = sid;
+    if (!sid) { if (tbody) { tbody.textContent = ''; tbody.appendChild(ppaSalesEmptyRow('請先選擇活動與場次')); } ppaSalesUpdateSelected(); return; }
+    const silent = !!(opts && opts.silent) && PPA.sales.items.length > 0;
+    if (tbody && !silent) { tbody.textContent = ''; tbody.appendChild(ppaSalesEmptyRow('載入中…')); }
+    try {
+      const res = await apiFetch(`/api/popup-pickup/sessions/${encodeURIComponent(sid)}/sales`);
+      const json = await res.json();
+      if (myGen !== PPA.sales.loadGen) return;
+      if (!json.success) throw new Error(json.message || '載入失敗');
+      PPA.sales.session = json.data.session;
+      PPA.sales.items = json.data.items || [];
+      ppaSalesRender();
+    } catch (e) {
+      if (myGen !== PPA.sales.loadGen) return;
+      if (silent) { ppaSalesSetMsg('重新整理失敗：' + e.message, 'error'); return; }
+      if (tbody) { tbody.textContent = ''; tbody.appendChild(ppaSalesEmptyRow('載入失敗：' + e.message)); }
+    }
+  };
+  function ppaSalesEmptyRow(text) {
+    const tr = document.createElement('tr'); const td = document.createElement('td');
+    td.colSpan = 13; td.style.cssText = 'text-align:center;padding:32px;color:var(--text-muted,#64748b)'; td.textContent = text;
+    tr.appendChild(td); return tr;
+  }
+  function ppaSalesUpdateSelected() {
+    const el = document.getElementById('ppa-sales-selected-count');
+    if (el) el.textContent = `已選 ${PPA.sales.selected.size} 項`;
+    const all = document.getElementById('ppa-sales-check-all');
+    if (all) all.checked = PPA.sales.items.length > 0 && PPA.sales.selected.size === PPA.sales.items.length;
+  }
+  window.ppaSalesToggleAll = function ppaSalesToggleAll(on) {
+    PPA.sales.selected = new Set(on ? PPA.sales.items.map((x) => x.product_id) : []);
+    document.querySelectorAll('#ppa-sales-tbody input.ppa-sales-check').forEach((cb) => { cb.checked = on; });
+    ppaSalesUpdateSelected();
+  };
+  function ppaSalesNumInput(value, label, min) {
+    const inp = document.createElement('input');
+    inp.type = 'number'; inp.min = String(min || 0); inp.step = '1'; inp.inputMode = 'numeric';
+    inp.value = value === null || value === undefined ? '' : String(value);
+    inp.setAttribute('aria-label', label);
+    inp.style.cssText = 'width:76px;padding:4px 6px;border-radius:6px;background:var(--bg-base,#0f172a);color:var(--text-primary,#f1f5f9);border:1px solid var(--border,#334155)';
+    return inp;
+  }
+  function ppaSalesRender() {
+    const tbody = document.getElementById('ppa-sales-tbody');
+    const hint = document.getElementById('ppa-sales-session-hint');
+    if (hint && PPA.sales.session) {
+      const st = PPA.sales.session;
+      hint.textContent = `${PPA_EFFECTIVE_LABEL[st.effective_state] || ''}${st.product_scope === 'selected' ? '｜指定商品場次' : '｜所有外帶商品場次'}`;
+    }
+    if (!tbody) return;
+    const y = window.scrollY;
+    tbody.textContent = '';
+    if (!PPA.sales.items.length) { tbody.appendChild(ppaSalesEmptyRow('此場次目前沒有可販售的商品')); ppaSalesUpdateSelected(); return; }
+    PPA.sales.items.forEach((it) => {
+      const tr = document.createElement('tr');
+      tr.setAttribute('data-product-id', String(it.product_id));
+      const ckTd = document.createElement('td');
+      const ck = document.createElement('input'); ck.type = 'checkbox'; ck.className = 'ppa-sales-check';
+      ck.setAttribute('aria-label', `選取 ${it.name}`); ck.checked = PPA.sales.selected.has(it.product_id);
+      ck.addEventListener('change', () => { if (ck.checked) PPA.sales.selected.add(it.product_id); else PPA.sales.selected.delete(it.product_id); ppaSalesUpdateSelected(); });
+      ckTd.appendChild(ck); tr.appendChild(ckTd);
+
+      const nameTd = document.createElement('td');
+      const wrap = document.createElement('div'); wrap.style.cssText = 'display:flex;align-items:center;gap:8px;min-width:140px';
+      const thumb = document.createElement('div');
+      thumb.style.cssText = 'width:40px;height:40px;border-radius:6px;flex:0 0 40px;background:#334155 center/cover no-repeat';
+      if (it.image_url && /^\/(?!\/)/.test(it.image_url)) thumb.style.backgroundImage = `url("${it.image_url.replace(/["\\]/g, '')}")`;
+      thumb.setAttribute('aria-hidden', 'true');
+      const nm = document.createElement('span'); nm.textContent = it.name; nm.style.fontWeight = '600';
+      wrap.appendChild(thumb); wrap.appendChild(nm); nameTd.appendChild(wrap); tr.appendChild(nameTd);
+      tr.appendChild(ppaTd(`$${it.price}`));
+
+      const enTd = document.createElement('td');
+      const en = document.createElement('input'); en.type = 'checkbox'; en.checked = !!it.sale_enabled; en.setAttribute('aria-label', `${it.name} 此場次販售`);
+      en.addEventListener('change', () => ppaSalesSave([{ product_id: it.product_id, sale_enabled: en.checked }], en, () => { en.checked = !en.checked; }));
+      enTd.appendChild(en); tr.appendChild(enTd);
+
+      const modeTd = document.createElement('td');
+      const mode = document.createElement('select'); mode.setAttribute('aria-label', `${it.name} 庫存模式`);
+      [['unlimited', '不限量'], ['limited', '限量']].forEach(([v, l]) => { const o = document.createElement('option'); o.value = v; o.textContent = l; mode.appendChild(o); });
+      mode.value = it.stock_mode;
+      modeTd.appendChild(mode); tr.appendChild(modeTd);
+
+      const totTd = document.createElement('td');
+      const tot = ppaSalesNumInput(it.stock_mode === 'limited' ? it.stock_total : '', `${it.name} 總販售數量`, 0);
+      tot.disabled = it.stock_mode !== 'limited';
+      totTd.appendChild(tot); tr.appendChild(totTd);
+      mode.addEventListener('change', () => { tot.disabled = mode.value !== 'limited'; if (mode.value === 'unlimited') ppaSalesSave([{ product_id: it.product_id, stock_mode: 'unlimited' }], mode, () => { mode.value = it.stock_mode; tot.disabled = it.stock_mode !== 'limited'; }); else tot.focus(); });
+
+      tr.appendChild(ppaTd(String(it.reserved)));
+      tr.appendChild(ppaTd(String(it.committed)));
+      tr.appendChild(ppaTd(it.stock_mode === 'limited' ? String(it.remaining) : '不限量'));
+
+      const limTd = document.createElement('td');
+      const lim = ppaSalesNumInput(it.per_order_limit || '', `${it.name} 每筆限購`, 0);
+      lim.placeholder = '不限';
+      limTd.appendChild(lim); tr.appendChild(limTd);
+
+      const stTd = ppaTd(PPA_SALES_STATUS[it.status] || it.status);
+      if (it.status !== 'on_sale') stTd.style.color = '#ffd76a';
+      tr.appendChild(stTd);
+
+      const opTd = document.createElement('td');
+      opTd.appendChild(ppaBtn('儲存', (ev) => {
+        const patch = { product_id: it.product_id, stock_mode: mode.value };
+        if (mode.value === 'limited') {
+          const n = Number(tot.value);
+          if (tot.value === '' || !Number.isSafeInteger(n) || n < 0) { ppaSalesSetMsg(`「${it.name}」總販售數量必須是 0 以上整數`, 'error'); tot.focus(); return; }
+          patch.stock_total = n;
+        }
+        const ln = lim.value === '' ? 0 : Number(lim.value);
+        if (!Number.isSafeInteger(ln) || ln < 0) { ppaSalesSetMsg(`「${it.name}」每筆限購必須是 0 以上整數（0 或空白為不限）`, 'error'); lim.focus(); return; }
+        patch.per_order_limit = ln;
+        ppaSalesSave([patch], ev.currentTarget);
+      }, { cls: 'btn-primary' }));
+      if (it.manual_sold_out) opTd.appendChild(ppaBtn('恢復販售', (ev) => ppaSalesSave([{ product_id: it.product_id, manual_sold_out: false }], ev.currentTarget)));
+      else opTd.appendChild(ppaBtn('手動售完', (ev) => ppaSalesSave([{ product_id: it.product_id, manual_sold_out: true }], ev.currentTarget)));
+      tr.appendChild(opTd);
+      tr.appendChild(ppaTd(it.updated_at ? ppaFmtDT(it.updated_at) : '—'));
+      tbody.appendChild(tr);
+    });
+    ppaSalesUpdateSelected();
+    if (Math.abs(window.scrollY - y) > 1) window.scrollTo(window.scrollX, y);
+  }
+
+  // 寫入一律等 API 成功後才更新畫面；失敗時保留舊資料並顯示原因（含「低於已使用量」）。
+  async function ppaSalesSave(items, btn, revert) {
+    if (PPA.sales.saving) { if (typeof revert === 'function') revert(); return false; }
+    const sid = PPA.sales.sessionId;
+    if (!sid) return false;
+    PPA.sales.saving = true;
+    if (btn) btn.disabled = true;
+    ppaSalesSetMsg('儲存中…');
+    try {
+      const res = await apiFetch(`/api/popup-pickup/sessions/${encodeURIComponent(sid)}/sales`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items }),
+      });
+      const json = await res.json();
+      if (!json.success) {
+        const rej = json.rejected && json.rejected[0];
+        const it = rej && PPA.sales.items.find((x) => x.product_id === rej.product_id);
+        ppaSalesSetMsg((it ? `「${it.name}」` : '') + (json.message || '儲存失敗'), 'error');
+        if (typeof revert === 'function') revert();
+        return false;
+      }
+      if (sid !== PPA.sales.sessionId) return true;
+      PPA.sales.session = json.data.session;
+      PPA.sales.items = json.data.items || [];
+      ppaSalesRender();
+      ppaSalesSetMsg(`已儲存 ${json.data.updated} 項`, 'ok');
+      return true;
+    } catch (e) {
+      ppaSalesSetMsg('網路錯誤，未儲存：' + e.message, 'error');
+      if (typeof revert === 'function') revert();
+      return false;
+    } finally {
+      PPA.sales.saving = false;
+      if (btn && document.body.contains(btn)) btn.disabled = false;
+    }
+  }
+
+  window.ppaSalesBatch = function ppaSalesBatch(kind) {
+    const ids = [...PPA.sales.selected];
+    if (!ids.length) { ppaSalesSetMsg('請先勾選商品', 'error'); return; }
+    let patch;
+    if (kind === 'enable') patch = { sale_enabled: true };
+    else if (kind === 'disable') patch = { sale_enabled: false };
+    else if (kind === 'total') {
+      const v = document.getElementById('ppa-sales-batch-total').value; const n = Number(v);
+      if (v === '' || !Number.isSafeInteger(n) || n < 0) { ppaSalesSetMsg('批次數量必須是 0 以上整數', 'error'); return; }
+      patch = { stock_mode: 'limited', stock_total: n };
+    } else if (kind === 'limit') {
+      const v = document.getElementById('ppa-sales-batch-limit').value; const n = v === '' ? 0 : Number(v);
+      if (!Number.isSafeInteger(n) || n < 0) { ppaSalesSetMsg('每筆限購必須是 0 以上整數（0 為不限）', 'error'); return; }
+      patch = { per_order_limit: n };
+    } else return;
+    if (!confirm(`確定要對此場次的 ${ids.length} 項商品執行批次修改嗎？`)) return;
+    ppaSalesSave(ids.map((id) => ({ product_id: id, ...patch })));
+  };
+
+  // ── 套用到其他場次 ────────────────────────────────────────────────
+  window.ppaSalesOpenApply = function ppaSalesOpenApply() {
+    const ids = [...PPA.sales.selected];
+    if (!PPA.sales.sessionId) { ppaSalesSetMsg('請先選擇來源場次', 'error'); return; }
+    if (!ids.length) { ppaSalesSetMsg('請先勾選要套用的商品', 'error'); return; }
+    const box = document.getElementById('ppa-sales-apply-targets');
+    box.textContent = '';
+    const others = PPA.sales.sessions.filter((x) => x.id !== PPA.sales.sessionId);
+    if (!others.length) box.textContent = '沒有其他場次';
+    others.forEach((x) => {
+      const lab = document.createElement('label'); lab.style.cssText = 'display:block;margin:3px 0;font-size:13px';
+      const cb = document.createElement('input'); cb.type = 'checkbox'; cb.className = 'ppa-sales-apply-target'; cb.value = x.id;
+      cb.addEventListener('change', ppaSalesApplyPreview);
+      lab.appendChild(cb);
+      lab.appendChild(document.createTextNode(` ${ppaCampaignName(x.campaign_id)}｜${x.pickup_date} ${x.pickup_start_time} ${x.name}（${PPA_EFFECTIVE_LABEL[x.effective_state] || PPA_STATUS_LABEL[x.status] || ''}）`));
+      box.appendChild(lab);
+    });
+    const src = PPA.sales.sessions.find((x) => x.id === PPA.sales.sessionId);
+    document.getElementById('ppa-sales-apply-summary').textContent = `來源場次：${src ? src.name : ''}｜將套用 ${ids.length} 項商品的設定`;
+    document.getElementById('ppa-sales-apply-preview').textContent = '請勾選目標場次';
+    showModal18('ppa-modal-sales-apply');
+  };
+  window.ppaSalesCloseApply = function ppaSalesCloseApply() { hideModal18('ppa-modal-sales-apply'); };
+  function ppaSalesApplyBody(extra) {
+    const fields = [...document.querySelectorAll('.ppa-sales-apply-field')].filter((x) => x.checked).map((x) => x.value);
+    if (fields.includes('stock_total')) fields.push('stock_mode');
+    return Object.assign({
+      source_session_id: PPA.sales.sessionId,
+      product_ids: [...PPA.sales.selected],
+      target_session_ids: [...document.querySelectorAll('.ppa-sales-apply-target')].filter((x) => x.checked).map((x) => x.value),
+      fields,
+      include_open: document.getElementById('ppa-sales-apply-include-open').checked,
+    }, extra);
+  }
+  function ppaSalesDescribeTargets(data) {
+    return data.targets.map((t) => t.skipped_session ? `✗ ${t.name || t.session_id}：${t.reason}（不會覆寫）`
+      : `✓ ${t.name}（${t.pickup_date}）：${t.applied} 項${t.rejected && t.rejected.length ? `，${t.rejected.length} 項略過（${t.rejected.map((r) => r.message).join('；')}）` : ''}`).join('\n');
+  }
+  window.ppaSalesApplyPreview = async function ppaSalesApplyPreview() {
+    const out = document.getElementById('ppa-sales-apply-preview');
+    const body = ppaSalesApplyBody({ dry_run: true });
+    if (!body.target_session_ids.length) { out.textContent = '請勾選目標場次'; return; }
+    if (!body.fields.length) { out.textContent = '請至少勾選一個套用欄位'; return; }
+    out.textContent = '試算中…';
+    try {
+      const res = await apiFetch('/api/popup-pickup/sales/apply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const json = await res.json();
+      if (!json.success) { out.textContent = json.message || '試算失敗'; return; }
+      out.style.whiteSpace = 'pre-line';
+      out.textContent = `預覽（尚未寫入）：每個場次最多修改 ${json.data.product_count} 項商品\n` + ppaSalesDescribeTargets(json.data);
+    } catch (e) { out.textContent = '網路錯誤：' + e.message; }
+  };
+  window.ppaSalesConfirmApply = function ppaSalesConfirmApply() {
+    return ppaOnce('sales-apply', async () => {
+      const body = ppaSalesApplyBody({ confirm: true });
+      const out = document.getElementById('ppa-sales-apply-preview');
+      if (!body.target_session_ids.length || !body.fields.length) { out.textContent = '請勾選目標場次與套用欄位'; return; }
+      if (!confirm(`確定要將 ${body.product_ids.length} 項商品設定套用到 ${body.target_session_ids.length} 個場次嗎？已開始、已結束或已取消的場次不會被覆寫，歷史訂單不會改變。`)) return;
+      const btn = document.getElementById('ppa-sales-apply-btn');
+      btn.disabled = true;
+      try {
+        const res = await apiFetch('/api/popup-pickup/sales/apply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        const json = await res.json();
+        if (!json.success) { out.textContent = json.message || '套用失敗'; return; }
+        out.style.whiteSpace = 'pre-line';
+        out.textContent = '已套用：\n' + ppaSalesDescribeTargets(json.data);
+        showToast('已套用到其他場次', 'success');
+      } catch (e) { out.textContent = '網路錯誤，未套用：' + e.message; }
+      finally { btn.disabled = false; }
+    });
+  };
+  PPA.salesRefreshSessions = ppaSalesRefreshSelectorsAsync;
 
 })();

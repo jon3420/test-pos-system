@@ -17,6 +17,7 @@
 const express = require('express');
 const router = express.Router();
 const { v4: uuidv4 } = require('uuid');
+const crypto = require('crypto');
 
 const { getDb } = require('../utils/db');
 const { normalizeTaiwanMobile } = require('../public/js/phone-utils');
@@ -62,6 +63,9 @@ function assertStoreOrderable(db, storeId, notFoundCode, notFoundMessage) {
     pp.fail(notFoundCode, notFoundMessage, 404);
   }
 }
+
+// R53：公開活動／場次清單一律 no-store，後台發布／取消後店家入口與連結立即讀到最新狀態。
+router.use(['/popup-entry', '/popup-campaign', '/popup-session'], (req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
 
 router.get('/popup-entry', (req, res) => {
   try {
@@ -264,7 +268,9 @@ router.post('/popup-checkout', (req, res) => {
     }
 
     const orderId = uuidv4();
-    const d = new Date();
+    // R53：訂單時間一律使用台北時間（與一般 LINE 訂單 twNow() 相同），讓「今日／最近 3 天」
+    // 查詢的日期切點不受伺服器時區影響。
+    const d = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
     const pad = (v, l = 2) => String(v).padStart(l, '0');
     const nowStr = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
     const orderNo = `POPUP-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}-${orderId.slice(0, 6)}`;
@@ -320,7 +326,9 @@ router.post('/popup-checkout', (req, res) => {
           session.lat, session.lng,
         ]
       );
-      popupCheckout.allocatePopupOrderItemsInTransaction(db, storeId, session, orderId, items);
+      // R53：現金等直接 committed；線上付款（同交易建立 pending attempt）為 reserved。
+      const willCreateAttempt = popupPayConfigured && ppay.ONLINE_CODES.has(paymentMethodCode);
+      popupCheckout.allocatePopupOrderItemsInTransaction(db, storeId, session, orderId, items, willCreateAttempt ? 'reserved' : 'committed');
       // R50：線上付款 → 同一交易內建立唯一 pending 付款 attempt（名額已於上方保留，逾時由
       // lazy reconcile 釋放）；冪等鍵與訂單同交易寫入（UNIQUE(store_id, idem_key)）。
       if (popupPayConfigured && ppay.ONLINE_CODES.has(paymentMethodCode)) {
@@ -515,5 +523,160 @@ router.post('/popup-payment/switch-to-cash', (req, res) => {
     res.json({ success: true, data: popupPaymentSummary(db, attempt) });
   } catch (e) { sendPopupError(res, e); }
 });
+
+// ══════════════════════════════════════════════════════════════════════
+// R53：快閃訂單查詢／我的訂單／詳情／再購（只限 pickup_type='popup'；store 隔離；
+// 所有 PII 只走 POST body；成功後以 opaque token（只存 SHA-256、30 分鐘）取用）。
+// ══════════════════════════════════════════════════════════════════════
+const plookup = require('../utils/popupOrderLookup');
+const { createRateLimiter } = require('../utils/rateLimiter');
+const lookupIpLimiter = createRateLimiter({ windowMs: 10 * 60 * 1000, max: 10 });
+const lookupTokenLimiter = createRateLimiter({ windowMs: 10 * 60 * 1000, max: 120 });
+// 依「店家＋查詢鍵（電話雜湊）」限制失敗次數，避免換 IP 暴力猜測同一支電話／後三碼。
+const lookupFailLimiter = createRateLimiter({ windowMs: 15 * 60 * 1000, max: 5 });
+function lookupError(res, status, error, message) {
+  return res.status(status).json({ success: false, error, message });
+}
+function lookupNotFound(res) { return lookupError(res, 404, 'POPUP_LOOKUP_NOT_FOUND', plookup.GENERIC_NOT_FOUND); }
+function popupLookupLog(storeId, mode, outcome) {
+  // 稽核紀錄：只記錄店家、查詢模式與結果，不記錄電話、姓名、訂單編號或完整表單。
+  console.info(`[popup-lookup] store=${String(storeId || '-').slice(0, 40)} mode=${mode || '-'} outcome=${outcome}`);
+}
+function resolveLookupStore(db, body) {
+  const sessionCode = typeof body.session_code === 'string' ? body.session_code : '';
+  const campaignCode = typeof body.campaign_code === 'string' ? body.campaign_code : '';
+  const sid = typeof body.store_id === 'string' ? body.store_id.trim() : '';
+  let storeId = null;
+  if (sessionCode) storeId = resolveStoreIdByPublicCode(db, 'popup_sessions', sessionCode);
+  else if (campaignCode) storeId = resolveStoreIdByPublicCode(db, 'popup_campaigns', campaignCode);
+  else if (sid && sid.length <= 64) storeId = sid;
+  if (!storeId) return null;
+  const authority = popupCheckout.fetchFreshStoreAuthority(db, storeId);
+  if (!authority.storeActive || !authority.licenseActive || !authority.lineOrderEnabled || !pp.isPopupPickupEnabled(db, storeId)) return null;
+  return storeId;
+}
+function noStore(res) { res.set('Cache-Control', 'no-store'); }
+
+router.post('/popup-orders/lookup', (req, res) => {
+  noStore(res);
+  try {
+    const db = getDb();
+    if (!lookupIpLimiter.check(req)) return lookupError(res, 429, 'POPUP_LOOKUP_RATE_LIMITED', '查詢次數過多，請稍後再試');
+    const body = req.body || {};
+    const built = plookup.buildScope(body);
+    if (!built.ok) return lookupError(res, 400, 'POPUP_LOOKUP_VALIDATION', built.message);
+    const storeId = resolveLookupStore(db, body);
+    const failKey = { ip: 'k:' + crypto.createHash('sha256').update(`${storeId || '-'}|${plookup.cleanPhone(body.phone)}`).digest('hex') };
+    if (!storeId) { popupLookupLog(null, built.scope.mode, 'store_unavailable'); return lookupNotFound(res); }
+    // 失敗次數上限：先檢查「是否已被鎖」（只讀），失敗時才累加。
+    const failBucket = lookupFailLimiter._bucket.get(failKey.ip);
+    if (failBucket && Date.now() - failBucket.windowStart <= lookupFailLimiter._windowMs && failBucket.count >= lookupFailLimiter._max) {
+      popupLookupLog(storeId, built.scope.mode, 'locked');
+      return lookupError(res, 429, 'POPUP_LOOKUP_RATE_LIMITED', '查詢次數過多，請稍後再試');
+    }
+    const total = plookup.countScope(db, storeId, built.scope);
+    if (total <= 0) {
+      lookupFailLimiter.check(failKey);
+      popupLookupLog(storeId, built.scope.mode, 'not_found');
+      return lookupNotFound(res);
+    }
+    const tok = plookup.issueToken(db, storeId, built.scope);
+    const orders = plookup.listScope(db, storeId, built.scope, 1).map((o) => plookup.summaryView(db, o));
+    popupLookupLog(storeId, built.scope.mode, 'ok');
+    res.json({ success: true, data: { token: tok.token, expires_at: tok.expires_at, mode: built.scope.mode, total,
+      page: 1, page_size: plookup.PAGE_SIZE, has_more: total > orders.length, orders } });
+  } catch (e) { sendPopupError(res, e); }
+});
+
+function withLookupToken(handler) {
+  return (req, res) => {
+    noStore(res);
+    try {
+      const db = getDb();
+      if (!lookupTokenLimiter.check(req)) return lookupError(res, 429, 'POPUP_LOOKUP_RATE_LIMITED', '操作次數過多，請稍後再試');
+      const t = plookup.resolveToken(db, (req.body || {}).token);
+      if (!t.ok) {
+        return t.error === 'EXPIRED'
+          ? lookupError(res, 401, 'POPUP_LOOKUP_EXPIRED', '查詢已逾時，請重新查詢')
+          : lookupError(res, 401, 'POPUP_LOOKUP_INVALID', '查詢已失效，請重新查詢');
+      }
+      return handler(req, res, db, t.storeId, t.scope);
+    } catch (e) { sendPopupError(res, e); }
+  };
+}
+
+router.post('/popup-orders/list', withLookupToken((req, res, db, storeId, scope) => {
+  const page = Number((req.body || {}).page) || 1;
+  const total = plookup.countScope(db, storeId, scope);
+  const orders = plookup.listScope(db, storeId, scope, page).map((o) => plookup.summaryView(db, o));
+  res.json({ success: true, data: { mode: scope.mode, total, page, page_size: plookup.PAGE_SIZE,
+    has_more: page * plookup.PAGE_SIZE < total, orders } });
+}));
+
+router.post('/popup-orders/detail', withLookupToken((req, res, db, storeId, scope) => {
+  const o = plookup.findOrderInScope(db, storeId, scope, (req.body || {}).order_number);
+  if (!o) return lookupNotFound(res);
+  res.json({ success: true, data: plookup.detailView(db, o) });
+}));
+
+router.post('/popup-orders/logout', (req, res) => {
+  noStore(res);
+  try { plookup.revokeToken(getDb(), (req.body || {}).token); res.json({ success: true }); } catch (e) { sendPopupError(res, e); }
+});
+
+// 再購：不重開舊場次；只帶入目前開放預訂場次中仍可販售、仍有數量的商品，使用目前售價
+// 與限購；不建立訂單、付款或任何保留量（下單時才由結帳交易權威檢查）。
+function orderableSessionsForStore(db, storeId, now) {
+  const rows = db.all(
+    `SELECT s.*, c.status AS campaign_status, c.name AS campaign_name FROM popup_sessions s
+     JOIN popup_campaigns c ON c.id=s.campaign_id AND c.store_id=s.store_id
+     WHERE s.store_id=? AND s.status='published' AND c.status='published'`, [storeId]);
+  return rows.map((r) => ({ row: r, pub: popupCheckout.serializePublicSession(db, storeId, r, r.campaign_status, now) }))
+    .filter((x) => x.pub.can_order === true && !(x.pub.max_orders != null && x.pub.order_count != null && x.pub.order_count >= x.pub.max_orders))
+    .sort((a, b) => String(a.row.pickup_date + a.row.pickup_start_time).localeCompare(String(b.row.pickup_date + b.row.pickup_start_time)));
+}
+const REBUY_REASON = { not_in_session: '此場次未販售此商品', sold_out: '已售完', deleted: '商品已下架' };
+router.post('/popup-orders/rebuy', withLookupToken((req, res, db, storeId, scope) => {
+  const body = req.body || {};
+  const o = plookup.findOrderInScope(db, storeId, scope, body.order_number);
+  if (!o) return lookupNotFound(res);
+  const now = Date.now();
+  const sessions = orderableSessionsForStore(db, storeId, now);
+  const sessionList = sessions.map((x) => ({ session_code: x.row.public_code, campaign_name: x.row.campaign_name, session_name: x.row.name,
+    pickup_date: x.row.pickup_date, pickup_start_time: x.row.pickup_start_time, pickup_end_time: x.row.pickup_end_time, place_name: x.row.place_name }));
+  if (!sessions.length) return res.json({ success: true, data: { need_choice: false, sessions: [], added: [], skipped: [], message: '目前沒有開放預訂的快閃場次' } });
+  let chosen = null;
+  if (typeof body.session_code === 'string' && body.session_code) {
+    chosen = sessions.find((x) => x.row.public_code === body.session_code) || null;
+    if (!chosen) return lookupError(res, 409, 'POPUP_REBUY_SESSION_UNAVAILABLE', '此場次目前無法預訂，請選擇其他場次');
+  } else if (sessions.length === 1) chosen = sessions[0];
+  else return res.json({ success: true, data: { need_choice: true, sessions: sessionList, added: [], skipped: [] } });
+
+  const fresh = new Map(chosen.pub.products.map((p) => [Number(p.product_id), p]));
+  const wanted = new Map();
+  const oldNames = new Map();
+  plookup.parseItems(o).forEach((it) => {
+    if (!it.product_id || it.qty <= 0) return;
+    wanted.set(it.product_id, (wanted.get(it.product_id) || 0) + it.qty);
+    if (!oldNames.has(it.product_id)) oldNames.set(it.product_id, { name: it.name, price: it.price });
+  });
+  const added = []; const skipped = [];
+  wanted.forEach((qty, pid) => {
+    const old = oldNames.get(pid);
+    const p = fresh.get(pid);
+    if (!p) {
+      const exists = db.get('SELECT id FROM products WHERE id=? AND store_id=?', [pid, storeId]);
+      skipped.push({ name: old.name, reason: exists ? REBUY_REASON.not_in_session : REBUY_REASON.deleted });
+      return;
+    }
+    if (p.sold_out || (p.remaining_qty != null && p.remaining_qty <= 0)) { skipped.push({ name: p.name, reason: REBUY_REASON.sold_out }); return; }
+    let q = qty; let note = '';
+    if (p.per_order_limit != null && q > p.per_order_limit) { q = p.per_order_limit; note = `每筆限購 ${p.per_order_limit} 份，已調整數量`; }
+    if (p.remaining_qty != null && q > p.remaining_qty) { q = p.remaining_qty; note = `剩餘 ${p.remaining_qty} 份，已調整數量`; }
+    added.push({ product_id: pid, name: p.name, qty: q, price: p.price, old_price: old.price, price_changed: Number(old.price) !== Number(p.price), note });
+  });
+  res.json({ success: true, data: { need_choice: false, session_code: chosen.row.public_code, sessions: sessionList, added, skipped,
+    message: added.length ? '' : '原訂單商品目前都無法購買，未建立購物車' } });
+}));
 
 module.exports = router;
