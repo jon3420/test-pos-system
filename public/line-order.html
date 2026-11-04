@@ -335,7 +335,7 @@ img{max-width:100%;display:block}
 </style>
 <link rel="stylesheet" href="/css/product-detail-modal.css">
 <!-- R48：快閃取餐（/popup-order）顧客前台專用樣式；所有 selector 皆限定在 popup scope，一般 LINE 點餐頁不受影響。 -->
-<link rel="stylesheet" href="/css/popup-order.css?v=r53-popup-ops-1">
+<link rel="stylesheet" href="/css/popup-order.css?v=r54-popup-mobile-1">
 </head>
 <body>
 
@@ -2297,6 +2297,7 @@ function reconcilePopupCartWithFreshProducts(cart, freshProducts){
 // ══════════════════════════════════════════════════════════════════════
 function popupEnterMode(){
   try{
+    popupEnableSafeAreaViewport();
     if(document.body && !document.body.classList.contains('popup-order-mode')) document.body.classList.add('popup-order-mode');
     const legacyLoading=document.getElementById('loading');
     if(legacyLoading) legacyLoading.style.display='none';
@@ -2308,11 +2309,14 @@ function popupEnterMode(){
 // R52：快閃頁專用——viewport meta 補上 viewport-fit=cover，iPhone 才會回報 safe-area inset，
 // 底部購物車列的 env(safe-area-inset-bottom) 才能真正避開 Home indicator。一般 LINE 點餐頁
 // 不會建立 #popupRoot，因此不受影響。
+// R54：快閃頁改用可縮放的 viewport（移除 maximum-scale／user-scalable=no，保留雙指縮放與無障礙放大）。
+// 快速連點造成的局部放大改由互動區 touch-action: manipulation 處理（popup-order.css），不靠禁止縮放。
+// 只在快閃模式執行；一般 LINE 點餐頁的 viewport 完全不變。
+const POPUP_VIEWPORT_CONTENT='width=device-width,initial-scale=1,viewport-fit=cover';
 function popupEnableSafeAreaViewport(){
   try{
     const m=document.querySelector('meta[name="viewport"]');
-    const c=m ? (m.getAttribute('content')||'') : '';
-    if(m && !/viewport-fit\s*=/.test(c)) m.setAttribute('content', c+',viewport-fit=cover');
+    if(m && m.getAttribute('content')!==POPUP_VIEWPORT_CONTENT) m.setAttribute('content', POPUP_VIEWPORT_CONTENT);
   }catch(e){}
 }
 
@@ -2324,6 +2328,27 @@ function popupEl(tag, cls, text){
   return el;
 }
 
+// R54：快速連點的「幽靈點擊」防護。只在畫面切換（前往下一步、開關購物車明細、送單完成）之後的
+// 350ms 內，且只攔「落在觸發切換那一下同一位置（±24px）」的指標點擊——也就是連點的第二下落到剛出現的
+// 控制項上（例如連點「查看購物車」第二下按到明細裡的「刪除」）。鍵盤操作（click.detail===0）、其他位置的
+// 點擊、捲動、長按與雙指縮放都不受影響；數量＋／－連點不會觸發切換，每一下照常處理。
+const POPUP_GHOST_TAP_MS=350;
+let _popupLastTap={ x:0, y:0, t:0 };
+let _popupGhostGuard={ until:0, x:0, y:0 };
+function popupArmGhostGuard(){
+  const now=Date.now();
+  if(now-_popupLastTap.t<1500) _popupGhostGuard={ until:now+POPUP_GHOST_TAP_MS, x:_popupLastTap.x, y:_popupLastTap.y };
+}
+function popupGhostClickFilter(ev){
+  if(!ev || !(ev.detail>0)) return;
+  const now=Date.now();
+  if(now<=_popupGhostGuard.until && Math.abs(ev.clientX-_popupGhostGuard.x)<=24 && Math.abs(ev.clientY-_popupGhostGuard.y)<=24){
+    ev.stopPropagation(); ev.preventDefault();
+    return;
+  }
+  _popupLastTap={ x:ev.clientX, y:ev.clientY, t:now };
+}
+
 function popupRootEl(){
   popupEnterMode();
   let el=document.getElementById('popupRoot');
@@ -2331,6 +2356,7 @@ function popupRootEl(){
     el=document.createElement('div');
     el.id='popupRoot';
     el.setAttribute('role','main');
+    el.addEventListener('click', popupGhostClickFilter, true);
     document.body.appendChild(el);
     popupEnableSafeAreaViewport();
   }
@@ -2760,6 +2786,7 @@ function popupGoToStep(step, focusId){
   popupCartDrawerOpen=false;
   popupNormalizeStep();
   _popupFocusAfterRender=focusId||('popupStepHeading-'+popupCheckoutStep);
+  if(prev!==popupCheckoutStep) popupArmGhostGuard();
   if(prev!==popupCheckoutStep){
     try{
       if(window.history && typeof window.history.pushState==='function'){
@@ -2790,11 +2817,13 @@ try{ window.addEventListener('popstate', _popupHandleStepPopState); }catch(e){}
 
 // R52：開關購物車明細只新增／移除明細層，不重建頁面。
 function popupOpenCartDrawer(){
+  popupArmGhostGuard();
   popupCartDrawerOpen=true;
   _popupFocusAfterRender='popupCartDrawerTitle';
   popupRefreshCartViews();
 }
 function popupCloseCartDrawer(){
+  popupArmGhostGuard();
   popupCartDrawerOpen=false;
   _popupFocusAfterRender='popupCartBarViewBtn';
   popupRefreshCartViews();
@@ -3621,10 +3650,190 @@ function popupPaymentStatusLabel(method, status){
   return '付款狀態確認中';
 }
 
+// ══════════════════════════════════════════════════════════════════════
+// R54：快閃完成頁——取餐地點（名稱／地址／備註）、開啟 Google Maps、複製地址、繼續點餐。
+// 全部是快閃專用函式；一般 LINE 的 buildPickupLocationRowsHTML()／openPickupMapsUrl()／
+// copyPickupAddressText() 與成功頁不受影響。資料只來自本張訂單的後端 snapshot（201 回應、
+// 冪等重送或付款狀態），不另外查詢店家資料。地址、電話、token 不寫入 URL／log／storage。
+// ══════════════════════════════════════════════════════════════════════
+const POPUP_MAPS_SEARCH_BASE='https://www.google.com/maps/search/?api=1&query=';
+function popupCoordOrNull(v){
+  if(typeof v==='number') return Number.isFinite(v) ? v : null;
+  if(typeof v==='string' && /^\s*-?\d{1,3}(\.\d{1,15})?\s*$/.test(v)) return Number(v);
+  return null;
+}
+// 座標（兩者皆為有限且在合法範圍內）優先；否則用經 encodeURIComponent 的完整地址；兩者皆無回傳 ''。
+// 網址只由固定的 Google Maps 網域＋編碼後的查詢字串組成，絕不採用資料庫內的任何 URL。
+function popupPickupMapsUrl(loc){
+  if(!loc || typeof loc!=='object') return '';
+  const lat=popupCoordOrNull(loc.lat), lng=popupCoordOrNull(loc.lng);
+  if(lat!==null && lng!==null && lat>=-90 && lat<=90 && lng>=-180 && lng<=180){
+    return POPUP_MAPS_SEARCH_BASE+encodeURIComponent(lat+','+lng);
+  }
+  const addr=typeof loc.address==='string' ? loc.address.trim() : '';
+  return addr ? POPUP_MAPS_SEARCH_BASE+encodeURIComponent(addr) : '';
+}
+function popupTrimText(v){ return typeof v==='string' ? v.trim() : ''; }
+// Clipboard API 優先；不可用或被拒時改用隱藏 textarea＋execCommand（字級 16px、fixed 定位，避免 iOS 放大或捲動）。
+async function popupCopyText(text){
+  try{
+    if(navigator.clipboard && typeof navigator.clipboard.writeText==='function'){ await navigator.clipboard.writeText(text); return true; }
+  }catch(e){}
+  try{
+    const ta=document.createElement('textarea');
+    ta.value=text; ta.setAttribute('readonly',''); ta.setAttribute('aria-hidden','true');
+    ta.style.cssText='position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;font-size:16px;';
+    document.body.appendChild(ta);
+    ta.select();
+    try{ ta.setSelectionRange(0, text.length); }catch(e){}
+    const ok=typeof document.execCommand==='function' && document.execCommand('copy');
+    document.body.removeChild(ta);
+    return !!ok;
+  }catch(e){ return false; }
+}
+function popupBuildPickupLocationSection(loc){
+  const o=loc && typeof loc==='object' ? loc : {};
+  const placeName=popupTrimText(o.place_name), address=popupTrimText(o.address), note=popupTrimText(o.address_note);
+  const mapsUrl=popupPickupMapsUrl(o);
+  const sec=popupEl('section','popup-order-pickup-loc');
+  sec.setAttribute('aria-label','取餐地點');
+  sec.setAttribute('data-testid','popup-pickup-location');
+  sec.appendChild(popupEl('h4','popup-order-pickup-loc-title','取餐地點'));
+  const dl=popupEl('dl','popup-order-pickup-loc-list');
+  const row=(label, value, key)=>{
+    const w=popupEl('div','popup-order-pickup-loc-row');
+    w.setAttribute('data-field', key);
+    w.appendChild(popupEl('dt','popup-order-pickup-loc-label',label));
+    w.appendChild(popupEl('dd','popup-order-pickup-loc-value',value));
+    dl.appendChild(w);
+  };
+  if(placeName) row('地點名稱', placeName, 'place_name');
+  if(address) row('取餐地址', address, 'address');
+  else row('取餐地址', mapsUrl ? '請依 Google Maps 定位前往' : '尚未提供地址', 'address');
+  if(note) row('地點備註', note, 'address_note');
+  sec.appendChild(dl);
+  const actions=popupEl('div','popup-order-pickup-loc-actions');
+  if(mapsUrl){
+    const a=popupEl('a','popup-order-btn popup-order-maps-btn','開啟 Google Maps');
+    a.id='popupMapsBtn';
+    a.href=mapsUrl;
+    a.target='_blank';
+    a.rel='noopener noreferrer';
+    a.referrerPolicy='no-referrer';
+    a.setAttribute('data-variant','secondary');
+    actions.appendChild(a);
+  }else{
+    const hint=popupEl('p','popup-order-notice popup-order-maps-unavailable','此訂單沒有可導航的地點資訊，請依店家通知前往取餐。');
+    hint.setAttribute('data-tone','info');
+    hint.setAttribute('data-testid','popup-maps-unavailable');
+    actions.appendChild(hint);
+  }
+  const status=popupEl('p','popup-order-copy-status','');
+  status.id='popupCopyAddrStatus';
+  status.setAttribute('role','status');
+  status.setAttribute('aria-live','polite');
+  if(address){
+    const cp=popupEl('button','popup-order-btn popup-order-copy-btn','複製地址');
+    cp.type='button';
+    cp.id='popupCopyAddrBtn';
+    cp.setAttribute('data-variant','secondary');
+    cp.addEventListener('click', async ()=>{
+      if(cp.disabled) return;
+      cp.disabled=true;
+      const ok=await popupCopyText(address);
+      status.setAttribute('data-tone', ok ? 'ok' : 'error');
+      status.textContent=ok ? '已複製取餐地址' : '無法自動複製，請長按上方地址文字手動複製';
+      cp.disabled=false;
+      try{ cp.focus({ preventScroll:true }); }catch(e){}
+    });
+    actions.appendChild(cp);
+  }
+  sec.appendChild(actions);
+  sec.appendChild(status);
+  return sec;
+}
+
+// 「繼續點餐」：由後端依 session → campaign → 店家入口判斷可用入口，前端只用固定白名單組公開網址。
+// 只開啟全新的購物流程：不帶上一張訂單的購物車、付款憑證、冪等鍵、姓名、電話或備註，也不自動再購。
+let _popupContinueBusy=false;
+function popupContinueUrl(d){
+  if(!d || typeof d!=='object') return '';
+  const ok=(v)=>typeof v==='string' && /^[A-Za-z0-9_-]{1,200}$/.test(v);
+  if(d.target==='session' && ok(d.session_code)) return '/popup-order?session='+encodeURIComponent(d.session_code);
+  if(d.target==='campaign' && ok(d.campaign_code)) return '/popup-order?campaign='+encodeURIComponent(d.campaign_code);
+  if(d.target==='store' && ok(d.store_id)) return '/popup-order?store_id='+encodeURIComponent(d.store_id);
+  return '';
+}
+function popupClearCompletedOrderState(sessionCode, payRef){
+  try{ if(sessionCode) localStorage.removeItem(popupCartStorageKey(sessionCode)); }catch(e){}
+  try{ if(payRef && /^[0-9a-f-]{36}$/.test(payRef)) window.sessionStorage.removeItem('line_popup_pay_v1_'+payRef); }catch(e){}
+  _popupIdemKey=null;
+}
+async function popupContinueOrdering(btn, msgEl, sessionCode, payRef){
+  if(_popupContinueBusy) return;
+  _popupContinueBusy=true;
+  const label=btn.textContent;
+  btn.disabled=true;
+  btn.textContent='前往中…';
+  msgEl.textContent='';
+  let navigating=false;
+  try{
+    if(typeof sessionCode!=='string' || !sessionCode) throw new Error('no-session');
+    const res=await popupApiFetch('/api/line-orders/popup-continue?session='+encodeURIComponent(sessionCode));
+    const json=await res.json().catch(()=>({}));
+    const d=json && json.success===true ? json.data : null;
+    const url=popupContinueUrl(d);
+    if(url && (d.target!=='store' || d.available===true)){
+      popupClearCompletedOrderState(sessionCode, payRef);
+      navigating=true;
+      window.location.assign(url);
+      return;
+    }
+    msgEl.setAttribute('data-tone','info');
+    msgEl.textContent='目前沒有可下單的快閃場次，請留意店家公告。';
+    if(url){
+      const back=popupEl('a','popup-order-btn popup-order-store-entry-link','回到店家快閃入口');
+      back.href=url;
+      back.setAttribute('data-variant','secondary');
+      back.addEventListener('click', ()=>{ popupClearCompletedOrderState(sessionCode, payRef); });
+      msgEl.appendChild(document.createTextNode(' '));
+      msgEl.appendChild(back);
+    }
+  }catch(e){
+    msgEl.setAttribute('data-tone','error');
+    msgEl.textContent='目前無法前往點餐頁，請稍後再試一次。';
+  }finally{
+    if(!navigating){ _popupContinueBusy=false; btn.disabled=false; btn.textContent=label; }
+  }
+}
+function popupBuildCompletionActions(orderNumber, sessionCode, payRef){
+  const box=popupEl('div','popup-order-done-actions');
+  const nav=popupEl('div','popup-order-step-nav popup-order-done-nav');
+  const go=popupEl('button','popup-order-btn popup-order-continue-btn','繼續點餐');
+  go.type='button'; go.id='popupContinueBtn';
+  const detail=popupEl('button','popup-order-btn','查看訂單詳情');
+  detail.type='button'; detail.id='popupDoneDetailBtn'; detail.setAttribute('data-variant','secondary');
+  const mine=popupEl('button','popup-order-btn','我的訂單');
+  mine.type='button'; mine.id='popupDoneHistoryBtn'; mine.setAttribute('data-variant','secondary');
+  const msg=popupEl('p','popup-order-continue-msg','');
+  msg.id='popupContinueMsg'; msg.setAttribute('role','status'); msg.setAttribute('aria-live','polite');
+  go.addEventListener('click', ()=>{ popupContinueOrdering(go, msg, sessionCode, payRef); });
+  detail.addEventListener('click', (ev)=>{
+    popupOpenLookup('query', ev.currentTarget);
+    try{ const f=document.getElementById('popupLookupOrderNo'); if(f && !f.value && typeof orderNumber==='string') f.value=orderNumber; }catch(e){}
+  });
+  mine.addEventListener('click', (ev)=>{ popupOpenLookup('history', ev.currentTarget); });
+  nav.appendChild(go); nav.appendChild(detail); nav.appendChild(mine);
+  box.appendChild(nav);
+  box.appendChild(msg);
+  return box;
+}
+
 // 規格五：成功畫面完全使用後端 response snapshot（order_number/日期時間/
 // 地點/items/total/顧客資料/付款方式），不使用送出當時的 request payload 或
 // localStorage 裡的任何值——畫面上顯示的權威來源只能是 response。
 function renderPopupCheckoutSuccess(data){
+  popupArmGhostGuard();
   const root=popupRootEl();
   root.textContent='';
   popupSetView(root,'success');
@@ -3648,9 +3857,8 @@ function renderPopupCheckoutSuccess(data){
     addRow(`活動場次：${[data.popup_campaign_name, data.popup_session_name].filter(Boolean).join(' － ')}`);
   }
   addRow(`取貨時間：${data.pickup_date||''} ${data.pickup_start_time||''}-${data.pickup_end_time||''}`);
-  if(data.place_name || data.address){
-    addRow(`地點：${data.place_name||''} ${data.address||''} ${data.address_note||''}`.trim());
-  }
+  // R54：取餐地點改為分欄（名稱／地址／備註）＋開啟 Google Maps＋複製地址。
+  card.appendChild(popupBuildPickupLocationSection(data));
   const itemsList=popupEl('ul','popup-order-success-lines');
   let totalQty=0;
   (Array.isArray(data.items) ? data.items : []).forEach((it)=>{
@@ -3684,6 +3892,8 @@ function renderPopupCheckoutSuccess(data){
   const keep=popupEl('p','popup-order-notice popup-order-save-reminder','請截圖或記下訂單編號，取貨時出示給店家核對。重新整理此頁不會重複下單。');
   keep.setAttribute('data-tone','info');
   card.appendChild(keep);
+  // R54：主要操作區——繼續點餐（全新購物流程）／查看訂單詳情／我的訂單。
+  card.appendChild(popupBuildCompletionActions(data.order_number, data.popup_session_public_code, null));
   body.appendChild(card);
   wrap.appendChild(body);
   root.appendChild(wrap);
@@ -3715,6 +3925,7 @@ function popupSafeLinePayUrl(u){
 }
 // 線上付款待付款／結果畫面（資料來源：checkout response 或 server status）。
 function renderPopupPaymentScreen(order, pay, notice){
+  popupArmGhostGuard();
   const root=popupRootEl();
   root.textContent='';
   popupSetView(root,'payment');
@@ -3739,6 +3950,8 @@ function renderPopupPaymentScreen(order, pay, notice){
   if(total!=null) row(`應付總額：NT$${total}`);
   const o=(order && order.order) ? order.order : order;
   if(o && (o.pickup_date || o.place_name)) row(`取貨：${o.pickup_date||''} ${o.pickup_start_time||''}-${o.pickup_end_time||''} ${o.place_name||''}`.trim());
+  // R54：有訂單 snapshot 時顯示取餐地點、Google Maps 與複製地址。
+  if(o && typeof o==='object' && (o.place_name || o.address || o.lat!=null || o.lng!=null)) card.appendChild(popupBuildPickupLocationSection(o));
   if(pay && pay.expires_at && state==='pending_payment'){
     const ex=new Date(pay.expires_at);
     if(!isNaN(ex.getTime())) row(`請於 ${String(ex.getHours()).padStart(2,'0')}:${String(ex.getMinutes()).padStart(2,'0')} 前完成付款，逾時將自動取消並釋放名額。`);
@@ -3769,6 +3982,12 @@ function renderPopupPaymentScreen(order, pay, notice){
   const keep=popupEl('p','popup-order-notice popup-order-save-reminder','請記下訂單編號；重新整理此頁不會重複下單或重複扣款。');
   keep.setAttribute('data-tone','info');
   card.appendChild(keep);
+  // R54：付款完成（或已改為取貨付款）＝訂單完成：提供繼續點餐／查看訂單詳情／我的訂單。
+  if(state==='paid' || state==='pay_at_pickup' || state==='pending_confirmation'){
+    const sessionCode=(o && typeof o.popup_session_public_code==='string') ? o.popup_session_public_code : (popupSession && popupSession.public_code);
+    const orderNumber=(order && order.order_number) || null;
+    card.appendChild(popupBuildCompletionActions(orderNumber, sessionCode, state==='paid' ? (pay && pay.ref) : null));
+  }
   body.appendChild(card);
   wrap.appendChild(body);
   root.appendChild(wrap);

@@ -16334,7 +16334,7 @@ async function executeMigrationImport() {
   // ═══════════════════════════════════════════════════════════════════
   // R53：📦 商品販售管理（以場次為單位；資料只存在快閃 popup_session_product_sales）
   // ═══════════════════════════════════════════════════════════════════
-  PPA.sales = { sessionId: '', session: null, items: [], selected: new Set(), loadGen: 0, saving: false, sessions: [] };
+  PPA.sales = { sessionId: '', session: null, items: [], selected: new Set(), loadGen: 0, saving: false, batchInFlight: false, sessions: [] };
   const PPA_SALES_STATUS = { on_sale: '販售中', disabled: '此場次停售', manual_sold_out: '手動售完', sold_out: '已售完', product_unavailable: '商品已下架／不開放外帶' };
 
   function ppaSalesSetMsg(text, tone) {
@@ -16443,6 +16443,9 @@ async function executeMigrationImport() {
       const st = PPA.sales.session;
       hint.textContent = `${PPA_EFFECTIVE_LABEL[st.effective_state] || ''}${st.product_scope === 'selected' ? '｜指定商品場次' : '｜所有外帶商品場次'}`;
     }
+    // R54：勾選規則——重新載入／儲存／批次之後一律保留勾選，只移除已不在此場次清單中的商品。
+    const listed = new Set(PPA.sales.items.map((x) => x.product_id));
+    PPA.sales.selected = new Set([...PPA.sales.selected].filter((id) => listed.has(id)));
     if (!tbody) return;
     const y = window.scrollY;
     tbody.textContent = '';
@@ -16520,13 +16523,33 @@ async function executeMigrationImport() {
   }
 
   // 寫入一律等 API 成功後才更新畫面；失敗時保留舊資料並顯示原因（含「低於已使用量」）。
-  async function ppaSalesSave(items, btn, revert) {
-    if (PPA.sales.saving) { if (typeof revert === 'function') revert(); return false; }
+  // R54：單筆儲存改為依序排隊（不再因上一筆仍在進行而無聲丟棄／還原）；每筆在送出前讓已發出的載入失效，
+  // 避免較晚回來的舊 GET 蓋掉寫入結果。批次進行中時不接受單筆變更（還原並明確提示）。
+  PPA.sales.pending = 0;
+  PPA.sales.queue = Promise.resolve();
+  function ppaSalesSave(items, btn, revert) {
+    if (PPA.sales.batchInFlight) {
+      if (typeof revert === 'function') revert();
+      ppaSalesSetMsg('批次操作處理中，這次變更未送出，請稍候再操作', 'error');
+      return Promise.resolve(false);
+    }
     const sid = PPA.sales.sessionId;
-    if (!sid) return false;
+    if (!sid) return Promise.resolve(false);
+    PPA.sales.pending += 1;
     PPA.sales.saving = true;
     if (btn) btn.disabled = true;
-    ppaSalesSetMsg('儲存中…');
+    const run = () => ppaSalesSaveNow(sid, items, btn, revert);
+    const p = PPA.sales.queue.then(run, run);
+    PPA.sales.queue = p.catch(() => {});
+    return p.finally(() => {
+      PPA.sales.pending -= 1;
+      PPA.sales.saving = PPA.sales.pending > 0;
+      if (btn && document.body.contains(btn)) btn.disabled = false;
+    });
+  }
+  async function ppaSalesSaveNow(sid, items, btn, revert) {
+    PPA.sales.loadGen += 1;
+    ppaSalesSetMsg(PPA.sales.pending > 1 ? `儲存中…（尚有 ${PPA.sales.pending - 1} 筆排隊）` : '儲存中…');
     try {
       const res = await apiFetch(`/api/popup-pickup/sessions/${encodeURIComponent(sid)}/sales`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items }),
@@ -16540,38 +16563,101 @@ async function executeMigrationImport() {
         return false;
       }
       if (sid !== PPA.sales.sessionId) return true;
+      PPA.sales.loadGen += 1;
       PPA.sales.session = json.data.session;
       PPA.sales.items = json.data.items || [];
       ppaSalesRender();
-      ppaSalesSetMsg(`已儲存 ${json.data.updated} 項`, 'ok');
+      const names = items.map((x) => { const it = PPA.sales.items.find((y) => y.product_id === x.product_id); return it ? `「${it.name}」` : ''; }).filter(Boolean);
+      ppaSalesSetMsg(`已儲存 ${json.data.updated} 項${names.length === 1 ? names[0] : ''}${PPA.sales.pending > 1 ? `（尚有 ${PPA.sales.pending - 1} 筆排隊）` : ''}`, 'ok');
       return true;
     } catch (e) {
       ppaSalesSetMsg('網路錯誤，未儲存：' + e.message, 'error');
       if (typeof revert === 'function') revert();
       return false;
-    } finally {
-      PPA.sales.saving = false;
-      if (btn && document.body.contains(btn)) btn.disabled = false;
     }
   }
 
-  window.ppaSalesBatch = function ppaSalesBatch(kind) {
-    const ids = [...PPA.sales.selected];
+  // R54：批次操作＝一次 bulk request（POST /sessions/:id/sales/batch）、單一交易、整批成功或整批不變。
+  // 確認視窗列出場次、動作與選取數量；送出後鎖定批次列防連點；完成後顯示真實的選取／變更／未變更數，
+  // 並靜默重新抓取目前場次（不整頁 reload）。失敗時保留畫面與勾選，顯示可操作的錯誤。
+  const PPA_SALES_BATCH_ACTIONS = { enable: 'enable', disable: 'disable', total: 'set_total', limit: 'set_limit' };
+  const PPA_SALES_BATCH_LABEL = { enable: '批次啟用', disable: '批次停用', set_total: '批次設定總販售數量', set_limit: '批次設定每筆限購' };
+  function ppaSalesSetBatchBusy(on) {
+    document.querySelectorAll('#ppa-sales-batchbar button').forEach((b) => { b.disabled = !!on; });
+  }
+  function ppaSalesBatchErrorText(json) {
+    const nameOf = (pid) => { const it = PPA.sales.items.find((x) => x.product_id === pid); return it ? `「${it.name}」` : `商品 #${pid}`; };
+    const base = (json && json.message) || '批次操作失敗';
+    if (json && Array.isArray(json.rejected) && json.rejected.length) return `${base}：${json.rejected.slice(0, 5).map((r) => `${nameOf(r.product_id)}（已使用 ${r.used}）`).join('、')}。勾選已保留，請調整後再試。`;
+    if (json && Array.isArray(json.product_ids) && json.product_ids.length) return `${base}：${json.product_ids.slice(0, 5).map(nameOf).join('、')}。勾選已保留，請重新整理場次後再試。`;
+    return `${base}。勾選已保留。`;
+  }
+  window.ppaSalesBatch = async function ppaSalesBatch(kind) {
+    const action = PPA_SALES_BATCH_ACTIONS[kind];
+    if (!action) return;
+    if (PPA.sales.batchInFlight) { ppaSalesSetMsg('批次操作處理中，請稍候', 'error'); return; }
+    const sid = PPA.sales.sessionId;
+    if (!sid || !PPA.sales.session) { ppaSalesSetMsg('請先選擇活動與場次', 'error'); return; }
+    const ids = PPA.sales.items.map((x) => x.product_id).filter((id) => PPA.sales.selected.has(id));
     if (!ids.length) { ppaSalesSetMsg('請先勾選商品', 'error'); return; }
-    let patch;
-    if (kind === 'enable') patch = { sale_enabled: true };
-    else if (kind === 'disable') patch = { sale_enabled: false };
-    else if (kind === 'total') {
+    let value;
+    let valueText = '';
+    if (action === 'set_total') {
       const v = document.getElementById('ppa-sales-batch-total').value; const n = Number(v);
       if (v === '' || !Number.isSafeInteger(n) || n < 0) { ppaSalesSetMsg('批次數量必須是 0 以上整數', 'error'); return; }
-      patch = { stock_mode: 'limited', stock_total: n };
-    } else if (kind === 'limit') {
+      value = n; valueText = `為 ${n} 份（限量）`;
+    } else if (action === 'set_limit') {
       const v = document.getElementById('ppa-sales-batch-limit').value; const n = v === '' ? 0 : Number(v);
       if (!Number.isSafeInteger(n) || n < 0) { ppaSalesSetMsg('每筆限購必須是 0 以上整數（0 為不限）', 'error'); return; }
-      patch = { per_order_limit: n };
-    } else return;
-    if (!confirm(`確定要對此場次的 ${ids.length} 項商品執行批次修改嗎？`)) return;
-    ppaSalesSave(ids.map((id) => ({ product_id: id, ...patch })));
+      value = n; valueText = n === 0 ? '為不限' : `為每筆最多 ${n} 份`;
+    }
+    const st = PPA.sales.session;
+    const label = PPA_SALES_BATCH_LABEL[action];
+    const sessText = `${st.name || ''}（${st.pickup_date || ''} ${st.pickup_start_time || ''}～${st.pickup_end_time || ''}）`;
+    if (!confirm(`場次：${sessText}\n動作：${label}${valueText}\n選取商品：${ids.length} 項\n\n確定要執行嗎？`)) return;
+    if (PPA.sales.batchInFlight) { ppaSalesSetMsg('批次操作處理中，請稍候', 'error'); return; }
+    PPA.sales.batchInFlight = true;
+    ppaSalesSetBatchBusy(true);
+    // 上一筆單筆儲存仍在進行時，等它完成再送出批次（最多 20 秒），不無聲丟棄。
+    if (PPA.sales.saving) {
+      ppaSalesSetMsg('等待上一筆儲存完成…');
+      const t0 = Date.now();
+      while (PPA.sales.saving && Date.now() - t0 < 20000) await new Promise((r) => setTimeout(r, 50));
+    }
+    if (PPA.sales.saving || sid !== PPA.sales.sessionId) {
+      PPA.sales.batchInFlight = false; ppaSalesSetBatchBusy(false);
+      ppaSalesSetMsg('上一筆儲存尚未完成或場次已切換，批次未送出（勾選已保留），請稍後再試', 'error');
+      return;
+    }
+    ppaSalesSetBatchBusy(true);
+    PPA.sales.loadGen += 1; // 讓送出前已發出的載入失效（避免舊資料覆蓋）
+    ppaSalesSetMsg(`${label}處理中…（${ids.length} 項）`);
+    try {
+      const body = { action, product_ids: ids };
+      if (value !== undefined) body.value = value;
+      const res = await apiFetch(`/api/popup-pickup/sessions/${encodeURIComponent(sid)}/sales/batch`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!json || !json.success || !json.data) { ppaSalesSetMsg(ppaSalesBatchErrorText(json), 'error'); return; }
+      const d = json.data;
+      if (sid === PPA.sales.sessionId) {
+        PPA.sales.session = d.session;
+        PPA.sales.items = d.items || [];
+        ppaSalesRender();
+      }
+      const okText = `${label}完成：選取 ${d.selected_count} 項，變更 ${d.changed_count} 項，未變更 ${d.unchanged_count} 項（原本已是此設定）。勾選已保留。`;
+      ppaSalesSetMsg(okText, 'ok');
+      if (sid === PPA.sales.sessionId) {
+        await ppaSalesLoad({ silent: true });
+        ppaSalesSetMsg(okText, 'ok');
+      }
+    } catch (e) {
+      ppaSalesSetMsg('網路錯誤，無法確認批次結果：' + e.message + '。勾選已保留，請重新選擇場次確認。', 'error');
+    } finally {
+      PPA.sales.batchInFlight = false;
+      ppaSalesSetBatchBusy(false);
+    }
   };
 
   // ── 套用到其他場次 ────────────────────────────────────────────────

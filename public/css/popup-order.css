@@ -1469,3 +1469,117 @@ body.popup-order-mode.popup-order-lookup-open {
     column-gap: 12px;
   }
 }
+
+/* ══ R54：行動版快速連點穩定性＋完成頁取餐地點／繼續點餐 ══
+   - touch-action: manipulation 只套用在確定的互動控制區（按鈕、連結按鈕、分類籤、商品卡、數量控制、
+     購物車列／明細、付款選項、步驟導覽、查詢面板）：取消「雙擊縮放」，但保留垂直捲動、長按與雙指縮放。
+     商品卡本身也套用，因為「＋」到達上限被 disabled 後，後續連點會落到商品卡上。
+   - 不使用 user-scalable=no、不全域攔截觸控事件（viewport 見 line-order.html popupEnableSafeAreaViewport）。
+   - text-size-adjust 固定 100%：避免 LINE／行動瀏覽器自動放大文字撐開卡片。
+   同樣只使用 body.popup-order-mode／#popupRoot／.popup-order-* scope。 */
+body.popup-order-mode {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+#popupRoot.popup-order-root button,
+#popupRoot.popup-order-root a.popup-order-btn,
+#popupRoot.popup-order-root .popup-order-product,
+#popupRoot.popup-order-root .popup-order-qty,
+#popupRoot.popup-order-root .popup-order-chips,
+#popupRoot.popup-order-root .popup-order-cartbar,
+#popupRoot.popup-order-root .popup-order-drawer,
+#popupRoot.popup-order-root .popup-order-pay,
+#popupRoot.popup-order-root .popup-order-step-nav,
+#popupRoot.popup-order-root .popup-order-pickup-loc-actions,
+.popup-order-lookup button,
+.popup-order-lookup a {
+  touch-action: manipulation;
+}
+#popupRoot.popup-order-root .popup-order-qty-value {
+  font-variant-numeric: tabular-nums;
+}
+#popupRoot.popup-order-root .popup-order-cartbar,
+#popupRoot.popup-order-root .popup-order-product {
+  max-width: 100%;
+}
+
+/* 完成頁：取餐地點區塊 */
+.popup-order-pickup-loc {
+  margin: 12px 0;
+  padding: 12px 14px;
+  border: 1px solid #e4e7ec;
+  border-radius: 12px;
+  background: #f8faf9;
+  min-width: 0;
+}
+.popup-order-pickup-loc-title {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 800;
+  color: #101828;
+}
+.popup-order-pickup-loc-list {
+  margin: 0;
+}
+.popup-order-pickup-loc-row {
+  display: grid;
+  grid-template-columns: 5.5em minmax(0, 1fr);
+  column-gap: 8px;
+  padding: 4px 0;
+  min-width: 0;
+}
+.popup-order-pickup-loc-label {
+  font-size: 13px;
+  color: #667085;
+}
+.popup-order-pickup-loc-value {
+  margin: 0;
+  min-width: 0;
+  font-size: 15px;
+  color: #101828;
+  overflow-wrap: anywhere;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.popup-order-pickup-loc-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.popup-order-pickup-loc-actions .popup-order-btn {
+  flex: 1 1 140px;
+  min-width: 0;
+  margin: 0;
+  padding: 10px 12px;
+  text-align: center;
+  text-decoration: none;
+}
+.popup-order-maps-unavailable {
+  margin: 0;
+  flex: 1 1 100%;
+}
+.popup-order-copy-status,
+.popup-order-continue-msg {
+  margin: 8px 0 0;
+  font-size: 14px;
+  color: #344054;
+}
+.popup-order-copy-status:empty,
+.popup-order-continue-msg:empty {
+  display: none;
+}
+.popup-order-copy-status[data-tone="ok"] { color: #05612a; }
+.popup-order-copy-status[data-tone="error"],
+.popup-order-continue-msg[data-tone="error"] { color: #912018; }
+.popup-order-done-actions {
+  margin-top: 14px;
+}
+.popup-order-done-nav .popup-order-continue-btn {
+  flex: 1 1 100%;
+  min-height: 52px;
+  font-size: 17px;
+}
+.popup-order-store-entry-link {
+  text-decoration: none;
+}

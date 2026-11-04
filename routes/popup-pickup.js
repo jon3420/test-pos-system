@@ -1101,6 +1101,27 @@ router.put('/sessions/:sessionId/sales', (req, res) => {
   } catch (e) { sendError(res, e); }
 });
 
+// R54：📦 批次操作（啟用／停用／設定總數量／設定每筆限購）＝一次 bulk request、一個交易。
+// 後端重新驗證：登入與權限（router 層 requireStaffJwt＋line_order）、同店（getOwnedSession）、
+// 同場次（只寫 URL 指定場次）、ID 去重、每個 ID 確實在此場次、action 與值合法；任一失敗整批 rollback。
+router.post('/sessions/:sessionId/sales/batch', (req, res) => {
+  try {
+    const db = getDb();
+    psales.ensurePopupSalesSchema(db);
+    const storeId = req.storeId;
+    const row = getOwnedSession(db, storeId, req.params.sessionId);
+    const input = psales.normalizeSalesBatchInput(req.body);
+    let result;
+    db.runDurableTransaction(() => {
+      const fresh = db.get('SELECT * FROM popup_sessions WHERE id=? AND store_id=?', [row.id, storeId]);
+      if (!fresh) pp.fail('POPUP_RESOURCE_NOT_FOUND', '找不到指定的快閃場次', 404);
+      result = psales.applySalesBatchInTransaction(db, storeId, fresh, input);
+    });
+    res.set('Cache-Control', 'no-store');
+    res.json({ success: true, data: { ...result, session: salesSessionView(db, storeId, row, Date.now()), items: psales.listSessionSales(db, storeId, row) } });
+  } catch (e) { sendError(res, e); }
+});
+
 // 將來源場次的指定商品設定套用到其他場次。預設只允許「尚未開放下單」的場次；
 // include_open=true 時另允許下單中場次；已截止／取貨中／已結束／已取消／封存一律拒絕。
 // dry_run=true 只回傳預覽（目標場次、可套用商品數、拒絕原因），不寫入；正式套用需 confirm=true。

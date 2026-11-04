@@ -336,6 +336,111 @@ function applySalesUpdatesInTransaction(db, storeId, session, updates, strict) {
   return { updated, rejected };
 }
 
+// R54：📦 批次操作（單一 bulk request、單一交易）。只接受明確的 action，每個動作只改自己的欄位：
+//   enable／disable → 只改 sale_enabled；set_total → 只改 stock_mode='limited'＋stock_total；
+//   set_limit → 只改 per_order_limit。其餘欄位（含手動售完、已保留／已成立）一律沿用目前有效值。
+// 任一 ID 不合法、重複、不在此場次、或低於已使用量 → 整批拒絕（呼叫端交易 rollback），不會部分成功。
+// 值沒有改變的商品不寫入（idempotent），並誠實回報 changed／unchanged。
+const SALES_BATCH_ACTIONS = new Set(['enable', 'disable', 'set_total', 'set_limit']);
+function _normBatchId(v) {
+  if (typeof v === 'number' && Number.isSafeInteger(v) && v > 0) return v;
+  if (typeof v === 'string' && /^[1-9]\d{0,14}$/.test(v)) return Number(v);
+  return null;
+}
+function normalizeSalesBatchInput(body) {
+  const b = body && typeof body === 'object' && !Array.isArray(body) ? body : {};
+  const action = typeof b.action === 'string' ? b.action : '';
+  if (!SALES_BATCH_ACTIONS.has(action)) pp.fail('POPUP_SALES_BATCH_INVALID_ACTION', '批次動作只能是 enable／disable／set_total／set_limit');
+  if (!Array.isArray(b.product_ids) || b.product_ids.length === 0) pp.fail('POPUP_SALES_BATCH_EMPTY', '請至少選取一項商品');
+  if (b.product_ids.length > 500) pp.fail('POPUP_SALES_BATCH_TOO_MANY', '一次最多 500 項商品');
+  const ids = [];
+  const seen = new Set();
+  b.product_ids.forEach((raw, idx) => {
+    const id = _normBatchId(raw);
+    if (id === null) pp.fail('POPUP_SALES_BATCH_INVALID_ID', `第 ${idx + 1} 項商品編號格式錯誤`);
+    if (seen.has(id)) pp.fail('POPUP_SALES_BATCH_DUPLICATE_ID', '選取的商品重複', 400, { product_id: id });
+    seen.add(id);
+    ids.push(id);
+  });
+  let value = null;
+  if (action === 'set_total' || action === 'set_limit') {
+    const max = action === 'set_total' ? MAX_STOCK : MAX_PER_ORDER;
+    const v = b.value;
+    if (!(typeof v === 'number' && Number.isSafeInteger(v) && v >= 0 && v <= max)) {
+      pp.fail('POPUP_SALES_BATCH_INVALID_VALUE', action === 'set_total' ? `總販售數量必須是 0~${MAX_STOCK} 的整數` : `每筆限購必須是 0~${MAX_PER_ORDER} 的整數（0 表示不限）`);
+    }
+    value = v;
+  } else if (b.value !== undefined && b.value !== null) {
+    pp.fail('POPUP_SALES_BATCH_INVALID_VALUE', '此批次動作不接受數值');
+  }
+  return { action, ids, value };
+}
+function applySalesBatchInTransaction(db, storeId, session, input) {
+  const { action, ids, value } = input;
+  const candidates = new Map(candidateProducts(db, storeId, session).map((c) => [Number(c.row.product_id), c]));
+  const missing = ids.filter((id) => !candidates.has(id));
+  if (missing.length) {
+    pp.fail('POPUP_SALES_BATCH_NOT_IN_SESSION', `有 ${missing.length} 項商品不在此場次可售範圍，整批未修改`, 409, { product_ids: missing.slice(0, 50) });
+  }
+  // 第一階段：全部試算與驗證（尚未寫入）
+  const plan = ids.map((productId) => {
+    const sp = getSpRow(db, storeId, session, productId);
+    const before = effectiveConfig(getSalesRow(db, storeId, session.id, productId), sp);
+    const cur = {
+      sale_enabled: before.sale_enabled,
+      stock_mode: before.stock_mode,
+      stock_total: before.stock_mode === 'limited' ? (before.stock_total || 0) : 0,
+      per_order_limit: before.per_order_limit || 0,
+      manual_sold_out: before.manual_sold_out,
+    };
+    const next = { ...cur };
+    if (action === 'enable') next.sale_enabled = true;
+    else if (action === 'disable') next.sale_enabled = false;
+    else if (action === 'set_total') { next.stock_mode = 'limited'; next.stock_total = value; }
+    else if (action === 'set_limit') next.per_order_limit = value;
+    const changed = next.sale_enabled !== cur.sale_enabled || next.stock_mode !== cur.stock_mode
+      || next.stock_total !== cur.stock_total || next.per_order_limit !== cur.per_order_limit || next.manual_sold_out !== cur.manual_sold_out;
+    let used = null;
+    if (changed && next.stock_mode === 'limited') {
+      const u = usage(db, storeId, session.id, productId);
+      used = u.reserved + u.committed;
+    }
+    return { productId, sp, next, changed, used, stockChanged: next.stock_mode !== cur.stock_mode || next.stock_total !== cur.stock_total };
+  });
+  const below = plan.filter((p) => p.changed && p.used !== null && p.next.stock_total < p.used);
+  if (below.length) {
+    pp.fail('POPUP_SALES_BATCH_BELOW_USED', `有 ${below.length} 項商品的總販售數量低於已保留＋已成立，整批未修改`, 409,
+      { rejected: below.slice(0, 50).map((p) => ({ product_id: p.productId, used: p.used })) });
+  }
+  // 第二階段：只寫入真的有變更的商品
+  plan.forEach((p) => {
+    if (!p.changed) return;
+    db._db.run(
+      `INSERT INTO popup_session_product_sales (store_id, session_id, product_id, sale_enabled, stock_mode, stock_total, per_order_limit, manual_sold_out, updated_at)
+       VALUES (?,?,?,?,?,?,?,?,datetime('now','localtime'))
+       ON CONFLICT(store_id, session_id, product_id) DO UPDATE SET sale_enabled=excluded.sale_enabled, stock_mode=excluded.stock_mode,
+         stock_total=excluded.stock_total, per_order_limit=excluded.per_order_limit, manual_sold_out=excluded.manual_sold_out,
+         updated_at=excluded.updated_at`,
+      [storeId, session.id, p.productId, p.next.sale_enabled ? 1 : 0, p.next.stock_mode, p.next.stock_mode === 'limited' ? p.next.stock_total : 0,
+        p.next.per_order_limit, p.next.manual_sold_out ? 1 : 0]
+    );
+    if (db._db.getRowsModified() !== 1) throw new Error('affected-row check failed: popup sales batch upsert');
+    if (p.sp && p.stockChanged) {
+      db._db.run('UPDATE popup_session_products SET quota_qty=?, updated_at=datetime(\'now\',\'localtime\') WHERE session_id=? AND store_id=? AND product_id=?',
+        [p.next.stock_mode === 'limited' ? p.next.stock_total : 0, session.id, storeId, p.productId]);
+    }
+  });
+  const changedIds = plan.filter((p) => p.changed).map((p) => p.productId);
+  return {
+    action,
+    selected_count: ids.length,
+    matched_count: plan.length,
+    changed_count: changedIds.length,
+    unchanged_count: plan.length - changedIds.length,
+    changed_product_ids: changedIds,
+  };
+}
+
 // 場次表單（R52 PATCH）重寫 popup_session_products 後：quota_qty 有變更的商品，
 // 若已有販售設定列，同步更新其限量設定；新上限不得低於已使用量。
 function syncQuotaFromSessionFormInTransaction(db, storeId, sessionId, beforeProducts, afterProducts) {
@@ -360,4 +465,5 @@ module.exports = {
   STOCK_MODES, ensurePopupSalesSchema, ensureRaw, migrateRawAtStartup, getSalesRow, effectiveConfig, usage, productSaleState, assertCheckoutStock,
   commitReservedForOrder, candidateProducts, listSessionSales, normalizeSalesPatch, applySalesUpdatesInTransaction,
   batchTargetAllowed, sessionTimingState, syncQuotaFromSessionFormInTransaction,
+  normalizeSalesBatchInput, applySalesBatchInTransaction,
 };

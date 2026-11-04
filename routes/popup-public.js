@@ -52,6 +52,20 @@ function resolveStoreIdByPublicCode(db, table, publicCode) {
   return row ? row.store_id : null;
 }
 
+// R54：完成頁導航座標（取自同一份場次／訂單快照）。快照欄位是 TEXT，可能是 NULL、空字串、
+// 非數字或越界值；只有兩者都是有限且在合法範圍內的數字時才回傳，否則一律回傳 null（前端改用地址）。
+function popupSafeCoordPair(rawLat, rawLng) {
+  const num = (v) => {
+    if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+    if (typeof v === 'string' && /^\s*-?\d{1,3}(\.\d{1,15})?\s*$/.test(v)) return Number(v);
+    return null;
+  };
+  const lat = num(rawLat);
+  const lng = num(rawLng);
+  if (lat === null || lng === null || lat < -90 || lat > 90 || lng < -180 || lng > 180) return { lat: null, lng: null };
+  return { lat, lng };
+}
+
 // Phase 3A.3 修正：公開 GET 端點一律用 fetchFreshStoreAuthority()（直接查
 // stores/licenses，不經過 middleware/featureGate.js 的 30 秒
 // featureCache）——避免「授權剛被停用，但快取還沒過期」的縫隙讓已停權
@@ -159,6 +173,40 @@ router.get('/popup-session/:publicCode', (req, res) => {
   } catch (e) { sendPopupError(res, e); }
 });
 
+// R54：完成頁「繼續點餐」的安全導向。只接受場次公開代碼；依序判斷：
+//   1. 原場次仍可公開存取且可下單 → session
+//   2. 原活動仍為 published 且有其他可下單場次 → campaign
+//   3. 其餘 → 店家快閃入口（available=false 時前端顯示安全提示，仍可回到店家入口）
+// 只回傳入口種類與公開代碼／店家公開入口代碼；不回傳內部 UUID、訂單、電話或 token。唯讀、no-store。
+router.get('/popup-continue', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  try {
+    const db = getDb();
+    const code = typeof req.query.session === 'string' ? req.query.session.trim() : '';
+    if (!code || code.length > 200) return res.status(400).json({ success: false, error: 'POPUP_VALIDATION_ERROR', message: '缺少快閃場次代碼' });
+    const storeId = resolveStoreIdByPublicCode(db, 'popup_sessions', code);
+    if (!storeId) return res.json({ success: true, data: { target: 'none' } });
+    const authority = popupCheckout.fetchFreshStoreAuthority(db, storeId);
+    const storeOk = !!(authority.storeActive && authority.licenseActive && authority.lineOrderEnabled && pp.isPopupPickupEnabled(db, storeId));
+    if (!storeOk) return res.json({ success: true, data: { target: 'none' } });
+    const now = Date.now();
+    const found = popupCheckout.findPublicSessionByCode(db, storeId, code);
+    if (found && found.session.status !== 'draft' && found.campaign.status !== 'draft') {
+      const own = popupCheckout.serializePublicSession(db, storeId, found.session, found.campaign.status, now);
+      if (own.can_order === true) return res.json({ success: true, data: { target: 'session', session_code: found.session.public_code } });
+      if (found.campaign.status === 'published') {
+        const rows = db.all('SELECT * FROM popup_sessions WHERE store_id=? AND campaign_id=?', [storeId, found.campaign.id]).filter((s) => s.status !== 'draft');
+        const anyOpen = rows.some((s) => popupCheckout.serializePublicSession(db, storeId, s, found.campaign.status, now).can_order === true);
+        if (anyOpen) return res.json({ success: true, data: { target: 'campaign', campaign_code: found.campaign.public_code } });
+      }
+    }
+    const campaigns = db.all("SELECT * FROM popup_campaigns WHERE store_id=? AND status='published'", [storeId]);
+    const storeHasOpen = campaigns.some((c) => db.all("SELECT * FROM popup_sessions WHERE store_id=? AND campaign_id=? AND status='published'", [storeId, c.id])
+      .some((s) => popupCheckout.serializePublicSession(db, storeId, s, c.status, now).can_order === true));
+    return res.json({ success: true, data: { target: 'store', store_id: storeId, available: storeHasOpen } });
+  } catch (e) { sendPopupError(res, e); }
+});
+
 // R52：快閃商品圖片（後台上傳、以 data:image 存於 products.image 的圖片）。
 // - 只提供「目前公開場次內、目前公開商品清單計算出來的同一個網址」——網址內含內容雜湊，
 //   與 GET /popup-session 回傳的 image_url 完全相同才會回應，其餘一律 404。
@@ -258,6 +306,7 @@ router.post('/popup-checkout', (req, res) => {
               popup_session_name: o.popup_session_name_snapshot, pickup_date: o.popup_pickup_date_snapshot,
               pickup_start_time: o.popup_pickup_start_time_snapshot, pickup_end_time: o.popup_pickup_end_time_snapshot,
               place_name: o.pickup_place_name_snapshot, address: o.pickup_address_snapshot, address_note: o.pickup_address_note_snapshot,
+              ...popupSafeCoordPair(o.pickup_lat_snapshot, o.pickup_lng_snapshot),
               items: its, subtotal: o.subtotal, total: o.total, total_qty: its.reduce((n, it) => n + (Number(it.qty) || 0), 0),
               customer_name: o.customer_name, customer_phone: o.customer_phone, note: o.note || '',
               payment_method: o.payment_method, payment_status: o.payment_status,
@@ -356,6 +405,7 @@ router.post('/popup-checkout', (req, res) => {
         place_name: session.place_name,
         address: session.address,
         address_note: session.address_note,
+        ...popupSafeCoordPair(session.lat, session.lng), // R54：與寫入訂單快照的值相同
         items,
         subtotal,
         total: subtotal,
@@ -395,6 +445,7 @@ function popupPaymentSummary(db, attempt) {
       popup_session_name: order.popup_session_name_snapshot, pickup_date: order.popup_pickup_date_snapshot,
       pickup_start_time: order.popup_pickup_start_time_snapshot, pickup_end_time: order.popup_pickup_end_time_snapshot,
       place_name: order.pickup_place_name_snapshot, address: order.pickup_address_snapshot, address_note: order.pickup_address_note_snapshot,
+      ...popupSafeCoordPair(order.pickup_lat_snapshot, order.pickup_lng_snapshot),
       items, total: order.total, customer_name: order.customer_name, note: order.note || '',
     } : null,
   };
