@@ -341,7 +341,10 @@ function applySalesUpdatesInTransaction(db, storeId, session, updates, strict) {
 //   set_limit → 只改 per_order_limit。其餘欄位（含手動售完、已保留／已成立）一律沿用目前有效值。
 // 任一 ID 不合法、重複、不在此場次、或低於已使用量 → 整批拒絕（呼叫端交易 rollback），不會部分成功。
 // 值沒有改變的商品不寫入（idempotent），並誠實回報 changed／unchanged。
-const SALES_BATCH_ACTIONS = new Set(['enable', 'disable', 'set_total', 'set_limit']);
+// R54.2：新增 set_total_and_limit（「確認設定」）＝同一 request、同一交易、同一次試算，一起設定
+//   stock_mode='limited'＋stock_total＋per_order_limit；任一驗證或已使用量檢查失敗整批不變。
+//   既有四個 action 的分支與行為完全不變。
+const SALES_BATCH_ACTIONS = new Set(['enable', 'disable', 'set_total', 'set_limit', 'set_total_and_limit']);
 function _normBatchId(v) {
   if (typeof v === 'number' && Number.isSafeInteger(v) && v > 0) return v;
   if (typeof v === 'string' && /^[1-9]\d{0,14}$/.test(v)) return Number(v);
@@ -350,7 +353,7 @@ function _normBatchId(v) {
 function normalizeSalesBatchInput(body) {
   const b = body && typeof body === 'object' && !Array.isArray(body) ? body : {};
   const action = typeof b.action === 'string' ? b.action : '';
-  if (!SALES_BATCH_ACTIONS.has(action)) pp.fail('POPUP_SALES_BATCH_INVALID_ACTION', '批次動作只能是 enable／disable／set_total／set_limit');
+  if (!SALES_BATCH_ACTIONS.has(action)) pp.fail('POPUP_SALES_BATCH_INVALID_ACTION', '批次動作只能是 enable／disable／set_total／set_limit／set_total_and_limit');
   if (!Array.isArray(b.product_ids) || b.product_ids.length === 0) pp.fail('POPUP_SALES_BATCH_EMPTY', '請至少選取一項商品');
   if (b.product_ids.length > 500) pp.fail('POPUP_SALES_BATCH_TOO_MANY', '一次最多 500 項商品');
   const ids = [];
@@ -370,6 +373,17 @@ function normalizeSalesBatchInput(body) {
       pp.fail('POPUP_SALES_BATCH_INVALID_VALUE', action === 'set_total' ? `總販售數量必須是 0~${MAX_STOCK} 的整數` : `每筆限購必須是 0~${MAX_PER_ORDER} 的整數（0 表示不限）`);
     }
     value = v;
+  } else if (action === 'set_total_and_limit') {
+    if (b.value !== undefined && b.value !== null) pp.fail('POPUP_SALES_BATCH_INVALID_VALUE', '此批次動作請使用 stock_total 與 per_order_limit，不接受 value');
+    const t = b.stock_total;
+    const l = b.per_order_limit;
+    if (!(typeof t === 'number' && Number.isSafeInteger(t) && t >= 0 && t <= MAX_STOCK)) {
+      pp.fail('POPUP_SALES_BATCH_INVALID_VALUE', `總販售數量必須是 0~${MAX_STOCK} 的整數`, 400, { field: 'stock_total' });
+    }
+    if (!(typeof l === 'number' && Number.isSafeInteger(l) && l >= 0 && l <= MAX_PER_ORDER)) {
+      pp.fail('POPUP_SALES_BATCH_INVALID_VALUE', `每筆限購必須是 0~${MAX_PER_ORDER} 的整數（0 表示不限）`, 400, { field: 'per_order_limit' });
+    }
+    value = { stock_total: t, per_order_limit: l };
   } else if (b.value !== undefined && b.value !== null) {
     pp.fail('POPUP_SALES_BATCH_INVALID_VALUE', '此批次動作不接受數值');
   }
@@ -398,6 +412,7 @@ function applySalesBatchInTransaction(db, storeId, session, input) {
     else if (action === 'disable') next.sale_enabled = false;
     else if (action === 'set_total') { next.stock_mode = 'limited'; next.stock_total = value; }
     else if (action === 'set_limit') next.per_order_limit = value;
+    else if (action === 'set_total_and_limit') { next.stock_mode = 'limited'; next.stock_total = value.stock_total; next.per_order_limit = value.per_order_limit; }
     const changed = next.sale_enabled !== cur.sale_enabled || next.stock_mode !== cur.stock_mode
       || next.stock_total !== cur.stock_total || next.per_order_limit !== cur.per_order_limit || next.manual_sold_out !== cur.manual_sold_out;
     let used = null;

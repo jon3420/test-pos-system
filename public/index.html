@@ -19,7 +19,7 @@
 #ppa-sales-batchbar .ppa-bb-title { margin: 0; font-size: 15px; font-weight: 700; color: var(--text-primary, #f0f0f0); }
 #ppa-sales-batchbar .ppa-bb-count { font-size: 13px; font-weight: 700; color: var(--accent, #f5a623); }
 #ppa-sales-batchbar .ppa-bb-hint { font-size: 12px; line-height: 1.3; color: var(--text-secondary, #999); }
-#ppa-sales-batchbar .ppa-bb-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+#ppa-sales-batchbar .ppa-bb-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 10px; align-items: start; }
 #ppa-sales-batchbar .ppa-bb-card { min-width: 0; padding: 10px 12px; border: 1px solid var(--border, #333); border-radius: var(--radius-sm, 6px); background: var(--bg-card, #222); }
 #ppa-sales-batchbar .ppa-bb-card-title { font-size: 13px; font-weight: 700; margin-bottom: 8px; color: var(--text-primary, #f0f0f0); }
 #ppa-sales-batchbar .ppa-bb-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
@@ -41,48 +41,50 @@
 #ppa-sales-batchbar .ppa-bb-other-text .ppa-bb-card-title { margin-bottom: 0; }
 #ppa-sales-batchbar .ppa-bb-other-text .ppa-bb-help { margin-top: 2px; }
 #ppa-sales-batchbar .ppa-bb-apply { min-height: 44px; padding: 8px 16px; font-size: 13px; font-weight: 500; }
-/* 販售狀態雙向控制：中立（中央）／往左綠色批次啟用／往右紅色批次停用。它是批次動作選擇器，不代表商品目前狀態。 */
-#ppa-sales-batchbar .ppa-bsw { position: relative; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); min-height: 50px; padding: 3px; border: 2px solid var(--border, #333); border-radius: 999px; background: var(--bg-base, #0f0f0f); touch-action: pan-y pinch-zoom; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; transition: border-color .15s, background-color .15s; }
-#ppa-sales-batchbar .ppa-bsw-thumb { position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc((100% - 6px) / 3); border-radius: 999px; background: var(--bg-active, #333); border: 1px solid #555; transform: translateX(100%); transition: transform .18s ease, background-color .15s, border-color .15s; pointer-events: none; }
-#ppa-sales-batchbar .ppa-bsw-opt, #ppa-sales-batchbar .ppa-bsw-mid { position: relative; z-index: 1; display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 0 3px; min-width: 44px; min-height: 44px; padding: 2px 4px; border: 0; border-radius: 999px; background: transparent; font-family: var(--font-body, sans-serif); font-size: 13px; line-height: 1.25; text-align: center; color: var(--text-secondary, #999); }
-#ppa-sales-batchbar .ppa-bsw-opt { font-weight: 700; cursor: pointer; }
-#ppa-sales-batchbar .ppa-bsw-mid { color: var(--text-primary, #f0f0f0); pointer-events: none; }
+/* R54.2：販售狀態＝兩段膠囊（左 ✓ 販售／右 ✕ 停售）。它是「對勾選商品執行哪個動作」的控制，不代表商品目前狀態：平常兩邊都未選取。 */
+#ppa-sales-batchbar .ppa-bsw { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; min-height: 52px; padding: 3px; border: 2px solid var(--border, #333); border-radius: 999px; background: var(--bg-base, #0f0f0f); -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; touch-action: manipulation; transition: border-color .15s; }
+#ppa-sales-batchbar .ppa-bsw-opt { display: flex; align-items: center; justify-content: center; gap: 6px; min-width: 0; min-height: 44px; padding: 4px 10px; border: 1px solid transparent; border-radius: 999px; background: transparent; font-family: var(--font-body, sans-serif); font-size: 15px; font-weight: 700; line-height: 1.2; white-space: nowrap; color: var(--text-primary, #f0f0f0); cursor: pointer; transition: background-color .15s, border-color .15s, color .15s; }
+#ppa-sales-batchbar .ppa-bsw-ico { font-size: 16px; line-height: 1; }
 #ppa-sales-batchbar .ppa-bsw-opt-enable .ppa-bsw-ico { color: var(--success, #4caf50); }
 #ppa-sales-batchbar .ppa-bsw-opt-disable .ppa-bsw-ico { color: #ff8a80; }
-#ppa-sales-batchbar .ppa-bsw[data-state="neutral"] .ppa-bsw-opt-enable:hover:not(:disabled) { color: #a5d6a7; background: rgba(76, 175, 80, .10); }
-#ppa-sales-batchbar .ppa-bsw[data-state="neutral"] .ppa-bsw-opt-disable:hover:not(:disabled) { color: #ff8a80; background: rgba(229, 57, 53, .10); }
-#ppa-sales-batchbar .ppa-bsw[data-state="enable"] { border-color: var(--success, #4caf50); background: rgba(76, 175, 80, .14); }
-#ppa-sales-batchbar .ppa-bsw[data-state="enable"] .ppa-bsw-thumb { transform: translateX(0); background: #2e7d32; border-color: var(--success, #4caf50); }
-#ppa-sales-batchbar .ppa-bsw[data-state="enable"] .ppa-bsw-opt-enable, #ppa-sales-batchbar .ppa-bsw[data-state="enable"] .ppa-bsw-opt-enable .ppa-bsw-ico { color: #fff; }
-#ppa-sales-batchbar .ppa-bsw[data-state="disable"] { border-color: var(--danger, #e53935); background: rgba(229, 57, 53, .14); }
-#ppa-sales-batchbar .ppa-bsw[data-state="disable"] .ppa-bsw-thumb { transform: translateX(200%); background: var(--danger-dark, #c62828); border-color: var(--danger, #e53935); }
-#ppa-sales-batchbar .ppa-bsw[data-state="disable"] .ppa-bsw-opt-disable, #ppa-sales-batchbar .ppa-bsw[data-state="disable"] .ppa-bsw-opt-disable .ppa-bsw-ico { color: #fff; }
-#ppa-sales-batchbar .ppa-bsw[data-state="enable"] .ppa-bsw-mid, #ppa-sales-batchbar .ppa-bsw[data-state="disable"] .ppa-bsw-mid { color: var(--text-secondary, #999); }
-#ppa-sales-batchbar .ppa-bsw.is-dragging .ppa-bsw-thumb { transition: none; }
+#ppa-sales-batchbar .ppa-bsw-opt-enable:hover:not(:disabled) { background: rgba(76, 175, 80, .14); border-color: rgba(76, 175, 80, .5); }
+#ppa-sales-batchbar .ppa-bsw-opt-disable:hover:not(:disabled) { background: rgba(229, 57, 53, .14); border-color: rgba(229, 57, 53, .5); }
+#ppa-sales-batchbar .ppa-bsw[data-state="enable"] { border-color: var(--success, #4caf50); }
+#ppa-sales-batchbar .ppa-bsw[data-state="enable"] .ppa-bsw-opt-enable { background: #2e7d32; border-color: var(--success, #4caf50); color: #fff; }
+#ppa-sales-batchbar .ppa-bsw[data-state="disable"] { border-color: var(--danger, #e53935); }
+#ppa-sales-batchbar .ppa-bsw[data-state="disable"] .ppa-bsw-opt-disable { background: var(--danger-dark, #c62828); border-color: var(--danger, #e53935); color: #fff; }
+#ppa-sales-batchbar .ppa-bsw .ppa-bsw-opt[aria-checked="true"] .ppa-bsw-ico { color: #fff; }
 #ppa-sales-batchbar .ppa-bsw-opt:focus-visible { outline: 2px solid var(--accent, #f5a623); outline-offset: 2px; }
 #ppa-sales-batchbar .ppa-bsw[aria-disabled="true"] { opacity: .5; }
 #ppa-sales-batchbar .ppa-bsw-opt:disabled { cursor: not-allowed; }
 #ppa-sales-batchbar .ppa-bsw[aria-busy="true"] { opacity: 1; }
-#ppa-sales-batchbar .ppa-bsw[aria-busy="true"] .ppa-bsw-thumb { animation: ppa-bsw-pulse 1s ease-in-out infinite; }
-@keyframes ppa-bsw-pulse { 50% { opacity: .55; } }
+#ppa-sales-batchbar .ppa-bsw[aria-busy="true"] .ppa-bsw-opt[aria-checked="true"] { animation: ppa-bsw-pulse 1s ease-in-out infinite; }
+@keyframes ppa-bsw-pulse { 50% { opacity: .6; } }
+/* R54.2：總販售數量＋每筆限購＝共同設定群組；「確認設定」在兩區正下方、橫跨兩欄，一次套用兩個欄位。 */
+#ppa-sales-batchbar .ppa-bb-combo { min-width: 0; padding: 8px; border: 1px solid #4a4a4a; border-radius: var(--radius, 10px); background: rgba(245, 166, 35, .04); }
+#ppa-sales-batchbar .ppa-bb-combo-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+#ppa-sales-batchbar .ppa-bb-combo-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; margin-top: 8px; padding: 8px 4px 2px; border-top: 1px solid var(--border, #333); }
+#ppa-sales-batchbar .ppa-bb-combo-text { flex: 1 1 220px; min-width: 0; }
+#ppa-sales-batchbar .ppa-bb-combo-desc { font-size: 13px; font-weight: 700; line-height: 1.35; color: var(--text-primary, #f0f0f0); }
+#ppa-sales-batchbar .ppa-bb-combo-text .ppa-bb-help { margin-top: 2px; }
+#ppa-sales-batchbar .ppa-bb-combo-btn { flex: 0 0 auto; min-width: 132px; min-height: 44px; padding: 8px 18px; border: 1px solid var(--accent, #f5a623); border-radius: var(--radius-sm, 6px); background: var(--accent, #f5a623); color: #111; font-family: var(--font-body, sans-serif); font-size: 14px; font-weight: 700; white-space: nowrap; cursor: pointer; }
+#ppa-sales-batchbar .ppa-bb-combo-btn:hover:not(:disabled) { filter: brightness(1.08); }
+#ppa-sales-batchbar .ppa-bb-combo-btn:disabled:hover { filter: none; }
 #ppa-sales-batchbar .ppa-sr-only { position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 #ppa-sales-msg { min-height: 1.4em; }
 @media (max-width: 1100px) {
-  #ppa-sales-batchbar .ppa-bb-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  #ppa-sales-batchbar .ppa-bb-card-status { grid-column: 1 / -1; }
+  #ppa-sales-batchbar .ppa-bb-grid { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 768px) {
   #ppa-sales-batchbar { padding: 10px; }
   #ppa-sales-batchbar .ppa-bb-hint { flex: 1 1 100%; min-height: 1.3em; }
   #ppa-sales-batchbar .ppa-bb-card-status .ppa-bb-help { min-height: 2.6em; }
-  #ppa-sales-batchbar .ppa-bb-grid { grid-template-columns: minmax(0, 1fr); }
-  #ppa-sales-batchbar .ppa-bb-btn, #ppa-sales-batchbar .ppa-bb-apply { flex: 1 1 100%; }
-}
-@media (max-width: 400px) {
-  #ppa-sales-batchbar .ppa-bsw-mid { font-size: 11px; padding: 2px 1px; white-space: nowrap; }
+  #ppa-sales-batchbar .ppa-bb-combo-cards { grid-template-columns: minmax(0, 1fr); }
+  #ppa-sales-batchbar .ppa-bb-btn, #ppa-sales-batchbar .ppa-bb-apply, #ppa-sales-batchbar .ppa-bb-combo-btn { flex: 1 1 100%; }
 }
 @media (prefers-reduced-motion: reduce) {
-  #ppa-sales-batchbar .ppa-bsw-thumb { transition: none; animation: none !important; }
+  #ppa-sales-batchbar .ppa-bsw, #ppa-sales-batchbar .ppa-bsw-opt { transition: none; }
+  #ppa-sales-batchbar .ppa-bsw .ppa-bsw-opt { animation: none !important; }
 }
 </style>
 </head>
@@ -901,37 +903,47 @@
           <div class="ppa-bb-card ppa-bb-card-status" id="ppa-bb-card-status" role="group" aria-labelledby="ppa-bb-status-title">
             <div class="ppa-bb-card-title" id="ppa-bb-status-title">販售狀態</div>
             <div id="ppa-sales-status-switch" class="ppa-bsw" data-state="neutral" role="radiogroup" aria-labelledby="ppa-bb-status-title" aria-describedby="ppa-bsw-help" aria-disabled="true" aria-busy="false">
-              <span class="ppa-bsw-thumb" aria-hidden="true"></span>
-              <button type="button" class="ppa-bsw-opt ppa-bsw-opt-enable" id="ppa-sales-batch-enable" role="radio" aria-checked="false" data-dir="enable" tabindex="0" disabled><span class="ppa-bsw-ico" aria-hidden="true">✓</span> <span class="ppa-bsw-txt">批次啟用</span></button>
-              <span class="ppa-bsw-mid" aria-hidden="true">選擇批次狀態</span>
-              <button type="button" class="ppa-bsw-opt ppa-bsw-opt-disable" id="ppa-sales-batch-disable" role="radio" aria-checked="false" data-dir="disable" tabindex="-1" disabled><span class="ppa-bsw-ico" aria-hidden="true">✕</span> <span class="ppa-bsw-txt">批次停用</span></button>
+              <button type="button" class="ppa-bsw-opt ppa-bsw-opt-enable" id="ppa-sales-batch-enable" role="radio" aria-checked="false" data-dir="enable" tabindex="0" disabled><span class="ppa-bsw-ico" aria-hidden="true">✓</span> <span class="ppa-bsw-txt">販售</span></button>
+              <button type="button" class="ppa-bsw-opt ppa-bsw-opt-disable" id="ppa-sales-batch-disable" role="radio" aria-checked="false" data-dir="disable" tabindex="-1" disabled><span class="ppa-bsw-ico" aria-hidden="true">✕</span> <span class="ppa-bsw-txt">停售</span></button>
             </div>
-            <div id="ppa-bsw-help" class="ppa-bb-help">往左（或點左側）批次啟用，往右批次停用；放開後會先確認</div>
+            <div id="ppa-bsw-help" class="ppa-bb-help">按「✓ 販售」讓勾選商品在此場次販售，按「✕ 停售」讓它們在此場次停售；按下後會先確認</div>
             <div id="ppa-bsw-live" class="ppa-sr-only" role="status" aria-live="polite"></div>
           </div>
-          <div class="ppa-bb-card" role="group" aria-labelledby="ppa-bb-total-title">
-            <div class="ppa-bb-card-title" id="ppa-bb-total-title">總販售數量</div>
-            <div class="ppa-bb-row">
-              <label class="ppa-bb-field" for="ppa-sales-batch-total"><span class="ppa-bb-field-label">數量</span><input type="number" id="ppa-sales-batch-total" class="ppa-bb-input" min="0" step="1" inputmode="numeric" placeholder="例：50" aria-describedby="ppa-bb-total-unit ppa-bb-total-hint"></label>
-              <span class="ppa-bb-unit" id="ppa-bb-total-unit">份</span>
-              <button type="button" class="btn-secondary ppa-bb-btn" id="ppa-sales-batch-total-btn" onclick="ppaSalesBatch('total')" aria-describedby="ppa-bb-total-hint" disabled>批次設定數量</button>
+          <div class="ppa-bb-combo" id="ppa-bb-combo" role="group" aria-labelledby="ppa-bb-combo-title">
+            <div class="ppa-sr-only" id="ppa-bb-combo-title">總販售數量與每筆限購</div>
+            <div class="ppa-bb-combo-cards">
+              <div class="ppa-bb-card" role="group" aria-labelledby="ppa-bb-total-title">
+                <div class="ppa-bb-card-title" id="ppa-bb-total-title">總販售數量</div>
+                <div class="ppa-bb-row">
+                  <label class="ppa-bb-field" for="ppa-sales-batch-total"><span class="ppa-bb-field-label">數量</span><input type="number" id="ppa-sales-batch-total" class="ppa-bb-input" min="0" step="1" inputmode="numeric" placeholder="例：50" aria-describedby="ppa-bb-total-unit ppa-bb-total-hint"></label>
+                  <span class="ppa-bb-unit" id="ppa-bb-total-unit">份</span>
+                  <button type="button" class="btn-secondary ppa-bb-btn" id="ppa-sales-batch-total-btn" onclick="ppaSalesBatch('total')" aria-describedby="ppa-bb-total-hint" disabled>批次設定數量</button>
+                </div>
+                <div id="ppa-bb-total-hint" class="ppa-bb-help">請先勾選商品</div>
+              </div>
+              <div class="ppa-bb-card" role="group" aria-labelledby="ppa-bb-limit-title">
+                <div class="ppa-bb-card-title" id="ppa-bb-limit-title">每筆限購</div>
+                <div class="ppa-bb-row">
+                  <label class="ppa-bb-field" for="ppa-sales-batch-limit"><span class="ppa-bb-field-label">限購</span><input type="number" id="ppa-sales-batch-limit" class="ppa-bb-input" min="0" step="1" inputmode="numeric" placeholder="0＝不限" aria-describedby="ppa-bb-limit-unit ppa-bb-limit-hint"></label>
+                  <span class="ppa-bb-unit" id="ppa-bb-limit-unit">份／筆</span>
+                  <button type="button" class="btn-secondary ppa-bb-btn" id="ppa-sales-batch-limit-btn" onclick="ppaSalesBatch('limit')" aria-describedby="ppa-bb-limit-hint" disabled>批次設定限購</button>
+                </div>
+                <div id="ppa-bb-limit-hint" class="ppa-bb-help">請先勾選商品</div>
+              </div>
             </div>
-            <div id="ppa-bb-total-hint" class="ppa-bb-help">請先勾選商品</div>
-          </div>
-          <div class="ppa-bb-card" role="group" aria-labelledby="ppa-bb-limit-title">
-            <div class="ppa-bb-card-title" id="ppa-bb-limit-title">每筆限購</div>
-            <div class="ppa-bb-row">
-              <label class="ppa-bb-field" for="ppa-sales-batch-limit"><span class="ppa-bb-field-label">限購</span><input type="number" id="ppa-sales-batch-limit" class="ppa-bb-input" min="0" step="1" inputmode="numeric" placeholder="0＝不限" aria-describedby="ppa-bb-limit-unit ppa-bb-limit-hint"></label>
-              <span class="ppa-bb-unit" id="ppa-bb-limit-unit">份／筆</span>
-              <button type="button" class="btn-secondary ppa-bb-btn" id="ppa-sales-batch-limit-btn" onclick="ppaSalesBatch('limit')" aria-describedby="ppa-bb-limit-hint" disabled>批次設定限購</button>
+            <div class="ppa-bb-combo-foot">
+              <div class="ppa-bb-combo-text">
+                <div class="ppa-bb-combo-desc" id="ppa-bb-combo-desc"><span aria-hidden="true">↑ </span>一次套用總販售數量與每筆限購</div>
+                <div class="ppa-bb-help" id="ppa-bb-combo-hint">請先勾選商品</div>
+              </div>
+              <button type="button" class="ppa-bb-combo-btn" id="ppa-sales-batch-both-btn" onclick="ppaSalesBatch('both')" aria-describedby="ppa-bb-combo-desc ppa-bb-combo-hint" disabled>確認設定</button>
             </div>
-            <div id="ppa-bb-limit-hint" class="ppa-bb-help">請先勾選商品</div>
           </div>
         </div>
         <div class="ppa-bb-other" role="group" aria-labelledby="ppa-bb-other-title">
           <div class="ppa-bb-other-text">
             <div class="ppa-bb-card-title" id="ppa-bb-other-title">其他場次</div>
-            <div class="ppa-bb-help" id="ppa-bb-other-help">把勾選商品「目前在本場次的設定」複製到其他場次，會先預覽並確認。上方三項只會修改本場次。</div>
+            <div class="ppa-bb-help" id="ppa-bb-other-help">把勾選商品「目前在本場次的設定」複製到其他場次，會先預覽並確認。上方的販售狀態、總販售數量與每筆限購只會修改本場次。</div>
           </div>
           <button type="button" class="btn-primary ppa-bb-apply" id="ppa-sales-apply-open" onclick="ppaSalesOpenApply()" aria-describedby="ppa-bb-other-help">套用到其他場次…</button>
         </div>
@@ -4245,7 +4257,7 @@
 <div class="toast-container" id="toastContainer"></div>
 
 <script src="/js/line-member-gate.js?v=h1-4-10-backend-reconcile-1"></script>
-<script src="/js/app.js?v=r54-1-batch-control-ui-1"></script>
+<script src="/js/app.js?v=r54-2-sales-status-combined-1"></script>
 <script src="/js/analytics-v2.js?v=fix18-10-hotfix24-UI"></script>
 <!-- fix18-10-hotfix30-B5-R5.4-G1.6-A1.2.1: 共用 Asia/Taipei 顯示 Helper（唯一的
      瀏覽器端時間格式化來源）。必須排在 geo-visitor-layer.js／geo-live-layer.js

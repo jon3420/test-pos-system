@@ -16584,8 +16584,10 @@ async function executeMigrationImport() {
   // R54：批次操作＝一次 bulk request（POST /sessions/:id/sales/batch）、單一交易、整批成功或整批不變。
   // 確認視窗列出場次、動作與選取數量；送出後鎖定批次列防連點；完成後顯示真實的選取／變更／未變更數，
   // 並靜默重新抓取目前場次（不整頁 reload）。失敗時保留畫面與勾選，顯示可操作的錯誤。
-  const PPA_SALES_BATCH_ACTIONS = { enable: 'enable', disable: 'disable', total: 'set_total', limit: 'set_limit' };
-  const PPA_SALES_BATCH_LABEL = { enable: '批次啟用', disable: '批次停用', set_total: '批次設定總販售數量', set_limit: '批次設定每筆限購' };
+  // R54.2：販售狀態用語改為「販售／停售」；both＝「確認設定」一次套用總販售數量與每筆限購（同一 request、同一交易）。
+  const PPA_SALES_BATCH_ACTIONS = { enable: 'enable', disable: 'disable', total: 'set_total', limit: 'set_limit', both: 'set_total_and_limit' };
+  const PPA_SALES_BATCH_LABEL = { enable: '販售', disable: '停售', set_total: '批次設定總販售數量', set_limit: '批次設定每筆限購', set_total_and_limit: '確認設定' };
+  const ppaSalesLimitText = (n) => (n === 0 ? '不限' : `${n} 份／筆`);
   function ppaSalesSetBatchBusy(on) {
     document.querySelectorAll('#ppa-sales-batchbar button').forEach((b) => { b.disabled = !!on; });
     ppaSalesRefreshBatchUi(); // R54.1：結束後依選取／輸入重新計算 disabled；進行中顯示處理中
@@ -16615,13 +16617,24 @@ async function executeMigrationImport() {
       const v = document.getElementById('ppa-sales-batch-limit').value; const n = v === '' ? 0 : Number(v);
       if (!Number.isSafeInteger(n) || n < 0) { ppaSalesSetMsg('每筆限購必須是 0 以上整數（0 為不限）', 'error'); return; }
       value = n; valueText = n === 0 ? '為不限' : `為每筆最多 ${n} 份`;
+    } else if (action === 'set_total_and_limit') {
+      // 兩個欄位都先通過前端驗證（規則與個別按鈕完全相同）才開確認視窗；任一失敗都不送出、不更新任何商品。
+      const tv = document.getElementById('ppa-sales-batch-total').value; const tn = Number(tv);
+      const lv = document.getElementById('ppa-sales-batch-limit').value; const ln = lv === '' ? 0 : Number(lv);
+      const errs = [];
+      if (tv === '' || !Number.isSafeInteger(tn) || tn < 0) errs.push('總販售數量必須是 0 以上整數');
+      if (!Number.isSafeInteger(ln) || ln < 0) errs.push('每筆限購必須是 0 以上整數（0 或空白為不限）');
+      if (errs.length) { ppaSalesSetMsg(`${errs.join('；')}。確認設定未送出，沒有任何商品被修改。`, 'error'); return; }
+      value = { stock_total: tn, per_order_limit: ln };
     }
     const st = PPA.sales.session;
     const label = PPA_SALES_BATCH_LABEL[action];
     const sessText = `${st.name || ''}（${st.pickup_date || ''} ${st.pickup_start_time || ''}～${st.pickup_end_time || ''}）`;
-    const confirmText = (action === 'enable' || action === 'disable')
-      ? `確定要將此場次選取的 ${ids.length} 項商品${label}嗎？\n\n場次：${sessText}\n動作：${label}\n選取商品：${ids.length} 項`
-      : `場次：${sessText}\n動作：${label}${valueText}\n選取商品：${ids.length} 項\n\n確定要執行嗎？`;
+    const isStatus = action === 'enable' || action === 'disable';
+    let confirmText;
+    if (isStatus) confirmText = `確定要將此場次選取的 ${ids.length} 項商品設為「${label}」嗎？\n\n場次：${sessText}\n動作：${label}\n選取商品：${ids.length} 項`;
+    else if (action === 'set_total_and_limit') confirmText = `確定要同時套用以下設定嗎？\n\n場次：${sessText}\n選取商品：${ids.length} 項\n總販售數量：${value.stock_total} 份\n每筆限購：${ppaSalesLimitText(value.per_order_limit)}`;
+    else confirmText = `場次：${sessText}\n動作：${label}${valueText}\n選取商品：${ids.length} 項\n\n確定要執行嗎？`;
     if (!confirm(confirmText)) return;
     if (PPA.sales.batchInFlight) { ppaSalesSetMsg('批次操作處理中，請稍候', 'error'); return; }
     PPA.sales.batchInFlight = true;
@@ -16639,10 +16652,12 @@ async function executeMigrationImport() {
     }
     ppaSalesSetBatchBusy(true);
     PPA.sales.loadGen += 1; // 讓送出前已發出的載入失效（避免舊資料覆蓋）
-    ppaSalesSetMsg(`${label}處理中…（${ids.length} 項）`);
+    const doingText = isStatus ? `設為「${label}」` : label;
+    ppaSalesSetMsg(`${doingText}處理中…（${ids.length} 項）`);
     try {
       const body = { action, product_ids: ids };
-      if (value !== undefined) body.value = value;
+      if (action === 'set_total_and_limit') { body.stock_total = value.stock_total; body.per_order_limit = value.per_order_limit; }
+      else if (value !== undefined) body.value = value;
       const res = await apiFetch(`/api/popup-pickup/sessions/${encodeURIComponent(sid)}/sales/batch`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       });
@@ -16654,7 +16669,11 @@ async function executeMigrationImport() {
         PPA.sales.items = d.items || [];
         ppaSalesRender();
       }
-      const okText = `${label}完成：選取 ${d.selected_count} 項，變更 ${d.changed_count} 項，未變更 ${d.unchanged_count} 項（原本已是此設定）。勾選已保留。`;
+      const countText = `選取 ${d.selected_count} 項，變更 ${d.changed_count} 項，未變更 ${d.unchanged_count} 項（原本已是此設定）。勾選已保留。`;
+      let okText;
+      if (isStatus) okText = `已設為「${label}」：${countText}`;
+      else if (action === 'set_total_and_limit') okText = `已同時套用（總販售數量：${value.stock_total} 份；每筆限購：${ppaSalesLimitText(value.per_order_limit)}）：${countText}`;
+      else okText = `${label}完成：${countText}`;
       ppaSalesSetMsg(okText, 'ok');
       if (sid === PPA.sales.sessionId) {
         await ppaSalesLoad({ silent: true });
@@ -16669,18 +16688,16 @@ async function executeMigrationImport() {
   };
 
   // ═══════════════════════════════════════════════════════════════════
-  // R54.1：批次操作分區＋「販售狀態」雙向批次控制
-  // 這個控制是「對勾選商品執行哪一個批次動作」的選擇器，不代表商品目前狀態：
-  // 預設與每次（勾選變更／切換活動或場次／重新載入／取消／成功／失敗）之後都回到中央中立。
-  // 點擊、拖曳、觸控、鍵盤都只會走同一個 ppaSalesSwitchCommit()，再呼叫 R54 既有的
-  // ppaSalesBatch('enable'|'disable')（request、確認、鎖、靜默重抓完全沿用 R54）。
-  // commit lock 在確認視窗開啟「之前」就上鎖：快速連點、連續拖曳、pointer＋合成 click
-  // 只會產生一次確認與最多一次 request。
+  // R54.2：「販售狀態」兩段膠囊（左 ✓ 販售／右 ✕ 停售）＋「確認設定」共同設定
+  // 這個控制是「對勾選商品執行哪一個動作」，不代表商品目前狀態（勾選的商品可能同時有販售中與停售）：
+  // 平常兩邊都未選取；點選後先顯示綠色／紅色，再開確認視窗；確認／取消／成功／失敗／切換場次／
+  // 勾選變更之後都回到未選取。點擊、觸控（tap）、鍵盤都只走同一個 ppaSalesSwitchCommit()，
+  // 再呼叫既有的 ppaSalesBatch('enable'|'disable')（request、確認、鎖、靜默重抓完全沿用）。
+  // commit lock 在確認視窗開啟「之前」就上鎖：快速連點只會產生一次確認與最多一次 request。
   // ═══════════════════════════════════════════════════════════════════
-  const PPA_SW_MID_TEXT = '選擇批次狀態';
-  const PPA_SW_HELP_TEXT = '往左（或點左側）批次啟用，往右批次停用；放開後會先確認';
-  const PPA_SW_LABEL = { enable: '批次啟用', disable: '批次停用' };
-  const PPA_SW = { state: 'neutral', busy: false, drag: null, suppressClickUntil: 0, bound: false };
+  const PPA_SW_HELP_TEXT = '按「✓ 販售」讓勾選商品在此場次販售，按「✕ 停售」讓它們在此場次停售；按下後會先確認';
+  const PPA_SW_LABEL = { enable: '販售', disable: '停售' };
+  const PPA_SW = { state: 'neutral', busy: false, bound: false };
   function ppaSalesSwitchEls() {
     const root = document.getElementById('ppa-sales-status-switch');
     if (!root) return null;
@@ -16688,8 +16705,6 @@ async function executeMigrationImport() {
       root,
       en: document.getElementById('ppa-sales-batch-enable'),
       dis: document.getElementById('ppa-sales-batch-disable'),
-      mid: root.querySelector('.ppa-bsw-mid'),
-      thumb: root.querySelector('.ppa-bsw-thumb'),
       help: document.getElementById('ppa-bsw-help'),
       live: document.getElementById('ppa-bsw-live'),
     };
@@ -16699,21 +16714,18 @@ async function executeMigrationImport() {
     if (!e || !e.en || !e.dis) return;
     PPA_SW.state = state === 'enable' || state === 'disable' ? state : 'neutral';
     e.root.dataset.state = PPA_SW.state;
-    e.root.classList.remove('is-dragging');
-    if (e.thumb) e.thumb.style.transform = '';
     e.en.setAttribute('aria-checked', PPA_SW.state === 'enable' ? 'true' : 'false');
     e.dis.setAttribute('aria-checked', PPA_SW.state === 'disable' ? 'true' : 'false');
-    // roving tabindex：整個控制只有一個 tab stop；中立時跟著目前 focus 的那一側，避免 focus 停在 tabindex=-1 的元素上
+    // roving tabindex：整個控制只有一個 tab stop；未選取時跟著目前 focus 的那一側
     const stopOnDis = PPA_SW.state === 'disable' || (PPA_SW.state === 'neutral' && document.activeElement === e.dis);
     e.en.tabIndex = stopOnDis ? -1 : 0;
     e.dis.tabIndex = stopOnDis ? 0 : -1;
     if (e.live && !(opts && opts.silent)) {
-      e.live.textContent = PPA_SW.state === 'neutral' ? '已回到選擇批次狀態' : `已選擇${PPA_SW_LABEL[PPA_SW.state]}，按 Enter 開啟確認，按 Esc 取消`;
+      e.live.textContent = PPA_SW.state === 'neutral' ? '已取消選取' : `已選擇「${PPA_SW_LABEL[PPA_SW.state]}」，按 Enter 開啟確認，按 Esc 取消`;
     }
   }
   function ppaSalesSwitchReset() {
     if (PPA_SW.busy) return;
-    PPA_SW.drag = null;
     ppaSalesSwitchSet('neutral', { silent: true });
   }
   function ppaSalesBatchInputState() {
@@ -16721,14 +16733,15 @@ async function executeMigrationImport() {
     const lEl = document.getElementById('ppa-sales-batch-limit');
     const tv = tEl ? tEl.value : ''; const tn = Number(tv);
     const lv = lEl ? lEl.value : ''; const ln = lv === '' ? 0 : Number(lv);
-    // 與 ppaSalesBatch() 的 R54 驗證規則完全相同（總數量必填 0 以上整數；限購空白＝0＝不限）
-    return { totalOk: tv !== '' && Number.isSafeInteger(tn) && tn >= 0, totalEmpty: tv === '', limitOk: Number.isSafeInteger(ln) && ln >= 0 };
+    // 與 ppaSalesBatch() 的驗證規則完全相同（總數量必填 0 以上整數；限購空白＝0＝不限）
+    return { totalOk: tv !== '' && Number.isSafeInteger(tn) && tn >= 0, totalEmpty: tv === '', limitOk: Number.isSafeInteger(ln) && ln >= 0, total: tn, limit: ln };
   }
   // 依「是否選了商品／輸入是否有效／批次是否進行中」更新各區按鈕的 disabled 與可讀提示。
   function ppaSalesRefreshBatchUi() {
     const bar = document.getElementById('ppa-sales-batchbar');
     if (!bar) return;
     const inFlight = !!PPA.sales.batchInFlight;
+    const locked = inFlight || PPA_SW.busy; // 販售狀態等待確認期間，其他批次按鈕也一起鎖住
     const hasSess = !!(PPA.sales.sessionId && PPA.sales.session);
     const n = hasSess ? PPA.sales.items.filter((x) => PPA.sales.selected.has(x.product_id)).length : 0;
     const none = n === 0;
@@ -16741,22 +16754,29 @@ async function executeMigrationImport() {
       e.root.setAttribute('aria-disabled', off ? 'true' : 'false');
       const processing = inFlight && PPA_SW.busy;
       e.root.setAttribute('aria-busy', processing ? 'true' : 'false');
-      if (e.mid) e.mid.textContent = processing ? '處理中…' : PPA_SW_MID_TEXT;
-      if (e.help) e.help.textContent = processing ? `${PPA_SW_LABEL[PPA_SW.state] || '批次操作'}處理中…請稍候` : (none ? '請先勾選商品' : PPA_SW_HELP_TEXT);
+      if (e.help) e.help.textContent = processing ? `設為「${PPA_SW_LABEL[PPA_SW.state] || ''}」處理中…請稍候` : (none ? '請先勾選商品' : PPA_SW_HELP_TEXT);
     }
     const tb = document.getElementById('ppa-sales-batch-total-btn');
-    if (tb) tb.disabled = inFlight || none || !inp.totalOk;
+    if (tb) tb.disabled = locked || none || !inp.totalOk;
     const lb = document.getElementById('ppa-sales-batch-limit-btn');
-    if (lb) lb.disabled = inFlight || none || !inp.limitOk;
+    if (lb) lb.disabled = locked || none || !inp.limitOk;
+    const cb = document.getElementById('ppa-sales-batch-both-btn');
+    if (cb) cb.disabled = locked || none || !inp.totalOk || !inp.limitOk;
     const ab = document.getElementById('ppa-sales-apply-open');
-    if (ab) ab.disabled = inFlight;
+    if (ab) ab.disabled = locked;
     setText('ppa-bb-hint', none ? '請先勾選要批次設定的商品' : '');
     setText('ppa-bb-total-hint', none ? '請先勾選商品' : (inp.totalOk ? '' : (inp.totalEmpty ? '請輸入 0 以上整數' : '總販售數量必須是 0 以上整數')));
     setText('ppa-bb-limit-hint', none ? '請先勾選商品' : (inp.limitOk ? '空白或 0 為不限' : '每筆限購必須是 0 以上整數（0 或空白為不限）'));
+    let comboHint;
+    if (none) comboHint = '請先勾選商品';
+    else if (!inp.totalOk) comboHint = inp.totalEmpty ? '請先填寫總販售數量' : '總販售數量必須是 0 以上整數';
+    else if (!inp.limitOk) comboHint = '每筆限購必須是 0 以上整數（0 或空白為不限）';
+    else comboHint = `將套用：總販售數量 ${inp.total} 份；每筆限購 ${inp.limit === 0 ? '不限' : `${inp.limit} 份／筆`}`;
+    setText('ppa-bb-combo-hint', comboHint);
   }
   function ppaSalesSwitchWaitPaint() {
-    // 讓綠色／紅色狀態（含 0.18 秒的滑動與變色）完整畫出來，再開啟會阻塞畫面的確認視窗。
-    // 使用者設定減少動態效果時沒有 transition，只等一個畫面。
+    // 讓綠色／紅色狀態（0.15 秒變色）完整畫出來，再開啟會阻塞畫面的確認視窗。
+    // 使用者設定減少動態效果時沒有 transition，只等兩個畫面。
     let reduce = false;
     try { reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (_) { /* 無 matchMedia */ }
     return new Promise((resolve) => setTimeout(resolve, reduce ? 34 : 240));
@@ -16766,10 +16786,11 @@ async function executeMigrationImport() {
     if (PPA_SW.busy || PPA.sales.batchInFlight) return;
     const e = ppaSalesSwitchEls();
     if (!e || !e.en || e.en.disabled || e.dis.disabled) return;
-    PPA_SW.busy = true;
+    PPA_SW.busy = true; // commit lock：確認視窗開啟之前就上鎖
+    const btn = dir === 'enable' ? e.en : e.dis;
     const hadFocus = e.root.contains(document.activeElement);
-    PPA_SW.drag = null;
     ppaSalesSwitchSet(dir, { silent: true });
+    ppaSalesRefreshBatchUi();
     try {
       await ppaSalesSwitchWaitPaint();
       await window.ppaSalesBatch(dir);
@@ -16777,11 +16798,11 @@ async function executeMigrationImport() {
       ppaSalesSetMsg('批次操作失敗：' + ((err && err.message) || err) + '。勾選已保留。', 'error');
     } finally {
       PPA_SW.busy = false;
-      ppaSalesSwitchReset();
       ppaSalesRefreshBatchUi();
-      if (hadFocus && !e.root.contains(document.activeElement) && !e.en.disabled) {
-        try { e.en.focus({ preventScroll: true }); } catch (_) { e.en.focus(); }
+      if (hadFocus && !btn.disabled && !e.root.contains(document.activeElement)) {
+        try { btn.focus({ preventScroll: true }); } catch (_) { btn.focus(); }
       }
+      ppaSalesSwitchSet('neutral', { silent: true }); // 成功／失敗／取消都回到未選取
     }
   }
   function ppaSalesBindBatchUi() {
@@ -16794,85 +16815,39 @@ async function executeMigrationImport() {
       if (el) el.addEventListener('input', ppaSalesRefreshBatchUi);
     });
     const root = e.root;
-    const segW = (w) => Math.max(1, (w - 6) / 3);
-    const clearDragVisual = () => { root.classList.remove('is-dragging'); if (e.thumb) e.thumb.style.transform = ''; };
-    root.addEventListener('pointerdown', (ev) => {
-      if (ev.pointerType === 'mouse' && ev.button !== 0) return;
-      if (PPA_SW.busy || PPA.sales.batchInFlight || e.en.disabled) return;
-      const r = root.getBoundingClientRect();
-      // 不呼叫 preventDefault、不全域攔截：垂直捲動與縮放交給瀏覽器（touch-action: pan-y pinch-zoom）。
-      PPA_SW.drag = { id: ev.pointerId, x0: ev.clientX, y0: ev.clientY, left: r.left, w: r.width, dx: 0, horiz: false, cancelled: false };
-    });
-    root.addEventListener('pointermove', (ev) => {
-      const d = PPA_SW.drag;
-      if (!d || ev.pointerId !== d.id || d.cancelled) return;
-      const dx = ev.clientX - d.x0; const dy = ev.clientY - d.y0;
-      if (!d.horiz) {
-        if (Math.abs(dy) > 10 && Math.abs(dy) >= Math.abs(dx)) { d.cancelled = true; clearDragVisual(); return; }
-        if (Math.abs(dx) > 6 && Math.abs(dx) > Math.abs(dy)) {
-          d.horiz = true;
-          try { root.setPointerCapture(ev.pointerId); } catch (_) { /* 忽略 */ }
-          root.classList.add('is-dragging');
-        }
-      }
-      if (!d.horiz) return;
-      const seg = segW(d.w);
-      d.dx = Math.max(-seg, Math.min(seg, dx));
-      if (e.thumb) e.thumb.style.transform = `translateX(calc(100% + ${d.dx}px))`;
-      root.dataset.state = d.dx <= -seg * 0.5 ? 'enable' : (d.dx >= seg * 0.5 ? 'disable' : 'neutral');
-    });
-    root.addEventListener('pointerup', (ev) => {
-      const d = PPA_SW.drag;
-      if (!d || ev.pointerId !== d.id) return;
-      PPA_SW.drag = null;
-      try { root.releasePointerCapture(ev.pointerId); } catch (_) { /* 忽略 */ }
-      clearDragVisual();
-      PPA_SW.suppressClickUntil = Date.now() + 700; // 吞掉 pointer 之後瀏覽器合成的 click，避免重複
-      let dir = null;
-      if (!d.cancelled) {
-        const dx = ev.clientX - d.x0; const dy = ev.clientY - d.y0;
-        const seg = segW(d.w);
-        if (d.horiz) { if (d.dx <= -seg * 0.5) dir = 'enable'; else if (d.dx >= seg * 0.5) dir = 'disable'; }
-        else if (Math.abs(dx) < 10 && Math.abs(dy) < 10) {
-          const rel = (ev.clientX - d.left) / d.w;
-          if (rel < 1 / 3) dir = 'enable'; else if (rel > 2 / 3) dir = 'disable';
-        }
-      }
-      if (dir) ppaSalesSwitchCommit(dir);
-      else ppaSalesSwitchSet(PPA_SW.state, { silent: true }); // 位移不足／垂直捲動：不執行，回到原位置
-    });
-    root.addEventListener('pointercancel', (ev) => {
-      const d = PPA_SW.drag;
-      if (!d || ev.pointerId !== d.id) return;
-      PPA_SW.drag = null;
-      clearDragVisual();
-      if (!PPA_SW.busy) ppaSalesSwitchSet(PPA_SW.state, { silent: true });
-    });
+    // 滑鼠點擊、手指點按、輔助技術啟動都會產生 click；鍵盤 Enter／Space 由 keydown 處理（並取消原生 click）。
     [e.en, e.dis].forEach((btn) => {
-      // 輔助技術／程式觸發的 click（沒有 pointer 序列）也走同一個 commit；pointer 後的合成 click 被吞掉。
       btn.addEventListener('click', (ev) => {
-        if (Date.now() < PPA_SW.suppressClickUntil) { ev.preventDefault(); return; }
+        ev.preventDefault();
         ppaSalesSwitchCommit(btn.dataset.dir);
       });
     });
     root.addEventListener('keydown', (ev) => {
       const k = ev.key;
-      const handled = k === 'ArrowLeft' || k === 'ArrowRight' || k === 'Enter' || k === ' ' || k === 'Spacebar' || k === 'Escape' || k === 'Esc';
-      if (!handled) return;
-      if (PPA_SW.busy || PPA.sales.batchInFlight || e.en.disabled) { if (k !== 'Escape' && k !== 'Esc') ev.preventDefault(); return; }
-      if (k === 'ArrowLeft') { ev.preventDefault(); ppaSalesSwitchSet('enable'); e.en.focus(); }
-      else if (k === 'ArrowRight') { ev.preventDefault(); ppaSalesSwitchSet('disable'); e.dis.focus(); }
-      else if (k === 'Escape' || k === 'Esc') { if (PPA_SW.state !== 'neutral') { ev.preventDefault(); ppaSalesSwitchSet('neutral'); e.en.focus(); } }
+      const prev = k === 'ArrowLeft' || k === 'ArrowUp';
+      const next = k === 'ArrowRight' || k === 'ArrowDown';
+      const act = k === 'Enter' || k === ' ' || k === 'Spacebar';
+      const esc = k === 'Escape' || k === 'Esc';
+      if (!prev && !next && !act && !esc) return;
+      if (PPA_SW.busy || PPA.sales.batchInFlight || e.en.disabled) { if (!esc) ev.preventDefault(); return; }
+      if (prev) { ev.preventDefault(); ppaSalesSwitchSet('enable'); e.en.focus(); }
+      else if (next) { ev.preventDefault(); ppaSalesSwitchSet('disable'); e.dis.focus(); }
+      else if (esc) { if (PPA_SW.state !== 'neutral') { ev.preventDefault(); ppaSalesSwitchSet('neutral'); } }
       else {
         ev.preventDefault();
-        PPA_SW.suppressClickUntil = Date.now() + 700;
         const dir = PPA_SW.state !== 'neutral' ? PPA_SW.state : (document.activeElement === e.dis ? 'disable' : (document.activeElement === e.en ? 'enable' : null));
         if (dir) ppaSalesSwitchCommit(dir);
       }
     });
     root.addEventListener('keyup', (ev) => { if (ev.key === ' ' || ev.key === 'Spacebar' || ev.key === 'Enter') ev.preventDefault(); });
+    // roving tabindex：未選取時，focus 移到哪一側（滑鼠、程式、輔助技術），tab stop 就跟到哪一側
+    root.addEventListener('focusin', (ev) => {
+      if (PPA_SW.state !== 'neutral' || (ev.target !== e.en && ev.target !== e.dis)) return;
+      e.en.tabIndex = ev.target === e.en ? 0 : -1;
+      e.dis.tabIndex = ev.target === e.dis ? 0 : -1;
+    });
     root.addEventListener('focusout', (ev) => {
-      if (PPA_SW.busy || PPA_SW.drag) return;
+      if (PPA_SW.busy) return;
       if (ev.relatedTarget && root.contains(ev.relatedTarget)) return;
       if (PPA_SW.state !== 'neutral') ppaSalesSwitchSet('neutral', { silent: true });
     });
