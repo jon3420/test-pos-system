@@ -843,6 +843,26 @@ router.patch('/sessions/:sessionId', (req, res) => {
     // ── 組出合併後的目標值，並驗證格式（純格式驗證，不涉及「是否需要確認」
     //    這種必須用最新資料才能決定的權威判斷——那些一律移到 transaction
     //    內、用 fresh 讀取的資料做決策，見下方）。────────────────────────
+    // R54.3：變更所屬活動。只接受同店、存在、非封存的活動 ID；不信任前端的活動名稱
+    // （body 只讀 campaign_id）。不存在／已刪除／他店 → 400；封存 → 409；任何失敗都不寫入。
+    let targetCampaign = null;
+    if (body.campaign_id !== undefined) {
+      if (!pp.isNonEmptyString(body.campaign_id, 100)) pp.fail('POPUP_VALIDATION_ERROR', 'campaign_id 必須是 1~100 字的活動 ID');
+      if (body.campaign_id !== existing.campaign_id) {
+        targetCampaign = db.get('SELECT * FROM popup_campaigns WHERE id=? AND store_id=?', [body.campaign_id, storeId]);
+        if (!targetCampaign) pp.fail('POPUP_VALIDATION_ERROR', 'campaign_id 不存在或不屬於此店家');
+        if (targetCampaign.status === 'archived') pp.fail('POPUP_CAMPAIGN_ARCHIVED_IMMUTABLE', '目標活動已封存，無法移入場次', 409);
+        if (getCampaignStatusScoped(db, storeId, existing.campaign_id) === 'archived') {
+          pp.fail('POPUP_CAMPAIGN_ARCHIVED_IMMUTABLE', '原活動已封存，場次不可移出', 409);
+        }
+      }
+    }
+    const wantsCampaignChange = !!targetCampaign;
+    // R54.3：所屬活動不影響既有訂單的取餐地點／時間／商品（訂單保留活動名稱 snapshot），
+    // 因此與 sort_order 同類：不觸發「已有訂單需二次確認」、不寫入顧客影響 change log
+    // （change log snapshot 欄位維持 R54.2 allowlist 不變）；但同樣走 revision 與同一個 durable transaction。
+    const nextCampaignId = wantsCampaignChange ? targetCampaign.id : existing.campaign_id;
+
     const wantsLocationChange = body.location_id !== undefined && body.location_id !== existing.location_id;
     let targetLocation = null;
     if (wantsLocationChange) {
@@ -940,6 +960,12 @@ router.patch('/sessions/:sessionId', (req, res) => {
       if (freshExisting.status === 'archived') {
         throw new pp.PopupValidationError('POPUP_SESSION_ARCHIVED_IMMUTABLE', '此場次已封存（archived），為終止狀態，不可再修改', 409);
       }
+      if (wantsCampaignChange) {
+        // R54.3：交易內以 fresh 讀取再驗一次目標活動（同店、存在、非封存），失敗整筆 ROLLBACK。
+        const freshTarget = db.get('SELECT id, status FROM popup_campaigns WHERE id=? AND store_id=?', [targetCampaign.id, storeId]);
+        if (!freshTarget) throw new pp.PopupValidationError('POPUP_VALIDATION_ERROR', 'campaign_id 不存在或不屬於此店家', 400);
+        if (freshTarget.status === 'archived') throw new pp.PopupValidationError('POPUP_CAMPAIGN_ARCHIVED_IMMUTABLE', '目標活動已封存，無法移入場次', 409);
+      }
 
       // 用 freshExisting 算出這次交易內唯一權威的 before 快照
       // （freshBeforeSnapshot），並據此算出 protectedChanged／changedFields。
@@ -955,9 +981,9 @@ router.patch('/sessions/:sessionId', (req, res) => {
         // 只有 sort_order（或完全沒有實質變化）——直接寫入，revision 仍前進
         // 一版，不需要確認流程、不寫 change log、affected_order_count 不適用。
         db._db.run(
-          `UPDATE popup_sessions SET sort_order=?, revision=revision+1, updated_at=datetime('now','localtime')
+          `UPDATE popup_sessions SET campaign_id=?, sort_order=?, revision=revision+1, updated_at=datetime('now','localtime')
            WHERE id=? AND store_id=? AND revision=?`,
-          [nextSortOrder, existing.id, storeId, freshExisting.revision]
+          [nextCampaignId, nextSortOrder, existing.id, storeId, freshExisting.revision]
         );
         if (db._db.getRowsModified() !== 1) {
           throw new pp.PopupValidationError('POPUP_SESSION_REVISION_CONFLICT', '場次資料已被其他操作更新，請重新整理後再試', 409, {});
@@ -981,12 +1007,13 @@ router.patch('/sessions/:sessionId', (req, res) => {
 
         db._db.run(
           `UPDATE popup_sessions SET
-             name=?, pickup_date=?, pickup_start_time=?, pickup_end_time=?, order_open_at=?, order_cutoff_at=?,
+             campaign_id=?, name=?, pickup_date=?, pickup_start_time=?, pickup_end_time=?, order_open_at=?, order_cutoff_at=?,
              location_id=?, place_name=?, place_id=?, address=?, address_note=?, lat=?, lng=?,
              status=?, product_scope=?, max_orders=?, sort_order=?,
              revision=revision+1, updated_at=datetime('now','localtime')
            WHERE id=? AND store_id=? AND revision=?`,
           [
+            nextCampaignId,
             afterSnapshotCandidate.name, afterSnapshotCandidate.pickup_date, afterSnapshotCandidate.pickup_start_time,
             afterSnapshotCandidate.pickup_end_time, afterSnapshotCandidate.order_open_at, afterSnapshotCandidate.order_cutoff_at,
             afterSnapshotCandidate.location_id, afterSnapshotCandidate.place_name, afterSnapshotCandidate.place_id,
@@ -1004,7 +1031,14 @@ router.patch('/sessions/:sessionId', (req, res) => {
             [targetLocation.city || '', targetLocation.district || '', targetLocation.postal_code || '', existing.id, storeId]);
         }
 
-        if (nextProductScope === 'selected') {
+        // R54.3：商品清單（product_id／enabled／quota_qty）與 DB 完全相同時不重寫子資料
+        // （例如只變更所屬活動），避免無謂的刪除後重建；有差異時行為與 R54.2 相同。
+        const r543Key = (list) => JSON.stringify((list || []).map((p) => [Number(p.product_id), Number(p.enabled) ? 1 : 0, Number(p.quota_qty) || 0]).sort((a, b) => a[0] - b[0]));
+        const r543ProductsUnchanged = nextProductScope === 'selected' && freshExisting.product_scope === 'selected'
+          && r543Key(db.all('SELECT product_id, enabled, quota_qty FROM popup_session_products WHERE session_id=? AND store_id=?', [existing.id, storeId])) === r543Key(nextProducts);
+        if (r543ProductsUnchanged) {
+          // 保持原樣
+        } else if (nextProductScope === 'selected') {
           // R53：記下重寫前的 quota，供販售設定同步（新上限不得低於已保留＋已成立）。
           const r53BeforeProducts = db.all('SELECT product_id, quota_qty FROM popup_session_products WHERE session_id=? AND store_id=?', [existing.id, storeId]);
           db._db.run('DELETE FROM popup_session_products WHERE session_id=? AND store_id=?', [existing.id, storeId]);

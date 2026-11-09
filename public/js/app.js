@@ -14768,13 +14768,14 @@ async function executeMigrationImport() {
   // 「公開連結／測試」每次進入都重新取得最新資料。
   async function ppaAfterMutation() {
     const myEpoch = PPA.epoch;
-    const jobs = [ppaLoadCampaigns({ silent: true })];
+    // R54.3：商品販售管理的場次清單也一律同時重抓（不論目前分頁），確保活動歸屬變更後各分頁同一份最新資料。
+    const jobs = [ppaLoadCampaigns({ silent: true }), ppaSalesLoadSessionList()];
     if (PPA.tab === 'sessions') jobs.push(ppaLoadSessions({ silent: true }));
     if (PPA.tab === 'locations') jobs.push(ppaLoadLocations({ silent: true }));
     await Promise.all(jobs);
     if (myEpoch !== PPA.epoch) return;
     if (PPA.tab === 'links') ppaRenderLinksTab();
-    if (PPA.tab === 'sales') await ppaSalesRefreshSelectorsAsync();
+    if (PPA.tab === 'sales') ppaSalesRefreshSelectors();
   }
   PPA.afterMutation = ppaAfterMutation;
   // 同一按鈕／同一資源的寫入在 API 回應前不重複送出（防快速連點）。
@@ -15264,8 +15265,19 @@ async function executeMigrationImport() {
         o.value = c.id; o.textContent = c.name + (c.status === 'draft' ? '（草稿）' : '');
         s.appendChild(o);
       });
+      // R54.3：編輯中場次的所屬活動若不在可選清單（已封存），保留「僅顯示原資料」選項，
+      // 不得落到第一個活動或空白。
+      if (s.id === 'ppa-session-campaign' && PPA.editingSessionCampaignId && PPA.editingSessionCampaignId === v) ppaEnsureSessionCampaignOption(s, v);
       if (v) s.value = v;
     });
+  }
+  function ppaEnsureSessionCampaignOption(sel, campaignId) {
+    if (!campaignId || Array.from(sel.options).some((o) => o.value === String(campaignId))) return;
+    const c = PPA.campaigns.find((x) => x.id === campaignId);
+    const opt = document.createElement('option');
+    opt.value = campaignId;
+    opt.textContent = (c ? c.name : '（找不到的活動）') + '（已封存，僅顯示原資料）';
+    sel.insertBefore(opt, sel.firstChild);
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -15957,13 +15969,29 @@ async function executeMigrationImport() {
     await ppaEnsureCoreListsLoaded();
     await ppaEnsureProductsLoaded();
     if (myFormEpoch !== PPA.sessionFormEpoch) return; // 這兩個 await 期間使用者可能已經開了另一個表單
+    // R54.3：編輯時以 DB 最新的場次資料（GET /sessions/:id）為準，依實際保存的活動 ID 選取；
+    // 讀取失敗才退回列表快取（revision 檢查仍會擋下過期資料）。
+    let s = id ? PPA.sessions.find((x) => x.id === id) : null;
+    if (id) {
+      try {
+        const fc = ppaController('sessionFormFetch');
+        const fr = await apiFetch(`/api/popup-pickup/sessions/${encodeURIComponent(id)}`, { signal: fc.signal });
+        const fj = await fr.json();
+        if (myFormEpoch !== PPA.sessionFormEpoch) return;
+        if (fr.ok && fj && fj.success && fj.data && fj.data.id === id) s = fj.data;
+      } catch (e) {
+        if (myFormEpoch !== PPA.sessionFormEpoch) return;
+      }
+    }
+    PPA.editingSessionCampaignId = s ? s.campaign_id : null;
     ppaEnsureCampaignFilterOptions();
     ppaEnsureLocationSelectOptions();
-    const s = id ? PPA.sessions.find((x) => x.id === id) : null;
     document.getElementById('ppa-session-id').value = s ? s.id : '';
     document.getElementById('ppa-session-revision').value = s ? s.revision : '';
     document.getElementById('ppa-session-conflict-banner').style.display = 'none';
-    document.getElementById('ppa-session-campaign').value = s ? s.campaign_id : (document.getElementById('ppa-session-campaign').options[0] || {}).value || '';
+    const campSel = document.getElementById('ppa-session-campaign');
+    if (s) ppaEnsureSessionCampaignOption(campSel, s.campaign_id);
+    campSel.value = s ? s.campaign_id : (campSel.options[0] || {}).value || '';
     document.getElementById('ppa-session-name').value = s ? s.name : '';
     document.getElementById('ppa-session-location').value = s ? s.location_id : '';
     PPA.editingSessionOriginalLocationId = s ? s.location_id : null;
@@ -16023,7 +16051,7 @@ async function executeMigrationImport() {
     ppaOnProductScopeChange();
     showModal18('ppa-modal-session');
   };
-  window.ppaCloseSessionForm = function ppaCloseSessionForm() { PPA.sessionFormEpoch++; hideModal18('ppa-modal-session'); };
+  window.ppaCloseSessionForm = function ppaCloseSessionForm() { PPA.sessionFormEpoch++; PPA.editingSessionCampaignId = null; hideModal18('ppa-modal-session'); };
 
   // datetime-local <-> 後端 +08:00 ISO 字串的轉換，避免瀏覽器本地時區被誤當台北時間
   function ppaIsoToLocalInput(iso) {
@@ -16344,11 +16372,14 @@ async function executeMigrationImport() {
     el.style.color = tone === 'error' ? '#ff9a9a' : (tone === 'ok' ? '#86efac' : 'var(--text-secondary,#94a3b8)');
   }
   async function ppaSalesLoadSessionList() {
+    // R54.3：較晚回來的舊回應不得覆蓋較新的場次清單（活動歸屬變更後的販售選單來源）。
+    const myGen = PPA.sales.listGen = (PPA.sales.listGen || 0) + 1;
     try {
       const res = await apiFetch('/api/popup-pickup/sessions?limit=100');
       const json = await res.json();
+      if (myGen !== PPA.sales.listGen) return;
       if (json.success) PPA.sales.sessions = json.data || [];
-    } catch (e) { /* 保留舊清單並顯示提示 */ ppaSalesSetMsg('場次清單載入失敗，請稍後再試', 'error'); }
+    } catch (e) { if (myGen !== PPA.sales.listGen) return; /* 保留舊清單並顯示提示 */ ppaSalesSetMsg('場次清單載入失敗，請稍後再試', 'error'); }
   }
   window.ppaSalesInit = async function ppaSalesInit() {
     ppaSalesBindBatchUi(); // R54.1：批次操作分區與雙向控制（只綁定一次）
