@@ -335,7 +335,7 @@ img{max-width:100%;display:block}
 </style>
 <link rel="stylesheet" href="/css/product-detail-modal.css">
 <!-- R48：快閃取餐（/popup-order）顧客前台專用樣式；所有 selector 皆限定在 popup scope，一般 LINE 點餐頁不受影響。 -->
-<link rel="stylesheet" href="/css/popup-order.css?v=r54-popup-mobile-1">
+<link rel="stylesheet" href="/css/popup-order.css?v=r54-4-popup-session-switch-1">
 </head>
 <body>
 
@@ -2373,11 +2373,12 @@ function popupSetView(root, view){
 }
 
 // 頁首：品牌字樣、標題（可省略）、顧客狀態 pill（可省略）。
-function popupBuildHeader(titleText, status){
+function popupBuildHeader(titleText, status, opts){
   const header=popupEl('header','popup-order-header');
   header.appendChild(popupEl('p','popup-order-brand','快閃取餐'));
   // R53：快閃訂單查詢／我的訂單（只查快閃訂單；載入／錯誤畫面不顯示）。
-  if(titleText!=null) header.appendChild(popupBuildLookupButtons());
+  // R54.4：場次頁同一列另有「📅 選擇其他場次」。
+  if(titleText!=null) header.appendChild(popupBuildLookupButtons(opts));
   if(titleText!=null) header.appendChild(popupEl('h2','popup-order-title',titleText));
   if(status){
     const pill=popupEl('p','popup-order-status',status.label);
@@ -2929,7 +2930,7 @@ function renderPopupSessionScreen(){
   wrap.setAttribute('aria-live','polite');
 
   const status=popupCustomerStatus(popupSession);
-  wrap.appendChild(popupBuildHeader((popupCampaign&&popupCampaign.name ? popupCampaign.name+' － ' : '')+(popupSession.name||''), status));
+  wrap.appendChild(popupBuildHeader((popupCampaign&&popupCampaign.name ? popupCampaign.name+' － ' : '')+(popupSession.name||''), status, { sessionSwitch:true }));
   const body=popupEl('div','popup-order-body');
 
   // 規格六：依目前 restore 流程階段顯示對應狀態，不假裝已完成、不隱藏
@@ -4081,8 +4082,10 @@ function popupBuildRegionNav(label, items, selected, onPick){
   return nav;
 }
 
-function popupBuildSessionCard(s){
+function popupBuildSessionCard(s, opts){
+  const isCurrent=!!(opts && opts.currentCode && opts.currentCode===s.public_code);
   const art=popupEl('article','popup-order-session-card');
+  if(isCurrent) art.setAttribute('data-current','true');
   const status=popupCustomerStatus(s);
   const head=popupEl('div','popup-order-session-card-head');
   const titles=popupEl('div','popup-order-session-card-titles');
@@ -4093,6 +4096,11 @@ function popupBuildSessionCard(s){
   const pill=popupEl('span','popup-order-status popup-order-session-card-status',status.label);
   pill.setAttribute('data-tone', status.tone);
   head.appendChild(pill);
+  if(isCurrent){
+    const cur=popupEl('span','popup-order-session-current','目前場次');
+    cur.setAttribute('data-testid','popup-current-session-badge');
+    titles.insertBefore(cur, titles.firstChild);
+  }
   art.appendChild(head);
   const dl=popupEl('dl','popup-order-session-card-info');
   const row=(k, v)=>{ if(v==null || v==='') return; const w=popupEl('div','popup-order-session-card-row'); w.appendChild(popupEl('dt','',k)); w.appendChild(popupEl('dd','',String(v))); dl.appendChild(w); };
@@ -4111,13 +4119,14 @@ function popupBuildSessionCard(s){
     row('名額', '不限名額');
   }
   art.appendChild(dl);
-  const btn=popupEl('button','popup-order-session-btn', s.can_order===true ? '選擇此場次' : '查看此場次');
+  const btn=popupEl('button','popup-order-session-btn', isCurrent ? '返回目前場次' : (s.can_order===true ? '選擇此場次' : '查看此場次'));
   btn.type='button';
   btn.setAttribute('data-session-code', s.public_code);
-  btn.setAttribute('aria-label', `${s.can_order===true ? '選擇' : '查看'}場次：${String(s.name||'')} ${s.pickup_date||''} ${s.place_name||''}`);
+  btn.setAttribute('aria-label', `${isCurrent ? '返回目前' : (s.can_order===true ? '選擇' : '查看')}場次：${String(s.name||'')} ${s.pickup_date||''} ${s.place_name||''}`);
   // 規格七：只把 public_code 記下來，選中後一律重新呼叫 direct session
   // detail 端點，不把這個列表摘要當作權威資料。
   btn.addEventListener('click', ()=>{
+    if(opts && opts.currentCode){ popupSwitchPick(s.public_code, opts.currentCode); return; } // R54.4：選擇其他場次
     try{
       if(window.history && typeof window.history.pushState==='function'){
         window.history.pushState({ popupView:'session', popupSessionCode:s.public_code }, '');
@@ -4130,6 +4139,7 @@ function popupBuildSessionCard(s){
 }
 
 function renderPopupEntryPicker(kindLabel, sessions){
+  const opts=arguments.length>2 ? arguments[2] : null; // R54.4：選擇其他場次（{ currentCode }）
   const root=popupRootEl();
   root.textContent='';
   popupSetView(root,'picker');
@@ -4139,24 +4149,31 @@ function renderPopupEntryPicker(kindLabel, sessions){
   let city=keep && groups.some((g)=>g.city===prev.city) ? prev.city : (groups[0] ? groups[0].city : null);
   const cityGroup=groups.find((g)=>g.city===city) || null;
   let district=keep && cityGroup && cityGroup.districts.some((d)=>d.district===prev.district) ? prev.district : (cityGroup && cityGroup.districts[0] ? cityGroup.districts[0].district : null);
-  _popupPickerContext={ kindLabel, sessions, city, district };
+  const switchOpts=(opts && opts.currentCode) ? { currentCode:opts.currentCode } : null; // R54.4：選擇其他場次
+  _popupPickerContext={ kindLabel, sessions, city, district, opts:switchOpts };
   try{
     if(window.history && typeof window.history.replaceState==='function'){
       // 列表畫面一律記錄為 picker 狀態（重新整理會保留舊的 history.state，不可沿用）。
-      window.history.replaceState({ popupView:'picker', city, district }, '');
+      window.history.replaceState(switchOpts ? { popupView:'picker', city, district, popupSwitch:true } : { popupView:'picker', city, district }, '');
     }
   }catch(e){}
   const wrap=popupEl('div','popup-order-shell');
   wrap.setAttribute('aria-live','polite');
-  wrap.appendChild(popupBuildHeader((popupCampaign&&popupCampaign.name) || kindLabel, null));
+  wrap.appendChild(popupBuildHeader(switchOpts ? '選擇其他場次' : ((popupCampaign&&popupCampaign.name) || kindLabel), null));
   const body=popupEl('div','popup-order-body');
   const card=popupEl('section','popup-order-card');
   card.setAttribute('aria-label','選擇場次');
   card.appendChild(popupEl('h3','popup-order-card-title','選擇取貨場次'));
+  if(switchOpts){
+    const back=popupEl('button','popup-order-switch-back','← 返回目前場次');
+    back.type='button'; back.setAttribute('data-session-switch','back');
+    back.addEventListener('click', ()=>popupSwitchPick(switchOpts.currentCode, switchOpts.currentCode));
+    card.appendChild(back);
+  }
   if(!groups.length){
     card.appendChild(popupEl('p','popup-order-empty','目前沒有可訂購的場次'));
   }else{
-    const repick=(c, d)=>{ _popupPickerContext={ kindLabel, sessions, city:c, district:d }; renderPopupEntryPicker(kindLabel, sessions); };
+    const repick=(c, d)=>{ _popupPickerContext={ kindLabel, sessions, city:c, district:d, opts:switchOpts }; renderPopupEntryPicker(kindLabel, sessions, switchOpts); };
     card.appendChild(popupEl('p','popup-order-region-step','1. 選擇縣市'));
     card.appendChild(popupBuildRegionNav('選擇縣市', groups.map((g)=>({ name:g.city, count:g.count })), city, (c)=>{
       const g=groups.find((x)=>x.city===c);
@@ -4171,7 +4188,7 @@ function renderPopupEntryPicker(kindLabel, sessions){
     list.setAttribute('aria-label', cityGroup && !cityGroup.pending ? `${city} ${district||''} 的場次` : POPUP_REGION_PENDING_LABEL+' 的場次');
     (dGroup ? dGroup.sessions : []).forEach((s)=>{
       const li=popupEl('li','popup-order-session-item');
-      li.appendChild(popupBuildSessionCard(s));
+      li.appendChild(popupBuildSessionCard(s, switchOpts));
       list.appendChild(li);
     });
     card.appendChild(list);
@@ -4190,9 +4207,97 @@ function _popupHandlePickerPopState(ev){
   popupSession=null;
   popupCheckoutStep='select';
   _popupPickerContext={ ..._popupPickerContext, city:st.city || _popupPickerContext.city, district:st.district || _popupPickerContext.district };
-  renderPopupEntryPicker(_popupPickerContext.kindLabel, _popupPickerContext.sessions);
+  renderPopupEntryPicker(_popupPickerContext.kindLabel, _popupPickerContext.sessions, _popupPickerContext.opts);
 }
 try{ window.addEventListener('popstate', _popupHandlePickerPopState); }catch(e){}
+
+// ══════════════════════════════════════════════════════════════════════
+// R54.4：場次頁「📅 選擇其他場次」——沿用既有店家入口（GET /popup-entry）與
+// 「縣市 → 行政區 → 場次」選擇畫面，不另建第二套 UI／API。
+// - 購物車有商品時先確認；取消＝完全不變。
+// - 只有實際選了「不同場次」才清空原場次購物車（localStorage key 與記憶體）；選回目前場次不清空。
+// - 網址只放場次公開代碼；姓名／電話／查詢 token 不進網址或 log；不寫 currentMode。
+// ══════════════════════════════════════════════════════════════════════
+let _popupSwitchBusy=false;
+function popupSwitchNotify(msg){ try{ if(typeof toast==='function') toast(msg); }catch(e){} }
+async function popupOpenSessionSwitcher(btn){
+  if(_popupSwitchBusy) return;
+  if(!popupSession || typeof popupSession.public_code!=='string' || !popupSession.public_code) return;
+  const fromCode=popupSession.public_code;
+  const hasItems=Array.isArray(popupCart && popupCart.items) && popupCart.items.some((it)=>it && Number(it.qty)>0);
+  if(hasItems && !window.confirm('切換場次會清空目前購物車，是否繼續？')) return;
+  _popupSwitchBusy=true;
+  if(btn) btn.disabled=true;
+  try{
+    savePopupCart(fromCode, popupCart); // 原樣保存；只有選了不同場次才清空
+    const ctx=POPUP_ENTRY_CONTEXT||{};
+    let storeId=(ctx.popupEntryType==='store' && typeof ctx.popupStoreId==='string') ? ctx.popupStoreId : null;
+    if(!storeId){
+      const r=await popupApiFetch('/api/line-orders/popup-continue?to=store&session='+encodeURIComponent(fromCode));
+      const j=await r.json().catch(()=>({}));
+      if(r.ok && j && j.success && j.data && j.data.target==='store' && typeof j.data.store_id==='string' && j.data.store_id) storeId=j.data.store_id;
+    }
+    if(!storeId){ popupSwitchNotify('目前無法載入其他場次，請稍後再試'); return; }
+    const res=await popupApiFetch('/api/line-orders/popup-entry?store_id='+encodeURIComponent(storeId));
+    const json=await res.json().catch(()=>({}));
+    if(!res.ok || !json || !json.success || !json.data || json.data.enabled===false){ popupSwitchNotify('目前無法載入其他場次，請稍後再試'); return; }
+    // 等待期間若已離開這個場次畫面（背景更新、送單、上一頁），不打擾顧客。
+    if(!popupSession || popupSession.public_code!==fromCode || popupCurrentView()!=='session') return;
+    const campaigns=Array.isArray(json.data.campaigns) ? json.data.campaigns : [];
+    const sessions=campaigns.reduce((acc,c)=>acc.concat(Array.isArray(c.sessions)?c.sessions.map((x)=>Object.assign({}, x, { campaign_name:c.name })):[]), []);
+    const cur=sessions.find((x)=>x && x.public_code===fromCode);
+    // 離開場次畫面：停止目前場次的背景更新，較晚回來的舊回應一律丟棄。
+    popupLoadGeneration++;
+    popupLoading=false;
+    popupSession=null;
+    popupCheckoutStep='select';
+    try{
+      if(window.history && typeof window.history.replaceState==='function' && typeof window.history.pushState==='function'){
+        window.history.replaceState(Object.assign({}, (window.history.state && typeof window.history.state==='object') ? window.history.state : {}, { popupView:'session', popupSessionCode:fromCode, popupSwitch:true }), '');
+        window.history.pushState({ popupView:'picker', popupSwitch:true }, '');
+      }
+    }catch(e){}
+    const pending=!cur || cur.region_pending===true || !cur.city || !cur.district;
+    _popupPickerContext={ kindLabel:'快閃取貨', sessions, city: cur ? (pending ? POPUP_REGION_PENDING_LABEL : cur.city) : null, district: cur ? (pending ? POPUP_REGION_PENDING_LABEL : cur.district) : null, opts:{ currentCode:fromCode } };
+    renderPopupEntryPicker('快閃取貨', sessions, { currentCode:fromCode });
+    try{ popupScrollToY(0); }catch(e){}
+  }catch(e){
+    popupSwitchNotify('目前無法載入其他場次，請稍後再試');
+  }finally{
+    _popupSwitchBusy=false;
+    if(btn && document.body.contains(btn)) btn.disabled=false;
+  }
+}
+// 在場次選擇畫面選了某個場次（含「返回目前場次」）。
+function popupSwitchPick(code, fromCode){
+  if(typeof code!=='string' || !code) return;
+  if(fromCode && code!==fromCode){
+    // 實際切換到不同場次：清空原場次購物車（商品、數量、結帳資料），不帶到新場次。
+    try{ _popupStorageRemoveItem(popupCartStorageKey(fromCode)); }catch(e){}
+    popupCart=popupEmptyCart(code);
+    _popupIdemKey=null;
+  }
+  popupCheckoutStep='select';
+  try{
+    if(window.history && typeof window.history.replaceState==='function'){
+      const ctx=POPUP_ENTRY_CONTEXT||{};
+      const url=(ctx.popupEntryType==='session') ? '/popup-order?session='+encodeURIComponent(code) : undefined;
+      window.history.replaceState({ popupView:'session', popupSessionCode:code, popupSwitch:true }, '', url);
+    }
+  }catch(e){}
+  loadPopupDirectSession(code);
+}
+// 「上一頁」：回到切換前的場次（購物車原樣），或切換後回到原場次（原購物車已清空）。
+function _popupHandleSwitchPopState(ev){
+  const st=ev && ev.state;
+  if(!st || st.popupSwitch!==true) return;
+  if(st.popupView==='session' && typeof st.popupSessionCode==='string' && st.popupSessionCode){
+    if(popupSession && popupSession.public_code===st.popupSessionCode && popupCurrentView()==='session') return;
+    popupCheckoutStep='select';
+    loadPopupDirectSession(st.popupSessionCode);
+  }
+}
+try{ window.addEventListener('popstate', _popupHandleSwitchPopState); }catch(e){}
 
 // ══════════════════════════════════════════════════════════════════════
 // R53：快閃訂單查詢／我的訂單（與一般 LINE「查詢訂單／我的訂單」相同的查詢規則；
@@ -4221,7 +4326,7 @@ function popupLookupSaveToken(t){
   _popupLookup.token=t||null;
   try{ if(t) window.sessionStorage.setItem(POPUP_LOOKUP_TOKEN_KEY, t); else window.sessionStorage.removeItem(POPUP_LOOKUP_TOKEN_KEY); }catch(e){}
 }
-function popupBuildLookupButtons(){
+function popupBuildLookupButtons(opts){
   const bar=popupEl('div','popup-order-lookup-btns');
   const q=popupEl('button','popup-order-lookup-btn','🔍 查詢訂單');
   q.type='button'; q.setAttribute('data-lookup-open','query');
@@ -4230,6 +4335,12 @@ function popupBuildLookupButtons(){
   m.type='button'; m.setAttribute('data-lookup-open','history');
   m.addEventListener('click',(ev)=>popupOpenLookup('history', ev.currentTarget));
   bar.appendChild(q); bar.appendChild(m);
+  if(opts && opts.sessionSwitch){
+    const sw=popupEl('button','popup-order-lookup-btn popup-order-switch-btn','📅 選擇其他場次');
+    sw.type='button'; sw.setAttribute('data-session-switch','open');
+    sw.addEventListener('click',(ev)=>popupOpenSessionSwitcher(ev.currentTarget));
+    bar.appendChild(sw);
+  }
   return bar;
 }
 function popupLookupShell(){

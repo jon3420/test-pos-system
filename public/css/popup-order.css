@@ -1583,3 +1583,52 @@ body.popup-order-mode {
 .popup-order-store-entry-link {
   text-decoration: none;
 }
+
+/* ── R54.4：場次頁「📅 選擇其他場次」與場次選擇畫面的「目前場次」 ───── */
+.popup-order-lookup-btn {
+  max-width: 100%;
+  white-space: nowrap;
+  touch-action: manipulation;
+}
+.popup-order-switch-btn:disabled {
+  opacity: .6;
+  cursor: progress;
+}
+.popup-order-switch-back {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  margin: 0 0 10px;
+  padding: 8px 14px;
+  border: 1.5px solid #06c755;
+  border-radius: 999px;
+  background: #fff;
+  color: #05732f;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.popup-order-switch-back:focus-visible {
+  outline: 3px solid #06c755;
+  outline-offset: 2px;
+}
+.popup-order-session-card[data-current="true"] {
+  border-color: #06c755;
+  box-shadow: 0 0 0 2px rgba(6, 199, 85, .18);
+}
+.popup-order-session-current {
+  display: inline-block;
+  margin-bottom: 4px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: #06c755;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+}
+.popup-order-session-card[data-current="true"] .popup-order-session-btn {
+  border-color: #06c755;
+  background: #fff;
+  color: #05732f;
+}

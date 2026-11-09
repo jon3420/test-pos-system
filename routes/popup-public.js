@@ -178,6 +178,7 @@ router.get('/popup-session/:publicCode', (req, res) => {
 //   2. 原活動仍為 published 且有其他可下單場次 → campaign
 //   3. 其餘 → 店家快閃入口（available=false 時前端顯示安全提示，仍可回到店家入口）
 // 只回傳入口種類與公開代碼／店家公開入口代碼；不回傳內部 UUID、訂單、電話或 token。唯讀、no-store。
+// R54.4：?to=store 只回傳店家入口（場次頁「選擇其他場次」使用）。
 router.get('/popup-continue', (req, res) => {
   res.set('Cache-Control', 'no-store');
   try {
@@ -191,6 +192,12 @@ router.get('/popup-continue', (req, res) => {
     if (!storeOk) return res.json({ success: true, data: { target: 'none' } });
     const now = Date.now();
     const found = popupCheckout.findPublicSessionByCode(db, storeId, code);
+    // R54.4：場次頁「📅 選擇其他場次」：只要店家入口（同一店家所有公開場次），沿用既有
+    // 店家入口 /popup-entry 與場次選擇畫面。只在場次本身公開可見時回傳店家公開入口代碼。
+    if (req.query.to === 'store') {
+      if (!found || found.session.status === 'draft' || found.campaign.status === 'draft') return res.json({ success: true, data: { target: 'none' } });
+      return res.json({ success: true, data: { target: 'store', store_id: storeId } });
+    }
     if (found && found.session.status !== 'draft' && found.campaign.status !== 'draft') {
       const own = popupCheckout.serializePublicSession(db, storeId, found.session, found.campaign.status, now);
       if (own.can_order === true) return res.json({ success: true, data: { target: 'session', session_code: found.session.public_code } });

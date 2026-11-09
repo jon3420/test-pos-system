@@ -1159,55 +1159,169 @@ router.post('/sessions/:sessionId/sales/batch', (req, res) => {
 // 將來源場次的指定商品設定套用到其他場次。預設只允許「尚未開放下單」的場次；
 // include_open=true 時另允許下單中場次；已截止／取貨中／已結束／已取消／封存一律拒絕。
 // dry_run=true 只回傳預覽（目標場次、可套用商品數、拒絕原因），不寫入；正式套用需 confirm=true。
+// R54.4：每個目標場次只會是 updated（有實際寫入）／unchanged（已是相同設定）／
+//   skipped（不可套用，附原因）／failed（試算不通過，整個場次不寫入任何一列，附原因）之一；
+//   同一目標場次的選定商品「整批成功或整批不變」。回應附 summary 與 outcome，
+//   前端只有 summary.updated_sessions > 0 才可顯示成功。
 const SALES_APPLY_FIELDS = ['sale_enabled', 'stock_mode', 'stock_total', 'per_order_limit', 'manual_sold_out'];
+function salesApplyEligibility(t, campaignStatus, includeOpen, now) {
+  if (campaignStatus === 'archived') return { ok: false, state: 'archived', reason: '活動已封存' };
+  if (t.status === 'archived') return { ok: false, state: 'archived', reason: '場次已封存' };
+  if (t.status === 'cancelled') return { ok: false, state: 'cancelled', reason: '場次已取消' };
+  // 與 R53 相同：草稿／暫停的場次或活動以「已發布」計算時間狀態（尚未開放的草稿場次可預先設定）。
+  const state = psales.sessionTimingState({ ...t, status: t.status === 'draft' || t.status === 'paused' ? 'published' : t.status },
+    campaignStatus === 'draft' || campaignStatus === 'paused' ? 'published' : campaignStatus, now);
+  if (state === 'scheduled') return { ok: true, state };
+  if (state === 'ordering_open') return includeOpen ? { ok: true, state } : { ok: false, state, reason: '場次已下單中，未允許覆寫' };
+  if (state === 'ordering_closed') return { ok: false, state, reason: '場次已截止' };
+  if (state === 'pickup_active') return { ok: false, state, reason: '場次已截止（取貨中）' };
+  if (state === 'ended') return { ok: false, state, reason: '場次已結束' };
+  return { ok: false, state, reason: '場次目前不可套用' };
+}
+function salesApplyCurrent(db, storeId, session, productId) {
+  const sp = session.product_scope === 'selected'
+    ? (db.get('SELECT product_id, enabled, quota_qty FROM popup_session_products WHERE session_id=? AND store_id=? AND product_id=?', [session.id, storeId, productId]) || null)
+    : null;
+  const before = psales.effectiveConfig(psales.getSalesRow(db, storeId, session.id, productId), sp);
+  const cur = {
+    sale_enabled: before.sale_enabled,
+    stock_mode: before.stock_mode,
+    stock_total: before.stock_mode === 'limited' ? (before.stock_total || 0) : 0,
+    per_order_limit: before.per_order_limit || 0,
+    manual_sold_out: before.manual_sold_out,
+  };
+  return { sp, cur };
+}
+// 單一目標場次的完整試算（不寫入）：回傳 { outcome:'updated'|'unchanged'|'failed', plan, reasons }。
+function planSalesApplyTarget(db, storeId, target, updates) {
+  const candidates = new Set(psales.candidateProducts(db, storeId, target).map((c) => Number(c.row.product_id)));
+  const missing = updates.filter((u) => !candidates.has(u.product_id)).map((u) => u.product_id);
+  if (missing.length) {
+    return { outcome: 'failed', plan: [], reasons: [`${missing.length} 項商品不在此場次可售範圍（商品 #${missing.slice(0, 20).join('、#')}），此場次未修改`], missing };
+  }
+  const plan = updates.map(({ product_id: productId, patch }) => {
+    const { sp, cur } = salesApplyCurrent(db, storeId, target, productId);
+    const next = { ...cur, ...patch };
+    next.per_order_limit = next.per_order_limit || 0;
+    next.stock_total = next.stock_mode === 'limited' ? (next.stock_total || 0) : 0;
+    const changed = next.sale_enabled !== cur.sale_enabled || next.stock_mode !== cur.stock_mode || next.stock_total !== cur.stock_total
+      || next.per_order_limit !== cur.per_order_limit || next.manual_sold_out !== cur.manual_sold_out;
+    let used = null;
+    if (changed && next.stock_mode === 'limited') {
+      const u = psales.usage(db, storeId, target.id, productId);
+      used = u.reserved + u.committed;
+    }
+    return { productId, sp, next, changed, used, stockChanged: next.stock_mode !== cur.stock_mode || next.stock_total !== cur.stock_total };
+  });
+  const below = plan.filter((x) => x.changed && x.used !== null && x.next.stock_total < x.used);
+  if (below.length) {
+    return {
+      outcome: 'failed', plan: [],
+      reasons: below.slice(0, 20).map((x) => `商品 #${x.productId}：總販售數量 ${x.next.stock_total} 低於已保留＋已成立 ${x.used}`).concat(['此場次未修改']),
+      below: below.map((x) => ({ product_id: x.productId, stock_total: x.next.stock_total, used: x.used })),
+    };
+  }
+  return { outcome: plan.some((x) => x.changed) ? 'updated' : 'unchanged', plan, reasons: [] };
+}
+function writeSalesApplyPlan(db, storeId, target, plan) {
+  let written = 0;
+  plan.forEach((x) => {
+    if (!x.changed) return;
+    db._db.run(
+      `INSERT INTO popup_session_product_sales (store_id, session_id, product_id, sale_enabled, stock_mode, stock_total, per_order_limit, manual_sold_out, updated_at)
+       VALUES (?,?,?,?,?,?,?,?,datetime('now','localtime'))
+       ON CONFLICT(store_id, session_id, product_id) DO UPDATE SET sale_enabled=excluded.sale_enabled, stock_mode=excluded.stock_mode,
+         stock_total=excluded.stock_total, per_order_limit=excluded.per_order_limit, manual_sold_out=excluded.manual_sold_out,
+         updated_at=excluded.updated_at`,
+      [storeId, target.id, x.productId, x.next.sale_enabled ? 1 : 0, x.next.stock_mode, x.next.stock_total, x.next.per_order_limit, x.next.manual_sold_out ? 1 : 0]
+    );
+    if (db._db.getRowsModified() !== 1) throw new Error('affected-row check failed: popup sales apply upsert');
+    if (x.sp && x.stockChanged) {
+      db._db.run('UPDATE popup_session_products SET quota_qty=?, updated_at=datetime(\'now\',\'localtime\') WHERE session_id=? AND store_id=? AND product_id=?',
+        [x.next.stock_mode === 'limited' ? x.next.stock_total : 0, target.id, storeId, x.productId]);
+    }
+    written += 1;
+  });
+  return written;
+}
 router.post('/sales/apply', (req, res) => {
   try {
     const db = getDb();
     psales.ensurePopupSalesSchema(db);
     const storeId = req.storeId;
     const body = req.body || {};
-    const source = getOwnedSession(db, storeId, String(body.source_session_id || ''));
+    const sourceId = String(body.source_session_id || '');
+    getOwnedSession(db, storeId, sourceId);
     const fields = Array.isArray(body.fields) ? body.fields : [];
     if (!fields.length || fields.some((f) => !SALES_APPLY_FIELDS.includes(f))) pp.fail('POPUP_VALIDATION_ERROR', `fields 只能包含 ${SALES_APPLY_FIELDS.join('/')}`);
     const productIds = Array.isArray(body.product_ids) ? body.product_ids : [];
     if (!productIds.length || productIds.length > 500 || productIds.some((x) => !pp.isPositiveInt(x))) pp.fail('POPUP_VALIDATION_ERROR', 'product_ids 必須是 1~500 個正整數');
-    const targetIds = Array.isArray(body.target_session_ids) ? [...new Set(body.target_session_ids)] : [];
+    const targetIds = Array.isArray(body.target_session_ids) ? [...new Set(body.target_session_ids.map((x) => String(x)))] : [];
     if (!targetIds.length || targetIds.length > 100) pp.fail('POPUP_VALIDATION_ERROR', 'target_session_ids 必須是 1~100 個場次');
     const includeOpen = body.include_open === true;
     const dryRun = body.dry_run === true;
     if (!dryRun && body.confirm !== true) pp.fail('POPUP_CONFIRM_REQUIRED', '批次套用前必須確認（confirm=true）', 400);
-    const now = Date.now();
-    const srcSales = new Map(psales.listSessionSales(db, storeId, source).map((r) => [r.product_id, r]));
-    const updates = productIds.filter((pid) => srcSales.has(pid)).map((pid) => {
-      const r = srcSales.get(pid); const patch = {};
-      fields.forEach((f) => {
-        if (f === 'stock_total') patch.stock_total = r.stock_total || 0;
-        else if (f === 'per_order_limit') patch.per_order_limit = r.per_order_limit || 0;
-        else patch[f] = r[f];
+    let data;
+    const runAll = (write) => {
+      const now = Date.now();
+      // 一律以 fresh 資料計算（正式套用時在交易內）。
+      const source = db.get('SELECT * FROM popup_sessions WHERE id=? AND store_id=?', [sourceId, storeId]);
+      if (!source) pp.fail('POPUP_RESOURCE_NOT_FOUND', '找不到指定的快閃場次', 404);
+      const srcSales = new Map(psales.listSessionSales(db, storeId, source).map((r) => [r.product_id, r]));
+      const missingInSource = productIds.filter((pid) => !srcSales.has(pid));
+      const updates = productIds.filter((pid) => srcSales.has(pid)).map((pid) => {
+        const r = srcSales.get(pid); const patch = {};
+        fields.forEach((f) => {
+          if (f === 'stock_total') patch.stock_total = r.stock_total || 0;
+          else if (f === 'per_order_limit') patch.per_order_limit = r.per_order_limit || 0;
+          else patch[f] = r[f];
+        });
+        if (fields.includes('stock_total') && !fields.includes('stock_mode')) patch.stock_mode = r.stock_mode;
+        return { product_id: pid, patch };
       });
-      if (fields.includes('stock_total') && !fields.includes('stock_mode')) patch.stock_mode = r.stock_mode;
-      return { product_id: pid, patch };
-    });
-    const targets = targetIds.map((tid) => {
-      const t = db.get('SELECT * FROM popup_sessions WHERE id=? AND store_id=?', [String(tid), storeId]);
-      if (!t || t.id === source.id) return { session_id: String(tid), ok: false, reason: t ? '不可套用到來源場次本身' : '找不到指定場次' };
-      const campaignStatus = getCampaignStatusScoped(db, storeId, t.campaign_id);
-      const allowed = psales.batchTargetAllowed(t, campaignStatus, includeOpen, now);
-      return { session_id: t.id, name: t.name, pickup_date: t.pickup_date, row: t, ok: allowed.ok, reason: allowed.reason || '' };
-    });
-    const results = [];
-    const runAll = () => targets.forEach((t) => {
-      if (!t.ok) { results.push({ session_id: t.session_id, name: t.name || '', applied: 0, skipped_session: true, reason: t.reason }); return; }
-      const r = psales.applySalesUpdatesInTransaction(db, storeId, t.row, updates, false);
-      results.push({ session_id: t.session_id, name: t.name, pickup_date: t.pickup_date, applied: r.updated, rejected: r.rejected });
-    });
-    if (dryRun) {
-      // 預覽：在交易內試算後一律 rollback，不留下任何寫入。
-      try { db._db.run('BEGIN'); runAll(); } finally { db._db.run('ROLLBACK'); }
-    } else {
-      db.runDurableTransaction(runAll);
-    }
-    res.json({ success: true, data: { dry_run: dryRun, product_count: updates.length, source_session_id: source.id, targets: results } });
+      if (!updates.length) pp.fail('POPUP_VALIDATION_ERROR', '勾選的商品都不在來源場次可售範圍');
+      const targets = [];
+      const summary = { updated_sessions: 0, unchanged_sessions: 0, skipped_sessions: 0, failed_sessions: 0, eligible_sessions: 0, updated_products: 0, requested_sessions: targetIds.length };
+      targetIds.forEach((tid) => {
+        const t = db.get('SELECT * FROM popup_sessions WHERE id=? AND store_id=?', [tid, storeId]);
+        const base = { session_id: tid, name: t ? t.name : '', pickup_date: t ? t.pickup_date : '', pickup_start_time: t ? t.pickup_start_time : '', campaign_id: t ? t.campaign_id : '' };
+        let elig;
+        if (!t) elig = { ok: false, state: 'not_found', reason: '找不到場次或不屬於此店家' };
+        else if (t.id === source.id) elig = { ok: false, state: 'source', reason: '不可套用到來源場次本身' };
+        else elig = salesApplyEligibility(t, getCampaignStatusScoped(db, storeId, t.campaign_id), includeOpen, now);
+        if (!elig.ok) {
+          summary.skipped_sessions += 1;
+          targets.push({ ...base, state: elig.state, outcome: 'skipped', reason: elig.reason, reasons: [elig.reason], applied: 0, changed_products: 0, unchanged_products: 0, skipped_session: true });
+          return;
+        }
+        summary.eligible_sessions += 1;
+        const pl = planSalesApplyTarget(db, storeId, t, updates);
+        if (pl.outcome === 'failed') {
+          summary.failed_sessions += 1;
+          targets.push({ ...base, state: elig.state, outcome: 'failed', reason: pl.reasons[0], reasons: pl.reasons, applied: 0, changed_products: 0, unchanged_products: 0,
+            rejected: (pl.below || []).map((b) => ({ product_id: b.product_id, reason: 'below_used', used: b.used })).concat((pl.missing || []).map((m) => ({ product_id: m, reason: 'not_in_session' }))) });
+          return;
+        }
+        const changed = pl.plan.filter((x) => x.changed).length;
+        if (write && changed) {
+          const written = writeSalesApplyPlan(db, storeId, t, pl.plan);
+          if (written !== changed) throw new Error('popup sales apply: written count mismatch');
+        }
+        if (pl.outcome === 'updated') { summary.updated_sessions += 1; summary.updated_products += changed; }
+        else summary.unchanged_sessions += 1;
+        targets.push({ ...base, state: elig.state, outcome: pl.outcome, reason: pl.outcome === 'unchanged' ? '已是相同設定，未變更' : '', reasons: [],
+          applied: changed, changed_products: changed, unchanged_products: pl.plan.length - changed, rejected: [] });
+      });
+      let outcome;
+      if (summary.updated_sessions === 0) outcome = 'none';
+      else if (summary.skipped_sessions + summary.failed_sessions > 0) outcome = 'partial';
+      else outcome = 'updated';
+      data = { dry_run: !write, outcome, summary, product_count: updates.length, source_missing_product_ids: missingInSource, source_session_id: source.id, targets };
+    };
+    if (dryRun) runAll(false);
+    else db.runDurableTransaction(() => runAll(true));
+    res.set('Cache-Control', 'no-store');
+    res.json({ success: true, data });
   } catch (e) { sendError(res, e); }
 });
 
