@@ -10,6 +10,23 @@ const path = require('path');
 const DB_PATH = process.env.POS_DB_PATH || path.join(__dirname, '../data/pos.db');
 const dataDir = path.join(__dirname, '../data');
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+// R54.4-MBV2：POS_DB_PATH 指向的目錄（例如掛載的 Volume 子目錄）不存在時先建立，
+// 否則寫入會失敗。只建立目錄，不改變 DB 路徑的解析規則。
+try { fs.mkdirSync(path.dirname(DB_PATH), { recursive: true }); } catch {}
+
+// R54.4-MBV2：持久化稽核用的啟動資訊（不改變任何既有行為）。
+// 注意：.env.example 列有 DB_PATH，但程式自始只讀取 POS_DB_PATH；這裡只「偵測並警告」，
+// 刻意不自動改用 DB_PATH——否則正式站部署後會突然改讀另一個檔案。
+const storageBootInfo = {
+  dbPath: DB_PATH,
+  configuredBy: process.env.POS_DB_PATH ? 'POS_DB_PATH' : 'default',
+  legacyDbPathEnvIgnored: !!(process.env.DB_PATH && !process.env.POS_DB_PATH && path.resolve(process.env.DB_PATH) !== path.resolve(DB_PATH)),
+  existedAtBoot: null, bootSizeBytes: null, bootedAt: null,
+};
+if (storageBootInfo.legacyDbPathEnvIgnored) {
+  console.warn('[db] STORAGE_WARNING: 環境變數 DB_PATH 已設定但不會被使用；實際資料庫路徑由 POS_DB_PATH 決定（未設定時為程式目錄 data/pos.db）。');
+}
+function getStorageInfo() { return { ...storageBootInfo }; }
 
 let wrappedDb = null;
 
@@ -173,6 +190,10 @@ function getDb() {
 async function initDb() {
   if (wrappedDb) return wrappedDb;
   const SQL = await initSqlJs();
+  storageBootInfo.existedAtBoot = fs.existsSync(DB_PATH);
+  try { storageBootInfo.bootSizeBytes = storageBootInfo.existedAtBoot ? fs.statSync(DB_PATH).size : 0; } catch {}
+  storageBootInfo.bootedAt = new Date().toISOString();
+  if (!storageBootInfo.existedAtBoot) console.warn('[db] STORAGE_NOTICE: 啟動時資料庫檔不存在，將以空資料庫啟動（請確認持久化 Volume 是否正確掛載）。');
   const sqlDb = fs.existsSync(DB_PATH)
     ? new SQL.Database(fs.readFileSync(DB_PATH))
     : new SQL.Database();
@@ -3574,7 +3595,7 @@ function _runPopupPickupOrdersMigration(w) {
   });
 }
 
-module.exports = { getDb, initDb, isDurableError, DurableCommitError, durabilityMetrics, cleanupStaleDurableTemps };
+module.exports = { getDb, initDb, isDurableError, DurableCommitError, durabilityMetrics, cleanupStaleDurableTemps, getStorageInfo };
 
 // Note: migration_logs table is created on-demand in routes/migration.js
 // to keep backward compatibility with existing DB instances.

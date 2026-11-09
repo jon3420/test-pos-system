@@ -209,8 +209,12 @@ async function main() {
       return { type: 'pos_migration_backup', store_id: storeId, data: { line_members: lineMembers } };
     }
     async function doImport(storeId, payload, mode) {
+      // R54.4-MBV2：舊搬家路由改為只接受店家 JWT（requireStaffJwt）。這裡帶入以同一個
+      // JWT_SECRET 簽發的店家 token；被測的好友狀態保護邏輯與斷言完全不變。
+      const { JWT_SECRET } = require('../middleware/storeGuard');
+      const token = require('jsonwebtoken').sign({ role: 'store', store_id: storeId, store_name: storeId }, JWT_SECRET, { expiresIn: '1h' });
       const res = await fetch(`${base}/api/migration/migration/import?store_id=${storeId}`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
         body: JSON.stringify({ payload, mode }),
       });
       return { status: res.status, json: await res.json() };

@@ -600,6 +600,9 @@ initDb().then((db) => {
 
   // importExport — inventory endpoints wrapped with featureGate inside the router
   // (full route handled inside importExport.js with inline checks)
+  // R54.4-MBV2：資料備份／搬家 V2（分類備份、選擇性還原、日期篩選、串流上傳）。
+  // 只接受店家 JWT（requireStaffJwt），不接受 x-store-id／query store_id。
+  app.use('/api/migration/v2', require('./routes/migration-v2'));
   app.use('/api', requireStore, require('./routes/importExport'));
   app.use('/api', requireStore, require('./routes/migration')); // fix18-10
 

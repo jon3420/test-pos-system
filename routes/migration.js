@@ -47,6 +47,13 @@ const {
 //  留到這裡，改用可透過 MIGRATION_UPLOAD_LIMIT_MB 環境變數調整的上限解析。
 //  這個 parser 只掛在下面這兩條路由上，不影響搬家路由以外的任何 API。
 // ══════════════════════════════════════════════════════════════════════════
+// R54.4-MBV2：舊版搬家／匯出入端點改為「只接受店家 JWT」。
+// 原本經 requireStore 也接受 x-store-id header 或 ?store_id=，等於任何人知道店家代碼
+// 就能下載全店資料或以 replace 模式清空店家資料。前端（apiFetch）一律帶 Bearer token，
+// 不受影響。僅限下列路徑，不影響掛在同一個 /api 前綴的其他 API。
+const { requireStaffJwt } = require('../middleware/storeGuard');
+router.use(['/migration', '/export/orders', '/export/preorders', '/import/orders', '/import/preorders'], requireStaffJwt);
+
 const migrationJsonParser = express.json({
   limit: `${MIGRATION_UPLOAD_LIMIT_MB}mb`,
 });
@@ -1191,7 +1198,8 @@ router.post('/migration/import', migrationJsonParser, (req, res) => {
               try { rawRun(raw,`DELETE FROM order_logs WHERE order_id IN (${ph})`,ch); } catch {}
             }
           } catch {}
-          try { rawRun(raw,`DELETE FROM settings WHERE store_id=?`,[storeId]); } catch {}
+          // R54.4-MBV2：保留 pos_password（店家登入密碼雜湊），避免清空後密碼被重設為預設值
+          try { rawRun(raw,`DELETE FROM settings WHERE store_id=? AND key<>'pos_password'`,[storeId]); } catch {}
           try { rawRun(raw,`DELETE FROM delivery_platforms WHERE store_id=?`,[storeId]); } catch {}
           try { rawRun(raw,`DELETE FROM delivery_fees WHERE store_id=?`,[storeId]); } catch {}
 
@@ -2296,6 +2304,8 @@ router.post('/migration/import', migrationJsonParser, (req, res) => {
         // ── settings ──────────────────────────────────────────────────
         const settingsCols = schemas['settings'];
         for (const s of (d.settings||[])) {
+          // R54.4-MBV2：受保護設定不匯入（避免備份檔改掉目前店家密碼／跨店帶入他店密碼）
+          if (s && s.key === 'pos_password') { results.settings.skipped++; continue; }
           try {
             const src = { store_id: storeId, key: s.key||'', value: s.value||'' };
             const q = buildDynamicInsert('settings',

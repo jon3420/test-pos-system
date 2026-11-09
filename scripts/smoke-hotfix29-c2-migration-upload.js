@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // scripts/smoke-hotfix29-c2-migration-upload.js — fix18-10-hotfix29-C2 smoke test
+// R54.4-MBV2：預設上限 25→192MB、硬上限 100→256MB，對應斷言已同步更新。
 //
 // 涵蓋需求文件（本次修復「資料備份／搬家」匯入 413／HTML 錯誤解析問題）：
 //   - MIGRATION_UPLOAD_LIMIT_MB 環境變數：未設定 / 合法值 / 非法值 / 超過硬性上限
@@ -46,12 +47,12 @@ function testPureFunctions() {
   delete require.cache[require.resolve('../utils/migrationUploadLimit')];
   const { computeMigrationUploadLimitMb, isMigrationImportPath } = require('../utils/migrationUploadLimit');
 
-  assert(computeMigrationUploadLimitMb(undefined) === 25, '0-1 未設定環境變數 → 預設 25MB', `got=${computeMigrationUploadLimitMb(undefined)}`);
+  assert(computeMigrationUploadLimitMb(undefined) === 192, '0-1 未設定環境變數 → 預設 192MB（R54.4-MBV2：原 25MB）', `got=${computeMigrationUploadLimitMb(undefined)}`);
   assert(computeMigrationUploadLimitMb('50') === 50, '0-2 合法環境變數 50 → 50MB', `got=${computeMigrationUploadLimitMb('50')}`);
-  assert(computeMigrationUploadLimitMb('abc') === 25, '0-3a 非法值 abc → 回退 25MB', `got=${computeMigrationUploadLimitMb('abc')}`);
+  assert(computeMigrationUploadLimitMb('abc') === 192, '0-3a 非法值 abc → 回退 192MB（R54.4-MBV2）', `got=${computeMigrationUploadLimitMb('abc')}`);
   assert(computeMigrationUploadLimitMb('0') === 1, '0-3b 非法值 0 → 限制為最低 1MB', `got=${computeMigrationUploadLimitMb('0')}`);
   assert(computeMigrationUploadLimitMb('-1') === 1, '0-3c 非法值 -1 → 限制為最低 1MB', `got=${computeMigrationUploadLimitMb('-1')}`);
-  assert(computeMigrationUploadLimitMb('500') === 100, '0-4 超過最高上限 500 → 限制為 100MB', `got=${computeMigrationUploadLimitMb('500')}`);
+  assert(computeMigrationUploadLimitMb('500') === 256, '0-4 超過最高上限 500 → 限制為 256MB（R54.4-MBV2：原 100MB）', `got=${computeMigrationUploadLimitMb('500')}`);
 
   const fakeReqA = { originalUrl: '/api/migration/import?foo=bar' };
   const fakeReqB = { originalUrl: '/api/migration/import/preview' };
@@ -252,7 +253,7 @@ async function main() {
 
   // 2-1／2-2／2-4：GET /api/migration/config 回報的 upload_limit_mb 是否
   // 正確反映各種環境變數情境（涵蓋需求 1/2/4）
-  await runHttpScenario('2-1 未設定環境變數 → config 應回報 25', {
+  await runHttpScenario('2-1 未設定環境變數 → config 應回報 192', {
     port: 5901,
     env: { MIGRATION_UPLOAD_LIMIT_MB: '' },
     testFn: async (base) => {
@@ -260,9 +261,9 @@ async function main() {
       const res = await fetch(base + '/api/migration/config', { headers: { Authorization: 'Bearer ' + token } });
       const json = await res.json();
       assert(res.headers.get('content-type').includes('application/json'), '2-1a config 回應 Content-Type 為 application/json');
-      assert(json.success === true && json.upload_limit_mb === 25, '2-1b 未設定環境變數 → upload_limit_mb === 25', JSON.stringify(json));
+      assert(json.success === true && json.upload_limit_mb === 192, '2-1b 未設定環境變數 → upload_limit_mb === 192（R54.4-MBV2）', JSON.stringify(json));
       assert(Array.isArray(json.supported_extensions) && json.supported_extensions.includes('.json'), '2-1c supported_extensions 含 .json');
-      assert(json.upload_limit_bytes === 25 * 1024 * 1024, '2-1d upload_limit_bytes 與 upload_limit_mb 一致');
+      assert(json.upload_limit_bytes === 192 * 1024 * 1024, '2-1d upload_limit_bytes 與 upload_limit_mb 一致');
       // 安全性：不得洩漏密鑰／路徑／stack
       const raw = JSON.stringify(json);
       assert(!/JWT_SECRET|secret|token|\/home\/|\/mnt\/|stack/i.test(raw), '2-1e config 回應不包含密鑰／伺服器路徑／stack 等敏感資訊', raw);
@@ -280,14 +281,14 @@ async function main() {
     },
   });
 
-  await runHttpScenario('2-4 MIGRATION_UPLOAD_LIMIT_MB=500 → 應被限制為 100', {
+  await runHttpScenario('2-4 MIGRATION_UPLOAD_LIMIT_MB=500 → 應被限制為 256', {
     port: 5903,
     env: { MIGRATION_UPLOAD_LIMIT_MB: '500' },
     testFn: async (base) => {
       const token = await loginAndGetToken(base);
       const res = await fetch(base + '/api/migration/config', { headers: { Authorization: 'Bearer ' + token } });
       const json = await res.json();
-      assert(json.upload_limit_mb === 100, '2-4 超過最高上限 500 → upload_limit_mb === 100（硬性上限）', JSON.stringify(json));
+      assert(json.upload_limit_mb === 256, '2-4 超過最高上限 500 → upload_limit_mb === 256（硬性上限，R54.4-MBV2）', JSON.stringify(json));
     },
   });
 

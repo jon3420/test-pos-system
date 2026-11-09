@@ -1,0 +1,73 @@
+/* R54.4-MBV2 資料備份／搬家 V2 */
+#stab-migration .mbv2-grid { align-items: start; }
+#stab-migration .mbv2-card h3 { margin-bottom: 12px; }
+.mbv2-muted { font-size: 12px; color: var(--text-muted, #64748b); }
+.mbv2-err { color: #f87171; font-size: 13px; }
+.mbv2-danger { color: #f87171; }
+.mbv2-modes { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+.mbv2-modes label { display: grid; grid-template-columns: auto 1fr; column-gap: 8px; align-items: start; cursor: pointer; font-size: 13px;
+  padding: 8px 10px; border: 1px solid var(--border, #334155); border-radius: 8px; }
+.mbv2-modes label > input { margin-top: 3px; grid-row: span 2; }
+.mbv2-modes label > span { grid-column: 2; font-size: 12px; color: var(--text-secondary, #94a3b8); }
+.mbv2-modes label.mbv2-disabled { opacity: .45; cursor: not-allowed; }
+.mbv2-toolbar { display: flex; gap: 6px; margin-bottom: 8px; }
+.mbv2-sm { padding: 4px 10px !important; font-size: 12px !important; }
+.mbv2-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; max-height: 520px; overflow: auto; }
+.mbv2-item { border: 1px solid var(--border, #334155); border-radius: 8px; padding: 8px 10px; background: var(--bg-base, #0f172a); }
+.mbv2-item.on { border-color: rgba(59,130,246,.55); }
+.mbv2-item-head { display: flex; align-items: center; gap: 8px; cursor: pointer; flex-wrap: wrap; }
+.mbv2-item-title { font-weight: 700; font-size: 13px; }
+.mbv2-item-meta { margin-left: auto; font-size: 12px; color: var(--text-secondary, #94a3b8); font-variant-numeric: tabular-nums; }
+.mbv2-item-desc { font-size: 12px; color: var(--text-secondary, #94a3b8); margin: 4px 0 0 24px; }
+.mbv2-badges { margin: 4px 0 0 24px; display: flex; flex-wrap: wrap; gap: 4px; }
+.mbv2-badges span { font-size: 11px; padding: 1px 6px; border-radius: 10px; background: rgba(148,163,184,.15); color: var(--text-secondary, #94a3b8); }
+.mbv2-warn-sm { font-size: 12px; color: #fbbf24; margin: 4px 0 0 24px; }
+.mbv2-summary .mbv2-warn-sm, .mbv2-box .mbv2-warn-sm { margin-left: 0; }
+.mbv2-date { margin: 6px 0 0 24px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12px; }
+.mbv2-date select, .mbv2-date input { background: var(--bg-card, #1e293b); color: var(--text-primary, #f1f5f9); border: 1px solid var(--border, #334155); border-radius: 6px; padding: 4px 6px; font-size: 12px; }
+.mbv2-inline { display: flex; gap: 6px; align-items: center; font-size: 12px; margin-bottom: 8px; cursor: pointer; }
+.mbv2-summary { font-size: 13px; margin-bottom: 10px; }
+.mbv2-status { margin-top: 10px; font-size: 13px; }
+.mbv2-status.ok { color: #4ade80; }
+.mbv2-status.err { color: #f87171; }
+.mbv2-status.warnbox { color: #fbbf24; }
+.mbv2-status.ok .mbv2-table, .mbv2-status.warnbox .mbv2-table { color: var(--text-primary, #f1f5f9); }
+.mbv2-file { font-size: 13px; padding: 8px; border: 1px dashed var(--border, #334155); border-radius: 8px; width: 100%; box-sizing: border-box; background: transparent; color: var(--text-primary, #f1f5f9); margin-bottom: 10px; }
+.mbv2-progress { display: flex; align-items: center; gap: 8px; font-size: 12px; margin-bottom: 10px; }
+.mbv2-bar { flex: 1; height: 6px; background: rgba(148,163,184,.2); border-radius: 3px; overflow: hidden; }
+.mbv2-bar > div { height: 100%; width: 0; background: var(--accent, #3b82f6); transition: width .2s; }
+.mbv2-box { background: var(--bg-base, #0f172a); border: 1px solid var(--border, #334155); border-radius: 8px; padding: 12px; margin: 10px 0; font-size: 13px; }
+.mbv2-box-title { font-weight: 700; margin-bottom: 8px; color: var(--accent, #3b82f6); }
+.mbv2-kv th { text-align: left; font-weight: 400; color: var(--text-secondary, #94a3b8); padding: 2px 12px 2px 0; white-space: nowrap; vertical-align: top; }
+.mbv2-label { font-size: 13px; color: var(--text-secondary, #94a3b8); margin: 10px 0 6px; display: block; }
+.mbv2-cross { padding: 8px; margin-bottom: 10px; background: rgba(239,68,68,.1); border: 1px solid rgba(239,68,68,.3); border-radius: 6px; font-size: 12px; color: #fca5a5; }
+.mbv2-cross label { display: flex; gap: 6px; margin-top: 6px; cursor: pointer; }
+.mbv2-totals { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 10px; }
+.mbv2-totals span { font-size: 12px; padding: 2px 8px; border-radius: 10px; background: rgba(148,163,184,.15); color: var(--text-primary, #f1f5f9); }
+.mbv2-totals .good { background: rgba(74,222,128,.15); color: #4ade80; }
+.mbv2-totals .warn { background: rgba(251,191,36,.15); color: #fbbf24; }
+.mbv2-totals .bad { background: rgba(248,113,113,.15); color: #f87171; }
+.mbv2-tablewrap { overflow-x: auto; }
+.mbv2-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.mbv2-table th, .mbv2-table td { padding: 4px 6px; border-bottom: 1px solid var(--border, #334155); text-align: left; white-space: nowrap; }
+.mbv2-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.mbv2-table td.good { color: #4ade80; } .mbv2-table td.warn { color: #fbbf24; } .mbv2-table td.bad { color: #f87171; font-weight: 700; }
+.mbv2-details { margin-top: 8px; font-size: 12px; }
+.mbv2-details ul { margin: 6px 0 0 16px; padding: 0; }
+.mbv2-impact { background: rgba(239,68,68,.08); border: 1px solid rgba(239,68,68,.3); border-radius: 8px; padding: 10px; margin: 8px 0; font-size: 12px; line-height: 1.7; color: #fca5a5; }
+.mbv2-impact ul { margin: 4px 0 4px 16px; padding: 0; }
+.mbv2-input { width: 100%; box-sizing: border-box; padding: 10px; border: 1px solid rgba(239,68,68,.4); border-radius: 6px; background: var(--bg-base, #0f172a); color: var(--text-primary, #f1f5f9); font-size: 14px; }
+.mbv2-btn-danger { padding: 10px 20px; border-radius: 8px; border: none; background: #ef4444; color: #fff; font-weight: 700; cursor: pointer; }
+.mbv2-storage { background: rgba(251,191,36,.08); border: 1px solid rgba(251,191,36,.35); border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; font-size: 13px; color: #fde68a; }
+.mbv2-storage ul { margin: 6px 0 6px 18px; padding: 0; }
+#stab-migration button[disabled], #mbv2ReplaceModal button[disabled] { opacity: .55; cursor: not-allowed; }
+
+/* 覆寫 .settings-card label / input 的全域樣式（直向排列、input 加大 padding） */
+#stab-migration .mbv2-card label.mbv2-item-head { display: flex; flex-direction: row; align-items: center; gap: 8px; margin: 0; text-align: left; color: var(--text-primary, #f1f5f9); }
+#stab-migration .mbv2-card .mbv2-modes label { display: grid; grid-template-columns: auto 1fr; column-gap: 8px; margin: 0; text-align: left; color: var(--text-primary, #f1f5f9); }
+#stab-migration .mbv2-card label.mbv2-inline { display: flex; flex-direction: row; align-items: center; margin: 0 0 8px; }
+#stab-migration .mbv2-card .mbv2-cross label { display: flex; flex-direction: row; align-items: center; margin: 6px 0 0; color: #fca5a5; }
+#stab-migration .mbv2-card input[type="checkbox"], #stab-migration .mbv2-card input[type="radio"] { width: auto; padding: 0; margin: 0; flex: none; accent-color: var(--accent, #3b82f6); }
+#stab-migration .mbv2-card .mbv2-date select, #stab-migration .mbv2-card .mbv2-date input { padding: 4px 6px; font-size: 12px; width: auto; }
+#stab-migration .mbv2-item-title, #stab-migration .mbv2-item-meta { text-align: left; }
+#mbv2ReplaceModal .modal-body label.mbv2-label { display: block; margin: 10px 0 6px; }
