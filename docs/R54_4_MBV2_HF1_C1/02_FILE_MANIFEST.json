@@ -1,0 +1,48 @@
+{
+  "release": "R54.4/MBV2-HF1-C1",
+  "base_zip_sha256": "fdfb32359d1e221398a47b1ad97757b4345767789a38c04c2881635719856981",
+  "excluded_from_package": [
+    "node_modules/",
+    "data/pos.db（正式資料庫，本包原本就沒有）",
+    ".env／憑證（本包原本就沒有，保留 .env.example）",
+    "測試暫存（os.tmpdir 下）、scripts/qa-screenshots"
+  ],
+  "modified": [
+    {
+      "path": "public/index.html",
+      "sha256_before": "afae70c593a451f7c244fd67a3c4bc12d3701b304b032ac1280f837efb07e265",
+      "sha256_after": "6ddc5de6f26f649a1f2d99f531c349c0517023de796ff82dcb1f9d0202cb1b42"
+    },
+    {
+      "path": "public/js/app.js",
+      "sha256_before": "135d4dd765d596460e614e4992e452c4be30ff6a49ae95e60f43e9cde5b95050",
+      "sha256_after": "db577b87d43be45b3d56cc77e92b4f769d48e6339cee976147c72f084b0464ca"
+    },
+    {
+      "path": "public/line-order.html",
+      "sha256_before": "7862673191e3ff8fa8aea43cffaea97c55ae1573903094161d28b40751600063",
+      "sha256_after": "045c71746b20b0f5a47eec138384a11e18c89cc39980c91aac74bd02a94374d3"
+    }
+  ],
+  "added": [
+    {
+      "path": "docs/R54_4_MBV2_HF1_C1/00_FIX_REPORT.md",
+      "sha256": "98b3e4d72e16c39add7e317f8eb78a5c68b8a926318d7f2d910b55100cbad5a8"
+    },
+    {
+      "path": "docs/R54_4_MBV2_HF1_C1/01_TEST_RESULTS.json",
+      "sha256": "025aacff621452a035af48d8ff99336588297e6939c92adc50e365b7a3c9449f"
+    },
+    {
+      "path": "scripts/lib/hf1c1-maps-mock.js",
+      "sha256": "4a3d88818f4d68245615909a65b6a64030a96ac841abafb5067a7dfb823e815a"
+    },
+    {
+      "path": "scripts/smoke-r54-4-mbv2-hf1-c1-preorder-status.js",
+      "sha256": "d022176df6667ccf437e189885f8c4235b007dd1621bbab36d118be38d7ba216"
+    }
+  ],
+  "deleted": [],
+  "note": "02_FILE_MANIFEST.json 本身不列出自身雜湊；ZIP 的 SHA-256 另見交付說明與 .sha256 檔。",
+  "total_files_in_package": 885
+}

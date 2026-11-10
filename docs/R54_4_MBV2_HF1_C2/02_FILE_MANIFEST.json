@@ -1,0 +1,37 @@
+{
+  "release": "R54.4/MBV2-HF1-C2",
+  "base_zip_sha256": "2c9e95b080dacc1c5f4f9387359936586d70edbb8fb22bd5758f78a79205e67d",
+  "modified": [
+    {
+      "path": "public/line-order.html",
+      "sha256_before": "045c71746b20b0f5a47eec138384a11e18c89cc39980c91aac74bd02a94374d3",
+      "sha256_after": "dc02e8bf211e87550a67facedba67474dd928e2e76b000b43563eeaf95c16f10"
+    },
+    {
+      "path": "scripts/smoke-r54-4-mbv2-hf1-c1-preorder-status.js",
+      "sha256_before": "d022176df6667ccf437e189885f8c4235b007dd1621bbab36d118be38d7ba216",
+      "sha256_after": "db1d254f12a45f3bbf4ce73337c5be61ea14dfb98a0fa5eabc47a6686a34e51e"
+    }
+  ],
+  "added": [
+    {
+      "path": "docs/R54_4_MBV2_HF1_C2/00_FIX_REPORT.md",
+      "sha256": "cb0a95858a2c222e80cc8fe68628a229d0a12358beb45cc5585d9526f332a56a"
+    },
+    {
+      "path": "docs/R54_4_MBV2_HF1_C2/01_TEST_RESULTS.json",
+      "sha256": "09051809277b779b3e7829668670d66591fc56e579a2e2b9f343ae0d4851b4eb"
+    },
+    {
+      "path": "docs/R54_4_MBV2_HF1_C2/02_FILE_MANIFEST.json",
+      "sha256": "(self)"
+    }
+  ],
+  "deleted": [],
+  "excluded_from_package": [
+    "node_modules/",
+    "正式資料庫／.env／憑證（本包原本就沒有）",
+    "測試暫存、scripts/qa-screenshots"
+  ],
+  "total_files_in_package": 888
+}

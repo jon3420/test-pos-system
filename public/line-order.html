@@ -6934,19 +6934,34 @@ function openProductDetail(id) {
   const quotaRealSoldOut = quota.hasQuota && Number(quota.remaining ?? 0) <= 0 && !canPreorderNextDay;
   const blocked = (isSoldOut && !canPreorderNextDay) || quotaRealSoldOut || preorderFullBlocked;
   let blockedLabel = '';
+  let detailBlocked = blocked; // R54.4／MBV2-HF1-C1：再疊加共用加購驗證的結果（只會更嚴格）
   if (blocked) {
     blockedLabel = preorderFullBlocked ? '預購已滿' : (isSoldOut ? '今日售完' : '無法加入');
   }
-  // 份數/庫存上限（僅在有 quota 且非預購情境時套用，與 addCart()/chgQty() 現有規則一致）
+  // R54.4／MBV2-HF1-C2：詳情「能否再加 1 份」直接使用 checkCartIncrement(id,p,1)，與商品卡＋／
+  // 購物車＋／addCart() 同一判斷（C1 用 Math.max(1, limit-inCart) 會把剩 0 份算成 1 份，卻未停用加入鈕）。
+  //   購物車已達或超過今日／預購額度 → 停用加入鈕並標示「今日／預購額度已達上限」
+  //   未達上限 → maxQty = 額度 − 購物車既有數量（≥1）；額度未設限 → maxQty=null（不設限）
+  // 只影響詳情的「加入」；購物車內既有數量仍可在購物車／商品卡減少或移除（chgQty 減少不經此驗證）。
   let maxQty = null;
-  if (!blocked && quota.hasQuota && !canPreorderNextDay) {
-    maxQty = Math.max(1, Number(quota.remaining || 0));
+  if (!blocked) {
+    const _inc = checkCartIncrement(id, p, 1);
+    if (!_inc.ok) {
+      detailBlocked = true;
+      if (_inc.limitReached) {
+        blockedLabel = _inc.bucket === 'preorder' ? '預購額度已達上限' : '今日額度已達上限';
+      } else {
+        blockedLabel = _inc.bucket === 'preorder' ? '預購已滿' : '無法加入';
+      }
+    } else if (_inc.limit != null) {
+      maxQty = _inc.limit - Number(cart[id]?.qty || 0);
+    }
   }
   const startQty = 1;
 
   ProductDetailModal.open({
     id: p.id, name, price, image, description,
-    startQty, maxQty, blocked, blockedLabel,
+    startQty, maxQty, blocked: detailBlocked, blockedLabel,
   }, {
     onOpen: function () { _trackViewItem(p, name, price); },
     onAddToCart: function (prod, qty) {
@@ -6970,81 +6985,117 @@ function _trackViewItem(p, name, price) {
 }
 
 // ── 購物車操作 ─────────────────────────────────────────
-function addCart(id,evt){
-  const p=allProducts.find(x=>x.id==id);if(!p)return;
-  // H1.4.11.4.1（需求文件六）：商品卡隱藏只是顯示層，仍要防止舊 DOM／直接函式呼叫／
-  // 生命週期競態繞過。外帶、外送皆停用的商品優先擋下（不論頁面模式），不得加入購物車、
-  // 不得修改既有數量、不自動改成外帶或外送，用既有 toast() 顯示專屬原因，不使用 alert()。
-  if(!isProductSupportedForAnyFulfillmentMode(p)){
-    toast('此商品目前未提供外帶或外送');
-    return;
-  }
-  // H1.4.11.4（需求文件九）：fulfillment_switcher 模式下，商品卡隱藏只是顯示層，仍要
-  // 防止舊 DOM／直接函式呼叫／競態繞過——若商品不永久支援目前 currentMode，一律拒絕
-  // 加入購物車，不自動改用另一模式（不使用 _representativeMode()），用既有 toast()
-  // 顯示簡短原因，不使用 alert()。combined_checkout 模式完全不受影響（任一模式可買
-  // 即可加入，交由結帳時處理模式交集，維持既有規則）。
+// R54.4／MBV2-HF1-C1：統一加購驗證（單一入口）。
+// 根因：舊版只有 addCart() 會依「最新商品資料」判斷商品是否已只能預約下個營業日，
+// chgQty()（商品卡＋、購物車＋）只看記憶體中的 preorderRequiredIds 與 #pDate。
+// 從 localStorage 還原的舊購物車沒有 preorderRequiredIds（重新整理即消失），
+// #pDate 也可能還停在今天，於是「＋」錯用今日 LINE 份數（例如今日 1 份）而跳出
+// 「LINE 份數不足」。修正：首次加入、商品卡＋、購物車＋、商品詳情一律呼叫
+// resolveCartQuantityPolicy()/checkCartIncrement()，只依最新 allProducts（/api/line-menu
+// 同步）＋目前取餐方式＋購物車日期決定使用「今日額度」或「預購額度」，不依賴
+// 只存在記憶體的旗標；減少／移除不經過此驗證（暫停或下架商品仍可減少）。
+// 不改價格／運費／優惠券／付款／營業日曆規則，也不建立訂單或保留庫存。
+function _cartProductLabel(p){ return p ? (p.effective_line_name||p.line_name||p.name||'此商品') : '此商品'; }
+function _isCartFutureDateSelected(){
+  const sd=document.getElementById('pDate')?.value||'';
+  return !!sd && sd>fmtD(twNow());
+}
+// 商品在指定取餐方式下「今日不可下單、必須預約下個營業日」——條件與
+// refreshDateSelectorForCart() 的 needsNextDay 完全相同（含排除 mode_closed／product_mode_disabled）。
+function productRequiresNextDayPreorder(p, mode){
+  if(!p) return false;
+  const r = mode==='delivery' ? p.delivery_sold_out_reason : p.takeout_sold_out_reason;
+  const c = mode==='delivery' ? p.delivery_can_next_day    : p.takeout_can_next_day;
+  return !!r && !!c && r!=='mode_closed' && r!=='product_mode_disabled';
+}
+function _latestCartProduct(id){
+  return (Array.isArray(allProducts) ? allProducts.find(x=>String(x.id)===String(id)) : null) || null;
+}
+// 回傳 { ok, message, toast, bucket:'today'|'preorder', nextDay, limit:null|number }
+// limit=null 代表該額度未設限。
+function resolveCartQuantityPolicy(id, p){
+  if(!p) return {ok:false, message:'此商品目前無法購買（已下架或停用）'};
+  // H1.4.11.4.1／H1.4.11.4：與舊版 addCart() 相同的前兩道檢查（用 toast 提示）
+  if(!isProductSupportedForAnyFulfillmentMode(p)) return {ok:false, toast:true, message:'此商品目前未提供外帶或外送'};
   if(getLineOrderPageMode()==='fulfillment_switcher' && !isProductSupportedForFulfillmentMode(p, currentMode)){
-    toast(currentMode==='delivery' ? '此商品僅提供外帶' : '此商品僅提供外送');
-    return;
+    return {ok:false, toast:true, message: currentMode==='delivery' ? '此商品僅提供外帶' : '此商品僅提供外送'};
   }
-  // fix18-10-hotfix30-A：不再要求顧客先選外帶/外送才能加入購物車。
-  // 只要「任一模式」可買，就用該模式的規則放行；currentMode 本身不可用時，
-  // 改用另一個可用模式的判斷依據（並在加入後由 reconcileFulfillmentMode() 決定
-  // 是否需要提示切換購物車目前的取餐方式）。兩種模式都不可用才擋下。
+  const name=_cartProductLabel(p);
+  const ss=p.sale_status||'available';
+  if(ss==='paused') return {ok:false, message:name+' 目前暫停販售'};
+  if(ss==='sold_out_indefinitely') return {ok:false, message:name+' 目前長期下架'};
   const modeAvail=getProductAvailableModes(p);
   if(!modeAvail.takeout.enabled && !modeAvail.delivery.enabled){
-    // fix18-10-hotfix30-B1：不得自行再判斷 takeoutEnabled/deliveryEnabled，一律經由 getFulfillmentStatus()。
+    // fix18-10-hotfix30-B1：一律經由 getFulfillmentStatus()。
     const bothClosed = !getFulfillmentStatus('takeout').enabled && !getFulfillmentStatus('delivery').enabled;
-    alert(bothClosed ? '今日暫停接單，無法加入購物車' : '此商品今日不可購買');
-    return;
+    return {ok:false, message: bothClosed ? '今日暫停接單，無法加入購物車' : '此商品今日不可購買'};
   }
   const mode=_representativeMode(modeAvail);
   const soldOutReason=mode==='delivery'?p.delivery_sold_out_reason:p.takeout_sold_out_reason;
   const canNextDay=mode==='delivery'?p.delivery_can_next_day:p.takeout_can_next_day;
-  // 任何售完原因：若允許預約則直接加入購物車（不再要求先按預約按鈕）；否則拒絕
+  let nextDay=false;
   if(soldOutReason){
-    if(canNextDay){ addPreorderToCart(id,evt,p); return; }
-    const msgs={
-      cutoff_sold_out:'已超過今日接單截止時間，無法加入購物車',
-      real_sold_out:(p.effective_line_name||p.name)+' LINE 今日份數已售完',
-      product_time_ended:(p.effective_line_name||p.name)+' 今日販售時段已結束',
-      product_not_started:(p.effective_line_name||p.name)+`尚未開始販售（${p.line_sell_start||''} 開賣）`,
-      calendar_closed:'今日休假中，無法加入購物車，請選擇其他營業日期',
-      today_closed:'今日臨時休息，無法加入購物車，請選擇其他營業日期',
-      weekly_closed:'今日固定公休，無法加入購物車，請選擇其他營業日期',
-    };
-    alert(msgs[soldOutReason]||'此商品目前無法加入購物車');return;
+    if(!canNextDay){
+      const msgs={
+        cutoff_sold_out:'已超過今日接單截止時間，無法加入購物車',
+        real_sold_out:name+' LINE 今日份數已售完',
+        product_time_ended:name+' 今日販售時段已結束',
+        product_not_started:name+`尚未開始販售（${p.line_sell_start||''} 開賣）`,
+        calendar_closed:'今日休假中，無法加入購物車，請選擇其他營業日期',
+        today_closed:'今日臨時休息，無法加入購物車，請選擇其他營業日期',
+        weekly_closed:'今日固定公休，無法加入購物車，請選擇其他營業日期',
+      };
+      return {ok:false, message: msgs[soldOutReason]||'此商品目前無法加入購物車'};
+    }
+    nextDay=true;
+  } else if(Number(p.line_sold_out)===1){
+    if(!canNextDay) return {ok:false, message:name+' 今日已售完'};
+    nextDay=true;
   }
-  if(Number(p.line_sold_out)===1){
-    if(canNextDay){ addPreorderToCart(id,evt,p); return; }
-    alert((p.effective_line_name||p.name)+' 今日已售完');return;
+  // 預購額度：商品已只能預約下個營業日，或購物車已明確選擇未來日期（BUG-002 既有規則）
+  if(nextDay || _isCartFutureDateSelected()){
+    const info=p.line_preorder||{hasPreorder:false};
+    if(info.hasPreorder){
+      const rem=Math.max(0, Number(info.remaining??0));
+      if(rem<=0) return {ok:false, bucket:'preorder', nextDay, message:name+' 預購已滿'};
+      return {ok:true, bucket:'preorder', nextDay, limit:rem};
+    }
+    return {ok:true, bucket:'preorder', nextDay, limit:null}; // 預購不設限
   }
-  // BUG-002 修正：依目前購物車選擇的日期，決定用今日 quota 還是預購 preorder 判斷
-  const _selectedDate = document.getElementById('pDate')?.value || '';
-  const _todayStr = fmtD(twNow());
-  const _isPreorderCart = _selectedDate && _selectedDate > _todayStr;
-  if(_isPreorderCart){
-    // 預購日期：只用 line_preorder_* 判斷，完全不看 line_quota_*
-    const preorderInfo=p.line_preorder||{hasPreorder:false};
-    if(preorderInfo.hasPreorder && Number(preorderInfo.remaining??0)<=0){
-      alert((p.effective_line_name||p.name)+' 預購已滿');return;
-    }
-    const inCart=cart[id]?.qty||0;
-    if(preorderInfo.hasPreorder && inCart>=(Number(preorderInfo.remaining??0))){
-      alert((p.effective_line_name||p.name)+` 預購剩餘份數不足（剩 ${preorderInfo.remaining} 份）`);return;
-    }
-  } else {
-    // 今日訂單：用 line_quota_*
-    if(p.line_quota?.hasQuota&&Number(p.line_quota?.remaining)<=0){
-      if(canNextDay){ addPreorderToCart(id,evt,p); return; }
-      alert((p.effective_line_name||p.name)+' LINE 今日份數已售完');return;
-    }
-    if(p.line_quota?.hasQuota){
-      const inCart=cart[id]?.qty||0;
-      if(inCart>=(p.line_quota.remaining||0)){alert((p.effective_line_name||p.name)+` LINE 剩餘份數不足（剩 ${p.line_quota.remaining} 份）`);return;}
-    }
+  // 今日額度：只用 line_quota_*
+  const q=p.line_quota||{hasQuota:false};
+  if(q.hasQuota){
+    const rem=Math.max(0, Number(q.remaining??0));
+    if(rem<=0) return {ok:false, bucket:'today', nextDay:false, message:name+' LINE 今日份數已售完'};
+    return {ok:true, bucket:'today', nextDay:false, limit:rem};
   }
+  return {ok:true, bucket:'today', nextDay:false, limit:null};
+}
+// 檢查「再增加 delta 份」是否允許（包含購物車內既有數量）。
+function checkCartIncrement(id, p, delta){
+  const policy=resolveCartQuantityPolicy(id, p);
+  if(!policy.ok) return policy;
+  const inCart=Number(cart[id]?.qty||0);
+  const add=Math.max(1, Number(delta)||1);
+  if(policy.limit!=null && inCart+add>policy.limit){
+    const name=_cartProductLabel(p);
+    return Object.assign({}, policy, {ok:false, limitReached:true, inCart, message: policy.bucket==='preorder'
+      ? `${name} 預購剩餘份數不足（預購剩 ${policy.limit} 份，購物車已有 ${inCart} 份）`
+      : `${name} LINE 今日剩餘份數不足（今日剩 ${policy.limit} 份，購物車已有 ${inCart} 份）`});
+  }
+  return policy;
+}
+function _notifyCartBlocked(policy){
+  if(policy && policy.toast) toast(policy.message); else alert((policy&&policy.message)||'此商品目前無法加入購物車');
+}
+function addCart(id,evt){
+  const p=allProducts.find(x=>x.id==id);if(!p)return;
+  // fix18-10-hotfix30-A：不要求先選外帶/外送；任一模式可買即放行（_representativeMode）。
+  // 所有判斷集中在 checkCartIncrement()（見上方說明），不得在這裡另寫一套。
+  const policy=checkCartIncrement(id,p,1);
+  if(!policy.ok){ _notifyCartBlocked(policy); return; }
+  // 任何售完原因：若允許預約則直接加入購物車並自動預約下個營業日
+  if(policy.nextDay){ addPreorderToCart(id,evt,p); return; }
   if(!cart[id])cart[id]={product:p,qty:0};
   cart[id].qty++;
   _trackAddToCart(id,1);
@@ -7082,14 +7133,9 @@ function addPreorderToCart(id,evt,p){
   // 開啟時，依 preorderRequiredIds 統一重新計算下個營業日與時段，避免背景預先寫入之後又被
   // 使用者切換模式或店家異動設定弄成過期資料）。這裡只負責：驗證預購份數 → 加入購物車 → 標記。
   if(evt){evt.stopPropagation();}
-  const preorderInfo=p.line_preorder||{hasPreorder:false};
-  if(preorderInfo.hasPreorder && Number(preorderInfo.remaining??0)<=0){
-    alert((p.effective_line_name||p.name)+' 預購已滿');return;
-  }
-  const inCart=cart[id]?.qty||0;
-  if(preorderInfo.hasPreorder && inCart>=(Number(preorderInfo.remaining??0))){
-    alert((p.effective_line_name||p.name)+` 預購剩餘份數不足（剩 ${preorderInfo.remaining} 份）`);return;
-  }
+  // R54.4／MBV2-HF1-C1：與 addCart()/chgQty() 共用同一份加購驗證（預購額度含購物車既有數量）
+  const _pol=checkCartIncrement(id,p,1);
+  if(!_pol.ok){ _notifyCartBlocked(_pol); return; }
   if(!cart[id])cart[id]={product:p,qty:0};
   cart[id].qty++;
   _trackAddToCart(id,1);
@@ -7242,37 +7288,18 @@ function applyDateTimeToCartSheet(dateStr, slots){
 }
 function chgQty(id,d){
   if(!cart[id])return;
+  // R54.4／MBV2-HF1-C1：增加數量與 addCart() 使用同一份驗證（最新商品資料＋目前取餐方式＋
+  // 購物車日期），舊購物車（localStorage 還原、沒有 preorderRequiredIds）也會正確改用預購額度；
+  // 暫停／長期下架／不支援目前取餐方式／已下架的商品不得增加，但減少／移除不受影響。
+  let _incPolicy=null;
   if(d>0){
-    const p=allProducts.find(x=>x.id==id);
-    // fix18-10-hotfix22D：商品已被 addPreorderToCart() 標記為「需自動預約下個營業日」時，
-    // 一律用 line_preorder_* 判斷，不再依賴購物車 pDate 目前的值（此時 pDate 可能還沒被
-    // refreshDateSelectorForCart() 同步過，例如購物車尚未開啟過）。
-    const isPreorderItem=preorderRequiredIds.has(Number(id));
-    if(isPreorderItem){
-      const preorderInfo=p?.line_preorder||{hasPreorder:false};
-      if(preorderInfo.hasPreorder && cart[id].qty>=(Number(preorderInfo.remaining??0))){
-        alert('預購剩餘份數不足');return;
-      }
-    } else {
-      // BUG-002 修正：依目前購物車選擇的日期，決定用今日 quota 還是預購 preorder 判斷
-      const _selectedDate = document.getElementById('pDate')?.value || '';
-      const _todayStr = fmtD(twNow());
-      const _isPreorderCart = _selectedDate && _selectedDate > _todayStr;
-      if(_isPreorderCart){
-        // 預購日期：只用 line_preorder_*，完全不看 line_quota_*
-        const preorderInfo=p?.line_preorder||{hasPreorder:false};
-        if(preorderInfo.hasPreorder && cart[id].qty>=(Number(preorderInfo.remaining??0))){
-          alert('預購剩餘份數不足');return;
-        }
-      } else {
-        // 今日訂單：用 line_quota_*
-        if(p&&p.line_quota?.hasQuota&&cart[id].qty>=(p.line_quota.remaining||0)){alert('LINE 份數不足');return;}
-      }
-    }
+    _incPolicy=checkCartIncrement(id,_latestCartProduct(id),d);
+    if(!_incPolicy.ok){ _notifyCartBlocked(_incPolicy); return; }
   }
   const _qtyBefore=cart[id].qty;
   cart[id].qty+=d;
   if(d>0){ _trackAddToCart(id, d); }
+  if(d>0 && _incPolicy && _incPolicy.nextDay) preorderRequiredIds.add(Number(id));
   if(cart[id].qty<=0){
     if(_qtyBefore>0) _trackRemoveFromCart(id, _qtyBefore);
     delete cart[id]; preorderRequiredIds.delete(Number(id));
@@ -8086,6 +8113,20 @@ async function submitOrder(event){
     if(!addrVal){trackCheckoutValidationFailed('missing_address');toast('外送訂單請填寫外送地址');return;}
     if(!deliveryLatLng.lat||!deliveryLatLng.lng){trackCheckoutValidationFailed('address_not_resolved');toast('請重新選擇外送地址（需取得座標）');return;}
     if(!deliveryFeeCalculated){trackCheckoutValidationFailed('delivery_fee_pending');toast('請稍候，外送費計算中…');return;}
+  }
+
+  // R54.4／MBV2-HF1-C1：送單日期必須與加購時使用的額度一致——購物車內有「今日已不可下單、
+  // 只能預約下個營業日」的商品時，不得以今天日期送單（否則畫面用預購額度、後端卻扣今日額度）。
+  // 不自動送單：重新對齊日期／時段後停在購物車，請顧客確認再按一次。
+  {
+    const _guardToday=fmtD(twNow());
+    const _needsNextDay=Object.keys(cart).some(pid=>productRequiresNextDayPreorder(_latestCartProduct(pid)||cart[pid].product, type));
+    if(_needsNextDay && !(pickupDate>_guardToday)){
+      trackCheckoutValidationFailed('inventory_unavailable');
+      toast('購物車內有商品需預約下個營業日，已為您更新取餐日期，請確認後再送出');
+      try{ await refreshDateSelectorForCart(); buildPreorderInfo(); }catch(e){}
+      return;
+    }
   }
 
   // 送單前雙重驗證：呼叫後端重新確認

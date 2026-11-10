@@ -1,0 +1,766 @@
+{
+  "release": "R54.4/MBV2-HF1-C1",
+  "actual_base_input": {
+    "file": "P3CD_DEPLOY_R54_4_MBV2_MIGRATION_BACKUP_V2_FINAL_APP_ROOT.zip",
+    "sha256": "fdfb32359d1e221398a47b1ad97757b4345767789a38c04c2881635719856981"
+  },
+  "requested_hf1_input": {
+    "sha256": "f933b06404cc8c6959e38b04c0dd044f44eabd9c26f31a11ef9360247a7afe6b",
+    "received": false,
+    "note": "HF1 ZIP、docs/R54_4_MBV2_HF1、smoke-r54-4-mbv2-hf1-preorder-status.js 均未收到，無法執行；本輪沒有沿用任何 HF1 紀錄"
+  },
+  "executed_at": "2026-11-10 (Asia/Taipei)",
+  "node": "v22.23.4",
+  "browser": "Google Chrome via Playwright 1.63 (headless)",
+  "new_acceptance": {
+    "script": "scripts/smoke-r54-4-mbv2-hf1-c1-preorder-status.js",
+    "env": "real server.js child process + tmp SQLite (os.tmpdir) + real Chrome; Google Routes mocked by scripts/lib/hf1c1-maps-mock.js",
+    "c1_result": {
+      "passed": 60,
+      "failed": 0,
+      "cases": [
+        {
+          "ok": true,
+          "name": "P1-0 重現前提：/api/line-menu 回報今日 real_sold_out、可預約明日、今日剩 0、預購剩 20",
+          "detail": "{\"r\":\"real_sold_out\",\"c\":true,\"q\":{\"hasQuota\":true,\"daily\":1,\"sold\":1,\"remaining\":0,\"low\":2,\"high\":10,\"displayLabel\":\"sold_out\"},\"pr\":{\"hasPreorder\":true,\"daily\":20,\"sold\":0,\"remaining\":20,\"low\":2,\"high\":10,\"displayLabel\":\"preorder_ok\"}}"
+        },
+        {
+          "ok": true,
+          "name": "P1-1 舊購物車還原 1 份，且記憶體沒有 preorderRequiredIds 標記（根因情境）",
+          "detail": "qty=1 date=2026-11-10 flag=false"
+        },
+        {
+          "ok": true,
+          "name": "P1-2 商品卡「＋」：舊購物車 1 → 2 份，未跳出「LINE 份數不足」",
+          "detail": "qty=2 dialogs=[]"
+        },
+        {
+          "ok": true,
+          "name": "P1-3 一次「＋」只送出 1 筆 add_to_cart（未重複計入）",
+          "detail": "delta=1"
+        },
+        {
+          "ok": true,
+          "name": "P1-4 背景加購未自動成立訂單（沒有 POST /api/line-orders）",
+          "detail": "[]"
+        },
+        {
+          "ok": true,
+          "name": "P1-5 商品卡連續＋到 5 份",
+          "detail": "5"
+        },
+        {
+          "ok": true,
+          "name": "P1-6 重新整理後數量仍為 5 份（未遺失、未清空舊購物車）",
+          "detail": "5"
+        },
+        {
+          "ok": true,
+          "name": "P1-7 重新整理後「＋」仍用預購額度（5→6）",
+          "detail": "dialogs=[]"
+        },
+        {
+          "ok": true,
+          "name": "P1-8 開啟購物車：取餐日期自動改為下個營業日",
+          "detail": "2026-11-11 (tomorrow=2026-11-11)"
+        },
+        {
+          "ok": true,
+          "name": "P1-9 購物車「＋」6→7",
+          "detail": "7"
+        },
+        {
+          "ok": true,
+          "name": "P1-10 切換外送／外帶後「＋」仍用預購額度（7→9）",
+          "detail": "qty=9 dialogs=[]"
+        },
+        {
+          "ok": true,
+          "name": "P1-11 商品詳情數量上限＝預購剩餘 20 − 購物車 9 = 11（與商品卡／購物車同一規則）",
+          "detail": "11"
+        },
+        {
+          "ok": true,
+          "name": "P1-12 商品詳情加入 11 份 → 購物車 20 份（=預購上限）",
+          "detail": "qty=20 dialogs=[]"
+        },
+        {
+          "ok": true,
+          "name": "P1-13 第 21 份被阻擋，文案指向預購額度",
+          "detail": "古法冷拌麻油豬心 預購剩餘份數不足（預購剩 20 份，購物車已有 20 份）"
+        },
+        {
+          "ok": true,
+          "name": "P1-14 正式送單成功，送出 pickup_date＝明天",
+          "detail": "status=200 pDate=2026-11-11 msg=undefined"
+        },
+        {
+          "ok": true,
+          "name": "P1-15 後端扣預購額度 20 份，今日額度維持 1（未誤扣）",
+          "detail": "preorder_sold=20 quota_sold=1"
+        },
+        {
+          "ok": true,
+          "name": "P1-16 只成立 1 筆訂單",
+          "detail": "orders=1 pickup=2026-11-11 10:30"
+        },
+        {
+          "ok": true,
+          "name": "P1-17 頁面無 JavaScript 錯誤",
+          "detail": ""
+        },
+        {
+          "ok": true,
+          "name": "P1-18 預購額度已滿時不能增加（文案：預購已滿）",
+          "detail": "古法冷拌麻油豬心 預購已滿"
+        },
+        {
+          "ok": true,
+          "name": "P1-19 預購已滿時仍可減少／移除",
+          "detail": "0"
+        },
+        {
+          "ok": true,
+          "name": "P1-20 今日訂購：受今日 1 份限制（第 2 份阻擋，文案指向今日份數）",
+          "detail": "古法冷拌麻油豬心 LINE 今日剩餘份數不足（今日剩 1 份，購物車已有 1 份）"
+        },
+        {
+          "ok": true,
+          "name": "P1-21 購物車「＋」同樣受今日 1 份限制",
+          "detail": "1"
+        },
+        {
+          "ok": true,
+          "name": "P1-22 今日單：送出今天日期，扣今日額度 1、預購額度不動",
+          "detail": "status=200 pDate=2026-11-10 quota_sold=1 preorder_sold=0"
+        },
+        {
+          "ok": true,
+          "name": "P1-23 今日仍可售但明確選擇明天：使用預購額度（1→3）",
+          "detail": "dialogs=[]"
+        },
+        {
+          "ok": true,
+          "name": "P1-24 明天單：扣預購 3 份，今日額度不動",
+          "detail": "status=200 preorder_sold=3 quota_sold=0"
+        },
+        {
+          "ok": true,
+          "name": "P1-25 預購不設限：舊購物車 1 → 25 份，不受今日 1 份限制",
+          "detail": "qty=25 dialogs=[]"
+        },
+        {
+          "ok": true,
+          "name": "P1-26 預購不設限送單：明天日期，今日額度不動",
+          "detail": "status=200 pDate=2026-11-11 quota_sold=1 msg=undefined"
+        },
+        {
+          "ok": true,
+          "name": "P1-27a 送單防呆由新檢查攔下（checkout_validation_failed reason=inventory_unavailable）",
+          "detail": "{\"reason_code\":\"inventory_unavailable\",\"order_mode\":\"takeout\",\"checkout_stage\":\"checkout\",\"has_cart\":true,\"item_count\":1"
+        },
+        {
+          "ok": true,
+          "name": "P1-27 送單防呆：預購商品不得以今天日期送出；未建立訂單並把日期改回下個營業日",
+          "detail": "orders 4->4 pDate=2026-11-11"
+        },
+        {
+          "ok": true,
+          "name": "P1-28-paused 舊購物車還原 2 份",
+          "detail": "2"
+        },
+        {
+          "ok": true,
+          "name": "P1-29-paused 購物車「＋」被阻擋",
+          "detail": "古法冷拌麻油豬心 目前暫停販售"
+        },
+        {
+          "ok": true,
+          "name": "P1-30-paused 直接呼叫 chgQty(+1) 也不能繞過",
+          "detail": "2"
+        },
+        {
+          "ok": true,
+          "name": "P1-31-paused 仍可減少（2→1）",
+          "detail": "1"
+        },
+        {
+          "ok": true,
+          "name": "P1-32-paused 可移除，且保存的購物車同步移除",
+          "detail": "{}"
+        },
+        {
+          "ok": true,
+          "name": "P1-28-sold_out_indefinitely 舊購物車還原 2 份",
+          "detail": "2"
+        },
+        {
+          "ok": true,
+          "name": "P1-29-sold_out_indefinitely 購物車「＋」被阻擋",
+          "detail": "古法冷拌麻油豬心 目前長期下架"
+        },
+        {
+          "ok": true,
+          "name": "P1-30-sold_out_indefinitely 直接呼叫 chgQty(+1) 也不能繞過",
+          "detail": "2"
+        },
+        {
+          "ok": true,
+          "name": "P1-31-sold_out_indefinitely 仍可減少（2→1）",
+          "detail": "1"
+        },
+        {
+          "ok": true,
+          "name": "P1-32-sold_out_indefinitely 可移除，且保存的購物車同步移除",
+          "detail": "{}"
+        },
+        {
+          "ok": true,
+          "name": "P2-0 頁面模式 fulfillment_switcher、取餐方式外送",
+          "detail": "[\"fulfillment_switcher\",\"delivery\"]"
+        },
+        {
+          "ok": true,
+          "name": "P2-1 外送＋fulfillment_switcher：舊購物車 1→3 用預購額度",
+          "detail": "dialogs=[]"
+        },
+        {
+          "ok": true,
+          "name": "P2-2 外送預購送單：明天日期、扣預購 3、今日不動",
+          "detail": "status=200 pDate=2026-11-11 preorder_sold=3 msg=undefined"
+        },
+        {
+          "ok": true,
+          "name": "P2-3 不支援目前取餐方式（外送）時，舊購物車不能增加",
+          "detail": "mode=delivery before=2 after=2 msg=此商品僅提供外帶"
+        },
+        {
+          "ok": true,
+          "name": "P2-4 不支援時仍可減少",
+          "detail": "1"
+        },
+        {
+          "ok": true,
+          "name": "P2-5 fulfillment_switcher 外帶今日單仍受今日 1 份限制",
+          "detail": "古法冷拌麻油豬心 LINE 今日剩餘份數不足（今日剩 1 份，購物車已有 1 份）"
+        },
+        {
+          "ok": true,
+          "name": "S2-0 正常販售：今日「供應充足」、預購「可預購」、宅配「正常販售」",
+          "detail": "{\"today\":\"供應充足\",\"preorder\":\"可預購\",\"shipping\":\"正常販售\"}"
+        },
+        {
+          "ok": true,
+          "name": "S2-1 預購分頁儲存 LINE 設定後立即刷新為「暫停販售」（只送出 1 次儲存）",
+          "detail": "暫停販售 writes=PATCH http://127.0.0.1:40219/api/products/601/line-settings"
+        },
+        {
+          "ok": true,
+          "name": "S2-2 暫停販售：三分頁一致顯示「暫停販售」（剩餘份數充足也不顯示供應充足／可預購）",
+          "detail": "{\"today\":\"暫停販售\",\"preorder\":\"暫停販售\",\"shipping\":\"暫停販售\"}"
+        },
+        {
+          "ok": true,
+          "name": "S2-3 冷藏宅配分頁按「重新整理」會更新宅配表（長期下架）",
+          "detail": "長期下架"
+        },
+        {
+          "ok": true,
+          "name": "S2-4 長期下架：三分頁一致",
+          "detail": "{\"today\":\"長期下架\",\"preorder\":\"長期下架\",\"shipping\":\"長期下架\"}"
+        },
+        {
+          "ok": true,
+          "name": "S2-5 今日完售：三分頁顯示「今日完售」",
+          "detail": "{\"today\":\"今日完售\",\"preorder\":\"今日完售\",\"shipping\":\"今日完售\"}"
+        },
+        {
+          "ok": true,
+          "name": "S2-6 恢復正常販售：三分頁回到份數／時段狀態，舊標籤不殘留",
+          "detail": "{\"today\":\"供應充足\",\"preorder\":\"可預購\",\"shipping\":\"正常販售\"}"
+        },
+        {
+          "ok": true,
+          "name": "S2-7 LINE 未上架：保留原「未上架」語意",
+          "detail": "{\"today\":\"未上架\",\"preorder\":\"未上架\"}"
+        },
+        {
+          "ok": true,
+          "name": "S2-8 LINE 今日售完旗標只影響今日分頁",
+          "detail": "{\"today\":\"LINE今日售完\",\"preorder\":\"可預購\"}"
+        },
+        {
+          "ok": true,
+          "name": "S2-9 狀態渲染不寫入、不改動 LINE 上架／宅配開關／共用份數／份數",
+          "detail": "writes=0 diff="
+        },
+        {
+          "ok": true,
+          "name": "S2-10 表頭與資料列欄數一致（主表 14、宅配表 12）",
+          "detail": "{\"main\":[14,14],\"ship\":[12,12]}"
+        },
+        {
+          "ok": true,
+          "name": "S2-11 載入中列 colspan 與表頭一致（14／12）",
+          "detail": "[\"14\",\"12\"]"
+        },
+        {
+          "ok": true,
+          "name": "S2-12 錯誤列 colspan 一致（14／12）",
+          "detail": "[\"14\",\"12\"]"
+        },
+        {
+          "ok": true,
+          "name": "S2-13 空資料列 colspan 一致（14／12）",
+          "detail": "[\"14\",\"12\"]"
+        },
+        {
+          "ok": true,
+          "name": "S2-14 後台頁面無 JavaScript 錯誤",
+          "detail": ""
+        }
+      ]
+    },
+    "original_mbv2_result_same_script": {
+      "passed": 30,
+      "failed": 31,
+      "failed_names": [
+        "P1-2 商品卡「＋」：舊購物車 1 → 2 份，未跳出「LINE 份數不足」",
+        "P1-3 一次「＋」只送出 1 筆 add_to_cart（未重複計入）",
+        "P1-5 商品卡連續＋到 5 份",
+        "P1-6 重新整理後數量仍為 5 份（未遺失、未清空舊購物車）",
+        "P1-7 重新整理後「＋」仍用預購額度（5→6）",
+        "P1-9 購物車「＋」6→7",
+        "P1-10 切換外送／外帶後「＋」仍用預購額度（7→9）",
+        "P1-11 商品詳情數量上限＝預購剩餘 20 − 購物車 9 = 11（與商品卡／購物車同一規則）",
+        "P1-12 商品詳情加入 11 份 → 購物車 20 份（=預購上限）",
+        "P1-18 預購額度已滿時不能增加（文案：預購已滿）",
+        "P1-20 今日訂購：受今日 1 份限制（第 2 份阻擋，文案指向今日份數）",
+        "P1-25 預購不設限：舊購物車 1 → 25 份，不受今日 1 份限制",
+        "P1-27a 送單防呆由新檢查攔下（checkout_validation_failed reason=inventory_unavailable）",
+        "P1-27 送單防呆：預購商品不得以今天日期送出；未建立訂單並把日期改回下個營業日",
+        "P1-29-paused 購物車「＋」被阻擋",
+        "P1-29-sold_out_indefinitely 購物車「＋」被阻擋",
+        "P2-1 外送＋fulfillment_switcher：舊購物車 1→3 用預購額度",
+        "P2-2 外送預購送單：明天日期、扣預購 3、今日不動",
+        "P2-5 fulfillment_switcher 外帶今日單仍受今日 1 份限制",
+        "S2-0 正常販售：今日「供應充足」、預購「可預購」、宅配「正常販售」",
+        "S2-1 預購分頁儲存 LINE 設定後立即刷新為「暫停販售」（只送出 1 次儲存）",
+        "S2-2 暫停販售：三分頁一致顯示「暫停販售」（剩餘份數充足也不顯示供應充足／可預購）",
+        "S2-3 冷藏宅配分頁按「重新整理」會更新宅配表（長期下架）",
+        "S2-4 長期下架：三分頁一致",
+        "S2-5 今日完售：三分頁顯示「今日完售」",
+        "S2-6 恢復正常販售：三分頁回到份數／時段狀態，舊標籤不殘留",
+        "S2-8 LINE 今日售完旗標只影響今日分頁",
+        "S2-10 表頭與資料列欄數一致（主表 14、宅配表 12）",
+        "S2-11 載入中列 colspan 與表頭一致（14／12）",
+        "S2-12 錯誤列 colspan 一致（14／12）",
+        "S2-13 空資料列 colspan 一致（14／12）"
+      ]
+    }
+  },
+  "regression_61_scripts": {
+    "selection": "scripts that reference line-order.html / LINE product management / line-settings, plus all R54.4-MBV2 scripts; 240s timeout each",
+    "original_mbv2": {
+      "exit0": 41,
+      "nonzero": 20
+    },
+    "c1": {
+      "exit0": 41,
+      "nonzero": 20
+    },
+    "new_failures": 0,
+    "per_script": {
+      "scripts/mbv2-rescue-verify.js": {
+        "original_exit": 2,
+        "c1_exit": 2,
+        "original_summary": "",
+        "c1_summary": ""
+      },
+      "scripts/run-g1-6-ga4-h1-4-4-view-item-runtime.js": {
+        "original_exit": 1,
+        "c1_exit": 1,
+        "original_summary": "",
+        "c1_summary": ""
+      },
+      "scripts/run-g1-6-ga4-h1-4-7-two-stage-checkout-runtime.js": {
+        "original_exit": 0,
+        "c1_exit": 0,
+        "original_summary": "TOTAL=113 PASS=113 FAIL=0",
+        "c1_summary": "TOTAL=113 PASS=113 FAIL=0"
+      },
+      "scripts/run-h1-4-10-asset-cache-bust-runtime.js": {
+        "original_exit": 0,
+        "c1_exit": 0,
+        "original_summary": "TOTAL: 30 PASS / 0 FAIL (of 30)",
+        "c1_summary": "TOTAL: 30 PASS / 0 FAIL (of 30)"
+      },
+      "scripts/run-h1-4-10-friend-live-runtime.js": {
+        "original_exit": 0,
+        "c1_exit": 0,
+        "original_summary": "TOTAL=24 PASS=24 FAIL=0",
+        "c1_summary": "TOTAL=24 PASS=24 FAIL=0"
+      },
+      "scripts/run-h1-4-10-historical-backend-reconcile-runtime.js": {
+        "original_exit": 0,
+        "c1_exit": 0,
+        "original_summary": "TOTAL: 35 PASS / 0 FAIL (of 35)",
+        "c1_summary": "TOTAL: 35 PASS / 0 FAIL (of 35)"
+      },
+      "scripts/run-h1-4-10-historical-friend-first-touch-runtime.js": {
+        "original_exit": 0,
+        "c1_exit": 0,
+        "original_summary": "TOTAL=37 PASS=37 FAIL=0",
+        "c1_summary": "TOTAL=37 PASS=37 FAIL=0"
+      },
+      "scripts/run-h1-4-10-phase1-liff-identity-runtime.js": {
+        "original_exit": 0,
+        "c1_exit": 0,
+        "original_summary": "TOTAL=68 PASS=68 FAIL=0",
+        "c1_summary": "TOTAL=68 PASS=68 FAIL=0"
+      },
+      "scripts/run-h1-4-10-phase2-line-friend-guide-runtime.js": {
+        "original_exit": 0,
+        "c1_exit": 0,
+        "original_summary": "TOTAL=114 PASS=114 FAIL=0",
+        "c1_summary": "TOTAL=114 PASS=114 FAIL=0"
+      },
+      "scripts/run-h1-4-10-phase3-checkout-submit-payment-runtime.js": {
+        "original_exit": 0,
+        "c1_exit": 0,
+        "original_summary": "TOTAL=111 PASS=111 FAIL=0",
+        "c1_summary": "TOTAL=111 PASS=111 FAIL=0"
+      },
+      "scripts/run-h1-4-10-phase4b-recovery-frontend-targeted.js": {
+        "original_exit": 0,
+        "c1_exit": 0,
+        "original_summary": "TOTAL=50 PASS=50 FAIL=0",
+        "c1_summary": "TOTAL=50 PASS=50 FAIL=0"
+      },
+      "scripts/run-h1-4-10-phase4b-recovery-full-runtime.js": {
+        "original_exit": 0,
+        "c1_exit": 0,
+        "original_summary": "TOTAL=168 PASS=168 FAIL=0",
+        "c1_summary": "TOTAL=168 PASS=168 FAIL=0"
+      },
+      "scripts/run-h1-4-10-required-friend-gate-runtime.js": {
+        "original_exit": 0,
+        "c1_exit": 0,
+        "original_summary": "TOTAL: 98 PASS / 0 FAIL (of 98)",
+        "c1_summary": "TOTAL: 98 PASS / 0 FAIL (of 98)"
+      },
+      "scripts/run-h1-4-9-checkout-order-summary-runtime.js": {
+        "original_exit": 0,
+        "c1_exit": 0,
+        "original_summary": "TOTAL=67 PASS=67 FAIL=0",
+        "c1_summary": "TOTAL=67 PASS=67 FAIL=0"
+      },
+      "scripts/run-r54-4-mbv2-ui.js": {
+        "original_exit": 0,
+        "c1_exit": 0,
+        "original_summary": "RESULT: 19 passed, 0 failed  (screenshots: /tmp/mbv2-ui-0szmhJ)",
+        "c1_summary": "RESULT: 19 passed, 0 failed  (screenshots: /tmp/mbv2-ui-NppzWe)"
+      },
+      "scripts/run-regression-g1-6-ga4-h1-4-6.js": {
+        "original_exit": 124,
+        "c1_exit": 124,
+        "original_summary": "[PASS                  ] Inherited Hash Smoke (Heatmap-Dashboard Integration)         pass=112 fail=0 total=112 exit=0 (expect 112/112)",
+        "c1_summary": "[PASS                  ] H1.4 Persisted Range Runtime                                 pass=23 fail=0 total=23 exit=0 (expect 23/23)"
+      },
+      "scripts/run-regression-g1-6-ga4-h1-4-7.js": {
+        "original_exit": 124,
+        "c1_exit": 124,
+        "original_summary": "[PASS                  ] B2.1                                                         pass=85 fail=0 total=85 exit=0 (expect 85/85)",
+        "c1_summary": "[PASS                  ] B2.1                                                         pass=85 fail=0 total=85 exit=0 (expect 85/85)"
+      },
+      "scripts/smoke-cart-delivery-live-refresh.js": {
+        "original_exit": 1,
+        "c1_exit": 1,
+        "original_summary": "[PASS] 無有效地址座標時不呼叫 API（沒有後端結果可算）",
+        "c1_summary": "[PASS] 無有效地址座標時不呼叫 API（沒有後端結果可算）"
+      },
+      "scripts/smoke-delivery-distance-promotion.js": {
+        "original_exit": 0,
+        "c1_exit": 0,
+        "original_summary": "[smoke-delivery-distance-promotion] 98 passed, 0 failed",
+        "c1_summary": "[smoke-delivery-distance-promotion] 98 passed, 0 failed"
+      },
+      "scripts/smoke-h1-4-11-1-fixes.js": {
+        "original_exit": 0,
+        "c1_exit": 0,
+        "original_summary": "  FAIL:  0",
+        "c1_summary": "  FAIL:  0"
+      },
+      "scripts/smoke-h1-4-11-2-fixes.js": {
+        "original_exit": 0,
+        "c1_exit": 0,
+        "original_summary": "  FAIL:  0",
+        "c1_summary": "  FAIL:  0"
+      },
+      "scripts/smoke-h1-4-11-4-1-both-disabled-product-filter.js": {
+        "original_exit": 0,
+        "c1_exit": 0,
+        "original_summary": "  FAIL:  0",
+        "c1_summary": "  FAIL:  0"
+      },
+      "scripts/smoke-h1-4-11-4-product-mode-visibility.js": {
+        "original_exit": 0,
+        "c1_exit": 0,
+        "original_summary": "  FAIL:  0",
+        "c1_summary": "  FAIL:  0"
+      },
+      "scripts/smoke-h1-4-11-line-order-page-mode.js": {
+        "original_exit": 0,
+        "c1_exit": 0,
+        "original_summary": "  FAIL:  0",
+        "c1_summary": "  FAIL:  0"
+      },
+      "scripts/smoke-h1-4-12-popup-admin-ui-browser.js": {
+        "original_exit": 1,
+        "c1_exit": 1,
+        "original_summary": "  PASS: 425  FAIL: 1  TOTAL: 426",
+        "c1_summary": "  PASS: 424  FAIL: 2  TOTAL: 426"
+      },
+      "scripts/smoke-h1-4-12-popup-admin-ui.js": {
+        "original_exit": 0,
+        "c1_exit": 0,
+        "original_summary": "  PASS: 149  FAIL: 0  TOTAL: 149",
+        "c1_summary": "  PASS: 149  FAIL: 0  TOTAL: 149"
+      },
+      "scripts/smoke-h1-4-12-popup-checkout-integration.js": {
+        "original_exit": 0,
+        "c1_exit": 0,
+        "original_summary": "  PASS: 20  FAIL: 0  TOTAL: 20",
+        "c1_summary": "  PASS: 20  FAIL: 0  TOTAL: 20"
+      },
+      "scripts/smoke-h1-4-12-popup-frontend.js": {
+        "original_exit": 0,
+        "c1_exit": 0,
+        "original_summary": "  PASS: 293  FAIL: 0  TOTAL: 293",
+        "c1_summary": "  PASS: 293  FAIL: 0  TOTAL: 293"
+      },
+      "scripts/smoke-h1-4-12-popup-public-checkout.js": {
+        "original_exit": 0,
+        "c1_exit": 0,
+        "original_summary": "  PASS: 1447  FAIL: 0  TOTAL: 1447",
+        "c1_summary": "  PASS: 1447  FAIL: 0  TOTAL: 1447"
+      },
+      "scripts/smoke-h1-4-12-popup-real-browser.js": {
+        "original_exit": 0,
+        "c1_exit": 0,
+        "original_summary": "  PASS: 36  FAIL: 0  TOTAL: 36",
+        "c1_summary": "  PASS: 36  FAIL: 0  TOTAL: 36"
+      },
+      "scripts/smoke-h1-4-12-popup-recovery-cart-frontend.js": {
+        "original_exit": 0,
+        "c1_exit": 0,
+        "original_summary": "  PASS: 67  FAIL: 0  TOTAL: 67",
+        "c1_summary": "  PASS: 67  FAIL: 0  TOTAL: 67"
+      },
+      "scripts/smoke-h1-4-12-popup-recovery-identity-bridge.js": {
+        "original_exit": 0,
+        "c1_exit": 0,
+        "original_summary": "  PASS: 51  FAIL: 0  TOTAL: 51",
+        "c1_summary": "  PASS: 51  FAIL: 0  TOTAL: 51"
+      },
+      "scripts/smoke-h1-4-12-popup-recovery-landing.js": {
+        "original_exit": 0,
+        "c1_exit": 0,
+        "original_summary": "  PASS: 83  FAIL: 0  TOTAL: 83",
+        "c1_summary": "  PASS: 83  FAIL: 0  TOTAL: 83"
+      },
+      "scripts/smoke-hotfix25.js": {
+        "original_exit": 0,
+        "c1_exit": 0,
+        "original_summary": "PASS: 26  FAIL: 0  MANUAL REQUIRED: 3",
+        "c1_summary": "PASS: 26  FAIL: 0  MANUAL REQUIRED: 3"
+      },
+      "scripts/smoke-hotfix26-b.js": {
+        "original_exit": 1,
+        "c1_exit": 1,
+        "original_summary": "失敗項目：",
+        "c1_summary": "失敗項目："
+      },
+      "scripts/smoke-hotfix26-d.js": {
+        "original_exit": 1,
+        "c1_exit": 1,
+        "original_summary": "失敗項目：",
+        "c1_summary": "失敗項目："
+      },
+      "scripts/smoke-hotfix26-f2.js": {
+        "original_exit": 1,
+        "c1_exit": 1,
+        "original_summary": "Total: 28, PASS: 22, FAIL: 3, MANUAL: 3",
+        "c1_summary": "Total: 28, PASS: 22, FAIL: 3, MANUAL: 3"
+      },
+      "scripts/smoke-hotfix26-f3.js": {
+        "original_exit": 0,
+        "c1_exit": 0,
+        "original_summary": "Total: 38, PASS: 35, FAIL: 0, MANUAL: 3",
+        "c1_summary": "Total: 38, PASS: 35, FAIL: 0, MANUAL: 3"
+      },
+      "scripts/smoke-hotfix26-f4.js": {
+        "original_exit": 0,
+        "c1_exit": 0,
+        "original_summary": "Total: 32, PASS: 32, FAIL: 0",
+        "c1_summary": "Total: 32, PASS: 32, FAIL: 0"
+      },
+      "scripts/smoke-hotfix26-f5.js": {
+        "original_exit": 0,
+        "c1_exit": 0,
+        "original_summary": "Total: 53, PASS: 53, FAIL: 0",
+        "c1_summary": "Total: 53, PASS: 53, FAIL: 0"
+      },
+      "scripts/smoke-hotfix26-f7.js": {
+        "original_exit": 1,
+        "c1_exit": 1,
+        "original_summary": "Total: 47, PASS: 46, FAIL: 1, MANUAL: 0",
+        "c1_summary": "Total: 47, PASS: 46, FAIL: 1, MANUAL: 0"
+      },
+      "scripts/smoke-hotfix26-f8-b.js": {
+        "original_exit": 1,
+        "c1_exit": 1,
+        "original_summary": "[smoke-hotfix26-f8.js] PASS=21 FAIL=0 MANUAL=3 NOT_IMPLEMENTED=5",
+        "c1_summary": "[smoke-hotfix26-f8.js] PASS=21 FAIL=0 MANUAL=3 NOT_IMPLEMENTED=5"
+      },
+      "scripts/smoke-hotfix26-f8.js": {
+        "original_exit": 0,
+        "c1_exit": 0,
+        "original_summary": "PASS=21 FAIL=0 MANUAL=3 NOT_IMPLEMENTED=5",
+        "c1_summary": "PASS=21 FAIL=0 MANUAL=3 NOT_IMPLEMENTED=5"
+      },
+      "scripts/smoke-hotfix26-i.js": {
+        "original_exit": 1,
+        "c1_exit": 1,
+        "original_summary": "[PASS] getSafeCurrentPageUrl：保留正常購物參數（store_id）",
+        "c1_summary": "[PASS] getSafeCurrentPageUrl：保留正常購物參數（store_id）"
+      },
+      "scripts/smoke-hotfix27-cd.js": {
+        "original_exit": 1,
+        "c1_exit": 1,
+        "original_summary": "PASS=51 FAIL=1 MANUAL=5",
+        "c1_summary": "PASS=51 FAIL=1 MANUAL=5"
+      },
+      "scripts/smoke-hotfix29-b.js": {
+        "original_exit": 1,
+        "c1_exit": 1,
+        "original_summary": "[FAIL] smoke-hotfix29.js — exit code 1",
+        "c1_summary": "[FAIL] smoke-hotfix29.js — exit code 1"
+      },
+      "scripts/smoke-hotfix29-c.js": {
+        "original_exit": 1,
+        "c1_exit": 1,
+        "original_summary": "[FAIL] smoke-hotfix29-b.js — exit code 1",
+        "c1_summary": "[FAIL] smoke-hotfix29-b.js — exit code 1"
+      },
+      "scripts/smoke-hotfix29.js": {
+        "original_exit": 1,
+        "c1_exit": 1,
+        "original_summary": "[FAIL] smoke-hotfix28.js — exit code 1",
+        "c1_summary": "[FAIL] smoke-hotfix28.js — exit code 1"
+      },
+      "scripts/smoke-hotfix30-b5-r5-4-g1-live-geo.js": {
+        "original_exit": 0,
+        "c1_exit": 0,
+        "original_summary": "  FAIL:  0",
+        "c1_summary": "  FAIL:  0"
+      },
+      "scripts/smoke-hotfix30-b5-r5-debounce.js": {
+        "original_exit": 0,
+        "c1_exit": 0,
+        "original_summary": "TOTAL: 32  PASS: 32  FAIL: 0",
+        "c1_summary": "TOTAL: 32  PASS: 32  FAIL: 0"
+      },
+      "scripts/smoke-r48-popup-order-ui-browser.js": {
+        "original_exit": 1,
+        "c1_exit": 1,
+        "original_summary": "",
+        "c1_summary": ""
+      },
+      "scripts/smoke-r54-4-mbv2-large-upload.js": {
+        "original_exit": 0,
+        "c1_exit": 0,
+        "original_summary": "RESULT: 25 passed, 0 failed",
+        "c1_summary": "RESULT: 25 passed, 0 failed"
+      },
+      "scripts/smoke-r54-4-mbv2-migration.js": {
+        "original_exit": 0,
+        "c1_exit": 0,
+        "original_summary": "RESULT: 121 passed, 0 failed",
+        "c1_summary": "RESULT: 121 passed, 0 failed"
+      },
+      "scripts/smoke-r54-4-mbv2-system-regression.js": {
+        "original_exit": 0,
+        "c1_exit": 0,
+        "original_summary": "{\"label\":\"jwt GET settings\",\"status\":200,\"success\":true,\"shape\":{\"auto_drawer\":\"string\",\"auto_print\":\"string\",\"brand_cta_template\":\"string\",",
+        "c1_summary": "{\"label\":\"jwt GET settings\",\"status\":200,\"success\":true,\"shape\":{\"auto_drawer\":\"string\",\"auto_print\":\"string\",\"brand_cta_template\":\"string\","
+      },
+      "scripts/static-audit-g1-6-ga4-h1-4-4.js": {
+        "original_exit": 0,
+        "c1_exit": 0,
+        "original_summary": "H1.4.4 Static Audit — 23/23 passed",
+        "c1_summary": "H1.4.4 Static Audit — 23/23 passed"
+      },
+      "scripts/static-audit-g1-6-ga4-h1-4-5.js": {
+        "original_exit": 0,
+        "c1_exit": 0,
+        "original_summary": "FAIL: 0",
+        "c1_summary": "FAIL: 0"
+      },
+      "scripts/static-audit-g1-6-ga4-h1-4-6.js": {
+        "original_exit": 1,
+        "c1_exit": 1,
+        "original_summary": "FAIL: 3",
+        "c1_summary": "FAIL: 3"
+      },
+      "scripts/static-audit-g1-6-ga4-h1-4-7.js": {
+        "original_exit": 1,
+        "c1_exit": 1,
+        "original_summary": "FAIL: 4",
+        "c1_summary": "FAIL: 4"
+      },
+      "scripts/static-audit-g1.js": {
+        "original_exit": 0,
+        "c1_exit": 0,
+        "original_summary": "",
+        "c1_summary": ""
+      },
+      "scripts/static-audit-r48-popup-order-ui.js": {
+        "original_exit": 1,
+        "c1_exit": 1,
+        "original_summary": "R48_STATIC_RESULT {\"S01_COMPOSITION_HTML\":\"FAIL\",\"S02_COMPOSITION_CSS\":\"FAIL\",\"S03_FORBIDDEN_UNCHANGED\":\"FAIL\",\"S04_NO_UNEXPECTED_FILES\":\"FA",
+        "c1_summary": "R48_STATIC_RESULT {\"S01_COMPOSITION_HTML\":\"FAIL\",\"S02_COMPOSITION_CSS\":\"FAIL\",\"S03_FORBIDDEN_UNCHANGED\":\"FAIL\",\"S04_NO_UNEXPECTED_FILES\":\"FA"
+      },
+      "scripts/test-phone-validation.js": {
+        "original_exit": 0,
+        "c1_exit": 0,
+        "original_summary": "PHONE-FE/BE/SSOT total: 32 pass: 32 fail: 0",
+        "c1_summary": "PHONE-FE/BE/SSOT total: 32 pass: 32 fail: 0"
+      }
+    },
+    "notes": [
+      "Failure item names were diffed line-by-line for every non-zero script (original vs C1): identical except the items below.",
+      "smoke-h1-4-12-popup-admin-ui-browser: LINK-published-urls-use-public-code fails in every run of both trees (original 4/4 runs, C1 4/4 runs). BR51-cancel-ui-removes-full-badge additionally failed in 2 of 4 C1 runs (passed in the other 2); it is listed in the repository regression_flaky_note.txt as a known date/time-related pre-existing flaky item and touches popup session UI that C1 did not modify.",
+      "static-audit-r48-popup-order-ui: compares line-order.html against frozen R48 bytes; already FAIL in original, hash differs after C1 edit, status unchanged.",
+      "static-audit-g1-6-ga4-h1-4-6: during development C1 briefly added 1 failure (regex expects `const blocked =`); code was rewritten to keep `const blocked` and use detailBlocked; back to the same 3 original failures. No assertion was relaxed.",
+      "run-regression-g1-6-ga4-h1-4-6 / -4-7 time out at 240s in both; rerun separately with 1500s (see long_suites)."
+    ]
+  },
+  "long_suites_1500s": {
+    "run-regression-g1-6-ga4-h1-4-6": {
+      "original": "3 rounds FAIL=5 each; failed suites: H1 Static Audit, H1 Targeted Smoke, H1.4.4 View Item Semantics Runtime, H1.4.6 Static/UI/Analytics Audit (+ intermittent B1-6 Geo Explorer in round 1)",
+      "c1": "3 rounds FAIL=5 each; same failed suites"
+    },
+    "run-regression-g1-6-ga4-h1-4-7": {
+      "original": "rounds FAIL=8/9/9; failed suites: H1 Static Audit, H1 Targeted Smoke, H1.4.4, H1.4.6, H1.4.7 Static Audit",
+      "c1": "rounds FAIL=9/9/9; same failed suites (+ intermittent B1-6 Geo Explorer in rounds 2-3, also seen in original 4-6 round 1)"
+    }
+  },
+  "not_verified": [
+    "LINE App in-app browser / LIFF on a real phone",
+    "real Google Maps distance & address autocomplete (mocked to 2 km)",
+    "LINE Pay real payment (cash only)",
+    "Zeabur production deployment / production DB",
+    "real LINE push (not in scope)"
+  ]
+}

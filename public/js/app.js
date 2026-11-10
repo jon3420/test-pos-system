@@ -7044,6 +7044,9 @@ async function saveLineSettings() {
     showToast('LINE 設定已儲存', 'success');
     closeLineSettingsModal();
     loadProductsPage();
+    // R54.4／MBV2-HF1-C1：從 LINE 商品管理頁開啟設定時，儲存後立即刷新目前分頁
+    // （販售狀態／上架／份數），不需手動重新整理。
+    if (_isLineProductsPageActive()) loadLineProductsPage();
   } catch(e) { showToast('網路錯誤', 'error'); }
 }
 
@@ -7132,7 +7135,7 @@ async function saveShippingProductSettings() {
     showToast('冷藏宅配設定已儲存', 'success');
     closeShippingProductModal();
     // 若目前正在 LINE 商品管理頁的冷藏宅配分頁，重新整理該表格；否則不影響其他頁面
-    if (typeof _lpmTab !== 'undefined' && _lpmTab === 'shipping') {
+    if ((typeof _lpmTab !== 'undefined' && _lpmTab === 'shipping') || _isLineProductsPageActive()) {
       loadLineProductsPage();
     }
     if (typeof loadProductsPage === 'function') loadProductsPage();
@@ -10199,20 +10202,41 @@ function initLineProductsNav() {
   if (toolBtn)    toolBtn.style.display    = hasLine ? '' : 'none';
 }
 
+// R54.4／MBV2-HF1-C1：表頭欄數單一來源（今日販售／預購數量共用主表 14 欄；
+// 冷藏宅配表 12 欄，含新增的「商品／LINE 販售」欄）。載入中、空資料、錯誤列一律使用。
+const LPM_MAIN_COLS = 14;
+const LPM_SHIP_COLS = 12;
+function _lpmStateRow(cols, text, color) {
+  return `<tr><td colspan="${cols}" style="text-align:center;padding:40px;color:${color || 'var(--text-muted,#64748b)'}">${text}</td></tr>`;
+}
+// 依目前分頁重新渲染（冷藏宅配分頁必須更新宅配表，不能只更新隱藏的主表）
+function lpmRenderActiveTab() {
+  if (_lpmTab === 'shipping') renderLpmShippingTable(_lpmProducts);
+  else renderLpmTable(_lpmProducts);
+}
+function _isLineProductsPageActive() {
+  const pg = document.getElementById('page-line_products');
+  return !!(pg && pg.classList.contains('active'));
+}
+
 // ── 載入 LINE 商品管理頁 ──────────────────────────────────
 async function loadLineProductsPage() {
   const tbody = document.getElementById('lpm-tbody');
   if (!tbody) return;
-  tbody.innerHTML = '<tr><td colspan="13" style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">載入中…</td></tr>';
+  const shipTbody = document.getElementById('lpm-shipping-tbody');
+  tbody.innerHTML = _lpmStateRow(LPM_MAIN_COLS, '載入中…');
+  if (shipTbody) shipTbody.innerHTML = _lpmStateRow(LPM_SHIP_COLS, '載入中…');
   _lpmEditing = {};
   try {
     const res  = await apiFetch('/api/products/line-products/list');
     const json = await res.json();
     if (!json.success) throw new Error(json.message || '載入失敗');
     _lpmProducts = json.data || [];
-    renderLpmTable(_lpmProducts);
+    lpmRenderActiveTab();
   } catch(e) {
-    if (tbody) tbody.innerHTML = `<tr><td colspan="13" style="text-align:center;padding:40px;color:#ef4444">載入失敗：${escHtml(e.message)}</td></tr>`;
+    const msg = `載入失敗：${escHtml(e.message)}`;
+    tbody.innerHTML = _lpmStateRow(LPM_MAIN_COLS, msg, '#ef4444');
+    if (shipTbody) shipTbody.innerHTML = _lpmStateRow(LPM_SHIP_COLS, msg, '#ef4444');
   }
 }
 
@@ -10243,11 +10267,7 @@ function lpmSwitchTab(tab) {
   if (tableWrap)     tableWrap.style.display     = tab==='shipping' ? 'none'  : 'block';
   if (shipTableWrap) shipTableWrap.style.display  = tab==='shipping' ? 'block' : 'none';
 
-  if (tab === 'shipping') {
-    renderLpmShippingTable(_lpmProducts);
-  } else {
-    renderLpmTable(_lpmProducts);
-  }
+  lpmRenderActiveTab();
 }
 
 // ── 商品共同販售時段（fix18-10-hotfix30-C1-回退，回退指令第六節）──────────
@@ -10274,9 +10294,37 @@ function _lpmEffectiveSaleWindow(p) {
   return { start: '', end: '' };
 }
 
+// ── R54.4／MBV2-HF1-C1：商品販售標示（三個 LINE 商品分頁共用的唯一解析）────────
+// 來源只讀商品實際欄位，純顯示、不改寫任何開關或份數：
+//   enabled=0                     → 已停用
+//   sale_status=paused            → 暫停販售
+//   sale_status=sold_out_indefinitely → 長期下架
+//   sale_status=sold_out_today    → 今日完售（隔日自動恢復語意不變）
+// 回傳 null 代表商品販售狀態正常（available），由各分頁顯示自己的份數／時段狀態。
+// 注意：sale_status 目前只用於 LINE 點餐（routes/line-orders.js），冷藏宅配下單
+// （routes/line-shipping.js）不讀 sale_status；宅配表只呈現此標示，不擴大為宅配停售規則。
+function resolveLpmSaleMarker(p) {
+  if (!p) return null;
+  if (p.enabled != null && Number(p.enabled) === 0)
+    return { code:'disabled', label:'已停用', cls:'#94a3b8', bg:'rgba(148,163,184,.15)' };
+  const ss = p.sale_status || 'available';
+  if (ss === 'paused')
+    return { code:'paused', label:'暫停販售', cls:'#ef4444', bg:'rgba(239,68,68,.12)' };
+  if (ss === 'sold_out_indefinitely')
+    return { code:'sold_out_indefinitely', label:'長期下架', cls:'#ef4444', bg:'rgba(239,68,68,.12)' };
+  if (ss === 'sold_out_today')
+    return { code:'sold_out_today', label:'今日完售', cls:'#ff6d00', bg:'rgba(255,109,0,.12)' };
+  return null;
+}
+
 // ── LINE 商品狀態計算 ──────────────────────────────────────
 function calcLpmStatus(p) {
+  // 優先序：已停用 > 暫停販售 > 長期下架 > LINE 未上架 > 今日完售 > 各分頁份數／時段狀態。
+  // 暫停／長期下架時不得因剩餘份數充足而顯示「供應充足」或「可預購」。
+  const _marker = resolveLpmSaleMarker(p);
+  if (_marker && _marker.code !== 'sold_out_today') return _marker;
   if (!p.show_on_line) return { label:'未上架', cls:'#94a3b8', bg:'rgba(148,163,184,.12)' };
+  if (_marker) return _marker; // sold_out_today
   // 商品販售時段判斷
   const now = new Date(new Date().toLocaleString('en-US',{timeZone:'Asia/Taipei'}));
   const hhmm = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
@@ -10300,6 +10348,7 @@ function calcLpmStatus(p) {
   const _sw = _lpmEffectiveSaleWindow(p);
   const saleEnded      = _sw.end   && hhmm >= _sw.end;
   const saleNotStarted = _sw.start && hhmm <  _sw.start;
+  if (Number(p.line_sold_out) === 1) return { label:'LINE今日售完', cls:'#ef4444', bg:'rgba(239,68,68,.12)' };
   if (saleEnded)      return { label:'今日售完', cls:'#ef4444', bg:'rgba(239,68,68,.12)' };
   if (saleNotStarted) return { label:'尚未開賣', cls:'#ff6d00', bg:'rgba(255,109,0,.12)' };
   if (!Number(p.line_quota_enabled)) return { label:'販售中（未限額）', cls:'#06C755', bg:'rgba(6,199,85,.12)' };
@@ -10319,7 +10368,7 @@ function renderLpmTable(products) {
   document.getElementById('lpm-check-all').checked = false;
   document.getElementById('lpm-selected-count').textContent = '（未選取商品）';
   if (!products.length) {
-    tbody.innerHTML = '<tr><td colspan="14" style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">尚無商品</td></tr>';
+    tbody.innerHTML = _lpmStateRow(LPM_MAIN_COLS, '尚無商品');
     return;
   }
   tbody.innerHTML = products.map(p => {
@@ -10862,7 +10911,7 @@ function renderLpmShippingTable(products) {
   if (checkAll) checkAll.checked = false;
   lpmUpdateShippingSelectedCount();
   if (!products.length) {
-    tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">尚無商品</td></tr>';
+    tbody.innerHTML = _lpmStateRow(LPM_SHIP_COLS, '尚無商品');
     return;
   }
   const tdStyle = 'padding:8px 6px;border-bottom:1px solid var(--border,#334155);vertical-align:middle;text-align:center';
@@ -10877,6 +10926,11 @@ function renderLpmShippingTable(products) {
     const shipSpec  = p.shipping_spec ? escHtml(p.shipping_spec) : '<span style="color:var(--text-muted,#64748b)">—</span>';
     const upsell    = !!Number(p.shipping_upsell);
     const shareLine  = p.shipping_share_line_stock != null ? !!Number(p.shipping_share_line_stock) : true;
+    // R54.4／MBV2-HF1-C1：商品／LINE 販售標示（與今日／預購分頁同一解析；只顯示，不改宅配開關）
+    const _sm = resolveLpmSaleMarker(p);
+    const saleCell = _sm
+      ? `<span style="display:inline-block;padding:3px 8px;border-radius:12px;font-size:11px;font-weight:700;color:${_sm.cls};background:${_sm.bg}">${_sm.label}</span>`
+      : `<span style="font-size:11px;color:#06C755">正常販售</span>`;
     return `<tr id="lpm-ship-row-${p.id}" style="background:var(--bg-card,#1e293b)">
       <td style="${tdStyle}"><input type="checkbox" class="lpm-ship-chk" data-id="${p.id}" onchange="lpmUpdateShippingSelectedCount()"></td>
       <td style="${tdStyle}">${thumbHtml}</td>
@@ -10896,6 +10950,7 @@ function renderLpmShippingTable(products) {
       <td style="${tdStyle};font-size:12px">${Number(p.shipping_sort_order)||0}</td>
       <td style="${tdStyle}"><span style="font-size:11px;color:${upsell?'#7c3aed':'#94a3b8'}">${upsell?'✅ 加購':'—'}</span></td>
       <td style="${tdStyle}"><span style="font-size:11px;color:${shareLine?'#06C755':'#94a3b8'}">${shareLine?'✅ 共用':'獨立'}</span></td>
+      <td style="${tdStyle}" title="商品／LINE 點餐販售狀態（來自商品設定）；宅配是否可下單仍依「宅配啟用」">${saleCell}</td>
       <td style="${tdStyle}">
         <button onclick="openShippingProductModal(${p.id})" style="padding:4px 8px;background:#1565c0;color:#fff;border:none;border-radius:5px;font-size:12px;cursor:pointer">✏️編輯宅配</button>
       </td>
