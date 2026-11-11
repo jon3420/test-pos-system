@@ -48,6 +48,7 @@ function sendErr(res, e) {
   const status = e && e.status ? e.status : 500;
   const body = { success: false, code: (e && e.code) || 'INTERNAL_ERROR', message: (e && e.message) || '伺服器錯誤' };
   if (e && e.extra && e.extra.verification) body.verification = e.extra.verification;
+  if (e && e.extra && e.extra.demand_remap_failures) body.demand_remap_failures = e.extra.demand_remap_failures; // R54.4／MBV2-HF1-C3.1
   if (e && e.extra && e.extra.required_mb) { body.required_mb = e.extra.required_mb; body.available_mb = e.extra.available_mb; }
   if (status >= 500 && !(e && e.code)) console.error('[migration-v2]', e && e.stack);
   return res.status(status).json(body);
@@ -331,7 +332,7 @@ function enqueue(job, fn) {
       try { job.result = await fn(); job.status = 'done'; }
       catch (e) {
         job.status = 'error';
-        job.error = { code: e.code || 'INTERNAL_ERROR', message: e.message || '未預期錯誤', ...(e.extra && e.extra.verification ? { verification: e.extra.verification } : {}) };
+        job.error = { code: e.code || 'INTERNAL_ERROR', message: e.message || '未預期錯誤', ...(e.extra && e.extra.verification ? { verification: e.extra.verification } : {}), ...(e.extra && e.extra.demand_remap_failures ? { demand_remap_failures: e.extra.demand_remap_failures } : {}) };
         if (!e.code) console.error('[migration-v2 job]', e && e.stack);
       }
       job.finishedAt = Date.now();

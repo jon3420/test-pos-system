@@ -1,0 +1,41 @@
+{
+ "release": "R54.4/MBV2-HF1-C3.2",
+ "base_zip_sha256": "c31b4de0eb343c5dc413c03c677c5463adbdda330fe346ea12ebf6435ca97c8e",
+ "modified": [
+  {
+   "path": "public/line-order.html",
+   "c31_sha256": "3aead6dd09bc71b5bc0f5e4bb1b0eb9665f3f8dd71d88e424b1fc31c4fc16edc",
+   "c32_sha256": "ef1d45539dc3618ec71aa6c5e0b31b15347d167a7146692c57f7e80f4b6e4b83"
+  },
+  {
+   "path": "utils/migrationV2.js",
+   "c31_sha256": "3bd8bd5f75dddc7dcf488a7966d04b102079a31fb2f9df17cbed1a095769594d",
+   "c32_sha256": "5eecd3937bb0fba41a6289e354b50f35822771df7e12f6f095cd5c510f2c17f9"
+  }
+ ],
+ "added": [
+  {
+   "path": "scripts/smoke-r54-4-mbv2-hf1-c3-2-firstpaint-remap.js",
+   "sha256": "25cfb1dcb06ecafc4e0443a22750c19ed0eab3cd9ab6c9ffe28e9a66941a0243"
+  },
+  {
+   "path": "docs/R54_4_MBV2_HF1_C3_2/00_FIX_REPORT.md",
+   "sha256": "1d4afde6f0b29943e9a35487f7c7a2ab819b6f13b28e28272e2ac9479a84770b"
+  },
+  {
+   "path": "docs/R54_4_MBV2_HF1_C3_2/01_TEST_RESULTS.json",
+   "sha256": "868952773d71ed3c3b661e3a4bb37f8ed49f25ef65c434eaa150666b19890aea"
+  },
+  {
+   "path": "docs/R54_4_MBV2_HF1_C3_2/03_BACKUP_RESTORE_DEMAND.md",
+   "sha256": "fd0b64e0a23fbd456bfff50f23093981d78d60efa49ba2d1c2993c2c6fe32ad3"
+  },
+  {
+   "path": "docs/R54_4_MBV2_HF1_C3_2/02_FILE_MANIFEST.json",
+   "sha256": "(this file)"
+  }
+ ],
+ "deleted": [],
+ "db_migrations": "none",
+ "existing_tests_modified": "none"
+}

@@ -332,6 +332,37 @@ img{max-width:100%;display:block}
 .delivery-free-reco__item:active{opacity:.8}
 .delivery-free-reco__item-name{font-weight:600;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.4;min-height:2.8em}
 .delivery-free-reco__item-price{color:#e65100;font-weight:700;margin-top:4px}
+/* R54.4／MBV2-HF1-C3：想買登記入口（停售標籤下方；不被圖片遮罩覆蓋，點擊不冒泡成詳情／加購） */
+.demand-row{margin-top:6px;position:relative;z-index:4}
+.demand-row:empty{display:none}
+.demand-btn{width:100%;min-height:30px;padding:5px 6px;border-radius:8px;border:1.5px solid var(--g);background:#fff;color:var(--g);font-size:12px;font-weight:700;line-height:1.25;cursor:pointer;-webkit-tap-highlight-color:transparent;white-space:normal;word-break:keep-all;overflow-wrap:anywhere}
+.demand-btn.is-registered{background:#f0faf4;border-style:dashed}
+.demand-btn:active{transform:scale(.97)}
+.qty-ctrl-blocked .plus,.qty-ctrl .plus[aria-disabled="true"]{background:#cfcfcf;color:#fff;cursor:not-allowed}
+/* 商品詳情的想買登記入口（樣式放在本頁，不修改共用的 product-detail-modal.css） */
+.pdm-demand-btn{flex:0 0 auto;height:46px;padding:0 14px;border-radius:10px;border:1.5px solid #06C755;background:#fff;color:#06C755;font-size:15px;font-weight:700;cursor:pointer;white-space:nowrap}
+#demandOverlay{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:260;display:none;align-items:flex-end;justify-content:center}
+#demandOverlay.show{display:flex}
+#demandOverlay .dm-panel{background:#fff;width:100%;max-width:520px;border-radius:16px 16px 0 0;max-height:90vh;overflow-y:auto;padding:16px 16px calc(16px + env(safe-area-inset-bottom,0px));box-sizing:border-box;color:#222}
+#demandOverlay .dm-hd{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+#demandOverlay .dm-title{font-size:16px;font-weight:700;margin:0}
+#demandOverlay .dm-pname{font-size:13px;color:#555;margin:4px 0 8px}
+#demandOverlay .dm-desc{font-size:13px;color:#444;line-height:1.5;margin:0 0 10px}
+#demandOverlay .dm-row{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-top:1px solid #f0f0f0}
+#demandOverlay .dm-qty{display:flex;align-items:center;gap:14px}
+#demandOverlay .dm-qty button{width:34px;height:34px;border-radius:50%;border:1px solid #ddd;background:#fff;font-size:18px}
+#demandOverlay .dm-qty button:disabled{opacity:.4}
+#demandOverlay .dm-qty-num{min-width:26px;text-align:center;font-weight:700;font-size:15px}
+#demandOverlay .dm-prefs{display:flex;gap:8px;flex-wrap:wrap}
+#demandOverlay .dm-prefs label{display:flex;align-items:center;gap:4px;font-size:13px;border:1px solid #ddd;border-radius:16px;padding:4px 10px}
+#demandOverlay .dm-consent{display:flex;gap:6px;align-items:flex-start;font-size:13px;padding:10px 0;border-top:1px solid #f0f0f0}
+#demandOverlay .dm-note{font-size:12px;color:#777;line-height:1.5;margin:10px 0}
+#demandOverlay .dm-msg{font-size:13px;margin:6px 0;min-height:1em}
+#demandOverlay .dm-msg.err{color:#c62828}
+#demandOverlay .dm-submit{width:100%;height:46px;border:none;border-radius:10px;background:#06C755;color:#fff;font-size:16px;font-weight:700}
+#demandOverlay .dm-submit:disabled{background:#bbb}
+#demandOverlay .dm-link{background:none;border:none;color:#c62828;font-size:13px;text-decoration:underline;padding:8px 0;margin-top:4px}
+#demandOverlay .dm-login{width:100%;height:44px;border:none;border-radius:10px;background:#06C755;color:#fff;font-size:15px;font-weight:700;margin-top:6px}
 </style>
 <link rel="stylesheet" href="/css/product-detail-modal.css">
 <!-- R48：快閃取餐（/popup-order）顧客前台專用樣式；所有 selector 皆限定在 popup scope，一般 LINE 點餐頁不受影響。 -->
@@ -347,6 +378,7 @@ img{max-width:100%;display:block}
     <div class="hdr-btns">
       <button class="hdr-btn" onclick="openQuerySheet()">🔍 查詢訂單</button>
       <button class="hdr-btn" onclick="openMyOrders()">📜 我的訂單</button>
+      <button class="hdr-btn" id="myDemandsBtn" style="display:none" onclick="openMyDemandsSheet()">🙋 我的想買登記</button>
     </div>
   </div>
   <div class="shop-card">
@@ -591,7 +623,7 @@ img{max-width:100%;display:block}
 <script src="/js/analytics-platforms.js"></script>
 <script src="/js/phone-utils.js?v=h1-4-10-phone-1"></script>
 <script src="/js/line-member-gate.js?v=h1-4-10-backend-reconcile-1"></script>
-<script src="/js/product-detail-modal.js"></script>
+<script src="/js/product-detail-modal.js?v=r54-4-hf1-c3-1-demand-2"></script>
 <script src="/js/delivery-free-progress.js"></script>
 <!-- fix18-10-hotfix30-B5-R5.4-G1: Geo Intelligence V2 — 顧客頁面端 Consent-driven
      Coordinate Acquisition。全新獨立檔案，init()/requestOnDeliveryFlow() 由下面
@@ -962,13 +994,96 @@ async function _initLineMemberGateFromShopData(d){
 // LIFF init → 取得 UID（透過既有 member_session，見 _currentMemberSession）
 // → 呼叫 restore API → 還原購物車 → 重新計算價格（後端已做，見 restore API）
 // → 確認好友狀態 → 進入結帳畫面。
+
+// ══════════════════════════════════════════════════════════════════════
+// R54.4／MBV2-HF1-C3.3：需要身分驗證的購物車還原（Recovery／Handoff）——明確取消＋世代檢查
+//   pending   ：本頁帶有 recovery_token 或 cart_token，且會員 Gate／還原尚未結束（購物車與送單鎖定）
+//   gen       ：本頁「還原任務」世代。每個還原流程開始時取得 token，之後每次發請求、每次 await
+//               回來、每個副作用（寫購物車／localStorage、綁定 token、開結帳、付款面板、提示）之前，
+//               都以 _restoreTaskAlive(token) 確認仍有效。
+//   cancelled ：顧客點「先繼續點餐」→ 本次還原立即取消（gen 前進），尚未發出的請求不再發出，
+//               在途回應一律丟棄。不再依賴「是否改過商品數量」（C3.2 的 touched 判斷已移除）。
+//   closed    ：本頁已成立訂單、進入付款流程或顧客成功清空購物車 → 舊還原任務一律失效。
+//   committed ：還原回應已開始套用（同步檢查通過的那一刻）→ 不再接受取消，避免「取消與套用交錯」。
+// 取消還原 ≠ 登入／好友驗證成功；會員與結帳要求照舊由 Gate 與送單流程把關。
+// ══════════════════════════════════════════════════════════════════════
+const _identityRestore={ pending:false, skipped:false, cancelled:false, closed:false, committed:false, gen:1, timer:null };
+function _pageNeedsIdentityRestore(){
+  try{ return !!_recoveryResumeToken || !!(_getCheckoutParamsFromUrl().cartToken); }catch(e){ return false; }
+}
+function _restoreTaskToken(){ return _identityRestore.gen; }
+function _restoreTaskAlive(t){ return !_identityRestore.cancelled && !_identityRestore.closed && t===_identityRestore.gen; }
+// 套用前呼叫：仍有效 → 標記已開始套用（之後不接受取消）並回傳 true；否則 false（不得有任何副作用）
+function _restoreCommit(t){
+  if(!_restoreTaskAlive(t)) return false;
+  _identityRestore.committed=true;
+  const btn=document.getElementById('restoreSkipBtn'); if(btn) btn.remove();
+  return true;
+}
+// 本頁已成立訂單／進入付款流程／成功清空購物車：讓仍在途的舊還原任務失效
+function _closeIdentityRestore(){
+  if(_identityRestore.committed && !_identityRestore.pending) return;
+  _identityRestore.closed=true; _identityRestore.gen++;
+}
+function _beginIdentityRestoreLock(){
+  _identityRestore.pending=true;
+  try{
+    let b=document.getElementById('restorePendingBanner');
+    if(!b){
+      b=document.createElement('div'); b.id='restorePendingBanner';
+      b.style.cssText='position:sticky;top:0;z-index:150;background:#fff8e1;color:#6d4c00;border-bottom:1px solid #ffe08a;padding:10px 14px;font-size:13px;line-height:1.5';
+      const c=document.getElementById('content'); (c||document.body).insertBefore(b,(c||document.body).firstChild);
+    }
+    b.innerHTML='<span id="restorePendingText">正在確認 LINE 會員身分並還原你的購物車，完成前暫時無法調整購物車或送出訂單。你可以先瀏覽商品。</span>';
+    _identityRestore.timer=setTimeout(()=>{
+      if(!_identityRestore.pending || _identityRestore.committed || document.getElementById('restoreSkipBtn')) return;
+      const btn=document.createElement('button'); btn.type='button'; btn.id='restoreSkipBtn';
+      btn.textContent='先繼續點餐';
+      btn.style.cssText='display:block;margin-top:6px;border:1px solid #c79100;background:#fff;color:#6d4c00;border-radius:8px;padding:5px 10px;font-size:13px;font-weight:700';
+      btn.onclick=_skipIdentityRestore;
+      b.appendChild(btn);
+    },6000);
+  }catch(e){}
+}
+function _skipIdentityRestore(){
+  if(_identityRestore.committed) return; // 還原已開始套用：不再接受取消
+  _identityRestore.skipped=true;
+  _identityRestore.cancelled=true;
+  _identityRestore.gen++;               // 所有在途的還原任務立即失效
+  try{ document.getElementById('loading').style.display='none'; }catch(e){}
+  const t=document.getElementById('restorePendingText');
+  if(t) t.textContent='已略過本次購物車還原，你可以繼續點餐。';
+  const btn=document.getElementById('restoreSkipBtn'); if(btn) btn.remove();
+}
+function _endIdentityRestoreLock(){
+  _identityRestore.pending=false;
+  if(_identityRestore.timer){ clearTimeout(_identityRestore.timer); _identityRestore.timer=null; }
+  const b=document.getElementById('restorePendingBanner'); if(!b) return;
+  if(_identityRestore.skipped) setTimeout(()=>{ try{ b.remove(); }catch(e){} },4000); // 保留「已略過」說明片刻
+  else b.remove();
+}
+// 購物車異動入口共用：還原進行中（且未略過）時提示並回傳 true
+function _cartLockedForRestore(){
+  if(_identityRestore.pending && !_identityRestore.skipped){
+    try{ toast('正在確認 LINE 會員身分並還原購物車，請稍候…'); }catch(e){}
+    return true;
+  }
+  return false;
+}
 async function _restoreCartFromHandoffToken(cartToken){
-  document.getElementById('loading').style.display='flex';
+  // R54.4／MBV2-HF1-C3.3：本次還原任務世代；顧客已略過 → 不顯示 loading、不發請求、不做任何事
+  const rt=_restoreTaskToken();
+  if(!_restoreTaskAlive(rt)) return;
+  // C3.2 起商品頁已先顯示：只在商品頁尚未顯示時才用全螢幕 loading，避免擋住「先繼續點餐」
+  const _loadingEl=document.getElementById('loading');
+  const _useLoading=getComputedStyle(document.getElementById('content')).display==='none';
+  if(_useLoading) _loadingEl.style.display='flex';
   try{
     let memberSession=_currentMemberSession();
     // 剛登入完成時 session 可能要等 initLineMemberGate 內部流程真正落地，
     // 這裡等一輪 microtask 再讀一次，不做無限重試（LIFF 沒登入成功就是沒有）。
     if(!memberSession){ await new Promise(r=>setTimeout(r,300)); memberSession=_currentMemberSession(); }
+    if(!_restoreTaskAlive(rt)) return;
     if(!memberSession){
       toast('請先完成 LINE 登入後再繼續結帳');
       return;
@@ -978,6 +1093,8 @@ async function _restoreCartFromHandoffToken(cartToken){
     const res=await apiFetch('/api/line-checkout-handoff/restore',{
       method:'POST', body:JSON.stringify({ cart_token:cartToken, member_session:memberSession })
     }).then(r=>r.json());
+    // 在途回應抵達：已取消／已下單／已清空 → 丟棄（不寫購物車、不綁 token、不開結帳、不提示）
+    if(!_restoreTaskAlive(rt)) return;
 
     if(!res.ok){
       const msgMap={
@@ -1014,6 +1131,8 @@ async function _restoreCartFromHandoffToken(cartToken){
       pickup_date:cc.pickup_date||'', pickup_time:cc.pickup_time||'',
       payment_method:cc.payment_method||'', order_note:'',
     };
+    // R54.4／MBV2-HF1-C3.3：同步確認仍有效並標記開始套用（之後不接受取消），才寫入
+    if(!_restoreCommit(rt)) return;
     localStorage.setItem(ORDER_CART_KEY, JSON.stringify(cartData));
     await restoreCart();
     _activeCartHandoffToken=cartToken;
@@ -1041,7 +1160,7 @@ async function _restoreCartFromHandoffToken(cartToken){
     // H1.4.10 section I 觸發時機三：Handoff restore 完成後補綁定。
     try{ _linkLineMemberContext('handoff_restore_completed'); }catch(e){}
   } finally {
-    document.getElementById('loading').style.display='none';
+    if(_useLoading) _loadingEl.style.display='none';
   }
 }
 // fix18-10-hotfix27-CD（需求文件七）：Token 失效時顯示的畫面。刻意不呼叫任何
@@ -1197,7 +1316,7 @@ function _mapRecoveryPaymentFailureMessage(reason){
 
 // 需求文件十七／十八：reuse 既有 Cart Handoff 的「server items → localStorage
 // ORDER_CART_KEY → restoreCart()」還原機制，不新造第二套 cart mapping。
-async function _applyRecoveryCart(cartItems){
+async function _applyRecoveryCart(cartItems, rt){
   const cartQtyMap={};
   (cartItems||[]).forEach(it=>{ cartQtyMap[it.product_id]=it.qty; });
   let _existingCreatedAt=null;
@@ -1210,8 +1329,11 @@ async function _applyRecoveryCart(cartItems){
     cart_created_at:_existingCreatedAt||Date.now(), cart_updated_at:Date.now(),
     cart:cartQtyMap,
   });
+  // R54.4／MBV2-HF1-C3.3：同步確認本次還原仍有效並標記開始套用，才寫入；否則回報未套用
+  if(rt!=null && !_restoreCommit(rt)) return false;
   localStorage.setItem(ORDER_CART_KEY, JSON.stringify(cartData));
   await restoreCart();
+  return true;
 }
 
 // 正式 release：只保留這個 wrapper，避免直接把 window.location.href 賦值散落
@@ -1270,20 +1392,26 @@ function _showPaymentRecoveryPanel(){
   }catch(e){ /* Panel 顯示失敗絕不可影響其他功能 */ }
 }
 
-async function _handleRecoveryRestore(memberSession){
+async function _handleRecoveryRestore(memberSession, rt){
+  // R54.4／MBV2-HF1-C3.3：rt＝本次還原任務世代（未傳入時以目前世代為準）
+  if(rt==null) rt=_restoreTaskToken();
   try{
+    if(!_restoreTaskAlive(rt)) return;
     const res=await apiFetch('/api/cart-recovery/restore',{method:'POST',body:JSON.stringify({
       member_session:memberSession, recovery_token:_recoveryResumeToken, page_type:'line_order',
     })}).then(r=>r.json());
+    if(!_restoreTaskAlive(rt)) return; // 在途回應：已取消／已下單／已清空 → 丟棄
     if(!res || !res.success){
       showRecoveryNotice('restore_failure', _mapRecoveryRestoreFailureMessage(res&&res.reason));
       return;
     }
     if(res.resume_type==='payment'){
+      if(!_restoreCommit(rt)) return; // 不得在取消後改變付款流程
       _showPaymentRecoveryPanel();
       return;
     }
-    await _applyRecoveryCart(res.cart&&res.cart.items);
+    // _applyRecoveryCart() 回報未套用 → 不得繼續開啟購物車或結帳
+    if(!(await _applyRecoveryCart(res.cart&&res.cart.items, rt))) return;
     if(res.resume_type==='checkout'){
       // 需求文件二十一：純 UI 還原，不得呼叫 openCheckoutStep(event)、不得
       // fake #goCheckoutBtn click、不得 _trackEvent('checkout_click')——原本
@@ -1295,15 +1423,19 @@ async function _handleRecoveryRestore(memberSession){
   }catch(e){ /* Recovery 還原失敗絕不可影響其他功能 */ }
 }
 
-async function _handleRecoveryCancelReturn(memberSession){
+async function _handleRecoveryCancelReturn(memberSession, rt){
+  if(rt==null) rt=_restoreTaskToken();
   try{
+    if(!_restoreTaskAlive(rt)) return;
     const res=await apiFetch('/api/cart-recovery/payment-cancelled',{method:'POST',body:JSON.stringify({
       member_session:memberSession, recovery_token:_recoveryResumeToken,
     })}).then(r=>r.json());
+    if(!_restoreTaskAlive(rt)) return; // R54.4／MBV2-HF1-C3.3
     if(!res || !res.success){
       showRecoveryNotice('restore_failure', _mapRecoveryRestoreFailureMessage(res&&res.reason));
       return;
     }
+    if(!_restoreCommit(rt)) return; // 不得在取消後改變付款流程
     // 需求文件三十：reset 成功後只顯示付款面板，不自動再次 /resume-payment，
     // 使用者自己再按一次才會建立第二次合法的 LINE Pay Request。
     _showPaymentRecoveryPanel();
@@ -1322,6 +1454,9 @@ async function _handleRecoveryCancelReturn(memberSession){
 async function handleRecoveryResumeFromUrl(){
   if(_recoveryResumeHandled || !_recoveryResumeToken) return;
   _recoveryResumeHandled=true;
+  // R54.4／MBV2-HF1-C3.3：顧客已略過本次還原 → 尚未發出的還原請求不再發出
+  const rt=_restoreTaskToken();
+  if(!_restoreTaskAlive(rt)) return;
   const memberSession=_currentMemberSession();
   if(!memberSession){
     // 需求文件十三：沒有可信身分，不得 liff.login()、不得相信 token 本身、
@@ -1330,17 +1465,19 @@ async function handleRecoveryResumeFromUrl(){
     return;
   }
   if(_recoveryWasLinePayCancel){
-    await _handleRecoveryCancelReturn(memberSession);
+    await _handleRecoveryCancelReturn(memberSession, rt);
     return;
   }
   try{
     const targetRes=await apiFetch('/api/cart-recovery/resolve-target',{method:'POST',body:JSON.stringify({
       recovery_token:_recoveryResumeToken, member_session:memberSession,
     })}).then(r=>r.json());
+    if(!_restoreTaskAlive(rt)) return; // R54.4／MBV2-HF1-C3.3
     if(targetRes && targetRes.success && targetRes.data && targetRes.data.page_type==='popup_order'){
       const sessionCode=targetRes.data.popup_session_public_code;
       if(typeof sessionCode==='string' && sessionCode){
         const handoffId=await createPopupRecoveryHandoff(memberSession, sessionCode, _recoveryResumeToken);
+        if(!_restoreTaskAlive(rt)) return; // R54.4／MBV2-HF1-C3.3：已取消則不導頁
         if(handoffId){
           // 規格三：session 一律使用「後端解析結果」，不是原網址或任何
           // client input；target path 也只信任後端回傳、經過 allowlist 的值。
@@ -1355,7 +1492,7 @@ async function handleRecoveryResumeFromUrl(){
       return;
     }
   }catch(e){ /* resolve-target 呼叫失敗時，安靜落回既有 line_order 還原路徑，不阻擋既有行為 */ }
-  await _handleRecoveryRestore(memberSession);
+  await _handleRecoveryRestore(memberSession, rt);
 }
 
 // ── 全域狀態 ──
@@ -1424,17 +1561,62 @@ function _peekSavedOrderMode(){
 // 加入購物車使用「任一模式可買即可買」的規則；currentMode 只用於
 // 購物車結帳時「目前選擇要用哪個模式送單」，不再是瀏覽/加入購物車的前提。
 // ══════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════
+// R54.4／MBV2-HF1-C3：人工販售狀態（後台「LINE 上架設定 → 販售狀態」）的單一有效判斷。
+// 根因（C2）：_productModeStatus() 已把人工停售擋成 canNextDay:false，但 buildCard()／
+// openProductDetail()／updateProductCard()／resolveCartQuantityPolicy()／
+// refreshDateSelectorForCart()／productRequiresNextDayPreorder() 又各自直接讀原始
+// takeout_can_next_day／delivery_can_next_day。當 product_time_ended 等今日原因與原始次日
+// 旗標同時成立，停售商品重新出現「今日售完＋可預購＋加購入口」，實際加購又被擋下。
+// 修正：所有讀取「售完原因／可否預約下個營業日」的地方一律改用下面兩個函式：
+//   暫停販售、長期下架 → 原因固定為人工停售、可預約＝false（不得被時段結束、今日份數或
+//                        can_next_day 旗標覆蓋）
+//   今日完售           → 今日一律不可下單；可否預約未來日期沿用後端計算的 can_next_day
+//                        （後端已依通路、店家次日預購設定判斷）；實際額度仍由預購額度把關
+//   正常販售           → 原始後端值，不變
+// 不硬編碼任何商品名稱或 ID。
+function getManualSaleStatus(p){ return (p && p.sale_status) || 'available'; }
+function isManualSaleBlocked(p){ const ss=getManualSaleStatus(p); return ss==='paused' || ss==='sold_out_indefinitely'; }
+function isManualSoldOutToday(p){ return getManualSaleStatus(p)==='sold_out_today'; }
+function getEffectiveSoldOutReason(p, mode){
+  if(!p) return null;
+  const raw = mode==='delivery' ? p.delivery_sold_out_reason : p.takeout_sold_out_reason;
+  const ss = getManualSaleStatus(p);
+  if(ss==='paused') return 'manual_paused';
+  if(ss==='sold_out_indefinitely') return 'manual_sold_out_indefinitely';
+  if(ss==='sold_out_today'){
+    // 商品自身不支援該通路／店家關閉該通路屬於通路限制，維持原因（不得因今日完售而開放預約）
+    if(raw==='product_mode_disabled' || raw==='mode_closed') return raw;
+    return 'manual_sold_out_today';
+  }
+  return raw || null;
+}
+function getEffectiveCanNextDay(p, mode){
+  if(!p || isManualSaleBlocked(p)) return false;
+  const raw = mode==='delivery' ? p.delivery_can_next_day : p.takeout_can_next_day;
+  if(!raw) return false;
+  const r = getEffectiveSoldOutReason(p, mode);
+  if(r==='product_mode_disabled' || r==='mode_closed') return false;
+  return true;
+}
 function _productModeStatus(p, mode){
   // fix18-10-hotfix30-B3 root cause fix：商品模式交集只能處理「商品是否支援外帶/外送」，
   // 不得把「店家現在不能立即下單，但可預約（今天稍後或明天）」誤判成模式關閉。
   // 這裡改用 .selectable（= canOrderNow || canPreorder），不再只看 .enabled（= canOrderNow）。
   const fs = getFulfillmentStatus(mode);
   const storeSelectable = fs.selectable;
-  const soldOutReason = mode==='delivery' ? p.delivery_sold_out_reason : p.takeout_sold_out_reason;
-  const canNextDay = mode==='delivery' ? p.delivery_can_next_day : p.takeout_can_next_day;
-  const ss=p.sale_status||'available';
+  // R54.4／MBV2-HF1-C3：改用有效判斷（人工停售不得被原始次日旗標覆蓋）
+  const soldOutReason = getEffectiveSoldOutReason(p, mode);
+  const canNextDay = getEffectiveCanNextDay(p, mode);
+  const ss=getManualSaleStatus(p);
   if(!storeSelectable) return {enabled:false, reason:'mode_closed', canNextDay:false};
-  if(ss!=='available') return {enabled:false, reason: ss==='paused'?'paused':'sold_out_today', canNextDay:false};
+  if(ss==='paused' || ss==='sold_out_indefinitely') return {enabled:false, reason:ss, canNextDay:false, manualBlocked:true};
+  if(ss==='sold_out_today'){
+    // 今日完售：今日不可加購；符合條件（後端 can_next_day）才可預約未來日期
+    if(canNextDay) return {enabled:true, reason:soldOutReason, canNextDay:true};
+    return {enabled:false, reason:'sold_out_today', canNextDay:false};
+  }
+  if(ss!=='available') return {enabled:false, reason:'sold_out_today', canNextDay:false};
   if(soldOutReason){
     if(canNextDay) return {enabled:true, reason:soldOutReason, canNextDay:true};
     return {enabled:false, reason:soldOutReason, canNextDay:false};
@@ -1739,6 +1921,7 @@ function _trackModeConflict(cartModes){
 // fix18-10-hotfix30-A 第三點：從衝突清單直接移除該商品
 function removeCartItem(id){
   if(!cart[id]) return;
+  if(_cartLockedForRestore()) return; // R54.4／MBV2-HF1-C3.2：需要身分驗證的還原進行中
   const qty=cart[id].qty;
   _trackRemoveFromCart(id, qty);
   delete cart[id]; preorderRequiredIds.delete(Number(id));
@@ -5396,6 +5579,7 @@ async function init(){
     ]);
     bizCalendarList = (bcr && bcr.success && Array.isArray(bcr.data)) ? bcr.data : [];
     _shopRequestSucceeded = !!(sr && sr.success && sr.data);
+    let _memberGateInitPromise=Promise.resolve(); // R54.4／MBV2-HF1-C3.1：作用域修正
     if(sr.success){
       shopData=sr.data;
       // fix18-10-hotfix30-B2 第一點：非敏感版本診斷欄位，供確認正式環境實際載入的版本，
@@ -5422,7 +5606,8 @@ async function init(){
       // 後執行，會把 Recovery 剛還原的購物車覆蓋掉。改成先把這個 Promise
       // 存起來，等正常 restoreCart() 完成之後才 await 它、再觸發 Recovery
       // bootstrap，讓 Recovery（如果有）是最後、權威的購物車狀態。
-      let _memberGateInitPromise=Promise.resolve();
+      // R54.4／MBV2-HF1-C3.1：宣告移到 if(sr.success) 之前（見 init() 開頭）；原本宣告在本區塊內，
+      // 區塊外的 await 取不到變數（ReferenceError 被 catch 吃掉），實際上從未等待。
       try{ _memberGateInitPromise=_initLineMemberGateFromShopData(shopData); }catch(e){}
       // fix18-05: 依 coupon_feature_enabled 顯示/隱藏優惠券區塊
       couponFeatureEnabled = shopData.coupon_feature_enabled === true;
@@ -5551,8 +5736,24 @@ async function init(){
     // Gate（含 Phase 1 Passive Identify）初始化完成，接著才觸發 Recovery
     // bootstrap——這樣如果這次是 Recovery 連結，它的還原結果會是最後、
     // 權威的購物車狀態，不會被上面這行已經跑完的 restoreCart() 蓋掉。
-    try{ await _memberGateInitPromise; }catch(e){}
-    try{ handleRecoveryResumeFromUrl(); }catch(e){}
+    // R54.4／MBV2-HF1-C3.2：首屏不再等待會員 Gate。
+    //   - 一般瀏覽所需資料（店家、商品、日期時段、付款方式）與既有 restoreCart() 已完成 → 立即顯示商品頁。
+    //   - 會員 Gate（LIFF SDK／初始化／被動辨識／Handoff）在背景繼續；進站、好友、結帳驗證規則由
+    //     Gate 本身與送單流程照舊執行（與 C3 及更早版本實際上線行為相同：當時的 await 從未生效）。
+    //   - 本次頁面帶有 Recovery token 或 Handoff cart_token（需要身分驗證的還原）時：
+    //     先鎖住購物車異動與送單（_identityRestore），下方背景流程「完整等待」會員 Gate 後才觸發
+    //     Recovery bootstrap（H1.4.10 Phase 4B 順序：restoreCart → Gate → Recovery），完成後解鎖。
+    //     顧客可明確選擇「先繼續點餐」；之後若還原才完成，且顧客已在本頁調整購物車，還原不會覆蓋。
+    //   - 想買登記恢復（_initProductDemand）同樣完整等待同一個 Gate Promise。
+    if(_pageNeedsIdentityRestore()) _beginIdentityRestoreLock();
+    try{ _initProductDemand(_memberGateInitPromise); }catch(e){}
+    (async()=>{
+      // H1.4.10 Phase 4B：既有正常 restoreCart() 已完成，現在才等 LINE 會員 Gate（含 Passive
+      // Identify／Handoff）完整初始化，接著才觸發 Recovery bootstrap；整個頁面只執行一次。
+      try{ await _memberGateInitPromise; }catch(e){}
+      try{ await handleRecoveryResumeFromUrl(); }catch(e){}
+      _endIdentityRestoreLock();
+    })();
     document.getElementById('loading').style.display='none';
     document.getElementById('content').style.display='block';
     renderLastOrderCard();
@@ -6740,18 +6941,17 @@ function _setupViewProductObserver(){
   }catch(e){ /* 追蹤失敗不影響商品渲染 */ }
 }
 
-// ── 商品卡片（fix18-10-hotfix30-A：任一模式可買即顯示可買，不再要求先選外帶/外送）──
-function buildCard(p){
-  const name=p.effective_line_name||p.line_name||p.name;
-  const price=p.effective_line_price||p.price;
-  const img=p.line_image_url||p.image||'';
-  const desc=p.line_description||'';
-  const spec=p.line_spec||''; // fix18-10-hotfix19：LINE 通路獨立規格（例：200g）
-  const isHot=Number(p.line_hot)===1, isPromo=Number(p.line_promo)===1;
-  const ss=p.sale_status||'available';
-  // Hotfix16 BUG-002：尚未開賣但允許預購今天稍後時段（後端已判斷，前台不重複判斷）
-  const preSaleAvailable=!!p.pre_sale_available;
-
+// ── R54.4／MBV2-HF1-C3：商品卡／商品詳情／局部更新共用的「有效販售狀態」────────────
+// buildCard()、openProductDetail()、updateProductCard() 原本各自複製一份判斷，且直接讀原始
+// takeout_can_next_day／delivery_can_next_day；改為全部呼叫這一個函式（內部只用
+// getProductAvailableModes()／getEffectiveSoldOutReason()／getEffectiveCanNextDay()），
+// 與 resolveCartQuantityPolicy()／checkCartIncrement() 的實際加購判斷同源。
+// 純計算、不寫入任何狀態；判斷規則與 C2 相同，唯一差異是人工販售狀態一律優先：
+//   暫停販售／長期下架 → 不顯示「可預購」、不提供＋，詳情停用（任何今日原因或次日旗標都不能覆蓋）
+//   今日完售           → 標示「今日完售」；後端允許預約下個營業日時顯示「可預購」並使用預購額度
+function computeProductSaleView(p){
+  const ss=getManualSaleStatus(p);
+  const manualBlocked=isManualSaleBlocked(p);
   // fix18-10-hotfix30-A：先算出兩種模式各自的可購買狀態，商品卡「任一模式可買」即視為可買，
   // 不再單獨依賴 currentMode，避免「目前模式今日停用」時商品卡誤判為全部不可購買。
   const modeAvail=getProductAvailableModes(p);
@@ -6759,43 +6959,30 @@ function buildCard(p){
   const onlyTakeout = modeAvail.takeout.enabled && !modeAvail.delivery.enabled;
   const onlyDelivery = modeAvail.delivery.enabled && !modeAvail.takeout.enabled;
   // fix18-10-hotfix30-B5 root cause fix（第六項）：「任一模式現在就能立即下單」與「任一模式
-  // 只能透過預約明日才 enabled」必須分開判斷，否則像「外帶現在開放、外送要靠 Business
-  // Calendar 的預約明日才 enabled」這種情境，會被誤判成「今日售完、可預購」，明明外帶現在
-  // 就能正常買。reason===null 代表該模式沒有任何售完/關閉原因，是「現在就能買」的唯一判斷式。
+  // 只能透過預約明日才 enabled」必須分開判斷。reason===null 代表該模式現在就能買。
   const anyImmediate = (modeAvail.takeout.enabled && !modeAvail.takeout.reason)
     || (modeAvail.delivery.enabled && !modeAvail.delivery.reason);
   const mode=_representativeMode(modeAvail);
-
-  // ══════════════════════════════════════════════════════
-  // LINE 接單規則優先順序（前台顯示層，與後端 /api/line-menu 一致）
-  //   第一位階：今日休假 → calendar_closed / today_closed / weekly_closed（只限今日）
-  //   第二位階：今日截止時間 → cutoff_sold_out（只限今日）
-  //   第三位階：商品販售時段 → product_time_ended / product_not_started（只限今日）
-  //   第四位階：LINE 份數     → real_sold_out（只限今日）
-  //   canNextDay=true 時，任何今日限制都顯示「預約明日／預約下個營業日」按鈕
-  // ══════════════════════════════════════════════════════
-
-  const soldOutReason=mode==='delivery'?p.delivery_sold_out_reason:p.takeout_sold_out_reason;
-  const canNextDay=mode==='delivery'?p.delivery_can_next_day:p.takeout_can_next_day;
-  // fix18-10-hotfix30-A：只有兩種模式都不可買時，商品才算「不可購買」；
-  // 任一模式可買，即便 currentMode 本身不可用，也不得整卡灰掉。
+  const soldOutReason=getEffectiveSoldOutReason(p, mode);
+  const canNextDay=getEffectiveCanNextDay(p, mode);
+  // fix18-10-hotfix30-A：只有兩種模式都不可買時，商品才算「不可購買」。
   const isSoldOut = anyModeEnabled ? false : (!!soldOutReason || Number(p.line_sold_out)===1 || ss!=='available');
   const isDayClosed = soldOutReason==='calendar_closed' || soldOutReason==='today_closed' || soldOutReason==='weekly_closed';
-
-  // LINE quota 優先（食材控管不適用 LINE 點餐，ingredient_available 不影響前台顯示）
   const quota=p.line_quota||{hasQuota:false};
-
-  // canPreorderNextDay：今日售完（任何位階）且允許預約明日
-  // fix18-10-hotfix30-B5 root cause fix（第六項）：加上 !anyImmediate——只要還有任何模式
-  // 「現在」就能買，商品卡一律顯示正常販售，不得同時冒出「今日售完」＋「可預購」徽章
-  // （這正是 Business Calendar 只關閉單一模式時，商品卡被誤判成「今日售完 可預購」的根因）。
-  const canPreorderNextDay = !anyImmediate && (isSoldOut || !!soldOutReason) && !!canNextDay && soldOutReason !== 'mode_closed';
+  // canPreorderNextDay：今日不可下單且允許預約下個營業日（人工暫停／長期下架永遠為 false）
+  const canPreorderNextDay = !manualBlocked && !anyImmediate && (isSoldOut || !!soldOutReason) && !!canNextDay && soldOutReason !== 'mode_closed';
   const quotaRealSoldOut = quota.hasQuota && Number(quota.remaining??0) <= 0;
   const unavailFully = (isSoldOut && !canPreorderNextDay) || (quotaRealSoldOut && !canPreorderNextDay);
+  const preorderInfo=p.line_preorder||{hasPreorder:false};
+  const preorderFullBlocked = canPreorderNextDay && preorderInfo.hasPreorder && Number(preorderInfo.remaining??0)<=0;
 
-  // Hotfix16 BUG-006：今日狀態文字與顏色重新設計，避免全部顯示灰色造成誤解
+  // Hotfix16 BUG-006：今日狀態文字與顏色。R54.4／MBV2-HF1-C3：人工販售狀態優先，
+  // 其次才是今日時段／份數等原因（「今日完售」＝人工；「今日售完」＝自然售完，兩者分開）。
   let soldLbl='今日售完', soldCls='badge-sold';
-  if(soldOutReason==='mode_closed'){          soldLbl='未開放';       soldCls='badge-sold'; }
+  if(ss==='paused'){                          soldLbl='暫停販售';     soldCls='badge-sold'; }
+  else if(ss==='sold_out_indefinitely'){      soldLbl='長期下架';     soldCls='badge-sold'; }
+  else if(ss==='sold_out_today' && soldOutReason==='manual_sold_out_today'){ soldLbl='今日完售'; soldCls='badge-soldout-today'; }
+  else if(soldOutReason==='mode_closed'){     soldLbl='未開放';       soldCls='badge-sold'; }
   else if(isDayClosed){                       soldLbl='休假中';       soldCls='badge-holiday'; }
   // fix18-10-hotfix30-B5 第七項：Business Calendar 造成的單一模式關閉，永遠不得顯示
   // 「今日售完」字樣（那個字眼只能用於庫存售完／商品停售），改顯示「暫停販售」。
@@ -6805,11 +6992,45 @@ function buildCard(p){
   else if(soldOutReason==='real_sold_out'){       soldLbl='今日售完';   soldCls='badge-soldout-today'; }
   else if(soldOutReason==='cutoff_sold_out'){     soldLbl='今日售完';   soldCls='badge-soldout-today'; }
   else if(ss==='sold_out_today'){             soldLbl='今日完售';     soldCls='badge-soldout-today'; }
-  else if(ss==='paused'){                     soldLbl='暫停販售';     soldCls='badge-sold'; }
+
+  // 想買登記入口（只決定是否顯示；登記本身不建立訂單、不扣額度）：
+  //   暫停販售／長期下架 → 顯示；今日完售 → 無法預購或預購已滿時；
+  //   正常販售 → 無可訂額度（今日份數用完／LINE 今日售完）且無法預購或預購已滿時。
+  let demandEligible=false;
+  if(manualBlocked) demandEligible=true;
+  else if(ss==='sold_out_today') demandEligible = !canPreorderNextDay || preorderFullBlocked;
+  else if(ss==='available') demandEligible = ((quotaRealSoldOut || Number(p.line_sold_out)===1) && (!canPreorderNextDay || preorderFullBlocked)) || preorderFullBlocked;
+  return { ss, manualBlocked, modeAvail, anyModeEnabled, onlyTakeout, onlyDelivery, anyImmediate, mode,
+    soldOutReason, canNextDay, isSoldOut, isDayClosed, quota, canPreorderNextDay, quotaRealSoldOut,
+    unavailFully, preorderInfo, preorderFullBlocked, soldLbl, soldCls, demandEligible };
+}
+
+// ── 商品卡片（fix18-10-hotfix30-A：任一模式可買即顯示可買，不再要求先選外帶/外送）──
+function buildCard(p){
+  const name=p.effective_line_name||p.line_name||p.name;
+  const price=p.effective_line_price||p.price;
+  const img=p.line_image_url||p.image||'';
+  const desc=p.line_description||'';
+  const spec=p.line_spec||''; // fix18-10-hotfix19：LINE 通路獨立規格（例：200g）
+  const isHot=Number(p.line_hot)===1, isPromo=Number(p.line_promo)===1;
+  // Hotfix16 BUG-002：尚未開賣但允許預購今天稍後時段（後端已判斷，前台不重複判斷）
+  const preSaleAvailable=!!p.pre_sale_available;
+
+  // ══════════════════════════════════════════════════════
+  // LINE 接單規則優先順序（前台顯示層，與後端 /api/line-menu 一致）
+  //   第零位階：人工販售狀態（暫停販售／長期下架／今日完售，R54.4／MBV2-HF1-C3）
+  //   第一位階：今日休假 → calendar_closed / today_closed / weekly_closed（只限今日）
+  //   第二位階：今日截止時間 → cutoff_sold_out（只限今日）
+  //   第三位階：商品販售時段 → product_time_ended / product_not_started（只限今日）
+  //   第四位階：LINE 份數     → real_sold_out（只限今日）
+  //   canNextDay=true 時，今日限制可改為預約下個營業日（人工暫停／長期下架除外）
+  // 判斷集中於 computeProductSaleView()，商品詳情／局部更新共用同一份。
+  // ══════════════════════════════════════════════════════
+  const v=computeProductSaleView(p);
+  const {isSoldOut, canPreorderNextDay, unavailFully, preorderFullBlocked, soldLbl, soldCls, quota, onlyTakeout, onlyDelivery, preorderInfo}=v;
 
   // 份數狀態標籤（第四位階）
   // 今日：用 line_quota；預購（hasNextDayMode=true 或購物車選的是明日）：用 line_preorder
-  const preorderInfo=p.line_preorder||{hasPreorder:false};
   const isInPreorderMode=!!preorderInfo.hasPreorder;  // 後端已判斷
   let stockBadge='';
   if(!isSoldOut){
@@ -6821,23 +7042,14 @@ function buildCard(p){
       else                   stockBadge=`<div class="prod-stock-badge stock-ok">🟢 剩 ${r} 份</div>`;
     }
   }
-  // fix18-10-hotfix22D：canPreorderNextDay 商品不再顯示「預約明日/預約下個營業日」按鈕，
-  // 改為直接顯示 [-] qty [+]，故只需保留「預購是否已滿」的判斷。
-  const preorderFullBlocked = canPreorderNextDay && preorderInfo.hasPreorder && Number(preorderInfo.remaining??0)<=0;
 
   // Hotfix16 BUG-002/006：🟢 可預約（尚未開賣但允許預購今天稍後時段）— 不灰掉、可直接加入購物車
   const preSaleBadge = (!isSoldOut && preSaleAvailable)
     ? '<span class="badge badge-green">🟢 可預約</span>' : '';
 
-  const qty=cart[p.id]?.qty||0;
   // fix18-10-hotfix22D：canPreorderNextDay 且份數未滿時，商品卡永遠顯示 [-] qty [+]（不再需要先按預約按鈕）
-  let footer='';
-  if(!isSoldOut || (canPreorderNextDay && !preorderFullBlocked)){
-    // pre_sale_available 商品同樣可直接加入購物車（不受尚未開賣影響）
-    footer=qty>0
-      ?`<div class="qty-ctrl"><button class="minus" onclick="chgQty(${p.id},-1)">−</button><span class="qnum">${qty}</span><button class="plus" onclick="chgQty(${p.id},1)">+</button></div>`
-      :`<button class="add-btn" id="ab-${p.id}" onclick="addCart(${p.id},event)">+</button>`;
-  }
+  // R54.4／MBV2-HF1-C3：footer 與局部更新共用 _cardFooterHtml()（不可加購但購物車已有時，只能減少）
+  const footer=_cardFooterHtml(p, v);
 
   // Hotfix16 BUG-006：商品遮罩 — 只有休假／售完／停售才灰掉，pre_sale_available 一律不灰掉
   // fix18-10-hotfix22D：canPreorderNextDay 商品「不再」顯示遮罩／預約按鈕，只有「預購已滿」或
@@ -6878,7 +7090,24 @@ function buildCard(p){
 
   // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.6：tabindex/role/onkeydown 讓鍵盤使用者
   // 也能用 Enter／Space 開啟商品詳情（本輪新增需求：鍵盤操作至少支援 Enter/Space）。
-  return `<div class="prod-card" id="pc-${p.id}" tabindex="0" role="button" aria-label="查看${esc(name)}詳情" onclick="onProdCardClick(event,${p.id})" onkeydown="onProdCardKeydown(event,${p.id})"><div class="prod-img-wrap${imgDimmed?' img-dimmed':''}">${imgHtml}<div class="prod-ph" ${img?'style="display:none"':''}>🍽️</div>${ribbonHtml}${capsuleHtml}${modeOnlyCapsuleHtml}</div><div class="prod-body"><div class="prod-name">${esc(name)}</div>${spec?`<div class="prod-spec">${esc(spec)}</div>`:''}<div class="status-row">${statusRowHtml}</div>${stockBadge}<div class="prod-desc">${esc(desc)}</div><div class="prod-footer"><span class="prod-price">$${price}</span>${footer}</div></div></div>`;
+  return `<div class="prod-card" id="pc-${p.id}" tabindex="0" role="button" aria-label="查看${esc(name)}詳情" onclick="onProdCardClick(event,${p.id})" onkeydown="onProdCardKeydown(event,${p.id})"><div class="prod-img-wrap${imgDimmed?' img-dimmed':''}">${imgHtml}<div class="prod-ph" ${img?'style="display:none"':''}>🍽️</div>${ribbonHtml}${capsuleHtml}${modeOnlyCapsuleHtml}</div><div class="prod-body"><div class="prod-name">${esc(name)}</div>${spec?`<div class="prod-spec">${esc(spec)}</div>`:''}<div class="status-row">${statusRowHtml}</div>${stockBadge}<div class="prod-desc">${esc(desc)}</div><div class="prod-footer"><span class="prod-price">$${price}</span>${footer}</div>${_demandEntryHtml(p, v)}</div></div>`;
+}
+// R54.4／MBV2-HF1-C3：商品卡 footer 單一來源（buildCard／updateProductCard 共用）。
+//   可加購（現在可買或可預約且預購未滿）→ [+] 或 [-] qty [+]
+//   不可加購但購物車已有（例如暫停販售、長期下架）→ [-] qty [+停用]，只能減少／移除
+//   不可加購且購物車沒有 → 不顯示加購入口
+function _cardFooterHtml(p, v){
+  const qty=cart[p.id]?.qty||0;
+  // 預購已滿時不得提供可用＋（C2 會顯示「預購已滿」徽章卻仍有＋，點擊才被擋）
+  const canAdd = (!v.isSoldOut || v.canPreorderNextDay) && !v.preorderFullBlocked;
+  if(canAdd){
+    // pre_sale_available 商品同樣可直接加入購物車（不受尚未開賣影響）
+    return qty>0
+      ?`<div class="qty-ctrl"><button class="minus" onclick="chgQty(${p.id},-1)">−</button><span class="qnum">${qty}</span><button class="plus" onclick="chgQty(${p.id},1)">+</button></div>`
+      :`<button class="add-btn" id="ab-${p.id}" onclick="addCart(${p.id},event)">+</button>`;
+  }
+  if(qty>0) return `<div class="qty-ctrl qty-ctrl-blocked"><button class="minus" onclick="chgQty(${p.id},-1)">−</button><span class="qnum">${qty}</span><button class="plus" disabled aria-disabled="true" tabindex="-1" title="目前無法增加">+</button></div>`;
+  return '';
 }
 
 // ── H1.4.6：商品詳情 Modal 開啟入口 ──────────────────────
@@ -6886,11 +7115,14 @@ function buildCard(p){
 // 數量控制時，維持原有「快速加入」行為，不開啟商品詳情（需求文件二）。
 function onProdCardClick(evt, id) {
   if (evt && evt.target && evt.target.closest && evt.target.closest('.qty-ctrl, .add-btn')) return;
+  // R54.4／MBV2-HF1-C3：想買登記按鈕自己處理點擊（不得冒泡成開啟詳情或加購）
+  if (evt && evt.target && evt.target.closest && evt.target.closest('.demand-row')) return;
   openProductDetail(id);
 }
 function onProdCardKeydown(evt, id) {
   if (evt.key !== 'Enter' && evt.key !== ' ' && evt.key !== 'Spacebar') return;
   if (evt.target && evt.target.closest && evt.target.closest('.qty-ctrl, .add-btn')) return;
+  if (evt.target && evt.target.closest && evt.target.closest('.demand-row')) return; // R54.4／MBV2-HF1-C3
   evt.preventDefault();
   openProductDetail(id);
 }
@@ -6919,24 +7151,18 @@ function openProductDetail(id) {
 
   // 沿用 buildCard() 完全相同的可購買判斷，商品詳情不得繞過外帶／外送販售限制
   // （需求文件五：不得因開啟商品詳情而繞過既有販售限制）。
-  const modeAvail = getProductAvailableModes(p);
-  const anyModeEnabled = modeAvail.takeout.enabled || modeAvail.delivery.enabled;
-  const anyImmediate = (modeAvail.takeout.enabled && !modeAvail.takeout.reason)
-    || (modeAvail.delivery.enabled && !modeAvail.delivery.reason);
-  const mode = _representativeMode(modeAvail);
-  const soldOutReason = mode === 'delivery' ? p.delivery_sold_out_reason : p.takeout_sold_out_reason;
-  const canNextDay = mode === 'delivery' ? p.delivery_can_next_day : p.takeout_can_next_day;
-  const isSoldOut = anyModeEnabled ? false : (!!soldOutReason || Number(p.line_sold_out) === 1 || (p.sale_status || 'available') !== 'available');
-  const canPreorderNextDay = !anyImmediate && (isSoldOut || !!soldOutReason) && !!canNextDay && soldOutReason !== 'mode_closed';
-  const preorderInfo = p.line_preorder || { hasPreorder: false };
-  const preorderFullBlocked = canPreorderNextDay && preorderInfo.hasPreorder && Number(preorderInfo.remaining ?? 0) <= 0;
-  const quota = p.line_quota || { hasQuota: false };
-  const quotaRealSoldOut = quota.hasQuota && Number(quota.remaining ?? 0) <= 0 && !canPreorderNextDay;
+  // R54.4／MBV2-HF1-C3：改用共用 computeProductSaleView()（不再直接讀原始 can_next_day）。
+  const v = computeProductSaleView(p);
+  const { isSoldOut, canPreorderNextDay, preorderFullBlocked } = v;
+  const quotaRealSoldOut = v.quotaRealSoldOut && !canPreorderNextDay;
   const blocked = (isSoldOut && !canPreorderNextDay) || quotaRealSoldOut || preorderFullBlocked;
   let blockedLabel = '';
   let detailBlocked = blocked; // R54.4／MBV2-HF1-C1：再疊加共用加購驗證的結果（只會更嚴格）
   if (blocked) {
-    blockedLabel = preorderFullBlocked ? '預購已滿' : (isSoldOut ? '今日售完' : '無法加入');
+    // R54.4／MBV2-HF1-C3：人工販售狀態直接標示（暫停販售／長期下架／今日完售）
+    blockedLabel = preorderFullBlocked ? '預購已滿'
+      : (v.manualBlocked || v.ss==='sold_out_today') ? v.soldLbl
+      : (isSoldOut ? '今日售完' : '無法加入');
   }
   // R54.4／MBV2-HF1-C2：詳情「能否再加 1 份」直接使用 checkCartIncrement(id,p,1)，與商品卡＋／
   // 購物車＋／addCart() 同一判斷（C1 用 Math.max(1, limit-inCart) 會把剩 0 份算成 1 份，卻未停用加入鈕）。
@@ -6959,10 +7185,15 @@ function openProductDetail(id) {
   }
   const startQty = 1;
 
+  // R54.4／MBV2-HF1-C3：詳情的想買登記入口（與商品卡同一判斷；只在不能加入時出現）
+  // R54.4／MBV2-HF1-C3.1：本人已有登記時，即使商品可購買也提供「管理登記」
+  const demand = (_demandManageAllowed(p.id) || (detailBlocked && _demandEntryAllowed(p, v))) ? _demandButtonModel(p) : null;
+
   ProductDetailModal.open({
     id: p.id, name, price, image, description,
-    startQty, maxQty, blocked: detailBlocked, blockedLabel,
+    startQty, maxQty, blocked: detailBlocked, blockedLabel, demand,
   }, {
+    onDemand: function () { openDemandSheet(p.id, 'detail'); },
     onOpen: function () { _trackViewItem(p, name, price); },
     onAddToCart: function (prod, qty) {
       const before = cart[id] ? cart[id].qty : 0;
@@ -7004,8 +7235,9 @@ function _isCartFutureDateSelected(){
 // refreshDateSelectorForCart() 的 needsNextDay 完全相同（含排除 mode_closed／product_mode_disabled）。
 function productRequiresNextDayPreorder(p, mode){
   if(!p) return false;
-  const r = mode==='delivery' ? p.delivery_sold_out_reason : p.takeout_sold_out_reason;
-  const c = mode==='delivery' ? p.delivery_can_next_day    : p.takeout_can_next_day;
+  // R54.4／MBV2-HF1-C3：有效判斷（今日完售→今日不可下單、需預約；暫停／長期下架→不得預約）
+  const r = getEffectiveSoldOutReason(p, mode);
+  const c = getEffectiveCanNextDay(p, mode);
   return !!r && !!c && r!=='mode_closed' && r!=='product_mode_disabled';
 }
 function _latestCartProduct(id){
@@ -7026,17 +7258,23 @@ function resolveCartQuantityPolicy(id, p){
   if(ss==='sold_out_indefinitely') return {ok:false, message:name+' 目前長期下架'};
   const modeAvail=getProductAvailableModes(p);
   if(!modeAvail.takeout.enabled && !modeAvail.delivery.enabled){
+    // R54.4／MBV2-HF1-C3：今日完售且無法預約未來日期（例如店家未開放次日預購）
+    if(ss==='sold_out_today') return {ok:false, message:name+' 今日完售'};
     // fix18-10-hotfix30-B1：一律經由 getFulfillmentStatus()。
     const bothClosed = !getFulfillmentStatus('takeout').enabled && !getFulfillmentStatus('delivery').enabled;
     return {ok:false, message: bothClosed ? '今日暫停接單，無法加入購物車' : '此商品今日不可購買'};
   }
   const mode=_representativeMode(modeAvail);
-  const soldOutReason=mode==='delivery'?p.delivery_sold_out_reason:p.takeout_sold_out_reason;
-  const canNextDay=mode==='delivery'?p.delivery_can_next_day:p.takeout_can_next_day;
+  // R54.4／MBV2-HF1-C3：有效判斷（與商品卡／詳情同源）
+  const soldOutReason=getEffectiveSoldOutReason(p, mode);
+  const canNextDay=getEffectiveCanNextDay(p, mode);
   let nextDay=false;
   if(soldOutReason){
     if(!canNextDay){
       const msgs={
+        manual_sold_out_today:name+' 今日完售',
+        manual_paused:name+' 目前暫停販售',
+        manual_sold_out_indefinitely:name+' 目前長期下架',
         cutoff_sold_out:'已超過今日接單截止時間，無法加入購物車',
         real_sold_out:name+' LINE 今日份數已售完',
         product_time_ended:name+' 今日販售時段已結束',
@@ -7090,6 +7328,7 @@ function _notifyCartBlocked(policy){
 }
 function addCart(id,evt){
   const p=allProducts.find(x=>x.id==id);if(!p)return;
+  if(_cartLockedForRestore()) return; // R54.4／MBV2-HF1-C3.2：需要身分驗證的還原進行中
   // fix18-10-hotfix30-A：不要求先選外帶/外送；任一模式可買即放行（_representativeMode）。
   // 所有判斷集中在 checkCartIncrement()（見上方說明），不得在這裡另寫一套。
   const policy=checkCartIncrement(id,p,1);
@@ -7238,12 +7477,8 @@ async function refreshDateSelectorForCart(){
   // product_mode_disabled 這種本來就不該觸發預約明日的原因），不再單純沿用可能是「別的
   // 模式」留下的舊標記，才是真正符合 Mode Isolation 的做法（外帶只看外帶自己的資料，
   // 外送只看外送自己的資料）。
-  const needsNextDay = Object.values(cart).some(({product:p}) => {
-    if(!p) return false;
-    const soldOutReason = mode==='delivery' ? p.delivery_sold_out_reason : p.takeout_sold_out_reason;
-    const canNextDay    = mode==='delivery' ? p.delivery_can_next_day    : p.takeout_can_next_day;
-    return !!soldOutReason && !!canNextDay && soldOutReason!=='mode_closed' && soldOutReason!=='product_mode_disabled';
-  });
+  // R54.4／MBV2-HF1-C3：與 addCart()／送單防呆共用 productRequiresNextDayPreorder()（有效判斷）
+  const needsNextDay = Object.values(cart).some(({product:p}) => productRequiresNextDayPreorder(p, mode));
   if(needsNextDay){
     buildDateSelector(true, mode); // forceNextDay=true：從明天起算，範圍到 line_preorder_days_limit
     const nextDate=findNextAvailableDate(mode);
@@ -7288,6 +7523,7 @@ function applyDateTimeToCartSheet(dateStr, slots){
 }
 function chgQty(id,d){
   if(!cart[id])return;
+  if(_cartLockedForRestore()) return; // R54.4／MBV2-HF1-C3.2：需要身分驗證的還原進行中
   // R54.4／MBV2-HF1-C1：增加數量與 addCart() 使用同一份驗證（最新商品資料＋目前取餐方式＋
   // 購物車日期），舊購物車（localStorage 還原、沒有 preorderRequiredIds）也會正確改用預購額度；
   // 暫停／長期下架／不支援目前取餐方式／已下架的商品不得增加，但減少／移除不受影響。
@@ -7312,27 +7548,376 @@ function chgQty(id,d){
 function updateProductCard(id){
   const p=allProducts.find(x=>x.id==id);if(!p)return;
   const card=document.getElementById(`pc-${id}`);if(!card)return;
-  const modeAvail=getProductAvailableModes(p);
-  const anyModeEnabled=modeAvail.takeout.enabled||modeAvail.delivery.enabled;
-  // fix18-10-hotfix30-B5 root cause fix（第六項）：與 buildCard() 一致，任一模式現在就能
-  // 立即下單時，不得顯示「今日售完/可預購」。
-  const anyImmediate = (modeAvail.takeout.enabled && !modeAvail.takeout.reason)
-    || (modeAvail.delivery.enabled && !modeAvail.delivery.reason);
-  const mode=_representativeMode(modeAvail);
-  const soldOutReason=mode==='delivery'?p.delivery_sold_out_reason:p.takeout_sold_out_reason;
-  const canNextDay=mode==='delivery'?p.delivery_can_next_day:p.takeout_can_next_day;
-  const isSoldOutFlag=anyModeEnabled?false:(!!soldOutReason||Number(p.line_sold_out)===1||(p.sale_status||'available')!=='available');
-  // fix18-10-hotfix22D：canPreorderNextDay 商品現在footer照樣顯示 [-] qty [+]，
-  // 故只有「真的完全不可預購」時才提早 return（維持遮罩，不更新 footer）。
-  const canPreorderNextDay=!anyImmediate && (isSoldOutFlag||!!soldOutReason) && !!canNextDay && soldOutReason!=='mode_closed';
-  const preorderInfo=p.line_preorder||{hasPreorder:false};
-  const preorderFullBlocked=canPreorderNextDay && preorderInfo.hasPreorder && Number(preorderInfo.remaining??0)<=0;
-  if(isSoldOutFlag && !(canPreorderNextDay && !preorderFullBlocked)) return;
-  const qty=cart[id]?.qty||0;
+  // R54.4／MBV2-HF1-C3：與 buildCard() 共用 computeProductSaleView()／_cardFooterHtml()，
+  // 不再自行讀原始 can_next_day（C2 局部更新會把停售商品重新畫出可用的＋）。
+  const v=computeProductSaleView(p);
   const footer=card.querySelector('.prod-footer');if(!footer)return;
-  const last=footer.lastElementChild;if(!last)return;
-  if(qty>0) last.outerHTML=`<div class="qty-ctrl"><button class="minus" onclick="chgQty(${id},-1)">−</button><span class="qnum">${qty}</span><button class="plus" onclick="chgQty(${id},1)">+</button></div>`;
-  else last.outerHTML=`<button class="add-btn" id="ab-${id}" onclick="addCart(${id},event)">+</button>`;
+  const html=_cardFooterHtml(p, v);
+  const last=footer.lastElementChild;
+  const hasCtrl=!!(last && last!==footer.firstElementChild);
+  if(hasCtrl){ if(html) last.outerHTML=html; else last.remove(); }
+  else if(html){ footer.insertAdjacentHTML('beforeend', html); }
+  _refreshDemandRow(p, v);
+}
+// ══════════════════════════════════════════════════════════════════════
+// R54.4／MBV2-HF1-C3：商品想買登記（前台）
+//   - 入口顯示由 computeProductSaleView().demandEligible＋後端 /api/product-demand/config
+//     （enabled）＋商品 demand_collect_enabled 共同決定。
+//   - 身分只用既有 LINE 會員 member_session（後端驗簽）；未登入時在表單內提供 LINE 登入。
+//   - 登記／修改／取消不經過 addCart()/chgQty()，不送 add_to_cart／view_item／purchase 等事件，
+//     不建立訂單、不扣額度。
+//   - 通知文案只在後端回報 notify_available=true 時使用；本輪後端固定回報 false。
+// ══════════════════════════════════════════════════════════════════════
+// R54.4／MBV2-HF1-C3.1 調整：
+//   - 「能否新增登記」(_demandEntryAllowed：入口條件＋最新收集設定) 與「能否管理本人既有登記」
+//     (_myDemands 有資料) 分開判斷。既有登記在商品恢復販售、關閉收集、關閉總開關、隱藏或停用後，
+//     仍可從商品卡（若商品仍公開）或頁首「🙋 我的想買登記」查詢、取消、撤回通知同意。
+//     修改份數仍以後端 can_modify（功能開關＋商品可見＋收集開關）為準，register() 會再次把關。
+//     管理清單只呈現本人登記，不把隱藏商品放回公開商品列表，也不提供購買。
+//   - LINE 登入導回：待恢復紀錄 pd_pending_open_<store> 只在「已登入且成功重開」「使用者明確關閉」
+//     或「逾時（10 分鐘）」時消耗；會員驗證較慢時持續等待（init 傳入的 LINE 會員 Gate Promise
+//     完成後再判斷，之後若 session 才出現也會接續恢復）；session 過期或 API 回 401 → 表單顯示
+//     重新登入。一般瀏覽者不會被要求登入。
+let _demandConfig={ enabled:false, notify_available:false, max_qty:99, loaded:false };
+let _myDemands={};          // product_id → { request_id, desired_qty, fulfillment_pref, notify_consent, product_name, can_modify, supported_prefs }
+let _demandSheetState=null; // { productId, qty, pref, consent, submitting, view }
+let _demandAuthExpired=false;
+let _pdResumeDone=false;
+let _pdWatchTimer=null;
+const PD_PENDING_TTL_MS=600000;
+const DEMAND_COPY={
+  base:{ btn:'我想買', title:'這款商品，你想買幾份？',
+    desc:'留下想買的數量，讓我們安排備貨。目前僅提供想買登記，尚不會發送補貨通知。',
+    submit:'送出登記', success:'已收到你的想買登記，謝謝！' },
+  notify:{ btn:'🔔 補貨通知我', title:'想買幾份？開放訂購時通知你',
+    desc:'登記後，商品開放訂購時將透過 LINE 通知你一次。補貨時間尚未確定。',
+    consent:'我同意透過 LINE 接收本次商品的補貨通知。',
+    submit:'確認登記', success:'已登記！商品開放訂購時，將依你的通知設定透過 LINE 提醒你。' },
+  disclaimer:'登記不代表訂單成立，也不保留商品，實際供應以訂購時為準。',
+};
+function _demandCopy(){ return _demandConfig.notify_available ? DEMAND_COPY.notify : DEMAND_COPY.base; }
+// 能否「新增」登記（入口條件＋最新設定）
+function _demandEntryAllowed(p, v){
+  if(!p || !_demandConfig.enabled) return false;
+  if(!toBooleanFlag(p.demand_collect_enabled, true)) return false;
+  return !!(v || computeProductSaleView(p)).demandEligible;
+}
+// 能否「管理」本人既有登記（與商品目前狀態、收集設定無關）
+function _demandManageAllowed(pid){ return !!_myDemands[String(pid)]; }
+function _demandButtonModel(p){
+  const mine=_myDemands[String(p.id)];
+  if(mine) return { label:`已登記 ${mine.desired_qty} 份・管理登記`, registered:true };
+  return { label:_demandCopy().btn, registered:false };
+}
+function _demandEntryInner(p, v){
+  if(!_demandManageAllowed(p.id) && !_demandEntryAllowed(p, v)) return '';
+  const m=_demandButtonModel(p);
+  return `<button type="button" class="demand-btn${m.registered?' is-registered':''}" data-demand-pid="${p.id}" onclick="onDemandBtnClick(event,${p.id})" onkeydown="event.stopPropagation()">${esc(m.label)}</button>`;
+}
+function _demandEntryHtml(p, v){ return `<div class="demand-row" id="dr-${p.id}">${_demandEntryInner(p, v)}</div>`; }
+function _refreshDemandRow(p, v){
+  const row=document.getElementById(`dr-${p.id}`);
+  if(row) row.innerHTML=_demandEntryInner(p, v||computeProductSaleView(p));
+}
+function _refreshAllDemandRows(){
+  try{ (allProducts||[]).forEach(p=>_refreshDemandRow(p)); }catch(e){}
+  _refreshMyDemandsEntry();
+}
+// 頁首固定入口：已登入且（功能開啟或本人仍有登記）時顯示
+function _refreshMyDemandsEntry(){
+  const b=document.getElementById('myDemandsBtn'); if(!b) return;
+  const show=!!_currentMemberSession() && (_demandConfig.enabled || Object.keys(_myDemands).length>0);
+  b.style.display=show?'':'none';
+}
+function _pdPendingKey(){ return 'pd_pending_open_'+LINE_STORE_ID; }
+function _pdPendingGet(){
+  try{
+    const v=JSON.parse(sessionStorage.getItem(_pdPendingKey())||'null');
+    if(!v || !v.pid) return null;
+    if(Date.now()-Number(v.at||0)>PD_PENDING_TTL_MS){ sessionStorage.removeItem(_pdPendingKey()); return null; }
+    return v;
+  }catch(e){ return null; }
+}
+function _pdPendingSet(pid){ try{ sessionStorage.setItem(_pdPendingKey(), JSON.stringify({pid, at:Date.now()})); }catch(e){} }
+function _pdPendingConsume(){ try{ sessionStorage.removeItem(_pdPendingKey()); }catch(e){} }
+async function _initProductDemand(gatePromise){
+  const cfgP=(async()=>{
+    try{
+      const r=await apiFetch('/api/product-demand/config',{cache:'no-store'}).then(x=>x.json());
+      if(r && r.success && r.data){
+        _demandConfig={ enabled:!!r.data.enabled, notify_available:r.data.notify_available===true,
+          max_qty:Number(r.data.max_qty)||99, loaded:true };
+      }
+    }catch(e){ /* 讀取失敗：維持不顯示新增入口，不影響點餐 */ }
+  })();
+  // 需要的會員驗證（LINE 會員 Gate 初始化／登入導回處理）完成後才判斷 session
+  try{ await gatePromise; }catch(e){}
+  await cfgP;
+  await _loadMyDemands();
+  _refreshAllDemandRows();
+  _tryResumePendingDemand();
+  if(_pdPendingGet() && !_pdResumeDone) _startPendingWatch();
+}
+// session 稍後才出現（驗證較慢）時接續恢復；待恢復紀錄逾時即停止
+function _startPendingWatch(){
+  if(_pdWatchTimer) return;
+  const tick=async()=>{
+    if(_pdResumeDone || !_pdPendingGet()){ _stopPendingWatch(); return; }
+    if(_currentMemberSession()){
+      _demandAuthExpired=false;
+      await _loadMyDemands(); _refreshAllDemandRows();
+      _tryResumePendingDemand();
+      if(_demandSheetState && document.getElementById('demandOverlay')?.classList.contains('show')) _renderDemandSheet();
+    }
+  };
+  _pdWatchTimer=setInterval(tick, 1000);
+  try{ window.addEventListener('focus', tick); document.addEventListener('visibilitychange', tick); }catch(e){}
+}
+function _stopPendingWatch(){ if(_pdWatchTimer){ clearInterval(_pdWatchTimer); _pdWatchTimer=null; } }
+// 恢復登入前開啟的登記表單（每次頁面最多一次）
+function _tryResumePendingDemand(){
+  if(_pdResumeDone) return;
+  const pend=_pdPendingGet(); if(!pend) return;
+  const sheetOpen=document.getElementById('demandOverlay')?.classList.contains('show');
+  if(!_currentMemberSession()){
+    // 尚未取得 session：先以「需要登入」狀態開啟表單（不消耗待恢復紀錄），session 出現後自動轉為登記表單
+    if(!sheetOpen) openDemandSheet(pend.pid,'login_return_wait');
+    return;
+  }
+  _pdResumeDone=true;
+  _stopPendingWatch();
+  if(sheetOpen && _demandSheetState && String(_demandSheetState.productId)===String(pend.pid)){ _pdPendingConsume(); _renderDemandSheet(); return; }
+  // R54.4／MBV2-HF1-C3.2：只有成功重開才消耗；商品已不符合登記條件（例如已恢復販售）時不消耗、
+  // 本頁不再重試（紀錄於有效期限結束後自然失效），並告知顧客。
+  if(openDemandSheet(pend.pid,'login_return')) _pdPendingConsume();
+  else { try{ toast('這項商品目前未開放想買登記，可直接瀏覽或選購。'); }catch(e){} }
+}
+async function _loadMyDemands(){
+  const ms=_currentMemberSession();
+  if(!ms){ _myDemands={}; return; }
+  try{
+    const resp=await apiFetch('/api/product-demand/mine',{method:'POST',body:JSON.stringify({member_session:ms})});
+    if(resp.status===401){ _demandAuthExpired=true; _myDemands={}; return; }
+    const r=await resp.json();
+    if(r && r.success && Array.isArray(r.data)){
+      _demandAuthExpired=false;
+      const m={}; r.data.forEach(d=>{ m[String(d.product_id)]=d; }); _myDemands=m;
+    }
+  }catch(e){ /* 暫時失敗：保留目前資料 */ }
+}
+function onDemandBtnClick(evt, id){
+  if(evt){ evt.stopPropagation(); evt.preventDefault(); }
+  openDemandSheet(id, 'card');
+}
+function _ensureDemandOverlay(){
+  let ov=document.getElementById('demandOverlay');
+  if(ov) return ov;
+  ov=document.createElement('div');
+  ov.id='demandOverlay';
+  ov.setAttribute('role','dialog'); ov.setAttribute('aria-modal','true');
+  ov.innerHTML='<div class="dm-panel" id="demandPanel"></div>';
+  ov.addEventListener('click',e=>{ if(e.target===ov) closeDemandSheet(); });
+  document.body.appendChild(ov);
+  return ov;
+}
+// 使用者明確關閉（✕ 或點遮罩）→ 一併消耗待恢復紀錄
+function closeDemandSheet(){
+  const ov=document.getElementById('demandOverlay');
+  if(ov) ov.classList.remove('show');
+  _demandSheetState=null;
+  if(_pdPendingGet()){ _pdPendingConsume(); _pdResumeDone=true; _stopPendingWatch(); }
+}
+function _closeDemandSheetQuiet(){ const ov=document.getElementById('demandOverlay'); if(ov) ov.classList.remove('show'); _demandSheetState=null; }
+function _demandPrefOptions(p, mine){
+  const L={takeout:'外帶自取',delivery:'外送',any:'都可以'};
+  let vs;
+  if(p){
+    const t=isProductSupportedForFulfillmentMode(p,'takeout'), d=isProductSupportedForFulfillmentMode(p,'delivery');
+    vs=[]; if(t) vs.push('takeout'); if(d) vs.push('delivery'); if(t&&d) vs.push('any');
+  } else vs=(mine && Array.isArray(mine.supported_prefs)) ? mine.supported_prefs : [];
+  return vs.map(v=>({v,l:L[v]||v}));
+}
+function openDemandSheet(id, source){
+  const p=allProducts.find(x=>String(x.id)===String(id))||null;
+  const mine=_myDemands[String(id)];
+  const loggedIn=!!_currentMemberSession();
+  // 已登入且沒有既有登記時：只有符合「新增」條件的公開商品可以開啟
+  if(!mine && loggedIn && !_demandAuthExpired && !(p && _demandEntryAllowed(p))) return false;
+  if(!mine && !p) return false;
+  const prefs=_demandPrefOptions(p, mine);
+  _demandSheetState={ productId:id, qty: mine?Number(mine.desired_qty):1,
+    pref: mine?mine.fulfillment_pref:(prefs.find(o=>o.v==='any')||prefs[0]||{v:'any'}).v,
+    consent:false, submitting:false, source:source||'card', view:'item' };
+  _ensureDemandOverlay().classList.add('show');
+  _renderDemandSheet();
+  return true;
+}
+function _demandCanModify(p, mine){
+  if(!p || !_demandConfig.enabled || !toBooleanFlag(p.demand_collect_enabled, true)) return false;
+  if(mine) return mine.can_modify!==false;
+  return true;
+}
+function _renderDemandSheet(msg, isErr){
+  const st=_demandSheetState; if(!st) return;
+  if(st.view==='list') return _renderMyDemandsList(msg, isErr);
+  const p=allProducts.find(x=>String(x.id)===String(st.productId))||null;
+  const mine=_myDemands[String(st.productId)];
+  if(!p && !mine && _currentMemberSession() && !_demandAuthExpired){ _closeDemandSheetQuiet(); return; }
+  const copy=_demandCopy();
+  const name=p ? (p.effective_line_name||p.line_name||p.name) : ((mine&&mine.product_name)||'');
+  const panel=document.getElementById('demandPanel');
+  const loggedIn=!!_currentMemberSession() && !_demandAuthExpired;
+  const max=_demandConfig.max_qty||99;
+  const canModify=_demandCanModify(p, mine);
+  let body='';
+  if(!loggedIn){
+    body=`<p class="dm-desc">${esc(copy.desc)}</p>
+      <p class="dm-desc" id="dmLoginHint">${_demandAuthExpired?'LINE 會員登入已過期，請重新登入後再管理你的登記。':'請先以 LINE 會員登入，才能保存你的登記。'}</p>
+      <button type="button" class="dm-login" id="dmLoginBtn">${_demandAuthExpired?'重新以 LINE 登入':'以 LINE 登入'}</button>
+      <div class="dm-msg${isErr?' err':''}" id="dmMsg">${msg?esc(msg):''}</div>`;
+  } else if(!canModify){
+    // 只能查詢／取消／撤回（商品已恢復販售且未開放修改、關閉收集、關閉總開關、隱藏或停用）
+    body=mine?`<p class="dm-desc" style="color:#06C755;font-weight:700" id="dmMineInfo">已登記 ${Number(mine.desired_qty)} 份</p>
+      <p class="dm-desc" id="dmReadonlyNote">此商品目前不開放新增或修改登記份數，你仍可以取消登記。</p>
+      <div class="dm-msg${isErr?' err':''}" id="dmMsg">${msg?esc(msg):''}</div>
+      <button type="button" class="dm-link" id="dmCancel">取消登記</button>
+      ${mine.notify_consent==='granted'?`<button type="button" class="dm-link" id="dmRevoke">撤回補貨通知同意</button>`:''}`
+      :`<p class="dm-desc">此商品目前未開放想買登記。</p>`;
+  } else {
+    const prefs=_demandPrefOptions(p, mine);
+    body=`<p class="dm-desc">${esc(copy.desc)}</p>
+      ${mine?`<p class="dm-desc" style="color:#06C755;font-weight:700" id="dmMineInfo">已登記 ${Number(mine.desired_qty)} 份</p>`:''}
+      <div class="dm-row"><span>想買份數</span><div class="dm-qty">
+        <button type="button" id="dmMinus" aria-label="減少" ${st.qty<=1?'disabled':''}>&minus;</button>
+        <span class="dm-qty-num" id="dmQty">${st.qty}</span>
+        <button type="button" id="dmPlus" aria-label="增加" ${st.qty>=max?'disabled':''}>+</button></div></div>
+      <div class="dm-row"><span>取餐偏好</span><div class="dm-prefs">${prefs.map(o=>`<label><input type="radio" name="dmPref" value="${o.v}" ${st.pref===o.v?'checked':''}> ${o.l}</label>`).join('')}</div></div>
+      ${_demandConfig.notify_available?`<label class="dm-consent"><input type="checkbox" id="dmConsent" ${st.consent?'checked':''}> <span>${esc(DEMAND_COPY.notify.consent)}</span></label>`:''}
+      <div class="dm-msg${isErr?' err':''}" id="dmMsg">${msg?esc(msg):''}</div>
+      <button type="button" class="dm-submit" id="dmSubmit" ${st.submitting?'disabled':''}>${esc(copy.submit)}</button>
+      ${mine?`<button type="button" class="dm-link" id="dmCancel">取消登記</button>`:''}
+      ${mine&&mine.notify_consent==='granted'?`<button type="button" class="dm-link" id="dmRevoke">撤回補貨通知同意</button>`:''}`;
+  }
+  panel.innerHTML=`<div class="dm-hd"><h3 class="dm-title" id="dmTitle">${esc(mine&&!canModify&&loggedIn?'我的想買登記':copy.title)}</h3><button type="button" class="close-btn" id="dmClose" aria-label="關閉">✕</button></div>
+    <div class="dm-pname" id="dmPname">${esc(name)}</div>${body}
+    <p class="dm-note" id="dmDisclaimer">${esc(DEMAND_COPY.disclaimer)}</p>`;
+  panel.querySelector('#dmClose').onclick=closeDemandSheet;
+  if(!loggedIn){ panel.querySelector('#dmLoginBtn').onclick=_demandLogin; return; }
+  const q=(sel)=>panel.querySelector(sel);
+  if(q('#dmMinus')) q('#dmMinus').onclick=()=>{ st.qty=Math.max(1,st.qty-1); _renderDemandSheet(); };
+  if(q('#dmPlus')) q('#dmPlus').onclick=()=>{ st.qty=Math.min(max,st.qty+1); _renderDemandSheet(); };
+  panel.querySelectorAll('input[name="dmPref"]').forEach(r=>{ r.onchange=()=>{ st.pref=r.value; }; });
+  const c=q('#dmConsent'); if(c) c.onchange=()=>{ st.consent=!!c.checked; };
+  if(q('#dmSubmit')) q('#dmSubmit').onclick=_submitDemand;
+  if(q('#dmCancel')) q('#dmCancel').onclick=_cancelDemand;
+  if(q('#dmRevoke')) q('#dmRevoke').onclick=_revokeDemandConsent;
+}
+// 頁首「🙋 我的想買登記」：本人所有有效登記（含目前不公開的商品，只顯示名稱與登記內容）
+async function openMyDemandsSheet(){
+  _demandSheetState={ view:'list' };
+  _ensureDemandOverlay().classList.add('show');
+  _renderMyDemandsList('載入中…');
+  await _loadMyDemands();
+  _refreshAllDemandRows();
+  if(_demandSheetState && _demandSheetState.view==='list') _renderMyDemandsList();
+}
+function _renderMyDemandsList(msg, isErr){
+  const panel=document.getElementById('demandPanel'); if(!panel) return;
+  const L={takeout:'外帶自取',delivery:'外送',any:'都可以'};
+  const loggedIn=!!_currentMemberSession() && !_demandAuthExpired;
+  const items=Object.values(_myDemands);
+  let body;
+  if(!loggedIn) body=`<p class="dm-desc">${_demandAuthExpired?'LINE 會員登入已過期，請重新登入。':'請先以 LINE 會員登入。'}</p><button type="button" class="dm-login" id="dmLoginBtn">${_demandAuthExpired?'重新以 LINE 登入':'以 LINE 登入'}</button>`;
+  else if(!items.length) body=`<p class="dm-desc" id="dmListEmpty">目前沒有有效的想買登記。</p>`;
+  else body=`<div id="dmList">${items.map(d=>`<div class="dm-row dm-list-item" data-pid="${d.product_id}"><span><strong>${esc(d.product_name||'')}</strong><br><span style="font-size:12px;color:#666">${Number(d.desired_qty)} 份・${esc(L[d.fulfillment_pref]||d.fulfillment_pref)}</span></span><button type="button" class="dm-manage-btn" data-pid="${d.product_id}" style="border:1px solid #06C755;background:#fff;color:#06C755;border-radius:8px;padding:6px 10px;font-weight:700">管理</button></div>`).join('')}</div>`;
+  panel.innerHTML=`<div class="dm-hd"><h3 class="dm-title" id="dmTitle">我的想買登記</h3><button type="button" class="close-btn" id="dmClose" aria-label="關閉">✕</button></div>
+    <div class="dm-msg${isErr?' err':''}" id="dmMsg">${msg?esc(msg):''}</div>${body}
+    <p class="dm-note" id="dmDisclaimer">${esc(DEMAND_COPY.disclaimer)}</p>`;
+  panel.querySelector('#dmClose').onclick=closeDemandSheet;
+  const lb=panel.querySelector('#dmLoginBtn'); if(lb) lb.onclick=_demandLogin;
+  panel.querySelectorAll('.dm-manage-btn').forEach(b=>{ b.onclick=(e)=>{ e.stopPropagation(); openDemandSheet(b.getAttribute('data-pid'),'my_list'); }; });
+}
+async function _demandLogin(){
+  const st=_demandSheetState||{};
+  if(st.productId!=null) _pdPendingSet(st.productId);
+  _pdResumeDone=false;
+  try{
+    if(!LineMemberGate.isLiffAvailable(LINE_STORE_ID)){ _renderDemandSheetLoginMsg('LINE 登入尚未就緒，請於 LINE 中開啟點餐頁後再試'); return; }
+    const r=await LineMemberGate.loginWithLine(LINE_STORE_ID,{gate_stage:'demand'});
+    if(r && r.redirected) return; // 導回後由 _initProductDemand() 恢復（待恢復紀錄保留）
+    if(r && r.externalBrowserRequired){
+      _closeDemandSheetQuiet();
+      try{ LineMemberGate.showExternalBrowserLoginGuide(_lineMemberGateConfig,{storeId:LINE_STORE_ID, gateStage:'demand', environment:r.environment}); }catch(e){}
+      return;
+    }
+    const v=await LineMemberGate.verifyWithBackend(LINE_STORE_ID,{..._gateIds(), gate_stage:'demand'});
+    if(v && v.success && _currentMemberSession()){
+      _demandAuthExpired=false;
+      await _loadMyDemands(); _refreshAllDemandRows();
+      if(st.productId!=null){ _pdResumeDone=true; _pdPendingConsume(); _stopPendingWatch(); }
+      _renderDemandSheet();
+    } else _renderDemandSheetLoginMsg((v&&v.message)||'登入驗證失敗，請再試一次'); // 保留待恢復紀錄，可重新嘗試
+  }catch(e){ _renderDemandSheetLoginMsg('登入驗證失敗，請再試一次'); }
+}
+function _renderDemandSheetLoginMsg(m){
+  const panel=document.getElementById('demandPanel'); if(!panel) return;
+  let el=panel.querySelector('#dmMsg');
+  if(!el){ el=document.createElement('div'); el.className='dm-msg err'; el.id='dmMsg'; panel.querySelector('#dmLoginBtn')?.after(el); }
+  el.textContent=m; el.classList.add('err');
+}
+function _handleDemand401(){ _demandAuthExpired=true; if(_demandSheetState) _demandSheetState.submitting=false; _renderDemandSheet(); }
+async function _submitDemand(){
+  const st=_demandSheetState; if(!st || st.submitting) return; // 重複點擊防護
+  const ms=_currentMemberSession(); if(!ms){ _renderDemandSheet(); return; }
+  st.submitting=true; _renderDemandSheet('送出中…');
+  const payload={ member_session:ms, product_id:st.productId, desired_qty:st.qty, fulfillment_pref:st.pref };
+  if(_demandConfig.notify_available) payload.notify_consent=!!st.consent;
+  try{
+    const resp=await apiFetch('/api/product-demand/register',{method:'POST',body:JSON.stringify(payload)});
+    const r=await resp.json().catch(()=>({}));
+    if(resp.status===401){ _handleDemand401(); return; }
+    if(!r || !r.success){
+      st.submitting=false;
+      // 設定已變更（例如剛被關閉收集）：重新讀取本人登記，表單改為唯讀管理
+      if(resp.status===403 || resp.status===404){ await _loadMyDemands(); _refreshAllDemandRows(); }
+      _renderDemandSheet((r&&r.message)||'登記失敗，請稍後再試', true); return;
+    }
+    _myDemands[String(st.productId)]=r.data.request;
+    const p=allProducts.find(x=>String(x.id)===String(st.productId));
+    _closeDemandSheetQuiet();
+    if(p) _refreshDemandRow(p);
+    _refreshMyDemandsEntry();
+    toast(_demandCopy().success);
+  }catch(e){ st.submitting=false; _renderDemandSheet('網路不穩，請稍後再試', true); }
+}
+async function _cancelDemand(){
+  const st=_demandSheetState; if(!st || st.submitting) return;
+  const ms=_currentMemberSession(); if(!ms) return;
+  st.submitting=true;
+  try{
+    const resp=await apiFetch('/api/product-demand/cancel',{method:'POST',body:JSON.stringify({member_session:ms, product_id:st.productId})});
+    if(resp.status===401){ _handleDemand401(); return; }
+    const r=await resp.json();
+    if(r && r.success){
+      delete _myDemands[String(st.productId)];
+      const p=allProducts.find(x=>String(x.id)===String(st.productId));
+      _closeDemandSheetQuiet(); if(p) _refreshDemandRow(p);
+      _refreshMyDemandsEntry();
+      toast('已取消想買登記');
+      return;
+    }
+    st.submitting=false; _renderDemandSheet((r&&r.message)||'取消失敗，請稍後再試', true);
+  }catch(e){ st.submitting=false; _renderDemandSheet('網路不穩，請稍後再試', true); }
+}
+async function _revokeDemandConsent(){
+  const st=_demandSheetState; if(!st) return;
+  const ms=_currentMemberSession(); if(!ms) return;
+  try{
+    const resp=await apiFetch('/api/product-demand/consent/revoke',{method:'POST',body:JSON.stringify({member_session:ms, product_id:st.productId})});
+    if(resp.status===401){ _handleDemand401(); return; }
+    const r=await resp.json();
+    if(r && r.success){ const m=_myDemands[String(st.productId)]; if(m) m.notify_consent=r.data.notify_consent; _renderDemandSheet('已撤回補貨通知同意'); }
+  }catch(e){}
 }
 function updateBar(){
   const subtotal=getCartProductSubtotal();
@@ -7582,6 +8167,7 @@ function clearCartStorage(){
 // 使用者主動按「清空購物車」──────────────────────────────
 function clearCartByUser(){
   if(!Object.keys(cart).length && !appliedCoupon){ _enterCartStage(); closeSheet('cartSheet'); return; }
+  if(_cartLockedForRestore()) return; // R54.4／MBV2-HF1-C3.2：需要身分驗證的還原進行中
   if(!confirm('確定要清空購物車嗎？')) return;
   // fix18-10-hotfix23-A：使用者主動清空購物車 → 記一筆 remove_from_cart（metadata.reason=
   // clear_cart），而不是逐項送出，避免事件洪水；不得與「下單成功」混淆（那邊不觸發此事件）
@@ -7595,6 +8181,7 @@ function clearCartByUser(){
     }
   }catch(e){}
   cart={};preorderRequiredIds.clear();
+  _closeIdentityRestore(); // R54.4／MBV2-HF1-C3.3：顧客已清空購物車 → 舊還原任務失效
   clearCoupon();
   // fix18-10-hotfix30-B5-R5：明確記錄一筆 items=[] 、status=cleared 的快照，
   // 讓後端能把這台購物車標示為「已清空」，不繼續列入未完成金額；必須在
@@ -8017,11 +8604,15 @@ function renderCartItems(){
   const el=document.getElementById('cartItems');
   const items=Object.values(cart);
   if(!items.length){el.innerHTML='<div class="cart-empty">購物車是空的</div>';return;}
-  el.innerHTML=items.map(({product:p,qty})=>{const pr=p.effective_line_price||p.price;return`<div class="ci"><div class="ci-name">${esc(p.effective_line_name||p.name)} × ${qty}</div><div class="ci-price">$${pr*qty}</div><div class="qty-ctrl" style="margin-left:8px"><button class="minus" onclick="chgQty(${p.id},-1)">−</button><span class="qnum">${qty}</span><button class="plus" onclick="chgQty(${p.id},1)">+</button></div></div>`;}).join('');
+  // R54.4／MBV2-HF1-C3：暫停販售／長期下架商品在購物車內只能減少／移除；「＋」以停用樣式呈現
+  // （以樣式呈現；仍可點擊，由 checkCartIncrement() 說明原因，不會實際增加）。
+  el.innerHTML=items.map(({product:p,qty})=>{const pr=p.effective_line_price||p.price;const _blk=isManualSaleBlocked(_latestCartProduct(p.id)||p);return`<div class="ci"><div class="ci-name">${esc(p.effective_line_name||p.name)} × ${qty}</div><div class="ci-price">$${pr*qty}</div><div class="qty-ctrl${_blk?' qty-ctrl-blocked':''}" style="margin-left:8px"><button class="minus" onclick="chgQty(${p.id},-1)">−</button><span class="qnum">${qty}</span><button class="plus"${_blk?' title="目前無法增加"':''} onclick="chgQty(${p.id},1)">+</button></div></div>`;}).join('');
 }
 
 // ── 送單（結帳前再次驗證）────────────────────────────────
 async function submitOrder(event){
+  // R54.4／MBV2-HF1-C3.2：需要身分驗證的購物車還原尚未完成（且顧客未選擇先繼續點餐）時不送單
+  if(_identityRestore.pending && !_identityRestore.skipped){ try{ toast('正在確認 LINE 會員身分並還原購物車，請稍候再送出'); }catch(e){} return; }
   // H1.4.10 Phase 3：checkout_submit_click／checkout_validation_failed 的
   // explicit-button-only 因果契約，與 H1.4.9 openCheckoutStep(event) 同一套
   // 判斷方式（event.type==='click' && event.currentTarget===真實按鈕）。
@@ -8262,6 +8853,7 @@ async function submitOrder(event){
           })
         }).then(r=>r.json());
         if(lpRes.success&&lpRes.payment_url){
+          _closeIdentityRestore(); // R54.4／MBV2-HF1-C3.3：已進入付款流程 → 舊還原任務失效
           _trackEvent('payment_started',{metadata:{payment_method:'linepay'}});
           // hotfix22-F：LINE Pay 導轉付款前不得清空購物車／優惠券 —— 只有「付款成功」導回時
           // （linepay=success，見 init()）才真正 clearCartStorage()。若使用者取消或付款失敗，
@@ -8286,6 +8878,7 @@ async function submitOrder(event){
     closeSheet('cartSheet');cart={};preorderRequiredIds.clear();_enterCartStage();updateBar();renderMenu();
     // hotfix22-F：訂單成功建立才清空購物車（含 localStorage）
     clearCartStorage();
+    _closeIdentityRestore(); // R54.4／MBV2-HF1-C3.3：已成立訂單 → 舊還原任務失效
     document.getElementById('sucNo').textContent=`訂單編號：${orderData.order_number}`;
     document.getElementById('sucDetail').innerHTML=buildDetailRows({
       status:'pending',status_label:'待確認',
@@ -8778,6 +9371,7 @@ function buildDetailRows(d){
 function reorder(o){
   const items=o.items||[];
   if(!items.length){toast('此訂單沒有商品紀錄');return;}
+  if(_cartLockedForRestore()) return; // R54.4／MBV2-HF1-C3.2：需要身分驗證的還原進行中
   let added=0,skipped=0;
   items.forEach(item=>{
     const pid=item.product_id||item.id;

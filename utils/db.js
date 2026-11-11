@@ -2733,6 +2733,10 @@ function initTables(w) {
     if (require('./popupSales').migrateRawAtStartup(w._db)) w._save();
   });
   _runPopupPickupOrdersMigration(w);
+  // R54.4／MBV2-HF1-C3：商品想買登記（product_demand_requests／product_demand_consents）
+  // 與 products.demand_collect_enabled。additive、idempotent；失敗只記錄、不阻擋開機。
+  try { require('./productDemand').migrate(w._db); w._save(); }
+  catch (e) { console.warn('[DB] product_demand migration:', e.message); }
 }
 
 

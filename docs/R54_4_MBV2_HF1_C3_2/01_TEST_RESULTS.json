@@ -1,0 +1,670 @@
+{
+ "release": "R54.4/MBV2-HF1-C3.2",
+ "base": {
+  "release": "R54.4/MBV2-HF1-C3.1",
+  "zip": "P3CD_DEPLOY_R54_4_MBV2_HF1_C3_1_DEMAND_BACKUP_MANAGE_LOGIN_FIX_APP_ROOT.zip",
+  "sha256": "c31b4de0eb343c5dc413c03c677c5463adbdda330fe346ea12ebf6435ca97c8e",
+  "match": true,
+  "files": 901
+ },
+ "executed_at": "2026-11-11 (Asia/Taipei)",
+ "new_acceptance": {
+  "script": "scripts/smoke-r54-4-mbv2-hf1-c3-2-firstpaint-remap.js",
+  "c32": {
+   "passed": 32,
+   "failed": 0,
+   "cases": [
+    {
+     "ok": true,
+     "name": "X1-1 互換：預覽成功並回報 801→701、701→801",
+     "detail": "[{\"from\":701,\"to\":801,\"matched_by\":\"name\",\"rows\":4},{\"from\":801,\"to\":701,\"matched_by\":\"name\",\"rows\":4}]"
+    },
+    {
+     "ok": true,
+     "name": "X1-2 互換：正式匯入成功，對應與預覽相同（未撞 active 唯一索引）",
+     "detail": "[{\"from\":701,\"to\":801,\"matched_by\":\"name\",\"rows\":4},{\"from\":801,\"to\":701,\"matched_by\":\"name\",\"rows\":4}]"
+    },
+    {
+     "ok": true,
+     "name": "X1-3 互換：每筆登記與同意只改商品關聯；會員、份數、偏好、週期、期限、狀態、同意關聯不變",
+     "detail": "{\"ok\":true,\"badR\":[],\"badC\":[]}"
+    },
+    {
+     "ok": true,
+     "name": "X1-4 互換：無重複有效登記、無孤兒，active 唯一索引仍存在",
+     "detail": "{\"dup\":[],\"orphan\":[{\"c\":0}],\"idx\":[{\"name\":\"idx_pdr_active_unique\"}]}"
+    },
+    {
+     "ok": true,
+     "name": "X1-5 互換：商品以備份為準（701=招牌飯、801=對照湯）",
+     "detail": "[{\"id\":701,\"name\":\"測試招牌飯\"},{\"id\":801,\"name\":\"測試對照湯\"}]"
+    },
+    {
+     "ok": true,
+     "name": "X1-6 互換：後台統計招牌飯(701) 2 人 5 份、對照湯(801) 2 人 7 份（排除取消與過期，與資料庫一致）",
+     "detail": "{\"s701\":{\"product_id\":701,\"name\":\"測試招牌飯\",\"sale_status\":\"available\",\"enabled\":1,\"show_on_line\":1,\"line_visible\":true,\"demand_collect_enabled\":1,\"active_users\":2,\"total_qty\":5,\"last_updated_at\":\"2026-11-11 02:35:46\",\"history_rows\":3},\"s801\":{\"product_id\":801,\"name\":\"測試對照湯\",\"sale_status\":\"available\",\"enabled\":1,\"show_on_line\":1,\"line_visible\":true,\"demand_collect_enabled\":1,\"active_users\":2,\"total_qty\":7,\"last_updated_at\":\"2026-11-11 02:35:46\",\"history_rows\":3},\"exp\":[{\"product_id\":701,\"users\":2,\"qty\":5},{\"product_id\":801,\"users\":2,\"qty\":7}]}"
+    },
+    {
+     "ok": true,
+     "name": "X1-7 互換：本人查詢 A＝招牌飯 4 份(外帶,已同意)＋對照湯 2 份(外送)；B＝對照湯 5 份(已撤回)；D 過期不顯示",
+     "detail": "{\"mA\":[{\"request_id\":1,\"product_id\":701,\"desired_qty\":4,\"fulfillment_pref\":\"takeout\",\"status\":\"active\",\"created_at\":\"2026-11-11 02:35:46\",\"updated_at\":\"2026-11-11 02:35:46\",\"expires_at\":\"2026-12-11 02:35:46\",\"product_name\":\"測試招牌飯\",\"can_modify\":true,\"supported_prefs\":[\"takeout\",\"delivery\",\"any\"],\"notify_consent\":\"granted\"},{\"request_id\":2,\"product_id\":801,\"desired_qty\":2,\"fulfillment_pref\":\"delivery\",\"status\":\"active\",\"created_at\":\"2026-11-11 02:35:46\",\"updated_at\":\"2026-11-11 02:35:46\",\"expires_at\":\"2026-12-11 02:35:46\",\"product_name\":\"測試對照湯\",\"can_modify\":true,\"supported_prefs\":[\"takeout\",\"delivery\",\"any\"],\"notify_consent\":\"none\"}],\"mB\":[{\"request_id\":3,\"product_id\":801,\"desired_qty\":5,\"fulfillment_pref\":\"any\",\"status\":\"active\",\"created_at\":\"2026-11-11 02:35:46\",\"updated_at\":\"2026-11-11 02:35:46\",\"expires_at\":\"2026-12-11 02:35:46\",\"product_name\":\"測試對照湯\",\"can_modify\":true,\"supported_prefs\":[\"takeout\",\"delivery\",\"any\"],\"notify_consent\":\"revoked\"}],\"mD\":[]}"
+    },
+    {
+     "ok": true,
+     "name": "X1-8 互換：未觸發任何推播",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "X2-1 三款循環（801→802→803→801）：預覽與正式匯入皆成功",
+     "detail": "\"done\" / \"done\""
+    },
+    {
+     "ok": true,
+     "name": "X2-2 三款循環：各筆依名稱對應到新商品，其他欄位與同意關聯不變",
+     "detail": "{\"ok\":true,\"badR\":[],\"badC\":[]}"
+    },
+    {
+     "ok": true,
+     "name": "X2-3 三款循環：本人查詢依商品名稱份數正確；後台 802(招牌飯)=1、803(對照湯)=2、801(第三品)=2 人 9 份",
+     "detail": "{\"nm\":{\"測試招牌飯\":1,\"測試對照湯\":2,\"測試第三品\":3},\"s801\":{\"product_id\":801,\"name\":\"測試第三品\",\"sale_status\":\"paused\",\"enabled\":1,\"show_on_line\":1,\"line_visible\":true,\"demand_collect_enabled\":1,\"active_users\":2,\"total_qty\":9,\"last_updated_at\":\"2026-11-11 02:35:54\",\"history_rows\":2},\"s802\":{\"product_id\":802,\"name\":\"測試招牌飯\",\"sale_status\":\"available\",\"enabled\":1,\"show_on_line\":1,\"line_visible\":true,\"demand_collect_enabled\":1,\"active_users\":1,\"total_qty\":1,\"last_updated_at\":\"2026-11-11 02:35:54\",\"history_rows\":1},\"s803\":{\"product_id\":803,\"name\":\"測試對照湯\",\"sale_status\":\"available\",\"enabled\":1,\"show_on_line\":1,\"line_visible\":true,\"demand_collect_enabled\":1,\"active_users\":1,\"total_qty\":2,\"last_updated_at\":\"2026-11-11 02:35:54\",\"history_rows\":2}}"
+    },
+    {
+     "ok": true,
+     "name": "X3-1 最終衝突（兩個舊商品對應到同一新商品，同會員兩筆有效登記）：預覽明確拒絕",
+     "detail": "{\"code\":\"DEMAND_PRODUCT_REMAP_FAILED\",\"message\":\"完整取代會重建商品資料，但重新對應後有 1 組「同一會員對同一商品」的有效登記會重複（商品 701）。已拒絕本次完整取代並整批回滾，資料庫未變更。\",\"demand_remap_failures\":[{\"reason\":\"final_conflict\",\"new_product_id\":701,\"request_ids\":[2,1]}]}"
+    },
+    {
+     "ok": true,
+     "name": "X3-2 最終衝突：正式匯入（略過預覽）同樣拒絕",
+     "detail": "{\"code\":\"DEMAND_PRODUCT_REMAP_FAILED\",\"message\":\"完整取代會重建商品資料，但重新對應後有 1 組「同一會員對同一商品」的有效登記會重複（商品 701）。已拒絕本次完整取代並整批回滾，資料庫未變更。\",\"demand_remap_failures\":[{\"reason\":\"final_conflict\",\"new_product_id\":701,\"request_ids\":[2,1]}]}"
+    },
+    {
+     "ok": true,
+     "name": "X3-3 最終衝突：商品、訂單、登記、同意、分類、設定、會員、優惠券完全不變",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "X3-4 最終衝突：拒絕後本人查詢維持原狀",
+     "detail": "[{\"request_id\":1,\"product_id\":801,\"desired_qty\":2,\"fulfillment_pref\":\"any\",\"status\":\"active\",\"created_at\":\"2026-11-11 02:36:03\",\"updated_at\":\"2026-11-11 02:36:03\",\"expires_at\":\"2026-12-11 02:36:03\",\"product_name\":\"測試招牌飯\",\"can_modify\":true,\"supported_prefs\":[\"takeout\",\"delivery\",\"any\"],\"notify_consent\":\"none\"},{\"request_id\":2,\"product_id\":803,\"desired_qty\":3,\"fulfillment_pref\":\"any\",\"status\":\"active\",\"created_at\":\"2026-11-11 02:36:03\",\"updated_at\":\"2026-11-11 02:36:03\",\"expires_at\":\"2026-12-11 02:36:03\",\"product_name\":\"測試招牌飯\",\"can_modify\":true,\"supported_prefs\":[\"takeout\",\"delivery\",\"any\"],\"notify_consent\":\"none\"}]"
+    },
+    {
+     "ok": true,
+     "name": "F1-1 一般瀏覽、LIFF SDK 持續 pending：商品頁已顯示、loading 已隱藏、無還原鎖定",
+     "detail": "{\"shownMs\":274,\"v\":{\"content\":\"block\",\"loading\":\"none\",\"cards\":17,\"cart\":\"{}\",\"banner\":false,\"skip\":false,\"liff\":\"undefined\",\"session\":false},\"sdk\":1}"
+    },
+    {
+     "ok": true,
+     "name": "F1-2 Gate pending 時一般購物車操作可用",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "F1-3 Gate pending 時可開啟購物車",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "F1-4 頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "F2 LIFF SDK 載入失敗：商品頁正常顯示並可加入購物車，無例外",
+     "detail": "{\"shownMs\":193,\"v\":{\"content\":\"block\",\"loading\":\"none\",\"cards\":17,\"cart\":\"{}\",\"banner\":false,\"skip\":false,\"liff\":\"undefined\",\"session\":false},\"e\":[]}"
+    },
+    {
+     "ok": true,
+     "name": "F3 會員驗證被拒：未取得 session，商品頁與購物車正常",
+     "detail": "{\"shownMs\":224,\"v\":{\"content\":\"block\",\"loading\":\"none\",\"cards\":17,\"cart\":\"{}\",\"banner\":false,\"skip\":false,\"liff\":\"object\",\"session\":false},\"e\":[]}"
+    },
+    {
+     "ok": true,
+     "name": "F4 會員 API 延遲 8 秒：商品頁不等待即顯示",
+     "detail": "{\"shownMs\":206,\"v\":{\"content\":\"block\",\"loading\":\"none\",\"cards\":17,\"cart\":\"{}\",\"banner\":false,\"skip\":false,\"liff\":\"undefined\",\"session\":false}}"
+    },
+    {
+     "ok": true,
+     "name": "F5-1 登入導回：Gate 完成前不恢復（保留紀錄），完成後恢復一次登記表單、不加購物車",
+     "detail": "{\"a\":{\"open\":false,\"pending\":true},\"b\":{\"open\":true,\"form\":true,\"opens\":1,\"pending\":false,\"cart\":0}}"
+    },
+    {
+     "ok": true,
+     "name": "F5-2 重新整理後不再重複恢復",
+     "detail": "{\"opens\":0}"
+    },
+    {
+     "ok": true,
+     "name": "F5-3 導回時商品已恢復販售：不開表單、不消耗待恢復紀錄、提示顧客",
+     "detail": "{\"opens\":0,\"pending\":true,\"toast\":\"這項商品目前未開放想買登記，可直接瀏覽或選購。\"}"
+    },
+    {
+     "ok": true,
+     "name": "F6-1 Recovery 身分未確認：商品頁可瀏覽、顯示還原中提示，購物車異動與送單被鎖、未呼叫還原 API",
+     "detail": "{\"v\":{\"content\":\"block\",\"loading\":\"none\",\"cards\":17,\"cart\":\"{\\\"702\\\":2}\",\"banner\":true,\"skip\":false,\"liff\":\"undefined\",\"session\":false},\"v2\":{\"content\":\"block\",\"loading\":\"none\",\"cards\":17,\"cart\":\"{\\\"702\\\":2}\",\"banner\":true,\"skip\":false,\"liff\":\"undefined\",\"session\":false},\"rec\":0,\"ord\":0}"
+    },
+    {
+     "ok": true,
+     "name": "F6-2 Gate 晚完成（驗證被拒）：解除鎖定、顯示身分提示，購物車未被覆蓋、未送單、SDK 只載入一次",
+     "detail": "{\"v3\":{\"content\":\"block\",\"loading\":\"none\",\"cards\":17,\"cart\":\"{\\\"702\\\":2}\",\"banner\":true,\"skip\":true,\"liff\":\"undefined\",\"session\":false},\"v4\":{\"content\":\"block\",\"loading\":\"none\",\"cards\":17,\"cart\":\"{\\\"702\\\":2}\",\"banner\":false,\"skip\":false,\"liff\":\"object\",\"session\":false},\"notice\":true,\"sdk\":1}"
+    },
+    {
+     "ok": true,
+     "name": "F6-3 關閉身分提示後購物車操作恢復（鎖已解除）",
+     "detail": "{\"702\":3}"
+    },
+    {
+     "ok": true,
+     "name": "F7 Handoff：身分確認前鎖住購物車，Gate 完成後套用還原一次（5 份）、只呼叫一次還原 API、未送單",
+     "detail": "{\"v\":{\"content\":\"block\",\"loading\":\"none\",\"cards\":17,\"cart\":\"{\\\"702\\\":1}\",\"banner\":true,\"skip\":false,\"liff\":\"undefined\",\"session\":true},\"v1\":{\"content\":\"block\",\"loading\":\"none\",\"cards\":17,\"cart\":\"{\\\"702\\\":1}\",\"banner\":true,\"skip\":false,\"liff\":\"undefined\",\"session\":true},\"v2\":{\"content\":\"block\",\"loading\":\"none\",\"cards\":17,\"cart\":\"{\\\"702\\\":5}\",\"banner\":false,\"skip\":false,\"liff\":\"object\",\"session\":true},\"calls\":1,\"ord\":0}"
+    },
+    {
+     "ok": true,
+     "name": "F8 Handoff：顧客先繼續點餐並加到 2 份，延遲完成的還原不覆蓋（仍為 2 份）、未送單",
+     "detail": "{\"hasSkip\":true,\"v1\":{\"content\":\"block\",\"loading\":\"none\",\"cards\":17,\"cart\":\"{\\\"702\\\":2}\",\"banner\":true,\"skip\":false,\"liff\":\"undefined\",\"session\":true},\"v2\":{\"content\":\"block\",\"loading\":\"none\",\"cards\":17,\"cart\":\"{\\\"702\\\":2}\",\"banner\":false,\"skip\":false,\"liff\":\"object\",\"session\":true},\"stored\":{\"702\":2},\"calls\":1}"
+    },
+    {
+     "ok": true,
+     "name": "F9 整段首屏／Gate 測試：未建立任何訂單",
+     "detail": "{\"c0\":{\"quota_sold\":0,\"preorder_sold\":0,\"orders\":2},\"c1\":{\"quota_sold\":0,\"preorder_sold\":0,\"orders\":2}}"
+    },
+    {
+     "ok": true,
+     "name": "Z1 整個驗收過程 LINE API／推播呼叫次數為 0",
+     "detail": "0"
+    }
+   ]
+  },
+  "c31_reproduction": {
+   "passed": 13,
+   "failed": 19,
+   "failed_names": [
+    "X1-1 互換：預覽成功並回報 801→701、701→801",
+    "X1-2 互換：正式匯入成功，對應與預覽相同（未撞 active 唯一索引）",
+    "X1-3 互換：每筆登記與同意只改商品關聯；會員、份數、偏好、週期、期限、狀態、同意關聯不變",
+    "X1-5 互換：商品以備份為準（701=招牌飯、801=對照湯）",
+    "X1-6 互換：後台統計招牌飯(701) 2 人 5 份、對照湯(801) 2 人 7 份（排除取消與過期，與資料庫一致）",
+    "X1-7 互換：本人查詢 A＝招牌飯 4 份(外帶,已同意)＋對照湯 2 份(外送)；B＝對照湯 5 份(已撤回)；D 過期不顯示",
+    "X2-1 三款循環（801→802→803→801）：預覽與正式匯入皆成功",
+    "X2-2 三款循環：各筆依名稱對應到新商品，其他欄位與同意關聯不變",
+    "X2-3 三款循環：本人查詢依商品名稱份數正確；後台 802(招牌飯)=1、803(對照湯)=2、801(第三品)=2 人 9 份",
+    "X3-1 最終衝突（兩個舊商品對應到同一新商品，同會員兩筆有效登記）：預覽明確拒絕",
+    "X3-2 最終衝突：正式匯入（略過預覽）同樣拒絕",
+    "F1-1 一般瀏覽、LIFF SDK 持續 pending：商品頁已顯示、loading 已隱藏、無還原鎖定",
+    "F1-2 Gate pending 時一般購物車操作可用",
+    "F4 會員 API 延遲 8 秒：商品頁不等待即顯示",
+    "F5-3 導回時商品已恢復販售：不開表單、不消耗待恢復紀錄、提示顧客",
+    "F6-1 Recovery 身分未確認：商品頁可瀏覽、顯示還原中提示，購物車異動與送單被鎖、未呼叫還原 API",
+    "F6-2 Gate 晚完成（驗證被拒）：解除鎖定、顯示身分提示，購物車未被覆蓋、未送單、SDK 只載入一次",
+    "F7 Handoff：身分確認前鎖住購物車，Gate 完成後套用還原一次（5 份）、只呼叫一次還原 API、未送單",
+    "F8 Handoff：顧客先繼續點餐並加到 2 份，延遲完成的還原不覆蓋（仍為 2 份）、未送單"
+   ]
+  }
+ },
+ "rerun": {
+  "c31_54": {
+   "passed": 54,
+   "failed": 0
+  },
+  "c3_332": {
+   "passed": 332,
+   "failed": 0
+  },
+  "c2_93": {
+   "passed": 93,
+   "failed": 0
+  }
+ },
+ "regression_61": {
+  "c31": {
+   "exit0": 41,
+   "nonzero": 20
+  },
+  "c32": {
+   "exit0": 41,
+   "nonzero": 20
+  },
+  "new_failures": 0,
+  "per_script": {
+   "scripts/mbv2-rescue-verify.js": {
+    "c31_exit": 2,
+    "c32_exit": 2,
+    "c32_time": "0s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/run-g1-6-ga4-h1-4-4-view-item-runtime.js": {
+    "c31_exit": 1,
+    "c32_exit": 1,
+    "c32_time": "1s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/run-g1-6-ga4-h1-4-7-two-stage-checkout-runtime.js": {
+    "c31_exit": 0,
+    "c32_exit": 0,
+    "c32_time": "10s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/run-h1-4-10-asset-cache-bust-runtime.js": {
+    "c31_exit": 0,
+    "c32_exit": 0,
+    "c32_time": "0s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/run-h1-4-10-friend-live-runtime.js": {
+    "c31_exit": 0,
+    "c32_exit": 0,
+    "c32_time": "1s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/run-h1-4-10-historical-backend-reconcile-runtime.js": {
+    "c31_exit": 0,
+    "c32_exit": 0,
+    "c32_time": "2s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/run-h1-4-10-historical-friend-first-touch-runtime.js": {
+    "c31_exit": 0,
+    "c32_exit": 0,
+    "c32_time": "1s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/run-h1-4-10-phase1-liff-identity-runtime.js": {
+    "c31_exit": 0,
+    "c32_exit": 0,
+    "c32_time": "2s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/run-h1-4-10-phase2-line-friend-guide-runtime.js": {
+    "c31_exit": 0,
+    "c32_exit": 0,
+    "c32_time": "2s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/run-h1-4-10-phase3-checkout-submit-payment-runtime.js": {
+    "c31_exit": 0,
+    "c32_exit": 0,
+    "c32_time": "29s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/run-h1-4-10-phase4b-recovery-frontend-targeted.js": {
+    "c31_exit": 0,
+    "c32_exit": 0,
+    "c32_time": "9s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/run-h1-4-10-phase4b-recovery-full-runtime.js": {
+    "c31_exit": 0,
+    "c32_exit": 0,
+    "c32_time": "16s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/run-h1-4-10-required-friend-gate-runtime.js": {
+    "c31_exit": 0,
+    "c32_exit": 0,
+    "c32_time": "1s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/run-h1-4-9-checkout-order-summary-runtime.js": {
+    "c31_exit": 0,
+    "c32_exit": 0,
+    "c32_time": "7s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/run-r54-4-mbv2-ui.js": {
+    "c31_exit": 0,
+    "c32_exit": 0,
+    "c32_time": "11s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/run-regression-g1-6-ga4-h1-4-6.js": {
+    "c31_exit": 1,
+    "c32_exit": 1,
+    "c32_time": "454s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/run-regression-g1-6-ga4-h1-4-7.js": {
+    "c31_exit": 1,
+    "c32_exit": 1,
+    "c32_time": "466s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-cart-delivery-live-refresh.js": {
+    "c31_exit": 1,
+    "c32_exit": 1,
+    "c32_time": "0s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-delivery-distance-promotion.js": {
+    "c31_exit": 0,
+    "c32_exit": 0,
+    "c32_time": "0s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-h1-4-11-1-fixes.js": {
+    "c31_exit": 0,
+    "c32_exit": 0,
+    "c32_time": "3s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-h1-4-11-2-fixes.js": {
+    "c31_exit": 0,
+    "c32_exit": 0,
+    "c32_time": "2s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-h1-4-11-4-1-both-disabled-product-filter.js": {
+    "c31_exit": 0,
+    "c32_exit": 0,
+    "c32_time": "1s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-h1-4-11-4-product-mode-visibility.js": {
+    "c31_exit": 0,
+    "c32_exit": 0,
+    "c32_time": "2s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-h1-4-11-line-order-page-mode.js": {
+    "c31_exit": 0,
+    "c32_exit": 0,
+    "c32_time": "2s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-h1-4-12-popup-admin-ui-browser.js": {
+    "c31_exit": 1,
+    "c32_exit": 1,
+    "c32_time": "54s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-h1-4-12-popup-admin-ui.js": {
+    "c31_exit": 0,
+    "c32_exit": 0,
+    "c32_time": "27s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-h1-4-12-popup-checkout-integration.js": {
+    "c31_exit": 0,
+    "c32_exit": 0,
+    "c32_time": "3s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-h1-4-12-popup-frontend.js": {
+    "c31_exit": 0,
+    "c32_exit": 0,
+    "c32_time": "28s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-h1-4-12-popup-public-checkout.js": {
+    "c31_exit": 0,
+    "c32_exit": 0,
+    "c32_time": "49s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-h1-4-12-popup-real-browser.js": {
+    "c31_exit": 0,
+    "c32_exit": 0,
+    "c32_time": "9s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-h1-4-12-popup-recovery-cart-frontend.js": {
+    "c31_exit": 0,
+    "c32_exit": 0,
+    "c32_time": "9s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-h1-4-12-popup-recovery-identity-bridge.js": {
+    "c31_exit": 0,
+    "c32_exit": 0,
+    "c32_time": "2s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-h1-4-12-popup-recovery-landing.js": {
+    "c31_exit": 0,
+    "c32_exit": 0,
+    "c32_time": "10s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-hotfix25.js": {
+    "c31_exit": 0,
+    "c32_exit": 0,
+    "c32_time": "5s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-hotfix26-b.js": {
+    "c31_exit": 1,
+    "c32_exit": 1,
+    "c32_time": "1s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-hotfix26-d.js": {
+    "c31_exit": 1,
+    "c32_exit": 1,
+    "c32_time": "5s",
+    "new_fail_lines": [
+     "[FAIL] runtime 程式碼不應包含舊網域 — /home/claude/c32/utils/popupCheckout.js,/home/claude/c32/utils/popupPayment.js"
+    ],
+    "gone_fail_lines": [
+     "[FAIL] runtime 程式碼不應包含舊網域 — /home/claude/c31/utils/popupCheckout.js,/home/claude/c31/utils/popupPayment.js"
+    ]
+   },
+   "scripts/smoke-hotfix26-f2.js": {
+    "c31_exit": 1,
+    "c32_exit": 1,
+    "c32_time": "0s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-hotfix26-f3.js": {
+    "c31_exit": 0,
+    "c32_exit": 0,
+    "c32_time": "0s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-hotfix26-f4.js": {
+    "c31_exit": 0,
+    "c32_exit": 0,
+    "c32_time": "0s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-hotfix26-f5.js": {
+    "c31_exit": 0,
+    "c32_exit": 0,
+    "c32_time": "0s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-hotfix26-f7.js": {
+    "c31_exit": 1,
+    "c32_exit": 1,
+    "c32_time": "1s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-hotfix26-f8-b.js": {
+    "c31_exit": 1,
+    "c32_exit": 1,
+    "c32_time": "5s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-hotfix26-f8.js": {
+    "c31_exit": 0,
+    "c32_exit": 0,
+    "c32_time": "1s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-hotfix26-i.js": {
+    "c31_exit": 1,
+    "c32_exit": 1,
+    "c32_time": "0s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-hotfix27-cd.js": {
+    "c31_exit": 1,
+    "c32_exit": 1,
+    "c32_time": "0s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-hotfix29-b.js": {
+    "c31_exit": 1,
+    "c32_exit": 1,
+    "c32_time": "50s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-hotfix29-c.js": {
+    "c31_exit": 1,
+    "c32_exit": 1,
+    "c32_time": "83s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-hotfix29.js": {
+    "c31_exit": 1,
+    "c32_exit": 1,
+    "c32_time": "23s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-hotfix30-b5-r5-4-g1-live-geo.js": {
+    "c31_exit": 0,
+    "c32_exit": 0,
+    "c32_time": "2s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-hotfix30-b5-r5-debounce.js": {
+    "c31_exit": 0,
+    "c32_exit": 0,
+    "c32_time": "1s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-r48-popup-order-ui-browser.js": {
+    "c31_exit": 1,
+    "c32_exit": 1,
+    "c32_time": "33s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-r54-4-mbv2-large-upload.js": {
+    "c31_exit": 0,
+    "c32_exit": 0,
+    "c32_time": "139s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-r54-4-mbv2-migration.js": {
+    "c31_exit": 0,
+    "c32_exit": 0,
+    "c32_time": "14s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-r54-4-mbv2-system-regression.js": {
+    "c31_exit": 0,
+    "c32_exit": 0,
+    "c32_time": "6s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/static-audit-g1-6-ga4-h1-4-4.js": {
+    "c31_exit": 0,
+    "c32_exit": 0,
+    "c32_time": "0s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/static-audit-g1-6-ga4-h1-4-5.js": {
+    "c31_exit": 0,
+    "c32_exit": 0,
+    "c32_time": "0s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/static-audit-g1-6-ga4-h1-4-6.js": {
+    "c31_exit": 1,
+    "c32_exit": 1,
+    "c32_time": "0s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/static-audit-g1-6-ga4-h1-4-7.js": {
+    "c31_exit": 1,
+    "c32_exit": 1,
+    "c32_time": "0s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/static-audit-g1.js": {
+    "c31_exit": 0,
+    "c32_exit": 0,
+    "c32_time": "1s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/static-audit-r48-popup-order-ui.js": {
+    "c31_exit": 1,
+    "c32_exit": 1,
+    "c32_time": "0s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/test-phone-validation.js": {
+    "c31_exit": 0,
+    "c32_exit": 0,
+    "c32_time": "0s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   }
+  }
+ },
+ "not_executed": [
+  "LINE App／LIFF 真機（SDK 下載、liff.init、被動辨識、真實 Recovery／Handoff 連結、外部瀏覽器引導）",
+  "entry／friend_entry_required 模式下首屏先出現、Gate 隨後覆蓋的真機觀感",
+  "正式 Google Maps",
+  "LINE Pay",
+  "Zeabur 正式環境"
+ ]
+}

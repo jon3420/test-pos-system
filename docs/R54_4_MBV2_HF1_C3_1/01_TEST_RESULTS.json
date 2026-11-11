@@ -1,0 +1,797 @@
+{
+ "release": "R54.4/MBV2-HF1-C3.1",
+ "base": {
+  "release": "R54.4/MBV2-HF1-C3",
+  "zip": "P3CD_DEPLOY_R54_4_MBV2_HF1_C3_SALE_STATUS_DEMAND_APP_ROOT.zip",
+  "sha256": "2097cfc99ba8c3c8170196db3eeccbd953fc33f3aafab525fc48be76cb042f20",
+  "match": true,
+  "files": 896
+ },
+ "executed_at": "2026-11-11 (Asia/Taipei)",
+ "new_acceptance": {
+  "script": "scripts/smoke-r54-4-mbv2-hf1-c3-1-backup-manage-login.js",
+  "c31": {
+   "passed": 54,
+   "failed": 0,
+   "cases": [
+    {
+     "ok": true,
+     "name": "R1 801→701：預覽回報登記／同意將由商品 801 對應到 701（依名稱、5 筆）",
+     "detail": "[{\"from\":801,\"to\":701,\"matched_by\":\"name\",\"rows\":5}]"
+    },
+    {
+     "ok": true,
+     "name": "R1 801→701：正式匯入成功，對應結果與預覽相同",
+     "detail": "[{\"from\":801,\"to\":701,\"matched_by\":\"name\",\"rows\":5}]"
+    },
+    {
+     "ok": true,
+     "name": "R1 801→701：登記全部改指向 701，會員、份數、偏好、狀態、期限、週期不變",
+     "detail": "{\"pre\":[{\"request_uuid\":\"63964d51-0ab3-46a3-a5f2-b33ba7888f09\",\"product_id\":801,\"line_user_id\":\"Uc31aaaaaaaaaaaaaaaaaaaaaaaaaa01\",\"desired_qty\":4,\"fulfillment_pref\":\"takeout\",\"status\":\"active\",\"expires_at\":\"2026-12-11 00:51:10\",\"cycle_no\":1},{\"request_uuid\":\"f0ca9b4e-07c0-4e47-bc75-e8adee2ab929\",\"product_id\":801,\"line_user_id\":\"Uc31bbbbbbbbbbbbbbbbbbbbbbbbbb02\",\"desired_qty\":2,\"fulfillment_pref\":\"any\",\"status\":\"active\",\"expires_at\":\"2026-12-11 00:51:10\",\"cycle_no\":1},{\"request_uuid\":\"cee9c2f6-1b3e-4d69-b59d-d87d310f056a\",\"product_id\":801,\"line_user_id\":\"Uc31cccccccccccccccccccccccccc03\",\"desired_qty\":3,\"fulfillment_pref\":\"any\",\"status\":\"cancelled\",\"expires_at\":\"2026-12-11 00:51:10\",\"cycle_no\":1}],\"post\":[{\"request_uuid\":\"63964d51-0ab3-46a3-a5f2-b33ba7888f09\",\"product_id\":701,\"line_user_id\":\"Uc31aaaaaaaaaaaaaaaaaaaaaaaaaa01\",\"desired_qty\":4,\"fulfillment_pref\":\"takeout\",\"status\":\"active\",\"expires_at\":\"2026-12-11 00:51:10\",\"cycle_no\":1},{\"request_uuid\":\"f0ca9b4e-07c0-4e47-bc75-e8adee2ab929\",\"product_id\":701,\"line_user_id\":\"Uc31bbbbbbbbbbbbbbbbbbbbbbbbbb02\",\"desired_qty\":2,\"fulfillment_pref\":\"any\",\"status\":\"active\",\"expires_at\":\"2026-12-11 00:51:10\",\"cycle_no\":1},{\"request_uuid\":\"cee9c2f6-1b3e-4d69-b59d-d87d310f056a\",\"product_id\":701,\"line_user_id\":\"Uc31cccccccccccccccccccccccccc03\",\"desired_qty\":3,\"fulfillment_pref\":\"any\",\"status\":\"cancelled\",\"expires_at\":\"2026-12-11 00:51:10\",\"cycle_no\":1}]}"
+    },
+    {
+     "ok": true,
+     "name": "R1 801→701：通知同意改指向 701，狀態（granted／revoked）、會員與登記關聯不變",
+     "detail": "[{\"consent_uuid\":\"c31-g\",\"product_id\":701,\"line_user_id\":\"Uc31aaaaaaaaaaaaaaaaaaaaaaaaaa01\",\"status\":\"granted\",\"request_uuid\":\"63964d51-0ab3-46a3-a5f2-b33ba7888f09\"},{\"consent_uuid\":\"c31-r\",\"product_id\":701,\"line_user_id\":\"Uc31bbbbbbbbbbbbbbbbbbbbbbbbbb02\",\"status\":\"revoked\",\"request_uuid\":\"\"}]"
+    },
+    {
+     "ok": true,
+     "name": "R1 801→701：商品以備份為準（701:測試招牌飯），沒有任何登記指向 801",
+     "detail": "[{\"id\":701,\"name\":\"測試招牌飯\"}]"
+    },
+    {
+     "ok": true,
+     "name": "R1 801→701：後台統計 701 有效 2 人、6 份；801 為 0",
+     "detail": "{\"s701\":{\"product_id\":701,\"name\":\"測試招牌飯\",\"sale_status\":\"available\",\"enabled\":1,\"show_on_line\":1,\"line_visible\":true,\"demand_collect_enabled\":1,\"active_users\":2,\"total_qty\":6,\"last_updated_at\":\"2026-11-11 00:51:10\",\"history_rows\":3},\"s801\":{\"active_users\":0,\"total_qty\":0}}"
+    },
+    {
+     "ok": true,
+     "name": "R1 801→701：顧客本人查詢：A 701/測試招牌飯/4 份/已同意；B 701/2 份/已撤回",
+     "detail": "{\"mA\":[{\"request_id\":1,\"product_id\":701,\"desired_qty\":4,\"fulfillment_pref\":\"takeout\",\"status\":\"active\",\"created_at\":\"2026-11-11 00:51:10\",\"updated_at\":\"2026-11-11 00:51:10\",\"expires_at\":\"2026-12-11 00:51:10\",\"product_name\":\"測試招牌飯\",\"can_modify\":true,\"supported_prefs\":[\"takeout\",\"delivery\",\"any\"],\"notify_consent\":\"granted\"}],\"mB\":[{\"request_id\":2,\"product_id\":701,\"desired_qty\":2,\"fulfillment_pref\":\"any\",\"status\":\"active\",\"created_at\":\"2026-11-11 00:51:10\",\"updated_at\":\"2026-11-11 00:51:10\",\"expires_at\":\"2026-12-11 00:51:10\",\"product_name\":\"測試招牌飯\",\"can_modify\":true,\"supported_prefs\":[\"takeout\",\"delivery\",\"any\"],\"notify_consent\":\"revoked\"}]}"
+    },
+    {
+     "ok": true,
+     "name": "R1 801→701：匯入未觸發任何 LINE 推播",
+     "detail": "0"
+    },
+    {
+     "ok": true,
+     "name": "R2 801 被另一款商品占用：預覽回報登記／同意將由商品 801 對應到 701（依名稱、5 筆）",
+     "detail": "[{\"from\":801,\"to\":701,\"matched_by\":\"name\",\"rows\":5}]"
+    },
+    {
+     "ok": true,
+     "name": "R2 801 被另一款商品占用：正式匯入成功，對應結果與預覽相同",
+     "detail": "[{\"from\":801,\"to\":701,\"matched_by\":\"name\",\"rows\":5}]"
+    },
+    {
+     "ok": true,
+     "name": "R2 801 被另一款商品占用：登記全部改指向 701，會員、份數、偏好、狀態、期限、週期不變",
+     "detail": "{\"pre\":[{\"request_uuid\":\"c55922cb-48ed-450b-a029-8a05daa74b96\",\"product_id\":801,\"line_user_id\":\"Uc31aaaaaaaaaaaaaaaaaaaaaaaaaa01\",\"desired_qty\":4,\"fulfillment_pref\":\"takeout\",\"status\":\"active\",\"expires_at\":\"2026-12-11 00:51:17\",\"cycle_no\":1},{\"request_uuid\":\"3cbc8307-762d-4b03-9293-1c89908dca12\",\"product_id\":801,\"line_user_id\":\"Uc31bbbbbbbbbbbbbbbbbbbbbbbbbb02\",\"desired_qty\":2,\"fulfillment_pref\":\"any\",\"status\":\"active\",\"expires_at\":\"2026-12-11 00:51:17\",\"cycle_no\":1},{\"request_uuid\":\"12a6b4ce-8f27-43b2-a0e6-20c2e50c3896\",\"product_id\":801,\"line_user_id\":\"Uc31cccccccccccccccccccccccccc03\",\"desired_qty\":3,\"fulfillment_pref\":\"any\",\"status\":\"cancelled\",\"expires_at\":\"2026-12-11 00:51:17\",\"cycle_no\":1}],\"post\":[{\"request_uuid\":\"c55922cb-48ed-450b-a029-8a05daa74b96\",\"product_id\":701,\"line_user_id\":\"Uc31aaaaaaaaaaaaaaaaaaaaaaaaaa01\",\"desired_qty\":4,\"fulfillment_pref\":\"takeout\",\"status\":\"active\",\"expires_at\":\"2026-12-11 00:51:17\",\"cycle_no\":1},{\"request_uuid\":\"3cbc8307-762d-4b03-9293-1c89908dca12\",\"product_id\":701,\"line_user_id\":\"Uc31bbbbbbbbbbbbbbbbbbbbbbbbbb02\",\"desired_qty\":2,\"fulfillment_pref\":\"any\",\"status\":\"active\",\"expires_at\":\"2026-12-11 00:51:17\",\"cycle_no\":1},{\"request_uuid\":\"12a6b4ce-8f27-43b2-a0e6-20c2e50c3896\",\"product_id\":701,\"line_user_id\":\"Uc31cccccccccccccccccccccccccc03\",\"desired_qty\":3,\"fulfillment_pref\":\"any\",\"status\":\"cancelled\",\"expires_at\":\"2026-12-11 00:51:17\",\"cycle_no\":1}]}"
+    },
+    {
+     "ok": true,
+     "name": "R2 801 被另一款商品占用：通知同意改指向 701，狀態（granted／revoked）、會員與登記關聯不變",
+     "detail": "[{\"consent_uuid\":\"c31-g\",\"product_id\":701,\"line_user_id\":\"Uc31aaaaaaaaaaaaaaaaaaaaaaaaaa01\",\"status\":\"granted\",\"request_uuid\":\"c55922cb-48ed-450b-a029-8a05daa74b96\"},{\"consent_uuid\":\"c31-r\",\"product_id\":701,\"line_user_id\":\"Uc31bbbbbbbbbbbbbbbbbbbbbbbbbb02\",\"status\":\"revoked\",\"request_uuid\":\"\"}]"
+    },
+    {
+     "ok": true,
+     "name": "R2 801 被另一款商品占用：商品以備份為準（701:測試招牌飯,801:測試對照湯），沒有任何登記指向 801",
+     "detail": "[{\"id\":701,\"name\":\"測試招牌飯\"},{\"id\":801,\"name\":\"測試對照湯\"}]"
+    },
+    {
+     "ok": true,
+     "name": "R2 801 被另一款商品占用：後台統計 701 有效 2 人、6 份；801 為 0",
+     "detail": "{\"s701\":{\"product_id\":701,\"name\":\"測試招牌飯\",\"sale_status\":\"available\",\"enabled\":1,\"show_on_line\":1,\"line_visible\":true,\"demand_collect_enabled\":1,\"active_users\":2,\"total_qty\":6,\"last_updated_at\":\"2026-11-11 00:51:17\",\"history_rows\":3},\"s801\":{\"product_id\":801,\"name\":\"測試對照湯\",\"sale_status\":\"available\",\"enabled\":1,\"show_on_line\":1,\"line_visible\":true,\"demand_collect_enabled\":1,\"active_users\":0,\"total_qty\":0,\"last_updated_at\":null,\"history_rows\":0}}"
+    },
+    {
+     "ok": true,
+     "name": "R2 801 被另一款商品占用：顧客本人查詢：A 701/測試招牌飯/4 份/已同意；B 701/2 份/已撤回",
+     "detail": "{\"mA\":[{\"request_id\":1,\"product_id\":701,\"desired_qty\":4,\"fulfillment_pref\":\"takeout\",\"status\":\"active\",\"created_at\":\"2026-11-11 00:51:17\",\"updated_at\":\"2026-11-11 00:51:17\",\"expires_at\":\"2026-12-11 00:51:17\",\"product_name\":\"測試招牌飯\",\"can_modify\":true,\"supported_prefs\":[\"takeout\",\"delivery\",\"any\"],\"notify_consent\":\"granted\"}],\"mB\":[{\"request_id\":2,\"product_id\":701,\"desired_qty\":2,\"fulfillment_pref\":\"any\",\"status\":\"active\",\"created_at\":\"2026-11-11 00:51:17\",\"updated_at\":\"2026-11-11 00:51:17\",\"expires_at\":\"2026-12-11 00:51:17\",\"product_name\":\"測試招牌飯\",\"can_modify\":true,\"supported_prefs\":[\"takeout\",\"delivery\",\"any\"],\"notify_consent\":\"revoked\"}]}"
+    },
+    {
+     "ok": true,
+     "name": "R2 801 被另一款商品占用：匯入未觸發任何 LINE 推播",
+     "detail": "0"
+    },
+    {
+     "ok": true,
+     "name": "R3 商品缺失：預覽即明確拒絕（DEMAND_PRODUCT_REMAP_FAILED／missing），無法進入匯入",
+     "detail": "{\"code\":\"DEMAND_PRODUCT_REMAP_FAILED\",\"message\":\"完整取代會重建商品資料，但現有想買登記／通知同意引用的商品無法唯一對應：「測試招牌飯」在備份商品中找不到（5 筆登記／同意）。已拒絕本次完整取代並整批回滾，資料庫未變更。請改用包含「商品想買登記」分類的完整備份，或確認備份中的商品名稱／條碼可唯一對應。\",\"demand_remap_failures\":[{\"old_product_id\":801,\"name\":\"測試招牌飯\",\"barcode\":\"\",\"existed_before\":true,\"reason\":\"missing\",\"candidates\":[]}]}"
+    },
+    {
+     "ok": true,
+     "name": "R3 商品缺失：拒絕訊息說明原因與未變更",
+     "detail": "完整取代會重建商品資料，但現有想買登記／通知同意引用的商品無法唯一對應：「測試招牌飯」在備份商品中找不到（5 筆登記／同意）。已拒絕本次完整取代並整批回滾，資料庫未變更。請改用包含「商品想買登記」分類的完整備份，或確認備份中的商品名稱／條碼可唯一對應。"
+    },
+    {
+     "ok": true,
+     "name": "R3 商品缺失：直接呼叫正式匯入（略過預覽）同樣拒絕",
+     "detail": "{\"code\":\"DEMAND_PRODUCT_REMAP_FAILED\",\"message\":\"完整取代會重建商品資料，但現有想買登記／通知同意引用的商品無法唯一對應：「測試招牌飯」在備份商品中找不到（5 筆登記／同意）。已拒絕本次完整取代並整批回滾，資料庫未變更。請改用包含「商品想買登記」分類的完整備份，或確認備份中的商品名稱／條碼可唯一對應。\",\"demand_remap_failures\":[{\"old_product_id\":801,\"name\":\"測試招牌飯\",\"barcode\":\"\",\"existed_before\":true,\"reason\":\"missing\",\"candidates\":[]}]}"
+    },
+    {
+     "ok": true,
+     "name": "R3 商品缺失：拒絕後商品、訂單、登記、同意、分類、設定、會員、優惠券完全不變",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "R3 商品缺失：拒絕後顧客查詢與後台統計維持原狀（801／2 人／6 份）",
+     "detail": "{\"mA\":[{\"request_id\":1,\"product_id\":801,\"desired_qty\":4,\"fulfillment_pref\":\"takeout\",\"status\":\"active\",\"created_at\":\"2026-11-11 00:51:22\",\"updated_at\":\"2026-11-11 00:51:22\",\"expires_at\":\"2026-12-11 00:51:22\",\"product_name\":\"測試招牌飯\",\"can_modify\":true,\"supported_prefs\":[\"takeout\",\"delivery\",\"any\"],\"notify_consent\":\"granted\"}],\"s801\":{\"product_id\":801,\"name\":\"測試招牌飯\",\"sale_status\":\"paused\",\"enabled\":1,\"show_on_line\":1,\"line_visible\":true,\"demand_collect_enabled\":1,\"active_users\":2,\"total_qty\":6,\"last_updated_at\":\"2026-11-11 00:51:22\",\"history_rows\":3}}"
+    },
+    {
+     "ok": true,
+     "name": "R4 同名無法唯一：預覽即明確拒絕（DEMAND_PRODUCT_REMAP_FAILED／ambiguous），無法進入匯入",
+     "detail": "{\"code\":\"DEMAND_PRODUCT_REMAP_FAILED\",\"message\":\"完整取代會重建商品資料，但現有想買登記／通知同意引用的商品無法唯一對應：「測試招牌飯」在備份商品中有 2 筆同識別（5 筆登記／同意）。已拒絕本次完整取代並整批回滾，資料庫未變更。請改用包含「商品想買登記」分類的完整備份，或確認備份中的商品名稱／條碼可唯一對應。\",\"demand_remap_failures\":[{\"old_product_id\":801,\"name\":\"測試招牌飯\",\"barcode\":\"\",\"existed_before\":true,\"reason\":\"ambiguous\",\"candidates\":[701,799]}]}"
+    },
+    {
+     "ok": true,
+     "name": "R4 同名無法唯一：拒絕訊息說明原因與未變更",
+     "detail": "完整取代會重建商品資料，但現有想買登記／通知同意引用的商品無法唯一對應：「測試招牌飯」在備份商品中有 2 筆同識別（5 筆登記／同意）。已拒絕本次完整取代並整批回滾，資料庫未變更。請改用包含「商品想買登記」分類的完整備份，或確認備份中的商品名稱／條碼可唯一對應。"
+    },
+    {
+     "ok": true,
+     "name": "R4 同名無法唯一：直接呼叫正式匯入（略過預覽）同樣拒絕",
+     "detail": "{\"code\":\"DEMAND_PRODUCT_REMAP_FAILED\",\"message\":\"完整取代會重建商品資料，但現有想買登記／通知同意引用的商品無法唯一對應：「測試招牌飯」在備份商品中有 2 筆同識別（5 筆登記／同意）。已拒絕本次完整取代並整批回滾，資料庫未變更。請改用包含「商品想買登記」分類的完整備份，或確認備份中的商品名稱／條碼可唯一對應。\",\"demand_remap_failures\":[{\"old_product_id\":801,\"name\":\"測試招牌飯\",\"barcode\":\"\",\"existed_before\":true,\"reason\":\"ambiguous\",\"candidates\":[701,799]}]}"
+    },
+    {
+     "ok": true,
+     "name": "R4 同名無法唯一：拒絕後商品、訂單、登記、同意、分類、設定、會員、優惠券完全不變",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "R4 同名無法唯一：拒絕後顧客查詢與後台統計維持原狀（801／2 人／6 份）",
+     "detail": "{\"mA\":[{\"request_id\":1,\"product_id\":801,\"desired_qty\":4,\"fulfillment_pref\":\"takeout\",\"status\":\"active\",\"created_at\":\"2026-11-11 00:51:28\",\"updated_at\":\"2026-11-11 00:51:28\",\"expires_at\":\"2026-12-11 00:51:28\",\"product_name\":\"測試招牌飯\",\"can_modify\":true,\"supported_prefs\":[\"takeout\",\"delivery\",\"any\"],\"notify_consent\":\"granted\"}],\"s801\":{\"product_id\":801,\"name\":\"測試招牌飯\",\"sale_status\":\"paused\",\"enabled\":1,\"show_on_line\":1,\"line_visible\":true,\"demand_collect_enabled\":1,\"active_users\":2,\"total_qty\":6,\"last_updated_at\":\"2026-11-11 00:51:28\",\"history_rows\":3}}"
+    },
+    {
+     "ok": true,
+     "name": "M1-1 恢復販售：商品可購買，同時保留「已登記 2 份・管理登記」與頁首「我的想買登記」",
+     "detail": "{\"d\":\"已登記 2 份・管理登記\",\"plus\":true,\"hdr\":\"block\"}"
+    },
+    {
+     "ok": true,
+     "name": "M1-2 恢復販售：詳情可加入，且提供管理登記入口",
+     "detail": "{\"disabled\":false,\"text\":\"加入購物車\",\"demand\":\"已登記 2 份・管理登記\"}"
+    },
+    {
+     "ok": true,
+     "name": "M1-3 恢復販售且仍開放收集：可修改份數為 3（更新原筆）",
+     "detail": "{\"can\":{\"submit\":true,\"qty\":\"2\"},\"m\":[{\"request_id\":1,\"product_id\":701,\"desired_qty\":3,\"fulfillment_pref\":\"any\",\"status\":\"active\",\"created_at\":\"2026-11-11 00:51:33\",\"updated_at\":\"2026-11-11 00:51:37\",\"expires_at\":\"2026-12-11 00:51:33\",\"product_name\":\"測試招牌飯\",\"can_modify\":true,\"supported_prefs\":[\"takeout\",\"delivery\",\"any\"],\"notify_consent\":\"granted\"}]}"
+    },
+    {
+     "ok": true,
+     "name": "M1-4 管理登記不加入購物車",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "M2-1 關閉商品收集：仍可找到並管理（唯讀＋取消＋撤回），修改份數依最新設定被拒（403）",
+     "detail": "{\"btn\":\"已登記 3 份・管理登記\",\"ui\":{\"ro\":true,\"submit\":false,\"cancel\":true,\"revoke\":true},\"reg\":403}"
+    },
+    {
+     "ok": true,
+     "name": "M2-2 關閉收集後仍可撤回通知同意（登記本身保留）",
+     "detail": "[{\"request_id\":1,\"product_id\":701,\"desired_qty\":3,\"fulfillment_pref\":\"any\",\"status\":\"active\",\"created_at\":\"2026-11-11 00:51:33\",\"updated_at\":\"2026-11-11 00:51:37\",\"expires_at\":\"2026-12-11 00:51:33\",\"product_name\":\"測試招牌飯\",\"can_modify\":false,\"supported_prefs\":[\"takeout\",\"delivery\",\"any\"],\"notify_consent\":\"revoked\"}]"
+    },
+    {
+     "ok": true,
+     "name": "M3 關閉總開關：其他商品不再出現新增入口，本人既有登記仍可從商品卡與頁首清單找到",
+     "detail": "{\"btn\":\"已登記 3 份・管理登記\",\"others\":1,\"list\":[\"測試招牌飯\\n3 份・都可以\\n管理\"]}"
+    },
+    {
+     "ok": true,
+     "name": "M4-1 隱藏商品：不出現在公開列表與商品卡，管理後也不會重新出現；仍不可購買",
+     "detail": "{\"menuHas\":false,\"inPage\":{\"card\":false,\"inAll\":false},\"inPage2\":{\"card\":false,\"inAll\":false},\"ord\":400}"
+    },
+    {
+     "ok": true,
+     "name": "M4-2 隱藏商品：頁首清單仍列出本人登記，可開啟唯讀管理",
+     "detail": "{\"list\":[\"測試招牌飯\\n3 份・都可以\\n管理\"],\"ui\":{\"name\":\"測試招牌飯\",\"ro\":true,\"submit\":false}}"
+    },
+    {
+     "ok": true,
+     "name": "M4-3 其他會員不能取消、其他店別 session 不能讀取（商品卡不顯示時亦同）",
+     "detail": "404/401"
+    },
+    {
+     "ok": true,
+     "name": "M4-4 隱藏商品：本人可取消既有登記，清單變為空",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "M5 停用商品：仍可從清單取消既有登記，商品不重新出現",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "M5-2 頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "M6 整段管理操作：訂單、今日與預購額度不變",
+     "detail": "{\"c0\":{\"quota_sold\":0,\"preorder_sold\":0,\"orders\":2},\"c1\":{\"quota_sold\":0,\"preorder_sold\":0,\"orders\":2}}"
+    },
+    {
+     "ok": true,
+     "name": "L1 會員已驗證、登記設定較晚載入：恢復表單一次並消耗待恢復紀錄",
+     "detail": "{\"open\":true,\"opens\":1,\"form\":true,\"login\":false,\"hint\":\"\",\"loginLabel\":\"\",\"msg\":\"\",\"pending\":false,\"cart\":0,\"hdr\":\"block\"}"
+    },
+    {
+     "ok": true,
+     "name": "L1-2 重新整理後不再重複開啟（只恢復一次）",
+     "detail": "{\"open\":false,\"opens\":0,\"form\":false,\"login\":false,\"hint\":\"\",\"loginLabel\":\"\",\"msg\":\"\",\"pending\":false,\"cart\":0,\"hdr\":\"block\"}"
+    },
+    {
+     "ok": true,
+     "name": "L2-1 尚未取得 session：表單以「需要登入」狀態開啟，待恢復紀錄保留",
+     "detail": "{\"open\":true,\"opens\":1,\"form\":false,\"login\":true,\"hint\":\"請先以 LINE 會員登入，才能保存你的登記。\",\"loginLabel\":\"以 LINE 登入\",\"msg\":\"\",\"pending\":true,\"cart\":0,\"hdr\":\"none\"}"
+    },
+    {
+     "ok": true,
+     "name": "L2-2 延遲取得 session 後自動轉為登記表單（同一次開啟），待恢復紀錄才消耗",
+     "detail": "{\"open\":true,\"opens\":1,\"form\":true,\"login\":false,\"hint\":\"\",\"loginLabel\":\"\",\"msg\":\"\",\"pending\":false,\"cart\":0,\"hdr\":\"block\"}"
+    },
+    {
+     "ok": true,
+     "name": "L3-1 驗證失敗：顯示錯誤、保留待恢復紀錄並可重試",
+     "detail": "{\"open\":true,\"opens\":1,\"form\":false,\"login\":true,\"hint\":\"請先以 LINE 會員登入，才能保存你的登記。\",\"loginLabel\":\"以 LINE 登入\",\"msg\":\"驗證失敗（測試）\",\"pending\":true,\"cart\":0,\"hdr\":\"none\"}"
+    },
+    {
+     "ok": true,
+     "name": "L3-2 重新嘗試成功：直接顯示登記表單並消耗待恢復紀錄",
+     "detail": "{\"open\":true,\"opens\":1,\"form\":true,\"login\":false,\"hint\":\"\",\"loginLabel\":\"\",\"msg\":\"\",\"pending\":false,\"cart\":0,\"hdr\":\"block\"}"
+    },
+    {
+     "ok": true,
+     "name": "L4-1 member_session 失效（API 401）：表單提示登入已過期並提供重新登入",
+     "detail": "{\"open\":true,\"opens\":1,\"form\":false,\"login\":true,\"hint\":\"LINE 會員登入已過期，請重新登入後再管理你的登記。\",\"loginLabel\":\"重新以 LINE 登入\",\"msg\":\"\",\"pending\":false,\"cart\":0,\"hdr\":\"block\"}"
+    },
+    {
+     "ok": true,
+     "name": "L4-2 重新登入後恢復登記表單",
+     "detail": "{\"open\":true,\"opens\":1,\"form\":true,\"login\":false,\"hint\":\"\",\"loginLabel\":\"\",\"msg\":\"\",\"pending\":false,\"cart\":0,\"hdr\":\"block\"}"
+    },
+    {
+     "ok": true,
+     "name": "L4-3 本機 session 已逾時：視為未登入，表單要求登入且保留待恢復紀錄",
+     "detail": "{\"open\":true,\"opens\":1,\"form\":false,\"login\":true,\"hint\":\"請先以 LINE 會員登入，才能保存你的登記。\",\"loginLabel\":\"以 LINE 登入\",\"msg\":\"\",\"pending\":true,\"cart\":0,\"hdr\":\"none\"}"
+    },
+    {
+     "ok": true,
+     "name": "L5 使用者關閉表單：待恢復紀錄消耗，之後取得 session 或重新整理都不再開啟",
+     "detail": "{\"s\":{\"open\":false,\"opens\":1,\"form\":false,\"login\":true,\"hint\":\"請先以 LINE 會員登入，才能保存你的登記。\",\"loginLabel\":\"以 LINE 登入\",\"msg\":\"\",\"pending\":false,\"cart\":0,\"hdr\":\"none\"},\"s1\":{\"open\":false,\"opens\":1,\"form\":false,\"login\":true,\"hint\":\"請先以 LINE 會員登入，才能保存你的登記。\",\"loginLabel\":\"以 LINE 登入\",\"msg\":\"\",\"pending\":false,\"cart\":0,\"hdr\":\"none\"},\"s2\":{\"open\":false,\"opens\":0,\"form\":false,\"login\":false,\"hint\":\"\",\"loginLabel\":\"\",\"msg\":\"\",\"pending\":false,\"cart\":0,\"hdr\":\"block\"}}"
+    },
+    {
+     "ok": true,
+     "name": "L6 一般瀏覽者：不開表單、不要求登入、不顯示「我的想買登記」",
+     "detail": "{\"open\":false,\"opens\":0,\"form\":false,\"login\":false,\"hint\":\"\",\"loginLabel\":\"\",\"msg\":\"\",\"pending\":false,\"cart\":0,\"hdr\":\"none\"}"
+    },
+    {
+     "ok": true,
+     "name": "L7 已登入：顯示「我的想買登記」入口，不自動開啟表單",
+     "detail": "{\"open\":false,\"opens\":0,\"form\":false,\"login\":false,\"hint\":\"\",\"loginLabel\":\"\",\"msg\":\"\",\"pending\":false,\"cart\":0,\"hdr\":\"block\"}"
+    },
+    {
+     "ok": true,
+     "name": "L8 恢復登記流程：未建立訂單、額度不變（購物車於各情境皆為 0）",
+     "detail": "{\"c0\":{\"quota_sold\":0,\"preorder_sold\":0,\"orders\":2},\"c1\":{\"quota_sold\":0,\"preorder_sold\":0,\"orders\":2}}"
+    },
+    {
+     "ok": true,
+     "name": "Z1 整個驗收過程 LINE API／推播呼叫次數為 0",
+     "detail": "0"
+    }
+   ]
+  },
+  "c3_reproduction": {
+   "passed": 15,
+   "failed": 39,
+   "failed_names": [
+    "R1 801→701：預覽回報登記／同意將由商品 801 對應到 701（依名稱、5 筆）",
+    "R1 801→701：登記全部改指向 701，會員、份數、偏好、狀態、期限、週期不變",
+    "R1 801→701：通知同意改指向 701，狀態（granted／revoked）、會員與登記關聯不變",
+    "R1 801→701：商品以備份為準（701:測試招牌飯），沒有任何登記指向 801",
+    "R1 801→701：後台統計 701 有效 2 人、6 份；801 為 0",
+    "R1 801→701：顧客本人查詢：A 701/測試招牌飯/4 份/已同意；B 701/2 份/已撤回",
+    "R2 801 被另一款商品占用：預覽回報登記／同意將由商品 801 對應到 701（依名稱、5 筆）",
+    "R2 801 被另一款商品占用：登記全部改指向 701，會員、份數、偏好、狀態、期限、週期不變",
+    "R2 801 被另一款商品占用：通知同意改指向 701，狀態（granted／revoked）、會員與登記關聯不變",
+    "R2 801 被另一款商品占用：商品以備份為準（701:測試招牌飯,801:測試對照湯），沒有任何登記指向 801",
+    "R2 801 被另一款商品占用：後台統計 701 有效 2 人、6 份；801 為 0",
+    "R2 801 被另一款商品占用：顧客本人查詢：A 701/測試招牌飯/4 份/已同意；B 701/2 份/已撤回",
+    "R3 商品缺失：預覽即明確拒絕（DEMAND_PRODUCT_REMAP_FAILED／missing），無法進入匯入",
+    "R3 商品缺失：拒絕訊息說明原因與未變更",
+    "R3 商品缺失：直接呼叫正式匯入（略過預覽）同樣拒絕",
+    "R3 商品缺失：拒絕後商品、訂單、登記、同意、分類、設定、會員、優惠券完全不變",
+    "R3 商品缺失：拒絕後顧客查詢與後台統計維持原狀（801／2 人／6 份）",
+    "R4 同名無法唯一：預覽即明確拒絕（DEMAND_PRODUCT_REMAP_FAILED／ambiguous），無法進入匯入",
+    "R4 同名無法唯一：拒絕訊息說明原因與未變更",
+    "R4 同名無法唯一：直接呼叫正式匯入（略過預覽）同樣拒絕",
+    "R4 同名無法唯一：拒絕後商品、訂單、登記、同意、分類、設定、會員、優惠券完全不變",
+    "R4 同名無法唯一：拒絕後顧客查詢與後台統計維持原狀（801／2 人／6 份）",
+    "M1-1 恢復販售：商品可購買，同時保留「已登記 2 份・管理登記」與頁首「我的想買登記」",
+    "M1-2 恢復販售：詳情可加入，且提供管理登記入口",
+    "M1-3 恢復販售且仍開放收集：可修改份數為 3（更新原筆）",
+    "M2-1 關閉商品收集：仍可找到並管理（唯讀＋取消＋撤回），修改份數依最新設定被拒（403）",
+    "M2-2 關閉收集後仍可撤回通知同意（登記本身保留）",
+    "M3 關閉總開關：其他商品不再出現新增入口，本人既有登記仍可從商品卡與頁首清單找到",
+    "M4-2 隱藏商品：頁首清單仍列出本人登記，可開啟唯讀管理",
+    "M4-4 隱藏商品：本人可取消既有登記，清單變為空",
+    "M5 停用商品：仍可從清單取消既有登記，商品不重新出現",
+    "L2-1 尚未取得 session：表單以「需要登入」狀態開啟，待恢復紀錄保留",
+    "L2-2 延遲取得 session 後自動轉為登記表單（同一次開啟），待恢復紀錄才消耗",
+    "L3-1 驗證失敗：顯示錯誤、保留待恢復紀錄並可重試",
+    "L3-2 重新嘗試成功：直接顯示登記表單並消耗待恢復紀錄",
+    "L4-1 member_session 失效（API 401）：表單提示登入已過期並提供重新登入",
+    "L4-3 本機 session 已逾時：視為未登入，表單要求登入且保留待恢復紀錄",
+    "L6 一般瀏覽者：不開表單、不要求登入、不顯示「我的想買登記」",
+    "L7 已登入：顯示「我的想買登記」入口，不自動開啟表單"
+   ]
+  }
+ },
+ "rerun": {
+  "c3_332": {
+   "passed": 332,
+   "failed": 0
+  },
+  "c2_93": {
+   "passed": 93,
+   "failed": 0
+  }
+ },
+ "regression_61": {
+  "c3": {
+   "exit0": 41,
+   "nonzero": 20
+  },
+  "c31": {
+   "exit0": 41,
+   "nonzero": 20
+  },
+  "new_failures": 0,
+  "per_script": {
+   "scripts/mbv2-rescue-verify.js": {
+    "c3_exit": 2,
+    "c31_exit": 2,
+    "c31_time": "0s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/run-g1-6-ga4-h1-4-4-view-item-runtime.js": {
+    "c3_exit": 1,
+    "c31_exit": 1,
+    "c31_time": "1s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/run-g1-6-ga4-h1-4-7-two-stage-checkout-runtime.js": {
+    "c3_exit": 0,
+    "c31_exit": 0,
+    "c31_time": "10s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/run-h1-4-10-asset-cache-bust-runtime.js": {
+    "c3_exit": 0,
+    "c31_exit": 0,
+    "c31_time": "0s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/run-h1-4-10-friend-live-runtime.js": {
+    "c3_exit": 0,
+    "c31_exit": 0,
+    "c31_time": "1s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/run-h1-4-10-historical-backend-reconcile-runtime.js": {
+    "c3_exit": 0,
+    "c31_exit": 0,
+    "c31_time": "2s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/run-h1-4-10-historical-friend-first-touch-runtime.js": {
+    "c3_exit": 0,
+    "c31_exit": 0,
+    "c31_time": "2s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/run-h1-4-10-phase1-liff-identity-runtime.js": {
+    "c3_exit": 0,
+    "c31_exit": 0,
+    "c31_time": "1s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/run-h1-4-10-phase2-line-friend-guide-runtime.js": {
+    "c3_exit": 0,
+    "c31_exit": 0,
+    "c31_time": "3s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/run-h1-4-10-phase3-checkout-submit-payment-runtime.js": {
+    "c3_exit": 0,
+    "c31_exit": 0,
+    "c31_time": "29s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/run-h1-4-10-phase4b-recovery-frontend-targeted.js": {
+    "c3_exit": 0,
+    "c31_exit": 0,
+    "c31_time": "9s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/run-h1-4-10-phase4b-recovery-full-runtime.js": {
+    "c3_exit": 0,
+    "c31_exit": 0,
+    "c31_time": "16s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/run-h1-4-10-required-friend-gate-runtime.js": {
+    "c3_exit": 0,
+    "c31_exit": 0,
+    "c31_time": "0s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/run-h1-4-9-checkout-order-summary-runtime.js": {
+    "c3_exit": 0,
+    "c31_exit": 0,
+    "c31_time": "8s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/run-r54-4-mbv2-ui.js": {
+    "c3_exit": 0,
+    "c31_exit": 0,
+    "c31_time": "9s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/run-regression-g1-6-ga4-h1-4-6.js": {
+    "c3_exit": 1,
+    "c31_exit": 1,
+    "c31_time": "452s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/run-regression-g1-6-ga4-h1-4-7.js": {
+    "c3_exit": 1,
+    "c31_exit": 1,
+    "c31_time": "465s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-cart-delivery-live-refresh.js": {
+    "c3_exit": 1,
+    "c31_exit": 1,
+    "c31_time": "0s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-delivery-distance-promotion.js": {
+    "c3_exit": 0,
+    "c31_exit": 0,
+    "c31_time": "0s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-h1-4-11-1-fixes.js": {
+    "c3_exit": 0,
+    "c31_exit": 0,
+    "c31_time": "2s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-h1-4-11-2-fixes.js": {
+    "c3_exit": 0,
+    "c31_exit": 0,
+    "c31_time": "2s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-h1-4-11-4-1-both-disabled-product-filter.js": {
+    "c3_exit": 0,
+    "c31_exit": 0,
+    "c31_time": "2s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-h1-4-11-4-product-mode-visibility.js": {
+    "c3_exit": 0,
+    "c31_exit": 0,
+    "c31_time": "2s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-h1-4-11-line-order-page-mode.js": {
+    "c3_exit": 0,
+    "c31_exit": 0,
+    "c31_time": "2s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-h1-4-12-popup-admin-ui-browser.js": {
+    "c3_exit": 1,
+    "c31_exit": 1,
+    "c31_time": "53s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-h1-4-12-popup-admin-ui.js": {
+    "c3_exit": 0,
+    "c31_exit": 0,
+    "c31_time": "27s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-h1-4-12-popup-checkout-integration.js": {
+    "c3_exit": 0,
+    "c31_exit": 0,
+    "c31_time": "2s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-h1-4-12-popup-frontend.js": {
+    "c3_exit": 0,
+    "c31_exit": 0,
+    "c31_time": "28s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-h1-4-12-popup-public-checkout.js": {
+    "c3_exit": 0,
+    "c31_exit": 0,
+    "c31_time": "48s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-h1-4-12-popup-real-browser.js": {
+    "c3_exit": 0,
+    "c31_exit": 0,
+    "c31_time": "10s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-h1-4-12-popup-recovery-cart-frontend.js": {
+    "c3_exit": 0,
+    "c31_exit": 0,
+    "c31_time": "8s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-h1-4-12-popup-recovery-identity-bridge.js": {
+    "c3_exit": 0,
+    "c31_exit": 0,
+    "c31_time": "3s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-h1-4-12-popup-recovery-landing.js": {
+    "c3_exit": 0,
+    "c31_exit": 0,
+    "c31_time": "10s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-hotfix25.js": {
+    "c3_exit": 0,
+    "c31_exit": 0,
+    "c31_time": "5s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-hotfix26-b.js": {
+    "c3_exit": 1,
+    "c31_exit": 1,
+    "c31_time": "0s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-hotfix26-d.js": {
+    "c3_exit": 1,
+    "c31_exit": 1,
+    "c31_time": "5s",
+    "new_fail_lines": [
+     "[FAIL] runtime 程式碼不應包含舊網域 — /home/claude/c31/utils/popupCheckout.js,/home/claude/c31/utils/popupPayment.js"
+    ],
+    "gone_fail_lines": [
+     "[FAIL] runtime 程式碼不應包含舊網域 — /home/claude/c3/utils/popupCheckout.js,/home/claude/c3/utils/popupPayment.js"
+    ]
+   },
+   "scripts/smoke-hotfix26-f2.js": {
+    "c3_exit": 1,
+    "c31_exit": 1,
+    "c31_time": "0s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-hotfix26-f3.js": {
+    "c3_exit": 0,
+    "c31_exit": 0,
+    "c31_time": "0s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-hotfix26-f4.js": {
+    "c3_exit": 0,
+    "c31_exit": 0,
+    "c31_time": "1s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-hotfix26-f5.js": {
+    "c3_exit": 0,
+    "c31_exit": 0,
+    "c31_time": "0s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-hotfix26-f7.js": {
+    "c3_exit": 1,
+    "c31_exit": 1,
+    "c31_time": "0s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-hotfix26-f8-b.js": {
+    "c3_exit": 1,
+    "c31_exit": 1,
+    "c31_time": "5s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-hotfix26-f8.js": {
+    "c3_exit": 0,
+    "c31_exit": 0,
+    "c31_time": "1s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-hotfix26-i.js": {
+    "c3_exit": 1,
+    "c31_exit": 1,
+    "c31_time": "0s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-hotfix27-cd.js": {
+    "c3_exit": 1,
+    "c31_exit": 1,
+    "c31_time": "0s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-hotfix29-b.js": {
+    "c3_exit": 1,
+    "c31_exit": 1,
+    "c31_time": "50s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-hotfix29-c.js": {
+    "c3_exit": 1,
+    "c31_exit": 1,
+    "c31_time": "82s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-hotfix29.js": {
+    "c3_exit": 1,
+    "c31_exit": 1,
+    "c31_time": "22s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-hotfix30-b5-r5-4-g1-live-geo.js": {
+    "c3_exit": 0,
+    "c31_exit": 0,
+    "c31_time": "2s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-hotfix30-b5-r5-debounce.js": {
+    "c3_exit": 0,
+    "c31_exit": 0,
+    "c31_time": "1s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-r48-popup-order-ui-browser.js": {
+    "c3_exit": 1,
+    "c31_exit": 1,
+    "c31_time": "33s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-r54-4-mbv2-large-upload.js": {
+    "c3_exit": 0,
+    "c31_exit": 0,
+    "c31_time": "141s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-r54-4-mbv2-migration.js": {
+    "c3_exit": 0,
+    "c31_exit": 0,
+    "c31_time": "14s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-r54-4-mbv2-system-regression.js": {
+    "c3_exit": 0,
+    "c31_exit": 0,
+    "c31_time": "6s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/static-audit-g1-6-ga4-h1-4-4.js": {
+    "c3_exit": 0,
+    "c31_exit": 0,
+    "c31_time": "1s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/static-audit-g1-6-ga4-h1-4-5.js": {
+    "c3_exit": 0,
+    "c31_exit": 0,
+    "c31_time": "0s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/static-audit-g1-6-ga4-h1-4-6.js": {
+    "c3_exit": 1,
+    "c31_exit": 1,
+    "c31_time": "0s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/static-audit-g1-6-ga4-h1-4-7.js": {
+    "c3_exit": 1,
+    "c31_exit": 1,
+    "c31_time": "0s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/static-audit-g1.js": {
+    "c3_exit": 0,
+    "c31_exit": 0,
+    "c31_time": "0s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/static-audit-r48-popup-order-ui.js": {
+    "c3_exit": 1,
+    "c31_exit": 1,
+    "c31_time": "0s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/test-phone-validation.js": {
+    "c3_exit": 0,
+    "c31_exit": 0,
+    "c31_time": "0s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   }
+  },
+  "dev_note": "首次回歸 Bootstrap-B（Recovery 前完整 await 會員 Gate、不得計時器）因 3 秒上限失敗；已改回原 await，最終回歸通過"
+ },
+ "not_executed": [
+  "LINE App／LIFF 真機（真實登入導回、LIFF 初始化時間、外部瀏覽器引導）",
+  "會員 Gate Promise 本身延遲（無 LIFF 測試環境）",
+  "正式 Google Maps",
+  "LINE Pay",
+  "Zeabur 正式環境"
+ ]
+}

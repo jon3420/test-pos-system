@@ -517,6 +517,15 @@ initDb().then((db) => {
   // 沿用既有 LINE 相關路由的授權慣例（requireStore + line_order 授權）。
   app.use('/api/line-member', requireStore, requireFeature('line_order'), require('./routes/line-member'));
 
+  // R54.4／MBV2-HF1-C3：商品想買登記。顧客端沿用 LINE 點餐授權慣例（requireStore + line_order），
+  // 身分只信任 member_session；後台只信任店家 JWT（requireStaffJwt，不接受 query/header store_id）。
+  {
+    const _pd = require('./routes/product-demand');
+    const { requireStaffJwt } = require('./middleware/storeGuard');
+    app.use('/api/product-demand-admin', requireStaffJwt, requireFeature('line_order'), _pd.adminRouter);
+    app.use('/api/product-demand', requireStore, requireFeature('line_order'), _pd.publicRouter);
+  }
+
   // H1.4.12 Phase 3B（Popup Recovery Identity Bridge — Corrective
   // Completion）：identity landing 專用的 resolve-target 端點，故意獨立、
   // 不掛 requireStore（store 要從 token 反查，驗證前根本沒有已知 store）。

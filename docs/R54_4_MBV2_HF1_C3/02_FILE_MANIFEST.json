@@ -1,0 +1,90 @@
+{
+ "release": "R54.4/MBV2-HF1-C3",
+ "base_zip_sha256": "7e09ba87c5cbd7652c904e07c845f79af347ddc6bfd43a55d8817f9ba9b9a080",
+ "modified": [
+  {
+   "path": "public/index.html",
+   "c2_sha256": "6ddc5de6f26f649a1f2d99f531c349c0517023de796ff82dcb1f9d0202cb1b42",
+   "c3_sha256": "c66211c97895d41c28f9d7d6f9f566d3a923d2ae4f573abf290c3c53037dfb93"
+  },
+  {
+   "path": "public/js/app.js",
+   "c2_sha256": "db577b87d43be45b3d56cc77e92b4f769d48e6339cee976147c72f084b0464ca",
+   "c3_sha256": "f35217f689707bfc313d6341f6b9108feac30f112c9c29047c6e63ebb48ea689"
+  },
+  {
+   "path": "public/js/product-detail-modal.js",
+   "c2_sha256": "bb81139a8d9300a902ff82b5cb5cbce44827bfaabd579f2588840e30a64dc1c9",
+   "c3_sha256": "3528a94c84e767ba2284754bd04c1300f08770ac739e344ff3eb88c9711622b6"
+  },
+  {
+   "path": "public/line-order.html",
+   "c2_sha256": "dc02e8bf211e87550a67facedba67474dd928e2e76b000b43563eeaf95c16f10",
+   "c3_sha256": "7c267918fe79103e56928c54e33dd16622e1a0e067b51eb93c26fb1cb35089bd"
+  },
+  {
+   "path": "routes/line-orders.js",
+   "c2_sha256": "37c0049960c4e58b91de055d50cda702dfc391c252bc691dcd78138c4863fb4b",
+   "c3_sha256": "e50fa50150039caef41b567f040273aa3a74343ebddce5e69fceddb1eba13a8e"
+  },
+  {
+   "path": "scripts/run-r54-4-mbv2-ui.js",
+   "c2_sha256": "081d931828adcee060739f0267ee5f23def65a47a5e70e867098c34152d3f713",
+   "c3_sha256": "64ab4f4e912ffbbd0e78a958d4f8878d19dbc7c83dcddaee21c7ce64af4c09c3"
+  },
+  {
+   "path": "server.js",
+   "c2_sha256": "71a6c1c00f3b6f8b1a736a028ac58a4783d125e95fdc5b52a0df8be0e582926e",
+   "c3_sha256": "478313cc426b230fdec94f7f09d8e137d6bf4bc8caf2d7ecb4dc4199526354b2"
+  },
+  {
+   "path": "utils/db.js",
+   "c2_sha256": "5531a9e288ebb46d94b31ead37ec98ea6fd298bd5a65b793735e7d40f269a4d3",
+   "c3_sha256": "66f8411e489cf6ed23fb36a59264a254a1f37d5f9a580c34ab5c82550cd6c2bb"
+  },
+  {
+   "path": "utils/migrationV2.js",
+   "c2_sha256": "b657dfa333e7a0979336a5125fffdbe75744cf67498e15c263bf7bb23840a4d0",
+   "c3_sha256": "5e531eff78a863c74cfe7f95ec3397d3093857341a4ef59e7762caf7aeeed04d"
+  }
+ ],
+ "added": [
+  {
+   "path": "routes/product-demand.js",
+   "sha256": "6da80511e33eb7f6e218d33babcb81a03e7bf361f686f096234ac7e17b43edf4"
+  },
+  {
+   "path": "utils/productDemand.js",
+   "sha256": "b0f264d00c7f6b15f0147d4f48893081ef288bf335fbde14413e38917d8e212e"
+  },
+  {
+   "path": "scripts/smoke-r54-4-mbv2-hf1-c3-sale-status-demand.js",
+   "sha256": "9f66185da17ab43792253ef8e72839088d975d51244147feaed604c4c64533fb"
+  },
+  {
+   "path": "scripts/lib/hf1c3-net-mock.js",
+   "sha256": "c96f3d26ecbb6ad1aefd640d7a57597c272ef1f4535acfea64342b883d103baa"
+  },
+  {
+   "path": "docs/R54_4_MBV2_HF1_C3/00_FIX_REPORT.md",
+   "sha256": "04f3cbdfe90092be95b14943d90394679578fa1d326a8ebcba237c1c039d802c"
+  },
+  {
+   "path": "docs/R54_4_MBV2_HF1_C3/01_TEST_RESULTS.json",
+   "sha256": "580dcd08ae1ee7e7b9b7da8cd171a56caae1eecff3f49c359fecaca431003860"
+  },
+  {
+   "path": "docs/R54_4_MBV2_HF1_C3/03_DEMAND_SCHEMA_AND_MBV2.md",
+   "sha256": "fe402be948f696ff4e35a91fb597a82e77d6bd0fea639fbbb8aba056311f61fa"
+  },
+  {
+   "path": "docs/R54_4_MBV2_HF1_C3/02_FILE_MANIFEST.json",
+   "sha256": "(this file)"
+  }
+ ],
+ "deleted": [],
+ "notes": {
+  "scripts/run-r54-4-mbv2-ui.js": "UI1 分類數 12→13（本輪新增分類，精確比對）",
+  "public/css/product-detail-modal.css": "未修改（新增樣式寫在 line-order.html，保留 R48 稽核錨點）"
+ }
+}

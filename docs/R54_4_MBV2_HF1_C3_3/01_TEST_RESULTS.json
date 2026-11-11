@@ -1,0 +1,707 @@
+{
+ "release": "R54.4/MBV2-HF1-C3.3",
+ "executed_at_taipei": "2026-11-11",
+ "new_c33_restore_cancel": {
+  "on_c32_reproduce": {
+   "passCount": 10,
+   "failCount": 20
+  },
+  "on_c33": {
+   "passCount": 30,
+   "failCount": 0
+  },
+  "c33_items": [
+   {
+    "name": "K1-1 Handoff：還原請求在途時點「先繼續點餐」→ 顯示「已略過本次購物車還原，你可以繼續點餐。」",
+    "ok": true
+   },
+   {
+    "name": "K1-2 Handoff：延遲回應抵達後不寫購物車／localStorage、不綁 token、不開結帳、不顯示還原成功、不送單",
+    "ok": true
+   },
+   {
+    "name": "K1-3 Handoff：略過不改變會員登入狀態（不代表驗證成功）",
+    "ok": true
+   },
+   {
+    "name": "K1-4 Handoff：頁面無 JavaScript 錯誤",
+    "ok": true
+   },
+   {
+    "name": "K2 Handoff：略過後只改姓名／日期／取餐方式／地址，延遲回應不覆蓋任何欄位與購物車",
+    "ok": true
+   },
+   {
+    "name": "K3-1 Handoff：略過後以正式 POST /api/line-orders 建立 1 筆現金訂單，購物車清空",
+    "ok": true
+   },
+   {
+    "name": "K3-2 Handoff：延遲回應抵達後：訂單仍 1 筆、購物車與儲存資料仍為空、不重新開啟結帳、不顯示還原成功、不改付款流程",
+    "ok": true
+   },
+   {
+    "name": "K4 Handoff：略過後加減商品（1→2）：延遲回應不覆蓋本頁內容",
+    "ok": true
+   },
+   {
+    "name": "K5 Handoff：未略過 → 還原期間鎖定、回應抵達後套用一次（5 份）並開啟購物車／結帳、未送單",
+    "ok": true
+   },
+   {
+    "name": "K6-1 Handoff：同時點略過與回應抵達 → 結果一致（已取消、完全未套用）",
+    "ok": true
+   },
+   {
+    "name": "K6-2 Handoff：同時點略過與回應抵達 → 結果一致（已取消、完全未套用）",
+    "ok": true
+   },
+   {
+    "name": "K6-3 Handoff：同時點略過與回應抵達 → 結果一致（已取消、完全未套用）",
+    "ok": true
+   },
+   {
+    "name": "K7 Handoff：取消後立即抵達的回應不產生任何副作用",
+    "ok": true
+   },
+   {
+    "name": "K1-1 Recovery：還原請求在途時點「先繼續點餐」→ 顯示「已略過本次購物車還原，你可以繼續點餐。」",
+    "ok": true
+   },
+   {
+    "name": "K1-2 Recovery：延遲回應抵達後不寫購物車／localStorage、不綁 token、不開結帳、不顯示還原成功、不送單",
+    "ok": true
+   },
+   {
+    "name": "K1-3 Recovery：略過不改變會員登入狀態（不代表驗證成功）",
+    "ok": true
+   },
+   {
+    "name": "K1-4 Recovery：頁面無 JavaScript 錯誤",
+    "ok": true
+   },
+   {
+    "name": "K2 Recovery：略過後只改姓名／日期／取餐方式／地址，延遲回應不覆蓋任何欄位與購物車",
+    "ok": true
+   },
+   {
+    "name": "K3-1 Recovery：略過後以正式 POST /api/line-orders 建立 1 筆現金訂單，購物車清空",
+    "ok": true
+   },
+   {
+    "name": "K3-2 Recovery：延遲回應抵達後：訂單仍 1 筆、購物車與儲存資料仍為空、不重新開啟結帳、不顯示還原成功、不改付款流程",
+    "ok": true
+   },
+   {
+    "name": "K4 Recovery：略過後加減商品（1→2）：延遲回應不覆蓋本頁內容",
+    "ok": true
+   },
+   {
+    "name": "K5 Recovery：未略過 → 還原期間鎖定、回應抵達後套用一次（4 份）並開啟購物車／結帳、未送單",
+    "ok": true
+   },
+   {
+    "name": "K6-1 Recovery：同時點略過與回應抵達 → 結果一致（已取消、完全未套用）",
+    "ok": true
+   },
+   {
+    "name": "K6-2 Recovery：同時點略過與回應抵達 → 結果一致（已取消、完全未套用）",
+    "ok": true
+   },
+   {
+    "name": "K6-3 Recovery：同時點略過與回應抵達 → 結果一致（已取消、完全未套用）",
+    "ok": true
+   },
+   {
+    "name": "K7 Recovery：取消後立即抵達的回應不產生任何副作用",
+    "ok": true
+   },
+   {
+    "name": "K8 Handoff：會員 Gate 完成前略過 → 尚未發出的還原請求不再發出",
+    "ok": true
+   },
+   {
+    "name": "K9 整段只建立 K3 的 2 筆現金訂單（Handoff、Recovery 各 1）",
+    "ok": true
+   },
+   {
+    "name": "K10 讀資料庫：現金訂單恰為 2 筆（延遲還原未產生額外訂單）",
+    "ok": true
+   },
+   {
+    "name": "Z1 整個驗收過程 LINE API／推播呼叫次數為 0",
+    "ok": true
+   }
+  ],
+  "c32_items": [
+   {
+    "name": "K1-1 Handoff：還原請求在途時點「先繼續點餐」→ 顯示「已略過本次購物車還原，你可以繼續點餐。」",
+    "ok": false
+   },
+   {
+    "name": "K1-2 Handoff：延遲回應抵達後不寫購物車／localStorage、不綁 token、不開結帳、不顯示還原成功、不送單",
+    "ok": false
+   },
+   {
+    "name": "K1-3 Handoff：略過不改變會員登入狀態（不代表驗證成功）",
+    "ok": true
+   },
+   {
+    "name": "K1-4 Handoff：頁面無 JavaScript 錯誤",
+    "ok": true
+   },
+   {
+    "name": "K2 Handoff：略過後只改姓名／日期／取餐方式／地址，延遲回應不覆蓋任何欄位與購物車",
+    "ok": false
+   },
+   {
+    "name": "K3-1 Handoff：略過後以正式 POST /api/line-orders 建立 1 筆現金訂單，購物車清空",
+    "ok": true
+   },
+   {
+    "name": "K3-2 Handoff：延遲回應抵達後：訂單仍 1 筆、購物車與儲存資料仍為空、不重新開啟結帳、不顯示還原成功、不改付款流程",
+    "ok": false
+   },
+   {
+    "name": "K4 Handoff：略過後加減商品（1→2）：延遲回應不覆蓋本頁內容",
+    "ok": true
+   },
+   {
+    "name": "K5 Handoff：未略過 → 還原期間鎖定、回應抵達後套用一次（5 份）並開啟購物車／結帳、未送單",
+    "ok": false
+   },
+   {
+    "name": "K6-1 Handoff：同時點略過與回應抵達 → 結果一致（不一致）",
+    "ok": false
+   },
+   {
+    "name": "K6-2 Handoff：同時點略過與回應抵達 → 結果一致（不一致）",
+    "ok": false
+   },
+   {
+    "name": "K6-3 Handoff：同時點略過與回應抵達 → 結果一致（不一致）",
+    "ok": false
+   },
+   {
+    "name": "K7 Handoff：取消後立即抵達的回應不產生任何副作用",
+    "ok": false
+   },
+   {
+    "name": "K1-1 Recovery：還原請求在途時點「先繼續點餐」→ 顯示「已略過本次購物車還原，你可以繼續點餐。」",
+    "ok": false
+   },
+   {
+    "name": "K1-2 Recovery：延遲回應抵達後不寫購物車／localStorage、不綁 token、不開結帳、不顯示還原成功、不送單",
+    "ok": false
+   },
+   {
+    "name": "K1-3 Recovery：略過不改變會員登入狀態（不代表驗證成功）",
+    "ok": true
+   },
+   {
+    "name": "K1-4 Recovery：頁面無 JavaScript 錯誤",
+    "ok": true
+   },
+   {
+    "name": "K2 Recovery：略過後只改姓名／日期／取餐方式／地址，延遲回應不覆蓋任何欄位與購物車",
+    "ok": false
+   },
+   {
+    "name": "K3-1 Recovery：略過後以正式 POST /api/line-orders 建立 1 筆現金訂單，購物車清空",
+    "ok": true
+   },
+   {
+    "name": "K3-2 Recovery：延遲回應抵達後：訂單仍 1 筆、購物車與儲存資料仍為空、不重新開啟結帳、不顯示還原成功、不改付款流程",
+    "ok": false
+   },
+   {
+    "name": "K4 Recovery：略過後加減商品（1→2）：延遲回應不覆蓋本頁內容",
+    "ok": false
+   },
+   {
+    "name": "K5 Recovery：未略過 → 還原期間鎖定、回應抵達後套用一次（4 份）並開啟購物車／結帳、未送單",
+    "ok": false
+   },
+   {
+    "name": "K6-1 Recovery：同時點略過與回應抵達 → 結果一致（不一致）",
+    "ok": false
+   },
+   {
+    "name": "K6-2 Recovery：同時點略過與回應抵達 → 結果一致（不一致）",
+    "ok": false
+   },
+   {
+    "name": "K6-3 Recovery：同時點略過與回應抵達 → 結果一致（不一致）",
+    "ok": false
+   },
+   {
+    "name": "K7 Recovery：取消後立即抵達的回應不產生任何副作用",
+    "ok": false
+   },
+   {
+    "name": "K8 Handoff：會員 Gate 完成前略過 → 尚未發出的還原請求不再發出",
+    "ok": false
+   },
+   {
+    "name": "K9 整段只建立 K3 的 2 筆現金訂單（Handoff、Recovery 各 1）",
+    "ok": true
+   },
+   {
+    "name": "K10 讀資料庫：現金訂單恰為 2 筆（延遲還原未產生額外訂單）",
+    "ok": true
+   },
+   {
+    "name": "Z1 整個驗收過程 LINE API／推播呼叫次數為 0",
+    "ok": true
+   }
+  ],
+  "note": "C3.2 K5 判失敗是因斷言讀取 C3.3 才有的 committed 欄位；C3.2 未略過時實際還原行為正確。"
+ },
+ "c32_firstpaint_remap_on_c33": {
+  "passed": 32,
+  "failed": 0,
+  "failed_items": []
+ },
+ "c31_backup_manage_login_on_c33": {
+  "passed": 54,
+  "failed": 0,
+  "failed_items": []
+ },
+ "c1_preorder_status_on_c33": {
+  "passed": 93,
+  "failed": 0,
+  "failed_items": []
+ },
+ "c3_sale_status_demand_on_c33_real_clock": {
+  "passed": 328,
+  "failed": 4,
+  "failed_items": [
+   "❌ O1 今日完售：今日訂單被擋，未建立訂單、未扣今日額度",
+   "❌ O6-paused 今日與未來日期都被擋，訂單與額度不變",
+   "❌ O6-sold_out_indefinitely 今日與未來日期都被擋，訂單與額度不變",
+   "❌ O9 今日完售＋未啟用預購份數管理：今日仍擋；未來 30 份（超過原預購每日 20）不限額成功，今日額度不變"
+  ]
+ },
+ "c3_O_section_real_clock": {
+  "c32": {
+   "passed": 8,
+   "failed": 4,
+   "failed_items": [
+    "❌ O1 今日完售：今日訂單被擋，未建立訂單、未扣今日額度",
+    "❌ O6-paused 今日與未來日期都被擋，訂單與額度不變",
+    "❌ O6-sold_out_indefinitely 今日與未來日期都被擋，訂單與額度不變",
+    "❌ O9 今日完售＋未啟用預購份數管理：今日仍擋；未來 30 份（超過原預購每日 20）不限額成功，今日額度不變"
+   ]
+  },
+  "c33": {
+   "passed": 8,
+   "failed": 4,
+   "failed_items": [
+    "❌ O1 今日完售：今日訂單被擋，未建立訂單、未扣今日額度",
+    "❌ O6-paused 今日與未來日期都被擋，訂單與額度不變",
+    "❌ O6-sold_out_indefinitely 今日與未來日期都被擋，訂單與額度不變",
+    "❌ O9 今日完售＋未啟用預購份數管理：今日仍擋；未來 30 份（超過原預購每日 20）不限額成功，今日額度不變"
+   ]
+  }
+ },
+ "c3_O_section_clock_shift_0930": {
+  "c32": {
+   "passed": 12,
+   "failed": 0,
+   "failed_items": []
+  },
+  "c33": {
+   "passed": 12,
+   "failed": 0,
+   "failed_items": []
+  },
+  "note": "O1/O6×2/O9 的今日訂單固定 12:00 取餐；台北 12:00 後執行會先被 time_too_early 擋下。整份以平移時鐘執行會影響 D18/D19 過期判斷，故不併計。"
+ },
+ "regression_61": {
+  "c32_exit0": 41,
+  "c33_exit0": 41,
+  "scripts": [
+   {
+    "script": "scripts/mbv2-rescue-verify.js",
+    "c32_exit": 2,
+    "c33_exit": 2,
+    "c33_time": "1s"
+   },
+   {
+    "script": "scripts/run-g1-6-ga4-h1-4-4-view-item-runtime.js",
+    "c32_exit": 1,
+    "c33_exit": 1,
+    "c33_time": "0s"
+   },
+   {
+    "script": "scripts/run-g1-6-ga4-h1-4-7-two-stage-checkout-runtime.js",
+    "c32_exit": 0,
+    "c33_exit": 0,
+    "c33_time": "11s"
+   },
+   {
+    "script": "scripts/run-h1-4-10-asset-cache-bust-runtime.js",
+    "c32_exit": 0,
+    "c33_exit": 0,
+    "c33_time": "0s"
+   },
+   {
+    "script": "scripts/run-h1-4-10-friend-live-runtime.js",
+    "c32_exit": 0,
+    "c33_exit": 0,
+    "c33_time": "1s"
+   },
+   {
+    "script": "scripts/run-h1-4-10-historical-backend-reconcile-runtime.js",
+    "c32_exit": 0,
+    "c33_exit": 0,
+    "c33_time": "1s"
+   },
+   {
+    "script": "scripts/run-h1-4-10-historical-friend-first-touch-runtime.js",
+    "c32_exit": 0,
+    "c33_exit": 0,
+    "c33_time": "2s"
+   },
+   {
+    "script": "scripts/run-h1-4-10-phase1-liff-identity-runtime.js",
+    "c32_exit": 0,
+    "c33_exit": 0,
+    "c33_time": "2s"
+   },
+   {
+    "script": "scripts/run-h1-4-10-phase2-line-friend-guide-runtime.js",
+    "c32_exit": 0,
+    "c33_exit": 0,
+    "c33_time": "3s"
+   },
+   {
+    "script": "scripts/run-h1-4-10-phase3-checkout-submit-payment-runtime.js",
+    "c32_exit": 0,
+    "c33_exit": 0,
+    "c33_time": "29s"
+   },
+   {
+    "script": "scripts/run-h1-4-10-phase4b-recovery-frontend-targeted.js",
+    "c32_exit": 0,
+    "c33_exit": 0,
+    "c33_time": "10s"
+   },
+   {
+    "script": "scripts/run-h1-4-10-phase4b-recovery-full-runtime.js",
+    "c32_exit": 0,
+    "c33_exit": 0,
+    "c33_time": "17s"
+   },
+   {
+    "script": "scripts/run-h1-4-10-required-friend-gate-runtime.js",
+    "c32_exit": 0,
+    "c33_exit": 0,
+    "c33_time": "1s"
+   },
+   {
+    "script": "scripts/run-h1-4-9-checkout-order-summary-runtime.js",
+    "c32_exit": 0,
+    "c33_exit": 0,
+    "c33_time": "7s"
+   },
+   {
+    "script": "scripts/run-r54-4-mbv2-ui.js",
+    "c32_exit": 0,
+    "c33_exit": 0,
+    "c33_time": "11s"
+   },
+   {
+    "script": "scripts/run-regression-g1-6-ga4-h1-4-6.js",
+    "c32_exit": 1,
+    "c33_exit": 1,
+    "c33_time": "491s"
+   },
+   {
+    "script": "scripts/run-regression-g1-6-ga4-h1-4-7.js",
+    "c32_exit": 1,
+    "c33_exit": 1,
+    "c33_time": "491s"
+   },
+   {
+    "script": "scripts/smoke-cart-delivery-live-refresh.js",
+    "c32_exit": 1,
+    "c33_exit": 1,
+    "c33_time": "0s"
+   },
+   {
+    "script": "scripts/smoke-delivery-distance-promotion.js",
+    "c32_exit": 0,
+    "c33_exit": 0,
+    "c33_time": "0s"
+   },
+   {
+    "script": "scripts/smoke-h1-4-11-1-fixes.js",
+    "c32_exit": 0,
+    "c33_exit": 0,
+    "c33_time": "2s"
+   },
+   {
+    "script": "scripts/smoke-h1-4-11-2-fixes.js",
+    "c32_exit": 0,
+    "c33_exit": 0,
+    "c33_time": "2s"
+   },
+   {
+    "script": "scripts/smoke-h1-4-11-4-1-both-disabled-product-filter.js",
+    "c32_exit": 0,
+    "c33_exit": 0,
+    "c33_time": "2s"
+   },
+   {
+    "script": "scripts/smoke-h1-4-11-4-product-mode-visibility.js",
+    "c32_exit": 0,
+    "c33_exit": 0,
+    "c33_time": "2s"
+   },
+   {
+    "script": "scripts/smoke-h1-4-11-line-order-page-mode.js",
+    "c32_exit": 0,
+    "c33_exit": 0,
+    "c33_time": "2s"
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-admin-ui-browser.js",
+    "c32_exit": 1,
+    "c33_exit": 1,
+    "c33_time": "55s"
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-admin-ui.js",
+    "c32_exit": 0,
+    "c33_exit": 0,
+    "c33_time": "29s"
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-checkout-integration.js",
+    "c32_exit": 0,
+    "c33_exit": 0,
+    "c33_time": "3s"
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-frontend.js",
+    "c32_exit": 0,
+    "c33_exit": 0,
+    "c33_time": "28s"
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-public-checkout.js",
+    "c32_exit": 0,
+    "c33_exit": 0,
+    "c33_time": "53s"
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-real-browser.js",
+    "c32_exit": 0,
+    "c33_exit": 0,
+    "c33_time": "10s"
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-recovery-cart-frontend.js",
+    "c32_exit": 0,
+    "c33_exit": 0,
+    "c33_time": "9s"
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-recovery-identity-bridge.js",
+    "c32_exit": 0,
+    "c33_exit": 0,
+    "c33_time": "3s"
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-recovery-landing.js",
+    "c32_exit": 0,
+    "c33_exit": 0,
+    "c33_time": "10s"
+   },
+   {
+    "script": "scripts/smoke-hotfix25.js",
+    "c32_exit": 0,
+    "c33_exit": 0,
+    "c33_time": "5s"
+   },
+   {
+    "script": "scripts/smoke-hotfix26-b.js",
+    "c32_exit": 1,
+    "c33_exit": 1,
+    "c33_time": "0s"
+   },
+   {
+    "script": "scripts/smoke-hotfix26-d.js",
+    "c32_exit": 1,
+    "c33_exit": 1,
+    "c33_time": "6s"
+   },
+   {
+    "script": "scripts/smoke-hotfix26-f2.js",
+    "c32_exit": 1,
+    "c33_exit": 1,
+    "c33_time": "0s"
+   },
+   {
+    "script": "scripts/smoke-hotfix26-f3.js",
+    "c32_exit": 0,
+    "c33_exit": 0,
+    "c33_time": "0s"
+   },
+   {
+    "script": "scripts/smoke-hotfix26-f4.js",
+    "c32_exit": 0,
+    "c33_exit": 0,
+    "c33_time": "0s"
+   },
+   {
+    "script": "scripts/smoke-hotfix26-f5.js",
+    "c32_exit": 0,
+    "c33_exit": 0,
+    "c33_time": "0s"
+   },
+   {
+    "script": "scripts/smoke-hotfix26-f7.js",
+    "c32_exit": 1,
+    "c33_exit": 1,
+    "c33_time": "1s"
+   },
+   {
+    "script": "scripts/smoke-hotfix26-f8-b.js",
+    "c32_exit": 1,
+    "c33_exit": 1,
+    "c33_time": "5s"
+   },
+   {
+    "script": "scripts/smoke-hotfix26-f8.js",
+    "c32_exit": 0,
+    "c33_exit": 0,
+    "c33_time": "1s"
+   },
+   {
+    "script": "scripts/smoke-hotfix26-i.js",
+    "c32_exit": 1,
+    "c33_exit": 1,
+    "c33_time": "1s"
+   },
+   {
+    "script": "scripts/smoke-hotfix27-cd.js",
+    "c32_exit": 1,
+    "c33_exit": 1,
+    "c33_time": "0s"
+   },
+   {
+    "script": "scripts/smoke-hotfix29-b.js",
+    "c32_exit": 1,
+    "c33_exit": 1,
+    "c33_time": "53s"
+   },
+   {
+    "script": "scripts/smoke-hotfix29-c.js",
+    "c32_exit": 1,
+    "c33_exit": 1,
+    "c33_time": "84s"
+   },
+   {
+    "script": "scripts/smoke-hotfix29.js",
+    "c32_exit": 1,
+    "c33_exit": 1,
+    "c33_time": "25s"
+   },
+   {
+    "script": "scripts/smoke-hotfix30-b5-r5-4-g1-live-geo.js",
+    "c32_exit": 0,
+    "c33_exit": 0,
+    "c33_time": "1s"
+   },
+   {
+    "script": "scripts/smoke-hotfix30-b5-r5-debounce.js",
+    "c32_exit": 0,
+    "c33_exit": 0,
+    "c33_time": "1s"
+   },
+   {
+    "script": "scripts/smoke-r48-popup-order-ui-browser.js",
+    "c32_exit": 1,
+    "c33_exit": 1,
+    "c33_time": "33s"
+   },
+   {
+    "script": "scripts/smoke-r54-4-mbv2-large-upload.js",
+    "c32_exit": 0,
+    "c33_exit": 0,
+    "c33_time": "150s"
+   },
+   {
+    "script": "scripts/smoke-r54-4-mbv2-migration.js",
+    "c32_exit": 0,
+    "c33_exit": 0,
+    "c33_time": "15s"
+   },
+   {
+    "script": "scripts/smoke-r54-4-mbv2-system-regression.js",
+    "c32_exit": 0,
+    "c33_exit": 0,
+    "c33_time": "6s"
+   },
+   {
+    "script": "scripts/static-audit-g1-6-ga4-h1-4-4.js",
+    "c32_exit": 0,
+    "c33_exit": 0,
+    "c33_time": "0s"
+   },
+   {
+    "script": "scripts/static-audit-g1-6-ga4-h1-4-5.js",
+    "c32_exit": 0,
+    "c33_exit": 0,
+    "c33_time": "1s"
+   },
+   {
+    "script": "scripts/static-audit-g1-6-ga4-h1-4-6.js",
+    "c32_exit": 1,
+    "c33_exit": 1,
+    "c33_time": "0s"
+   },
+   {
+    "script": "scripts/static-audit-g1-6-ga4-h1-4-7.js",
+    "c32_exit": 1,
+    "c33_exit": 1,
+    "c33_time": "0s"
+   },
+   {
+    "script": "scripts/static-audit-g1.js",
+    "c32_exit": 0,
+    "c33_exit": 0,
+    "c33_time": "0s"
+   },
+   {
+    "script": "scripts/static-audit-r48-popup-order-ui.js",
+    "c32_exit": 1,
+    "c33_exit": 1,
+    "c33_time": "0s"
+   },
+   {
+    "script": "scripts/test-phone-validation.js",
+    "c32_exit": 0,
+    "c33_exit": 0,
+    "c33_time": "0s"
+   }
+  ],
+  "new_failures": [],
+  "note": "非 0 的 20 支與 C3.2 相同；hotfix26-d 差異僅為訊息中的資料夾路徑。"
+ },
+ "line_api_calls": 0,
+ "not_executed": [
+  "LINE App／LIFF 真機",
+  "真實 LINE Pay",
+  "正式 Zeabur 環境"
+ ],
+ "existing_test_adjusted": [
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c3-2-firstpaint-remap.js",
+   "item": "F8",
+   "from": "略過後仍呼叫 1 次還原 API",
+   "to": "略過＝取消，還原 API 呼叫 0 次；其他條件（購物車 2 份、不重複還原、不送單、首屏狀態）保留"
+  }
+ ]
+}

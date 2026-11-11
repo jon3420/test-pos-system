@@ -10211,6 +10211,7 @@ function _lpmStateRow(cols, text, color) {
 }
 // 依目前分頁重新渲染（冷藏宅配分頁必須更新宅配表，不能只更新隱藏的主表）
 function lpmRenderActiveTab() {
+  if (_lpmTab === 'demand') { loadDemandAdminTab(); return; } // R54.4／MBV2-HF1-C3
   if (_lpmTab === 'shipping') renderLpmShippingTable(_lpmProducts);
   else renderLpmTable(_lpmProducts);
 }
@@ -10259,15 +10260,106 @@ function lpmSwitchTab(tab) {
   if (todayBtn)    { todayBtn.style.color    = tab==='today'    ? 'var(--accent,#3b82f6)' : 'var(--text-muted,#64748b)'; todayBtn.style.borderBottomColor    = tab==='today'    ? 'var(--accent,#3b82f6)' : 'transparent'; }
   if (preorderBtn) { preorderBtn.style.color = tab==='preorder' ? '#a78bfa'                : 'var(--text-muted,#64748b)'; preorderBtn.style.borderBottomColor = tab==='preorder' ? '#7c3aed' : 'transparent'; }
   if (shippingBtn) { shippingBtn.style.color = tab==='shipping' ? '#1565c0'                : 'var(--text-muted,#64748b)'; shippingBtn.style.borderBottomColor = tab==='shipping' ? '#1565c0' : 'transparent'; }
+  const demandBtn = document.getElementById('lpm-tab-demand');
+  if (demandBtn)   { demandBtn.style.color   = tab==='demand'   ? '#06C755'                : 'var(--text-muted,#64748b)'; demandBtn.style.borderBottomColor   = tab==='demand'   ? '#06C755' : 'transparent'; }
+  const demandCtrls = document.getElementById('lpm-demand-controls');
+  const demandWrap  = document.getElementById('lpm-demand-wrap');
+  if (demandCtrls) demandCtrls.style.display = tab==='demand' ? 'block' : 'none';
+  if (demandWrap)  demandWrap.style.display  = tab==='demand' ? 'block' : 'none';
 
   if (todayControls)  todayControls.style.display  = tab==='today'    ? 'block' : 'none';
   if (preorderCtrls)  preorderCtrls.style.display  = tab==='preorder' ? 'block' : 'none';
   if (shippingCtrls)  shippingCtrls.style.display  = tab==='shipping' ? 'block' : 'none';
 
-  if (tableWrap)     tableWrap.style.display     = tab==='shipping' ? 'none'  : 'block';
+  if (tableWrap)     tableWrap.style.display     = (tab==='shipping' || tab==='demand') ? 'none'  : 'block';
   if (shipTableWrap) shipTableWrap.style.display  = tab==='shipping' ? 'block' : 'none';
 
   lpmRenderActiveTab();
+}
+
+// ── R54.4／MBV2-HF1-C3：商品想買登記（後台需求清單）──────────────────────────
+// 只讀取 /api/product-demand-admin（店家 JWT）；統計由後端計算並排除取消／過期登記。
+const _PD_STATUS_LABEL = { available: '正常販售', sold_out_today: '今日完售', paused: '暫停販售', sold_out_indefinitely: '長期下架' };
+const _PD_PREF_LABEL = { takeout: '外帶自取', delivery: '外送', any: '都可以' };
+const _PD_ROW_STATUS = { active: '有效', cancelled: '已取消', expired: '已過期', notified: '已通知', converted: '已轉單' };
+async function loadDemandAdminTab() {
+  const tbody = document.getElementById('lpm-demand-tbody');
+  if (!tbody) return;
+  tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">載入中…</td></tr>';
+  try {
+    const res = await apiFetch('/api/product-demand-admin/summary');
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || '載入失敗');
+    const cfg = json.data.config || {};
+    const en = document.getElementById('pd-set-enabled'); if (en) en.checked = !!cfg.enabled;
+    const ttl = document.getElementById('pd-set-ttl'); if (ttl) ttl.value = cfg.ttl_days || 30;
+    const ns = document.getElementById('pd-notify-state');
+    if (ns) ns.textContent = cfg.notify_available ? 'LINE 補貨通知：已啟用' : 'LINE 補貨通知：尚未啟用（本版僅提供想買登記，不會發送通知）';
+    const rows = json.data.products || [];
+    if (!rows.length) { tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">目前沒有 LINE 點餐商品</td></tr>'; return; }
+    tbody.innerHTML = rows.map(r => `<tr id="pd-row-${r.product_id}" style="border-bottom:1px solid var(--border,#334155)">
+      <td style="padding:8px 12px">${escHtml(r.name)}${r.line_visible ? '' : ' <span style="font-size:11px;color:#ef4444">（LINE 未顯示）</span>'}</td>
+      <td style="padding:8px;text-align:center" class="pd-status">${escHtml(_PD_STATUS_LABEL[r.sale_status] || r.sale_status)}</td>
+      <td style="padding:8px;text-align:center;font-weight:700" class="pd-users">${r.active_users}</td>
+      <td style="padding:8px;text-align:center;font-weight:700" class="pd-qty">${r.total_qty}</td>
+      <td style="padding:8px;text-align:center"><label style="display:inline-flex;gap:4px;align-items:center"><input type="checkbox" class="pd-collect" ${r.demand_collect_enabled ? 'checked' : ''} onchange="toggleDemandCollect(${r.product_id}, this.checked)"> 收集</label></td>
+      <td style="padding:8px;text-align:center"><button class="btn-secondary" style="font-size:12px;padding:3px 10px" onclick="openDemandDetail(${r.product_id})">查看</button></td>
+    </tr>`).join('');
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:40px;color:#ef4444">載入失敗：${escHtml(e.message)}</td></tr>`;
+  }
+}
+async function toggleDemandCollect(pid, enabled) {
+  try {
+    const res = await apiFetch(`/api/product-demand-admin/products/${pid}/collect`, { method: 'PATCH', body: JSON.stringify({ enabled: !!enabled }) });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || '更新失敗');
+    showToast(enabled ? '已開放此商品的想買登記' : '已關閉此商品的想買登記', 'success');
+  } catch (e) { showToast(e.message || '更新失敗', 'error'); loadDemandAdminTab(); }
+}
+async function saveDemandSettings() {
+  const enabled = !!document.getElementById('pd-set-enabled')?.checked;
+  const ttl = Number(document.getElementById('pd-set-ttl')?.value || 30);
+  try {
+    const res = await apiFetch('/api/product-demand-admin/settings', { method: 'PATCH', body: JSON.stringify({ enabled, ttl_days: ttl }) });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || '儲存失敗');
+    showToast('想買登記設定已儲存', 'success');
+    loadDemandAdminTab();
+  } catch (e) { showToast(e.message || '儲存失敗', 'error'); }
+}
+async function openDemandDetail(pid) {
+  const box = document.getElementById('lpm-demand-detail');
+  if (!box) return;
+  box.style.display = 'block';
+  box.innerHTML = '載入中…';
+  try {
+    const res = await apiFetch(`/api/product-demand-admin/products/${pid}`);
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || '載入失敗');
+    const d = json.data;
+    box.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <strong>${escHtml(d.product.name)}：有效登記 ${d.active_users} 人、期望 ${d.total_qty} 份</strong>
+        <button class="btn-secondary" style="font-size:12px;padding:3px 10px" onclick="document.getElementById('lpm-demand-detail').style.display='none'">關閉明細</button></div>
+      <table id="pd-detail-table" style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr><th style="text-align:left;padding:4px">會員</th><th style="padding:4px">份數</th><th style="padding:4px">取餐偏好</th><th style="padding:4px">狀態</th><th style="padding:4px">補貨通知同意</th><th style="padding:4px">登記時間</th><th style="padding:4px">更新時間</th><th style="padding:4px">有效期限</th></tr></thead>
+        <tbody>${d.rows.length ? d.rows.map(r => `<tr style="border-top:1px solid var(--border,#334155)">
+          <td style="padding:4px">${escHtml(r.member_display_name || '')} <span style="color:var(--text-muted,#64748b)">${escHtml(r.member)}</span></td>
+          <td style="padding:4px;text-align:center">${r.desired_qty}</td>
+          <td style="padding:4px;text-align:center">${escHtml(_PD_PREF_LABEL[r.fulfillment_pref] || r.fulfillment_pref)}</td>
+          <td style="padding:4px;text-align:center">${escHtml(_PD_ROW_STATUS[r.status] || r.status)}</td>
+          <td style="padding:4px;text-align:center">${r.notify_consent === 'granted' ? '已同意' : (r.notify_consent === 'revoked' ? '已撤回' : '—')}</td>
+          <td style="padding:4px;text-align:center">${escHtml(fmtDemandTime(r.created_at))}</td>
+          <td style="padding:4px;text-align:center">${escHtml(fmtDemandTime(r.updated_at))}</td>
+          <td style="padding:4px;text-align:center">${escHtml(fmtDemandTime(r.expires_at))}</td></tr>`).join('') : '<tr><td colspan="8" style="padding:10px;text-align:center;color:var(--text-muted,#64748b)">尚無登記</td></tr>'}</tbody></table>`;
+  } catch (e) { box.innerHTML = `<span style="color:#ef4444">載入失敗：${escHtml(e.message)}</span>`; }
+}
+// 資料庫存 UTC（datetime('now')），後台以台北時間顯示
+function fmtDemandTime(utc) {
+  if (!utc) return '';
+  const d = new Date(String(utc).replace(' ', 'T') + 'Z');
+  if (isNaN(d.getTime())) return String(utc);
+  return new Intl.DateTimeFormat('zh-TW', { timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).format(d);
 }
 
 // ── 商品共同販售時段（fix18-10-hotfix30-C1-回退，回退指令第六節）──────────

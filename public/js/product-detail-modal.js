@@ -84,6 +84,7 @@
   //   id, name, price(number), image(url|''), description(string|''),
   //   startQty(number, 預設 1), maxQty(number|null, 份數/庫存上限，null=不限),
   //   blocked(bool, 是否完全無法加入), blockedLabel(string),
+  //   demand(null|{label}) — R54.4／MBV2-HF1-C3：想買登記入口（選用；C3.1 起可與加入按鈕並存）
   // }
   // opts: {
   //   onOpen(product)          — 開啟成功時觸發一次（用於 view_item 追蹤），
@@ -91,6 +92,7 @@
   //   onAddToCart(product,qty) — 回傳 true/false（或 boolean 的 truthy 值）代表
   //                               是否真的成功加入購物車；由呼叫端沿用既有驗證
   //                               （例如份數不足、售完、必選規格未選等）
+  //   onDemand(product)        — R54.4／MBV2-HF1-C3：點擊想買登記入口（有 demand 時）
   // }
   function open(product, opts) {
     if (!product || product.id == null) return;
@@ -162,6 +164,22 @@
     const btn = footerEl.querySelector('.pdm-add-btn');
     if (btn && !s.product.blocked) {
       btn.addEventListener('click', _onAddClick);
+    }
+    // R54.4／MBV2-HF1-C3：無法加入時的想買登記入口。獨立按鈕、不經過加入購物車流程，
+    // 不觸發 onAddToCart；點擊先關閉詳情再交給呼叫端開啟登記表單。
+    // R54.4／MBV2-HF1-C3.1：呼叫端決定是否提供（無法加入時的新增入口，或本人既有登記的管理入口）
+    if (s.product.demand && typeof s.opts.onDemand === 'function') {
+      const d = document.createElement('button');
+      d.type = 'button';
+      d.className = 'pdm-demand-btn';
+      d.textContent = String(s.product.demand.label || '我想買');
+      d.addEventListener('click', function (e) {
+        e.stopPropagation();
+        const cb = s.opts.onDemand; const prod = s.product;
+        close();
+        try { cb(prod); } catch (err) { /* 登記入口失敗不影響詳情 */ }
+      });
+      footerEl.appendChild(d);
     }
   }
 

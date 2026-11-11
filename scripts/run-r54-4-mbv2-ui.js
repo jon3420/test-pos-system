@@ -31,7 +31,8 @@ try { ({ chromium } = require('playwright')); } catch { console.log('playwright 
     await page.evaluate(() => { showPage('settings'); switchSettingsTab('migration'); });
     await page.waitForSelector('#mbv2ExportList .mbv2-item', { timeout: 15000 });
     const items = await page.$$eval('#mbv2ExportList .mbv2-item', (els) => els.length);
-    assert(items === 12, 'UI1 匯出區顯示 12 個分類', String(items));
+    // R54.4／MBV2-HF1-C3：新增「商品想買登記」分類 → 13 個（仍為精確比對）
+    assert(items === 13, 'UI1 匯出區顯示 13 個分類（含商品想買登記）', String(items));
     const limitText = await page.textContent('#mbv2LimitText');
     assert(limitText.includes('192MB'), 'UI2 顯示上傳上限 192MB', limitText);
     await page.screenshot({ path: path.join(shots, 'mbv2-ui-1-export-full.png'), fullPage: false });

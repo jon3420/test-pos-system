@@ -480,6 +480,11 @@
           style="padding:8px 18px;font-size:13px;font-weight:700;border:none;background:none;color:var(--text-muted,#64748b);border-bottom:2px solid transparent;margin-bottom:-2px;cursor:pointer">
           📦 冷藏宅配商品
         </button>
+        <!-- R54.4／MBV2-HF1-C3：商品想買登記（需求清單） -->
+        <button id="lpm-tab-demand" onclick="lpmSwitchTab('demand')"
+          style="padding:8px 18px;font-size:13px;font-weight:700;border:none;background:none;color:var(--text-muted,#64748b);border-bottom:2px solid transparent;margin-bottom:-2px;cursor:pointer">
+          🙋 想買登記
+        </button>
       </div>
 
       <!-- 選取控制（兩個 Tab 共用）-->
@@ -586,6 +591,17 @@
       </div>
 
       <!-- ══ 冷藏宅配商品：批量操作（Tab=shipping 時顯示）══ -->
+      <!-- R54.4／MBV2-HF1-C3：想買登記設定（Tab=demand 時顯示） -->
+      <div id="lpm-demand-controls" style="display:none">
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;font-size:13px">
+          <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="pd-set-enabled"> 在 LINE 點餐頁顯示「我想買」登記入口</label>
+          <label style="display:flex;gap:6px;align-items:center">登記有效天數 <input type="number" id="pd-set-ttl" min="1" max="180" style="width:70px" class="form-input"></label>
+          <button class="btn-primary" onclick="saveDemandSettings()" style="font-size:12px;padding:5px 12px">儲存設定</button>
+          <span id="pd-notify-state" style="font-size:12px;color:var(--text-muted,#64748b)"></span>
+        </div>
+        <div style="font-size:11px;color:var(--text-muted,#64748b);margin-top:6px">登記不建立訂單、不收款、不扣今日／預購份數、不保留庫存。統計已排除取消與過期登記。</div>
+      </div>
+
       <div id="lpm-shipping-controls" style="display:none">
         <div style="display:flex;gap:10px;align-items:flex-end;margin-bottom:10px;flex-wrap:wrap">
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;flex:1">
@@ -674,6 +690,26 @@
           <tr><td colspan="12" style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">載入中…</td></tr>
         </tbody>
       </table>
+    </div>
+
+    <!-- 🙋 商品想買登記（Tab=demand 時顯示，R54.4／MBV2-HF1-C3）-->
+    <div id="lpm-demand-wrap" style="display:none;overflow-x:auto;border:1px solid var(--border,#334155);border-radius:10px">
+      <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:760px">
+        <thead>
+          <tr style="background:var(--bg-card,#1e293b);border-bottom:1px solid var(--border,#334155)">
+            <th style="padding:10px 12px;text-align:left">商品名稱</th>
+            <th style="padding:10px 8px;text-align:center;width:110px">商品狀態</th>
+            <th style="padding:10px 8px;text-align:center;width:110px">有效登記人數</th>
+            <th style="padding:10px 8px;text-align:center;width:110px">期望總份數</th>
+            <th style="padding:10px 8px;text-align:center;width:110px">收集登記</th>
+            <th style="padding:10px 8px;text-align:center;width:100px">明細</th>
+          </tr>
+        </thead>
+        <tbody id="lpm-demand-tbody">
+          <tr><td colspan="6" style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">載入中…</td></tr>
+        </tbody>
+      </table>
+      <div id="lpm-demand-detail" style="display:none;padding:12px 14px;border-top:1px solid var(--border,#334155)"></div>
     </div>
   </div>
 </div>
@@ -4268,7 +4304,7 @@
 <div class="toast-container" id="toastContainer"></div>
 
 <script src="/js/line-member-gate.js?v=h1-4-10-backend-reconcile-1"></script>
-<script src="/js/app.js?v=r54-4-mbv2-hf1-c1-1"></script>
+<script src="/js/app.js?v=r54-4-mbv2-hf1-c3-1"></script>
 <script src="/js/migration-v2.js?v=r54-4-mbv2-1"></script>
 <script src="/js/analytics-v2.js?v=fix18-10-hotfix24-UI"></script>
 <!-- fix18-10-hotfix30-B5-R5.4-G1.6-A1.2.1: 共用 Asia/Taipei 顯示 Helper（唯一的

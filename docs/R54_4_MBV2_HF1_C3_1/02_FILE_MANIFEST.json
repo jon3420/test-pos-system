@@ -1,0 +1,55 @@
+{
+ "release": "R54.4/MBV2-HF1-C3.1",
+ "base_zip_sha256": "2097cfc99ba8c3c8170196db3eeccbd953fc33f3aafab525fc48be76cb042f20",
+ "modified": [
+  {
+   "path": "public/js/product-detail-modal.js",
+   "c3_sha256": "3528a94c84e767ba2284754bd04c1300f08770ac739e344ff3eb88c9711622b6",
+   "c31_sha256": "65a828f36fdda48f2903713030d25cc3cd8a0678bb1937b4601333069334b6a9"
+  },
+  {
+   "path": "public/line-order.html",
+   "c3_sha256": "7c267918fe79103e56928c54e33dd16622e1a0e067b51eb93c26fb1cb35089bd",
+   "c31_sha256": "3aead6dd09bc71b5bc0f5e4bb1b0eb9665f3f8dd71d88e424b1fc31c4fc16edc"
+  },
+  {
+   "path": "routes/migration-v2.js",
+   "c3_sha256": "574d27f39b7785ded16b065f0201b0166df2e87d881f0acee3c436316de7df18",
+   "c31_sha256": "b56ce33b3065b99a08534659ad576bc01c8975e19085c4dc3d533573174bb133"
+  },
+  {
+   "path": "utils/migrationV2.js",
+   "c3_sha256": "5e531eff78a863c74cfe7f95ec3397d3093857341a4ef59e7762caf7aeeed04d",
+   "c31_sha256": "3bd8bd5f75dddc7dcf488a7966d04b102079a31fb2f9df17cbed1a095769594d"
+  },
+  {
+   "path": "utils/productDemand.js",
+   "c3_sha256": "b0f264d00c7f6b15f0147d4f48893081ef288bf335fbde14413e38917d8e212e",
+   "c31_sha256": "f740a33ec8458ca752fd7e96570c7b9e40e3387448ea8e6cea7d7ad5d9eea302"
+  }
+ ],
+ "added": [
+  {
+   "path": "scripts/smoke-r54-4-mbv2-hf1-c3-1-backup-manage-login.js",
+   "sha256": "afe22224e568c91a1a92b1dda9eba9e2e797c575375064060a36c48364721c6e"
+  },
+  {
+   "path": "docs/R54_4_MBV2_HF1_C3_1/00_FIX_REPORT.md",
+   "sha256": "bb20bffd2f410c2f79449865efd3c0c4624c4b722fa3c4cafd198ddb23f1b115"
+  },
+  {
+   "path": "docs/R54_4_MBV2_HF1_C3_1/01_TEST_RESULTS.json",
+   "sha256": "93acb0c5cc72d37590f10b245f9d9e1dbad28351d5429d6e74176ffce14d9e86"
+  },
+  {
+   "path": "docs/R54_4_MBV2_HF1_C3_1/03_BACKUP_RESTORE_DEMAND.md",
+   "sha256": "3e09e1aa268d0007cc2f77007cbf5e85c04546925eab2ca9befe8f679abb03de"
+  },
+  {
+   "path": "docs/R54_4_MBV2_HF1_C3_1/02_FILE_MANIFEST.json",
+   "sha256": "(this file)"
+  }
+ ],
+ "deleted": [],
+ "db_migrations": "none（資料表與欄位與 C3 相同）"
+}

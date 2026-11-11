@@ -61,6 +61,11 @@ const CATEGORY_DEFS = [
     desc: '會員互動歷程、會員與訂單關聯、好友事件、會員工作階段',
     tables: ['line_member_history', 'line_member_order_links', 'line_friend_events', 'line_member_sessions'],
     recommends: ['line_members'], history: true, dateFilter: false },
+  // R54.4／MBV2-HF1-C3：商品想買登記（需求與通知同意分開保存）。匯入只寫資料，不發送任何通知。
+  { key: 'product_demand', label: '商品想買登記', fileTag: 'demand',
+    desc: '顧客的商品想買登記（期望份數、取餐偏好、有效期限、狀態）與另外記錄的補貨通知同意；匯入不會發送任何通知',
+    tables: ['product_demand_requests', 'product_demand_consents'],
+    recommends: ['products', 'line_members'], history: false, dateFilter: false },
   { key: 'analytics', label: 'Analytics 事件', fileTag: 'analytics',
     desc: '商品曝光、加購、結帳、轉換等事件，以及訪客地理紀錄', tables: ['analytics_events', 'geo_visit_log'],
     recommends: [], history: true, dateFilter: true },
@@ -387,6 +392,10 @@ function collectExport(raw, storeId, categories, filters, onRow) {
     simple('line_member_order_links', 'store_id=?', [storeId], 'id ASC');
     simple('line_friend_events', 'store_id=?', [storeId], 'id ASC', (r) => (r.metadata_json ? { ...r, metadata_json: sanitizeJsonString(r.metadata_json) } : r));
     simple('line_member_sessions', 'store_id=?', [storeId], 'id ASC');
+  }
+  if (sel.has('product_demand')) {
+    simple('product_demand_requests', 'store_id=?', [storeId], 'id ASC');
+    simple('product_demand_consents', 'store_id=?', [storeId], 'id ASC');
   }
   if (sel.has('analytics')) {
     const f = filters.analytics || null;
@@ -1191,6 +1200,43 @@ function stepMemberHistory(ctx) {
     keyOf: r => (r.line_user_id && r.visitor_id ? k(r.line_user_id, r.visitor_id) : null), transform: r => ({ values: { ...r } }) });
 }
 
+// R54.4／MBV2-HF1-C3：商品想買登記。商品以 ref_maps／名稱快照重新對應；會員以 line_user_id
+// （LINE 會員的業務識別鍵）保存；店別一律寫入目前店家。匯入不呼叫任何推播。
+function stepProductDemand(ctx) {
+  importTable(ctx, { table: 'product_demand_requests', cat: 'product_demand', rows: ctx.rows('product_demand_requests'), idMode: 'int',
+    keyOf: r => (r.request_uuid ? k(r.request_uuid) : null),
+    transform: r => {
+      const lu = String(r.line_user_id || '').trim();
+      if (!lu) return { invalid: '缺少 line_user_id' };
+      if (!r.request_uuid) return { invalid: '缺少 request_uuid' };
+      const p = ctx.resolveProduct(r.product_id, r.product_name_snapshot ? { name: r.product_name_snapshot } : null);
+      const v = { ...r, line_user_id: lu, product_id: p };
+      if (p == null) return { missing: `找不到想買登記對應的商品（${r.product_name_snapshot || r.product_id}）`, values: v };
+      return { values: v };
+    },
+    // 同一店別、商品、會員只能有一筆 active：目標店已有有效登記時保留現有資料，不覆蓋、不累加
+    beforeInsert: (ins) => {
+      if (ins.status === 'active') {
+        const ex = rawGet(ctx.raw, "SELECT id FROM product_demand_requests WHERE store_id=? AND product_id=? AND line_user_id=? AND status='active'", [ctx.storeId, ins.product_id, ins.line_user_id]);
+        if (ex) return { missing: '目前店家已有同一會員對同一商品的有效登記，保留現有登記' };
+      }
+      return null;
+    },
+  });
+  importTable(ctx, { table: 'product_demand_consents', cat: 'product_demand', rows: ctx.rows('product_demand_consents'), idMode: 'int',
+    keyOf: r => (r.consent_uuid ? k(r.consent_uuid) : null),
+    transform: r => {
+      const lu = String(r.line_user_id || '').trim();
+      if (!lu) return { invalid: '缺少 line_user_id' };
+      if (!r.consent_uuid) return { invalid: '缺少 consent_uuid' };
+      const p = ctx.resolveProduct(r.product_id);
+      const v = { ...r, line_user_id: lu, product_id: p };
+      if (p == null) return { missing: `找不到通知同意對應的商品（${r.product_id}）`, values: v };
+      return { values: v };
+    },
+  });
+}
+
 const LOGIN_EVENTS = new Set(['line_login_success', 'line_login_failed', 'line_verify_success', 'line_verify_failed']);
 function analyticsKey(r, hasUuid) {
   if (!r || !r.event_name) return null;
@@ -1251,6 +1297,8 @@ function purgeTablesFor(categories) {
   const add = (...t) => { for (const x of t) if (!order.includes(x)) order.push(x); };
   if (set.has('analytics')) add('analytics_events', 'geo_visit_log');
   if (set.has('member_history')) add('line_member_history', 'line_member_order_links', 'line_friend_events', 'line_member_sessions');
+  // R54.4／MBV2-HF1-C3：只在備份檔確實含「商品想買登記」且已選取時才清除；舊備份沒有此分類 → 不清除現有登記
+  if (set.has('product_demand')) add('product_demand_consents', 'product_demand_requests');
   if (set.has('line_members')) add('line_member_tags', 'line_members');
   if (set.has('inventory_movements')) add('inventory_logs', 'ingredient_logs');
   if (set.has('popup')) add('popup_session_change_logs', 'popup_order_allocations', 'popup_session_product_sales', 'popup_session_products', 'popup_sessions', 'popup_campaigns', 'popup_locations');
@@ -1299,6 +1347,95 @@ function validateImportOptions(info, storeId, opts) {
   return { mode, categories, cross };
 }
 
+// ══════════════════════════════════════════════════════════════════════════
+//  R54.4／MBV2-HF1-C3.1：完整取代重建「商品」但保留「商品想買登記」時的商品關聯重新對應
+// ══════════════════════════════════════════════════════════════════════════
+// 情境：完整取代會清除並重新匯入 products（商品 id 以備份檔為準），但沒有
+// product_demand 分類的舊備份不會清除既有登記與通知同意。若不處理，保留下來的資料
+// 仍指向舊商品 id → 變成孤兒，或該 id 被備份裡另一款商品占用而指錯商品。
+// 規則（預覽與正式匯入共用，皆在交易內執行；預覽最後 ROLLBACK）：
+//   1. 清除前，記下每個被登記／同意引用的商品「可唯一確認的識別」：
+//      目前商品的條碼（非空白）與名稱；商品已不存在時，使用登記上的商品名稱快照。
+//   2. 商品匯入完成後，在目標店新商品中比對：條碼恰好 1 筆 → 採用；條碼多筆 → 無法唯一；
+//      無條碼或條碼 0 筆 → 名稱恰好 1 筆 → 採用；名稱 0 筆 → 商品缺失；多筆 → 無法唯一。
+//      不使用「數字 id 相同」作為依據。
+//   3. 任何一個商品無法唯一對應 → 拋出 DEMAND_PRODUCT_REMAP_FAILED，整次完整取代回滾
+//      （商品、訂單、登記與其他資料都不變），不回報成功。
+//   4. 全部可對應 → 先檢查最終不得有重複有效登記，再以「負數暫存值 → 最終 id」兩階段逐筆更新（C3.2），
+//      其餘欄位（會員、狀態、期限、份數、同意狀態）完全不動。不觸發任何通知。
+function snapshotPreservedDemand(raw, storeId) {
+  if (!tableExists(raw, 'product_demand_requests') || !tableExists(raw, 'product_demand_consents')) return null;
+  const reqs = rawAll(raw, 'SELECT id, product_id, product_name_snapshot, line_user_id, status FROM product_demand_requests WHERE store_id=? ORDER BY id DESC', [storeId]);
+  const cons = rawAll(raw, 'SELECT id, product_id FROM product_demand_consents WHERE store_id=?', [storeId]);
+  if (!reqs.length && !cons.length) return null;
+  const ident = new Map();
+  for (const pid of new Set([...reqs, ...cons].map(r => Number(r.product_id)))) {
+    const cur = rawGet(raw, 'SELECT id, name, product_barcode FROM products WHERE id=? AND store_id=?', [pid, storeId]);
+    const snap = reqs.find(r => Number(r.product_id) === pid && r.product_name_snapshot);
+    ident.set(pid, {
+      old_product_id: pid,
+      existed: !!cur,
+      name: cur ? String(cur.name || '') : (snap ? String(snap.product_name_snapshot) : ''),
+      barcode: cur && cur.product_barcode ? String(cur.product_barcode) : '',
+    });
+  }
+  return { reqs, cons, ident };
+}
+function remapPreservedDemand(raw, storeId, snap) {
+  const prods = rawAll(raw, 'SELECT id, name, product_barcode FROM products WHERE store_id=?', [storeId]);
+  const failures = [];
+  const map = new Map();
+  for (const it of snap.ident.values()) {
+    let cand = [];
+    let by = '';
+    if (it.barcode) { cand = prods.filter(p => p.product_barcode && String(p.product_barcode) === it.barcode); by = 'barcode'; }
+    if (!cand.length && it.name) { cand = prods.filter(p => String(p.name || '') === it.name); by = 'name'; }
+    if (cand.length === 1) map.set(it.old_product_id, { to: Number(cand[0].id), by });
+    else failures.push({ old_product_id: it.old_product_id, name: it.name, barcode: it.barcode, existed_before: it.existed,
+      reason: cand.length === 0 ? 'missing' : 'ambiguous', candidates: cand.map(p => Number(p.id)) });
+  }
+  const countFor = (pid) => snap.reqs.filter(r => Number(r.product_id) === pid).length + snap.cons.filter(r => Number(r.product_id) === pid).length;
+  if (failures.length) {
+    const desc = failures.map(f => `「${f.name || ('#' + f.old_product_id)}」${f.reason === 'missing' ? '在備份商品中找不到' : `在備份商品中有 ${f.candidates.length} 筆同識別`}（${countFor(f.old_product_id)} 筆登記／同意）`).join('、');
+    throw new MigrationError('DEMAND_PRODUCT_REMAP_FAILED',
+      `完整取代會重建商品資料，但現有想買登記／通知同意引用的商品無法唯一對應：${desc}。已拒絕本次完整取代並整批回滾，資料庫未變更。請改用包含「商品想買登記」分類的完整備份，或確認備份中的商品名稱／條碼可唯一對應。`,
+      409, { demand_remap_failures: failures });
+  }
+  // R54.4／MBV2-HF1-C3.2：最終衝突檢查——重新對應後同一會員對同一商品不得有兩筆 active 登記
+  // （例如兩個舊商品對應到同一個新商品）。在任何更新之前判斷，衝突即拒絕並回滾。
+  const finalActive = new Map();
+  const conflicts = [];
+  for (const r of snap.reqs) {
+    if (r.status !== 'active') continue;
+    const to = map.get(Number(r.product_id)).to;
+    const key = to + '\u0001' + r.line_user_id;
+    if (finalActive.has(key)) conflicts.push({ new_product_id: to, request_ids: [finalActive.get(key), r.id] });
+    else finalActive.set(key, r.id);
+  }
+  if (conflicts.length) {
+    throw new MigrationError('DEMAND_PRODUCT_REMAP_FAILED',
+      `完整取代會重建商品資料，但重新對應後有 ${conflicts.length} 組「同一會員對同一商品」的有效登記會重複（商品 ${[...new Set(conflicts.map(c => c.new_product_id))].join('、')}）。已拒絕本次完整取代並整批回滾，資料庫未變更。`,
+      409, { demand_remap_failures: conflicts.map(c => ({ reason: 'final_conflict', ...c })) });
+  }
+  // R54.4／MBV2-HF1-C3.2：分階段更新，支援 ID 互換（801↔701）與循環對應（A→B→C→A）。
+  //   第 1 階段：要變動的資料列先改成「每列唯一的負數暫存值」（-id），不會與任何真實商品 id 或
+  //              彼此衝突，active 部分唯一索引（store_id, product_id, line_user_id）全程保留、有效。
+  //   第 2 階段：再改成最終商品 id。上面已確認最終狀態無重複，因此第 2 階段也不會撞索引。
+  //   其餘欄位（會員、份數、偏好、週期、期限、狀態、同意關聯）完全不動。全部在同一交易內。
+  const moveReq = snap.reqs.filter(r => map.get(Number(r.product_id)).to !== Number(r.product_id));
+  const moveCon = snap.cons.filter(r => map.get(Number(r.product_id)).to !== Number(r.product_id));
+  for (const r of moveReq) raw.run('UPDATE product_demand_requests SET product_id=? WHERE id=? AND store_id=?', [-Number(r.id), r.id, storeId]);
+  for (const r of moveCon) raw.run('UPDATE product_demand_consents SET product_id=? WHERE id=? AND store_id=?', [-Number(r.id), r.id, storeId]);
+  for (const r of moveReq) raw.run('UPDATE product_demand_requests SET product_id=? WHERE id=? AND store_id=?', [map.get(Number(r.product_id)).to, r.id, storeId]);
+  for (const r of moveCon) raw.run('UPDATE product_demand_consents SET product_id=? WHERE id=? AND store_id=?', [map.get(Number(r.product_id)).to, r.id, storeId]);
+  // 核對：不得殘留暫存值；每列都等於預期的最終商品
+  const leftover = rawGet(raw, 'SELECT (SELECT COUNT(*) FROM product_demand_requests WHERE store_id=? AND product_id<0) + (SELECT COUNT(*) FROM product_demand_consents WHERE store_id=? AND product_id<0) AS c', [storeId, storeId]);
+  if (leftover && Number(leftover.c) > 0) throw new MigrationError('DEMAND_PRODUCT_REMAP_FAILED', '想買登記商品關聯重新對應未完成，已整批回滾，資料庫未變更。', 500);
+  const changes = [];
+  for (const [from, m] of map) changes.push({ from, to: m.to, matched_by: m.by, rows: countFor(from) });
+  return changes;
+}
+
 function executeImport(db, storeId, payload, info, opts) {
   const { mode, categories, cross } = validateImportOptions(info, storeId, opts);
   const dryRun = !!opts.dryRun;
@@ -1313,6 +1450,9 @@ function executeImport(db, storeId, payload, info, opts) {
     for (const t of touched) before[t] = countScoped(r, t, storeId);
     const purge = [];
     const baseline = {};
+    // R54.4／MBV2-HF1-C3.1：完整取代會重建商品、但不會清除想買登記時，先記下商品識別
+    const demandSnap = (mode === 'replace' && categories.includes('products') && !categories.includes('product_demand'))
+      ? snapshotPreservedDemand(r, storeId) : null;
     if (mode === 'replace') {
       for (const name of purgeTablesFor(categories)) {
         const pc = purgeCount(r, storeId, name);
@@ -1333,9 +1473,12 @@ function executeImport(db, storeId, payload, info, opts) {
     if (c.has('inventory_movements')) stepInventoryMovements(ctx);
     if (c.has('line_members')) stepMembers(ctx);
     if (c.has('member_history')) stepMemberHistory(ctx);
+    if (c.has('product_demand')) stepProductDemand(ctx);
     if (c.has('analytics')) stepAnalytics(ctx);
     if (c.has('settings')) stepSettings(ctx);
     ctx.freeStatements();
+    // R54.4／MBV2-HF1-C3.1：商品已依備份重建 → 重新對應保留的登記／同意（無法唯一對應即拋錯回滾）
+    const demandRemap = demandSnap ? remapPreservedDemand(r, storeId, demandSnap) : [];
 
     // 交易內核對：每張表 匯入後筆數 − 匯入前筆數（扣除清除筆數）＝ 新增筆數
     const verification = [];
@@ -1354,7 +1497,7 @@ function executeImport(db, storeId, payload, info, opts) {
       if (totals.failed > 0) throw new MigrationError('IMPORT_ROW_FAILED', `有 ${totals.failed} 筆資料寫入失敗，已整批回滾，資料庫未變更`, 422, { stats: ctx.stats });
       if (!verifyOk) throw new MigrationError('IMPORT_VERIFY_FAILED', '匯入後筆數核對不一致，已整批回滾，資料庫未變更', 500, { verification });
     }
-    return { stats: ctx.stats, totals, verification, verify_ok: verifyOk, purge };
+    return { stats: ctx.stats, totals, verification, verify_ok: verifyOk, purge, demand_remap: demandRemap };
   };
 
   let result;

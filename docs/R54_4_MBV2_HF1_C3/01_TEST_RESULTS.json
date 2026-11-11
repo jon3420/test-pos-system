@@ -1,0 +1,2250 @@
+{
+ "release": "R54.4/MBV2-HF1-C3",
+ "base": {
+  "release": "R54.4/MBV2-HF1-C2",
+  "zip": "P3CD_DEPLOY_R54_4_MBV2_HF1_C2_PRODUCT_DETAIL_QTY_LIMIT_FIX_APP_ROOT.zip",
+  "zip_sha256_expected": "7e09ba87c5cbd7652c904e07c845f79af347ddc6bfd43a55d8817f9ba9b9a080",
+  "zip_sha256_received": "7e09ba87c5cbd7652c904e07c845f79af347ddc6bfd43a55d8817f9ba9b9a080",
+  "match": true,
+  "files": 888
+ },
+ "executed_at": "2026-11-11 (Asia/Taipei)",
+ "node": "v22.23.4",
+ "browser": "Google Chrome via Playwright (headless)",
+ "new_acceptance": {
+  "script": "scripts/smoke-r54-4-mbv2-hf1-c3-sale-status-demand.js",
+  "env": "real server.js + tmp SQLite + real Chrome; network mocked (scripts/lib/hf1c3-net-mock.js counts LINE API calls)",
+  "c3": {
+   "passed": 332,
+   "failed": 0,
+   "cases": [
+    {
+     "ok": true,
+     "name": "S combined_checkout/not_started/takeout/available 商品卡存在",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/not_started/takeout/available 商品卡＋／詳情加入／實際加購三者一致",
+     "detail": "{\"plus\":true,\"inc\":true,\"detail\":false,\"status\":\"🟢 可預約\",\"raw\":{\"tn\":false,\"dn\":false,\"tr\":null,\"dr\":null,\"ss\":\"available\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/not_started/takeout/available 頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/not_started/delivery/available 商品卡存在",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/not_started/delivery/available 商品卡＋／詳情加入／實際加購三者一致",
+     "detail": "{\"plus\":true,\"inc\":true,\"detail\":false,\"status\":\"🟢 可預約\",\"raw\":{\"tn\":false,\"dn\":false,\"tr\":null,\"dr\":null,\"ss\":\"available\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/not_started/delivery/available 頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S-API combined_checkout/not_started/sold_out_today /api/line-menu 今日完售可預約未來日期",
+     "detail": "{\"t\":true,\"d\":true}"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/not_started/takeout/sold_out_today 商品卡存在",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/not_started/takeout/sold_out_today 商品卡＋／詳情加入／實際加購三者一致",
+     "detail": "{\"plus\":true,\"inc\":true,\"detail\":false,\"status\":\"🔴 今日完售\\n🟢 可預購\",\"raw\":{\"tn\":true,\"dn\":true,\"tr\":null,\"dr\":null,\"ss\":\"sold_out_today\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/not_started/takeout/sold_out_today 今日完售：標示今日完售＋可預購，＋與詳情可用且使用預購額度",
+     "detail": "{\"status\":\"🔴 今日完售\\n🟢 可預購\",\"plus\":true,\"inc\":[true,\"preorder\",\"\"],\"detail\":{\"disabled\":false,\"text\":\"加入購物車\",\"demand\":null}}"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/not_started/takeout/sold_out_today 想買登記入口不顯示（今日完售仍可預購）",
+     "detail": "null"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/not_started/takeout/sold_out_today 頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/not_started/delivery/sold_out_today 商品卡存在",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/not_started/delivery/sold_out_today 商品卡＋／詳情加入／實際加購三者一致",
+     "detail": "{\"plus\":true,\"inc\":true,\"detail\":false,\"status\":\"🔴 今日完售\\n🟢 可預購\",\"raw\":{\"tn\":true,\"dn\":true,\"tr\":null,\"dr\":null,\"ss\":\"sold_out_today\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/not_started/delivery/sold_out_today 今日完售：標示今日完售＋可預購，＋與詳情可用且使用預購額度",
+     "detail": "{\"status\":\"🔴 今日完售\\n🟢 可預購\",\"plus\":true,\"inc\":[true,\"preorder\",\"\"],\"detail\":{\"disabled\":false,\"text\":\"加入購物車\",\"demand\":null}}"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/not_started/delivery/sold_out_today 想買登記入口不顯示（今日完售仍可預購）",
+     "detail": "null"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/not_started/delivery/sold_out_today 頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S-API combined_checkout/not_started/paused /api/line-menu 停售商品 can_next_day=false",
+     "detail": "{\"t\":false,\"d\":false,\"r\":null}"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/not_started/takeout/paused 商品卡存在",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/not_started/takeout/paused 商品卡＋／詳情加入／實際加購三者一致",
+     "detail": "{\"plus\":false,\"inc\":false,\"detail\":true,\"status\":\"暫停販售\",\"raw\":{\"tn\":false,\"dn\":false,\"tr\":null,\"dr\":null,\"ss\":\"paused\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/not_started/takeout/paused 暫停販售：標示正確、無「可預購／可預約」、無可用＋、詳情停用、實際不可加購",
+     "detail": "{\"status\":\"暫停販售\",\"plus\":false,\"inc\":\"測試招牌飯 目前暫停販售\",\"detail\":{\"disabled\":true,\"text\":\"暫停販售\",\"demand\":\"我想買\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/not_started/takeout/paused 想買登記入口顯示",
+     "detail": "我想買"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/not_started/takeout/paused 頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/not_started/delivery/paused 商品卡存在",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/not_started/delivery/paused 商品卡＋／詳情加入／實際加購三者一致",
+     "detail": "{\"plus\":false,\"inc\":false,\"detail\":true,\"status\":\"暫停販售\",\"raw\":{\"tn\":false,\"dn\":false,\"tr\":null,\"dr\":null,\"ss\":\"paused\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/not_started/delivery/paused 暫停販售：標示正確、無「可預購／可預約」、無可用＋、詳情停用、實際不可加購",
+     "detail": "{\"status\":\"暫停販售\",\"plus\":false,\"inc\":\"測試招牌飯 目前暫停販售\",\"detail\":{\"disabled\":true,\"text\":\"暫停販售\",\"demand\":\"我想買\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/not_started/delivery/paused 想買登記入口顯示",
+     "detail": "我想買"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/not_started/delivery/paused 頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S-API combined_checkout/not_started/sold_out_indefinitely /api/line-menu 停售商品 can_next_day=false",
+     "detail": "{\"t\":false,\"d\":false,\"r\":null}"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/not_started/takeout/sold_out_indefinitely 商品卡存在",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/not_started/takeout/sold_out_indefinitely 商品卡＋／詳情加入／實際加購三者一致",
+     "detail": "{\"plus\":false,\"inc\":false,\"detail\":true,\"status\":\"長期下架\",\"raw\":{\"tn\":false,\"dn\":false,\"tr\":null,\"dr\":null,\"ss\":\"sold_out_indefinitely\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/not_started/takeout/sold_out_indefinitely 長期下架：標示正確、無「可預購／可預約」、無可用＋、詳情停用、實際不可加購",
+     "detail": "{\"status\":\"長期下架\",\"plus\":false,\"inc\":\"測試招牌飯 目前長期下架\",\"detail\":{\"disabled\":true,\"text\":\"長期下架\",\"demand\":\"我想買\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/not_started/takeout/sold_out_indefinitely 想買登記入口顯示",
+     "detail": "我想買"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/not_started/takeout/sold_out_indefinitely 頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/not_started/delivery/sold_out_indefinitely 商品卡存在",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/not_started/delivery/sold_out_indefinitely 商品卡＋／詳情加入／實際加購三者一致",
+     "detail": "{\"plus\":false,\"inc\":false,\"detail\":true,\"status\":\"長期下架\",\"raw\":{\"tn\":false,\"dn\":false,\"tr\":null,\"dr\":null,\"ss\":\"sold_out_indefinitely\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/not_started/delivery/sold_out_indefinitely 長期下架：標示正確、無「可預購／可預約」、無可用＋、詳情停用、實際不可加購",
+     "detail": "{\"status\":\"長期下架\",\"plus\":false,\"inc\":\"測試招牌飯 目前長期下架\",\"detail\":{\"disabled\":true,\"text\":\"長期下架\",\"demand\":\"我想買\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/not_started/delivery/sold_out_indefinitely 想買登記入口顯示",
+     "detail": "我想買"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/not_started/delivery/sold_out_indefinitely 頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/selling/takeout/available 商品卡存在",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/selling/takeout/available 商品卡＋／詳情加入／實際加購三者一致",
+     "detail": "{\"plus\":true,\"inc\":true,\"detail\":false,\"status\":\"\",\"raw\":{\"tn\":false,\"dn\":false,\"tr\":null,\"dr\":null,\"ss\":\"available\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/selling/takeout/available 頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/selling/delivery/available 商品卡存在",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/selling/delivery/available 商品卡＋／詳情加入／實際加購三者一致",
+     "detail": "{\"plus\":true,\"inc\":true,\"detail\":false,\"status\":\"\",\"raw\":{\"tn\":false,\"dn\":false,\"tr\":null,\"dr\":null,\"ss\":\"available\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/selling/delivery/available 頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S-API combined_checkout/selling/sold_out_today /api/line-menu 今日完售可預約未來日期",
+     "detail": "{\"t\":true,\"d\":true}"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/selling/takeout/sold_out_today 商品卡存在",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/selling/takeout/sold_out_today 商品卡＋／詳情加入／實際加購三者一致",
+     "detail": "{\"plus\":true,\"inc\":true,\"detail\":false,\"status\":\"🔴 今日完售\\n🟢 可預購\",\"raw\":{\"tn\":true,\"dn\":true,\"tr\":null,\"dr\":null,\"ss\":\"sold_out_today\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/selling/takeout/sold_out_today 今日完售：標示今日完售＋可預購，＋與詳情可用且使用預購額度",
+     "detail": "{\"status\":\"🔴 今日完售\\n🟢 可預購\",\"plus\":true,\"inc\":[true,\"preorder\",\"\"],\"detail\":{\"disabled\":false,\"text\":\"加入購物車\",\"demand\":null}}"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/selling/takeout/sold_out_today 想買登記入口不顯示（今日完售仍可預購）",
+     "detail": "null"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/selling/takeout/sold_out_today 頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/selling/delivery/sold_out_today 商品卡存在",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/selling/delivery/sold_out_today 商品卡＋／詳情加入／實際加購三者一致",
+     "detail": "{\"plus\":true,\"inc\":true,\"detail\":false,\"status\":\"🔴 今日完售\\n🟢 可預購\",\"raw\":{\"tn\":true,\"dn\":true,\"tr\":null,\"dr\":null,\"ss\":\"sold_out_today\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/selling/delivery/sold_out_today 今日完售：標示今日完售＋可預購，＋與詳情可用且使用預購額度",
+     "detail": "{\"status\":\"🔴 今日完售\\n🟢 可預購\",\"plus\":true,\"inc\":[true,\"preorder\",\"\"],\"detail\":{\"disabled\":false,\"text\":\"加入購物車\",\"demand\":null}}"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/selling/delivery/sold_out_today 想買登記入口不顯示（今日完售仍可預購）",
+     "detail": "null"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/selling/delivery/sold_out_today 頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S-API combined_checkout/selling/paused /api/line-menu 停售商品 can_next_day=false",
+     "detail": "{\"t\":false,\"d\":false,\"r\":null}"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/selling/takeout/paused 商品卡存在",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/selling/takeout/paused 商品卡＋／詳情加入／實際加購三者一致",
+     "detail": "{\"plus\":false,\"inc\":false,\"detail\":true,\"status\":\"暫停販售\",\"raw\":{\"tn\":false,\"dn\":false,\"tr\":null,\"dr\":null,\"ss\":\"paused\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/selling/takeout/paused 暫停販售：標示正確、無「可預購／可預約」、無可用＋、詳情停用、實際不可加購",
+     "detail": "{\"status\":\"暫停販售\",\"plus\":false,\"inc\":\"測試招牌飯 目前暫停販售\",\"detail\":{\"disabled\":true,\"text\":\"暫停販售\",\"demand\":\"我想買\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/selling/takeout/paused 想買登記入口顯示",
+     "detail": "我想買"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/selling/takeout/paused 頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/selling/delivery/paused 商品卡存在",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/selling/delivery/paused 商品卡＋／詳情加入／實際加購三者一致",
+     "detail": "{\"plus\":false,\"inc\":false,\"detail\":true,\"status\":\"暫停販售\",\"raw\":{\"tn\":false,\"dn\":false,\"tr\":null,\"dr\":null,\"ss\":\"paused\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/selling/delivery/paused 暫停販售：標示正確、無「可預購／可預約」、無可用＋、詳情停用、實際不可加購",
+     "detail": "{\"status\":\"暫停販售\",\"plus\":false,\"inc\":\"測試招牌飯 目前暫停販售\",\"detail\":{\"disabled\":true,\"text\":\"暫停販售\",\"demand\":\"我想買\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/selling/delivery/paused 想買登記入口顯示",
+     "detail": "我想買"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/selling/delivery/paused 頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S-API combined_checkout/selling/sold_out_indefinitely /api/line-menu 停售商品 can_next_day=false",
+     "detail": "{\"t\":false,\"d\":false,\"r\":null}"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/selling/takeout/sold_out_indefinitely 商品卡存在",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/selling/takeout/sold_out_indefinitely 商品卡＋／詳情加入／實際加購三者一致",
+     "detail": "{\"plus\":false,\"inc\":false,\"detail\":true,\"status\":\"長期下架\",\"raw\":{\"tn\":false,\"dn\":false,\"tr\":null,\"dr\":null,\"ss\":\"sold_out_indefinitely\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/selling/takeout/sold_out_indefinitely 長期下架：標示正確、無「可預購／可預約」、無可用＋、詳情停用、實際不可加購",
+     "detail": "{\"status\":\"長期下架\",\"plus\":false,\"inc\":\"測試招牌飯 目前長期下架\",\"detail\":{\"disabled\":true,\"text\":\"長期下架\",\"demand\":\"我想買\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/selling/takeout/sold_out_indefinitely 想買登記入口顯示",
+     "detail": "我想買"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/selling/takeout/sold_out_indefinitely 頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/selling/delivery/sold_out_indefinitely 商品卡存在",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/selling/delivery/sold_out_indefinitely 商品卡＋／詳情加入／實際加購三者一致",
+     "detail": "{\"plus\":false,\"inc\":false,\"detail\":true,\"status\":\"長期下架\",\"raw\":{\"tn\":false,\"dn\":false,\"tr\":null,\"dr\":null,\"ss\":\"sold_out_indefinitely\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/selling/delivery/sold_out_indefinitely 長期下架：標示正確、無「可預購／可預約」、無可用＋、詳情停用、實際不可加購",
+     "detail": "{\"status\":\"長期下架\",\"plus\":false,\"inc\":\"測試招牌飯 目前長期下架\",\"detail\":{\"disabled\":true,\"text\":\"長期下架\",\"demand\":\"我想買\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/selling/delivery/sold_out_indefinitely 想買登記入口顯示",
+     "detail": "我想買"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/selling/delivery/sold_out_indefinitely 頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/ended/takeout/available 商品卡存在",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/ended/takeout/available 商品卡＋／詳情加入／實際加購三者一致",
+     "detail": "{\"plus\":true,\"inc\":true,\"detail\":false,\"status\":\"🔴 今日售完\\n🟢 可預購\",\"raw\":{\"tn\":true,\"dn\":true,\"tr\":\"product_time_ended\",\"dr\":\"product_time_ended\",\"ss\":\"available\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/ended/takeout/available 頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/ended/delivery/available 商品卡存在",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/ended/delivery/available 商品卡＋／詳情加入／實際加購三者一致",
+     "detail": "{\"plus\":true,\"inc\":true,\"detail\":false,\"status\":\"🔴 今日售完\\n🟢 可預購\",\"raw\":{\"tn\":true,\"dn\":true,\"tr\":\"product_time_ended\",\"dr\":\"product_time_ended\",\"ss\":\"available\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/ended/delivery/available 頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S-API combined_checkout/ended/sold_out_today /api/line-menu 今日完售可預約未來日期",
+     "detail": "{\"t\":true,\"d\":true}"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/ended/takeout/sold_out_today 商品卡存在",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/ended/takeout/sold_out_today 商品卡＋／詳情加入／實際加購三者一致",
+     "detail": "{\"plus\":true,\"inc\":true,\"detail\":false,\"status\":\"🔴 今日完售\\n🟢 可預購\",\"raw\":{\"tn\":true,\"dn\":true,\"tr\":\"product_time_ended\",\"dr\":\"product_time_ended\",\"ss\":\"sold_out_today\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/ended/takeout/sold_out_today 今日完售：標示今日完售＋可預購，＋與詳情可用且使用預購額度",
+     "detail": "{\"status\":\"🔴 今日完售\\n🟢 可預購\",\"plus\":true,\"inc\":[true,\"preorder\",\"\"],\"detail\":{\"disabled\":false,\"text\":\"加入購物車\",\"demand\":null}}"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/ended/takeout/sold_out_today 想買登記入口不顯示（今日完售仍可預購）",
+     "detail": "null"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/ended/takeout/sold_out_today 頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/ended/delivery/sold_out_today 商品卡存在",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/ended/delivery/sold_out_today 商品卡＋／詳情加入／實際加購三者一致",
+     "detail": "{\"plus\":true,\"inc\":true,\"detail\":false,\"status\":\"🔴 今日完售\\n🟢 可預購\",\"raw\":{\"tn\":true,\"dn\":true,\"tr\":\"product_time_ended\",\"dr\":\"product_time_ended\",\"ss\":\"sold_out_today\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/ended/delivery/sold_out_today 今日完售：標示今日完售＋可預購，＋與詳情可用且使用預購額度",
+     "detail": "{\"status\":\"🔴 今日完售\\n🟢 可預購\",\"plus\":true,\"inc\":[true,\"preorder\",\"\"],\"detail\":{\"disabled\":false,\"text\":\"加入購物車\",\"demand\":null}}"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/ended/delivery/sold_out_today 想買登記入口不顯示（今日完售仍可預購）",
+     "detail": "null"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/ended/delivery/sold_out_today 頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S-API combined_checkout/ended/paused /api/line-menu 停售商品 can_next_day=false",
+     "detail": "{\"t\":false,\"d\":false,\"r\":\"product_time_ended\"}"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/ended/takeout/paused 商品卡存在",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/ended/takeout/paused 商品卡＋／詳情加入／實際加購三者一致",
+     "detail": "{\"plus\":false,\"inc\":false,\"detail\":true,\"status\":\"暫停販售\",\"raw\":{\"tn\":false,\"dn\":false,\"tr\":\"product_time_ended\",\"dr\":\"product_time_ended\",\"ss\":\"paused\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/ended/takeout/paused 暫停販售：標示正確、無「可預購／可預約」、無可用＋、詳情停用、實際不可加購",
+     "detail": "{\"status\":\"暫停販售\",\"plus\":false,\"inc\":\"測試招牌飯 目前暫停販售\",\"detail\":{\"disabled\":true,\"text\":\"暫停販售\",\"demand\":\"我想買\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/ended/takeout/paused 想買登記入口顯示",
+     "detail": "我想買"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/ended/takeout/paused 頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/ended/delivery/paused 商品卡存在",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/ended/delivery/paused 商品卡＋／詳情加入／實際加購三者一致",
+     "detail": "{\"plus\":false,\"inc\":false,\"detail\":true,\"status\":\"暫停販售\",\"raw\":{\"tn\":false,\"dn\":false,\"tr\":\"product_time_ended\",\"dr\":\"product_time_ended\",\"ss\":\"paused\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/ended/delivery/paused 暫停販售：標示正確、無「可預購／可預約」、無可用＋、詳情停用、實際不可加購",
+     "detail": "{\"status\":\"暫停販售\",\"plus\":false,\"inc\":\"測試招牌飯 目前暫停販售\",\"detail\":{\"disabled\":true,\"text\":\"暫停販售\",\"demand\":\"我想買\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/ended/delivery/paused 想買登記入口顯示",
+     "detail": "我想買"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/ended/delivery/paused 頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S-API combined_checkout/ended/sold_out_indefinitely /api/line-menu 停售商品 can_next_day=false",
+     "detail": "{\"t\":false,\"d\":false,\"r\":\"product_time_ended\"}"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/ended/takeout/sold_out_indefinitely 商品卡存在",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/ended/takeout/sold_out_indefinitely 商品卡＋／詳情加入／實際加購三者一致",
+     "detail": "{\"plus\":false,\"inc\":false,\"detail\":true,\"status\":\"長期下架\",\"raw\":{\"tn\":false,\"dn\":false,\"tr\":\"product_time_ended\",\"dr\":\"product_time_ended\",\"ss\":\"sold_out_indefinitely\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/ended/takeout/sold_out_indefinitely 長期下架：標示正確、無「可預購／可預約」、無可用＋、詳情停用、實際不可加購",
+     "detail": "{\"status\":\"長期下架\",\"plus\":false,\"inc\":\"測試招牌飯 目前長期下架\",\"detail\":{\"disabled\":true,\"text\":\"長期下架\",\"demand\":\"我想買\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/ended/takeout/sold_out_indefinitely 想買登記入口顯示",
+     "detail": "我想買"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/ended/takeout/sold_out_indefinitely 頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/ended/delivery/sold_out_indefinitely 商品卡存在",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/ended/delivery/sold_out_indefinitely 商品卡＋／詳情加入／實際加購三者一致",
+     "detail": "{\"plus\":false,\"inc\":false,\"detail\":true,\"status\":\"長期下架\",\"raw\":{\"tn\":false,\"dn\":false,\"tr\":\"product_time_ended\",\"dr\":\"product_time_ended\",\"ss\":\"sold_out_indefinitely\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/ended/delivery/sold_out_indefinitely 長期下架：標示正確、無「可預購／可預約」、無可用＋、詳情停用、實際不可加購",
+     "detail": "{\"status\":\"長期下架\",\"plus\":false,\"inc\":\"測試招牌飯 目前長期下架\",\"detail\":{\"disabled\":true,\"text\":\"長期下架\",\"demand\":\"我想買\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/ended/delivery/sold_out_indefinitely 想買登記入口顯示",
+     "detail": "我想買"
+    },
+    {
+     "ok": true,
+     "name": "S combined_checkout/ended/delivery/sold_out_indefinitely 頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/not_started/takeout/available 商品卡存在",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/not_started/takeout/available 商品卡＋／詳情加入／實際加購三者一致",
+     "detail": "{\"plus\":true,\"inc\":true,\"detail\":false,\"status\":\"🟢 可預約\",\"raw\":{\"tn\":false,\"dn\":false,\"tr\":null,\"dr\":null,\"ss\":\"available\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/not_started/takeout/available 頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/not_started/delivery/available 商品卡存在",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/not_started/delivery/available 商品卡＋／詳情加入／實際加購三者一致",
+     "detail": "{\"plus\":true,\"inc\":true,\"detail\":false,\"status\":\"🟢 可預約\",\"raw\":{\"tn\":false,\"dn\":false,\"tr\":null,\"dr\":null,\"ss\":\"available\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/not_started/delivery/available 頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S-API fulfillment_switcher/not_started/sold_out_today /api/line-menu 今日完售可預約未來日期",
+     "detail": "{\"t\":true,\"d\":true}"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/not_started/takeout/sold_out_today 商品卡存在",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/not_started/takeout/sold_out_today 商品卡＋／詳情加入／實際加購三者一致",
+     "detail": "{\"plus\":true,\"inc\":true,\"detail\":false,\"status\":\"🔴 今日完售\\n🟢 可預購\",\"raw\":{\"tn\":true,\"dn\":true,\"tr\":null,\"dr\":null,\"ss\":\"sold_out_today\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/not_started/takeout/sold_out_today 今日完售：標示今日完售＋可預購，＋與詳情可用且使用預購額度",
+     "detail": "{\"status\":\"🔴 今日完售\\n🟢 可預購\",\"plus\":true,\"inc\":[true,\"preorder\",\"\"],\"detail\":{\"disabled\":false,\"text\":\"加入購物車\",\"demand\":null}}"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/not_started/takeout/sold_out_today 想買登記入口不顯示（今日完售仍可預購）",
+     "detail": "null"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/not_started/takeout/sold_out_today 頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/not_started/delivery/sold_out_today 商品卡存在",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/not_started/delivery/sold_out_today 商品卡＋／詳情加入／實際加購三者一致",
+     "detail": "{\"plus\":true,\"inc\":true,\"detail\":false,\"status\":\"🔴 今日完售\\n🟢 可預購\",\"raw\":{\"tn\":true,\"dn\":true,\"tr\":null,\"dr\":null,\"ss\":\"sold_out_today\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/not_started/delivery/sold_out_today 今日完售：標示今日完售＋可預購，＋與詳情可用且使用預購額度",
+     "detail": "{\"status\":\"🔴 今日完售\\n🟢 可預購\",\"plus\":true,\"inc\":[true,\"preorder\",\"\"],\"detail\":{\"disabled\":false,\"text\":\"加入購物車\",\"demand\":null}}"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/not_started/delivery/sold_out_today 想買登記入口不顯示（今日完售仍可預購）",
+     "detail": "null"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/not_started/delivery/sold_out_today 頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S-API fulfillment_switcher/not_started/paused /api/line-menu 停售商品 can_next_day=false",
+     "detail": "{\"t\":false,\"d\":false,\"r\":null}"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/not_started/takeout/paused 商品卡存在",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/not_started/takeout/paused 商品卡＋／詳情加入／實際加購三者一致",
+     "detail": "{\"plus\":false,\"inc\":false,\"detail\":true,\"status\":\"暫停販售\",\"raw\":{\"tn\":false,\"dn\":false,\"tr\":null,\"dr\":null,\"ss\":\"paused\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/not_started/takeout/paused 暫停販售：標示正確、無「可預購／可預約」、無可用＋、詳情停用、實際不可加購",
+     "detail": "{\"status\":\"暫停販售\",\"plus\":false,\"inc\":\"測試招牌飯 目前暫停販售\",\"detail\":{\"disabled\":true,\"text\":\"暫停販售\",\"demand\":\"我想買\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/not_started/takeout/paused 想買登記入口顯示",
+     "detail": "我想買"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/not_started/takeout/paused 頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/not_started/delivery/paused 商品卡存在",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/not_started/delivery/paused 商品卡＋／詳情加入／實際加購三者一致",
+     "detail": "{\"plus\":false,\"inc\":false,\"detail\":true,\"status\":\"暫停販售\",\"raw\":{\"tn\":false,\"dn\":false,\"tr\":null,\"dr\":null,\"ss\":\"paused\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/not_started/delivery/paused 暫停販售：標示正確、無「可預購／可預約」、無可用＋、詳情停用、實際不可加購",
+     "detail": "{\"status\":\"暫停販售\",\"plus\":false,\"inc\":\"測試招牌飯 目前暫停販售\",\"detail\":{\"disabled\":true,\"text\":\"暫停販售\",\"demand\":\"我想買\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/not_started/delivery/paused 想買登記入口顯示",
+     "detail": "我想買"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/not_started/delivery/paused 頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S-API fulfillment_switcher/not_started/sold_out_indefinitely /api/line-menu 停售商品 can_next_day=false",
+     "detail": "{\"t\":false,\"d\":false,\"r\":null}"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/not_started/takeout/sold_out_indefinitely 商品卡存在",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/not_started/takeout/sold_out_indefinitely 商品卡＋／詳情加入／實際加購三者一致",
+     "detail": "{\"plus\":false,\"inc\":false,\"detail\":true,\"status\":\"長期下架\",\"raw\":{\"tn\":false,\"dn\":false,\"tr\":null,\"dr\":null,\"ss\":\"sold_out_indefinitely\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/not_started/takeout/sold_out_indefinitely 長期下架：標示正確、無「可預購／可預約」、無可用＋、詳情停用、實際不可加購",
+     "detail": "{\"status\":\"長期下架\",\"plus\":false,\"inc\":\"測試招牌飯 目前長期下架\",\"detail\":{\"disabled\":true,\"text\":\"長期下架\",\"demand\":\"我想買\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/not_started/takeout/sold_out_indefinitely 想買登記入口顯示",
+     "detail": "我想買"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/not_started/takeout/sold_out_indefinitely 頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/not_started/delivery/sold_out_indefinitely 商品卡存在",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/not_started/delivery/sold_out_indefinitely 商品卡＋／詳情加入／實際加購三者一致",
+     "detail": "{\"plus\":false,\"inc\":false,\"detail\":true,\"status\":\"長期下架\",\"raw\":{\"tn\":false,\"dn\":false,\"tr\":null,\"dr\":null,\"ss\":\"sold_out_indefinitely\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/not_started/delivery/sold_out_indefinitely 長期下架：標示正確、無「可預購／可預約」、無可用＋、詳情停用、實際不可加購",
+     "detail": "{\"status\":\"長期下架\",\"plus\":false,\"inc\":\"測試招牌飯 目前長期下架\",\"detail\":{\"disabled\":true,\"text\":\"長期下架\",\"demand\":\"我想買\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/not_started/delivery/sold_out_indefinitely 想買登記入口顯示",
+     "detail": "我想買"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/not_started/delivery/sold_out_indefinitely 頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/selling/takeout/available 商品卡存在",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/selling/takeout/available 商品卡＋／詳情加入／實際加購三者一致",
+     "detail": "{\"plus\":true,\"inc\":true,\"detail\":false,\"status\":\"\",\"raw\":{\"tn\":false,\"dn\":false,\"tr\":null,\"dr\":null,\"ss\":\"available\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/selling/takeout/available 頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/selling/delivery/available 商品卡存在",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/selling/delivery/available 商品卡＋／詳情加入／實際加購三者一致",
+     "detail": "{\"plus\":true,\"inc\":true,\"detail\":false,\"status\":\"\",\"raw\":{\"tn\":false,\"dn\":false,\"tr\":null,\"dr\":null,\"ss\":\"available\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/selling/delivery/available 頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S-API fulfillment_switcher/selling/sold_out_today /api/line-menu 今日完售可預約未來日期",
+     "detail": "{\"t\":true,\"d\":true}"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/selling/takeout/sold_out_today 商品卡存在",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/selling/takeout/sold_out_today 商品卡＋／詳情加入／實際加購三者一致",
+     "detail": "{\"plus\":true,\"inc\":true,\"detail\":false,\"status\":\"🔴 今日完售\\n🟢 可預購\",\"raw\":{\"tn\":true,\"dn\":true,\"tr\":null,\"dr\":null,\"ss\":\"sold_out_today\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/selling/takeout/sold_out_today 今日完售：標示今日完售＋可預購，＋與詳情可用且使用預購額度",
+     "detail": "{\"status\":\"🔴 今日完售\\n🟢 可預購\",\"plus\":true,\"inc\":[true,\"preorder\",\"\"],\"detail\":{\"disabled\":false,\"text\":\"加入購物車\",\"demand\":null}}"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/selling/takeout/sold_out_today 想買登記入口不顯示（今日完售仍可預購）",
+     "detail": "null"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/selling/takeout/sold_out_today 頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/selling/delivery/sold_out_today 商品卡存在",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/selling/delivery/sold_out_today 商品卡＋／詳情加入／實際加購三者一致",
+     "detail": "{\"plus\":true,\"inc\":true,\"detail\":false,\"status\":\"🔴 今日完售\\n🟢 可預購\",\"raw\":{\"tn\":true,\"dn\":true,\"tr\":null,\"dr\":null,\"ss\":\"sold_out_today\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/selling/delivery/sold_out_today 今日完售：標示今日完售＋可預購，＋與詳情可用且使用預購額度",
+     "detail": "{\"status\":\"🔴 今日完售\\n🟢 可預購\",\"plus\":true,\"inc\":[true,\"preorder\",\"\"],\"detail\":{\"disabled\":false,\"text\":\"加入購物車\",\"demand\":null}}"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/selling/delivery/sold_out_today 想買登記入口不顯示（今日完售仍可預購）",
+     "detail": "null"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/selling/delivery/sold_out_today 頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S-API fulfillment_switcher/selling/paused /api/line-menu 停售商品 can_next_day=false",
+     "detail": "{\"t\":false,\"d\":false,\"r\":null}"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/selling/takeout/paused 商品卡存在",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/selling/takeout/paused 商品卡＋／詳情加入／實際加購三者一致",
+     "detail": "{\"plus\":false,\"inc\":false,\"detail\":true,\"status\":\"暫停販售\",\"raw\":{\"tn\":false,\"dn\":false,\"tr\":null,\"dr\":null,\"ss\":\"paused\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/selling/takeout/paused 暫停販售：標示正確、無「可預購／可預約」、無可用＋、詳情停用、實際不可加購",
+     "detail": "{\"status\":\"暫停販售\",\"plus\":false,\"inc\":\"測試招牌飯 目前暫停販售\",\"detail\":{\"disabled\":true,\"text\":\"暫停販售\",\"demand\":\"我想買\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/selling/takeout/paused 想買登記入口顯示",
+     "detail": "我想買"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/selling/takeout/paused 頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/selling/delivery/paused 商品卡存在",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/selling/delivery/paused 商品卡＋／詳情加入／實際加購三者一致",
+     "detail": "{\"plus\":false,\"inc\":false,\"detail\":true,\"status\":\"暫停販售\",\"raw\":{\"tn\":false,\"dn\":false,\"tr\":null,\"dr\":null,\"ss\":\"paused\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/selling/delivery/paused 暫停販售：標示正確、無「可預購／可預約」、無可用＋、詳情停用、實際不可加購",
+     "detail": "{\"status\":\"暫停販售\",\"plus\":false,\"inc\":\"測試招牌飯 目前暫停販售\",\"detail\":{\"disabled\":true,\"text\":\"暫停販售\",\"demand\":\"我想買\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/selling/delivery/paused 想買登記入口顯示",
+     "detail": "我想買"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/selling/delivery/paused 頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S-API fulfillment_switcher/selling/sold_out_indefinitely /api/line-menu 停售商品 can_next_day=false",
+     "detail": "{\"t\":false,\"d\":false,\"r\":null}"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/selling/takeout/sold_out_indefinitely 商品卡存在",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/selling/takeout/sold_out_indefinitely 商品卡＋／詳情加入／實際加購三者一致",
+     "detail": "{\"plus\":false,\"inc\":false,\"detail\":true,\"status\":\"長期下架\",\"raw\":{\"tn\":false,\"dn\":false,\"tr\":null,\"dr\":null,\"ss\":\"sold_out_indefinitely\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/selling/takeout/sold_out_indefinitely 長期下架：標示正確、無「可預購／可預約」、無可用＋、詳情停用、實際不可加購",
+     "detail": "{\"status\":\"長期下架\",\"plus\":false,\"inc\":\"測試招牌飯 目前長期下架\",\"detail\":{\"disabled\":true,\"text\":\"長期下架\",\"demand\":\"我想買\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/selling/takeout/sold_out_indefinitely 想買登記入口顯示",
+     "detail": "我想買"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/selling/takeout/sold_out_indefinitely 頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/selling/delivery/sold_out_indefinitely 商品卡存在",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/selling/delivery/sold_out_indefinitely 商品卡＋／詳情加入／實際加購三者一致",
+     "detail": "{\"plus\":false,\"inc\":false,\"detail\":true,\"status\":\"長期下架\",\"raw\":{\"tn\":false,\"dn\":false,\"tr\":null,\"dr\":null,\"ss\":\"sold_out_indefinitely\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/selling/delivery/sold_out_indefinitely 長期下架：標示正確、無「可預購／可預約」、無可用＋、詳情停用、實際不可加購",
+     "detail": "{\"status\":\"長期下架\",\"plus\":false,\"inc\":\"測試招牌飯 目前長期下架\",\"detail\":{\"disabled\":true,\"text\":\"長期下架\",\"demand\":\"我想買\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/selling/delivery/sold_out_indefinitely 想買登記入口顯示",
+     "detail": "我想買"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/selling/delivery/sold_out_indefinitely 頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/ended/takeout/available 商品卡存在",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/ended/takeout/available 商品卡＋／詳情加入／實際加購三者一致",
+     "detail": "{\"plus\":true,\"inc\":true,\"detail\":false,\"status\":\"🔴 今日售完\\n🟢 可預購\",\"raw\":{\"tn\":true,\"dn\":true,\"tr\":\"product_time_ended\",\"dr\":\"product_time_ended\",\"ss\":\"available\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/ended/takeout/available 頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/ended/delivery/available 商品卡存在",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/ended/delivery/available 商品卡＋／詳情加入／實際加購三者一致",
+     "detail": "{\"plus\":true,\"inc\":true,\"detail\":false,\"status\":\"🔴 今日售完\\n🟢 可預購\",\"raw\":{\"tn\":true,\"dn\":true,\"tr\":\"product_time_ended\",\"dr\":\"product_time_ended\",\"ss\":\"available\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/ended/delivery/available 頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S-API fulfillment_switcher/ended/sold_out_today /api/line-menu 今日完售可預約未來日期",
+     "detail": "{\"t\":true,\"d\":true}"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/ended/takeout/sold_out_today 商品卡存在",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/ended/takeout/sold_out_today 商品卡＋／詳情加入／實際加購三者一致",
+     "detail": "{\"plus\":true,\"inc\":true,\"detail\":false,\"status\":\"🔴 今日完售\\n🟢 可預購\",\"raw\":{\"tn\":true,\"dn\":true,\"tr\":\"product_time_ended\",\"dr\":\"product_time_ended\",\"ss\":\"sold_out_today\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/ended/takeout/sold_out_today 今日完售：標示今日完售＋可預購，＋與詳情可用且使用預購額度",
+     "detail": "{\"status\":\"🔴 今日完售\\n🟢 可預購\",\"plus\":true,\"inc\":[true,\"preorder\",\"\"],\"detail\":{\"disabled\":false,\"text\":\"加入購物車\",\"demand\":null}}"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/ended/takeout/sold_out_today 想買登記入口不顯示（今日完售仍可預購）",
+     "detail": "null"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/ended/takeout/sold_out_today 頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/ended/delivery/sold_out_today 商品卡存在",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/ended/delivery/sold_out_today 商品卡＋／詳情加入／實際加購三者一致",
+     "detail": "{\"plus\":true,\"inc\":true,\"detail\":false,\"status\":\"🔴 今日完售\\n🟢 可預購\",\"raw\":{\"tn\":true,\"dn\":true,\"tr\":\"product_time_ended\",\"dr\":\"product_time_ended\",\"ss\":\"sold_out_today\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/ended/delivery/sold_out_today 今日完售：標示今日完售＋可預購，＋與詳情可用且使用預購額度",
+     "detail": "{\"status\":\"🔴 今日完售\\n🟢 可預購\",\"plus\":true,\"inc\":[true,\"preorder\",\"\"],\"detail\":{\"disabled\":false,\"text\":\"加入購物車\",\"demand\":null}}"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/ended/delivery/sold_out_today 想買登記入口不顯示（今日完售仍可預購）",
+     "detail": "null"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/ended/delivery/sold_out_today 頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S-API fulfillment_switcher/ended/paused /api/line-menu 停售商品 can_next_day=false",
+     "detail": "{\"t\":false,\"d\":false,\"r\":\"product_time_ended\"}"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/ended/takeout/paused 商品卡存在",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/ended/takeout/paused 商品卡＋／詳情加入／實際加購三者一致",
+     "detail": "{\"plus\":false,\"inc\":false,\"detail\":true,\"status\":\"暫停販售\",\"raw\":{\"tn\":false,\"dn\":false,\"tr\":\"product_time_ended\",\"dr\":\"product_time_ended\",\"ss\":\"paused\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/ended/takeout/paused 暫停販售：標示正確、無「可預購／可預約」、無可用＋、詳情停用、實際不可加購",
+     "detail": "{\"status\":\"暫停販售\",\"plus\":false,\"inc\":\"測試招牌飯 目前暫停販售\",\"detail\":{\"disabled\":true,\"text\":\"暫停販售\",\"demand\":\"我想買\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/ended/takeout/paused 想買登記入口顯示",
+     "detail": "我想買"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/ended/takeout/paused 頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/ended/delivery/paused 商品卡存在",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/ended/delivery/paused 商品卡＋／詳情加入／實際加購三者一致",
+     "detail": "{\"plus\":false,\"inc\":false,\"detail\":true,\"status\":\"暫停販售\",\"raw\":{\"tn\":false,\"dn\":false,\"tr\":\"product_time_ended\",\"dr\":\"product_time_ended\",\"ss\":\"paused\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/ended/delivery/paused 暫停販售：標示正確、無「可預購／可預約」、無可用＋、詳情停用、實際不可加購",
+     "detail": "{\"status\":\"暫停販售\",\"plus\":false,\"inc\":\"測試招牌飯 目前暫停販售\",\"detail\":{\"disabled\":true,\"text\":\"暫停販售\",\"demand\":\"我想買\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/ended/delivery/paused 想買登記入口顯示",
+     "detail": "我想買"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/ended/delivery/paused 頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S-API fulfillment_switcher/ended/sold_out_indefinitely /api/line-menu 停售商品 can_next_day=false",
+     "detail": "{\"t\":false,\"d\":false,\"r\":\"product_time_ended\"}"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/ended/takeout/sold_out_indefinitely 商品卡存在",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/ended/takeout/sold_out_indefinitely 商品卡＋／詳情加入／實際加購三者一致",
+     "detail": "{\"plus\":false,\"inc\":false,\"detail\":true,\"status\":\"長期下架\",\"raw\":{\"tn\":false,\"dn\":false,\"tr\":\"product_time_ended\",\"dr\":\"product_time_ended\",\"ss\":\"sold_out_indefinitely\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/ended/takeout/sold_out_indefinitely 長期下架：標示正確、無「可預購／可預約」、無可用＋、詳情停用、實際不可加購",
+     "detail": "{\"status\":\"長期下架\",\"plus\":false,\"inc\":\"測試招牌飯 目前長期下架\",\"detail\":{\"disabled\":true,\"text\":\"長期下架\",\"demand\":\"我想買\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/ended/takeout/sold_out_indefinitely 想買登記入口顯示",
+     "detail": "我想買"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/ended/takeout/sold_out_indefinitely 頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/ended/delivery/sold_out_indefinitely 商品卡存在",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/ended/delivery/sold_out_indefinitely 商品卡＋／詳情加入／實際加購三者一致",
+     "detail": "{\"plus\":false,\"inc\":false,\"detail\":true,\"status\":\"長期下架\",\"raw\":{\"tn\":false,\"dn\":false,\"tr\":\"product_time_ended\",\"dr\":\"product_time_ended\",\"ss\":\"sold_out_indefinitely\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/ended/delivery/sold_out_indefinitely 長期下架：標示正確、無「可預購／可預約」、無可用＋、詳情停用、實際不可加購",
+     "detail": "{\"status\":\"長期下架\",\"plus\":false,\"inc\":\"測試招牌飯 目前長期下架\",\"detail\":{\"disabled\":true,\"text\":\"長期下架\",\"demand\":\"我想買\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/ended/delivery/sold_out_indefinitely 想買登記入口顯示",
+     "detail": "我想買"
+    },
+    {
+     "ok": true,
+     "name": "S fulfillment_switcher/ended/delivery/sold_out_indefinitely 頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S2-1-sold_out_indefinitely 舊購物車還原 2 份：無可用＋、無可預購",
+     "detail": "{\"present\":true,\"status\":\"長期下架\",\"plusEnabled\":false,\"incOk\":false,\"incBucket\":null,\"incMsg\":\"測試招牌飯 目前長期下架\",\"detail\":{\"disabled\":true,\"text\":\"長期下架\",\"demand\":\"我想買\"},\"demand\":\"我想買\",\"qty\":2,\"raw\":{\"tn\":false,\"dn\":false,\"tr\":\"product_time_ended\",\"dr\":\"product_time_ended\",\"ss\":\"sold_out_indefinitely\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S2-2-sold_out_indefinitely 原始 can_next_day=true＋時段結束（注入） 商品卡＋／詳情加入／實際加購三者一致",
+     "detail": "{\"plus\":false,\"inc\":false,\"detail\":true,\"status\":\"長期下架\",\"raw\":{\"tn\":true,\"dn\":true,\"tr\":\"product_time_ended\",\"dr\":\"product_time_ended\",\"ss\":\"sold_out_indefinitely\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S2-2-sold_out_indefinitely 原始 can_next_day=true＋時段結束（注入） 長期下架：標示正確、無「可預購／可預約」、無可用＋、詳情停用、實際不可加購",
+     "detail": "{\"status\":\"長期下架\",\"plus\":false,\"inc\":\"測試招牌飯 目前長期下架\",\"detail\":{\"disabled\":true,\"text\":\"長期下架\",\"demand\":\"我想買\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S2-3-sold_out_indefinitely 局部更新（減少）後仍無可用＋",
+     "detail": "{\"qty\":1,\"plus\":false}"
+    },
+    {
+     "ok": true,
+     "name": "S2-4-sold_out_indefinitely 增加被阻擋（只能減少／移除）",
+     "detail": "測試招牌飯 目前長期下架"
+    },
+    {
+     "ok": true,
+     "name": "S2-5-sold_out_indefinitely 載入最新商品資料後局部更新：仍一致不可加購",
+     "detail": "{\"present\":true,\"status\":\"長期下架\",\"plusEnabled\":false,\"incOk\":false,\"incBucket\":null,\"incMsg\":\"測試招牌飯 目前長期下架\",\"detail\":{\"disabled\":true,\"text\":\"長期下架\",\"demand\":\"我想買\"},\"demand\":\"我想買\",\"qty\":1,\"raw\":{\"tn\":false,\"dn\":false,\"tr\":\"product_time_ended\",\"dr\":\"product_time_ended\",\"ss\":\"sold_out_indefinitely\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S2-6-sold_out_indefinitely 重新整理後仍一致",
+     "detail": "{\"present\":true,\"status\":\"長期下架\",\"plusEnabled\":false,\"incOk\":false,\"incBucket\":null,\"incMsg\":\"測試招牌飯 目前長期下架\",\"detail\":{\"disabled\":true,\"text\":\"長期下架\",\"demand\":\"我想買\"},\"demand\":\"我想買\",\"qty\":1,\"raw\":{\"tn\":false,\"dn\":false,\"tr\":\"product_time_ended\",\"dr\":\"product_time_ended\",\"ss\":\"sold_out_indefinitely\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S2-7-sold_out_indefinitely 可移除，保存的購物車同步移除",
+     "detail": "{}"
+    },
+    {
+     "ok": true,
+     "name": "S2-8-sold_out_indefinitely 頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S2-1-paused 舊購物車還原 2 份：無可用＋、無可預購",
+     "detail": "{\"present\":true,\"status\":\"暫停販售\",\"plusEnabled\":false,\"incOk\":false,\"incBucket\":null,\"incMsg\":\"測試招牌飯 目前暫停販售\",\"detail\":{\"disabled\":true,\"text\":\"暫停販售\",\"demand\":\"我想買\"},\"demand\":\"我想買\",\"qty\":2,\"raw\":{\"tn\":false,\"dn\":false,\"tr\":\"product_time_ended\",\"dr\":\"product_time_ended\",\"ss\":\"paused\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S2-2-paused 原始 can_next_day=true＋時段結束（注入） 商品卡＋／詳情加入／實際加購三者一致",
+     "detail": "{\"plus\":false,\"inc\":false,\"detail\":true,\"status\":\"暫停販售\",\"raw\":{\"tn\":true,\"dn\":true,\"tr\":\"product_time_ended\",\"dr\":\"product_time_ended\",\"ss\":\"paused\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S2-2-paused 原始 can_next_day=true＋時段結束（注入） 暫停販售：標示正確、無「可預購／可預約」、無可用＋、詳情停用、實際不可加購",
+     "detail": "{\"status\":\"暫停販售\",\"plus\":false,\"inc\":\"測試招牌飯 目前暫停販售\",\"detail\":{\"disabled\":true,\"text\":\"暫停販售\",\"demand\":\"我想買\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S2-3-paused 局部更新（減少）後仍無可用＋",
+     "detail": "{\"qty\":1,\"plus\":false}"
+    },
+    {
+     "ok": true,
+     "name": "S2-4-paused 增加被阻擋（只能減少／移除）",
+     "detail": "測試招牌飯 目前暫停販售"
+    },
+    {
+     "ok": true,
+     "name": "S2-5-paused 載入最新商品資料後局部更新：仍一致不可加購",
+     "detail": "{\"present\":true,\"status\":\"暫停販售\",\"plusEnabled\":false,\"incOk\":false,\"incBucket\":null,\"incMsg\":\"測試招牌飯 目前暫停販售\",\"detail\":{\"disabled\":true,\"text\":\"暫停販售\",\"demand\":\"我想買\"},\"demand\":\"我想買\",\"qty\":1,\"raw\":{\"tn\":false,\"dn\":false,\"tr\":\"product_time_ended\",\"dr\":\"product_time_ended\",\"ss\":\"paused\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S2-6-paused 重新整理後仍一致",
+     "detail": "{\"present\":true,\"status\":\"暫停販售\",\"plusEnabled\":false,\"incOk\":false,\"incBucket\":null,\"incMsg\":\"測試招牌飯 目前暫停販售\",\"detail\":{\"disabled\":true,\"text\":\"暫停販售\",\"demand\":\"我想買\"},\"demand\":\"我想買\",\"qty\":1,\"raw\":{\"tn\":false,\"dn\":false,\"tr\":\"product_time_ended\",\"dr\":\"product_time_ended\",\"ss\":\"paused\"}}"
+    },
+    {
+     "ok": true,
+     "name": "S2-7-paused 可移除，保存的購物車同步移除",
+     "detail": "{}"
+    },
+    {
+     "ok": true,
+     "name": "S2-8-paused 頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "S3-1 頁面開啟中改為長期下架：同步後購物車＋被擋、商品卡無可用＋",
+     "detail": "{\"qty\":1,\"plus\":false,\"d\":[\"測試招牌飯 目前長期下架\"]}"
+    },
+    {
+     "ok": true,
+     "name": "S4-1 今日完售加入購物車：取餐日期自動改為下個營業日",
+     "detail": "2026-11-12"
+    },
+    {
+     "ok": true,
+     "name": "S4-2 改成今天送出：既有日期防呆攔下，未建立訂單並導回下個營業日",
+     "detail": "orders 2->2 pDate=2026-11-12"
+    },
+    {
+     "ok": true,
+     "name": "S4-3 確認明天送出：成功，扣預購 1、今日額度不變",
+     "detail": "{\"st\":200,\"before\":{\"quota_sold\":0,\"preorder_sold\":0,\"orders\":2},\"after\":{\"quota_sold\":0,\"preorder_sold\":1,\"orders\":3}}"
+    },
+    {
+     "ok": true,
+     "name": "S4-4 頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "O1 今日完售：今日訂單被擋，未建立訂單、未扣今日額度",
+     "detail": "status=400 msg=「測試招牌飯」今日完售，可選擇其他日期預購 reason=sold_out_today"
+    },
+    {
+     "ok": true,
+     "name": "O2 今日完售：合法未來日期訂單成功（1 筆）",
+     "detail": "status=200 msg=undefined"
+    },
+    {
+     "ok": true,
+     "name": "O3 今日完售未來訂單扣預購額度 3、今日額度不變（伺服器即時值）",
+     "detail": "{\"before\":{\"quota_sold\":0,\"preorder_sold\":0,\"orders\":2},\"after\":{\"quota_sold\":0,\"preorder_sold\":3,\"orders\":3}}"
+    },
+    {
+     "ok": true,
+     "name": "O4 讀資料庫：預購已售 3、今日已售 0、商品仍為今日完售（未改寫 sale_status）、訂單為預購且日期為明天",
+     "detail": "{\"prow\":{\"sale_status\":\"sold_out_today\",\"line_quota_sold\":0,\"line_preorder_sold\":3},\"ordRow\":{\"pickup_time\":\"2026-11-12 12:00\",\"line_counter_bucket\":\"preorder\"}}"
+    },
+    {
+     "ok": true,
+     "name": "O5 未來訂單取餐時間超出該日營業時段 → 拒絕",
+     "detail": "status=403 reason=pickup_time_outside_hours"
+    },
+    {
+     "ok": true,
+     "name": "O6-paused 今日與未來日期都被擋，訂單與額度不變",
+     "detail": "400/400 「測試招牌飯」目前暫停販售"
+    },
+    {
+     "ok": true,
+     "name": "O6-sold_out_indefinitely 今日與未來日期都被擋，訂單與額度不變",
+     "detail": "400/400 「測試招牌飯」目前長期下架"
+    },
+    {
+     "ok": true,
+     "name": "O7-paused 送單期間改為停售：交易內重驗阻擋，訂單與額度完整回滾",
+     "detail": "status=400 reason=product_not_available {\"before\":{\"quota_sold\":0,\"preorder_sold\":3,\"orders\":3},\"after\":{\"quota_sold\":0,\"preorder_sold\":3,\"orders\":3}}"
+    },
+    {
+     "ok": true,
+     "name": "O7-sold_out_indefinitely 送單期間改為停售：交易內重驗阻擋，訂單與額度完整回滾",
+     "detail": "status=400 reason=product_not_available {\"before\":{\"quota_sold\":0,\"preorder_sold\":3,\"orders\":3},\"after\":{\"quota_sold\":0,\"preorder_sold\":3,\"orders\":3}}"
+    },
+    {
+     "ok": true,
+     "name": "O8 對照：外送未來訂單（今日完售）不改狀態時成功並扣預購 1",
+     "detail": "status=200 undefined"
+    },
+    {
+     "ok": true,
+     "name": "O9 今日完售＋未啟用預購份數管理：今日仍擋；未來 30 份（超過原預購每日 20）不限額成功，今日額度不變",
+     "detail": "400/200 {\"before\":{\"quota_sold\":0,\"preorder_sold\":4,\"orders\":4},\"after\":{\"quota_sold\":0,\"preorder_sold\":34,\"orders\":5}}"
+    },
+    {
+     "ok": true,
+     "name": "D1 config：開放登記、通知不可用（後端判定）、上限 99",
+     "detail": "{\"enabled\":true,\"max_qty\":99,\"ttl_days\":30,\"notify_available\":false}"
+    },
+    {
+     "ok": true,
+     "name": "D2 未登入（無 member_session）不可登記",
+     "detail": "401"
+    },
+    {
+     "ok": true,
+     "name": "D3 偽造 member_session 不可登記",
+     "detail": "401"
+    },
+    {
+     "ok": true,
+     "name": "D4 同時重複送出 5 次：只建立 1 筆，人數 1、總份數 2（不累加）",
+     "detail": "{\"outcomes\":[\"created\",\"unchanged\",\"unchanged\",\"unchanged\",\"unchanged\"],\"s1\":{\"product_id\":701,\"name\":\"測試招牌飯\",\"sale_status\":\"paused\",\"enabled\":1,\"show_on_line\":1,\"line_visible\":true,\"demand_collect_enabled\":1,\"active_users\":1,\"total_qty\":2,\"last_updated_at\":\"2026-11-10 18:45:20\",\"history_rows\":1}}"
+    },
+    {
+     "ok": true,
+     "name": "D5 本人查詢：1 筆、2 份、取餐偏好預設「都可以」",
+     "detail": "[{\"request_id\":1,\"product_id\":701,\"desired_qty\":2,\"fulfillment_pref\":\"any\",\"status\":\"active\",\"created_at\":\"2026-11-10 18:45:20\",\"updated_at\":\"2026-11-10 18:45:20\",\"expires_at\":\"2026-12-10 18:45:20\",\"notify_consent\":\"none\"}]"
+    },
+    {
+     "ok": true,
+     "name": "D6 修改為 5 份：更新原筆，總份數 5（不是 7）",
+     "detail": "{\"o\":\"updated\",\"s1\":{\"product_id\":701,\"name\":\"測試招牌飯\",\"sale_status\":\"paused\",\"enabled\":1,\"show_on_line\":1,\"line_visible\":true,\"demand_collect_enabled\":1,\"active_users\":1,\"total_qty\":5,\"last_updated_at\":\"2026-11-10 18:45:20\",\"history_rows\":1}}"
+    },
+    {
+     "ok": true,
+     "name": "D7 份數非 1～99 正整數一律 400",
+     "detail": "0:400 100:400 1.5:400 \"3a\":400 -1:400 null:400"
+    },
+    {
+     "ok": true,
+     "name": "D8 取餐偏好只能選商品支援的方式（僅外帶商品不可選外送／都可以）",
+     "detail": "400/400"
+    },
+    {
+     "ok": true,
+     "name": "D9 enabled=0／show_on_line=0／外帶外送皆停用／不存在的商品不可登記",
+     "detail": "703:404 704:404 705:404 999999:404"
+    },
+    {
+     "ok": true,
+     "name": "D10 第二位會員登記 3 份：人數 2、總份數 8",
+     "detail": "{\"product_id\":701,\"name\":\"測試招牌飯\",\"sale_status\":\"paused\",\"enabled\":1,\"show_on_line\":1,\"line_visible\":true,\"demand_collect_enabled\":1,\"active_users\":2,\"total_qty\":8,\"last_updated_at\":\"2026-11-10 18:45:20\",\"history_rows\":2}"
+    },
+    {
+     "ok": true,
+     "name": "D11 會員只看得到自己的登記；不可取消他人的登記",
+     "detail": "1/1 cancelOther=404"
+    },
+    {
+     "ok": true,
+     "name": "D12 跨店：store_002 的 session 不可用於 store_001；store_002 讀不到 store_001 商品與登記",
+     "detail": "401/403 leak=false cross=403"
+    },
+    {
+     "ok": true,
+     "name": "D13 後台 store_id 只信任 JWT（query／header 帶其他店無效）",
+     "detail": "200"
+    },
+    {
+     "ok": true,
+     "name": "D14 body 夾帶 line_user_id 被忽略（身分只來自 member_session）",
+     "detail": "0"
+    },
+    {
+     "ok": true,
+     "name": "D15 通知未接通時送出同意 → 不建立同意紀錄、回報通知不可用",
+     "detail": "{\"outcome\":\"unchanged\",\"request\":{\"request_id\":1,\"product_id\":701,\"desired_qty\":5,\"fulfillment_pref\":\"takeout\",\"status\":\"active\",\"created_at\":\"2026-11-10 18:45:20\",\"updated_at\":\"2026-11-10 18:45:20\",\"expires_at\":\"2026-12-10 18:45:20\",\"notify_consent\":\"none\"},\"consent_outcome\":\"notify_unavailable\",\"notify_available\":false}"
+    },
+    {
+     "ok": true,
+     "name": "D16 取消後統計排除：人數 1、總份數 3",
+     "detail": "{\"product_id\":701,\"name\":\"測試招牌飯\",\"sale_status\":\"paused\",\"enabled\":1,\"show_on_line\":1,\"line_visible\":true,\"demand_collect_enabled\":1,\"active_users\":1,\"total_qty\":3,\"last_updated_at\":\"2026-11-10 18:45:20\",\"history_rows\":2}"
+    },
+    {
+     "ok": true,
+     "name": "D17 取消後再次登記：開新週期（cycle 2），舊筆保留為已取消",
+     "detail": "[{\"status\":\"cancelled\",\"cycle_no\":1},{\"status\":\"active\",\"cycle_no\":2}]"
+    },
+    {
+     "ok": true,
+     "name": "D18 過期登記：統計排除、本人查詢不顯示、後台明細標示已過期",
+     "detail": "{\"s1\":{\"product_id\":701,\"name\":\"測試招牌飯\",\"sale_status\":\"paused\",\"enabled\":1,\"show_on_line\":1,\"line_visible\":true,\"demand_collect_enabled\":1,\"active_users\":1,\"total_qty\":1,\"last_updated_at\":\"2026-11-10 18:45:20\",\"history_rows\":3},\"bAfter\":0}"
+    },
+    {
+     "ok": true,
+     "name": "D19 過期後重新登記：舊筆轉為 expired、新週期 1 筆",
+     "detail": "[{\"status\":\"expired\",\"cycle_no\":1},{\"status\":\"active\",\"cycle_no\":2}]"
+    },
+    {
+     "ok": true,
+     "name": "D20 店家關閉該商品需求收集 → 登記 403，/menu 回報 demand_collect_enabled=0",
+     "detail": "403"
+    },
+    {
+     "ok": true,
+     "name": "D21 功能開關關閉 → config.enabled=false、登記 403",
+     "detail": "403"
+    },
+    {
+     "ok": true,
+     "name": "D22 長期下架且公開顯示：允許登記（更新原筆）",
+     "detail": "200"
+    },
+    {
+     "ok": true,
+     "name": "D23 登記／修改／取消前後：訂單筆數、今日已售、預購已售皆不變",
+     "detail": "{\"counters0\":{\"quota_sold\":0,\"preorder_sold\":0,\"orders\":2},\"counters1\":{\"quota_sold\":0,\"preorder_sold\":0,\"orders\":2}}"
+    },
+    {
+     "ok": true,
+     "name": "D24 讀資料庫：未建立任何含測試商品的訂單",
+     "detail": "0"
+    },
+    {
+     "ok": true,
+     "name": "U1 暫停販售商品卡顯示「我想買」",
+     "detail": "我想買"
+    },
+    {
+     "ok": true,
+     "name": "U2 未登入點擊：開啟登記表單（未開商品詳情），要求 LINE 登入",
+     "detail": "{\"ov\":true,\"pdm\":false,\"login\":true,\"title\":\"這款商品，你想買幾份？\"}"
+    },
+    {
+     "ok": true,
+     "name": "U3-mobile 2 欄商品卡：按鈕在卡片內、未被遮罩擋住（可點中心）",
+     "detail": "{\"inside\":true,\"hitIsBtn\":true,\"cols\":2,\"h\":30,\"w\":158}"
+    },
+    {
+     "ok": true,
+     "name": "U3-desktop3col 3 欄商品卡：按鈕在卡片內、未被遮罩擋住（可點中心）",
+     "detail": "{\"inside\":true,\"hitIsBtn\":true,\"cols\":3,\"h\":30,\"w\":392}"
+    },
+    {
+     "ok": true,
+     "name": "U4 登記模式文案正確（標題／說明／送出／免責），無通知同意選項",
+     "detail": "{\"pdm\":false,\"title\":\"這款商品，你想買幾份？\",\"desc\":[\"留下想買的數量，讓我們安排備貨。目前僅提供想買登記，尚不會發送補貨通知。\"],\"submit\":\"送出登記\",\"disc\":\"登記不代表訂單成立，也不保留商品，實際供應以訂購時為準。\",\"consent\":false,\"prefs\":[\"takeout\",\"delivery\",\"any\"],\"cart\":0,\"text\":\"這款商品，你想買幾份？\\n✕\\n測試招牌飯\\n\\n留下想買的數量，讓我們安排備貨。目前僅提供想買登記，尚不會發送補貨通知。\\n\\n想買份數\\n−\\n1\\n+\\n取餐偏好\\n外帶自取\\n外送\\n都可以\\n送出登記\\n\\n登記不代表訂單成立，也不保留商品，實際供應以訂購時為準。\"}"
+    },
+    {
+     "ok": true,
+     "name": "U5 未出現通知承諾或「立即」字樣；取餐偏好僅列商品支援方式",
+     "detail": "[\"takeout\",\"delivery\",\"any\"]"
+    },
+    {
+     "ok": true,
+     "name": "U6 送出成功：提示文案正確，商品卡改為「已登記 2 份・管理登記」",
+     "detail": "已收到你的想買登記，謝謝！ | 已登記 2 份・管理登記"
+    },
+    {
+     "ok": true,
+     "name": "U7 快速雙擊送出只產生 1 筆登記",
+     "detail": "[{\"desired_qty\":2,\"status\":\"active\"}]"
+    },
+    {
+     "ok": true,
+     "name": "U8 登記點擊不觸發加購／商品詳情／購買事件，不送單、不加入購物車",
+     "detail": "{\"names\":[],\"posts\":[\"http://127.0.0.1:41775/api/product-demand/register?store_id=store_001\"]}"
+    },
+    {
+     "ok": true,
+     "name": "U9 重新整理後仍顯示「已登記 2 份・管理登記」",
+     "detail": "已登記 2 份・管理登記"
+    },
+    {
+     "ok": true,
+     "name": "U10 商品詳情：加入停用（暫停販售），提供登記管理入口",
+     "detail": "{\"add\":true,\"label\":\"暫停販售\",\"demand\":\"已登記 2 份・管理登記\"}"
+    },
+    {
+     "ok": true,
+     "name": "U11 從詳情進入管理：關閉詳情、表單帶入 2 份並可取消",
+     "detail": "{\"pdm\":false,\"ov\":true,\"qty\":\"2\",\"cancel\":true}"
+    },
+    {
+     "ok": true,
+     "name": "U12 取消登記：商品卡回到「我想買」，資料標示已取消",
+     "detail": "我想買 [{\"status\":\"cancelled\"}]"
+    },
+    {
+     "ok": true,
+     "name": "U13 頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "U14 通知模式（僅在後端回報可用時）：按鈕／標題／說明／同意（預設不勾）／確認登記／免責文案",
+     "detail": "{\"btn\":\"🔔 補貨通知我\",\"ui\":{\"title\":\"想買幾份？開放訂購時通知你\",\"desc\":\"登記後，商品開放訂購時將透過 LINE 通知你一次。補貨時間尚未確定。\",\"consentChecked\":false,\"consentText\":\"我同意透過 LINE 接收本次商品的補貨通知。\",\"submit\":\"確認登記\",\"disc\":\"登記不代表訂單成立，也不保留商品，實際供應以訂購時為準。\"}}"
+    },
+    {
+     "ok": true,
+     "name": "U15 今日完售＋預購未滿：登記入口不顯示，加購判斷一致",
+     "detail": "{\"has\":false,\"status\":\"🔴 今日完售\\n🟢 可預購\",\"plus\":true,\"inc\":true}"
+    },
+    {
+     "ok": true,
+     "name": "U16 今日完售＋預購未滿：隱藏商品（enabled=0／show_on_line=0／外帶外送皆停用）不出現",
+     "detail": "[]"
+    },
+    {
+     "ok": true,
+     "name": "U15 今日完售＋預購已滿：登記入口顯示，加購判斷一致",
+     "detail": "{\"has\":true,\"status\":\"預購已滿\",\"plus\":false,\"inc\":false}"
+    },
+    {
+     "ok": true,
+     "name": "U16 今日完售＋預購已滿：隱藏商品（enabled=0／show_on_line=0／外帶外送皆停用）不出現",
+     "detail": "[]"
+    },
+    {
+     "ok": true,
+     "name": "U15 正常販售＋有份數：登記入口不顯示，加購判斷一致",
+     "detail": "{\"has\":false,\"status\":\"\",\"plus\":true,\"inc\":true}"
+    },
+    {
+     "ok": true,
+     "name": "U16 正常販售＋有份數：隱藏商品（enabled=0／show_on_line=0／外帶外送皆停用）不出現",
+     "detail": "[]"
+    },
+    {
+     "ok": true,
+     "name": "U15 正常販售＋今日用完＋預購已滿：登記入口顯示，加購判斷一致",
+     "detail": "{\"has\":true,\"status\":\"預購已滿\",\"plus\":false,\"inc\":false}"
+    },
+    {
+     "ok": true,
+     "name": "U16 正常販售＋今日用完＋預購已滿：隱藏商品（enabled=0／show_on_line=0／外帶外送皆停用）不出現",
+     "detail": "[]"
+    },
+    {
+     "ok": true,
+     "name": "B1 MBV2 分類包含「商品想買登記」",
+     "detail": "[\"products\",\"categories\",\"orders\",\"ingredients\",\"line_preorders\",\"discounts\",\"inventory_movements\",\"line_members\",\"member_history\",\"product_demand\",\"analytics\",\"popup\",\"settings\"]"
+    },
+    {
+     "ok": true,
+     "name": "B2 完整備份包含 3 筆登記（含已取消）與 2 筆通知同意",
+     "detail": "{\"c\":{\"r\":3,\"k\":2}}"
+    },
+    {
+     "ok": true,
+     "name": "B3 選擇性備份只含想買登記兩張表，並附商品對照表",
+     "detail": "product_demand_requests,product_demand_consents"
+    },
+    {
+     "ok": true,
+     "name": "B4 選擇性匯入：新增 3 筆登記、2 筆同意",
+     "detail": "{\"source\":5,\"added\":5,\"updated\":0,\"skipped\":0,\"duplicate_in_file\":0,\"conflict\":0,\"missing_relation\":0,\"invalid\":0,\"failed\":0,\"purged\":0,\"protected\":0}"
+    },
+    {
+     "ok": true,
+     "name": "B5 匯入後商品關聯改對應目標店商品（701→801）、會員與店別、狀態與偏好正確",
+     "detail": "[{\"product_id\":801,\"line_user_id\":\"Ubackupaaaaaaaaaaaaaaaaaaaaaaa01\",\"desired_qty\":2,\"status\":\"active\",\"fulfillment_pref\":\"takeout\",\"store_id\":\"store_001\"},{\"product_id\":801,\"line_user_id\":\"Ubackupbbbbbbbbbbbbbbbbbbbbbbb02\",\"desired_qty\":7,\"status\":\"cancelled\",\"fulfillment_pref\":\"any\",\"store_id\":\"store_001\"},{\"product_id\":801,\"line_user_id\":\"Ubackupbbbbbbbbbbbbbbbbbbbbbbb02\",\"desired_qty\":4,\"status\":\"active\",\"fulfillment_pref\":\"any\",\"store_id\":\"store_001\"}]"
+    },
+    {
+     "ok": true,
+     "name": "B6 通知同意狀態保留（granted／revoked）且商品關聯正確",
+     "detail": "[{\"product_id\":801,\"line_user_id\":\"Ubackupaaaaaaaaaaaaaaaaaaaaaaa01\",\"status\":\"granted\",\"request_uuid\":\"654d0884-3a59-4969-993d-45e0b0db783f\"},{\"product_id\":801,\"line_user_id\":\"Ubackupbbbbbbbbbbbbbbbbbbbbbbb02\",\"status\":\"revoked\",\"request_uuid\":\"\"}]"
+    },
+    {
+     "ok": true,
+     "name": "B7 匯入後後台統計：有效 2 人、6 份（排除已取消）",
+     "detail": "{\"product_id\":801,\"name\":\"測試招牌飯\",\"sale_status\":\"available\",\"enabled\":1,\"show_on_line\":1,\"line_visible\":true,\"demand_collect_enabled\":1,\"active_users\":2,\"total_qty\":6,\"last_updated_at\":\"2026-11-10 18:45:52\",\"history_rows\":3}"
+    },
+    {
+     "ok": true,
+     "name": "B8 重複匯入同一份備份不重複新增",
+     "detail": "{\"source\":5,\"added\":0,\"updated\":0,\"skipped\":5,\"duplicate_in_file\":0,\"conflict\":0,\"missing_relation\":0,\"invalid\":0,\"failed\":0,\"purged\":0,\"protected\":0}"
+    },
+    {
+     "ok": true,
+     "name": "B9 沒有想買登記分類的舊備份「完整取代」：現有登記與同意未被清空",
+     "detail": "{\"ok3\":true,\"err\":null,\"keep\":3,\"keepC\":2}"
+    },
+    {
+     "ok": true,
+     "name": "B10 含想買登記的完整備份「完整取代」：登記與同意等於備份內容、商品關聯一致",
+     "detail": "{\"st\":\"done\",\"err\":null,\"rep\":[{\"product_id\":701,\"status\":\"active\"},{\"product_id\":701,\"status\":\"cancelled\"},{\"product_id\":701,\"status\":\"active\"}],\"repC\":[{\"status\":\"granted\"},{\"status\":\"revoked\"}],\"pid\":[{\"id\":701}]}"
+    },
+    {
+     "ok": true,
+     "name": "B11 備份／匯入過程 LINE 推播呼叫次數為 0",
+     "detail": "0"
+    },
+    {
+     "ok": true,
+     "name": "A1 後台想買登記分頁：商品狀態、有效登記人數 2、期望總份數 8、收集開關",
+     "detail": "{\"row\":{\"status\":\"長期下架\",\"users\":\"2\",\"qty\":\"8\",\"collect\":true},\"vis\":{\"main\":\"none\",\"ship\":\"none\",\"demand\":\"block\",\"notify\":\"LINE 補貨通知：尚未啟用（本版僅提供想買登記，不會發送通知）\"}}"
+    },
+    {
+     "ok": true,
+     "name": "A2 後台明示 LINE 補貨通知尚未啟用",
+     "detail": "LINE 補貨通知：尚未啟用（本版僅提供想買登記，不會發送通知）"
+    },
+    {
+     "ok": true,
+     "name": "A3 明細 2 筆，會員識別碼遮罩",
+     "detail": "[\"Uadmi…bb02\\t5\\t都可以\\t有效\\t—\\t2026/11/11 02:46\\t2026/11/11 02:46\\t2026/12/11 02:46\",\"Uadmi…aa01\\t3\\t都可以\\t有效\\t—\\t2026/11/11 02:46\\t2026/11/11 02:46\\t2026/12/11 02:46\"]"
+    },
+    {
+     "ok": true,
+     "name": "A4 切回今日販售分頁：主表顯示、想買登記隱藏",
+     "detail": "{\"main\":\"block\",\"demand\":\"none\"}"
+    },
+    {
+     "ok": true,
+     "name": "A5 後台頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "Z1 整個驗收過程 LINE API／推播呼叫次數為 0",
+     "detail": "0"
+    }
+   ]
+  },
+  "c2_same_script_sections_s_o": {
+   "passed": 172,
+   "failed": 92,
+   "failed_names": [
+    "S-API combined_checkout/not_started/sold_out_today /api/line-menu 今日完售可預約未來日期",
+    "S combined_checkout/not_started/takeout/sold_out_today 今日完售：標示今日完售＋可預購，＋與詳情可用且使用預購額度",
+    "S combined_checkout/not_started/delivery/sold_out_today 今日完售：標示今日完售＋可預購，＋與詳情可用且使用預購額度",
+    "S combined_checkout/not_started/takeout/paused 想買登記入口顯示",
+    "S combined_checkout/not_started/delivery/paused 想買登記入口顯示",
+    "S combined_checkout/not_started/takeout/sold_out_indefinitely 長期下架：標示正確、無「可預購／可預約」、無可用＋、詳情停用、實際不可加購",
+    "S combined_checkout/not_started/takeout/sold_out_indefinitely 想買登記入口顯示",
+    "S combined_checkout/not_started/delivery/sold_out_indefinitely 長期下架：標示正確、無「可預購／可預約」、無可用＋、詳情停用、實際不可加購",
+    "S combined_checkout/not_started/delivery/sold_out_indefinitely 想買登記入口顯示",
+    "S-API combined_checkout/selling/sold_out_today /api/line-menu 今日完售可預約未來日期",
+    "S combined_checkout/selling/takeout/sold_out_today 今日完售：標示今日完售＋可預購，＋與詳情可用且使用預購額度",
+    "S combined_checkout/selling/delivery/sold_out_today 今日完售：標示今日完售＋可預購，＋與詳情可用且使用預購額度",
+    "S combined_checkout/selling/takeout/paused 想買登記入口顯示",
+    "S combined_checkout/selling/delivery/paused 想買登記入口顯示",
+    "S combined_checkout/selling/takeout/sold_out_indefinitely 長期下架：標示正確、無「可預購／可預約」、無可用＋、詳情停用、實際不可加購",
+    "S combined_checkout/selling/takeout/sold_out_indefinitely 想買登記入口顯示",
+    "S combined_checkout/selling/delivery/sold_out_indefinitely 長期下架：標示正確、無「可預購／可預約」、無可用＋、詳情停用、實際不可加購",
+    "S combined_checkout/selling/delivery/sold_out_indefinitely 想買登記入口顯示",
+    "S combined_checkout/ended/takeout/sold_out_today 商品卡＋／詳情加入／實際加購三者一致",
+    "S combined_checkout/ended/takeout/sold_out_today 今日完售：標示今日完售＋可預購，＋與詳情可用且使用預購額度",
+    "S combined_checkout/ended/delivery/sold_out_today 商品卡＋／詳情加入／實際加購三者一致",
+    "S combined_checkout/ended/delivery/sold_out_today 今日完售：標示今日完售＋可預購，＋與詳情可用且使用預購額度",
+    "S-API combined_checkout/ended/paused /api/line-menu 停售商品 can_next_day=false",
+    "S combined_checkout/ended/takeout/paused 商品卡＋／詳情加入／實際加購三者一致",
+    "S combined_checkout/ended/takeout/paused 暫停販售：標示正確、無「可預購／可預約」、無可用＋、詳情停用、實際不可加購",
+    "S combined_checkout/ended/takeout/paused 想買登記入口顯示",
+    "S combined_checkout/ended/delivery/paused 商品卡＋／詳情加入／實際加購三者一致",
+    "S combined_checkout/ended/delivery/paused 暫停販售：標示正確、無「可預購／可預約」、無可用＋、詳情停用、實際不可加購",
+    "S combined_checkout/ended/delivery/paused 想買登記入口顯示",
+    "S-API combined_checkout/ended/sold_out_indefinitely /api/line-menu 停售商品 can_next_day=false",
+    "S combined_checkout/ended/takeout/sold_out_indefinitely 商品卡＋／詳情加入／實際加購三者一致",
+    "S combined_checkout/ended/takeout/sold_out_indefinitely 長期下架：標示正確、無「可預購／可預約」、無可用＋、詳情停用、實際不可加購",
+    "S combined_checkout/ended/takeout/sold_out_indefinitely 想買登記入口顯示",
+    "S combined_checkout/ended/delivery/sold_out_indefinitely 商品卡＋／詳情加入／實際加購三者一致",
+    "S combined_checkout/ended/delivery/sold_out_indefinitely 長期下架：標示正確、無「可預購／可預約」、無可用＋、詳情停用、實際不可加購",
+    "S combined_checkout/ended/delivery/sold_out_indefinitely 想買登記入口顯示",
+    "S-API fulfillment_switcher/not_started/sold_out_today /api/line-menu 今日完售可預約未來日期",
+    "S fulfillment_switcher/not_started/takeout/sold_out_today 今日完售：標示今日完售＋可預購，＋與詳情可用且使用預購額度",
+    "S fulfillment_switcher/not_started/delivery/sold_out_today 今日完售：標示今日完售＋可預購，＋與詳情可用且使用預購額度",
+    "S fulfillment_switcher/not_started/takeout/paused 想買登記入口顯示",
+    "S fulfillment_switcher/not_started/delivery/paused 想買登記入口顯示",
+    "S fulfillment_switcher/not_started/takeout/sold_out_indefinitely 長期下架：標示正確、無「可預購／可預約」、無可用＋、詳情停用、實際不可加購",
+    "S fulfillment_switcher/not_started/takeout/sold_out_indefinitely 想買登記入口顯示",
+    "S fulfillment_switcher/not_started/delivery/sold_out_indefinitely 長期下架：標示正確、無「可預購／可預約」、無可用＋、詳情停用、實際不可加購",
+    "S fulfillment_switcher/not_started/delivery/sold_out_indefinitely 想買登記入口顯示",
+    "S-API fulfillment_switcher/selling/sold_out_today /api/line-menu 今日完售可預約未來日期",
+    "S fulfillment_switcher/selling/takeout/sold_out_today 今日完售：標示今日完售＋可預購，＋與詳情可用且使用預購額度",
+    "S fulfillment_switcher/selling/delivery/sold_out_today 今日完售：標示今日完售＋可預購，＋與詳情可用且使用預購額度",
+    "S fulfillment_switcher/selling/takeout/paused 想買登記入口顯示",
+    "S fulfillment_switcher/selling/delivery/paused 想買登記入口顯示",
+    "S fulfillment_switcher/selling/takeout/sold_out_indefinitely 長期下架：標示正確、無「可預購／可預約」、無可用＋、詳情停用、實際不可加購",
+    "S fulfillment_switcher/selling/takeout/sold_out_indefinitely 想買登記入口顯示",
+    "S fulfillment_switcher/selling/delivery/sold_out_indefinitely 長期下架：標示正確、無「可預購／可預約」、無可用＋、詳情停用、實際不可加購",
+    "S fulfillment_switcher/selling/delivery/sold_out_indefinitely 想買登記入口顯示",
+    "S fulfillment_switcher/ended/takeout/sold_out_today 商品卡＋／詳情加入／實際加購三者一致",
+    "S fulfillment_switcher/ended/takeout/sold_out_today 今日完售：標示今日完售＋可預購，＋與詳情可用且使用預購額度",
+    "S fulfillment_switcher/ended/delivery/sold_out_today 商品卡＋／詳情加入／實際加購三者一致",
+    "S fulfillment_switcher/ended/delivery/sold_out_today 今日完售：標示今日完售＋可預購，＋與詳情可用且使用預購額度",
+    "S-API fulfillment_switcher/ended/paused /api/line-menu 停售商品 can_next_day=false",
+    "S fulfillment_switcher/ended/takeout/paused 商品卡＋／詳情加入／實際加購三者一致",
+    "S fulfillment_switcher/ended/takeout/paused 暫停販售：標示正確、無「可預購／可預約」、無可用＋、詳情停用、實際不可加購",
+    "S fulfillment_switcher/ended/takeout/paused 想買登記入口顯示",
+    "S fulfillment_switcher/ended/delivery/paused 商品卡＋／詳情加入／實際加購三者一致",
+    "S fulfillment_switcher/ended/delivery/paused 暫停販售：標示正確、無「可預購／可預約」、無可用＋、詳情停用、實際不可加購",
+    "S fulfillment_switcher/ended/delivery/paused 想買登記入口顯示",
+    "S-API fulfillment_switcher/ended/sold_out_indefinitely /api/line-menu 停售商品 can_next_day=false",
+    "S fulfillment_switcher/ended/takeout/sold_out_indefinitely 商品卡＋／詳情加入／實際加購三者一致",
+    "S fulfillment_switcher/ended/takeout/sold_out_indefinitely 長期下架：標示正確、無「可預購／可預約」、無可用＋、詳情停用、實際不可加購",
+    "S fulfillment_switcher/ended/takeout/sold_out_indefinitely 想買登記入口顯示",
+    "S fulfillment_switcher/ended/delivery/sold_out_indefinitely 商品卡＋／詳情加入／實際加購三者一致",
+    "S fulfillment_switcher/ended/delivery/sold_out_indefinitely 長期下架：標示正確、無「可預購／可預約」、無可用＋、詳情停用、實際不可加購",
+    "S fulfillment_switcher/ended/delivery/sold_out_indefinitely 想買登記入口顯示",
+    "S2-1-sold_out_indefinitely 舊購物車還原 2 份：無可用＋、無可預購",
+    "S2-2-sold_out_indefinitely 原始 can_next_day=true＋時段結束（注入） 商品卡＋／詳情加入／實際加購三者一致",
+    "S2-2-sold_out_indefinitely 原始 can_next_day=true＋時段結束（注入） 長期下架：標示正確、無「可預購／可預約」、無可用＋、詳情停用、實際不可加購",
+    "S2-3-sold_out_indefinitely 局部更新（減少）後仍無可用＋",
+    "S2-5-sold_out_indefinitely 載入最新商品資料後局部更新：仍一致不可加購",
+    "S2-6-sold_out_indefinitely 重新整理後仍一致",
+    "S2-1-paused 舊購物車還原 2 份：無可用＋、無可預購",
+    "S2-2-paused 原始 can_next_day=true＋時段結束（注入） 商品卡＋／詳情加入／實際加購三者一致",
+    "S2-2-paused 原始 can_next_day=true＋時段結束（注入） 暫停販售：標示正確、無「可預購／可預約」、無可用＋、詳情停用、實際不可加購",
+    "S2-3-paused 局部更新（減少）後仍無可用＋",
+    "S2-5-paused 載入最新商品資料後局部更新：仍一致不可加購",
+    "S2-6-paused 重新整理後仍一致",
+    "S3-1 頁面開啟中改為長期下架：同步後購物車＋被擋、商品卡無可用＋",
+    "O2 今日完售：合法未來日期訂單成功（1 筆）",
+    "O3 今日完售未來訂單扣預購額度 3、今日額度不變（伺服器即時值）",
+    "O4 讀資料庫：預購已售 3、今日已售 0、商品仍為今日完售（未改寫 sale_status）、訂單為預購且日期為明天",
+    "O5 未來訂單取餐時間超出該日營業時段 → 拒絕",
+    "O7-paused 送單期間改為停售：交易內重驗阻擋，訂單與額度完整回滾",
+    "O7-sold_out_indefinitely 送單期間改為停售：交易內重驗阻擋，訂單與額度完整回滾",
+    "O8 對照：外送未來訂單（今日完售）不改狀態時成功並扣預購 1"
+   ]
+  }
+ },
+ "c2_93_acceptance_on_c3": {
+  "script": "scripts/smoke-r54-4-mbv2-hf1-c1-preorder-status.js",
+  "passed": 93,
+  "failed": 0
+ },
+ "regression_61_scripts": {
+  "c2": {
+   "exit0": 41,
+   "nonzero": 20
+  },
+  "c3": {
+   "exit0": 41,
+   "nonzero": 20
+  },
+  "new_failures": 0,
+  "notes": {
+   "scripts/run-r54-4-mbv2-ui.js": "UI1 斷言由 12 改為 13 個分類（本輪新增「商品想買登記」分類，仍為精確比對）",
+   "scripts/static-audit-r48-popup-order-ui.js": "C2 與 C3 皆失敗同樣 10 項（凍結位元組稽核）；S03 檔案清單、S26 apiFetch 數 35→40 為既有失敗項的數值變化",
+   "scripts/smoke-hotfix26-d.js": "失敗項相同，差異只在絕對路徑",
+   "scripts/smoke-h1-4-12-popup-admin-ui-browser.js": "BR51 為測試端不穩定：列文字無分隔，「剩餘 1」後接隨機 public code，若以數字開頭則 /剩餘 1(?!\\d)/ 失敗（實測 '剩餘 13Nkk8…'，API remaining_orders=1）。最終回歸該項通過。"
+  },
+  "per_script": {
+   "scripts/mbv2-rescue-verify.js": {
+    "c2_exit": 2,
+    "c3_exit": 2,
+    "c3_time": "0s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/run-g1-6-ga4-h1-4-4-view-item-runtime.js": {
+    "c2_exit": 1,
+    "c3_exit": 1,
+    "c3_time": "1s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/run-g1-6-ga4-h1-4-7-two-stage-checkout-runtime.js": {
+    "c2_exit": 0,
+    "c3_exit": 0,
+    "c3_time": "10s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/run-h1-4-10-asset-cache-bust-runtime.js": {
+    "c2_exit": 0,
+    "c3_exit": 0,
+    "c3_time": "0s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/run-h1-4-10-friend-live-runtime.js": {
+    "c2_exit": 0,
+    "c3_exit": 0,
+    "c3_time": "1s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/run-h1-4-10-historical-backend-reconcile-runtime.js": {
+    "c2_exit": 0,
+    "c3_exit": 0,
+    "c3_time": "1s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/run-h1-4-10-historical-friend-first-touch-runtime.js": {
+    "c2_exit": 0,
+    "c3_exit": 0,
+    "c3_time": "2s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/run-h1-4-10-phase1-liff-identity-runtime.js": {
+    "c2_exit": 0,
+    "c3_exit": 0,
+    "c3_time": "1s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/run-h1-4-10-phase2-line-friend-guide-runtime.js": {
+    "c2_exit": 0,
+    "c3_exit": 0,
+    "c3_time": "2s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/run-h1-4-10-phase3-checkout-submit-payment-runtime.js": {
+    "c2_exit": 0,
+    "c3_exit": 0,
+    "c3_time": "30s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/run-h1-4-10-phase4b-recovery-frontend-targeted.js": {
+    "c2_exit": 0,
+    "c3_exit": 0,
+    "c3_time": "9s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/run-h1-4-10-phase4b-recovery-full-runtime.js": {
+    "c2_exit": 0,
+    "c3_exit": 0,
+    "c3_time": "18s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/run-h1-4-10-required-friend-gate-runtime.js": {
+    "c2_exit": 0,
+    "c3_exit": 0,
+    "c3_time": "1s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/run-h1-4-9-checkout-order-summary-runtime.js": {
+    "c2_exit": 0,
+    "c3_exit": 0,
+    "c3_time": "7s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/run-r54-4-mbv2-ui.js": {
+    "c2_exit": 0,
+    "c3_exit": 0,
+    "c3_time": "10s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/run-regression-g1-6-ga4-h1-4-6.js": {
+    "c2_exit": 1,
+    "c3_exit": 1,
+    "c3_time": "439s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/run-regression-g1-6-ga4-h1-4-7.js": {
+    "c2_exit": 1,
+    "c3_exit": 1,
+    "c3_time": "457s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-cart-delivery-live-refresh.js": {
+    "c2_exit": 1,
+    "c3_exit": 1,
+    "c3_time": "0s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-delivery-distance-promotion.js": {
+    "c2_exit": 0,
+    "c3_exit": 0,
+    "c3_time": "0s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-h1-4-11-1-fixes.js": {
+    "c2_exit": 0,
+    "c3_exit": 0,
+    "c3_time": "2s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-h1-4-11-2-fixes.js": {
+    "c2_exit": 0,
+    "c3_exit": 0,
+    "c3_time": "2s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-h1-4-11-4-1-both-disabled-product-filter.js": {
+    "c2_exit": 0,
+    "c3_exit": 0,
+    "c3_time": "2s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-h1-4-11-4-product-mode-visibility.js": {
+    "c2_exit": 0,
+    "c3_exit": 0,
+    "c3_time": "2s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-h1-4-11-line-order-page-mode.js": {
+    "c2_exit": 0,
+    "c3_exit": 0,
+    "c3_time": "1s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-h1-4-12-popup-admin-ui-browser.js": {
+    "c2_exit": 1,
+    "c3_exit": 1,
+    "c3_time": "53s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-h1-4-12-popup-admin-ui.js": {
+    "c2_exit": 0,
+    "c3_exit": 0,
+    "c3_time": "27s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-h1-4-12-popup-checkout-integration.js": {
+    "c2_exit": 0,
+    "c3_exit": 0,
+    "c3_time": "2s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-h1-4-12-popup-frontend.js": {
+    "c2_exit": 0,
+    "c3_exit": 0,
+    "c3_time": "27s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-h1-4-12-popup-public-checkout.js": {
+    "c2_exit": 0,
+    "c3_exit": 0,
+    "c3_time": "49s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-h1-4-12-popup-real-browser.js": {
+    "c2_exit": 0,
+    "c3_exit": 0,
+    "c3_time": "10s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-h1-4-12-popup-recovery-cart-frontend.js": {
+    "c2_exit": 0,
+    "c3_exit": 0,
+    "c3_time": "9s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-h1-4-12-popup-recovery-identity-bridge.js": {
+    "c2_exit": 0,
+    "c3_exit": 0,
+    "c3_time": "2s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-h1-4-12-popup-recovery-landing.js": {
+    "c2_exit": 0,
+    "c3_exit": 0,
+    "c3_time": "10s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-hotfix25.js": {
+    "c2_exit": 0,
+    "c3_exit": 0,
+    "c3_time": "5s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-hotfix26-b.js": {
+    "c2_exit": 1,
+    "c3_exit": 1,
+    "c3_time": "1s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-hotfix26-d.js": {
+    "c2_exit": 1,
+    "c3_exit": 1,
+    "c3_time": "5s",
+    "new_fail_lines": [
+     "[FAIL] runtime 程式碼不應包含舊網域 — /home/claude/c3/utils/popupCheckout.js,/home/claude/c3/utils/popupPayment.js"
+    ],
+    "gone_fail_lines": [
+     "[FAIL] runtime 程式碼不應包含舊網域 — /home/claude/c2ref/utils/popupCheckout.js,/home/claude/c2ref/utils/popupPayment.js"
+    ]
+   },
+   "scripts/smoke-hotfix26-f2.js": {
+    "c2_exit": 1,
+    "c3_exit": 1,
+    "c3_time": "0s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-hotfix26-f3.js": {
+    "c2_exit": 0,
+    "c3_exit": 0,
+    "c3_time": "0s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-hotfix26-f4.js": {
+    "c2_exit": 0,
+    "c3_exit": 0,
+    "c3_time": "0s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-hotfix26-f5.js": {
+    "c2_exit": 0,
+    "c3_exit": 0,
+    "c3_time": "1s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-hotfix26-f7.js": {
+    "c2_exit": 1,
+    "c3_exit": 1,
+    "c3_time": "0s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-hotfix26-f8-b.js": {
+    "c2_exit": 1,
+    "c3_exit": 1,
+    "c3_time": "6s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-hotfix26-f8.js": {
+    "c2_exit": 0,
+    "c3_exit": 0,
+    "c3_time": "1s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-hotfix26-i.js": {
+    "c2_exit": 1,
+    "c3_exit": 1,
+    "c3_time": "0s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-hotfix27-cd.js": {
+    "c2_exit": 1,
+    "c3_exit": 1,
+    "c3_time": "0s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-hotfix29-b.js": {
+    "c2_exit": 1,
+    "c3_exit": 1,
+    "c3_time": "50s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-hotfix29-c.js": {
+    "c2_exit": 1,
+    "c3_exit": 1,
+    "c3_time": "82s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-hotfix29.js": {
+    "c2_exit": 1,
+    "c3_exit": 1,
+    "c3_time": "23s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-hotfix30-b5-r5-4-g1-live-geo.js": {
+    "c2_exit": 0,
+    "c3_exit": 0,
+    "c3_time": "1s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-hotfix30-b5-r5-debounce.js": {
+    "c2_exit": 0,
+    "c3_exit": 0,
+    "c3_time": "2s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-r48-popup-order-ui-browser.js": {
+    "c2_exit": 1,
+    "c3_exit": 1,
+    "c3_time": "32s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-r54-4-mbv2-large-upload.js": {
+    "c2_exit": 0,
+    "c3_exit": 0,
+    "c3_time": "144s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-r54-4-mbv2-migration.js": {
+    "c2_exit": 0,
+    "c3_exit": 0,
+    "c3_time": "15s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/smoke-r54-4-mbv2-system-regression.js": {
+    "c2_exit": 0,
+    "c3_exit": 0,
+    "c3_time": "7s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/static-audit-g1-6-ga4-h1-4-4.js": {
+    "c2_exit": 0,
+    "c3_exit": 0,
+    "c3_time": "0s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/static-audit-g1-6-ga4-h1-4-5.js": {
+    "c2_exit": 0,
+    "c3_exit": 0,
+    "c3_time": "0s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/static-audit-g1-6-ga4-h1-4-6.js": {
+    "c2_exit": 1,
+    "c3_exit": 1,
+    "c3_time": "0s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/static-audit-g1-6-ga4-h1-4-7.js": {
+    "c2_exit": 1,
+    "c3_exit": 1,
+    "c3_time": "0s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/static-audit-g1.js": {
+    "c2_exit": 0,
+    "c3_exit": 0,
+    "c3_time": "0s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   },
+   "scripts/static-audit-r48-popup-order-ui.js": {
+    "c2_exit": 1,
+    "c3_exit": 1,
+    "c3_time": "0s",
+    "new_fail_lines": [
+     "[FAIL] S03_FORBIDDEN_UNCHANGED allowlist 以外所有 R47 檔案逐位元組不變（routes/server/utils/package/data/line-shipping…） — .env.example,public/index.html,public/js/app.js,pu",
+     "[FAIL] S26_NO_NEW_FETCH API 字串與 fetch/apiFetch/popupApi* 呼叫數與 R47 完全相同 — {\"fetch\":4,\"apiFetch\":40,\"popupApiFetch\":8,\"popupApiPost\":13,\"XMLHttpRequest\":0,\"sendBe"
+    ],
+    "gone_fail_lines": [
+     "[FAIL] S03_FORBIDDEN_UNCHANGED allowlist 以外所有 R47 檔案逐位元組不變（routes/server/utils/package/data/line-shipping…） — .env.example,public/index.html,public/js/app.js,ro",
+     "[FAIL] S26_NO_NEW_FETCH API 字串與 fetch/apiFetch/popupApi* 呼叫數與 R47 完全相同 — {\"fetch\":4,\"apiFetch\":35,\"popupApiFetch\":8,\"popupApiPost\":13,\"XMLHttpRequest\":0,\"sendBe"
+    ]
+   },
+   "scripts/test-phone-validation.js": {
+    "c2_exit": 0,
+    "c3_exit": 0,
+    "c3_time": "0s",
+    "new_fail_lines": [],
+    "gone_fail_lines": []
+   }
+  }
+ },
+ "not_executed": [
+  "LINE App 內建瀏覽器／LIFF 真機（含 LINE 登入導回後自動重開登記表單）",
+  "正式 Google Maps",
+  "LINE Pay",
+  "Zeabur 正式環境",
+  "正式 LINE 補貨通知（本輪未實作）"
+ ]
+}

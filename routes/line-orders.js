@@ -1200,8 +1200,22 @@ router.get('/menu', (req, res) => {
         && deliverySoldOutReason !== 'mode_closed'
         && deliverySoldOutReason !== 'product_not_started'
         && deliverySoldOutReason !== 'product_mode_disabled';
-      const takeoutCanNextDay  = todayTrulySoldOutForTakeout  && takeoutMode.allowNextDay;
-      const deliveryCanNextDay = todayTrulySoldOutForDelivery && deliveryMode.allowNextDay;
+      // R54.4／MBV2-HF1-C3：人工販售狀態（LINE 上架設定 → 販售狀態）優先：
+      //   暫停販售／長期下架 → 任何日期都不可下單，可預約旗標一律 false（不得被時段結束、
+      //                        今日份數等今日原因覆蓋）
+      //   今日完售           → 今日不可下單；只要該通路沒有被商品自身或店家關閉、且店家允許
+      //                        次日預購，就可預約未來日期（實際日期／時段／額度仍於送單時驗證）
+      //   正常販售           → 沿用原本計算，不變
+      const manualBlocked = saleStatus === 'paused' || saleStatus === 'sold_out_indefinitely';
+      const manualSoldOutToday = saleStatus === 'sold_out_today';
+      const _manualFutureOk = (reason, allowNextDay) => manualSoldOutToday
+        && reason !== 'product_mode_disabled' && reason !== 'mode_closed' && !!allowNextDay;
+      const takeoutCanNextDay  = manualBlocked ? false
+        : (manualSoldOutToday ? _manualFutureOk(takeoutSoldOutReason, takeoutMode.allowNextDay)
+          : (todayTrulySoldOutForTakeout  && takeoutMode.allowNextDay));
+      const deliveryCanNextDay = manualBlocked ? false
+        : (manualSoldOutToday ? _manualFutureOk(deliverySoldOutReason, deliveryMode.allowNextDay)
+          : (todayTrulySoldOutForDelivery && deliveryMode.allowNextDay));
 
       const isOrderable = !p.line_sold_out && saleStatus === 'available' && effectiveIngredientOk && !realSoldOut;
 
@@ -1322,6 +1336,9 @@ router.get('/validate-cart', (req, res) => {
       if (Number(p[modeEnabledField] ?? 1) === 0) {
         return { product_id: pid, ok: false, reason: 'product_mode_not_supported', name: p.name, mode };
       }
+      // R54.4／MBV2-HF1-C3：與 POST / 同一份販售狀態 × 日期判斷
+      const _manual = checkManualSaleStatusForOrder(p, isPreorder);
+      if (!_manual.ok) return { product_id: pid, ok: false, reason: _manual.reason, name: p.name };
       if (isPreorder) {
         // BUG-002 修正：預購訂單用 line_preorder_*，不用 line_quota_*
         const preorder = getLinePreorderStatus(p);
@@ -1339,6 +1356,44 @@ router.get('/validate-cart', (req, res) => {
     res.json({ success: true, mode_ok: checks.ok, mode_reason: checks.reason, products: productResults });
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
+
+// ── R54.4／MBV2-HF1-C3：人工販售狀態 × 訂單日期（BEGIN 前驗證與交易內重驗共用）──────
+// 不改寫商品 sale_status、不放寬其他狀態：
+//   available       → 通過
+//   sold_out_today  → 今日訂單阻擋；未來日期（isPreorderOrder）通過，交由預購額度／日期驗證
+//   paused／sold_out_indefinitely／其他 → 任何日期都阻擋
+function checkManualSaleStatusForOrder(prod, isPreorderOrder) {
+  const ss = (prod && prod.sale_status) || 'available';
+  const name = prod && prod.name ? prod.name : '';
+  if (ss === 'available') return { ok: true };
+  if (ss === 'sold_out_today') {
+    if (isPreorderOrder) return { ok: true, manual_sold_out_today_future: true };
+    return { ok: false, reason: 'sold_out_today', message: `「${name}」今日完售，可選擇其他日期預購` };
+  }
+  if (ss === 'paused') return { ok: false, reason: 'product_paused', message: `「${name}」目前暫停販售` };
+  if (ss === 'sold_out_indefinitely') return { ok: false, reason: 'product_discontinued', message: `「${name}」目前長期下架` };
+  return { ok: false, reason: 'product_not_available', message: `「${name}」目前無法購買` };
+}
+
+// ── R54.4／MBV2-HF1-C3：未來日期訂單的營業時段驗證 ─────────────────────────
+// validateOrderConditions() 已檢查：LINE 總開關、可預訂天數、店休／休假、Business Calendar
+// 單一模式關閉、通路開關。這裡補上「該日該通路的實際營業時段」：該日沒有營業時段 → 拒絕；
+// 有指定取餐時間（HH:mm 或 YYYY-MM-DD HH:mm）時必須落在 [開始, 結束) 內。
+// 與 GET /timeslots 用同一個來源（getDayOpenClose → getEffectiveModeSchedule）。
+function validateFutureOrderWindow(db, storeId, mode, orderDate, pickupTime) {
+  const modeSettings = getModeSettings(db, storeId, mode);
+  const oc = getDayOpenClose(db, storeId, mode, orderDate, modeSettings);
+  const label = mode === 'delivery' ? '外送' : '外帶';
+  if (!oc) return { ok: false, reason: 'future_date_not_open', message: `${orderDate} ${label}未營業，請選擇其他日期` };
+  const pt = parseStrictPickupTime(pickupTime);
+  if (pt.ok && (pt.kind === 'time' || pt.kind === 'datetime')) {
+    if (pt.kind === 'datetime' && pt.date !== orderDate) return { ok: true }; // 交由既有 mismatch guard 處理
+    if (pt.mins < oc.openMins || pt.mins >= oc.closeMins) {
+      return { ok: false, reason: 'pickup_time_outside_hours', message: `${orderDate} ${label}可選時段為 ${minsToTime(oc.openMins)}～${minsToTime(oc.closeMins)}，請重新選擇取餐時間` };
+    }
+  }
+  return { ok: true };
+}
 
 // ── 結帳前驗證邏輯（共用）────────────────────────────────
 function validateOrderConditions(db, storeId, mode, dateStr, pickupTime, nowMins) {
@@ -1487,6 +1542,13 @@ router.post('/', async (req, res) => {
     if (!validation.ok)
       return res.status(403).json({ success: false, message: validation.message, reason: validation.reason });
 
+    // R54.4／MBV2-HF1-C3：未來日期訂單需落在該日、該通路的實際營業時段內（有指定時間時）。
+    // 今日完售商品的未來預購與一般自然售完商品的預購共用同一套驗證，不另開放寬路徑。
+    if (isPreorderOrder) {
+      const fw = validateFutureOrderWindow(db, storeId, mode, orderDate, pickup_time);
+      if (!fw.ok) return res.status(403).json({ success: false, message: fw.message, reason: fw.reason });
+    }
+
     // ── 商品驗證（含 LINE 份數）──────────────────────────
     for (const item of items) {
       const pid  = item.product_id || item.id;
@@ -1506,10 +1568,12 @@ router.post('/', async (req, res) => {
           mode,
         });
       }
-      if (prod.sale_status === 'sold_out_today')
-        return res.status(400).json({ success: false, message: `「${prod.name}」今日完售` });
-      if (prod.sale_status !== 'available')
-        return res.status(400).json({ success: false, message: `「${prod.name}」目前無法購買` });
+      // R54.4／MBV2-HF1-C3：人工販售狀態依「訂單日期」判斷（與交易內重驗共用同一函式）：
+      //   今日完售 → 今日訂單阻擋；合法未來預購放行（下方仍走預購額度與日期驗證）
+      //   暫停販售／長期下架／其他非正常狀態 → 任何日期均阻擋
+      const _manual = checkManualSaleStatusForOrder(prod, isPreorderOrder);
+      if (!_manual.ok)
+        return res.status(400).json({ success: false, message: _manual.message, reason: _manual.reason, product_id: prod.id });
 
       // ── 今日訂單：LINE 份數 + 商品販售時段驗證 ──────────
       // 預購訂單不受今日限制（位階 2/3/4 只限今日）
@@ -1810,7 +1874,9 @@ router.post('/', async (req, res) => {
       // R44.2C：BEGIN 後 fresh 重驗 product 資格（存在／上架／通路開關／售完狀態）；
       // 不符 → 固定 business 400，整筆 rollback（order/coupon/counter/ingredient 零寫入）。
       const modeField = mode === 'delivery' ? 'line_delivery_enabled' : 'line_takeout_enabled';
-      if (!prod || !prod.enabled || !prod.show_on_line || Number(prod[modeField] ?? 1) === 0 || prod.sale_status !== 'available') {
+      // R54.4／MBV2-HF1-C3：販售狀態改為依訂單日期重驗（與 BEGIN 前同一函式）——今日完售只放行
+      // 合法未來預購；暫停販售／長期下架任何日期都阻擋（送單期間被改成停售 → 整筆回滾）。
+      if (!prod || !prod.enabled || !prod.show_on_line || Number(prod[modeField] ?? 1) === 0 || !checkManualSaleStatusForOrder(prod, isPreorderOrder).ok) {
         const ee = new Error('product eligibility changed'); ee.httpStatus = 400; ee.publicBody = { success: false, message: '購物車中有商品目前無法購買，請重新確認', reason: 'product_not_available' }; throw ee;
       }
       const qty = Number(item.qty || 1);
