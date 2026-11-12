@@ -705,6 +705,27 @@ let _popupRecoveryParamConflict=false; // 同名參數重複且值衝突
     }
   }catch(e){ /* URL 清理失敗絕不可阻擋頁面載入 */ }
 })();
+// R54.4／MBV2-HF1-C4：補貨通知商品直達連結（?product_ref=<商品穩定識別>&src=restock&m=&d=）。
+// 只擷取「公開的商品識別」與通知對應的日期／取餐方式（僅供提示，不改變顧客既有選擇），
+// 擷取後立刻從網址移除。連結不含 member_session、LINE UID 或任何可冒用身分的資料。
+let _restockLink=null;
+(function _captureRestockLinkFromUrl(){
+  try{
+    const path=String((window.location&&window.location.pathname)||'');
+    if(path==='/popup-order' || /\/popup-order\/?$/.test(path)) return;
+    const params=new URLSearchParams(window.location.search);
+    const ref=String(params.get('product_ref')||'').trim();
+    if(!params.has('product_ref')) return;
+    if(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(ref)){
+      const m=params.get('m'); const d=String(params.get('d')||'');
+      _restockLink={ ref, mode:(m==='takeout'||m==='delivery')?m:'', date:/^\d{4}-\d{2}-\d{2}$/.test(d)?d:'' };
+    } else _restockLink={ ref:'', invalid:true };
+    ['product_ref','src','m','d'].forEach(k=>params.delete(k));
+    const cleanUrl=new URL(window.location.href);
+    cleanUrl.search=params.toString();
+    window.history.replaceState({}, '', cleanUrl.toString());
+  }catch(e){ /* URL 清理失敗絕不可阻擋頁面載入 */ }
+})();
 // hotfix22-F：購物車永久保留（不做 24 小時到期判斷）。key 加上 target=line_order，
 // 與冷藏宅配（line_shipping_cart_）完全獨立，互不干擾。
 const ORDER_CART_KEY = 'line_order_cart_' + LINE_STORE_ID;
@@ -5756,6 +5777,8 @@ async function init(){
     })();
     document.getElementById('loading').style.display='none';
     document.getElementById('content').style.display='block';
+    // R54.4／MBV2-HF1-C4：商品直達（背景執行，不阻擋首屏；不改購物車、姓名、日期、取餐方式）
+    try{ _initRestockDeepLink(); }catch(e){}
     renderLastOrderCard();
     updateCutoffBanner();
     // fix18-10-hotfix23-A：page_view — 頁面初始化成功後記錄一次，同一 session 不重複
@@ -7589,10 +7612,12 @@ const DEMAND_COPY={
   base:{ btn:'我想買', title:'這款商品，你想買幾份？',
     desc:'留下想買的數量，讓我們安排備貨。目前僅提供想買登記，尚不會發送補貨通知。',
     submit:'送出登記', success:'已收到你的想買登記，謝謝！' },
-  notify:{ btn:'🔔 補貨通知我', title:'想買幾份？開放訂購時通知你',
-    desc:'登記後，商品開放訂購時將透過 LINE 通知你一次。補貨時間尚未確定。',
-    consent:'我同意透過 LINE 接收本次商品的補貨通知。',
-    submit:'確認登記', success:'已登記！商品開放訂購時，將依你的通知設定透過 LINE 提醒你。' },
+  // R54.4／MBV2-HF1-C4：通知功能由後端判定可用時才使用；勾選預設未勾選，明確勾選才算同意
+  notify:{ btn:'🔔 補貨通知我', title:'這款商品，你想買幾份？',
+    desc:'留下想買的數量與取餐偏好。若勾選下方通知，商品恢復供應或開放預購時，會透過 LINE 通知你一次。補貨時間尚未確定。',
+    consent:'商品恢復供應或開放預購時，透過 LINE 通知我。',
+    submit:'送出想買登記', submitSubscribe:'登記並訂閱通知',
+    success:'已收到你的想買登記，謝謝！', successSubscribe:'已登記並訂閱補貨通知，商品恢復供應或開放預購時會透過 LINE 通知你。' },
   disclaimer:'登記不代表訂單成立，也不保留商品，實際供應以訂購時為準。',
 };
 function _demandCopy(){ return _demandConfig.notify_available ? DEMAND_COPY.notify : DEMAND_COPY.base; }
@@ -7646,7 +7671,7 @@ async function _initProductDemand(gatePromise){
       const r=await apiFetch('/api/product-demand/config',{cache:'no-store'}).then(x=>x.json());
       if(r && r.success && r.data){
         _demandConfig={ enabled:!!r.data.enabled, notify_available:r.data.notify_available===true,
-          max_qty:Number(r.data.max_qty)||99, loaded:true };
+          max_qty:Number(r.data.max_qty)||99, loaded:true, consent_text:String(r.data.consent_text||'') };
       }
     }catch(e){ /* 讀取失敗：維持不顯示新增入口，不影響點餐 */ }
   })();
@@ -7781,7 +7806,7 @@ function _renderDemandSheet(msg, isErr){
       <p class="dm-desc" id="dmReadonlyNote">此商品目前不開放新增或修改登記份數，你仍可以取消登記。</p>
       <div class="dm-msg${isErr?' err':''}" id="dmMsg">${msg?esc(msg):''}</div>
       <button type="button" class="dm-link" id="dmCancel">取消登記</button>
-      ${mine.notify_consent==='granted'?`<button type="button" class="dm-link" id="dmRevoke">撤回補貨通知同意</button>`:''}`
+      ${_demandConsentRevocable(mine)?`<button type="button" class="dm-link" id="dmRevoke">取消補貨通知（保留想買登記）</button>`:''}`
       :`<p class="dm-desc">此商品目前未開放想買登記。</p>`;
   } else {
     const prefs=_demandPrefOptions(p, mine);
@@ -7792,11 +7817,11 @@ function _renderDemandSheet(msg, isErr){
         <span class="dm-qty-num" id="dmQty">${st.qty}</span>
         <button type="button" id="dmPlus" aria-label="增加" ${st.qty>=max?'disabled':''}>+</button></div></div>
       <div class="dm-row"><span>取餐偏好</span><div class="dm-prefs">${prefs.map(o=>`<label><input type="radio" name="dmPref" value="${o.v}" ${st.pref===o.v?'checked':''}> ${o.l}</label>`).join('')}</div></div>
-      ${_demandConfig.notify_available?`<label class="dm-consent"><input type="checkbox" id="dmConsent" ${st.consent?'checked':''}> <span>${esc(DEMAND_COPY.notify.consent)}</span></label>`:''}
+      ${_demandConsentHtml(mine, st)}
       <div class="dm-msg${isErr?' err':''}" id="dmMsg">${msg?esc(msg):''}</div>
-      <button type="button" class="dm-submit" id="dmSubmit" ${st.submitting?'disabled':''}>${esc(copy.submit)}</button>
+      <button type="button" class="dm-submit" id="dmSubmit" ${st.submitting?'disabled':''}>${esc(_demandSubmitLabel(mine, st))}</button>
       ${mine?`<button type="button" class="dm-link" id="dmCancel">取消登記</button>`:''}
-      ${mine&&mine.notify_consent==='granted'?`<button type="button" class="dm-link" id="dmRevoke">撤回補貨通知同意</button>`:''}`;
+      ${_demandConsentRevocable(mine)?`<button type="button" class="dm-link" id="dmRevoke">取消補貨通知（保留想買登記）</button>`:''}`;
   }
   panel.innerHTML=`<div class="dm-hd"><h3 class="dm-title" id="dmTitle">${esc(mine&&!canModify&&loggedIn?'我的想買登記':copy.title)}</h3><button type="button" class="close-btn" id="dmClose" aria-label="關閉">✕</button></div>
     <div class="dm-pname" id="dmPname">${esc(name)}</div>${body}
@@ -7807,10 +7832,29 @@ function _renderDemandSheet(msg, isErr){
   if(q('#dmMinus')) q('#dmMinus').onclick=()=>{ st.qty=Math.max(1,st.qty-1); _renderDemandSheet(); };
   if(q('#dmPlus')) q('#dmPlus').onclick=()=>{ st.qty=Math.min(max,st.qty+1); _renderDemandSheet(); };
   panel.querySelectorAll('input[name="dmPref"]').forEach(r=>{ r.onchange=()=>{ st.pref=r.value; }; });
-  const c=q('#dmConsent'); if(c) c.onchange=()=>{ st.consent=!!c.checked; };
+  const c=q('#dmConsent'); if(c) c.onchange=()=>{ st.consent=!!c.checked; const sb=q('#dmSubmit'); if(sb) sb.textContent=_demandSubmitLabel(mine, st); };
   if(q('#dmSubmit')) q('#dmSubmit').onclick=_submitDemand;
   if(q('#dmCancel')) q('#dmCancel').onclick=_cancelDemand;
   if(q('#dmRevoke')) q('#dmRevoke').onclick=_revokeDemandConsent;
+}
+// R54.4／MBV2-HF1-C4：通知同意區塊
+//   - 通知不可用：不顯示勾選（維持「我想買」文案與「不會發送通知」說明）
+//   - 本週期已有效同意：顯示目前訂閱狀態（撤回按鈕在下方）
+//   - 其他（新登記、既有未同意、已撤回、匯入後需重新確認）：顯示「預設未勾選」的勾選框
+function _demandConsentGranted(mine){ return !!(mine && mine.notify_consent==='granted'); }
+// 已同意，或保存中但需重新確認（匯入／舊版）的同意：本人都可以撤回（撤回永遠允許，不受功能開關影響）
+function _demandConsentRevocable(mine){ return !!(mine && (mine.notify_consent==='granted' || mine.notify_consent==='reconfirm_required')); }
+function _demandConsentHtml(mine, st){
+  if(!_demandConfig.notify_available) return '';
+  const notified = mine && mine.restock_notify==='accepted' ? `<p class="dm-desc" id="dmNotifiedInfo" style="font-size:12px;color:#666">此登記的補貨通知已交由 LINE 處理，同一次登記只通知一次。</p>` : '';
+  if(_demandConsentGranted(mine)) return `<p class="dm-consent" id="dmSubscribed" style="color:#06C755;font-weight:700">🔔 已訂閱補貨通知</p>${notified}`;
+  const note = mine && mine.notify_consent==='reconfirm_required' ? `<p class="dm-desc" id="dmReconfirmNote" style="font-size:12px;color:#b45309">先前的通知設定需要重新確認；如仍需要通知，請再勾選一次。</p>` : '';
+  return `${note}<label class="dm-consent"><input type="checkbox" id="dmConsent" ${st.consent?'checked':''}> <span>${esc(_demandConfig.consent_text||DEMAND_COPY.notify.consent)}</span></label>${notified}`;
+}
+function _demandSubmitLabel(mine, st){
+  if(!_demandConfig.notify_available) return DEMAND_COPY.base.submit;
+  if(_demandConsentGranted(mine)) return DEMAND_COPY.notify.submit;
+  return st && st.consent ? DEMAND_COPY.notify.submitSubscribe : DEMAND_COPY.notify.submit;
 }
 // 頁首「🙋 我的想買登記」：本人所有有效登記（含目前不公開的商品，只顯示名稱與登記內容）
 async function openMyDemandsSheet(){
@@ -7871,7 +7915,10 @@ async function _submitDemand(){
   const ms=_currentMemberSession(); if(!ms){ _renderDemandSheet(); return; }
   st.submitting=true; _renderDemandSheet('送出中…');
   const payload={ member_session:ms, product_id:st.productId, desired_qty:st.qty, fulfillment_pref:st.pref };
-  if(_demandConfig.notify_available) payload.notify_consent=!!st.consent;
+  // R54.4／MBV2-HF1-C4：只有顧客明確勾選才送出同意；未勾選不送此欄位（不會撤回、不會改變既有同意）
+  const _mineBefore=_myDemands[String(st.productId)];
+  const _subscribing=!!(_demandConfig.notify_available && st.consent && !_demandConsentGranted(_mineBefore));
+  if(_subscribing) payload.notify_consent=true;
   try{
     const resp=await apiFetch('/api/product-demand/register',{method:'POST',body:JSON.stringify(payload)});
     const r=await resp.json().catch(()=>({}));
@@ -7887,7 +7934,7 @@ async function _submitDemand(){
     _closeDemandSheetQuiet();
     if(p) _refreshDemandRow(p);
     _refreshMyDemandsEntry();
-    toast(_demandCopy().success);
+    toast(_subscribing && r.data.consent_outcome==='granted' ? DEMAND_COPY.notify.successSubscribe : _demandCopy().success);
   }catch(e){ st.submitting=false; _renderDemandSheet('網路不穩，請稍後再試', true); }
 }
 async function _cancelDemand(){
@@ -7916,8 +7963,59 @@ async function _revokeDemandConsent(){
     const resp=await apiFetch('/api/product-demand/consent/revoke',{method:'POST',body:JSON.stringify({member_session:ms, product_id:st.productId})});
     if(resp.status===401){ _handleDemand401(); return; }
     const r=await resp.json();
-    if(r && r.success){ const m=_myDemands[String(st.productId)]; if(m) m.notify_consent=r.data.notify_consent; _renderDemandSheet('已撤回補貨通知同意'); }
+    if(r && r.success){ const m=_myDemands[String(st.productId)]; if(m) m.notify_consent=r.data.notify_consent; st.consent=false; _renderDemandSheet('已取消補貨通知（想買登記仍保留）'); }
   }catch(e){}
+}
+// ══════════════════════════════════════════════════════════════════════
+// R54.4／MBV2-HF1-C4：補貨通知商品直達
+//   - 首屏顯示後才在背景執行；Recovery／Handoff 還原優先（本頁帶還原 token 時不處理直達）。
+//   - 以穩定識別向後端取得「目前仍公開」的商品 ID，再用最新商品資料（allProducts）與既有販售規則開啟詳情。
+//   - 不加入購物車、不送單、不付款，不改顧客既有購物車／姓名／日期／取餐方式。
+//   - 找不到、已隱藏、停售或已無額度：明確提示。開啟商品不視為訂單轉換。
+// ══════════════════════════════════════════════════════════════════════
+const RESTOCK_MODE_LABEL={ takeout:'外帶自取', delivery:'外送' };
+function _restockNotice(text){
+  let el=document.getElementById('restockNotice');
+  if(!el){
+    el=document.createElement('div'); el.id='restockNotice'; el.setAttribute('role','status');
+    el.style.cssText='margin:8px 12px;padding:10px 12px;border-radius:10px;background:#FFF8E1;border:1px solid #FFE082;color:#5D4037;font-size:13px;line-height:1.5;display:flex;gap:8px;align-items:flex-start';
+    const c=document.getElementById('content'); if(c) c.insertBefore(el, c.firstChild); else document.body.appendChild(el);
+  }
+  el.innerHTML=`<span style="flex:1" id="restockNoticeText">${esc(text)}</span><button type="button" aria-label="關閉" style="border:0;background:transparent;font-size:16px;line-height:1;cursor:pointer" onclick="this.parentNode.remove()">✕</button>`;
+}
+function _restockHintText(){
+  if(!_restockLink || (!_restockLink.date && !_restockLink.mode)) return '';
+  const parts=[];
+  if(_restockLink.date){ const [y,m,d]=_restockLink.date.split('-').map(Number); parts.push(`${m}/${d}`); }
+  if(_restockLink.mode) parts.push(RESTOCK_MODE_LABEL[_restockLink.mode]);
+  return `通知對應：${parts.join(' ')}。實際可選日期與取餐方式以點餐頁為準，請自行確認。`;
+}
+let _restockDeepLinkDone=false;
+async function _initRestockDeepLink(){
+  if(_restockDeepLinkDone || !_restockLink) return;
+  _restockDeepLinkDone=true;
+  if(_pageNeedsIdentityRestore()) return; // Recovery／Handoff 還原優先，不同時開啟商品
+  if(_restockLink.invalid || !_restockLink.ref){ _restockNotice('通知連結無效，請直接從商品列表查看。'); return; }
+  let res=null;
+  try{ res=await apiFetch('/api/product-demand/product-ref?ref='+encodeURIComponent(_restockLink.ref),{cache:'no-store'}).then(x=>x.json()); }
+  catch(e){ _restockNotice('暫時無法開啟通知的商品，請稍後再試或直接從商品列表查看。'); return; }
+  const d=res && res.success && res.data;
+  const p=d && d.found ? (allProducts||[]).find(x=>String(x.id)===String(d.product_id)) : null;
+  if(!p){
+    _restockNotice('通知的商品目前未在 LINE 點餐頁提供（可能已停售、隱藏或下架）。');
+    return;
+  }
+  const name=p.effective_line_name||p.line_name||p.name;
+  const v=computeProductSaleView(p);
+  const blocked=(v.isSoldOut && !v.canPreorderNextDay) || (v.quotaRealSoldOut && !v.canPreorderNextDay) || v.preorderFullBlocked;
+  const hint=_restockHintText();
+  if(!isProductSupportedForAnyFulfillmentMode(p)){ _restockNotice(`「${name}」目前未提供外帶或外送。`); return; }
+  if(blocked){
+    const lbl=v.preorderFullBlocked?'預購已滿':((v.manualBlocked||v.ss==='sold_out_today')?v.soldLbl:'目前無法訂購');
+    _restockNotice(`「${name}」${lbl}，目前無法加入購物車。實際供應以系統為準。${hint?' '+hint:''}`);
+  } else if(hint) _restockNotice(`已為你開啟「${name}」。${hint}`);
+  try{ const card=document.getElementById('pc-'+p.id); if(card && card.scrollIntoView) card.scrollIntoView({block:'center'}); }catch(e){}
+  openProductDetail(p.id);
 }
 function updateBar(){
   const subtotal=getCartProductSubtotal();

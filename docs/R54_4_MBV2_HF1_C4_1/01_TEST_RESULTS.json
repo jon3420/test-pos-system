@@ -1,0 +1,808 @@
+{
+ "release": "R54.4/MBV2-HF1-C4.1",
+ "executed_at_taipei": "2026-11-12",
+ "baseline": {
+  "zip": "P3CD_DEPLOY_R54_4_MBV2_HF1_C4_LINE_RESTOCK_NOTIFY_APP_ROOT.zip",
+  "sha256_actual": "44ee24722d2650a9e5f371a94f079d4020fa5729b82818793357ba32376bdaaf",
+  "files": 918,
+  "zip_entries": 952
+ },
+ "new_test": {
+  "script": "scripts/smoke-r54-4-mbv2-hf1-c4-1-dedupe-resume.js",
+  "on_c4_unmodified": {
+   "passCount": 19,
+   "failCount": 25,
+   "fail_items": [
+    "D2a 匯入後（續送前）顧客與後台通知狀態即辨識 claim=NULL 的已受理歷史",
+    "D3 匯入已受理後手動續送：pending／held／retry_wait／unknown／匯入列本來 claim=NULL，受影響會員新增的模擬 LINE 呼叫皆為 0",
+    "D4 本地衝突項目停止並標示「本週期已通知」（already_notified）",
+    "D9 重複匯入不新增、服務重啟後再續送：受影響會員仍 0 次新呼叫",
+    "D10 雙收件人 worker 執行途中匯入第二位的已受理紀錄：第一位結束後，第二位不再被發送",
+    "D11 已在網路上的請求：照實記錄（逾時），但因已有受理證據不再啟動下一次重試；保留名額",
+    "X2 目標店續送舊批次：顧客已重新同意，仍不得發出來源店連結（0 次呼叫）",
+    "X3 從未嘗試者作廢並釋放名額；已嘗試／結果不明者保留原 key、原訊息與名額（歷史保留、阻擋直接續送）",
+    "X4 後台顯示阻擋原因（連結／店別設定與目前不符）",
+    "X5 從未嘗試者在目標店重新預覽：使用目標店 LIFF、店別與商品識別；已嘗試／結果不明者不能藉重新預覽繞過（只剩 1 人）",
+    "X6 新批次訊息正確指向目標店；結果不明／已嘗試者沒有任何額外呼叫",
+    "X7 同店還原但 LIFF 已改變：舊批次不以舊連結續送",
+    "X8 同店商品識別已改變：舊批次不以舊連結續送",
+    "C1 關閉收集登記：預覽顯示明確排除原因且不可發送",
+    "C2 預覽後關閉收集：確認時全部擋下、0 次呼叫",
+    "C3 批次執行中關閉收集：尚未送出的會員不再收到請求；在途者照實記錄、不再重試並保留名額",
+    "A1 上限 1：多次續送、並行續送、重啟後續送，嘗試次數仍為 1、僅 1 次呼叫、狀態仍為結果待確認",
+    "A2 明細標示「已達嘗試上限」",
+    "A3 上限 4：達上限者不再被續送；同批仍有剩餘次數的會員正常完成；批次不卡住",
+    "A4 舊資料中已達上限卻仍為待重試的項目：不送出、不增加次數、不造成忙迴圈",
+    "T1 顧客畫面不宣稱「已收到」，改為「已交由 LINE 處理」",
+    "T4 實際畫面：已受理的登記顯示「已交由 LINE 處理」，不宣稱已收到",
+    "K1 舊 C4 程式寫入的資料（本地 pending 持有 claim、匯入的已受理列 claim=NULL）由本版接手後：續送 0 次呼叫、顧客狀態為已受理",
+    "R1 C4.1 狀態：匯入衝突列已停止（保留名額）；連結不符的舊批次為終止狀態並保留歷史",
+    "R2 回退到 C4 程式並保留資料庫：可啟動、頁面與後台查詢正常；C4 不會續送終止的舊連結批次，也不會再通知已停止的衝突會員（名額仍被占用）；新登記可正常預覽"
+   ]
+  },
+  "on_c41": {
+   "passCount": 44,
+   "failCount": 0
+  },
+  "items": [
+   {
+    "name": "D0 前置：本地 pending／held／retry_wait／unknown 各一筆，皆持有 claim=1 與自己的 retry key",
+    "c4": true,
+    "c41": true
+   },
+   {
+    "name": "D1 預覽匯入：資料完全未變、不發送",
+    "c4": true,
+    "c41": true
+   },
+   {
+    "name": "D2 正式匯入：5 筆已受理證據保留（目標已有名額者 claim=NULL，但狀態仍為已受理）",
+    "c4": true,
+    "c41": true
+   },
+   {
+    "name": "D2a 匯入後（續送前）顧客與後台通知狀態即辨識 claim=NULL 的已受理歷史",
+    "c4": false,
+    "c41": true
+   },
+   {
+    "name": "D3 匯入已受理後手動續送：pending／held／retry_wait／unknown／匯入列本來 claim=NULL，受影響會員新增的模擬 LINE 呼叫皆為 0",
+    "c4": false,
+    "c41": true
+   },
+   {
+    "name": "D4 本地衝突項目停止並標示「本週期已通知」（already_notified）",
+    "c4": false,
+    "c41": true
+   },
+   {
+    "name": "D5 不覆寫歷史 retry key、不刪除歷史列、唯一索引保留",
+    "c4": true,
+    "c41": true
+   },
+   {
+    "name": "D6 顧客「我的想買登記」辨識 claim=NULL 的已受理歷史",
+    "c4": true,
+    "c41": true
+   },
+   {
+    "name": "D7 後台登記明細辨識 claim=NULL 的已受理歷史",
+    "c4": true,
+    "c41": true
+   },
+   {
+    "name": "D8 跨批次：重新預覽排除為本週期已通知，無法建立新發送",
+    "c4": true,
+    "c41": true
+   },
+   {
+    "name": "D9 重複匯入不新增、服務重啟後再續送：受影響會員仍 0 次新呼叫",
+    "c4": false,
+    "c41": true
+   },
+   {
+    "name": "D10 雙收件人 worker 執行途中匯入第二位的已受理紀錄：第一位結束後，第二位不再被發送",
+    "c4": false,
+    "c41": true
+   },
+   {
+    "name": "D11 已在網路上的請求：照實記錄（逾時），但因已有受理證據不再啟動下一次重試；保留名額",
+    "c4": false,
+    "c41": true
+   },
+   {
+    "name": "D12 登記、預覽、匯入、續送前後：訂單、付款、今日／預購已售份數不變",
+    "c4": true,
+    "c41": true
+   },
+   {
+    "name": "X0 前置：來源店批次（結果不明／已嘗試暫停／從未嘗試）",
+    "c4": true,
+    "c41": true
+   },
+   {
+    "name": "X1 跨店匯入完成；兩店商品數字 ID 相同（706）但穩定識別不同",
+    "c4": true,
+    "c41": true
+   },
+   {
+    "name": "X2 目標店續送舊批次：顧客已重新同意，仍不得發出來源店連結（0 次呼叫）",
+    "c4": false,
+    "c41": true
+   },
+   {
+    "name": "X3 從未嘗試者作廢並釋放名額；已嘗試／結果不明者保留原 key、原訊息與名額（歷史保留、阻擋直接續送）",
+    "c4": false,
+    "c41": true
+   },
+   {
+    "name": "X4 後台顯示阻擋原因（連結／店別設定與目前不符）",
+    "c4": false,
+    "c41": true
+   },
+   {
+    "name": "X5 從未嘗試者在目標店重新預覽：使用目標店 LIFF、店別與商品識別；已嘗試／結果不明者不能藉重新預覽繞過（只剩 1 人）",
+    "c4": false,
+    "c41": true
+   },
+   {
+    "name": "X6 新批次訊息正確指向目標店；結果不明／已嘗試者沒有任何額外呼叫",
+    "c4": false,
+    "c41": true
+   },
+   {
+    "name": "X7 同店還原但 LIFF 已改變：舊批次不以舊連結續送",
+    "c4": false,
+    "c41": true
+   },
+   {
+    "name": "X8 同店商品識別已改變：舊批次不以舊連結續送",
+    "c4": false,
+    "c41": true
+   },
+   {
+    "name": "X9 設定相符的原流程：續送沿用原 retry key 與原訊息快照",
+    "c4": true,
+    "c41": true
+   },
+   {
+    "name": "X10 目標店連結開啟正確商品，不改購物車、姓名、日期、取餐方式，不自動下單",
+    "c4": true,
+    "c41": true
+   },
+   {
+    "name": "C1 關閉收集登記：預覽顯示明確排除原因且不可發送",
+    "c4": false,
+    "c41": true
+   },
+   {
+    "name": "C2 預覽後關閉收集：確認時全部擋下、0 次呼叫",
+    "c4": false,
+    "c41": true
+   },
+   {
+    "name": "C3 批次執行中關閉收集：尚未送出的會員不再收到請求；在途者照實記錄、不再重試並保留名額",
+    "c4": false,
+    "c41": true
+   },
+   {
+    "name": "C4 收集關閉時本人仍可查看、撤回同意與取消登記",
+    "c4": true,
+    "c41": true
+   },
+   {
+    "name": "C5 重新開啟收集不會自行開始發送；已受理防重歷史不變",
+    "c4": true,
+    "c41": true
+   },
+   {
+    "name": "A1 上限 1：多次續送、並行續送、重啟後續送，嘗試次數仍為 1、僅 1 次呼叫、狀態仍為結果待確認",
+    "c4": false,
+    "c41": true
+   },
+   {
+    "name": "A2 明細標示「已達嘗試上限」",
+    "c4": false,
+    "c41": true
+   },
+   {
+    "name": "A3 上限 4：達上限者不再被續送；同批仍有剩餘次數的會員正常完成；批次不卡住",
+    "c4": false,
+    "c41": true
+   },
+   {
+    "name": "A4 舊資料中已達上限卻仍為待重試的項目：不送出、不增加次數、不造成忙迴圈",
+    "c4": false,
+    "c41": true
+   },
+   {
+    "name": "A5 次數未滿但超過重試時間窗：不續送（次數與時間兩項都須符合）",
+    "c4": true,
+    "c41": true
+   },
+   {
+    "name": "T1 顧客畫面不宣稱「已收到」，改為「已交由 LINE 處理」",
+    "c4": false,
+    "c41": true
+   },
+   {
+    "name": "T2 後台補貨通知區維持「LINE 已受理」並說明不代表送達或已讀（不出現已送達／已讀等宣稱）",
+    "c4": true,
+    "c41": true
+   },
+   {
+    "name": "T3 結果不明不顯示為已受理",
+    "c4": true,
+    "c41": true
+   },
+   {
+    "name": "T4 實際畫面：已受理的登記顯示「已交由 LINE 處理」，不宣稱已收到",
+    "c4": false,
+    "c41": true
+   },
+   {
+    "name": "K1 舊 C4 程式寫入的資料（本地 pending 持有 claim、匯入的已受理列 claim=NULL）由本版接手後：續送 0 次呼叫、顧客狀態為已受理",
+    "c4": false,
+    "c41": true
+   },
+   {
+    "name": "R1 C4.1 狀態：匯入衝突列已停止（保留名額）；連結不符的舊批次為終止狀態並保留歷史",
+    "c4": false,
+    "c41": true
+   },
+   {
+    "name": "R2 回退到 C4 程式並保留資料庫：可啟動、頁面與後台查詢正常；C4 不會續送終止的舊連結批次，也不會再通知已停止的衝突會員（名額仍被占用）；新登記可正常預覽",
+    "c4": false,
+    "c41": true
+   },
+   {
+    "name": "R3 回退後再升級回 C4.1：正常啟動",
+    "c4": true,
+    "c41": true
+   },
+   {
+    "name": "Z1 真實 LINE API 呼叫次數為 0",
+    "c4": true,
+    "c41": true
+   }
+  ]
+ },
+ "c4_restock_acceptance_on_c41": {
+  "passCount": 96,
+  "failCount": 0
+ },
+ "linepush_compat_on_c41": {
+  "passCount": 12,
+  "failCount": 0
+ },
+ "existing_r54_same_morning": [
+  {
+   "test": "scripts/smoke-r54-4-mbv2-hf1-c1-preorder-status.js",
+   "c4_same_morning": {
+    "passCount": 93,
+    "failCount": 0
+   },
+   "c41": {
+    "passCount": 93,
+    "failCount": 0
+   },
+   "c4_fail_items": [],
+   "c41_fail_items": []
+  },
+  {
+   "test": "scripts/smoke-r54-4-mbv2-hf1-c3-sale-status-demand.js",
+   "c4_same_morning": {
+    "passCount": 332,
+    "failCount": 0
+   },
+   "c41": {
+    "passCount": 332,
+    "failCount": 0
+   },
+   "c4_fail_items": [],
+   "c41_fail_items": []
+  },
+  {
+   "test": "scripts/smoke-r54-4-mbv2-hf1-c3-1-backup-manage-login.js",
+   "c4_same_morning": {
+    "passCount": 54,
+    "failCount": 0
+   },
+   "c41": {
+    "passCount": 54,
+    "failCount": 0
+   },
+   "c4_fail_items": [],
+   "c41_fail_items": []
+  },
+  {
+   "test": "scripts/smoke-r54-4-mbv2-hf1-c3-2-firstpaint-remap.js",
+   "c4_same_morning": {
+    "passCount": 32,
+    "failCount": 0
+   },
+   "c41": {
+    "passCount": 32,
+    "failCount": 0
+   },
+   "c4_fail_items": [],
+   "c41_fail_items": []
+  },
+  {
+   "test": "scripts/smoke-r54-4-mbv2-hf1-c3-3-restore-cancel.js",
+   "c4_same_morning": {
+    "passCount": 30,
+    "failCount": 0
+   },
+   "c41": {
+    "passCount": 30,
+    "failCount": 0
+   },
+   "c4_fail_items": [],
+   "c41_fail_items": []
+  }
+ ],
+ "mbv2_suites_on_c41": {
+  "run-r54-4-mbv2-ui.js": {
+   "passCount": 19,
+   "failCount": 0
+  },
+  "smoke-r54-4-mbv2-migration.js": {
+   "passCount": 121,
+   "failCount": 0
+  },
+  "smoke-r54-4-mbv2-system-regression.js": {
+   "exit": 0
+  }
+ },
+ "regression_61": {
+  "c4_exit0": 41,
+  "c41_exit0": 41,
+  "nonzero_same_set": true,
+  "scripts": [
+   {
+    "script": "scripts/mbv2-rescue-verify.js",
+    "c4_exit": 2,
+    "c41_exit": 2,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/run-g1-6-ga4-h1-4-4-view-item-runtime.js",
+    "c4_exit": 1,
+    "c41_exit": 1,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/run-g1-6-ga4-h1-4-7-two-stage-checkout-runtime.js",
+    "c4_exit": 0,
+    "c41_exit": 0,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/run-h1-4-10-asset-cache-bust-runtime.js",
+    "c4_exit": 0,
+    "c41_exit": 0,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/run-h1-4-10-friend-live-runtime.js",
+    "c4_exit": 0,
+    "c41_exit": 0,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/run-h1-4-10-historical-backend-reconcile-runtime.js",
+    "c4_exit": 0,
+    "c41_exit": 0,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/run-h1-4-10-historical-friend-first-touch-runtime.js",
+    "c4_exit": 0,
+    "c41_exit": 0,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/run-h1-4-10-phase1-liff-identity-runtime.js",
+    "c4_exit": 0,
+    "c41_exit": 0,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/run-h1-4-10-phase2-line-friend-guide-runtime.js",
+    "c4_exit": 0,
+    "c41_exit": 0,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/run-h1-4-10-phase3-checkout-submit-payment-runtime.js",
+    "c4_exit": 0,
+    "c41_exit": 0,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/run-h1-4-10-phase4b-recovery-frontend-targeted.js",
+    "c4_exit": 0,
+    "c41_exit": 0,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/run-h1-4-10-phase4b-recovery-full-runtime.js",
+    "c4_exit": 0,
+    "c41_exit": 0,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/run-h1-4-10-required-friend-gate-runtime.js",
+    "c4_exit": 0,
+    "c41_exit": 0,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/run-h1-4-9-checkout-order-summary-runtime.js",
+    "c4_exit": 0,
+    "c41_exit": 0,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/run-r54-4-mbv2-ui.js",
+    "c4_exit": 0,
+    "c41_exit": 0,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/run-regression-g1-6-ga4-h1-4-6.js",
+    "c4_exit": 1,
+    "c41_exit": 1,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/run-regression-g1-6-ga4-h1-4-7.js",
+    "c4_exit": 1,
+    "c41_exit": 1,
+    "fail_lines_identical": false,
+    "note": "C4 交付時的 61 支紀錄為與其他測試並行執行（多 2 項 DOM 重繪計時失敗）；與 C4 單獨重跑的紀錄（6 項）逐行相同"
+   },
+   {
+    "script": "scripts/smoke-cart-delivery-live-refresh.js",
+    "c4_exit": 1,
+    "c41_exit": 1,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/smoke-delivery-distance-promotion.js",
+    "c4_exit": 0,
+    "c41_exit": 0,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/smoke-h1-4-11-1-fixes.js",
+    "c4_exit": 0,
+    "c41_exit": 0,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/smoke-h1-4-11-2-fixes.js",
+    "c4_exit": 0,
+    "c41_exit": 0,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/smoke-h1-4-11-4-1-both-disabled-product-filter.js",
+    "c4_exit": 0,
+    "c41_exit": 0,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/smoke-h1-4-11-4-product-mode-visibility.js",
+    "c4_exit": 0,
+    "c41_exit": 0,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/smoke-h1-4-11-line-order-page-mode.js",
+    "c4_exit": 0,
+    "c41_exit": 0,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-admin-ui-browser.js",
+    "c4_exit": 1,
+    "c41_exit": 1,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-admin-ui.js",
+    "c4_exit": 0,
+    "c41_exit": 0,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-checkout-integration.js",
+    "c4_exit": 0,
+    "c41_exit": 0,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-frontend.js",
+    "c4_exit": 0,
+    "c41_exit": 0,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-public-checkout.js",
+    "c4_exit": 0,
+    "c41_exit": 0,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-real-browser.js",
+    "c4_exit": 0,
+    "c41_exit": 0,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-recovery-cart-frontend.js",
+    "c4_exit": 0,
+    "c41_exit": 0,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-recovery-identity-bridge.js",
+    "c4_exit": 0,
+    "c41_exit": 0,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-recovery-landing.js",
+    "c4_exit": 0,
+    "c41_exit": 0,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/smoke-hotfix25.js",
+    "c4_exit": 0,
+    "c41_exit": 0,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/smoke-hotfix26-b.js",
+    "c4_exit": 1,
+    "c41_exit": 1,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/smoke-hotfix26-d.js",
+    "c4_exit": 1,
+    "c41_exit": 1,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/smoke-hotfix26-f2.js",
+    "c4_exit": 1,
+    "c41_exit": 1,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/smoke-hotfix26-f3.js",
+    "c4_exit": 0,
+    "c41_exit": 0,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/smoke-hotfix26-f4.js",
+    "c4_exit": 0,
+    "c41_exit": 0,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/smoke-hotfix26-f5.js",
+    "c4_exit": 0,
+    "c41_exit": 0,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/smoke-hotfix26-f7.js",
+    "c4_exit": 1,
+    "c41_exit": 1,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/smoke-hotfix26-f8-b.js",
+    "c4_exit": 1,
+    "c41_exit": 1,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/smoke-hotfix26-f8.js",
+    "c4_exit": 0,
+    "c41_exit": 0,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/smoke-hotfix26-i.js",
+    "c4_exit": 1,
+    "c41_exit": 1,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/smoke-hotfix27-cd.js",
+    "c4_exit": 1,
+    "c41_exit": 1,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/smoke-hotfix29-b.js",
+    "c4_exit": 1,
+    "c41_exit": 1,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/smoke-hotfix29-c.js",
+    "c4_exit": 1,
+    "c41_exit": 1,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/smoke-hotfix29.js",
+    "c4_exit": 1,
+    "c41_exit": 1,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/smoke-hotfix30-b5-r5-4-g1-live-geo.js",
+    "c4_exit": 0,
+    "c41_exit": 0,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/smoke-hotfix30-b5-r5-debounce.js",
+    "c4_exit": 0,
+    "c41_exit": 0,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/smoke-r48-popup-order-ui-browser.js",
+    "c4_exit": 1,
+    "c41_exit": 1,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/smoke-r54-4-mbv2-large-upload.js",
+    "c4_exit": 0,
+    "c41_exit": 0,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/smoke-r54-4-mbv2-migration.js",
+    "c4_exit": 0,
+    "c41_exit": 0,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/smoke-r54-4-mbv2-system-regression.js",
+    "c4_exit": 0,
+    "c41_exit": 0,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/static-audit-g1-6-ga4-h1-4-4.js",
+    "c4_exit": 0,
+    "c41_exit": 0,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/static-audit-g1-6-ga4-h1-4-5.js",
+    "c4_exit": 0,
+    "c41_exit": 0,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/static-audit-g1-6-ga4-h1-4-6.js",
+    "c4_exit": 1,
+    "c41_exit": 1,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/static-audit-g1-6-ga4-h1-4-7.js",
+    "c4_exit": 1,
+    "c41_exit": 1,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/static-audit-g1.js",
+    "c4_exit": 0,
+    "c41_exit": 0,
+    "fail_lines_identical": true
+   },
+   {
+    "script": "scripts/static-audit-r48-popup-order-ui.js",
+    "c4_exit": 1,
+    "c41_exit": 1,
+    "fail_lines_identical": true,
+    "note": "既有失敗；訊息內含 line-order.html 的雜湊（本版修改該檔），比對時已將雜湊正規化"
+   },
+   {
+    "script": "scripts/test-phone-validation.js",
+    "c4_exit": 0,
+    "c41_exit": 0,
+    "fail_lines_identical": true
+   }
+  ],
+  "c4_reference": "C4 交付時於同一台機器執行的 61 支逐支紀錄（results/reg_c4_*.log）"
+ },
+ "adjusted_existing_assertions": [
+  {
+   "file": "scripts/smoke-r54-4-mbv2-hf1-c4-restock-notify.js",
+   "item": "B9",
+   "reason": "匯入的未完成批次來自另一環境（商品穩定識別不同）→ 依必修二先以連結檢查拒絕續送（409）：未嘗試者作廢、已嘗試者保留；不發送條件不變；同意需重新確認的排除仍由 B8 驗證。"
+  },
+  {
+   "file": "scripts/lib/c4-line-mock.js",
+   "item": "(測試工具)",
+   "reason": "呼叫紀錄另存訊息文字以核對連結店別；模擬行為不變。"
+  }
+ ],
+ "line_api_calls": {
+  "simulated_new_test": 38,
+  "simulated_c4_acceptance": 31,
+  "real": 0
+ },
+ "not_executed": [
+  "LINE App／LIFF 真機",
+  "真實 LINE Messaging API",
+  "正式 Zeabur 環境",
+  "多台伺服器共用同一資料檔"
+ ],
+ "new_failures": [],
+ "fresh_zip_verification": {
+  "note": "候選 ZIP 全新解壓、npm ci（Playwright 1.63.0 以 --no-save 安裝，只供測試）後執行；程式檔與最終 ZIP 逐檔相同，最終 ZIP 只更新 docs/R54_4_MBV2_HF1_C4_1/ 內三個文件",
+  "results": {
+   "c41test": {
+    "exit": 0,
+    "seconds": 76,
+    "passCount": 44,
+    "failCount": 0
+   },
+   "c4test": {
+    "exit": 0,
+    "seconds": 56,
+    "passCount": 96,
+    "failCount": 0
+   },
+   "linepush": {
+    "exit": 0,
+    "seconds": 1,
+    "passCount": 12,
+    "failCount": 0
+   },
+   "c3-3": {
+    "exit": 0,
+    "seconds": 165,
+    "passCount": 30,
+    "failCount": 0
+   },
+   "c3-1": {
+    "exit": 0,
+    "seconds": 110,
+    "passCount": 54,
+    "failCount": 0
+   },
+   "mbv2-migration": {
+    "exit": 0,
+    "seconds": 14,
+    "passCount": 121,
+    "failCount": 0
+   },
+   "phase4b-full": {
+    "exit": 0,
+    "seconds": 16
+   }
+  },
+  "simulated_line_calls": {
+   "c4_1_test": 38,
+   "c4_acceptance": 31
+  },
+  "real_line_calls": 0
+ }
+}

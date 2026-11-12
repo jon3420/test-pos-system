@@ -10294,7 +10294,8 @@ async function loadDemandAdminTab() {
     const en = document.getElementById('pd-set-enabled'); if (en) en.checked = !!cfg.enabled;
     const ttl = document.getElementById('pd-set-ttl'); if (ttl) ttl.value = cfg.ttl_days || 30;
     const ns = document.getElementById('pd-notify-state');
-    if (ns) ns.textContent = cfg.notify_available ? 'LINE 補貨通知：已啟用' : 'LINE 補貨通知：尚未啟用（本版僅提供想買登記，不會發送通知）';
+    if (ns) ns.textContent = cfg.notify_available ? 'LINE 補貨通知：已啟用（由店家手動預覽並確認發送）' : 'LINE 補貨通知：尚未啟用（顧客僅能登記想買，不會發送通知）';
+    loadRestockCapability();
     const rows = json.data.products || [];
     if (!rows.length) { tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">目前沒有 LINE 點餐商品</td></tr>'; return; }
     tbody.innerHTML = rows.map(r => `<tr id="pd-row-${r.product_id}" style="border-bottom:1px solid var(--border,#334155)">
@@ -10348,11 +10349,160 @@ async function openDemandDetail(pid) {
           <td style="padding:4px;text-align:center">${r.desired_qty}</td>
           <td style="padding:4px;text-align:center">${escHtml(_PD_PREF_LABEL[r.fulfillment_pref] || r.fulfillment_pref)}</td>
           <td style="padding:4px;text-align:center">${escHtml(_PD_ROW_STATUS[r.status] || r.status)}</td>
-          <td style="padding:4px;text-align:center">${r.notify_consent === 'granted' ? '已同意' : (r.notify_consent === 'revoked' ? '已撤回' : '—')}</td>
+          <td style="padding:4px;text-align:center">${escHtml(_PD_CONSENT_LABEL[r.notify_consent] || '—')}${r.restock_notify === 'accepted' ? '<br><span style="font-size:11px;color:#16a34a">LINE 已受理通知</span>' : (r.restock_notify === 'in_progress' ? '<br><span style="font-size:11px;color:#f59e0b">通知處理中</span>' : '')}</td>
           <td style="padding:4px;text-align:center">${escHtml(fmtDemandTime(r.created_at))}</td>
           <td style="padding:4px;text-align:center">${escHtml(fmtDemandTime(r.updated_at))}</td>
-          <td style="padding:4px;text-align:center">${escHtml(fmtDemandTime(r.expires_at))}</td></tr>`).join('') : '<tr><td colspan="8" style="padding:10px;text-align:center;color:var(--text-muted,#64748b)">尚無登記</td></tr>'}</tbody></table>`;
+          <td style="padding:4px;text-align:center">${escHtml(fmtDemandTime(r.expires_at))}</td></tr>`).join('') : '<tr><td colspan="8" style="padding:10px;text-align:center;color:var(--text-muted,#64748b)">尚無登記</td></tr>'}</tbody></table>
+      ${restockPanelHtml(d.product)}`;
+    loadRestockBatches(pid);
   } catch (e) { box.innerHTML = `<span style="color:#ef4444">載入失敗：${escHtml(e.message)}</span>`; }
+}
+
+// ── R54.4／MBV2-HF1-C4：LINE 補貨通知（店家手動：選商品 → 選取餐方式與日期 → 伺服器計算名單 → 預覽 → 確認發送）──
+// 名單只由伺服器計算；發送使用伺服器保存的預覽批次。狀態「LINE 已受理」不代表顧客已收到或已讀。
+const _PD_CONSENT_LABEL = { granted: '已同意', revoked: '已撤回', reconfirm_required: '需重新確認', expired: '週期已結束', none: '—' };
+const _RN_EXCL_LABEL = {
+  already_notified: '本週期已通知（LINE 已受理）', possibly_notified: '本週期已有送出紀錄（結果待確認），不再以其他 key 發送', in_other_batch: '已在其他批次處理', no_consent: '未同意通知', consent_revoked: '已撤回同意',
+  consent_reconfirm_required: '同意需重新確認（匯入／舊版）', expired: '登記已過期', cancelled: '登記已取消', not_active: '登記非有效',
+  not_friend: '非好友或已封鎖', friend_unknown: '好友狀態不明', member_not_found: '會員資料不存在', pref_mismatch: '取餐偏好不符',
+  product_not_orderable: '商品在所選日期／方式不可訂購', config_incomplete: '通知未啟用或設定不完整',
+  collect_disabled: '商品已關閉想買登記收集', link_mismatch: '連結／店別設定與目前不符（已作廢，請重新預覽）', retry_window_expired: '已超過重試期限',
+};
+const _RN_BATCH_STATUS = { previewed: '已預覽（尚未發送）', sending: '發送中', paused: '已暫停（待店家續送）', completed: '已完成', cancelled: '已取消', expired: '預覽已逾時' };
+const _RN_DEL_STATUS = { pending: '待發送', sending: '發送中', retry_wait: '待重試', held: '暫停（未受理）', accepted: 'LINE 已受理', unknown: '結果待確認', failed: '失敗', blocked: '發送前已擋下', excluded: '排除', cancelled: '已取消' };
+const _RN_PAUSE = { server_restart: '服務曾重新啟動，請確認後續送', retry_pending: '尚有待重試項目', auth_error: 'LINE 權杖錯誤', monthly_limit: 'LINE 訊息額度已用完', not_configured: 'LINE 權杖未設定', send_disabled: '通知發送已關閉', config_incomplete: '必要設定不完整', imported: '由備份匯入，須確認後續送', worker_error: '執行錯誤', link_mismatch: '連結或店別設定與目前不符，已停止：未送出項目已作廢，請重新預覽；已送出或結果不明者保留紀錄、不補送' };
+function _rnTodayTaipei() { return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()); }
+async function loadRestockCapability() {
+  const box = document.getElementById('pd-restock-cap');
+  if (!box) return;
+  try {
+    const res = await apiFetch('/api/product-demand-admin/restock/capability');
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || '載入失敗');
+    const c = json.data;
+    const miss = { line_channel_token: 'LINE Channel Access Token', line_member_liff_id: 'LINE 會員 LIFF ID（商品直達連結）', demand_disabled: '想買登記入口已關閉' };
+    const chk = document.getElementById('pd-set-notify'); if (chk) chk.checked = !!c.send_enabled;
+    box.innerHTML = `通知發送：<strong>${c.send_enabled ? '已開啟' : '關閉'}</strong>
+      ・必要設定：${c.config_complete ? '完整' : `<span style="color:#ef4444">缺少 ${c.missing.map(m => escHtml(miss[m] || m)).join('、')}</span>`}
+      ・LINE 權杖：${c.token_configured ? '已設定（未驗證可發送）' : '未設定'}
+      ・目前${c.notify_available ? '<span style="color:#16a34a">可用</span>' : '不可用'}`;
+  } catch (e) { box.textContent = '通知能力載入失敗：' + e.message; }
+}
+async function saveRestockSendEnabled(on) {
+  try {
+    const res = await apiFetch('/api/product-demand-admin/restock/settings', { method: 'PATCH', body: JSON.stringify({ send_enabled: !!on }) });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || '儲存失敗');
+    showToast(on ? '已開啟 LINE 補貨通知發送' : '已關閉 LINE 補貨通知發送', 'success');
+  } catch (e) { showToast(e.message || '儲存失敗', 'error'); }
+  loadRestockCapability();
+}
+function restockPanelHtml(prod) {
+  return `<div id="rn-panel" data-pid="${prod.product_id}" style="margin-top:14px;padding:12px;border:1px solid var(--border,#334155);border-radius:10px">
+    <div style="font-weight:700;margin-bottom:8px">🔔 補貨通知（店家手動發送）</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;font-size:13px">
+      <label>取餐方式 <select id="rn-mode" class="form-input" style="width:auto"><option value="takeout">外帶自取</option><option value="delivery">外送</option></select></label>
+      <label>供應日期 <input type="date" id="rn-date" class="form-input" style="width:auto" value="${_rnTodayTaipei()}"></label>
+      <button class="btn-secondary" id="rn-preview-btn" style="font-size:12px;padding:4px 12px" onclick="restockPreview(${prod.product_id})">預覽通知</button>
+    </div>
+    <div style="font-size:11px;color:var(--text-muted,#64748b);margin-top:6px">名單由伺服器依最新登記、同意、好友狀態與販售規則計算；修改庫存或商品狀態不會自動發送。登記與通知都不建立訂單、不保留商品。</div>
+    <div id="rn-preview" style="margin-top:10px"></div>
+    <div id="rn-batches" style="margin-top:10px"></div>
+  </div>`;
+}
+async function restockPreview(pid) {
+  const out = document.getElementById('rn-preview');
+  if (!out) return;
+  out.innerHTML = '計算中…';
+  try {
+    const body = { product_id: pid, fulfillment_mode: document.getElementById('rn-mode').value, supply_date: document.getElementById('rn-date').value };
+    const res = await apiFetch('/api/product-demand-admin/restock/preview', { method: 'POST', body: JSON.stringify(body) });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || '預覽失敗');
+    const d = json.data, st = d.stats;
+    const excl = Object.entries(st.exclusions || {}).filter(([, n]) => n > 0).map(([k, n]) => `${escHtml(_RN_EXCL_LABEL[k] || k)} ${n}`).join('、') || '無';
+    const avail = st.available_qty == null ? '未設上限' : `${st.available_qty} 份`;
+    const blockersTxt = { send_disabled: '通知發送尚未開啟', config_incomplete: '必要設定不完整', collect_disabled: '商品已關閉想買登記收集', product_not_orderable: `商品在 ${escHtml(d.supply_date)} ${d.fulfillment_mode === 'delivery' ? '外送' : '外帶自取'}不可訂購（${escHtml(d.orderability.message || d.orderability.reason || '')}）`, no_eligible_recipient: '沒有符合資格的收件人' };
+    out.innerHTML = `<div id="rn-preview-box" style="font-size:13px;line-height:1.7">
+      <div>通知對應：<strong>${escHtml(d.supply_date)}・${d.fulfillment_mode === 'delivery' ? '外送' : '外帶自取'}</strong>（${d.notice_kind === 'preorder' ? '開放預購' : '恢復供應'}）</div>
+      <div>有效想買登記 <strong id="rn-active">${st.active_users}</strong> 人、期望總份數 <strong>${st.total_qty}</strong> 份（只是需求統計，不代表訂單或庫存保留）</div>
+      <div>已同意通知 <strong>${st.consented_users}</strong> 人・本次符合資格 <strong id="rn-eligible">${st.eligible_count}</strong> 人（期望 ${st.eligible_qty} 份）</div>
+      <div>目前可用份數：<strong>${avail}</strong>${st.available_less_than_desired ? ' <span style="color:#ef4444">（少於期望總份數，實際以下單時為準）</span>' : ''}</div>
+      <div id="rn-excl">排除：${excl}</div>
+      <pre id="rn-msg" style="white-space:pre-wrap;background:var(--bg-base,#0f172a);padding:8px;border-radius:8px;font-size:12px;margin:6px 0">${escHtml(d.message_text || '')}</pre>
+      ${d.can_send
+        ? `<div style="display:flex;gap:8px;align-items:center"><button class="btn-primary" id="rn-confirm-btn" style="font-size:12px;padding:5px 14px" onclick="restockConfirm('${d.batch_uuid}', ${pid}, this)">確認發送（${st.eligible_count} 人）</button><span style="font-size:11px;color:var(--text-muted,#64748b)">預覽保留至 ${escHtml(fmtDemandTime(d.preview_expires_at))}；預覽後新登記的會員不會加入本批次。</span></div>`
+        : `<div id="rn-blocked" style="color:#ef4444">目前不可發送：${d.blockers.map(b => blockersTxt[b] || escHtml(b)).join('、')}</div>`}
+    </div>`;
+  } catch (e) { out.innerHTML = `<span style="color:#ef4444">預覽失敗：${escHtml(e.message)}</span>`; }
+}
+async function restockConfirm(batchUuid, pid, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = '送出中…'; }
+  try {
+    const res = await apiFetch(`/api/product-demand-admin/restock/batches/${encodeURIComponent(batchUuid)}/confirm`, { method: 'POST', body: '{}' });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || '確認失敗');
+    showToast(json.data.already ? '此批次已確認過，不會重複發送' : `已開始發送（${json.data.queued} 人）`, 'success');
+    const pv = document.getElementById('rn-preview'); if (pv) pv.innerHTML = '';
+  } catch (e) { showToast(e.message || '確認失敗', 'error'); if (btn) { btn.disabled = false; btn.textContent = '確認發送'; } }
+  loadRestockBatches(pid);
+}
+let _rnPollTimer = null;
+async function loadRestockBatches(pid) {
+  const box = document.getElementById('rn-batches');
+  if (!box) return;
+  if (_rnPollTimer) { clearTimeout(_rnPollTimer); _rnPollTimer = null; }
+  try {
+    const res = await apiFetch(`/api/product-demand-admin/restock/batches?product_id=${encodeURIComponent(pid)}`);
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || '載入失敗');
+    const list = (json.data || []).filter(b => b.status !== 'previewed' && b.status !== 'expired');
+    if (!list.length) { box.innerHTML = '<div style="font-size:12px;color:var(--text-muted,#64748b)">尚無已發送的通知批次</div>'; return; }
+    box.innerHTML = `<div style="font-weight:700;font-size:13px;margin-bottom:4px">通知批次</div>` + list.map(b => {
+      const c = b.counts;
+      const canResume = (b.status === 'paused' || b.status === 'completed') && (c.pending + c.retry_wait + c.held + c.unknown) > 0;
+      return `<div class="rn-batch" data-batch="${escHtml(b.batch_uuid)}" style="border-top:1px solid var(--border,#334155);padding:6px 0;font-size:12px">
+        <div><strong>${escHtml(b.supply_date)}・${b.fulfillment_mode === 'delivery' ? '外送' : '外帶自取'}</strong>・<span class="rn-status">${escHtml(_RN_BATCH_STATUS[b.status] || b.status)}</span>${b.pause_reason ? `（${escHtml(_RN_PAUSE[b.pause_reason] || b.pause_reason)}）` : ''}・確認時間 ${escHtml(fmtDemandTime(b.confirmed_at))}</div>
+        <div class="rn-counts">LINE 已受理 ${c.accepted}・待發送 ${c.pending}・發送中 ${c.sending}・待重試 ${c.retry_wait}・暫停 ${c.held}・結果待確認 ${c.unknown}・失敗 ${c.failed}・發送前擋下 ${c.blocked}・排除 ${c.excluded}・取消 ${c.cancelled}</div>
+        <div style="display:flex;gap:6px;margin-top:4px">
+          <button class="btn-secondary" style="font-size:11px;padding:2px 8px" onclick="restockBatchDetail('${escHtml(b.batch_uuid)}')">明細</button>
+          ${canResume ? `<button class="btn-secondary rn-resume" style="font-size:11px;padding:2px 8px" onclick="restockResume('${escHtml(b.batch_uuid)}', ${pid}, this)">續送未完成項目</button>` : ''}
+          ${b.status === 'paused' ? `<button class="btn-secondary" style="font-size:11px;padding:2px 8px" onclick="restockCancel('${escHtml(b.batch_uuid)}', ${pid})">取消未送出項目</button>` : ''}
+        </div>
+        <div class="rn-detail" id="rn-detail-${escHtml(b.batch_uuid)}"></div>
+      </div>`;
+    }).join('') + '<div style="font-size:11px;color:var(--text-muted,#64748b);margin-top:4px">「LINE 已受理」只代表 LINE API 已接受請求，不代表顧客已收到或已讀。已交給 LINE 的請求無法撤回；結果待確認的項目只在 LINE retry key 有效期限（首次嘗試後 24 小時）內以同一把 key 續送，逾期不會換新 key 補送。</div>';
+    if (list.some(b => b.status === 'sending' || b.running)) _rnPollTimer = setTimeout(() => loadRestockBatches(pid), 2000);
+  } catch (e) { box.innerHTML = `<span style="color:#ef4444">批次載入失敗：${escHtml(e.message)}</span>`; }
+}
+async function restockBatchDetail(uuid) {
+  const el = document.getElementById('rn-detail-' + uuid);
+  if (!el) return;
+  try {
+    const res = await apiFetch(`/api/product-demand-admin/restock/batches/${encodeURIComponent(uuid)}`);
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || '載入失敗');
+    el.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:11px;margin-top:4px"><thead><tr><th style="text-align:left">會員</th><th>狀態</th><th>嘗試</th><th>首次嘗試</th><th>代碼</th><th>LINE 請求 ID</th></tr></thead><tbody>${json.data.deliveries.map(d => `<tr style="border-top:1px solid var(--border,#334155)"><td>${escHtml(d.member_display_name || '')} ${escHtml(d.member)}</td><td style="text-align:center">${escHtml(_RN_DEL_STATUS[d.status] || d.status)}${d.exclusion_reason ? `（${escHtml(_RN_EXCL_LABEL[d.exclusion_reason] || d.exclusion_reason)}）` : ''}${d.retry_window_expired ? '（已超過重試期限）' : ''}${d.attempts_exhausted ? `（已達嘗試上限 ${d.attempt_count}／${d.max_attempts}）` : ''}</td><td style="text-align:center">${d.attempt_count}</td><td style="text-align:center">${escHtml(fmtDemandTime(d.first_attempt_at))}</td><td style="text-align:center">${escHtml(d.error_code || '')}${d.last_http_status ? ' / ' + d.last_http_status : ''}</td><td style="text-align:center">${escHtml(d.accepted_request_id || d.line_request_id || '')}</td></tr>`).join('')}</tbody></table>`;
+  } catch (e) { el.innerHTML = `<span style="color:#ef4444">${escHtml(e.message)}</span>`; }
+}
+async function restockResume(uuid, pid, btn) {
+  if (btn) btn.disabled = true;
+  try {
+    const res = await apiFetch(`/api/product-demand-admin/restock/batches/${encodeURIComponent(uuid)}/resume`, { method: 'POST', body: '{}' });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || '續送失敗');
+    showToast(json.data.already ? '此批次正在發送中' : (json.data.resumed ? '已開始續送（沿用原紀錄與 retry key）' : (json.data.message || '沒有可續送的項目')), 'success');
+  } catch (e) { showToast(e.message || '續送失敗', 'error'); }
+  loadRestockBatches(pid);
+}
+async function restockCancel(uuid, pid) {
+  try {
+    const res = await apiFetch(`/api/product-demand-admin/restock/batches/${encodeURIComponent(uuid)}/cancel`, { method: 'POST', body: '{}' });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message || '取消失敗');
+    showToast('已取消尚未送出的項目', 'success');
+  } catch (e) { showToast(e.message || '取消失敗', 'error'); }
+  loadRestockBatches(pid);
 }
 // 資料庫存 UTC（datetime('now')），後台以台北時間顯示
 function fmtDemandTime(utc) {

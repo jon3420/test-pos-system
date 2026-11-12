@@ -32,7 +32,9 @@ try { ({ chromium } = require('playwright')); } catch { console.log('playwright 
     await page.waitForSelector('#mbv2ExportList .mbv2-item', { timeout: 15000 });
     const items = await page.$$eval('#mbv2ExportList .mbv2-item', (els) => els.length);
     // R54.4／MBV2-HF1-C3：新增「商品想買登記」分類 → 13 個（仍為精確比對）
-    assert(items === 13, 'UI1 匯出區顯示 13 個分類（含商品想買登記）', String(items));
+    // R54.4／MBV2-HF1-C4：再新增「補貨通知紀錄」分類 → 14 個（仍為精確比對，並確認兩個分類名稱都在）
+    const titles = await page.$$eval('#mbv2ExportList .mbv2-item-title', (els) => els.map((e) => e.textContent));
+    assert(items === 14 && titles.includes('商品想買登記') && titles.includes('補貨通知紀錄'), 'UI1 匯出區顯示 14 個分類（含商品想買登記、補貨通知紀錄）', String(items) + ' ' + titles.join('、'));
     const limitText = await page.textContent('#mbv2LimitText');
     assert(limitText.includes('192MB'), 'UI2 顯示上傳上限 192MB', limitText);
     await page.screenshot({ path: path.join(shots, 'mbv2-ui-1-export-full.png'), fullPage: false });

@@ -16,16 +16,29 @@
 //   PATCH /products/:id/collect      個別商品開關需求收集 { enabled }
 //   PATCH /settings                  { enabled, ttl_days, notify_enabled }
 //
-// 本路由不建立訂單、不收款、不更動任何額度欄位，也不呼叫任何推播。
+// R54.4／MBV2-HF1-C4 補貨通知（同一個 adminRouter，沿用 requireStaffJwt＋line_order；store 只信任 JWT）：
+//   GET   /restock/capability                 通知能力、必要設定是否完整、啟用狀態
+//   PATCH /restock/settings                   { send_enabled }（預設關閉）
+//   POST  /restock/preview                    { product_id, fulfillment_mode, supply_date } → 伺服器計算名單並保存批次
+//   POST  /restock/batches/:uuid/confirm      店家確認發送（原子轉移；重複呼叫不會重複建立）
+//   POST  /restock/batches/:uuid/resume       明確續送（沿用原逐筆紀錄與 retry key）
+//   POST  /restock/batches/:uuid/cancel       取消尚未送出的項目
+//   GET   /restock/batches[?product_id=]      批次清單與進度
+//   GET   /restock/batches/:uuid              批次明細（重新整理後仍可查）
+// 顧客端新增：GET /product-ref?ref=<product_uuid>（商品直達：以穩定識別取得目前公開商品 ID）
+//
+// 登記、訂閱與通知都不建立訂單、不收款、不更動任何額度欄位。
+// 只有店家按「確認發送」／「續送」才會透過 utils/linePush.js 呼叫 LINE。
 'use strict';
 
 const express = require('express');
 const { getDb } = require('../utils/db');
 const { verifyMemberSession } = require('../utils/lineMemberSession');
 const PD = require('../utils/productDemand');
+const RN = require('../utils/restockNotify');
 
 function sendErr(res, e, tag) {
-  if (e instanceof PD.DemandError) return res.status(e.status).json({ success: false, code: e.code, message: e.message });
+  if (e instanceof PD.DemandError || e instanceof RN.RestockError) return res.status(e.status).json({ success: false, code: e.code, message: e.message });
   console.error(`[product-demand] ${tag}:`, e && e.message);
   return res.status(500).json({ success: false, code: 'INTERNAL_ERROR', message: '系統忙碌，請稍後再試' });
 }
@@ -43,8 +56,14 @@ const publicRouter = express.Router();
 publicRouter.get('/config', (req, res) => {
   try {
     const c = PD.getConfig(getDb(), req.storeId);
-    res.json({ success: true, data: { enabled: c.enabled, max_qty: c.max_qty, ttl_days: c.ttl_days, notify_available: c.notify_available } });
+    res.json({ success: true, data: { enabled: c.enabled, max_qty: c.max_qty, ttl_days: c.ttl_days, notify_available: c.notify_available,
+      consent_text: c.notify_available ? c.consent_text : '', consent_text_version: c.notify_available ? c.consent_text_version : '' } });
   } catch (e) { sendErr(res, e, 'config'); }
+});
+// 商品直達：只接受穩定識別，回傳目前仍公開的商品 ID；不需要也不接受會員身分
+publicRouter.get('/product-ref', (req, res) => {
+  try { res.json({ success: true, data: RN.resolveProductRef(getDb(), req.storeId, req.query.ref) }); }
+  catch (e) { sendErr(res, e, 'product-ref'); }
 });
 publicRouter.post('/mine', (req, res) => {
   try {
@@ -94,6 +113,48 @@ adminRouter.patch('/products/:id/collect', (req, res) => {
 adminRouter.patch('/settings', (req, res) => {
   try { res.json({ success: true, data: PD.setSettings(getDb(), req.storeId, req.body || {}) }); }
   catch (e) { sendErr(res, e, 'admin settings'); }
+});
+
+// ── R54.4／MBV2-HF1-C4：補貨通知（店家手動）────────────────────────────
+function actorOf(req) { const a = req.auth || {}; return String(a.role || 'staff') + ':' + String(a.store_id || req.storeId || ''); }
+adminRouter.get('/restock/capability', (req, res) => {
+  try { res.json({ success: true, data: RN.getCapability(getDb(), req.storeId) }); }
+  catch (e) { sendErr(res, e, 'restock capability'); }
+});
+adminRouter.patch('/restock/settings', (req, res) => {
+  try {
+    const b = req.body || {};
+    const en = b.send_enabled === true || b.send_enabled === 1 || b.send_enabled === '1';
+    res.json({ success: true, data: RN.setSendEnabled(getDb(), req.storeId, en) });
+  } catch (e) { sendErr(res, e, 'restock settings'); }
+});
+adminRouter.post('/restock/preview', (req, res) => {
+  try {
+    const b = req.body || {};
+    res.json({ success: true, data: RN.previewBatch(getDb(), req.storeId, {
+      product_id: b.product_id, fulfillment_mode: b.fulfillment_mode, supply_date: b.supply_date,
+    }, actorOf(req)) });
+  } catch (e) { sendErr(res, e, 'restock preview'); }
+});
+adminRouter.post('/restock/batches/:uuid/confirm', (req, res) => {
+  try { res.json({ success: true, data: RN.confirmBatch(getDb(), req.storeId, req.params.uuid, actorOf(req)) }); }
+  catch (e) { sendErr(res, e, 'restock confirm'); }
+});
+adminRouter.post('/restock/batches/:uuid/resume', (req, res) => {
+  try { res.json({ success: true, data: RN.resumeBatch(getDb(), req.storeId, req.params.uuid, actorOf(req)) }); }
+  catch (e) { sendErr(res, e, 'restock resume'); }
+});
+adminRouter.post('/restock/batches/:uuid/cancel', (req, res) => {
+  try { res.json({ success: true, data: RN.cancelBatch(getDb(), req.storeId, req.params.uuid) }); }
+  catch (e) { sendErr(res, e, 'restock cancel'); }
+});
+adminRouter.get('/restock/batches', (req, res) => {
+  try { res.json({ success: true, data: RN.listBatches(getDb(), req.storeId, req.query.product_id) }); }
+  catch (e) { sendErr(res, e, 'restock list'); }
+});
+adminRouter.get('/restock/batches/:uuid', (req, res) => {
+  try { res.json({ success: true, data: RN.batchDetail(getDb(), req.storeId, req.params.uuid) }); }
+  catch (e) { sendErr(res, e, 'restock detail'); }
 });
 
 module.exports = { publicRouter, adminRouter };

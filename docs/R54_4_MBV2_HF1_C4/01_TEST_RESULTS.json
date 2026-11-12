@@ -1,0 +1,1182 @@
+{
+ "release": "R54.4/MBV2-HF1-C4",
+ "executed_at_taipei": "2026-11-11",
+ "baseline": {
+  "zip": "P3CD_DEPLOY_R54_4_MBV2_HF1_C3_3_RESTORE_CANCEL_FIX_APP_ROOT.zip",
+  "sha256_expected": "d63a76f95a936dd612f544f03091198b54d4612657cb2fe1576d168646f0c903",
+  "sha256_actual": "d63a76f95a936dd612f544f03091198b54d4612657cb2fe1576d168646f0c903",
+  "files": 910,
+  "zip_entries": 943,
+  "tree_verified_identical_after_baseline_runs": true
+ },
+ "test_clock": "C4 驗收：台北時間落在 08:00–20:00 以外時，測試程序、暫存伺服器（含 sql.js datetime）與瀏覽器頁面一致位移到當日 10:30（scripts/lib/c4-test-clock.js，正式程式不載入）。本次 offset_ms=-46320000",
+ "new_c4_restock_notify": {
+  "on_c33_unmodified": {
+   "full": "中止：/api/product-demand-admin/restock/* 不存在（N1 讀取 capability 失敗）",
+   "C_section_only": {
+    "passCount": 4,
+    "failCount": 5
+   },
+   "C_section_fail_items": [
+    "❌ C3 明確勾選才同意：記錄會員、店別、商品、登記週期、時間、文案版本與完整文案",
+    "❌ C4 修改份數（帶或不帶勾選）不產生新同意、不改變既有同意",
+    "❌ C5 只取消通知、保留想買登記",
+    "❌ C6 撤回後重新明確同意 → 新增一筆同意（保留撤回歷史）",
+    "❌ UNCAUGHT Cannot read properties of undefined (reading 'status')"
+   ]
+  },
+  "on_c4_working_tree": {
+   "passCount": 96,
+   "failCount": 0
+  },
+  "on_c4_fresh_zip": {
+   "passCount": 96,
+   "failCount": 0
+  },
+  "items_fresh_zip": [
+   {
+    "name": "N1 安裝／升級後通知發送預設關閉（即使 C3 舊鍵 product_demand_notify_enabled=1、權杖與 LIFF 齊全）；權杖只標示已設定、未驗證",
+    "ok": true
+   },
+   {
+    "name": "N2 顧客端 config：通知不可用（後端判定），不提供同意文案",
+    "ok": true
+   },
+   {
+    "name": "N3 未授權後台請求（無 JWT／偽造 JWT）一律 401",
+    "ok": true
+   },
+   {
+    "name": "N4 跨店：store_002 的後台權杖不能預覽 store_001 商品、看不到其批次；其開關不影響 store_001（store_id 只信任 JWT）",
+    "ok": true
+   },
+   {
+    "name": "N5 店家開啟且設定完整 → 通知可用，顧客端取得同意文案",
+    "ok": true
+   },
+   {
+    "name": "N6 已開啟但缺少權杖與 LIFF：通知不可用並列出缺漏",
+    "ok": true
+   },
+   {
+    "name": "N7 通知不可用時送出同意 → 只登記想買、不建立同意紀錄",
+    "ok": true
+   },
+   {
+    "name": "C1 新會員不勾選只登記：無同意紀錄",
+    "ok": true
+   },
+   {
+    "name": "C2 送出 notify_consent=false 不建立同意",
+    "ok": true
+   },
+   {
+    "name": "C3 明確勾選才同意：記錄會員、店別、商品、登記週期、時間、文案版本與完整文案",
+    "ok": true
+   },
+   {
+    "name": "C4 修改份數（帶或不帶勾選）不產生新同意、不改變既有同意",
+    "ok": true
+   },
+   {
+    "name": "C5 只取消通知、保留想買登記",
+    "ok": true
+   },
+   {
+    "name": "C6 撤回後重新明確同意 → 新增一筆同意（保留撤回歷史）",
+    "ok": true
+   },
+   {
+    "name": "C7 取消整筆登記 → 同時停止通知資格（同意撤回）",
+    "ok": true
+   },
+   {
+    "name": "C8 取消後的新週期需重新同意，不沿用上一週期授權",
+    "ok": true
+   },
+   {
+    "name": "C9 過期後新週期需重新同意；上一週期同意標示為週期結束",
+    "ok": true
+   },
+   {
+    "name": "C10 偽造 line_user_id／store_id 一律忽略，身分只取自 member_session",
+    "ok": true
+   },
+   {
+    "name": "C11 他店 member_session 不能登記或撤回本店同意（401），本店同意不受影響",
+    "ok": true
+   },
+   {
+    "name": "C12 沒有 member_session 的請求不接受（不相信前端 UID）",
+    "ok": true
+   },
+   {
+    "name": "C13 功能關閉：新同意不建立；本人仍可撤回同意",
+    "ok": true
+   },
+   {
+    "name": "C14 商品隱藏、收集關閉時本人仍能撤回同意與取消登記",
+    "ok": true
+   },
+   {
+    "name": "C15 舊版「我想買」登記不會自動變成通知訂閱；舊版文案的同意需重新確認",
+    "ok": true
+   },
+   {
+    "name": "C16 登記、同意、撤回、取消前後：訂單、付款、今日額度、預購額度完全未變",
+    "ok": true
+   },
+   {
+    "name": "P1 正常販售今日外帶：有效 7 人／期望 13 份、已同意 5 人、符合資格 1 人（伺服器計算）",
+    "ok": true
+   },
+   {
+    "name": "P2 排除原因逐項正確：偏好不符、非好友、好友不明、未同意、已撤回、已取消、已過期、會員不存在",
+    "ok": true
+   },
+   {
+    "name": "P3 訊息含店名、商品、日期、取餐方式、直達連結與免責說明（恢復供應）",
+    "ok": true
+   },
+   {
+    "name": "P4 直達連結沿用店別 LIFF 設定、使用商品穩定識別，不含會員憑證或 LINE UID",
+    "ok": true
+   },
+   {
+    "name": "P5 外送：偏好 delivery 的會員也符合（2 人）",
+    "ok": true
+   },
+   {
+    "name": "P6 暫停販售／長期下架：任何日期都不可發出可訂購通知",
+    "ok": true
+   },
+   {
+    "name": "P7 今日完售：今日不可通知；合法未來預購可通知，訊息明示「開放預購」",
+    "ok": true
+   },
+   {
+    "name": "P8 今日額度為零／預購額度為零：不可通知",
+    "ok": true
+   },
+   {
+    "name": "P9 日期無效（過去、超過可預訂天數、格式錯誤）與非外帶外送方式：不可通知",
+    "ok": true
+   },
+   {
+    "name": "P10 商品不支援該取餐方式／LINE 未上架：不可通知",
+    "ok": true
+   },
+   {
+    "name": "P11 可用份數（3）少於期望總份數（13）時如實標示",
+    "ok": true
+   },
+   {
+    "name": "P12 通知關閉時可預覽但不可發送",
+    "ok": true
+   },
+   {
+    "name": "P13 預覽與修改庫存／商品狀態不建立任何發送、不呼叫 LINE",
+    "ok": true
+   },
+   {
+    "name": "P14 預覽前後：訂單、付款、已售今日／預購份數未變",
+    "ok": true
+   },
+   {
+    "name": "S1 連點／兩位管理員同時確認：只生效一次、只呼叫 LINE 一次",
+    "ok": true
+   },
+   {
+    "name": "S2 第一次請求就帶固定 X-Line-Retry-Key；保存 LINE request ID、首次嘗試時間；狀態為「LINE 已受理」",
+    "ok": true
+   },
+   {
+    "name": "S3 通知後登記仍為有效（唯一限制不釋放），本人仍可管理並看到已通知",
+    "ok": true
+   },
+   {
+    "name": "S4 同一週期跨批次防重：修改份數、撤回後重新同意都不會再通知",
+    "ok": true
+   },
+   {
+    "name": "S5 重送相同確認請求：不建立新發送",
+    "ok": true
+   },
+   {
+    "name": "S6 防重依資料庫唯一限制：同店同週期無法存在第二筆占用名額的紀錄",
+    "ok": true
+   },
+   {
+    "name": "S7 預覽後撤回同意 → 確認時排除；預覽後新登記的會員不會加入原批次",
+    "ok": true
+   },
+   {
+    "name": "S8 預覽後商品停售 → 確認時全部擋下，不呼叫 LINE",
+    "ok": true
+   },
+   {
+    "name": "S9 預覽後今日額度耗盡 → 擋下",
+    "ok": true
+   },
+   {
+    "name": "S10 預覽後關閉通知 → 確認被拒（409），不呼叫 LINE",
+    "ok": true
+   },
+   {
+    "name": "S11 發送途中撤回：尚未送出的項目在送出前被擋下（0 次呼叫）",
+    "ok": true
+   },
+   {
+    "name": "S12 真實逾時（AbortController 700ms）→ 不視為未送出，以同一 retry key、同一內容重試後受理",
+    "ok": true
+   },
+   {
+    "name": "S13 從未交給 LINE 的擋下項目釋放週期名額（重新同意後可在新批次通知）",
+    "ok": true
+   },
+   {
+    "name": "S14 HTTP 200 → LINE 已受理（不是「已收到」）",
+    "ok": true
+   },
+   {
+    "name": "S15 LINE 已受理但回應遺失 → 重試沿用同一 retry key，取得官方 409（已受理），記為已受理、不換新 key",
+    "ok": true
+   },
+   {
+    "name": "S16 逾時、5xx 後以同一 key 退避重試，第 3 次受理",
+    "ok": true
+   },
+   {
+    "name": "S17 5xx 達嘗試上限（4）→ 結果待確認，不無限重試、不換 key",
+    "ok": true
+   },
+   {
+    "name": "S18 驗證錯誤（400）→ 失敗、不重試",
+    "ok": true
+   },
+   {
+    "name": "S19 非 retry-key 語意的 409 → 結果待確認，不建立新 key 重送",
+    "ok": true
+   },
+   {
+    "name": "S20 429 速率限制 → 退避後以同一 key 重試",
+    "ok": true
+   },
+   {
+    "name": "S21 單人失敗不影響其他收件人的結果",
+    "ok": true
+   },
+   {
+    "name": "S22 只保存安全錯誤代碼與 request ID；權杖不出現在伺服器紀錄或資料庫訊息",
+    "ok": true
+   },
+   {
+    "name": "S23 權杖錯誤（401）→ 不重試、整批暫停，其餘收件人保留待發送",
+    "ok": true
+   },
+   {
+    "name": "S24 當月額度用完（429）→ 整批暫停待店家處理，不無限重試",
+    "ok": true
+   },
+   {
+    "name": "S25 店家續送沿用原逐筆紀錄與 retry key 完成發送",
+    "ok": true
+   },
+   {
+    "name": "S26 通知全流程前後：訂單、付款未變；今日／預購已售份數仍為 0（通知不扣份數）",
+    "ok": true
+   },
+   {
+    "name": "R1 送出後、寫回結果前中斷：資料庫已先保存「發送中」與 retry key",
+    "ok": true
+   },
+   {
+    "name": "R2 重啟後：該筆改為「結果待確認」、批次暫停；啟動服務不會自動發送；重新整理後仍可查詢",
+    "ok": true
+   },
+   {
+    "name": "R3 店家明確續送：沿用同一 retry key，LINE 回 409（已受理）→ 記為已受理，不重複通知",
+    "ok": true
+   },
+   {
+    "name": "R4 超過 retry key 有效期限（24 小時）的結果不明項目：不換新 key、不自動補送",
+    "ok": true
+   },
+   {
+    "name": "R5 預覽逾時（30 分鐘）後不可直接確認發送",
+    "ok": true
+   },
+   {
+    "name": "L1 點連結開啟正確店別與指定商品（最新商品資料），網址參數已移除",
+    "ok": true
+   },
+   {
+    "name": "L2 不自動加入購物車／送單／付款，不覆蓋既有購物車、姓名、日期與取餐方式",
+    "ok": true
+   },
+   {
+    "name": "L3 顯示通知對應日期／方式提示（不改選擇）；首屏正常、無 JavaScript 錯誤",
+    "ok": true
+   },
+   {
+    "name": "L4 商品不存在、隱藏、停售：正確提示，不加入購物車",
+    "ok": true
+   },
+   {
+    "name": "L5 備份還原後數字 ID 被另一款商品占用：穩定識別仍開啟正確商品",
+    "ok": true
+   },
+   {
+    "name": "L6 Recovery 還原連結優先：不同時開啟商品直達，首屏正常",
+    "ok": true
+   },
+   {
+    "name": "L7 通知可用：入口「🔔 補貨通知我」、勾選預設未勾選、按鈕依勾選切換文案、保留不保留商品說明",
+    "ok": true
+   },
+   {
+    "name": "L8 明確勾選後送出 → 已同意；再開啟顯示目前訂閱狀態，可只取消通知並保留想買登記",
+    "ok": true
+   },
+   {
+    "name": "L9 通知未開啟：入口維持「我想買」並說明不會發送通知（後端回傳能力）",
+    "ok": true
+   },
+   {
+    "name": "L10 後台：顯示通知能力（權杖未驗證）、伺服器預覽名單與完整訊息",
+    "ok": true
+   },
+   {
+    "name": "L11 後台按「確認發送」才發送；頁面重新整理後仍能查到批次進度",
+    "ok": true
+   },
+   {
+    "name": "B1 MBV2 新增「補貨通知紀錄」分類；預覽分開顯示需求與同意歷史、批次及已受理紀錄、執行狀態",
+    "ok": true
+   },
+   {
+    "name": "B2 完整與選擇性備份涵蓋通知歷史",
+    "ok": true
+   },
+   {
+    "name": "B3 選擇性匯入：預覽與正式匯入結果一致，通知紀錄全部匯入",
+    "ok": true
+   },
+   {
+    "name": "B4 匯入的未完成工作一律暫停（批次 paused／逐筆 held），商品關聯正確對應（707→807）",
+    "ok": true
+   },
+   {
+    "name": "B5 已受理紀錄保留並指向同名商品；匯入的同意全部需顧客重新確認",
+    "ok": true
+   },
+   {
+    "name": "B6 匯入與還原後不自動發送",
+    "ok": true
+   },
+   {
+    "name": "B7 匯入後重新啟動服務也不發送",
+    "ok": true
+   },
+   {
+    "name": "B8 匯入後已受理與防重歷史保留：顧客在新環境重新同意也不再通知同一週期",
+    "ok": true
+   },
+   {
+    "name": "B9 匯入的未完成工作經店家續送時，同意未經顧客重新確認 → 擋下、不發送",
+    "ok": true
+   },
+   {
+    "name": "B10 重複匯入不重複新增、不再通知",
+    "ok": true
+   },
+   {
+    "name": "B11 舊備份不能把目前已撤回的同意重新變成可發送授權",
+    "ok": true
+   },
+   {
+    "name": "B12 沒有通知分類的舊（C3 格式）完整備份「完整取代」：現有通知紀錄不被清除，已受理紀錄重新對應到同一款商品，不發送",
+    "ok": true
+   },
+   {
+    "name": "B13 完整取代（商品 ID 互換）：通知紀錄不被清除，已受理紀錄仍指向同一款商品（不被改指向另一款）",
+    "ok": true
+   },
+   {
+    "name": "B14 備份、匯入、完整取代全程沒有任何新的 LINE 呼叫（只有準備階段的 1 次 401 模擬）",
+    "ok": true
+   },
+   {
+    "name": "K1 C3.3 程式可直接讀取 C4 升級後的資料庫：首頁、商品、想買登記、後台統計、正式送單正常；C4 新增資料表保留",
+    "ok": true
+   },
+   {
+    "name": "K2 已知限制：C3.3 無法匯入 C4 產生的完整備份（含新分類），會明確拒絕而不是部分匯入",
+    "ok": true
+   },
+   {
+    "name": "Z1 真實 LINE API 呼叫次數為 0（所有 api.line.me 請求皆由測試程序內模擬回應）",
+    "ok": true
+   }
+  ]
+ },
+ "linepush_compat": {
+  "on_c33_unmodified": {
+   "passCount": 6,
+   "failCount": 6
+  },
+  "on_c4_fresh_zip": {
+   "passCount": 12,
+   "failCount": 0
+  }
+ },
+ "existing_r54_tests": [
+  {
+   "test": "scripts/smoke-r54-4-mbv2-hf1-c1-preorder-status.js",
+   "c33_unmodified": {
+    "passCount": 93,
+    "failCount": 0
+   },
+   "c4_working_tree": {
+    "passCount": 93,
+    "failCount": 0
+   },
+   "c4_fresh_zip": {
+    "passCount": 93,
+    "failCount": 0
+   },
+   "c4_fresh_zip_fail_items": [],
+   "c33_fail_items": []
+  },
+  {
+   "test": "scripts/smoke-r54-4-mbv2-hf1-c3-sale-status-demand.js",
+   "c33_unmodified": {
+    "passCount": 328,
+    "failCount": 4
+   },
+   "c4_working_tree": {
+    "passCount": 328,
+    "failCount": 4
+   },
+   "c4_fresh_zip": {
+    "passCount": 250,
+    "failCount": 4
+   },
+   "c4_fresh_zip_fail_items": [
+    "❌ O1 今日完售：今日訂單被擋，未建立訂單、未扣今日額度",
+    "❌ O6-paused 今日與未來日期都被擋，訂單與額度不變",
+    "❌ O6-sold_out_indefinitely 今日與未來日期都被擋，訂單與額度不變",
+    "❌ O9 今日完售＋未啟用預購份數管理：今日仍擋；未來 30 份（超過原預購每日 20）不限額成功，今日額度不變"
+   ],
+   "c33_fail_items": [
+    "❌ O1 今日完售：今日訂單被擋，未建立訂單、未扣今日額度",
+    "❌ O6-paused 今日與未來日期都被擋，訂單與額度不變",
+    "❌ O6-sold_out_indefinitely 今日與未來日期都被擋，訂單與額度不變",
+    "❌ O9 今日完售＋未啟用預購份數管理：今日仍擋；未來 30 份（超過原預購每日 20）不限額成功，今日額度不變"
+   ],
+   "same_time_pair_2342_2347": {
+    "c33": {
+     "passCount": 250,
+     "failCount": 4
+    },
+    "c4_fresh_zip": {
+     "passCount": 250,
+     "failCount": 4
+    },
+    "note": "S 段案例依當下時間產生，深夜案例較少；兩版逐項相同，僅 U14 名稱因斷言調整不同"
+   }
+  },
+  {
+   "test": "scripts/smoke-r54-4-mbv2-hf1-c3-1-backup-manage-login.js",
+   "c33_unmodified": {
+    "passCount": 54,
+    "failCount": 0
+   },
+   "c4_working_tree": {
+    "passCount": 54,
+    "failCount": 0
+   },
+   "c4_fresh_zip": {
+    "passCount": 54,
+    "failCount": 0
+   },
+   "c4_fresh_zip_fail_items": [],
+   "c33_fail_items": [],
+   "c4_fresh_zip_first_run_after_2330_taipei": {
+    "result": {
+     "passCount": 53,
+     "failCount": 1
+    },
+    "fail_items": [
+     "❌ M4-1 隱藏商品：不出現在公開列表與商品卡，管理後也不會重新出現；仍不可購買"
+    ],
+    "c33_same_time": {
+     "passCount": 53,
+     "failCount": 1
+    },
+    "c33_same_time_fail_items": [
+     "❌ M4-1 隱藏商品：不出現在公開列表與商品卡，管理後也不會重新出現；仍不可購買"
+    ],
+    "note": "台北 23:30 後今日已無可選取餐時段；C3.3 同時間失敗項完全相同（既有、與時間有關）"
+   },
+   "c4_fresh_zip_note": "台北 2026-11-12 00:00 後以全新解壓 ZIP 重跑"
+  },
+  {
+   "test": "scripts/smoke-r54-4-mbv2-hf1-c3-2-firstpaint-remap.js",
+   "c33_unmodified": {
+    "passCount": 32,
+    "failCount": 0
+   },
+   "c4_working_tree": {
+    "passCount": 32,
+    "failCount": 0
+   },
+   "c4_fresh_zip": {
+    "passCount": 32,
+    "failCount": 0
+   },
+   "c4_fresh_zip_fail_items": [],
+   "c33_fail_items": []
+  },
+  {
+   "test": "scripts/smoke-r54-4-mbv2-hf1-c3-3-restore-cancel.js",
+   "c33_unmodified": {
+    "passCount": 30,
+    "failCount": 0
+   },
+   "c4_working_tree": {
+    "passCount": 30,
+    "failCount": 0
+   },
+   "c4_fresh_zip": {
+    "passCount": 30,
+    "failCount": 0
+   },
+   "c4_fresh_zip_fail_items": [],
+   "c33_fail_items": [],
+   "c4_fresh_zip_first_run_after_2330_taipei": {
+    "result": {
+     "passCount": 24,
+     "failCount": 6
+    },
+    "fail_items": [
+     "❌ K3-1 Handoff：略過後以正式 POST /api/line-orders 建立 1 筆現金訂單，購物車清空",
+     "❌ K3-2 Handoff：延遲回應抵達後：訂單仍 1 筆、購物車與儲存資料仍為空、不重新開啟結帳、不顯示還原成功、不改付款流程",
+     "❌ K3-1 Recovery：略過後以正式 POST /api/line-orders 建立 1 筆現金訂單，購物車清空",
+     "❌ K3-2 Recovery：延遲回應抵達後：訂單仍 1 筆、購物車與儲存資料仍為空、不重新開啟結帳、不顯示還原成功、不改付款流程",
+     "❌ K9 整段只建立 K3 的 2 筆現金訂單（Handoff、Recovery 各 1）",
+     "❌ K10 讀資料庫：現金訂單恰為 2 筆（延遲還原未產生額外訂單）"
+    ],
+    "c33_same_time": {
+     "passCount": 24,
+     "failCount": 6
+    },
+    "c33_same_time_fail_items": [
+     "❌ K3-1 Handoff：略過後以正式 POST /api/line-orders 建立 1 筆現金訂單，購物車清空",
+     "❌ K3-2 Handoff：延遲回應抵達後：訂單仍 1 筆、購物車與儲存資料仍為空、不重新開啟結帳、不顯示還原成功、不改付款流程",
+     "❌ K3-1 Recovery：略過後以正式 POST /api/line-orders 建立 1 筆現金訂單，購物車清空",
+     "❌ K3-2 Recovery：延遲回應抵達後：訂單仍 1 筆、購物車與儲存資料仍為空、不重新開啟結帳、不顯示還原成功、不改付款流程",
+     "❌ K9 整段只建立 K3 的 2 筆現金訂單（Handoff、Recovery 各 1）",
+     "❌ K10 讀資料庫：現金訂單恰為 2 筆（延遲還原未產生額外訂單）"
+    ],
+    "note": "台北 23:30 後今日已無可選取餐時段；C3.3 同時間失敗項完全相同（既有、與時間有關）"
+   },
+   "c4_fresh_zip_note": "台北 2026-11-12 00:00 後以全新解壓 ZIP 重跑"
+  }
+ ],
+ "c3_O_section_consistent_clock_0930": {
+  "c33": {
+   "passCount": 12,
+   "failCount": 0
+  },
+  "c4": {
+   "passCount": 12,
+   "failCount": 0
+  }
+ },
+ "regression_61": {
+  "c33_exit0": 41,
+  "c4_exit0": 41,
+  "nonzero_same_set": true,
+  "scripts": [
+   {
+    "script": "scripts/mbv2-rescue-verify.js",
+    "c33_exit": 2,
+    "c4_exit": 2,
+    "c4_first_run_exit": 2,
+    "note": ""
+   },
+   {
+    "script": "scripts/run-g1-6-ga4-h1-4-4-view-item-runtime.js",
+    "c33_exit": 1,
+    "c4_exit": 1,
+    "c4_first_run_exit": 1,
+    "note": ""
+   },
+   {
+    "script": "scripts/run-g1-6-ga4-h1-4-7-two-stage-checkout-runtime.js",
+    "c33_exit": 0,
+    "c4_exit": 0,
+    "c4_first_run_exit": 0,
+    "note": ""
+   },
+   {
+    "script": "scripts/run-h1-4-10-asset-cache-bust-runtime.js",
+    "c33_exit": 0,
+    "c4_exit": 0,
+    "c4_first_run_exit": 0,
+    "note": ""
+   },
+   {
+    "script": "scripts/run-h1-4-10-friend-live-runtime.js",
+    "c33_exit": 0,
+    "c4_exit": 0,
+    "c4_first_run_exit": 0,
+    "note": ""
+   },
+   {
+    "script": "scripts/run-h1-4-10-historical-backend-reconcile-runtime.js",
+    "c33_exit": 0,
+    "c4_exit": 0,
+    "c4_first_run_exit": 0,
+    "note": ""
+   },
+   {
+    "script": "scripts/run-h1-4-10-historical-friend-first-touch-runtime.js",
+    "c33_exit": 0,
+    "c4_exit": 0,
+    "c4_first_run_exit": 0,
+    "note": ""
+   },
+   {
+    "script": "scripts/run-h1-4-10-phase1-liff-identity-runtime.js",
+    "c33_exit": 0,
+    "c4_exit": 0,
+    "c4_first_run_exit": 0,
+    "note": ""
+   },
+   {
+    "script": "scripts/run-h1-4-10-phase2-line-friend-guide-runtime.js",
+    "c33_exit": 0,
+    "c4_exit": 0,
+    "c4_first_run_exit": 0,
+    "note": ""
+   },
+   {
+    "script": "scripts/run-h1-4-10-phase3-checkout-submit-payment-runtime.js",
+    "c33_exit": 0,
+    "c4_exit": 0,
+    "c4_first_run_exit": 0,
+    "note": ""
+   },
+   {
+    "script": "scripts/run-h1-4-10-phase4b-recovery-frontend-targeted.js",
+    "c33_exit": 0,
+    "c4_exit": 0,
+    "c4_first_run_exit": 0,
+    "note": ""
+   },
+   {
+    "script": "scripts/run-h1-4-10-phase4b-recovery-full-runtime.js",
+    "c33_exit": 0,
+    "c4_exit": 0,
+    "c4_first_run_exit": 0,
+    "note": ""
+   },
+   {
+    "script": "scripts/run-h1-4-10-required-friend-gate-runtime.js",
+    "c33_exit": 0,
+    "c4_exit": 0,
+    "c4_first_run_exit": 0,
+    "note": ""
+   },
+   {
+    "script": "scripts/run-h1-4-9-checkout-order-summary-runtime.js",
+    "c33_exit": 0,
+    "c4_exit": 0,
+    "c4_first_run_exit": 0,
+    "note": ""
+   },
+   {
+    "script": "scripts/run-r54-4-mbv2-ui.js",
+    "c33_exit": 0,
+    "c4_exit": 0,
+    "c4_first_run_exit": 1,
+    "note": "C4 首次執行 UI1 斷言為 13 個分類 → 依新增分類更新為 14（並檢查兩個分類名稱）後重跑 19/19 exit 0；從最終 ZIP 再跑一次見 fresh_zip_related"
+   },
+   {
+    "script": "scripts/run-regression-g1-6-ga4-h1-4-6.js",
+    "c33_exit": 1,
+    "c4_exit": 1,
+    "c4_first_run_exit": 1,
+    "note": ""
+   },
+   {
+    "script": "scripts/run-regression-g1-6-ga4-h1-4-7.js",
+    "c33_exit": 1,
+    "c4_exit": 1,
+    "c4_first_run_exit": 1,
+    "note": "與其他測試並行時多 2 項（S-E1／S-E2 DOM 重繪計時）；單獨重跑 C4 與 C3.3 皆為相同 6 項失敗"
+   },
+   {
+    "script": "scripts/smoke-cart-delivery-live-refresh.js",
+    "c33_exit": 1,
+    "c4_exit": 1,
+    "c4_first_run_exit": 1,
+    "note": ""
+   },
+   {
+    "script": "scripts/smoke-delivery-distance-promotion.js",
+    "c33_exit": 0,
+    "c4_exit": 0,
+    "c4_first_run_exit": 0,
+    "note": ""
+   },
+   {
+    "script": "scripts/smoke-h1-4-11-1-fixes.js",
+    "c33_exit": 0,
+    "c4_exit": 0,
+    "c4_first_run_exit": 0,
+    "note": ""
+   },
+   {
+    "script": "scripts/smoke-h1-4-11-2-fixes.js",
+    "c33_exit": 0,
+    "c4_exit": 0,
+    "c4_first_run_exit": 0,
+    "note": ""
+   },
+   {
+    "script": "scripts/smoke-h1-4-11-4-1-both-disabled-product-filter.js",
+    "c33_exit": 0,
+    "c4_exit": 0,
+    "c4_first_run_exit": 0,
+    "note": ""
+   },
+   {
+    "script": "scripts/smoke-h1-4-11-4-product-mode-visibility.js",
+    "c33_exit": 0,
+    "c4_exit": 0,
+    "c4_first_run_exit": 0,
+    "note": ""
+   },
+   {
+    "script": "scripts/smoke-h1-4-11-line-order-page-mode.js",
+    "c33_exit": 0,
+    "c4_exit": 0,
+    "c4_first_run_exit": 0,
+    "note": ""
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-admin-ui-browser.js",
+    "c33_exit": 1,
+    "c4_exit": 1,
+    "c4_first_run_exit": 1,
+    "note": "C3.3 首次以 Playwright 1.65 執行時找不到瀏覽器；改用 1.63.0 後 C3.3 與 C4 皆為 425/1，失敗項相同（LINK-published-urls-use-public-code）"
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-admin-ui.js",
+    "c33_exit": 0,
+    "c4_exit": 0,
+    "c4_first_run_exit": 0,
+    "note": ""
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-checkout-integration.js",
+    "c33_exit": 0,
+    "c4_exit": 0,
+    "c4_first_run_exit": 0,
+    "note": ""
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-frontend.js",
+    "c33_exit": 0,
+    "c4_exit": 0,
+    "c4_first_run_exit": 0,
+    "note": ""
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-public-checkout.js",
+    "c33_exit": 0,
+    "c4_exit": 0,
+    "c4_first_run_exit": 0,
+    "note": ""
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-real-browser.js",
+    "c33_exit": 0,
+    "c4_exit": 0,
+    "c4_first_run_exit": 0,
+    "note": "C3.3 首次以 Playwright 1.65 執行時找不到瀏覽器（exit 1）；改用 1.63.0 後 36/36 exit 0，與 C3.3 報告一致"
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-recovery-cart-frontend.js",
+    "c33_exit": 0,
+    "c4_exit": 0,
+    "c4_first_run_exit": 0,
+    "note": ""
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-recovery-identity-bridge.js",
+    "c33_exit": 0,
+    "c4_exit": 0,
+    "c4_first_run_exit": 0,
+    "note": ""
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-recovery-landing.js",
+    "c33_exit": 0,
+    "c4_exit": 0,
+    "c4_first_run_exit": 0,
+    "note": ""
+   },
+   {
+    "script": "scripts/smoke-hotfix25.js",
+    "c33_exit": 0,
+    "c4_exit": 0,
+    "c4_first_run_exit": 0,
+    "note": ""
+   },
+   {
+    "script": "scripts/smoke-hotfix26-b.js",
+    "c33_exit": 1,
+    "c4_exit": 1,
+    "c4_first_run_exit": 1,
+    "note": ""
+   },
+   {
+    "script": "scripts/smoke-hotfix26-d.js",
+    "c33_exit": 1,
+    "c4_exit": 1,
+    "c4_first_run_exit": 1,
+    "note": ""
+   },
+   {
+    "script": "scripts/smoke-hotfix26-f2.js",
+    "c33_exit": 1,
+    "c4_exit": 1,
+    "c4_first_run_exit": 1,
+    "note": ""
+   },
+   {
+    "script": "scripts/smoke-hotfix26-f3.js",
+    "c33_exit": 0,
+    "c4_exit": 0,
+    "c4_first_run_exit": 0,
+    "note": ""
+   },
+   {
+    "script": "scripts/smoke-hotfix26-f4.js",
+    "c33_exit": 0,
+    "c4_exit": 0,
+    "c4_first_run_exit": 0,
+    "note": ""
+   },
+   {
+    "script": "scripts/smoke-hotfix26-f5.js",
+    "c33_exit": 0,
+    "c4_exit": 0,
+    "c4_first_run_exit": 0,
+    "note": ""
+   },
+   {
+    "script": "scripts/smoke-hotfix26-f7.js",
+    "c33_exit": 1,
+    "c4_exit": 1,
+    "c4_first_run_exit": 1,
+    "note": ""
+   },
+   {
+    "script": "scripts/smoke-hotfix26-f8-b.js",
+    "c33_exit": 1,
+    "c4_exit": 1,
+    "c4_first_run_exit": 1,
+    "note": ""
+   },
+   {
+    "script": "scripts/smoke-hotfix26-f8.js",
+    "c33_exit": 0,
+    "c4_exit": 0,
+    "c4_first_run_exit": 0,
+    "note": ""
+   },
+   {
+    "script": "scripts/smoke-hotfix26-i.js",
+    "c33_exit": 1,
+    "c4_exit": 1,
+    "c4_first_run_exit": 1,
+    "note": ""
+   },
+   {
+    "script": "scripts/smoke-hotfix27-cd.js",
+    "c33_exit": 1,
+    "c4_exit": 1,
+    "c4_first_run_exit": 1,
+    "note": ""
+   },
+   {
+    "script": "scripts/smoke-hotfix29-b.js",
+    "c33_exit": 1,
+    "c4_exit": 1,
+    "c4_first_run_exit": 1,
+    "note": ""
+   },
+   {
+    "script": "scripts/smoke-hotfix29-c.js",
+    "c33_exit": 1,
+    "c4_exit": 1,
+    "c4_first_run_exit": 1,
+    "note": ""
+   },
+   {
+    "script": "scripts/smoke-hotfix29.js",
+    "c33_exit": 1,
+    "c4_exit": 1,
+    "c4_first_run_exit": 1,
+    "note": ""
+   },
+   {
+    "script": "scripts/smoke-hotfix30-b5-r5-4-g1-live-geo.js",
+    "c33_exit": 0,
+    "c4_exit": 0,
+    "c4_first_run_exit": 0,
+    "note": ""
+   },
+   {
+    "script": "scripts/smoke-hotfix30-b5-r5-debounce.js",
+    "c33_exit": 0,
+    "c4_exit": 0,
+    "c4_first_run_exit": 0,
+    "note": ""
+   },
+   {
+    "script": "scripts/smoke-r48-popup-order-ui-browser.js",
+    "c33_exit": 1,
+    "c4_exit": 1,
+    "c4_first_run_exit": 1,
+    "note": ""
+   },
+   {
+    "script": "scripts/smoke-r54-4-mbv2-large-upload.js",
+    "c33_exit": 0,
+    "c4_exit": 0,
+    "c4_first_run_exit": 0,
+    "note": ""
+   },
+   {
+    "script": "scripts/smoke-r54-4-mbv2-migration.js",
+    "c33_exit": 0,
+    "c4_exit": 0,
+    "c4_first_run_exit": 0,
+    "note": ""
+   },
+   {
+    "script": "scripts/smoke-r54-4-mbv2-system-regression.js",
+    "c33_exit": 0,
+    "c4_exit": 0,
+    "c4_first_run_exit": 0,
+    "note": ""
+   },
+   {
+    "script": "scripts/static-audit-g1-6-ga4-h1-4-4.js",
+    "c33_exit": 0,
+    "c4_exit": 0,
+    "c4_first_run_exit": 0,
+    "note": ""
+   },
+   {
+    "script": "scripts/static-audit-g1-6-ga4-h1-4-5.js",
+    "c33_exit": 0,
+    "c4_exit": 0,
+    "c4_first_run_exit": 0,
+    "note": ""
+   },
+   {
+    "script": "scripts/static-audit-g1-6-ga4-h1-4-6.js",
+    "c33_exit": 1,
+    "c4_exit": 1,
+    "c4_first_run_exit": 1,
+    "note": ""
+   },
+   {
+    "script": "scripts/static-audit-g1-6-ga4-h1-4-7.js",
+    "c33_exit": 1,
+    "c4_exit": 1,
+    "c4_first_run_exit": 1,
+    "note": ""
+   },
+   {
+    "script": "scripts/static-audit-g1.js",
+    "c33_exit": 0,
+    "c4_exit": 0,
+    "c4_first_run_exit": 0,
+    "note": ""
+   },
+   {
+    "script": "scripts/static-audit-r48-popup-order-ui.js",
+    "c33_exit": 1,
+    "c4_exit": 1,
+    "c4_first_run_exit": 1,
+    "note": "既有失敗（line-order.html 與凍結版本位元組比對）；C4 修改了 line-order.html，訊息中的雜湊不同，失敗項數相同"
+   },
+   {
+    "script": "scripts/test-phone-validation.js",
+    "c33_exit": 0,
+    "c4_exit": 0,
+    "c4_first_run_exit": 0,
+    "note": ""
+   }
+  ]
+ },
+ "mbv2_core_suites": {
+  "smoke-r54-4-mbv2-migration.js": {
+   "c33": {
+    "passCount": 121,
+    "failCount": 0
+   },
+   "c4": {
+    "passCount": 121,
+    "failCount": 0
+   }
+  },
+  "smoke-r54-4-mbv2-system-regression.js": {
+   "c33_exit": 0,
+   "c4_exit": 0
+  },
+  "smoke-r54-4-mbv2-large-upload.js": {
+   "run1": {
+    "c33": "24/1（L8 status=0）",
+    "c4": "24/1（L3 status=0）"
+   },
+   "run2": {
+    "c33": {
+     "passCount": 25,
+     "failCount": 0
+    },
+    "c4": {
+     "passCount": 25,
+     "failCount": 0
+    }
+   },
+   "note": "超大上傳途中連線被重設（status=0）的競態，兩版皆會偶發且案例不固定；第二次兩版皆 25/25"
+  }
+ },
+ "fresh_zip_related": {
+  "c4-restock-notify": {
+   "exit": 0,
+   "seconds": 62,
+   "passCount": 96,
+   "failCount": 0
+  },
+  "c4-linepush-compat": {
+   "exit": 0,
+   "seconds": 1,
+   "passCount": 12,
+   "failCount": 0
+  },
+  "c1-preorder-status": {
+   "exit": 0,
+   "seconds": 85,
+   "passCount": 93,
+   "failCount": 0
+  },
+  "c3-sale-status-demand": {
+   "exit": 1,
+   "seconds": 145,
+   "passCount": 250,
+   "failCount": 4
+  },
+  "c3-1-backup-manage-login": {
+   "exit": 1,
+   "seconds": 115,
+   "passCount": 53,
+   "failCount": 1
+  },
+  "c3-2-firstpaint-remap": {
+   "exit": 0,
+   "seconds": 76,
+   "passCount": 32,
+   "failCount": 0
+  },
+  "c3-3-restore-cancel": {
+   "exit": 1,
+   "seconds": 215,
+   "passCount": 24,
+   "failCount": 6
+  },
+  "mbv2-ui": {
+   "exit": 0,
+   "seconds": 10,
+   "passCount": 19,
+   "failCount": 0
+  },
+  "mbv2-migration": {
+   "exit": 0,
+   "seconds": 15,
+   "passCount": 121,
+   "failCount": 0
+  },
+  "phase4b-recovery-full": {
+   "exit": 0,
+   "seconds": 17,
+   "passCount": 43,
+   "failCount": 0
+  },
+  "phase4b-recovery-frontend": {
+   "exit": 0,
+   "seconds": 9,
+   "passCount": 0,
+   "failCount": 0
+  },
+  "required-friend-gate": {
+   "exit": 0,
+   "seconds": 1,
+   "passCount": 0,
+   "failCount": 0
+  },
+  "phase1-liff": {
+   "exit": 0,
+   "seconds": 1,
+   "passCount": 43,
+   "failCount": 0
+  }
+ },
+ "adjusted_existing_assertions": [
+  {
+   "file": "scripts/smoke-r54-4-mbv2-hf1-c3-sale-status-demand.js",
+   "item": "U14",
+   "reason": "通知模式文案依 C4 規格改變（同意文字、未勾選按鈕「送出想買登記」、說明）。仍檢查入口、預設未勾、免責文案，並新增不得出現「補貨立即通知我」「登記補貨需求」。"
+  },
+  {
+   "file": "scripts/smoke-r54-4-mbv2-hf1-c3-1-backup-manage-login.js",
+   "item": "R1／R2",
+   "reason": "A 的同意以 C3 版本建立且經匯入 → C4 規則下為 reconfirm_required（不可作為發送授權）；其他條件不變。"
+  },
+  {
+   "file": "scripts/smoke-r54-4-mbv2-hf1-c3-2-firstpaint-remap.js",
+   "item": "X1-7",
+   "reason": "同上，A 的同意由 granted 改為 reconfirm_required；其他條件不變。"
+  },
+  {
+   "file": "scripts/run-r54-4-mbv2-ui.js",
+   "item": "UI1",
+   "reason": "MBV2 新增「補貨通知紀錄」分類，分類數 13 → 14（仍精確比對），並檢查「商品想買登記」「補貨通知紀錄」名稱都在。"
+  }
+ ],
+ "program_fixes_found_by_existing_tests": [
+  "C3.1 M2-1／M2-2：需重新確認的同意也提供「取消補貨通知」；未綁週期（request_uuid 空白）的舊同意只供顯示沿用其狀態。斷言未改。"
+ ],
+ "line_api_calls": {
+  "simulated_c4_acceptance": 31,
+  "simulated_linepush_compat": 12,
+  "real": 0,
+  "note": "所有 api.line.me 請求在測試程序內攔截並模擬；hf1c3-net-mock 對任何漏網 LINE 請求計數為 0。模擬 API／模擬 LIFF／Node 函式測試不是 LINE 真機驗證。"
+ },
+ "new_failures": [],
+ "not_executed": [
+  "LINE App／LIFF 真機（含 liff.state 帶參數轉址）",
+  "真實 LINE Messaging API（真實權杖、配額、好友、送達）",
+  "正式 Zeabur 環境",
+  "多台伺服器共用同一資料檔"
+ ]
+}

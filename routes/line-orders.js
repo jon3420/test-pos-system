@@ -1395,6 +1395,57 @@ function validateFutureOrderWindow(db, storeId, mode, orderDate, pickupTime) {
   return { ok: true };
 }
 
+// ── R54.4／MBV2-HF1-C4：補貨通知用「商品在指定日期／取餐方式是否可訂購」──────────────
+// 不另寫一套庫存判斷：完全由 POST / 送單與 GET /timeslots 既有的函式組成
+//   validateOrderConditions（LINE 總開關、可預訂天數、店休、行事曆、通路開關、今日截止）
+//   今日：getEarliestMins（今日仍有可選時段）＋ getLineQuotaStatus ＋ 商品販售時段（同 POST /）
+//   未來：validateFutureOrderWindow（該日該通路實際營業時段）＋ getLinePreorderStatus
+//   商品：enabled／show_on_line／通路開關／checkManualSaleStatusForOrder（同 POST / 與 validate-cart）
+// 只讀，不寫入任何資料。回傳 { ok, reason, message, notice_kind, remaining, is_preorder }。
+//   notice_kind：'restock'（今日恢復供應）或 'preorder'（未來日期開放預購）。
+//   remaining：今日／預購剩餘額度；null 代表該額度未設定上限。
+function evaluateProductOrderability(db, storeId, productId, mode, dateStr) {
+  const m = mode === 'delivery' ? 'delivery' : (mode === 'takeout' ? 'takeout' : null);
+  if (!m) return { ok: false, reason: 'invalid_mode', message: '取餐方式無效' };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateStr || ''))) return { ok: false, reason: 'invalid_date', message: '供應日期格式錯誤' };
+  const now = twNow();
+  const nowMins = now.getHours() * 60 + now.getMinutes();
+  const todayStr = twDateStr(now);
+  if (dateStr < todayStr) return { ok: false, reason: 'date_in_past', message: '供應日期已過' };
+  const isPreorder = dateStr > todayStr;
+  const label = m === 'delivery' ? '外送' : '外帶';
+  const cond = validateOrderConditions(db, storeId, m, dateStr, null, nowMins);
+  if (!cond.ok) return { ok: false, reason: cond.reason, message: cond.message };
+  const modeSettings = getModeSettings(db, storeId, m);
+  if (isPreorder) {
+    const fw = validateFutureOrderWindow(db, storeId, m, dateStr, null);
+    if (!fw.ok) return { ok: false, reason: fw.reason, message: fw.message };
+  } else if (getEarliestMins(db, storeId, m, modeSettings, dateStr, nowMins) === null) {
+    return { ok: false, reason: 'no_slots_today', message: `今日${label}已無可選時段` };
+  }
+  const prod = db.get('SELECT * FROM products WHERE id=? AND store_id=?', [Number(productId), storeId]);
+  if (!prod) return { ok: false, reason: 'product_not_found', message: '商品不存在' };
+  if (!prod.enabled || !prod.show_on_line) return { ok: false, reason: 'product_not_on_line', message: '商品未在 LINE 點餐頁上架' };
+  const modeEnabledField = m === 'delivery' ? 'line_delivery_enabled' : 'line_takeout_enabled';
+  if (Number(prod[modeEnabledField] ?? 1) === 0) return { ok: false, reason: 'product_mode_not_supported', message: `商品不支援${label}` };
+  const manual = checkManualSaleStatusForOrder(prod, isPreorder);
+  if (!manual.ok) return { ok: false, reason: manual.reason, message: manual.message };
+  if (!isPreorder) {
+    if (Number(prod.line_sold_out) === 1) return { ok: false, reason: 'line_sold_out', message: '商品今日已標示完售' };
+    const quota = getLineQuotaStatus(prod);
+    if (quota.hasQuota && quota.remaining <= 0) return { ok: false, reason: 'real_sold_out', message: '今日 LINE 份數已售完' };
+    const nowHHMM = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    if (prod.line_sell_end && nowHHMM >= prod.line_sell_end) return { ok: false, reason: 'sale_window_ended', message: '今日販售時段已結束' };
+    if (prod.line_sell_start && nowHHMM < prod.line_sell_start && Number(prod.line_preorder_enabled) !== 1) {
+      return { ok: false, reason: 'sale_not_started', message: `尚未開始販售（${prod.line_sell_start} 開賣）` };
+    }
+    return { ok: true, notice_kind: 'restock', is_preorder: false, remaining: quota.hasQuota ? quota.remaining : null };
+  }
+  const pre = getLinePreorderStatus(prod);
+  if (pre.hasPreorder && pre.remaining <= 0) return { ok: false, reason: 'preorder_full', message: '預購額度已滿' };
+  return { ok: true, notice_kind: 'preorder', is_preorder: true, remaining: pre.hasPreorder ? pre.remaining : null };
+}
+
 // ── 結帳前驗證邏輯（共用）────────────────────────────────
 function validateOrderConditions(db, storeId, mode, dateStr, pickupTime, nowMins) {
   const now = twNow();
@@ -2353,3 +2404,7 @@ module.exports.getEffectiveProductSaleWindow = getEffectiveProductSaleWindow;
 // 不改變函式本身任何行為）。
 module.exports.resolveFulfillmentState = resolveFulfillmentState;
 module.exports.getEffectiveCutoffMins = getEffectiveCutoffMins;
+// R54.4／MBV2-HF1-C4：補貨通知共用同一套可訂購判斷（唯讀）
+module.exports.evaluateProductOrderability = evaluateProductOrderability;
+module.exports.twDateStr = twDateStr;
+module.exports.twNow = twNow;

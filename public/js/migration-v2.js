@@ -101,6 +101,20 @@
       <span class="mbv2-muted">（台北時間，含首尾日；訂單以建立時間判定）</span>
     </div>`;
   }
+  // R54.4／MBV2-HF1-C4：想買登記／補貨通知分類分開顯示「需求與同意歷史」「批次及已受理紀錄」「執行狀態」
+  function breakdownHtml(b) {
+    if (!b) return '';
+    if (b.kind === 'demand_consent_history') {
+      return `<div class="mbv2-badges mbv2-breakdown"><span>需求與同意歷史：登記 ${fmtN(b.requests)} 筆（有效 ${fmtN(b.active_requests)}）、通知同意 ${fmtN(b.consents)} 筆（同意中 ${fmtN(b.granted_consents)}）</span><span>${esc(b.note || '')}</span></div>`;
+    }
+    if (b.kind === 'restock_notify_history') {
+      const e = b.execution_states || {};
+      return `<div class="mbv2-badges mbv2-breakdown"><span>批次 ${fmtN(b.batches)} 個、LINE 已受理紀錄 ${fmtN(b.accepted_records)} 筆、防重名額 ${fmtN(b.dedupe_claims)} 筆</span>`
+        + `<span>執行狀態：待發送 ${fmtN(e.pending)}、發送中 ${fmtN(e.sending)}、待重試 ${fmtN(e.retry_wait)}、暫停 ${fmtN(e.held)}、結果不明 ${fmtN(e.unknown)}</span>`
+        + `<span>${esc(b.note || '')}</span></div>`;
+    }
+    return '';
+  }
   function renderExportList() {
     const list = $('mbv2ExportList');
     const mode = exportMode();
@@ -121,6 +135,7 @@
         </label>
         <div class="mbv2-item-desc">${esc(c.desc)}</div>
         ${badges.length ? `<div class="mbv2-badges">${badges.map((b) => `<span>${esc(b)}</span>`).join('')}</div>` : ''}
+        ${breakdownHtml(c.breakdown)}
         ${missingRec.length ? `<div class="mbv2-warn-sm">建議一起匯出：${missingRec.map(catLabel).map(esc).join('、')}（匯入新環境時才能對應關聯資料；未一併匯出時，備份檔仍附上名稱對照，可對應到目標環境既有資料）</div>` : ''}
         ${mode === 'selective' && checked && c.date_filter_supported ? dateFilterHtml(c.key) : ''}
       </div>`;

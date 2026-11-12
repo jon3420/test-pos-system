@@ -1,0 +1,114 @@
+{
+ "baseline": "P3CD_DEPLOY_R54_4_MBV2_HF1_C3_3_RESTORE_CANCEL_FIX_APP_ROOT.zip",
+ "baseline_sha256": "d63a76f95a936dd612f544f03091198b54d4612657cb2fe1576d168646f0c903",
+ "counts": {
+  "added": 7,
+  "modified": 14,
+  "removed": 0,
+  "files_total": 917
+ },
+ "added": [
+  {
+   "path": "docs/R54_4_MBV2_HF1_C4/00_FINAL_REPORT.md",
+   "sha256": "9c338d502f7f50ff5af0a7b05e2d98815f60ff3b94dffe6426eb015941206635"
+  },
+  {
+   "path": "docs/R54_4_MBV2_HF1_C4/01_TEST_RESULTS.json",
+   "sha256": "9c7e6ef35b3c129c73ed2a12c2c5e2be17edb0e315012499c0f535a9f0dbd723"
+  },
+  {
+   "path": "scripts/lib/c4-line-mock.js",
+   "sha256": "18fc1782229e5bc833f9f019eb14cee07448da2be3883e09504d20cedd79f659"
+  },
+  {
+   "path": "scripts/lib/c4-test-clock.js",
+   "sha256": "388b70406d4e8356b7063a5c15cd4e820ed781335f9ababfff889a5de2441601"
+  },
+  {
+   "path": "scripts/smoke-r54-4-mbv2-hf1-c4-linepush-compat.js",
+   "sha256": "aba4786b9f8743ae8d32b4cc9801708dcd080a1b5c77c5d28e4e5deaf2f6e4d9"
+  },
+  {
+   "path": "scripts/smoke-r54-4-mbv2-hf1-c4-restock-notify.js",
+   "sha256": "dfc9704460e561f063eaf927946d27f27f9bca15ab5169ff80c9aeee6beeccb9"
+  },
+  {
+   "path": "utils/restockNotify.js",
+   "sha256": "18a22e9e0808f39ea9200bfbdb2b5cb7206a4e1bfc9f93c36cf61e880911bd9b"
+  }
+ ],
+ "modified": [
+  {
+   "path": "public/index.html",
+   "sha256_c33": "c66211c97895d41c28f9d7d6f9f566d3a923d2ae4f573abf290c3c53037dfb93",
+   "sha256_c4": "aae0505118ddc908d51d1e1c7037235df04e308843305beda06603acf6f01f8e"
+  },
+  {
+   "path": "public/js/app.js",
+   "sha256_c33": "f35217f689707bfc313d6341f6b9108feac30f112c9c29047c6e63ebb48ea689",
+   "sha256_c4": "e38c80b083a7113cffcfda6e50e862ccb1f0654acccbd030da0c7790323272a7"
+  },
+  {
+   "path": "public/js/migration-v2.js",
+   "sha256_c33": "8e8d5f090fc385feb5321dc2aca11096b79acf287f3c913ebcdb98efb163a461",
+   "sha256_c4": "ca9e5b52871e92fd5c5f4ae67370f7d0d2f74f35b923f7ff0bcfbb2ca072d138"
+  },
+  {
+   "path": "public/line-order.html",
+   "sha256_c33": "083215202e7815afa823390b710af0be7f3f897ee3c1e85691348bbcc1d462b4",
+   "sha256_c4": "822bb6bb9d37666c0fb0ce8319e04dfa09c9178f86f52a50a9f43e97135267a7"
+  },
+  {
+   "path": "routes/line-orders.js",
+   "sha256_c33": "e50fa50150039caef41b567f040273aa3a74343ebddce5e69fceddb1eba13a8e",
+   "sha256_c4": "7b463daecef65c4cb98e6b93bc1c8bf20e34d1bbd9963eee17c01606381ed818"
+  },
+  {
+   "path": "routes/product-demand.js",
+   "sha256_c33": "6da80511e33eb7f6e218d33babcb81a03e7bf361f686f096234ac7e17b43edf4",
+   "sha256_c4": "e430ca57dd2a7483b81408226b9a290c0ac22d871ab987a2c04a515dffcc3c30"
+  },
+  {
+   "path": "scripts/run-r54-4-mbv2-ui.js",
+   "sha256_c33": "64ab4f4e912ffbbd0e78a958d4f8878d19dbc7c83dcddaee21c7ce64af4c09c3",
+   "sha256_c4": "fa239c7a8c85033c9ed99ebd08c963976b14aedf3cf253b7731188a2ffd77297"
+  },
+  {
+   "path": "scripts/smoke-r54-4-mbv2-hf1-c3-1-backup-manage-login.js",
+   "sha256_c33": "afe22224e568c91a1a92b1dda9eba9e2e797c575375064060a36c48364721c6e",
+   "sha256_c4": "f4fd52619fe4f4ab33d1f087c6a8d7f99a1e2bae94da3d2ac142986db0916b20"
+  },
+  {
+   "path": "scripts/smoke-r54-4-mbv2-hf1-c3-2-firstpaint-remap.js",
+   "sha256_c33": "dc7dc2d0c9e1bf154c90456d8a531599cf5f43ebfb2b37ddc796eee0f71c7c9a",
+   "sha256_c4": "08ca7716c37d2b53c9d5049794810c28a386600158b14204a7c6d2ba2a83f125"
+  },
+  {
+   "path": "scripts/smoke-r54-4-mbv2-hf1-c3-sale-status-demand.js",
+   "sha256_c33": "9f66185da17ab43792253ef8e72839088d975d51244147feaed604c4c64533fb",
+   "sha256_c4": "298376a05077c96bfa98ffe16e39ad1501ecd8a26f63f4c60fcf05bc3bee04ba"
+  },
+  {
+   "path": "utils/db.js",
+   "sha256_c33": "66f8411e489cf6ed23fb36a59264a254a1f37d5f9a580c34ab5c82550cd6c2bb",
+   "sha256_c4": "64d97376bc2ca24a3b265f3bbc492a626c140ec723687344201f8348f7e22a86"
+  },
+  {
+   "path": "utils/linePush.js",
+   "sha256_c33": "eb642c4884b29244841c24395fa6c88f9f350ac28e7656b21200ce73cacbf877",
+   "sha256_c4": "d9b9656ebcd1b6f15079a647a4513caa2fd724af2d75ea668907bfede4d9bccc"
+  },
+  {
+   "path": "utils/migrationV2.js",
+   "sha256_c33": "5eecd3937bb0fba41a6289e354b50f35822771df7e12f6f095cd5c510f2c17f9",
+   "sha256_c4": "fd1909ad9fc89cdcf6c27f35e3a402669e8ad6ec9345320d6067c83986c1c91b"
+  },
+  {
+   "path": "utils/productDemand.js",
+   "sha256_c33": "f740a33ec8458ca752fd7e96570c7b9e40e3387448ea8e6cea7d7ad5d9eea302",
+   "sha256_c4": "59c2b74e195de157663ce44e4578e00722edce4297bbc91aa73c896d481ff8e4"
+  }
+ ],
+ "removed": [],
+ "note": "02_FILE_MANIFEST.json 本身與 00／01 文件不列出自身最終雜湊（避免自我參照）；ZIP 雜湊見交付說明。"
+}

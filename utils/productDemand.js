@@ -1,6 +1,6 @@
 // utils/productDemand.js — R54.4／MBV2-HF1-C3：商品「想買登記」（補貨需求登記基礎）
 //
-// 本輪範圍（只做登記，不發送任何通知）：
+// C3 範圍（只做登記，不發送任何通知）；C4 起通知發送見 utils/restockNotify.js：
 //   - 顧客以既有 LINE 會員登入（member_session，後端驗簽）登記想買份數與取餐偏好；
 //     不接受前端自行指定會員身分（line_user_id 只來自 verifyMemberSession）。
 //   - 同一店別、同一商品、同一會員在同一有效週期只保留一筆（status='active' 的部分唯一索引）；
@@ -23,16 +23,19 @@ const MAX_QTY = 99;
 const DEFAULT_TTL_DAYS = 30;
 const MIN_TTL_DAYS = 1;
 const MAX_TTL_DAYS = 180;
-// 本輪尚未接通 LINE 補貨通知。後續版本完成發送流程並驗收後才改為 true。
-const NOTIFY_CHANNEL_IMPLEMENTED = false;
-const CONSENT_TEXT_VERSION = 'restock-notify-v1';
+// R54.4／MBV2-HF1-C4：LINE 補貨通知發送流程已接通（utils/restockNotify.js：同意週期、資格檢查、
+// 批次、防重送、備份還原保護）。程式具備能力不等於可用：notify_available 仍須
+// 店家開啟 restock_notify_enabled（預設關閉）＋ LINE 權杖＋ LIFF 連結設定完整，由後端判定。
+const NOTIFY_CHANNEL_IMPLEMENTED = true;
+const CONSENT_TEXT_VERSION = 'restock-notify-c4-v1';
 const PREFS = ['takeout', 'delivery', 'any'];
 
 const SETTING_KEYS = {
   enabled: 'product_demand_enabled',            // '1'＝顯示想買登記入口（預設開啟）
   ttlDays: 'product_demand_ttl_days',           // 登記有效天數（預設 30）
-  notifyEnabled: 'product_demand_notify_enabled', // 店家意願；需程式能力同時具備才生效
+  notifyEnabled: 'product_demand_notify_enabled', // C3 舊鍵：C4 起不再作為發送開關（避免升級後自動啟用）
 };
+function RN() { return require('./restockNotify'); }
 
 // ── Schema（safe migration：只用 CREATE TABLE/INDEX IF NOT EXISTS、ALTER ADD COLUMN）──
 function migrate(raw) {
@@ -101,14 +104,17 @@ function clampTtl(v) {
 function getConfig(db, storeId) {
   const enabled = _setting(db, storeId, SETTING_KEYS.enabled, '1') === '1';
   const ttlDays = clampTtl(_setting(db, storeId, SETTING_KEYS.ttlDays, String(DEFAULT_TTL_DAYS)));
-  const notifySetting = _setting(db, storeId, SETTING_KEYS.notifyEnabled, '0') === '1';
+  const cap = RN().getCapability(db, storeId);
   return {
     enabled,
     ttl_days: ttlDays,
     max_qty: MAX_QTY,
     notify_channel_implemented: NOTIFY_CHANNEL_IMPLEMENTED,
-    notify_setting_enabled: notifySetting,
-    notify_available: NOTIFY_CHANNEL_IMPLEMENTED && notifySetting,
+    notify_setting_enabled: cap.send_enabled,
+    notify_config_complete: cap.config_complete,
+    notify_missing: cap.missing,
+    notify_available: NOTIFY_CHANNEL_IMPLEMENTED && enabled && cap.notify_available,
+    consent_text: cap.consent_text,
     consent_text_version: CONSENT_TEXT_VERSION,
   };
 }
@@ -166,10 +172,27 @@ function rowOut(r) {
   };
 }
 
-function consentStatusFor(db, storeId, lineUserId, productId) {
-  const c = db.get(`SELECT status FROM product_demand_consents WHERE store_id=? AND line_user_id=? AND product_id=?
-                    ORDER BY id DESC LIMIT 1`, [storeId, lineUserId, productId]);
-  return c ? c.status : 'none';
+// R54.4／MBV2-HF1-C4：通知同意綁定登記週期（request_uuid）。
+//   'granted'（本週期有效）｜'revoked'｜'reconfirm_required'（匯入或舊版，需顧客重新確認）｜'none'
+//   沒有 requestUuid（相容舊呼叫）時，取本人此商品目前有效週期。
+function consentStatusFor(db, storeId, lineUserId, productId, requestUuid) {
+  let ru = requestUuid;
+  if (ru == null) {
+    const r = db.get(`SELECT request_uuid FROM product_demand_requests WHERE store_id=? AND line_user_id=? AND product_id=? AND ${ACTIVE_WHERE}`,
+      [storeId, lineUserId, productId]);
+    if (!r) return 'none';
+    ru = r.request_uuid;
+  }
+  let c = db.get(`SELECT status, reconfirm_required FROM product_demand_consents WHERE store_id=? AND line_user_id=? AND product_id=? AND request_uuid=?
+                    ORDER BY id DESC LIMIT 1`, [storeId, lineUserId, productId, ru]);
+  if (!c) {
+    // 僅供「顯示」：C3 以前可能存在未綁定週期（request_uuid=''）的同意紀錄。沿用其狀態顯示
+    // （granted 一律顯示為需重新確認）；發送資格判斷（restockNotify.cycleConsent）永遠只認綁定本週期的同意。
+    const legacy = db.get(`SELECT status, 1 AS reconfirm_required FROM product_demand_consents WHERE store_id=? AND line_user_id=? AND product_id=? AND COALESCE(request_uuid,'')=''
+                           ORDER BY id DESC LIMIT 1`, [storeId, lineUserId, productId]);
+    if (legacy) c = legacy;
+  }
+  return RN().consentState(c);
 }
 
 // 本人有效登記（可指定商品）
@@ -191,7 +214,8 @@ function listMine(db, storeId, lineUserId, productId) {
       product_name: prod ? String(prod.line_name || prod.name || '') : String(r.product_name_snapshot || ''),
       can_modify: canModify,
       supported_prefs: visible ? supportedPrefs(prod) : [],
-      notify_consent: consentStatusFor(db, storeId, lineUserId, r.product_id),
+      notify_consent: consentStatusFor(db, storeId, lineUserId, r.product_id, r.request_uuid),
+      restock_notify: RN().requestNotifyState(db, storeId, r.request_uuid),
     });
   });
 }
@@ -239,18 +263,26 @@ function register(db, storeId, lineUserId, body) {
       [uuid, storeId, prod.id, String(prod.line_name || prod.name || ''), lineUserId, qty, pref, Number(cyc.n) || 1, `+${cfg.ttl_days} days`]);
       requestRow = db.get('SELECT * FROM product_demand_requests WHERE request_uuid=?', [uuid]);
     }
-    // 通知同意：只有後端判定通知可用時才可建立 granted；撤回永遠允許。
+    // R54.4／MBV2-HF1-C4：通知同意
+    //   - 只有後端判定通知可用時，且 body.notify_consent === true（顧客明確勾選）才建立 granted。
+    //   - 同意綁定本次登記週期 request_uuid；新週期不沿用上一週期的授權（上一週期的 granted 標示為 expired）。
+    //   - 本週期已有有效同意時再送 true＝不變（修改份數不會被當成重新同意，也不新增同意紀錄）。
+    //   - 撤回永遠允許，不受功能開關影響。
+    if (outcome === 'created') {
+      raw.run(`UPDATE product_demand_consents SET status='expired', ended_at=datetime('now'), updated_at=datetime('now')
+               WHERE store_id=? AND line_user_id=? AND product_id=? AND status='granted' AND request_uuid<>?`,
+      [storeId, lineUserId, prod.id, requestRow.request_uuid]);
+    }
     if (wantConsent && cfg.notify_available) {
-      const cur = db.get(`SELECT * FROM product_demand_consents WHERE store_id=? AND line_user_id=? AND product_id=? ORDER BY id DESC LIMIT 1`,
-        [storeId, lineUserId, prod.id]);
-      if (cur && cur.status === 'granted') {
-        if (cur.request_uuid !== requestRow.request_uuid) raw.run(`UPDATE product_demand_consents SET request_uuid=?, updated_at=datetime('now') WHERE id=?`, [requestRow.request_uuid, cur.id]);
-        consentOutcome = 'granted';
+      const cur = db.get(`SELECT * FROM product_demand_consents WHERE store_id=? AND line_user_id=? AND product_id=? AND request_uuid=?
+                          ORDER BY id DESC LIMIT 1`, [storeId, lineUserId, prod.id, requestRow.request_uuid]);
+      if (cur && cur.status === 'granted' && Number(cur.reconfirm_required) !== 1) {
+        consentOutcome = 'unchanged';
       } else {
         raw.run(`INSERT INTO product_demand_consents (consent_uuid, store_id, product_id, line_user_id, request_uuid, channel, status,
-                   consent_text_version, granted_at, created_at, updated_at)
-                 VALUES (?,?,?,?,?,'line','granted',?,datetime('now'),datetime('now'),datetime('now'))`,
-        [crypto.randomUUID(), storeId, prod.id, lineUserId, requestRow.request_uuid, CONSENT_TEXT_VERSION]);
+                   consent_text_version, consent_text, consent_source, granted_at, created_at, updated_at)
+                 VALUES (?,?,?,?,?,'line','granted',?,?,'customer_checkbox',datetime('now'),datetime('now'),datetime('now'))`,
+        [crypto.randomUUID(), storeId, prod.id, lineUserId, requestRow.request_uuid, CONSENT_TEXT_VERSION, cfg.consent_text || '']);
         consentOutcome = 'granted';
       }
     } else if (wantConsent && !cfg.notify_available) {
@@ -265,7 +297,8 @@ function register(db, storeId, lineUserId, body) {
   out.product_name = String(prod.line_name || prod.name || '');
   out.can_modify = true;
   out.supported_prefs = prefs;
-  out.notify_consent = consentStatusFor(db, storeId, lineUserId, prod.id);
+  out.notify_consent = consentStatusFor(db, storeId, lineUserId, prod.id, requestRow.request_uuid);
+  out.restock_notify = RN().requestNotifyState(db, storeId, requestRow.request_uuid);
   return { outcome, request: out, consent_outcome: consentOutcome, notify_available: cfg.notify_available };
 }
 
@@ -301,6 +334,7 @@ function revokeConsent(db, storeId, lineUserId, body) {
     changed = db._db.getRowsModified();
   });
   return { revoked: changed > 0, notify_consent: consentStatusFor(db, storeId, lineUserId, pid) };
+  // 撤回不改變「本週期已通知」的事實（restock_notify_deliveries 不受影響）
 }
 
 // ── 後台 ──────────────────────────────────────────────────────────────
@@ -350,7 +384,8 @@ function adminDetail(db, storeId, productId) {
       request_id: r.id, member: maskUid(r.line_user_id), member_display_name: r.member_display_name || '',
       desired_qty: Number(r.desired_qty), fulfillment_pref: r.fulfillment_pref, status: r.eff_status,
       created_at: r.created_at, updated_at: r.updated_at, expires_at: r.expires_at, cancelled_at: r.cancelled_at || '',
-      notify_consent: consentStatusFor(db, storeId, r.line_user_id, pid),
+      notify_consent: consentStatusFor(db, storeId, r.line_user_id, pid, r.request_uuid),
+      restock_notify: RN().requestNotifyState(db, storeId, r.request_uuid),
     })),
   };
 }
@@ -371,7 +406,8 @@ function setSettings(db, storeId, body) {
     if (!Number.isFinite(n) || n < MIN_TTL_DAYS || n > MAX_TTL_DAYS) throw new DemandError('INVALID_TTL', `有效天數須為 ${MIN_TTL_DAYS}～${MAX_TTL_DAYS}`, 400);
     upd[SETTING_KEYS.ttlDays] = String(n);
   }
-  if (body.notify_enabled !== undefined) upd[SETTING_KEYS.notifyEnabled] = body.notify_enabled === true || body.notify_enabled === 1 || body.notify_enabled === '1' ? '1' : '0';
+  // C4：補貨通知發送開關寫入 restock_notify_enabled（C3 舊鍵 product_demand_notify_enabled 不再生效）
+  if (body.notify_enabled !== undefined) upd[RN().SEND_SETTING_KEY] = body.notify_enabled === true || body.notify_enabled === 1 || body.notify_enabled === '1' ? '1' : '0';
   db.runDurableTransaction(() => {
     for (const [k, v] of Object.entries(upd)) {
       db._db.run('INSERT OR REPLACE INTO settings (store_id, key, value) VALUES (?,?,?)', [storeId, k, v]);

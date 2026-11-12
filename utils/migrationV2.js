@@ -66,6 +66,12 @@ const CATEGORY_DEFS = [
     desc: '顧客的商品想買登記（期望份數、取餐偏好、有效期限、狀態）與另外記錄的補貨通知同意；匯入不會發送任何通知',
     tables: ['product_demand_requests', 'product_demand_consents'],
     recommends: ['products', 'line_members'], history: false, dateFilter: false },
+  // R54.4／MBV2-HF1-C4：LINE 補貨通知紀錄（批次、逐筆受理紀錄與執行狀態）。屬防重歷史：
+  // 匯入只合併、不會清除現有紀錄（完整取代也不清除），未完成的工作一律暫停，匯入不發送任何通知。
+  { key: 'restock_notify', label: '補貨通知紀錄', fileTag: 'restock_notify',
+    desc: '店家手動補貨通知的批次、逐筆 LINE 已受理紀錄（防重依據）與待發送／發送中／待重試／結果不明等執行狀態；匯入後未完成工作一律暫停，不會自動發送',
+    tables: ['restock_notify_batches', 'restock_notify_deliveries'],
+    recommends: ['product_demand', 'products'], history: true, dateFilter: false },
   { key: 'analytics', label: 'Analytics 事件', fileTag: 'analytics',
     desc: '商品曝光、加購、結帳、轉換等事件，以及訪客地理紀錄', tables: ['analytics_events', 'geo_visit_log'],
     recommends: [], history: true, dateFilter: true },
@@ -397,6 +403,10 @@ function collectExport(raw, storeId, categories, filters, onRow) {
     simple('product_demand_requests', 'store_id=?', [storeId], 'id ASC');
     simple('product_demand_consents', 'store_id=?', [storeId], 'id ASC');
   }
+  if (sel.has('restock_notify')) {
+    simple('restock_notify_batches', 'store_id=?', [storeId], 'id ASC');
+    simple('restock_notify_deliveries', 'store_id=?', [storeId], 'id ASC');
+  }
   if (sel.has('analytics')) {
     const f = filters.analytics || null;
     simple('analytics_events', 'store_id=?', [storeId], 'id ASC', (r) => {
@@ -523,6 +533,39 @@ function buildExportChunks(db, storeId, opts) {
   return { header, chunks, fileName: exportFileName(storeId, categories, filters, backupType, now), backupType, categories, filters };
 }
 
+// R54.4／MBV2-HF1-C4：補貨通知相關分類在預覽中分開顯示三種內容
+//   需求與同意歷史／批次及已受理紀錄／待發送、發送中、待重試、結果不明等執行狀態
+function categoryBreakdown(raw, storeId, key) {
+  const c = (sql) => { try { const r = rawGet(raw, sql, [storeId]); return r ? Number(r.c) || 0 : 0; } catch { return 0; } };
+  if (key === 'product_demand' && tableExists(raw, 'product_demand_requests')) {
+    return {
+      kind: 'demand_consent_history',
+      requests: c('SELECT COUNT(*) AS c FROM product_demand_requests WHERE store_id=?'),
+      active_requests: c("SELECT COUNT(*) AS c FROM product_demand_requests WHERE store_id=? AND status='active' AND expires_at > datetime('now')"),
+      consents: tableExists(raw, 'product_demand_consents') ? c('SELECT COUNT(*) AS c FROM product_demand_consents WHERE store_id=?') : 0,
+      granted_consents: tableExists(raw, 'product_demand_consents') ? c("SELECT COUNT(*) AS c FROM product_demand_consents WHERE store_id=? AND status='granted'") : 0,
+      note: '匯入的通知同意只保留歷史；在本環境重新發送前，須由顧客重新確認',
+    };
+  }
+  if (key === 'restock_notify' && tableExists(raw, 'restock_notify_batches') && tableExists(raw, 'restock_notify_deliveries')) {
+    return {
+      kind: 'restock_notify_history',
+      batches: c('SELECT COUNT(*) AS c FROM restock_notify_batches WHERE store_id=?'),
+      accepted_records: c("SELECT COUNT(*) AS c FROM restock_notify_deliveries WHERE store_id=? AND status='accepted'"),
+      dedupe_claims: c('SELECT COUNT(*) AS c FROM restock_notify_deliveries WHERE store_id=? AND claim=1'),
+      execution_states: {
+        pending: c("SELECT COUNT(*) AS c FROM restock_notify_deliveries WHERE store_id=? AND status='pending'"),
+        sending: c("SELECT COUNT(*) AS c FROM restock_notify_deliveries WHERE store_id=? AND status='sending'"),
+        retry_wait: c("SELECT COUNT(*) AS c FROM restock_notify_deliveries WHERE store_id=? AND status='retry_wait'"),
+        held: c("SELECT COUNT(*) AS c FROM restock_notify_deliveries WHERE store_id=? AND status='held'"),
+        unknown: c("SELECT COUNT(*) AS c FROM restock_notify_deliveries WHERE store_id=? AND status='unknown'"),
+      },
+      note: '匯入只合併不清除；未完成的工作匯入後一律暫停，不會自動發送',
+    };
+  }
+  return null;
+}
+
 // 匯出前預覽：每個分類的筆數、依實際資料抽樣估算的大小、是否含圖片／歷史、建議一起匯出的分類
 function exportPreview(db, storeId, opts = {}) {
   const raw = db._db;
@@ -563,6 +606,7 @@ function exportPreview(db, storeId, opts = {}) {
     }
     out.push({
       key: def.key, label: def.label, desc: def.desc, tables,
+      breakdown: categoryBreakdown(raw, storeId, def.key),
       rows: totalRows,
       estimated_bytes: estimable ? estBytes : null,
       includes_images: def.key === 'products' ? images : null,
@@ -683,7 +727,7 @@ function inspectPayload(payload) {
 const IGNORE_COMPARE = {
   _all: ['id', 'store_id', 'updated_at'],
   orders: ['sync_status', 'webhook_sent'],
-  products: ['current_stock_grams', 'total_stock_grams', 'allocated_grams', 'line_quota_sold', 'line_preorder_sold', 'category_id', 'line_category_id'],
+  products: ['current_stock_grams', 'total_stock_grams', 'allocated_grams', 'line_quota_sold', 'line_preorder_sold', 'category_id', 'line_category_id', 'product_uuid'],
   ingredients: ['total_stock', 'frozen_stock', 'thawing_stock', 'refrigerated_stock', 'scrapped_total'],
   line_members: ['last_seen_at', 'last_login_at', 'order_count', 'total_spent', 'lifetime_value', 'last_order_at', 'last_purchase_at',
     'last_friend_check', 'last_friend_check_at', 'first_product_id', 'merged_into_id', 'is_friend', 'is_blocked', 'friend_status',
@@ -965,6 +1009,13 @@ function stepProducts(ctx) {
       }
       return { values: v };
     },
+    // R54.4／MBV2-HF1-C4：商品穩定識別（product_uuid）在同店必須唯一；已被占用時不沿用（之後自動補發新識別）
+    beforeInsert: (ins) => {
+      if (ins.product_uuid != null && ins.product_uuid !== '' && ctx.colSet('products').set.has('product_uuid')) {
+        if (rawGet(ctx.raw, 'SELECT 1 AS x FROM products WHERE store_id=? AND product_uuid=?', [ctx.storeId, String(ins.product_uuid)])) ins.product_uuid = null;
+      }
+      return null;
+    },
     onAdded: (row, id) => { if (row.id != null) ctx.maps.product.set(String(row.id), id); },
     onExisting: (row, v, ex) => { if (row.id != null) ctx.maps.product.set(String(row.id), typeof ex === 'object' ? ex.id : ex); },
   });
@@ -1231,10 +1282,85 @@ function stepProductDemand(ctx) {
       if (!r.consent_uuid) return { invalid: '缺少 consent_uuid' };
       const p = ctx.resolveProduct(r.product_id);
       const v = { ...r, line_user_id: lu, product_id: p };
+      // R54.4／MBV2-HF1-C4：匯入來源的同意只保留歷史；在本環境重新發送前須由顧客重新確認。
+      // 既有同 uuid 的同意（例如目前已撤回）不會被備份覆蓋（skip 跳過、merge 欄位不同即衝突不動）。
+      if (ctx.colSet('product_demand_consents').set.has('reconfirm_required')) {
+        v.reconfirm_required = 1;
+        v.import_source = importSourceTag(ctx);
+      }
       if (p == null) return { missing: `找不到通知同意對應的商品（${r.product_id}）`, values: v };
       return { values: v };
     },
   });
+}
+
+// R54.4／MBV2-HF1-C4：補貨通知紀錄。只合併（appendOnly：同 uuid 已存在即跳過），不覆蓋現有紀錄；
+//   - 商品以 ref_maps／名稱快照重新對應；無法唯一對應時 product_id=0（未連結），絕不指向另一款商品。
+//   - 未完成的批次一律改為 paused（pause_reason='imported'），未完成的逐筆紀錄改為 held／unknown，
+//     必須由店家在本環境明確續送；匯入本身不呼叫任何推播。
+//   - 防重名額（claim=1）保留；目標店同一登記週期已有名額時，匯入列只保留為歷史（claim=NULL）。
+function importSourceTag(ctx) {
+  const src = String(ctx.info.source_store_id || '').slice(0, 40);
+  const at = String(ctx.info.exported_at || '').slice(0, 40);
+  return `import:${src}@${at}`;
+}
+const RESTOCK_OPEN_DELIVERY = new Set(['pending', 'sending', 'retry_wait', 'held']);
+const RESTOCK_OPEN_BATCH = new Set(['previewed', 'sending', 'paused']);
+function stepRestockNotify(ctx) {
+  const tag = importSourceTag(ctx);
+  const mapProduct = (r) => {
+    const p = ctx.resolveProduct(r.product_id, r.product_name_snapshot ? { name: r.product_name_snapshot } : null);
+    return p == null ? 0 : p;
+  };
+  const batchProduct = new Map(); // batch_uuid → product_id（逐筆沿用批次的對應結果）
+  importTable(ctx, { table: 'restock_notify_batches', cat: 'restock_notify', rows: ctx.rows('restock_notify_batches'), idMode: 'int', appendOnly: true,
+    keyOf: r => (r.batch_uuid ? k(r.batch_uuid) : null),
+    transform: r => {
+      if (!r.batch_uuid) return { invalid: '缺少 batch_uuid' };
+      const v = { ...r, product_id: mapProduct(r), import_source: tag };
+      if (RESTOCK_OPEN_BATCH.has(String(r.status))) { v.status = r.status === 'previewed' ? 'expired' : 'paused'; v.pause_reason = 'imported'; }
+      batchProduct.set(String(r.batch_uuid), v.product_id);
+      return { values: v };
+    },
+  });
+  for (const r of ctx.rows('restock_notify_batches')) {
+    if (r && r.batch_uuid && !batchProduct.has(String(r.batch_uuid))) batchProduct.set(String(r.batch_uuid), mapProduct(r));
+  }
+  importTable(ctx, { table: 'restock_notify_deliveries', cat: 'restock_notify', rows: ctx.rows('restock_notify_deliveries'), idMode: 'int', appendOnly: true,
+    keyOf: r => (r.delivery_uuid ? k(r.delivery_uuid) : null),
+    transform: r => {
+      if (!r.delivery_uuid || !r.request_uuid || !r.batch_uuid) return { invalid: '缺少 delivery_uuid／request_uuid／batch_uuid' };
+      let pid = batchProduct.has(String(r.batch_uuid)) ? batchProduct.get(String(r.batch_uuid)) : null;
+      if (pid == null) {
+        const ex = rawGet(ctx.raw, 'SELECT product_id FROM restock_notify_batches WHERE store_id=? AND batch_uuid=?', [ctx.storeId, r.batch_uuid]);
+        pid = ex ? Number(ex.product_id) : 0;
+      }
+      const v = { ...r, product_id: pid, import_source: tag };
+      if (RESTOCK_OPEN_DELIVERY.has(String(r.status))) {
+        // 曾交給 LINE 的（attempt_count>0）可能已受理 → 結果待確認；從未嘗試 → 暫停待續送
+        v.status = Number(r.attempt_count) > 0 ? 'unknown' : 'held';
+        v.error_code = 'imported_unfinished';
+        v.next_attempt_at = null;
+      }
+      return { values: v };
+    },
+    beforeInsert: (ins) => {
+      if (Number(ins.claim) === 1) {
+        const ex = rawGet(ctx.raw, 'SELECT 1 AS x FROM restock_notify_deliveries WHERE store_id=? AND request_uuid=? AND claim=1', [ctx.storeId, ins.request_uuid]);
+        if (ex) ins.claim = null; // 目標店已有此週期的名額，匯入列只當歷史
+      }
+      if (ins.retry_key) {
+        const ex = rawGet(ctx.raw, 'SELECT 1 AS x FROM restock_notify_deliveries WHERE retry_key=?', [ins.retry_key]);
+        if (ex) { ins.retry_key = null; if (RESTOCK_OPEN_DELIVERY.has(String(ins.status)) || ins.status === 'held') ins.status = 'unknown'; }
+      }
+      const dupe = rawGet(ctx.raw, 'SELECT 1 AS x FROM restock_notify_deliveries WHERE batch_uuid=? AND request_uuid=?', [ins.batch_uuid, ins.request_uuid]);
+      if (dupe) return { missing: '同一批次已有此登記週期的紀錄，保留現有紀錄' };
+      return null;
+    },
+  });
+  // R54.4／MBV2-HF1-C4.1：匯入的已受理證據即使因本地已有名額而成為 claim=NULL，也必須生效——
+  // 同一交易內把本店同週期尚未完成的本地工作停止並標示「本週期已通知」（預覽匯入會一併回滾）。
+  require('./restockNotify').blockConflictsRaw(ctx.raw, ctx.storeId);
 }
 
 const LOGIN_EVENTS = new Set(['line_login_success', 'line_login_failed', 'line_verify_success', 'line_verify_failed']);
@@ -1436,6 +1562,39 @@ function remapPreservedDemand(raw, storeId, snap) {
   return changes;
 }
 
+// R54.4／MBV2-HF1-C4：補貨通知紀錄永遠不被清除（防重歷史），完整取代重建商品時需重新對應其商品關聯。
+//   與想買登記相同的唯一識別規則（條碼恰 1 筆 → 名稱恰 1 筆），但歷史紀錄無法唯一對應時不拒絕整次匯入，
+//   而是改為 product_id=0（未連結），絕不指向另一款商品；防重依據（request_uuid／claim）不受影響。
+function snapshotPreservedRestock(raw, storeId) {
+  if (!tableExists(raw, 'restock_notify_batches') || !tableExists(raw, 'restock_notify_deliveries')) return null;
+  const batches = rawAll(raw, 'SELECT id, product_id, product_name_snapshot FROM restock_notify_batches WHERE store_id=?', [storeId]);
+  const dels = rawAll(raw, 'SELECT id, product_id FROM restock_notify_deliveries WHERE store_id=?', [storeId]);
+  if (!batches.length && !dels.length) return null;
+  const ident = new Map();
+  for (const pid of new Set([...batches, ...dels].map(r => Number(r.product_id)).filter(x => x > 0))) {
+    const cur = rawGet(raw, 'SELECT id, name, product_barcode FROM products WHERE id=? AND store_id=?', [pid, storeId]);
+    const snap = batches.find(b => Number(b.product_id) === pid && b.product_name_snapshot);
+    ident.set(pid, { name: cur ? String(cur.name || '') : (snap ? String(snap.product_name_snapshot) : ''), barcode: cur && cur.product_barcode ? String(cur.product_barcode) : '' });
+  }
+  return { batches, dels, ident };
+}
+function remapPreservedRestock(raw, storeId, snap) {
+  const prods = rawAll(raw, 'SELECT id, name, product_barcode FROM products WHERE store_id=?', [storeId]);
+  const map = new Map();
+  const out = [];
+  for (const [pid, it] of snap.ident) {
+    let cand = [];
+    if (it.barcode) cand = prods.filter(p => p.product_barcode && String(p.product_barcode) === it.barcode);
+    if (!cand.length && it.name) cand = prods.filter(p => String(p.name || '') === it.name);
+    const to = cand.length === 1 ? Number(cand[0].id) : 0;
+    map.set(pid, to);
+    out.push({ from: pid, to, kind: 'restock_history', unlinked: to === 0 });
+  }
+  for (const b of snap.batches) { const to = Number(b.product_id) > 0 ? map.get(Number(b.product_id)) : 0; if (to !== Number(b.product_id)) raw.run('UPDATE restock_notify_batches SET product_id=? WHERE id=?', [to, b.id]); }
+  for (const d of snap.dels) { const to = Number(d.product_id) > 0 ? map.get(Number(d.product_id)) : 0; if (to !== Number(d.product_id)) raw.run('UPDATE restock_notify_deliveries SET product_id=? WHERE id=?', [to, d.id]); }
+  return out;
+}
+
 function executeImport(db, storeId, payload, info, opts) {
   const { mode, categories, cross } = validateImportOptions(info, storeId, opts);
   const dryRun = !!opts.dryRun;
@@ -1453,6 +1612,8 @@ function executeImport(db, storeId, payload, info, opts) {
     // R54.4／MBV2-HF1-C3.1：完整取代會重建商品、但不會清除想買登記時，先記下商品識別
     const demandSnap = (mode === 'replace' && categories.includes('products') && !categories.includes('product_demand'))
       ? snapshotPreservedDemand(r, storeId) : null;
+    // R54.4／MBV2-HF1-C4：補貨通知紀錄不會被清除 → 只要完整取代重建商品，就要重新對應
+    const restockSnap = (mode === 'replace' && categories.includes('products')) ? snapshotPreservedRestock(r, storeId) : null;
     if (mode === 'replace') {
       for (const name of purgeTablesFor(categories)) {
         const pc = purgeCount(r, storeId, name);
@@ -1474,11 +1635,13 @@ function executeImport(db, storeId, payload, info, opts) {
     if (c.has('line_members')) stepMembers(ctx);
     if (c.has('member_history')) stepMemberHistory(ctx);
     if (c.has('product_demand')) stepProductDemand(ctx);
+    if (c.has('restock_notify')) stepRestockNotify(ctx);
     if (c.has('analytics')) stepAnalytics(ctx);
     if (c.has('settings')) stepSettings(ctx);
     ctx.freeStatements();
     // R54.4／MBV2-HF1-C3.1：商品已依備份重建 → 重新對應保留的登記／同意（無法唯一對應即拋錯回滾）
     const demandRemap = demandSnap ? remapPreservedDemand(r, storeId, demandSnap) : [];
+    if (restockSnap) demandRemap.push(...remapPreservedRestock(r, storeId, restockSnap));
 
     // 交易內核對：每張表 匯入後筆數 − 匯入前筆數（扣除清除筆數）＝ 新增筆數
     const verification = [];

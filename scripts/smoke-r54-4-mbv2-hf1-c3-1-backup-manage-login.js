@@ -254,8 +254,10 @@ async function replaceImportFormal(ctx, buf, cats) {
         assert(s701.active_users === 2 && s701.total_qty === 6 && s801.active_users === 0 && s801.total_qty === 0, `${tag}：後台統計 701 有效 2 人、6 份；801 為 0`, JSON.stringify({ s701, s801 }));
         const mA = (await pub(T, 'POST', '/api/product-demand/mine', { member_session: session(STORE, UA) })).json.data;
         const mB = (await pub(T, 'POST', '/api/product-demand/mine', { member_session: session(STORE, UB) })).json.data;
-        assert(mA.length === 1 && mA[0].product_id === 701 && mA[0].product_name === PNAME && mA[0].desired_qty === 4 && mA[0].notify_consent === 'granted' && mB.length === 1 && mB[0].product_id === 701 && mB[0].desired_qty === 2 && mB[0].notify_consent === 'revoked',
-          `${tag}：顧客本人查詢：A 701/${PNAME}/4 份/已同意；B 701/2 份/已撤回`, JSON.stringify({ mA, mB }));
+        // R54.4／MBV2-HF1-C4 調整：A 的同意是以 C3 版本（restock-notify-v1）建立並經備份匯入 → C4 規則下保留歷史但需顧客重新確認
+        // （reconfirm_required，不可直接作為發送授權）。其餘條件（商品重新對應 701、名稱、份數、B 已撤回）不變。
+        assert(mA.length === 1 && mA[0].product_id === 701 && mA[0].product_name === PNAME && mA[0].desired_qty === 4 && mA[0].notify_consent === 'reconfirm_required' && mB.length === 1 && mB[0].product_id === 701 && mB[0].desired_qty === 2 && mB[0].notify_consent === 'revoked',
+          `${tag}：顧客本人查詢：A 701/${PNAME}/4 份/同意保留但需重新確認；B 701/2 份/已撤回`, JSON.stringify({ mA, mB }));
         const pushAfter = fs.readFileSync(PUSH_FILE, 'utf8').split('\n').filter(Boolean).length;
         assert(pushAfter === pushBefore, `${tag}：匯入未觸發任何 LINE 推播`, String(pushAfter - pushBefore));
         await safeStop(T.s);

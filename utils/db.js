@@ -2737,6 +2737,17 @@ function initTables(w) {
   // 與 products.demand_collect_enabled。additive、idempotent；失敗只記錄、不阻擋開機。
   try { require('./productDemand').migrate(w._db); w._save(); }
   catch (e) { console.warn('[DB] product_demand migration:', e.message); }
+  // R54.4／MBV2-HF1-C4：LINE 補貨通知（restock_notify_batches／restock_notify_deliveries、
+  // products.product_uuid、通知同意補欄位）。additive、idempotent。
+  // 啟動時只把「上次中斷的發送」改為待店家確認（sending→unknown、批次→paused），不會自動發送。
+  try {
+    const RN = require('./restockNotify');
+    RN.migrate(w._db);
+    const rec = RN.recoverInterruptedOnBoot(w._db);
+    if (rec.deliveries || rec.batches) console.warn(`[DB] restock_notify: 上次中斷的發送已暫停待確認（逐筆 ${rec.deliveries}、批次 ${rec.batches}），不會自動續送`);
+    if (rec.conflicts) console.warn(`[DB] restock_notify: ${rec.conflicts} 筆尚未完成的通知因同週期已有 LINE 已受理紀錄而停止（本週期已通知）`);
+    w._save();
+  } catch (e) { console.warn('[DB] restock_notify migration:', e.message); }
 }
 
 

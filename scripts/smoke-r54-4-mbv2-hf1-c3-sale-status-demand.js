@@ -555,8 +555,12 @@ function checkManualExpect(name, st, ss) {
         const btn = await L.page.textContent(`#pc-${PID} .demand-btn`);
         await L.page.click(`#pc-${PID} .demand-btn`); await sleep(400);
         const ui = await L.page.evaluate(() => ({ title: document.getElementById('dmTitle')?.textContent, desc: document.querySelector('#demandPanel .dm-desc')?.textContent, consentChecked: document.getElementById('dmConsent')?.checked, consentText: document.querySelector('.dm-consent span')?.textContent, submit: document.getElementById('dmSubmit')?.textContent, disc: document.getElementById('dmDisclaimer')?.textContent }));
-        assert(btn === '🔔 補貨通知我' && ui.title === '想買幾份？開放訂購時通知你' && ui.desc === '登記後，商品開放訂購時將透過 LINE 通知你一次。補貨時間尚未確定。' && ui.consentChecked === false && ui.consentText === '我同意透過 LINE 接收本次商品的補貨通知。' && ui.submit === '確認登記' && ui.disc === '登記不代表訂單成立，也不保留商品，實際供應以訂購時為準。',
-          'U14 通知模式（僅在後端回報可用時）：按鈕／標題／說明／同意（預設不勾）／確認登記／免責文案', JSON.stringify({ btn, ui }));
+        // R54.4／MBV2-HF1-C4 調整（文案依 C4 規格改變，條件不放寬）：同意文字改為「商品恢復供應或開放預購時，透過 LINE 通知我。」；
+        // 未勾選時送出按鈕為「送出想買登記」（勾選後才是「登記並訂閱通知」，見 C4 驗收 L7）；標題沿用一般登記標題；
+        // 仍檢查：入口按鈕、勾選預設未勾選、免責文案、不得出現「補貨立即通知我」「登記補貨需求」。
+        const panelText = await L.page.evaluate(() => document.getElementById('demandPanel')?.innerText || '');
+        assert(btn === '🔔 補貨通知我' && ui.title === '這款商品，你想買幾份？' && ui.desc === '留下想買的數量與取餐偏好。若勾選下方通知，商品恢復供應或開放預購時，會透過 LINE 通知你一次。補貨時間尚未確定。' && ui.consentChecked === false && ui.consentText === '商品恢復供應或開放預購時，透過 LINE 通知我。' && ui.submit === '送出想買登記' && ui.disc === '登記不代表訂單成立，也不保留商品，實際供應以訂購時為準。' && !/補貨立即通知我|登記補貨需求/.test(panelText),
+          'U14 通知模式（僅在後端回報可用時）：按鈕／標題／說明／同意（預設不勾）／送出想買登記／免責文案（C4 文案）', JSON.stringify({ btn, ui }));
         await L.context.close();
       }
       // 入口規則：今日完售可預購 → 不顯示；預購已滿 → 顯示；正常販售有份數 → 不顯示；正常販售今日份數用完且預購已滿 → 顯示

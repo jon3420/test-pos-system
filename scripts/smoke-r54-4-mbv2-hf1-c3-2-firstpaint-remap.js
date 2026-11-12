@@ -311,9 +311,10 @@ const LIFF_SEED = (db) => {
         const mB = (await pub(T, 'POST', '/api/product-demand/mine', { member_session: session(STORE, UB) })).json.data;
         const mD = (await pub(T, 'POST', '/api/product-demand/mine', { member_session: session(STORE, UD) })).json.data;
         const fa = (pid) => mA.find((x) => x.product_id === pid) || {};
-        assert(mA.length === 2 && fa(701).product_name === PNAME && fa(701).desired_qty === 4 && fa(701).fulfillment_pref === 'takeout' && fa(701).notify_consent === 'granted'
+        // R54.4／MBV2-HF1-C4 調整：A 的同意為 C3 版本（restock-notify-v1）且經匯入 → 需顧客重新確認（reconfirm_required）；其餘條件不變。
+        assert(mA.length === 2 && fa(701).product_name === PNAME && fa(701).desired_qty === 4 && fa(701).fulfillment_pref === 'takeout' && fa(701).notify_consent === 'reconfirm_required'
           && fa(801).product_name === PNAME2 && fa(801).desired_qty === 2 && fa(801).fulfillment_pref === 'delivery' && mB.length === 1 && mB[0].product_id === 801 && mB[0].product_name === PNAME2 && mB[0].notify_consent === 'revoked' && mD.length === 0,
-          'X1-7 互換：本人查詢 A＝招牌飯 4 份(外帶,已同意)＋對照湯 2 份(外送)；B＝對照湯 5 份(已撤回)；D 過期不顯示', JSON.stringify({ mA, mB, mD }));
+          'X1-7 互換：本人查詢 A＝招牌飯 4 份(外帶,同意需重新確認)＋對照湯 2 份(外送)；B＝對照湯 5 份(已撤回)；D 過期不顯示', JSON.stringify({ mA, mB, mD }));
         assert(fs.readFileSync(PUSH_FILE, 'utf8').split('\n').filter(Boolean).length === pushBefore, 'X1-8 互換：未觸發任何推播', '');
         await safeStop(T.s);
       }
