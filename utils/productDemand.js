@@ -151,14 +151,14 @@ function loadEligibleProduct(db, storeId, productId) {
   if (!prod) throw new DemandError('PRODUCT_NOT_FOUND', '商品不存在', 404);
   if (Number(prod.enabled) !== 1 || Number(prod.show_on_line ?? 1) !== 1) throw new DemandError('PRODUCT_NOT_AVAILABLE', '此商品目前未在 LINE 點餐頁提供', 404);
   if (!supportedPrefs(prod).length) throw new DemandError('PRODUCT_NOT_AVAILABLE', '此商品目前未在 LINE 點餐頁提供', 404);
-  if (Number(prod.demand_collect_enabled ?? 1) === 0) throw new DemandError('COLLECT_DISABLED', '此商品目前未開放想買登記', 403);
+  if (Number(prod.demand_collect_enabled ?? 1) === 0) throw new DemandError('COLLECT_DISABLED', '此商品目前未開放補貨登記', 403);
   return prod;
 }
 
 function parseQty(v) {
   if (typeof v === 'string' && /^\d+$/.test(v.trim())) v = Number(v.trim());
   if (typeof v !== 'number' || !Number.isInteger(v) || v < 1 || v > MAX_QTY) {
-    throw new DemandError('INVALID_QTY', `想買份數須為 1～${MAX_QTY} 的整數`, 400);
+    throw new DemandError('INVALID_QTY', `登記份數須為 1～${MAX_QTY} 的整數`, 400);
   }
   return v;
 }
@@ -223,7 +223,7 @@ function listMine(db, storeId, lineUserId, productId) {
 // 新增或更新本人登記（同一有效週期只有一筆）
 function register(db, storeId, lineUserId, body) {
   const cfg = getConfig(db, storeId);
-  if (!cfg.enabled) throw new DemandError('FEATURE_DISABLED', '目前未開放想買登記', 403);
+  if (!cfg.enabled) throw new DemandError('FEATURE_DISABLED', '目前未開放補貨登記', 403);
   const prod = loadEligibleProduct(db, storeId, body.product_id);
   const qty = parseQty(body.desired_qty);
   const prefs = supportedPrefs(prod);

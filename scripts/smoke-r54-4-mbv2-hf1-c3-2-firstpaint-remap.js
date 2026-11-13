@@ -456,7 +456,7 @@ const LIFF_SEED = (db) => {
       { await patchProduct(C, { sale_status: 'available' }, PID);
         const L = await openF({ sdk: 'fake', pending: true, member: sessVal(session(STORE, UB)) }); await sleep(2500);
         const r = await L.page.evaluate(([pk]) => ({ opens: window.__pdOpens, pending: !!sessionStorage.getItem(pk), toast: (document.getElementById('toast') || {}).textContent || '' }), [PKEY]);
-        assert(r.opens === 0 && r.pending && /未開放想買登記/.test(r.toast), 'F5-3 導回時商品已恢復販售：不開表單、不消耗待恢復紀錄、提示顧客', JSON.stringify(r));
+        assert(r.opens === 0 && r.pending && /未開放補貨登記/.test(r.toast) /* C4.2 文案 */, 'F5-3 導回時商品已恢復販售：不開表單、不消耗待恢復紀錄、提示顧客', JSON.stringify(r));
         await L.context.close();
         await patchProduct(C, { sale_status: 'paused' }, PID); }
       // F6 Recovery：身分未確認前鎖住購物車與送單、不呼叫還原 API；Gate 完成（驗證被拒）後解鎖，不覆蓋購物車

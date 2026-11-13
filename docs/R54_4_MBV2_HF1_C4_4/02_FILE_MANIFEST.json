@@ -1,0 +1,55 @@
+{
+ "release": "R54.4／MBV2-HF1-C4.4",
+ "package": "P3CD_DEPLOY_R54_4_MBV2_HF1_C4_4_DEMAND_MUTATION_RESPONSE_FIX_APP_ROOT.zip",
+ "baseline": {
+  "sha256": "a5da4ca7158d4ecdd267d655e6fd603d2d7405c294384cf32bf164bc67c0a29e",
+  "files": 930,
+  "zip_entries": 967
+ },
+ "counts": {
+  "added": 4,
+  "modified": 1,
+  "removed": 0,
+  "files_total": 934
+ },
+ "schema_changes": "none",
+ "new_settings": "none",
+ "api_changes": "none",
+ "backend_changes": "none",
+ "excluded": [
+  "node_modules",
+  "*.db",
+  "uploads",
+  "qa-screenshots",
+  ".env",
+  "憑證／權杖",
+  "測試產物"
+ ],
+ "added": [
+  {
+   "path": "docs/R54_4_MBV2_HF1_C4_4/00_FINAL_REPORT.md",
+   "sha256": "5bbcab9ffbb30747ab63275fa5cc3962b6ddfe04395e16900b9a0a692ad7df7c"
+  },
+  {
+   "path": "docs/R54_4_MBV2_HF1_C4_4/01_TEST_RESULTS.json",
+   "sha256": "74d41845f4383725fe0499ff719d44b9b2304b70e870378fc2dacf1f028e587e"
+  },
+  {
+   "path": "scripts/smoke-r54-4-mbv2-hf1-c4-4-mutation-response.js",
+   "sha256": "0cff04ef470d298c7b5b245635a194eea2495b5b587febbf39a2955769ec4753"
+  },
+  {
+   "path": "docs/R54_4_MBV2_HF1_C4_4/02_FILE_MANIFEST.json",
+   "sha256": "(本檔)"
+  }
+ ],
+ "modified": [
+  {
+   "path": "public/line-order.html",
+   "sha256_c43": "ec6c6274e8325055892feee766ff6dcfc23427722cb3c446a95ccf188c1c74df",
+   "sha256_c44": "f2234e56a596c77cdbd91ab907edd22e0ce84f0eecf544781c3eba17a4ec718b"
+  }
+ ],
+ "removed": [],
+ "candidate_zip_sha256": "ac6be2edbea7cadd2a1afabcb0dc1257705f7c0eddca94f9517395e08bc87ab8"
+}

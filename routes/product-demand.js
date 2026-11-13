@@ -15,6 +15,7 @@
 //   GET   /products/:id              單一商品登記明細
 //   PATCH /products/:id/collect      個別商品開關需求收集 { enabled }
 //   PATCH /settings                  { enabled, ttl_days, notify_enabled }
+//   GET   /snapshot[?product_id=]    （C4.2）唯讀整合：總表＋通知能力＋（選定商品）明細與批次，同一資料時點
 //
 // R54.4／MBV2-HF1-C4 補貨通知（同一個 adminRouter，沿用 requireStaffJwt＋line_order；store 只信任 JWT）：
 //   GET   /restock/capability                 通知能力、必要設定是否完整、啟用狀態
@@ -103,6 +104,28 @@ adminRouter.get('/summary', (req, res) => {
 adminRouter.get('/products/:id', (req, res) => {
   try { res.json({ success: true, data: PD.adminDetail(getDb(), req.storeId, req.params.id) }); }
   catch (e) { sendErr(res, e, 'admin detail'); }
+});
+// R54.4／MBV2-HF1-C4.2：後台自動更新用的唯讀整合查詢。總表、目前展開商品的明細與通知批次在同一個同步區段內
+// 讀取（同一資料時點），沿用 adminSummary／adminDetail／listBatches／getCapability 的既有驗證與統計規則
+// （有效登記排除取消與過期）。只讀取：不建立預覽、不確認、不續送、不寫入任何資料。
+adminRouter.get('/snapshot', (req, res) => {
+  try {
+    const db = getDb();
+    const sid = req.storeId;
+    const out = { server_time: new Date().toISOString(), store_id: sid, summary: PD.adminSummary(db, sid), capability: RN.getCapability(db, sid),
+      product_id: null, detail: null, detail_error: '', batches: null };
+    const raw = req.query.product_id;
+    if (raw != null && raw !== '') {
+      const pid = Number(raw);
+      if (!Number.isInteger(pid) || pid <= 0) throw new PD.DemandError('INVALID_PRODUCT', '商品參數不正確', 400);
+      out.product_id = pid;
+      try { out.detail = PD.adminDetail(db, sid, pid); }
+      catch (e) { if (e instanceof PD.DemandError && e.status === 404) out.detail_error = e.code; else throw e; }
+      out.batches = RN.listBatches(db, sid, pid);
+    }
+    res.set('Cache-Control', 'no-store');
+    res.json({ success: true, data: out });
+  } catch (e) { sendErr(res, e, 'admin snapshot'); }
 });
 adminRouter.patch('/products/:id/collect', (req, res) => {
   try {

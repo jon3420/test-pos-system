@@ -1,0 +1,1208 @@
+{
+ "release": "R54.4／MBV2-HF1-C4.2",
+ "executed_at_taipei": "2026-11-12 下午（同一下午先後執行 C4.1 與 C4.2）",
+ "baseline": {
+  "zip": "P3CD_DEPLOY_R54_4_MBV2_HF1_C4_1_RESTOCK_IMPORT_DEDUPE_RESUME_FIX_APP_ROOT.zip",
+  "sha256": "c9d3512bdf5aec33fa95171f67e0fb1643403df65a7aba744ad350560342a7c1",
+  "sha256_matches": true,
+  "files": 922,
+  "zip_entries": 957
+ },
+ "new_test": {
+  "script": "scripts/smoke-r54-4-mbv2-hf1-c4-2-demand-ui-refresh.js",
+  "on_unmodified_c41": {
+   "passCount": 36,
+   "failCount": 44,
+   "fail_items": [
+    "P2-2 公開設定未就緒：首屏已保留入口高度（中性載入狀態）",
+    "P2-3 設定就緒（通知未啟用）：入口顯示「補貨登記」",
+    "P2-4 入口出現前後商品卡高度不跳動（≤2px）",
+    "P3-1 本人登記查詢延遲：一般入口「補貨登記」在首屏 0.8 秒內出現",
+    "P3-4 一般入口→已登記入口：商品卡高度不跳動（≤2px）",
+    "P3-5 頁首「📋 我的補貨登記」首屏即有穩定位置，不因等待本人資料而跳動",
+    "P4-1 本人登記 API 失敗：保留一般入口，不顯示本人份數",
+    "P4-2 失敗時開啟「我的補貨登記」顯示暫時無法取得，不誤稱沒有登記",
+    "P5 本人查詢期間身分改變：不把上一位會員（2 份）的登記顯示給目前會員",
+    "P1-1 LIFF SDK 卡住、會員 Gate 未完成：商品卡補貨登記入口在首屏後 1.2 秒內出現（不等待 Gate）",
+    "P1-2 不需重建身分的頁面：本人 session 經伺服器驗證後，以局部更新補上「已登記 2 份・管理登記」",
+    "P9 未登入：入口「補貨登記」，點擊開啟表單並要求 LINE 登入；不顯示本人資料與頁首入口",
+    "P10 登入過期：不顯示本人份數，點擊入口顯示重新登入",
+    "P11-1 通知未啟用：入口「補貨登記」、說明、無通知勾選、「送出補貨登記」、頁首「📋 我的補貨登記」",
+    "P11-2 保留：登記不代表訂單成立、不保留商品、補貨時間尚未確定、實際供應以下單時為準",
+    "P11-4 送出補貨登記：提示正確，商品卡局部更新為「已登記 1 份・管理登記」",
+    "P11-5 管理登記：「取消補貨登記」；未同意者不顯示撤回通知",
+    "P11-6 取消補貨登記：提示正確，入口回到「補貨登記」",
+    "P12-2 功能關閉：管理畫面只能取消（「取消補貨登記」），不能修改",
+    "P14-1 通知可用：入口「🔔 補貨通知我」、勾選預設不勾、未勾「送出補貨登記」、勾選後「登記並訂閱通知」、無「立即通知」",
+    "P14-2 明確同意後：顯示「已訂閱補貨通知」、「取消補貨通知（保留補貨登記）」、「取消補貨登記」",
+    "P14-3 僅撤回通知：不再顯示已訂閱、勾選回到未勾、提示補貨登記仍保留",
+    "P14-4 只有登記、沒有同意的會員：不顯示已訂閱，勾選預設不勾",
+    "A2 後台分頁、入口設定說明與通知狀態改用「補貨登記」用語",
+    "A4 顯示台北時間「最後更新時間」",
+    "A5 顧客新增登記：下一輪自動更新內總表與展開明細一致更新（2 人、7 份）",
+    "A6 顧客修改份數：總表與明細一起更新（9 份）",
+    "A7 顧客取消登記：統計排除已取消，明細標示已取消（1 人、3 份）",
+    "A9 停留分頁且可見：約每 10 秒更新一次（21.5 秒內 2～3 輪）",
+    "A10-2 恢復可見時立即更新",
+    "A12 多次進出／切換可見性後仍只有一組 timer（21 秒內 ≤3 輪）、事件監聽器只有一組",
+    "A13 請求延遲 14 秒：同一時間只有一個讀取請求，不重疊",
+    "A14 讀取進行中表格不清空；較早發出的讀取晚回應不把剛完成的收集開關改回舊值",
+    "A15 修改有效天數但尚未儲存：自動更新不覆蓋輸入",
+    "A15-2 儲存後立即更新並保持 45 天",
+    "A16 切換商品後，上一個商品的延遲回應不寫入新面板",
+    "A18-1 期間至少完成兩輪自動更新（最後更新時間已更新）",
+    "A19-2 網路失敗：最後更新時間不變，提示資料可能尚未更新",
+    "A19-4 失敗重試有合理間隔（36 秒內 2～3 次，逐次拉長）",
+    "A19-5 網路恢復後自動更新成功，提示消失、最後更新時間更新",
+    "A20 登記過期：總表與明細都排除過期登記並標示已過期",
+    "A21 保留手動重新整理按鈕（點擊立即讀取）",
+    "A22 店別（登入身分）改變後：不再顯示上一個店別的登記資料與明細",
+    "A23 登入失效（401）：停止輪詢且不顯示上一個身分的資料"
+   ]
+  },
+  "on_c42": {
+   "passCount": 80,
+   "failCount": 0,
+   "results": [
+    {
+     "ok": true,
+     "name": "P2-1 公開設定未就緒：不先顯示可點的登記入口（不假定已開啟收集）",
+     "detail": "[{\"t\":182,\"vis\":true,\"btn\":null,\"rowTxt\":\"\",\"rowH\":30,\"cardH\":247,\"hb\":null,\"hbY\":null},{\"t\":221,\"vis\":true,\"btn\":null,\"rowTxt\":\"\",\"rowH\":30,\"cardH\":247,\"hb\":null,\"hbY\":null},{\"t\":241,\"vis\":true,\"btn\":null,\"rowTxt\":\"\",\"rowH\":30,\"cardH\":247,\"hb\":null,\"hbY\":null}]"
+    },
+    {
+     "ok": true,
+     "name": "P2-2 公開設定未就緒：首屏已保留入口高度（中性載入狀態）",
+     "detail": "[{\"t\":182,\"vis\":true,\"btn\":null,\"rowTxt\":\"\",\"rowH\":30,\"cardH\":247,\"hb\":null,\"hbY\":null},{\"t\":221,\"vis\":true,\"btn\":null,\"rowTxt\":\"\",\"rowH\":30,\"cardH\":247,\"hb\":null,\"hbY\":null},{\"t\":241,\"vis\":true,\"btn\":null,\"rowTxt\":\"\",\"rowH\":30,\"cardH\":247,\"hb\":null,\"hbY\":null}]"
+    },
+    {
+     "ok": true,
+     "name": "P2-3 設定就緒（通知未啟用）：入口顯示「補貨登記」",
+     "detail": "{\"t\":3000,\"vis\":true,\"btn\":\"補貨登記\",\"rowTxt\":\"補貨登記\",\"rowH\":30,\"cardH\":247,\"hb\":null,\"hbY\":null}"
+    },
+    {
+     "ok": true,
+     "name": "P2-4 入口出現前後商品卡高度不跳動（≤2px）",
+     "detail": "{\"dH\":0,\"first\":{\"t\":182,\"vis\":true,\"btn\":null,\"rowTxt\":\"\",\"rowH\":30,\"cardH\":247,\"hb\":null,\"hbY\":null},\"last\":{\"t\":3000,\"vis\":true,\"btn\":\"補貨登記\",\"rowTxt\":\"補貨登記\",\"rowH\":30,\"cardH\":247,\"hb\":null,\"hbY\":null}}"
+    },
+    {
+     "ok": true,
+     "name": "P2-5 未登入：不顯示頁首「我的補貨登記」",
+     "detail": "{\"t\":3000,\"vis\":true,\"btn\":\"補貨登記\",\"rowTxt\":\"補貨登記\",\"rowH\":30,\"cardH\":247,\"hb\":null,\"hbY\":null}"
+    },
+    {
+     "ok": true,
+     "name": "P3-1 本人登記查詢延遲：一般入口「補貨登記」在首屏 0.8 秒內出現",
+     "detail": "{\"fv\":134,\"fg\":134}"
+    },
+    {
+     "ok": true,
+     "name": "P3-2 本人登記取得後才補上「已登記 2 份・管理登記」",
+     "detail": "{\"fv\":134,\"fr\":2640,\"last\":{\"t\":4200,\"vis\":true,\"btn\":\"已登記 2 份・管理登記\",\"rowTxt\":\"已登記 2 份・管理登記\",\"rowH\":30,\"cardH\":247,\"hb\":\"📋 我的補貨登記\",\"hbY\":62}}"
+    },
+    {
+     "ok": true,
+     "name": "P3-3 本人資料取得前不顯示任何本人份數",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "P3-4 一般入口→已登記入口：商品卡高度不跳動（≤2px）",
+     "detail": "{\"dH\":0}"
+    },
+    {
+     "ok": true,
+     "name": "P3-5 頁首「📋 我的補貨登記」首屏即有穩定位置，不因等待本人資料而跳動",
+     "detail": "{\"fv\":134,\"hbFirst\":{\"t\":134,\"vis\":true,\"btn\":\"補貨登記\",\"rowTxt\":\"補貨登記\",\"rowH\":30,\"cardH\":247,\"hb\":\"📋 我的補貨登記\",\"hbY\":62},\"last\":{\"t\":4200,\"vis\":true,\"btn\":\"已登記 2 份・管理登記\",\"rowTxt\":\"已登記 2 份・管理登記\",\"rowH\":30,\"cardH\":247,\"hb\":\"📋 我的補貨登記\",\"hbY\":62}}"
+    },
+    {
+     "ok": true,
+     "name": "P3-6 本人資料載入中仍可正常加入購物車、無 JavaScript 錯誤",
+     "detail": "{\"cartN\":1,\"e\":[]}"
+    },
+    {
+     "ok": true,
+     "name": "P4-1 本人登記 API 失敗：保留一般入口，不顯示本人份數",
+     "detail": "{\"t\":2240,\"vis\":true,\"btn\":\"補貨登記\",\"rowTxt\":\"補貨登記\",\"rowH\":30,\"cardH\":247,\"hb\":\"📋 我的補貨登記\",\"hbY\":62}"
+    },
+    {
+     "ok": true,
+     "name": "P4-2 失敗時開啟「我的補貨登記」顯示暫時無法取得，不誤稱沒有登記",
+     "detail": "我的補貨登記\n✕\n\n暫時無法取得你的補貨登記，請稍後再試。\n\n重新載入\n\n登記不代表訂單成立，也不保留商品；補貨時間尚未確定，實際供應以下單時為準。"
+    },
+    {
+     "ok": true,
+     "name": "P4-3 無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "P5 本人查詢期間身分改變：不把上一位會員（2 份）的登記顯示給目前會員",
+     "detail": "{\"shownA\":false,\"last\":{\"t\":4640,\"vis\":true,\"btn\":\"補貨登記\",\"rowTxt\":\"補貨登記\",\"rowH\":30,\"cardH\":247,\"hb\":\"📋 我的補貨登記\",\"hbY\":62},\"calls\":2}"
+    },
+    {
+     "ok": true,
+     "name": "P7 LIFF SDK 載入失敗：入口於首屏 1.2 秒內出現、無 JavaScript 錯誤",
+     "detail": "{\"fv\":151,\"fb\":167,\"e\":[]}"
+    },
+    {
+     "ok": true,
+     "name": "P1-1 LIFF SDK 卡住、會員 Gate 未完成：商品卡補貨登記入口在首屏後 1.2 秒內出現（不等待 Gate）",
+     "detail": "{\"fv\":184,\"fb\":202,\"last\":{\"t\":2680,\"vis\":true,\"btn\":\"已登記 2 份・管理登記\",\"rowTxt\":\"已登記 2 份・管理登記\",\"rowH\":30,\"cardH\":247,\"hb\":\"📋 我的補貨登記\",\"hbY\":62}}"
+    },
+    {
+     "ok": true,
+     "name": "P1-2 不需重建身分的頁面：本人 session 經伺服器驗證後，以局部更新補上「已登記 2 份・管理登記」",
+     "detail": "{\"t\":2680,\"vis\":true,\"btn\":\"已登記 2 份・管理登記\",\"rowTxt\":\"已登記 2 份・管理登記\",\"rowH\":30,\"cardH\":247,\"hb\":\"📋 我的補貨登記\",\"hbY\":62}"
+    },
+    {
+     "ok": true,
+     "name": "P1-3 Gate 卡住時一般點餐（加入購物車）可用、無 JavaScript 錯誤",
+     "detail": "{\"cartN\":1,\"e\":[]}"
+    },
+    {
+     "ok": true,
+     "name": "P1-4 Gate 晚完成：本人入口維持正確（2 份）、不重建、無錯誤",
+     "detail": "{\"l2\":{\"t\":5560,\"vis\":true,\"btn\":\"已登記 2 份・管理登記\",\"rowTxt\":\"已登記 2 份・管理登記\",\"rowH\":30,\"cardH\":247,\"hb\":\"📋 我的補貨登記\",\"hbY\":62},\"e\":[]}"
+    },
+    {
+     "ok": true,
+     "name": "P6 Recovery 頁（需重建身分）＋SDK 卡住：一般入口可用；Gate 完成前不顯示本人份數，完成後才以局部更新補上",
+     "detail": "{\"pre\":false,\"last\":{\"t\":5160,\"vis\":true,\"btn\":\"已登記 2 份・管理登記\",\"rowTxt\":\"已登記 2 份・管理登記\",\"rowH\":30,\"cardH\":247,\"hb\":\"📋 我的補貨登記\",\"hbY\":62}}"
+    },
+    {
+     "ok": true,
+     "name": "P9 未登入：入口「補貨登記」，點擊開啟表單並要求 LINE 登入；不顯示本人資料與頁首入口",
+     "detail": "{\"last\":{\"t\":1760,\"vis\":true,\"btn\":\"補貨登記\",\"rowTxt\":\"補貨登記\",\"rowH\":30,\"cardH\":247,\"hb\":null,\"hbY\":null},\"ui\":{\"open\":true,\"login\":true,\"txt\":\"這款商品，你想買幾份？\\n✕\\n測試招牌飯\\n\\n留下想買的份數，讓我們安排備貨。目前僅提供補貨登記，不會發送 LINE 通知。\\n\\n請先以 LINE 會員登入，才能保存你的登記。\\n\\n以 LINE 登入\\n\\n登記不代表訂單成立，也不保留商品；補貨時間尚\"}}"
+    },
+    {
+     "ok": true,
+     "name": "P10 登入過期：不顯示本人份數，點擊入口顯示重新登入",
+     "detail": "{\"last\":{\"t\":2120,\"vis\":true,\"btn\":\"補貨登記\",\"rowTxt\":\"補貨登記\",\"rowH\":30,\"cardH\":247,\"hb\":\"📋 我的補貨登記\",\"hbY\":62},\"txt\":\"這款商品，你想買幾份？\\n✕\\n測試招牌飯\\n\\n留下想買的份數，讓我們安排備貨。目前僅提供補貨登記，不會發送 LINE 通知。\\n\\nLINE 會員登入已過期，請重新登入後再管理你的登記。\\n\\n重新以 LINE 登入\\n\\n登記不代表訂單成立，也不保留商品\"}"
+    },
+    {
+     "ok": true,
+     "name": "P11-1 通知未啟用：入口「補貨登記」、說明、無通知勾選、「送出補貨登記」、頁首「📋 我的補貨登記」",
+     "detail": "{\"desc\":[\"留下想買的份數，讓我們安排備貨。目前僅提供補貨登記，不會發送 LINE 通知。\"],\"consent\":false,\"submit\":\"送出補貨登記\",\"disc\":\"登記不代表訂單成立，也不保留商品；補貨時間尚未確定，實際供應以下單時為準。\",\"txt\":\"這款商品，你想買幾份？\\n✕\\n測試招牌飯\\n\\n留下想買的份數，讓我們安排備貨。目前僅提供補貨登記，不會發送 LINE 通知。\\n\\n登記份數\\n−\\n1\\n+\\n取餐偏好\\n外帶自取\\n外送\\n都可以\\n送出補貨登記\\n\\n登記不代表訂單成立，也不保留商品；補貨時間尚未確定，實際供應以下單時為準。\",\"hb\":\"\ud83d"
+    },
+    {
+     "ok": true,
+     "name": "P11-2 保留：登記不代表訂單成立、不保留商品、補貨時間尚未確定、實際供應以下單時為準",
+     "detail": "登記不代表訂單成立，也不保留商品；補貨時間尚未確定，實際供應以下單時為準。"
+    },
+    {
+     "ok": true,
+     "name": "P11-3 通知未啟用時沒有訂閱或「立即通知」承諾",
+     "detail": "這款商品，你想買幾份？\n✕\n測試招牌飯\n\n留下想買的份數，讓我們安排備貨。目前僅提供補貨登記，不會發送 LINE 通知。\n\n登記份數\n−\n1\n+\n取餐偏好\n外帶自取\n外送\n都可以\n送出補貨登記\n\n登記不代表訂單成立，也不保留商品；補貨時間尚未確定，實際供應以下單時為準。"
+    },
+    {
+     "ok": true,
+     "name": "P11-4 送出補貨登記：提示正確，商品卡局部更新為「已登記 1 份・管理登記」",
+     "detail": "{\"toast\":\"已收到你的補貨登記，謝謝！\",\"btn\":\"已登記 1 份・管理登記\"}"
+    },
+    {
+     "ok": true,
+     "name": "P11-5 管理登記：「取消補貨登記」；未同意者不顯示撤回通知",
+     "detail": "{\"cancel\":\"取消補貨登記\",\"revoke\":false}"
+    },
+    {
+     "ok": true,
+     "name": "P11-6 取消補貨登記：提示正確，入口回到「補貨登記」",
+     "detail": "{\"toast\":\"已取消補貨登記\",\"btn\":\"補貨登記\"}"
+    },
+    {
+     "ok": true,
+     "name": "P12-1 功能關閉：本人既有登記仍顯示「已登記 2 份・管理登記」與頁首入口；其他商品無新增入口",
+     "detail": "{\"a\":\"已登記 2 份・管理登記\",\"b\":null,\"bRow\":\"\",\"hb\":\"block\"}"
+    },
+    {
+     "ok": true,
+     "name": "P12-2 功能關閉：管理畫面只能取消（「取消補貨登記」），不能修改",
+     "detail": "{\"cancel\":\"取消補貨登記\",\"submit\":false}"
+    },
+    {
+     "ok": true,
+     "name": "P12-3 功能關閉＋未登入：不顯示新增登記入口",
+     "detail": "{\"t\":1640,\"vis\":true,\"btn\":null,\"rowTxt\":\"\",\"rowH\":0,\"cardH\":221,\"hb\":null,\"hbY\":null}"
+    },
+    {
+     "ok": true,
+     "name": "P13 商品關閉收集：該商品沒有入口也沒有佔位",
+     "detail": "{\"t\":\"\",\"h\":0,\"btn\":false}"
+    },
+    {
+     "ok": true,
+     "name": "P14-1 通知可用：入口「🔔 補貨通知我」、勾選預設不勾、未勾「送出補貨登記」、勾選後「登記並訂閱通知」、無「立即通知」",
+     "detail": "{\"b\":\"🔔 補貨通知我\",\"u1\":{\"checked\":false,\"submit\":\"送出補貨登記\",\"sub\":false},\"s2\":\"登記並訂閱通知\"}"
+    },
+    {
+     "ok": true,
+     "name": "P14-2 明確同意後：顯示「已訂閱補貨通知」、「取消補貨通知（保留補貨登記）」、「取消補貨登記」",
+     "detail": "{\"sub\":\"🔔 已訂閱補貨通知\",\"revoke\":\"取消補貨通知（保留補貨登記）\",\"cancel\":\"取消補貨登記\"}"
+    },
+    {
+     "ok": true,
+     "name": "P14-3 僅撤回通知：不再顯示已訂閱、勾選回到未勾、提示補貨登記仍保留",
+     "detail": "{\"sub\":false,\"consent\":true,\"checked\":false,\"msg\":\"已取消補貨通知（補貨登記仍保留）\"}"
+    },
+    {
+     "ok": true,
+     "name": "P14-4 只有登記、沒有同意的會員：不顯示已訂閱，勾選預設不勾",
+     "detail": "{\"sub\":false,\"checked\":false,\"submit\":\"送出補貨登記\"}"
+    },
+    {
+     "ok": true,
+     "name": "P15 顧客端驗收：未建立訂單、未改額度",
+     "detail": "{\"c0\":{\"quota_sold\":0,\"preorder_sold\":0,\"orders\":2},\"c1\":{\"quota_sold\":0,\"preorder_sold\":0,\"orders\":2}}"
+    },
+    {
+     "ok": true,
+     "name": "P16 顧客端驗收：LINE API 呼叫 0 次",
+     "detail": "0"
+    },
+    {
+     "ok": true,
+     "name": "A1 進入補貨登記分頁立即讀取（有效 1 人、3 份）",
+     "detail": "{\"firstReqMs\":250,\"r0\":{\"users\":\"1\",\"qty\":\"3\",\"collect\":true,\"status\":\"暫停販售\"}}"
+    },
+    {
+     "ok": true,
+     "name": "A2 後台分頁、入口設定說明與通知狀態改用「補貨登記」用語",
+     "detail": "{\"tab\":\"📋 補貨登記\",\"en\":\"在 LINE 點餐頁顯示「補貨登記」入口\",\"ns\":\"LINE 補貨通知：尚未啟用（顧客僅能補貨登記，不會發送 LINE 通知）\"}"
+    },
+    {
+     "ok": true,
+     "name": "A3 展開商品明細（1 人、3 份）",
+     "detail": "{\"head\":\"測試招牌飯：有效登記 1 人、期望 3 份\",\"rows\":[\"Uc42a…aa01 3 都可以 有效 — LINE 已受理通知 2026/11/12 14:57 2026/11/12 14:57 2026/12/12 14:57\"],\"pid\":\"701\"}"
+    },
+    {
+     "ok": true,
+     "name": "A4 顯示台北時間「最後更新時間」",
+     "detail": "最後更新：14:57:49（台北時間）・每 10 秒自動更新"
+    },
+    {
+     "ok": true,
+     "name": "A5 顧客新增登記：下一輪自動更新內總表與展開明細一致更新（2 人、7 份）",
+     "detail": "{\"ms5\":8916,\"r\":{\"users\":\"2\",\"qty\":\"7\",\"collect\":true,\"status\":\"暫停販售\"},\"d\":{\"head\":\"測試招牌飯：有效登記 2 人、期望 7 份\",\"rows\":[\"Uc42c…cc03 4 都可以 有效 — 2026/11/12 14:57 2026/11/12 14:57 2026/12/12 14:57\",\"Uc42a…aa01 3 都可以 有效 — LINE 已受理通知 2026/11/12 14:57 2026/11/12 14:57 2026/12/12 14:57\"],\"pid\":\"701\"}}"
+    },
+    {
+     "ok": true,
+     "name": "A6 顧客修改份數：總表與明細一起更新（9 份）",
+     "detail": "{\"ms6\":9916,\"r\":{\"users\":\"2\",\"qty\":\"9\",\"collect\":true,\"status\":\"暫停販售\"}}"
+    },
+    {
+     "ok": true,
+     "name": "A7 顧客取消登記：統計排除已取消，明細標示已取消（1 人、3 份）",
+     "detail": "{\"ms7\":10189,\"r\":{\"users\":\"1\",\"qty\":\"3\",\"collect\":true,\"status\":\"暫停販售\"},\"d\":{\"head\":\"測試招牌飯：有效登記 1 人、期望 3 份\",\"rows\":[\"Uc42c…cc03 6 都可以 已取消 — 2026/11/12 14:57 2026/11/12 14:58 2026/12/12 14:57\",\"Uc42a…aa01 3 都可以 有效 — LINE 已受理通知 2026/11/12 14:57 2026/11/12 14:57 2026/12/12 14:57\"],\"pid\":\"701\"}}"
+    },
+    {
+     "ok": true,
+     "name": "A8 自動更新期間只發出讀取請求（無 POST／PATCH／DELETE）",
+     "detail": "[]"
+    },
+    {
+     "ok": true,
+     "name": "A9 停留分頁且可見：約每 10 秒更新一次（21.5 秒內 2～3 輪）",
+     "detail": "{\"rounds9\":2,\"n\":2}"
+    },
+    {
+     "ok": true,
+     "name": "A10-1 頁面隱藏時停止輪詢（14 秒 0 次）",
+     "detail": "0"
+    },
+    {
+     "ok": true,
+     "name": "A10-2 恢復可見時立即更新",
+     "detail": "250"
+    },
+    {
+     "ok": true,
+     "name": "A11-1 切到其他分頁或離開 LINE 商品管理頁：停止輪詢",
+     "detail": "{\"otherTab\":0,\"otherPage\":0}"
+    },
+    {
+     "ok": true,
+     "name": "A11-2 重新進入分頁立即更新",
+     "detail": "250"
+    },
+    {
+     "ok": true,
+     "name": "A12 多次進出／切換可見性後仍只有一組 timer（21 秒內 ≤3 輪）、事件監聽器只有一組",
+     "detail": "{\"rounds12\":2,\"n\":2,\"dbg12\":{\"listeners\":1,\"hasTimer\":true,\"inflight\":false,\"epoch\":24,\"failCount\":0,\"lastOkAt\":\"2026-11-12T06:59:46.195Z\",\"openPid\":701}}"
+    },
+    {
+     "ok": true,
+     "name": "A13 請求延遲 14 秒：同一時間只有一個讀取請求，不重疊",
+     "detail": "1"
+    },
+    {
+     "ok": true,
+     "name": "A14 讀取進行中表格不清空；較早發出的讀取晚回應不把剛完成的收集開關改回舊值",
+     "detail": "{\"click14\":\"ok\",\"r14\":{\"users\":\"1\",\"qty\":\"3\",\"collect\":false,\"status\":\"暫停販售\"},\"db\":0,\"log\":[\"late /api/product-demand-admin/snapshot?product_id=701\",\"late /api/product-demand-admin/snapshot?product_id=701\",\"late /api/product-demand-admin/snapshot?product_id=701\"]}"
+    },
+    {
+     "ok": true,
+     "name": "A15 修改有效天數但尚未儲存：自動更新不覆蓋輸入",
+     "detail": "45"
+    },
+    {
+     "ok": true,
+     "name": "A15-2 儲存後立即更新並保持 45 天",
+     "detail": "{\"ttlSaved\":45,\"ttl15b\":\"45\"}"
+    },
+    {
+     "ok": true,
+     "name": "A16 切換商品後，上一個商品的延遲回應不寫入新面板",
+     "detail": "{\"d16\":{\"head\":\"測試第二暫停品：有效登記 1 人、期望 2 份\",\"rows\":[\"Uc42b…bb02 2 都可以 有效 — 2026/11/12 14:57 2026/11/12 14:57 2026/12/12 14:57\"],\"pid\":\"706\"},\"log\":[\"late /api/product-demand-admin/snapshot?product_id=701\",\"late /api/product-demand-admin/snapshot?product_id=701\",\"late /api/product-demand-admin/snapshot?"
+    },
+    {
+     "ok": true,
+     "name": "A17 關閉明細後，延遲回應不重新打開或寫入明細",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "A18-1 期間至少完成兩輪自動更新（最後更新時間已更新）",
+     "detail": "{\"ref18\":2,\"lu18\":\"最後更新：15:01:08（台北時間）・每 10 秒自動更新\",\"lu18b\":\"最後更新：15:01:28（台北時間）・每 10 秒自動更新\"}"
+    },
+    {
+     "ok": true,
+     "name": "A18-2 通知面板的取餐方式與日期保持",
+     "detail": "{\"s0\":{\"y\":0,\"sy\":942,\"mode\":\"delivery\",\"date\":\"2026-11-13\",\"focus\":\"rn-date\",\"bd\":508},\"s1\":{\"y\":0,\"sy\":942,\"mode\":\"delivery\",\"date\":\"2026-11-13\",\"focus\":\"rn-date\",\"bd\":508}}"
+    },
+    {
+     "ok": true,
+     "name": "A18-3 已產生的預覽內容（含批次識別）保持",
+     "detail": "{\"l0\":781,\"l1\":781}"
+    },
+    {
+     "ok": true,
+     "name": "A18-4 展開的批次明細保持",
+     "detail": "{\"s0\":508,\"s1\":508}"
+    },
+    {
+     "ok": true,
+     "name": "A18-5 鍵盤焦點與捲動位置保持",
+     "detail": "{\"s0\":{\"y\":0,\"sy\":942,\"mode\":\"delivery\",\"date\":\"2026-11-13\",\"focus\":\"rn-date\",\"bd\":508},\"s1\":{\"y\":0,\"sy\":942,\"mode\":\"delivery\",\"date\":\"2026-11-13\",\"focus\":\"rn-date\",\"bd\":508}}"
+    },
+    {
+     "ok": true,
+     "name": "A18-6 展開的商品明細保持",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "A18-7 自動更新沒有建立預覽、確認、續送或其他寫入",
+     "detail": "[]"
+    },
+    {
+     "ok": true,
+     "name": "A19-1 網路失敗：保留原資料，不清成 0 人、0 份",
+     "detail": "{\"r19a\":{\"users\":\"1\",\"qty\":\"3\",\"collect\":true,\"status\":\"暫停販售\"},\"r19b\":{\"users\":\"1\",\"qty\":\"3\",\"collect\":true,\"status\":\"暫停販售\"},\"h\":\"測試招牌飯：有效登記 1 人、期望 3 份\"}"
+    },
+    {
+     "ok": true,
+     "name": "A19-2 網路失敗：最後更新時間不變，提示資料可能尚未更新",
+     "detail": "{\"lu19\":\"最後更新：15:01:28（台北時間）・每 10 秒自動更新\",\"lu19b\":\"最後更新：15:01:28（台北時間）・每 10 秒自動更新\",\"warn\":\"⚠ 資料可能尚未更新（連線暫時失敗，將自動重試）\"}"
+    },
+    {
+     "ok": true,
+     "name": "A19-3 網路失敗不跳出打斷操作的通知",
+     "detail": "{\"toast0\":2,\"toast1\":2,\"d\":0}"
+    },
+    {
+     "ok": true,
+     "name": "A19-4 失敗重試有合理間隔（36 秒內 2～3 次，逐次拉長）",
+     "detail": "{\"failRounds\":2,\"gaps\":[0,15007]}"
+    },
+    {
+     "ok": true,
+     "name": "A19-5 網路恢復後自動更新成功，提示消失、最後更新時間更新",
+     "detail": "14414"
+    },
+    {
+     "ok": true,
+     "name": "A20 登記過期：總表與明細都排除過期登記並標示已過期",
+     "detail": "{\"ms20\":9391,\"r\":{\"users\":\"0\",\"qty\":\"0\",\"collect\":true,\"status\":\"暫停販售\"},\"d\":{\"head\":\"測試招牌飯：有效登記 0 人、期望 0 份\",\"rows\":[\"Uc42c…cc03 6 都可以 已取消 — 2026/11/12 14:57 2026/11/12 14:58 2026/12/12 14:57\",\"Uc42a…aa01 3 都可以 已過期 — LINE 已受理通知 2026/11/12 14:57 2026/11/12 14:57 2026/11/12 15:01\"],\"pid\":\"701\"}}"
+    },
+    {
+     "ok": true,
+     "name": "A21 保留手動重新整理按鈕（點擊立即讀取）",
+     "detail": "{\"hasBtn\":true,\"ms21\":0}"
+    },
+    {
+     "ok": true,
+     "name": "A22 店別（登入身分）改變後：不再顯示上一個店別的登記資料與明細",
+     "detail": "{\"ms22\":8583,\"tok2\":true,\"r\":null}"
+    },
+    {
+     "ok": true,
+     "name": "A23 登入失效（401）：停止輪詢且不顯示上一個身分的資料",
+     "detail": "{\"after401\":0,\"rows401\":0}"
+    },
+    {
+     "ok": true,
+     "name": "A24 後台頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "A25 後台輪詢：未建立訂單、未修改額度",
+     "detail": "{\"c0\":{\"quota_sold\":0,\"preorder_sold\":0,\"orders\":2},\"c1\":{\"quota_sold\":0,\"preorder_sold\":0,\"orders\":2}}"
+    },
+    {
+     "ok": true,
+     "name": "A26 後台輪詢：沒有確認、續送或建立新的發送批次（只有測試手動按的一次預覽）",
+     "detail": "[\"completed\"]"
+    },
+    {
+     "ok": true,
+     "name": "A27 後台驗收：LINE API 呼叫 0 次",
+     "detail": "0"
+    },
+    {
+     "ok": true,
+     "name": "Z1 整個驗收過程 LINE API 呼叫次數為 0（測試程序攔截）",
+     "detail": "0"
+    }
+   ]
+  }
+ },
+ "targeted_on_c42": [
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c4-1-dedupe-resume.js",
+   "exit": 0,
+   "seconds": 55,
+   "passCount": 40,
+   "failCount": 0,
+   "fail_items": []
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c4-restock-notify.js",
+   "exit": 0,
+   "seconds": 44,
+   "passCount": 94,
+   "failCount": 0,
+   "fail_items": []
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c4-linepush-compat.js",
+   "exit": 0,
+   "seconds": 1,
+   "passCount": 12,
+   "failCount": 0,
+   "fail_items": []
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c3-3-restore-cancel.js",
+   "exit": 0,
+   "seconds": 165,
+   "passCount": 30,
+   "failCount": 0,
+   "fail_items": []
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c3-2-firstpaint-remap.js",
+   "exit": 0,
+   "seconds": 67,
+   "passCount": 32,
+   "failCount": 0,
+   "fail_items": []
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c3-1-backup-manage-login.js",
+   "exit": 0,
+   "seconds": 107,
+   "passCount": 54,
+   "failCount": 0,
+   "fail_items": []
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c3-sale-status-demand.js",
+   "exit": 1,
+   "seconds": 167,
+   "passCount": 328,
+   "failCount": 4,
+   "fail_items": [
+    "❌ O1 今日完售：今日訂單被擋，未建立訂單、未扣今日額度",
+    "❌ O6-paused 今日與未來日期都被擋，訂單與額度不變",
+    "❌ O6-sold_out_indefinitely 今日與未來日期都被擋，訂單與額度不變",
+    "❌ O9 今日完售＋未啟用預購份數管理：今日仍擋；未來 30 份（超過原預購每日 20）不限額成功，今日額度不變"
+   ]
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c1-preorder-status.js",
+   "exit": 0,
+   "seconds": 82,
+   "passCount": 93,
+   "failCount": 0,
+   "fail_items": []
+  },
+  {
+   "script": "scripts/run-r54-4-mbv2-ui.js",
+   "exit": 0,
+   "seconds": 9,
+   "passCount": 19,
+   "failCount": 0,
+   "fail_items": []
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-migration.js",
+   "exit": 0,
+   "seconds": 12,
+   "passCount": 121,
+   "failCount": 0,
+   "fail_items": []
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-system-regression.js",
+   "exit": 0,
+   "seconds": 6,
+   "raw_tail": [
+    "{\"label\":\"db orders after (8 seeded + 1 POS + 1 sync)\",\"value\":10}",
+    "{\"label\":\"pos order created\",\"value\":true}"
+   ]
+  },
+  {
+   "script": "scripts/run-h1-4-10-phase4b-recovery-full-runtime.js",
+   "exit": 0,
+   "seconds": 14,
+   "raw_tail": [
+    "== Phase 4B Full Suite Summary ==",
+    "TOTAL=168 PASS=168 FAIL=0"
+   ]
+  }
+ ],
+ "same_afternoon_c41": [
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c4-1-dedupe-resume.js",
+   "exit": 0,
+   "seconds": 57,
+   "passCount": 40,
+   "failCount": 0,
+   "fail_items": []
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c4-restock-notify.js",
+   "exit": 0,
+   "seconds": 46,
+   "passCount": 94,
+   "failCount": 0,
+   "fail_items": []
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c3-sale-status-demand.js",
+   "exit": 1,
+   "seconds": 161,
+   "passCount": 328,
+   "failCount": 4,
+   "fail_items": [
+    "❌ O1 今日完售：今日訂單被擋，未建立訂單、未扣今日額度",
+    "❌ O6-paused 今日與未來日期都被擋，訂單與額度不變",
+    "❌ O6-sold_out_indefinitely 今日與未來日期都被擋，訂單與額度不變",
+    "❌ O9 今日完售＋未啟用預購份數管理：今日仍擋；未來 30 份（超過原預購每日 20）不限額成功，今日額度不變"
+   ]
+  }
+ ],
+ "targeted_reruns_on_c42": {
+  "scripts/smoke-h1-4-12-popup-frontend.js (after 3-ab-parity adjustment)": {
+   "passCount": 293,
+   "failCount": 0
+  },
+  "scripts/smoke-r54-4-mbv2-large-upload.js (single rerun)": {
+   "passCount": 25,
+   "failCount": 0
+  }
+ },
+ "rollback_compat": {
+  "c42_register": true,
+  "c42_snapshot": {
+   "status": 200,
+   "users": 1,
+   "qty": 3
+  },
+  "c41_health": 200,
+  "c41_page": 200,
+  "c41_mine": [
+   [
+    901,
+    3
+   ]
+  ],
+  "c41_summary": [
+   [
+    1,
+    3
+   ]
+  ],
+  "c41_update": true,
+  "c41_cfg_notify": false,
+  "c42_again": {
+   "status": 200,
+   "users": 1,
+   "qty": 5
+  },
+  "line_calls": 0,
+  "pass": true
+ },
+ "regression_61": {
+  "c41_exit0": 41,
+  "c42_exit0_first_run": 39,
+  "scripts": [
+   {
+    "script": "scripts/mbv2-rescue-verify.js",
+    "c41_exit": 2,
+    "c42_exit": 2,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 0,
+    "c42_fail_lines": 0
+   },
+   {
+    "script": "scripts/run-g1-6-ga4-h1-4-4-view-item-runtime.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 0,
+    "c42_fail_lines": 0
+   },
+   {
+    "script": "scripts/run-g1-6-ga4-h1-4-7-two-stage-checkout-runtime.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/run-h1-4-10-asset-cache-bust-runtime.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/run-h1-4-10-friend-live-runtime.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/run-h1-4-10-historical-backend-reconcile-runtime.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/run-h1-4-10-historical-friend-first-touch-runtime.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/run-h1-4-10-phase1-liff-identity-runtime.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/run-h1-4-10-phase2-line-friend-guide-runtime.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/run-h1-4-10-phase3-checkout-submit-payment-runtime.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/run-h1-4-10-phase4b-recovery-frontend-targeted.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/run-h1-4-10-phase4b-recovery-full-runtime.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 3,
+    "c42_fail_lines": 3
+   },
+   {
+    "script": "scripts/run-h1-4-10-required-friend-gate-runtime.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/run-h1-4-9-checkout-order-summary-runtime.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/run-r54-4-mbv2-ui.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/run-regression-g1-6-ga4-h1-4-6.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": false,
+    "c41_fail_lines": 36,
+    "c42_fail_lines": 35
+   },
+   {
+    "script": "scripts/run-regression-g1-6-ga4-h1-4-7.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": false,
+    "c41_fail_lines": 59,
+    "c42_fail_lines": 57
+   },
+   {
+    "script": "scripts/smoke-cart-delivery-live-refresh.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 0,
+    "c42_fail_lines": 0
+   },
+   {
+    "script": "scripts/smoke-delivery-distance-promotion.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 0,
+    "c42_fail_lines": 0
+   },
+   {
+    "script": "scripts/smoke-h1-4-11-1-fixes.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-h1-4-11-2-fixes.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-h1-4-11-4-1-both-disabled-product-filter.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 2,
+    "c42_fail_lines": 2
+   },
+   {
+    "script": "scripts/smoke-h1-4-11-4-product-mode-visibility.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-h1-4-11-line-order-page-mode.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-admin-ui-browser.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 2,
+    "c42_fail_lines": 2
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-admin-ui.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-checkout-integration.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-frontend.js",
+    "c41_exit": 0,
+    "c42_exit": 1,
+    "fail_lines_identical": false,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 5
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-public-checkout.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 2,
+    "c42_fail_lines": 2
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-real-browser.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-recovery-cart-frontend.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-recovery-identity-bridge.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-recovery-landing.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-hotfix25.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-hotfix26-b.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 2,
+    "c42_fail_lines": 2
+   },
+   {
+    "script": "scripts/smoke-hotfix26-d.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": false,
+    "c41_fail_lines": 2,
+    "c42_fail_lines": 2
+   },
+   {
+    "script": "scripts/smoke-hotfix26-f2.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 7,
+    "c42_fail_lines": 7
+   },
+   {
+    "script": "scripts/smoke-hotfix26-f3.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-hotfix26-f4.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-hotfix26-f5.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-hotfix26-f7.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 5,
+    "c42_fail_lines": 5
+   },
+   {
+    "script": "scripts/smoke-hotfix26-f8-b.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 9,
+    "c42_fail_lines": 9
+   },
+   {
+    "script": "scripts/smoke-hotfix26-f8.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-hotfix26-i.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 0,
+    "c42_fail_lines": 0
+   },
+   {
+    "script": "scripts/smoke-hotfix27-cd.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 2,
+    "c42_fail_lines": 2
+   },
+   {
+    "script": "scripts/smoke-hotfix29-b.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 6,
+    "c42_fail_lines": 6
+   },
+   {
+    "script": "scripts/smoke-hotfix29-c.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 6,
+    "c42_fail_lines": 6
+   },
+   {
+    "script": "scripts/smoke-hotfix29.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 13,
+    "c42_fail_lines": 13
+   },
+   {
+    "script": "scripts/smoke-hotfix30-b5-r5-4-g1-live-geo.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-hotfix30-b5-r5-debounce.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-r48-popup-order-ui-browser.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 0,
+    "c42_fail_lines": 0
+   },
+   {
+    "script": "scripts/smoke-r54-4-mbv2-large-upload.js",
+    "c41_exit": 0,
+    "c42_exit": 1,
+    "fail_lines_identical": false,
+    "c41_fail_lines": 0,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-r54-4-mbv2-migration.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-r54-4-mbv2-system-regression.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 0,
+    "c42_fail_lines": 0
+   },
+   {
+    "script": "scripts/static-audit-g1-6-ga4-h1-4-4.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 0,
+    "c42_fail_lines": 0
+   },
+   {
+    "script": "scripts/static-audit-g1-6-ga4-h1-4-5.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/static-audit-g1-6-ga4-h1-4-6.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 4,
+    "c42_fail_lines": 4
+   },
+   {
+    "script": "scripts/static-audit-g1-6-ga4-h1-4-7.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 5,
+    "c42_fail_lines": 5
+   },
+   {
+    "script": "scripts/static-audit-g1.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 0,
+    "c42_fail_lines": 0
+   },
+   {
+    "script": "scripts/static-audit-r48-popup-order-ui.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 12,
+    "c42_fail_lines": 12
+   },
+   {
+    "script": "scripts/test-phone-validation.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 0,
+    "c42_fail_lines": 0
+   }
+  ],
+  "explained_differences": {
+   "scripts/smoke-h1-4-12-popup-frontend.js": "C4.2 依規格提前讀取 /api/product-demand/config；斷言調整後 293/293",
+   "scripts/smoke-r54-4-mbv2-large-upload.js": "L8 一次失敗（256MB+1 上傳），單獨重跑 25/25",
+   "scripts/run-regression-g1-6-ga4-h1-4-6.js / -4-7.js": "失敗套件組合與 C4.1 相同；差異為既有不穩定的 Geo Explorer／單輪 crash",
+   "scripts/smoke-hotfix26-d.js": "失敗訊息僅路徑不同"
+  },
+  "orchestrator_rerun_c42": {
+   "script": "scripts/run-regression-g1-6-ga4-h1-4-7.js",
+   "rerun_exit": 1,
+   "failed_suites_all_3_rounds": [
+    "H1 Static Audit 189/190",
+    "H1 Targeted Smoke 107/108",
+    "H1.4.4 View Item Semantics Runtime",
+    "H1.4.6 Static/UI/Analytics Audit",
+    "H1.4.7 Static Audit"
+   ],
+   "same_as_c41_stable_set": true,
+   "c41_extra": "H1.4.1 Legacy Migration: B1-6 Geo Explorer（1 輪，既有不穩定）"
+  }
+ },
+ "adjusted_existing_assertions": [
+  "smoke-r54-4-mbv2-hf1-c3-sale-status-demand.js：狀態矩陣／U1／U3／U6／U12／U14 入口與說明、送出、免責、提示文案（條件不變）",
+  "smoke-r54-4-mbv2-hf1-c3-2-firstpaint-remap.js F5-3：提示 /未開放補貨登記/",
+  "smoke-r54-4-mbv2-hf1-c4-restock-notify.js L7、L9：送出與入口、說明文案",
+  "smoke-h1-4-12-popup-frontend.js 3-ab-parity：一般頁 fetch 清單只允許多出 C4.2 提前的 /api/product-demand/config 一次（非文案；本輪要求的讀取時機改變）"
+ ],
+ "line_api_calls": {
+  "real": 0,
+  "note": "所有伺服器子程序以 hf1c3-net-mock 攔截 api.line.me，計數 0；LIFF SDK 由 Playwright 攔截（模擬，非真機）"
+ },
+ "not_executed": [
+  "C4.1 測試 K/R 段、C4 驗收 K1（需要 C4／C3.3 原程式，本輪無基準套件）",
+  "LINE App／LIFF 真機",
+  "真實 Messaging API",
+  "正式 Zeabur"
+ ],
+ "new_failures": 0,
+ "fresh_zip_verification": {
+  "candidate_zip_sha256": "03fdac7ab96969e122c721eba03fd9eaaca0af0fed8d4f3257fd6cc0d5d9c0d9",
+  "candidate_files": 926,
+  "candidate_zip_entries": 962,
+  "npm_ci": "ok",
+  "startup": {
+   "health": 200,
+   "order": 200,
+   "admin": 200,
+   "snapshot_unauth": 401,
+   "summary_unauth": 401,
+   "notify_available": false,
+   "enabled": true,
+   "send_enabled": false,
+   "snapshot_auth": 200,
+   "app_js_version": "r54-4-mbv2-hf1-c4-2"
+  },
+  "new_test": "80/80",
+  "suites": {
+   "c4-1-dedupe-resume": "40/40",
+   "c4-restock-notify": "94/94",
+   "c4-linepush-compat": "12/12",
+   "c3-3-restore-cancel": "30/30",
+   "c3-2-firstpaint-remap": "32/32",
+   "c3-1-backup-manage-login": "54/54",
+   "h1-4-12-popup-frontend": "293/293",
+   "mbv2-migration": "121/121",
+   "phase4b-recovery-full-runtime": "exit 0"
+  },
+  "final_zip_note": "最終 ZIP 只在 docs/R54_4_MBV2_HF1_C4_2/ 加入本段驗收紀錄；其餘檔案與候選 ZIP 逐檔相同。"
+ }
+}

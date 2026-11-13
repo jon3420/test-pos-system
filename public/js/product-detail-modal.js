@@ -172,7 +172,7 @@
       const d = document.createElement('button');
       d.type = 'button';
       d.className = 'pdm-demand-btn';
-      d.textContent = String(s.product.demand.label || '我想買');
+      d.textContent = String(s.product.demand.label || '補貨登記');
       d.addEventListener('click', function (e) {
         e.stopPropagation();
         const cb = s.opts.onDemand; const prod = s.product;

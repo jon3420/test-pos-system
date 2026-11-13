@@ -1,0 +1,886 @@
+{
+ "release": "R54.4／MBV2-HF1-C4.3",
+ "executed_at_taipei": "2026-11-12 晚間（約 22:30–翌日 01:00；C4.2 與 C4.3 同一晚先後執行）",
+ "baseline": {
+  "zip": "P3CD_DEPLOY_R54_4_MBV2_HF1_C4_2_DEMAND_UI_AUTO_REFRESH_APP_ROOT.zip",
+  "sha256": "37b9c565f7000b81537b467bc48c248c3c78d185f41016008d619e72358b6893",
+  "sha256_matches": true,
+  "files": 926,
+  "zip_entries": 962
+ },
+ "new_test": {
+  "script": "scripts/smoke-r54-4-mbv2-hf1-c4-3-async-consistency.js",
+  "clock_offset_ms": -43140000,
+  "on_unmodified_c42": {
+   "passCount": 17,
+   "failCount": 17,
+   "fail_items": [
+    "S1 儲存 45 天期間改為 60：資料庫 45 天、畫面保留尚未儲存的 60 天（儲存成功與自動更新都不覆蓋）",
+    "S1-2 下一輪 10 秒自動更新仍保留 60（未儲存狀態保留）",
+    "S1-3 再次儲存後資料庫才變成 60 天",
+    "S2 儲存期間改動總開關：資料庫仍為開啟、畫面保留尚未儲存的「關閉」",
+    "S2-2 再次儲存後才關閉",
+    "S3 儲存失敗：資料庫不變（60）、畫面保留 33，自動更新不覆蓋",
+    "B1 較早的「待發送」回應晚到：不把明細倒退回待發送",
+    "B2 較早的錯誤回應晚到：不覆蓋較新的成功明細",
+    "B6 離開分頁後舊回應返回：不寫入；回到分頁仍為最新（2 筆已受理）",
+    "B7 頁面隱藏後舊回應返回：不寫入；恢復可見後為最新",
+    "B8 登入身分改變後，上一個身分發出的舊回應不寫入",
+    "B9 舊回應返回時：取餐方式、日期、預覽、展開明細、焦點、捲動保持，且明細不倒退",
+    "M1 取消後舊查詢晚到：商品卡不恢復「已登記 2 份」，清單也沒有該登記",
+    "M2 新增後舊查詢（無登記）晚到：資料庫 3 份、商品卡維持「已登記 3 份」",
+    "M3 修改份數後舊查詢（3 份）晚到：資料庫 5 份、商品卡維持 5 份",
+    "M4 撤回通知同意後舊查詢（已同意）晚到：資料庫已撤回、畫面不恢復「已訂閱補貨通知」",
+    "M6 取消期間切換會員、舊會員取消回應 401：目前會員不被標成登入過期，顯示自己的 5 份（舊會員登記未被取消）"
+   ],
+   "mock_line_calls": 2,
+   "real_line_calls": 0
+  },
+  "on_c43": {
+   "passCount": 34,
+   "failCount": 0,
+   "mock_line_calls": 2,
+   "real_line_calls": 0,
+   "results": [
+    {
+     "ok": true,
+     "name": "S1 儲存 45 天期間改為 60：資料庫 45 天、畫面保留尚未儲存的 60 天（儲存成功與自動更新都不覆蓋）",
+     "detail": "{\"sent\":\"{\\\"enabled\\\":true,\\\"ttl_days\\\":45}\",\"db\":45,\"ui\":{\"ttl\":\"60\",\"en\":true}}"
+    },
+    {
+     "ok": true,
+     "name": "S1-2 下一輪 10 秒自動更新仍保留 60（未儲存狀態保留）",
+     "detail": "{\"ttl\":\"60\",\"en\":true}"
+    },
+    {
+     "ok": true,
+     "name": "S1-3 再次儲存後資料庫才變成 60 天",
+     "detail": "{\"db\":60,\"ui\":{\"ttl\":\"60\",\"en\":true}}"
+    },
+    {
+     "ok": true,
+     "name": "S2 儲存期間改動總開關：資料庫仍為開啟、畫面保留尚未儲存的「關閉」",
+     "detail": "{\"db\":true,\"ui\":{\"ttl\":\"60\",\"en\":false}}"
+    },
+    {
+     "ok": true,
+     "name": "S2-2 再次儲存後才關閉",
+     "detail": "{\"db\":false,\"ui\":{\"ttl\":\"60\",\"en\":false}}"
+    },
+    {
+     "ok": true,
+     "name": "S3 儲存失敗：資料庫不變（60）、畫面保留 33，自動更新不覆蓋",
+     "detail": "{\"db\":60,\"ui\":{\"ttl\":\"33\",\"en\":true}}"
+    },
+    {
+     "ok": true,
+     "name": "S4 正常儲存後未儲存狀態清除：之後的伺服器變更（41 天）由自動更新正常反映",
+     "detail": "{\"db4\":33,\"ui\":{\"ttl\":\"41\",\"en\":true}}"
+    },
+    {
+     "ok": true,
+     "name": "S5 連按兩次儲存（第一個回應晚到）：資料庫 52；完成後不殘留未儲存狀態（之後的 47 正常反映）",
+     "detail": "{\"db5\":52,\"ui\":{\"ttl\":\"47\",\"en\":true}}"
+    },
+    {
+     "ok": true,
+     "name": "S6 較早的儲存回應晚到：不把畫面改回 55（顯示最後一次送出的 58）",
+     "detail": "{\"db\":58,\"ui\":{\"ttl\":\"58\",\"en\":true}}"
+    },
+    {
+     "ok": true,
+     "name": "S6-2 最後一次儲存完成後狀態已清除，之後的伺服器變更正常反映",
+     "detail": "{\"ttl\":\"30\",\"en\":true}"
+    },
+    {
+     "ok": true,
+     "name": "S7 編輯中（有焦點）時自動更新不覆蓋、不搶走焦點",
+     "detail": "{\"v\":\"29\",\"f\":\"pd-set-ttl\"}"
+    },
+    {
+     "ok": true,
+     "name": "B1-前提 舊回應含「待發送」；worker 經程序內 LINE 攔截完成，新明細顯示 2 筆 LINE 已受理",
+     "detail": "{\"oldHasPending\":true,\"st\":[\"accepted\",\"accepted\"],\"newTxt\":\"會員 狀態 嘗試 首次嘗試 代碼 LINE 請求 ID 會員05 Uc430…0005 LINE 已受理 1 2026/11/12 10:31 / 200 2de08664-d4a7-42d9-8b43-a995133e16b5 會員06 Uc430…0006 LINE 已受理 1 2026/11/12 10:31 /\"}"
+    },
+    {
+     "ok": true,
+     "name": "B1 較早的「待發送」回應晚到：不把明細倒退回待發送",
+     "detail": "會員 狀態 嘗試 首次嘗試 代碼 LINE 請求 ID 會員05 Uc430…0005 LINE 已受理 1 2026/11/12 10:31 / 200 2de08664-d4a7-42d9-8b43-a995133e16b5 會員06 Uc430…0006 LINE 已受理 1 2026/11/12 10:31 / 200 51a803c5-317c-42cd-8dbf-c07754b3601"
+    },
+    {
+     "ok": true,
+     "name": "B2 較早的錯誤回應晚到：不覆蓋較新的成功明細",
+     "detail": "會員 狀態 嘗試 首次嘗試 代碼 LINE 請求 ID 會員05 Uc430…0005 LINE 已受理 1 2026/11/12 10:31 / 200 2de08664-d4a7-42d9-8b43-a995133e16b5 會員06 Uc430…0006 LINE 已受理 1 2026/11/12 10:31 / 200 51a803c5-317c-42cd-8dbf-c07754b3601"
+    },
+    {
+     "ok": true,
+     "name": "B3 背景舊查詢晚到（失敗）：不改變較新的手動結果",
+     "detail": "會員 狀態 嘗試 首次嘗試 代碼 LINE 請求 ID 會員05 Uc430…0005 LINE 已受理 1 2026/11/12 10:31 / 200 2de08664-d4a7-42d9-8b43-a995133e16b5 會員06 Uc430…0006 LINE 已受理 1 2026/11/12 10:31 /"
+    },
+    {
+     "ok": true,
+     "name": "B4 切換商品後，舊批次明細回應不寫入新商品面板",
+     "detail": "{\"pid\":\"701\",\"t\":\"測試招牌飯：有效登記 0 人、期望 0 份\\n關閉明細\\n會員\\t份數\\t取餐偏好\\t狀態\\t補貨通知同意\\t登記時間\\t更新時間\\t有效期限\\n尚無登記\\n🔔 補貨通知（店家手動發送）\\n取餐方式 \\n外帶自取\\n外送\\n供應日期 \\n預覽通知\\n名單由伺服器依最新登記\"}"
+    },
+    {
+     "ok": true,
+     "name": "B5 關閉明細後，舊回應不重新打開或寫入",
+     "detail": "{\"vis\":false,\"html\":0}"
+    },
+    {
+     "ok": true,
+     "name": "B6 離開分頁後舊回應返回：不寫入；回到分頁仍為最新（2 筆已受理）",
+     "detail": "{\"hidden\":\"會員狀態嘗試首次嘗試代碼LINE 請求 ID會員05 Uc430…0005LINE 已受理12026/11/12 10:31 / 2002de08664-d4a\",\"back\":\"會員 狀態 嘗試 首次嘗試 代碼 LINE 請求 ID 會員05 Uc430…0005 LINE 已受理 1 2026/11/12 10:31 / 200 2de08664-d4a7-42d9-8b43-a995133e16b5 會員06 \"}"
+    },
+    {
+     "ok": true,
+     "name": "B7 頁面隱藏後舊回應返回：不寫入；恢復可見後為最新",
+     "detail": "{\"hidden\":\"會員 狀態 嘗試 首次嘗試 代碼 LINE 請求 ID 會員05 Uc430…0005 LINE 已受理 1 2026/11/12 10:31 / 200 2d\",\"back\":\"會員 狀態 嘗試 首次嘗試 代碼 LINE 請求 ID 會員05 Uc430…0005 LINE 已受理 1 2026/11/12 10:31 / 200 2d\"}"
+    },
+    {
+     "ok": true,
+     "name": "B8 登入身分改變後，上一個身分發出的舊回應不寫入",
+     "detail": "會員 狀態 嘗試 首次嘗試 代碼 LINE 請求 ID 會員05 Uc430…0005 LINE 已受理 1 2026/11/12 10:31 / 200 2de08664-d4a7-42d9-8b43-a995133e16b5 會員06 "
+    },
+    {
+     "ok": true,
+     "name": "B9 舊回應返回時：取餐方式、日期、預覽、展開明細、焦點、捲動保持，且明細不倒退",
+     "detail": "{\"s0\":{\"mode\":\"delivery\",\"date\":\"2026-11-13\",\"pv\":876,\"f\":\"rn-date\",\"y\":0},\"s1\":{\"mode\":\"delivery\",\"date\":\"2026-11-13\",\"pv\":876,\"f\":\"rn-date\",\"y\":0}}"
+    },
+    {
+     "ok": true,
+     "name": "B10 發送規則不變：模擬 LINE 呼叫 2 次、每位 1 次嘗試、皆已受理（明細查詢不觸發發送）",
+     "detail": "{\"calls\":2,\"del\":[[\"accepted\",1],[\"accepted\",1]]}"
+    },
+    {
+     "ok": true,
+     "name": "S/B 後台頁面無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "M1-前提 舊快照含 2 份；取消 API 成功（資料庫無有效登記），畫面先移除",
+     "detail": "{\"snapHas2\":true,\"mid\":\"補貨登記\",\"dbRow\":false}"
+    },
+    {
+     "ok": true,
+     "name": "M1 取消後舊查詢晚到：商品卡不恢復「已登記 2 份」，清單也沒有該登記",
+     "detail": "{\"after\":\"補貨登記\",\"list\":\"我的補貨登記\\n✕\\n\\n目前沒有有效的補貨登記。\\n\\n登記不代表訂單成立，也不保留商品；補貨時間尚未確定，實際供應以下單時為準。\"}"
+    },
+    {
+     "ok": true,
+     "name": "M2 新增後舊查詢（無登記）晚到：資料庫 3 份、商品卡維持「已登記 3 份」",
+     "detail": "{\"mid\":\"已登記 3 份・管理登記\",\"after\":\"已登記 3 份・管理登記\",\"db\":3}"
+    },
+    {
+     "ok": true,
+     "name": "M3 修改份數後舊查詢（3 份）晚到：資料庫 5 份、商品卡維持 5 份",
+     "detail": "{\"mid\":\"已登記 5 份・管理登記\",\"after\":\"已登記 5 份・管理登記\",\"db\":5}"
+    },
+    {
+     "ok": true,
+     "name": "M4 撤回通知同意後舊查詢（已同意）晚到：資料庫已撤回、畫面不恢復「已訂閱補貨通知」",
+     "detail": "{\"before\":true,\"mid\":false,\"after\":{\"sub\":false,\"revoke\":false,\"checked\":false},\"db\":\"revoked\"}"
+    },
+    {
+     "ok": true,
+     "name": "M5 查詢期間切換會員、舊會員回應 401：目前會員（5 份）正常，未被標成登入過期，不顯示舊會員 4 份",
+     "detail": "{\"btn\":\"已登記 5 份・管理登記\",\"txt\":\"這款商品，你想買幾份？\\n✕\\n測試招牌飯\\n\\n留下想買的份數，讓我們安排備貨。目前僅提供補貨登記，不會發送 LINE 通知。\\n\\n已登記 5 份\\n\\n登記份數\\n−\\n5\\n+\\n取餐偏好\\n外帶自取\\n外送\\n都可以\\n送出補貨登記 取消補貨登記\\n\\n登記不代表訂單成立，也不保留商品；補貨時間尚未確定，實際供應以下單時為準。\"}"
+    },
+    {
+     "ok": true,
+     "name": "M6 取消期間切換會員、舊會員取消回應 401：目前會員不被標成登入過期，顯示自己的 5 份（舊會員登記未被取消）",
+     "detail": "{\"btn\":\"已登記 5 份・管理登記\",\"d\":4,\"txt\":\"這款商品，你想買幾份？\\n✕\\n測試招牌飯\\n\\n留下想買的份數，讓我們安排備貨。目前僅提供補貨登記，不會發送 LINE 通知。\\n\\n已登記 5 份\\n\\n登記份數\\n−\\n5\\n+\\n取餐偏好\\n外帶自取\\n外送\\n都可以\\n送出補貨登記 取消補貨登記\\n\\n登記不代表訂單成立，也不保留商品；補貨時間尚未確定，實際供應以下單時為準。\"}"
+    },
+    {
+     "ok": true,
+     "name": "M7 異動期間切換會員、舊會員異動成功回應：目前會員仍顯示自己的 5 份（舊會員資料庫已更新為 5）",
+     "detail": "{\"btn\":\"已登記 5 份・管理登記\",\"d\":5}"
+    },
+    {
+     "ok": true,
+     "name": "M8 正常查詢、清單與管理（改為 4 份）照常可用、無 JavaScript 錯誤",
+     "detail": "{\"b0\":\"已登記 5 份・管理登記\",\"b1\":\"已登記 4 份・管理登記\",\"db\":4,\"e\":[]}"
+    },
+    {
+     "ok": true,
+     "name": "Z1 全程未建立訂單、未改額度",
+     "detail": "{\"c0\":{\"sold\":[[701,0,0],[1,0,0],[201,0,0],[702,0,0],[2,0,0],[202,0,0],[706,0,0],[3,0,0],[203,0,0],[708,0,0],[4,0,0],[5,0,0],[6,0,0],[7,0,0],[8,0,0],[9,0,0],[10,0,0],[11,0,0],[12,0,0]],\"orders\":2},\"c1\":{\"sold\":[[701,0,0],[1,0,0],[201,0,0],[702,0,0],[2,0,0],[202,0,0],[706,0,0],[3,0,0],[203,0,0],[708,"
+    },
+    {
+     "ok": true,
+     "name": "Z2 真實 LINE API 呼叫 0 次（全部由程序內模擬攔截）",
+     "detail": "0"
+    }
+   ]
+  }
+ },
+ "targeted_on_c43": [
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c4-2-demand-ui-refresh.js",
+   "exit": 0,
+   "seconds": 387,
+   "passCount": 80,
+   "failCount": 0,
+   "fail_items": []
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c4-1-dedupe-resume.js",
+   "exit": 0,
+   "seconds": 66,
+   "passCount": 40,
+   "failCount": 0,
+   "fail_items": []
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c4-restock-notify.js",
+   "exit": 0,
+   "seconds": 52,
+   "passCount": 94,
+   "failCount": 0,
+   "fail_items": []
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c4-linepush-compat.js",
+   "exit": 0,
+   "seconds": 1,
+   "passCount": 12,
+   "failCount": 0,
+   "fail_items": []
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c3-3-restore-cancel.js",
+   "exit": 0,
+   "seconds": 167,
+   "passCount": 30,
+   "failCount": 0,
+   "fail_items": []
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c3-2-firstpaint-remap.js",
+   "exit": 0,
+   "seconds": 72,
+   "passCount": 32,
+   "failCount": 0,
+   "fail_items": []
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c3-1-backup-manage-login.js",
+   "exit": 0,
+   "seconds": 113,
+   "passCount": 54,
+   "failCount": 0,
+   "fail_items": []
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c3-sale-status-demand.js",
+   "exit": 1,
+   "seconds": 140,
+   "passCount": 250,
+   "failCount": 4,
+   "fail_items": [
+    "❌ O1 今日完售：今日訂單被擋，未建立訂單、未扣今日額度",
+    "❌ O6-paused 今日與未來日期都被擋，訂單與額度不變",
+    "❌ O6-sold_out_indefinitely 今日與未來日期都被擋，訂單與額度不變",
+    "❌ O9 今日完售＋未啟用預購份數管理：今日仍擋；未來 30 份（超過原預購每日 20）不限額成功，今日額度不變"
+   ]
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c1-preorder-status.js",
+   "exit": 0,
+   "seconds": 83,
+   "passCount": 93,
+   "failCount": 0,
+   "fail_items": []
+  },
+  {
+   "script": "scripts/smoke-h1-4-12-popup-frontend.js",
+   "exit": 0,
+   "seconds": 29,
+   "passCount": 293,
+   "failCount": 0,
+   "fail_items": []
+  },
+  {
+   "script": "scripts/run-r54-4-mbv2-ui.js",
+   "exit": 0,
+   "seconds": 9,
+   "passCount": 19,
+   "failCount": 0,
+   "fail_items": []
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-migration.js",
+   "exit": 0,
+   "seconds": 14,
+   "passCount": 121,
+   "failCount": 0,
+   "fail_items": []
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-system-regression.js",
+   "exit": 0,
+   "seconds": 7,
+   "tail": [
+    "{\"label\":\"pos order created\",\"value\":true}"
+   ]
+  },
+  {
+   "script": "scripts/run-h1-4-10-phase4b-recovery-full-runtime.js",
+   "exit": 0,
+   "seconds": 16,
+   "tail": [
+    "TOTAL=168 PASS=168 FAIL=0"
+   ]
+  }
+ ],
+ "same_night_c42_c3": [
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c3-sale-status-demand.js",
+   "exit": 1,
+   "seconds": 141,
+   "passCount": 250,
+   "failCount": 4,
+   "fail_items": [
+    "❌ O1 今日完售：今日訂單被擋，未建立訂單、未扣今日額度",
+    "❌ O6-paused 今日與未來日期都被擋，訂單與額度不變",
+    "❌ O6-sold_out_indefinitely 今日與未來日期都被擋，訂單與額度不變",
+    "❌ O9 今日完售＋未啟用預購份數管理：今日仍擋；未來 30 份（超過原預購每日 20）不限額成功，今日額度不變"
+   ]
+  }
+ ],
+ "regression_61": {
+  "c42_exit0": 41,
+  "c43_exit0": 41,
+  "scripts": [
+   {
+    "script": "scripts/mbv2-rescue-verify.js",
+    "c41_exit": 2,
+    "c42_exit": 2,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 0,
+    "c42_fail_lines": 0
+   },
+   {
+    "script": "scripts/run-g1-6-ga4-h1-4-4-view-item-runtime.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 0,
+    "c42_fail_lines": 0
+   },
+   {
+    "script": "scripts/run-g1-6-ga4-h1-4-7-two-stage-checkout-runtime.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/run-h1-4-10-asset-cache-bust-runtime.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/run-h1-4-10-friend-live-runtime.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/run-h1-4-10-historical-backend-reconcile-runtime.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/run-h1-4-10-historical-friend-first-touch-runtime.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/run-h1-4-10-phase1-liff-identity-runtime.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/run-h1-4-10-phase2-line-friend-guide-runtime.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/run-h1-4-10-phase3-checkout-submit-payment-runtime.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/run-h1-4-10-phase4b-recovery-frontend-targeted.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/run-h1-4-10-phase4b-recovery-full-runtime.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 3,
+    "c42_fail_lines": 3
+   },
+   {
+    "script": "scripts/run-h1-4-10-required-friend-gate-runtime.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/run-h1-4-9-checkout-order-summary-runtime.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/run-r54-4-mbv2-ui.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/run-regression-g1-6-ga4-h1-4-6.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": false,
+    "c41_fail_lines": 36,
+    "c42_fail_lines": 33
+   },
+   {
+    "script": "scripts/run-regression-g1-6-ga4-h1-4-7.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": false,
+    "c41_fail_lines": 60,
+    "c42_fail_lines": 60
+   },
+   {
+    "script": "scripts/smoke-cart-delivery-live-refresh.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 0,
+    "c42_fail_lines": 0
+   },
+   {
+    "script": "scripts/smoke-delivery-distance-promotion.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 0,
+    "c42_fail_lines": 0
+   },
+   {
+    "script": "scripts/smoke-h1-4-11-1-fixes.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-h1-4-11-2-fixes.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-h1-4-11-4-1-both-disabled-product-filter.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 2,
+    "c42_fail_lines": 2
+   },
+   {
+    "script": "scripts/smoke-h1-4-11-4-product-mode-visibility.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-h1-4-11-line-order-page-mode.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-admin-ui-browser.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 2,
+    "c42_fail_lines": 2
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-admin-ui.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-checkout-integration.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-frontend.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-public-checkout.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 2,
+    "c42_fail_lines": 2
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-real-browser.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-recovery-cart-frontend.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-recovery-identity-bridge.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-recovery-landing.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-hotfix25.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-hotfix26-b.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 2,
+    "c42_fail_lines": 2
+   },
+   {
+    "script": "scripts/smoke-hotfix26-d.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": false,
+    "c41_fail_lines": 2,
+    "c42_fail_lines": 2
+   },
+   {
+    "script": "scripts/smoke-hotfix26-f2.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 7,
+    "c42_fail_lines": 7
+   },
+   {
+    "script": "scripts/smoke-hotfix26-f3.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-hotfix26-f4.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-hotfix26-f5.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-hotfix26-f7.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 5,
+    "c42_fail_lines": 5
+   },
+   {
+    "script": "scripts/smoke-hotfix26-f8-b.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 9,
+    "c42_fail_lines": 9
+   },
+   {
+    "script": "scripts/smoke-hotfix26-f8.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-hotfix26-i.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 0,
+    "c42_fail_lines": 0
+   },
+   {
+    "script": "scripts/smoke-hotfix27-cd.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 2,
+    "c42_fail_lines": 2
+   },
+   {
+    "script": "scripts/smoke-hotfix29-b.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 6,
+    "c42_fail_lines": 6
+   },
+   {
+    "script": "scripts/smoke-hotfix29-c.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 6,
+    "c42_fail_lines": 6
+   },
+   {
+    "script": "scripts/smoke-hotfix29.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 13,
+    "c42_fail_lines": 13
+   },
+   {
+    "script": "scripts/smoke-hotfix30-b5-r5-4-g1-live-geo.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-hotfix30-b5-r5-debounce.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-r48-popup-order-ui-browser.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 0,
+    "c42_fail_lines": 0
+   },
+   {
+    "script": "scripts/smoke-r54-4-mbv2-large-upload.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 0,
+    "c42_fail_lines": 0
+   },
+   {
+    "script": "scripts/smoke-r54-4-mbv2-migration.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-r54-4-mbv2-system-regression.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 0,
+    "c42_fail_lines": 0
+   },
+   {
+    "script": "scripts/static-audit-g1-6-ga4-h1-4-4.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 0,
+    "c42_fail_lines": 0
+   },
+   {
+    "script": "scripts/static-audit-g1-6-ga4-h1-4-5.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/static-audit-g1-6-ga4-h1-4-6.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 4,
+    "c42_fail_lines": 4
+   },
+   {
+    "script": "scripts/static-audit-g1-6-ga4-h1-4-7.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 5,
+    "c42_fail_lines": 5
+   },
+   {
+    "script": "scripts/static-audit-g1.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 0,
+    "c42_fail_lines": 0
+   },
+   {
+    "script": "scripts/static-audit-r48-popup-order-ui.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 12,
+    "c42_fail_lines": 12
+   },
+   {
+    "script": "scripts/test-phone-validation.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 0,
+    "c42_fail_lines": 0
+   }
+  ],
+  "differences": "僅 run-regression-g1-6-ga4-h1-4-6／-4-7 既有不穩定 Geo Explorer 輪次、smoke-hotfix26-d 訊息路徑"
+ },
+ "adjusted_existing_assertions": [],
+ "line_api_calls": {
+  "real": 0,
+  "note": "伺服器以 c4-line-mock／hf1c3-net-mock 在程序內攔截；新增測試 B 段由實際 worker 發送 2 次（模擬）"
+ },
+ "not_executed": [
+  "C4.1 測試 K/R 段、C4 驗收 K1（需要 C4／C3.3 原程式）",
+  "LINE App／LIFF 真機",
+  "真實 Messaging API",
+  "正式 Zeabur"
+ ],
+ "new_failures": 0,
+ "fresh_zip_verification": {
+  "candidate_zip_sha256": "a3128f68015bd7b5817b13eed41331bf13044e94e4c1a3e4bfd8fd1cffb91826",
+  "files": 930,
+  "zip_entries": 967,
+  "startup": {
+   "health": 200,
+   "order": 200,
+   "admin": 200,
+   "snapshot_unauth": 401,
+   "summary_unauth": 401,
+   "notify_available": false,
+   "send_enabled": false,
+   "app_js_version": "r54-4-mbv2-hf1-c4-3"
+  },
+  "suites": {
+   "c4-3-async-consistency": "34/34",
+   "c4-2-demand-ui-refresh": "80/80",
+   "c4-1-dedupe-resume": "40/40",
+   "c4-restock-notify": "94/94",
+   "c4-linepush-compat": "12/12",
+   "c3-3-restore-cancel": "30/30",
+   "c3-2-firstpaint-remap": "32/32",
+   "mbv2-migration": "121/121",
+   "phase4b-recovery-full-runtime": "exit 0"
+  },
+  "note": "最終 ZIP 只在 docs/R54_4_MBV2_HF1_C4_3/ 加入本段紀錄"
+ }
+}

@@ -1,0 +1,924 @@
+{
+ "release": "R54.4／MBV2-HF1-C4.4",
+ "executed_at_taipei": "2026-11-13 上午至中午（C4.3 與 C4.4 同一時段先後執行）",
+ "baseline": {
+  "zip": "P3CD_DEPLOY_R54_4_MBV2_HF1_C4_3_DEMAND_ASYNC_CONSISTENCY_FIX_APP_ROOT.zip",
+  "sha256": "a5da4ca7158d4ecdd267d655e6fd603d2d7405c294384cf32bf164bc67c0a29e",
+  "sha256_matches": true,
+  "files": 930,
+  "zip_entries": 967
+ },
+ "new_test": {
+  "script": "scripts/smoke-r54-4-mbv2-hf1-c4-4-mutation-response.js",
+  "clock_offset_ms": 0,
+  "on_unmodified_c43": {
+   "passCount": 10,
+   "failCount": 10,
+   "fail_items": [
+    "X1 修改 3 份的成功回應晚於取消成功：資料庫無有效登記；商品卡、清單、表單維持已取消",
+    "X2 修改 3 份的成功回應晚於修改 5 份成功：資料庫、商品卡、清單、表單都是 5 份",
+    "X3 舊登記成功回應晚於撤回同意：資料庫與畫面都維持已撤回（不顯示已訂閱、勾選未勾）",
+    "X4 舊取消成功回應晚於重新登記（新週期）：新登記不被移除；通知同意不沿用舊週期（未勾、不顯示已訂閱）",
+    "X5 舊操作 401 晚到：資料庫與商品卡維持 4 份；之後開啟的表單仍開著、未被改成登入過期或錯誤",
+    "X5-2 舊操作網路錯誤晚到：新開啟的表單不顯示舊錯誤、不被關閉；狀態依伺服器（4 份）",
+    "X6 JSON 讀取期間切換會員：A 的取消回應不關閉 B 的表單、不對 B 顯示「已取消」、B 仍為 5 份",
+    "X6-2 撤回同意的 JSON 讀取期間切換會員：A 已撤回、B 的表單仍顯示 B 的「已訂閱」，不出現 A 的撤回提示",
+    "X8 舊成功回應：另一商品的新表單仍開著且未被改寫；原商品結果（3 份）正常套用",
+    "X8-2 舊錯誤回應：另一商品的新表單不顯示舊錯誤、不被關閉"
+   ],
+   "results": [
+    {
+     "ok": true,
+     "name": "X1-前提 伺服器先完成「3 份」並扣住回應；取消成功後畫面已移除",
+     "detail": "{\"mid\":\"補貨登記\"}"
+    },
+    {
+     "ok": false,
+     "name": "X1 修改 3 份的成功回應晚於取消成功：資料庫無有效登記；商品卡、清單、表單維持已取消",
+     "detail": "{\"s\":null,\"card\":\"已登記 3 份・管理登記\",\"list\":\"我的補貨登記 ✕ 目前沒有有效的補貨登記。 登記不代表訂單成立，也不保留商品；補貨時間尚未確定，實際供應以下單時為準。\",\"f\":{\"cancel\":false,\"submit\":\"送出補貨登記\"}}"
+    },
+    {
+     "ok": true,
+     "name": "X1-E 無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": false,
+     "name": "X2 修改 3 份的成功回應晚於修改 5 份成功：資料庫、商品卡、清單、表單都是 5 份",
+     "detail": "{\"s\":{\"qty\":5,\"consent\":\"none\"},\"card\":\"已登記 3 份・管理登記\",\"list\":\"我的補貨登記 ✕ 測試招牌飯 5 份・都可以 管理 登記不代表訂單成立，也不保留商品；補貨時間尚未確定，實際供應以下單時為準。\",\"qty\":5}"
+    },
+    {
+     "ok": true,
+     "name": "X3-前提 舊登記為已同意；扣住的舊成功回應含已同意",
+     "detail": ""
+    },
+    {
+     "ok": false,
+     "name": "X3 舊登記成功回應晚於撤回同意：資料庫與畫面都維持已撤回（不顯示已訂閱、勾選未勾）",
+     "detail": "{\"s\":{\"qty\":3,\"consent\":\"revoked\"},\"f\":{\"sub\":true},\"card\":\"已登記 3 份・管理登記\"}"
+    },
+    {
+     "ok": true,
+     "name": "X4-前提 取消已先在伺服器完成（無有效登記）",
+     "detail": "null"
+    },
+    {
+     "ok": false,
+     "name": "X4 舊取消成功回應晚於重新登記（新週期）：新登記不被移除；通知同意不沿用舊週期（未勾、不顯示已訂閱）",
+     "detail": "{\"s\":{\"qty\":3,\"consent\":\"none\"},\"card\":\"🔔 補貨通知我\",\"list\":\"我的補貨登記 ✕ 測試招牌飯 3 份・都可以 管理 登記不代表訂單成立，也不保留商品；補貨時間尚未確定，實際供應以下單時為準。\",\"f\":{\"sub\":false,\"chk\":false}}"
+    },
+    {
+     "ok": false,
+     "name": "X5 舊操作 401 晚到：資料庫與商品卡維持 4 份；之後開啟的表單仍開著、未被改成登入過期或錯誤",
+     "detail": "{\"s\":{\"qty\":4,\"consent\":\"none\"},\"card\":\"已登記 4 份・管理登記\",\"f\":{\"open\":true,\"msg\":\"\",\"text\":\"這款商品，你想買幾份？ ✕ 測試招牌飯 留下想買的份數，讓我們安排備貨。目前僅提供補貨登記，不會發送 LINE 通知。 LINE 會員登入已過期，請重新登入後再\"}}"
+    },
+    {
+     "ok": false,
+     "name": "X5-2 舊操作網路錯誤晚到：新開啟的表單不顯示舊錯誤、不被關閉；狀態依伺服器（4 份）",
+     "detail": "{\"f2\":{\"open\":true,\"msg\":\"網路不穩，請稍後再試\"},\"s2\":{\"qty\":4,\"consent\":\"none\"}}"
+    },
+    {
+     "ok": true,
+     "name": "X6-前提 A 的取消已在伺服器完成（body 尚未讀完）；B 有 5 份",
+     "detail": "{\"sa\":null,\"sb\":{\"qty\":5,\"consent\":\"none\"}}"
+    },
+    {
+     "ok": false,
+     "name": "X6 JSON 讀取期間切換會員：A 的取消回應不關閉 B 的表單、不對 B 顯示「已取消」、B 仍為 5 份",
+     "detail": "{\"before\":true,\"f\":{\"open\":false,\"qty\":null},\"toasts\":[\"已取消補貨登記\"],\"card\":\"補貨登記\"}"
+    },
+    {
+     "ok": false,
+     "name": "X6-2 撤回同意的 JSON 讀取期間切換會員：A 已撤回、B 的表單仍顯示 B 的「已訂閱」，不出現 A 的撤回提示",
+     "detail": "{\"sa2\":{\"qty\":1,\"consent\":\"revoked\"},\"sb2\":{\"qty\":5,\"consent\":\"granted\"},\"b2\":{\"open\":true,\"st\":{\"pid\":701,\"view\":\"item\",\"qty\":1},\"text\":\"這款商品，你想買幾份？ ✕ 測試招牌飯 正在確認你的補貨登記… 登記不代表訂單成立，也不保留商品；補貨時間尚未確定，實際供應以下單時為準。\"},\"f2\":{\"open\":true,\"sub\":false,\"msg\":\"已取消補貨通知（補貨登記仍保留）\"}}"
+    },
+    {
+     "ok": true,
+     "name": "X7 先前修改成功、後續取消失敗：表單保留錯誤提示；商品卡、清單、資料庫都是 3 份，不誤報取消成功",
+     "detail": "{\"s\":{\"qty\":3,\"consent\":\"none\"},\"f\":{\"open\":true,\"msg\":\"測試：伺服器錯誤500\"},\"card\":\"已登記 3 份・管理登記\",\"list\":\"我的補貨登記 ✕ 測試招牌飯 3 份・都可以 管理 登記不代表訂單成立，也不保留商品；補貨時間尚未確定，實際供應以下單時\",\"toasts\":[\"最早可選 09:30\",\"已收到你的補貨登記，謝謝！\"]}"
+    },
+    {
+     "ok": false,
+     "name": "X8 舊成功回應：另一商品的新表單仍開著且未被改寫；原商品結果（3 份）正常套用",
+     "detail": "{\"f\":{\"open\":false,\"pid\":null,\"msg\":\"\"},\"c1\":\"已登記 3 份・管理登記\",\"s1\":{\"qty\":3,\"consent\":\"none\"}}"
+    },
+    {
+     "ok": false,
+     "name": "X8-2 舊錯誤回應：另一商品的新表單不顯示舊錯誤、不被關閉",
+     "detail": "{\"f2\":{\"open\":true,\"pid\":706,\"msg\":\"測試：伺服器錯誤500\"}}"
+    },
+    {
+     "ok": true,
+     "name": "X8-3 不同商品的操作互不影響：兩個商品結果都保留",
+     "detail": "{\"c3\":\"已登記 1 份・管理登記\",\"s3\":{\"qty\":1,\"consent\":\"none\"}}"
+    },
+    {
+     "ok": true,
+     "name": "X9 沒有重疊：新增（含同意）、修改、撤回同意、取消照常可用，畫面與資料庫一致",
+     "detail": "{\"a\":{\"card\":\"已登記 1 份・管理登記\",\"s\":{\"qty\":1,\"consent\":\"granted\"}},\"b\":{\"card\":\"已登記 2 份・管理登記\",\"s\":{\"qty\":2,\"consent\":\"granted\"}},\"c\":{\"s\":{\"qty\":2,\"consent\":\"revoked\"},\"msg\":\"已取消補貨通知（補貨登記仍保留）\"},\"d\":{\"card\":\"🔔 補貨通知我\",\"s\":null}}"
+    },
+    {
+     "ok": true,
+     "name": "Z1 全程未建立訂單、未改額度",
+     "detail": "{\"c0\":{\"sold\":[[701,0,0],[1,0,0],[201,0,0],[702,0,0],[2,0,0],[202,0,0],[706,0,0],[3,0,0],[203,0,0],[4,0,0],[5,0,0],[6,0,0],[7,0,0],[8,0,0],[9,0,0],[10,0,0],[11,0,0],[12,0,0]],\"orders\":2},\"c1\":{\"sold\":[[701,0,0],[1,0,0],[201,0,0],[702,0,0],[2,0,0],[202,0,0],[706,0,0],[3,0,0],[203,0,0],[4,0,0],[5,0,0]"
+    },
+    {
+     "ok": true,
+     "name": "Z2 LINE API 呼叫 0 次（模擬與真實皆為 0；登記與撤回不觸發發送）",
+     "detail": "{\"mock\":0,\"real\":0}"
+    }
+   ]
+  },
+  "on_c44": {
+   "passCount": 20,
+   "failCount": 0,
+   "mock_line_calls": 0,
+   "real_line_calls": 0,
+   "results": [
+    {
+     "ok": true,
+     "name": "X1-前提 伺服器先完成「3 份」並扣住回應；取消成功後畫面已移除",
+     "detail": "{\"mid\":\"補貨登記\"}"
+    },
+    {
+     "ok": true,
+     "name": "X1 修改 3 份的成功回應晚於取消成功：資料庫無有效登記；商品卡、清單、表單維持已取消",
+     "detail": "{\"s\":null,\"card\":\"補貨登記\",\"list\":\"我的補貨登記 ✕ 目前沒有有效的補貨登記。 登記不代表訂單成立，也不保留商品；補貨時間尚未確定，實際供應以下單時為準。\",\"f\":{\"cancel\":false,\"submit\":\"送出補貨登記\"}}"
+    },
+    {
+     "ok": true,
+     "name": "X1-E 無 JavaScript 錯誤",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "X2 修改 3 份的成功回應晚於修改 5 份成功：資料庫、商品卡、清單、表單都是 5 份",
+     "detail": "{\"s\":{\"qty\":5,\"consent\":\"none\"},\"card\":\"已登記 5 份・管理登記\",\"list\":\"我的補貨登記 ✕ 測試招牌飯 5 份・都可以 管理 登記不代表訂單成立，也不保留商品；補貨時間尚未確定，實際供應以下單時為準。\",\"qty\":5}"
+    },
+    {
+     "ok": true,
+     "name": "X3-前提 舊登記為已同意；扣住的舊成功回應含已同意",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "X3 舊登記成功回應晚於撤回同意：資料庫與畫面都維持已撤回（不顯示已訂閱、勾選未勾）",
+     "detail": "{\"s\":{\"qty\":3,\"consent\":\"revoked\"},\"f\":{\"sub\":false,\"chk\":false},\"card\":\"已登記 3 份・管理登記\"}"
+    },
+    {
+     "ok": true,
+     "name": "X4-前提 取消已先在伺服器完成（無有效登記）",
+     "detail": "null"
+    },
+    {
+     "ok": true,
+     "name": "X4 舊取消成功回應晚於重新登記（新週期）：新登記不被移除；通知同意不沿用舊週期（未勾、不顯示已訂閱）",
+     "detail": "{\"s\":{\"qty\":3,\"consent\":\"none\"},\"card\":\"已登記 3 份・管理登記\",\"list\":\"我的補貨登記 ✕ 測試招牌飯 3 份・都可以 管理 登記不代表訂單成立，也不保留商品；補貨時間尚未確定，實際供應以下單時為準。\",\"f\":{\"sub\":false,\"chk\":false}}"
+    },
+    {
+     "ok": true,
+     "name": "X5 舊操作 401 晚到：資料庫與商品卡維持 4 份；之後開啟的表單仍開著、未被改成登入過期或錯誤",
+     "detail": "{\"s\":{\"qty\":4,\"consent\":\"none\"},\"card\":\"已登記 4 份・管理登記\",\"f\":{\"open\":true,\"msg\":\"\",\"text\":\"這款商品，你想買幾份？ ✕ 測試招牌飯 留下想買的份數，讓我們安排備貨。目前僅提供補貨登記，不會發送 LINE 通知。 已登記 4 份 登記份數 − 4 + 取\"}}"
+    },
+    {
+     "ok": true,
+     "name": "X5-2 舊操作網路錯誤晚到：新開啟的表單不顯示舊錯誤、不被關閉；狀態依伺服器（4 份）",
+     "detail": "{\"f2\":{\"open\":true,\"msg\":\"\"},\"s2\":{\"qty\":4,\"consent\":\"none\"}}"
+    },
+    {
+     "ok": true,
+     "name": "X6-前提 A 的取消已在伺服器完成（body 尚未讀完）；B 有 5 份",
+     "detail": "{\"sa\":null,\"sb\":{\"qty\":5,\"consent\":\"none\"}}"
+    },
+    {
+     "ok": true,
+     "name": "X6 JSON 讀取期間切換會員：A 的取消回應不關閉 B 的表單、不對 B 顯示「已取消」、B 仍為 5 份",
+     "detail": "{\"before\":true,\"f\":{\"open\":true,\"qty\":5},\"toasts\":[],\"card\":\"已登記 5 份・管理登記\"}"
+    },
+    {
+     "ok": true,
+     "name": "X6-2 撤回同意的 JSON 讀取期間切換會員：A 已撤回、B 的表單仍顯示 B 的「已訂閱」，不出現 A 的撤回提示",
+     "detail": "{\"sa2\":{\"qty\":1,\"consent\":\"revoked\"},\"sb2\":{\"qty\":5,\"consent\":\"granted\"},\"b2\":{\"open\":true,\"st\":{\"pid\":701,\"view\":\"item\",\"qty\":1},\"text\":\"這款商品，你想買幾份？ ✕ 測試招牌飯 正在確認你的補貨登記… 登記不代表訂單成立，也不保留商品；補貨時間尚未確定，實際供應以下單時為準。\"},\"f2\":{\"open\":true,\"sub\":true,\"msg\":\"\"}}"
+    },
+    {
+     "ok": true,
+     "name": "X7 先前修改成功、後續取消失敗：表單保留錯誤提示；商品卡、清單、資料庫都是 3 份，不誤報取消成功",
+     "detail": "{\"s\":{\"qty\":3,\"consent\":\"none\"},\"f\":{\"open\":true,\"msg\":\"測試：伺服器錯誤500\"},\"card\":\"已登記 3 份・管理登記\",\"list\":\"我的補貨登記 ✕ 測試招牌飯 3 份・都可以 管理 登記不代表訂單成立，也不保留商品；補貨時間尚未確定，實際供應以下單時\",\"toasts\":[\"最早可選 09:30\",\"已收到你的補貨登記，謝謝！\"]}"
+    },
+    {
+     "ok": true,
+     "name": "X8 舊成功回應：另一商品的新表單仍開著且未被改寫；原商品結果（3 份）正常套用",
+     "detail": "{\"f\":{\"open\":true,\"pid\":706,\"msg\":\"\"},\"c1\":\"已登記 3 份・管理登記\",\"s1\":{\"qty\":3,\"consent\":\"none\"}}"
+    },
+    {
+     "ok": true,
+     "name": "X8-2 舊錯誤回應：另一商品的新表單不顯示舊錯誤、不被關閉",
+     "detail": "{\"f2\":{\"open\":true,\"pid\":706,\"msg\":\"\"}}"
+    },
+    {
+     "ok": true,
+     "name": "X8-3 不同商品的操作互不影響：兩個商品結果都保留",
+     "detail": "{\"c3\":\"已登記 1 份・管理登記\",\"s3\":{\"qty\":1,\"consent\":\"none\"}}"
+    },
+    {
+     "ok": true,
+     "name": "X9 沒有重疊：新增（含同意）、修改、撤回同意、取消照常可用，畫面與資料庫一致",
+     "detail": "{\"a\":{\"card\":\"已登記 1 份・管理登記\",\"s\":{\"qty\":1,\"consent\":\"granted\"}},\"b\":{\"card\":\"已登記 2 份・管理登記\",\"s\":{\"qty\":2,\"consent\":\"granted\"}},\"c\":{\"s\":{\"qty\":2,\"consent\":\"revoked\"},\"msg\":\"已取消補貨通知（補貨登記仍保留）\"},\"d\":{\"card\":\"🔔 補貨通知我\",\"s\":null}}"
+    },
+    {
+     "ok": true,
+     "name": "Z1 全程未建立訂單、未改額度",
+     "detail": "{\"c0\":{\"sold\":[[701,0,0],[1,0,0],[201,0,0],[702,0,0],[2,0,0],[202,0,0],[706,0,0],[3,0,0],[203,0,0],[4,0,0],[5,0,0],[6,0,0],[7,0,0],[8,0,0],[9,0,0],[10,0,0],[11,0,0],[12,0,0]],\"orders\":2},\"c1\":{\"sold\":[[701,0,0],[1,0,0],[201,0,0],[702,0,0],[2,0,0],[202,0,0],[706,0,0],[3,0,0],[203,0,0],[4,0,0],[5,0,0]"
+    },
+    {
+     "ok": true,
+     "name": "Z2 LINE API 呼叫 0 次（模擬與真實皆為 0；登記與撤回不觸發發送）",
+     "detail": "{\"mock\":0,\"real\":0}"
+    }
+   ]
+  }
+ },
+ "targeted_on_c44": [
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c4-3-async-consistency.js",
+   "exit": 0,
+   "seconds": 144,
+   "passCount": 34,
+   "failCount": 0,
+   "fail_items": []
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c4-2-demand-ui-refresh.js",
+   "exit": 0,
+   "seconds": 385,
+   "passCount": 80,
+   "failCount": 0,
+   "fail_items": []
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c4-1-dedupe-resume.js",
+   "exit": 0,
+   "seconds": 61,
+   "passCount": 40,
+   "failCount": 0,
+   "fail_items": []
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c4-restock-notify.js",
+   "exit": 0,
+   "seconds": 49,
+   "passCount": 94,
+   "failCount": 0,
+   "fail_items": []
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c4-linepush-compat.js",
+   "exit": 0,
+   "seconds": 1,
+   "passCount": 12,
+   "failCount": 0,
+   "fail_items": []
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c3-3-restore-cancel.js",
+   "exit": 0,
+   "seconds": 165,
+   "passCount": 30,
+   "failCount": 0,
+   "fail_items": []
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c3-2-firstpaint-remap.js",
+   "exit": 0,
+   "seconds": 68,
+   "passCount": 32,
+   "failCount": 0,
+   "fail_items": []
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c3-1-backup-manage-login.js",
+   "exit": 0,
+   "seconds": 107,
+   "passCount": 54,
+   "failCount": 0,
+   "fail_items": []
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c3-sale-status-demand.js",
+   "exit": 0,
+   "seconds": 163,
+   "passCount": 332,
+   "failCount": 0,
+   "fail_items": []
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c1-preorder-status.js",
+   "exit": 0,
+   "seconds": 78,
+   "passCount": 93,
+   "failCount": 0,
+   "fail_items": []
+  },
+  {
+   "script": "scripts/smoke-h1-4-12-popup-frontend.js",
+   "exit": 0,
+   "seconds": 27,
+   "passCount": 293,
+   "failCount": 0,
+   "fail_items": []
+  },
+  {
+   "script": "scripts/run-r54-4-mbv2-ui.js",
+   "exit": 0,
+   "seconds": 9,
+   "passCount": 19,
+   "failCount": 0,
+   "fail_items": []
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-migration.js",
+   "exit": 0,
+   "seconds": 12,
+   "passCount": 121,
+   "failCount": 0,
+   "fail_items": []
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-system-regression.js",
+   "exit": 0,
+   "seconds": 6,
+   "tail": [
+    "{\"label\":\"pos order created\",\"value\":true}"
+   ]
+  },
+  {
+   "script": "scripts/run-h1-4-10-phase4b-recovery-full-runtime.js",
+   "exit": 0,
+   "seconds": 15,
+   "tail": [
+    "TOTAL=168 PASS=168 FAIL=0"
+   ]
+  }
+ ],
+ "same_period_c43_c3": [
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c3-sale-status-demand.js",
+   "exit": 0,
+   "seconds": 161,
+   "passCount": 332,
+   "failCount": 0,
+   "fail_items": []
+  }
+ ],
+ "regression_61": {
+  "c43_exit0": 41,
+  "c44_exit0": 41,
+  "scripts": [
+   {
+    "script": "scripts/mbv2-rescue-verify.js",
+    "c41_exit": 2,
+    "c42_exit": 2,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 0,
+    "c42_fail_lines": 0
+   },
+   {
+    "script": "scripts/run-g1-6-ga4-h1-4-4-view-item-runtime.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 0,
+    "c42_fail_lines": 0
+   },
+   {
+    "script": "scripts/run-g1-6-ga4-h1-4-7-two-stage-checkout-runtime.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/run-h1-4-10-asset-cache-bust-runtime.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/run-h1-4-10-friend-live-runtime.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/run-h1-4-10-historical-backend-reconcile-runtime.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/run-h1-4-10-historical-friend-first-touch-runtime.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/run-h1-4-10-phase1-liff-identity-runtime.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/run-h1-4-10-phase2-line-friend-guide-runtime.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/run-h1-4-10-phase3-checkout-submit-payment-runtime.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/run-h1-4-10-phase4b-recovery-frontend-targeted.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/run-h1-4-10-phase4b-recovery-full-runtime.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 3,
+    "c42_fail_lines": 3
+   },
+   {
+    "script": "scripts/run-h1-4-10-required-friend-gate-runtime.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/run-h1-4-9-checkout-order-summary-runtime.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/run-r54-4-mbv2-ui.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/run-regression-g1-6-ga4-h1-4-6.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": false,
+    "c41_fail_lines": 33,
+    "c42_fail_lines": 33
+   },
+   {
+    "script": "scripts/run-regression-g1-6-ga4-h1-4-7.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 57,
+    "c42_fail_lines": 57
+   },
+   {
+    "script": "scripts/smoke-cart-delivery-live-refresh.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 0,
+    "c42_fail_lines": 0
+   },
+   {
+    "script": "scripts/smoke-delivery-distance-promotion.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 0,
+    "c42_fail_lines": 0
+   },
+   {
+    "script": "scripts/smoke-h1-4-11-1-fixes.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-h1-4-11-2-fixes.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-h1-4-11-4-1-both-disabled-product-filter.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 2,
+    "c42_fail_lines": 2
+   },
+   {
+    "script": "scripts/smoke-h1-4-11-4-product-mode-visibility.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-h1-4-11-line-order-page-mode.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-admin-ui-browser.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 2,
+    "c42_fail_lines": 2
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-admin-ui.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-checkout-integration.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-frontend.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-public-checkout.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 2,
+    "c42_fail_lines": 2
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-real-browser.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-recovery-cart-frontend.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-recovery-identity-bridge.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-recovery-landing.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-hotfix25.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-hotfix26-b.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 2,
+    "c42_fail_lines": 2
+   },
+   {
+    "script": "scripts/smoke-hotfix26-d.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": false,
+    "c41_fail_lines": 2,
+    "c42_fail_lines": 2
+   },
+   {
+    "script": "scripts/smoke-hotfix26-f2.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 7,
+    "c42_fail_lines": 7
+   },
+   {
+    "script": "scripts/smoke-hotfix26-f3.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-hotfix26-f4.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-hotfix26-f5.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-hotfix26-f7.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 5,
+    "c42_fail_lines": 5
+   },
+   {
+    "script": "scripts/smoke-hotfix26-f8-b.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 9,
+    "c42_fail_lines": 9
+   },
+   {
+    "script": "scripts/smoke-hotfix26-f8.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-hotfix26-i.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 0,
+    "c42_fail_lines": 0
+   },
+   {
+    "script": "scripts/smoke-hotfix27-cd.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 2,
+    "c42_fail_lines": 2
+   },
+   {
+    "script": "scripts/smoke-hotfix29-b.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 6,
+    "c42_fail_lines": 6
+   },
+   {
+    "script": "scripts/smoke-hotfix29-c.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 6,
+    "c42_fail_lines": 6
+   },
+   {
+    "script": "scripts/smoke-hotfix29.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 13,
+    "c42_fail_lines": 13
+   },
+   {
+    "script": "scripts/smoke-hotfix30-b5-r5-4-g1-live-geo.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-hotfix30-b5-r5-debounce.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-r48-popup-order-ui-browser.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 0,
+    "c42_fail_lines": 0
+   },
+   {
+    "script": "scripts/smoke-r54-4-mbv2-large-upload.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 0,
+    "c42_fail_lines": 0
+   },
+   {
+    "script": "scripts/smoke-r54-4-mbv2-migration.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/smoke-r54-4-mbv2-system-regression.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 0,
+    "c42_fail_lines": 0
+   },
+   {
+    "script": "scripts/static-audit-g1-6-ga4-h1-4-4.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 0,
+    "c42_fail_lines": 0
+   },
+   {
+    "script": "scripts/static-audit-g1-6-ga4-h1-4-5.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 1,
+    "c42_fail_lines": 1
+   },
+   {
+    "script": "scripts/static-audit-g1-6-ga4-h1-4-6.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 4,
+    "c42_fail_lines": 4
+   },
+   {
+    "script": "scripts/static-audit-g1-6-ga4-h1-4-7.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 5,
+    "c42_fail_lines": 5
+   },
+   {
+    "script": "scripts/static-audit-g1.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 0,
+    "c42_fail_lines": 0
+   },
+   {
+    "script": "scripts/static-audit-r48-popup-order-ui.js",
+    "c41_exit": 1,
+    "c42_exit": 1,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 12,
+    "c42_fail_lines": 12
+   },
+   {
+    "script": "scripts/test-phone-validation.js",
+    "c41_exit": 0,
+    "c42_exit": 0,
+    "fail_lines_identical": true,
+    "c41_fail_lines": 0,
+    "c42_fail_lines": 0
+   }
+  ],
+  "differences": "run-regression-g1-6-ga4-h1-4-6（C4.4 第 1 輪 H1 Static Audit 子程序中斷；第 2、3 輪與基準相同）、smoke-hotfix26-d 訊息路徑",
+  "static_audit_h1_standalone": {
+   "c43": [
+    "189/190",
+    "189/190",
+    "189/190"
+   ],
+   "c44": [
+    "189/190",
+    "189/190",
+    "189/190"
+   ],
+   "only_failure": "IP Provider still disabled in .env.example（既有）"
+  }
+ },
+ "adjusted_existing_assertions": [],
+ "line_api_calls": {
+  "real": 0,
+  "new_test_mock": 0
+ },
+ "not_executed": [
+  "C4.1 測試 K/R 段、C4 驗收 K1（需要 C4／C3.3 原程式）"
+ ],
+ "not_verified": [
+  "LINE App／LIFF 真機",
+  "真實 Messaging API",
+  "正式 Zeabur",
+  "多台伺服器"
+ ],
+ "new_failures": 0,
+ "fresh_zip_verification": {
+  "candidate_zip_sha256": "ac6be2edbea7cadd2a1afabcb0dc1257705f7c0eddca94f9517395e08bc87ab8",
+  "files": 934,
+  "zip_entries": 972,
+  "startup": {
+   "health": 200,
+   "order": 200,
+   "admin": 200,
+   "snapshot_unauth": 401,
+   "summary_unauth": 401,
+   "notify_available": false,
+   "send_enabled": false
+  },
+  "suites": {
+   "c4-4-mutation-response": "20/20",
+   "c4-3-async-consistency": "34/34",
+   "c4-2-demand-ui-refresh": "80/80",
+   "c4-1-dedupe-resume": "40/40",
+   "c4-restock-notify": "94/94",
+   "c4-linepush-compat": "12/12",
+   "c3-1-backup-manage-login": "54/54",
+   "c3-3-restore-cancel": "30/30",
+   "c3-2-firstpaint-remap": "32/32",
+   "mbv2-migration": "121/121",
+   "phase4b-recovery-full-runtime": "exit 0"
+  },
+  "note": "最終 ZIP 只在 docs/R54_4_MBV2_HF1_C4_4/ 加入本段紀錄"
+ }
+}

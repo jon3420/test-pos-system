@@ -1,0 +1,116 @@
+{
+ "release": "R54.4／MBV2-HF1-C4.2",
+ "package": "P3CD_DEPLOY_R54_4_MBV2_HF1_C4_2_DEMAND_UI_AUTO_REFRESH_APP_ROOT.zip",
+ "baseline": {
+  "zip": "P3CD_DEPLOY_R54_4_MBV2_HF1_C4_1_RESTOCK_IMPORT_DEDUPE_RESUME_FIX_APP_ROOT.zip",
+  "sha256": "c9d3512bdf5aec33fa95171f67e0fb1643403df65a7aba744ad350560342a7c1",
+  "files": 922,
+  "zip_entries": 957
+ },
+ "counts": {
+  "added": 4,
+  "modified": 12,
+  "removed": 0,
+  "files_total": 926
+ },
+ "schema_changes": "none",
+ "new_settings": "none",
+ "new_api": [
+  "GET /api/product-demand-admin/snapshot（唯讀）"
+ ],
+ "cache_versions": {
+  "/js/app.js": "r54-4-mbv2-hf1-c4-2",
+  "/js/product-detail-modal.js": "r54-4-mbv2-hf1-c4-2"
+ },
+ "excluded": [
+  "node_modules",
+  "*.db",
+  "uploads",
+  "qa-screenshots",
+  ".env",
+  "憑證／權杖"
+ ],
+ "added": [
+  {
+   "path": "docs/R54_4_MBV2_HF1_C4_2/00_FINAL_REPORT.md",
+   "sha256": "603dc526a7f72f5716d706b927bee0002efe2af8f0d2ee6550033866b92b2bbf"
+  },
+  {
+   "path": "docs/R54_4_MBV2_HF1_C4_2/01_TEST_RESULTS.json",
+   "sha256": "6d773cfa6c35a290156254dea51a36f9abc5bc23c32970eb4feecfc5a5a31771"
+  },
+  {
+   "path": "scripts/smoke-r54-4-mbv2-hf1-c4-2-demand-ui-refresh.js",
+   "sha256": "58a019ad06d614ddb85a5d95a5904b45e22ae75dacb3e3b06b4306e1ccc9b95f"
+  },
+  {
+   "path": "docs/R54_4_MBV2_HF1_C4_2/02_FILE_MANIFEST.json",
+   "sha256": "(本檔)"
+  }
+ ],
+ "modified": [
+  {
+   "path": "docs/R54_4_MBV2_HF1_C4_1/00_FINAL_REPORT.md",
+   "sha256_c41": "4992273eda32d304149ed514bc4c38dc082374497c8e2e5b475a5ac05dee2e84",
+   "sha256_c42": "e591dc199c55c885c9db328117c00e787ff87bd9bd168c9b4f8b12bf86d04c9e"
+  },
+  {
+   "path": "public/index.html",
+   "sha256_c41": "8b47a75aba2718c41b39508036f55a9dfca303e940d11f832be877d0fcd63322",
+   "sha256_c42": "099e78e54beef4961889ab78ab084bbf9811d2379f857dbd8b318579cbabd9d4"
+  },
+  {
+   "path": "public/js/app.js",
+   "sha256_c41": "01310d93d60b9b896e0b5ee197a3c56dd4223e8eb7dbb49b5da7b6e9a9a99990",
+   "sha256_c42": "0128d3404fe4245d0ff55da0c1227671c12ade3980ee4cb30066f9c54fe9e384"
+  },
+  {
+   "path": "public/js/product-detail-modal.js",
+   "sha256_c41": "65a828f36fdda48f2903713030d25cc3cd8a0678bb1937b4601333069334b6a9",
+   "sha256_c42": "d011503f7bd0ad5e770727790cf449fb8ee31572a057e77135faa9cb5eaf5775"
+  },
+  {
+   "path": "public/line-order.html",
+   "sha256_c41": "5b57267c62a2fd531691fe929c2703f704923c90e9d2de7844a9959f0d1154e5",
+   "sha256_c42": "76b2abedc948b1fc6132ce214496a1ef6fd6d342c899550edd9de65c807e0887"
+  },
+  {
+   "path": "routes/product-demand.js",
+   "sha256_c41": "e430ca57dd2a7483b81408226b9a290c0ac22d871ab987a2c04a515dffcc3c30",
+   "sha256_c42": "f301b7f1a015f4cc911372e5943a9bc9d9cabb4f55a32129a49aca8b62ba98f5"
+  },
+  {
+   "path": "scripts/smoke-h1-4-12-popup-frontend.js",
+   "sha256_c41": "bb7c84d421ef3b06b7d4b1f8a3ca630c6359847192cfda7702bcb2966fd1d644",
+   "sha256_c42": "d50ec0f109131cd22af2c6c79091617c37879d703896ff8f8f4705aac72689ee"
+  },
+  {
+   "path": "scripts/smoke-r54-4-mbv2-hf1-c3-2-firstpaint-remap.js",
+   "sha256_c41": "08ca7716c37d2b53c9d5049794810c28a386600158b14204a7c6d2ba2a83f125",
+   "sha256_c42": "70f9609f7397d0d7226688a59e537f9cac8d042c8a8ce6eeb4b47a192620fd3e"
+  },
+  {
+   "path": "scripts/smoke-r54-4-mbv2-hf1-c3-sale-status-demand.js",
+   "sha256_c41": "298376a05077c96bfa98ffe16e39ad1501ecd8a26f63f4c60fcf05bc3bee04ba",
+   "sha256_c42": "0cb00dfeece4b0c67c56c94eb6fc35e327193bca6cbcbe9a5d97d69f9b1f6bbe"
+  },
+  {
+   "path": "scripts/smoke-r54-4-mbv2-hf1-c4-restock-notify.js",
+   "sha256_c41": "c3aa2667f1e7e631d86987193cc9da44b67878182ad79fca7fecbc82e4b59b88",
+   "sha256_c42": "c118f4a36e630ddba8a4751d5cef089b4259498dd4a5c4ba9c2f963053d3d478"
+  },
+  {
+   "path": "utils/productDemand.js",
+   "sha256_c41": "59c2b74e195de157663ce44e4578e00722edce4297bbc91aa73c896d481ff8e4",
+   "sha256_c42": "23abbf86773adfe6a9aee377c8cffaa735eec615699cd255e928bbdc38e9ad75"
+  },
+  {
+   "path": "utils/restockNotify.js",
+   "sha256_c41": "f6bde311b15e6d20a4892b2975b94fa4735ecaf55b4e05ffc4246f3c62df642d",
+   "sha256_c42": "9b3ae67c0b5a7018e866c35f0bd2ad6ac0a65a117bd28487dc4f912a4616891e"
+  }
+ ],
+ "removed": [],
+ "note": "ZIP 本身的 SHA-256 與項目數無法寫入 ZIP 內，見交付訊息與專案報告。",
+ "candidate_zip_sha256": "03fdac7ab96969e122c721eba03fd9eaaca0af0fed8d4f3257fd6cc0d5d9c0d9"
+}

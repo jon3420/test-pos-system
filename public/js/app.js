@@ -2567,6 +2567,7 @@ function showPage(name) {
   // 7. 各頁資料載入
   if (name === 'orders')        loadCurrentOrderTab();
   if (name === 'products')      loadProductsPage();
+  if (name !== 'line_products' && typeof pdAutoLeave === 'function') pdAutoLeave(); // R54.4／MBV2-HF1-C4.2：離開 LINE 商品管理頁即停止補貨登記自動更新
   if (name === 'line_products') loadLineProductsPage();
   if (name === 'line_preorders') { initLinePreordersPage(); }
   if (name === 'coupons')      loadCouponsPage();   // fix18-05
@@ -10271,80 +10272,303 @@ function lpmSwitchTab(tab) {
   if (preorderCtrls)  preorderCtrls.style.display  = tab==='preorder' ? 'block' : 'none';
   if (shippingCtrls)  shippingCtrls.style.display  = tab==='shipping' ? 'block' : 'none';
 
+  if (tab !== 'demand' && typeof pdAutoLeave === 'function') pdAutoLeave(); // R54.4／MBV2-HF1-C4.2：離開補貨登記分頁即停止自動更新
   if (tableWrap)     tableWrap.style.display     = (tab==='shipping' || tab==='demand') ? 'none'  : 'block';
   if (shipTableWrap) shipTableWrap.style.display  = tab==='shipping' ? 'block' : 'none';
 
   lpmRenderActiveTab();
 }
 
-// ── R54.4／MBV2-HF1-C3：商品想買登記（後台需求清單）──────────────────────────
+// ── R54.4／MBV2-HF1-C3：商品補貨登記（後台需求清單）──────────────────────────
 // 只讀取 /api/product-demand-admin（店家 JWT）；統計由後端計算並排除取消／過期登記。
 const _PD_STATUS_LABEL = { available: '正常販售', sold_out_today: '今日完售', paused: '暫停販售', sold_out_indefinitely: '長期下架' };
 const _PD_PREF_LABEL = { takeout: '外帶自取', delivery: '外送', any: '都可以' };
 const _PD_ROW_STATUS = { active: '有效', cancelled: '已取消', expired: '已過期', notified: '已通知', converted: '已轉單' };
-async function loadDemandAdminTab() {
+
+// ── R54.4／MBV2-HF1-C4.2：補貨登記分頁自動更新 ─────────────────────────────────
+//   - 進入分頁立即讀取；停留在分頁且頁面可見時每 10 秒讀取一次（發送中的批次期間 2 秒）；
+//     恢復可見、視窗取得焦點、重新進入分頁立即讀取；離開分頁／頁面、隱藏時停止並使舊回應失效。
+//   - 只用一個 setTimeout 鏈（不累積 timer）；可見性／焦點監聽器全頁只註冊一次。
+//   - 同一時間最多一個讀取：進行中再要求更新只標記「完成後再讀一次」；切換商品時取消舊商品的請求。
+//   - 一次讀取 GET /snapshot：總表、通知能力、目前展開商品的明細與批次為同一資料時點，在同一輪協調套用。
+//   - 只局部更新數字與列內容：不清空表格、不重建通知面板，保留未儲存設定、正在送出的開關、
+//     展開的明細與批次明細、日期與取餐方式、預覽內容、捲動與焦點。
+//   - 較早發出的讀取不覆蓋稍後完成的店家操作（以操作序號判斷）；舊商品／舊頁面／舊身分的回應一律丟棄。
+//   - 失敗時保留原資料、不跳通知，只顯示「資料可能尚未更新」；重試間隔 15→30→60 秒。
+//   - 只讀取：不建立預覽、不確認、不續送、不觸發任何寫入。
+const PD_AUTO_INTERVAL_MS = 10000;
+const PD_AUTO_FAST_MS = 2000;
+const PD_AUTO_TIMEOUT_MS = 25000;
+const _pdAuto = {
+  timer: null, inflight: null, inflightPid: null, rerun: false, epoch: 0, failCount: 0, lastOkAt: null, lastStartAt: 0,
+  owner: null, wired: false, openPid: null, detailEpoch: 0, fastPoll: false, hasData: false,
+  settingsDirty: false, mut: { seq: 0, pending: {}, doneAt: {} },
+  // R54.4／MBV2-HF1-C4.3：設定輸入的編輯版本。每次編輯（總開關、有效天數）遞增；儲存成功只清除
+  // 「送出時的那個版本」的未儲存狀態，送出後的新編輯保持未儲存、不被儲存結果或自動更新覆蓋。
+  settingsRev: 0,
+  // R54.4／MBV2-HF1-C4.3：通知批次明細查詢序號（每個批次）。手動與背景查詢共用；只有比「已套用」更新的回應能寫入。
+  batchReq: {}, batchStale: {},
+};
+function _pdOwnerKey() {
+  let sid = '';
+  try { sid = (window.currentStore && window.currentStore.store_id) || JSON.parse(localStorage.getItem('pos_store_info') || '{}').store_id || ''; } catch { sid = ''; }
+  return String(sid) + '|' + String(getToken() || '');
+}
+function _pdTabActive() { return typeof _isLineProductsPageActive === 'function' && _isLineProductsPageActive() && _lpmTab === 'demand'; }
+function _pdShouldRun() { return _pdTabActive() && !document.hidden; }
+function _pdMutBegin(key) { const m = _pdAuto.mut; m.pending[key] = (m.pending[key] || 0) + 1; }
+function _pdMutEnd(key) { const m = _pdAuto.mut; m.pending[key] = Math.max(0, (m.pending[key] || 0) - 1); m.doneAt[key] = ++m.seq; }
+// 這個欄位在本次讀取發出後是否有店家操作（進行中或已完成）→ 不以本次回應覆蓋
+function _pdMutBlocks(key, ctx) { const m = _pdAuto.mut; return (m.pending[key] || 0) > 0 || (m.doneAt[key] || 0) > ctx.mutSeq; }
+function _pdWire() {
+  if (_pdAuto.wired) return;
+  _pdAuto.wired = true;
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { _pdHalt(); return; }
+    if (_pdShouldRun()) pdAutoRefreshNow('visible');
+  });
+  window.addEventListener('focus', () => { if (_pdShouldRun() && Date.now() - _pdAuto.lastStartAt > 1500) pdAutoRefreshNow('focus'); });
+  // 其他分頁登出／換店（localStorage 變更）：立即確認身分，舊身分的資料先清除
+  window.addEventListener('storage', (e) => { if ((e.key === TOKEN_KEY || e.key === 'pos_store_info' || e.key === null) && _pdShouldRun()) pdAutoRefreshNow('owner'); });
+  const en = document.getElementById('pd-set-enabled'), ttl = document.getElementById('pd-set-ttl');
+  const edited = () => { _pdAuto.settingsDirty = true; _pdAuto.settingsRev++; };
+  if (en) en.addEventListener('change', edited);
+  if (ttl) { ttl.addEventListener('input', edited); ttl.addEventListener('change', edited); }
+}
+// 停止輪詢並使進行中的回應失效（離開分頁／頁面、隱藏、登入失效）
+function _pdHalt() {
+  const A = _pdAuto;
+  A.epoch++;
+  if (A.timer) { clearTimeout(A.timer); A.timer = null; }
+  if (A.inflight) { try { A.inflight.superseded = true; A.inflight.abort(); } catch {} A.inflight = null; A.inflightPid = null; }
+  A.rerun = false;
+}
+function pdAutoLeave() { _pdHalt(); }
+function pdAutoEnter() {
+  _pdWire();
   const tbody = document.getElementById('lpm-demand-tbody');
-  if (!tbody) return;
-  tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">載入中…</td></tr>';
+  if (tbody && !_pdAuto.hasData) tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">載入中…</td></tr>';
+  _pdHalt();
+  pdAutoRefreshNow('enter');
+}
+function pdAutoState() { const A = _pdAuto; return { listeners: A.wired ? 1 : 0, hasTimer: !!A.timer, inflight: !!A.inflight, epoch: A.epoch, failCount: A.failCount, lastOkAt: A.lastOkAt ? A.lastOkAt.toISOString() : null, openPid: A.openPid }; }
+function _pdSchedule() {
+  const A = _pdAuto;
+  if (A.timer) { clearTimeout(A.timer); A.timer = null; }
+  if (!_pdShouldRun()) return;
+  const delay = A.failCount > 0 ? Math.min(60000, 15000 * Math.pow(2, A.failCount - 1)) : (A.fastPoll ? PD_AUTO_FAST_MS : PD_AUTO_INTERVAL_MS);
+  A.timer = setTimeout(() => { A.timer = null; if (_pdShouldRun()) pdAutoRefreshNow('tick'); }, delay);
+}
+// 舊名稱保留（分頁切換、其他程式呼叫）：進入分頁＝立即讀取並開始自動更新
+function loadDemandAdminTab() { pdAutoEnter(); }
+async function pdAutoRefreshNow(reason) {
+  const A = _pdAuto;
+  if (!_pdTabActive()) return;
+  if (document.hidden && reason !== 'manual') return;
+  if (A.inflight) {
+    // 進行中的讀取若屬於另一個商品（切換明細）→ 取消後重讀；否則完成後再讀一次（不重疊）
+    if ((reason === 'open' || reason === 'close') && A.inflightPid !== A.openPid) { try { A.inflight.superseded = true; A.inflight.abort(); } catch {} A.inflight = null; }
+    else { A.rerun = true; return; }
+  }
+  if (A.timer) { clearTimeout(A.timer); A.timer = null; }
+  const owner = _pdOwnerKey();
+  if (A.owner && A.owner !== owner) _pdClearDisplay('owner'); // 登入身分／店別已改變：先清除上一個身分的資料
+  const ctx = { epoch: A.epoch, owner, pid: A.openPid, detailEpoch: A.detailEpoch, mutSeq: A.mut.seq };
+  const ctl = new AbortController();
+  A.inflight = ctl; A.inflightPid = ctx.pid; A.lastStartAt = Date.now();
+  const to = setTimeout(() => { try { ctl.abort(); } catch {} }, PD_AUTO_TIMEOUT_MS);
+  let outcome = 'fail';
   try {
-    const res = await apiFetch('/api/product-demand-admin/summary');
-    const json = await res.json();
-    if (!json.success) throw new Error(json.message || '載入失敗');
-    const cfg = json.data.config || {};
-    const en = document.getElementById('pd-set-enabled'); if (en) en.checked = !!cfg.enabled;
-    const ttl = document.getElementById('pd-set-ttl'); if (ttl) ttl.value = cfg.ttl_days || 30;
-    const ns = document.getElementById('pd-notify-state');
-    if (ns) ns.textContent = cfg.notify_available ? 'LINE 補貨通知：已啟用（由店家手動預覽並確認發送）' : 'LINE 補貨通知：尚未啟用（顧客僅能登記想買，不會發送通知）';
-    loadRestockCapability();
-    const rows = json.data.products || [];
-    if (!rows.length) { tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">目前沒有 LINE 點餐商品</td></tr>'; return; }
-    tbody.innerHTML = rows.map(r => `<tr id="pd-row-${r.product_id}" style="border-bottom:1px solid var(--border,#334155)">
-      <td style="padding:8px 12px">${escHtml(r.name)}${r.line_visible ? '' : ' <span style="font-size:11px;color:#ef4444">（LINE 未顯示）</span>'}</td>
+    const url = '/api/product-demand-admin/snapshot' + (ctx.pid != null ? `?product_id=${encodeURIComponent(ctx.pid)}` : '');
+    const res = await apiFetch(url, { signal: ctl.signal, cache: 'no-store' });
+    if (ctl.superseded || ctx.epoch !== A.epoch) { outcome = 'stale'; }
+    else if (res.status === 401 || res.status === 403) { outcome = 'auth'; }
+    else {
+      const json = await res.json();
+      if (ctl.superseded || ctx.epoch !== A.epoch) outcome = 'stale';
+      else if (_pdOwnerKey() !== ctx.owner) outcome = 'owner';
+      else if (json && json.success && json.data) { _pdApply(json.data, ctx); A.owner = ctx.owner; outcome = 'ok'; }
+    }
+  } catch (e) { outcome = (ctl.superseded || ctx.epoch !== A.epoch) ? 'stale' : 'fail'; }
+  finally { clearTimeout(to); if (A.inflight === ctl) { A.inflight = null; A.inflightPid = null; } }
+  if (outcome === 'stale') return;
+  if (outcome === 'auth') { _pdClearDisplay('auth'); _pdHalt(); return; }
+  if (outcome === 'owner') { _pdClearDisplay('owner'); A.rerun = true; }
+  else if (outcome === 'ok') { A.failCount = 0; A.lastOkAt = new Date(); }
+  else A.failCount++;
+  _pdRenderStatus();
+  if (A.rerun) { A.rerun = false; if (_pdShouldRun()) return pdAutoRefreshNow('rerun'); }
+  _pdSchedule();
+}
+function _pdFmtTaipei(d) {
+  try { return new Intl.DateTimeFormat('zh-TW', { timeZone: 'Asia/Taipei', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).format(d); }
+  catch { return d.toISOString(); }
+}
+function _pdRenderStatus() {
+  const A = _pdAuto;
+  const lu = document.getElementById('pd-last-updated');
+  if (lu) lu.textContent = A.lastOkAt ? `最後更新：${_pdFmtTaipei(A.lastOkAt)}（台北時間）・每 10 秒自動更新` : '最後更新：—';
+  const w = document.getElementById('pd-refresh-warning');
+  if (w) {
+    w.style.display = A.failCount > 0 ? '' : 'none';
+    w.textContent = A.failCount > 0 ? '⚠ 資料可能尚未更新（連線暫時失敗，將自動重試）' : '';
+  }
+  if (A.failCount > 0 && !A.hasData) {
+    const tbody = document.getElementById('lpm-demand-tbody');
+    if (tbody) tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:40px;color:#ef4444">載入失敗，將自動重試；也可按「重新整理」。</td></tr>';
+  }
+}
+// 登入身分／店別改變或登入失效：不保留、不顯示上一個身分的資料
+function _pdClearDisplay(reason) {
+  const A = _pdAuto;
+  A.owner = null; A.hasData = false; A.lastOkAt = null; A.failCount = 0; A.settingsDirty = false;
+  const tbody = document.getElementById('lpm-demand-tbody');
+  if (tbody) tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">${reason === 'auth' ? '登入已失效或沒有權限，請重新登入後再查看。' : '載入中…'}</td></tr>`;
+  _pdCloseDetailBox();
+  const cap = document.getElementById('pd-restock-cap'); if (cap) cap.textContent = '';
+  const ns = document.getElementById('pd-notify-state'); if (ns) ns.textContent = '';
+  _pdRenderStatus();
+}
+function _pdApply(d, ctx) {
+  const A = _pdAuto;
+  const sum = d.summary || {};
+  _pdApplyConfig(sum.config || {}, ctx);
+  if (d.capability) _pdApplyCapability(d.capability, ctx);
+  _pdApplySummary(sum.products || [], ctx);
+  A.hasData = true;
+  // 明細與批次：只套用到「發出請求時」與「現在」都是同一個展開商品的面板
+  const box = document.getElementById('lpm-demand-detail');
+  const sameDetail = ctx.pid != null && A.openPid === ctx.pid && A.detailEpoch === ctx.detailEpoch && box && box.style.display !== 'none' && document.getElementById('pd-detail-head');
+  if (sameDetail) {
+    _pdApplyDetail(d.detail, d.detail_error, ctx);
+    _pdApplyBatches(ctx.pid, d.batches || [], ctx);
+  } else if (ctx.pid == null) A.fastPoll = false;
+}
+function _pdApplyConfig(cfg, ctx) {
+  const A = _pdAuto;
+  const en = document.getElementById('pd-set-enabled'), ttl = document.getElementById('pd-set-ttl');
+  const ae = document.activeElement;
+  const block = A.settingsDirty || _pdMutBlocks('settings', ctx);
+  if (en && !block && ae !== en) en.checked = !!cfg.enabled;
+  if (ttl && !block && ae !== ttl) ttl.value = cfg.ttl_days || 30;
+  const ns = document.getElementById('pd-notify-state');
+  if (ns) ns.textContent = cfg.notify_available ? 'LINE 補貨通知：已啟用（由店家手動預覽並確認發送）' : 'LINE 補貨通知：尚未啟用（顧客僅能補貨登記，不會發送 LINE 通知）';
+}
+function _pdApplyCapability(c, ctx) {
+  const box = document.getElementById('pd-restock-cap');
+  const miss = { line_channel_token: 'LINE Channel Access Token', line_member_liff_id: 'LINE 會員 LIFF ID（商品直達連結）', demand_disabled: '補貨登記入口已關閉' };
+  const chk = document.getElementById('pd-set-notify');
+  if (chk && !_pdMutBlocks('notify', ctx) && document.activeElement !== chk) chk.checked = !!c.send_enabled;
+  if (!box) return;
+  const html = `通知發送：<strong>${c.send_enabled ? '已開啟' : '關閉'}</strong>
+      ・必要設定：${c.config_complete ? '完整' : `<span style="color:#ef4444">缺少 ${(c.missing || []).map(m => escHtml(miss[m] || m)).join('、')}</span>`}
+      ・LINE 權杖：${c.token_configured ? '已設定（未驗證可發送）' : '未設定'}
+      ・目前${c.notify_available ? '<span style="color:#16a34a">可用</span>' : '不可用'}`;
+  if (box.dataset.h !== html) { box.innerHTML = html; box.dataset.h = html; }
+}
+function _pdRowHtml(r) {
+  return `<tr id="pd-row-${r.product_id}" style="border-bottom:1px solid var(--border,#334155)">
+      <td style="padding:8px 12px" class="pd-name">${_pdNameHtml(r)}</td>
       <td style="padding:8px;text-align:center" class="pd-status">${escHtml(_PD_STATUS_LABEL[r.sale_status] || r.sale_status)}</td>
       <td style="padding:8px;text-align:center;font-weight:700" class="pd-users">${r.active_users}</td>
       <td style="padding:8px;text-align:center;font-weight:700" class="pd-qty">${r.total_qty}</td>
-      <td style="padding:8px;text-align:center"><label style="display:inline-flex;gap:4px;align-items:center"><input type="checkbox" class="pd-collect" ${r.demand_collect_enabled ? 'checked' : ''} onchange="toggleDemandCollect(${r.product_id}, this.checked)"> 收集</label></td>
-      <td style="padding:8px;text-align:center"><button class="btn-secondary" style="font-size:12px;padding:3px 10px" onclick="openDemandDetail(${r.product_id})">查看</button></td>
-    </tr>`).join('');
-  } catch (e) {
-    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:40px;color:#ef4444">載入失敗：${escHtml(e.message)}</td></tr>`;
+      <td style="padding:8px;text-align:center"><label style="display:inline-flex;gap:4px;align-items:center"><input type="checkbox" class="pd-collect" ${r.demand_collect_enabled ? 'checked' : ''} onchange="toggleDemandCollect(${r.product_id}, this.checked, this)"> 收集</label></td>
+      <td style="padding:8px;text-align:center"><button class="btn-secondary pd-view" style="font-size:12px;padding:3px 10px" onclick="openDemandDetail(${r.product_id})">查看</button></td>
+    </tr>`;
+}
+function _pdNameHtml(r) { return `${escHtml(r.name)}${r.line_visible ? '' : ' <span style="font-size:11px;color:#ef4444">（LINE 未顯示）</span>'}`; }
+function _pdSetText(el, v) { if (el && el.textContent !== String(v)) el.textContent = String(v); }
+function _pdApplySummary(rows, ctx) {
+  const tbody = document.getElementById('lpm-demand-tbody');
+  if (!tbody) return;
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">目前沒有 LINE 點餐商品</td></tr>';
+    return;
+  }
+  const want = rows.map(r => 'pd-row-' + r.product_id).join(',');
+  const have = Array.from(tbody.children).map(tr => tr.id).join(',');
+  if (want !== have) {
+    // 商品清單有增減或排序改變：重建表格，並把焦點還給原本的商品列元件
+    const ae = document.activeElement;
+    const tr = ae && ae.closest ? ae.closest('tr[id^="pd-row-"]') : null;
+    const focusSel = tr ? `#${tr.id} ${ae.classList.contains('pd-collect') ? '.pd-collect' : (ae.classList.contains('pd-view') ? '.pd-view' : '')}` : '';
+    tbody.innerHTML = rows.map(_pdRowHtml).join('');
+    if (focusSel && !/\s$/.test(focusSel)) { const el = document.querySelector(focusSel); if (el) el.focus({ preventScroll: true }); }
+    return;
+  }
+  for (const r of rows) {
+    const tr = document.getElementById('pd-row-' + r.product_id);
+    if (!tr) continue;
+    const nm = tr.querySelector('.pd-name'); const nh = _pdNameHtml(r);
+    if (nm && nm.dataset.h !== nh) { nm.innerHTML = nh; nm.dataset.h = nh; }
+    _pdSetText(tr.querySelector('.pd-status'), _PD_STATUS_LABEL[r.sale_status] || r.sale_status);
+    _pdSetText(tr.querySelector('.pd-users'), r.active_users);
+    _pdSetText(tr.querySelector('.pd-qty'), r.total_qty);
+    const cb = tr.querySelector('.pd-collect');
+    if (cb && !_pdMutBlocks('collect:' + r.product_id, ctx) && document.activeElement !== cb) cb.checked = !!r.demand_collect_enabled;
   }
 }
-async function toggleDemandCollect(pid, enabled) {
+async function toggleDemandCollect(pid, enabled, el) {
+  const key = 'collect:' + pid;
+  _pdMutBegin(key);
+  if (el) el.disabled = true;
+  let ok = false;
   try {
     const res = await apiFetch(`/api/product-demand-admin/products/${pid}/collect`, { method: 'PATCH', body: JSON.stringify({ enabled: !!enabled }) });
     const json = await res.json();
     if (!json.success) throw new Error(json.message || '更新失敗');
-    showToast(enabled ? '已開放此商品的想買登記' : '已關閉此商品的想買登記', 'success');
-  } catch (e) { showToast(e.message || '更新失敗', 'error'); loadDemandAdminTab(); }
+    ok = true;
+    showToast(enabled ? '已開放此商品的補貨登記' : '已關閉此商品的補貨登記', 'success');
+  } catch (e) {
+    showToast(e.message || '更新失敗', 'error');
+    const cb = el || document.querySelector(`#pd-row-${pid} .pd-collect`); if (cb) cb.checked = !enabled; // 回復原值，下一輪以伺服器為準
+  } finally {
+    if (el) el.disabled = false;
+    _pdMutEnd(key);
+  }
+  pdAutoRefreshNow('mutation'); // 成功或失敗都立即以伺服器資料更新
 }
 async function saveDemandSettings() {
   const enabled = !!document.getElementById('pd-set-enabled')?.checked;
   const ttl = Number(document.getElementById('pd-set-ttl')?.value || 30);
+  const rev = _pdAuto.settingsRev; // 這次送出的內容對應的編輯版本
+  _pdMutBegin('settings');
   try {
     const res = await apiFetch('/api/product-demand-admin/settings', { method: 'PATCH', body: JSON.stringify({ enabled, ttl_days: ttl }) });
     const json = await res.json();
     if (!json.success) throw new Error(json.message || '儲存失敗');
-    showToast('想買登記設定已儲存', 'success');
-    loadDemandAdminTab();
+    // C4.3：只有送出後沒有新編輯時才清除未儲存狀態；否則保留最新輸入，等使用者再次儲存
+    if (_pdAuto.settingsRev === rev) _pdAuto.settingsDirty = false;
+    showToast('補貨登記設定已儲存', 'success');
   } catch (e) { showToast(e.message || '儲存失敗', 'error'); }
+  finally { _pdMutEnd('settings'); }
+  pdAutoRefreshNow('mutation');
 }
-async function openDemandDetail(pid) {
+function _pdCloseDetailBox() {
+  const A = _pdAuto;
+  A.openPid = null; A.detailEpoch++; A.fastPoll = false;
+  const box = document.getElementById('lpm-demand-detail');
+  if (box) { box.style.display = 'none'; box.innerHTML = ''; }
+}
+function closeDemandDetail() { _pdCloseDetailBox(); }
+// 展開商品明細：建立一次骨架（含通知面板），之後由自動更新局部套用數字、明細列與批次
+function openDemandDetail(pid) {
   const box = document.getElementById('lpm-demand-detail');
   if (!box) return;
+  const A = _pdAuto;
+  A.openPid = Number(pid); A.detailEpoch++; A.fastPoll = false;
   box.style.display = 'block';
-  box.innerHTML = '載入中…';
-  try {
-    const res = await apiFetch(`/api/product-demand-admin/products/${pid}`);
-    const json = await res.json();
-    if (!json.success) throw new Error(json.message || '載入失敗');
-    const d = json.data;
-    box.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-        <strong>${escHtml(d.product.name)}：有效登記 ${d.active_users} 人、期望 ${d.total_qty} 份</strong>
-        <button class="btn-secondary" style="font-size:12px;padding:3px 10px" onclick="document.getElementById('lpm-demand-detail').style.display='none'">關閉明細</button></div>
+  box.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <strong id="pd-detail-head">載入中…</strong>
+        <button class="btn-secondary" style="font-size:12px;padding:3px 10px" onclick="closeDemandDetail()">關閉明細</button></div>
       <table id="pd-detail-table" style="width:100%;border-collapse:collapse;font-size:12px">
         <thead><tr><th style="text-align:left;padding:4px">會員</th><th style="padding:4px">份數</th><th style="padding:4px">取餐偏好</th><th style="padding:4px">狀態</th><th style="padding:4px">補貨通知同意</th><th style="padding:4px">登記時間</th><th style="padding:4px">更新時間</th><th style="padding:4px">有效期限</th></tr></thead>
-        <tbody>${d.rows.length ? d.rows.map(r => `<tr style="border-top:1px solid var(--border,#334155)">
+        <tbody></tbody></table>
+      ${restockPanelHtml({ product_id: Number(pid) })}`;
+  if (_pdTabActive()) pdAutoRefreshNow('open');
+}
+function _pdDetailRowsHtml(d) {
+  return d.rows.length ? d.rows.map(r => `<tr style="border-top:1px solid var(--border,#334155)">
           <td style="padding:4px">${escHtml(r.member_display_name || '')} <span style="color:var(--text-muted,#64748b)">${escHtml(r.member)}</span></td>
           <td style="padding:4px;text-align:center">${r.desired_qty}</td>
           <td style="padding:4px;text-align:center">${escHtml(_PD_PREF_LABEL[r.fulfillment_pref] || r.fulfillment_pref)}</td>
@@ -10352,10 +10576,16 @@ async function openDemandDetail(pid) {
           <td style="padding:4px;text-align:center">${escHtml(_PD_CONSENT_LABEL[r.notify_consent] || '—')}${r.restock_notify === 'accepted' ? '<br><span style="font-size:11px;color:#16a34a">LINE 已受理通知</span>' : (r.restock_notify === 'in_progress' ? '<br><span style="font-size:11px;color:#f59e0b">通知處理中</span>' : '')}</td>
           <td style="padding:4px;text-align:center">${escHtml(fmtDemandTime(r.created_at))}</td>
           <td style="padding:4px;text-align:center">${escHtml(fmtDemandTime(r.updated_at))}</td>
-          <td style="padding:4px;text-align:center">${escHtml(fmtDemandTime(r.expires_at))}</td></tr>`).join('') : '<tr><td colspan="8" style="padding:10px;text-align:center;color:var(--text-muted,#64748b)">尚無登記</td></tr>'}</tbody></table>
-      ${restockPanelHtml(d.product)}`;
-    loadRestockBatches(pid);
-  } catch (e) { box.innerHTML = `<span style="color:#ef4444">載入失敗：${escHtml(e.message)}</span>`; }
+          <td style="padding:4px;text-align:center">${escHtml(fmtDemandTime(r.expires_at))}</td></tr>`).join('') : '<tr><td colspan="8" style="padding:10px;text-align:center;color:var(--text-muted,#64748b)">尚無登記</td></tr>';
+}
+function _pdApplyDetail(d, err) {
+  const head = document.getElementById('pd-detail-head');
+  const tbody = document.querySelector('#pd-detail-table tbody');
+  if (!head || !tbody) return;
+  if (!d) { _pdSetText(head, err === 'PRODUCT_NOT_FOUND' ? '商品已不存在' : '明細載入失敗'); if (tbody.dataset.h !== '') { tbody.innerHTML = ''; tbody.dataset.h = ''; } return; }
+  _pdSetText(head, `${d.product.name}：有效登記 ${d.active_users} 人、期望 ${d.total_qty} 份`);
+  const html = _pdDetailRowsHtml(d);
+  if (tbody.dataset.h !== html) { tbody.innerHTML = html; tbody.dataset.h = html; }
 }
 
 // ── R54.4／MBV2-HF1-C4：LINE 補貨通知（店家手動：選商品 → 選取餐方式與日期 → 伺服器計算名單 → 預覽 → 確認發送）──
@@ -10366,7 +10596,7 @@ const _RN_EXCL_LABEL = {
   consent_reconfirm_required: '同意需重新確認（匯入／舊版）', expired: '登記已過期', cancelled: '登記已取消', not_active: '登記非有效',
   not_friend: '非好友或已封鎖', friend_unknown: '好友狀態不明', member_not_found: '會員資料不存在', pref_mismatch: '取餐偏好不符',
   product_not_orderable: '商品在所選日期／方式不可訂購', config_incomplete: '通知未啟用或設定不完整',
-  collect_disabled: '商品已關閉想買登記收集', link_mismatch: '連結／店別設定與目前不符（已作廢，請重新預覽）', retry_window_expired: '已超過重試期限',
+  collect_disabled: '商品已關閉補貨登記收集', link_mismatch: '連結／店別設定與目前不符（已作廢，請重新預覽）', retry_window_expired: '已超過重試期限',
 };
 const _RN_BATCH_STATUS = { previewed: '已預覽（尚未發送）', sending: '發送中', paused: '已暫停（待店家續送）', completed: '已完成', cancelled: '已取消', expired: '預覽已逾時' };
 const _RN_DEL_STATUS = { pending: '待發送', sending: '發送中', retry_wait: '待重試', held: '暫停（未受理）', accepted: 'LINE 已受理', unknown: '結果待確認', failed: '失敗', blocked: '發送前已擋下', excluded: '排除', cancelled: '已取消' };
@@ -10375,27 +10605,21 @@ function _rnTodayTaipei() { return new Intl.DateTimeFormat('en-CA', { timeZone: 
 async function loadRestockCapability() {
   const box = document.getElementById('pd-restock-cap');
   if (!box) return;
-  try {
-    const res = await apiFetch('/api/product-demand-admin/restock/capability');
-    const json = await res.json();
-    if (!json.success) throw new Error(json.message || '載入失敗');
-    const c = json.data;
-    const miss = { line_channel_token: 'LINE Channel Access Token', line_member_liff_id: 'LINE 會員 LIFF ID（商品直達連結）', demand_disabled: '想買登記入口已關閉' };
-    const chk = document.getElementById('pd-set-notify'); if (chk) chk.checked = !!c.send_enabled;
-    box.innerHTML = `通知發送：<strong>${c.send_enabled ? '已開啟' : '關閉'}</strong>
-      ・必要設定：${c.config_complete ? '完整' : `<span style="color:#ef4444">缺少 ${c.missing.map(m => escHtml(miss[m] || m)).join('、')}</span>`}
-      ・LINE 權杖：${c.token_configured ? '已設定（未驗證可發送）' : '未設定'}
-      ・目前${c.notify_available ? '<span style="color:#16a34a">可用</span>' : '不可用'}`;
-  } catch (e) { box.textContent = '通知能力載入失敗：' + e.message; }
+  // C4.2：通知能力隨自動更新（/snapshot）一併讀取與套用；保留此函式名稱供既有呼叫
+  pdAutoRefreshNow('manual');
 }
 async function saveRestockSendEnabled(on) {
+  const chk = document.getElementById('pd-set-notify');
+  _pdMutBegin('notify');
+  if (chk) chk.disabled = true;
   try {
     const res = await apiFetch('/api/product-demand-admin/restock/settings', { method: 'PATCH', body: JSON.stringify({ send_enabled: !!on }) });
     const json = await res.json();
     if (!json.success) throw new Error(json.message || '儲存失敗');
     showToast(on ? '已開啟 LINE 補貨通知發送' : '已關閉 LINE 補貨通知發送', 'success');
-  } catch (e) { showToast(e.message || '儲存失敗', 'error'); }
-  loadRestockCapability();
+  } catch (e) { showToast(e.message || '儲存失敗', 'error'); if (chk) chk.checked = !on; }
+  finally { if (chk) chk.disabled = false; _pdMutEnd('notify'); }
+  pdAutoRefreshNow('mutation');
 }
 function restockPanelHtml(prod) {
   return `<div id="rn-panel" data-pid="${prod.product_id}" style="margin-top:14px;padding:12px;border:1px solid var(--border,#334155);border-radius:10px">
@@ -10422,10 +10646,10 @@ async function restockPreview(pid) {
     const d = json.data, st = d.stats;
     const excl = Object.entries(st.exclusions || {}).filter(([, n]) => n > 0).map(([k, n]) => `${escHtml(_RN_EXCL_LABEL[k] || k)} ${n}`).join('、') || '無';
     const avail = st.available_qty == null ? '未設上限' : `${st.available_qty} 份`;
-    const blockersTxt = { send_disabled: '通知發送尚未開啟', config_incomplete: '必要設定不完整', collect_disabled: '商品已關閉想買登記收集', product_not_orderable: `商品在 ${escHtml(d.supply_date)} ${d.fulfillment_mode === 'delivery' ? '外送' : '外帶自取'}不可訂購（${escHtml(d.orderability.message || d.orderability.reason || '')}）`, no_eligible_recipient: '沒有符合資格的收件人' };
+    const blockersTxt = { send_disabled: '通知發送尚未開啟', config_incomplete: '必要設定不完整', collect_disabled: '商品已關閉補貨登記收集', product_not_orderable: `商品在 ${escHtml(d.supply_date)} ${d.fulfillment_mode === 'delivery' ? '外送' : '外帶自取'}不可訂購（${escHtml(d.orderability.message || d.orderability.reason || '')}）`, no_eligible_recipient: '沒有符合資格的收件人' };
     out.innerHTML = `<div id="rn-preview-box" style="font-size:13px;line-height:1.7">
       <div>通知對應：<strong>${escHtml(d.supply_date)}・${d.fulfillment_mode === 'delivery' ? '外送' : '外帶自取'}</strong>（${d.notice_kind === 'preorder' ? '開放預購' : '恢復供應'}）</div>
-      <div>有效想買登記 <strong id="rn-active">${st.active_users}</strong> 人、期望總份數 <strong>${st.total_qty}</strong> 份（只是需求統計，不代表訂單或庫存保留）</div>
+      <div>有效補貨登記 <strong id="rn-active">${st.active_users}</strong> 人、期望總份數 <strong>${st.total_qty}</strong> 份（只是需求統計，不代表訂單或庫存保留）</div>
       <div>已同意通知 <strong>${st.consented_users}</strong> 人・本次符合資格 <strong id="rn-eligible">${st.eligible_count}</strong> 人（期望 ${st.eligible_qty} 份）</div>
       <div>目前可用份數：<strong>${avail}</strong>${st.available_less_than_desired ? ' <span style="color:#ef4444">（少於期望總份數，實際以下單時為準）</span>' : ''}</div>
       <div id="rn-excl">排除：${excl}</div>
@@ -10438,6 +10662,7 @@ async function restockPreview(pid) {
 }
 async function restockConfirm(batchUuid, pid, btn) {
   if (btn) { btn.disabled = true; btn.textContent = '送出中…'; }
+  _pdMutBegin('batch:' + pid);
   try {
     const res = await apiFetch(`/api/product-demand-admin/restock/batches/${encodeURIComponent(batchUuid)}/confirm`, { method: 'POST', body: '{}' });
     const json = await res.json();
@@ -10445,63 +10670,110 @@ async function restockConfirm(batchUuid, pid, btn) {
     showToast(json.data.already ? '此批次已確認過，不會重複發送' : `已開始發送（${json.data.queued} 人）`, 'success');
     const pv = document.getElementById('rn-preview'); if (pv) pv.innerHTML = '';
   } catch (e) { showToast(e.message || '確認失敗', 'error'); if (btn) { btn.disabled = false; btn.textContent = '確認發送'; } }
+  finally { _pdMutEnd('batch:' + pid); }
   loadRestockBatches(pid);
 }
-let _rnPollTimer = null;
-async function loadRestockBatches(pid) {
-  const box = document.getElementById('rn-batches');
-  if (!box) return;
-  if (_rnPollTimer) { clearTimeout(_rnPollTimer); _rnPollTimer = null; }
-  try {
-    const res = await apiFetch(`/api/product-demand-admin/restock/batches?product_id=${encodeURIComponent(pid)}`);
-    const json = await res.json();
-    if (!json.success) throw new Error(json.message || '載入失敗');
-    const list = (json.data || []).filter(b => b.status !== 'previewed' && b.status !== 'expired');
-    if (!list.length) { box.innerHTML = '<div style="font-size:12px;color:var(--text-muted,#64748b)">尚無已發送的通知批次</div>'; return; }
-    box.innerHTML = `<div style="font-weight:700;font-size:13px;margin-bottom:4px">通知批次</div>` + list.map(b => {
-      const c = b.counts;
-      const canResume = (b.status === 'paused' || b.status === 'completed') && (c.pending + c.retry_wait + c.held + c.unknown) > 0;
-      return `<div class="rn-batch" data-batch="${escHtml(b.batch_uuid)}" style="border-top:1px solid var(--border,#334155);padding:6px 0;font-size:12px">
+// C4.2：批次清單由自動更新（/snapshot）一併讀取；舊的獨立 2 秒輪詢移除，改由同一個 timer 在發送中時縮短為 2 秒。
+// 保留此函式名稱：店家操作後呼叫＝立即更新一次。
+function loadRestockBatches(pid) {
+  if (_pdAuto.openPid !== Number(pid)) return;
+  pdAutoRefreshNow('mutation');
+}
+function _pdBatchesHtml(pid, list) {
+  if (!list.length) return '<div style="font-size:12px;color:var(--text-muted,#64748b)">尚無已發送的通知批次</div>';
+  return `<div style="font-weight:700;font-size:13px;margin-bottom:4px">通知批次</div>` + list.map(b => {
+    const c = b.counts;
+    const canResume = (b.status === 'paused' || b.status === 'completed') && (c.pending + c.retry_wait + c.held + c.unknown) > 0;
+    return `<div class="rn-batch" data-batch="${escHtml(b.batch_uuid)}" style="border-top:1px solid var(--border,#334155);padding:6px 0;font-size:12px">
         <div><strong>${escHtml(b.supply_date)}・${b.fulfillment_mode === 'delivery' ? '外送' : '外帶自取'}</strong>・<span class="rn-status">${escHtml(_RN_BATCH_STATUS[b.status] || b.status)}</span>${b.pause_reason ? `（${escHtml(_RN_PAUSE[b.pause_reason] || b.pause_reason)}）` : ''}・確認時間 ${escHtml(fmtDemandTime(b.confirmed_at))}</div>
         <div class="rn-counts">LINE 已受理 ${c.accepted}・待發送 ${c.pending}・發送中 ${c.sending}・待重試 ${c.retry_wait}・暫停 ${c.held}・結果待確認 ${c.unknown}・失敗 ${c.failed}・發送前擋下 ${c.blocked}・排除 ${c.excluded}・取消 ${c.cancelled}</div>
         <div style="display:flex;gap:6px;margin-top:4px">
-          <button class="btn-secondary" style="font-size:11px;padding:2px 8px" onclick="restockBatchDetail('${escHtml(b.batch_uuid)}')">明細</button>
-          ${canResume ? `<button class="btn-secondary rn-resume" style="font-size:11px;padding:2px 8px" onclick="restockResume('${escHtml(b.batch_uuid)}', ${pid}, this)">續送未完成項目</button>` : ''}
-          ${b.status === 'paused' ? `<button class="btn-secondary" style="font-size:11px;padding:2px 8px" onclick="restockCancel('${escHtml(b.batch_uuid)}', ${pid})">取消未送出項目</button>` : ''}
+          <button class="btn-secondary" data-act="detail" style="font-size:11px;padding:2px 8px" onclick="restockBatchDetail('${escHtml(b.batch_uuid)}')">明細</button>
+          ${canResume ? `<button class="btn-secondary rn-resume" data-act="resume" style="font-size:11px;padding:2px 8px" onclick="restockResume('${escHtml(b.batch_uuid)}', ${pid}, this)">續送未完成項目</button>` : ''}
+          ${b.status === 'paused' ? `<button class="btn-secondary" data-act="cancel" style="font-size:11px;padding:2px 8px" onclick="restockCancel('${escHtml(b.batch_uuid)}', ${pid})">取消未送出項目</button>` : ''}
         </div>
         <div class="rn-detail" id="rn-detail-${escHtml(b.batch_uuid)}"></div>
       </div>`;
-    }).join('') + '<div style="font-size:11px;color:var(--text-muted,#64748b);margin-top:4px">「LINE 已受理」只代表 LINE API 已接受請求，不代表顧客已收到或已讀。已交給 LINE 的請求無法撤回；結果待確認的項目只在 LINE retry key 有效期限（首次嘗試後 24 小時）內以同一把 key 續送，逾期不會換新 key 補送。</div>';
-    if (list.some(b => b.status === 'sending' || b.running)) _rnPollTimer = setTimeout(() => loadRestockBatches(pid), 2000);
-  } catch (e) { box.innerHTML = `<span style="color:#ef4444">批次載入失敗：${escHtml(e.message)}</span>`; }
+  }).join('') + '<div style="font-size:11px;color:var(--text-muted,#64748b);margin-top:4px">「LINE 已受理」只代表 LINE API 已接受請求，不代表顧客已收到或已讀。已交給 LINE 的請求無法撤回；結果待確認的項目只在 LINE retry key 有效期限（首次嘗試後 24 小時）內以同一把 key 續送，逾期不會換新 key 補送。</div>';
 }
-async function restockBatchDetail(uuid) {
+// 局部套用批次清單：內容沒變就不動；有變動時保留已展開的批次明細與焦點，並重新讀取展開中的批次明細
+function _pdApplyBatches(pid, all, ctx) {
+  const A = _pdAuto;
+  const list = (all || []).filter(b => b.status !== 'previewed' && b.status !== 'expired');
+  A.fastPoll = list.some(b => b.status === 'sending' || b.running);
+  if (_pdMutBlocks('batch:' + pid, ctx)) return; // 本輪讀取後店家剛確認／續送／取消：等下一輪
+  const box = document.getElementById('rn-batches');
+  if (!box) return;
+  const html = _pdBatchesHtml(pid, list);
+  if (box.dataset.h === html) {
+    // C4.3：清單沒變，但有展開中的明細因生命週期改變而丟棄過回應 → 重讀（唯讀）
+    box.querySelectorAll('.rn-detail').forEach(el => { const u = el.id.replace(/^rn-detail-/, ''); if (el.dataset.open === '1' && A.batchStale[u]) { delete A.batchStale[u]; restockBatchDetail(u, true); } });
+    return;
+  }
+  const opened = {};
+  box.querySelectorAll('.rn-detail').forEach(el => { if (el.dataset.open === '1') opened[el.id] = el.innerHTML; });
+  const ae = document.activeElement;
+  const fb = ae && box.contains(ae) && ae.closest('.rn-batch') ? { b: ae.closest('.rn-batch').dataset.batch, act: ae.dataset.act } : null;
+  box.innerHTML = html; box.dataset.h = html;
+  Object.entries(opened).forEach(([id, h]) => {
+    const el = document.getElementById(id);
+    if (el) { el.innerHTML = h; el.dataset.open = '1'; restockBatchDetail(id.replace(/^rn-detail-/, ''), true); }
+  });
+  if (fb && fb.act) { const el = box.querySelector(`.rn-batch[data-batch="${CSS.escape(fb.b)}"] [data-act="${fb.act}"]`); if (el) el.focus({ preventScroll: true }); }
+}
+// C4.3：同一批次的手動（按「明細」）與背景（自動更新）查詢共用有效性判斷：
+//   - 每次查詢取得遞增序號；只有序號大於「已套用」的回應（成功或錯誤）能寫入，較早的回應一律丟棄。
+//   - 回應時商品、明細版本、自動更新週期（離開分頁／隱藏會失效）、登入身分＋店別必須與送出時相同。
+//   - 因生命週期改變而丟棄的查詢標記為待更新，回到分頁的下一輪自動更新會重讀該明細。
+async function restockBatchDetail(uuid, quiet) {
   const el = document.getElementById('rn-detail-' + uuid);
   if (!el) return;
+  const A = _pdAuto;
+  const rec = A.batchReq[uuid] || (A.batchReq[uuid] = { seq: 0, applied: 0 });
+  const my = ++rec.seq;
+  const ctx = { pid: A.openPid, de: A.detailEpoch, ep: A.epoch, owner: _pdOwnerKey() };
+  el.dataset.open = '1';
+  let json = null, err = null;
   try {
     const res = await apiFetch(`/api/product-demand-admin/restock/batches/${encodeURIComponent(uuid)}`);
-    const json = await res.json();
-    if (!json.success) throw new Error(json.message || '載入失敗');
-    el.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:11px;margin-top:4px"><thead><tr><th style="text-align:left">會員</th><th>狀態</th><th>嘗試</th><th>首次嘗試</th><th>代碼</th><th>LINE 請求 ID</th></tr></thead><tbody>${json.data.deliveries.map(d => `<tr style="border-top:1px solid var(--border,#334155)"><td>${escHtml(d.member_display_name || '')} ${escHtml(d.member)}</td><td style="text-align:center">${escHtml(_RN_DEL_STATUS[d.status] || d.status)}${d.exclusion_reason ? `（${escHtml(_RN_EXCL_LABEL[d.exclusion_reason] || d.exclusion_reason)}）` : ''}${d.retry_window_expired ? '（已超過重試期限）' : ''}${d.attempts_exhausted ? `（已達嘗試上限 ${d.attempt_count}／${d.max_attempts}）` : ''}</td><td style="text-align:center">${d.attempt_count}</td><td style="text-align:center">${escHtml(fmtDemandTime(d.first_attempt_at))}</td><td style="text-align:center">${escHtml(d.error_code || '')}${d.last_http_status ? ' / ' + d.last_http_status : ''}</td><td style="text-align:center">${escHtml(d.accepted_request_id || d.line_request_id || '')}</td></tr>`).join('')}</tbody></table>`;
-  } catch (e) { el.innerHTML = `<span style="color:#ef4444">${escHtml(e.message)}</span>`; }
+    json = await res.json();
+    if (!json || !json.success) throw new Error((json && json.message) || '載入失敗');
+  } catch (e) { err = e; }
+  const samePanel = A.openPid === ctx.pid && A.detailEpoch === ctx.de;
+  const live = samePanel && A.epoch === ctx.ep && _pdOwnerKey() === ctx.owner && _pdTabActive() && !document.hidden;
+  if (!live) { if (samePanel && my > rec.applied) A.batchStale[uuid] = true; return; } // 不寫入不適用的面板
+  if (my <= rec.applied) return;                                                          // 已有較新的結果
+  const cur = document.getElementById('rn-detail-' + uuid); if (!cur) return;
+  rec.applied = my; delete A.batchStale[uuid];
+  if (err) {
+    if (quiet) return; // 背景查詢失敗：保留原本內容
+    cur.innerHTML = `<span style="color:#ef4444">${escHtml(err.message)}</span>`; cur.dataset.open = '1';
+    return;
+  }
+  cur.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:11px;margin-top:4px"><thead><tr><th style="text-align:left">會員</th><th>狀態</th><th>嘗試</th><th>首次嘗試</th><th>代碼</th><th>LINE 請求 ID</th></tr></thead><tbody>${json.data.deliveries.map(d => `<tr style="border-top:1px solid var(--border,#334155)"><td>${escHtml(d.member_display_name || '')} ${escHtml(d.member)}</td><td style="text-align:center">${escHtml(_RN_DEL_STATUS[d.status] || d.status)}${d.exclusion_reason ? `（${escHtml(_RN_EXCL_LABEL[d.exclusion_reason] || d.exclusion_reason)}）` : ''}${d.retry_window_expired ? '（已超過重試期限）' : ''}${d.attempts_exhausted ? `（已達嘗試上限 ${d.attempt_count}／${d.max_attempts}）` : ''}</td><td style="text-align:center">${d.attempt_count}</td><td style="text-align:center">${escHtml(fmtDemandTime(d.first_attempt_at))}</td><td style="text-align:center">${escHtml(d.error_code || '')}${d.last_http_status ? ' / ' + d.last_http_status : ''}</td><td style="text-align:center">${escHtml(d.accepted_request_id || d.line_request_id || '')}</td></tr>`).join('')}</tbody></table>`;
+  cur.dataset.open = '1';
 }
 async function restockResume(uuid, pid, btn) {
   if (btn) btn.disabled = true;
+  _pdMutBegin('batch:' + pid);
   try {
     const res = await apiFetch(`/api/product-demand-admin/restock/batches/${encodeURIComponent(uuid)}/resume`, { method: 'POST', body: '{}' });
     const json = await res.json();
     if (!json.success) throw new Error(json.message || '續送失敗');
     showToast(json.data.already ? '此批次正在發送中' : (json.data.resumed ? '已開始續送（沿用原紀錄與 retry key）' : (json.data.message || '沒有可續送的項目')), 'success');
   } catch (e) { showToast(e.message || '續送失敗', 'error'); }
+  finally { _pdMutEnd('batch:' + pid); }
   loadRestockBatches(pid);
 }
 async function restockCancel(uuid, pid) {
+  _pdMutBegin('batch:' + pid);
   try {
     const res = await apiFetch(`/api/product-demand-admin/restock/batches/${encodeURIComponent(uuid)}/cancel`, { method: 'POST', body: '{}' });
     const json = await res.json();
     if (!json.success) throw new Error(json.message || '取消失敗');
     showToast('已取消尚未送出的項目', 'success');
   } catch (e) { showToast(e.message || '取消失敗', 'error'); }
+  finally { _pdMutEnd('batch:' + pid); }
   loadRestockBatches(pid);
 }
 // 資料庫存 UTC（datetime('now')），後台以台北時間顯示

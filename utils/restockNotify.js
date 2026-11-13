@@ -289,7 +289,7 @@ function buildMessage({ storeName, productName, noticeKind, mode, date, link }) 
     `取餐方式：${MODE_LABEL[mode] || mode}`,
     `查看商品並訂購：${link}`,
     DISCLAIMER,
-    '如不想再收到此商品的通知，可在點餐頁「我的想買登記」取消。',
+    '如不想再收到此商品的通知，可在點餐頁「我的補貨登記」取消。',
   ].join('\n');
 }
 function sha256(s) { return crypto.createHash('sha256').update(String(s)).digest('hex'); }
@@ -383,7 +383,7 @@ const UNKNOWN_RESULT_CODES = ['timeout', 'network_error', 'server_error', 'inter
 // R54.4／MBV2-HF1-C4.1：商品層級的發送閘門＝收集開關（關閉後不可再發出新的補貨通知）＋既有可訂購判斷
 function productGate(db, storeId, productId, mode, date) {
   const p = db.get('SELECT demand_collect_enabled FROM products WHERE id=? AND store_id=?', [Number(productId), storeId]);
-  if (p && Number(p.demand_collect_enabled ?? 1) === 0) return { ok: false, reason: 'collect_disabled', message: '商品已關閉想買登記收集' };
+  if (p && Number(p.demand_collect_enabled ?? 1) === 0) return { ok: false, reason: 'collect_disabled', message: '商品已關閉補貨登記收集' };
   return orderability(db, storeId, productId, mode, date);
 }
 const gateReason = (g) => (g.reason === 'collect_disabled' ? 'collect_disabled' : 'product_not_orderable');

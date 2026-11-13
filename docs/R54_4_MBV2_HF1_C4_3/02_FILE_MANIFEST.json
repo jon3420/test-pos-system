@@ -1,0 +1,67 @@
+{
+ "release": "R54.4／MBV2-HF1-C4.3",
+ "package": "P3CD_DEPLOY_R54_4_MBV2_HF1_C4_3_DEMAND_ASYNC_CONSISTENCY_FIX_APP_ROOT.zip",
+ "baseline": {
+  "sha256": "37b9c565f7000b81537b467bc48c248c3c78d185f41016008d619e72358b6893",
+  "files": 926,
+  "zip_entries": 962
+ },
+ "counts": {
+  "added": 4,
+  "modified": 3,
+  "removed": 0,
+  "files_total": 930
+ },
+ "schema_changes": "none",
+ "new_settings": "none",
+ "api_changes": "none",
+ "cache_versions": {
+  "/js/app.js": "r54-4-mbv2-hf1-c4-3"
+ },
+ "excluded": [
+  "node_modules",
+  "*.db",
+  "uploads",
+  "qa-screenshots",
+  ".env",
+  "憑證／權杖",
+  "測試產物"
+ ],
+ "added": [
+  {
+   "path": "docs/R54_4_MBV2_HF1_C4_3/00_FINAL_REPORT.md",
+   "sha256": "aaf6e8d775a0ca69e2f53ad54feca8d6c573a3eb9056b30ee48775c309da3538"
+  },
+  {
+   "path": "docs/R54_4_MBV2_HF1_C4_3/01_TEST_RESULTS.json",
+   "sha256": "9ca2a9b499248591624483fd15c712026af84475331757d8293eac953b4c9eb2"
+  },
+  {
+   "path": "scripts/smoke-r54-4-mbv2-hf1-c4-3-async-consistency.js",
+   "sha256": "80a0ebb0dbff62acfb628f2047ce83d9f443b1c9b5e0d360677649450a870950"
+  },
+  {
+   "path": "docs/R54_4_MBV2_HF1_C4_3/02_FILE_MANIFEST.json",
+   "sha256": "(本檔)"
+  }
+ ],
+ "modified": [
+  {
+   "path": "public/index.html",
+   "sha256_c42": "099e78e54beef4961889ab78ab084bbf9811d2379f857dbd8b318579cbabd9d4",
+   "sha256_c43": "0a67d3e336a66403c76f7bdcf037e550e40078f701449f3072bc3b05cb2b007d"
+  },
+  {
+   "path": "public/js/app.js",
+   "sha256_c42": "0128d3404fe4245d0ff55da0c1227671c12ade3980ee4cb30066f9c54fe9e384",
+   "sha256_c43": "0cebf2d4b332bb6f04ac859ae2cbef1e9ebbd589759b0bae2040f18086c84eed"
+  },
+  {
+   "path": "public/line-order.html",
+   "sha256_c42": "76b2abedc948b1fc6132ce214496a1ef6fd6d342c899550edd9de65c807e0887",
+   "sha256_c43": "ec6c6274e8325055892feee766ff6dcfc23427722cb3c446a95ccf188c1c74df"
+  }
+ ],
+ "removed": [],
+ "candidate_zip_sha256": "a3128f68015bd7b5817b13eed41331bf13044e94e4c1a3e4bfd8fd1cffb91826"
+}

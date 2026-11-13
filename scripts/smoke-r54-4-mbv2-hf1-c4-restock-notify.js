@@ -659,7 +659,7 @@ async function setFriend(ctx, entries) {
       const ui1 = await P7.page.evaluate(() => ({ checked: document.getElementById('dmConsent').checked, ctext: document.querySelector('.dm-consent span').textContent, submit: document.getElementById('dmSubmit').textContent, text: document.getElementById('demandPanel').innerText }));
       await P7.page.check('#dmConsent');
       const submit2 = await P7.page.$eval('#dmSubmit', (b) => b.textContent);
-      assert(btn === '🔔 補貨通知我' && ui1.checked === false && ui1.ctext === '商品恢復供應或開放預購時，透過 LINE 通知我。' && ui1.submit === '送出想買登記' && submit2 === '登記並訂閱通知'
+      assert(btn === '🔔 補貨通知我' && ui1.checked === false && ui1.ctext === '商品恢復供應或開放預購時，透過 LINE 通知我。' && ui1.submit === '送出補貨登記' /* C4.2 文案（原「送出想買登記」） */ && submit2 === '登記並訂閱通知'
         && /不代表訂單成立/.test(ui1.text) && !/補貨立即通知我|登記補貨需求/.test(ui1.text), 'L7 通知可用：入口「🔔 補貨通知我」、勾選預設未勾選、按鈕依勾選切換文案、保留不保留商品說明', JSON.stringify({ btn, ui1, submit2 }));
       await P7.page.click('#dmSubmit');
       await sleep(1200);
@@ -685,7 +685,8 @@ async function setFriend(ctx, entries) {
       await P9.context.close();
       await adm(M, 'PATCH', '/api/product-demand-admin/restock/settings', { send_enabled: true });
       await patchProduct(M, PN, { sale_status: 'available' });
-      assert(b9 === '我想買' && !u9.box && /尚不會發送補貨通知/.test(u9.text) && u9.submit === '送出登記', 'L9 通知未開啟：入口維持「我想買」並說明不會發送通知（後端回傳能力）', JSON.stringify({ b9, u9: u9.submit }));
+      // R54.4／MBV2-HF1-C4.2 調整（僅文案）：入口「我想買」→「補貨登記」、說明「尚不會發送補貨通知」→「不會發送 LINE 通知」、送出「送出登記」→「送出補貨登記」；無勾選框條件不變
+      assert(b9 === '補貨登記' && !u9.box && /不會發送 LINE 通知/.test(u9.text) && u9.submit === '送出補貨登記', 'L9 通知未開啟：入口「補貨登記」並說明不會發送 LINE 通知（後端回傳能力）', JSON.stringify({ b9, u9: u9.submit }));
       // L10 後台：預覽 → 確認發送 → 批次進度（重新整理後仍可查）
       const AD = uid(0x73);
       await reg(M, AD, PID2, 1, { notify_consent: true }); await setFriend(M, [[AD, 1, '後台測試']]);

@@ -216,7 +216,8 @@ function checkManualExpect(name, st, ss) {
               if (st.present) checkManualExpect(name, st, ss);
               if (ss !== 'available' && st.present) {
                 const wantDemand = ss !== 'sold_out_today';
-                assert(wantDemand ? st.demand === '我想買' : st.demand === null, `${name} 想買登記入口${wantDemand ? '顯示' : '不顯示（今日完售仍可預購）'}`, String(st.demand));
+                // R54.4／MBV2-HF1-C4.2 調整（僅顯示文案改名「我想買」→「補貨登記」，判斷條件不變）：
+                assert(wantDemand ? st.demand === '補貨登記' : st.demand === null, `${name} 補貨登記入口${wantDemand ? '顯示' : '不顯示（今日完售仍可預購）'}`, String(st.demand));
               }
               assert(L.errors.length === 0, `${name} 頁面無 JavaScript 錯誤`, L.errors.join(' | '));
               await L.context.close();
@@ -480,7 +481,8 @@ function checkManualExpect(name, st, ss) {
       {
         const L = await openLinePage(browser, C, {});
         const btnTxt = await L.page.textContent(`#pc-${PID} .demand-btn`).catch(() => null);
-        assert(btnTxt === '我想買', 'U1 暫停販售商品卡顯示「我想買」', String(btnTxt));
+        // R54.4／MBV2-HF1-C4.2 調整（僅顯示文案改名「我想買」→「補貨登記」，判斷條件不變）：
+        assert(btnTxt === '補貨登記', 'U1 暫停販售商品卡顯示「補貨登記」', String(btnTxt));
         await L.page.click(`#pc-${PID} .demand-btn`); await sleep(400);
         const vis = await L.page.evaluate(() => ({ ov: document.getElementById('demandOverlay')?.classList.contains('show'), pdm: ProductDetailModal.isOpen(), login: !!document.getElementById('dmLoginBtn'), title: document.getElementById('dmTitle')?.textContent }));
         assert(vis.ov && !vis.pdm && vis.login && vis.title === '這款商品，你想買幾份？', 'U2 未登入點擊：開啟登記表單（未開商品詳情），要求 LINE 登入', JSON.stringify(vis));
@@ -512,7 +514,7 @@ function checkManualExpect(name, st, ss) {
           consent: !!document.getElementById('dmConsent'), prefs: Array.from(document.querySelectorAll('input[name=dmPref]')).map((i) => i.value),
           cart: Object.keys(cart).length, text: document.getElementById('demandPanel').innerText,
         }));
-        assert(!ui.pdm && ui.title === '這款商品，你想買幾份？' && ui.desc[0] === '留下想買的數量，讓我們安排備貨。目前僅提供想買登記，尚不會發送補貨通知。' && ui.submit === '送出登記' && ui.disc === '登記不代表訂單成立，也不保留商品，實際供應以訂購時為準。' && !ui.consent,
+        assert(!ui.pdm && ui.title === '這款商品，你想買幾份？' && ui.desc[0] === '留下想買的份數，讓我們安排備貨。目前僅提供補貨登記，不會發送 LINE 通知。' && ui.submit === '送出補貨登記' && ui.disc === '登記不代表訂單成立，也不保留商品；補貨時間尚未確定，實際供應以下單時為準。' && !ui.consent, // C4.2 文案（C4.2 規格指定說明；免責新增「補貨時間尚未確定」）
           'U4 登記模式文案正確（標題／說明／送出／免責），無通知同意選項', JSON.stringify(ui));
         assert(!/補貨通知我|立即|已排程|已發送|通知已啟用/.test(ui.text) && JSON.stringify(ui.prefs) === '["takeout","delivery","any"]', 'U5 未出現通知承諾或「立即」字樣；取餐偏好僅列商品支援方式', JSON.stringify(ui.prefs));
         await L.page.click('#dmPlus'); await sleep(100);
@@ -521,7 +523,7 @@ function checkManualExpect(name, st, ss) {
         await sleep(1200);
         const toastTxt = await L.page.evaluate(() => (document.getElementById('toast') || {}).textContent || '');
         const cardBtn = await L.page.textContent(`#pc-${PID} .demand-btn`);
-        assert(/已收到你的想買登記，謝謝！/.test(toastTxt) && cardBtn === '已登記 2 份・管理登記', 'U6 送出成功：提示文案正確，商品卡改為「已登記 2 份・管理登記」', `${toastTxt} | ${cardBtn}`);
+        assert(/已收到你的補貨登記，謝謝！/.test(toastTxt) /* C4.2 文案 */ && cardBtn === '已登記 2 份・管理登記', 'U6 送出成功：提示文案正確，商品卡改為「已登記 2 份・管理登記」', `${toastTxt} | ${cardBtn}`);
         const rows = await dbRowsLiveAll(C, 'SELECT desired_qty,status FROM product_demand_requests');
         assert(rows.length === 1 && rows[0].desired_qty === 2, 'U7 快速雙擊送出只產生 1 筆登記', JSON.stringify(rows));
         await sleep(600);
@@ -542,7 +544,7 @@ function checkManualExpect(name, st, ss) {
         await L.page.click('#dmCancel'); await sleep(900);
         const afterCancel = await L.page.textContent(`#pc-${PID} .demand-btn`);
         const rows2 = await dbRowsLiveAll(C, 'SELECT status FROM product_demand_requests');
-        assert(afterCancel === '我想買' && rows2[0].status === 'cancelled', 'U12 取消登記：商品卡回到「我想買」，資料標示已取消', `${afterCancel} ${JSON.stringify(rows2)}`);
+        assert(afterCancel === '補貨登記' && rows2[0].status === 'cancelled', 'U12 取消登記：商品卡回到「補貨登記」（C4.2 文案），資料標示已取消', `${afterCancel} ${JSON.stringify(rows2)}`);
         assert(L.errors.length === 0, 'U13 頁面無 JavaScript 錯誤', L.errors.join(' | '));
         await L.context.close();
       }
@@ -559,8 +561,8 @@ function checkManualExpect(name, st, ss) {
         // 未勾選時送出按鈕為「送出想買登記」（勾選後才是「登記並訂閱通知」，見 C4 驗收 L7）；標題沿用一般登記標題；
         // 仍檢查：入口按鈕、勾選預設未勾選、免責文案、不得出現「補貨立即通知我」「登記補貨需求」。
         const panelText = await L.page.evaluate(() => document.getElementById('demandPanel')?.innerText || '');
-        assert(btn === '🔔 補貨通知我' && ui.title === '這款商品，你想買幾份？' && ui.desc === '留下想買的數量與取餐偏好。若勾選下方通知，商品恢復供應或開放預購時，會透過 LINE 通知你一次。補貨時間尚未確定。' && ui.consentChecked === false && ui.consentText === '商品恢復供應或開放預購時，透過 LINE 通知我。' && ui.submit === '送出想買登記' && ui.disc === '登記不代表訂單成立，也不保留商品，實際供應以訂購時為準。' && !/補貨立即通知我|登記補貨需求/.test(panelText),
-          'U14 通知模式（僅在後端回報可用時）：按鈕／標題／說明／同意（預設不勾）／送出想買登記／免責文案（C4 文案）', JSON.stringify({ btn, ui }));
+        assert(btn === '🔔 補貨通知我' && ui.title === '這款商品，你想買幾份？' && ui.desc === '留下想買的份數與取餐偏好。若勾選下方通知，商品恢復供應或開放預購時，會透過 LINE 通知你一次。補貨時間尚未確定。' && ui.consentChecked === false && ui.consentText === '商品恢復供應或開放預購時，透過 LINE 通知我。' && ui.submit === '送出補貨登記' && ui.disc === '登記不代表訂單成立，也不保留商品；補貨時間尚未確定，實際供應以下單時為準。' && !/補貨立即通知我|登記補貨需求/.test(panelText),
+          'U14 通知模式（僅在後端回報可用時）：按鈕／標題／說明／同意（預設不勾）／送出補貨登記／免責文案（C4.2 文案）', JSON.stringify({ btn, ui }));
         await L.context.close();
       }
       // 入口規則：今日完售可預購 → 不顯示；預購已滿 → 顯示；正常販售有份數 → 不顯示；正常販售今日份數用完且預購已滿 → 顯示

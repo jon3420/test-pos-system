@@ -404,7 +404,12 @@ async function main() {
       const modifiedSnap = await snapshot(HTML_PATH, url, `3-ab-parity-modified[${url}]`);
       const label = `3-ab-parity[${url}]`;
       assert(pristineSnap.currentMode === modifiedSnap.currentMode, `${label} currentMode 相同`, JSON.stringify({ pristineSnap, modifiedSnap }));
-      assert(JSON.stringify(pristineSnap.calls) === JSON.stringify(modifiedSnap.calls), `${label} fetch URL 清單完全相同（無新增/減少）`, JSON.stringify({ pristine: pristineSnap.calls, modified: modifiedSnap.calls }));
+      // R54.4／MBV2-HF1-C4.2 調整：一般點餐頁依 C4.2 規格在 init() 一開始與店家／菜單並行讀取補貨登記公開設定
+      // （/api/product-demand/config，C3 起就會讀取，只是時機提前到本快照範圍內）。只允許這「一個」一般頁讀取
+      // 出現且最多一次；其餘 fetch 清單仍須與 Phase 3A.4 參考版完全相同，popup 判斷（下方）不變。
+      const C42_ALLOWED = '/api/product-demand/config?store_id=';
+      const modNoCfg = modifiedSnap.calls.filter((c) => !c.startsWith(C42_ALLOWED));
+      assert(JSON.stringify(pristineSnap.calls) === JSON.stringify(modNoCfg) && modifiedSnap.calls.length - modNoCfg.length <= 1, `${label} fetch URL 清單完全相同（無新增/減少；僅允許 C4.2 提前的補貨登記公開設定讀取一次）`, JSON.stringify({ pristine: pristineSnap.calls, modified: modifiedSnap.calls }));
       assert(pristineSnap.wsCount === modifiedSnap.wsCount, `${label} WebSocket 連線次數相同`, JSON.stringify({ pristineSnap, modifiedSnap }));
       assert(modifiedSnap.calls.every((c) => !c.includes('popup')), `${label} modified 版本沒有多出任何 popup fetch`, JSON.stringify(modifiedSnap.calls));
     }
