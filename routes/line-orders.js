@@ -2152,10 +2152,24 @@ router.post('/', async (req, res) => {
       } catch (analyticsErr) { /* Analytics 失敗不影響訂單已成立 */ }
     }
 
+    // C5.4：完成頁使用伺服器保存的商品行金額與付款顯示狀態（不使用前端購物車自算值）
+    let _c54 = {};
+    try {
+      const _saved = db.get('SELECT * FROM orders WHERE store_id=? AND uuid=?', [storeId, uuid]);
+      if (_saved) {
+        const PD = require('../utils/paymentDisplay');
+        let _its = []; try { _its = JSON.parse(_saved.items || '[]'); } catch {}
+        _its = PD.normalizeItems(_its);
+        // 回應只帶顯示金額所需欄位（不回傳 spec／note／options 等描述性資料，維持 R44.2E 回應契約）
+        const _pub = _its.map((i) => ({ product_id: i.product_id, name: i.name, qty: i.qty, price: i.price, unit_price: i.unit_price, line_subtotal: i.line_subtotal, line_subtotal_source: i.line_subtotal_source }));
+        _c54 = { items: _pub, amount_breakdown: PD.amountBreakdown(_saved, _its), payment_display: PD.computePaymentDisplay(db, storeId, _saved), order_status: _saved.order_status };
+      }
+    } catch (e) { _c54 = {}; }
     res.json({ success: true, data: {
       order_number: orderNo, uuid, total: finalTotal,
       delivery_fee: calcDelivFee, distance_km: calcDistKm,
       pickup_location: pickupLocation,
+      ..._c54,
     } });
   } catch(e) {
     console.error('[line-orders] POST error:', e && e.stack ? e.stack : e); // server 端保留完整錯誤
@@ -2258,6 +2272,9 @@ function safeOrder(order, db, storeId) {
   // resolvePickupLocation）。查詢訂單／我的訂單／歷史訂單詳情共用同一份 resolver，
   // 確保跟訂單完成頁（POST / 回傳的 pickup_location）資料來源完全一致。
   const pickupLocation = resolvePickupLocation(order, db, storeId);
+  // C5.4：商品行金額由下單時保存的資料計算（合法歷史行小計；否則保存單價×數量），0 元保留；缺資料回 null，不讀商品現價
+  const PD = require('../utils/paymentDisplay');
+  items = PD.normalizeItems(items);
   return {
     order_number: order.order_number, status: order.order_status,
     status_label: STATUS_LABELS[order.order_status] || order.order_status,
@@ -2279,6 +2296,11 @@ function safeOrder(order, db, storeId) {
     // C5.2：付款狀態與履約狀態分開呈現（付款確認中／待退款）
     payment_status: order.payment_status || '', refund_status: order.refund_status || '',
     payment_review: (() => { try { return require('../utils/linePayRecovery').isUnderReview(db, storeId, order.uuid); } catch (e) { return false; } })(),
+    // C5.4：伺服器統一付款顯示狀態（與履約狀態分開；多次付款嘗試依可信紀錄合併）＋金額明細
+    payment_display: PD.computePaymentDisplay(db, storeId, order),
+    order_ref: order.uuid || '',
+    discount_amount: Number(order.discount_amount || 0), delivery_fee: Number(order.delivery_fee || 0),
+    amount_breakdown: PD.amountBreakdown(order, items),
   };
 }
 
@@ -2288,12 +2310,19 @@ router.get('/status/:orderNo', (req, res) => {
   try {
     const db = getDb();
     const storeId = req.storeId;
-    const order = db.get(
-      'SELECT order_number, order_status, kitchen_status, created_at, total FROM orders WHERE store_id=? AND order_number=?',
-      [storeId, req.params.orderNo]
-    );
-    if (!order) return res.status(404).json({ success: false, message: '訂單不存在' });
-    res.json({ success: true, data: order });
+    // C5.4：可帶 ?ref=<uuid> 精確取單；回傳付款顯示狀態（輪詢要涵蓋只有付款狀態改變的情況）。不回傳個資。
+    const ref = String(req.query.ref || '');
+    const rows = ref
+      ? db.all('SELECT * FROM orders WHERE store_id=? AND order_number=? AND uuid=?', [storeId, req.params.orderNo, ref])
+      : db.all('SELECT * FROM orders WHERE store_id=? AND order_number=? LIMIT 2', [storeId, req.params.orderNo]);
+    if (rows.length > 1) return res.status(409).json({ success: false, error: 'ORDER_REF_AMBIGUOUS', message: '此訂單編號對應到多張訂單' });
+    const full = rows[0];
+    if (!full) return res.status(404).json({ success: false, message: '訂單不存在' });
+    res.set('Cache-Control', 'no-store');
+    res.json({ success: true, data: {
+      order_number: full.order_number, order_status: full.order_status, kitchen_status: full.kitchen_status, created_at: full.created_at, total: full.total,
+      payment_display: require('../utils/paymentDisplay').computePaymentDisplay(db, storeId, full),
+    } });
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
 

@@ -443,16 +443,37 @@ router.post('/webhook', (req, res) => {
 // ══════════════════════════════════════════════════════════
 const adminRouter = express.Router();
 adminRouter.get('/review', (req, res) => {
-  try { res.set('Cache-Control', 'no-store'); res.json({ success: true, data: LPR.listReview(getDb(), req.storeId, req.query.limit) }); }
+  try {
+    res.set('Cache-Control', 'no-store');
+    const db = getDb();
+    const data = LPR.listReview(db, req.storeId, req.query.limit);
+    // R54.4／MBV2-HF1-C5.4：快閃 LINE Pay 待核對（獨立付款嘗試表；同一面板顯示、核對一樣只做唯讀查詢）
+    try { data.popup_attempts = require('../utils/popupPaymentRecovery').listReview(db, req.storeId, req.query.limit); } catch (e) { data.popup_attempts = []; }
+    res.json({ success: true, data });
+  }
   catch (e) { console.error('[linepay-admin] review:', e && e.message); res.status(500).json({ success: false, message: '系統忙碌，請稍後再試' }); }
 });
 adminRouter.post('/reconcile', async (req, res) => {
   try {
     const db = getDb();
     const b = req.body || {};
+    const PPR = require('../utils/popupPaymentRecovery');
+    // C5.4：指定快閃付款嘗試 → 只核對該筆（唯讀）
+    if (b.popup_attempt_id) {
+      const p = await PPR.reconcile(db, req.storeId, { attempt_id: String(b.popup_attempt_id) });
+      if (p.busy) return res.status(409).json({ success: false, error: 'RECONCILE_BUSY', message: '核對進行中，請稍後再試' });
+      if (p.rate_limited) return res.status(429).json({ success: false, error: 'RECONCILE_RATE_LIMITED', message: '核對太頻繁，請稍後再試', retry_after_ms: p.retry_after_ms });
+      return res.json({ success: true, data: { checked: p.checked, recovered: p.recovered, paid_cancelled: p.paid_cancelled, still_review: p.still_review, popup: p } });
+    }
     const out = await LPR.reconcile(db, (sid) => getLinePayConfig(db, sid), req.storeId, { inquire: true, limit: b.limit, attempt_uuid: b.attempt_uuid ? String(b.attempt_uuid) : undefined });
     if (out.busy) return res.status(409).json({ success: false, error: 'RECONCILE_BUSY', message: '核對進行中，請稍後再試' });
     if (out.rate_limited) return res.status(429).json({ success: false, error: 'RECONCILE_RATE_LIMITED', message: '核對太頻繁，請稍後再試', retry_after_ms: out.retry_after_ms });
+    if (!b.attempt_uuid) {
+      try {
+        const p = await PPR.reconcile(db, req.storeId, { limit: b.limit });
+        if (p && !p.busy && !p.rate_limited) { out.checked += p.checked; out.recovered += p.recovered; out.paid_cancelled += p.paid_cancelled; out.still_review += p.still_review; out.popup = p; }
+      } catch (e) { console.warn('[linepay-admin] popup reconcile:', e && e.message); }
+    }
     res.json({ success: true, data: out });
   } catch (e) { console.error('[linepay-admin] reconcile:', e && e.message); res.status(500).json({ success: false, message: '系統忙碌，請稍後再試' }); }
 });

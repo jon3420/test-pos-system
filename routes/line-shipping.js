@@ -770,6 +770,10 @@ function isFullPhoneShip(input) { return /^\d{6,}$/.test(String(input || '').rep
 function safeShippingOrder(order) {
   let items = [];
   try { items = typeof order.items === 'string' ? JSON.parse(order.items || '[]') : (order.items || []); } catch {}
+  // C5.4：商品行金額（保存資料）與統一付款顯示狀態
+  const PD = require('../utils/paymentDisplay');
+  items = PD.normalizeItems(items);
+  const _pdisp = (() => { try { return PD.computePaymentDisplay(getDb(), order.store_id, order); } catch (e) { return null; } })();
   const phone = String(order.shipping_phone || order.customer_phone || '');
   const shipStatus = order.shipping_status || 'pending';
   const payStatus = order.payment_status || 'pending';
@@ -779,7 +783,10 @@ function safeShippingOrder(order) {
     status: shipStatus,
     status_label: SHIP_STATUS_LABELS[shipStatus] || shipStatus,
     payment_status: payStatus,
-    payment_status_label: SHIP_PAYMENT_STATUS_LABELS[payStatus] || payStatus,
+    payment_status_label: _pdisp ? _pdisp.label : (SHIP_PAYMENT_STATUS_LABELS[payStatus] || payStatus),
+    payment_display: _pdisp,
+    amount_breakdown: PD.amountBreakdown(order, items),
+    order_ref: order.uuid || '',
     payment_method: order.payment_method || '',
     payment_method_label: SHIP_PAYMENT_METHOD_LABELS[order.payment_method] || order.payment_method || '',
     carrier_name: order.carrier_name || order.shipping_carrier_name || '',
@@ -850,9 +857,16 @@ router.get('/order/:orderNo', (req, res) => {
     if (!order) return res.status(404).json({ success: false, message: '找不到訂單' });
     let items = [];
     try { items = typeof order.items === 'string' ? JSON.parse(order.items || '[]') : (order.items || []); } catch {}
+    const PD = require('../utils/paymentDisplay');
+    items = PD.normalizeItems(items);
+    const pdisp = PD.computePaymentDisplay(db, storeId, order);
+    res.set('Cache-Control', 'no-store');
     res.json({
       success: true,
       data: {
+        payment_display: pdisp,
+        amount_breakdown: PD.amountBreakdown(order, items),
+        order_ref: order.uuid || '',
         order_number: order.order_number,
         status: order.shipping_status || order.order_status,
         recipient_name: order.shipping_recipient_name,
@@ -869,7 +883,7 @@ router.get('/order/:orderNo', (req, res) => {
         total: Number(order.total || 0),
         payment_method: order.payment_method,
         payment_status: order.payment_status || 'pending',
-        payment_status_label: SHIP_PAYMENT_STATUS_LABELS[order.payment_status] || order.payment_status || '待付款',
+        payment_status_label: pdisp ? pdisp.label : (SHIP_PAYMENT_STATUS_LABELS[order.payment_status] || order.payment_status || '待付款'),
         carrier_name: order.carrier_name || order.shipping_carrier_name || '',
         tracking_number: order.tracking_number || '',
         shipping_note: order.shipping_note || '',
@@ -895,7 +909,8 @@ router.get('/admin/orders', (req, res) => {
     const orders = db.all(
       `SELECT * FROM orders ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`,
       [...params, Number(limit), Number(offset)]
-    ).map(o => ({ ...o, items: typeof o.items === 'string' ? JSON.parse(o.items || '[]') : (o.items || []) }));
+    ).map(o => ({ ...o, items: typeof o.items === 'string' ? JSON.parse(o.items || '[]') : (o.items || []),
+      payment_display: (() => { try { return require('../utils/paymentDisplay').computePaymentDisplay(db, storeId, o); } catch (e) { return null; } })() }));
     const counts = db.all(
       `SELECT shipping_status, COUNT(*) as cnt FROM orders WHERE store_id=? AND fulfillment_type='shipping' GROUP BY shipping_status`,
       [storeId]

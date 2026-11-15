@@ -445,8 +445,10 @@ function popupPaymentSummary(db, attempt) {
     order_number: order ? order.order_number : null, ref: fresh.attempt_id, method: order ? order.payment_method : null,
     state, state_label: ppay.stateLabel(state), amount: fresh.amount, currency: fresh.currency,
     expires_at: new Date(Number(fresh.expires_at)).toISOString(),
-    can_pay: fresh.status === 'pending' && Number(fresh.expires_at) > Date.now() && !!order && order.order_status !== 'cancelled',
-    can_switch_to_cash: !!(s && s.allow_fallback_cash && s.methods.cash && s.methods.cash.enabled) && fresh.status === 'failed' && !!order && order.order_status !== 'cancelled' && order.payment_status === 'pending',
+    can_pay: fresh.status === 'pending' && (!fresh.confirm_state || fresh.confirm_state === 'never') && Number(fresh.expires_at) > Date.now() && !!order && order.order_status !== 'cancelled',
+    can_switch_to_cash: !!(s && s.allow_fallback_cash && s.methods.cash && s.methods.cash.enabled) && fresh.status === 'failed' && !!String(fresh.failure_basis || '') && !!order && order.order_status !== 'cancelled' && order.payment_status === 'pending',
+    under_review: fresh.status === 'review' || fresh.status === 'confirm_pending', // C5.4
+    order_status: order ? order.order_status : null,
     order: order ? {
       popup_session_public_code: order.popup_session_public_code_snapshot, popup_campaign_name: order.popup_campaign_name_snapshot,
       popup_session_name: order.popup_session_name_snapshot, pickup_date: order.popup_pickup_date_snapshot,
@@ -487,6 +489,10 @@ router.post('/popup-payment/linepay-request', async (req, res) => {
     const fresh = ppay.findAttemptById(db, attempt.attempt_id);
     const order = db.get('SELECT * FROM orders WHERE id=? AND store_id=?', [fresh.order_id, fresh.store_id]);
     if (fresh.provider !== 'linepay') return res.status(409).json({ success: false, error: 'POPUP_PAYMENT_METHOD_NOT_READY', message: '此付款方式尚未開放線上付款' });
+    // C5.4：付款結果不明（已送出或可能已送出 Confirm）→ 不建立新的付款（避免重複付款）
+    if (fresh.status === 'review' || fresh.status === 'confirm_pending' || (fresh.status === 'pending' && fresh.confirm_state && fresh.confirm_state !== 'never')) {
+      return res.status(409).json({ success: false, error: 'PAYMENT_UNDER_REVIEW', message: '付款結果確認中，請勿重複付款', data: popupPaymentSummary(db, fresh) });
+    }
     if (fresh.status !== 'pending' || !order || order.order_status === 'cancelled' || Number(fresh.expires_at) <= Date.now()) {
       return res.status(409).json({ success: false, error: 'POPUP_PAYMENT_NOT_PAYABLE', message: '此付款已結束或逾時', data: popupPaymentSummary(db, fresh) });
     }
@@ -501,8 +507,9 @@ router.post('/popup-payment/linepay-request', async (req, res) => {
     const r = await requestLinePayPayment({ db, storeId: fresh.store_id, order: { ...order, total: fresh.amount },
       redirectUrl: `${base}/api/line-orders/popup-payment/linepay-confirm?${q}`, cancelUrl: `${base}/api/line-orders/popup-payment/linepay-cancel?${q}` });
     if (!r.success) return res.status(502).json({ success: false, error: 'POPUP_PAYMENT_PROVIDER_ERROR', message: 'LINE Pay 暫時無法建立付款，請稍後再試' });
+    // 交易識別以原始回應文字擷取的字串保存（linePayService／orderIdentity.extractTransactionId，19 位不經 Number）
     db.runDurableTransaction(() => {
-      db._db.run("UPDATE popup_payment_attempts SET transaction_id=?, updated_at=datetime('now','localtime') WHERE attempt_id=? AND status='pending'", [String(r.transaction_id || ''), fresh.attempt_id]);
+      db._db.run("UPDATE popup_payment_attempts SET transaction_id=?, updated_at=datetime('now','localtime') WHERE attempt_id=? AND status='pending' AND confirm_state='never' AND COALESCE(confirm_calls,0)=0", [String(r.transaction_id || ''), fresh.attempt_id]);
     });
     res.json({ success: true, data: { payment_url: r.payment_url, ref: fresh.attempt_id } });
   } catch (e) { sendPopupError(res, e); }
@@ -517,40 +524,11 @@ router.get('/popup-payment/linepay-confirm', async (req, res) => {
     if (!order || !ppay.verifyAttemptCallback(attempt, order.order_number, String(req.query.cb || ''))) {
       return res.status(400).type('text/plain').send('invalid callback signature');
     }
-    if (attempt.status === 'paid') return res.redirect(popupReturnUrl(req, db, attempt, 'paid')); // 重複 callback：冪等 no-op
-    ppay.reconcileExpiredPopupPayments(db, attempt.store_id);
-    const cur = ppay.findAttemptById(db, attempt.attempt_id);
-    if (cur.status !== 'pending') return res.redirect(popupReturnUrl(req, db, cur, cur.status));
-    const transactionId = String(req.query.transactionId || '');
-    // LINE Pay transactionId 是 19 位數字；JSON number 會失去精度，因此一律以相同的 Number() 轉換比較（與既有 routes/linepay.js 儲存方式一致）。
-    const sameTx = (a, b) => String(a) === String(b) || (Number.isFinite(Number(a)) && Number(a) === Number(b));
-    if (!/^\d{1,30}$/.test(transactionId) || (cur.transaction_id && !sameTx(cur.transaction_id, transactionId)) || String(req.query.orderId || '') !== order.order_number) {
-      ppay.markAttemptFailed(db, cur, 'callback_mismatch');
-      return res.redirect(popupReturnUrl(req, db, cur, 'failed'));
-    }
-    const { getLinePayConfig, signLinePayPost, makePostHeaders } = require('../utils/linePayClient');
-    const cfg = getLinePayConfig(db, cur.store_id, true);
-    if (!cfg || !cfg.channelId || !cfg.channelSecret) { ppay.markAttemptFailed(db, cur, 'provider_not_ready'); return res.redirect(popupReturnUrl(req, db, cur, 'failed')); }
-    const confirmBody = { amount: Number(cur.amount), currency: cur.currency };
-    const uri = `/v3/payments/${transactionId}/confirm`;
-    const nonce = uuidv4().replace(/-/g, '').slice(0, 32);
-    const { bodyStr, signature } = signLinePayPost(cfg.channelSecret, uri, confirmBody, nonce);
-    const fetch = require('node-fetch');
-    let data = null;
-    try {
-      const apiRes = await fetch(cfg.apiBase + uri, { method: 'POST', headers: makePostHeaders(cfg.channelId, signature, nonce), body: bodyStr, timeout: 10000 });
-      data = await apiRes.json();
-    } catch (e) { data = null; }
-    const info = data && data.info;
-    const paidAmount = info && Array.isArray(info.payInfo) ? info.payInfo.reduce((n, p) => n + Number(p.amount || 0), 0) : null;
-    const ok = data && data.returnCode === '0000' && info && sameTx(info.transactionId, transactionId)
-      && (info.orderId === undefined || String(info.orderId) === order.order_number) && (paidAmount === null || paidAmount === Number(cur.amount));
-    if (!ok) {
-      ppay.markAttemptFailed(db, cur, data && data.returnCode === '0000' ? 'amount_or_id_mismatch' : 'provider_declined');
-      return res.redirect(popupReturnUrl(req, db, cur, 'failed'));
-    }
-    ppay.markAttemptPaid(db, cur, transactionId);
-    return res.redirect(popupReturnUrl(req, db, cur, 'paid'));
+    // R54.4／MBV2-HF1-C5.4：交易識別字串精確比對、Confirm 前 durable 保存處理階段、結果不明只做唯讀核對、
+    // 完整驗證成功回應、履約逾時與付款結果分開（見 utils/popupPaymentRecovery.js）
+    const out = await require('../utils/popupPaymentRecovery').handleConfirmCallback(db, attempt.attempt_id, req.query || {});
+    if (out.result === 'pending') console.warn(`[popup-payment/confirm] payment under review store=${attempt.store_id} reason=${out.reason || ''}`);
+    return res.redirect(popupReturnUrl(req, db, attempt, out.result || 'error'));
   } catch (e) {
     console.error('[popup-payment/confirm] error:', e && e.message ? e.message : 'unknown');
     return res.redirect(popupReturnUrl(req, db, attempt, 'error'));
@@ -566,8 +544,9 @@ router.get('/popup-payment/linepay-cancel', (req, res) => {
     if (!order || !ppay.verifyAttemptCallback(attempt, order.order_number, String(req.query.cb || ''))) {
       return res.status(400).type('text/plain').send('invalid callback signature');
     }
-    if (attempt.status === 'pending') ppay.markAttemptFailed(db, attempt, 'customer_cancelled');
-    return res.redirect(popupReturnUrl(req, db, attempt, 'cancelled'));
+    // C5.4：只有從未送出 Confirm 的付款可判定「顧客取消、未完成」；結果不明者維持確認中
+    const out = require('../utils/popupPaymentRecovery').handleCancelCallback(db, attempt.attempt_id);
+    return res.redirect(popupReturnUrl(req, db, attempt, out.result === 'pending' ? 'pending' : 'cancelled'));
   } catch (e) { return res.redirect(popupReturnUrl(req, db, attempt, 'error')); }
 });
 

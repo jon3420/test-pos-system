@@ -167,7 +167,9 @@ function consumerStatus(order, attempt) {
   let payment;
   if (order.refund_status === 'refunded') payment = '已退款';
   else if (order.refund_status === 'pending_refund') payment = '退款處理中';
+  else if (a === 'paid_cancelled') payment = '已付款・待退款'; // C5.4
   else if (order.payment_status === 'paid' || a === 'paid') payment = '已付款';
+  else if (a === 'review' || a === 'confirm_pending') payment = '付款結果確認中，請勿重複付款'; // C5.4：結果不明不顯示逾時或失敗
   else if (a === 'expired') payment = '已逾期';
   else if (a === 'failed') payment = '付款失敗';
   else if (a === 'pending') payment = '待付款';
@@ -178,6 +180,7 @@ function consumerStatus(order, attempt) {
   const orderLabel = ORDER_STATUS_LABELS[order.order_status] || '處理中';
   let overall;
   if (order.refund_status === 'refunded' || order.refund_status === 'pending_refund') overall = payment;
+  else if (a === 'review' || a === 'confirm_pending') overall = '付款結果確認中';
   else if (order.order_status === 'cancelled') overall = a === 'expired' ? '已逾期' : (a === 'failed' ? '付款失敗' : '已取消');
   else if (a === 'pending') overall = '待付款';
   else if (a === 'failed') overall = '付款失敗';

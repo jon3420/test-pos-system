@@ -854,27 +854,31 @@ async function init() {
   // ── hotfix22-B：LINE Pay 導回結果處理（宅配專用，導回本頁而非 line-order.html）──
   const _lpP = new URLSearchParams(window.location.search);
   if (_lpP.get('linepay') === 'success') {
-    // hotfix22-F：LINE Pay 付款成功才是清空購物車的時機，這裡才真正清除 localStorage
-    clearCartStorage();
+    // R54.4／MBV2-HF1-C5.4：返回網址不是付款證據；以伺服器訂單的 payment_display 決定顯示。
+    // 只有伺服器確認已付款才清空購物車（hotfix22-F）與觸發 Purchase；查詢失敗時顯示「付款結果確認中」。
     document.getElementById('loading').style.display = 'none';
     const orderNo = _lpP.get('order') || '';
+    const reviewHtml = '<div id="lpPendingNotice" style="color:#b45309;font-weight:700;font-size:16px;text-align:center;padding:20px;line-height:1.6">⏳ 付款結果確認中<br><span style="font-weight:400;font-size:14px;color:#555">請勿重複付款。店家確認後訂單狀態會更新，可稍後查詢訂單。</span></div>';
     try {
       const _ref = _lpP.get('order_ref') || ''; // C5.1：以訂單唯一識別精確取單
       const qres = await apiGet(`/api/line-shipping/order/${encodeURIComponent(orderNo)}${_ref ? '?ref=' + encodeURIComponent(_ref) : ''}`);
-      if (qres.success) {
+      const pd = qres && qres.success && qres.data ? qres.data.payment_display : null;
+      if (qres.success && pd && pd.state === 'paid') {
+        clearCartStorage();
         showSuccess(qres.data);
         // fix18-10-hotfix23-D：LINE Pay callback 沒有金額，一律用後端查詢回來的權威
         // total／items 觸發 Purchase，且用 order_number 去重，避免重整頁面重複計算。
         _firePurchaseOnce(qres.data);
-      }
-      else {
+      } else if (qres.success && pd && pd.state !== 'under_review') {
+        showSuccess(qres.data); // 顯示伺服器實際付款狀態（例如付款失敗、待退款），不顯示成功、不清空購物車
+      } else {
         document.getElementById('sucOrderNo').textContent = orderNo;
-        document.getElementById('sucDetail').innerHTML = '<div style="color:#06C755;font-weight:700;font-size:16px;text-align:center;padding:20px">💚 LINE Pay 付款成功！宅配訂單已建立。</div>';
+        document.getElementById('sucDetail').innerHTML = reviewHtml;
         document.getElementById('successScreen').classList.add('show');
       }
     } catch {
       document.getElementById('sucOrderNo').textContent = orderNo;
-      document.getElementById('sucDetail').innerHTML = '<div style="color:#06C755;font-weight:700;font-size:16px;text-align:center;padding:20px">💚 LINE Pay 付款成功！宅配訂單已建立。</div>';
+      document.getElementById('sucDetail').innerHTML = reviewHtml;
       document.getElementById('successScreen').classList.add('show');
     }
     return;
@@ -2045,8 +2049,11 @@ function showSuccess(d) {
   document.getElementById('sucOrderNo').textContent = d.order_number;
   const payLabels = { cash: '現金', linepay: 'LINE Pay', transfer: '轉帳', credit_card: '信用卡', platform: '平台付款' };
   // hotfix22-B：若已知付款狀態（例如 LINE Pay 導回後查到 payment_status_label），明確顯示「付款成功」
+  // C5.4：付款狀態以伺服器 payment_display 為準（顏色依其語意，不以 payment_status 推定）
+  const _pd = d.payment_display;
+  const _pdColor = _pd ? ({ success: '#06C755', danger: '#c62828', warning: '#b45309', info: '#1565c0', muted: '#607d8b' }[_pd.tone] || '#e65100') : (d.payment_status==='paid'?'#06C755':'#e65100');
   const payStatusRow = d.payment_status_label
-    ? `<div class="od-row"><span class="od-label">付款狀態</span><span class="od-val" style="color:${d.payment_status==='paid'?'#06C755':'#e65100'};font-weight:700">${esc(d.payment_status_label)}</span></div>`
+    ? `<div class="od-row"><span class="od-label">付款狀態</span><span class="od-val" data-pay-state="${esc(_pd ? _pd.state : '')}" style="color:${_pdColor};font-weight:700">${esc(_pd ? _pd.label : d.payment_status_label)}</span></div>`
     : '';
   // hotfix22-C：有套用優惠券時顯示折扣列
   const discAmt = Number(d.discount_amount || 0);
@@ -2189,17 +2196,21 @@ async function loginMyOrders() {
   if (!phone) { toast('請輸入電話'); return; }
   await loadMyOrders(phone, name, true);
 }
+let _c54ShipSeq = 0; // R54.4／MBV2-HF1-C5.4：只套用最新一次查詢（切換帳號／重查時舊回應不覆蓋）
 function clearMyOrdersLogin() {
+  _c54ShipSeq++;
   localStorage.removeItem('line_shipping_customer_phone');
   localStorage.removeItem('line_shipping_customer_name');
   showMyOrdersLogin();
 }
 async function loadMyOrders(phone, name, save) {
   const body = document.getElementById('myOrdersBody');
+  const seq = ++_c54ShipSeq;
   body.innerHTML = '<div style="text-align:center;padding:40px;color:#888"><div class="spinner" style="margin:0 auto 8px"></div>載入中…</div>';
   try {
     const b = { phone }; if (name) b.customer_name = name;
     const res = await apiPost('/api/line-shipping/history', b);
+    if (seq !== _c54ShipSeq) return;
     if (!res.success) {
       body.innerHTML = `<div class="empty-hint"><div class="ei">📭</div><p>${esc(res.message || '查無宅配訂單')}</p><button class="sub-btn" style="margin:16px auto 0;max-width:240px" onclick="clearMyOrdersLogin()">重新輸入</button></div>`;
       return;
@@ -2212,7 +2223,7 @@ async function loadMyOrders(phone, name, save) {
     body.innerHTML = `<div style="padding:10px 16px;display:flex;justify-content:space-between;align-items:center"><span style="font-size:13px;color:#888">共 ${res.orders.length} 筆宅配訂單</span><button onclick="clearMyOrdersLogin()" style="font-size:12px;color:var(--sub);background:none;border:none;cursor:pointer">切換帳號</button></div>`
       + res.orders.map((o, i) => buildShipOrderCardHTML(o, i)).join('') + '<div style="height:20px"></div>';
   } catch (e) {
-    body.innerHTML = '<p style="color:#c62828;text-align:center;padding:40px">載入失敗，請重試</p>';
+    if (seq === _c54ShipSeq) body.innerHTML = '<p style="color:#c62828;text-align:center;padding:40px">載入失敗，請重試</p>';
   }
 }
 let _myOrdersCache = [];

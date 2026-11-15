@@ -333,7 +333,9 @@ router.get('/', (req, res) => {
        FROM orders WHERE ${clause} AND status!='void' AND order_status!='cancelled'`,
       params
     );
-    res.json({ success: true, data: orders.map(parseOrder), stats });
+    // C5.4：每筆附上伺服器統一付款顯示狀態（後台訂單頁、LINE 預購管理共用），不只顯示付款方式
+    const PD = require('../utils/paymentDisplay');
+    res.json({ success: true, data: orders.map((o) => { const x = parseOrder(o); try { x.payment_display = PD.computePaymentDisplay(db, storeId, o); } catch (e) { x.payment_display = null; } return x; }), stats });
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
 

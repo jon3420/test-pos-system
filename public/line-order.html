@@ -2167,6 +2167,46 @@ const PLABELS={cash:'現金',linepay:'LINE Pay',transfer:'轉帳',platform:'平�
 const SICON={pending:'🟡',accepted:'🔵',preparing:'🟠',ready:'🟢',completed:'✅',cancelled:'❌'};
 const SLABEL={pending:'待確認',accepted:'已接單',preparing:'製作中',ready:'可取餐',completed:'已完成',cancelled:'已取消'};
 const SCLASS={pending:'s-pending',accepted:'s-accepted',preparing:'s-preparing',ready:'s-ready',completed:'s-completed',cancelled:'s-cancelled'};
+// R54.4／MBV2-HF1-C5.4：付款狀態（伺服器 payment_display）與履約狀態分開顯示；商品行金額使用下單時保存的資料
+const C54_PAY_TONE={success:'#1b5e20',danger:'#c62828',warning:'#b45309',info:'#1565c0',muted:'#607d8b'};
+function c54PayText(pd){ return pd&&typeof pd.label==='string'&&pd.label ? pd.label : ''; }
+function c54PayBadgeHTML(pd){
+  if(!pd||!pd.label) return '';
+  const c=C54_PAY_TONE[pd.tone]||'#1565c0';
+  return `<span class="pay-badge" data-pay-state="${esc(pd.state)}" style="display:inline-block;font-size:12px;font-weight:700;color:${c};border:1px solid ${c};border-radius:10px;padding:1px 8px;margin-left:4px">${esc(pd.label)}</span>`;
+}
+function c54Money(v){ return (typeof v==='number'&&Number.isFinite(v)) ? ('$'+v) : null; }
+// 行小計：伺服器 line_subtotal → 保存行小計（合法數字，含 0）→ 保存單價×數量 → 「金額資料不足」（不以 truthy 判斷、不讀商品現價）
+function c54LineAmount(i){
+  if(!i||typeof i!=='object') return null;
+  if(typeof i.line_subtotal==='number'&&Number.isFinite(i.line_subtotal)) return i.line_subtotal;
+  if(i.line_subtotal_source==='missing') return null;
+  const ok=(v)=>typeof v==='number'&&Number.isFinite(v)&&v>=0;
+  if(ok(i.subtotal)) return i.subtotal;
+  const q=Number(i.qty);
+  if(ok(i.price)&&Number.isFinite(q)&&q>0) return Math.round(i.price*q*100)/100;
+  return null;
+}
+function c54LineAmountHTML(i){ const v=c54LineAmount(i); return v===null?'<span class="od-missing" style="color:#999">金額資料不足</span>':('$'+v); }
+// 折扣、外送費、其他差額：清楚列出，不把商品行小計湊成付款總額
+function c54BreakdownRowsHTML(o){
+  const b=o&&o.amount_breakdown; if(!b) return '';
+  let h='';
+  if(typeof b.items_total==='number') h+=`<div class="od-row"><span class="od-label">商品小計</span><span class="od-val">$${b.items_total}</span></div>`;
+  else if(b.items_incomplete) h+=`<div class="od-row"><span class="od-label">商品小計</span><span class="od-val" style="color:#999">部分商品金額資料不足</span></div>`;
+  if(Number(b.discount_amount)>0) h+=`<div class="od-row"><span class="od-label" style="color:#06C755">🎟️ 優惠折扣</span><span class="od-val" style="color:#06C755">-$${Number(b.discount_amount)}</span></div>`;
+  if(Number(b.delivery_fee)>0) h+=`<div class="od-row"><span class="od-label" style="color:#e65100">🛵 外送費</span><span class="od-val" style="color:#e65100">$${Number(b.delivery_fee)}</span></div>`;
+  if(Number(b.shipping_fee)>0) h+=`<div class="od-row"><span class="od-label">運費</span><span class="od-val">$${Number(b.shipping_fee)}</span></div>`;
+  if(typeof b.other_adjustment==='number'&&Math.abs(b.other_adjustment)>=0.01) h+=`<div class="od-row"><span class="od-label" style="color:#888">其他調整</span><span class="od-val" style="color:#888">${b.other_adjustment<0?'-':''}$${Math.abs(b.other_adjustment)}</span></div>`;
+  return h;
+}
+function c54PayNoticeHTML(pd){
+  if(!pd) return '';
+  if(pd.state==='under_review') return '<div class="c54-pay-notice" data-pay-notice="under_review" style="background:#fff8e1;border-left:3px solid #b45309;padding:10px 14px;border-radius:8px;margin-bottom:14px;font-size:13px;color:#7c4a03">⏳ 付款結果確認中，請勿重複付款。店家確認後會更新付款狀態。</div>';
+  if(pd.state==='failed') return '<div class="c54-pay-notice" data-pay-notice="failed" style="background:#ffebee;border-left:3px solid #c62828;padding:10px 14px;border-radius:8px;margin-bottom:14px;font-size:13px;color:#8e0000">付款失敗，本次付款未完成（未扣款）。如需協助請聯絡店家。</div>';
+  if(pd.state==='paid_refund_pending') return '<div class="c54-pay-notice" data-pay-notice="refund" style="background:#fff3e0;border-left:3px solid #e65100;padding:10px 14px;border-radius:8px;margin-bottom:14px;font-size:13px;color:#7c2d00">此訂單已取消，款項已收到，店家將處理退款。</div>';
+  return '';
+}
 const WD_KEYS=['sun','mon','tue','wed','thu','fri','sat'];
 const WD_NAMES=['日','一','二','三','四','五','六'];
 // 安全解析日期：避免 JS UTC midnight 時區偏移導致 getDay() 算出前一天
@@ -4296,7 +4336,9 @@ async function popupHandlePaymentReturn(ref){
     const json=await res.json().catch(()=>({}));
     if(!json || !json.success || !json.data){ renderPopupPaymentScreen(null, { state:'unknown', state_label:'付款狀態確認中', ref }, '暫時無法取得付款狀態，請稍後再查詢。'); return; }
     const d=json.data;
-    const notices={ paid:'付款成功，訂單已成立。', payment_failed:'付款未完成。', payment_expired:'付款已逾時，訂單已取消並釋放名額。', cancelled:'訂單已取消。', refund_pending:'退款處理中。', refunded:'已退款。' };
+    // C5.4：付款結果確認中／待退款不使用成功或失敗的文案，也不提供再次付款
+    const notices={ paid:'付款成功，訂單已成立。', payment_failed:'付款失敗，本次付款未完成（未扣款）。', payment_expired:'付款已逾時（未扣款），訂單已取消並釋放名額。', cancelled:'訂單已取消。', refund_pending:'此訂單已取消，款項已收到，店家將處理退款。請勿重複付款。', refunded:'已退款。',
+      payment_under_review:(d.order_status==='cancelled'?'付款結果確認中，請勿重複付款。付款期限已過，訂單已取消並釋放名額；若之後確認已付款，店家會處理退款。':'付款結果確認中，請勿重複付款。店家確認後會更新付款狀態，可稍後重新查詢。') };
     renderPopupPaymentScreen(d, d, notices[d.state]||null);
   }catch(e){
     renderPopupPaymentScreen(null, { state:'unknown', state_label:'付款狀態確認中', ref }, '網路異常，請稍後再查詢付款狀態。');
@@ -5626,28 +5668,41 @@ async function init(){
   // ── LINE Pay redirect 結果處理 ──────────────────────
   const _lpP=new URLSearchParams(window.location.search);
   if(_lpP.get('linepay')==='success'){
-
-    // hotfix22-F：LINE Pay 付款成功才是唯一清空購物車的時機之一，這裡才真正清除 localStorage
-    clearCartStorage();
+    // R54.4／MBV2-HF1-C5.4：返回網址只是導回訊號，不是付款證據。先顯示中性的「確認中」，
+    // 再以伺服器訂單資料（payment_display）決定顯示；只有伺服器確認已付款才顯示付款成功、清空購物車與觸發 Purchase。
     document.getElementById('loading').style.display='none';
     const _lpOrderNo=_lpP.get('order')||'';
+    const _lpRef=_lpP.get('order_ref')||'';
     document.getElementById('sucNo').textContent='訂單編號：'+_lpOrderNo;
-    document.getElementById('sucDetail').innerHTML='<div style="color:#06C755;font-weight:700;font-size:16px;text-align:center;padding:20px">💚 LINE Pay 付款成功！訂單已建立。</div>';
+    const _sd=document.getElementById('sucDetail');
+    _sd.setAttribute('data-order-no',_lpOrderNo); _sd.setAttribute('data-order-ref',_lpRef);
+    _sd.innerHTML='<div id="lpVerifyNotice" style="color:#555;font-weight:700;font-size:16px;text-align:center;padding:20px">正在確認付款結果…</div>';
     document.getElementById('successScreen').classList.add('show');
-    // fix18-10-hotfix23-D：LINE Pay callback URL 只有訂單編號，沒有金額——不能用 URL
-    // 上的任何數字當 Purchase value（那可以被竄改）。改用既有的 /api/line-orders/query
-    // （只用 order_number 查詢，後端回傳的是訂單當下真正的 total）取得後端權威金額，
-    // 才觸發 Purchase，並且用 order_number 去重，重整這個成功頁不會重複計算。
+    const _lpRender=(o)=>{
+      const pd=o&&o.payment_display;
+      if(pd&&pd.state==='paid'){
+        // hotfix22-F：伺服器確認付款成功才清空購物車
+        clearCartStorage();
+        _sd.innerHTML='<div id="lpPaidNotice" style="color:#06C755;font-weight:700;font-size:16px;text-align:center;padding:20px">💚 LINE Pay 付款成功！訂單已建立。</div>'+buildDetailRows(o);
+        // fix18-10-hotfix23-D：Purchase 只用後端權威金額，依訂單編號去重
+        _firePurchaseOnce(_lpOrderNo, o.total, o.items||[]);
+      }else if(pd&&pd.state==='under_review'){
+        _sd.innerHTML='<div id="lpPendingNotice" style="color:#b45309;font-weight:700;font-size:16px;text-align:center;padding:20px;line-height:1.6">⏳ 付款結果確認中<br><span style="font-weight:400;font-size:14px;color:#555">請勿重複付款。店家確認後訂單狀態會更新，可稍後用「查詢訂單」查看。</span></div>';
+      }else if(pd&&pd.state==='paid_refund_pending'){
+        _sd.innerHTML='<div id="lpRefundNotice" style="color:#e65100;font-weight:700;font-size:15px;text-align:center;padding:20px;line-height:1.6">此訂單已取消，款項已收到，店家將處理退款。<br><span style="font-weight:400;font-size:14px;color:#555">請勿重複付款，有疑問請聯絡店家。</span></div>';
+      }else if(pd){
+        _sd.innerHTML=`<div id="lpNotPaidNotice" style="color:#c62828;font-weight:700;font-size:15px;text-align:center;padding:20px;line-height:1.6">${esc(pd.label)}<br><span style="font-weight:400;font-size:14px;color:#555">本次付款尚未完成，購物車已保留。</span></div>`;
+      }else{
+        _sd.innerHTML='<div id="lpPendingNotice" style="color:#b45309;font-weight:700;font-size:16px;text-align:center;padding:20px;line-height:1.6">⏳ 付款結果確認中<br><span style="font-weight:400;font-size:14px;color:#555">暫時無法取得付款結果，請勿重複付款，可稍後用「查詢訂單」查看。</span></div>';
+      }
+    };
     if(_lpOrderNo){
       // C5.1：付款返回帶訂單唯一識別（order_ref），以它精確取單（歷史重號不會取到另一張）
-      apiFetch('/api/line-orders/query',{method:'POST',body:JSON.stringify({order_number:_lpOrderNo, order_ref:_lpP.get('order_ref')||undefined})})
+      apiFetch('/api/line-orders/query',{method:'POST',body:JSON.stringify({order_number:_lpOrderNo, order_ref:_lpRef||undefined})})
         .then(r=>r.json())
-        .then(qr=>{
-          const o=(qr&&qr.success&&qr.orders&&qr.orders[0])?qr.orders[0]:null;
-          if(o) _firePurchaseOnce(_lpOrderNo, o.total, o.items||[]);
-        })
-        .catch(()=>{});
-    }
+        .then(qr=>{ const o=(qr&&qr.success&&qr.orders&&qr.orders[0])?qr.orders[0]:null; _lpRender(o); })
+        .catch(()=>_lpRender(null));
+    }else _lpRender(null);
     return;
   }
   if(_lpP.get('linepay')==='pending'){
@@ -9577,11 +9632,14 @@ async function submitOrder(event){
     clearCartStorage();
     _closeIdentityRestore(); // R54.4／MBV2-HF1-C3.3：已成立訂單 → 舊還原任務失效
     document.getElementById('sucNo').textContent=`訂單編號：${orderData.order_number}`;
+    { const _sd=document.getElementById('sucDetail'); if(_sd){ _sd.setAttribute('data-order-no',orderData.order_number||''); _sd.setAttribute('data-order-ref',orderData.uuid||''); } }
     document.getElementById('sucDetail').innerHTML=buildDetailRows({
-      status:'pending',status_label:'待確認',
+      status:orderData.order_status||'pending',status_label:'待確認',
+      payment_display:orderData.payment_display||null,
       customer_name:name, phone_last3:phone.slice(-3),
       order_type_label:type==='delivery'?'🛵 外送':'🛍️ 外帶',
-      pickup_time:`${pickupDate} ${time}`, items, subtotal,
+      // C5.4：商品行金額使用伺服器保存的訂單項目（沒有時才退回本機購物車項目）
+      pickup_time:`${pickupDate} ${time}`, items:Array.isArray(orderData.items)?orderData.items:items, subtotal,
       discount_amount:finalDiscAmt,
       delivery_fee:finalDelivFee,
       delivery_address:delivPayload.delivery_address||'',
@@ -9593,6 +9651,7 @@ async function submitOrder(event){
       payment_label:PLABELS[selectedPay]||selectedPay, note
     });
     document.getElementById('successScreen').classList.add('show');
+    try{ if(typeof window._startStatusPolling==='function') window._startStatusPolling(orderData.order_number, orderData.uuid||''); }catch(e){}
     // fix18-10-hotfix23-D：非 LINE Pay 訂單在這裡就是後端已確認成立的成交（與後端
     // routes/line-orders.js 的 purchase 事件寫入時機一致），value 用 orderData.total
     // （後端回傳金額，不是前端 subtotal 自算值）。
@@ -9805,12 +9864,13 @@ async function renderLastOrderCard(){
   try{
     const res=await apiFetch('/api/line-orders/status/'+encodeURIComponent(no)).then(r=>r.json());
     if(!res.success){card.style.display='none';return;}
+    if(localStorage.getItem('last_line_order_number')!==no) return; // C5.4：期間已切換訂單／店別 → 不套用舊回應
     const d=res.data;
     const si=SICON[d.order_status]||'📦',sl=SLABEL[d.order_status]||d.order_status;
     const sc=SCLASS[d.order_status]||'';
     card.className='last-order-card';
     card.setAttribute('data-order-no',no);
-    card.innerHTML=`<div class="loc-row"><span class="loc-no">📦 ${esc(no)}</span><span class="status-badge ${sc}">${si} ${esc(sl)}</span></div><div class="loc-time">🕒 ${esc(d.pickup_time||d.created_at||'')}</div><div class="loc-bottom"><span class="loc-amount">$${d.total||0}</span><span class="loc-hint">點此查看詳情 →</span></div>`;
+    card.innerHTML=`<div class="loc-row"><span class="loc-no">📦 ${esc(no)}</span><span class="status-badge ${sc}">${si} ${esc(sl)}</span></div><div class="loc-time">🕒 ${esc(d.pickup_time||d.created_at||'')}</div><div class="loc-pay" data-pay-slot="1">${c54PayBadgeHTML(d.payment_display)}</div><div class="loc-bottom"><span class="loc-amount">$${Number(d.total||0)}</span><span class="loc-hint">點此查看詳情 →</span></div>`;
     card.style.display='block';
     card.onclick=()=>fetchAndShowDetail(no,ph);
   }catch{card.style.display='none';}
@@ -9901,32 +9961,38 @@ async function loginMyOrders(){
   if(!phone){toast('請輸入電話');return;}
   await loadMyOrders(phone,name,true);
 }
+let _c54MyOrdersSeq=0;
 async function loadMyOrders(phone,name,save=false){
   const body=document.getElementById('myOrdersBody');
+  const seq=++_c54MyOrdersSeq; // C5.4：只有最新一次查詢的回應能更新畫面（切換帳號／重查時舊回應不覆蓋）
   body.innerHTML='<div style="text-align:center;padding:40px;color:#888"><div class="spinner" style="margin:0 auto 8px"></div>載入中…</div>';
   try{
     const b={phone};if(name)b.customer_name=name;
     const res=await apiFetch('/api/line-orders/history',{method:'POST',body:JSON.stringify(b)}).then(r=>r.json());
+    if(seq!==_c54MyOrdersSeq) return;
     if(!res.success){body.innerHTML=`<div class="empty-hint"><div class="ei">📭</div><p>${esc(res.message||'查無訂單')}</p><button class="sub-btn" style="margin-top:16px;max-width:240px" onclick="clearMyOrdersLogin()">重新輸入</button></div>`;return;}
     if(save){localStorage.setItem('line_customer_phone',phone);if(name)localStorage.setItem('line_customer_name',name);}
     body.innerHTML=`<div style="padding:10px 16px;display:flex;justify-content:space-between;align-items:center"><span style="font-size:13px;color:#888">共 ${res.orders.length} 筆訂單</span><button onclick="clearMyOrdersLogin()" style="font-size:12px;color:var(--sub);background:none;border:none;cursor:pointer">切換帳號</button></div>`
       +res.orders.map(o=>buildOrderCardHTML(o,'history')).join('')+'<div style="height:20px"></div>';
-  }catch{body.innerHTML='<p style="color:#e53935;text-align:center;padding:40px">載入失敗，請重試</p>';}
+  }catch{ if(seq===_c54MyOrdersSeq) body.innerHTML='<p style="color:#e53935;text-align:center;padding:40px">載入失敗，請重試</p>';}
 }
-function clearMyOrdersLogin(){localStorage.removeItem('line_customer_phone');localStorage.removeItem('line_customer_name');showMyOrdersLogin();}
+function clearMyOrdersLogin(){_c54MyOrdersSeq++;localStorage.removeItem('line_customer_phone');localStorage.removeItem('line_customer_name');showMyOrdersLogin();}
 
 function buildOrderCardHTML(o,mode){
   const si=SICON[o.status]||'📦',sl=SLABEL[o.status]||o.status,sc=SCLASS[o.status]||'';
   const summary=(o.items||[]).slice(0,2).map(i=>`${esc(i.name||'')}×${i.qty||1}`).join('、')+((o.items||[]).length>2?`…等${o.items.length}項`:'');
   const pt=o.pickup_time?`🕒 ${esc(o.pickup_time)}`:`🕒 ${esc((o.created_at||'').slice(0,16))}`;
   const oJson=JSON.stringify(o).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;');
-  return `<div class="order-card">
+  const pd=o.payment_display||null;
+  const noRebuy=!!(pd&&pd.under_review); // C5.4：付款結果確認中不引導再次購買（避免重複付款）
+  return `<div class="order-card" data-order-no="${esc(o.order_number)}" data-order-ref="${esc(o.order_ref||'')}">
     <div class="oc-head"><div><div class="oc-no">📦 ${esc(o.order_number)}</div><div class="oc-time">${pt}</div></div><span class="status-badge ${sc}">${si} ${esc(sl)}</span></div>
+    <div class="oc-pay" data-pay-slot="1">${pd?`<span style="font-size:12px;color:#666">付款：</span>${c54PayBadgeHTML(pd)}`:''}</div>
     <div class="oc-summary">${summary||'（無商品摘要）'}</div>
     <div class="oc-bottom">
-      <span class="oc-amount">💰 $${o.total||0}</span>
+      <span class="oc-amount">💰 $${Number(o.total||0)}</span>
       <div class="oc-btns">
-        ${mode==='history'?`<button class="btn-reorder" data-order="${oJson}" onclick="reorder(JSON.parse(decodeURIComponent(this.dataset.order)))">🔄 再購</button>`:''}
+        ${mode==='history'&&!noRebuy?`<button class="btn-reorder" data-order="${oJson}" onclick="reorder(JSON.parse(decodeURIComponent(this.dataset.order)))">🔄 再購</button>`:''}
         <button class="btn-detail" data-order="${oJson}" onclick="openOrderDetail(JSON.parse(decodeURIComponent(this.dataset.order)))">查看詳情</button>
       </div>
     </div>
@@ -9936,19 +10002,23 @@ function buildOrderCardHTML(o,mode){
 function openOrderDetail(o){
   const sucDetail=document.getElementById('sucDetail');
   if(sucDetail) sucDetail.setAttribute('data-order-no',o.order_number||'');
-  if(typeof window._startStatusPolling==='function') window._startStatusPolling(o.order_number||'');
+  if(sucDetail) sucDetail.setAttribute('data-order-ref',o.order_ref||'');
+  if(typeof window._startStatusPolling==='function') window._startStatusPolling(o.order_number||'', o.order_ref||'');
   const si=SICON[o.status]||'📦',sl=SLABEL[o.status]||o.status,sc=SCLASS[o.status]||'';
   const isReady=o.status==='ready';
-  const itemRows=(o.items||[]).map(i=>`<div class="od-row"><span class="od-label">${esc(i.name||'')} × ${i.qty||1}</span><span class="od-val">$${i.subtotal||0}</span></div>`).join('');
+  const pd=o.payment_display||null;
+  const itemRows=(o.items||[]).map(i=>`<div class="od-row"><span class="od-label">${esc(i.name||'')} × ${esc(String(i.qty??1))}</span><span class="od-val" data-line-amount="1">${c54LineAmountHTML(i)}</span></div>`).join('');
   const oStr=encodeURIComponent(JSON.stringify(o));
   // fix18-10-hotfix26-F4：查詢訂單／我的訂單詳情，取餐門市/地址與訂單完成頁
   // 共用同一個 pickup_location（後端 safeOrder() 的 resolvePickupLocation() 產生），
   // 外送訂單 o.pickup_location 一律是 null，不會顯示取餐門市/地址。
   const pickupHTML=buildPickupLocationRowsHTML(o.pickup_location);
-  document.getElementById('detailBody').innerHTML=`<div class="order-detail">
+  document.getElementById('detailBody').innerHTML=`<div class="order-detail" data-order-no="${esc(o.order_number)}">
     ${isReady?'<div style="background:#e8f5e9;border-left:3px solid var(--g);padding:10px 14px;border-radius:8px;margin-bottom:14px;font-size:13px;font-weight:600;color:#1b5e20">🎉 餐點已備妥，請至現場出示訂單編號取餐</div>':''}
+    <div data-pay-notice-slot="1">${c54PayNoticeHTML(pd)}</div>
     <div class="od-section">
       <div class="od-row"><span class="od-label">訂單狀態</span><span class="od-val"><span class="status-badge ${sc}" data-status="${o.status||''}">${si} ${esc(sl)}</span></span></div>
+      <div class="od-row"><span class="od-label">付款狀態</span><span class="od-val" data-pay-slot="1">${pd?c54PayBadgeHTML(pd):'<span style="color:#999">—</span>'}</span></div>
       <div class="od-row"><span class="od-label">訂單編號</span><span class="od-val" style="font-size:11px">${esc(o.order_number)}</span></div>
       <div class="od-row"><span class="od-label">顧客姓名</span><span class="od-val">${esc(o.customer_name||'')}</span></div>
       <div class="od-row"><span class="od-label">電話</span><span class="od-val">***${esc(o.phone_last3||'')}</span></div>
@@ -9960,12 +10030,13 @@ function openOrderDetail(o){
     <div class="od-section">
       <p style="font-size:13px;font-weight:700;margin-bottom:8px;color:#555">商品明細</p>
       ${itemRows}
-      <div class="od-row" style="margin-top:4px"><span class="od-label" style="font-weight:700">合計金額</span><span class="od-val od-total">$${o.total||0}</span></div>
+      ${c54BreakdownRowsHTML(o)}
+      <div class="od-row" style="margin-top:4px"><span class="od-label" style="font-weight:700">合計金額</span><span class="od-val od-total">$${Number(o.total||0)}</span></div>
     </div>
     ${o.note?`<div class="od-section"><div class="od-row"><span class="od-label">備註</span><span class="od-val">${esc(o.note)}</span></div></div>`:''}
     <div class="od-pickup-hint">📋 取餐時請出示此畫面，供店員核對訂單</div>
-    <div style="padding:16px 0 8px">
-      <button class="sub-btn" style="background:#fff;color:var(--g);border:2px solid var(--g)" onclick="reorder(JSON.parse(decodeURIComponent('${oStr}')))">🔄 再次購買</button>
+    <div style="padding:16px 0 8px" data-rebuy-slot="1" data-order="${oStr}">
+      ${pd&&pd.under_review?'<p style="font-size:12px;color:#7c4a03;text-align:center">付款結果確認中，暫不提供再次購買，請勿重複付款。</p>':`<button class="sub-btn" style="background:#fff;color:var(--g);border:2px solid var(--g)" onclick="reorder(JSON.parse(decodeURIComponent('${oStr}')))">🔄 再次購買</button>`}
     </div>
   </div>`;
   openSheet('detailSheet');
@@ -10035,11 +10106,13 @@ function buildPickupLocationRowsHTML(pickupLocation){
     + `</div>`;
 }
 function buildDetailRows(d){
+  const pickupHTML=buildPickupLocationRowsHTML(d.pickup_location);
+  const _st=d.status||'pending';
   const rows=[
-    ['訂單狀態',`<span class="status-badge s-pending">🟡 待確認</span>`],
+    ['訂單狀態',`<span class="status-badge ${SCLASS[_st]||'s-pending'}" data-status="${esc(_st)}">${SICON[_st]||'🟡'} ${esc(SLABEL[_st]||_st)}</span>`],
+    ['付款狀態',d.payment_display?`<span data-pay-slot="1">${c54PayBadgeHTML(d.payment_display)}</span>`:'<span style="color:#999">—</span>'],
     ['取餐方式',esc(d.order_type_label)],
   ];
-  const pickupHTML=buildPickupLocationRowsHTML(d.pickup_location);
   rows.push(
     ['取餐時間',esc(d.pickup_time)],
     ['顧客姓名',esc(d.customer_name)],
@@ -10048,7 +10121,7 @@ function buildDetailRows(d){
   );
   if(d.delivery_address)rows.push(['外送地址',esc(d.delivery_address)]);
   if(d.note)rows.push(['備註',esc(d.note)]);
-  const ir=(d.items||[]).map(i=>`<div class="od-row"><span class="od-label">${esc(i.name)}×${i.qty}</span><span class="od-val">$${i.subtotal}</span></div>`).join('');
+  const ir=(d.items||[]).map(i=>`<div class="od-row"><span class="od-label">${esc(i.name)}×${esc(String(i.qty??1))}</span><span class="od-val" data-line-amount="1">${c54LineAmountHTML(i)}</span></div>`).join('');
   // fix18-05: 顯示折扣明細
   const discAmt=Number(d.discount_amount||0);
   const discRow=discAmt>0
@@ -10059,8 +10132,8 @@ function buildDetailRows(d){
   const delivRow=delivFee>0
     ? `<div class="od-row"><span class="od-label" style="color:#e65100">🛵 外送費${d.distance_km?` (${d.distance_km}km)`:''}</span><span class="od-val" style="color:#e65100">$${delivFee}</span></div>`
     : '';
-  const headRows=rows.slice(0,2).map(([l,v])=>`<div class="od-row"><span class="od-label">${l}</span><span class="od-val">${v}</span></div>`).join('');
-  const tailRows=rows.slice(2).map(([l,v])=>`<div class="od-row"><span class="od-label">${l}</span><span class="od-val">${v}</span></div>`).join('');
+  const headRows=rows.slice(0,3).map(([l,v])=>`<div class="od-row"><span class="od-label">${l}</span><span class="od-val">${v}</span></div>`).join('');
+  const tailRows=rows.slice(3).map(([l,v])=>`<div class="od-row"><span class="od-label">${l}</span><span class="od-val">${v}</span></div>`).join('');
   return headRows+pickupHTML+tailRows
     +ir+discRow+delivRow+`<div class="od-row"><span class="od-label" style="font-weight:700">應付金額</span><span class="od-val" style="color:var(--g);font-size:15px;font-weight:700">$${d.total}</span></div>`;
 }
@@ -10678,28 +10751,55 @@ if(POPUP_ENTRY_CONTEXT.entryContext!=='popup') loadGoogleMapsScript();
 // WSS + Polling
 (function initLineOrderPolling(){
   let _pollTimer=null;
-  window._startStatusPolling=function(orderNo){
+  let _pollOrder='', _pollRef='', _pollSeq=0, _pollApplied=0;
+  // R54.4／MBV2-HF1-C5.4：輪詢同時涵蓋履約狀態與付款狀態；只套用「目前顯示中訂單」的最新一次回應，
+  // 網路錯誤或舊回應不會讓畫面倒退，切換訂單後舊請求的結果一律丟棄。
+  function _applyStatus(orderNo, d){
+    const newStatus=d.order_status||'';
+    // 頂層 const 不是 window 屬性：以全域語彙名稱讀取（另一個 <script> 也可見）
+    const _SI=(typeof SICON!=='undefined'?SICON:(window.SICON||{})), _SL=(typeof SLABEL!=='undefined'?SLABEL:(window.SLABEL||{})), _SC=(typeof SCLASS!=='undefined'?SCLASS:(window.SCLASS||{}));
+    const si=_SI[newStatus]||'📦';
+    const sl=_SL[newStatus]||newStatus;
+    const sc=_SC[newStatus]||'';
+    const pd=d.payment_display||null;
+    const sel='[data-order-no="'+String(orderNo).replace(/["\\]/g,'')+'"]';
+    const scopes=[document.getElementById('sucDetail'),...document.querySelectorAll(sel)].filter(Boolean);
+    const seen=new Set();
+    scopes.forEach((el)=>{
+      if(seen.has(el)) return; seen.add(el);
+      if(el.getAttribute('data-order-no')!==orderNo) return;
+      const badge=el.querySelector('.status-badge[data-status]')||el.querySelector('.status-badge');
+      if(badge&&newStatus){badge.className='status-badge '+sc;badge.textContent=si+' '+sl;badge.setAttribute('data-status',newStatus);}
+      if(pd&&typeof window.c54PayBadgeHTML==='function'){
+        el.querySelectorAll('[data-pay-slot]').forEach((slot)=>{ const cur=slot.querySelector('[data-pay-state]'); if(!cur||cur.getAttribute('data-pay-state')!==pd.state) slot.innerHTML=(slot.classList.contains('oc-pay')?'<span style="font-size:12px;color:#666">付款：</span>':'')+window.c54PayBadgeHTML(pd); });
+        el.querySelectorAll('[data-pay-notice-slot]').forEach((slot)=>{ slot.innerHTML=window.c54PayNoticeHTML(pd); });
+        el.querySelectorAll('[data-rebuy-slot]').forEach((slot)=>{
+          if(pd.under_review) slot.innerHTML='<p style="font-size:12px;color:#7c4a03;text-align:center">付款結果確認中，暫不提供再次購買，請勿重複付款。</p>';
+          else if(!slot.querySelector('button')&&slot.dataset.order){ const b=document.createElement('button'); b.className='sub-btn'; b.style.cssText='background:#fff;color:var(--g);border:2px solid var(--g)'; b.textContent='🔄 再次購買'; const od=slot.dataset.order; b.addEventListener('click',()=>{ try{ reorder(JSON.parse(decodeURIComponent(od))); }catch(e){} }); slot.innerHTML=''; slot.appendChild(b); }
+        });
+      }
+    });
+  }
+  async function _pollOnce(){
+    const orderNo=_pollOrder, ref=_pollRef;
+    if(!orderNo) return;
+    const seq=++_pollSeq;
+    try{
+      const r=await apiFetch('/api/line-orders/status/'+encodeURIComponent(orderNo)+(ref?('?ref='+encodeURIComponent(ref)):''),{cache:'no-store'}).then(x=>x.json());
+      if(!r||!r.success||!r.data) return; // 錯誤：保留畫面上最後一次的正確狀態
+      if(orderNo!==_pollOrder||seq<_pollApplied) return; // 已切換訂單或是較舊的回應
+      _pollApplied=seq;
+      _applyStatus(orderNo, r.data);
+    }catch{}
+  }
+  window._startStatusPolling=function(orderNo, ref){
     if(_pollTimer)clearInterval(_pollTimer);
-    _pollTimer=setInterval(async()=>{
-      if(!orderNo)return;
-      try{
-        const r=await apiFetch('/api/line-orders/status/'+encodeURIComponent(orderNo)).then(x=>x.json());
-        if(!r.success||!r.data)return;
-        const newStatus=r.data.order_status||'';
-        const si=(window.SICON||{})[newStatus]||'📦';
-        const sl=(window.SLABEL||{})[newStatus]||newStatus;
-        const sc=(window.SCLASS||{})[newStatus]||'';
-        const sucDetail=document.getElementById('sucDetail');
-        if(sucDetail&&sucDetail.getAttribute('data-order-no')===orderNo){
-          const badge=sucDetail.querySelector('.status-badge[data-status]');
-          if(badge){badge.className='status-badge '+sc;badge.textContent=si+' '+sl;badge.setAttribute('data-status',newStatus);}
-        }
-        const card=document.querySelector('[data-order-no="'+orderNo+'"]');
-        if(card){const b=card.querySelector('.status-badge');if(b){b.className='status-badge '+sc;b.textContent=si+' '+sl;}}
-      }catch{}
-    },10000);
+    _pollOrder=String(orderNo||''); _pollRef=String(ref||''); _pollApplied=++_pollSeq;
+    if(!_pollOrder) return;
+    _pollTimer=setInterval(_pollOnce, Number(window.__C54_POLL_MS||10000));
   };
-  window._stopStatusPolling=function(){if(_pollTimer){clearInterval(_pollTimer);_pollTimer=null;}};
+  window._stopStatusPolling=function(){if(_pollTimer){clearInterval(_pollTimer);_pollTimer=null;} _pollOrder=''; _pollSeq++;};
+  window._c54PollNow=_pollOnce;
 })();
 
 (function initLineOrderWss(){
@@ -10713,6 +10813,8 @@ if(POPUP_ENTRY_CONTEXT.entryContext!=='popup') loadGoogleMapsScript();
       let msg;try{msg=JSON.parse(evt.data);}catch{return;}
       if(msg.type!=='order_status_changed')return;
       const o=msg.order;if(!o)return;
+      // C5.4：推播只是提示；付款狀態一律重新向伺服器查詢（不以推播內容推定付款結果）
+      try{ if(typeof window._c54PollNow==='function') window._c54PollNow(); }catch(e){}
       const newStatus=o.order_status||'';
       const si=(window.SICON||{})[newStatus]||'📦';
       const sl=(window.SLABEL||{})[newStatus]||newStatus;

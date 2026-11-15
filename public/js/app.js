@@ -5149,6 +5149,10 @@ const LP_REVIEW_REASON = {
   imported_pending: '搬家匯入的待核對付款', imported_history: '搬家匯入的歷史付款',
   c53_quarantine: '升級前標記為失敗／未付款，但仍可能已付款（已隔離待核對）', legacy_unverified: '舊版付款，處理階段不明（只做唯讀核對）',
   confirm_response_incomplete: '確認付款回應資料不完整', confirm_response_mismatch: '確認付款回應資料不符',
+  // C5.4：快閃付款
+  confirm_network: '確認付款時沒有收到回應（網路／逾時）', confirm_incomplete: '確認付款回應資料不完整或不符', interrupted: '送出確認後程序中斷',
+  paid_after_close_needs_refund: '付款完成時訂單已取消或逾時，需退款', c54_quarantine: '升級前標記為失敗，但仍可能已付款（已隔離待核對）',
+  c54_legacy_expired_unverified: '升級前逾時，未經查詢核對（可唯讀核對）', legacy_unverified_timeout: '舊版付款逾時，處理階段不明（只做唯讀核對）',
 };
 function _lpReasonText(r) {
   const s = String(r || ''); const k = Object.keys(LP_REVIEW_REASON).find((x) => s.startsWith(x));
@@ -5158,6 +5162,26 @@ function _lpReasonText(r) {
   return s || '待核對';
 }
 let _lpReviewBusy = false;
+// R54.4／MBV2-HF1-C5.4：伺服器統一付款顯示狀態（payment_display）的後台徽章；沒有時（舊 API 回應）退回原本的付款欄位判斷
+const _C54_PAY_COLORS = { success: '#27AE60', danger: '#E74C3C', warning: '#f59e0b', info: '#2980B9', muted: '#64748b' };
+function c54PayBadge(o, opts) {
+  const d = o && o.payment_display;
+  if (!d || !d.label) return '';
+  const small = !opts || opts.small !== false;
+  const bg = _C54_PAY_COLORS[d.tone] || '#2980B9';
+  return `<span class="c54-pay-badge" data-pay-state="${escHtml(d.state)}" style="font-size:${small ? 10 : 12}px;background:${bg};color:#fff;padding:1px 5px;border-radius:4px">${escHtml(d.label)}</span>`;
+}
+// 商品行金額：伺服器保存的行小計（合法數字）→ 保存單價×數量 → 金額資料不足（不讀商品現價、不以 truthy 判斷誤判 0 元）
+function c54LineAmount(i) {
+  if (!i || typeof i !== 'object') return null;
+  if (typeof i.line_subtotal === 'number' && Number.isFinite(i.line_subtotal)) return i.line_subtotal;
+  const ok = (v) => typeof v === 'number' && Number.isFinite(v) && v >= 0;
+  if (ok(i.subtotal)) return i.subtotal;
+  const q = Number(i.qty);
+  if (ok(i.price) && Number.isFinite(q) && q > 0) return Math.round(i.price * q * 100) / 100;
+  return null;
+}
+function c54LineAmountText(i) { const v = c54LineAmount(i); return v === null ? '金額資料不足' : '$' + v; }
 async function loadLinePayReview() {
   const el = document.getElementById('lpReviewPanel'); if (!el) return;
   try {
@@ -5165,6 +5189,10 @@ async function loadLinePayReview() {
     if (!res || !res.ok) { el.style.display = 'none'; return; }
     const j = await res.json();
     const d = (j && j.data) || { attempts: [], side_effects_pending: [] };
+    // C5.4：快閃 LINE Pay 待核對併入同一面板（標示「快閃」）；只做唯讀核對
+    const pp = Array.isArray(d.popup_attempts) ? d.popup_attempts : [];
+    d.attempts = (d.attempts || []).concat(pp.map((a) => ({ ...a, attempt_uuid: '', popup_attempt_id: a.attempt_id, order_number: '［快閃］' + (a.order_number || ''),
+      review_reason: a.legacy_unverified ? 'c54_legacy_expired_unverified' : a.review_reason })));
     if (!d.attempts.length && !d.side_effects_pending.length) { el.style.display = 'none'; el.innerHTML = ''; return; }
     const st = { confirm_pending: '確認中', review: '待核對', paid_duplicate: '重複付款', paid_cancelled: '已付款・訂單已取消', imported_history: '匯入歷史' };
     el.innerHTML = `<div style="border:1px solid #f59e0b;border-radius:8px;padding:10px 12px;margin:8px 0;background:rgba(245,158,11,0.08)">
@@ -5173,11 +5201,11 @@ async function loadLinePayReview() {
         <button class="btn-secondary" id="lpReconcileBtn" onclick="runLinePayReconcile()">🔎 向 LINE Pay 查詢核對（唯讀）</button></div>
       <div style="font-size:12px;color:var(--text-muted,#94a3b8);margin:4px 0">核對只查詢付款結果，不會重新扣款或退款。結果確認前請勿請顧客重複付款。</div>
       ${d.attempts.some((a) => a.blocks_repay) ? '<div style="font-size:12px;color:#ef4444;margin:4px 0">待核對的付款：目前無法確認付款結果，請勿重新付款。查無交易或等待一段時間，都不代表顧客未付款；這筆付款不能手動標記為未付款，請以 LINE Pay 商家後台與唯讀核對結果處理。</div>' : ''}
-      <table style="width:100%;font-size:12px"><tbody>${d.attempts.map((a) => `<tr data-attempt="${escHtml(a.attempt_uuid)}">
+      <table style="width:100%;font-size:12px"><tbody>${d.attempts.map((a) => `<tr data-attempt="${escHtml(a.attempt_uuid)}" data-popup-attempt="${escHtml(a.popup_attempt_id || '')}">
         <td>${escHtml(a.order_number || '')}</td><td>NT$${Number(a.amount || 0)}</td><td>${escHtml(st[a.status] || a.status)}</td>
         <td>${escHtml(_lpReasonText(a.review_reason))}${a.last_inquiry_result ? '<br><span style="color:#94a3b8">最近查詢：' + escHtml(a.last_inquiry_result) + '</span>' : ''}${a.needs_manual ? '<br><span style="color:#ef4444">需人工核對</span>' : ''}</td>
         <td>${a.order_status === 'cancelled' || a.order_record_status === 'void' ? '訂單已取消' : ''}${a.refund_status === 'pending_refund' ? '・待退款' : ''}</td>
-        <td>${a.blocks_repay ? '<span style="color:#ef4444">目前無法確認付款結果，請勿重新付款</span>' : ''}</td></tr>`).join('')}</tbody></table></div>`;
+        <td>${a.blocks_repay ? '<span style="color:#ef4444">目前無法確認付款結果，請勿重新付款</span>' : ''}${a.popup_attempt_id ? `<br><button class="btn-secondary" style="font-size:11px;padding:2px 6px" onclick="runPopupPayReconcile('${escHtml(a.popup_attempt_id)}')">唯讀核對此筆</button>` : ''}</td></tr>`).join('')}</tbody></table></div>`;
     el.style.display = '';
   } catch (e) { el.style.display = 'none'; }
 }
@@ -5191,6 +5219,17 @@ async function runLinePayReconcile() {
     else showToast((j && j.message) || '核對失敗，請稍後再試', 'error');
   } catch (e) { showToast('核對失敗，請稍後再試', 'error'); }
   finally { _lpReviewBusy = false; if (btn) btn.disabled = false; loadLinePayReview(); }
+}
+// C5.4：快閃付款單筆唯讀核對（不送 Confirm、不退款）
+async function runPopupPayReconcile(id) {
+  if (_lpReviewBusy) return; _lpReviewBusy = true;
+  try {
+    const res = await apiFetch('/api/linepay-admin/reconcile', { method: 'POST', body: JSON.stringify({ popup_attempt_id: id }) });
+    const j = res ? await res.json().catch(() => ({})) : {};
+    if (res && res.ok && j.success) showToast(`核對完成：恢復 ${j.data.recovered}、已付款取消 ${j.data.paid_cancelled}、仍待核對 ${j.data.still_review}`, 'success');
+    else showToast((j && j.message) || '核對失敗，請稍後再試', 'error');
+  } catch (e) { showToast('核對失敗，請稍後再試', 'error'); }
+  finally { _lpReviewBusy = false; loadLinePayReview(); }
 }
 // C5.3：已停用「標記未付款」（後端同樣拒絕）。保留函式名稱以免舊的快取頁面呼叫時出錯。
 function markLinePayUnpaid() {
@@ -5443,6 +5482,7 @@ function renderOrderRecShippingTable(orders) {
     const status = o.shipping_status || 'pending';
     const statusColor = SHIP_STATUS_COLOR[status] || '#888';
     const payStatus = o.payment_status || (o.payment_method === 'cash' ? 'paid' : 'pending');
+    const payStatusText = o.payment_display && o.payment_display.label ? o.payment_display.label : (payStatusLabel[payStatus] || payStatus); // C5.4
     const txnId = o.linepay_transaction_id || o.platform_order_no || '—';
     return `<tr>
       <td><span class="order-num">${escHtml(o.order_number)}</span></td>
@@ -5452,7 +5492,7 @@ function renderOrderRecShippingTable(orders) {
       <td style="font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(itemsTxt)}">${escHtml(itemsTxt||'—')}</td>
       <td style="font-family:monospace;font-weight:700;color:#f5a623">$${Number(o.total||0)}</td>
       <td style="font-size:12px">${payLabel[o.payment_method] || escHtml(o.payment_method||'')}</td>
-      <td style="font-size:12px">${payStatusLabel[payStatus] || escHtml(payStatus)}</td>
+      <td style="font-size:12px" data-pay-state="${escHtml((o.payment_display && o.payment_display.state) || '')}">${escHtml(payStatusText)}</td>
       <td style="font-size:11px;font-family:monospace">${escHtml(txnId)}</td>
       <td style="font-size:12px">${escHtml(o.carrier_name || o.shipping_carrier_name || '—')}</td>
       <td style="font-size:12px;font-family:monospace">${escHtml(o.tracking_number || '—')}</td>
@@ -6295,7 +6335,7 @@ function renderOrdersTable(orders) {
           const groupName = isGroupLabelEnabled() ? getAnalysisGroupName(i.name) : null;
           return `${i.name}×${i.qty}` + (groupName ? `<br><span style="font-size:10px;color:#818cf8;background:rgba(99,102,241,0.12);border-radius:3px;padding:0 4px">📊 ${escHtml(groupName)}</span>` : '');
         }).join('<br><span style="color:var(--border,#334155)">─</span><br>')}</td>
-        <td style="font-size:12px">${payLabel[o.payment_method]||o.payment_method}${o.payment_method==='linepay'?
+        <td style="font-size:12px">${payLabel[o.payment_method]||o.payment_method}${o.payment_display?'<br>'+c54PayBadge(o)+(o.payment_status==='paid'&&o.payment_confirm_source==='manual'?'<br><span style="font-size:10px;background:#27AE60;color:#fff;padding:1px 5px;border-radius:4px">現場確認已收</span>':''):o.payment_method==='linepay'?
             (o.payment_status==='paid'&&o.payment_confirm_source==='manual'?'<br><span style="font-size:10px;background:#27AE60;color:#fff;padding:1px 5px;border-radius:4px">現場確認已收</span>':
              o.payment_status==='paid'?'<br><span style="font-size:10px;background:#27AE60;color:#fff;padding:1px 5px;border-radius:4px">已付款</span>':
              o.payment_status==='failed'?'<br><span style="font-size:10px;background:#E74C3C;color:#fff;padding:1px 5px;border-radius:4px">付款失敗</span>':
@@ -6593,11 +6633,11 @@ async function showOrderDetail(orderId) {
             <div class="receipt-item">
               <span class="receipt-item-name">${escHtml(i.name)}</span>
               <span class="receipt-item-qty">x${i.qty}</span>
-              <span class="receipt-item-price">$${i.subtotal}</span>
+              <span class="receipt-item-price">${escHtml(c54LineAmountText(i))}</span>
             </div>`).join('')}
         </div>
         <div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:6px;color:#999">
-          <span>付款方式</span><span>${payLabel[o.payment_method]||o.payment_method}</span>
+          <span>付款方式</span><span>${payLabel[o.payment_method]||o.payment_method}${o.payment_display?' '+c54PayBadge(o):''}</span>
         </div>
         ${o.customer_name||o.customer_phone ? `
         <div style="display:flex;justify-content:space-between;font-size:14px;margin-bottom:6px;color:#999">
@@ -9896,6 +9936,7 @@ function normalizePreorder(o, source) {
       total: Number(o.total || 0),
       payment_method: o.payment_method || '',
       payment_status: o.payment_status || 'pending',
+      payment_display: o.payment_display || null,
       order_status: o.shipping_status || 'pending',
       logistics_status: o.shipping_status || 'pending',
       note: o.shipping_note || o.note || '',
@@ -9923,6 +9964,7 @@ function normalizePreorder(o, source) {
     total: Number(o.total || 0),
     payment_method: o.payment_method || '',
     payment_status: o.payment_status || '',
+    payment_display: o.payment_display || null,
     order_status: o.order_status || o.status || 'pending',
     logistics_status: '',
     note: o.note || '',
@@ -10212,7 +10254,7 @@ function renderLinePreordersTable() {
       </td>
       <td style="${tdS};text-align:center;font-size:11px">
         ${PAY_LABEL[n.payment_method]||n.payment_method||'—'}
-        ${n.payment_status ? `<div style="font-size:9px;color:${n.payment_status==='paid'?'#06C755':'var(--text-muted,#64748b)'}">${n.payment_status==='paid'?'✅ 已付款':(n.payment_status==='pending'?'待付款':escHtml(n.payment_status))}</div>` : ''}
+        ${n.payment_display ? `<div style="margin-top:2px">${c54PayBadge(n)}</div>` : n.payment_status ? `<div style="font-size:9px;color:${n.payment_status==='paid'?'#06C755':'var(--text-muted,#64748b)'}">${n.payment_status==='paid'?'✅ 已付款':(n.payment_status==='pending'?'待付款':escHtml(n.payment_status))}</div>` : ''}
       </td>
       <td style="${tdS};font-size:11px;color:var(--text-muted,#64748b)">${escHtml(n.note||'')}</td>
       <td style="${tdS};text-align:center">

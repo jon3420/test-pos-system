@@ -2766,6 +2766,17 @@ function initTables(w) {
     if (r && r.classified) console.warn(`[DB] linepay_recovery: 已判定 ${r.classified} 筆 C5.3 以前付款嘗試的處理階段（不能證明未送出 Confirm 者只做唯讀核對）`);
     if (r && r.quarantined) console.warn(`[DB] linepay_recovery: 已隔離 ${r.quarantined} 筆仍可能已付款的歷史失敗／取消紀錄為待核對（後台「LINE Pay 付款待核對」）`);
   } catch (e) { console.warn('[DB] linepay_recovery migration:', e.message); }
+  // R54.4／MBV2-HF1-C5.4：快閃 LINE Pay 付款處理階段與歷史隔離（additive、idempotent）；
+  // 上次送出 Confirm 後中斷者轉為待核對（不呼叫外部 API、不再送 Confirm）
+  try {
+    const PPR = require('./popupPaymentRecovery');
+    const r = PPR.migrate(w._db);
+    const n = PPR.bootRecover(w._db);
+    w._save();
+    if (r && r.classified) console.warn(`[DB] popup_payment: 已判定 ${r.classified} 筆 C5.4 以前快閃付款嘗試的處理階段（不能證明未送出 Confirm 者只做唯讀核對）`);
+    if (r && r.quarantined) console.warn(`[DB] popup_payment: 已隔離 ${r.quarantined} 筆可能已付款的歷史失敗紀錄為待核對`);
+    if (n) console.warn(`[DB] popup_payment: ${n} 筆上次送出 Confirm 後中斷的快閃付款已轉為待核對（只做唯讀核對）`);
+  } catch (e) { console.warn('[DB] popup_payment migration:', e.message); }
 }
 
 
