@@ -227,7 +227,7 @@ router.post('/resume-payment', async (req, res) => {
     // requestLinePayPayment()，完全不接受 client amount/items），不得建立
     // 第二張訂單——這裡只對「既有 order」發起付款請求，不呼叫任何建立訂單
     // 的 API。
-    const payResult = await requestLinePayPayment({ db, storeId, order, redirectUrl, cancelUrl });
+    const payResult = await requestLinePayPayment({ db, storeId, order, redirectUrl, cancelUrl, trackAttempt: true }); // C5.1：付款嘗試對應
     if (!payResult.success) {
       // 需求文件二十八：LINE API 失敗，安全退回可重試狀態，不永久鎖死。
       releasePaymentResumeClaim(db, storeId, recovery_token);

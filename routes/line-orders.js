@@ -146,10 +146,10 @@ async function recalcDeliveryFee(db, storeId, destLat, destLng, subtotal) {
   };
 }
 
-function orderNumber() {
-  const n = new Date(), p = (v,l=2) => String(v).padStart(l,'0');
-  return `LINE-${n.getFullYear()}${p(n.getMonth()+1)}${p(n.getDate())}-${p(n.getHours())}${p(n.getMinutes())}${p(n.getSeconds())}`;
-}
+// R54.4／MBV2-HF1-C5.1：顯示編號＝既有秒級格式＋4 碼尾碼，於寫入訂單的同一個同步區段查重（utils/orderIdentity.js），
+// 並以部分唯一索引 (store_id, order_number) WHERE order_no_v=2 持久化保護。訂單的唯一識別仍是 uuid。
+const OrderIdentity = require('../utils/orderIdentity');
+function orderNumber(db, storeId) { return OrderIdentity.allocateOrderNumber(db, storeId, 'LINE-'); }
 
 function getSetting(db, storeId, key, def='') {
   const row = db.get('SELECT value FROM settings WHERE store_id=? AND key=?', [storeId, key]);
@@ -1820,7 +1820,7 @@ router.post('/', async (req, res) => {
     }
 
     // ── 建立訂單 ──────────────────────────────────────
-    const uuid = uuidv4(), orderNo = orderNumber();
+    const uuid = uuidv4(), orderNo = orderNumber(db, storeId);
     const pad = (n,l=2) => String(n).padStart(l,'0');
     const nowStr = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
     let itemsJson = JSON.stringify(canonPre.items); // 交易內會以 fresh canonical items 覆寫
@@ -1989,6 +1989,8 @@ router.post('/', async (req, res) => {
     );
 
     assertOneRowModified(db, 'order INSERT');
+    // C5.1：標示新編號格式（部分唯一索引 idx_orders_store_ordno_v2 在此持久化保護；重號會使整筆交易回滾）
+    db._db.run('UPDATE orders SET order_no_v=2 WHERE id=? AND store_id=?', [uuid, storeId]);
     // ── fix18-05：寫入 coupon_redemptions（訂單建立成功後）
     if (appliedCouponId) {
       // R44.2C：coupon contract（已稽核 schema）：coupon_redemptions 有 UNIQUE(store_id, order_id)，
@@ -2122,6 +2124,14 @@ router.post('/', async (req, res) => {
     } catch (evtErr) {
       console.warn('[line-orders] analytics event write failed:', evtErr.message);
     }
+    // R54.4／MBV2-HF1-C5：補貨通知訂單歸因快照（後端以已驗證會員＋點擊紀錄計算，不接受前端回報；
+    // 訂單已成立後才執行，失敗不影響訂單與付款；LINE Pay 付款完成沿用此快照）。
+    if (knownLineUserId) {
+      try {
+        require('../utils/restockTracking').attributeOrder(db, storeId, { order_uuid: uuid, order_number: orderNo, line_user_id: knownLineUserId,
+          items: itemsJson, discount_amount: discAmt, order_mode: orderMode, pickup: pickupTimeVal });
+      } catch (rtErr) { console.warn('[line-orders] restock attribution failed:', rtErr.message); }
+    }
 
     // fix18-10-hotfix26-F4：完成頁需要顯示取餐門市/地址，直接回傳剛寫入的 snapshot
     // 解析結果，向下相容新增 pickup_location 欄位（不移除任何既有 response 欄位）。
@@ -2190,10 +2200,10 @@ router.patch('/online/:id/status', (req, res) => {
     const rawId = req.params.id;
     const newStatus = req.body.status || req.body.order_status;
 
-    const order = db.get(
-      `SELECT * FROM orders WHERE store_id=? AND (order_number=? OR id=? OR uuid=?)`,
-      [storeId, rawId, rawId, rawId]
-    );
+    // C5.1：依序 id → uuid → 訂單編號（恰好一筆才採用）；歷史重號回 409，不以 OR 取第一筆
+    const ref = OrderIdentity.resolveOrderRef(db, storeId, rawId);
+    if (ref.ambiguous) return OrderIdentity.sendAmbiguous(res);
+    const order = ref.order;
     if (!order)
       return res.status(404).json({ success: false, error: 'ORDER_NOT_FOUND', message: '找不到訂單：' + rawId });
 
@@ -2204,8 +2214,8 @@ router.patch('/online/:id/status', (req, res) => {
 
     const orderNo = order.order_number;
     const verified = db.get(
-      `SELECT order_number, status, order_status, kitchen_status, updated_at, refund_status FROM orders WHERE order_number=? AND store_id=?`,
-      [orderNo, storeId]
+      `SELECT order_number, status, order_status, kitchen_status, updated_at, refund_status FROM orders WHERE id=? AND store_id=?`,
+      [order.id, storeId]
     );
     if (!verified || verified.order_status !== newStatus)
       return res.status(500).json({ success: false, error: 'VERIFY_FAILED', expected: newStatus, actual: verified?.order_status });
@@ -2266,6 +2276,9 @@ function safeOrder(order, db, storeId) {
     pickup_lat: pickupLocation ? pickupLocation.lat : null,
     pickup_lng: pickupLocation ? pickupLocation.lng : null,
     pickup_maps_url: pickupLocation ? pickupLocation.maps_url : '',
+    // C5.2：付款狀態與履約狀態分開呈現（付款確認中／待退款）
+    payment_status: order.payment_status || '', refund_status: order.refund_status || '',
+    payment_review: (() => { try { return require('../utils/linePayRecovery').isUnderReview(db, storeId, order.uuid); } catch (e) { return false; } })(),
   };
 }
 
@@ -2291,9 +2304,19 @@ router.post('/query', (req, res) => {
     const rawPhone = String(req.body.phone||req.body.customer_phone||'').trim();
     const rawName  = String(req.body.customer_name||'').trim();
     const rawOrderNo = String(req.body.order_number||'').trim();
+    // C5.1：付款返回頁可帶訂單唯一識別（order_ref＝uuid）精確取單；只用訂單編號時，歷史重號不猜（409）
+    const rawOrderRef = String(req.body.order_ref||'').trim();
+    const LQ = "source='line' AND COALESCE(pickup_type,'')<>'popup'";
 
+    if (!rawPhone && rawOrderRef) {
+      const order = db.get(`SELECT * FROM orders WHERE store_id=? AND uuid=? AND ${LQ}`, [storeId, rawOrderRef]);
+      if (!order || (rawOrderNo && order.order_number !== rawOrderNo)) return res.status(404).json({ success: false, message: '查無此訂單' });
+      return res.json({ success: true, mode: 'single', orders: [safeOrder(order, db, storeId)] });
+    }
     if (!rawPhone && rawOrderNo) {
-      const order = db.get("SELECT * FROM orders WHERE store_id=? AND order_number=? AND source='line' AND COALESCE(pickup_type,'')<>'popup'", [storeId, rawOrderNo]);
+      const found = db.all(`SELECT * FROM orders WHERE store_id=? AND order_number=? AND ${LQ} LIMIT 2`, [storeId, rawOrderNo]);
+      if (found.length > 1) return res.status(409).json({ success: false, error: 'ORDER_REF_AMBIGUOUS', message: '此訂單編號對應到多張訂單，請輸入電話一併查詢' });
+      const order = found[0];
       if (!order) return res.status(404).json({ success: false, message: '查無此訂單' });
       return res.json({ success: true, mode: 'single', orders: [safeOrder(order, db, storeId)] });
     }
@@ -2305,13 +2328,14 @@ router.post('/query', (req, res) => {
     const fullPhone = isFullPhone(rawPhone);
 
     if (rawOrderNo) {
-      const order = db.get("SELECT * FROM orders WHERE store_id=? AND order_number=? AND source='line' AND COALESCE(pickup_type,'')<>'popup'", [storeId, rawOrderNo]);
-      if (!order) return res.status(404).json({ success: false, message: '查無此訂單，請確認訂單編號或電話' });
-      const storedPhone = String(order.customer_phone||'');
+      // C5.1：同號多筆時只採用電話相符者；仍有多筆則不猜
+      const found = db.all(`SELECT * FROM orders WHERE store_id=? AND order_number=? AND ${LQ}`, [storeId, rawOrderNo]);
+      if (!found.length) return res.status(404).json({ success: false, message: '查無此訂單，請確認訂單編號或電話' });
       const cleaned = rawPhone.replace(/[-\s]/g,'');
-      const verified = storedPhone===cleaned || storedPhone.endsWith(cleaned.slice(-3)) || (cleaned.length>=4 && storedPhone.endsWith(cleaned));
-      if (!verified) return res.status(403).json({ success: false, message: '查無此訂單，請確認訂單編號或電話' });
-      return res.json({ success: true, mode: 'single', orders: [safeOrder(order, db, storeId)] });
+      const ok = found.filter((order) => { const storedPhone = String(order.customer_phone||''); return storedPhone===cleaned || storedPhone.endsWith(cleaned.slice(-3)) || (cleaned.length>=4 && storedPhone.endsWith(cleaned)); });
+      if (!ok.length) return res.status(403).json({ success: false, message: '查無此訂單，請確認訂單編號或電話' });
+      if (ok.length > 1) return res.status(409).json({ success: false, error: 'ORDER_REF_AMBIGUOUS', message: '此訂單編號對應到多張訂單，請輸入完整電話查詢' });
+      return res.json({ success: true, mode: 'single', orders: [safeOrder(ok[0], db, storeId)] });
     }
     if (fullPhone) {
       const cleaned = rawPhone.replace(/[-\s]/g,'');

@@ -1,0 +1,2219 @@
+{
+ "release": "R54.4／MBV2-HF1-C4.5",
+ "executed_at_taipei": "2026-11-14 01:30–05:00（基準 C4.4 與 C4.5 同一時段先後執行）",
+ "baseline": {
+  "zip": "P3CD_DEPLOY_R54_4_MBV2_HF1_C4_4_DEMAND_MUTATION_RESPONSE_FIX_APP_ROOT.zip",
+  "sha256": "540ea8c01faba64b1fae851e15519e3b15837fc9e960b6a46946fb54bcf528ca",
+  "sha256_matches": true,
+  "files": 934,
+  "zip_entries": 972
+ },
+ "environment_notes": [
+  "測試環境的 Playwright 套件版本（chromium_headless_shell-1254）與預先安裝的瀏覽器（1243）不同：未指定 executablePath 的 3 支既有瀏覽器測試第一次執行時無法啟動瀏覽器。改以 /usr/bin/google-chrome 提供該路徑後，C4.4 與 C4.5 同一時段重跑比較（browser3）。這是測試環境問題，與程式無關。",
+  "本輪新增的瀏覽器測試一律指定 /usr/bin/google-chrome。"
+ ],
+ "new_tests": {
+  "restock_link": {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c4-5-restock-link.js",
+   "on_unmodified_c44": {
+    "results": [
+     {
+      "ok": true,
+      "name": "L1-1 文件載入 2 次（LINE 官方一次導向＋二次導向）"
+     },
+     {
+      "ok": false,
+      "name": "L1-2 一次導向頁不做一般初始化：不讀菜單、不送 Analytics"
+     },
+     {
+      "ok": true,
+      "name": "L1-3 最終頁菜單只讀取 1 次"
+     },
+     {
+      "ok": true,
+      "name": "L1-4 商品只開啟 1 次，且在最終頁"
+     },
+     {
+      "ok": true,
+      "name": "L1-5 liff.init()：一次導向頁 1 次、最終頁 1 次（官方要求兩頁各初始化）"
+     },
+     {
+      "ok": false,
+      "name": "L1-6 最終頁在 liff.init() 完成前沒有改寫網址（History API）"
+     },
+     {
+      "ok": true,
+      "name": "L1-7 初始化完成後網址已整理（保留 store_id）"
+     },
+     {
+      "ok": true,
+      "name": "L1-8 日期／取餐方式只作提示：不加入購物車、不改取餐方式"
+     },
+     {
+      "ok": false,
+      "name": "L1-9 沒有任何 API 請求帶出 LIFF 憑證或一次導向網址"
+     },
+     {
+      "ok": true,
+      "name": "L1-10 無 JavaScript 錯誤"
+     },
+     {
+      "ok": true,
+      "name": "L1b-1 文件載入 2 次（LINE 官方一次導向＋二次導向）"
+     },
+     {
+      "ok": false,
+      "name": "L1b-2 一次導向頁不做一般初始化：不讀菜單、不送 Analytics"
+     },
+     {
+      "ok": true,
+      "name": "L1b-3 最終頁菜單只讀取 1 次"
+     },
+     {
+      "ok": true,
+      "name": "L1b-4 商品只開啟 1 次，且在最終頁"
+     },
+     {
+      "ok": true,
+      "name": "L1b-5 liff.init()：一次導向頁 1 次、最終頁 1 次（官方要求兩頁各初始化）"
+     },
+     {
+      "ok": false,
+      "name": "L1b-6 最終頁在 liff.init() 完成前沒有改寫網址（History API）"
+     },
+     {
+      "ok": true,
+      "name": "L1b-7 初始化完成後網址已整理（保留 store_id）"
+     },
+     {
+      "ok": true,
+      "name": "L1b-8 日期／取餐方式只作提示：不加入購物車、不改取餐方式"
+     },
+     {
+      "ok": false,
+      "name": "L1b-9 沒有任何 API 請求帶出 LIFF 憑證或一次導向網址"
+     },
+     {
+      "ok": true,
+      "name": "L1b-10 無 JavaScript 錯誤"
+     },
+     {
+      "ok": false,
+      "name": "L2 未啟用會員 Gate：一次導向頁仍執行 liff.init() 完成導向，最終頁開啟商品 1 次"
+     },
+     {
+      "ok": true,
+      "name": "L3-1 直接開啟：商品開啟 1 次"
+     },
+     {
+      "ok": false,
+      "name": "L3-2 網址在 LIFF 初始化完成後才整理"
+     },
+     {
+      "ok": true,
+      "name": "L3-3 整理後重新整理：不再開啟商品"
+     },
+     {
+      "ok": false,
+      "name": "L3-4 同一分頁再次載入同一連結（整理前重新整理）：不重複開啟"
+     },
+     {
+      "ok": false,
+      "name": "L4-1 一次導向頁等待 SDK 時維持載入畫面（不先顯示菜單再重載）"
+     },
+     {
+      "ok": true,
+      "name": "L4-2 慢 SDK：導向後商品開啟 1 次"
+     },
+     {
+      "ok": false,
+      "name": "L5-1 SDK 失敗：本頁顯示菜單並開啟商品 1 次"
+     },
+     {
+      "ok": true,
+      "name": "L5-2 備援時不改寫或刪除 liff.state"
+     },
+     {
+      "ok": true,
+      "name": "L5-3 不帶出 LIFF 憑證、無 JavaScript 錯誤"
+     },
+     {
+      "ok": false,
+      "name": "L6 一次導向後未導向（逾時備援）：本頁開啟商品 1 次，liff.init() 實際只執行 1 次（Gate 沿用）"
+     },
+     {
+      "ok": false,
+      "name": "L7-1 登入 Gate 顯示期間不先開啟商品"
+     },
+     {
+      "ok": false,
+      "name": "L7-2 LINE 登入返回網址保留通知商品參數（返回後的最終頁才開啟）"
+     },
+     {
+      "ok": true,
+      "name": "L7-3 略過登入後商品開啟 1 次"
+     },
+     {
+      "ok": false,
+      "name": "L7-4 登入返回後最終頁開啟商品 1 次並整理網址"
+     },
+     {
+      "ok": true,
+      "name": "L8-1 已隱藏商品：提示、不開詳情，可繼續瀏覽並加入其他商品"
+     },
+     {
+      "ok": true,
+      "name": "L8-2 不存在商品：提示、不開詳情，可繼續瀏覽並加入其他商品"
+     },
+     {
+      "ok": true,
+      "name": "L9 既有購物車保留、取餐方式維持顧客原選擇（通知的外送只作提示）"
+     },
+     {
+      "ok": true,
+      "name": "L10 Recovery 還原優先：不開啟商品，Recovery token 仍立即從網址移除"
+     },
+     {
+      "ok": true,
+      "name": "L11 一般首屏不等待 LIFF（SDK pending 時商品頁已顯示）"
+     },
+     {
+      "ok": false,
+      "name": "L12 診斷資料只有階段與次數"
+     },
+     {
+      "ok": true,
+      "name": "Z LINE 真實發送呼叫 0 次"
+     }
+    ],
+    "result_line": "RESULT: 26 passed, 16 failed"
+   },
+   "on_c45": {
+    "results": [
+     {
+      "ok": true,
+      "name": "L1-1 文件載入 2 次（LINE 官方一次導向＋二次導向）"
+     },
+     {
+      "ok": true,
+      "name": "L1-2 一次導向頁不做一般初始化：不讀菜單、不送 Analytics"
+     },
+     {
+      "ok": true,
+      "name": "L1-3 最終頁菜單只讀取 1 次"
+     },
+     {
+      "ok": true,
+      "name": "L1-4 商品只開啟 1 次，且在最終頁"
+     },
+     {
+      "ok": true,
+      "name": "L1-5 liff.init()：一次導向頁 1 次、最終頁 1 次（官方要求兩頁各初始化）"
+     },
+     {
+      "ok": true,
+      "name": "L1-6 最終頁在 liff.init() 完成前沒有改寫網址（History API）"
+     },
+     {
+      "ok": true,
+      "name": "L1-7 初始化完成後網址已整理（保留 store_id）"
+     },
+     {
+      "ok": true,
+      "name": "L1-8 日期／取餐方式只作提示：不加入購物車、不改取餐方式"
+     },
+     {
+      "ok": true,
+      "name": "L1-9 沒有任何 API 請求帶出 LIFF 憑證或一次導向網址"
+     },
+     {
+      "ok": true,
+      "name": "L1-10 無 JavaScript 錯誤"
+     },
+     {
+      "ok": true,
+      "name": "L1b-1 文件載入 2 次（LINE 官方一次導向＋二次導向）"
+     },
+     {
+      "ok": true,
+      "name": "L1b-2 一次導向頁不做一般初始化：不讀菜單、不送 Analytics"
+     },
+     {
+      "ok": true,
+      "name": "L1b-3 最終頁菜單只讀取 1 次"
+     },
+     {
+      "ok": true,
+      "name": "L1b-4 商品只開啟 1 次，且在最終頁"
+     },
+     {
+      "ok": true,
+      "name": "L1b-5 liff.init()：一次導向頁 1 次、最終頁 1 次（官方要求兩頁各初始化）"
+     },
+     {
+      "ok": true,
+      "name": "L1b-6 最終頁在 liff.init() 完成前沒有改寫網址（History API）"
+     },
+     {
+      "ok": true,
+      "name": "L1b-7 初始化完成後網址已整理（保留 store_id）"
+     },
+     {
+      "ok": true,
+      "name": "L1b-8 日期／取餐方式只作提示：不加入購物車、不改取餐方式"
+     },
+     {
+      "ok": true,
+      "name": "L1b-9 沒有任何 API 請求帶出 LIFF 憑證或一次導向網址"
+     },
+     {
+      "ok": true,
+      "name": "L1b-10 無 JavaScript 錯誤"
+     },
+     {
+      "ok": true,
+      "name": "L2 未啟用會員 Gate：一次導向頁仍執行 liff.init() 完成導向，最終頁開啟商品 1 次"
+     },
+     {
+      "ok": true,
+      "name": "L3-1 直接開啟：商品開啟 1 次"
+     },
+     {
+      "ok": true,
+      "name": "L3-2 網址在 LIFF 初始化完成後才整理"
+     },
+     {
+      "ok": true,
+      "name": "L3-3 整理後重新整理：不再開啟商品"
+     },
+     {
+      "ok": true,
+      "name": "L3-4 同一分頁再次載入同一連結（整理前重新整理）：不重複開啟"
+     },
+     {
+      "ok": true,
+      "name": "L4-1 一次導向頁等待 SDK 時維持載入畫面（不先顯示菜單再重載）"
+     },
+     {
+      "ok": true,
+      "name": "L4-2 慢 SDK：導向後商品開啟 1 次"
+     },
+     {
+      "ok": true,
+      "name": "L5-1 SDK 失敗：本頁顯示菜單並開啟商品 1 次"
+     },
+     {
+      "ok": true,
+      "name": "L5-2 備援時不改寫或刪除 liff.state"
+     },
+     {
+      "ok": true,
+      "name": "L5-3 不帶出 LIFF 憑證、無 JavaScript 錯誤"
+     },
+     {
+      "ok": true,
+      "name": "L6 一次導向後未導向（逾時備援）：本頁開啟商品 1 次，liff.init() 實際只執行 1 次（Gate 沿用）"
+     },
+     {
+      "ok": true,
+      "name": "L7-1 登入 Gate 顯示期間不先開啟商品"
+     },
+     {
+      "ok": true,
+      "name": "L7-2 LINE 登入返回網址保留通知商品參數（返回後的最終頁才開啟）"
+     },
+     {
+      "ok": true,
+      "name": "L7-3 略過登入後商品開啟 1 次"
+     },
+     {
+      "ok": true,
+      "name": "L7-4 登入返回後最終頁開啟商品 1 次並整理網址"
+     },
+     {
+      "ok": true,
+      "name": "L8-1 已隱藏商品：提示、不開詳情，可繼續瀏覽並加入其他商品"
+     },
+     {
+      "ok": true,
+      "name": "L8-2 不存在商品：提示、不開詳情，可繼續瀏覽並加入其他商品"
+     },
+     {
+      "ok": true,
+      "name": "L9 既有購物車保留、取餐方式維持顧客原選擇（通知的外送只作提示）"
+     },
+     {
+      "ok": true,
+      "name": "L10 Recovery 還原優先：不開啟商品，Recovery token 仍立即從網址移除"
+     },
+     {
+      "ok": true,
+      "name": "L11 一般首屏不等待 LIFF（SDK pending 時商品頁已顯示）"
+     },
+     {
+      "ok": true,
+      "name": "L12 診斷資料只有階段與次數"
+     },
+     {
+      "ok": true,
+      "name": "Z LINE 真實發送呼叫 0 次"
+     }
+    ],
+    "result_line": "RESULT: 42 passed, 0 failed"
+   }
+  },
+  "date_consent": {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c4-5-date-consent.js",
+   "on_unmodified_c44": {
+    "d_section": "D1 即中止：C4.4 沒有 GET /api/product-demand-admin/restock/date-options（回應非 JSON 資料，TypeError）",
+    "s_section": {
+     "results": [
+      {
+       "ok": false,
+       "name": "S1 新安裝預設「消費者自行勾選」"
+      },
+      {
+       "ok": true,
+       "name": "S2-1 自行勾選模式：未勾選送出不授權"
+      },
+      {
+       "ok": true,
+       "name": "S2-2 自行勾選模式：明確勾選後授權"
+      },
+      {
+       "ok": false,
+       "name": "S3 切換為登記即訂閱：設定生效、既有同意紀錄（未同意、已同意、已撤回）完全不變"
+      },
+      {
+       "ok": true,
+       "name": "S3-2 訂閱方式與發送總開關分開保存（總開關不受影響）"
+      },
+      {
+       "ok": true,
+       "name": "S4 登記即訂閱：新登記提交即授權"
+      },
+      {
+       "ok": false,
+       "name": "S5-1 既有登記修改份數：不重新授權"
+      },
+      {
+       "ok": false,
+       "name": "S5-2 明確按「訂閱通知」才授權（份數不變）"
+      },
+      {
+       "ok": true,
+       "name": "S6-1 已撤回 → 重新訂閱"
+      },
+      {
+       "ok": true,
+       "name": "S6-2「取消補貨通知，保留補貨登記」照常"
+      },
+      {
+       "ok": false,
+       "name": "S7 送出時訂閱方式已變更：拒絕且不建立登記、不授權"
+      },
+      {
+       "ok": true,
+       "name": "S8 舊版前端（未帶訂閱方式）明確勾選：相容授權"
+      },
+      {
+       "ok": true,
+       "name": "S9 總開關關閉：不顯示通知承諾、不授權"
+      },
+      {
+       "ok": false,
+       "name": "S10-1 不合法的訂閱方式拒絕"
+      },
+      {
+       "ok": false,
+       "name": "S10-2 未知設定值回到「自行勾選」"
+      },
+      {
+       "ok": false,
+       "name": "S11-1 登記即訂閱：顯示訂閱說明，主要按鈕「登記並通知我」，無勾選框"
+      },
+      {
+       "ok": false,
+       "name": "S11-2 按「登記並通知我」：登記 2 份並訂閱"
+      },
+      {
+       "ok": false,
+       "name": "S11-3 已撤回的既有登記：顯示「更新登記」與「重新訂閱補貨通知」"
+      },
+      {
+       "ok": false,
+       "name": "S11-4 修改份數不重新授權"
+      },
+      {
+       "ok": false,
+       "name": "測試例外"
+      }
+     ],
+     "result_line": "RESULT: 8 passed, 12 failed"
+    }
+   },
+   "on_c45": {
+    "results": [
+     {
+      "ok": true,
+      "name": "D1-1 唯讀日期檢查：伺服器今天（台北）與可預訂範圍（今天＋5 天）"
+     },
+     {
+      "ok": true,
+      "name": "D1-2 過去日期：date_in_past（與預覽相同規則）"
+     },
+     {
+      "ok": true,
+      "name": "D1-3 今日截止前可供應、休息日不可供應、第一個可供應日＝今天"
+     },
+     {
+      "ok": true,
+      "name": "D1-4 超出預訂範圍：preorder_limit_exceeded"
+     },
+     {
+      "ok": true,
+      "name": "D1-5 未登入員工不可查詢（店別與員工權限保護）"
+     },
+     {
+      "ok": true,
+      "name": "D2 今日已過最後接單時間：今天不可供應，第一個可供應日為明天"
+     },
+     {
+      "ok": true,
+      "name": "D3-1 初次開啟依規則預選第一個可供應日期（以伺服器台北日期，不依瀏覽器時區）"
+     },
+     {
+      "ok": true,
+      "name": "D3-2 鍵盤輸入過去日期：立即提示原因與下一個可供應日期，停用預覽"
+     },
+     {
+      "ok": true,
+      "name": "D3-3 今天（已過截止時間）：顯示「今日已超過接單時間」"
+     },
+     {
+      "ok": true,
+      "name": "D3-4 休息日：提示不可供應"
+     },
+     {
+      "ok": true,
+      "name": "D3-5 超出預訂範圍（手動輸入）：提示"
+     },
+     {
+      "ok": true,
+      "name": "D3-6 日期空白：停用預覽"
+     },
+     {
+      "ok": true,
+      "name": "D3-7 貼上過去日期：同樣驗證"
+     },
+     {
+      "ok": true,
+      "name": "D3-8 按「改選此日期」改為下一個可供應日期"
+     },
+     {
+      "ok": true,
+      "name": "D4「日期可供應但沒有合格收件人」與日期錯誤分開顯示"
+     },
+     {
+      "ok": true,
+      "name": "D5 改選日期後，晚到的舊預覽回應不顯示、確認按鈕不恢復"
+     },
+     {
+      "ok": true,
+      "name": "D6 改取餐方式：舊預覽與確認按鈕立即失效"
+     },
+     {
+      "ok": true,
+      "name": "D7 日期檢查中停用預覽；較早（外帶）的檢查回應晚到不覆蓋外送結果"
+     },
+     {
+      "ok": true,
+      "name": "D8 跨午夜後回到頁面：日期限制更新，原選日期提示已過且不被悄悄改掉，取餐方式保留"
+     },
+     {
+      "ok": true,
+      "name": "D8-2 無 JavaScript 錯誤"
+     },
+     {
+      "ok": true,
+      "name": "D9 日期檢查不建立批次、不改名額；查詢次數受控（未逐日查詢）"
+     },
+     {
+      "ok": true,
+      "name": "D10 預覽 API 對過去日期仍拒絕（權威檢查保留）"
+     },
+     {
+      "ok": true,
+      "name": "D11 後台無 JavaScript 錯誤"
+     },
+     {
+      "ok": true,
+      "name": "S1 新安裝預設「消費者自行勾選」"
+     },
+     {
+      "ok": true,
+      "name": "S2-1 自行勾選模式：未勾選送出不授權"
+     },
+     {
+      "ok": true,
+      "name": "S2-2 自行勾選模式：明確勾選後授權"
+     },
+     {
+      "ok": true,
+      "name": "S3 切換為登記即訂閱：設定生效、既有同意紀錄（未同意、已同意、已撤回）完全不變"
+     },
+     {
+      "ok": true,
+      "name": "S3-2 訂閱方式與發送總開關分開保存（總開關不受影響）"
+     },
+     {
+      "ok": true,
+      "name": "S4 登記即訂閱：新登記提交即授權"
+     },
+     {
+      "ok": true,
+      "name": "S5-1 既有登記修改份數：不重新授權"
+     },
+     {
+      "ok": true,
+      "name": "S5-2 明確按「訂閱通知」才授權（份數不變）"
+     },
+     {
+      "ok": true,
+      "name": "S6-1 已撤回 → 重新訂閱"
+     },
+     {
+      "ok": true,
+      "name": "S6-2「取消補貨通知，保留補貨登記」照常"
+     },
+     {
+      "ok": true,
+      "name": "S7 送出時訂閱方式已變更：拒絕且不建立登記、不授權"
+     },
+     {
+      "ok": true,
+      "name": "S8 舊版前端（未帶訂閱方式）明確勾選：相容授權"
+     },
+     {
+      "ok": true,
+      "name": "S9 總開關關閉：不顯示通知承諾、不授權"
+     },
+     {
+      "ok": true,
+      "name": "S10-1 不合法的訂閱方式拒絕"
+     },
+     {
+      "ok": true,
+      "name": "S10-2 未知設定值回到「自行勾選」"
+     },
+     {
+      "ok": true,
+      "name": "S11-1 登記即訂閱：顯示訂閱說明，主要按鈕「登記並通知我」，無勾選框"
+     },
+     {
+      "ok": true,
+      "name": "S11-2 按「登記並通知我」：登記 2 份並訂閱"
+     },
+     {
+      "ok": true,
+      "name": "S11-3 已撤回的既有登記：顯示「更新登記」與「重新訂閱補貨通知」"
+     },
+     {
+      "ok": true,
+      "name": "S11-4 修改份數不重新授權"
+     },
+     {
+      "ok": true,
+      "name": "S11-5「重新訂閱」只授權通知，不連帶送出未儲存的份數修改"
+     },
+     {
+      "ok": true,
+      "name": "S11-6 無 JavaScript 錯誤"
+     },
+     {
+      "ok": true,
+      "name": "S12-1 送出時方式已改為自行勾選：未建立登記；表單更新為勾選框（未勾）、保留 3 份與提示"
+     },
+     {
+      "ok": true,
+      "name": "S12-2 顧客未勾選再送出：只登記、不授權"
+     },
+     {
+      "ok": true,
+      "name": "S13-1 自行勾選預設不勾；送出時方式已改為登記即訂閱：未寫入，畫面改為新說明"
+     },
+     {
+      "ok": true,
+      "name": "S13-2 顧客看到新說明後按「登記並通知我」才授權"
+     },
+     {
+      "ok": true,
+      "name": "S14 總開關關閉（登記即訂閱模式）：不顯示會收到通知的承諾"
+     },
+     {
+      "ok": true,
+      "name": "S15 儲存「自行勾選」期間改回「登記即訂閱」：伺服器為自行勾選，畫面保留未儲存的選擇"
+     },
+     {
+      "ok": true,
+      "name": "S15-2 後台無 JavaScript 錯誤"
+     },
+     {
+      "ok": true,
+      "name": "S16-1 完整備份包含訂閱方式"
+     },
+     {
+      "ok": true,
+      "name": "S16-2 匯入：訂閱方式保留；匯入的同意仍需顧客重新確認（不自動變成同意）"
+     },
+     {
+      "ok": true,
+      "name": "S17 全程 LINE 呼叫 0 次（登記、訂閱、切換方式都不發送）"
+     }
+    ],
+    "result_line": "RESULT: 54 passed, 0 failed"
+   }
+  }
+ },
+ "targeted_on_c45": [
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c4-4-mutation-response.js",
+   "exit": 0,
+   "passCount": 20,
+   "failCount": 0,
+   "seconds": 75,
+   "fail_lines": []
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c4-3-async-consistency.js",
+   "exit": 1,
+   "passCount": 33,
+   "failCount": 1,
+   "seconds": 154,
+   "fail_lines": [
+    "  ❌ B9 舊回應返回時：取餐方式、日期、預覽、展開明細、焦點、捲動保持，且明細不倒退"
+   ],
+   "tail": [
+    "  ✅ Z1 全程未建立訂單、未改額度  — {\"c0\":{\"sold\":[[701,0,0],[1,0,0],[201,0,0],[702,0,0],[2,0,0],[202,0,0],[706,0,0],[3,0,0],[203,0,0],[708,0,0],[4,0,0],[5,0,0],[6,0,0],[7,0,0],[8,0,0],[9,0,0],[10,0,0],[11,0,0],[1",
+    "  ✅ Z2 真實 LINE API 呼叫 0 次（全部由程序內模擬攔截）  — 0",
+    "RESULT: 33 passed, 1 failed（模擬 LINE 呼叫 2 次；真實 0 次需為 0：0）"
+   ]
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c4-2-demand-ui-refresh.js",
+   "exit": 1,
+   "passCount": 79,
+   "failCount": 1,
+   "seconds": 399,
+   "fail_lines": [
+    "  ❌ A18-3 已產生的預覽內容（含批次識別）保持"
+   ],
+   "tail": [
+    "  ✅ A27 後台驗收：LINE API 呼叫 0 次  — 0",
+    "  ✅ Z1 整個驗收過程 LINE API 呼叫次數為 0（測試程序攔截）  — 0",
+    "RESULT: 79 passed, 1 failed"
+   ]
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c4-1-dedupe-resume.js",
+   "exit": 0,
+   "passCount": 40,
+   "failCount": 0,
+   "seconds": 68,
+   "fail_lines": []
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c4-restock-notify.js",
+   "exit": 0,
+   "passCount": 94,
+   "failCount": 0,
+   "seconds": 57,
+   "fail_lines": []
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c4-linepush-compat.js",
+   "exit": 0,
+   "passCount": 12,
+   "failCount": 0,
+   "seconds": 0,
+   "fail_lines": []
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c3-3-restore-cancel.js",
+   "exit": 0,
+   "passCount": 30,
+   "failCount": 0,
+   "seconds": 166,
+   "fail_lines": []
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c3-2-firstpaint-remap.js",
+   "exit": 0,
+   "passCount": 32,
+   "failCount": 0,
+   "seconds": 73,
+   "fail_lines": []
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c3-1-backup-manage-login.js",
+   "exit": 0,
+   "passCount": 54,
+   "failCount": 0,
+   "seconds": 117,
+   "fail_lines": []
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c3-sale-status-demand.js",
+   "exit": 0,
+   "passCount": 332,
+   "failCount": 0,
+   "seconds": 179,
+   "fail_lines": []
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c1-preorder-status.js",
+   "exit": 0,
+   "passCount": 93,
+   "failCount": 0,
+   "seconds": 82,
+   "fail_lines": []
+  },
+  {
+   "script": "scripts/smoke-h1-4-12-popup-frontend.js",
+   "exit": 0,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 29,
+   "fail_lines": [
+    "  PASS: 293  FAIL: 0  TOTAL: 293"
+   ]
+  },
+  {
+   "script": "scripts/run-r54-4-mbv2-ui.js",
+   "exit": 0,
+   "passCount": 19,
+   "failCount": 0,
+   "seconds": 10,
+   "fail_lines": [
+    "  ✅ UI16 跨店未勾選確認 → 不送出預覽並提示  — ❌ 跨店匯入請先勾選確認"
+   ]
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-migration.js",
+   "exit": 0,
+   "passCount": 121,
+   "failCount": 0,
+   "seconds": 14,
+   "fail_lines": []
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-system-regression.js",
+   "exit": 0,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 7,
+   "fail_lines": []
+  },
+  {
+   "script": "scripts/run-h1-4-10-phase4b-recovery-full-runtime.js",
+   "exit": 0,
+   "passCount": 168,
+   "failCount": 0,
+   "seconds": 17,
+   "fail_lines": []
+  }
+ ],
+ "targeted_reruns_after_assertion_adjustments": [
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c4-3-async-consistency.js",
+   "exit": 0,
+   "passCount": 34,
+   "failCount": 0,
+   "seconds": 146,
+   "fail_lines": []
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c4-2-demand-ui-refresh.js",
+   "exit": 0,
+   "passCount": 80,
+   "failCount": 0,
+   "seconds": 388,
+   "fail_lines": []
+  }
+ ],
+ "adjusted_existing_assertions": [
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c4-3-async-consistency.js",
+   "case": "B9",
+   "change": "改取餐方式後先等「預覽通知」可按再以程式點擊（C4.5 起日期檢查完成前按鈕停用）。斷言不變。",
+   "before": "33/34（B9）",
+   "after": "34/34"
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c4-2-demand-ui-refresh.js",
+   "case": "A18",
+   "change": "A18 前讓商品恢復可供應以產生預覽（C4.5 起不可供應的日期／商品不能預覽），A18 後改回暫停。A18-1～A18-7 斷言不變。",
+   "before": "79/80（A18-3）",
+   "after": "80/80"
+  }
+ ],
+ "regression_61": {
+  "c45": [
+   {
+    "script": "scripts/mbv2-rescue-verify.js",
+    "exit": 2,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 0,
+    "fail_lines": [],
+    "tail": [
+     "需要 --old 與 --new"
+    ]
+   },
+   {
+    "script": "scripts/run-g1-6-ga4-h1-4-4-view-item-runtime.js",
+    "exit": 1,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 1,
+    "fail_lines": [],
+    "tail": [
+     "TypeError: Cannot read properties of undefined (reading 'fireIntersect')",
+     "    at run (/home/claude/work/scripts/run-g1-6-ga4-h1-4-4-view-item-runtime.js:146:8)",
+     "Node.js v22.23.4"
+    ]
+   },
+   {
+    "script": "scripts/run-g1-6-ga4-h1-4-7-two-stage-checkout-runtime.js",
+    "exit": 0,
+    "passCount": 113,
+    "failCount": 0,
+    "seconds": 10,
+    "fail_lines": []
+   },
+   {
+    "script": "scripts/run-h1-4-10-asset-cache-bust-runtime.js",
+    "exit": 0,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 0,
+    "fail_lines": [
+     "TOTAL: 30 PASS / 0 FAIL (of 30)"
+    ]
+   },
+   {
+    "script": "scripts/run-h1-4-10-friend-live-runtime.js",
+    "exit": 0,
+    "passCount": 24,
+    "failCount": 0,
+    "seconds": 1,
+    "fail_lines": []
+   },
+   {
+    "script": "scripts/run-h1-4-10-historical-backend-reconcile-runtime.js",
+    "exit": 0,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 1,
+    "fail_lines": [
+     "TOTAL: 35 PASS / 0 FAIL (of 35)"
+    ]
+   },
+   {
+    "script": "scripts/run-h1-4-10-historical-friend-first-touch-runtime.js",
+    "exit": 0,
+    "passCount": 37,
+    "failCount": 0,
+    "seconds": 1,
+    "fail_lines": []
+   },
+   {
+    "script": "scripts/run-h1-4-10-phase1-liff-identity-runtime.js",
+    "exit": 0,
+    "passCount": 68,
+    "failCount": 0,
+    "seconds": 2,
+    "fail_lines": []
+   },
+   {
+    "script": "scripts/run-h1-4-10-phase2-line-friend-guide-runtime.js",
+    "exit": 0,
+    "passCount": 114,
+    "failCount": 0,
+    "seconds": 2,
+    "fail_lines": []
+   },
+   {
+    "script": "scripts/run-h1-4-10-phase3-checkout-submit-payment-runtime.js",
+    "exit": 0,
+    "passCount": 111,
+    "failCount": 0,
+    "seconds": 28,
+    "fail_lines": []
+   },
+   {
+    "script": "scripts/run-h1-4-10-phase4b-recovery-frontend-targeted.js",
+    "exit": 0,
+    "passCount": 50,
+    "failCount": 0,
+    "seconds": 10,
+    "fail_lines": []
+   },
+   {
+    "script": "scripts/run-h1-4-10-phase4b-recovery-full-runtime.js",
+    "exit": 0,
+    "passCount": 168,
+    "failCount": 0,
+    "seconds": 17,
+    "fail_lines": []
+   },
+   {
+    "script": "scripts/run-h1-4-10-required-friend-gate-runtime.js",
+    "exit": 0,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 1,
+    "fail_lines": [
+     "TOTAL: 98 PASS / 0 FAIL (of 98)"
+    ]
+   },
+   {
+    "script": "scripts/run-h1-4-9-checkout-order-summary-runtime.js",
+    "exit": 0,
+    "passCount": 67,
+    "failCount": 0,
+    "seconds": 7,
+    "fail_lines": []
+   },
+   {
+    "script": "scripts/run-r54-4-mbv2-ui.js",
+    "exit": 0,
+    "passCount": 19,
+    "failCount": 0,
+    "seconds": 11,
+    "fail_lines": [
+     "  ✅ UI16 跨店未勾選確認 → 不送出預覽並提示  — ❌ 跨店匯入請先勾選確認"
+    ]
+   },
+   {
+    "script": "scripts/run-regression-g1-6-ga4-h1-4-6.js",
+    "exit": 1,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 459,
+    "fail_lines": [
+     "[FAIL                  ] H1 Targeted Smoke                                            pass=107 fail=1 total=108 exit=1 (expect 108/108)  <== CRASHED/NONZERO",
+     "[FAIL] AK. Mutation Negative 22. IP Provider enabled (mutate .env.example) — ",
+     "=== GA4-H1 Targeted Smoke: 107/108 PASS, 1 FAIL ===",
+     "[FAIL                  ] H1 Static Audit                                              pass=189 fail=1 total=190 exit=1 (expect 190/190)  <== CRASHED/NONZERO",
+     "=== GA4-H1 Static Audit: 189/190 PASS, 1 FAIL ===",
+     "[FAIL                  ] H1.4.4 View Item Semantics Runtime (real line-order.html/line-shipping.html DOM + real analytics-platforms.js: 9-card impression regression, card-click has no sender, add_to_cart/remove_from_cart independence, ecommerce smoke, init idempotence) — H1.4.6: card-click assertion",
+     "[FAIL                  ] H1.4.6 Static/UI/Analytics Audit (LINE外帶外送/宅配共用同一份Modal元件 + 商品卡點擊/鍵盤開啟 + 加入購物車呼叫既有addCart()/changeQty() + 不繞過售完判斷 + Modal UI要求 + 固定購物車列 + view_product/view_item語意分離 + GA4 items[] + 規格加料界線 + 後端驗證未放寬；H1.4.7 更新：5 項過期 checkout 斷言已 supersede，66→72) pass=69 fail=3 total=72 exit=1 ",
+     "✗ FAIL [line-order.html] checkout_click 由獨立的 openCheckoutStep()（前往結帳）觸發，不在 openCartSheet() 內",
+     "✗ FAIL [line-shipping.html] checkout_click 由獨立的 openCheckoutStep()（前往結帳）觸發，不在 openCartSheet() 內",
+     "FAIL: 3",
+     "[FAIL                  ] H1 Targeted Smoke                                            pass=107 fail=1 total=108 exit=1 (expect 108/108)  <== CRASHED/NONZERO",
+     "[FAIL] AK. Mutation Negative 22. IP Provider enabled (mutate .env.example) — ",
+     "=== GA4-H1 Targeted Smoke: 107/108 PASS, 1 FAIL ===",
+     "[FAIL                  ] H1 Static Audit                                              pass=189 fail=1 total=190 exit=1 (expect 190/190)  <== CRASHED/NONZERO",
+     "=== GA4-H1 Static Audit: 189/190 PASS, 1 FAIL ===",
+     "[FAIL                  ] H1.4.4 View Item Semantics Runtime (real line-order.html/line-shipping.html DOM + real analytics-platforms.js: 9-card impression regression, card-click has no sender, add_to_cart/remove_from_cart independence, ecommerce smoke, init idempotence) — H1.4.6: card-click assertion",
+     "[FAIL                  ] H1.4.6 Static/UI/Analytics Audit (LINE外帶外送/宅配共用同一份Modal元件 + 商品卡點擊/鍵盤開啟 + 加入購物車呼叫既有addCart()/changeQty() + 不繞過售完判斷 + Modal UI要求 + 固定購物車列 + view_product/view_item語意分離 + GA4 items[] + 規格加料界線 + 後端驗證未放寬；H1.4.7 更新：5 項過期 checkout 斷言已 supersede，66→72) pass=69 fail=3 total=72 exit=1 ",
+     "✗ FAIL [line-order.html] checkout_click 由獨立的 openCheckoutStep()（前往結帳）觸發，不在 openCartSheet() 內",
+     "✗ FAIL [line-shipping.html] checkout_click 由獨立的 openCheckoutStep()（前往結帳）觸發，不在 openCartSheet() 內",
+     "FAIL: 3"
+    ],
+    "tail": [
+     "  assertionMismatch: 1",
+     "  residue (last round): 0",
+     "======================================================================"
+    ]
+   },
+   {
+    "script": "scripts/run-regression-g1-6-ga4-h1-4-7.js",
+    "exit": 1,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 487,
+    "fail_lines": [
+     "[FAIL                  ] H1 Targeted Smoke                                            pass=107 fail=1 total=108 exit=1 (expect 108/108)  <== CRASHED/NONZERO",
+     "[FAIL] AK. Mutation Negative 22. IP Provider enabled (mutate .env.example) — ",
+     "=== GA4-H1 Targeted Smoke: 107/108 PASS, 1 FAIL ===",
+     "[FAIL                  ] H1 Static Audit                                              pass=189 fail=1 total=190 exit=1 (expect 190/190)  <== CRASHED/NONZERO",
+     "[FAIL] IP Provider still disabled in .env.example — ",
+     "=== GA4-H1 Static Audit: 189/190 PASS, 1 FAIL ===",
+     "[FAIL                  ] H1.4.4 View Item Semantics Runtime (real line-order.html/line-shipping.html DOM + real analytics-platforms.js: 9-card impression regression, card-click has no sender, add_to_cart/remove_from_cart independence, ecommerce smoke, init idempotence) — H1.4.6: card-click assertion",
+     "[FAIL                  ] H1.4.6 Static/UI/Analytics Audit (LINE外帶外送/宅配共用同一份Modal元件 + 商品卡點擊/鍵盤開啟 + 加入購物車呼叫既有addCart()/changeQty() + 不繞過售完判斷 + Modal UI要求 + 固定購物車列 + view_product/view_item語意分離 + GA4 items[] + 規格加料界線 + 後端驗證未放寬；H1.4.7 更新：5 項過期 checkout 斷言已 supersede，66→72) pass=69 fail=3 total=72 exit=1 ",
+     "✗ FAIL [line-order.html] openProductDetail() 沿用 getProductAvailableModes()（與 buildCard() 同一套可購買判斷，不自建第二套規則）",
+     "✗ FAIL [line-order.html] checkout_click 由獨立的 openCheckoutStep()（前往結帳）觸發，不在 openCartSheet() 內",
+     "✗ FAIL [line-shipping.html] checkout_click 由獨立的 openCheckoutStep()（前往結帳）觸發，不在 openCartSheet() 內",
+     "FAIL: 3",
+     "[FAIL                  ] H1.4.7 Static Audit (line-order/line-shipping 兩階段結構、cartBar 只開 cartStage、view_cart 在 openCartSheet、checkout_click 在 _enterCheckoutStage、無 begin_checkout 呼叫、submit_order 路徑分離、Meta trackCustom/track 分流、GA4 canonical map、Funnel 七階段順序、getIncomplete 排除已購買、Geo 相容別名) pass=36 fail=4",
+     "✗ FAIL [line-order.html] 正式提交路徑仍保留 submitOrder()／_trackEvent('submit_order'...)，checkout_click 與 submit_order 是不同階段觸發（submitOrder 只在 #subBtn 內，不在 openCheckoutStep/_enterCheckoutStage 內）",
+     "✗ FAIL [line-order.html] 沒有建立第二套訂單提交函式（全檔案只有一個 function submitOrder 定義）",
+     "✗ FAIL [line-shipping.html] 正式提交路徑仍保留 submitOrder()／#submitBtn，checkout_click 與 submit_order 是不同階段（submitOrder 不在 openCheckoutStep/_enterCheckoutStage 內）",
+     "✗ FAIL [line-shipping.html] 沒有建立第二套訂單提交函式（全檔案只有一個 function submitOrder 定義）",
+     "FAIL: 4",
+     "[FAIL                  ] H1 Targeted Smoke                                            pass=107 fail=1 total=108 exit=1 (expect 108/108)  <== CRASHED/NONZERO",
+     "[FAIL] AK. Mutation Negative 22. IP Provider enabled (mutate .env.example) — "
+    ],
+    "tail": [
+     "  assertionMismatch: 1",
+     "  residue (last round): 0",
+     "======================================================================"
+    ]
+   },
+   {
+    "script": "scripts/smoke-cart-delivery-live-refresh.js",
+    "exit": 1,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 0,
+    "fail_lines": [],
+    "tail": [
+     "    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:171:5)",
+     "    at node:internal/main/run_main_module:36:49",
+     "Node.js v22.23.4"
+    ]
+   },
+   {
+    "script": "scripts/smoke-delivery-distance-promotion.js",
+    "exit": 0,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 0,
+    "fail_lines": []
+   },
+   {
+    "script": "scripts/smoke-h1-4-11-1-fixes.js",
+    "exit": 0,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 3,
+    "fail_lines": [
+     "  FAIL:  0"
+    ]
+   },
+   {
+    "script": "scripts/smoke-h1-4-11-2-fixes.js",
+    "exit": 0,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 2,
+    "fail_lines": [
+     "  FAIL:  0"
+    ]
+   },
+   {
+    "script": "scripts/smoke-h1-4-11-4-1-both-disabled-product-filter.js",
+    "exit": 0,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 2,
+    "fail_lines": [
+     "[PASS] 39 unhandledRejection：整個測試執行過程中沒有出現未處理的 Promise rejection（真 assertion，若出現會直接讓本項 FAIL 並影響 exit code）",
+     "  FAIL:  0"
+    ]
+   },
+   {
+    "script": "scripts/smoke-h1-4-11-4-product-mode-visibility.js",
+    "exit": 0,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 2,
+    "fail_lines": [
+     "  FAIL:  0"
+    ]
+   },
+   {
+    "script": "scripts/smoke-h1-4-11-line-order-page-mode.js",
+    "exit": 0,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 2,
+    "fail_lines": [
+     "  FAIL:  0"
+    ]
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-admin-ui-browser.js",
+    "exit": 1,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 2,
+    "fail_lines": [],
+    "tail": [
+     "║ <3 Playwright Team                                         ║",
+     "╚════════════════════════════════════════════════════════════╝",
+     "    at main (/home/claude/work/scripts/smoke-h1-4-12-popup-admin-ui-browser.js:207:30)"
+    ]
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-admin-ui.js",
+    "exit": 0,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 31,
+    "fail_lines": [
+     "  PASS: 149  FAIL: 0  TOTAL: 149"
+    ]
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-checkout-integration.js",
+    "exit": 0,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 3,
+    "fail_lines": [
+     "  PASS: 20  FAIL: 0  TOTAL: 20"
+    ]
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-frontend.js",
+    "exit": 0,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 30,
+    "fail_lines": [
+     "  PASS: 293  FAIL: 0  TOTAL: 293"
+    ]
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-public-checkout.js",
+    "exit": 0,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 60,
+    "fail_lines": [
+     "[OBSERVATION] 23-no-separate-unique-product-cap：目前 production 沒有獨立於 MAX_ITEM_LINES 之外的 unique-product 數量上限；grouping 發生在 raw-row 上限檢查之後，這是靜態原始碼觀察，不列入測試 PASS/FAIL。",
+     "  PASS: 1447  FAIL: 0  TOTAL: 1447"
+    ]
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-real-browser.js",
+    "exit": 1,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 2,
+    "fail_lines": [
+     "[FAIL] fatal — browserType.launch: Executable doesn't exist at /opt/pw-browsers/chromium_headless_shell-1254/chrome-headless-shell-linux64/chrome-headless-shell",
+     "  PASS: 0  FAIL: 1  TOTAL: 1"
+    ],
+    "tail": [
+     "SMOKE TEST SUMMARY — H1.4.12 Phase 3B popup REAL BROWSER QA (Playwright/Chromium) (TZ=Asia/Taipei)",
+     "  PASS: 0  FAIL: 1  TOTAL: 1",
+     "======================================================================"
+    ]
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-recovery-cart-frontend.js",
+    "exit": 0,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 11,
+    "fail_lines": [
+     "  PASS: 67  FAIL: 0  TOTAL: 67"
+    ]
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-recovery-identity-bridge.js",
+    "exit": 0,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 3,
+    "fail_lines": [
+     "  PASS: 51  FAIL: 0  TOTAL: 51"
+    ]
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-recovery-landing.js",
+    "exit": 0,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 11,
+    "fail_lines": [
+     "  PASS: 83  FAIL: 0  TOTAL: 83"
+    ]
+   },
+   {
+    "script": "scripts/smoke-hotfix25.js",
+    "exit": 0,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 6,
+    "fail_lines": [
+     "PASS: 26  FAIL: 0  MANUAL REQUIRED: 3"
+    ]
+   },
+   {
+    "script": "scripts/smoke-hotfix26-b.js",
+    "exit": 1,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 1,
+    "fail_lines": [
+     "[FAIL] line-order.html／line-shipping.html 不應各自呼叫 liff.init() — order=true shipping=false",
+     "PASS=29 FAIL=1 MANUAL REQUIRED=4"
+    ],
+    "tail": [
+     "PASS=29 FAIL=1 MANUAL REQUIRED=4",
+     "失敗項目：",
+     " - line-order.html／line-shipping.html 不應各自呼叫 liff.init(): order=true shipping=false"
+    ]
+   },
+   {
+    "script": "scripts/smoke-hotfix26-d.js",
+    "exit": 1,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 5,
+    "fail_lines": [
+     "[FAIL] runtime 程式碼不應包含舊網域 — <ROOT>/utils/popupCheckout.js,<ROOT>/utils/popupPayment.js",
+     "PASS=19 FAIL=1 MANUAL REQUIRED=3"
+    ],
+    "tail": [
+     "PASS=19 FAIL=1 MANUAL REQUIRED=3",
+     "失敗項目：",
+     " - runtime 程式碼不應包含舊網域: /home/claude/work/utils/popupCheckout.js,/home/claude/work/utils/popupPayment.js"
+    ]
+   },
+   {
+    "script": "scripts/smoke-hotfix26-f2.js",
+    "exit": 1,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 0,
+    "fail_lines": [
+     "[FAIL] switchMode() 呼叫 refreshModeCutoffUI() — 未在原始碼中找到對應呼叫",
+     "[FAIL] 後端截止判斷未如預期限定於今天",
+     "[FAIL] /timeslots 截止判斷未限定於今天",
+     "FAIL: switchMode() 呼叫 refreshModeCutoffUI()",
+     "FAIL: 後端截止判斷未如預期限定於今天",
+     "FAIL: /timeslots 截止判斷未限定於今天",
+     "Total: 28, PASS: 22, FAIL: 3, MANUAL: 3"
+    ],
+    "tail": [
+     "PASS: 後端 POST / 送單路由已用 orderDate（=pickup_date）判斷是否為預購訂單，非只用 today 直接判斷",
+     "FAIL: /timeslots 截止判斷未限定於今天",
+     "Total: 28, PASS: 22, FAIL: 3, MANUAL: 3"
+    ]
+   },
+   {
+    "script": "scripts/smoke-hotfix26-f3.js",
+    "exit": 0,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 0,
+    "fail_lines": [
+     "Total: 38, PASS: 35, FAIL: 0, MANUAL: 3"
+    ]
+   },
+   {
+    "script": "scripts/smoke-hotfix26-f4.js",
+    "exit": 0,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 0,
+    "fail_lines": [
+     "Total: 32, PASS: 32, FAIL: 0"
+    ]
+   },
+   {
+    "script": "scripts/smoke-hotfix26-f5.js",
+    "exit": 0,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 0,
+    "fail_lines": [
+     "Total: 53, PASS: 53, FAIL: 0"
+    ]
+   },
+   {
+    "script": "scripts/smoke-hotfix26-f7.js",
+    "exit": 1,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 1,
+    "fail_lines": [
+     "[FAIL] 結構：INSERT 欄位數不符預期 — cols=55 ph=55",
+     "FAIL: 結構：INSERT 欄位數不符預期",
+     "Total: 47, PASS: 46, FAIL: 1, MANUAL: 0"
+    ],
+    "tail": [
+     "PASS: 結構：target-aware state helper（getActiveMapSearchState/setActiveDraftCoords/getActiveLocationFields 等）全部存在",
+     "PASS: 結構：openStoreMapModal() 呼叫 openPickupMapModal('store')，共用同一顆 Modal",
+     "Total: 47, PASS: 46, FAIL: 1, MANUAL: 0"
+    ]
+   },
+   {
+    "script": "scripts/smoke-hotfix26-f8-b.js",
+    "exit": 1,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 6,
+    "fail_lines": [
+     "[smoke-hotfix26-f1.js] Total: 14, PASS: 11, FAIL: 0, MANUAL: 3",
+     "[FAIL] smoke-hotfix26-f2.js — exit code 1",
+     "[smoke-hotfix26-f3.js] Total: 38, PASS: 35, FAIL: 0, MANUAL: 3",
+     "[smoke-hotfix26-f4.js] Total: 32, PASS: 32, FAIL: 0",
+     "[smoke-hotfix26-f5.js] Total: 53, PASS: 53, FAIL: 0",
+     "[smoke-hotfix26-f6.js] Total: 49, PASS: 47, FAIL: 0, MANUAL: 2",
+     "[FAIL] smoke-hotfix26-f7.js — exit code 1"
+    ],
+    "tail": [
+     "[db] STORAGE_NOTICE: 啟動時資料庫檔不存在，將以空資料庫啟動（請確認持久化 Volume 是否正確掛載）。",
+     "[smoke-hotfix26-f8.js] PASS=21 FAIL=0 MANUAL=3 NOT_IMPLEMENTED=5",
+     "=== Regression 總結：6/8 個腳本 exit 0 ==="
+    ]
+   },
+   {
+    "script": "scripts/smoke-hotfix26-f8.js",
+    "exit": 0,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 1,
+    "fail_lines": []
+   },
+   {
+    "script": "scripts/smoke-hotfix26-i.js",
+    "exit": 1,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 0,
+    "fail_lines": [],
+    "tail": [
+     "    at showExternalBrowserLoginGuide (eval at loadGateModule (/home/claude/work/scripts/smoke-hotfix26-i.js:118:14), <anonymous>:2356:7)",
+     "    at eval (eval at loadGateModule (/home/claude/work/scripts/smoke-hotfix26-i.js:118:14), <anonymous>:2872:11)",
+     "Node.js v22.23.4"
+    ]
+   },
+   {
+    "script": "scripts/smoke-hotfix27-cd.js",
+    "exit": 1,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 0,
+    "fail_lines": [
+     "[FAIL] line-order.html 沒有導向 /checkout、/admin、/login、/index.html 的程式碼（已排除既有 LINE Pay 導轉）",
+     "PASS=50 FAIL=1 MANUAL=5"
+    ],
+    "tail": [
+     "[PASS] 拒絕夾在長句中的 CART code",
+     "=== hotfix27-CD smoke test summary（自身測試部分） ===",
+     "PASS=50 FAIL=1 MANUAL=5"
+    ]
+   },
+   {
+    "script": "scripts/smoke-hotfix29-b.js",
+    "exit": 1,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 58,
+    "fail_lines": [
+     "[FAIL] smoke-hotfix26-f8-b.js — exit code 1",
+     "[FAIL] smoke-hotfix27.js — exit code 1",
+     "[FAIL] smoke-hotfix27-cd.js — exit code 1",
+     "[FAIL] smoke-hotfix28.js — exit code 1",
+     "[FAIL] smoke-hotfix29.js — exit code 1"
+    ],
+    "tail": [
+     "[db] STORAGE_NOTICE: 啟動時資料庫檔不存在，將以空資料庫啟動（請確認持久化 Volume 是否正確掛載）。",
+     "[FAIL] smoke-hotfix29.js — exit code 1",
+     "=== Regression 總結：0/5 個腳本 exit 0 ==="
+    ]
+   },
+   {
+    "script": "scripts/smoke-hotfix29-c.js",
+    "exit": 1,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 95,
+    "fail_lines": [
+     "[FAIL] smoke-hotfix27-cd.js — exit code 1",
+     "[FAIL] smoke-hotfix28.js — exit code 1",
+     "[FAIL] smoke-hotfix29.js — exit code 1",
+     "[FAIL] smoke-hotfix29-b.js — exit code 1"
+    ],
+    "tail": [
+     "[db] STORAGE_NOTICE: 啟動時資料庫檔不存在，將以空資料庫啟動（請確認持久化 Volume 是否正確掛載）。",
+     "[FAIL] smoke-hotfix29-b.js — exit code 1",
+     "=== Regression 總結：0/4 個腳本 exit 0 ==="
+    ]
+   },
+   {
+    "script": "scripts/smoke-hotfix29.js",
+    "exit": 1,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 27,
+    "fail_lines": [
+     "[smoke-hotfix26-f1.js] exit=0 Total: 14, PASS: 11, FAIL: 0, MANUAL: 3",
+     "[FAIL] smoke-hotfix26-f2.js — exit code 1",
+     "[smoke-hotfix26-f3.js] exit=0 Total: 38, PASS: 35, FAIL: 0, MANUAL: 3",
+     "[smoke-hotfix26-f4.js] exit=0 Total: 32, PASS: 32, FAIL: 0",
+     "[smoke-hotfix26-f5.js] exit=0 Total: 53, PASS: 53, FAIL: 0",
+     "[smoke-hotfix26-f6.js] exit=0 Total: 49, PASS: 47, FAIL: 0, MANUAL: 2",
+     "[FAIL] smoke-hotfix26-f7.js — exit code 1",
+     "[FAIL] smoke-hotfix26-f8-b.js — exit code 1",
+     "[FAIL] smoke-hotfix27.js — exit code 1",
+     "[FAIL] smoke-hotfix27-cd.js — exit code 1",
+     "[FAIL] smoke-hotfix28.js — exit code 1"
+    ],
+    "tail": [
+     "[db] STORAGE_NOTICE: 啟動時資料庫檔不存在，將以空資料庫啟動（請確認持久化 Volume 是否正確掛載）。",
+     "[FAIL] smoke-hotfix28.js — exit code 1",
+     "=== Regression 總結：6/12 個腳本 exit 0 ==="
+    ]
+   },
+   {
+    "script": "scripts/smoke-hotfix30-b5-r5-4-g1-live-geo.js",
+    "exit": 0,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 1,
+    "fail_lines": [
+     "  FAIL:  0"
+    ]
+   },
+   {
+    "script": "scripts/smoke-hotfix30-b5-r5-debounce.js",
+    "exit": 0,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 1,
+    "fail_lines": [
+     "TOTAL: 32  PASS: 32  FAIL: 0"
+    ]
+   },
+   {
+    "script": "scripts/smoke-r48-popup-order-ui-browser.js",
+    "exit": 1,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 2,
+    "fail_lines": [],
+    "tail": []
+   },
+   {
+    "script": "scripts/smoke-r54-4-mbv2-large-upload.js",
+    "exit": 0,
+    "passCount": 25,
+    "failCount": 0,
+    "seconds": 151,
+    "fail_lines": []
+   },
+   {
+    "script": "scripts/smoke-r54-4-mbv2-migration.js",
+    "exit": 0,
+    "passCount": 121,
+    "failCount": 0,
+    "seconds": 15,
+    "fail_lines": []
+   },
+   {
+    "script": "scripts/smoke-r54-4-mbv2-system-regression.js",
+    "exit": 0,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 7,
+    "fail_lines": []
+   },
+   {
+    "script": "scripts/static-audit-g1-6-ga4-h1-4-4.js",
+    "exit": 0,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 0,
+    "fail_lines": []
+   },
+   {
+    "script": "scripts/static-audit-g1-6-ga4-h1-4-5.js",
+    "exit": 0,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 0,
+    "fail_lines": [
+     "FAIL: 0"
+    ]
+   },
+   {
+    "script": "scripts/static-audit-g1-6-ga4-h1-4-6.js",
+    "exit": 1,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 0,
+    "fail_lines": [
+     "✗ FAIL [line-order.html] openProductDetail() 沿用 getProductAvailableModes()（與 buildCard() 同一套可購買判斷，不自建第二套規則）",
+     "✗ FAIL [line-order.html] checkout_click 由獨立的 openCheckoutStep()（前往結帳）觸發，不在 openCartSheet() 內",
+     "✗ FAIL [line-shipping.html] checkout_click 由獨立的 openCheckoutStep()（前往結帳）觸發，不在 openCartSheet() 內",
+     "FAIL: 3"
+    ],
+    "tail": [
+     "PASS: 69",
+     "FAIL: 3",
+     "TOTAL: 72"
+    ]
+   },
+   {
+    "script": "scripts/static-audit-g1-6-ga4-h1-4-7.js",
+    "exit": 1,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 0,
+    "fail_lines": [
+     "✗ FAIL [line-order.html] 正式提交路徑仍保留 submitOrder()／_trackEvent('submit_order'...)，checkout_click 與 submit_order 是不同階段觸發（submitOrder 只在 #subBtn 內，不在 openCheckoutStep/_enterCheckoutStage 內）",
+     "✗ FAIL [line-order.html] 沒有建立第二套訂單提交函式（全檔案只有一個 function submitOrder 定義）",
+     "✗ FAIL [line-shipping.html] 正式提交路徑仍保留 submitOrder()／#submitBtn，checkout_click 與 submit_order 是不同階段（submitOrder 不在 openCheckoutStep/_enterCheckoutStage 內）",
+     "✗ FAIL [line-shipping.html] 沒有建立第二套訂單提交函式（全檔案只有一個 function submitOrder 定義）",
+     "FAIL: 4"
+    ],
+    "tail": [
+     "PASS: 36",
+     "FAIL: 4",
+     "TOTAL: 40"
+    ]
+   },
+   {
+    "script": "scripts/static-audit-g1.js",
+    "exit": 0,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 0,
+    "fail_lines": []
+   },
+   {
+    "script": "scripts/static-audit-r48-popup-order-ui.js",
+    "exit": 1,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 0,
+    "fail_lines": [
+     "[FAIL] S01_COMPOSITION_HTML public/line-order.html 等於 frozen candidate bytes — 7d0cafc1940a4b53a518fd306738f879635b4503dcfa829388be3cf8058ff562",
+     "[FAIL] S02_COMPOSITION_CSS public/css/popup-order.css 等於 frozen candidate bytes — 5e9dc74ef228680c1ca40a788c10912c50c7352593ecaf59fbe62385772c6711",
+     "[FAIL] S03_FORBIDDEN_UNCHANGED allowlist 以外所有 R47 檔案逐位元組不變（routes/server/utils/package/data/line-shipping…） — .env.example,public/index.html,public/js/analytics-attribution.js,public/js/app.js,public/js/product-detail-modal.js",
+     "[FAIL] S04_NO_UNEXPECTED_FILES 檔案集合 = R47 + 精確 allowlist（無新增/刪除） — extra=docs/R54_4_MBV2/00_FINAL_REPORT.md,docs/R54_4_MBV2/01_REALITY_AUDIT.md,docs/R54_4_MBV2/02_HISTORICAL_RESCUE_VERIFICATION.md,docs/R54_4_MBV2/03_PERSISTENCE_DEPLOY_ROLLBACK_SOP.md,docs/R54_4_MBV2/04_TEST_RESULTS.md missing=script",
+     "[FAIL] S05_CSS_LINK_LOCAL_CACHEBUST 唯一一個本地 popup-order.css link，帶 r48 cache-bust，位於 </head> 前 — ",
+     "[FAIL] S25_SUBMIT_REFRESH_E1 姓名/電話/備註輸入即以 popupValidateCheckout() 更新送出按鈕（E1） — ",
+     "[FAIL] S26_NO_NEW_FETCH API 字串與 fetch/apiFetch/popupApi* 呼叫數與 R47 完全相同 — {\"fetch\":4,\"apiFetch\":42,\"popupApiFetch\":8,\"popupApiPost\":13,\"XMLHttpRequest\":0,\"sendBeacon\":0,\"WebSocket\":1}",
+     "[FAIL] S27_CORE_FUNCTIONS_UNCHANGED qty/subtotal/storage/restore/checkout/load 核心函式與 R47 逐位元組相同 — function reconcilePopupCartWithFreshProducts(cart, freshProducts){ | function popupAdjustCartQty(productId, delta){ | function popupFormatPaymentLabel(code){ | function popupValidateCheckout(){ | functi",
+     "[FAIL] S28_OUTSIDE_REGIONS_UNCHANGED popup 區段以外（含一般 LINE 外帶/外送全部程式）與 R47 逐位元組相同 — ",
+     "[FAIL] S33_NO_STICKY_FIXED popup CSS 與程式不使用 position:fixed/sticky — ",
+     "R48 STATIC SUMMARY — PASS: 27  FAIL: 10  TOTAL: 37",
+     "R48_STATIC_RESULT {\"S01_COMPOSITION_HTML\":\"FAIL\",\"S02_COMPOSITION_CSS\":\"FAIL\",\"S03_FORBIDDEN_UNCHANGED\":\"FAIL\",\"S04_NO_UNEXPECTED_FILES\":\"FAIL\",\"S05_CSS_LINK_LOCAL_CACHEBUST\":\"FAIL\",\"S06_CSS_SELECTOR_SCOPE\":\"PASS\",\"S07_CSS_NO_EXTERNAL\":\"PASS\",\"S08_ROOT_CLASS_ROLE\":\"PASS\",\"S09_VIEW_ATTR\":\"PASS\",\"S10_"
+    ],
+    "tail": [
+     "[PASS] S37_TEST_FILES_PRESENT_READONLY R48 兩個 test-only 檔存在，且不寫入 repo 內 production 路徑",
+     "R48 STATIC SUMMARY — PASS: 27  FAIL: 10  TOTAL: 37",
+     "R48_STATIC_RESULT {\"S01_COMPOSITION_HTML\":\"FAIL\",\"S02_COMPOSITION_CSS\":\"FAIL\",\"S03_FORBIDDEN_UNCHANGED\":\"FAIL\",\"S04_NO_UNEXPECTED_FILES\":\"FAIL\",\"S05_CSS_LINK_LOCAL_CACHEBUST\":\"FAIL\",\"S06_CSS_SELECTOR_"
+    ]
+   },
+   {
+    "script": "scripts/test-phone-validation.js",
+    "exit": 0,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 0,
+    "fail_lines": []
+   }
+  ],
+  "c44_same_period_rerun_of_c45_nonzero": [
+   {
+    "script": "scripts/mbv2-rescue-verify.js",
+    "exit": 2,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 0,
+    "fail_lines": [],
+    "tail": [
+     "需要 --old 與 --new"
+    ]
+   },
+   {
+    "script": "scripts/run-g1-6-ga4-h1-4-4-view-item-runtime.js",
+    "exit": 1,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 1,
+    "fail_lines": [],
+    "tail": [
+     "TypeError: Cannot read properties of undefined (reading 'fireIntersect')",
+     "    at run (/home/claude/base/scripts/run-g1-6-ga4-h1-4-4-view-item-runtime.js:146:8)",
+     "Node.js v22.23.4"
+    ]
+   },
+   {
+    "script": "scripts/run-regression-g1-6-ga4-h1-4-6.js",
+    "exit": 1,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 462,
+    "fail_lines": [
+     "[FAIL                  ] H1 Targeted Smoke                                            pass=107 fail=1 total=108 exit=1 (expect 108/108)  <== CRASHED/NONZERO",
+     "[FAIL] AK. Mutation Negative 22. IP Provider enabled (mutate .env.example) — ",
+     "=== GA4-H1 Targeted Smoke: 107/108 PASS, 1 FAIL ===",
+     "[FAIL                  ] H1 Static Audit                                              pass=189 fail=1 total=190 exit=1 (expect 190/190)  <== CRASHED/NONZERO",
+     "=== GA4-H1 Static Audit: 189/190 PASS, 1 FAIL ===",
+     "[FAIL                  ] H1.4.1 Legacy Migration: B1-6 Geo Explorer                   pass=null fail=null total=null exit=0 (expect 376/376)",
+     "[FAIL                  ] H1.4.4 View Item Semantics Runtime (real line-order.html/line-shipping.html DOM + real analytics-platforms.js: 9-card impression regression, card-click has no sender, add_to_cart/remove_from_cart independence, ecommerce smoke, init idempotence) — H1.4.6: card-click assertion",
+     "[FAIL                  ] H1.4.6 Static/UI/Analytics Audit (LINE外帶外送/宅配共用同一份Modal元件 + 商品卡點擊/鍵盤開啟 + 加入購物車呼叫既有addCart()/changeQty() + 不繞過售完判斷 + Modal UI要求 + 固定購物車列 + view_product/view_item語意分離 + GA4 items[] + 規格加料界線 + 後端驗證未放寬；H1.4.7 更新：5 項過期 checkout 斷言已 supersede，66→72) pass=69 fail=3 total=72 exit=1 ",
+     "✗ FAIL [line-order.html] checkout_click 由獨立的 openCheckoutStep()（前往結帳）觸發，不在 openCartSheet() 內",
+     "✗ FAIL [line-shipping.html] checkout_click 由獨立的 openCheckoutStep()（前往結帳）觸發，不在 openCartSheet() 內",
+     "FAIL: 3",
+     "[FAIL                  ] H1 Targeted Smoke                                            pass=107 fail=1 total=108 exit=1 (expect 108/108)  <== CRASHED/NONZERO",
+     "[FAIL] AK. Mutation Negative 22. IP Provider enabled (mutate .env.example) — ",
+     "=== GA4-H1 Targeted Smoke: 107/108 PASS, 1 FAIL ===",
+     "[FAIL                  ] H1 Static Audit                                              pass=189 fail=1 total=190 exit=1 (expect 190/190)  <== CRASHED/NONZERO",
+     "=== GA4-H1 Static Audit: 189/190 PASS, 1 FAIL ===",
+     "[FAIL                  ] H1.4.4 View Item Semantics Runtime (real line-order.html/line-shipping.html DOM + real analytics-platforms.js: 9-card impression regression, card-click has no sender, add_to_cart/remove_from_cart independence, ecommerce smoke, init idempotence) — H1.4.6: card-click assertion",
+     "[FAIL                  ] H1.4.6 Static/UI/Analytics Audit (LINE外帶外送/宅配共用同一份Modal元件 + 商品卡點擊/鍵盤開啟 + 加入購物車呼叫既有addCart()/changeQty() + 不繞過售完判斷 + Modal UI要求 + 固定購物車列 + view_product/view_item語意分離 + GA4 items[] + 規格加料界線 + 後端驗證未放寬；H1.4.7 更新：5 項過期 checkout 斷言已 supersede，66→72) pass=69 fail=3 total=72 exit=1 ",
+     "✗ FAIL [line-order.html] checkout_click 由獨立的 openCheckoutStep()（前往結帳）觸發，不在 openCartSheet() 內",
+     "✗ FAIL [line-shipping.html] checkout_click 由獨立的 openCheckoutStep()（前往結帳）觸發，不在 openCartSheet() 內"
+    ],
+    "tail": [
+     "  assertionMismatch: 1",
+     "  residue (last round): 0",
+     "======================================================================"
+    ]
+   },
+   {
+    "script": "scripts/run-regression-g1-6-ga4-h1-4-7.js",
+    "exit": 1,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 510,
+    "fail_lines": [
+     "[FAIL                  ] H1 Targeted Smoke                                            pass=107 fail=1 total=108 exit=1 (expect 108/108)  <== CRASHED/NONZERO",
+     "[FAIL] AK. Mutation Negative 22. IP Provider enabled (mutate .env.example) — ",
+     "=== GA4-H1 Targeted Smoke: 107/108 PASS, 1 FAIL ===",
+     "[FAIL                  ] H1 Static Audit                                              pass=189 fail=1 total=190 exit=1 (expect 190/190)  <== CRASHED/NONZERO",
+     "[FAIL] IP Provider still disabled in .env.example — ",
+     "=== GA4-H1 Static Audit: 189/190 PASS, 1 FAIL ===",
+     "[FAIL                  ] H1.4.4 View Item Semantics Runtime (real line-order.html/line-shipping.html DOM + real analytics-platforms.js: 9-card impression regression, card-click has no sender, add_to_cart/remove_from_cart independence, ecommerce smoke, init idempotence) — H1.4.6: card-click assertion",
+     "[FAIL                  ] H1.4.6 Static/UI/Analytics Audit (LINE外帶外送/宅配共用同一份Modal元件 + 商品卡點擊/鍵盤開啟 + 加入購物車呼叫既有addCart()/changeQty() + 不繞過售完判斷 + Modal UI要求 + 固定購物車列 + view_product/view_item語意分離 + GA4 items[] + 規格加料界線 + 後端驗證未放寬；H1.4.7 更新：5 項過期 checkout 斷言已 supersede，66→72) pass=69 fail=3 total=72 exit=1 ",
+     "✗ FAIL [line-order.html] openProductDetail() 沿用 getProductAvailableModes()（與 buildCard() 同一套可購買判斷，不自建第二套規則）",
+     "✗ FAIL [line-order.html] checkout_click 由獨立的 openCheckoutStep()（前往結帳）觸發，不在 openCartSheet() 內",
+     "✗ FAIL [line-shipping.html] checkout_click 由獨立的 openCheckoutStep()（前往結帳）觸發，不在 openCartSheet() 內",
+     "FAIL: 3",
+     "[FAIL                  ] H1.4.7 Static Audit (line-order/line-shipping 兩階段結構、cartBar 只開 cartStage、view_cart 在 openCartSheet、checkout_click 在 _enterCheckoutStage、無 begin_checkout 呼叫、submit_order 路徑分離、Meta trackCustom/track 分流、GA4 canonical map、Funnel 七階段順序、getIncomplete 排除已購買、Geo 相容別名) pass=36 fail=4",
+     "✗ FAIL [line-order.html] 正式提交路徑仍保留 submitOrder()／_trackEvent('submit_order'...)，checkout_click 與 submit_order 是不同階段觸發（submitOrder 只在 #subBtn 內，不在 openCheckoutStep/_enterCheckoutStage 內）",
+     "✗ FAIL [line-order.html] 沒有建立第二套訂單提交函式（全檔案只有一個 function submitOrder 定義）",
+     "✗ FAIL [line-shipping.html] 正式提交路徑仍保留 submitOrder()／#submitBtn，checkout_click 與 submit_order 是不同階段（submitOrder 不在 openCheckoutStep/_enterCheckoutStage 內）",
+     "✗ FAIL [line-shipping.html] 沒有建立第二套訂單提交函式（全檔案只有一個 function submitOrder 定義）",
+     "FAIL: 4",
+     "[FAIL                  ] H1 Targeted Smoke                                            pass=107 fail=1 total=108 exit=1 (expect 108/108)  <== CRASHED/NONZERO",
+     "[FAIL] AK. Mutation Negative 22. IP Provider enabled (mutate .env.example) — "
+    ],
+    "tail": [
+     "  assertionMismatch: 0",
+     "  residue (last round): 0",
+     "======================================================================"
+    ]
+   },
+   {
+    "script": "scripts/smoke-cart-delivery-live-refresh.js",
+    "exit": 1,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 0,
+    "fail_lines": [],
+    "tail": [
+     "    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:171:5)",
+     "    at node:internal/main/run_main_module:36:49",
+     "Node.js v22.23.4"
+    ]
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-admin-ui-browser.js",
+    "exit": 1,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 64,
+    "fail_lines": [
+     "[FAIL] LINK-published-urls-use-public-code 已發布 session 卡片的 session／campaign URL 都使用真實 server public_code（不是內部數字 id） — {\"routeHits\":{\"campaigns\":2,\"sessions\":2},\"joinSessionsLoaded\":true,\"campaignsLoaded\":true,\"renderedFromFixtures\":true,\"cardFound\":true,\"sessionStatuses\":[\"published\",\"draft\",\"publis",
+     "  PASS: 425  FAIL: 1  TOTAL: 426"
+    ],
+    "tail": [
+     "SMOKE TEST SUMMARY — H1.4.12 Phase 3C popup admin UI REAL BROWSER (Playwright/Chromium) (TZ=Asia/Taipei)",
+     "  PASS: 425  FAIL: 1  TOTAL: 426",
+     "======================================================================"
+    ]
+   },
+   {
+    "script": "scripts/smoke-h1-4-12-popup-real-browser.js",
+    "exit": 0,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 12,
+    "fail_lines": [
+     "  PASS: 36  FAIL: 0  TOTAL: 36"
+    ]
+   },
+   {
+    "script": "scripts/smoke-hotfix26-b.js",
+    "exit": 1,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 1,
+    "fail_lines": [
+     "[FAIL] line-order.html／line-shipping.html 不應各自呼叫 liff.init() — order=true shipping=false",
+     "PASS=29 FAIL=1 MANUAL REQUIRED=4"
+    ],
+    "tail": [
+     "PASS=29 FAIL=1 MANUAL REQUIRED=4",
+     "失敗項目：",
+     " - line-order.html／line-shipping.html 不應各自呼叫 liff.init(): order=true shipping=false"
+    ]
+   },
+   {
+    "script": "scripts/smoke-hotfix26-d.js",
+    "exit": 1,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 5,
+    "fail_lines": [
+     "[FAIL] runtime 程式碼不應包含舊網域 — <ROOT>/utils/popupCheckout.js,<ROOT>/utils/popupPayment.js",
+     "PASS=19 FAIL=1 MANUAL REQUIRED=3"
+    ],
+    "tail": [
+     "PASS=19 FAIL=1 MANUAL REQUIRED=3",
+     "失敗項目：",
+     " - runtime 程式碼不應包含舊網域: /home/claude/base/utils/popupCheckout.js,/home/claude/base/utils/popupPayment.js"
+    ]
+   },
+   {
+    "script": "scripts/smoke-hotfix26-f2.js",
+    "exit": 1,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 0,
+    "fail_lines": [
+     "[FAIL] switchMode() 呼叫 refreshModeCutoffUI() — 未在原始碼中找到對應呼叫",
+     "[FAIL] 後端截止判斷未如預期限定於今天",
+     "[FAIL] /timeslots 截止判斷未限定於今天",
+     "FAIL: switchMode() 呼叫 refreshModeCutoffUI()",
+     "FAIL: 後端截止判斷未如預期限定於今天",
+     "FAIL: /timeslots 截止判斷未限定於今天",
+     "Total: 28, PASS: 22, FAIL: 3, MANUAL: 3"
+    ],
+    "tail": [
+     "PASS: 後端 POST / 送單路由已用 orderDate（=pickup_date）判斷是否為預購訂單，非只用 today 直接判斷",
+     "FAIL: /timeslots 截止判斷未限定於今天",
+     "Total: 28, PASS: 22, FAIL: 3, MANUAL: 3"
+    ]
+   },
+   {
+    "script": "scripts/smoke-hotfix26-f7.js",
+    "exit": 1,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 1,
+    "fail_lines": [
+     "[FAIL] 結構：INSERT 欄位數不符預期 — cols=55 ph=55",
+     "FAIL: 結構：INSERT 欄位數不符預期",
+     "Total: 47, PASS: 46, FAIL: 1, MANUAL: 0"
+    ],
+    "tail": [
+     "PASS: 結構：target-aware state helper（getActiveMapSearchState/setActiveDraftCoords/getActiveLocationFields 等）全部存在",
+     "PASS: 結構：openStoreMapModal() 呼叫 openPickupMapModal('store')，共用同一顆 Modal",
+     "Total: 47, PASS: 46, FAIL: 1, MANUAL: 0"
+    ]
+   },
+   {
+    "script": "scripts/smoke-hotfix26-f8-b.js",
+    "exit": 1,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 6,
+    "fail_lines": [
+     "[smoke-hotfix26-f1.js] Total: 14, PASS: 11, FAIL: 0, MANUAL: 3",
+     "[FAIL] smoke-hotfix26-f2.js — exit code 1",
+     "[smoke-hotfix26-f3.js] Total: 38, PASS: 35, FAIL: 0, MANUAL: 3",
+     "[smoke-hotfix26-f4.js] Total: 32, PASS: 32, FAIL: 0",
+     "[smoke-hotfix26-f5.js] Total: 53, PASS: 53, FAIL: 0",
+     "[smoke-hotfix26-f6.js] Total: 49, PASS: 47, FAIL: 0, MANUAL: 2",
+     "[FAIL] smoke-hotfix26-f7.js — exit code 1"
+    ],
+    "tail": [
+     "[db] STORAGE_NOTICE: 啟動時資料庫檔不存在，將以空資料庫啟動（請確認持久化 Volume 是否正確掛載）。",
+     "[smoke-hotfix26-f8.js] PASS=21 FAIL=0 MANUAL=3 NOT_IMPLEMENTED=5",
+     "=== Regression 總結：6/8 個腳本 exit 0 ==="
+    ]
+   },
+   {
+    "script": "scripts/smoke-hotfix26-i.js",
+    "exit": 1,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 0,
+    "fail_lines": [],
+    "tail": [
+     "    at showExternalBrowserLoginGuide (eval at loadGateModule (/home/claude/base/scripts/smoke-hotfix26-i.js:118:14), <anonymous>:2356:7)",
+     "    at eval (eval at loadGateModule (/home/claude/base/scripts/smoke-hotfix26-i.js:118:14), <anonymous>:2872:11)",
+     "Node.js v22.23.4"
+    ]
+   },
+   {
+    "script": "scripts/smoke-hotfix27-cd.js",
+    "exit": 1,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 0,
+    "fail_lines": [
+     "[FAIL] line-order.html 沒有導向 /checkout、/admin、/login、/index.html 的程式碼（已排除既有 LINE Pay 導轉）",
+     "PASS=50 FAIL=1 MANUAL=5"
+    ],
+    "tail": [
+     "[PASS] 拒絕夾在長句中的 CART code",
+     "=== hotfix27-CD smoke test summary（自身測試部分） ===",
+     "PASS=50 FAIL=1 MANUAL=5"
+    ]
+   },
+   {
+    "script": "scripts/smoke-hotfix29-b.js",
+    "exit": 1,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 58,
+    "fail_lines": [
+     "[FAIL] smoke-hotfix26-f8-b.js — exit code 1",
+     "[FAIL] smoke-hotfix27.js — exit code 1",
+     "[FAIL] smoke-hotfix27-cd.js — exit code 1",
+     "[FAIL] smoke-hotfix28.js — exit code 1",
+     "[FAIL] smoke-hotfix29.js — exit code 1"
+    ],
+    "tail": [
+     "[db] STORAGE_NOTICE: 啟動時資料庫檔不存在，將以空資料庫啟動（請確認持久化 Volume 是否正確掛載）。",
+     "[FAIL] smoke-hotfix29.js — exit code 1",
+     "=== Regression 總結：0/5 個腳本 exit 0 ==="
+    ]
+   },
+   {
+    "script": "scripts/smoke-hotfix29-c.js",
+    "exit": 1,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 94,
+    "fail_lines": [
+     "[FAIL] smoke-hotfix27-cd.js — exit code 1",
+     "[FAIL] smoke-hotfix28.js — exit code 1",
+     "[FAIL] smoke-hotfix29.js — exit code 1",
+     "[FAIL] smoke-hotfix29-b.js — exit code 1"
+    ],
+    "tail": [
+     "[db] STORAGE_NOTICE: 啟動時資料庫檔不存在，將以空資料庫啟動（請確認持久化 Volume 是否正確掛載）。",
+     "[FAIL] smoke-hotfix29-b.js — exit code 1",
+     "=== Regression 總結：0/4 個腳本 exit 0 ==="
+    ]
+   },
+   {
+    "script": "scripts/smoke-hotfix29.js",
+    "exit": 1,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 26,
+    "fail_lines": [
+     "[smoke-hotfix26-f1.js] exit=0 Total: 14, PASS: 11, FAIL: 0, MANUAL: 3",
+     "[FAIL] smoke-hotfix26-f2.js — exit code 1",
+     "[smoke-hotfix26-f3.js] exit=0 Total: 38, PASS: 35, FAIL: 0, MANUAL: 3",
+     "[smoke-hotfix26-f4.js] exit=0 Total: 32, PASS: 32, FAIL: 0",
+     "[smoke-hotfix26-f5.js] exit=0 Total: 53, PASS: 53, FAIL: 0",
+     "[smoke-hotfix26-f6.js] exit=0 Total: 49, PASS: 47, FAIL: 0, MANUAL: 2",
+     "[FAIL] smoke-hotfix26-f7.js — exit code 1",
+     "[FAIL] smoke-hotfix26-f8-b.js — exit code 1",
+     "[FAIL] smoke-hotfix27.js — exit code 1",
+     "[FAIL] smoke-hotfix27-cd.js — exit code 1",
+     "[FAIL] smoke-hotfix28.js — exit code 1"
+    ],
+    "tail": [
+     "[db] STORAGE_NOTICE: 啟動時資料庫檔不存在，將以空資料庫啟動（請確認持久化 Volume 是否正確掛載）。",
+     "[FAIL] smoke-hotfix28.js — exit code 1",
+     "=== Regression 總結：6/12 個腳本 exit 0 ==="
+    ]
+   },
+   {
+    "script": "scripts/smoke-r48-popup-order-ui-browser.js",
+    "exit": 1,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 33,
+    "fail_lines": [],
+    "tail": []
+   },
+   {
+    "script": "scripts/static-audit-g1-6-ga4-h1-4-6.js",
+    "exit": 1,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 0,
+    "fail_lines": [
+     "✗ FAIL [line-order.html] openProductDetail() 沿用 getProductAvailableModes()（與 buildCard() 同一套可購買判斷，不自建第二套規則）",
+     "✗ FAIL [line-order.html] checkout_click 由獨立的 openCheckoutStep()（前往結帳）觸發，不在 openCartSheet() 內",
+     "✗ FAIL [line-shipping.html] checkout_click 由獨立的 openCheckoutStep()（前往結帳）觸發，不在 openCartSheet() 內",
+     "FAIL: 3"
+    ],
+    "tail": [
+     "PASS: 69",
+     "FAIL: 3",
+     "TOTAL: 72"
+    ]
+   },
+   {
+    "script": "scripts/static-audit-g1-6-ga4-h1-4-7.js",
+    "exit": 1,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 0,
+    "fail_lines": [
+     "✗ FAIL [line-order.html] 正式提交路徑仍保留 submitOrder()／_trackEvent('submit_order'...)，checkout_click 與 submit_order 是不同階段觸發（submitOrder 只在 #subBtn 內，不在 openCheckoutStep/_enterCheckoutStage 內）",
+     "✗ FAIL [line-order.html] 沒有建立第二套訂單提交函式（全檔案只有一個 function submitOrder 定義）",
+     "✗ FAIL [line-shipping.html] 正式提交路徑仍保留 submitOrder()／#submitBtn，checkout_click 與 submit_order 是不同階段（submitOrder 不在 openCheckoutStep/_enterCheckoutStage 內）",
+     "✗ FAIL [line-shipping.html] 沒有建立第二套訂單提交函式（全檔案只有一個 function submitOrder 定義）",
+     "FAIL: 4"
+    ],
+    "tail": [
+     "PASS: 36",
+     "FAIL: 4",
+     "TOTAL: 40"
+    ]
+   },
+   {
+    "script": "scripts/static-audit-r48-popup-order-ui.js",
+    "exit": 1,
+    "passCount": null,
+    "failCount": null,
+    "seconds": 0,
+    "fail_lines": [
+     "[FAIL] S01_COMPOSITION_HTML public/line-order.html 等於 frozen candidate bytes — f2234e56a596c77cdbd91ab907edd22e0ce84f0eecf544781c3eba17a4ec718b",
+     "[FAIL] S02_COMPOSITION_CSS public/css/popup-order.css 等於 frozen candidate bytes — 5e9dc74ef228680c1ca40a788c10912c50c7352593ecaf59fbe62385772c6711",
+     "[FAIL] S03_FORBIDDEN_UNCHANGED allowlist 以外所有 R47 檔案逐位元組不變（routes/server/utils/package/data/line-shipping…） — .env.example,public/index.html,public/js/app.js,public/js/product-detail-modal.js,routes/line-orders.js",
+     "[FAIL] S04_NO_UNEXPECTED_FILES 檔案集合 = R47 + 精確 allowlist（無新增/刪除） — extra=docs/R54_4_MBV2/00_FINAL_REPORT.md,docs/R54_4_MBV2/01_REALITY_AUDIT.md,docs/R54_4_MBV2/02_HISTORICAL_RESCUE_VERIFICATION.md,docs/R54_4_MBV2/03_PERSISTENCE_DEPLOY_ROLLBACK_SOP.md,docs/R54_4_MBV2/04_TEST_RESULTS.md missing=",
+     "[FAIL] S05_CSS_LINK_LOCAL_CACHEBUST 唯一一個本地 popup-order.css link，帶 r48 cache-bust，位於 </head> 前 — ",
+     "[FAIL] S25_SUBMIT_REFRESH_E1 姓名/電話/備註輸入即以 popupValidateCheckout() 更新送出按鈕（E1） — ",
+     "[FAIL] S26_NO_NEW_FETCH API 字串與 fetch/apiFetch/popupApi* 呼叫數與 R47 完全相同 — {\"fetch\":4,\"apiFetch\":41,\"popupApiFetch\":8,\"popupApiPost\":13,\"XMLHttpRequest\":0,\"sendBeacon\":0,\"WebSocket\":1}",
+     "[FAIL] S27_CORE_FUNCTIONS_UNCHANGED qty/subtotal/storage/restore/checkout/load 核心函式與 R47 逐位元組相同 — function reconcilePopupCartWithFreshProducts(cart, freshProducts){ | function popupAdjustCartQty(productId, delta){ | function popupFormatPaymentLabel(code){ | function popupValidateCheckout(){ | functi",
+     "[FAIL] S28_OUTSIDE_REGIONS_UNCHANGED popup 區段以外（含一般 LINE 外帶/外送全部程式）與 R47 逐位元組相同 — ",
+     "[FAIL] S33_NO_STICKY_FIXED popup CSS 與程式不使用 position:fixed/sticky — ",
+     "R48 STATIC SUMMARY — PASS: 27  FAIL: 10  TOTAL: 37",
+     "R48_STATIC_RESULT {\"S01_COMPOSITION_HTML\":\"FAIL\",\"S02_COMPOSITION_CSS\":\"FAIL\",\"S03_FORBIDDEN_UNCHANGED\":\"FAIL\",\"S04_NO_UNEXPECTED_FILES\":\"FAIL\",\"S05_CSS_LINK_LOCAL_CACHEBUST\":\"FAIL\",\"S06_CSS_SELECTOR_SCOPE\":\"PASS\",\"S07_CSS_NO_EXTERNAL\":\"PASS\",\"S08_ROOT_CLASS_ROLE\":\"PASS\",\"S09_VIEW_ATTR\":\"PASS\",\"S10_"
+    ],
+    "tail": [
+     "[PASS] S37_TEST_FILES_PRESENT_READONLY R48 兩個 test-only 檔存在，且不寫入 repo 內 production 路徑",
+     "R48 STATIC SUMMARY — PASS: 27  FAIL: 10  TOTAL: 37",
+     "R48_STATIC_RESULT {\"S01_COMPOSITION_HTML\":\"FAIL\",\"S02_COMPOSITION_CSS\":\"FAIL\",\"S03_FORBIDDEN_UNCHANGED\":\"FAIL\",\"S04_NO_UNEXPECTED_FILES\":\"FAIL\",\"S05_CSS_LINK_LOCAL_CACHEBUST\":\"FAIL\",\"S06_CSS_SELECTOR_"
+    ]
+   }
+  ],
+  "browser3_after_env_fix": {
+   "c45": [
+    {
+     "script": "scripts/smoke-h1-4-12-popup-admin-ui-browser.js",
+     "exit": 1,
+     "passCount": null,
+     "failCount": null,
+     "seconds": 70,
+     "fail_lines": [
+      "[FAIL] LINK-published-urls-use-public-code 已發布 session 卡片的 session／campaign URL 都使用真實 server public_code（不是內部數字 id） — {\"routeHits\":{\"campaigns\":2,\"sessions\":2},\"joinSessionsLoaded\":true,\"campaignsLoaded\":true,\"renderedFromFixtures\":true,\"cardFound\":true,\"sessionStatuses\":[\"published\",\"draft\",\"publis",
+      "  PASS: 425  FAIL: 1  TOTAL: 426"
+     ],
+     "tail": [
+      "SMOKE TEST SUMMARY — H1.4.12 Phase 3C popup admin UI REAL BROWSER (Playwright/Chromium) (TZ=Asia/Taipei)",
+      "  PASS: 425  FAIL: 1  TOTAL: 426",
+      "======================================================================"
+     ]
+    },
+    {
+     "script": "scripts/smoke-h1-4-12-popup-real-browser.js",
+     "exit": 0,
+     "passCount": null,
+     "failCount": null,
+     "seconds": 14,
+     "fail_lines": [
+      "  PASS: 36  FAIL: 0  TOTAL: 36"
+     ]
+    },
+    {
+     "script": "scripts/smoke-r48-popup-order-ui-browser.js",
+     "exit": 1,
+     "passCount": null,
+     "failCount": null,
+     "seconds": 34,
+     "fail_lines": [],
+     "tail": []
+    }
+   ],
+   "c44": [
+    {
+     "script": "scripts/smoke-h1-4-12-popup-admin-ui-browser.js",
+     "exit": 1,
+     "passCount": null,
+     "failCount": null,
+     "seconds": 65,
+     "fail_lines": [
+      "[FAIL] BR51-cancel-ui-removes-full-badge UI fresh reload 後「已額滿」標示移除 — {\"responseStatus\":200,\"rowCount\":1,\"rowShowsName\":true,\"rowShowsOrdered0\":true,\"rowShowsCap1\":true,\"rowShowsRemaining1\":false,\"rowShowsFull\":false,\"listWaited\":true,\"readbackStatus\":200,\"readbackExact\":true,\"pageErrorCount\":0}",
+      "[FAIL] LINK-published-urls-use-public-code 已發布 session 卡片的 session／campaign URL 都使用真實 server public_code（不是內部數字 id） — {\"routeHits\":{\"campaigns\":2,\"sessions\":2},\"joinSessionsLoaded\":true,\"campaignsLoaded\":true,\"renderedFromFixtures\":true,\"cardFound\":true,\"sessionStatuses\":[\"published\",\"draft\",\"publis",
+      "  PASS: 424  FAIL: 2  TOTAL: 426"
+     ],
+     "tail": [
+      "SMOKE TEST SUMMARY — H1.4.12 Phase 3C popup admin UI REAL BROWSER (Playwright/Chromium) (TZ=Asia/Taipei)",
+      "  PASS: 424  FAIL: 2  TOTAL: 426",
+      "======================================================================"
+     ]
+    },
+    {
+     "script": "scripts/smoke-h1-4-12-popup-real-browser.js",
+     "exit": 0,
+     "passCount": null,
+     "failCount": null,
+     "seconds": 13,
+     "fail_lines": [
+      "  PASS: 36  FAIL: 0  TOTAL: 36"
+     ]
+    },
+    {
+     "script": "scripts/smoke-r48-popup-order-ui-browser.js",
+     "exit": 1,
+     "passCount": null,
+     "failCount": null,
+     "seconds": 34,
+     "fail_lines": [],
+     "tail": []
+    }
+   ]
+  },
+  "summary": "C4.5：61 支中 40 支 exit 0；另 1 支（smoke-h1-4-12-popup-real-browser）第一次因測試環境瀏覽器路徑失敗，修正環境後 C4.5、C4.4 都 36/36 → 有效 41 支 exit 0（與 C4.4 紀錄的 41 支相同）。其餘 20 支非 0 在 C4.4 同一時段重跑結果相同（失敗行相同，或兩版各有一輪既有的不穩定：GA4 多輪總控 B1-6 Geo Explorer 單輪中斷；popup-admin-ui-browser 既有 LINK-published-urls 失敗，C4.4 另多 1 項 BR51 不穩定；static-audit-r48 為凍結 R47 位元組稽核，兩版都失敗，差異只反映本輪修改的檔案）。",
+  "new_failures": 0
+ },
+ "fresh_zip_verification": {
+  "startup": {
+   "health": 200,
+   "line_order": 200,
+   "admin": 200,
+   "snapshot_unauth": 401,
+   "date_options_unauth": 401,
+   "restock_summary_unauth": 200,
+   "notify_available": false,
+   "send_enabled": false,
+   "public_config": {
+    "notify_available": false,
+    "subscribe_mode": "opt_in"
+   },
+   "migration_warnings": []
+  },
+  "suites": [
+   {
+    "script": "scripts/smoke-r54-4-mbv2-hf1-c4-5-restock-link.js",
+    "exit": 0,
+    "passCount": 42,
+    "failCount": 0,
+    "seconds": 85,
+    "fail_lines": []
+   },
+   {
+    "script": "scripts/smoke-r54-4-mbv2-hf1-c4-5-date-consent.js",
+    "exit": 0,
+    "passCount": 54,
+    "failCount": 0,
+    "seconds": 62,
+    "fail_lines": []
+   },
+   {
+    "script": "scripts/smoke-r54-4-mbv2-hf1-c4-4-mutation-response.js",
+    "exit": 0,
+    "passCount": 20,
+    "failCount": 0,
+    "seconds": 76,
+    "fail_lines": []
+   },
+   {
+    "script": "scripts/smoke-r54-4-mbv2-hf1-c4-3-async-consistency.js",
+    "exit": 0,
+    "passCount": 34,
+    "failCount": 0,
+    "seconds": 148,
+    "fail_lines": []
+   },
+   {
+    "script": "scripts/smoke-r54-4-mbv2-hf1-c4-2-demand-ui-refresh.js",
+    "exit": 0,
+    "passCount": 80,
+    "failCount": 0,
+    "seconds": 395,
+    "fail_lines": []
+   },
+   {
+    "script": "scripts/smoke-r54-4-mbv2-hf1-c4-1-dedupe-resume.js",
+    "exit": 0,
+    "passCount": 40,
+    "failCount": 0,
+    "seconds": 78,
+    "fail_lines": []
+   },
+   {
+    "script": "scripts/smoke-r54-4-mbv2-hf1-c4-restock-notify.js",
+    "exit": 0,
+    "passCount": 94,
+    "failCount": 0,
+    "seconds": 68,
+    "fail_lines": []
+   },
+   {
+    "script": "scripts/smoke-r54-4-mbv2-hf1-c4-linepush-compat.js",
+    "exit": 0,
+    "passCount": 12,
+    "failCount": 0,
+    "seconds": 0,
+    "fail_lines": []
+   },
+   {
+    "script": "scripts/smoke-r54-4-mbv2-hf1-c3-1-backup-manage-login.js",
+    "exit": 0,
+    "passCount": 54,
+    "failCount": 0,
+    "seconds": 141,
+    "fail_lines": []
+   },
+   {
+    "script": "scripts/smoke-r54-4-mbv2-hf1-c3-3-restore-cancel.js",
+    "exit": 0,
+    "passCount": 30,
+    "failCount": 0,
+    "seconds": 168,
+    "fail_lines": []
+   },
+   {
+    "script": "scripts/smoke-r54-4-mbv2-hf1-c3-2-firstpaint-remap.js",
+    "exit": 0,
+    "passCount": 32,
+    "failCount": 0,
+    "seconds": 74,
+    "fail_lines": []
+   },
+   {
+    "script": "scripts/smoke-r54-4-mbv2-migration.js",
+    "exit": 0,
+    "passCount": 121,
+    "failCount": 0,
+    "seconds": 15,
+    "fail_lines": []
+   },
+   {
+    "script": "scripts/run-h1-4-10-phase4b-recovery-full-runtime.js",
+    "exit": 0,
+    "passCount": 168,
+    "failCount": 0,
+    "seconds": 17,
+    "fail_lines": []
+   }
+  ]
+ },
+ "line_api_calls": {
+  "real": 0
+ },
+ "not_verified": [
+  "LINE App／LIFF 真機（iOS／Android、外部瀏覽器）實際導向時序與畫面",
+  "真實 Messaging API",
+  "正式 Zeabur",
+  "多台伺服器",
+  "真實 GA4／Meta Pixel"
+ ]
+}

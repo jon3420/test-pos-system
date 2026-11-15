@@ -2748,6 +2748,24 @@ function initTables(w) {
     if (rec.conflicts) console.warn(`[DB] restock_notify: ${rec.conflicts} 筆尚未完成的通知因同週期已有 LINE 已受理紀錄而停止（本週期已通知）`);
     w._save();
   } catch (e) { console.warn('[DB] restock_notify migration:', e.message); }
+  // R54.4／MBV2-HF1-C5：補貨通知成效追蹤（批次 tracking_id 欄位＋點擊／加購／訂單歸因三張新表）。additive、idempotent。
+  try { require('./restockTracking').migrate(w._db); w._save(); }
+  catch (e) { console.warn('[DB] restock_tracking migration:', e.message); }
+  // R54.4／MBV2-HF1-C5.1：訂單唯一識別（新編號唯一索引、LINE Pay 付款嘗試、歷史重號稽核）。additive、idempotent；
+  // 歷史重號不刪除、不合併、不重新編號；稽核發現重複只記錄，不阻擋開機。
+  try {
+    const a = require('./orderIdentity').migrate(w._db); w._save();
+    if (a.duplicate_number_groups) console.warn(`[DB] order_identity: 歷史訂單有 ${a.duplicate_number_groups} 組重複編號（保留原資料；新訂單使用新編號；診斷：GET /api/order-identity/diagnostics）`);
+    if (a.duplicate_uuid_groups) console.warn(`[DB] order_identity: 歷史訂單有 ${a.duplicate_uuid_groups} 組重複 uuid（保留原資料；診斷：GET /api/order-identity/diagnostics）`);
+  } catch (e) { console.warn('[DB] order_identity migration:', e.message); }
+  // R54.4／MBV2-HF1-C5.2：付款處理階段、待核對與副作用 outbox（additive、idempotent；C5.1 付款紀錄不憑名稱推定未付款）
+  try {
+    const r = require('./linePayRecovery').migrate(w._db); w._save();
+    if (r && r.upgraded) console.warn(`[DB] linepay_recovery: 已轉換 ${r.upgraded} 筆 C5.1 付款嘗試（結果不明者列為待核對）`);
+    // C5.3：處理階段判定與歷史隔離（只在有變動時輸出；重複啟動不再變動）
+    if (r && r.classified) console.warn(`[DB] linepay_recovery: 已判定 ${r.classified} 筆 C5.3 以前付款嘗試的處理階段（不能證明未送出 Confirm 者只做唯讀核對）`);
+    if (r && r.quarantined) console.warn(`[DB] linepay_recovery: 已隔離 ${r.quarantined} 筆仍可能已付款的歷史失敗／取消紀錄為待核對（後台「LINE Pay 付款待核對」）`);
+  } catch (e) { console.warn('[DB] linepay_recovery migration:', e.message); }
 }
 
 

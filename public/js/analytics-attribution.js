@@ -83,6 +83,28 @@
     try { localStorage.setItem(_storageKey(storeId), JSON.stringify(data)); } catch (e) {}
   }
 
+  // R54.4／MBV2-HF1-C4.5：landing page／referrer 不保存 LIFF 一次導向參數（liff.*）與任何憑證或還原權杖
+  // （LINE 官方：一次導向網址可能含使用者憑證，不得送到記錄工具）。只移除這些參數，其餘（UTM 等）照舊。
+  const SENSITIVE_PARAM_RE = /^(liff\.|access_token$|id_token$|context_token$|feature_token$|code$|state$|recovery_token$|recovery_handoff$|cart_token$|member_session$|rt$)/;
+  function _stripSensitive(u) {
+    try {
+      const url = new URL(u, location.href);
+      Array.from(url.searchParams.keys()).forEach((k) => { if (SENSITIVE_PARAM_RE.test(k)) url.searchParams.delete(k); });
+      url.hash = '';
+      return url;
+    } catch (e) { return null; }
+  }
+  function _safeLandingPage() {
+    const url = _stripSensitive(location.href);
+    return url ? url.pathname + url.search : location.pathname;
+  }
+  function _safeReferrer(ref) {
+    if (!ref) return '';
+    const url = _stripSensitive(ref);
+    if (!url) return '';
+    return url.origin === location.origin ? url.origin + url.pathname + url.search : ref.split('#')[0];
+  }
+
   // 從目前 URL 擷取「本次進站」的歸因參數。不落地儲存，由呼叫端決定要不要更新 first/last touch。
   function _captureFromLocation() {
     let p;
@@ -93,8 +115,8 @@
       campaign: clamp(p ? p.get('utm_campaign') : '', 'campaign'),
       content: clamp(p ? p.get('utm_content') : '', 'content'),
       term: clamp(p ? p.get('utm_term') : '', 'term'),
-      referrer: clamp(document.referrer || '', 'referrer'),
-      landing_page: clamp(location.pathname + location.search, 'landing_page'),
+      referrer: clamp(_safeReferrer(document.referrer || ''), 'referrer'),
+      landing_page: clamp(_safeLandingPage(), 'landing_page'),
       fbclid: clamp(p ? p.get('fbclid') : '', 'fbclid'),
       gclid: clamp(p ? p.get('gclid') : '', 'gclid'),
       captured_at: new Date().toISOString(),

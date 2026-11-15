@@ -54,10 +54,9 @@ const DISCOUNT_CATEGORY_LABEL = {
 };
 
 // ── helpers ───────────────────────────────────────────────
-function orderNumber() {
-  const n = new Date(), p = (v, l=2) => String(v).padStart(l,'0');
-  return `${n.getFullYear()}${p(n.getMonth()+1)}${p(n.getDate())}-${p(n.getHours())}${p(n.getMinutes())}${p(n.getSeconds())}`;
-}
+// R54.4／MBV2-HF1-C5.1：與 LINE 點餐共用顯示編號產生器（秒級格式＋4 碼尾碼、同步查重、部分唯一索引保護）
+const OrderIdentity = require('../utils/orderIdentity');
+function orderNumber(db, storeId) { return OrderIdentity.allocateOrderNumber(db, storeId, ''); }
 
 // R44.1B-4B Phase B：consumer audit（完整搜尋 public/、routes/、utils/、
 // scripts/ 以外沒有任何 export/report endpoint，以及所有非測試檔案）確認
@@ -387,10 +386,7 @@ router.get('/:id', (req, res) => {
     const db = getDb();
     ensureFix1809Columns(db);
     const storeId = req.storeId;
-    const order = db.get(
-      'SELECT * FROM orders WHERE (id=? OR order_number=?) AND store_id=?',
-      [req.params.id, req.params.id, storeId]
-    );
+    const order = OrderIdentity.resolveOrderRef(db, storeId, req.params.id).order;
     if (!order) return res.status(404).json({ success: false, message: '訂單不存在' });
     res.json({ success: true, data: parseOrder(order) });
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
@@ -401,10 +397,7 @@ router.get('/:id/logs', (req, res) => {
   try {
     const db = getDb();
     const storeId = req.storeId;
-    const order = db.get(
-      'SELECT id, order_number FROM orders WHERE (id=? OR order_number=?) AND store_id=?',
-      [req.params.id, req.params.id, storeId]
-    );
+    const order = OrderIdentity.resolveOrderRef(db, storeId, req.params.id).order;
     if (!order) return res.status(404).json({ success: false, message: '訂單不存在' });
     const logs = db.all('SELECT * FROM order_logs WHERE order_id=? ORDER BY created_at DESC', [order.id]);
     res.json({ success: true, data: logs.map(l => ({
@@ -477,7 +470,7 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ success: false, message: '實收金額不足' });
 
     const id           = uuidv4();
-    const order_number = orderNumber();
+    const order_number = orderNumber(db, storeId);
     const effDelivStatus = order_mode === 'delivery' ? (delivery_status || 'preparing') : '';
     const normCat = normalizeDiscountCategory(discount_category);
 
@@ -507,6 +500,7 @@ router.post('/', async (req, res) => {
        platform_order_no || '', effDelivStatus]
     );
 
+    db.run('UPDATE orders SET order_no_v=2 WHERE id=? AND store_id=?', [id, storeId]); // C5.1：新編號格式（唯一索引保護）
     deductInventory(db, items, id, 'sale', storeId);
 
     if (customer_phone) {
@@ -538,10 +532,7 @@ router.put('/:id', async (req, res) => {
     const db = getDb();
     ensureFix1809Columns(db);
     const storeId = req.storeId;
-    const order = db.get(
-      'SELECT * FROM orders WHERE (id=? OR order_number=?) AND store_id=?',
-      [req.params.id, req.params.id, storeId]
-    );
+    const order = OrderIdentity.resolveOrderRef(db, storeId, req.params.id).order;
     if (!order) return res.status(404).json({ success: false, message: '訂單不存在' });
     if (order.status === 'void') return res.status(400).json({ success: false, message: '已作廢訂單不可修改' });
 
@@ -766,10 +757,7 @@ router.patch('/:id/status', (req, res) => {
   try {
     const db = getDb();
     const storeId = req.storeId;
-    const order = db.get(
-      'SELECT * FROM orders WHERE (id=? OR order_number=?) AND store_id=?',
-      [req.params.id, req.params.id, storeId]
-    );
+    const order = OrderIdentity.resolveOrderRef(db, storeId, req.params.id).order;
     if (!order) return res.status(404).json({ success: false, message: '訂單不存在' });
     if (order.status === 'void') return res.status(400).json({ success: false, message: '已作廢訂單不可修改狀態' });
     const { order_status } = req.body;
@@ -794,10 +782,7 @@ router.post('/:id/refund-complete', (req, res) => {
   try {
     const db = getDb();
     const storeId = req.storeId;
-    const order = db.get(
-      'SELECT * FROM orders WHERE (id=? OR order_number=?) AND store_id=?',
-      [req.params.id, req.params.id, storeId]
-    );
+    const order = OrderIdentity.resolveOrderRef(db, storeId, req.params.id).order;
     if (!order) return res.status(404).json({ success: false, message: '訂單不存在' });
     if (order.refund_status !== 'pending_refund') {
       return res.status(400).json({ success: false, message: '此訂單目前沒有待退款狀態' });
@@ -830,10 +815,7 @@ router.patch('/:id/delivery-status', (req, res) => {
   try {
     const db = getDb();
     const storeId = req.storeId;
-    const order = db.get(
-      'SELECT * FROM orders WHERE (id=? OR order_number=?) AND store_id=?',
-      [req.params.id, req.params.id, storeId]
-    );
+    const order = OrderIdentity.resolveOrderRef(db, storeId, req.params.id).order;
     if (!order) return res.status(404).json({ success: false, message: '訂單不存在' });
     if (order.status === 'void') return res.status(400).json({ success: false, message: '已作廢訂單不可修改狀態' });
     const { delivery_status } = req.body;
@@ -852,10 +834,7 @@ router.post('/:id/void', (req, res) => {
   try {
     const db = getDb();
     const storeId = req.storeId;
-    const order = db.get(
-      'SELECT * FROM orders WHERE (id=? OR order_number=?) AND store_id=?',
-      [req.params.id, req.params.id, storeId]
-    );
+    const order = OrderIdentity.resolveOrderRef(db, storeId, req.params.id).order;
     if (!order) return res.status(404).json({ success: false, message: '訂單不存在' });
     if (order.status === 'void') return res.status(400).json({ success: false, message: '訂單已作廢' });
     const { reason='', operator='staff' } = req.body;
@@ -977,10 +956,7 @@ router.post('/:id/reprint', async (req, res) => {
   try {
     const db = getDb();
     const storeId = req.storeId;
-    const order = db.get(
-      'SELECT * FROM orders WHERE (id=? OR order_number=?) AND store_id=?',
-      [req.params.id, req.params.id, storeId]
-    );
+    const order = OrderIdentity.resolveOrderRef(db, storeId, req.params.id).order;
     if (!order) return res.status(404).json({ success: false, message: '訂單不存在' });
     const { type='receipt' } = req.body;
     let printResult = { success: false, message: '列印未啟用' };
@@ -1006,10 +982,7 @@ router.post('/webhook-test/:id', async (req, res) => {
   try {
     const db = getDb();
     const storeId = req.storeId;
-    const order = db.get(
-      'SELECT * FROM orders WHERE (id=? OR order_number=?) AND store_id=?',
-      [req.params.id, req.params.id, storeId]
-    );
+    const order = OrderIdentity.resolveOrderRef(db, storeId, req.params.id).order;
     if (!order) return res.status(404).json({ success: false, message: '訂單不存在' });
     await sendWebhook(order);
     res.json({ success: true, message: 'Webhook 已觸發' });

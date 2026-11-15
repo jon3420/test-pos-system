@@ -623,7 +623,7 @@ img{max-width:100%;display:block}
 
 <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 
-<script src="/js/analytics-attribution.js"></script>
+<script src="/js/analytics-attribution.js?v=r54-4-mbv2-hf1-c4-5"></script>
 <script src="/js/analytics-platforms.js"></script>
 <script src="/js/phone-utils.js?v=h1-4-10-phone-1"></script>
 <script src="/js/line-member-gate.js?v=h1-4-10-backend-reconcile-1"></script>
@@ -635,8 +635,36 @@ img{max-width:100%;display:block}
 <script src="/js/geo-live-coordinate.js"></script>
 <script>
 'use strict';
+// R54.4／MBV2-HF1-C4.5：補貨通知連結（https://liff.line.me/{liffId}?store_id=…&product_ref=…&src=restock…）的
+// LIFF「一次導向」頁（primary redirect）。LINE 官方流程：LIFF 伺服器先把顧客導到 Endpoint URL，附加資訊全部放在
+// liff.state；本頁必須執行 liff.init()，由 SDK 再導向「二次導向」網址（secondary redirect）才是最終頁。
+// 一次導向頁只是過渡頁：只讀取（不修改）網址、不改寫或刪除 liff.* 參數、不做一般首屏初始化（不讀菜單、不還原購物車、
+// 不送 Analytics，避免把含 LIFF 憑證的一次導向網址送出），只取得 LIFF ID 並執行 liff.init()。
+// 僅限 liff.state 內含補貨通知直達參數的頁面；登入返回、Recovery、Handoff、LINE Pay 返回一律不走這條路。
+const _restockLiffPrimary=(function(){
+  try{
+    const path=String((window.location&&window.location.pathname)||'');
+    if(path==='/popup-order' || /\/popup-order\/?$/.test(path)) return null;
+    const p=new URLSearchParams(window.location.search||'');
+    if(!p.has('liff.state')) return null;
+    if(['recovery_token','recovery_handoff','cart_token','code','state','linepay','product_ref'].some(k=>p.has(k))) return null;
+    const st=String(p.get('liff.state')||'');
+    const qi=st.indexOf('?');
+    if(qi<0) return null;
+    const inner=new URLSearchParams(st.slice(qi+1).split('#')[0]);
+    if(!inner.has('product_ref') || inner.get('src')!=='restock') return null;
+    return { storeId:String(inner.get('store_id')||''), inner };
+  }catch(e){ return null; }
+})();
 // ── SaaS store_id 綁定 ──
-const LINE_STORE_ID = new URLSearchParams(window.location.search).get('store_id') || 'store_001';
+// C4.5：Endpoint URL 本身沒帶 store_id 時，一次導向頁改用 liff.state 內的 store_id（只用來取得 LIFF ID）。
+const LINE_STORE_ID = new URLSearchParams(window.location.search).get('store_id') || (_restockLiffPrimary && _restockLiffPrimary.storeId) || 'store_001';
+// C4.5：補貨通知連結診斷（只在記憶體；只有階段與次數，不含網址、權杖、會員 session 或任何識別碼）
+const _restockLinkDiag={ role:_restockLiffPrimary?'liff_primary':'page', liff_init:0, shop_fetch:0, product_ref_fetch:0, product_open:0, url_cleanup:0, fallback:'', stages:[] };
+try{ Object.defineProperty(window,'__RESTOCK_LINK_DIAG__',{ get:()=>JSON.parse(JSON.stringify(_restockLinkDiag)) }); }catch(e){}
+function _rlDiag(stage){ try{ _restockLinkDiag.stages.push(stage); if(_restockLinkDiag.stages.length>30) _restockLinkDiag.stages.shift(); }catch(e){} }
+let _pageLeaving=false;
+try{ window.addEventListener('pagehide',()=>{ _pageLeaving=true; }); window.addEventListener('beforeunload',()=>{ _pageLeaving=true; }); }catch(e){}
 
 // H1.4.10 Phase 4B：Recovery Token 立即從 URL 讀入短期記憶體，再馬上從網址
 // 移除（history.replaceState），降低 browser history／複製網址／referrer／
@@ -713,23 +741,46 @@ let _popupRecoveryParamConflict=false; // 同名參數重複且值衝突
 // 只擷取「公開的商品識別」與通知對應的日期／取餐方式（僅供提示，不改變顧客既有選擇），
 // 擷取後立刻從網址移除。連結不含 member_session、LINE UID 或任何可冒用身分的資料。
 let _restockLink=null;
+// C4.5：直達參數的網址整理不再於腳本一開始執行。LINE 官方要求「改變網址（History API）的處理放在 liff.init() 完成之後」，
+// 因此這裡只讀取，網址整理由 _restockCleanupUrl() 在會員 Gate（含 liff.init()）結束後才執行。
+// 這段期間若需要 LINE 登入，Gate 以目前網址作為登入返回網址，直達參數因此保留到最終頁，只在最終頁開啟一次商品。
+// C5：新連結另帶 rt（批次追蹤識別，不含個資）；舊連結沒有 rt，照常開啟商品、不建立追蹤。
+const RESTOCK_LINK_KEYS=['product_ref','src','m','d','rt'];
+function _parseRestockLinkParams(params){
+  if(!params || !params.has('product_ref')) return null;
+  const ref=String(params.get('product_ref')||'').trim();
+  if(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(ref)){
+    const m=params.get('m'); const d=String(params.get('d')||'');
+    const rt=String(params.get('rt')||'');
+    return { ref, mode:(m==='takeout'||m==='delivery')?m:'', date:/^\d{4}-\d{2}-\d{2}$/.test(d)?d:'', rt:/^[A-Za-z0-9_-]{16,40}$/.test(rt)?rt:'' };
+  }
+  return { ref:'', invalid:true };
+}
 (function _captureRestockLinkFromUrl(){
   try{
     const path=String((window.location&&window.location.pathname)||'');
     if(path==='/popup-order' || /\/popup-order\/?$/.test(path)) return;
+    if(_restockLiffPrimary) return; // 一次導向頁：參數仍在 liff.state 內，由 SDK 導向後在最終頁擷取
+    _restockLink=_parseRestockLinkParams(new URLSearchParams(window.location.search));
+  }catch(e){ /* 擷取失敗絕不可阻擋頁面載入 */ }
+})();
+let _restockUrlCleaned=false;
+const _restockCleanupWaiters=[];
+function _restockAfterCleanup(fn){ if(_restockUrlCleaned) { try{ fn(); }catch(e){} } else _restockCleanupWaiters.push(fn); }
+function _restockCleanupUrl(){
+  if(_restockUrlCleaned || _restockLiffPrimary) return;
+  _restockUrlCleaned=true;
+  setTimeout(()=>{ while(_restockCleanupWaiters.length){ const f=_restockCleanupWaiters.shift(); try{ f(); }catch(e){} } },0);
+  try{
     const params=new URLSearchParams(window.location.search);
-    const ref=String(params.get('product_ref')||'').trim();
-    if(!params.has('product_ref')) return;
-    if(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(ref)){
-      const m=params.get('m'); const d=String(params.get('d')||'');
-      _restockLink={ ref, mode:(m==='takeout'||m==='delivery')?m:'', date:/^\d{4}-\d{2}-\d{2}$/.test(d)?d:'' };
-    } else _restockLink={ ref:'', invalid:true };
-    ['product_ref','src','m','d'].forEach(k=>params.delete(k));
+    if(!RESTOCK_LINK_KEYS.some(k=>params.has(k))) return;
+    RESTOCK_LINK_KEYS.forEach(k=>params.delete(k));
     const cleanUrl=new URL(window.location.href);
     cleanUrl.search=params.toString();
-    window.history.replaceState({}, '', cleanUrl.toString());
-  }catch(e){ /* URL 清理失敗絕不可阻擋頁面載入 */ }
-})();
+    window.history.replaceState(window.history.state, '', cleanUrl.toString());
+    _restockLinkDiag.url_cleanup++; _rlDiag('url_cleanup');
+  }catch(e){ /* URL 清理失敗絕不可阻擋頁面 */ }
+}
 // hotfix22-F：購物車永久保留（不做 24 小時到期判斷）。key 加上 target=line_order，
 // 與冷藏宅配（line_shipping_cart_）完全獨立，互不干擾。
 const ORDER_CART_KEY = 'line_order_cart_' + LINE_STORE_ID;
@@ -781,6 +832,9 @@ function _getAnalyticsContext(){
 // 由後端於訂單真正成立/付款真正成功時寫入，前端不送出這兩種事件。
 // 同時把對應的 Meta Pixel／GA4 事件（purchase 除外）一併送出，兩邊失敗互不影響主要流程。
 function _trackEvent(eventName, extra){
+  // C5：補貨歸因只放進站內事件的 metadata.restock（後端取出後即從事件移除），不帶給 Pixel／GA4
+  let _restockMeta=null;
+  if(extra && extra.__restock){ _restockMeta=extra.__restock; extra=Object.assign({}, extra); delete extra.__restock; }
   try{
     const fields=_getAnalyticsContext();
     const body={
@@ -791,7 +845,7 @@ function _trackEvent(eventName, extra){
       source:fields.source, medium:fields.medium, campaign:fields.campaign,
       referrer:fields.referrer, landing_page:fields.landing_page,
       fbclid:fields.fbclid, gclid:fields.gclid,
-      metadata:fields.metadata,
+      metadata:_restockMeta ? Object.assign({}, fields.metadata||{}, { restock:_restockMeta }) : fields.metadata,
       member_session:_currentMemberSession(),
       ...(extra||{}),
     };
@@ -851,7 +905,10 @@ function _firePurchaseOnce(orderNumber, orderTotal, itemsForPixel){
 function _trackAddToCart(id, qtyDelta){
   const _hadCartIdBefore=!!_getCartId(false);
   _getCartId(true); // 確保購物車已有 cart_id
-  _trackEvent('add_to_cart',{product_id:Number(id), quantity:Math.max(1,Number(qtyDelta)||1)});
+  // C5：只有「通知商品」的真正加購才附帶補貨歸因（event_key 供後端去重；重送不重複、再次加購另計次數）
+  const _ra=_restockAttrUsable(); // C5.1：只附帶屬於目前會員（或匿名開啟）的追蹤狀態
+  const _rs=(_ra && Number(id)===Number(_ra.product_id)) ? { rt:_ra.rt, open_key:_ra.open_key, event_key:_rtUuid() } : null;
+  _trackEvent('add_to_cart',{product_id:Number(id), quantity:Math.max(1,Number(qtyDelta)||1), ...(_rs?{ __restock:_rs }:{})});
   // H1.4.10 section I 觸發時機二：第一次建立 cart_id 後補綁定（已有 session
   // 才會真的送出，見 _linkLineMemberContext 內部檢查）。
   if(!_hadCartIdBefore){ try{ _linkLineMemberContext('first_cart_id_created'); }catch(e){} }
@@ -1218,6 +1275,7 @@ function _currentMemberSession(){
 // 呼叫（需求文件明確禁止）。呼叫時機：被動辨識成功／第一次建立 cart_id／
 // Handoff 還原完成後（見各呼叫點）。絕不阻擋下單流程、絕不拋出例外。
 function _linkLineMemberContext(reasonTag){
+  try{ _restockReidentify(); }catch(e){} // C5：補貨通知開啟紀錄補上已驗證會員（背景、失敗忽略）
   try{
     const memberSession=_currentMemberSession();
     if(!memberSession) return;
@@ -5558,6 +5616,13 @@ async function init(){
   if(POPUP_ENTRY_CONTEXT.entryContext==='popup'){
     return initPopup(POPUP_ENTRY_CONTEXT);
   }
+  // R54.4／MBV2-HF1-C4.5：補貨通知連結的 LIFF 一次導向頁——只執行 liff.init()，交給 SDK 導向最終頁。
+  // 失敗或沒有導向時（例如 SDK 載入失敗、店家未設定 LIFF ID），改在本頁照常顯示並開啟商品（只讀 liff.state，不改網址）。
+  if(_restockLiffPrimary){
+    let handled=false;
+    try{ handled=await _restockLiffPrimaryRedirect(); }catch(e){ handled=false; }
+    if(handled) return;
+  }
   // ── LINE Pay redirect 結果處理 ──────────────────────
   const _lpP=new URLSearchParams(window.location.search);
   if(_lpP.get('linepay')==='success'){
@@ -5574,7 +5639,8 @@ async function init(){
     // （只用 order_number 查詢，後端回傳的是訂單當下真正的 total）取得後端權威金額，
     // 才觸發 Purchase，並且用 order_number 去重，重整這個成功頁不會重複計算。
     if(_lpOrderNo){
-      apiFetch('/api/line-orders/query',{method:'POST',body:JSON.stringify({order_number:_lpOrderNo})})
+      // C5.1：付款返回帶訂單唯一識別（order_ref），以它精確取單（歷史重號不會取到另一張）
+      apiFetch('/api/line-orders/query',{method:'POST',body:JSON.stringify({order_number:_lpOrderNo, order_ref:_lpP.get('order_ref')||undefined})})
         .then(r=>r.json())
         .then(qr=>{
           const o=(qr&&qr.success&&qr.orders&&qr.orders[0])?qr.orders[0]:null;
@@ -5584,6 +5650,16 @@ async function init(){
     }
     return;
   }
+  if(_lpP.get('linepay')==='pending'){
+    // R54.4／MBV2-HF1-C5.2：付款結果確認中（金流回應不明或本機尚未完成核對）——不顯示成功、不顯示失敗、不引導再次付款；
+    // 購物車保留（付款結果未確定），不觸發 Purchase。
+    document.getElementById('loading').style.display='none';
+    const _lpOrderNo=_lpP.get('order')||'';
+    document.getElementById('sucNo').textContent=_lpOrderNo?('訂單編號：'+_lpOrderNo):'';
+    document.getElementById('sucDetail').innerHTML='<div id="lpPendingNotice" style="color:#b45309;font-weight:700;font-size:16px;text-align:center;padding:20px;line-height:1.6">⏳ 付款結果確認中<br><span style="font-weight:400;font-size:14px;color:#555">請勿重複付款。店家確認後訂單狀態會更新，可稍後用「查詢訂單」查看。</span></div>';
+    document.getElementById('successScreen').classList.add('show');
+    return;
+  }
   if(_lpP.get('linepay')==='cancel'){
     // hotfix22-F：LINE Pay 取消付款，購物車必須仍保留 —— 繼續正常初始化流程，
     // 稍後 restoreCart() 會把 localStorage 內容還原回來，不做任何清除。
@@ -5591,7 +5667,14 @@ async function init(){
   }
   if(_lpP.get('linepay')==='fail'||_lpP.get('linepay')==='error'){
     // hotfix22-F：付款失敗同樣不得清空購物車
-    setTimeout(()=>toast('LINE Pay 付款失敗，請重新嘗試或選擇其他付款方式'),600);
+    // C5.1：付款結果無法唯一對應訂單／已由另一筆交易付款／金額已變更 → 提示聯絡店家核對（不自動判定）
+    const _lpMsg=_lpP.get('msg')||'';
+    const _lpReview=['order_ambiguous','payment_mismatch','already_paid','amount_changed'].includes(_lpMsg);
+    // C5.2：訂單已取消（付款前）／已付款但訂單已取消（店家將處理退款）
+    const _lpTxt=_lpMsg==='paid_cancelled'?'此訂單已取消，款項已收到，店家將處理退款；請勿重複付款，有疑問請聯絡店家'
+      :_lpMsg==='order_cancelled'?'此訂單已取消，本次付款未完成扣款'
+      :_lpReview?'付款結果需要店家核對，請勿重複付款，並聯絡店家確認訂單狀態':'LINE Pay 付款失敗，請重新嘗試或選擇其他付款方式';
+    setTimeout(()=>toast(_lpTxt),600);
   }
   let _shopRequestSucceeded=false;
   try{
@@ -5599,6 +5682,8 @@ async function init(){
     // 快取結果被誤用），只對這一支 API 加 cache:'no-store'，不影響商品圖片等靜態資源快取。
     // R54.4／MBV2-HF1-C4.2：補貨登記公開設定與店家／菜單並行讀取（不等待、不阻擋首屏）
     try{ _pdStartConfigFetch(); }catch(e){}
+    // C4.5：補貨通知直達的商品識別查詢與店家／菜單並行（不額外排隊、不阻擋首屏）
+    try{ _restockStartRefFetch(); }catch(e){}
     const[sr,mr,bcr]=await Promise.all([
       apiFetch('/api/line-shop',{cache:'no-store'}).then(r=>r.json()),
       apiFetch('/api/line-menu').then(r=>r.json()),
@@ -5624,7 +5709,11 @@ async function init(){
       }
       // fix18-10-hotfix23-D：依店家設定初始化 Meta Pixel／GA4（沒啟用或沒有 ID 時
       // AnalyticsPlatforms.init() 內部什麼都不會載入）
-      try{ AnalyticsPlatforms.init(shopData); }catch(e){}
+      // C4.5：補貨通知直達參數尚未從網址整理前，不初始化第三方 Pixel／GA4（它們會讀取目前網址）；整理後才初始化。
+      // LIFF 一次導向頁（改在本頁顯示的備援情況）網址含 liff.state 等 LIFF 參數，依 LINE 官方建議不送第三方。
+      if(_restockLiffPrimary){ /* 不初始化第三方追蹤 */ }
+      else if(_restockLink && !_restockUrlCleaned){ _restockAfterCleanup(()=>{ try{ AnalyticsPlatforms.init(shopData); }catch(e){} }); }
+      else { try{ AnalyticsPlatforms.init(shopData); }catch(e){} }
       // fix18-10-hotfix23-E：LINE 會員入口 —— 初始化 LIFF；disabled 模式下
       // liff_id 通常也未設定，initLineMemberGate 內部會安全略過，完全不影響既有流程。
       // H1.4.10 Phase 4B（Reality Audit 修正）：不在這裡立即 .then() 觸發
@@ -5636,6 +5725,11 @@ async function init(){
       // R54.4／MBV2-HF1-C3.1：宣告移到 if(sr.success) 之前（見 init() 開頭）；原本宣告在本區塊內，
       // 區塊外的 await 取不到變數（ReferenceError 被 catch 吃掉），實際上從未等待。
       try{ _memberGateInitPromise=_initLineMemberGateFromShopData(shopData); }catch(e){}
+      // C4.5：直達參數的網址整理放在會員 Gate（含 liff.init()）結束之後（LINE 官方：URL 變更須在 liff.init() 完成後）
+      //       進站登入畫面顯示中時延到畫面關閉（顧客按 LINE 登入離開本頁時，返回網址仍保留直達參數）。
+      try{ if(_restockLink) Promise.resolve(_memberGateInitPromise).catch(()=>{}).then(()=>_restockWaitGateOverlay(0)).then((ok)=>{ if(ok && !_pageLeaving) _restockCleanupUrl(); }); }catch(e){}
+      // C5：會員 Gate 結束後（背景辨識可能已完成），補貨通知開啟紀錄補上已驗證會員
+      try{ Promise.resolve(_memberGateInitPromise).catch(()=>{}).then(()=>{ setTimeout(_restockReidentify, 0); }); }catch(e){}
       // fix18-05: 依 coupon_feature_enabled 顯示/隱藏優惠券區塊
       couponFeatureEnabled = shopData.coupon_feature_enabled === true;
       const couponAreaEl = document.getElementById('couponArea');
@@ -5785,7 +5879,7 @@ async function init(){
     document.getElementById('loading').style.display='none';
     document.getElementById('content').style.display='block';
     // R54.4／MBV2-HF1-C4：商品直達（背景執行，不阻擋首屏；不改購物車、姓名、日期、取餐方式）
-    try{ _initRestockDeepLink(); }catch(e){}
+    try{ _initRestockDeepLink(_memberGateInitPromise); }catch(e){}
     renderLastOrderCard();
     updateCutoffBanner();
     // fix18-10-hotfix23-A：page_view — 頁面初始化成功後記錄一次，同一 session 不重複
@@ -7654,12 +7748,24 @@ const DEMAND_COPY={
     consent:'商品恢復供應或開放預購時，透過 LINE 通知我。',
     submit:'送出補貨登記', submitSubscribe:'登記並訂閱通知',
     success:'已收到你的補貨登記，謝謝！', successSubscribe:'已登記並訂閱補貨通知，商品恢復供應或開放預購時會透過 LINE 通知你。' },
+  // R54.4／MBV2-HF1-C4.5：「登記即訂閱」模式（通知可用時才使用；顧客按下按鈕即為本次明確授權）
+  register:{ desc:'留下想買的份數與取餐偏好，商品恢復供應或開放預購時會透過 LINE 通知你一次。補貨時間尚未確定。',
+    promise:'送出即訂閱本商品補貨通知一次，可隨時取消。', submit:'登記並通知我', update:'更新登記',
+    subscribe:'訂閱補貨通知', resubscribe:'重新訂閱補貨通知', subscribeNote:'目前未訂閱此商品的補貨通知；按下方按鈕即訂閱一次，可隨時取消。',
+    modeChanged:'店家已更新補貨通知的訂閱方式，請確認下方說明後再送出。' },
   disclaimer:'登記不代表訂單成立，也不保留商品；補貨時間尚未確定，實際供應以下單時為準。',
   myList:'我的補貨登記', cancel:'取消補貨登記', revoke:'取消補貨通知（保留補貨登記）',
 };
 // 只有公開設定「已確認」時才使用通知文案；未知、失敗一律視為通知不可用
-function _demandCopy(){ return (_pdCfgState==='loaded' && _demandConfig.notify_available) ? DEMAND_COPY.notify : DEMAND_COPY.base; }
+function _demandCopy(){
+  if(!(_pdCfgState==='loaded' && _demandConfig.notify_available)) return DEMAND_COPY.base;
+  return _pdRegisterMode() ? Object.assign({}, DEMAND_COPY.notify, { desc:DEMAND_COPY.register.desc }) : DEMAND_COPY.notify;
+}
 function _pdNotifyAvailable(){ return _pdCfgState==='loaded' && _demandConfig.notify_available===true; }
+// C4.5：登記即訂閱（只有通知可用時才生效；發送總開關關閉或設定不完整時不顯示任何會收到通知的承諾）
+function _pdRegisterMode(){ return _pdNotifyAvailable() && _demandConfig.subscribe_mode==='register_subscribe'; }
+// 店家切換訂閱方式（送出時伺服器回 409）：重新讀取公開設定，保留表單輸入，不自動勾選或授權
+function _pdRefetchConfig(){ _pdCfgPromise=null; return _pdStartConfigFetch(); }
 // 公開設定讀取（最多重試 2 次；4xx 不重試）。完成後只局部更新入口。
 function _pdStartConfigFetch(){
   if(_pdCfgPromise) return _pdCfgPromise;
@@ -7673,7 +7779,10 @@ function _pdStartConfigFetch(){
         const r=await resp.json();
         if(resp.ok && r && r.success && r.data){
           _demandConfig={ enabled:!!r.data.enabled, notify_available:r.data.notify_available===true,
-            max_qty:Number(r.data.max_qty)||99, loaded:true, consent_text:String(r.data.consent_text||'') };
+            max_qty:Number(r.data.max_qty)||99, loaded:true, consent_text:String(r.data.consent_text||''),
+            // C4.5：訂閱方式（未知值回到「自行勾選」）與本次顯示的同意文案版本
+            subscribe_mode:r.data.subscribe_mode==='register_subscribe'?'register_subscribe':'opt_in',
+            consent_text_version:String(r.data.consent_text_version||'') };
           _pdCfgState='loaded'; break;
         }
         final=true;
@@ -8039,7 +8148,8 @@ function _renderDemandSheet(msg, isErr){
   if(q('#dmPlus')) q('#dmPlus').onclick=()=>{ st.qty=Math.min(max,st.qty+1); _renderDemandSheet(); };
   panel.querySelectorAll('input[name="dmPref"]').forEach(r=>{ r.onchange=()=>{ st.pref=r.value; }; });
   const c=q('#dmConsent'); if(c) c.onchange=()=>{ st.consent=!!c.checked; const sb=q('#dmSubmit'); if(sb) sb.textContent=_demandSubmitLabel(mine, st); };
-  if(q('#dmSubmit')) q('#dmSubmit').onclick=_submitDemand;
+  if(q('#dmSubmit')) q('#dmSubmit').onclick=()=>_submitDemand();
+  if(q('#dmSubscribe')) q('#dmSubscribe').onclick=()=>_submitDemand({ subscribe:true });
   if(q('#dmCancel')) q('#dmCancel').onclick=_cancelDemand;
   if(q('#dmRevoke')) q('#dmRevoke').onclick=_revokeDemandConsent;
 }
@@ -8054,11 +8164,20 @@ function _demandConsentHtml(mine, st){
   if(!_pdNotifyAvailable()) return '';
   const notified = mine && mine.restock_notify==='accepted' ? `<p class="dm-desc" id="dmNotifiedInfo" style="font-size:12px;color:#666">此登記的補貨通知已交由 LINE 處理，同一次登記只通知一次。</p>` : '';
   if(_demandConsentGranted(mine)) return `<p class="dm-consent" id="dmSubscribed" style="color:#06C755;font-weight:700">🔔 已訂閱補貨通知</p>${notified}`;
+  if(_pdRegisterMode()){
+    // 新登記：按「登記並通知我」即訂閱（不顯示勾選框）；既有未訂閱登記：另以明確的「訂閱／重新訂閱」按鈕授權
+    if(!mine) return `<p class="dm-consent" id="dmRegisterPromise" style="font-size:13px;color:#2e7d32">🔔 ${esc(DEMAND_COPY.register.promise)}</p>`;
+    const re = mine.notify_consent==='revoked' || mine.notify_consent==='reconfirm_required';
+    const note = mine.notify_consent==='reconfirm_required' ? '先前的通知設定需要重新確認。' : '';
+    return `<p class="dm-desc" id="dmSubscribeNote" style="font-size:12px;color:#666">${esc(note+DEMAND_COPY.register.subscribeNote)}</p>
+      <button type="button" class="dm-link" id="dmSubscribe" style="color:#06C755;font-weight:700" ${st.submitting?'disabled':''}>🔔 ${esc(re?DEMAND_COPY.register.resubscribe:DEMAND_COPY.register.subscribe)}</button>${notified}`;
+  }
   const note = mine && mine.notify_consent==='reconfirm_required' ? `<p class="dm-desc" id="dmReconfirmNote" style="font-size:12px;color:#b45309">先前的通知設定需要重新確認；如仍需要通知，請再勾選一次。</p>` : '';
   return `${note}<label class="dm-consent"><input type="checkbox" id="dmConsent" ${st.consent?'checked':''}> <span>${esc(_demandConfig.consent_text||DEMAND_COPY.notify.consent)}</span></label>${notified}`;
 }
 function _demandSubmitLabel(mine, st){
   if(!_pdNotifyAvailable()) return DEMAND_COPY.base.submit;
+  if(_pdRegisterMode()) return mine ? DEMAND_COPY.register.update : DEMAND_COPY.register.submit;
   if(_demandConsentGranted(mine)) return DEMAND_COPY.notify.submit;
   return st && st.consent ? DEMAND_COPY.notify.submitSubscribe : DEMAND_COPY.notify.submit;
 }
@@ -8156,23 +8275,54 @@ function _pdOpFail401(op){
   if(_pdOpOwnsSheet(op)) _renderDemandSheet();
   _refreshAllDemandRows();
 }
-async function _submitDemand(){
+async function _submitDemand(opts){
   const st=_demandSheetState; if(!st || st.submitting) return; // 重複點擊防護
   const ms=_currentMemberSession(); if(!ms){ _renderDemandSheet(); return; }
-  st.submitting=true; _renderDemandSheet('送出中…');
-  const payload={ member_session:ms, product_id:st.productId, desired_qty:st.qty, fulfillment_pref:st.pref };
-  // R54.4／MBV2-HF1-C4：只有顧客明確勾選才送出同意；未勾選不送此欄位（不會撤回、不會改變既有同意）
   const _mineBefore=_pdMine(st.productId);
-  const _subscribing=!!(_pdNotifyAvailable() && st.consent && !_demandConsentGranted(_mineBefore));
-  if(_subscribing) payload.notify_consent=true;
+  const subscribeOnly=!!(opts && opts.subscribe);
+  if(subscribeOnly && (!_mineBefore || !_pdNotifyAvailable())) return;
+  st.submitting=true; _renderDemandSheet('送出中…');
+  // C5.1「訂閱／重新訂閱」：獨立的同意操作（/api/product-demand/subscribe），只帶商品與登記週期（request_id），
+  // 不送出份數或取餐偏好（另一裝置剛修改的內容不會被本頁快取覆蓋）；後端在同一交易核對店別、會員、商品與週期。
+  const payload=subscribeOnly
+    ? { member_session:ms, product_id:st.productId, request_uuid:_mineBefore.request_uuid||undefined, request_id:_mineBefore.request_id }
+    : { member_session:ms, product_id:st.productId, desired_qty:st.qty, fulfillment_pref:st.pref };
+  // R54.4／MBV2-HF1-C4：只有顧客明確勾選才送出同意；未勾選不送此欄位（不會撤回、不會改變既有同意）
+  // C4.5：登記即訂閱 → 新登記按「登記並通知我」即為本次授權；既有登記只有明確按「訂閱／重新訂閱」才授權（修改份數不重新授權）
+  let _subscribing=false;
+  if(_pdNotifyAvailable() && !_demandConsentGranted(_mineBefore)){
+    if(subscribeOnly){ _subscribing=true; payload.consent_action='subscribe'; }
+    else if(_pdRegisterMode()){ if(!_mineBefore){ _subscribing=true; payload.consent_action='register_subscribe'; } }
+    else if(st.consent) _subscribing=true;
+  }
+  if(_subscribing){
+    payload.notify_consent=true;
+    payload.consent_mode=_demandConfig.subscribe_mode;
+    payload.consent_text_version=_demandConfig.consent_text_version;
+  }
   const op=_pdOpStart('register', st, ms);
   let after=null; // 異動結束、重新查詢後要在自己的表單顯示的錯誤
   try{
-    const resp=await apiFetch('/api/product-demand/register',{method:'POST',body:JSON.stringify(payload)});
+    const resp=await apiFetch(subscribeOnly?'/api/product-demand/subscribe':'/api/product-demand/register',{method:'POST',body:JSON.stringify(payload)});
     if(!_pdOpCurrent(op)) return _pdOpStale(op);
     const r=await resp.json().catch(()=>({}));
     if(!_pdOpCurrent(op)) return _pdOpStale(op);
     if(resp.status===401){ _pdOpFail401(op); return; }
+    if(subscribeOnly && resp.status===409 && r && r.code==='REQUEST_CHANGED'){
+      // C5.1：登記已在其他裝置變更、取消、過期或換成新週期 → 伺服器未寫入任何資料；重新讀取本人登記後提示
+      st.submitting=false; _pdMineNeedsRefresh=true; after=r.message||'這筆補貨登記已變更，請重新確認後再訂閱。';
+      if(_pdOpOwnsSheet(op)) _renderDemandSheet(after, true);
+      return;
+    }
+    if(resp.status===409 && r && r.code==='CONSENT_MODE_CHANGED'){
+      // C4.5：店家剛切換訂閱方式 → 伺服器未寫入任何資料。重新讀取設定後以新說明重畫「自己的」表單，
+      // 保留份數與取餐偏好，勾選框維持未勾（不代顧客同意），由顧客再次確認送出。
+      st.submitting=false; st.consent=false;
+      try{ await _pdRefetchConfig(); }catch(e){}
+      if(!_pdOpCurrent(op)) return _pdOpStale(op);
+      if(_pdOpOwnsSheet(op)) _renderDemandSheet(DEMAND_COPY.register.modeChanged, true);
+      return;
+    }
     if(!r || !r.success){
       st.submitting=false;
       const msg=(r&&r.message)||'登記失敗，請稍後再試';
@@ -8184,11 +8334,12 @@ async function _submitDemand(){
     // 只寫入「屬於本 session 且已確認」的本人資料；尚未確認時於異動結束後重新讀取完整清單
     if(_pdMineValid() && _myDemandsToken===ms) _myDemands[op.pid]=r.data.request;
     else _pdMineNeedsRefresh=true;
+    if(subscribeOnly) _pdMineNeedsRefresh=true; // C5.1：訂閱成功後重新取得最新登記（顯示伺服器上的份數與取餐偏好）
     const p=allProducts.find(x=>String(x.id)===op.pid);
     if(_pdOpOwnsSheet(op)) _closeDemandSheetQuiet();
     if(p) _refreshDemandRow(p);
     _refreshMyDemandsEntry();
-    toast(_subscribing && r.data.consent_outcome==='granted' ? DEMAND_COPY.notify.successSubscribe : _demandCopy().success);
+    toast(_subscribing && r.data.consent_outcome==='granted' ? (subscribeOnly ? '已訂閱補貨通知，同一次登記只通知一次，可隨時取消。' : DEMAND_COPY.notify.successSubscribe) : _demandCopy().success);
   }catch(e){
     if(!_pdOpCurrent(op)) return _pdOpStale(op);
     st.submitting=false; _pdMineNeedsRefresh=true; // 結果不明：異動結束後依伺服器狀態更新
@@ -8280,18 +8431,112 @@ function _restockHintText(){
   return `通知對應：${parts.join(' ')}。實際可選日期與取餐方式以點餐頁為準，請自行確認。`;
 }
 let _restockDeepLinkDone=false;
-async function _initRestockDeepLink(){
+let _restockRefPromise=null;
+// C4.5：一次導向頁的處理（見 _restockLiffPrimary）。回傳 true＝SDK 已導向，本頁不再初始化。
+function _restockMemoLiffInit(liff){
+  // 同一頁面只真正執行一次 liff.init()（之後會員 Gate 再呼叫時沿用同一個 Promise）
+  try{ if(!liff || liff.__c45InitMemo) return; const orig=liff.init.bind(liff); let p=null; liff.init=function(cfg){ if(!p) p=orig(cfg); return p; }; liff.__c45InitMemo=true; }catch(e){}
+}
+async function _restockLiffPrimaryRedirect(){
+  _rlDiag('primary_start');
+  const loadingText=(t)=>{ try{ const el=document.querySelector('#loading p'); if(el) el.textContent=t; }catch(e){} };
+  loadingText('正在開啟通知的商品…');
+  const withTimeout=(pr,ms,code)=>Promise.race([pr,new Promise((_,rej)=>setTimeout(()=>rej(new Error(code)),ms))]);
+  try{
+    _restockLinkDiag.shop_fetch++;
+    const sr=await withTimeout(apiFetch('/api/line-shop',{cache:'no-store'}).then(r=>r.json()),8000,'shop_timeout');
+    const liffId=sr && sr.success && sr.data && sr.data.line_member_liff_id;
+    if(!liffId) throw new Error('liff_not_configured');
+    const sdk=(window.LineMemberGate && typeof LineMemberGate.loadLiffSdk==='function') ? LineMemberGate.loadLiffSdk() : _popupRecoveryLiffSdkPromise();
+    const liff=await withTimeout(sdk,8000,'sdk_timeout');
+    if(!liff || typeof liff.init!=='function') throw new Error('sdk_unavailable');
+    _restockMemoLiffInit(liff);
+    _restockLinkDiag.liff_init++; _rlDiag('liff_init');
+    await withTimeout(liff.init({ liffId }),10000,'init_timeout');
+    _rlDiag('liff_init_done');
+    // SDK 完成初始化後會導向最終頁；等待離開本頁（最多 3 秒）
+    const left=await new Promise((resolve)=>{
+      if(_pageLeaving) return resolve(true);
+      const t0=Date.now();
+      const iv=setInterval(()=>{ if(_pageLeaving){ clearInterval(iv); resolve(true); } else if(Date.now()-t0>3000){ clearInterval(iv); resolve(false); } },50);
+    });
+    if(left){ _rlDiag('primary_redirected'); return true; }
+    throw new Error('no_redirect');
+  }catch(e){
+    if(_pageLeaving) return true;
+    _restockLinkDiag.fallback=String((e && e.message) || 'error').slice(0,40); _rlDiag('primary_fallback');
+    try{ _restockLink=_parseRestockLinkParams(_restockLiffPrimary.inner); }catch(e2){}
+    loadingText('載入中…');
+    return false;
+  }
+}
+function _restockStartRefFetch(){
+  if(_restockRefPromise || !_restockLink || _restockLink.invalid || !_restockLink.ref) return;
+  if(_pageNeedsIdentityRestore()) return;
+  _restockLinkDiag.product_ref_fetch++; _rlDiag('product_ref_fetch');
+  _restockRefPromise=apiFetch('/api/product-demand/product-ref?ref='+encodeURIComponent(_restockLink.ref),{cache:'no-store'})
+    .then(x=>x.json()).then(j=>({ ok:true, json:j })).catch(()=>({ ok:false }));
+}
+// ── R54.4／MBV2-HF1-C5.1：本次頁面載入屬於「同一次開啟的延續」還是「使用者新的一次開啟」──
+//   reload／back_forward（重新整理、返回）與 LINE 登入返回（line_gate_return，或 LIFF 登入回呼的 code＋liffClientId）
+//   → 同一次開啟：沿用原開啟識別、不重複自動開啟商品、不新增點擊。
+//   其他（navigate：使用者再次點選通知連結、LIFF 一次→二次導向後的最終頁）→ 新的一次開啟：新識別、伺服器時間另計一次點擊。
+//   LIFF 一次導向頁不記錄點擊（只在最終頁實際開啟商品後記錄），所以必要導向只形成一次有效開啟。
+const _restockNavKind=(function(){
+  try{ const u=new URL(location.href); if(u.searchParams.has('line_gate_return') || (u.searchParams.has('code') && u.searchParams.has('liffClientId'))) return 'continue'; }catch(e){}
+  try{ const en=performance.getEntriesByType && performance.getEntriesByType('navigation'); const t=en && en[0] && en[0].type; if(t) return t; }catch(e){}
+  try{ const t=performance.navigation && performance.navigation.type; if(t===1) return 'reload'; if(t===2) return 'back_forward'; }catch(e){}
+  return 'navigate';
+})();
+function _restockIsContinuation(){ return _restockNavKind==='reload' || _restockNavKind==='back_forward' || _restockNavKind==='continue'; }
+// 同一分頁內，同一次開啟的重新整理／返回／登入返回不再重複開啟商品（去重範圍含通知批次 rt，不同批次的相同商品不互相擋住）
+const RESTOCK_OPENED_KEY='restock_link_opened_'+LINE_STORE_ID;
+function _restockLinkKey(){ return _restockLink ? [_restockLink.rt||'',_restockLink.ref,_restockLink.mode,_restockLink.date].join('|') : ''; }
+function _restockAlreadyOpened(){
+  if(!_restockIsContinuation()) return false; // 使用者新的一次開啟：一律開啟
+  try{ const o=JSON.parse(sessionStorage.getItem(RESTOCK_OPENED_KEY)||'null'); return !!(o && o.k===_restockLinkKey() && Date.now()-Number(o.at)<30*60*1000); }catch(e){ return false; }
+}
+function _restockMarkOpened(){ try{ sessionStorage.setItem(RESTOCK_OPENED_KEY, JSON.stringify({ k:_restockLinkKey(), at:Date.now() })); }catch(e){} }
+// 會員 Gate 可能帶顧客離開本頁（LINE 登入）時，等 Gate 結束且登入畫面關閉後才開啟商品，
+// 避免「先開商品、登入導向、回來又開一次」。一般首屏不受影響（商品列表早已顯示）。
+function _restockGateMayIntercept(){
+  try{ const c=_lineMemberGateConfig; return !!(c && c.liff_id && c.gate_enabled && c.gate_mode==='entry' && !LineMemberGate.getMemberSession(LINE_STORE_ID)); }catch(e){ return false; }
+}
+function _restockWaitGateOverlay(maxMs){
+  return new Promise((resolve)=>{
+    const t0=Date.now();
+    const tick=()=>{
+      if(_pageLeaving) return resolve(false);
+      if(!document.getElementById('lineMemberGate')) return resolve(true);
+      if(maxMs && Date.now()-t0>maxMs) return resolve(true);
+      setTimeout(tick,200);
+    };
+    tick();
+  });
+}
+async function _initRestockDeepLink(gatePromise){
   if(_restockDeepLinkDone || !_restockLink) return;
   _restockDeepLinkDone=true;
   if(_pageNeedsIdentityRestore()) return; // Recovery／Handoff 還原優先，不同時開啟商品
   if(_restockLink.invalid || !_restockLink.ref){ _restockNotice('通知連結無效，請直接從商品列表查看。'); return; }
-  let res=null;
-  try{ res=await apiFetch('/api/product-demand/product-ref?ref='+encodeURIComponent(_restockLink.ref),{cache:'no-store'}).then(x=>x.json()); }
-  catch(e){ _restockNotice('暫時無法開啟通知的商品，請稍後再試或直接從商品列表查看。'); return; }
+  if(_restockAlreadyOpened()){ _rlDiag('already_opened'); return; }
+  _restockNotice('正在開啟通知的商品…');
+  _restockStartRefFetch();
+  if(gatePromise && _restockGateMayIntercept()){
+    _rlDiag('wait_gate');
+    try{ await Promise.race([Promise.resolve(gatePromise).catch(()=>{}), new Promise(r=>setTimeout(r,8000))]); }catch(e){}
+    if(_pageLeaving) return;
+    if(!(await _restockWaitGateOverlay(0))) return; // 顧客按登入離開本頁：返回後的最終頁才開啟
+  }
+  if(_pageLeaving) return;
+  const rr=_restockRefPromise ? await _restockRefPromise : { ok:false };
+  if(_pageLeaving) return;
+  if(!rr.ok){ _restockNotice('暫時無法開啟通知的商品，請稍後再試或直接從商品列表查看。'); return; }
+  const res=rr.json;
   const d=res && res.success && res.data;
   const p=d && d.found ? (allProducts||[]).find(x=>String(x.id)===String(d.product_id)) : null;
   if(!p){
-    _restockNotice('通知的商品目前未在 LINE 點餐頁提供（可能已停售、隱藏或下架）。');
+    _restockNotice('通知的商品目前未在 LINE 點餐頁提供（可能已停售、隱藏或下架），你可以繼續瀏覽其他商品。');
     return;
   }
   const name=p.effective_line_name||p.line_name||p.name;
@@ -8303,8 +8548,73 @@ async function _initRestockDeepLink(){
     const lbl=v.preorderFullBlocked?'預購已滿':((v.manualBlocked||v.ss==='sold_out_today')?v.soldLbl:'目前無法訂購');
     _restockNotice(`「${name}」${lbl}，目前無法加入購物車。實際供應以系統為準。${hint?' '+hint:''}`);
   } else if(hint) _restockNotice(`已為你開啟「${name}」。${hint}`);
+  else { const n=document.getElementById('restockNotice'); if(n) n.remove(); }
   try{ const card=document.getElementById('pc-'+p.id); if(card && card.scrollIntoView) card.scrollIntoView({block:'center'}); }catch(e){}
+  _restockMarkOpened();
+  _restockLinkDiag.product_open++; _rlDiag('product_open');
   openProductDetail(p.id);
+  // C5：最終頁實際開啟目標商品後才記錄「點擊」（GET 連結、網址預覽、讀取商品資料都不算）
+  try{ if(_restockLink.rt) _restockTrackOpen(Number(p.id)); }catch(e){}
+}
+// ── R54.4／MBV2-HF1-C5：補貨通知成效追蹤（前端只回報「實際開啟」與「通知商品的加購」；訂單與成交由後端判定）──
+//   open_key：同一則連結在本分頁的開啟識別（必要導向、重新整理、事件重送沿用同一個），只供後端去重。
+//   會員只以後端驗證的 member_session 為準；背景辨識稍後完成時，以同一 open_key 補送一次。
+//   追蹤失敗一律忽略，不影響瀏覽、加購、下單或付款；追蹤識別不送往第三方 Analytics。
+let _restockAttr=null; // { rt, open_key, product_id, member, owner }
+function _rtUuid(){ try{ if(window.crypto && crypto.randomUUID) return crypto.randomUUID().replace(/-/g,''); }catch(e){} return (Date.now().toString(36)+Math.random().toString(36).slice(2)+Math.random().toString(36).slice(2)).slice(0,32); }
+const RESTOCK_ATTR_KEY='restock_attr_'+LINE_STORE_ID; // 店別隔離：鍵含店別
+try{ const a=JSON.parse(sessionStorage.getItem(RESTOCK_ATTR_KEY)||'null'); if(a && a.rt && a.open_key && a.product_id){ if(a.owner===undefined) a.owner=a.member||''; _restockAttr=a; } }catch(e){}
+function _restockSaveAttr(){ try{ if(_restockAttr) sessionStorage.setItem(RESTOCK_ATTR_KEY, JSON.stringify(_restockAttr)); else sessionStorage.removeItem(RESTOCK_ATTR_KEY); }catch(e){} }
+// C5.1：追蹤狀態只屬於開啟當時（或背景辨識補上）的會員。登出或換成另一位會員 → 隔離（不再附帶到加購），
+// 伺服器上的歷史點擊／加購不刪除。匿名開啟後才辨識的會員可補認同一次開啟（後端只補「尚無會員」的紀錄）。
+function _restockAttrUsable(){
+  const a=_restockAttr; if(!a) return null;
+  const ms=_currentMemberSession()||'';
+  if(a.owner && a.owner!==ms){ _restockAttr=null; _restockSaveAttr(); return null; }
+  return a;
+}
+let _restockOpenKeyThisPage=null; // 本次頁面載入的開啟識別（同一頁內重複呼叫沿用）
+function _restockTrackOpen(pid){
+  const rt=_restockLink && _restockLink.rt; if(!rt) return;
+  const K='restock_open_'+LINE_STORE_ID+'_'+rt;
+  let rec=null;
+  try{ const raw=sessionStorage.getItem(K)||''; if(raw){ try{ rec=JSON.parse(raw); }catch(e){ rec={ k:raw }; } } }catch(e){}
+  let key=_restockOpenKeyThisPage;
+  if(!key) key=(_restockIsContinuation() && rec && rec.k) ? rec.k : _rtUuid(); // 新的一次開啟 → 新識別（伺服器另計一次點擊）
+  _restockOpenKeyThisPage=key;
+  try{ sessionStorage.setItem(K, JSON.stringify({ k:key, at:Date.now() })); }catch(e){}
+  const ms=_currentMemberSession()||'';
+  const prev=_restockAttr;
+  // 同一次開啟（相同識別）沿用已確認的會員；新的開啟以目前會員為擁有者
+  const same=prev && prev.open_key===key && prev.rt===rt;
+  _restockAttr={ rt, open_key:key, product_id:Number(pid), member:same?(prev.member||''):'', owner:same&&prev.owner?prev.owner:ms };
+  if(_restockAttr.owner && _restockAttr.owner!==ms){ _restockAttr=null; _restockSaveAttr(); return; }
+  _restockSaveAttr();
+  _restockSendOpen();
+}
+function _restockSendOpen(){
+  const a=_restockAttr; if(!a) return;
+  const ms=_currentMemberSession()||'';
+  if(a.owner && a.owner!==ms) return;
+  const body={ rt:a.rt, product_id:a.product_id, open_key:a.open_key, visitor_id:_getVisitorId(), session_id:_getSessionId() };
+  if(ms) body.member_session=ms;
+  const sent=ms;
+  // 送出會員補認的當下即把這次開啟歸屬給該會員（伺服器可能已綁定，即使回應遺失或延後）：之後換成其他會員就隔離
+  if(sent && !a.owner){ a.owner=sent; _restockSaveAttr(); }
+  // 回應（成功、失敗或延後讀完）都重新核對：仍是同一次開啟、同一位會員，才記錄已補認
+  apiFetch('/api/product-demand/track/open',{ method:'POST', body:JSON.stringify(body), keepalive:true })
+    .then(r=>{ if(_restockAttr!==a || (_currentMemberSession()||'')!==sent) return null; return r.json(); })
+    .then(j=>{ if(!j || !j.success || !sent) return; if(_restockAttr!==a || (_currentMemberSession()||'')!==sent) return; a.member=sent; if(!a.owner) a.owner=sent; _restockSaveAttr(); })
+    .catch(()=>{});
+}
+// 會員辨識完成（背景辨識、登入返回、驗證成功）後：匿名開啟補送一次會員（後端只補「尚無會員」的紀錄）；
+// 已屬於另一位會員或已登出 → 隔離追蹤狀態（不改綁、不冒用）。
+function _restockReidentify(){
+  try{
+    const a=_restockAttrUsable(); if(!a) return;
+    const ms=_currentMemberSession();
+    if(ms && (!a.owner || a.owner===ms) && a.member!==ms) _restockSendOpen();
+  }catch(e){}
 }
 function updateBar(){
   const subtotal=getCartProductSubtotal();

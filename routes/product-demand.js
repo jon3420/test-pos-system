@@ -14,19 +14,21 @@
 //   GET   /summary                   商品需求清單（有效登記人數、期望總份數）
 //   GET   /products/:id              單一商品登記明細
 //   PATCH /products/:id/collect      個別商品開關需求收集 { enabled }
-//   PATCH /settings                  { enabled, ttl_days, notify_enabled }
+//   PATCH /settings                  { enabled, ttl_days, notify_enabled, subscribe_mode }（C4.5：subscribe_mode＝opt_in｜register_subscribe）
 //   GET   /snapshot[?product_id=]    （C4.2）唯讀整合：總表＋通知能力＋（選定商品）明細與批次，同一資料時點
 //
 // R54.4／MBV2-HF1-C4 補貨通知（同一個 adminRouter，沿用 requireStaffJwt＋line_order；store 只信任 JWT）：
 //   GET   /restock/capability                 通知能力、必要設定是否完整、啟用狀態
 //   PATCH /restock/settings                   { send_enabled }（預設關閉）
+//   GET   /restock/date-options?product_id=&fulfillment_mode=[&date=]  （C4.5）唯讀日期檢查（不建立批次）
 //   POST  /restock/preview                    { product_id, fulfillment_mode, supply_date } → 伺服器計算名單並保存批次
 //   POST  /restock/batches/:uuid/confirm      店家確認發送（原子轉移；重複呼叫不會重複建立）
 //   POST  /restock/batches/:uuid/resume       明確續送（沿用原逐筆紀錄與 retry key）
 //   POST  /restock/batches/:uuid/cancel       取消尚未送出的項目
 //   GET   /restock/batches[?product_id=]      批次清單與進度
 //   GET   /restock/batches/:uuid              批次明細（重新整理後仍可查）
-// 顧客端新增：GET /product-ref?ref=<product_uuid>（商品直達：以穩定識別取得目前公開商品 ID）
+// 顧客端新增：GET /product-ref?ref=<product_uuid>（商品直達：以穩定識別取得目前公開商品 ID；讀取商品資料不計為點擊）
+// C5：POST /track/open { rt, product_id, open_key, visitor_id, session_id[, member_session] }（最終頁實際開啟商品後）
 //
 // 登記、訂閱與通知都不建立訂單、不收款、不更動任何額度欄位。
 // 只有店家按「確認發送」／「續送」才會透過 utils/linePush.js 呼叫 LINE。
@@ -57,7 +59,10 @@ const publicRouter = express.Router();
 publicRouter.get('/config', (req, res) => {
   try {
     const c = PD.getConfig(getDb(), req.storeId);
+    res.set('Cache-Control', 'no-store');
     res.json({ success: true, data: { enabled: c.enabled, max_qty: c.max_qty, ttl_days: c.ttl_days, notify_available: c.notify_available,
+      // C4.5：訂閱方式（通知不可用時前端不顯示任何「會收到通知」的承諾）
+      subscribe_mode: c.subscribe_mode,
       consent_text: c.notify_available ? c.consent_text : '', consent_text_version: c.notify_available ? c.consent_text_version : '' } });
   } catch (e) { sendErr(res, e, 'config'); }
 });
@@ -65,6 +70,21 @@ publicRouter.get('/config', (req, res) => {
 publicRouter.get('/product-ref', (req, res) => {
   try { res.json({ success: true, data: RN.resolveProductRef(getDb(), req.storeId, req.query.ref) }); }
   catch (e) { sendErr(res, e, 'product-ref'); }
+});
+// R54.4／MBV2-HF1-C5：補貨通知商品「實際開啟」紀錄（最終點餐頁成功開啟目標商品後才送出）。
+//   rt＝批次追蹤識別（只對應店別＋批次＋商品，不具任何權限）；open_key＝同一次開啟的去重識別。
+//   會員只信任後端驗證的 member_session（可稍後以同一 open_key 補送，只補「尚無會員」的紀錄）。
+//   回應只有 tracked（不揭露批次是否存在、收件人或名單）。失敗不影響瀏覽。
+publicRouter.post('/track/open', (req, res) => {
+  try {
+    const b = req.body || {};
+    const ms = typeof b.member_session === 'string' && b.member_session ? b.member_session : null;
+    let uid = null;
+    if (ms) { try { uid = verifyMemberSession(ms, req.storeId) || null; } catch { uid = null; } }
+    const r = require('../utils/restockTracking').recordOpen(getDb(), req.storeId, b, uid);
+    res.set('Cache-Control', 'no-store');
+    res.json({ success: true, data: { tracked: !!r.tracked } });
+  } catch (e) { console.warn('[product-demand] track open:', e && e.message); res.json({ success: true, data: { tracked: false } }); }
 });
 publicRouter.post('/mine', (req, res) => {
   try {
@@ -79,9 +99,21 @@ publicRouter.post('/register', (req, res) => {
     const b = req.body || {};
     const r = PD.register(getDb(), req.storeId, uid, {
       product_id: b.product_id, desired_qty: b.desired_qty, fulfillment_pref: b.fulfillment_pref, notify_consent: b.notify_consent,
+      consent_mode: b.consent_mode, consent_action: b.consent_action, consent_text_version: b.consent_text_version,
     });
     res.json({ success: true, data: r });
   } catch (e) { sendErr(res, e, 'register'); }
+});
+// C5.1／C5.2：POST /subscribe { member_session, product_id, request_uuid（C5.2）| request_id（C5.1 頁面）, consent_mode, consent_text_version }
+//   只新增本週期的通知同意；不更新份數、取餐偏好、有效期限或登記週期（見 utils/productDemand.js subscribe）
+publicRouter.post('/subscribe', (req, res) => {
+  try {
+    const uid = identify(req, res); if (!uid) return;
+    const b = req.body || {};
+    res.json({ success: true, data: PD.subscribe(getDb(), req.storeId, uid, {
+      product_id: b.product_id, request_uuid: b.request_uuid, request_id: b.request_id, consent_mode: b.consent_mode, consent_text_version: b.consent_text_version,
+    }) });
+  } catch (e) { sendErr(res, e, 'subscribe'); }
 });
 publicRouter.post('/cancel', (req, res) => {
   try {
@@ -151,6 +183,13 @@ adminRouter.patch('/restock/settings', (req, res) => {
     res.json({ success: true, data: RN.setSendEnabled(getDb(), req.storeId, en) });
   } catch (e) { sendErr(res, e, 'restock settings'); }
 });
+// R54.4／MBV2-HF1-C4.5：選日期時的唯讀檢查（員工 JWT＋店別只信任 JWT；不建立批次、不寫入）
+adminRouter.get('/restock/date-options', (req, res) => {
+  try {
+    res.set('Cache-Control', 'no-store');
+    res.json({ success: true, data: RN.dateOptions(getDb(), req.storeId, req.query || {}) });
+  } catch (e) { sendErr(res, e, 'restock date-options'); }
+});
 adminRouter.post('/restock/preview', (req, res) => {
   try {
     const b = req.body || {};
@@ -180,4 +219,19 @@ adminRouter.get('/restock/batches/:uuid', (req, res) => {
   catch (e) { sendErr(res, e, 'restock detail'); }
 });
 
-module.exports = { publicRouter, adminRouter };
+// ── R54.4／MBV2-HF1-C5：補貨通知成效（掛在 /api/analytics/restock-notify；requireStaffJwt＋reports）────────
+//   GET  /summary?from=&to=&product_id=&mode=&batch_uuid=   以通知批次為群體的漏斗（唯讀）
+//   POST /reconcile { days }                                  補登：重算尚無歸因的 LINE 會員訂單（可重跑，不重複計算）
+const reportRouter = express.Router();
+reportRouter.get('/summary', (req, res) => {
+  try {
+    res.set('Cache-Control', 'no-store');
+    res.json({ success: true, data: require('../utils/restockTracking').summary(getDb(), req.storeId, req.query || {}) });
+  } catch (e) { sendErr(res, e, 'restock summary'); }
+});
+reportRouter.post('/reconcile', (req, res) => {
+  try { res.json({ success: true, data: require('../utils/restockTracking').reconcileOrders(getDb(), req.storeId, req.body || {}) }); }
+  catch (e) { sendErr(res, e, 'restock reconcile'); }
+});
+
+module.exports = { publicRouter, adminRouter, reportRouter };

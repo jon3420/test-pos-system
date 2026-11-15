@@ -214,6 +214,8 @@ const AV2_TABS = [
   // R5.1-B 的 /api/analytics/geo/* API，本檔案（analytics-v2.js）只負責
   // 頁籤註冊與 dispatch，實際渲染邏輯在 public/js/geo-intelligence.js。
   ['geo', '🌍 Geo Analytics'],
+  // R54.4／MBV2-HF1-C5：補貨通知成效（沿用本頁生命週期與報表權限；資料來自 /api/analytics/restock-notify，員工 JWT＋reports）
+  ['restock', '🔔 補貨通知成效'],
 ];
 function _av2RenderTabs() {
   const el = document.getElementById('av2-tabs');
@@ -225,6 +227,7 @@ function _av2RenderTabs() {
 }
 // 頁籤切換只重畫 #av2-body，不重新整頁、不重新呼叫 API（除非目前沒有任何資料）
 function av2SwitchTab(tab) {
+  if (av2Tab === 'restock' && tab !== 'restock' && typeof av2RsInvalidate === 'function') av2RsInvalidate('leave'); // C5.1
   av2Tab = tab;
   _av2RenderTabs();
   if (_av2LastData) av2Render(_av2LastData);
@@ -294,6 +297,7 @@ function av2Render(data) {
   else if (av2Tab === 'visitor360') html = _av2Safe(() => _av2RenderVisitor360Audience(), 'Visitor 360');
   else if (av2Tab === 'crm_action_center') html = _av2Safe(() => _av2RenderCrmActionCenter(), 'CRM Action Center');
   else if (av2Tab === 'geo') html = _av2Safe(() => _av2RenderGeoTab(), 'Geo Analytics');
+  else if (av2Tab === 'restock') html = _av2Safe(() => _av2RenderRestockTab(), '補貨通知成效');
   body.innerHTML = html;
   // fix18-10-hotfix31-R4：_av2AudienceEnsureLoaded() 必須在 body.innerHTML 真的
   // 寫入 #av2-audience-body 之後才呼叫——先前寫在 body.innerHTML 賦值「之前」，
@@ -304,6 +308,198 @@ function av2Render(data) {
   // fix18-10-hotfix30-B5-R5.1-C：同樣的教訓——Geo 分頁的 lazy load 也必須在
   // body.innerHTML 真正掛載 #av2-geo-body/#av2-geo-alerts-body 之後才觸發。
   if (av2Tab === 'geo') _av2GeoEnsureLoaded();
+  if (av2Tab === 'restock') av2RsLoad('enter');
+}
+
+// ══════════════════════════════════════════════════════════════════════
+//  R54.4／MBV2-HF1-C5：🔔 補貨通知成效
+//   - 以「通知批次」為群體：篩選批次確認日期（台北）、商品、取餐方式、批次；分子分母同一群體，不混用事件日期。
+//   - 同一時間只保留最新一次查詢：較早或已切換篩選的回應一律丟棄（序號＋中止），失敗保留上次結果並提示。
+//   - 分母為 0 顯示「—」；C5 以前沒有追蹤識別的批次顯示「未建立追蹤／無資料」（不是 0）。
+// ══════════════════════════════════════════════════════════════════════
+// C5.1：店別、登入身分與頁面生命週期保護
+//   - 每次查詢記錄 { 店別＋登入身分（owner）、生命週期 life、序號 }；取得回應、讀完回應內容、錯誤處理時都核對，
+//     任何一項改變（切店、換登入、登出、離開分頁／頁面）→ 丟棄，不寫入資料也不改畫面。
+//   - 快取資料屬於明確的 owner；畫面只顯示目前 owner 的資料。「失敗保留上次結果」只在同一 owner 下成立。
+//   - 401／403：清除不應再顯示的資料。owner 只在記憶體比較，不寫入任何紀錄或診斷。
+//   - 總計與明細分頁分開：換頁只取新的明細頁，總計由伺服器依完整篩選範圍計算。
+const _av2Rs = { seq: 0, ctl: null, data: null, dataOwner: null, error: '', loading: false, life: 0,
+  f: { from: '', to: '', product_id: '', mode: '', batch_uuid: '', page: 1, page_size: 50 }, init: false };
+function _av2RsOwner() {
+  let sid = '';
+  try { sid = (window.currentStore && window.currentStore.store_id) || JSON.parse(localStorage.getItem('pos_store_info') || '{}').store_id || ''; } catch (e) { sid = ''; }
+  let tok = '';
+  try { tok = (typeof getToken === 'function' ? getToken() : '') || ''; } catch (e) { tok = ''; }
+  return String(sid) + '|' + String(tok);
+}
+function _av2RsPageActive() {
+  if (av2Tab !== 'restock') return false;
+  const pg = document.getElementById('page-analytics_v2');
+  return !pg || pg.classList.contains('active') || pg.style.display === 'block';
+}
+// 離開分頁／頁面、登出、切換店別或登入身分時呼叫：中止進行中的查詢並使舊請求失效
+function av2RsInvalidate(reason) {
+  _av2Rs.life++; _av2Rs.seq++;
+  if (_av2Rs.ctl) { try { _av2Rs.ctl.abort(); } catch (e) {} }
+  _av2Rs.ctl = null; _av2Rs.loading = false;
+  if (reason === 'identity' || reason === 'auth') { _av2Rs.data = null; _av2Rs.dataOwner = null; _av2Rs.error = ''; }
+}
+// 快取只屬於明確的 owner；owner 已改變 → 不再顯示（也不作為「上次結果」）
+function _av2RsSyncOwner() {
+  if (_av2Rs.dataOwner !== null && _av2Rs.dataOwner !== _av2RsOwner()) { _av2Rs.data = null; _av2Rs.dataOwner = null; _av2Rs.error = ''; }
+}
+function _av2RsDefaults() {
+  if (_av2Rs.init) return;
+  _av2Rs.init = true;
+  const t = (typeof twTodayStr === 'function') ? twTodayStr() : new Date().toISOString().slice(0, 10);
+  const [y, m, d] = t.split('-').map(Number);
+  const from = new Date(Date.UTC(y, m - 1, d - 29)).toISOString().slice(0, 10);
+  _av2Rs.f.from = from; _av2Rs.f.to = t;
+}
+function _av2RsPct(v) { return v == null ? '—' : `${v}%`; }
+function _av2RsNum(v) { return v == null ? '—' : String(v); }
+function _av2RsMoney(v) { return v == null ? '—' : `$${Number(v).toLocaleString('zh-TW', { maximumFractionDigits: 2 })}`; }
+function _av2RenderRestockTab() {
+  _av2RsDefaults();
+  _av2RsSyncOwner();
+  const f = _av2Rs.f;
+  // C5.1：商品選項來自伺服器（本店所有已確認批次的商品），不只當頁批次
+  const prods = new Map(); ((_av2Rs.data && _av2Rs.data.product_options) || []).forEach(o => prods.set(String(o.product_id), o.product_name));
+  if (f.product_id && !prods.has(String(f.product_id))) prods.set(String(f.product_id), `商品 #${f.product_id}`);
+  const inp = 'padding:5px 8px;border-radius:8px;border:1px solid var(--border);background:var(--bg-card);color:var(--text-primary);font-size:.8rem';
+  return _section('🔔 補貨通知成效', `
+    <div id="av2-rs-filters" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:.8rem;margin-bottom:10px">
+      <span style="color:var(--text-secondary)">通知批次日期</span>
+      <input type="date" id="av2-rs-from" value="${escHtml(f.from)}" style="${inp}"><span>～</span><input type="date" id="av2-rs-to" value="${escHtml(f.to)}" style="${inp}">
+      <select id="av2-rs-product" style="${inp}"><option value="">全部商品</option>${[...prods].map(([id, n]) => `<option value="${escHtml(id)}" ${String(f.product_id) === id ? 'selected' : ''}>${escHtml(n || ('#' + id))}</option>`).join('')}</select>
+      <select id="av2-rs-mode" style="${inp}"><option value="">全部取餐方式</option><option value="takeout" ${f.mode === 'takeout' ? 'selected' : ''}>外帶自取</option><option value="delivery" ${f.mode === 'delivery' ? 'selected' : ''}>外送</option></select>
+      ${f.batch_uuid ? `<span id="av2-rs-batch-chip" style="padding:3px 8px;border:1px solid var(--border);border-radius:8px">單一批次 <button type="button" onclick="av2RsClearBatch()" style="border:none;background:transparent;color:var(--text-secondary);cursor:pointer">✕</button></span>` : ''}
+      <button type="button" onclick="av2RsApply()" style="padding:6px 14px;border-radius:8px;background:var(--success);border:none;color:#111;font-weight:700;cursor:pointer">🔍 查詢</button>
+    </div>
+    <div id="av2-rs-body">${_av2RsBodyHtml()}</div>`);
+}
+function _av2RsBodyHtml() {
+  _av2RsSyncOwner();
+  if (_av2Rs.loading && !_av2Rs.data) return '<div style="color:var(--text-secondary);padding:12px">載入中...</div>';
+  if (_av2Rs.error && !_av2Rs.data) return `<div style="color:var(--danger);padding:12px" id="av2-rs-error">${escHtml(_av2Rs.error)} <button type="button" onclick="av2RsLoad('retry')">重新載入</button></div>`;
+  const d = _av2Rs.data;
+  if (!d) return '';
+  const t = d.totals || {};
+  const warn = _av2Rs.error ? `<div style="color:var(--danger);font-size:.8rem;margin-bottom:6px" id="av2-rs-error">更新失敗，顯示上次結果：${escHtml(_av2Rs.error)}</div>` : '';
+  const kpi = (label, v, id) => `<div class="analytics-kpi-card" style="padding:10px 12px;border:1px solid var(--border);border-radius:10px;min-width:120px"><div style="font-size:.75rem;color:var(--text-secondary)">${label}</div><div style="font-size:1.15rem;font-weight:700" id="${id}">${v}</div></div>`;
+  const kpis = `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+      ${kpi('LINE 已受理（有追蹤批次）', _av2RsNum(t.tracked_accepted_people), 'av2-rs-k-accepted')}
+      ${kpi('已核對點擊（人／次）', t.click_people == null ? '—' : `${t.click_people}／${t.click_count}`, 'av2-rs-k-click')}
+      ${kpi('對應商品加購人數', _av2RsNum(t.add_people), 'av2-rs-k-add')}
+      ${kpi('下單人數', _av2RsNum(t.order_people), 'av2-rs-k-order')}
+      ${kpi('有效成交人數', _av2RsNum(t.deal_people), 'av2-rs-k-deal')}
+      ${kpi('去重訂單數（有效／成交）', t.orders == null ? '—' : `${t.orders}／${t.deal_orders}`, 'av2-rs-k-orders')}
+      ${kpi('補貨商品金額', _av2RsMoney(t.amount), 'av2-rs-k-amount')}
+      ${kpi('點擊率', _av2RsPct(t.ctr), 'av2-rs-k-ctr')}
+      ${kpi('點擊後加購率', _av2RsPct(t.add_rate), 'av2-rs-k-addrate')}
+      ${kpi('點擊後成交率', _av2RsPct(t.click_deal_rate), 'av2-rs-k-clickdeal')}
+      ${kpi('通知成交率', _av2RsPct(t.notify_deal_rate), 'av2-rs-k-notifydeal')}
+    </div>`;
+  const rows = (d.batches || []).map(b => b.tracked ? `<tr data-batch="${escHtml(b.batch_uuid)}">
+      <td>${escHtml(fmtDemandTimeSafe(b.confirmed_at))}</td><td>${escHtml(b.product_name || '')}</td><td>${escHtml(b.supply_date)}・${b.fulfillment_mode === 'delivery' ? '外送' : '外帶自取'}</td>
+      <td class="rs-acc">${b.accepted_people}</td><td class="rs-click">${b.click_people}／${b.click_count}</td><td class="rs-add">${b.add_people}</td><td class="rs-order">${b.order_people}</td>
+      <td class="rs-deal">${b.deal_people}</td><td class="rs-orders">${b.orders}／${b.deal_orders}</td><td class="rs-amount">${_av2RsMoney(b.amount)}</td>
+      <td class="rs-ctr">${_av2RsPct(b.ctr)}</td><td class="rs-addrate">${_av2RsPct(b.add_rate)}</td><td class="rs-clickdeal">${_av2RsPct(b.click_deal_rate)}</td><td class="rs-notifydeal">${_av2RsPct(b.notify_deal_rate)}</td>
+      <td class="rs-other">${b.other_opens}</td></tr>`
+    : `<tr data-batch="${escHtml(b.batch_uuid)}" class="rs-untracked"><td>${escHtml(fmtDemandTimeSafe(b.confirmed_at))}</td><td>${escHtml(b.product_name || '')}</td><td>${escHtml(b.supply_date)}・${b.fulfillment_mode === 'delivery' ? '外送' : '外帶自取'}</td>
+      <td class="rs-acc">${b.accepted_people}</td><td colspan="11" style="color:var(--text-secondary)">未建立追蹤／無資料（C5 之前發送的批次，不推測歷史成效）</td></tr>`).join('');
+  const pg = d.page || null;
+  const pager = pg && pg.total_batches > 0 ? `<div id="av2-rs-pager" style="display:flex;gap:8px;align-items:center;font-size:.78rem;margin:6px 0">
+      <span id="av2-rs-pageinfo">共 ${pg.total_batches} 個批次・第 ${pg.page}／${pg.total_pages} 頁（總計依完整篩選範圍計算，不受分頁影響）</span>
+      <button type="button" id="av2-rs-prev" ${pg.page <= 1 ? 'disabled' : ''} onclick="av2RsPage(${pg.page - 1})">上一頁</button>
+      <button type="button" id="av2-rs-next" ${pg.page >= pg.total_pages ? 'disabled' : ''} onclick="av2RsPage(${pg.page + 1})">下一頁</button>
+      <select id="av2-rs-pagesize" onchange="av2RsPageSize(this.value)">${[20, 50, 100, 200].map(n => `<option value="${n}" ${Number(pg.page_size) === n ? 'selected' : ''}>每頁 ${n}</option>`).join('')}</select></div>` : '';
+  const table = (d.batches || []).length ? pager + _av2TableWrap(`<table class="analytics-table" id="av2-rs-table" style="width:100%;font-size:.78rem"><thead><tr>
+      <th>確認時間</th><th>商品</th><th>通知日期・方式</th><th>LINE 已受理</th><th>點擊（人／次）</th><th>加購人數</th><th>下單人數</th><th>成交人數</th><th>訂單（有效／成交）</th><th>補貨商品金額</th>
+      <th>點擊率</th><th>點擊後加購率</th><th>點擊後成交率</th><th>通知成交率</th><th>其他開啟</th></tr></thead><tbody>${rows}</tbody></table>`)
+    : _av2Empty('🔔', '此範圍沒有已確認發送的補貨通知批次', '可調整通知批次日期、商品或取餐方式。');
+  const notes = `<div style="font-size:.75rem;color:var(--text-secondary);line-height:1.7;margin-top:8px" id="av2-rs-notes">
+      ・「LINE 已受理」只代表 LINE API 已接受請求，不代表顧客已收到或已讀；待發送、失敗、結果不明不計入。<br>
+      ・點擊只計算最終點餐頁實際開啟通知商品，且經後端核對為該批次已受理收件人的會員；同一次開啟的導向、重新整理、重送不重複計算。匿名或轉傳給非收件人的開啟列在「其他開啟」，不計入漏斗。<br>
+      ・歸因：同店、同商品、同一位會員，最後一次有效通知點擊後 7×24 小時內建立的訂單（伺服器時間）；同一訂單同一商品只歸給一個批次。<br>
+      ・成交沿用既有定義：非 LINE Pay 訂單於訂單成立時記為成交（不代表已收款）；LINE Pay 須後端確認付款成功。已取消、已作廢訂單不計入。<br>
+      ・補貨商品金額＝通知商品的成交明細金額，整單折扣依商品小計比例分攤（以分計算、最大餘數法處理尾差），不含外送費與其他商品；系統沒有逐項退款資料，已退款／待退款訂單另行標示（${_av2RsNum(t.refund_flagged)} 筆），金額未扣除部分退款，非精確淨營收。<br>
+      ・合計的人數以「批次＋會員」計（同一會員在不同批次分別計入），訂單數跨批次去重；合計比率只用有追蹤的批次。</div>`;
+  return warn + kpis + table + notes;
+}
+function fmtDemandTimeSafe(s) { try { return typeof fmtDemandTime === 'function' ? fmtDemandTime(s) : String(s || ''); } catch (e) { return String(s || ''); } }
+function _av2RsReadFilters() {
+  const g = (id) => (document.getElementById(id) || {}).value || '';
+  _av2Rs.f.from = g('av2-rs-from'); _av2Rs.f.to = g('av2-rs-to'); _av2Rs.f.product_id = g('av2-rs-product'); _av2Rs.f.mode = g('av2-rs-mode');
+}
+function av2RsApply() {
+  _av2RsReadFilters();
+  if (_av2Rs.f.from && _av2Rs.f.to && _av2Rs.f.to < _av2Rs.f.from) { showToast('結束日期不得早於開始日期', 'error'); return; }
+  _av2Rs.f.page = 1;
+  av2RsLoad('apply');
+}
+function av2RsClearBatch() { _av2Rs.f.batch_uuid = ''; _av2Rs.f.page = 1; av2RsLoad('apply'); }
+function av2RsPage(n) { _av2Rs.f.page = Math.max(1, Number(n) || 1); av2RsLoad('page'); }
+function av2RsPageSize(n) { _av2Rs.f.page_size = Number(n) || 50; _av2Rs.f.page = 1; av2RsLoad('page'); }
+// 從「LINE 商品管理 → 補貨登記 → 通知批次」開啟單一批次的成效
+function av2OpenRestockBatch(batchUuid) {
+  _av2RsDefaults();
+  _av2Rs.f = { from: '', to: '', product_id: '', mode: '', batch_uuid: String(batchUuid || ''), page: 1, page_size: _av2Rs.f.page_size || 50 };
+  av2Tab = 'restock';
+  if (typeof showPage === 'function') showPage('analytics_v2');
+  setTimeout(() => { if (av2Tab === 'restock') { _av2RenderTabs(); const body = document.getElementById('av2-body'); if (body) { body.innerHTML = _av2RenderRestockTab(); av2RsLoad('open'); } } }, 0);
+}
+async function av2RsLoad(reason) {
+  _av2RsDefaults();
+  _av2RsSyncOwner();
+  const my = ++_av2Rs.seq;
+  if (_av2Rs.ctl) { try { _av2Rs.ctl.abort(); } catch (e) {} }
+  const ctl = new AbortController(); _av2Rs.ctl = ctl;
+  _av2Rs.loading = true;
+  // 發出時記錄：店別＋登入身分、生命週期、序號
+  const ctx = { seq: my, owner: _av2RsOwner(), life: _av2Rs.life };
+  const aliveNow = () => ctx.seq === _av2Rs.seq && ctx.life === _av2Rs.life && ctx.owner === _av2RsOwner();
+  // 身分（店別／登入）已改變：丟棄回應，並清除屬於前一位身分的快取與畫面
+  const alive = () => {
+    if (aliveNow()) return true;
+    if (ctx.owner !== _av2RsOwner()) {
+      _av2RsSyncOwner();
+      if (_av2RsPageActive()) { const body = document.getElementById('av2-body'); if (body) body.innerHTML = _av2RenderRestockTab(); }
+    }
+    return false;
+  };
+  const f = { ..._av2Rs.f };
+  const q = new URLSearchParams();
+  Object.entries(f).forEach(([k, v]) => { if (v) q.set(k, v); });
+  let data = null, err = '', authFail = false;
+  try {
+    const res = await apiFetch('/api/analytics/restock-notify/summary?' + q.toString(), { signal: ctl.signal, cache: 'no-store' });
+    if (!alive()) return; // 取得回應後核對
+    if (!res || res.status === 401 || res.status === 403) { err = '沒有權限或登入已失效'; authFail = true; }
+    else {
+      const json = await res.json();
+      if (!alive()) return; // 讀完回應內容後核對
+      if (json && json.success) data = json.data; else err = (json && json.message) || '載入失敗';
+    }
+  } catch (e) {
+    if (e && e.name === 'AbortError') return;
+    if (!alive()) return; // 錯誤處理時核對
+    err = (e && e.message) || '載入失敗';
+  }
+  if (!alive()) return;
+  _av2Rs.loading = false; _av2Rs.ctl = null;
+  if (authFail) { _av2Rs.data = null; _av2Rs.dataOwner = null; _av2Rs.error = err; }
+  else if (data) { _av2Rs.data = data; _av2Rs.dataOwner = ctx.owner; _av2Rs.error = ''; }
+  else {
+    // 失敗保留上次結果：只限同一店別＋同一登入身分
+    if (_av2Rs.dataOwner !== ctx.owner) { _av2Rs.data = null; _av2Rs.dataOwner = null; }
+    _av2Rs.error = err;
+  }
+  if (!_av2RsPageActive()) return;
+  const body = document.getElementById('av2-body');
+  if (!body) return;
+  body.innerHTML = _av2RenderRestockTab();
+  void reason;
 }
 
 // ── 共用元件 ─────────────────────────────────────────────────────────

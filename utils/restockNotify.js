@@ -251,10 +251,13 @@ function ensureProductUuidRaw(raw, storeId, productId) {
   raw.run('UPDATE products SET product_uuid=? WHERE id=? AND store_id=?', [u, productId, storeId]);
   return u;
 }
-function buildProductLink(db, storeId, productUuid, mode, date) {
+// R54.4／MBV2-HF1-C5：連結版本化。C5 起的新批次多帶 rt（伺服器產生、不含個資的批次追蹤識別）；
+// C5 以前的批次 tracking_id 為空白 → 產生與原本完全相同的連結（訊息、hash、retry key 都不變）。
+function buildProductLink(db, storeId, productUuid, mode, date, trackingId) {
   const liff = _setting(db, storeId, 'line_member_liff_id', '');
   if (!liff || !productUuid) return null;
   const q = new URLSearchParams({ store_id: storeId, product_ref: productUuid, src: 'restock', m: mode, d: date });
+  if (trackingId) q.set('rt', String(trackingId));
   return `https://liff.line.me/${encodeURIComponent(liff)}?${q.toString()}`;
 }
 // 公開端點：以穩定識別找到商品；只回傳目前仍在 LINE 公開的商品 ID（不回傳其他資料）
@@ -394,7 +397,7 @@ function batchContext(db, storeId, b) {
   const p = db.get('SELECT product_uuid FROM products WHERE id=? AND store_id=?', [Number(b.product_id), storeId]);
   if (!p) return { ok: false, detail: 'product_missing' };
   if (!p.product_uuid || String(p.product_uuid) !== String(b.product_uuid || '')) return { ok: false, detail: 'product_ref_changed' };
-  const expected = buildProductLink(db, storeId, String(p.product_uuid), b.fulfillment_mode, b.supply_date);
+  const expected = buildProductLink(db, storeId, String(p.product_uuid), b.fulfillment_mode, b.supply_date, b.tracking_id || '');
   if (!expected || expected !== b.link_url) return { ok: false, detail: 'link_changed' };
   if (sha256(b.message_text) !== b.message_hash || !String(b.message_text).includes(b.link_url)) return { ok: false, detail: 'message_snapshot_invalid' };
   return { ok: true };
@@ -436,6 +439,49 @@ function validateTarget(db, storeId, body) {
   const prod = db.get('SELECT * FROM products WHERE id=? AND store_id=?', [pid, storeId]);
   if (!prod) throw new RestockError('PRODUCT_NOT_FOUND', '商品不存在', 404);
   return { pid, mode, date, prod };
+}
+
+// ══════════════════════════════════════════════════════════════════════
+//  R54.4／MBV2-HF1-C4.5：後台選擇日期時的唯讀檢查（不建立批次、不占名額、不寫入任何資料）
+//  以伺服器時間與 Asia/Taipei 判斷「今天」；每個日期都走與預覽／確認／每筆發送相同的 productGate()
+//  （商品收集開關＋routes/line-orders.js 的 evaluateProductOrderability：過去日期、最後接單時間、休息日、
+//  行事曆、可預訂範圍、商品上架與取餐方式、手動販售狀態、額度）。不另建一套規則。
+//  一次回傳「今天起到可預訂範圍結束」的每日結果（遇到第一個「超出可預訂範圍」即停止），前端以此即時防呆，
+//  不必每次選日期都查詢；指定 date（例如手動輸入的範圍外日期）時另回傳該日期的檢查結果。
+// ══════════════════════════════════════════════════════════════════════
+const DATE_SCAN_MAX_DAYS = 61; // getPreorderDaysLimit 上限 60 天＋今天
+function dateOptions(db, storeId, query) {
+  const LO = require('../routes/line-orders');
+  const pid = Number(query.product_id);
+  if (!Number.isInteger(pid) || pid <= 0) throw new RestockError('INVALID_PRODUCT', '請選擇商品', 400);
+  const mode = query.fulfillment_mode;
+  if (mode !== 'takeout' && mode !== 'delivery') throw new RestockError('INVALID_MODE', '請選擇外帶自取或外送', 400);
+  const prod = db.get('SELECT id FROM products WHERE id=? AND store_id=?', [pid, storeId]);
+  if (!prod) throw new RestockError('PRODUCT_NOT_FOUND', '商品不存在', 404);
+  const now = LO.twNow();
+  const today = LO.twDateStr(now);
+  const addDays = (ymd, n) => { const [y, m, d] = ymd.split('-').map(Number); return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10); };
+  const dates = [];
+  let firstAvailable = null;
+  for (let i = 0; i < DATE_SCAN_MAX_DAYS; i++) {
+    const ds = addDays(today, i);
+    const g = productGate(db, storeId, pid, mode, ds);
+    if (!g.ok && g.reason === 'preorder_limit_exceeded') break;
+    dates.push({ date: ds, ok: !!g.ok, reason: g.ok ? null : g.reason, message: g.ok ? '' : (g.message || ''), notice_kind: g.ok ? g.notice_kind : null });
+    if (g.ok && !firstAvailable) firstAvailable = ds;
+  }
+  const rangeEnd = dates.length ? dates[dates.length - 1].date : today;
+  let checked = null;
+  const q = String(query.date || '');
+  if (/^\d{4}-\d{2}-\d{2}$/.test(q)) {
+    const g = productGate(db, storeId, pid, mode, q);
+    checked = { date: q, ok: !!g.ok, reason: g.ok ? null : g.reason, message: g.ok ? '' : (g.message || '') };
+  }
+  return {
+    product_id: pid, fulfillment_mode: mode, server_today: today,
+    server_time_taipei: `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`,
+    range: { from: today, to: rangeEnd }, dates, first_available: firstAvailable, checked,
+  };
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -482,10 +528,12 @@ function previewBatch(db, storeId, body, actor) {
   if (!pv.ord.ok) blockers.push(gateReason(pv.ord));
   if (!pv.candidates.length) blockers.push('no_eligible_recipient');
   let batchUuid = null, link = null, message = null, expiresAt = null;
+  // C5：追蹤識別在訊息快照確定「之前」建立，之後確認、重試、續送都沿用同一份訊息與 key
+  const trackingId = require('./restockTracking').newTrackingId();
   db.runDurableTransaction(() => {
     const raw = db._db;
     const productUuid = ensureProductUuidRaw(raw, storeId, pid);
-    link = buildProductLink(db, storeId, productUuid, mode, date);
+    link = buildProductLink(db, storeId, productUuid, mode, date, trackingId);
     message = buildMessage({ storeName, productName, noticeKind, mode, date, link: link || '（連結設定不完整）' });
     if (blockers.length || !link) return;
     batchUuid = crypto.randomUUID();
@@ -497,10 +545,10 @@ function previewBatch(db, storeId, body, actor) {
     };
     raw.run(`INSERT INTO restock_notify_batches (batch_uuid, store_id, product_id, product_uuid, product_name_snapshot, fulfillment_mode,
                supply_date, notice_kind, message_text, link_url, message_hash, status, preview_json, candidate_count, created_by,
-               created_at, updated_at, preview_expires_at)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?,'previewed',?,?,?,datetime('now'),datetime('now'),?)`,
+               created_at, updated_at, preview_expires_at, tracking_id)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,'previewed',?,?,?,datetime('now'),datetime('now'),?,?)`,
     [batchUuid, storeId, pid, productUuid, productName, mode, date, noticeKind, message, link, sha256(message),
-      JSON.stringify({ stats, candidates: pv.candidates }), pv.candidates.length, String(actor || ''), expiresAt]);
+      JSON.stringify({ stats, candidates: pv.candidates }), pv.candidates.length, String(actor || ''), expiresAt, trackingId]);
   });
   const remaining = pv.ord.ok ? pv.ord.remaining : null;
   return {
@@ -870,6 +918,7 @@ function batchOut(db, b) {
     candidate_count: Number(b.candidate_count) || 0, created_at: b.created_at, confirmed_at: b.confirmed_at, completed_at: b.completed_at,
     preview_expires_at: b.preview_expires_at, created_by: b.created_by, confirmed_by: b.confirmed_by, import_source: b.import_source || '',
     running: activeWorkers.has(b.batch_uuid), counts: batchCounts(db, b.batch_uuid), preview_stats: stats,
+    tracked: !!b.tracking_id, // C5：是否建立成效追蹤（不回傳追蹤識別本身）
   };
 }
 function listBatches(db, storeId, productId) {
@@ -921,7 +970,7 @@ module.exports = {
   CONSENT_TEXT, CONSENT_TEXT_VERSION, SEND_SETTING_KEY, RETRY_KEY_VALID_HOURS, RETRY_WINDOW_MS, EXCLUSION_KEYS, DISCLAIMER,
   RestockError, migrate, recoverInterruptedOnBoot, blockConflictsRaw, backfillProductUuids,
   getCapability, setSendEnabled, resolveProductRef, buildProductLink, buildMessage,
-  evaluateRecipient, consentState, cycleConsent, cycleEvidence, productGate, batchContext, previewBatch, confirmBatch, resumeBatch, cancelBatch,
+  evaluateRecipient, consentState, cycleConsent, cycleEvidence, productGate, batchContext, dateOptions, previewBatch, confirmBatch, resumeBatch, cancelBatch,
   listBatches, batchDetail, requestNotifyState, startWorker, waitForWorker, runBatch, applyResult,
   _activeWorkers: activeWorkers,
 };

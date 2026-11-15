@@ -19,11 +19,9 @@ function ensureConfirmPaymentColumns(db) {
 }
 
 // 廣域查詢（限 store_id 範圍）
+// R54.4／MBV2-HF1-C5.1：依序 id → uuid → 訂單編號（恰好一筆才採用）；歷史重號不猜（回傳找不到）
 function findOrder(db, rawId, storeId) {
-  return db.get(
-    `SELECT * FROM orders WHERE store_id=? AND (id=? OR uuid=? OR order_number=?) LIMIT 1`,
-    [storeId, rawId, rawId, rawId]
-  );
+  return require('../utils/orderIdentity').resolveOrderRef(db, storeId, rawId).order;
 }
 
 // GET /api/online-orders

@@ -446,6 +446,8 @@ initDb().then((db) => {
   app.use('/api/payment-gateways', requireStore, requireFeature('payment_api'), require('./routes/payment-gateways'));
   // LINE Pay v3 — 不需要 payment_api feature gate，/confirm 由 LINE 直接呼叫
   app.use('/api/linepay', requireStore, require('./routes/linepay'));
+  // R54.4／MBV2-HF1-C5.2：付款待核對（員工 JWT＋付款 API 功能權限；店別只信任 JWT）
+  app.use('/api/linepay-admin', require('./middleware/storeGuard').requireStaffJwt, requireFeature('payment_api'), require('./routes/linepay').adminRouter);
   // fix18-06: Google Maps proxy & delivery fee calculation
   app.use('/api/maps',     requireStore, require('./routes/maps'));
   app.use('/api/delivery', requireStore, require('./routes/delivery'));
@@ -467,9 +469,11 @@ initDb().then((db) => {
   });
   app.get('/callback/linepay', (req, res) => {
     // LINE Pay confirm callback 別名
-    const storeId = req.query.store_id || 'store_001';
-    const { transactionId, orderId } = req.query;
-    res.redirect(`/api/linepay/confirm?store_id=${storeId}&transactionId=${transactionId || ''}&orderId=${orderId || ''}`);
+    // C5.1：完整轉送查詢參數（含付款嘗試 attempt），callback 才能唯一定位訂單
+    const q = new URLSearchParams();
+    for (const [k, v] of Object.entries(req.query || {})) if (typeof v === 'string') q.set(k, v);
+    if (!q.get('store_id')) q.set('store_id', 'store_001');
+    res.redirect(`/api/linepay/confirm?${q.toString()}`);
   });
   app.use('/api/print',            requireStore, require('./routes/print'));
   app.use('/api/print-jobs',       requireStore, require('./routes/printJobs'));
@@ -573,6 +577,17 @@ initDb().then((db) => {
 
   // fix18-10-hotfix23-A：Analytics Foundation（前台轉換事件收集，獨立路由，不掛 feature gate，
   // 與既有 dashboard/reports 系統各自獨立，僅需 store 存在即可寫入事件）
+  // R54.4／MBV2-HF1-C5：補貨通知成效（營運分析中心）。沿用員工 JWT（店別只信任 JWT）＋ reports 報表權限；
+  // 掛在一般 /api/analytics 之前，摘要與明細都不能以 query store_id 取得。
+  {
+    const { requireStaffJwt } = require('./middleware/storeGuard');
+    app.use('/api/analytics/restock-notify', requireStaffJwt, requireFeature('reports'), require('./routes/product-demand').reportRouter);
+    // R54.4／MBV2-HF1-C5.1：歷史重號訂單診斷（唯讀；員工 JWT，店別只信任 JWT）
+    app.get('/api/order-identity/diagnostics', requireStaffJwt, (req, res) => {
+      try { res.set('Cache-Control', 'no-store'); res.json({ success: true, data: require('./utils/orderIdentity').diagnostics(require('./utils/db').getDb(), req.storeId, req.query || {}) }); }
+      catch (e) { console.error('[order-identity] diagnostics:', e && e.message); res.status(500).json({ success: false, message: '系統忙碌，請稍後再試' }); }
+    });
+  }
   app.use('/api/analytics', requireStore, require('./routes/analytics'));
   // fix18-10-hotfix30-B5-R5.1-B：Geo Analytics API —— 沿用同一組
   // requireStore（store_id 解析/驗證），reports 授權在 routes/analytics-geo.js
@@ -758,5 +773,10 @@ initDb().then((db) => {
     console.log(`📡 POS: http://localhost:${addr.port}`);
     console.log(`🔐 Super Admin: http://localhost:${addr.port}/system-admin`);
     console.log(`🔌 WebSocket: ws://localhost:${addr.port}/orders\n`);
+    // R54.4／MBV2-HF1-C5.2：啟動後與定期補齊「金流已付款、核心已提交」但尚未完成的本機副作用（purchase、payment_success、會員消費）。
+    // 只處理本機資料，不呼叫外部 API；外部付款核對由後台「付款待核對」或下一次付款 callback 觸發。
+    const _lprSweep = () => { try { const r = require('./utils/linePayRecovery').sweepSideEffects(require('./utils/db').getDb()); if (r.done || r.pending) console.log(`[linepay_recovery] side effects: done=${r.done} pending=${r.pending}`); } catch (e) { console.warn('[linepay_recovery] sweep:', e && e.message); } };
+    setTimeout(_lprSweep, 3000).unref();
+    setInterval(_lprSweep, 5 * 60 * 1000).unref();
   });
 }).catch(e => { console.error('DB 初始化失敗:', e); process.exit(1); });

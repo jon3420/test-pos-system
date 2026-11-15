@@ -859,7 +859,8 @@ async function init() {
     document.getElementById('loading').style.display = 'none';
     const orderNo = _lpP.get('order') || '';
     try {
-      const qres = await apiGet(`/api/line-shipping/order/${encodeURIComponent(orderNo)}`);
+      const _ref = _lpP.get('order_ref') || ''; // C5.1：以訂單唯一識別精確取單
+      const qres = await apiGet(`/api/line-shipping/order/${encodeURIComponent(orderNo)}${_ref ? '?ref=' + encodeURIComponent(_ref) : ''}`);
       if (qres.success) {
         showSuccess(qres.data);
         // fix18-10-hotfix23-D：LINE Pay callback 沒有金額，一律用後端查詢回來的權威
@@ -878,11 +879,24 @@ async function init() {
     }
     return;
   }
+  if (_lpP.get('linepay') === 'pending') {
+    // R54.4／MBV2-HF1-C5.2：付款結果確認中——不顯示成功或失敗、不引導再次付款；購物車保留、不觸發 Purchase
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('sucOrderNo').textContent = _lpP.get('order') || '';
+    document.getElementById('sucDetail').innerHTML = '<div id="lpPendingNotice" style="color:#b45309;font-weight:700;font-size:16px;text-align:center;padding:20px;line-height:1.6">⏳ 付款結果確認中<br><span style="font-weight:400;font-size:14px;color:#555">請勿重複付款。店家確認後訂單狀態會更新，可稍後查詢訂單。</span></div>';
+    document.getElementById('successScreen').classList.add('show');
+    return;
+  }
   if (_lpP.get('linepay') === 'cancel') {
     setTimeout(() => toast('LINE Pay 付款已取消，請重新選擇付款方式'), 600);
   }
   if (_lpP.get('linepay') === 'fail' || _lpP.get('linepay') === 'error') {
-    setTimeout(() => toast('LINE Pay 付款失敗，請重新嘗試或選擇其他付款方式'), 600);
+    const _m = _lpP.get('msg') || '';
+    const _t = _m === 'paid_cancelled' ? '此訂單已取消，款項已收到，店家將處理退款；請勿重複付款，有疑問請聯絡店家'
+      : _m === 'order_cancelled' ? '此訂單已取消，本次付款未完成扣款'
+      : ['order_ambiguous', 'payment_mismatch', 'already_paid', 'amount_changed'].includes(_m) ? '付款結果需要店家核對，請勿重複付款，並聯絡店家確認訂單狀態'
+      : 'LINE Pay 付款失敗，請重新嘗試或選擇其他付款方式';
+    setTimeout(() => toast(_t), 600);
   }
   try {
     const res = await apiGet('/api/line-shipping/shop');

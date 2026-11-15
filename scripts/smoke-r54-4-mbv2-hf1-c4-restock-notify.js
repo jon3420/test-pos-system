@@ -747,7 +747,8 @@ async function setFriend(ctx, entries) {
       const pj = JSON.parse(part.buf.toString('utf8'));
       const srcAccepted = fj.data.restock_notify_deliveries.filter((d) => d.status === 'accepted').length;
       assert(fj.backup_type === 'full' && fj.data.restock_notify_batches.length > 0 && srcAccepted > 0 && pj.backup_type === 'partial'
-        && Object.keys(pj.data).filter((k) => Array.isArray(pj.data[k])).sort().join(',') === 'product_demand_consents,product_demand_requests,restock_notify_batches,restock_notify_deliveries',
+        // C5 調整：「補貨通知紀錄」分類新增成效追蹤三張表（restock_notify_cart_adds／clicks／order_attributions），精確清單同步更新
+        && Object.keys(pj.data).filter((k) => Array.isArray(pj.data[k])).sort().join(',') === 'product_demand_consents,product_demand_requests,restock_notify_batches,restock_notify_cart_adds,restock_notify_clicks,restock_notify_deliveries,restock_notify_order_attributions',
         'B2 完整與選擇性備份涵蓋通知歷史', JSON.stringify({ b: fj.data.restock_notify_batches.length, acc: srcAccepted }));
       // 目標：新環境（不同商品 ID）
       const T = await boot('btarget', { extraSeed: (db) => { db.run("UPDATE products SET id=id+100 WHERE store_id='store_001' AND id IN (701,702,706,707)"); } }); ctxs.push(T);

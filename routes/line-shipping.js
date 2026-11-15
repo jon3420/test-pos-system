@@ -62,10 +62,9 @@ function weekdayKey(dateStr) {
   const keys = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
   return keys[parseLocalDate(dateStr).getDay()];
 }
-function orderNumber() {
-  const n = new Date(), p = (v, l = 2) => String(v).padStart(l, '0');
-  return `SHIP-${n.getFullYear()}${p(n.getMonth() + 1)}${p(n.getDate())}-${p(n.getHours())}${p(n.getMinutes())}${p(n.getSeconds())}`;
-}
+// R54.4／MBV2-HF1-C5.1：與 LINE 點餐共用顯示編號產生器（秒級格式＋4 碼尾碼、同步查重、部分唯一索引保護）
+const OrderIdentity = require('../utils/orderIdentity');
+function orderNumber(db, storeId) { return OrderIdentity.allocateOrderNumber(db, storeId, 'SHIP-'); }
 async function triggerN8nWebhook(db, storeId, event, payload) {
   try {
     const url = getSetting(db, storeId, 'n8n_webhook_url', '');
@@ -536,7 +535,7 @@ router.post('/', (req, res) => {
     // ── 建立訂單（寫入既有 orders 表，獨立欄位辨識）───────────────────
     const now = twNow();
     const uuid = uuidv4();
-    const orderNo = orderNumber();
+    const orderNo = orderNumber(db, storeId);
     const pad = (n, l = 2) => String(n).padStart(l, '0');
     const nowStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
     let itemsJson = JSON.stringify(finalItems);
@@ -646,6 +645,7 @@ router.post('/', (req, res) => {
     );
 
     assertOneRowModified(db, 'shipping order INSERT');
+    db._db.run('UPDATE orders SET order_no_v=2 WHERE id=? AND store_id=?', [uuid, storeId]); // C5.1：新編號格式（唯一索引保護）
     // ── hotfix22-C：寫入 coupon_redemptions（訂單建立成功後，與 line-orders.js 相同做法）──
     if (appliedCouponId) {
       // R44.2C：同 standard——一般 INSERT、恰好 1 列、不 swallow-error；BEGIN 後 fresh 重驗 coupon。
@@ -840,10 +840,13 @@ router.get('/order/:orderNo', (req, res) => {
   try {
     const db = getDb();
     const storeId = req.storeId;
-    const order = db.get(
-      `SELECT * FROM orders WHERE store_id=? AND order_number=? AND fulfillment_type='shipping'`,
-      [storeId, req.params.orderNo]
-    );
+    // C5.1：付款返回可帶 ?ref=<uuid> 精確取單；只用編號時歷史重號不猜（409）
+    const ref = String(req.query.ref || '');
+    const found = ref
+      ? db.all(`SELECT * FROM orders WHERE store_id=? AND uuid=? AND order_number=? AND fulfillment_type='shipping'`, [storeId, ref, req.params.orderNo])
+      : db.all(`SELECT * FROM orders WHERE store_id=? AND order_number=? AND fulfillment_type='shipping' LIMIT 2`, [storeId, req.params.orderNo]);
+    if (found.length > 1) return res.status(409).json({ success: false, error: 'ORDER_REF_AMBIGUOUS', message: '此訂單編號對應到多張訂單，請聯絡店家核對' });
+    const order = found[0];
     if (!order) return res.status(404).json({ success: false, message: '找不到訂單' });
     let items = [];
     try { items = typeof order.items === 'string' ? JSON.parse(order.items || '[]') : (order.items || []); } catch {}
@@ -914,10 +917,7 @@ router.patch('/admin/orders/:id/status', (req, res) => {
     if (!SHIPPING_STATUSES.includes(newStatus)) {
       return res.status(400).json({ success: false, message: '無效的宅配狀態' });
     }
-    const order = db.get(
-      `SELECT * FROM orders WHERE store_id=? AND fulfillment_type='shipping' AND (order_number=? OR id=? OR uuid=?)`,
-      [storeId, rawId, rawId, rawId]
-    );
+    const order = OrderIdentity.resolveOrderRef(db, storeId, rawId, "fulfillment_type='shipping'").order; // C5.1：重號不猜
     if (!order) return res.status(404).json({ success: false, message: '找不到宅配訂單：' + rawId });
 
     // 選填：物流單號 / 物流公司 / 備註（V1 手動填寫）
@@ -958,10 +958,7 @@ router.patch('/admin/orders/:id/tracking', (req, res) => {
     const db = getDb();
     const storeId = req.storeId;
     const rawId = req.params.id;
-    const order = db.get(
-      `SELECT * FROM orders WHERE store_id=? AND fulfillment_type='shipping' AND (order_number=? OR id=? OR uuid=?)`,
-      [storeId, rawId, rawId, rawId]
-    );
+    const order = OrderIdentity.resolveOrderRef(db, storeId, rawId, "fulfillment_type='shipping'").order; // C5.1：重號不猜
     if (!order) return res.status(404).json({ success: false, message: '找不到宅配訂單：' + rawId });
 
     const { carrier_name, tracking_number, shipping_note } = req.body;

@@ -6,7 +6,7 @@
 const TOKEN_KEY = 'pos_store_token';
 function getToken()           { return localStorage.getItem(TOKEN_KEY); }
 function setToken(t)          { localStorage.setItem(TOKEN_KEY, t); }
-function clearToken()         { localStorage.removeItem(TOKEN_KEY); localStorage.removeItem('pos_store_info'); }
+function clearToken()         { localStorage.removeItem(TOKEN_KEY); localStorage.removeItem('pos_store_info'); if (typeof av2RsInvalidate === 'function') { try { av2RsInvalidate('auth'); } catch (e) {} } }
 
 // ── 解析 JWT payload（不驗簽，僅用於 UI 顯示）────────
 function parseJwtPayload(token) {
@@ -201,6 +201,7 @@ async function ensureLogin() {
 
 // ── 登出 ────────────────────────────────────────────
 function posLogout() {
+  if (typeof av2RsInvalidate === 'function') { try { av2RsInvalidate('identity'); } catch (e) {} } // C5.1：登出即清除報表快取
   // fix16b: 完整清除所有 auth 相關資料
   localStorage.removeItem('pos_store_token');
   localStorage.removeItem('pos_store_info');
@@ -2482,6 +2483,8 @@ function initDateRange() {
 let _invRefreshInterval = null;
 
 function showPage(name) {
+  // R54.4／MBV2-HF1-C5.1：離開營運分析中心時，使補貨通知成效的進行中查詢失效（晚到的回應不寫入）
+  if (name !== 'analytics_v2' && typeof av2RsInvalidate === 'function') { try { av2RsInvalidate('leave'); } catch (e) {} }
   // fix18-05: coupon feature gate — 攔截未授權的 coupons 頁面切換
   if (name === 'coupons') {
     const f = window.currentFeatures || {};
@@ -5132,7 +5135,67 @@ async function loadOrders(modeFilter) {
     const filteredOrders = applyDiscountFilter(orders, currentDiscountFilter);
     renderOrdersTable(filteredOrders);
     renderStatCards(stats, orders);
+    try { loadLinePayReview(); } catch (e) {}
   } catch { showToast('訂單載入失敗', 'error'); }
+}
+
+// ── R54.4／MBV2-HF1-C5.2：LINE Pay 付款待核對 ─────────────────────────────
+// 付款結果不明（回應遺失、重複交易代碼、本機保存失敗）、付款後已取消（待退款）、重複付款、待補齊的本機紀錄。
+// 「核對」只做官方唯讀查詢，不發起 Confirm、不退款；權限：店家 JWT＋付款 API 功能（與付款設定相同）。
+const LP_REVIEW_REASON = {
+  confirm_no_response: '確認付款時沒有收到回應', confirm_unparseable: '確認付款的回應無法解析', local_commit_failed: '金流已付款，本機保存失敗',
+  pre_confirm_save_failed: '送出確認前保存失敗', merchant_changed: 'LINE Pay 商家設定已更換', paid_after_cancel_needs_refund: '付款完成時訂單已取消，需退款',
+  double_payment_needs_refund: '同一訂單重複付款，需退款', upgrade_confirming_unknown: '升級前付款確認中斷', upgrade_failed_unverified: '升級前標記失敗，未經查詢核對',
+  imported_pending: '搬家匯入的待核對付款', imported_history: '搬家匯入的歷史付款',
+  c53_quarantine: '升級前標記為失敗／未付款，但仍可能已付款（已隔離待核對）', legacy_unverified: '舊版付款，處理階段不明（只做唯讀核對）',
+  confirm_response_incomplete: '確認付款回應資料不完整', confirm_response_mismatch: '確認付款回應資料不符',
+};
+function _lpReasonText(r) {
+  const s = String(r || ''); const k = Object.keys(LP_REVIEW_REASON).find((x) => s.startsWith(x));
+  if (k) return LP_REVIEW_REASON[k];
+  if (s.startsWith('confirm_code_')) return '確認付款回傳代碼 ' + s.slice(13).split('|')[0] + '（結果不明）';
+  if (s.startsWith('inquiry_')) return '查詢核對：' + s.slice(8);
+  return s || '待核對';
+}
+let _lpReviewBusy = false;
+async function loadLinePayReview() {
+  const el = document.getElementById('lpReviewPanel'); if (!el) return;
+  try {
+    const res = await apiFetch('/api/linepay-admin/review');
+    if (!res || !res.ok) { el.style.display = 'none'; return; }
+    const j = await res.json();
+    const d = (j && j.data) || { attempts: [], side_effects_pending: [] };
+    if (!d.attempts.length && !d.side_effects_pending.length) { el.style.display = 'none'; el.innerHTML = ''; return; }
+    const st = { confirm_pending: '確認中', review: '待核對', paid_duplicate: '重複付款', paid_cancelled: '已付款・訂單已取消', imported_history: '匯入歷史' };
+    el.innerHTML = `<div style="border:1px solid #f59e0b;border-radius:8px;padding:10px 12px;margin:8px 0;background:rgba(245,158,11,0.08)">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+        <b style="color:#f59e0b">⚠️ LINE Pay 付款待核對（${d.attempts.length}${d.side_effects_pending.length ? '，待補齊紀錄 ' + d.side_effects_pending.length : ''}）</b>
+        <button class="btn-secondary" id="lpReconcileBtn" onclick="runLinePayReconcile()">🔎 向 LINE Pay 查詢核對（唯讀）</button></div>
+      <div style="font-size:12px;color:var(--text-muted,#94a3b8);margin:4px 0">核對只查詢付款結果，不會重新扣款或退款。結果確認前請勿請顧客重複付款。</div>
+      ${d.attempts.some((a) => a.blocks_repay) ? '<div style="font-size:12px;color:#ef4444;margin:4px 0">待核對的付款：目前無法確認付款結果，請勿重新付款。查無交易或等待一段時間，都不代表顧客未付款；這筆付款不能手動標記為未付款，請以 LINE Pay 商家後台與唯讀核對結果處理。</div>' : ''}
+      <table style="width:100%;font-size:12px"><tbody>${d.attempts.map((a) => `<tr data-attempt="${escHtml(a.attempt_uuid)}">
+        <td>${escHtml(a.order_number || '')}</td><td>NT$${Number(a.amount || 0)}</td><td>${escHtml(st[a.status] || a.status)}</td>
+        <td>${escHtml(_lpReasonText(a.review_reason))}${a.last_inquiry_result ? '<br><span style="color:#94a3b8">最近查詢：' + escHtml(a.last_inquiry_result) + '</span>' : ''}${a.needs_manual ? '<br><span style="color:#ef4444">需人工核對</span>' : ''}</td>
+        <td>${a.order_status === 'cancelled' || a.order_record_status === 'void' ? '訂單已取消' : ''}${a.refund_status === 'pending_refund' ? '・待退款' : ''}</td>
+        <td>${a.blocks_repay ? '<span style="color:#ef4444">目前無法確認付款結果，請勿重新付款</span>' : ''}</td></tr>`).join('')}</tbody></table></div>`;
+    el.style.display = '';
+  } catch (e) { el.style.display = 'none'; }
+}
+async function runLinePayReconcile() {
+  if (_lpReviewBusy) return; _lpReviewBusy = true;
+  const btn = document.getElementById('lpReconcileBtn'); if (btn) btn.disabled = true;
+  try {
+    const res = await apiFetch('/api/linepay-admin/reconcile', { method: 'POST', body: JSON.stringify({ limit: 10 }) });
+    const j = res ? await res.json().catch(() => ({})) : {};
+    if (res && res.ok && j.success) showToast(`核對完成：恢復 ${j.data.recovered}、已付款取消 ${j.data.paid_cancelled}、仍待核對 ${j.data.still_review}`, 'success');
+    else showToast((j && j.message) || '核對失敗，請稍後再試', 'error');
+  } catch (e) { showToast('核對失敗，請稍後再試', 'error'); }
+  finally { _lpReviewBusy = false; if (btn) btn.disabled = false; loadLinePayReview(); }
+}
+// C5.3：已停用「標記未付款」（後端同樣拒絕）。保留函式名稱以免舊的快取頁面呼叫時出錯。
+function markLinePayUnpaid() {
+  showToast('目前無法確認付款結果，請勿重新付款。待核對付款不能手動標記為未付款。', 'error');
+  loadLinePayReview();
 }
 
 async function loadDeliveryReport() {
@@ -10333,6 +10396,7 @@ function _pdWire() {
   const en = document.getElementById('pd-set-enabled'), ttl = document.getElementById('pd-set-ttl');
   const edited = () => { _pdAuto.settingsDirty = true; _pdAuto.settingsRev++; };
   if (en) en.addEventListener('change', edited);
+  const sm = document.getElementById('pd-set-subscribe-mode'); if (sm) sm.addEventListener('change', edited); // C4.5
   if (ttl) { ttl.addEventListener('input', edited); ttl.addEventListener('change', edited); }
 }
 // 停止輪詢並使進行中的回應失效（離開分頁／頁面、隱藏、登入失效）
@@ -10431,6 +10495,7 @@ function _pdClearDisplay(reason) {
 }
 function _pdApply(d, ctx) {
   const A = _pdAuto;
+  try { _rnMaybeRefresh(); } catch (e) {}
   const sum = d.summary || {};
   _pdApplyConfig(sum.config || {}, ctx);
   if (d.capability) _pdApplyCapability(d.capability, ctx);
@@ -10451,6 +10516,8 @@ function _pdApplyConfig(cfg, ctx) {
   const block = A.settingsDirty || _pdMutBlocks('settings', ctx);
   if (en && !block && ae !== en) en.checked = !!cfg.enabled;
   if (ttl && !block && ae !== ttl) ttl.value = cfg.ttl_days || 30;
+  const sm = document.getElementById('pd-set-subscribe-mode');
+  if (sm && !block && ae !== sm) sm.value = cfg.subscribe_mode === 'register_subscribe' ? 'register_subscribe' : 'opt_in';
   const ns = document.getElementById('pd-notify-state');
   if (ns) ns.textContent = cfg.notify_available ? 'LINE 補貨通知：已啟用（由店家手動預覽並確認發送）' : 'LINE 補貨通知：尚未啟用（顧客僅能補貨登記，不會發送 LINE 通知）';
 }
@@ -10531,10 +10598,12 @@ async function toggleDemandCollect(pid, enabled, el) {
 async function saveDemandSettings() {
   const enabled = !!document.getElementById('pd-set-enabled')?.checked;
   const ttl = Number(document.getElementById('pd-set-ttl')?.value || 30);
+  const smEl = document.getElementById('pd-set-subscribe-mode');
+  const subscribe_mode = smEl && smEl.value === 'register_subscribe' ? 'register_subscribe' : 'opt_in';
   const rev = _pdAuto.settingsRev; // 這次送出的內容對應的編輯版本
   _pdMutBegin('settings');
   try {
-    const res = await apiFetch('/api/product-demand-admin/settings', { method: 'PATCH', body: JSON.stringify({ enabled, ttl_days: ttl }) });
+    const res = await apiFetch('/api/product-demand-admin/settings', { method: 'PATCH', body: JSON.stringify({ enabled, ttl_days: ttl, subscribe_mode }) });
     const json = await res.json();
     if (!json.success) throw new Error(json.message || '儲存失敗');
     // C4.3：只有送出後沒有新編輯時才清除未儲存狀態；否則保留最新輸入，等使用者再次儲存
@@ -10547,6 +10616,7 @@ async function saveDemandSettings() {
 function _pdCloseDetailBox() {
   const A = _pdAuto;
   A.openPid = null; A.detailEpoch++; A.fastPoll = false;
+  _rn.gen++; _rn.optSeq++; _rn.pvSeq++; _rn.opt = null; _rn.optKey = ''; _rn.optInflight = false;
   const box = document.getElementById('lpm-demand-detail');
   if (box) { box.style.display = 'none'; box.innerHTML = ''; }
 }
@@ -10565,6 +10635,7 @@ function openDemandDetail(pid) {
         <thead><tr><th style="text-align:left;padding:4px">會員</th><th style="padding:4px">份數</th><th style="padding:4px">取餐偏好</th><th style="padding:4px">狀態</th><th style="padding:4px">補貨通知同意</th><th style="padding:4px">登記時間</th><th style="padding:4px">更新時間</th><th style="padding:4px">有效期限</th></tr></thead>
         <tbody></tbody></table>
       ${restockPanelHtml({ product_id: Number(pid) })}`;
+  _rnWirePanel(pid);
   if (_pdTabActive()) pdAutoRefreshNow('open');
 }
 function _pdDetailRowsHtml(d) {
@@ -10622,32 +10693,151 @@ async function saveRestockSendEnabled(on) {
   pdAutoRefreshNow('mutation');
 }
 function restockPanelHtml(prod) {
+  // C4.5：日期預設空白，待伺服器回傳可供應日期後才預選（不依操作電腦的日期）
   return `<div id="rn-panel" data-pid="${prod.product_id}" style="margin-top:14px;padding:12px;border:1px solid var(--border,#334155);border-radius:10px">
     <div style="font-weight:700;margin-bottom:8px">🔔 補貨通知（店家手動發送）</div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;font-size:13px">
       <label>取餐方式 <select id="rn-mode" class="form-input" style="width:auto"><option value="takeout">外帶自取</option><option value="delivery">外送</option></select></label>
-      <label>供應日期 <input type="date" id="rn-date" class="form-input" style="width:auto" value="${_rnTodayTaipei()}"></label>
-      <button class="btn-secondary" id="rn-preview-btn" style="font-size:12px;padding:4px 12px" onclick="restockPreview(${prod.product_id})">預覽通知</button>
+      <label>供應日期 <input type="date" id="rn-date" class="form-input" style="width:auto" value=""></label>
+      <button class="btn-secondary" id="rn-preview-btn" style="font-size:12px;padding:4px 12px" disabled onclick="restockPreview(${prod.product_id})">預覽通知</button>
     </div>
+    <div id="rn-date-msg" role="status" aria-live="polite" style="font-size:12px;margin-top:6px;color:var(--text-muted,#64748b)">檢查可供應日期中…</div>
     <div style="font-size:11px;color:var(--text-muted,#64748b);margin-top:6px">名單由伺服器依最新登記、同意、好友狀態與販售規則計算；修改庫存或商品狀態不會自動發送。登記與通知都不建立訂單、不保留商品。</div>
     <div id="rn-preview" style="margin-top:10px"></div>
     <div id="rn-batches" style="margin-top:10px"></div>
   </div>`;
 }
+// ── R54.4／MBV2-HF1-C4.5：選擇日期時立即防呆 ──
+//   - 以伺服器（Asia/Taipei）的唯讀日期檢查為準（GET /restock/date-options；不建立批次、不寫入）；一次取得今天起到
+//     可預訂範圍結束的每日結果，之後選日期在本機比對，不逐日查詢。規則與預覽／確認／每筆發送相同（evaluateProductOrderability）。
+//   - 初次開啟依規則預選第一個可供應日期；之後使用者選的日期失效時只提示重新選擇，不在背景改掉。
+//   - 檢查中、空白或無效日期時停用「預覽通知」；更換日期／商品／取餐方式立即讓舊預覽與確認按鈕失效，晚到的舊回應不得恢復。
+//   - 跨午夜或回到頁面：隨既有自動更新（不另開輪詢、不重疊）最多每分鐘重讀一次，更新日期限制並重新檢查，保留其他輸入。
+const _rn = { pid: null, gen: 0, optSeq: 0, opt: null, optKey: '', optAt: 0, optInflight: false, userPicked: false, pvSeq: 0, pvKey: '' };
+const RN_OPT_MAX_AGE_MS = 60000;
+const _RN_DATE_REASON = {
+  date_in_past: '此日期已過，請選擇其他供應日期',
+  cutoff_sold_out: '今日已超過接單時間', no_slots_today: '今日已超過接單時間', sale_window_ended: '今日販售時段已結束',
+  closed_day: '此日期為店休日', calendar_closed: '此日期為特殊休假日', today_closed: '今日 LINE 點餐休息', calendar_mode_closed: '此日期此取餐方式暫停服務',
+  future_date_not_open: '此日期未開放預訂', mode_closed: '此取餐方式目前關閉', line_disabled: 'LINE 點餐目前暫停',
+  preorder_limit_exceeded: '超出可預訂範圍', invalid_date: '日期格式不正確',
+};
+function _rnFmtDate(ymd) {
+  const [y, m, d] = String(ymd || '').split('-').map(Number);
+  if (!y) return '';
+  const w = ['日', '一', '二', '三', '四', '五', '六'][new Date(Date.UTC(y, m - 1, d)).getUTCDay()];
+  return `${m}/${d}（週${w}）`;
+}
+function _rnKey(pid, mode) { return `${pid}|${mode}`; }
+function _rnInputs() {
+  const m = document.getElementById('rn-mode'), d = document.getElementById('rn-date'), panel = document.getElementById('rn-panel');
+  return { pid: panel ? Number(panel.dataset.pid) : null, mode: m ? m.value : '', date: d ? d.value : '' };
+}
+// 舊預覽、確認按鈕一律失效（日期、商品、取餐方式改變）
+function _rnInvalidatePreview() {
+  _rn.pvSeq++; _rn.pvKey = '';
+  const out = document.getElementById('rn-preview'); if (out) out.innerHTML = '';
+}
+// 依目前輸入與已取得的日期檢查結果更新提示與「預覽通知」按鈕
+function _rnEvaluate() {
+  const btn = document.getElementById('rn-preview-btn'), msg = document.getElementById('rn-date-msg'), din = document.getElementById('rn-date');
+  if (!btn || !msg || !din) return { ok: false };
+  const inp = _rnInputs();
+  const o = _rn.opt;
+  const setMsg = (html, color) => { if (msg.dataset.h !== html) { msg.innerHTML = html; msg.dataset.h = html; } msg.style.color = color || 'var(--text-muted,#64748b)'; };
+  if (!o || _rn.optKey !== _rnKey(inp.pid, inp.mode)) { btn.disabled = true; setMsg(_rn.optInflight ? '檢查可供應日期中…' : '尚未取得可供應日期，請稍候或重新整理。'); return { ok: false }; }
+  if (din.min !== o.range.from) din.min = o.range.from;
+  if (din.max !== o.range.to) din.max = o.range.to;
+  const next = (after) => o.dates.find(x => x.ok && (!after || x.date > after));
+  const nextHint = (after) => { const n = next(after); return n ? `　下一個可供應日期：<strong>${escHtml(_rnFmtDate(n.date))}</strong> <button type="button" class="btn-secondary" id="rn-use-next" data-date="${escHtml(n.date)}" style="font-size:11px;padding:1px 8px">改選此日期</button>` : '　目前沒有可供應的日期。'; };
+  if (!inp.date) { btn.disabled = true; setMsg(`請選擇供應日期。${nextHint('')}`); return { ok: false }; }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(inp.date)) { btn.disabled = true; setMsg('⚠ 日期格式不正確，請重新選擇。', '#ef4444'); return { ok: false }; }
+  let r = o.dates.find(x => x.date === inp.date);
+  if (!r) {
+    if (inp.date < o.range.from) r = { ok: false, reason: 'date_in_past', message: '' };
+    else if (o.checked && o.checked.date === inp.date) r = o.checked;
+    else r = { ok: false, reason: 'preorder_limit_exceeded', message: `可預訂到 ${o.range.to}` };
+  }
+  if (r.ok) { btn.disabled = false; setMsg(`✓ ${escHtml(_rnFmtDate(inp.date))} 可供應（${r.notice_kind === 'preorder' ? '開放預購' : '恢復供應'}）。`, '#16a34a'); return { ok: true }; }
+  btn.disabled = true;
+  const head = _RN_DATE_REASON[r.reason] || '此日期不可供應';
+  const detail = r.message && r.message !== head ? `（${escHtml(r.message)}）` : '';
+  setMsg(`⚠ ${escHtml(head)}${detail}${nextHint(r.reason === 'date_in_past' ? '' : inp.date)}`, '#ef4444');
+  return { ok: false };
+}
+// 讀取日期檢查（唯讀）。同一時間只有一個請求；較早請求或已換商品／取餐方式的回應一律丟棄。
+async function _rnLoadOptions(reason) {
+  const inp = _rnInputs();
+  if (inp.pid == null || !inp.mode) return;
+  if (_rn.optInflight && reason !== 'change') return; // 背景更新不重疊
+  const key = _rnKey(inp.pid, inp.mode), my = ++_rn.optSeq, gen = _rn.gen, owner = _pdOwnerKey();
+  _rn.optInflight = true;
+  if (_rn.optKey !== key) { _rn.opt = null; _rn.optKey = key; }
+  _rnEvaluate();
+  let data = null;
+  try {
+    const q = `product_id=${encodeURIComponent(inp.pid)}&fulfillment_mode=${encodeURIComponent(inp.mode)}${inp.date ? '&date=' + encodeURIComponent(inp.date) : ''}`;
+    const res = await apiFetch('/api/product-demand-admin/restock/date-options?' + q, { cache: 'no-store' });
+    const json = await res.json();
+    if (json && json.success) data = json.data;
+  } catch (e) { data = null; }
+  if (my !== _rn.optSeq || gen !== _rn.gen || owner !== _pdOwnerKey()) return; // 較早或已失效的回應
+  _rn.optInflight = false;
+  const now = _rnInputs();
+  if (_rnKey(now.pid, now.mode) !== key) return;
+  if (!data) { _rnEvaluate(); return; }
+  _rn.opt = data; _rn.optAt = Date.now();
+  const din = document.getElementById('rn-date');
+  // 初次開啟（使用者尚未自行選擇）：依規則預選第一個可供應日期
+  if (din && !_rn.userPicked && !din.value && data.first_available) din.value = data.first_available;
+  _rnEvaluate();
+}
+// 自動更新每一輪呼叫：資料過舊（跨午夜、截止時間經過）才重讀，最多每分鐘一次
+function _rnMaybeRefresh() {
+  if (!document.getElementById('rn-panel')) return;
+  if (!_rn.optInflight && Date.now() - _rn.optAt > RN_OPT_MAX_AGE_MS) _rnLoadOptions('tick');
+}
+function _rnWirePanel(pid) {
+  _rn.gen++; _rn.pid = Number(pid); _rn.opt = null; _rn.optKey = ''; _rn.optAt = 0; _rn.optInflight = false; _rn.userPicked = false; _rnInvalidatePreview();
+  const m = document.getElementById('rn-mode'), d = document.getElementById('rn-date'), msg = document.getElementById('rn-date-msg');
+  if (m) m.addEventListener('change', () => { _rnInvalidatePreview(); _rnLoadOptions('change'); });
+  if (d) {
+    const onDate = () => { _rn.userPicked = true; _rnInvalidatePreview(); const r = _rnEvaluate(); if (!r.ok && _rn.opt && d.value && !_rn.opt.dates.some(x => x.date === d.value) && d.value > _rn.opt.range.to) _rnLoadOptions('change'); };
+    d.addEventListener('input', onDate); d.addEventListener('change', onDate); d.addEventListener('paste', () => setTimeout(onDate, 0));
+  }
+  if (msg) msg.addEventListener('click', (e) => { const b = e.target && e.target.closest && e.target.closest('#rn-use-next'); if (!b) return; const di = document.getElementById('rn-date'); if (di) { di.value = b.dataset.date; di.dispatchEvent(new Event('change')); } });
+  _rnLoadOptions('change');
+}
 async function restockPreview(pid) {
   const out = document.getElementById('rn-preview');
   if (!out) return;
+  const inp = _rnInputs();
+  if (inp.pid !== Number(pid) || !_rnEvaluate().ok) return; // 日期未通過檢查：不送出
+  const my = ++_rn.pvSeq; const key = `${inp.pid}|${inp.mode}|${inp.date}`; _rn.pvKey = key;
+  const btn = document.getElementById('rn-preview-btn'); if (btn) btn.disabled = true;
   out.innerHTML = '計算中…';
+  let d = null, err = null;
   try {
-    const body = { product_id: pid, fulfillment_mode: document.getElementById('rn-mode').value, supply_date: document.getElementById('rn-date').value };
+    const body = { product_id: pid, fulfillment_mode: inp.mode, supply_date: inp.date };
     const res = await apiFetch('/api/product-demand-admin/restock/preview', { method: 'POST', body: JSON.stringify(body) });
     const json = await res.json();
     if (!json.success) throw new Error(json.message || '預覽失敗');
-    const d = json.data, st = d.stats;
-    const excl = Object.entries(st.exclusions || {}).filter(([, n]) => n > 0).map(([k, n]) => `${escHtml(_RN_EXCL_LABEL[k] || k)} ${n}`).join('、') || '無';
-    const avail = st.available_qty == null ? '未設上限' : `${st.available_qty} 份`;
-    const blockersTxt = { send_disabled: '通知發送尚未開啟', config_incomplete: '必要設定不完整', collect_disabled: '商品已關閉補貨登記收集', product_not_orderable: `商品在 ${escHtml(d.supply_date)} ${d.fulfillment_mode === 'delivery' ? '外送' : '外帶自取'}不可訂購（${escHtml(d.orderability.message || d.orderability.reason || '')}）`, no_eligible_recipient: '沒有符合資格的收件人' };
-    out.innerHTML = `<div id="rn-preview-box" style="font-size:13px;line-height:1.7">
+    d = json.data;
+  } catch (e) { err = e; }
+  // 送出後日期／商品／取餐方式已改變，或已有較新的預覽：丟棄（不得重新顯示確認按鈕）
+  const cur = _rnInputs();
+  if (my !== _rn.pvSeq || _rn.pvKey !== key || `${cur.pid}|${cur.mode}|${cur.date}` !== key) return;
+  _rnEvaluate();
+  const o2 = document.getElementById('rn-preview'); if (!o2) return;
+  if (err) { o2.innerHTML = `<span style="color:#ef4444">預覽失敗：${escHtml(err.message)}</span>`; return; }
+  const st = d.stats;
+  const excl = Object.entries(st.exclusions || {}).filter(([, n]) => n > 0).map(([k, n]) => `${escHtml(_RN_EXCL_LABEL[k] || k)} ${n}`).join('、') || '無';
+  const avail = st.available_qty == null ? '未設上限' : `${st.available_qty} 份`;
+  // C4.5：「日期／商品不可供應」與「沒有合格收件人」分開顯示
+  const supplyBlockers = { send_disabled: '通知發送尚未開啟', config_incomplete: '必要設定不完整', collect_disabled: '商品已關閉補貨登記收集', product_not_orderable: `商品在 ${escHtml(d.supply_date)} ${d.fulfillment_mode === 'delivery' ? '外送' : '外帶自取'}不可訂購（${escHtml(d.orderability.message || d.orderability.reason || '')}）` };
+  const sb = d.blockers.filter(b => b !== 'no_eligible_recipient');
+  const noRecipient = d.blockers.includes('no_eligible_recipient');
+  o2.innerHTML = `<div id="rn-preview-box" data-key="${escHtml(key)}" style="font-size:13px;line-height:1.7">
       <div>通知對應：<strong>${escHtml(d.supply_date)}・${d.fulfillment_mode === 'delivery' ? '外送' : '外帶自取'}</strong>（${d.notice_kind === 'preorder' ? '開放預購' : '恢復供應'}）</div>
       <div>有效補貨登記 <strong id="rn-active">${st.active_users}</strong> 人、期望總份數 <strong>${st.total_qty}</strong> 份（只是需求統計，不代表訂單或庫存保留）</div>
       <div>已同意通知 <strong>${st.consented_users}</strong> 人・本次符合資格 <strong id="rn-eligible">${st.eligible_count}</strong> 人（期望 ${st.eligible_qty} 份）</div>
@@ -10655,12 +10845,14 @@ async function restockPreview(pid) {
       <div id="rn-excl">排除：${excl}</div>
       <pre id="rn-msg" style="white-space:pre-wrap;background:var(--bg-base,#0f172a);padding:8px;border-radius:8px;font-size:12px;margin:6px 0">${escHtml(d.message_text || '')}</pre>
       ${d.can_send
-        ? `<div style="display:flex;gap:8px;align-items:center"><button class="btn-primary" id="rn-confirm-btn" style="font-size:12px;padding:5px 14px" onclick="restockConfirm('${d.batch_uuid}', ${pid}, this)">確認發送（${st.eligible_count} 人）</button><span style="font-size:11px;color:var(--text-muted,#64748b)">預覽保留至 ${escHtml(fmtDemandTime(d.preview_expires_at))}；預覽後新登記的會員不會加入本批次。</span></div>`
-        : `<div id="rn-blocked" style="color:#ef4444">目前不可發送：${d.blockers.map(b => blockersTxt[b] || escHtml(b)).join('、')}</div>`}
+        ? `<div style="display:flex;gap:8px;align-items:center"><button class="btn-primary" id="rn-confirm-btn" data-key="${escHtml(key)}" style="font-size:12px;padding:5px 14px" onclick="restockConfirm('${d.batch_uuid}', ${pid}, this)">確認發送（${st.eligible_count} 人）</button><span style="font-size:11px;color:var(--text-muted,#64748b)">預覽保留至 ${escHtml(fmtDemandTime(d.preview_expires_at))}；預覽後新登記的會員不會加入本批次。</span></div>`
+        : `${sb.length ? `<div id="rn-blocked" style="color:#ef4444">目前不可發送（供應／設定）：${sb.map(b => supplyBlockers[b] || escHtml(b)).join('、')}</div>` : ''}${noRecipient ? `<div id="rn-no-recipient" style="color:#f59e0b">日期可供應，但目前沒有符合資格的收件人（見上方排除原因）。</div>` : ''}`}
     </div>`;
-  } catch (e) { out.innerHTML = `<span style="color:#ef4444">預覽失敗：${escHtml(e.message)}</span>`; }
 }
 async function restockConfirm(batchUuid, pid, btn) {
+  // C4.5：預覽之後已改變日期／商品／取餐方式 → 這個確認按鈕已失效
+  const ci = _rnInputs();
+  if (btn && btn.dataset.key && btn.dataset.key !== `${ci.pid}|${ci.mode}|${ci.date}`) { _rnInvalidatePreview(); showToast('日期或取餐方式已變更，請重新預覽', 'error'); return; }
   if (btn) { btn.disabled = true; btn.textContent = '送出中…'; }
   _pdMutBegin('batch:' + pid);
   try {
@@ -10691,6 +10883,7 @@ function _pdBatchesHtml(pid, list) {
           <button class="btn-secondary" data-act="detail" style="font-size:11px;padding:2px 8px" onclick="restockBatchDetail('${escHtml(b.batch_uuid)}')">明細</button>
           ${canResume ? `<button class="btn-secondary rn-resume" data-act="resume" style="font-size:11px;padding:2px 8px" onclick="restockResume('${escHtml(b.batch_uuid)}', ${pid}, this)">續送未完成項目</button>` : ''}
           ${b.status === 'paused' ? `<button class="btn-secondary" data-act="cancel" style="font-size:11px;padding:2px 8px" onclick="restockCancel('${escHtml(b.batch_uuid)}', ${pid})">取消未送出項目</button>` : ''}
+          ${b.tracked ? `<button class="btn-secondary" data-act="effect" style="font-size:11px;padding:2px 8px" onclick="if(typeof av2OpenRestockBatch==='function')av2OpenRestockBatch('${escHtml(b.batch_uuid)}')">📈 成效</button>` : `<span class="rn-untracked" style="font-size:11px;color:var(--text-muted,#64748b)">成效：未建立追蹤</span>`}
         </div>
         <div class="rn-detail" id="rn-detail-${escHtml(b.batch_uuid)}"></div>
       </div>`;
@@ -12494,7 +12687,7 @@ function notifyInventoryChanged() {
 
     ws.onopen = () => {
       _wssRetry = 0;
-      console.log('[WSS] Web POS 已連線:', url);
+      console.log('[WSS] Web POS 已連線:', String(url).replace(/([?&]token=)[^&]*/, '$1***')); // C5.1：診斷紀錄不含 JWT
     };
 
     ws.onmessage = (evt) => {

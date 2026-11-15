@@ -40,7 +40,7 @@ const CATEGORY_DEFS = [
     desc: '商品分類與排序', tables: ['categories'], recommends: [], history: false, dateFilter: false },
   { key: 'orders', label: '訂單紀錄', fileTag: 'orders',
     desc: '訂單主檔（含品項明細快照、付款、退款、折扣快照、外送／取餐／快閃資訊）、訂單操作紀錄、優惠券使用紀錄',
-    tables: ['orders', 'order_logs', 'coupon_redemptions'], recommends: ['products', 'discounts'], history: true, dateFilter: true },
+    tables: ['orders', 'order_logs', 'coupon_redemptions', 'linepay_payment_attempts', 'payment_side_effects'], recommends: ['products', 'discounts'], history: true, dateFilter: true },
   { key: 'ingredients', label: '食材與扣料公式', fileTag: 'ingredients',
     desc: '食材主檔（含目前庫存快照）、商品扣料公式、批號、解凍批次',
     tables: ['ingredients', 'product_ingredient_formulas', 'ingredient_batches', 'ingredient_thaw_batches'],
@@ -70,7 +70,8 @@ const CATEGORY_DEFS = [
   // 匯入只合併、不會清除現有紀錄（完整取代也不清除），未完成的工作一律暫停，匯入不發送任何通知。
   { key: 'restock_notify', label: '補貨通知紀錄', fileTag: 'restock_notify',
     desc: '店家手動補貨通知的批次、逐筆 LINE 已受理紀錄（防重依據）與待發送／發送中／待重試／結果不明等執行狀態；匯入後未完成工作一律暫停，不會自動發送',
-    tables: ['restock_notify_batches', 'restock_notify_deliveries'],
+    // R54.4／MBV2-HF1-C5：成效追蹤（點擊、加購、訂單歸因快照）隨補貨通知紀錄一起搬家；只合併、不清除。
+    tables: ['restock_notify_batches', 'restock_notify_deliveries', 'restock_notify_clicks', 'restock_notify_cart_adds', 'restock_notify_order_attributions'],
     recommends: ['product_demand', 'products'], history: true, dateFilter: false },
   { key: 'analytics', label: 'Analytics 事件', fileTag: 'analytics',
     desc: '商品曝光、加購、結帳、轉換等事件，以及訪客地理紀錄', tables: ['analytics_events', 'geo_visit_log'],
@@ -382,6 +383,12 @@ function collectExport(raw, storeId, categories, filters, onRow) {
         if (fullOrderSet || ids.has(String(r.order_id)) || nums.has(String(r.order_id)) || nums.has(String(r.order_number))) emit('coupon_redemptions', r);
       });
     }
+    // R54.4／MBV2-HF1-C5.2：LINE Pay 付款嘗試（含待核對）與付款副作用待辦，隨所屬訂單匯出（不遺失待核對資料）
+    if (sel.has('orders')) {
+      ensure('linepay_payment_attempts'); ensure('payment_side_effects');
+      if (has('linepay_payment_attempts')) rawEach(raw, 'SELECT * FROM linepay_payment_attempts WHERE store_id=? ORDER BY id ASC', [storeId], (r) => { if (fullOrderSet || ids.has(String(r.order_uuid))) emit('linepay_payment_attempts', r); });
+      if (has('payment_side_effects')) rawEach(raw, 'SELECT * FROM payment_side_effects WHERE store_id=? ORDER BY id ASC', [storeId], (r) => { if (fullOrderSet || ids.has(String(r.order_uuid))) emit('payment_side_effects', r); });
+    }
   }
 
   if (sel.has('inventory_movements')) {
@@ -406,6 +413,9 @@ function collectExport(raw, storeId, categories, filters, onRow) {
   if (sel.has('restock_notify')) {
     simple('restock_notify_batches', 'store_id=?', [storeId], 'id ASC');
     simple('restock_notify_deliveries', 'store_id=?', [storeId], 'id ASC');
+    for (const t of ['restock_notify_clicks', 'restock_notify_cart_adds', 'restock_notify_order_attributions']) {
+      if (tableExists(raw, t)) simple(t, 'store_id=?', [storeId], 'id ASC');
+    }
   }
   if (sel.has('analytics')) {
     const f = filters.analytics || null;
@@ -726,7 +736,8 @@ function inspectPayload(payload) {
 // 各表合併時「不比較、不補值」的欄位（衍生值或目前庫存快照，以現有資料為準）
 const IGNORE_COMPARE = {
   _all: ['id', 'store_id', 'updated_at'],
-  orders: ['sync_status', 'webhook_sent'],
+  // C5.1：訂單識別由業務鍵（uuid／id）處理；匯入標記與新編號格式旗標不參與合併比較，也不會被填入既有本地訂單
+  orders: ['sync_status', 'webhook_sent', 'uuid', 'order_no_v', 'imported_at', 'import_origin_uuid', 'import_origin_store'],
   products: ['current_stock_grams', 'total_stock_grams', 'allocated_grams', 'line_quota_sold', 'line_preorder_sold', 'category_id', 'line_category_id', 'product_uuid'],
   ingredients: ['total_stock', 'frozen_stock', 'thawing_stock', 'refrigerated_stock', 'scrapped_total'],
   line_members: ['last_seen_at', 'last_login_at', 'order_count', 'total_spent', 'lifetime_value', 'last_order_at', 'last_purchase_at',
@@ -888,6 +899,7 @@ function importTable(ctx, spec) {
     try { tr = spec.transform(row0, st); } catch (e) { st.invalid++; pushSample(st, 'invalid', { reason: e.message }); continue; }
     if (tr.invalid) { st.invalid++; pushSample(st, 'invalid', { key: tr.key, reason: tr.invalid }); continue; }
     if (tr.protect) { st.protected++; st.skipped++; continue; }
+    if (tr.conflict) { st.conflict++; pushSample(st, 'conflict', { key: tr.key || null, reason: tr.conflict }); continue; }
     const values = tr.values;
     if (tr.missing) { st.missing_relation++; pushSample(st, 'missing_relation', { key: safeKey(spec, values), reason: tr.missing }); continue; }
     const key = spec.keyOf(values, false);
@@ -1134,14 +1146,32 @@ function stepPopupAfterOrders(ctx) {
     transform: r => { const sid = ctx.mapText('popupSession', r.session_id); const v = { ...r, session_id: sid }; return sessOk(sid) ? { values: v } : { missing: '找不到對應場次', values: v }; } });
 }
 
+// R54.4／MBV2-HF1-C5.1：訂單以穩定識別（uuid；店內 POS 訂單為 id）判定同一張，不再以訂單編號合併或略過。
+//   - 同號不同 uuid 的訂單各自匯入；同一份資料重複匯入維持冪等（uuid／id／import_origin_uuid 對應）。
+//   - 目標資料庫已有相同 id（同一資料庫跨店匯入）→ 換新 id；LINE 訂單（id＝uuid）同步換 uuid，原識別記在 import_origin_uuid，
+//     子資料（操作紀錄、優惠券使用、會員訂單關聯、Analytics、補貨歸因）一律以 maps.order 跟隨新識別。
+//   - 舊備份缺少 uuid 與 id：只有「目標店沒有同編號」或「恰好一張同編號且建立時間、金額相同」才對應；否則列為衝突，不推定。
+//   - 匯入的訂單標記 imported_at／import_origin_store：付款交易屬於歷史資料，跨店不會被 LINE Pay callback 自動啟用。
+//   - 新編號（order_no_v=2）與目標店另一張訂單相同時，保留編號但取消新格式標記（兩張都保留），列入 conflict 樣本供核對。
 function stepOrders(ctx) {
   const all = ctx.cat.has('orders');
   const onlyLine = !all && ctx.cat.has('line_preorders');
   const src = ctx.rows('orders').filter(o => all || (onlyLine && o && o.source === 'line'));
   const importedOrderRefs = new Set();
+  const ident = (r) => String((r && (r.uuid || r.id)) || '').trim();
+  const fileIds = new Set(); const numCount = new Map();
+  for (const o of src) {
+    if (!o) continue;
+    if (o.id != null) fileIds.add(String(o.id)); if (o.uuid) fileIds.add(String(o.uuid));
+    const n = String(o.order_number || '').trim(); if (n) numCount.set(n, (numCount.get(n) || 0) + 1);
+  }
+  const hasOrigin = ctx.colSet('orders').set.has('import_origin_uuid');
+  const nowStr = new Date().toISOString().slice(0, 19).replace('T', ' ');
+  const srcStore = String((ctx.info && ctx.info.source_store_id) || '').slice(0, 40);
   importTable(ctx, { table: 'orders', cat: all ? 'orders' : 'line_preorders', rows: src, idMode: 'text', textIdMap: 'order',
-    keyOf: r => (r.order_number ? k(String(r.order_number).trim()) : null),
-    existingSql: 'SELECT id, order_number FROM orders WHERE store_id=?',
+    keyOf: r => (r._okey ? r._okey : (ident(r) ? 'o:' + ident(r) : null)),
+    existingSql: 'SELECT id, uuid, order_number FROM orders WHERE store_id=?',
+    existingKeyOf: r => 'o:' + ident(r),
     transform: r => {
       const num = String(r.order_number || '').trim();
       if (!num) return { invalid: '訂單缺少 order_number' };
@@ -1149,22 +1179,54 @@ function stepOrders(ctx) {
       if (typeof v.items !== 'string' && v.items != null) v.items = JSON.stringify(v.items);
       if (v.popup_session_id) v.popup_session_id = ctx.mapText('popupSession', v.popup_session_id);
       if (v.popup_campaign_id) v.popup_campaign_id = ctx.mapText('popupCampaign', v.popup_campaign_id);
+      const id0 = ident(r);
+      if (id0) {
+        const m = rawGet(ctx.raw, `SELECT id, uuid FROM orders WHERE store_id=? AND (uuid=? OR id=?${hasOrigin ? " OR (COALESCE(import_origin_uuid,'')<>'' AND import_origin_uuid=?)" : ''}) LIMIT 1`,
+          hasOrigin ? [ctx.storeId, id0, id0, id0] : [ctx.storeId, id0, id0]);
+        if (m) v._okey = 'o:' + ident(m);
+      } else {
+        // 舊備份沒有可驗證的訂單識別：不以編號相同直接推定
+        const ms = rawAll(ctx.raw, 'SELECT id, uuid, created_at, total FROM orders WHERE store_id=? AND order_number=?', [ctx.storeId, num]);
+        if ((numCount.get(num) || 0) > 1) return { conflict: '備份檔缺少訂單識別且同編號有多張，無法唯一對應（未匯入）', key: num };
+        if (ms.length === 0) v._okey = 'n:' + num;
+        else if (ms.length === 1 && String(ms[0].created_at || '') === String(r.created_at || '') && Number(ms[0].total) === Number(r.total)) v._okey = 'o:' + ident(ms[0]);
+        else return { conflict: '備份檔缺少訂單識別，目標店已有同編號但內容不同的訂單，無法唯一對應（未匯入）', key: num };
+      }
+      if (!v._okey) {
+        v.imported_at = nowStr; v.import_origin_store = srcStore;
+        if (Number(v.order_no_v) === 2 && rawGet(ctx.raw, 'SELECT 1 AS x FROM orders WHERE store_id=? AND order_number=? LIMIT 1', [ctx.storeId, num])) {
+          v.order_no_v = null; // 兩張都保留；編號不再受新格式唯一索引約束
+        }
+      }
       return { values: v };
     },
-    onAdded: (row) => { importedOrderRefs.add(String(row.id)); importedOrderRefs.add(String(row.order_number).trim()); },
+    beforeInsert: (ins, row0) => {
+      const oldId = row0.id != null ? String(row0.id) : '';
+      if (oldId && String(ins.id) !== oldId) {
+        // 跨環境 id 改變：LINE 訂單 id＝uuid 的不變式維持，原識別保存於 import_origin_uuid（重複匯入仍能對應）
+        if (hasOrigin) ins.import_origin_uuid = String(row0.uuid || row0.id);
+        if (row0.uuid && String(row0.uuid) === oldId) ins.uuid = ins.id;
+      }
+      if (!ins.id && !oldId) ins.id = crypto.randomUUID();
+    },
+    onAdded: (row) => { if (row.id != null) importedOrderRefs.add(String(row.id)); if (row.uuid) importedOrderRefs.add(String(row.uuid)); importedOrderRefs.add(String(row.order_number).trim()); },
     onExisting: (row, v, ex) => {
-      // 已存在（同店同訂單編號）：子資料以目前訂單 id 對應
+      // 已存在（同一張訂單：uuid／id／原識別相同）：子資料以目前訂單 id 對應
       const exId = typeof ex === 'object' ? ex.id : ex;
       if (row.id != null && exId != null && String(row.id) !== String(exId)) ctx.maps.order.set(String(row.id), exId);
-      importedOrderRefs.add(String(row.id)); importedOrderRefs.add(String(row.order_number).trim());
+      if (row.uuid && exId != null && String(row.uuid) !== String(exId) && !ctx.maps.order.has(String(row.uuid))) ctx.maps.order.set(String(row.uuid), exId);
+      if (row.id != null) importedOrderRefs.add(String(row.id)); if (row.uuid) importedOrderRefs.add(String(row.uuid)); importedOrderRefs.add(String(row.order_number).trim());
     },
   });
   // 只處理屬於本次匯入範圍訂單的子資料
   const belongs = (r) => importedOrderRefs.has(String(r.order_id)) || (r.order_number && importedOrderRefs.has(String(r.order_number)));
+  // 子資料只以「訂單編號」指向訂單、且該編號在備份檔有多張 → 無法唯一對應（不猜）
+  const ambiguousNumRef = (ref) => { const x = String(ref == null ? '' : ref); return !!x && !fileIds.has(x) && (numCount.get(x) || 0) > 1; };
   const orderExists = (ref) => !!rawGet(ctx.raw, 'SELECT 1 AS x FROM orders WHERE store_id=? AND (id=? OR order_number=?)', [ctx.storeId, ref, ref]);
   importTable(ctx, { table: 'order_logs', cat: all ? 'orders' : 'line_preorders', rows: ctx.rows('order_logs').filter(belongs), idMode: 'none', appendOnly: true,
     keyOf: r => (r.order_id != null ? k(r.order_id, r.action, r.created_at, r.before_total, r.after_total, r.reason) : null),
     transform: r => {
+      if (ambiguousNumRef(r.order_id)) return { conflict: '操作紀錄只以訂單編號對應，且該編號有多張訂單（未匯入）', key: String(r.order_id) };
       const oid = ctx.mapOrderRef(r.order_id);
       const v = { ...r, order_id: oid, order_number: r.order_number || r.order_id };
       return orderExists(oid) || orderExists(v.order_number) ? { values: v } : { missing: '找不到對應訂單', values: v };
@@ -1172,8 +1234,10 @@ function stepOrders(ctx) {
   importTable(ctx, { table: 'coupon_redemptions', cat: all ? 'orders' : 'line_preorders', rows: ctx.rows('coupon_redemptions').filter(belongs), idMode: 'none', appendOnly: true,
     keyOf: r => (r.order_id != null ? k(r.order_id) : null),
     transform: r => {
+      if (ambiguousNumRef(r.order_id)) return { conflict: '優惠券使用紀錄只以訂單編號對應，且該編號有多張訂單（未匯入）', key: String(r.order_id) };
       const oid = ctx.mapOrderRef(r.order_id);
       const v = { ...r, order_id: oid };
+      if (v.order_number !== undefined && oid) { const o = rawGet(ctx.raw, 'SELECT order_number FROM orders WHERE store_id=? AND id=?', [ctx.storeId, oid]); if (o) v.order_number = o.order_number; }
       let cid = null;
       if (r.coupon_code) { const c = rawGet(ctx.raw, 'SELECT id FROM coupons WHERE store_id=? AND code=?', [ctx.storeId, r.coupon_code]); if (c) cid = c.id; }
       if (cid == null && r.coupon_id != null) cid = ctx.resolveByName('coupon', 'coupons', 'coupons', 'code', r.coupon_id);
@@ -1182,6 +1246,45 @@ function stepOrders(ctx) {
       if (cid == null) return { missing: `找不到優惠券代碼 ${r.coupon_code || ''}（請一併匯入折扣活動）`, values: v };
       return { values: v };
     } });
+  // R54.4／MBV2-HF1-C5.2：LINE Pay 付款嘗試與副作用待辦
+  //   - 同店搬移（來源店別＝目前店別，例如換主機）：保留狀態可續用；搬移當下「確認中」者改為待核對（imported_pending）。
+  //   - 跨店：一律只當歷史（imported_history），不被 callback 或核對自動啟用；副作用待辦不匯入。
+  //   - 匯入本身不呼叫 LINE Pay、不發通知、不退款。訂單對應不到 → 列為缺少關聯（不猜）。
+  if (all) {
+    const sameStore = String((ctx.info && ctx.info.source_store_id) || '') === String(ctx.storeId);
+    const srcStore = String((ctx.info && ctx.info.source_store_id) || '').slice(0, 40);
+    const hasLpa = ctx.colSet('linepay_payment_attempts').set.size > 0;
+    const orderOf = (ref) => { const oid = ctx.mapOrderRef(ref); return oid ? rawGet(ctx.raw, 'SELECT uuid FROM orders WHERE store_id=? AND (id=? OR uuid=?) LIMIT 1', [ctx.storeId, oid, oid]) : null; };
+    if (hasLpa) {
+      importTable(ctx, { table: 'linepay_payment_attempts', cat: 'orders', rows: ctx.rows('linepay_payment_attempts').filter((r) => importedOrderRefs.has(String(r.order_uuid))), idMode: 'none', appendOnly: true,
+        existingSql: 'SELECT attempt_uuid, source FROM linepay_payment_attempts WHERE store_id=?',
+        // 同一資料庫跨店匯入時換新識別，原識別記在 source（import:<原識別>），重複匯入仍能對應
+        keyOf: (r) => (r._okey ? r._okey : (String(r.source || '').startsWith('import:') ? k(String(r.source).slice(7)) : (r.attempt_uuid ? k(r.attempt_uuid) : null))),
+        transform: (r) => {
+          const o = orderOf(r.order_uuid);
+          const v = { ...r, order_uuid: o ? o.uuid : r.order_uuid };
+          if (!o) return { missing: '找不到對應訂單', values: v };
+          v._okey = k(r.attempt_uuid);
+          if (rawGet(ctx.raw, 'SELECT 1 AS x FROM linepay_payment_attempts WHERE attempt_uuid=? AND store_id<>?', [r.attempt_uuid, ctx.storeId])) { v.attempt_uuid = crypto.randomUUID(); v.source = 'import:' + r.attempt_uuid; }
+          if (!sameStore) {
+            if (!['paid', 'paid_cancelled', 'paid_duplicate', 'failed', 'aborted_cancelled'].includes(String(r.status))) { v.review_reason = 'imported_history:' + String(r.status || ''); v.status = 'imported_history'; }
+            v.origin_store = srcStore;
+          } else if (r.status === 'confirm_pending' || r.status === 'review' || r.status === 'confirming') {
+            v.status = 'review'; v.review_reason = 'imported_pending:' + String(r.review_reason || r.status || '');
+          }
+          v.state_version = 3;
+          // C5.3：匯入的付款嘗試沒有本環境的可靠處理階段 → 只能唯讀核對，不會送出 Confirm
+          v.confirm_state = 'unknown';
+          return { values: v };
+        } });
+    }
+    if (sameStore && ctx.colSet('payment_side_effects').set.size > 0) {
+      importTable(ctx, { table: 'payment_side_effects', cat: 'orders', rows: ctx.rows('payment_side_effects').filter((r) => importedOrderRefs.has(String(r.order_uuid))), idMode: 'none', appendOnly: true,
+        existingSql: 'SELECT order_uuid, kind FROM payment_side_effects WHERE store_id=?',
+        keyOf: (r) => (r.order_uuid && r.kind ? k(r.order_uuid, r.kind) : null),
+        transform: (r) => { const o = orderOf(r.order_uuid); const v = { ...r, order_uuid: o ? o.uuid : r.order_uuid }; return o ? { values: v } : { missing: '找不到對應訂單', values: v }; } });
+    }
+  }
 }
 
 function stepInventoryMovements(ctx) {
@@ -1322,6 +1425,9 @@ function stepRestockNotify(ctx) {
       batchProduct.set(String(r.batch_uuid), v.product_id);
       return { values: v };
     },
+    // C5：同一資料庫內跨店匯入時，批次 uuid 已屬於其他店別 → 保留原紀錄、不複製（原本會因全資料庫唯一索引使整次匯入失敗）
+    beforeInsert: (ins) => (rawGet(ctx.raw, 'SELECT 1 AS x FROM restock_notify_batches WHERE batch_uuid=?', [ins.batch_uuid])
+      ? { missing: '此通知批次已存在於其他店別，保留原紀錄（不跨店複製）' } : null),
   });
   for (const r of ctx.rows('restock_notify_batches')) {
     if (r && r.batch_uuid && !batchProduct.has(String(r.batch_uuid))) batchProduct.set(String(r.batch_uuid), mapProduct(r));
@@ -1345,6 +1451,7 @@ function stepRestockNotify(ctx) {
       return { values: v };
     },
     beforeInsert: (ins) => {
+      if (rawGet(ctx.raw, 'SELECT 1 AS x FROM restock_notify_deliveries WHERE delivery_uuid=?', [ins.delivery_uuid])) return { missing: '此發送紀錄已存在於其他店別，保留原紀錄（不跨店複製）' };
       if (Number(ins.claim) === 1) {
         const ex = rawGet(ctx.raw, 'SELECT 1 AS x FROM restock_notify_deliveries WHERE store_id=? AND request_uuid=? AND claim=1', [ctx.storeId, ins.request_uuid]);
         if (ex) ins.claim = null; // 目標店已有此週期的名額，匯入列只當歷史
@@ -1358,6 +1465,43 @@ function stepRestockNotify(ctx) {
       return null;
     },
   });
+  // R54.4／MBV2-HF1-C5：成效追蹤。只合併（同 uuid 已存在即跳過），商品沿用批次的對應結果；訂單以本次訂單對應表換成目前訂單
+  //   識別（沒有對應時保留原識別：報表以 LEFT JOIN 目前店別的訂單，找不到的訂單不會被計入或串到其他訂單）。
+  const trackPid = (r) => {
+    if (batchProduct.has(String(r.batch_uuid))) return batchProduct.get(String(r.batch_uuid));
+    const ex = rawGet(ctx.raw, 'SELECT product_id FROM restock_notify_batches WHERE store_id=? AND batch_uuid=?', [ctx.storeId, r.batch_uuid]);
+    return ex ? Number(ex.product_id) : 0;
+  };
+  if (tableExists(ctx.raw, 'restock_notify_clicks')) {
+    importTable(ctx, { table: 'restock_notify_clicks', cat: 'restock_notify', rows: ctx.rows('restock_notify_clicks'), idMode: 'int', appendOnly: true,
+      keyOf: r => (r.click_uuid ? k(r.click_uuid) : null),
+      transform: r => (!r.click_uuid || !r.batch_uuid || !r.open_key) ? { invalid: '缺少 click_uuid／batch_uuid／open_key' } : { values: { ...r, product_id: trackPid(r), import_source: tag } },
+      beforeInsert: (ins) => ((rawGet(ctx.raw, 'SELECT 1 AS x FROM restock_notify_clicks WHERE store_id=? AND batch_uuid=? AND open_key=?', [ctx.storeId, ins.batch_uuid, ins.open_key])
+        || rawGet(ctx.raw, 'SELECT 1 AS x FROM restock_notify_clicks WHERE click_uuid=?', [ins.click_uuid]))
+        ? { missing: '同一次開啟已有紀錄（或屬於其他店別），保留現有紀錄' } : null),
+    });
+  }
+  if (tableExists(ctx.raw, 'restock_notify_cart_adds')) {
+    importTable(ctx, { table: 'restock_notify_cart_adds', cat: 'restock_notify', rows: ctx.rows('restock_notify_cart_adds'), idMode: 'int', appendOnly: true,
+      keyOf: r => (r.add_uuid ? k(r.add_uuid) : null),
+      transform: r => (!r.add_uuid || !r.batch_uuid || !r.event_key) ? { invalid: '缺少 add_uuid／batch_uuid／event_key' } : { values: { ...r, product_id: trackPid(r), import_source: tag } },
+      beforeInsert: (ins) => ((rawGet(ctx.raw, 'SELECT 1 AS x FROM restock_notify_cart_adds WHERE store_id=? AND event_key=?', [ctx.storeId, ins.event_key])
+        || rawGet(ctx.raw, 'SELECT 1 AS x FROM restock_notify_cart_adds WHERE add_uuid=?', [ins.add_uuid]))
+        ? { missing: '同一加購事件已有紀錄（或屬於其他店別），保留現有紀錄' } : null),
+    });
+  }
+  if (tableExists(ctx.raw, 'restock_notify_order_attributions')) {
+    importTable(ctx, { table: 'restock_notify_order_attributions', cat: 'restock_notify', rows: ctx.rows('restock_notify_order_attributions'), idMode: 'int', appendOnly: true,
+      keyOf: r => (r.attr_uuid ? k(r.attr_uuid) : null),
+      transform: r => {
+        if (!r.attr_uuid || !r.batch_uuid || !r.order_uuid) return { invalid: '缺少 attr_uuid／batch_uuid／order_uuid' };
+        return { values: { ...r, product_id: trackPid(r), order_uuid: ctx.mapOrderRef(r.order_uuid), import_source: tag } };
+      },
+      beforeInsert: (ins) => ((rawGet(ctx.raw, 'SELECT 1 AS x FROM restock_notify_order_attributions WHERE store_id=? AND order_uuid=? AND product_id=?', [ctx.storeId, ins.order_uuid, ins.product_id])
+        || rawGet(ctx.raw, 'SELECT 1 AS x FROM restock_notify_order_attributions WHERE attr_uuid=?', [ins.attr_uuid]))
+        ? { missing: '同一訂單同一商品已有歸因（或屬於其他店別），保留現有紀錄（同一訂單商品只歸因一次）' } : null),
+    });
+  }
   // R54.4／MBV2-HF1-C4.1：匯入的已受理證據即使因本地已有名額而成為 claim=NULL，也必須生效——
   // 同一交易內把本店同週期尚未完成的本地工作停止並標示「本週期已通知」（預覽匯入會一併回滾）。
   require('./restockNotify').blockConflictsRaw(ctx.raw, ctx.storeId);
@@ -1428,7 +1572,7 @@ function purgeTablesFor(categories) {
   if (set.has('line_members')) add('line_member_tags', 'line_members');
   if (set.has('inventory_movements')) add('inventory_logs', 'ingredient_logs');
   if (set.has('popup')) add('popup_session_change_logs', 'popup_order_allocations', 'popup_session_product_sales', 'popup_session_products', 'popup_sessions', 'popup_campaigns', 'popup_locations');
-  if (set.has('orders')) add('coupon_redemptions', 'order_logs', 'orders');
+  if (set.has('orders')) add('payment_side_effects', 'linepay_payment_attempts', 'coupon_redemptions', 'order_logs', 'orders');
   else if (set.has('line_preorders')) add('line_order_logs', 'line_orders');
   if (set.has('ingredients')) add('product_ingredient_formulas', 'ingredient_batches', 'ingredient_thaw_batches', 'ingredients');
   if (set.has('discounts')) add('coupons', 'discount_categories', 'discount_campaigns');
@@ -1569,6 +1713,11 @@ function snapshotPreservedRestock(raw, storeId) {
   if (!tableExists(raw, 'restock_notify_batches') || !tableExists(raw, 'restock_notify_deliveries')) return null;
   const batches = rawAll(raw, 'SELECT id, product_id, product_name_snapshot FROM restock_notify_batches WHERE store_id=?', [storeId]);
   const dels = rawAll(raw, 'SELECT id, product_id FROM restock_notify_deliveries WHERE store_id=?', [storeId]);
+  // C5：成效追蹤三張表的商品關聯一併重新對應
+  const track = {};
+  for (const t of ['restock_notify_clicks', 'restock_notify_cart_adds', 'restock_notify_order_attributions']) {
+    track[t] = tableExists(raw, t) ? rawAll(raw, `SELECT id, product_id FROM ${t} WHERE store_id=?`, [storeId]) : [];
+  }
   if (!batches.length && !dels.length) return null;
   const ident = new Map();
   for (const pid of new Set([...batches, ...dels].map(r => Number(r.product_id)).filter(x => x > 0))) {
@@ -1576,7 +1725,7 @@ function snapshotPreservedRestock(raw, storeId) {
     const snap = batches.find(b => Number(b.product_id) === pid && b.product_name_snapshot);
     ident.set(pid, { name: cur ? String(cur.name || '') : (snap ? String(snap.product_name_snapshot) : ''), barcode: cur && cur.product_barcode ? String(cur.product_barcode) : '' });
   }
-  return { batches, dels, ident };
+  return { batches, dels, ident, track };
 }
 function remapPreservedRestock(raw, storeId, snap) {
   const prods = rawAll(raw, 'SELECT id, name, product_barcode FROM products WHERE store_id=?', [storeId]);
@@ -1592,6 +1741,9 @@ function remapPreservedRestock(raw, storeId, snap) {
   }
   for (const b of snap.batches) { const to = Number(b.product_id) > 0 ? map.get(Number(b.product_id)) : 0; if (to !== Number(b.product_id)) raw.run('UPDATE restock_notify_batches SET product_id=? WHERE id=?', [to, b.id]); }
   for (const d of snap.dels) { const to = Number(d.product_id) > 0 ? map.get(Number(d.product_id)) : 0; if (to !== Number(d.product_id)) raw.run('UPDATE restock_notify_deliveries SET product_id=? WHERE id=?', [to, d.id]); }
+  for (const [t, rows] of Object.entries(snap.track || {})) {
+    for (const r of rows) { const to = Number(r.product_id) > 0 ? (map.has(Number(r.product_id)) ? map.get(Number(r.product_id)) : 0) : 0; if (to !== Number(r.product_id)) raw.run(`UPDATE ${t} SET product_id=? WHERE id=?`, [to, r.id]); }
+  }
   return out;
 }
 

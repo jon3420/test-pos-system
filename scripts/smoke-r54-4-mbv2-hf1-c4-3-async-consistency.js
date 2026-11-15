@@ -343,6 +343,9 @@ const withTimeout = (p, ms, label) => Promise.race([p, new Promise((_, rej) => s
         await ap.evaluate(() => { pdAutoRefreshNow('test'); return null; }); await sleep(2500);
         await ap.evaluate((id) => { openDemandDetail(id); return null; }, PN); await sleep(1500);
         await ap.selectOption('#rn-mode', 'delivery').catch(() => {}); await ap.fill('#rn-date', twDate(1)).catch(() => {});
+        // C4.5 調整（只改操作時機、不改斷言）：改取餐方式／日期後「預覽通知」在伺服器日期檢查完成前停用（C4.5 新增防呆），
+        // 先等按鈕可按再點擊；原本立即以程式點擊會點到停用中的按鈕。
+        await ap.waitForFunction(() => { const b = document.getElementById('rn-preview-btn'); return !!b && !b.disabled; }, null, { timeout: 8000 }).catch(() => {});
         await ap.evaluate(() => { const b = document.getElementById('rn-preview-btn'); if (b) b.click(); }); await ap.waitForSelector('#rn-preview-box', { timeout: 8000 }).catch(() => {});
         await clickDetail(); await sleep(1200);
         let h9 = HD.hold('GET', reDet);

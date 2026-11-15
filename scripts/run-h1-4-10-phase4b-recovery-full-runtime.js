@@ -325,7 +325,11 @@ async function runFullScenarios(db) {
 
       // Confirm success（真實 LINE Pay Confirm 流程）
       const nodeFetchPath2 = require.resolve('node-fetch');
-      const fakeFetch2 = async () => ({ json: async () => ({ returnCode: '0000', info: { transactionId: 'txn-scenario2-confirm' } }) });
+      // C5.3 調整：callback 改帶 Recovery 付款請求建立的付款嘗試（舊付款 callback 在 C5.3 不補送 Confirm）；
+      // Confirm 成功回應改為官方結構（orderId／transactionId／payInfo），原本只有 transactionId 的回應在 C5.3 不再被視為已付款
+      const s2Attempt = db.get('SELECT attempt_uuid, lp_order_id, transaction_id FROM linepay_payment_attempts WHERE store_id=? AND order_uuid=? ORDER BY id DESC LIMIT 1', [storeId, orderId]);
+      const fakeFetch2 = async (url, opts) => { let b = {}; try { b = JSON.parse((opts && opts.body) || '{}'); } catch (e) { b = {}; }
+        return { json: async () => ({ returnCode: '0000', info: { orderId: s2Attempt.lp_order_id, transactionId: s2Attempt.transaction_id, payInfo: [{ method: 'BALANCE', amount: b.amount }] } }) }; };
       require.cache[nodeFetchPath2] = { id: nodeFetchPath2, filename: nodeFetchPath2, loaded: true, exports: fakeFetch2 };
       const app2 = express();
       app2.use(express.json());
@@ -334,7 +338,7 @@ async function runFullScenarios(db) {
       const server2 = http.createServer(app2);
       await new Promise((resolve) => server2.listen(0, resolve));
       const port2 = server2.address().port;
-      await fetch(`http://127.0.0.1:${port2}/api/linepay/confirm?store_id=${storeId}&orderId=${orderId}&transactionId=txn-scenario2-confirm`, { redirect: 'manual' });
+      await fetch(`http://127.0.0.1:${port2}/api/linepay/confirm?store_id=${storeId}&attempt=${s2Attempt.attempt_uuid}&orderId=${encodeURIComponent(s2Attempt.lp_order_id)}&transactionId=${s2Attempt.transaction_id}`, { redirect: 'manual' });
       server2.close();
       delete require.cache[nodeFetchPath2];
 

@@ -201,7 +201,39 @@ router.post('/test', async (req, res) => {
 
 // ══════════════════════════════════════════════════════════
 // POST /api/linepay/request — 建立 LINE Pay 付款請求
+// R54.4／MBV2-HF1-C5.1：
+//   - 只以 order_uuid（伺服器保存的唯一識別）定位訂單；金額、品項、orderId、confirmUrl 全部由伺服器以資料庫訂單建立，
+//     不採用前端傳入的 order_number／total／items／redirect_url。
+//   - 每次請求建立一筆付款嘗試（linepay_payment_attempts：店別＋訂單 uuid＋送出的 orderId＋transactionId），
+//     confirmUrl 帶 attempt 參數，callback 以它唯一定位訂單（LINE Pay 另會附上 orderId 與 transactionId）。
+//   - transactionId 為 19 位整數：從原始回應文字擷取並以字串保存，不經 JS Number（官方：以 64-bit long 或字串處理）。
 // ══════════════════════════════════════════════════════════
+const OrderIdentity = require('../utils/orderIdentity');
+const LPR = require('../utils/linePayRecovery'); // C5.2
+function sameOriginUrl(u, host) {
+  try { const x = new URL(String(u || '')); const h = new URL(host); return x.origin === h.origin ? x.toString() : null; } catch { return null; }
+}
+function linePayProductsFromOrder(order) {
+  const finalTotal = Number(order.total || 0);
+  const discountAmt = Number(order.discount_amount || 0);
+  const couponCode = order.coupon_code ? String(order.coupon_code) : '';
+  const delivFee = Number(order.delivery_fee || 0);
+  if (discountAmt > 0) {
+    // 有折扣：單一總品項（避免 2101 Parameter error）
+    const productName = couponCode ? '訂單費用（已套用優惠券 ' + couponCode + '）' : '訂單費用（含優惠折扣）';
+    return [{ name: productName.slice(0, 4000), quantity: 1, price: finalTotal }];
+  }
+  let items = [];
+  try { items = typeof order.items === 'string' ? JSON.parse(order.items || '[]') : (order.items || []); } catch { items = []; }
+  const products = (Array.isArray(items) ? items : []).map((i) => ({
+    name: String(i.name || '商品').slice(0, 4000), quantity: Number(i.qty || 1), price: Number(i.price || 0),
+  }));
+  if (delivFee > 0) products.push({ name: '外送費', quantity: 1, price: delivFee });
+  const sum = products.reduce((t, p) => t + Number(p.quantity) * Number(p.price), 0);
+  // 明細加總與訂單金額不一致（例如加價選項、舊資料）→ 改用單一總品項，金額一律以訂單 total 為準
+  if (!products.length || Math.round(sum * 100) !== Math.round(finalTotal * 100)) return [{ name: '訂單費用', quantity: 1, price: finalTotal }];
+  return products;
+}
 router.post('/request', async (req, res) => {
   try {
     const db      = getDb();
@@ -212,123 +244,90 @@ router.post('/request', async (req, res) => {
     if (!cfg.channelId)     return res.status(400).json({ success: false, message: 'LINE Pay Channel ID 未設定（Merchant ID 欄位）' });
     if (!cfg.channelSecret) return res.status(400).json({ success: false, message: 'LINE Pay Channel Secret 未設定（Secret Key 欄位）' });
 
-    const { order_uuid, order_number, total, items, customer_name, redirect_url, cancel_url } = req.body;
-    if (!order_uuid || !total) return res.status(400).json({ success: false, message: '缺少必要欄位（order_uuid, total）' });
+    const { order_uuid, customer_name, cancel_url } = req.body || {};
+    if (!order_uuid) return res.status(400).json({ success: false, message: '缺少必要欄位（order_uuid）' });
 
-    const order = db.get('SELECT * FROM orders WHERE uuid=? AND store_id=?', [order_uuid, storeId]);
+    // 只以伺服器保存的唯一識別取單（店別限定）；不以前端傳入的 order_number 決定付款對象
+    const order = db.get('SELECT * FROM orders WHERE uuid=? AND store_id=?', [String(order_uuid), storeId]);
     if (!order) return res.status(404).json({ success: false, message: '訂單不存在' });
+    if (order.payment_status === 'paid') return res.status(409).json({ success: false, error: 'ALREADY_PAID', message: '此訂單已完成付款' });
+    if (order.order_status === 'cancelled' || order.status === 'void') return res.status(409).json({ success: false, error: 'ORDER_NOT_PAYABLE', message: '此訂單已取消，無法付款' });
+    // C5.2：前一次付款結果仍待核對（可能已扣款）→ 不建立新的付款請求，避免重複扣款
+    if (LPR.isUnderReview(db, storeId, order.uuid)) return res.status(409).json({ success: false, error: 'PAYMENT_UNDER_REVIEW', message: '這筆訂單的付款結果確認中，請勿重複付款，可稍後查詢訂單狀態' });
 
-    // fix18-06: LINE Pay amount 使用 DB order.total（含外送費、折扣後的最終金額）
-    // 不信任前端傳來的 total。
-    const finalTotal  = Number(order.total || 0);
-    const discountAmt = Number(order.discount_amount || 0);
-    const couponCode  = order.coupon_code ? String(order.coupon_code) : '';
-    const delivFee    = Number(order.delivery_fee || 0);
-    let linePayProducts;
-    if (discountAmt > 0) {
-      // 有折扣：方案 C — 單一總品項（避免 2101 Parameter error）
-      const productName = couponCode
-        ? '訂單費用（已套用優惠券 ' + couponCode + '）'
-        : '訂單費用（含優惠折扣）';
-      linePayProducts = [{ name: productName.slice(0, 4000), quantity: 1, price: finalTotal }];
-    } else {
-      // 無折扣：商品明細 + 外送費（若有）
-      linePayProducts = (items || []).map(i => ({
-        name:     String(i.name || '商品').slice(0, 4000),
-        quantity: Number(i.qty || 1),
-        price:    Number(i.price || 0),
-      }));
-      if (!linePayProducts.length) {
-        linePayProducts.push({ name: '訂單費用', quantity: 1, price: finalTotal });
-      }
-      // fix18-06：外送費加一筆（若有）
-      if (delivFee > 0) {
-        linePayProducts.push({ name: '外送費', quantity: 1, price: delivFee });
-      }
+    const finalTotal = Number(order.total || 0);
+    if (!(finalTotal > 0)) return res.status(400).json({ success: false, message: '訂單金額不正確' });
+    const linePayProducts = linePayProductsFromOrder(order);
+    const lpProductsTotal = linePayProducts.reduce((t, p) => t + Number(p.quantity) * Number(p.price), 0);
+    if (Math.round(lpProductsTotal * 100) !== Math.round(finalTotal * 100)) {
+      return res.status(400).json({ success: false, message: 'LINE Pay 金額驗證失敗，訂單未送出' });
     }
 
+    // 付款嘗試（同步建立，await 之前完成）
+    const attempt = OrderIdentity.createAttempt(db, storeId, order, finalTotal, order.order_mode === 'shipping' ? 'line_shipping' : 'line_order', cfg.channelId);
     const host = `${req.protocol}://${req.get('host')}`;
-    const confirmUrl   = redirect_url || `${host}/api/linepay/confirm?store_id=${storeId}`;
-    const cancelUrlFinal = cancel_url || `${host}/line-order.html?store_id=${storeId}&linepay=cancel`;
+    const confirmUrl = `${host}/api/linepay/confirm?store_id=${encodeURIComponent(storeId)}&attempt=${attempt.attempt_uuid}`
+      + (order.order_mode === 'shipping' ? '&source=shipping' : '');
+    const defaultCancel = `${host}/${order.order_mode === 'shipping' ? 'line-shipping.html' : 'line-order.html'}?store_id=${encodeURIComponent(storeId)}&linepay=cancel`;
+    const cancelUrlFinal = sameOriginUrl(cancel_url, host) || defaultCancel;
 
-    const lpAmount        = Number(total);
-    const lpPackageAmount = Number(total);
-    const lpProductsTotal = linePayProducts.reduce((s, p) => s + Number(p.quantity) * Number(p.price), 0);
-
-    // ── fix18-06: 送出前三值一致性驗證 ───────────────────
-    console.log(
-      `[LINEPAY] amount=${lpAmount}` +
-      ` packageAmount=${lpPackageAmount}` +
-      ` productsTotal=${lpProductsTotal}` +
-      ` orderId=${order_number || order_uuid}` +
-      ` discount=${discountAmt}` +
-      ` coupon=${couponCode || '(none)'}`
-    );
-    if (lpAmount !== lpProductsTotal) {
-      console.error(
-        `[LINEPAY] MISMATCH — amount(${lpAmount}) !== productsTotal(${lpProductsTotal})` +
-        ` orderId=${order_number || order_uuid}`
-      );
-      return res.status(400).json({
-        success: false,
-        message: `LINE Pay 金額驗證失敗：amount(${lpAmount}) ≠ products加總(${lpProductsTotal})，訂單未送出`,
-        debug: { amount: lpAmount, packageAmount: lpPackageAmount, productsTotal: lpProductsTotal },
-      });
-    }
-
+    console.log(`[LINEPAY] request amount=${finalTotal} lpOrderId=${attempt.lp_order_id} discount=${Number(order.discount_amount || 0)}`);
     const requestBody = {
-      amount:   lpAmount,
+      amount:   finalTotal,
       currency: 'TWD',
-      orderId:  order_number || order_uuid,
+      orderId:  attempt.lp_order_id,
       packages: [{
-        id:       order_number || order_uuid,
-        amount:   lpPackageAmount,
-        name:     String(customer_name || '訂單').slice(0, 100),
+        id:       attempt.lp_order_id,
+        amount:   finalTotal,
+        name:     String(customer_name || order.customer_name || '訂單').slice(0, 100),
         products: linePayProducts,
       }],
-      redirectUrls: {
-        confirmUrl,
-        cancelUrl: cancelUrlFinal,
-      },
+      redirectUrls: { confirmUrl, cancelUrl: cancelUrlFinal },
     };
 
     const uri   = '/v3/payments/request';
     const nonce = uuidv4().replace(/-/g, '').slice(0, 32);
     const { bodyStr, signature } = signLinePayPost(cfg.channelSecret, uri, requestBody, nonce);
 
-    const apiRes = await fetch(cfg.apiBase + uri, {
-      method:  'POST',
-      headers: makePostHeaders(cfg.channelId, signature, nonce),
-      body:    bodyStr,
-      timeout: 10000,
-    });
-    const data = await apiRes.json();
+    let text = '', data = null;
+    try {
+      const apiRes = await fetch(cfg.apiBase + uri, {
+        method:  'POST',
+        headers: makePostHeaders(cfg.channelId, signature, nonce),
+        body:    bodyStr,
+        timeout: 10000,
+      });
+      ({ text, data } = await OrderIdentity.readLinePayResponse(apiRes));
+    } catch (netErr) {
+      OrderIdentity.attemptFailed(db, storeId, attempt.attempt_uuid, 'network');
+      throw netErr;
+    }
 
-    if (data.returnCode !== '0000') {
-      console.error('[linepay/request] error:', data);
+    if (!data || data.returnCode !== '0000') {
+      console.error('[linepay/request] error:', data && data.returnCode);
+      OrderIdentity.attemptFailed(db, storeId, attempt.attempt_uuid, data && data.returnCode);
       return res.status(400).json({
         success: false,
-        message: `LINE Pay 建立付款失敗（${data.returnCode}）：${data.returnMessage || ''}`,
-        linepay_code: data.returnCode,
+        message: `LINE Pay 建立付款失敗（${data && data.returnCode}）：${(data && data.returnMessage) || ''}`,
+        linepay_code: data && data.returnCode,
       });
     }
 
-    const transactionId = data.info?.transactionId;
-    // 更新訂單狀態
+    const transactionId = OrderIdentity.extractTransactionId(text, data);
+    OrderIdentity.attemptRequested(db, storeId, attempt.attempt_uuid, transactionId);
+    // 更新訂單狀態（既有行為）；舊版欄位 linepay_transaction_id 一併保存最新交易識別（字串），供相容與回退
     db.run(
       `UPDATE orders SET payment_status='pending', order_status='pending',
-       updated_at=datetime('now','localtime') WHERE uuid=? AND store_id=?`,
-      [order_uuid, storeId]
+       updated_at=datetime('now','localtime') WHERE uuid=? AND store_id=? AND COALESCE(payment_status,'')<>'paid'`,
+      [order.uuid, storeId]
     );
-    // 儲存 transactionId 至獨立欄位
     if (transactionId) {
       try {
-        db.run(`UPDATE orders SET linepay_transaction_id=? WHERE uuid=? AND store_id=?`,
-          [String(transactionId), order_uuid, storeId]);
+        db.run(`UPDATE orders SET linepay_transaction_id=? WHERE uuid=? AND store_id=? AND COALESCE(payment_status,'')<>'paid'`,
+          [String(transactionId), order.uuid, storeId]);
       } catch {
-        // 若欄位不存在（尚未 migrate），存到 sync_status 備用
         db.run(`UPDATE orders SET sync_status=? WHERE uuid=? AND store_id=?`,
-          [`linepay_txid:${transactionId}`, order_uuid, storeId]);
+          [`linepay_txid:${transactionId}`, order.uuid, storeId]);
       }
     }
 
@@ -346,252 +345,76 @@ router.post('/request', async (req, res) => {
 
 // ══════════════════════════════════════════════════════════
 // GET /api/linepay/confirm — LINE Pay 付款成功 callback
+// R54.4／MBV2-HF1-C5.1：以付款嘗試（attempt）唯一定位訂單並核對 transactionId／orderId；重號且沒有可靠交易對應 → 拒絕自動判定。
+// R54.4／MBV2-HF1-C5.2（utils/linePayRecovery.js settle）：
+//   - 送出 Confirm 前重新讀取訂單與付款嘗試：已取消／作廢不發起 Confirm；先 durable 保存 confirm_pending，保存失敗不呼叫外部 API。
+//   - Confirm 回應不明、重複交易代碼、本機保存失敗 → 以官方唯讀查詢核對；仍無法判定 → 待核對（linepay=pending），不推定成功或失敗。
+//   - 金流已付款：交易內重新讀取訂單；已取消／作廢 → 記錄已付款、保留取消、標示待退款，不恢復出餐、不扣份數。
+//   - 份數已於訂單建立時依快照扣除，付款確認不再扣。副作用以 outbox 補齊，各只一次。
 // ══════════════════════════════════════════════════════════
+const _confirmInflight = new Map(); // `${store}|${order_uuid}` → Promise<redirect>（同一程序內合併同時的 callback；持久狀態在資料庫）
+function lpRedirect(pageBase, storeId, kind, extra) {
+  return `/${pageBase}?store_id=${encodeURIComponent(storeId || '')}&linepay=${kind}${extra || ''}`;
+}
+function outcomeRedirect(pageBase, storeId, order, r) {
+  const ref = order ? `&order=${encodeURIComponent(order.order_number)}&order_ref=${encodeURIComponent(order.uuid)}` : '';
+  switch (r.outcome) {
+    case 'success': return lpRedirect(pageBase, storeId, 'success', ref);
+    case 'paid_cancelled': return lpRedirect(pageBase, storeId, 'error', '&msg=paid_cancelled' + ref);
+    case 'order_cancelled': return lpRedirect(pageBase, storeId, 'error', '&msg=order_cancelled' + ref);
+    case 'already_paid': return lpRedirect(pageBase, storeId, 'error', '&msg=already_paid' + ref);
+    case 'amount_changed': return lpRedirect(pageBase, storeId, 'error', '&msg=amount_changed' + ref);
+    case 'failed': return lpRedirect(pageBase, storeId, 'fail', `${ref}&code=${encodeURIComponent(r.code || '')}`);
+    default: return lpRedirect(pageBase, storeId, 'pending', ref); // 結果確認中：請勿重複付款
+  }
+}
 router.get('/confirm', async (req, res) => {
   const storeId = req.query.store_id || req.storeId || null;
-  // hotfix22-B：冷藏宅配訂單走同一組 Request/Confirm/Webhook，但付款完成後應導回
-  // line-shipping.html 而非 line-order.html。前端呼叫 /api/linepay/request 時會在
-  // confirmUrl 附上 &source=shipping，此處據以決定導回頁面；若缺少此參數，稍後也會
-  // 用讀到的 order.order_mode 做二次判斷（雙重保險，不影響既有外帶/外送行為）。
+  // hotfix22-B：冷藏宅配訂單付款完成後導回 line-shipping.html（source=shipping 或訂單 order_mode 二次判斷）
   let pageBase = req.query.source === 'shipping' ? 'line-shipping.html' : 'line-order.html';
   try {
     const db  = getDb();
     const cfg = getLinePayConfig(db, storeId);
+    if (!cfg) return res.redirect(lpRedirect(pageBase, storeId, 'error', '&msg=config_missing'));
 
-    if (!cfg) {
-      return res.redirect(`/${pageBase}?store_id=${storeId}&linepay=error&msg=config_missing`);
+    const tx = String(req.query.transactionId || '');
+    const r = OrderIdentity.resolveCallback(db, storeId, req.query);
+    if (r.error) {
+      // 不揭露其他訂單；只記錄代碼（不記錄交易識別全文）
+      console.warn(`[linepay/confirm] rejected: ${r.error} store=${storeId} attempt=${req.query.attempt ? 'yes' : 'no'}`);
+      const msg = r.error === 'ambiguous' ? 'order_ambiguous' : (r.error === 'missing_params' ? 'missing_params' : (r.error === 'order_not_found' || r.error === 'attempt_not_found' ? 'order_not_found' : 'payment_mismatch'));
+      return res.redirect(lpRedirect(pageBase, storeId, 'error', `&msg=${msg}`));
     }
-
-    const { transactionId, orderId } = req.query;
-    if (!transactionId || !orderId) {
-      return res.redirect(`/${pageBase}?store_id=${storeId}&linepay=error&msg=missing_params`);
-    }
-
-    const order = db.get(
-      "SELECT * FROM orders WHERE store_id=? AND (order_number=? OR uuid=?)",
-      [storeId, orderId, orderId]
-    );
-    if (!order) {
-      return res.redirect(`/${pageBase}?store_id=${storeId}&linepay=error&msg=order_not_found`);
-    }
-    // 二次判斷：即使呼叫端漏帶 source 參數，仍可用訂單本身的 order_mode 修正導回頁面
+    const order = r.order;
     if (order.order_mode === 'shipping') pageBase = 'line-shipping.html';
-
-    const confirmBody = { amount: Number(order.total || 0), currency: 'TWD' };
-    const uri   = `/v3/payments/${transactionId}/confirm`;
-    const nonce = uuidv4().replace(/-/g, '').slice(0, 32);
-    const { bodyStr, signature } = signLinePayPost(cfg.channelSecret, uri, confirmBody, nonce);
-
-    const apiRes = await fetch(cfg.apiBase + uri, {
-      method:  'POST',
-      headers: makePostHeaders(cfg.channelId, signature, nonce),
-      body:    bodyStr,
-      timeout: 10000,
-    });
-    const data = await apiRes.json();
-
-    if (data.returnCode !== '0000') {
-      console.error('[linepay/confirm] error:', data);
-      return res.redirect(
-        `/${pageBase}?store_id=${storeId}&linepay=fail&order=${orderId}&code=${data.returnCode}`
-      );
-    }
-
-    // 付款成功：更新訂單狀態（設為 pending 等店家接單，不直接 accepted）
-    const now = new Date().toLocaleString('sv', { timeZone: 'Asia/Taipei' }).replace('T', ' ');
-    db.run(
-      `UPDATE orders SET
-        payment_status='paid',
-        status='pending',
-        order_status='pending',
-        kitchen_status='pending',
-        updated_at=?
-       WHERE uuid=? AND store_id=?`,
-      [now, order.uuid, storeId]
-    );
-    // 儲存 transactionId 至獨立欄位
-    try {
-      db.run(`UPDATE orders SET linepay_transaction_id=? WHERE uuid=? AND store_id=?`,
-        [String(transactionId), order.uuid, storeId]);
-    } catch {
-      db.run(`UPDATE orders SET sync_status=? WHERE uuid=? AND store_id=?`,
-        [`linepay_paid:${transactionId}`, order.uuid, storeId]);
-    }
-
-    // ── LINE Pay 付款成功後扣份數 ──────────────────────────
-    // 訂單的商品在建立時（POST /api/line-orders）已存入 DB，現在從 DB 讀取並扣份數
-    // hotfix22-B：冷藏宅配訂單（order_mode='shipping'）在建立訂單當下（routes/line-shipping.js）
-    // 就已經扣過共用 LINE 份數（line_quota_sold），與外帶/外送「付款成功才扣」的時機不同。
-    // 若在此再扣一次會造成重複扣份數，因此宅配訂單跳過這段（避免新問題：宅配 LINE Pay 雙重扣份數）。
-    if (order.order_mode !== 'shipping') {
-    const paidItems = (() => {
-      try { return typeof order.items === 'string' ? JSON.parse(order.items||'[]') : (order.items||[]); }
-      catch { return []; }
-    })();
-    const paidPickupDate = (order.pickup_time||'').slice(0, 10);
-    const todayStrPay    = (() => {
-      const t = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
-      return `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}-${String(t.getDate()).padStart(2,'0')}`;
-    })();
-    const isPreorderPaid = paidPickupDate && paidPickupDate > todayStrPay;
-    paidItems.forEach(item => {
-      const pid = item.product_id || item.id;
-      if (!pid) return;
-      const prod = db.get('SELECT * FROM products WHERE id=? AND store_id=?', [pid, storeId]);
-      if (!prod) return;
-      const qty = Number(item.qty || 1);
-      if (isPreorderPaid) {
-        if (Number(prod.line_preorder_daily) > 0 || Number(prod.line_preorder_enabled)) {
-          db.run(`UPDATE products SET line_preorder_sold = MAX(0, line_preorder_sold + ?),
-            updated_at=datetime('now','localtime') WHERE id=? AND store_id=?`, [qty, pid, storeId]);
-        }
-      } else {
-        if (Number(prod.line_quota_daily) > 0 || Number(prod.line_quota_enabled)) {
-          db.run(`UPDATE products SET line_quota_sold = MAX(0, line_quota_sold + ?),
-            updated_at=datetime('now','localtime') WHERE id=? AND store_id=?`, [qty, pid, storeId]);
-        }
+    // 升級前（沒有付款嘗試）的付款：建立對應的付款嘗試，走同一流程
+    const attempt = r.attempt || LPR.ensureLegacyAttempt(db, storeId, order, String(req.query.orderId || ''), tx, cfg);
+    const key = `${storeId}|${order.uuid}`;
+    if (_confirmInflight.has(key)) { await _confirmInflight.get(key).catch(() => null); }
+    const p = (async () => {
+      const out = await LPR.settle(db, cfg, storeId, attempt.attempt_uuid, { tx, allowConfirm: true });
+      if (out.reason === 'in_progress') {
+        // 後台核對正在處理同一筆：顯示確認中（不推定）
+        return lpRedirect(pageBase, storeId, 'pending', `&order=${encodeURIComponent(order.order_number)}&order_ref=${encodeURIComponent(order.uuid)}`);
       }
-    });
-    }
-
-    // ── fix18-10-hotfix23-A：Analytics Foundation ──────────────────────
-    // LINE Pay 的 purchase 事件只在 Confirm 真正成功時才寫入（不信任前端 redirect 就代表付款
-    // 成功）。同一 order_id 只能有一筆 purchase（logServerEvent 內部已查重）。追蹤欄位取自
-    // 訂單建立當下寫入的 submit_order 事件（/request 與 /confirm 都收不到 visitor/session）。
-    try {
-      const ctx = getOrderTrackingContext(db, storeId, order.uuid) || {};
-      logServerEvent(db, {
-        store_id: storeId,
-        visitor_id: ctx.visitor_id || `unknown_${order.uuid}`,
-        session_id: ctx.session_id || `unknown_${order.uuid}`,
-        cart_id: ctx.cart_id || null,
-        order_id: order.uuid,
-        event_name: 'purchase',
-        order_mode: ctx.order_mode || order.order_mode || null,
-        source: ctx.source || null,
-        medium: ctx.medium || null,
-        campaign: ctx.campaign || null,
-        referrer: ctx.referrer || null,
-        landing_page: ctx.landing_page || null,
-        fbclid: ctx.fbclid || null,
-        gclid: ctx.gclid || null,
-        // fix18-10-hotfix23-D：LINE Pay callback URL 本身沒有 UTM，purchase 必須沿用
-        // submit_order 當下存下的 first_touch/last_touch metadata，不能因為 callback
-        // 網址乾淨就變成 direct（需求文件七第 5 點）。metadata_json 已是 JSON 字串，
-        // insertEvent()/normalizeMetadata() 支援字串直接寫入。
-        metadata: ctx.metadata_json || null,
-        // fix18-10-hotfix24-A3：Identity × Channel（需求文件四／六）—— order.line_user_id
-        // 是訂單建立當下已驗證過寫入 orders 表的值（非本次請求才臨時信任的前端輸入）；
-        // LINE Pay 訂單一律來自 LINE 點餐／宅配頁面，channel_source 固定為 'line'，
-        // 宅配訂單則沿用 orders 表既有的 fulfillment_type／order_source 欄位判斷。
-        line_user_id: order.line_user_id || null,
-        channel_source: 'line',
-        fulfillment_type: order.fulfillment_type || null,
-        order_source: order.order_source || null,
-      });
-    } catch (evtErr) {
-      console.warn('[linepay/confirm] analytics event write failed:', evtErr.message);
-    }
-
-    // ── H1.4.10 Phase 3：payment_success（server-authoritative）──────────
-    // 這是全系統唯一寫入 payment_success 的分支：此刻已經確認
-    // data.returnCode === '0000'（LINE Pay 官方 Confirm API 回傳成功），
-    // 且 confirmBody.amount 就是後端 order.total（不是前端宣稱的金額）。
-    // 前端完全無法、也不被允許直接 POST 這個事件（見 routes/analytics.js
-    // 的 SERVER_ONLY_EVENTS）。value 一律用 order.total（後端權威金額），
-    // 不使用前端傳來的任何金額欄位。
-    //
-    // 去重：logServerEvent() 內部對 payment_success 套用與 purchase 相同的
-    // 「同一 store+order_id 只能有一筆」查重（見 utils/analyticsLog.js），
-    // Callback／使用者重新整理 confirm 頁面／LINE Pay 重送同一筆
-    // transaction 都不會重複累計，不需要另建第二套支付交易資料庫。
-    //
-    // payment_success ≠ purchase：purchase 事件（上方）維持既有語意與觸發
-    // 時機完全不變；這裡是額外、獨立的一筆事件，用來讓 Dashboard 能夠分清
-    // 「訂單成立」與「線上金流真正付款成功」兩件事。這支事件也刻意不映射
-    // 任何 GA4/Meta 平台事件（見 public/js/analytics-platforms.js 的
-    // GA4_EVENT_MAP／META_EVENT_MAP 未包含 payment_success，不會造成
-    // Purchase 被重複計算)。
-    try {
-      const ctx = getOrderTrackingContext(db, storeId, order.uuid) || {};
-      logServerEvent(db, {
-        store_id: storeId,
-        visitor_id: ctx.visitor_id || `unknown_${order.uuid}`,
-        session_id: ctx.session_id || `unknown_${order.uuid}`,
-        cart_id: ctx.cart_id || null,
-        order_id: order.uuid,
-        event_name: 'payment_success',
-        order_mode: ctx.order_mode || order.order_mode || null,
-        source: ctx.source || null,
-        medium: ctx.medium || null,
-        campaign: ctx.campaign || null,
-        referrer: ctx.referrer || null,
-        landing_page: ctx.landing_page || null,
-        fbclid: ctx.fbclid || null,
-        gclid: ctx.gclid || null,
-        // metadata 只允許 order_number/payment_provider/payment_method/
-        // currency/value，全部由後端自行組成，不採信任何前端輸入（需求
-        // 文件十三）。
-        metadata: {
-          order_number: order.order_number || null,
-          payment_provider: 'linepay',
-          payment_method: 'linepay',
-          currency: 'TWD',
-          value: Number(order.total || 0),
-        },
-        line_user_id: order.line_user_id || null,
-        channel_source: 'line',
-        fulfillment_type: order.fulfillment_type || null,
-        order_source: order.order_source || null,
-      });
-    } catch (payEvtErr) {
-      console.warn('[linepay/confirm] payment_success event write failed:', payEvtErr.message);
-    }
-
-    // ── fix18-10-hotfix23-E：LINE Pay 付款成功才更新會員 total_spent/LTV/首購/回購 ──
-    // 用 line_member_order_links 的 UNIQUE(store_id, order_id) 防止 webhook／使用者
-    // 重新整理 confirm 頁面／重複 callback 造成重複累加（recordMemberPurchase 內部保證）。
-    try {
-      if (order.line_user_id) {
-        const purchaseEvent = recordMemberPurchase(db, storeId, order.line_user_id, order.uuid, Number(order.total || 0));
-        if (purchaseEvent) {
-          logServerEvent(db, {
-            store_id: storeId,
-            visitor_id: `member_${order.line_user_id}`,
-            session_id: `member_${order.line_user_id}`,
-            order_id: order.uuid,
-            event_name: purchaseEvent === 'first_purchase' ? 'member_first_purchase' : 'member_repeat_purchase',
-            order_mode: order.order_mode || null,
-            // fix18-10-hotfix24-A3：Identity × Channel（需求文件四／六）
-            line_user_id: order.line_user_id || null,
-            channel_source: 'line',
-            fulfillment_type: order.fulfillment_type || null,
-            order_source: order.order_source || null,
-          });
-        }
+      if (out.outcome === 'success' || out.outcome === 'paid_cancelled') {
+        try {
+          const paidOrder = db.get('SELECT * FROM orders WHERE uuid=? AND store_id=?', [order.uuid, storeId]);
+          const wss = req.app.get('wss');
+          if (out.outcome === 'success') broadcastToStore(wss, storeId, { type: 'linepay_paid', order_uuid: order.uuid, order_number: order.order_number, payment_status: 'paid' });
+          broadcastToStore(wss, storeId, { type: 'order_status_changed', order: paidOrder });
+        } catch (e) { console.error('[linepay] paid broadcast error:', e.message); }
       }
-    } catch (memErr) {
-      console.warn('[linepay/confirm] member purchase update failed:', memErr.message);
-    }
-
-    // 廣播付款成功通知（後台列表刷新）
-    try {
-      const paidOrder = db.get('SELECT * FROM orders WHERE uuid=? AND store_id=?', [order.uuid, storeId]);
-      const wss = req.app.get('wss');
-      broadcastToStore(wss, storeId, {
-        type:            'linepay_paid',
-        order_uuid:      order.uuid,
-        order_number:    order.order_number,
-        transactionId:   transactionId,
-        payment_status:  'paid'
-      });
-      // 也廣播 order_status_changed 讓列表刷新
-      broadcastToStore(wss, storeId, { type: 'order_status_changed', order: paidOrder });
-    } catch(e) { console.error('[linepay] paid broadcast error:', e.message); }
-    res.redirect(`/${pageBase}?store_id=${storeId}&linepay=success&order=${order.order_number}`);
+      if (out.outcome === 'pending') console.warn(`[linepay/confirm] payment under review store=${storeId} reason=${out.reason || ''}`);
+      return outcomeRedirect(pageBase, storeId, out.order || order, out);
+    })();
+    _confirmInflight.set(key, p);
+    let to;
+    try { to = await p; } finally { if (_confirmInflight.get(key) === p) _confirmInflight.delete(key); }
+    return res.redirect(to);
   } catch(e) {
     console.error('[linepay/confirm] exception:', e.message);
-    res.redirect(`/${pageBase}?store_id=${storeId}&linepay=error&msg=${encodeURIComponent(e.message)}`);
+    res.redirect(lpRedirect(pageBase, storeId, 'pending', ''));
   }
 });
 
@@ -612,4 +435,34 @@ router.post('/webhook', (req, res) => {
   res.json({ returnCode: '0000', returnMessage: 'OK' });
 });
 
+// ══════════════════════════════════════════════════════════
+// R54.4／MBV2-HF1-C5.2：付款待核對（後台；server.js 以 requireStaffJwt＋requireFeature('payment_api') 掛載）
+//   GET  /api/linepay-admin/review                       待核對付款嘗試、待退款的已付款取消單、待補齊的副作用
+//   POST /api/linepay-admin/reconcile { limit, attempt_uuid } 以官方唯讀查詢核對（不發起 Confirm、不退款）；同店 20 秒最多一次
+//   POST /api/linepay-admin/attempts/:uuid/mark-unpaid { note } C5.3 停用：一律 409 TERMINAL_EVIDENCE_REQUIRED（舊版前端呼叫也一樣）
+// ══════════════════════════════════════════════════════════
+const adminRouter = express.Router();
+adminRouter.get('/review', (req, res) => {
+  try { res.set('Cache-Control', 'no-store'); res.json({ success: true, data: LPR.listReview(getDb(), req.storeId, req.query.limit) }); }
+  catch (e) { console.error('[linepay-admin] review:', e && e.message); res.status(500).json({ success: false, message: '系統忙碌，請稍後再試' }); }
+});
+adminRouter.post('/reconcile', async (req, res) => {
+  try {
+    const db = getDb();
+    const b = req.body || {};
+    const out = await LPR.reconcile(db, (sid) => getLinePayConfig(db, sid), req.storeId, { inquire: true, limit: b.limit, attempt_uuid: b.attempt_uuid ? String(b.attempt_uuid) : undefined });
+    if (out.busy) return res.status(409).json({ success: false, error: 'RECONCILE_BUSY', message: '核對進行中，請稍後再試' });
+    if (out.rate_limited) return res.status(429).json({ success: false, error: 'RECONCILE_RATE_LIMITED', message: '核對太頻繁，請稍後再試', retry_after_ms: out.retry_after_ms });
+    res.json({ success: true, data: out });
+  } catch (e) { console.error('[linepay-admin] reconcile:', e && e.message); res.status(500).json({ success: false, message: '系統忙碌，請稍後再試' }); }
+});
+adminRouter.post('/attempts/:uuid/mark-unpaid', (req, res) => {
+  try {
+    const r = LPR.markUnpaid(getDb(), req.storeId, String(req.params.uuid || ''), (req.body || {}).note);
+    if (!r.ok) return res.status(r.code || 409).json({ success: false, error: r.error || 'CONFLICT', message: r.message });
+    res.json({ success: true });
+  } catch (e) { console.error('[linepay-admin] mark-unpaid:', e && e.message); res.status(500).json({ success: false, message: '系統忙碌，請稍後再試' }); }
+});
+
 module.exports = router;
+module.exports.adminRouter = adminRouter;

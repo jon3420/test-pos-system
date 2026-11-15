@@ -546,6 +546,9 @@ const sessVal = (tok) => JSON.stringify({ member_session: tok, display_name: '�
       await sleep(4000);
       assert((await detailOf()) === null, 'A17 關閉明細後，延遲回應不重新打開或寫入明細', '');
       // A18 展開明細、日期、方式、預覽、批次明細、焦點、捲動位置在自動更新後保持
+      // C4.5 調整（只改前提、不改斷言）：C4.5 起日期／商品不可供應時「預覽通知」停用（不再產生「不可發送」的預覽），
+      // 本案例要驗證「已產生的預覽」在自動更新後保持，因此先讓商品恢復可供應以產生預覽，A18 結束後改回暫停。
+      await patchProduct(C, { sale_status: 'available' }, PID);
       await openDetail(PID); await sleep(1500);
       await ap.waitForSelector('#rn-preview-btn', { timeout: 8000 }).catch(() => {});
       await ap.selectOption('#rn-mode', 'delivery').catch(() => {}); await ap.fill('#rn-date', SUP).catch(() => {});
@@ -574,6 +577,7 @@ const sessVal = (tok) => JSON.stringify({ member_session: tok, display_name: '�
       assert(s0.focus === 'rn-date' && s1.focus === 'rn-date' && s0.y === s1.y && s0.sy === s1.sy && s0.sy > 0, 'A18-5 鍵盤焦點與捲動位置保持', JSON.stringify({ s0, s1 }));
       assert((await detailOf()) !== null, 'A18-6 展開的商品明細保持', '');
       assert(writesSince(tw18).length === 0, 'A18-7 自動更新沒有建立預覽、確認、續送或其他寫入', JSON.stringify(writesSince(tw18)));
+      await patchProduct(C, { sale_status: 'paused' }, PID); // C4.5 調整：恢復 A18 之前的狀態
       // A19 網路失敗：保留原資料，提示可能尚未更新，最後更新時間不變，不連續跳通知；失敗重試有間隔
       await waitFor(async () => A.inflight === 0, 15000); await sleep(300);
       const r19a = await rowOf(PID); const d19a = await detailOf(); const lu19 = await lastUpd();

@@ -1,0 +1,2424 @@
+{
+ "release": "R54.4／MBV2-HF1-C5.1",
+ "executed_at_taipei": "2026-11-14",
+ "baseline": {
+  "zip": "P3CD_DEPLOY_R54_4_MBV2_HF1_C5_RESTOCK_CONVERSION_TRACKING_APP_ROOT.zip",
+  "sha256": "cef817d04ae8d66a99a5c5dceaae5cf4df24e8c91e712fca06b09c20b65cc768",
+  "files": 946,
+  "zip_entries": 986
+ },
+ "comparison_c45": {
+  "zip": "P3CD_DEPLOY_R54_4_MBV2_HF1_C4_5_RESTOCK_UX_CONSENT_DATE_GUARD_APP_ROOT.zip",
+  "sha256": "3ad621512894325aaadc33b5cf9f0b0feaa688b46006575d81c6cd256080335c",
+  "files": 940,
+  "zip_entries": 979
+ },
+ "consistency_suite": {
+  "script": "scripts/smoke-r54-4-mbv2-hf1-c5-1-consistency.js",
+  "c5_unmodified": {
+   "root": "/home/claude/base_c5",
+   "pass": 13,
+   "fail": 48,
+   "results": [
+    {
+     "ok": false,
+     "name": "R1-1 [BR] A 裝置載入「1 份、外帶」→ B 裝置改「5 份、外送」→ A 按「訂閱補貨通知」：資料庫維持 5 份外送、只新增同意；畫面顯示 5 份外送",
+     "detail": "{\"db\":[1,\"takeout\"],\"ui\":{\"qty\":1,\"pref\":\"takeout\",\"consent\":\"granted\"},\"list\":\"測試招牌飯1 份・外帶自取管理\",\"errs\":[]}"
+    },
+    {
+     "ok": true,
+     "name": "R1-8 [BR] 訂閱回應途中換會員：舊會員回應不寫入新會員畫面、不提示成功；伺服器只新增舊會員同意、登記不變",
+     "detail": "{\"after\":{\"open\":false,\"sheetPid\":null,\"mine704\":null,\"toast\":\"\"},\"db\":1}"
+    },
+    {
+     "ok": true,
+     "name": "R1-9 [BR] 回應途中關閉再開其他商品表單：不關閉、不改寫新表單；登記內容不變",
+     "detail": "{\"a2\":{\"open\":true,\"pid\":\"701\",\"msg\":\"\",\"c705\":\"granted\"},\"db\":[1,\"takeout\"]}"
+    },
+    {
+     "ok": false,
+     "name": "R1-2 [API] 登記已取消：新版與舊版訂閱都被拒絕，不復活登記、不新增同意",
+     "detail": "{\"st\":404,\"code\":null,\"leg\":200,\"act\":1}"
+    },
+    {
+     "ok": false,
+     "name": "R1-3 [API] 取消後重建（新週期）：舊表單的訂閱不能授權新週期、不改新週期內容",
+     "detail": "{\"st\":404,\"g\":0}"
+    },
+    {
+     "ok": false,
+     "name": "R1-4 [API] 登記已過期：訂閱被拒絕，不延長有效期限、不新增同意",
+     "detail": "{\"st\":404,\"exp\":false}"
+    },
+    {
+     "ok": false,
+     "name": "R1-5 [API] 撤回後重新訂閱成功；重複提交不產生重複同意；份數、偏好、期限不變",
+     "detail": "{\"out\":[null,null],\"rows\":1}"
+    },
+    {
+     "ok": false,
+     "name": "R1-6 [API] 舊版前端 consent_action=subscribe：表單快取與伺服器不一致 → 409 不寫入；一致 → 只授權、不改份數",
+     "detail": "{\"stale\":200,\"db\":[1,\"takeout\"],\"ok\":\"unchanged\"}"
+    },
+    {
+     "ok": false,
+     "name": "R1-7 [API] 保留訂閱方式與文案版本檢查；他人不能以 request_id 訂閱別人的登記",
+     "detail": "{\"st\":404,\"code\":null,\"other\":404}"
+    },
+    {
+     "ok": true,
+     "name": "R2-1 [API] 有效會員 A 加購：歸因 A",
+     "detail": "{\"line_user_id\":\"Uc450000000000000000000000000051\",\"recipient\":1}"
+    },
+    {
+     "ok": false,
+     "name": "R2-2 [API] 沒有有效會員（匿名）：只保留匿名事件，不沿用點擊者 A",
+     "detail": "{\"line_user_id\":\"Uc450000000000000000000000000051\",\"recipient\":1}"
+    },
+    {
+     "ok": false,
+     "name": "R2-3 [API] 過期／偽造 session：視為匿名，不沿用點擊者",
+     "detail": "{\"r3\":{\"line_user_id\":\"Uc450000000000000000000000000051\",\"recipient\":1},\"r4\":{\"line_user_id\":\"Uc450000000000000000000000000051\",\"recipient\":1}}"
+    },
+    {
+     "ok": false,
+     "name": "R2-4 [API] 本次會員 B 與點擊綁定的 A 不同：以 B 記錄但不計入漏斗、不改綁點擊、不合併",
+     "detail": "{\"r\":{\"line_user_id\":\"Uc450000000000000000000000000052\",\"recipient\":1},\"click\":{\"line_user_id\":\"Uc450000000000000000000000000051\"},\"add_people\":1}"
+    },
+    {
+     "ok": false,
+     "name": "R2-5 [BR] A 開啟後切換為 B、再登出：加購照常（購物車 2 件）但不帶 A 的追蹤；A 的歷史點擊保留",
+     "detail": "{\"clicks\":1,\"addsB\":[{\"line_user_id\":\"Uc450000000000000000000000000054\"}],\"addsAll\":[{\"line_user_id\":\"Uc450000000000000000000000000054\"},{\"line_user_id\":\"Uc450000000000000000000000000053\"}],\"cart\":2,\"errs\":[]}"
+    },
+    {
+     "ok": false,
+     "name": "R2-6 [BR] 舊 A 的補認回應晚於切換為 B：不把 A 標記為目前會員；B 的加購不沿用 A 的開啟",
+     "detail": "{\"st\":{\"owner\":false,\"member\":true},\"addsB\":1,\"k\":true,\"clickRow\":{\"line_user_id\":\"Uc450000000000000000000000000055\"}}"
+    },
+    {
+     "ok": true,
+     "name": "R2-7 [BR] 追蹤與事件請求失敗：一般加購照常",
+     "detail": "2"
+    },
+    {
+     "ok": true,
+     "name": "R3-1 [BR] 首次開啟（LIFF 一次→二次必要導向）：只形成 1 次有效開啟",
+     "detail": "{\"n\":1,\"liff\":{\"init\":1,\"primary_init\":1}}"
+    },
+    {
+     "ok": true,
+     "name": "R3-2 [BR] 重新整理兩次：點擊不增加",
+     "detail": ""
+    },
+    {
+     "ok": false,
+     "name": "R3-3 [BR] 同一分頁短時間再次點擊通知連結：建立新的開啟識別、另計一次點擊、商品照常開啟",
+     "detail": "{\"n\":1,\"opened\":false}"
+    },
+    {
+     "ok": false,
+     "name": "R3-4 [BR] 首次點擊 8 日後在同一分頁再次點擊：新點擊使用伺服器目前時間，舊點擊保留；之後下單歸因到新點擊",
+     "detail": "{\"n\":1,\"at\":[],\"first\":\"2026-11-14 02:30:38\"}"
+    },
+    {
+     "ok": true,
+     "name": "R3-5 [API] 新點擊後的 7×24 小時邊界：差 2 分鐘內歸因、超過 2 分鐘不歸因（伺服器時間）",
+     "detail": "{\"in\":1,\"out\":0}"
+    },
+    {
+     "ok": false,
+     "name": "R3-6 [BR] 不同批次的相同商品（同日期、同方式）：第二批次照常開啟並記錄點擊",
+     "detail": "{\"c2\":0,\"opened\":false}"
+    },
+    {
+     "ok": true,
+     "name": "R3-7 [BR] 匿名開啟後才完成會員辨識：補認同一次開啟，不新增點擊",
+     "detail": "{\"before\":5,\"after\":5,\"v\":1}"
+    },
+    {
+     "ok": false,
+     "name": "R4-1 [API] 同張訂單兩個通知商品、第二商品寫入失敗：訂單照常成立，歸因整筆不寫（不留半套）",
+     "detail": "{\"attrs\":[704]}"
+    },
+    {
+     "ok": false,
+     "name": "R4-2 [API] 故障排除後補登：兩個商品都補齊，且分屬不同批次",
+     "detail": "{\"r\":{\"scanned\":4,\"attributed\":0},\"a\":[[704,\"0bba3a8b\"]]}"
+    },
+    {
+     "ok": false,
+     "name": "R4-3 [API] 修補 C5 既有半套資料：補上缺少商品，保留既有正確快照（attr_uuid 不變）",
+     "detail": "{\"r\":{\"scanned\":4,\"attributed\":0},\"kept\":true}"
+    },
+    {
+     "ok": false,
+     "name": "R4-4 [API] 重跑兩次與併發補登：不重複計算；回報掃描、補齊、略過、失敗數量",
+     "detail": "{\"r1\":{\"scanned\":4,\"attributed\":0},\"n0\":3,\"n1\":3}"
+    },
+    {
+     "ok": true,
+     "name": "R4-5 [API] 沒有有效點擊的訂單：補登不產生歸因",
+     "detail": ""
+    },
+    {
+     "ok": false,
+     "name": "R4-6 [API] 歸因交易保存失敗：訂單不受影響、歸因全部不寫；補登以訂單建立時間補齊",
+     "detail": "{\"a0\":2,\"a1\":2}"
+    },
+    {
+     "ok": true,
+     "name": "R4-7 [API] 10 日後補登：以訂單建立時間計算 7 日視窗（不用補登時間）",
+     "detail": "{\"a\":1,\"created\":\"2026-11-14 10:31:19\"}"
+    },
+    {
+     "ok": false,
+     "name": "R5-1 [API] 201 個批次：總計包含排在最後的最舊批次（受理、點擊、成交、金額完整），跨商品同一訂單只算一張",
+     "detail": "{\"got\":[200,201,101,51,4550],\"exp\":[201,204,103,51,4640]}"
+    },
+    {
+     "ok": false,
+     "name": "R5-2 [API] 分頁（50／200 每頁）切換：總計不變；所有批次都能在明細中取得；回傳總筆數與頁數",
+     "detail": "{\"same\":true,\"ids\":200}"
+    },
+    {
+     "ok": false,
+     "name": "R5-3 [API] 商品篩選選項包含較早批次的商品；篩選後總計與明細使用同一條件；無資料比率為「—」",
+     "detail": "{\"opt\":0,\"fOld\":1}"
+    },
+    {
+     "ok": false,
+     "name": "R5-4 [API] 舊批次「未建立追蹤」語意與比率分母口徑維持",
+     "detail": "{\"u\":1,\"row\":\"untracked\"}"
+    },
+    {
+     "ok": false,
+     "name": "R6-1 [BR] 延後成功：A 店回應在切換至 B 店後才到達 → 不寫入資料、不顯示 A 店數字",
+     "detail": "{\"k0\":\"212\",\"k1\":\"212\",\"st\":{\"owner\":null,\"hasData\":true,\"w\":{\"data\":true,\"err\":false}}}"
+    },
+    {
+     "ok": false,
+     "name": "R6-2 [BR] 延後錯誤：切店後才到達的 A 店錯誤不寫入（不顯示、不保留 A 店結果）",
+     "detail": "{\"err\":\"模擬錯誤\",\"owner\":null,\"has\":true}"
+    },
+    {
+     "ok": false,
+     "name": "R6-3 [BR] 延後 JSON 解析：讀完回應內容時已切店 → 丟棄",
+     "detail": "{\"owner\":null,\"has\":true,\"w\":{\"data\":true,\"err\":false}}"
+    },
+    {
+     "ok": false,
+     "name": "R6-4 [BR] 換登入身分：前一個身分的回應不寫入目前身分的快取",
+     "detail": "{\"w\":{\"data\":true,\"err\":false}}"
+    },
+    {
+     "ok": false,
+     "name": "R6-5 [BR] 登出：清除報表快取，延後回應不寫入",
+     "detail": "{\"has\":true}"
+    },
+    {
+     "ok": false,
+     "name": "R6-6 [BR] 權限失效（403）：清除報表資料，不再顯示數字",
+     "detail": "{\"before\":true,\"st\":{\"has\":true,\"acc\":\"212\"}}"
+    },
+    {
+     "ok": false,
+     "name": "R6-7 [BR] 離開頁面期間的回應不寫入；重新進入重新查詢並顯示目前店別數字",
+     "detail": "{\"mid\":{\"w\":{\"data\":true,\"err\":false}},\"k\":\"212\"}"
+    },
+    {
+     "ok": false,
+     "name": "R6-8 [BR] 原店快取遇到新店查詢失敗：不以「上次結果」顯示前一店資料",
+     "detail": "{\"acc\":\"212\",\"body\":\"更新失敗，顯示上次結果：模擬錯誤\\n      LINE 已受理（有追蹤批次）212\\n      已核對點擊（人／次）109／109\\n      對應商品加購人數\"}"
+    },
+    {
+     "ok": false,
+     "name": "R6-9 [BR] 診斷紀錄不含 JWT／會員 session；後台無 JavaScript 錯誤",
+     "detail": "{\"leak\":[\"[WSS] Web POS 已連線: ws://127.0.0.1:46355/orders?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoic3RvcmUiLCJzdG9yZV\"],\"aerr\":[]}"
+    },
+    {
+     "ok": false,
+     "name": "R7-A [API] 固定時鐘（同一毫秒）連續 20 張＋並行 20 張 LINE 訂單、並行 5 張店內 POS 訂單：顯示編號全部不同、同一秒、新編號受唯一索引保護",
+     "detail": "{\"ok\":true,\"n\":40,\"distinct\":1,\"sample\":[\"LINE-20261114-103146\",\"LINE-20261114-103146\",\"LINE-20261114-103146\"],\"posDistinct\":1,\"pos\":5,\"fails\":0}"
+    },
+    {
+     "ok": false,
+     "name": "R7-A2 [DB] 新編號的持久化唯一索引拒絕重複；宅配（SHIP-）共用同一產生器，同一秒 30 組不重複",
+     "detail": "{\"blocked\":false,\"ship\":[]}"
+    },
+    {
+     "ok": false,
+     "name": "R7-B1 [API] 歷史同號兩張訂單、升級前付款（伺服器已保存交易識別）：B 的 callback 只確認 B，不串到 A",
+     "detail": "{\"A\":\"paid\",\"B\":\"pending\",\"loc\":\"/line-order.html?store_id=store_001&linepay=success&order=LINE-20261101-120000B1\"}"
+    },
+    {
+     "ok": false,
+     "name": "R7-B2 [API] 歷史同號且沒有可靠交易對應：拒絕自動判定（不呼叫 LINE Pay、兩張都不變）並提示需核對",
+     "detail": "{\"A\":\"paid\",\"B\":\"pending\",\"loc\":\"/line-order.html?store_id=store_001&linepay=success&order=LINE-20261101-120000B2\"}"
+    },
+    {
+     "ok": false,
+     "name": "R7-B3 [API] 新付款請求：金額與付款對象由伺服器依訂單 uuid 建立（不信任前端 order_number／total）；callback 以付款嘗試唯一定位 B（不同金額、會員、店別的同號單不受影響）；19 位交易識別完整保存",
+     "detail": "{\"amt\":[1,240],\"A\":\"pending\",\"B\":\"pending\",\"s2\":\"pending\",\"att\":[],\"loc\":\"/line-order.html?store_id=store_001&linepay=fail&order=LINE-20261101-120000B3&code=1106\"}"
+    },
+    {
+     "ok": false,
+     "name": "R7-B4 [API] 重複 callback（含同時兩個）：不再呼叫確認、不重複扣份數、purchase、會員消費",
+     "detail": "{\"q\":[\"0/5,0/11\",\"0/5,0/11\"],\"calls\":3}"
+    },
+    {
+     "ok": false,
+     "name": "R7-B5 [API] 交易識別或 orderId 與付款嘗試不符：拒絕，不呼叫確認、不改訂單",
+     "detail": "{\"loc\":\"/line-order.html?store_id=store_001&linepay=fail&order=LINE-20261101-120000B3&code=1150\",\"calls\":1}"
+    },
+    {
+     "ok": false,
+     "name": "R7-B6 [API] 付款失敗／取消返回維持原行為；再次付款建立新的付款嘗試（不同 orderId）後成功",
+     "detail": "{\"loc\":\"/line-order.html?store_id=store_001&linepay=fail&order=LINE-20261101-120000B3&co\",\"ids\":[\"LINE-20261101-120000B3\",\"LINE-20261101-120000B3\"]}"
+    },
+    {
+     "ok": false,
+     "name": "R7-B7 [API] 付款返回頁以訂單唯一識別取單（顯示 B 的金額）；只用重號編號查詢回 409，不回傳另一張",
+     "detail": "{\"total\":150,\"byNo\":200}"
+    },
+    {
+     "ok": true,
+     "name": "R7-B8 [API] 升級前已建立的付款請求（唯一編號＋已保存交易識別）：相容路徑照常完成",
+     "detail": "{\"st\":\"paid\"}"
+    },
+    {
+     "ok": true,
+     "name": "R7-C1 [DB] 來源資料：同號不同 uuid 兩張訂單與子資料",
+     "detail": "{\"n\":2}"
+    },
+    {
+     "ok": false,
+     "name": "R7-C2 [API] 完整搬家到新環境：同號不同 uuid 的兩張都存在，優惠券使用、操作紀錄、會員關聯、Analytics、補貨歸因各自跟隨正確訂單；重複匯入維持冪等",
+     "detail": "{\"st\":\"done\",\"c1\":[null,{\"id\":\"378226a7-e089-40c1-a0f1-cd1eea8efd90\",\"total\":110,\"member\":\"Uc450000000000000000000000000075\",\"cr\":1,\"logs\":1,\"links\":1,\"ev\":1,\"attr\":1}],\"n2\":1}"
+    },
+    {
+     "ok": false,
+     "name": "R7-C3 [API] 選擇性搬家（訂單、會員紀錄、Analytics、折扣）：兩張都存在且子資料關聯正確",
+     "detail": "{\"st\":\"done\",\"c3\":[null,{\"id\":\"378226a7-e089-40c1-a0f1-cd1eea8efd90\",\"total\":110,\"member\":\"Uc450000000000000000000000000075\",\"cr\":1,\"logs\":1,\"links\":1,\"ev\":1,\"attr\":0}]}"
+    },
+    {
+     "ok": false,
+     "name": "R7-C4 [API] 同一資料庫跨店匯入（ID 改變）：兩張都存在、子資料跟隨新識別、原店不受影響；重複匯入冪等",
+     "detail": "{\"st\":\"done\",\"s2n\":1,\"c1\":[null,{\"id\":\"afd52f3a-4e26-4ae9-809c-2453c5b7ba46\",\"total\":110,\"member\":\"Uc450000000000000000000000000075\",\"cr\":0,\"logs\":1,\"links\":1,\"ev\":1,\"attr\":0}],\"idsChanged\":false}"
+    },
+    {
+     "ok": false,
+     "name": "R7-C5 [API] 跨店匯入訂單的來源付款交易：callback 不自動啟用（不呼叫確認、不改狀態）",
+     "detail": "{\"st\":\"paid\",\"loc\":\"/line-order.html?store_id=store_002&linepay=success&order=LINE-20261102-090000\"}"
+    },
+    {
+     "ok": false,
+     "name": "R7-C6 [API] 舊備份缺少訂單識別、同號多張：列為衝突（2 筆），不推定、不合併",
+     "detail": "{\"st\":{\"added\":65,\"conflict\":0,\"dup\":7},\"n\":1}"
+    },
+    {
+     "ok": false,
+     "name": "R7-D1 [API] 有歷史重號時啟動遷移不失敗；不刪除、不合併、不重新編號；診斷 API 列出重號群組",
+     "detail": "{\"groups\":7,\"diag\":null,\"idx\":null}"
+    },
+    {
+     "ok": true,
+     "name": "Z 真實 LINE Messaging API 與 LINE Pay 呼叫 0 次（全部在測試程序內攔截）",
+     "detail": "{\"line\":0,\"linepay\":0,\"lpMock\":12}"
+    }
+   ]
+  },
+  "c5_1_fresh_zip": {
+   "root": "/tmp/fresh/app",
+   "pass": 61,
+   "fail": 0,
+   "results": [
+    {
+     "ok": true,
+     "name": "R1-1 [BR] A 裝置載入「1 份、外帶」→ B 裝置改「5 份、外送」→ A 按「訂閱補貨通知」：資料庫維持 5 份外送、只新增同意；畫面顯示 5 份外送",
+     "detail": "{\"db\":[5,\"delivery\"],\"ui\":{\"qty\":5,\"pref\":\"delivery\",\"consent\":\"granted\"},\"list\":\"測試招牌飯5 份・外送管理\",\"errs\":[]}"
+    },
+    {
+     "ok": true,
+     "name": "R1-8 [BR] 訂閱回應途中換會員：舊會員回應不寫入新會員畫面、不提示成功；伺服器只新增舊會員同意、登記不變",
+     "detail": "{\"after\":{\"open\":false,\"sheetPid\":null,\"mine704\":null,\"toast\":\"\"},\"db\":1}"
+    },
+    {
+     "ok": true,
+     "name": "R1-9 [BR] 回應途中關閉再開其他商品表單：不關閉、不改寫新表單；登記內容不變",
+     "detail": "{\"a2\":{\"open\":true,\"pid\":\"701\",\"msg\":\"\",\"c705\":\"granted\"},\"db\":[1,\"takeout\"]}"
+    },
+    {
+     "ok": true,
+     "name": "R1-2 [API] 登記已取消：新版與舊版訂閱都被拒絕，不復活登記、不新增同意",
+     "detail": "{\"st\":409,\"code\":\"REQUEST_CHANGED\",\"leg\":409,\"act\":0}"
+    },
+    {
+     "ok": true,
+     "name": "R1-3 [API] 取消後重建（新週期）：舊表單的訂閱不能授權新週期、不改新週期內容",
+     "detail": "{\"st\":409,\"g\":0}"
+    },
+    {
+     "ok": true,
+     "name": "R1-4 [API] 登記已過期：訂閱被拒絕，不延長有效期限、不新增同意",
+     "detail": "{\"st\":409,\"exp\":false}"
+    },
+    {
+     "ok": true,
+     "name": "R1-5 [API] 撤回後重新訂閱成功；重複提交不產生重複同意；份數、偏好、期限不變",
+     "detail": "{\"out\":[\"granted\",\"unchanged\"],\"rows\":2}"
+    },
+    {
+     "ok": true,
+     "name": "R1-6 [API] 舊版前端 consent_action=subscribe：表單快取與伺服器不一致 → 409 不寫入；一致 → 只授權、不改份數",
+     "detail": "{\"stale\":409,\"db\":[5,\"delivery\"],\"ok\":\"granted\"}"
+    },
+    {
+     "ok": true,
+     "name": "R1-7 [API] 保留訂閱方式與文案版本檢查；他人不能以 request_id 訂閱別人的登記",
+     "detail": "{\"st\":409,\"code\":\"CONSENT_MODE_CHANGED\",\"other\":409}"
+    },
+    {
+     "ok": true,
+     "name": "R2-1 [API] 有效會員 A 加購：歸因 A",
+     "detail": "{\"line_user_id\":\"Uc450000000000000000000000000051\",\"recipient\":1}"
+    },
+    {
+     "ok": true,
+     "name": "R2-2 [API] 沒有有效會員（匿名）：只保留匿名事件，不沿用點擊者 A",
+     "detail": "{\"line_user_id\":\"\",\"recipient\":null}"
+    },
+    {
+     "ok": true,
+     "name": "R2-3 [API] 過期／偽造 session：視為匿名，不沿用點擊者",
+     "detail": "{\"r3\":{\"line_user_id\":\"\",\"recipient\":null},\"r4\":{\"line_user_id\":\"\",\"recipient\":null}}"
+    },
+    {
+     "ok": true,
+     "name": "R2-4 [API] 本次會員 B 與點擊綁定的 A 不同：以 B 記錄但不計入漏斗、不改綁點擊、不合併",
+     "detail": "{\"r\":{\"line_user_id\":\"Uc450000000000000000000000000052\",\"recipient\":0},\"click\":{\"line_user_id\":\"Uc450000000000000000000000000051\"},\"add_people\":1}"
+    },
+    {
+     "ok": true,
+     "name": "R2-5 [BR] A 開啟後切換為 B、再登出：加購照常（購物車 2 件）但不帶 A 的追蹤；A 的歷史點擊保留",
+     "detail": "{\"clicks\":1,\"addsB\":[],\"addsAll\":[],\"cart\":2,\"errs\":[]}"
+    },
+    {
+     "ok": true,
+     "name": "R2-6 [BR] 舊 A 的補認回應晚於切換為 B：不把 A 標記為目前會員；B 的加購不沿用 A 的開啟",
+     "detail": "{\"st\":{\"owner\":true,\"member\":false},\"addsB\":0,\"k\":false,\"clickRow\":{\"line_user_id\":\"Uc450000000000000000000000000055\"}}"
+    },
+    {
+     "ok": true,
+     "name": "R2-7 [BR] 追蹤與事件請求失敗：一般加購照常",
+     "detail": "2"
+    },
+    {
+     "ok": true,
+     "name": "R3-1 [BR] 首次開啟（LIFF 一次→二次必要導向）：只形成 1 次有效開啟",
+     "detail": "{\"n\":1,\"liff\":{\"init\":1,\"primary_init\":1}}"
+    },
+    {
+     "ok": true,
+     "name": "R3-2 [BR] 重新整理兩次：點擊不增加",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "R3-3 [BR] 同一分頁短時間再次點擊通知連結：建立新的開啟識別、另計一次點擊、商品照常開啟",
+     "detail": "{\"n\":2,\"opened\":true}"
+    },
+    {
+     "ok": true,
+     "name": "R3-4 [BR] 首次點擊 8 日後在同一分頁再次點擊：新點擊使用伺服器目前時間，舊點擊保留；之後下單歸因到新點擊",
+     "detail": "{\"n\":3,\"at\":[{\"batch_uuid\":\"6d23dda2-7b04-404c-8dc0-b612e5665a94\",\"clicked_at\":\"2026-11-22 02:30:55\"}],\"first\":\"2026-11-14 02:30:39\",\"last\":\"2026-11-22 02:30:55\"}"
+    },
+    {
+     "ok": true,
+     "name": "R3-5 [API] 新點擊後的 7×24 小時邊界：差 2 分鐘內歸因、超過 2 分鐘不歸因（伺服器時間）",
+     "detail": "{\"in\":1,\"out\":0}"
+    },
+    {
+     "ok": true,
+     "name": "R3-6 [BR] 不同批次的相同商品（同日期、同方式）：第二批次照常開啟並記錄點擊",
+     "detail": "{\"c2\":1,\"opened\":true}"
+    },
+    {
+     "ok": true,
+     "name": "R3-7 [BR] 匿名開啟後才完成會員辨識：補認同一次開啟，不新增點擊",
+     "detail": "{\"before\":7,\"after\":7,\"v\":1}"
+    },
+    {
+     "ok": true,
+     "name": "R4-1 [API] 同張訂單兩個通知商品、第二商品寫入失敗：訂單照常成立，歸因整筆不寫（不留半套）",
+     "detail": "{\"attrs\":[]}"
+    },
+    {
+     "ok": true,
+     "name": "R4-2 [API] 故障排除後補登：兩個商品都補齊，且分屬不同批次",
+     "detail": "{\"r\":{\"scanned\":6,\"attributed\":2,\"completed_orders\":1,\"skipped\":5,\"failed\":0,\"days\":30},\"a\":[[704,\"84271d4d\"],[705,\"ece37cb1\"]]}"
+    },
+    {
+     "ok": true,
+     "name": "R4-3 [API] 修補 C5 既有半套資料：補上缺少商品，保留既有正確快照（attr_uuid 不變）",
+     "detail": "{\"r\":{\"scanned\":7,\"attributed\":1,\"completed_orders\":1,\"skipped\":6,\"failed\":0,\"days\":30},\"kept\":true}"
+    },
+    {
+     "ok": true,
+     "name": "R4-4 [API] 重跑兩次與併發補登：不重複計算；回報掃描、補齊、略過、失敗數量",
+     "detail": "{\"r1\":{\"scanned\":7,\"attributed\":0,\"completed_orders\":0,\"skipped\":7,\"failed\":0,\"days\":30},\"n0\":6,\"n1\":6}"
+    },
+    {
+     "ok": true,
+     "name": "R4-5 [API] 沒有有效點擊的訂單：補登不產生歸因",
+     "detail": ""
+    },
+    {
+     "ok": true,
+     "name": "R4-6 [API] 歸因交易保存失敗：訂單不受影響、歸因全部不寫；補登以訂單建立時間補齊",
+     "detail": "{\"failed\":1,\"a0\":0,\"a1\":2}"
+    },
+    {
+     "ok": true,
+     "name": "R4-7 [API] 10 日後補登：以訂單建立時間計算 7 日視窗（不用補登時間）",
+     "detail": "{\"a\":1,\"created\":\"2026-11-14 10:31:20\"}"
+    },
+    {
+     "ok": true,
+     "name": "R5-1 [API] 201 個批次：總計包含排在最後的最舊批次（受理、點擊、成交、金額完整），跨商品同一訂單只算一張",
+     "detail": "{\"got\":[201,204,103,51,4640],\"exp\":[201,204,103,51,4640]}"
+    },
+    {
+     "ok": true,
+     "name": "R5-2 [API] 分頁（50／200 每頁）切換：總計不變；所有批次都能在明細中取得；回傳總筆數與頁數",
+     "detail": "{\"same\":true,\"ids\":201,\"page\":{\"page\":1,\"page_size\":50,\"total_batches\":201,\"total_pages\":5,\"has_more\":true},\"last\":[2,1]}"
+    },
+    {
+     "ok": true,
+     "name": "R5-3 [API] 商品篩選選項包含較早批次的商品；篩選後總計與明細使用同一條件；無資料比率為「—」",
+     "detail": "{\"opt\":5,\"fOld\":1}"
+    },
+    {
+     "ok": true,
+     "name": "R5-4 [API] 舊批次「未建立追蹤」語意與比率分母口徑維持",
+     "detail": "{\"u\":1,\"row\":\"untracked\"}"
+    },
+    {
+     "ok": true,
+     "name": "R6-1 [BR] 延後成功：A 店回應在切換至 B 店後才到達 → 不寫入資料、不顯示 A 店數字",
+     "detail": "{\"k0\":\"220\",\"k1\":null,\"st\":{\"owner\":null,\"hasData\":false,\"w\":{\"data\":false,\"err\":false}}}"
+    },
+    {
+     "ok": true,
+     "name": "R6-2 [BR] 延後錯誤：切店後才到達的 A 店錯誤不寫入（不顯示、不保留 A 店結果）",
+     "detail": "{\"err\":\"\",\"owner\":null,\"has\":false}"
+    },
+    {
+     "ok": true,
+     "name": "R6-3 [BR] 延後 JSON 解析：讀完回應內容時已切店 → 丟棄",
+     "detail": "{\"owner\":null,\"has\":false,\"w\":{\"data\":false,\"err\":false}}"
+    },
+    {
+     "ok": true,
+     "name": "R6-4 [BR] 換登入身分：前一個身分的回應不寫入目前身分的快取",
+     "detail": "{\"w\":{\"data\":false,\"err\":false}}"
+    },
+    {
+     "ok": true,
+     "name": "R6-5 [BR] 登出：清除報表快取，延後回應不寫入",
+     "detail": "{\"has\":false}"
+    },
+    {
+     "ok": true,
+     "name": "R6-6 [BR] 權限失效（403）：清除報表資料，不再顯示數字",
+     "detail": "{\"before\":true,\"st\":{\"has\":false,\"acc\":null}}"
+    },
+    {
+     "ok": true,
+     "name": "R6-7 [BR] 離開頁面期間的回應不寫入；重新進入重新查詢並顯示目前店別數字",
+     "detail": "{\"mid\":{\"w\":{\"data\":false,\"err\":false}},\"k\":\"220\"}"
+    },
+    {
+     "ok": true,
+     "name": "R6-8 [BR] 原店快取遇到新店查詢失敗：不以「上次結果」顯示前一店資料",
+     "detail": "{\"acc\":null,\"body\":\"模擬錯誤 重新載入\"}"
+    },
+    {
+     "ok": true,
+     "name": "R6-9 [BR] 診斷紀錄不含 JWT／會員 session；後台無 JavaScript 錯誤",
+     "detail": "{\"leak\":[],\"aerr\":[]}"
+    },
+    {
+     "ok": true,
+     "name": "R7-A [API] 固定時鐘（同一毫秒）連續 20 張＋並行 20 張 LINE 訂單、並行 5 張店內 POS 訂單：顯示編號全部不同、同一秒、新編號受唯一索引保護",
+     "detail": "{\"ok\":true,\"n\":40,\"distinct\":40,\"sample\":[\"LINE-20261114-103147-HC75\",\"LINE-20261114-103147-EWE8\",\"LINE-20261114-103147-AHY6\"],\"posDistinct\":5,\"pos\":5,\"fails\":0}"
+    },
+    {
+     "ok": true,
+     "name": "R7-A2 [DB] 新編號的持久化唯一索引拒絕重複；宅配（SHIP-）共用同一產生器，同一秒 30 組不重複",
+     "detail": "{\"blocked\":true,\"ship\":[\"SHIP-20261114-103147-4BCH\",\"SHIP-20261114-103147-8PMC\"]}"
+    },
+    {
+     "ok": true,
+     "name": "R7-B1 [API] 歷史同號兩張訂單、升級前付款（伺服器已保存交易識別）：B 的 callback 只確認 B，不串到 A",
+     "detail": "{\"A\":\"pending\",\"B\":\"paid\",\"loc\":\"/line-order.html?store_id=store_001&linepay=success&order=LINE-20261101-120000B1\"}"
+    },
+    {
+     "ok": true,
+     "name": "R7-B2 [API] 歷史同號且沒有可靠交易對應：拒絕自動判定（不呼叫 LINE Pay、兩張都不變）並提示需核對",
+     "detail": "{\"A\":\"pending\",\"B\":\"pending\",\"loc\":\"/line-order.html?store_id=store_001&linepay=error&msg=order_ambiguous\"}"
+    },
+    {
+     "ok": true,
+     "name": "R7-B3 [API] 新付款請求：金額與付款對象由伺服器依訂單 uuid 建立（不信任前端 order_number／total）；callback 以付款嘗試唯一定位 B（不同金額、會員、店別的同號單不受影響）；19 位交易識別完整保存",
+     "detail": "{\"amt\":[240,240],\"A\":\"pending\",\"B\":\"paid\",\"s2\":\"pending\",\"att\":[{\"transaction_id\":\"9623515895330000001\",\"status\":\"confirmed\",\"order_uuid\":\"f834df3d-e616-426e-8e48-a292bd91759e\"}],\"loc\":\"/line-order.html?store_id=store_001&linepay=success&order=LINE-20261101-120000B3&order_ref=f834df3d-\"}"
+    },
+    {
+     "ok": true,
+     "name": "R7-B4 [API] 重複 callback（含同時兩個）：不再呼叫確認、不重複扣份數、purchase、會員消費",
+     "detail": "{\"q\":[\"0/3,0/15\",\"0/3,0/15\"],\"calls\":0}"
+    },
+    {
+     "ok": true,
+     "name": "R7-B5 [API] 交易識別或 orderId 與付款嘗試不符：拒絕，不呼叫確認、不改訂單",
+     "detail": "{\"loc\":\"/line-order.html?store_id=store_001&linepay=error&msg=payment_mismatch\",\"calls\":0}"
+    },
+    {
+     "ok": true,
+     "name": "R7-B6 [API] 付款失敗／取消返回維持原行為；再次付款建立新的付款嘗試（不同 orderId）後成功",
+     "detail": "{\"loc\":\"/line-order.html?store_id=store_001&linepay=fail&order=LINE-20261101-120000B6&co\",\"att\":{\"status\":\"failed\",\"result_code\":\"1150\"},\"ids\":[\"LINE-20261101-120000B6-df36c935\",\"LINE-20261101-120000B6-df36c935-P2\"]}"
+    },
+    {
+     "ok": true,
+     "name": "R7-B7 [API] 付款返回頁以訂單唯一識別取單（顯示 B 的金額）；只用重號編號查詢回 409，不回傳另一張",
+     "detail": "{\"total\":240,\"byNo\":409}"
+    },
+    {
+     "ok": true,
+     "name": "R7-B8 [API] 升級前已建立的付款請求（唯一編號＋已保存交易識別）：相容路徑照常完成",
+     "detail": "{\"st\":\"paid\"}"
+    },
+    {
+     "ok": true,
+     "name": "R7-C1 [DB] 來源資料：同號不同 uuid 兩張訂單與子資料",
+     "detail": "{\"n\":2}"
+    },
+    {
+     "ok": true,
+     "name": "R7-C2 [API] 完整搬家到新環境：同號不同 uuid 的兩張都存在，優惠券使用、操作紀錄、會員關聯、Analytics、補貨歸因各自跟隨正確訂單；重複匯入維持冪等",
+     "detail": "{\"st\":\"done\",\"c1\":[{\"id\":\"1f873685-0ffa-48f8-82db-0f47f0dc557b\",\"total\":50,\"member\":\"Uc450000000000000000000000000074\",\"cr\":1,\"logs\":1,\"links\":1,\"ev\":1,\"attr\":1},{\"id\":\"b330acbe-8046-42d2-917f-920e7d37031e\",\"total\":110,\"member\":\"Uc450000000000000000000000000075\",\"cr\":1,\"logs\":1,\"links\":1,\"ev\":1,\"attr\":1}],\"n2\":2}"
+    },
+    {
+     "ok": true,
+     "name": "R7-C3 [API] 選擇性搬家（訂單、會員紀錄、Analytics、折扣）：兩張都存在且子資料關聯正確",
+     "detail": "{\"st\":\"done\",\"c3\":[{\"id\":\"1f873685-0ffa-48f8-82db-0f47f0dc557b\",\"total\":50,\"member\":\"Uc450000000000000000000000000074\",\"cr\":1,\"logs\":1,\"links\":1,\"ev\":1,\"attr\":0},{\"id\":\"b330acbe-8046-42d2-917f-920e7d37031e\",\"total\":110,\"member\":\"Uc450000000000000000000000000075\",\"cr\":1,\"logs\":1,\"links\":1,\"ev\":1,\"attr\":0}]}"
+    },
+    {
+     "ok": true,
+     "name": "R7-C4 [API] 同一資料庫跨店匯入（ID 改變）：兩張都存在、子資料跟隨新識別、原店不受影響；重複匯入冪等",
+     "detail": "{\"st\":\"done\",\"s2n\":2,\"c1\":[{\"id\":\"2f1d99e4-fdba-40d4-a66a-46850e8a042c\",\"total\":50,\"member\":\"Uc450000000000000000000000000074\",\"cr\":0,\"logs\":1,\"links\":1,\"ev\":1,\"attr\":0},{\"id\":\"eea4bc64-135c-4de4-a476-86ca0621fecb\",\"total\":110,\"member\":\"Uc450000000000000000000000000075\",\"cr\":0,\"logs\":1,\"links\":1,\"ev\":1,\"attr\":0}],\"idsChanged\":true}"
+    },
+    {
+     "ok": true,
+     "name": "R7-C5 [API] 跨店匯入訂單的來源付款交易：callback 不自動啟用（不呼叫確認、不改狀態）",
+     "detail": "{\"st\":\"pending\",\"loc\":\"/line-order.html?store_id=store_002&linepay=error&msg=payment_mismatch\"}"
+    },
+    {
+     "ok": true,
+     "name": "R7-C6 [API] 舊備份缺少訂單識別、同號多張：列為衝突（2 筆），不推定、不合併",
+     "detail": "{\"st\":{\"added\":70,\"conflict\":2,\"dup\":0},\"n\":0}"
+    },
+    {
+     "ok": true,
+     "name": "R7-D1 [API] 有歷史重號時啟動遷移不失敗；不刪除、不合併、不重新編號；診斷 API 列出重號群組",
+     "detail": "{\"groups\":6,\"diag\":6,\"idx\":{\"order_number_v2_unique\":\"ok\",\"stable_identity\":\"primary_key_id\",\"duplicate_uuid_groups\":0}}"
+    },
+    {
+     "ok": true,
+     "name": "Z 真實 LINE Messaging API 與 LINE Pay 呼叫 0 次（全部在測試程序內攔截）",
+     "detail": "{\"line\":0,\"linepay\":0,\"lpMock\":9}"
+    }
+   ]
+  }
+ },
+ "targeted_regression_c5_1": [
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c5-restock-conversion.js",
+   "exit": 0,
+   "passCount": 42,
+   "failCount": 0,
+   "seconds": 70,
+   "fail_lines": [],
+   "tail": [
+    "  ✅ V3-4 通知批次清單提供「📈 成效」連到營運分析中心明細  — 2",
+    "  ✅ V3-5 後台無 JavaScript 錯誤",
+    "  ✅ Z 真實 LINE 發送呼叫 0 次（全部在測試程序內攔截）  — {\"real\":0,\"mock\":24}",
+    "RESULT: 42 passed, 0 failed"
+   ]
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c4-5-restock-link.js",
+   "exit": 0,
+   "passCount": 42,
+   "failCount": 0,
+   "seconds": 76,
+   "fail_lines": [],
+   "tail": [
+    "  ✅ L11 一般首屏不等待 LIFF（SDK pending 時商品頁已顯示）  — {\"shown\":144}",
+    "  ✅ L12 診斷資料只有階段與次數  — {\"role\":\"page\",\"liff_init\":0,\"shop_fetch\":0,\"product_ref_fetch\":1,\"product_open\":1,\"url_cleanup\":1,\"fallback\":\"\",\"stages\":[\"product_ref_fetch\",\"product_open\",\"url_cleanup\"]}",
+    "  ✅ Z LINE 真實發送呼叫 0 次  — 0",
+    "RESULT: 42 passed, 0 failed"
+   ]
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c4-5-date-consent.js",
+   "exit": 1,
+   "passCount": 53,
+   "failCount": 1,
+   "seconds": 54,
+   "fail_lines": [
+    "  ❌ D1-3 今日截止前可供應、休息日不可供應、第一個可供應日＝今天"
+   ],
+   "tail": [
+    "  ✅ S16-1 完整備份包含訂閱方式  — {\"store_id\":\"store_001\",\"key\":\"restock_notify_subscribe_mode\",\"value\":\"register_subscribe\"}",
+    "  ✅ S16-2 匯入：訂閱方式保留；匯入的同意仍需顧客重新確認（不自動變成同意）  — {\"st\":\"done\",\"mode\":\"register_subscribe\",\"consent\":\"reconfirm_required\"}",
+    "  ✅ S17 全程 LINE 呼叫 0 次（登記、訂閱、切換方式都不發送）  — {\"real\":0,\"mock\":0}",
+    "RESULT: 53 passed, 1 failed"
+   ]
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c4-4-mutation-response.js",
+   "exit": 0,
+   "passCount": 20,
+   "failCount": 0,
+   "seconds": 72,
+   "fail_lines": [],
+   "tail": [
+    "  ✅ X9 沒有重疊：新增（含同意）、修改、撤回同意、取消照常可用，畫面與資料庫一致  — {\"a\":{\"card\":\"已登記 1 份・管理登記\",\"s\":{\"qty\":1,\"consent\":\"granted\"}},\"b\":{\"card\":\"已登記 2 份・管理登記\",\"s\":{\"qty\":2,\"consent\":\"granted\"}},\"c\":{\"s\":{\"qty\":2,\"consent\":\"revoked\"},\"msg\":\"已取消補貨通知（補貨登記仍保留）\"},\"d\":{\"card\":\"🔔 補貨通知我\",\"s\":null}}",
+    "  ✅ Z1 全程未建立訂單、未改額度  — {\"c0\":{\"sold\":[[701,0,0],[1,0,0],[201,0,0],[702,0,0],[2,0,0],[202,0,0],[706,0,0],[3,0,0],[203,0,0],[4,0,0],[5,0,0],[6,0,0],[7,0,0],[8,0,0],[9,0,0],[10,0,0],[11,0,0],[12,0,0]],\"orders\":2},\"c1\":{\"sold\":[[701,0,0],[1,0,0],[201,0,0],[702,0,0],[2,0,0],[202,0,0],[706,0,0],[3,0,0],[203,0,0],[4,0,0],[5,0,0],[6,0,0],[7,0,0],[8,0,0],[9,0,0],[10,0,0],[11,0,0],[12,0,0]],\"orders\":2}}",
+    "  ✅ Z2 LINE API 呼叫 0 次（模擬與真實皆為 0；登記與撤回不觸發發送）  — {\"mock\":0,\"real\":0}",
+    "RESULT: 20 passed, 0 failed（真實 LINE 呼叫 0 次）"
+   ]
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c4-3-async-consistency.js",
+   "exit": 0,
+   "passCount": 34,
+   "failCount": 0,
+   "seconds": 144,
+   "fail_lines": [],
+   "tail": [
+    "  ✅ M8 正常查詢、清單與管理（改為 4 份）照常可用、無 JavaScript 錯誤  — {\"b0\":\"已登記 5 份・管理登記\",\"b1\":\"已登記 4 份・管理登記\",\"db\":4,\"e\":[]}",
+    "  ✅ Z1 全程未建立訂單、未改額度  — {\"c0\":{\"sold\":[[701,0,0],[1,0,0],[201,0,0],[702,0,0],[2,0,0],[202,0,0],[706,0,0],[3,0,0],[203,0,0],[708,0,0],[4,0,0],[5,0,0],[6,0,0],[7,0,0],[8,0,0],[9,0,0],[10,0,0],[11,0,0],[12,0,0]],\"orders\":2},\"c1\":{\"sold\":[[701,0,0],[1,0,0],[201,0,0],[702,0,0],[2,0,0],[202,0,0],[706,0,0],[3,0,0],[203,0,0],[708,0,0],[4,0,0],[5,0,0],[6,0,0],[7,0,0],[8,0,0],[9,0,0],[10,0,0],[11,0,0],[12,0,0]],\"orders\":2}}",
+    "  ✅ Z2 真實 LINE API 呼叫 0 次（全部由程序內模擬攔截）  — 0",
+    "RESULT: 34 passed, 0 failed（模擬 LINE 呼叫 2 次；真實 0 次需為 0：0）"
+   ]
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c4-2-demand-ui-refresh.js",
+   "exit": 0,
+   "passCount": 80,
+   "failCount": 0,
+   "seconds": 384,
+   "fail_lines": [],
+   "tail": [
+    "  ✅ A26 後台輪詢：沒有確認、續送或建立新的發送批次（只有測試手動按的一次預覽）  — [\"completed\"]",
+    "  ✅ A27 後台驗收：LINE API 呼叫 0 次  — 0",
+    "  ✅ Z1 整個驗收過程 LINE API 呼叫次數為 0（測試程序攔截）  — 0",
+    "RESULT: 80 passed, 0 failed"
+   ]
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c4-1-dedupe-resume.js",
+   "exit": 0,
+   "passCount": 40,
+   "failCount": 0,
+   "seconds": 55,
+   "fail_lines": [],
+   "tail": [
+    "模擬 LINE API 呼叫次數（程序內攔截、未連外）：32",
+    "真實 LINE API 呼叫次數：0",
+    "  ✅ Z1 真實 LINE API 呼叫次數為 0  — simulated=32 real=0",
+    "RESULT: 40 passed, 0 failed"
+   ]
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c4-restock-notify.js",
+   "exit": 0,
+   "passCount": 94,
+   "failCount": 0,
+   "seconds": 45,
+   "fail_lines": [],
+   "tail": [
+    "模擬 LINE API 呼叫次數（程序內攔截、未連外）：31",
+    "真實 LINE API 呼叫次數：0",
+    "  ✅ Z1 真實 LINE API 呼叫次數為 0（所有 api.line.me 請求皆由測試程序內模擬回應）  — simulated=31 real=0",
+    "RESULT: 94 passed, 0 failed  (screenshots: /tmp/mbv2-c4-shots-lIrDKG)"
+   ]
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c4-linepush-compat.js",
+   "exit": 0,
+   "passCount": 12,
+   "failCount": 0,
+   "seconds": 0,
+   "fail_lines": [],
+   "tail": [
+    "  ✅ LC11 retry key 格式錯誤：不送出",
+    "  ✅ LC12 回傳值不含權杖或 Authorization",
+    "模擬 fetch 呼叫次數（程序內）：12",
+    "RESULT: 12 passed, 0 failed（全部為程序內模擬，真實 LINE 呼叫 0 次）"
+   ]
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c3-3-restore-cancel.js",
+   "exit": 0,
+   "passCount": 30,
+   "failCount": 0,
+   "seconds": 164,
+   "fail_lines": [],
+   "tail": [
+    "  ✅ K9 整段只建立 K3 的 2 筆現金訂單（Handoff、Recovery 各 1）  — {\"c0\":{\"quota_sold\":0,\"preorder_sold\":0,\"orders\":2},\"c1\":{\"quota_sold\":0,\"preorder_sold\":0,\"orders\":4}}",
+    "  ✅ K10 讀資料庫：現金訂單恰為 2 筆（延遲還原未產生額外訂單）  — 2",
+    "  ✅ Z1 整個驗收過程 LINE API／推播呼叫次數為 0  — 0",
+    "RESULT: 30 passed, 0 failed"
+   ]
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c3-2-firstpaint-remap.js",
+   "exit": 0,
+   "passCount": 32,
+   "failCount": 0,
+   "seconds": 63,
+   "fail_lines": [],
+   "tail": [
+    "  ✅ F8 Handoff：顧客先繼續點餐並加到 2 份 → 本次還原已取消（不再呼叫還原 API）、購物車維持 2 份、未送單  — {\"hasSkip\":true,\"v1\":{\"content\":\"block\",\"loading\":\"none\",\"cards\":17,\"cart\":\"{\\\"702\\\":2}\",\"banner\":true,\"skip\":false,\"liff\":\"undefined\",\"session\":true},\"v2\":{\"content\":\"block\",\"loading\":\"none\",\"cards\":17,\"cart\":\"{\\\"702\\\":2}\",\"banner\":true,\"skip\":false,\"liff\":\"object\",\"session\":true},\"stored\":{\"702\":2},\"calls\":0}",
+    "  ✅ F9 整段首屏／Gate 測試：未建立任何訂單  — {\"c0\":{\"quota_sold\":0,\"preorder_sold\":0,\"orders\":2},\"c1\":{\"quota_sold\":0,\"preorder_sold\":0,\"orders\":2}}",
+    "  ✅ Z1 整個驗收過程 LINE API／推播呼叫次數為 0  — 0",
+    "RESULT: 32 passed, 0 failed"
+   ]
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c3-1-backup-manage-login.js",
+   "exit": 0,
+   "passCount": 54,
+   "failCount": 0,
+   "seconds": 102,
+   "fail_lines": [],
+   "tail": [
+    "  ✅ L7 已登入：顯示「我的想買登記」入口，不自動開啟表單  — {\"open\":false,\"opens\":0,\"form\":false,\"login\":false,\"hint\":\"\",\"loginLabel\":\"\",\"msg\":\"\",\"pending\":false,\"cart\":0,\"hdr\":\"block\"}",
+    "  ✅ L8 恢復登記流程：未建立訂單、額度不變（購物車於各情境皆為 0）  — {\"c0\":{\"quota_sold\":0,\"preorder_sold\":0,\"orders\":2},\"c1\":{\"quota_sold\":0,\"preorder_sold\":0,\"orders\":2}}",
+    "  ✅ Z1 整個驗收過程 LINE API／推播呼叫次數為 0  — 0",
+    "RESULT: 54 passed, 0 failed"
+   ]
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c3-sale-status-demand.js",
+   "exit": 1,
+   "passCount": 328,
+   "failCount": 4,
+   "seconds": 158,
+   "fail_lines": [
+    "  ❌ O1 今日完售：今日訂單被擋，未建立訂單、未扣今日額度",
+    "  ❌ O6-paused 今日與未來日期都被擋，訂單與額度不變",
+    "  ❌ O6-sold_out_indefinitely 今日與未來日期都被擋，訂單與額度不變",
+    "  ❌ O9 今日完售＋未啟用預購份數管理：今日仍擋；未來 30 份（超過原預購每日 20）不限額成功，今日額度不變"
+   ],
+   "tail": [
+    "  ✅ A4 切回今日販售分頁：主表顯示、想買登記隱藏  — {\"main\":\"block\",\"demand\":\"none\"}",
+    "  ✅ A5 後台頁面無 JavaScript 錯誤",
+    "  ✅ Z1 整個驗收過程 LINE API／推播呼叫次數為 0  — 0",
+    "RESULT: 328 passed, 4 failed  (screenshots: /tmp/mbv2-hf1c3-shots-0OeDjw)"
+   ]
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c1-preorder-status.js",
+   "exit": 0,
+   "passCount": 93,
+   "failCount": 0,
+   "seconds": 77,
+   "fail_lines": [],
+   "tail": [
+    "  ✅ S2-12 錯誤列 colspan 一致（14／12）  — [\"14\",\"12\"]",
+    "  ✅ S2-13 空資料列 colspan 一致（14／12）  — [\"14\",\"12\"]",
+    "  ✅ S2-14 後台頁面無 JavaScript 錯誤",
+    "RESULT: 93 passed, 0 failed  (screenshots: /tmp/mbv2-hf1c1-shots-Ya4IB3)"
+   ]
+  }
+ ],
+ "regression_61_c5_1": [
+  {
+   "script": "scripts/mbv2-rescue-verify.js",
+   "exit": 2,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 0,
+   "fail_lines": [],
+   "tail": [
+    "需要 --old 與 --new"
+   ]
+  },
+  {
+   "script": "scripts/run-g1-6-ga4-h1-4-4-view-item-runtime.js",
+   "exit": 1,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 1,
+   "fail_lines": [],
+   "tail": [
+    "       ^",
+    "TypeError: Cannot read properties of undefined (reading 'fireIntersect')",
+    "    at run (/home/claude/work/c51/scripts/run-g1-6-ga4-h1-4-4-view-item-runtime.js:146:8)",
+    "Node.js v22.23.4"
+   ]
+  },
+  {
+   "script": "scripts/run-g1-6-ga4-h1-4-7-two-stage-checkout-runtime.js",
+   "exit": 0,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 9,
+   "fail_lines": [
+    "TOTAL=113 PASS=113 FAIL=0"
+   ],
+   "tail": [
+    "[PASS] S19c checkoutStage 回到 hidden",
+    "[PASS] S22 宅配通路可完整進入第二階段",
+    "[PASS] S22b 收件表單欄位存在於 checkoutStage 內",
+    "TOTAL=113 PASS=113 FAIL=0"
+   ]
+  },
+  {
+   "script": "scripts/run-h1-4-10-asset-cache-bust-runtime.js",
+   "exit": 0,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 0,
+   "fail_lines": [
+    "TOTAL: 30 PASS / 0 FAIL (of 30)"
+   ],
+   "tail": [
+    "[PASS] REQ-ASSET-1 呼叫結果正確（friend=true → ok:true）",
+    "========================================",
+    "TOTAL: 30 PASS / 0 FAIL (of 30)",
+    "========================================"
+   ]
+  },
+  {
+   "script": "scripts/run-h1-4-10-friend-live-runtime.js",
+   "exit": 0,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 1,
+   "fail_lines": [
+    "TOTAL=24 PASS=24 FAIL=0"
+   ],
+   "tail": [
+    "[PASS] DIAG-3 錯誤時記錄 safe error code／generic error message — {\"liffId\":\"\",\"isInClient\":true,\"isLoggedIn\":true,\"getFriendshipCalled\":true,\"friendFlag\":null,\"errorCode\":\"GET_FRIENDSHIP_ERROR\",\"errorMessage\":\"simulated LIFF error\",\"updatedAt\":1794631575906}",
+    "[PASS] DIAG-4 診斷快照不含任何 token 字樣或範例 UID — {\"liffId\":\"\",\"isInClient\":true,\"isLoggedIn\":true,\"getFriendshipCalled\":true,\"friendFlag\":null,\"errorCode\":\"GET_FRIENDSHIP_ERROR\",\"errorMessage\":\"simulated LIFF error\",\"updatedAt\":1794631575906}",
+    "== FRIEND-LIVE Summary ==",
+    "TOTAL=24 PASS=24 FAIL=0"
+   ]
+  },
+  {
+   "script": "scripts/run-h1-4-10-historical-backend-reconcile-runtime.js",
+   "exit": 0,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 1,
+   "fail_lines": [
+    "TOTAL: 35 PASS / 0 FAIL (of 35)"
+   ],
+   "tail": [
+    "[PASS] HBR-12 前端 line-member-gate.js 沒有意外引用/改動 applyFriendEvent（後端 Follow Webhook 邏輯完全 freeze，未被本輪觸碰）",
+    "========================================",
+    "TOTAL: 35 PASS / 0 FAIL (of 35)",
+    "========================================"
+   ]
+  },
+  {
+   "script": "scripts/run-h1-4-10-historical-friend-first-touch-runtime.js",
+   "exit": 0,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 1,
+   "fail_lines": [
+    "TOTAL=37 PASS=37 FAIL=0"
+   ],
+   "tail": [
+    "[PASS] HIST-15 line-order.html 與 line-shipping.html 都呼叫同一 helper",
+    "[PASS] HIST-15 兩頁都沒有另外直接 fetch 該 endpoint（只透過共用 helper）",
+    "== HISTORICAL-FRIEND-FIRST-TOUCH Summary ==",
+    "TOTAL=37 PASS=37 FAIL=0"
+   ]
+  },
+  {
+   "script": "scripts/run-h1-4-10-phase1-liff-identity-runtime.js",
+   "exit": 0,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 1,
+   "fail_lines": [
+    "TOTAL=68 PASS=68 FAIL=0"
+   ],
+   "tail": [
+    "[PASS] line-order.html 呼叫 initLineMemberGate 時有傳入 { skipLoginCallback }",
+    "[PASS] line-shipping.html 呼叫 initLineMemberGate 時有傳入 { skipLoginCallback }",
+    "== Phase 1 Summary ==",
+    "TOTAL=68 PASS=68 FAIL=0"
+   ]
+  },
+  {
+   "script": "scripts/run-h1-4-10-phase2-line-friend-guide-runtime.js",
+   "exit": 0,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 2,
+   "fail_lines": [
+    "TOTAL=114 PASS=114 FAIL=0"
+   ],
+   "tail": [
+    "[PASS] FG-RACE-10 burst 後 debounce 恰好只送出一次 verify 請求（before=0 after=1）",
+    "[PASS] FG-RACE-10 refresh 本身不重複送出 line_friend_guide_view（該事件只在顯示 guide 當次送出一次）",
+    "== Phase 2 Summary ==",
+    "TOTAL=114 PASS=114 FAIL=0"
+   ]
+  },
+  {
+   "script": "scripts/run-h1-4-10-phase3-checkout-submit-payment-runtime.js",
+   "exit": 0,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 27,
+   "fail_lines": [
+    "TOTAL=111 PASS=111 FAIL=0"
+   ],
+   "tail": [
+    "[PASS] checkout_click → GA4 begin_checkout 映射契約未被本輪修改",
+    "[PASS] checkout_click → Meta InitiateCheckout 映射契約未被本輪修改",
+    "== Phase 3 Summary ==",
+    "TOTAL=111 PASS=111 FAIL=0"
+   ]
+  },
+  {
+   "script": "scripts/run-h1-4-10-phase4b-recovery-frontend-targeted.js",
+   "exit": 0,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 9,
+   "fail_lines": [
+    "TOTAL=50 PASS=50 FAIL=0"
+   ],
+   "tail": [
+    "[PASS] Static-B. Recovery 區塊沒有把 _recoveryResumeToken 直接印進 console",
+    "[PASS] Static-C. Recovery 區塊沒有把 recovery_token 寫進 localStorage/sessionStorage",
+    "== Frontend Recovery Targeted Summary ==",
+    "TOTAL=50 PASS=50 FAIL=0"
+   ]
+  },
+  {
+   "script": "scripts/run-h1-4-10-phase4b-recovery-full-runtime.js",
+   "exit": 0,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 14,
+   "fail_lines": [
+    "[PASS] Composition. Backend Recovery Targeted: 92/92 PASS（FAIL=0）",
+    "[PASS] Composition. Frontend Recovery Targeted: 50/50 PASS（FAIL=0）",
+    "TOTAL=168 PASS=168 FAIL=0"
+   ],
+   "tail": [
+    "[PASS] Composition. Backend Recovery Targeted: 92/92 PASS（FAIL=0）",
+    "[PASS] Composition. Frontend Recovery Targeted: 50/50 PASS（FAIL=0）",
+    "== Phase 4B Full Suite Summary ==",
+    "TOTAL=168 PASS=168 FAIL=0"
+   ]
+  },
+  {
+   "script": "scripts/run-h1-4-10-required-friend-gate-runtime.js",
+   "exit": 0,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 1,
+   "fail_lines": [
+    "TOTAL: 98 PASS / 0 FAIL (of 98)"
+   ],
+   "tail": [
+    "[PASS] E-6 settings.js 沒有把 allow_skip 跟 required mode 掛勾（required 語意完全由呼叫端 UI 結構保證，不靠設定值）",
+    "========================================",
+    "TOTAL: 98 PASS / 0 FAIL (of 98)",
+    "========================================"
+   ]
+  },
+  {
+   "script": "scripts/run-h1-4-9-checkout-order-summary-runtime.js",
+   "exit": 0,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 6,
+   "fail_lines": [
+    "TOTAL=67 PASS=67 FAIL=0"
+   ],
+   "tail": [
+    "[PASS] H149-ship-E payload.checkout_stage=checkout",
+    "[PASS] H149-ship-E payload 不含收件人姓名/電話/地址/地址備註/LINE ID 等個資",
+    "[PASS] H149-ship-F render/refreshCartSheetTotals() 不額外觸發 checkout_click",
+    "TOTAL=67 PASS=67 FAIL=0"
+   ]
+  },
+  {
+   "script": "scripts/run-r54-4-mbv2-ui.js",
+   "exit": 0,
+   "passCount": 19,
+   "failCount": 0,
+   "seconds": 8,
+   "fail_lines": [
+    "  ✅ UI16 跨店未勾選確認 → 不送出預覽並提示  — ❌ 跨店匯入請先勾選確認"
+   ],
+   "tail": [
+    "  ✅ UI17 跨店匯入 10 月訂單：新增 10 筆（訂單 5＋操作紀錄 5）、優惠券紀錄缺少關聯 1 筆並以警告呈現  — ⚠️ 匯入完成，但有項目未匯入（衝突／缺少關聯／格式無效，詳見下表） 新增 10更新 0跳過 0 衝突 0缺少關聯 1 筆數核對：✅ 每張表「匯入後筆數＝基準＋新增」一致 分類／資料表備份筆數現有筆數新增更新跳過衝突缺少關聯格式無效寫入失敗訂單紀錄orde",
+    "  ✅ UI18 資料庫：store_002 新增 5 筆、store_001 不變  — {\"c1\":{\"orders\":8},\"c2\":{\"orders\":6}}",
+    "  ✅ UI19 頁面無 JavaScript 錯誤",
+    "RESULT: 19 passed, 0 failed  (screenshots: /tmp/mbv2-ui-3YkPxW)"
+   ]
+  },
+  {
+   "script": "scripts/run-regression-g1-6-ga4-h1-4-6.js",
+   "exit": 1,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 382,
+   "fail_lines": [
+    "[FAIL                  ] H1 Targeted Smoke                                            pass=107 fail=1 total=108 exit=1 (expect 108/108)  <== CRASHED/NONZERO",
+    "[FAIL] AK. Mutation Negative 22. IP Provider enabled (mutate .env.example) — ",
+    "=== GA4-H1 Targeted Smoke: 107/108 PASS, 1 FAIL ===",
+    "[FAIL                  ] H1 Static Audit                                              pass=189 fail=1 total=190 exit=1 (expect 190/190)  <== CRASHED/NONZERO",
+    "=== GA4-H1 Static Audit: 189/190 PASS, 1 FAIL ===",
+    "[FAIL                  ] H1.4.4 View Item Semantics Runtime (real line-order.html/line-shipping.html DOM + real analytics-platforms.js: 9-card impression regression, card-click has no sender, add_to_cart/remove_from_cart independence, ecommerce smoke, init idempotence) — H1.4.6: card-click assertions SUPERSEDED (25 vs original 24; see file CHANGELOG) pass=null fail=null total=null exit=1 (expect 25/25)  <== CRASHED/NONZERO",
+    "[FAIL                  ] H1.4.6 Static/UI/Analytics Audit (LINE外帶外送/宅配共用同一份Modal元件 + 商品卡點擊/鍵盤開啟 + 加入購物車呼叫既有addCart()/changeQty() + 不繞過售完判斷 + Modal UI要求 + 固定購物車列 + view_product/view_item語意分離 + GA4 items[] + 規格加料界線 + 後端驗證未放寬；H1.4.7 更新：5 項過期 checkout 斷言已 supersede，66→72) pass=69 fail=3 total=72 exit=1 (expect 72/72)  <== CRASHED/NONZERO",
+    "✗ FAIL [line-order.html] checkout_click 由獨立的 openCheckoutStep()（前往結帳）觸發，不在 openCartSheet() 內",
+    "✗ FAIL [line-shipping.html] checkout_click 由獨立的 openCheckoutStep()（前往結帳）觸發，不在 openCartSheet() 內",
+    "PASS: 69",
+    "FAIL: 3",
+    "TOTAL: 72",
+    "[FAIL                  ] H1 Targeted Smoke                                            pass=107 fail=1 total=108 exit=1 (expect 108/108)  <== CRASHED/NONZERO",
+    "[FAIL] AK. Mutation Negative 22. IP Provider enabled (mutate .env.example) — ",
+    "=== GA4-H1 Targeted Smoke: 107/108 PASS, 1 FAIL ===",
+    "[FAIL                  ] H1 Static Audit                                              pass=189 fail=1 total=190 exit=1 (expect 190/190)  <== CRASHED/NONZERO",
+    "=== GA4-H1 Static Audit: 189/190 PASS, 1 FAIL ===",
+    "[FAIL                  ] H1.4.4 View Item Semantics Runtime (real line-order.html/line-shipping.html DOM + real analytics-platforms.js: 9-card impression regression, card-click has no sender, add_to_cart/remove_from_cart independence, ecommerce smoke, init idempotence) — H1.4.6: card-click assertions SUPERSEDED (25 vs original 24; see file CHANGELOG) pass=null fail=null total=null exit=1 (expect 25/25)  <== CRASHED/NONZERO",
+    "[FAIL                  ] H1.4.6 Static/UI/Analytics Audit (LINE外帶外送/宅配共用同一份Modal元件 + 商品卡點擊/鍵盤開啟 + 加入購物車呼叫既有addCart()/changeQty() + 不繞過售完判斷 + Modal UI要求 + 固定購物車列 + view_product/view_item語意分離 + GA4 items[] + 規格加料界線 + 後端驗證未放寬；H1.4.7 更新：5 項過期 checkout 斷言已 supersede，66→72) pass=69 fail=3 total=72 exit=1 (expect 72/72)  <== CRASHED/NONZERO",
+    "✗ FAIL [line-order.html] checkout_click 由獨立的 openCheckoutStep()（前往結帳）觸發，不在 openCartSheet() 內",
+    "✗ FAIL [line-shipping.html] checkout_click 由獨立的 openCheckoutStep()（前往結帳）觸發，不在 openCartSheet() 內",
+    "PASS: 69",
+    "FAIL: 3",
+    "TOTAL: 72",
+    "[FAIL                  ] H1 Targeted Smoke                                            pass=107 fail=1 total=108 exit=1 (expect 108/108)  <== CRASHED/NONZERO",
+    "[FAIL] AK. Mutation Negative 22. IP Provider enabled (mutate .env.example) — ",
+    "=== GA4-H1 Targeted Smoke: 107/108 PASS, 1 FAIL ===",
+    "[FAIL                  ] H1 Static Audit                                              pass=189 fail=1 total=190 exit=1 (expect 190/190)  <== CRASHED/NONZERO",
+    "=== GA4-H1 Static Audit: 189/190 PASS, 1 FAIL ===",
+    "[FAIL                  ] H1.4.4 View Item Semantics Runtime (real line-order.html/line-shipping.html DOM + real analytics-platforms.js: 9-card impression regression, card-click has no sender, add_to_cart/remove_from_cart independence, ecommerce smoke, init idempotence) — H1.4.6: card-click assertions SUPERSEDED (25 vs original 24; see file CHANGELOG) pass=null fail=null total=null exit=1 (expect 25/25)  <== CRASHED/NONZERO",
+    "[FAIL                  ] H1.4.6 Static/UI/Analytics Audit (LINE外帶外送/宅配共用同一份Modal元件 + 商品卡點擊/鍵盤開啟 + 加入購物車呼叫既有addCart()/changeQty() + 不繞過售完判斷 + Modal UI要求 + 固定購物車列 + view_product/view_item語意分離 + GA4 items[] + 規格加料界線 + 後端驗證未放寬；H1.4.7 更新：5 項過期 checkout 斷言已 supersede，66→72) pass=69 fail=3 total=72 exit=1 (expect 72/72)  <== CRASHED/NONZERO",
+    "✗ FAIL [line-order.html] checkout_click 由獨立的 openCheckoutStep()（前往結帳）觸發，不在 openCartSheet() 內",
+    "✗ FAIL [line-shipping.html] checkout_click 由獨立的 openCheckoutStep()（前往結帳）觸發，不在 openCartSheet() 內",
+    "PASS: 69",
+    "FAIL: 3",
+    "TOTAL: 72",
+    "  Round 1: UNIQUE_SUITES=76 PASS=7688 FAIL=5 TOTAL=7693 passedSuites=72 failedSuites=4 exit=1 residue=0",
+    "  Round 2: UNIQUE_SUITES=76 PASS=7688 FAIL=5 TOTAL=7693 passedSuites=72 failedSuites=4 exit=1 residue=0",
+    "  Round 3: UNIQUE_SUITES=76 PASS=7688 FAIL=5 TOTAL=7693 passedSuites=72 failedSuites=4 exit=1 residue=0"
+   ],
+   "tail": [
+    "  Round 3: UNIQUE_SUITES=76 PASS=7688 FAIL=5 TOTAL=7693 passedSuites=72 failedSuites=4 exit=1 residue=0",
+    "  assertionMismatch: 0",
+    "  residue (last round): 0",
+    "======================================================================"
+   ]
+  },
+  {
+   "script": "scripts/run-regression-g1-6-ga4-h1-4-7.js",
+   "exit": 1,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 412,
+   "fail_lines": [
+    "[FAIL                  ] H1 Targeted Smoke                                            pass=107 fail=1 total=108 exit=1 (expect 108/108)  <== CRASHED/NONZERO",
+    "[FAIL] AK. Mutation Negative 22. IP Provider enabled (mutate .env.example) — ",
+    "=== GA4-H1 Targeted Smoke: 107/108 PASS, 1 FAIL ===",
+    "[FAIL                  ] H1 Static Audit                                              pass=189 fail=1 total=190 exit=1 (expect 190/190)  <== CRASHED/NONZERO",
+    "[FAIL] IP Provider still disabled in .env.example — ",
+    "=== GA4-H1 Static Audit: 189/190 PASS, 1 FAIL ===",
+    "[FAIL                  ] H1.4.4 View Item Semantics Runtime (real line-order.html/line-shipping.html DOM + real analytics-platforms.js: 9-card impression regression, card-click has no sender, add_to_cart/remove_from_cart independence, ecommerce smoke, init idempotence) — H1.4.6: card-click assertions SUPERSEDED (25 vs original 24; see file CHANGELOG) pass=null fail=null total=null exit=1 (expect 25/25)  <== CRASHED/NONZERO",
+    "[FAIL                  ] H1.4.6 Static/UI/Analytics Audit (LINE外帶外送/宅配共用同一份Modal元件 + 商品卡點擊/鍵盤開啟 + 加入購物車呼叫既有addCart()/changeQty() + 不繞過售完判斷 + Modal UI要求 + 固定購物車列 + view_product/view_item語意分離 + GA4 items[] + 規格加料界線 + 後端驗證未放寬；H1.4.7 更新：5 項過期 checkout 斷言已 supersede，66→72) pass=69 fail=3 total=72 exit=1 (expect 72/72)  <== CRASHED/NONZERO",
+    "✗ FAIL [line-order.html] openProductDetail() 沿用 getProductAvailableModes()（與 buildCard() 同一套可購買判斷，不自建第二套規則）",
+    "✗ FAIL [line-order.html] checkout_click 由獨立的 openCheckoutStep()（前往結帳）觸發，不在 openCartSheet() 內",
+    "✗ FAIL [line-shipping.html] checkout_click 由獨立的 openCheckoutStep()（前往結帳）觸發，不在 openCartSheet() 內",
+    "PASS: 69",
+    "FAIL: 3",
+    "TOTAL: 72",
+    "[FAIL                  ] H1.4.7 Static Audit (line-order/line-shipping 兩階段結構、cartBar 只開 cartStage、view_cart 在 openCartSheet、checkout_click 在 _enterCheckoutStage、無 begin_checkout 呼叫、submit_order 路徑分離、Meta trackCustom/track 分流、GA4 canonical map、Funnel 七階段順序、getIncomplete 排除已購買、Geo 相容別名) pass=36 fail=4 total=40 exit=1 (expect 40/40)  <== CRASHED/NONZERO",
+    "✗ FAIL [line-order.html] 正式提交路徑仍保留 submitOrder()／_trackEvent('submit_order'...)，checkout_click 與 submit_order 是不同階段觸發（submitOrder 只在 #subBtn 內，不在 openCheckoutStep/_enterCheckoutStage 內）",
+    "✗ FAIL [line-order.html] 沒有建立第二套訂單提交函式（全檔案只有一個 function submitOrder 定義）",
+    "✗ FAIL [line-shipping.html] 正式提交路徑仍保留 submitOrder()／#submitBtn，checkout_click 與 submit_order 是不同階段（submitOrder 不在 openCheckoutStep/_enterCheckoutStage 內）",
+    "✗ FAIL [line-shipping.html] 沒有建立第二套訂單提交函式（全檔案只有一個 function submitOrder 定義）",
+    "PASS: 36",
+    "FAIL: 4",
+    "TOTAL: 40",
+    "[FAIL                  ] H1 Targeted Smoke                                            pass=107 fail=1 total=108 exit=1 (expect 108/108)  <== CRASHED/NONZERO",
+    "[FAIL] AK. Mutation Negative 22. IP Provider enabled (mutate .env.example) — ",
+    "=== GA4-H1 Targeted Smoke: 107/108 PASS, 1 FAIL ===",
+    "[FAIL                  ] H1 Static Audit                                              pass=189 fail=1 total=190 exit=1 (expect 190/190)  <== CRASHED/NONZERO",
+    "[FAIL] IP Provider still disabled in .env.example — ",
+    "=== GA4-H1 Static Audit: 189/190 PASS, 1 FAIL ===",
+    "[FAIL                  ] H1.4.4 View Item Semantics Runtime (real line-order.html/line-shipping.html DOM + real analytics-platforms.js: 9-card impression regression, card-click has no sender, add_to_cart/remove_from_cart independence, ecommerce smoke, init idempotence) — H1.4.6: card-click assertions SUPERSEDED (25 vs original 24; see file CHANGELOG) pass=null fail=null total=null exit=1 (expect 25/25)  <== CRASHED/NONZERO",
+    "[FAIL                  ] H1.4.6 Static/UI/Analytics Audit (LINE外帶外送/宅配共用同一份Modal元件 + 商品卡點擊/鍵盤開啟 + 加入購物車呼叫既有addCart()/changeQty() + 不繞過售完判斷 + Modal UI要求 + 固定購物車列 + view_product/view_item語意分離 + GA4 items[] + 規格加料界線 + 後端驗證未放寬；H1.4.7 更新：5 項過期 checkout 斷言已 supersede，66→72) pass=69 fail=3 total=72 exit=1 (expect 72/72)  <== CRASHED/NONZERO",
+    "✗ FAIL [line-order.html] openProductDetail() 沿用 getProductAvailableModes()（與 buildCard() 同一套可購買判斷，不自建第二套規則）",
+    "✗ FAIL [line-order.html] checkout_click 由獨立的 openCheckoutStep()（前往結帳）觸發，不在 openCartSheet() 內",
+    "✗ FAIL [line-shipping.html] checkout_click 由獨立的 openCheckoutStep()（前往結帳）觸發，不在 openCartSheet() 內",
+    "PASS: 69",
+    "FAIL: 3",
+    "TOTAL: 72",
+    "[FAIL                  ] H1.4.7 Static Audit (line-order/line-shipping 兩階段結構、cartBar 只開 cartStage、view_cart 在 openCartSheet、checkout_click 在 _enterCheckoutStage、無 begin_checkout 呼叫、submit_order 路徑分離、Meta trackCustom/track 分流、GA4 canonical map、Funnel 七階段順序、getIncomplete 排除已購買、Geo 相容別名) pass=36 fail=4 total=40 exit=1 (expect 40/40)  <== CRASHED/NONZERO",
+    "✗ FAIL [line-order.html] 正式提交路徑仍保留 submitOrder()／_trackEvent('submit_order'...)，checkout_click 與 submit_order 是不同階段觸發（submitOrder 只在 #subBtn 內，不在 openCheckoutStep/_enterCheckoutStage 內）",
+    "✗ FAIL [line-order.html] 沒有建立第二套訂單提交函式（全檔案只有一個 function submitOrder 定義）",
+    "✗ FAIL [line-shipping.html] 正式提交路徑仍保留 submitOrder()／#submitBtn，checkout_click 與 submit_order 是不同階段（submitOrder 不在 openCheckoutStep/_enterCheckoutStage 內）"
+   ],
+   "tail": [
+    "  Round 3: UNIQUE_SUITES=79 PASS=7898 FAIL=9 TOTAL=7907 passedSuites=74 failedSuites=5 exit=1 residue=0",
+    "  assertionMismatch: 0",
+    "  residue (last round): 0",
+    "======================================================================"
+   ]
+  },
+  {
+   "script": "scripts/smoke-cart-delivery-live-refresh.js",
+   "exit": 1,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 0,
+   "fail_lines": [],
+   "tail": [
+    "    at wrapModuleLoad (node:internal/modules/cjs/loader:254:19)",
+    "    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:171:5)",
+    "    at node:internal/main/run_main_module:36:49",
+    "Node.js v22.23.4"
+   ]
+  },
+  {
+   "script": "scripts/smoke-delivery-distance-promotion.js",
+   "exit": 0,
+   "passCount": 98,
+   "failCount": 0,
+   "seconds": 0,
+   "fail_lines": [],
+   "tail": [
+    "  ✅ thresholdAmountText 顯示 NT$1,500（不是 NT$1,000）",
+    "  ✅ reached === false（pending 不得顯示已達標）",
+    "  ✅ progressPercent 不是 100",
+    "[smoke-delivery-distance-promotion] 98 passed, 0 failed"
+   ]
+  },
+  {
+   "script": "scripts/smoke-h1-4-11-1-fixes.js",
+   "exit": 0,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 2,
+   "fail_lines": [
+    "  PASS:  80",
+    "  FAIL:  0",
+    "  TOTAL: 80"
+   ],
+   "tail": [
+    "  PASS:  80",
+    "  FAIL:  0",
+    "  TOTAL: 80",
+    "======================================================================"
+   ]
+  },
+  {
+   "script": "scripts/smoke-h1-4-11-2-fixes.js",
+   "exit": 0,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 2,
+   "fail_lines": [
+    "  PASS:  84",
+    "  FAIL:  0",
+    "  TOTAL: 84"
+   ],
+   "tail": [
+    "  PASS:  84",
+    "  FAIL:  0",
+    "  TOTAL: 84",
+    "======================================================================"
+   ]
+  },
+  {
+   "script": "scripts/smoke-h1-4-11-4-1-both-disabled-product-filter.js",
+   "exit": 0,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 1,
+   "fail_lines": [
+    "[PASS] 39 unhandledRejection：整個測試執行過程中沒有出現未處理的 Promise rejection（真 assertion，若出現會直接讓本項 FAIL 並影響 exit code）",
+    "  PASS:  60",
+    "  FAIL:  0",
+    "  TOTAL: 60"
+   ],
+   "tail": [
+    "  PASS:  60",
+    "  FAIL:  0",
+    "  TOTAL: 60",
+    "======================================================================"
+   ]
+  },
+  {
+   "script": "scripts/smoke-h1-4-11-4-product-mode-visibility.js",
+   "exit": 0,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 2,
+   "fail_lines": [
+    "  PASS:  75",
+    "  FAIL:  0",
+    "  TOTAL: 75"
+   ],
+   "tail": [
+    "  PASS:  75",
+    "  FAIL:  0",
+    "  TOTAL: 75",
+    "======================================================================"
+   ]
+  },
+  {
+   "script": "scripts/smoke-h1-4-11-line-order-page-mode.js",
+   "exit": 0,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 2,
+   "fail_lines": [
+    "  PASS:  66",
+    "  FAIL:  0",
+    "  TOTAL: 66"
+   ],
+   "tail": [
+    "  PASS:  66",
+    "  FAIL:  0",
+    "  TOTAL: 66",
+    "======================================================================"
+   ]
+  },
+  {
+   "script": "scripts/smoke-h1-4-12-popup-admin-ui-browser.js",
+   "exit": 1,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 51,
+   "fail_lines": [
+    "[FAIL] LINK-published-urls-use-public-code 已發布 session 卡片的 session／campaign URL 都使用真實 server public_code（不是內部數字 id） — {\"routeHits\":{\"campaigns\":2,\"sessions\":2},\"joinSessionsLoaded\":true,\"campaignsLoaded\":true,\"renderedFromFixtures\":true,\"cardFound\":true,\"sessionStatuses\":[\"published\",\"draft\",\"published\",\"cancelled\",\"published\"],\"campaignStatuses\":[\"published\",\"draft\",\"paused\",\"published\",\"archived\"]}",
+    "  PASS: 425  FAIL: 1  TOTAL: 426"
+   ],
+   "tail": [
+    "======================================================================",
+    "SMOKE TEST SUMMARY — H1.4.12 Phase 3C popup admin UI REAL BROWSER (Playwright/Chromium) (TZ=Asia/Taipei)",
+    "  PASS: 425  FAIL: 1  TOTAL: 426",
+    "======================================================================"
+   ]
+  },
+  {
+   "script": "scripts/smoke-h1-4-12-popup-admin-ui.js",
+   "exit": 0,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 25,
+   "fail_lines": [
+    "  PASS: 149  FAIL: 0  TOTAL: 149"
+   ],
+   "tail": [
+    "======================================================================",
+    "SMOKE TEST SUMMARY — H1.4.12 Phase 3C popup admin UI (TZ=Asia/Taipei)",
+    "  PASS: 149  FAIL: 0  TOTAL: 149",
+    "======================================================================"
+   ]
+  },
+  {
+   "script": "scripts/smoke-h1-4-12-popup-checkout-integration.js",
+   "exit": 0,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 2,
+   "fail_lines": [
+    "  PASS: 20  FAIL: 0  TOTAL: 20"
+   ],
+   "tail": [
+    "======================================================================",
+    "SMOKE TEST SUMMARY — H1.4.12 Phase 3B popup checkout REAL HTTP/DB integration (TZ=Asia/Taipei)",
+    "  PASS: 20  FAIL: 0  TOTAL: 20",
+    "======================================================================"
+   ]
+  },
+  {
+   "script": "scripts/smoke-h1-4-12-popup-frontend.js",
+   "exit": 0,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 27,
+   "fail_lines": [
+    "  PASS: 293  FAIL: 0  TOTAL: 293"
+   ],
+   "tail": [
+    "======================================================================",
+    "SMOKE TEST SUMMARY — H1.4.12 Phase 3B popup frontend foundation (TZ=Asia/Taipei)",
+    "  PASS: 293  FAIL: 0  TOTAL: 293",
+    "======================================================================"
+   ]
+  },
+  {
+   "script": "scripts/smoke-h1-4-12-popup-public-checkout.js",
+   "exit": 0,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 41,
+   "fail_lines": [
+    "[OBSERVATION] 23-no-separate-unique-product-cap：目前 production 沒有獨立於 MAX_ITEM_LINES 之外的 unique-product 數量上限；grouping 發生在 raw-row 上限檢查之後，這是靜態原始碼觀察，不列入測試 PASS/FAIL。",
+    "  PASS: 1447  FAIL: 0  TOTAL: 1447"
+   ],
+   "tail": [
+    "======================================================================",
+    "SMOKE TEST SUMMARY — H1.4.12 Phase 3 popup public entry + checkout (TZ=Asia/Taipei)",
+    "  PASS: 1447  FAIL: 0  TOTAL: 1447",
+    "======================================================================"
+   ]
+  },
+  {
+   "script": "scripts/smoke-h1-4-12-popup-real-browser.js",
+   "exit": 0,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 9,
+   "fail_lines": [
+    "  PASS: 36  FAIL: 0  TOTAL: 36"
+   ],
+   "tail": [
+    "======================================================================",
+    "SMOKE TEST SUMMARY — H1.4.12 Phase 3B popup REAL BROWSER QA (Playwright/Chromium) (TZ=Asia/Taipei)",
+    "  PASS: 36  FAIL: 0  TOTAL: 36",
+    "======================================================================"
+   ]
+  },
+  {
+   "script": "scripts/smoke-h1-4-12-popup-recovery-cart-frontend.js",
+   "exit": 0,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 8,
+   "fail_lines": [
+    "  PASS: 67  FAIL: 0  TOTAL: 67"
+   ],
+   "tail": [
+    "======================================================================",
+    "SMOKE TEST SUMMARY — H1.4.12 Phase 3B popup recovery cart restore FRONTEND (TZ=Asia/Taipei)",
+    "  PASS: 67  FAIL: 0  TOTAL: 67",
+    "======================================================================"
+   ]
+  },
+  {
+   "script": "scripts/smoke-h1-4-12-popup-recovery-identity-bridge.js",
+   "exit": 0,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 2,
+   "fail_lines": [
+    "  PASS: 51  FAIL: 0  TOTAL: 51"
+   ],
+   "tail": [
+    "======================================================================",
+    "SMOKE TEST SUMMARY — H1.4.12 Phase 3B popup recovery identity bridge (TZ=Asia/Taipei)",
+    "  PASS: 51  FAIL: 0  TOTAL: 51",
+    "======================================================================"
+   ]
+  },
+  {
+   "script": "scripts/smoke-h1-4-12-popup-recovery-landing.js",
+   "exit": 0,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 9,
+   "fail_lines": [
+    "  PASS: 83  FAIL: 0  TOTAL: 83"
+   ],
+   "tail": [
+    "======================================================================",
+    "SMOKE TEST SUMMARY — H1.4.12 Phase 3B popup recovery landing/handoff (TZ=Asia/Taipei)",
+    "  PASS: 83  FAIL: 0  TOTAL: 83",
+    "======================================================================"
+   ]
+  },
+  {
+   "script": "scripts/smoke-hotfix25.js",
+   "exit": 0,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 5,
+   "fail_lines": [
+    "PASS: 26  FAIL: 0  MANUAL REQUIRED: 3"
+   ],
+   "tail": [
+    "[MANUAL REQUIRED] shipping-page checkout-sheet auto-restore after login return (收件資料/購物車仍存在) — Same reasoning as above for line-shipping.html; existing restoreCart()/persistCart() mechanism (pre-existing, unmodified) is responsible for recipient/address/cart persistence across reload — this hotfix only re-opens the already-restored cart sheet, it does not touch persistence itself.",
+    "[MANUAL REQUIRED] Real LIFF/LINE Login OAuth round-trip — Requires an actual LINE App / registered LIFF app / real LINE account; cannot be scripted from this sandbox. Verified via code review of loginWithLine()/handleLineMemberLoginCallback() and via the automated pure-function tests above for the surrounding return-url/timeout/param-cleanup logic.",
+    "=== Summary ===",
+    "PASS: 26  FAIL: 0  MANUAL REQUIRED: 3"
+   ]
+  },
+  {
+   "script": "scripts/smoke-hotfix26-b.js",
+   "exit": 1,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 1,
+   "fail_lines": [
+    "[FAIL] line-order.html／line-shipping.html 不應各自呼叫 liff.init() — order=true shipping=false",
+    "PASS=29 FAIL=1 MANUAL REQUIRED=4"
+   ],
+   "tail": [
+    "== 結果 ==",
+    "PASS=29 FAIL=1 MANUAL REQUIRED=4",
+    "失敗項目：",
+    " - line-order.html／line-shipping.html 不應各自呼叫 liff.init(): order=true shipping=false"
+   ]
+  },
+  {
+   "script": "scripts/smoke-hotfix26-d.js",
+   "exit": 1,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 5,
+   "fail_lines": [
+    "[FAIL] runtime 程式碼不應包含舊網域 — /home/claude/work/c51/utils/popupCheckout.js,/home/claude/work/c51/utils/popupPayment.js",
+    "PASS=19 FAIL=1 MANUAL REQUIRED=3"
+   ],
+   "tail": [
+    "== 結果 ==",
+    "PASS=19 FAIL=1 MANUAL REQUIRED=3",
+    "失敗項目：",
+    " - runtime 程式碼不應包含舊網域: /home/claude/work/c51/utils/popupCheckout.js,/home/claude/work/c51/utils/popupPayment.js"
+   ]
+  },
+  {
+   "script": "scripts/smoke-hotfix26-f2.js",
+   "exit": 1,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 0,
+   "fail_lines": [
+    "[FAIL] switchMode() 呼叫 refreshModeCutoffUI() — 未在原始碼中找到對應呼叫",
+    "[FAIL] 後端截止判斷未如預期限定於今天",
+    "[FAIL] /timeslots 截止判斷未限定於今天",
+    "PASS: 未使用 line:// 或任何 Deep Link scheme（只用 https://liff.line.me/）",
+    "PASS: attemptOpenLine() 只被使用者點擊觸發，未被自動輪詢/自動重試呼叫",
+    "PASS: iOS 提示按鈕文字＝「如何使用 Safari 開啟」",
+    "PASS: Android 提示按鈕文字＝「使用 Chrome 開啟」（維持不變）",
+    "PASS: LINE 開啟按鈕文字改為「嘗試使用 LINE 開啟」",
+    "PASS: 文案中不含「一定可以」這類過度保證字樣",
+    "PASS: iOS 失敗提示＝「目前瀏覽器限制，請改用 Safari 再登入」",
+    "PASS: 「複製點餐連結」按鈕仍保留，未被刪除",
+    "PASS: iOS／Android 兩種失敗提示分支皆存在（iOS 無重試連結／Android 保留重試連結）",
+    "PASS: Android intent:// 開 Chrome 流程維持不變",
+    "PASS: 所有必要的日期感知函式皆存在於 line-order.html（selectedPickupDateStr／isSelectedDateToday／cutoffPassedForMode／modeLabelSuffix／dayOffsetLabel）",
+    "PASS: 今日日期被選中時 isSelectedDateToday()=true",
+    "PASS: 選擇明天時 isSelectedDateToday()=false",
+    "PASS: 選擇明天且今日 cutoff 已過時，modeLabelSuffix() 不再誤顯示「今日已截止」（實際回傳：「預約」）",
+    "PASS: 選擇明天且可預約時，modeLabelSuffix() 正確回傳「預約」",
+    "PASS: 選到「後天」且該日休假時，modeLabelSuffix() 正確回傳「後天未營業」",
+    "PASS: onDateChange() 呼叫 refreshModeCutoffUI()",
+    "PASS: refreshDateSelectorForCart() 內呼叫 refreshModeCutoffUI()",
+    "PASS: applyDateTimeToCartSheet() 內呼叫 refreshModeCutoffUI()",
+    "FAIL: switchMode() 呼叫 refreshModeCutoffUI()",
+    "PASS: onModeChange() 呼叫 refreshModeCutoffUI()",
+    "PASS: 定時刷新 refreshShopStatus() 呼叫 refreshModeCutoffUI()",
+    "FAIL: 後端截止判斷未如預期限定於今天",
+    "PASS: 後端 POST / 送單路由已用 orderDate（=pickup_date）判斷是否為預購訂單，非只用 today 直接判斷",
+    "FAIL: /timeslots 截止判斷未限定於今天",
+    "Total: 28, PASS: 22, FAIL: 3, MANUAL: 3"
+   ],
+   "tail": [
+    "FAIL: 後端截止判斷未如預期限定於今天",
+    "PASS: 後端 POST / 送單路由已用 orderDate（=pickup_date）判斷是否為預購訂單，非只用 today 直接判斷",
+    "FAIL: /timeslots 截止判斷未限定於今天",
+    "Total: 28, PASS: 22, FAIL: 3, MANUAL: 3"
+   ]
+  },
+  {
+   "script": "scripts/smoke-hotfix26-f3.js",
+   "exit": 0,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 0,
+   "fail_lines": [
+    "PASS: iOS + Facebook WebView 偵測正確（isIOS=true, isInAppBrowser=true）",
+    "PASS: iOS 標題／文案＝「LINE 完成結帳」（F8-B 改版）",
+    "PASS: iOS 說明文字包含內建瀏覽器提示／請到 LINE 繼續完成結帳／購物車已保留（hotfix27 改版）",
+    "PASS: iOS 版有「到 LINE 完成結帳」主按鈕（F8-B 新增）",
+    "PASS: iOS 版有收合的「其他登入方式」區塊（F8-B 新增）",
+    "PASS: iOS 版「其他登入方式」內有「使用 Chrome 開啟」按鈕",
+    "PASS: iOS 版「其他登入方式」內有「如何使用 Safari 開啟」按鈕",
+    "PASS: iOS 版包含「若 Chrome 仍無法完成登入，請使用 Safari」提示",
+    "PASS: iOS 版「複製結帳代碼」按鈕存在，舊版「複製結帳連結」已移除（hotfix27-CD）",
+    "PASS: 主按鈕是真正的 <a href>（hotfix27-CD 需求文件十二：保留使用者手勢）",
+    "PASS: iOS 版保留「返回購物車」按鈕",
+    "PASS: iOS 版不再顯示「嘗試使用 LINE 開啟」主按鈕（避免宣稱官方限制下仍會成功）",
+    "PASS: iOS 版文案不含任何「一定成功／一定可以」類過度保證字樣",
+    "PASS: 「使用 Chrome 開啟」使用官方 googlechromes:// scheme（非自創怪異 scheme）",
+    "PASS: Fix-3：使用 Chrome 開啟時，store_id/mode/coupon/utm/fbclid/gclid 全部保留在導轉網址中",
+    "PASS: 「如何使用 Safari 開啟」顯示正確教學文字",
+    "PASS: 「如何使用 Safari 開啟」純顯示教學，未觸發任何額外導轉",
+    "PASS: Android 版採用統一版型：主按鈕「到 LINE 完成結帳」（<a>）＋「複製結帳代碼」＋收合的「嘗試使用 LINE 開啟／使用 Chrome 開啟」，未誤用 iOS 專屬的 lmgChromeBtn/lmgSafariBtn（hotfix27-CD）",
+    "PASS: resolvePickupAddressText/buildPickupMapsUrl/updatePickupAddressVisibility 皆存在",
+    "PASS: 取餐地址區塊 HTML（pickupAddrWrap/pickupAddrText/pickupMapsBtn/pickupCopyBtn）皆存在",
+    "PASS: resolvePickupAddressText() 未寫死 store_001",
+    "PASS: 外帶模式：取餐地址區塊顯示（style.display 未被設為 none）",
+    "PASS: 外帶模式：地址文字正確顯示 store_address",
+    "PASS: 有座標時，Google Maps URL 使用 q=lat,lng 格式",
+    "PASS: 外送模式：取餐地址區塊隱藏（style.display=none）",
+    "PASS: 無座標時，Google Maps URL fallback 使用地址搜尋格式",
+    "PASS: store_address 未設定時，正確 fallback 使用 pickup_address",
+    "PASS: 無任何地址設定時，顯示「請洽店家確認取餐地點」（不留空白）",
+    "PASS: 無地址時，Google Maps／複製地址按鈕正確停用",
+    "PASS: updatePickupAddressVisibility() 與 updateDeliveryAddressVisibility() 呼叫點數量一致（各 3 處）",
+    "PASS: routes/settings.js 已將 pickup_address 加入允許修改的設定白名單",
+    "PASS: GET /shop 回應已新增 store_address/store_lat/store_lng/pickup_address 欄位",
+    "PASS: openInAndroidChrome()（Android 既有流程）維持不變",
+    "PASS: buildLiffOpenUrl()（LIFF 登入核心）簽章維持不變",
+    "PASS: 未新增 line:// 或任何非官方 Deep Link scheme",
+    "Total: 38, PASS: 35, FAIL: 0, MANUAL: 3"
+   ],
+   "tail": [
+    "PASS: openInAndroidChrome()（Android 既有流程）維持不變",
+    "PASS: buildLiffOpenUrl()（LIFF 登入核心）簽章維持不變",
+    "PASS: 未新增 line:// 或任何非官方 Deep Link scheme",
+    "Total: 38, PASS: 35, FAIL: 0, MANUAL: 3"
+   ]
+  },
+  {
+   "script": "scripts/smoke-hotfix26-f4.js",
+   "exit": 0,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 0,
+   "fail_lines": [
+    "PASS: A：buildPickupSnapshot() 依 store_id 重新讀取店家設定，snapshot 內容正確",
+    "PASS: A：新外帶訂單 resolvePickupLocation() 回傳正確門市/地址（來自 snapshot）",
+    "PASS: A：Maps URL（F7 新優先序：無 place_id/name 時，有地址優先於純座標）",
+    "PASS: A：pickup_location.from_snapshot=true（確實來自訂單自己的 snapshot）",
+    "PASS: B：外送訂單 resolvePickupLocation() 回傳 null（不誤顯示取餐門市/地址）",
+    "PASS: C：店家改地址後，舊訂單（有 snapshot）仍顯示建立當時的舊地址",
+    "PASS: C：改地址後新建立的訂單使用新地址",
+    "PASS: D：舊訂單（無 snapshot）resolvePickupLocation() 不拋錯",
+    "PASS: D：舊訂單無 snapshot 時，正確 fallback 顯示「目前」店家地址（from_snapshot=false）",
+    "PASS: E：無任何地址設定時，顯示「請洽店家確認取餐地點」（不留空白）",
+    "PASS: E：無地址時 has_address=false 且 maps_url 為空字串（前端據此 disable/隱藏 Maps 按鈕）",
+    "PASS: F：store_001／store_002 各自讀到自己店家的地址設定，未互相污染",
+    "PASS: F：store_002 訂單顯示 store_002 自己的地址",
+    "PASS: H：safeOrder()（查詢訂單／我的訂單共用）呼叫共用 resolvePickupLocation()",
+    "PASS: H：訂單建立 API（完成頁）呼叫同一顆共用 resolvePickupLocation()",
+    "PASS: H：routes/line-orders.js 引用單一 utils/pickupLocation.js（未各自兜地址邏輯）",
+    "PASS: H：所有 safeOrder() 呼叫點皆已改傳入 db/storeId（無殘留舊簽章呼叫）",
+    "PASS: G：/export/orders 與 /migration/export 皆用 SELECT * FROM orders，snapshot 欄位自動包含在匯出檔中",
+    "PASS: G：/import/orders 的欄位白名單與 buildVals() 皆已加入 snapshot 欄位，匯入後可還原",
+    "PASS: G：/migration/import（快速搬家檔）的欄位白名單與 buildOrderSrc() 皆已加入 snapshot 欄位",
+    "PASS: G：舊 backup 缺少 snapshot 欄位時，匯入邏輯 fallback 為空字串，不會拋錯",
+    "PASS: 前端：buildPickupLocationRowsHTML() 共用函式存在",
+    "PASS: 前端：訂單完成頁（buildDetailRows 呼叫點）帶入後端回傳的 pickup_location",
+    "PASS: 前端：buildDetailRows()（完成頁）呼叫 buildPickupLocationRowsHTML()",
+    "PASS: 前端：openOrderDetail()（查詢訂單／我的訂單詳情）呼叫同一顆 buildPickupLocationRowsHTML()",
+    "PASS: 前端：buildPickupLocationRowsHTML(null) 回傳空字串（外送/宅配不顯示取餐門市/地址）",
+    "PASS: 前端：copyPickupAddressText() 具備 clipboard fallback（execCommand），不因 API 不可用而報錯",
+    "PASS: 回歸：F3 既有取餐地址函式（購物車 UI）簽章維持不變",
+    "PASS: 回歸：F3 resolvePickupAddressText() 函式本體（購物車即時地址）完全未被改動",
+    "PASS: 後端：INSERT INTO orders 欄位數（55）與 placeholder 數（55）一致",
+    "PASS: 後端：POST /（建立訂單）未從 req.body 解構任何 pickup_*_snapshot 欄位，不信任前端資料",
+    "PASS: 後端：只有非外送（外帶/預購外帶）訂單才呼叫 buildPickupSnapshot() 寫入快照",
+    "Total: 32, PASS: 32, FAIL: 0"
+   ],
+   "tail": [
+    "PASS: 後端：INSERT INTO orders 欄位數（55）與 placeholder 數（55）一致",
+    "PASS: 後端：POST /（建立訂單）未從 req.body 解構任何 pickup_*_snapshot 欄位，不信任前端資料",
+    "PASS: 後端：只有非外送（外帶/預購外帶）訂單才呼叫 buildPickupSnapshot() 寫入快照",
+    "Total: 32, PASS: 32, FAIL: 0"
+   ]
+  },
+  {
+   "script": "scripts/smoke-hotfix26-f5.js",
+   "exit": 0,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 0,
+   "fail_lines": [
+    "PASS: A：pickup_address_same_as_store=1 → resolvePickupSettings().same_as_store=true",
+    "PASS: A：same_as_store=true 時使用 store_address／store_lat／store_lng",
+    "PASS: A：same_as_store=true 時取餐說明為空（跟店家地址相同時不顯示說明）",
+    "PASS: B：pickup_address_same_as_store=0 → same_as_store=false",
+    "PASS: B：same_as_store=false 使用獨立 pickup_address",
+    "PASS: B：正確顯示 pickup_address_note",
+    "PASS: B：same_as_store=false 使用獨立 pickup_lat/pickup_lng",
+    "PASS: C：合法 lat/lng 通過驗證（不擋）",
+    "PASS: C：buildTaipeiVerifiedAtStamp() 產生正確格式的 Asia/Taipei ISO 時間戳記（含 +08:00）",
+    "PASS: C：manual 保存後，resolvePickupSettings() 讀回 mode=manual 且 verified_at 有值",
+    "PASS: D：一般儲存（未動到 pickup 座標／模式欄位）不會覆蓋既有 manual 座標",
+    "PASS: D：saveDeliveryFeeSettings()（一般儲存／重新載入觸發的儲存）本身不呼叫 geocode API",
+    "PASS: E：geocodePickupAddress() 在目前為 manual 模式時，會先呼叫 confirm() 確認",
+    "PASS: E：使用者取消確認時（!proceed）直接 return，不會呼叫 geocode API，不寫 DB",
+    "PASS: E：確認後（或原本就是 auto）成功 geocode 後，_pickupCoordinateMode 設回 auto",
+    "PASS: E：geocodePickupAddress() 本身不會呼叫 PUT /api/settings（只更新表單，不寫 DB）",
+    "PASS: F：geolocation success → 正確回傳 lat/lng",
+    "PASS: F：geolocation 拒絕權限（code 1）→ 顯示友善訊息，不 throw",
+    "PASS: F：裝置無法定位（code 2）→ 顯示友善訊息，不 throw",
+    "PASS: F：定位逾時（code 3）→ 顯示友善訊息，不 throw",
+    "PASS: F：裝置完全不支援 geolocation → 顯示友善訊息，不 throw",
+    "PASS: G：有 snapshot 的訂單一律優先使用 snapshot（不受 settings 後續變動影響；F7 新 URL 優先序）",
+    "PASS: G：無 snapshot 時，same_as_store=false 優先使用 pickup 設定（F7 新 URL 優先序：有地址時優先地址）",
+    "PASS: G：pickup_lat/lng 清空時，fallback 使用 store_lat/store_lng",
+    "PASS: G：完全無座標時，Maps URL fallback 使用地址搜尋格式",
+    "PASS: H：pickup_sync_delivery_origin=0（未勾選）時，store_lat/store_lng 保持不變",
+    "PASS: H：pickup_sync_delivery_origin=1 時，store_lat/store_lng 同步為 pickup 座標",
+    "PASS: H：同步座標時絕不覆寫 store_address",
+    "PASS: I：修改 pickup settings 後，舊訂單（有 snapshot）仍顯示舊地址／舊說明／舊座標",
+    "PASS: I：新建立的訂單使用最新 pickup settings",
+    "PASS: J：外送訂單 resolvePickupLocation() 回傳 null（不顯示取餐門市/地址/說明）",
+    "PASS: J：外送訂單的 pickup snapshot fallback 物件包含 pickup_address_note_snapshot 空字串（不寫入實際說明）",
+    "PASS: K：store_001／store_002 的取餐設定各自獨立，未互相污染",
+    "PASS: K：applyPickupSyncToStoreCoords() 對 store_002 操作不影響 store_001",
+    "PASS: L：settings 匯出（SELECT *）／匯入（buildDynamicInsert）皆為動態 EAV 欄位，F5 新 pickup_* keys 不需改程式碼即可備份還原",
+    "PASS: L：/import/orders 白名單與 buildVals() 皆含 pickup_address_note_snapshot（含 F4 既有欄位）",
+    "PASS: L：/migration/import（快速搬家檔）白名單與 buildOrderSrc() 皆含 pickup_address_note_snapshot",
+    "PASS: L：舊 backup 缺少 pickup_address_note_snapshot 時，fallback 空字串，不會拋錯",
+    "PASS: 結構：INSERT INTO orders 欄位數（55）與 placeholder 數（55）一致",
+    "PASS: 結構：GET /shop 已回傳 F5 全部 pickup settings 欄位（向下相容新增）"
+   ],
+   "tail": [
+    "PASS: 前端：購物車 resolvePickupAddressText()/buildPickupMapsUrl() 已改用 same_as_store 優先序（F5）",
+    "PASS: 前端：buildPickupLocationRowsHTML() 已加入 📝 取餐說明列（空值時隱藏）",
+    "PASS: 前端：取餐說明只在有值時顯示，空值時該列完全省略（不留空白列）",
+    "Total: 53, PASS: 53, FAIL: 0"
+   ]
+  },
+  {
+   "script": "scripts/smoke-hotfix26-f7.js",
+   "exit": 1,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 1,
+   "fail_lines": [
+    "[PASS] F6 regression：PASS 47/49，FAIL=0（MANUAL=2 為真機驗證項目，非回歸失敗）",
+    "[FAIL] 結構：INSERT 欄位數不符預期 — cols=55 ph=55",
+    "PASS: 選擇「熊熊可麗餅」後：resolvePickupSettings() 正確回傳 place_name/place_id/address",
+    "PASS: buildPickupSnapshot() 正確寫入 pickup_place_name_snapshot/pickup_place_id_snapshot/pickup_address_snapshot",
+    "PASS: Store 搜尋自動帶入：resolveStoreLocationSettings() 正確回傳 place_name/place_id/coordinate_mode",
+    "PASS: Marker 最終座標為唯一準則：confirmPickupMapPin() 從 _pickupMarker.getPosition() 取得 lat/lng（需求文件九）",
+    "PASS: confirmPickupMapPin() 同步 draft 狀態與 search state 為 Marker 最終座標",
+    "PASS: confirmPickupMapPin() 同步寫入表單 lat/lng input（四者：Marker/draft/search state/表單 一致）",
+    "PASS: dragend：清空 placeId/name/formattedAddress，source 改為 marker_drag（需求文件七）",
+    "PASS: dragend 透過 getActiveMapSearchState() 依 mapEditorTarget 取得正確的那組 state（pickup 與 store 都適用同一段程式碼）",
+    "PASS: GPS（使用目前位置）：清空 placeId/name/formattedAddress，source 改為 current_location（需求文件八/十一）",
+    "PASS: PATCH /api/settings/pickup-location：PICKUP_LOCATION_KEYS 白名單涵蓋全部需要的欄位",
+    "PASS: PICKUP_LOCATION_KEYS 白名單不含任何 store_* 欄位（不會誤寫店家設定）",
+    "PASS: savePickupLocationSettings() 呼叫 PATCH /api/settings/pickup-location",
+    "PASS: savePickupLocationSettings() 送出的 body 不含任何 store_* 欄位",
+    "PASS: PATCH /api/settings/store-location：STORE_LOCATION_KEYS 白名單涵蓋全部需要的欄位",
+    "PASS: STORE_LOCATION_KEYS 白名單不含任何 pickup_* 欄位（不會誤寫取餐設定）",
+    "PASS: saveStoreLocationSettings() 呼叫 PATCH /api/settings/store-location",
+    "PASS: saveStoreLocationSettings() 送出的 body 不含任何 pickup_* 欄位",
+    "PASS: saveDeliveryFeeSettings()（外送費設定）不再送出任何 store_*/pickup_* location 欄位（F7 stale-state 防護）",
+    "PASS: stale state 防護：先儲存 pickup → 再儲存外送費其他設定 → pickup 不被覆蓋回舊值",
+    "PASS: stale state 防護（Store 側）：儲存 pickup／其他外送設定完全不影響 store_address/store_lat/store_lng",
+    "PASS: only-coordinates：resolvePickupSettings() 回傳 coords_only=true，address 為空字串（不 fallback 店家地址）",
+    "PASS: only-coordinates：訂單顯示層 resolvePickupLocation() 同樣不 fallback 顯示店家地址",
+    "PASS: only-coordinates：Google Maps 按鈕仍可用（有座標），URL 正確",
+    "PASS: 前端：buildPickupLocationRowsHTML() 對 coords_only 顯示「請依 Google Maps 定位前往」",
+    "PASS: Maps URL 優先序 1：有 place_id → 使用 query_place_id 格式（可直接導到 Google 商家頁）",
+    "PASS: Maps URL 優先序 2：無 place_id，有 name+address → 組合查詢",
+    "PASS: Maps URL 優先序 3：只有 address → 使用地址搜尋（不得優先使用座標）",
+    "PASS: Maps URL 優先序 4：什麼都沒有，只有座標 → 最後才 fallback 座標格式",
+    "PASS: resolvePickupLocation() 使用共用 buildPickupGoogleMapsUrl()（訂單導航與 helper 優先序一致）",
+    "PASS: Order Snapshot：外帶訂單正確保存 pickup_place_name_snapshot/pickup_place_id_snapshot/pickup_address_snapshot",
+    "PASS: Order Snapshot：外送訂單 pickup_place_name_snapshot/pickup_place_id_snapshot 維持 NULL",
+    "PASS: Order Snapshot：外送訂單 resolvePickupLocation() 回傳 null",
+    "PASS: 舊訂單相容：沒有 pickup_place_name_snapshot 的舊快照仍正確顯示地址，place_name 安全為空字串",
+    "PASS: tenant isolation：store_001／store_003 的 pickup 設定各自獨立",
+    "PASS: tenant isolation：store_001／store_002 的 store 設定各自獨立",
+    "PASS: tenant isolation：對 store_001 執行同步不影響 store_002 的 store_lat",
+    "PASS: Migration：utils/db.js 已加入 pickup_place_name_snapshot/pickup_place_id_snapshot ALTER TABLE",
+    "PASS: Migration：沿用既有 try/catch ALTER TABLE 慣例，可重複執行（idempotent）"
+   ],
+   "tail": [
+    "PASS: 結構：public/index.html 無重複 HTML id",
+    "PASS: 結構：target-aware state helper（getActiveMapSearchState/setActiveDraftCoords/getActiveLocationFields 等）全部存在",
+    "PASS: 結構：openStoreMapModal() 呼叫 openPickupMapModal('store')，共用同一顆 Modal",
+    "Total: 47, PASS: 46, FAIL: 1, MANUAL: 0"
+   ]
+  },
+  {
+   "script": "scripts/smoke-hotfix26-f8-b.js",
+   "exit": 1,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 4,
+   "fail_lines": [
+    "PASS=49 FAIL=0 MANUAL=1",
+    "[smoke-hotfix26-f1.js] Total: 14, PASS: 11, FAIL: 0, MANUAL: 3",
+    "[FAIL] smoke-hotfix26-f2.js — exit code 1",
+    "[smoke-hotfix26-f3.js] Total: 38, PASS: 35, FAIL: 0, MANUAL: 3",
+    "[smoke-hotfix26-f4.js] Total: 32, PASS: 32, FAIL: 0",
+    "[smoke-hotfix26-f5.js] Total: 53, PASS: 53, FAIL: 0",
+    "[smoke-hotfix26-f6.js] Total: 49, PASS: 47, FAIL: 0, MANUAL: 2",
+    "[FAIL] smoke-hotfix26-f7.js — exit code 1",
+    "[smoke-hotfix26-f8.js] PASS=21 FAIL=0 MANUAL=3 NOT_IMPLEMENTED=5"
+   ],
+   "tail": [
+    "[FAIL] smoke-hotfix26-f7.js — exit code 1",
+    "[db] STORAGE_NOTICE: 啟動時資料庫檔不存在，將以空資料庫啟動（請確認持久化 Volume 是否正確掛載）。",
+    "[smoke-hotfix26-f8.js] PASS=21 FAIL=0 MANUAL=3 NOT_IMPLEMENTED=5",
+    "=== Regression 總結：6/8 個腳本 exit 0 ==="
+   ]
+  },
+  {
+   "script": "scripts/smoke-hotfix26-f8.js",
+   "exit": 0,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 1,
+   "fail_lines": [
+    "PASS=21 FAIL=0 MANUAL=3 NOT_IMPLEMENTED=5"
+   ],
+   "tail": [
+    "[MANUAL REQUIRED] H-4 真實 LINE Webhook 端對端事件 — 需要在 LINE Developers Console 設定 Webhook URL 並由 LINE 伺服器實際送出事件，才能驗證 Express route 層（簽章 header 名稱、body-parser rawBody）於正式主機上的行為",
+    "[MANUAL REQUIRED] S Regression F0～F7 — 請另外執行 scripts/smoke-hotfix26-f1.js ~ f7.js（本次未重跑，因為本輪未變更 F1～F7 涉及的既有程式碼路徑，僅新增檔案與新增欄位）",
+    "=== hotfix26-F8 smoke test summary ===",
+    "PASS=21 FAIL=0 MANUAL=3 NOT_IMPLEMENTED=5"
+   ]
+  },
+  {
+   "script": "scripts/smoke-hotfix26-i.js",
+   "exit": 1,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 0,
+   "fail_lines": [],
+   "tail": [
+    "    at applyAddFriendUrlToOpenOaBtn (eval at loadGateModule (/home/claude/work/c51/scripts/smoke-hotfix26-i.js:118:14), <anonymous>:2344:19)",
+    "    at showExternalBrowserLoginGuide (eval at loadGateModule (/home/claude/work/c51/scripts/smoke-hotfix26-i.js:118:14), <anonymous>:2356:7)",
+    "    at eval (eval at loadGateModule (/home/claude/work/c51/scripts/smoke-hotfix26-i.js:118:14), <anonymous>:2872:11)",
+    "Node.js v22.23.4"
+   ]
+  },
+  {
+   "script": "scripts/smoke-hotfix27-cd.js",
+   "exit": 1,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 0,
+   "fail_lines": [
+    "[FAIL] line-order.html 沒有導向 /checkout、/admin、/login、/index.html 的程式碼（已排除既有 LINE Pay 導轉）",
+    "PASS=49 FAIL=1 MANUAL=5"
+   ],
+   "tail": [
+    "[PASS] Bot 接受「我要結帳 CART-ABC123」",
+    "[PASS] 拒絕夾在長句中的 CART code",
+    "=== hotfix27-CD smoke test summary（自身測試部分） ===",
+    "PASS=49 FAIL=1 MANUAL=5"
+   ]
+  },
+  {
+   "script": "scripts/smoke-hotfix29-b.js",
+   "exit": 1,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 43,
+   "fail_lines": [
+    "PASS=73 FAIL=0 MANUAL=1",
+    "[FAIL] smoke-hotfix26-f8-b.js — exit code 1",
+    "[FAIL] smoke-hotfix27.js — exit code 1",
+    "[FAIL] smoke-hotfix27-cd.js — exit code 1",
+    "[FAIL] smoke-hotfix28.js — exit code 1",
+    "[FAIL] smoke-hotfix29.js — exit code 1"
+   ],
+   "tail": [
+    "[db] STORAGE_NOTICE: 啟動時資料庫檔不存在，將以空資料庫啟動（請確認持久化 Volume 是否正確掛載）。",
+    "[db] STORAGE_NOTICE: 啟動時資料庫檔不存在，將以空資料庫啟動（請確認持久化 Volume 是否正確掛載）。",
+    "[FAIL] smoke-hotfix29.js — exit code 1",
+    "=== Regression 總結：0/5 個腳本 exit 0 ==="
+   ]
+  },
+  {
+   "script": "scripts/smoke-hotfix29-c.js",
+   "exit": 1,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 67,
+   "fail_lines": [
+    "PASS=54 FAIL=0 MANUAL=2",
+    "[FAIL] smoke-hotfix27-cd.js — exit code 1",
+    "[FAIL] smoke-hotfix28.js — exit code 1",
+    "[FAIL] smoke-hotfix29.js — exit code 1",
+    "[FAIL] smoke-hotfix29-b.js — exit code 1"
+   ],
+   "tail": [
+    "[db] STORAGE_NOTICE: 啟動時資料庫檔不存在，將以空資料庫啟動（請確認持久化 Volume 是否正確掛載）。",
+    "[db] STORAGE_NOTICE: 啟動時資料庫檔不存在，將以空資料庫啟動（請確認持久化 Volume 是否正確掛載）。",
+    "[FAIL] smoke-hotfix29-b.js — exit code 1",
+    "=== Regression 總結：0/4 個腳本 exit 0 ==="
+   ]
+  },
+  {
+   "script": "scripts/smoke-hotfix29.js",
+   "exit": 1,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 18,
+   "fail_lines": [
+    "PASS=28 FAIL=0 MANUAL=2",
+    "[smoke-hotfix26-f1.js] exit=0 Total: 14, PASS: 11, FAIL: 0, MANUAL: 3",
+    "[FAIL] smoke-hotfix26-f2.js — exit code 1",
+    "[smoke-hotfix26-f3.js] exit=0 Total: 38, PASS: 35, FAIL: 0, MANUAL: 3",
+    "[smoke-hotfix26-f4.js] exit=0 Total: 32, PASS: 32, FAIL: 0",
+    "[smoke-hotfix26-f5.js] exit=0 Total: 53, PASS: 53, FAIL: 0",
+    "[smoke-hotfix26-f6.js] exit=0 Total: 49, PASS: 47, FAIL: 0, MANUAL: 2",
+    "[FAIL] smoke-hotfix26-f7.js — exit code 1",
+    "[smoke-hotfix26-f8.js] exit=0 PASS=21 FAIL=0 MANUAL=3 NOT_IMPLEMENTED=5",
+    "[FAIL] smoke-hotfix26-f8-b.js — exit code 1",
+    "[FAIL] smoke-hotfix27.js — exit code 1",
+    "[FAIL] smoke-hotfix27-cd.js — exit code 1",
+    "[FAIL] smoke-hotfix28.js — exit code 1"
+   ],
+   "tail": [
+    "[FAIL] smoke-hotfix27-cd.js — exit code 1",
+    "[db] STORAGE_NOTICE: 啟動時資料庫檔不存在，將以空資料庫啟動（請確認持久化 Volume 是否正確掛載）。",
+    "[FAIL] smoke-hotfix28.js — exit code 1",
+    "=== Regression 總結：6/12 個腳本 exit 0 ==="
+   ]
+  },
+  {
+   "script": "scripts/smoke-hotfix30-b5-r5-4-g1-live-geo.js",
+   "exit": 0,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 1,
+   "fail_lines": [
+    "  PASS:  212",
+    "  FAIL:  0",
+    "  TOTAL: 212"
+   ],
+   "tail": [
+    "  PASS:  212",
+    "  FAIL:  0",
+    "  TOTAL: 212",
+    "======================================================================"
+   ]
+  },
+  {
+   "script": "scripts/smoke-hotfix30-b5-r5-debounce.js",
+   "exit": 0,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 1,
+   "fail_lines": [
+    "TOTAL: 32  PASS: 32  FAIL: 0"
+   ],
+   "tail": [
+    "[PASS] Debounce R5-5：Timeline 上系統恢復顯示為「重新開啟購物車」",
+    "[PASS] Debounce R5-5：Timeline 上內容校正顯示為「購物車內容校正（系統自動）」（跟系統恢復明確區分）",
+    "=== SUMMARY ===",
+    "TOTAL: 32  PASS: 32  FAIL: 0"
+   ]
+  },
+  {
+   "script": "scripts/smoke-r48-popup-order-ui-browser.js",
+   "exit": 1,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 32,
+   "fail_lines": [],
+   "tail": []
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-large-upload.js",
+   "exit": 0,
+   "passCount": 25,
+   "failCount": 0,
+   "seconds": 115,
+   "fail_lines": [],
+   "tail": [
+    "  ✅ L17 第二次（重複）預覽後記憶體峰值  — peak=1732MB",
+    "  ✅ L18 heap 512MB 主機上傳 185MB：回 507 記憶體不足並提示分批，服務不中斷（修正前會 V8 OOM 使整個 POS 程序結束）  — status=507 803/543MB",
+    "  ✅ L19 heap 1GB 主機可完成 185MB 匯入  — peakRSS=1662MB",
+    "RESULT: 25 passed, 0 failed"
+   ]
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-migration.js",
+   "exit": 0,
+   "passCount": 121,
+   "failCount": 0,
+   "seconds": 11,
+   "fail_lines": [],
+   "tail": [
+    "  ✅ R8 完整取代後店家密碼不變（pos_password 受保護）",
+    "  ✅ R9 完整取代只影響 store_001，store_002 資料仍在  — {\"orders\":9,\"products\":15}",
+    "  ✅ Z 專案內 data/pos.db 未被任何測試觸碰  — null",
+    "RESULT: 121 passed, 0 failed"
+   ]
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-system-regression.js",
+   "exit": 0,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 6,
+   "fail_lines": [],
+   "tail": [
+    "{\"label\":\"LINE public menu\",\"status\":200,\"success\":true,\"shape\":{\"categories\":\"array\",\"products\":\"array\"}}",
+    "{\"label\":\"health\",\"status\":200,\"shape\":{\"status\":\"string\",\"time\":\"string\",\"version\":\"string\"}}",
+    "{\"label\":\"db orders after (8 seeded + 1 POS + 1 sync)\",\"value\":10}",
+    "{\"label\":\"pos order created\",\"value\":true}"
+   ]
+  },
+  {
+   "script": "scripts/static-audit-g1-6-ga4-h1-4-4.js",
+   "exit": 0,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 0,
+   "fail_lines": [],
+   "tail": [
+    "✓ 禁止手法檢查：沒有用 \"除以9\" 這種硬編碼手法",
+    "✓ 禁止手法檢查：沒有用 setTimeout debounce 硬擋重複事件",
+    "✓ 禁止手法檢查：沒有用全域 viewItemSent=true 這種永久旗標",
+    "✓ public/js/geo-ga4-h1-panel.js 存在（H1.4.3 唯一 Production 檔案，本輪不得動它）"
+   ]
+  },
+  {
+   "script": "scripts/static-audit-g1-6-ga4-h1-4-5.js",
+   "exit": 0,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 0,
+   "fail_lines": [
+    "PASS: 40",
+    "FAIL: 0",
+    "TOTAL: 40"
+   ],
+   "tail": [
+    "✓ [Gate] geo-ga4-realtime-layer.js 的「商品瀏覽」仍對應 GA4 view_item（即時地圖語意保持不變，本輪未誤改）",
+    "PASS: 40",
+    "FAIL: 0",
+    "TOTAL: 40"
+   ]
+  },
+  {
+   "script": "scripts/static-audit-g1-6-ga4-h1-4-6.js",
+   "exit": 1,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 0,
+   "fail_lines": [
+    "✗ FAIL [line-order.html] openProductDetail() 沿用 getProductAvailableModes()（與 buildCard() 同一套可購買判斷，不自建第二套規則）",
+    "✗ FAIL [line-order.html] checkout_click 由獨立的 openCheckoutStep()（前往結帳）觸發，不在 openCartSheet() 內",
+    "✗ FAIL [line-shipping.html] checkout_click 由獨立的 openCheckoutStep()（前往結帳）觸發，不在 openCartSheet() 內",
+    "PASS: 69",
+    "FAIL: 3",
+    "TOTAL: 72"
+   ],
+   "tail": [
+    "✓ [routes/analytics.js] purchase 事件仍然被 SERVER_ONLY_EVENTS 或等效機制擋在前台端點之外",
+    "PASS: 69",
+    "FAIL: 3",
+    "TOTAL: 72"
+   ]
+  },
+  {
+   "script": "scripts/static-audit-g1-6-ga4-h1-4-7.js",
+   "exit": 1,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 0,
+   "fail_lines": [
+    "✗ FAIL [line-order.html] 正式提交路徑仍保留 submitOrder()／_trackEvent('submit_order'...)，checkout_click 與 submit_order 是不同階段觸發（submitOrder 只在 #subBtn 內，不在 openCheckoutStep/_enterCheckoutStage 內）",
+    "✗ FAIL [line-order.html] 沒有建立第二套訂單提交函式（全檔案只有一個 function submitOrder 定義）",
+    "✗ FAIL [line-shipping.html] 正式提交路徑仍保留 submitOrder()／#submitBtn，checkout_click 與 submit_order 是不同階段（submitOrder 不在 openCheckoutStep/_enterCheckoutStage 內）",
+    "✗ FAIL [line-shipping.html] 沒有建立第二套訂單提交函式（全檔案只有一個 function submitOrder 定義）",
+    "PASS: 36",
+    "FAIL: 4",
+    "TOTAL: 40"
+   ],
+   "tail": [
+    "✓ [geoAnalyticsQueries.js] 沒有任何獨立於 checkout_click 之外、重新查詢 legacy raw begin_checkout 事件來產生統計的程式碼（整份檔案不含任何 event_name='begin_checkout' 字面 SQL 條件）",
+    "PASS: 36",
+    "FAIL: 4",
+    "TOTAL: 40"
+   ]
+  },
+  {
+   "script": "scripts/static-audit-g1.js",
+   "exit": 0,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 0,
+   "fail_lines": [],
+   "tail": [
+    "[OK  ] 30. 打包腳本存在且排除 node_modules/.git/pos.db/暫存 DB",
+    "----------------------------------------------------------------------",
+    "OK: 30 / 30",
+    "======================================================================"
+   ]
+  },
+  {
+   "script": "scripts/static-audit-r48-popup-order-ui.js",
+   "exit": 1,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 0,
+   "fail_lines": [
+    "[FAIL] S01_COMPOSITION_HTML public/line-order.html 等於 frozen candidate bytes — 1581356f28f698e423793d4c0c49a2e6c2975dbf06d8c46de71d8f6be31db5b0",
+    "[FAIL] S02_COMPOSITION_CSS public/css/popup-order.css 等於 frozen candidate bytes — 5e9dc74ef228680c1ca40a788c10912c50c7352593ecaf59fbe62385772c6711",
+    "[FAIL] S03_FORBIDDEN_UNCHANGED allowlist 以外所有 R47 檔案逐位元組不變（routes/server/utils/package/data/line-shipping…） — .env.example,public/index.html,public/js/analytics-attribution.js,public/js/analytics-v2.js,public/js/app.js",
+    "[FAIL] S04_NO_UNEXPECTED_FILES 檔案集合 = R47 + 精確 allowlist（無新增/刪除） — extra=docs/R54_4_MBV2/00_FINAL_REPORT.md,docs/R54_4_MBV2/01_REALITY_AUDIT.md,docs/R54_4_MBV2/02_HISTORICAL_RESCUE_VERIFICATION.md,docs/R54_4_MBV2/03_PERSISTENCE_DEPLOY_ROLLBACK_SOP.md,docs/R54_4_MBV2/04_TEST_RESULTS.md missing=",
+    "[FAIL] S05_CSS_LINK_LOCAL_CACHEBUST 唯一一個本地 popup-order.css link，帶 r48 cache-bust，位於 </head> 前 — ",
+    "[FAIL] S25_SUBMIT_REFRESH_E1 姓名/電話/備註輸入即以 popupValidateCheckout() 更新送出按鈕（E1） — ",
+    "[FAIL] S26_NO_NEW_FETCH API 字串與 fetch/apiFetch/popupApi* 呼叫數與 R47 完全相同 — {\"fetch\":4,\"apiFetch\":43,\"popupApiFetch\":8,\"popupApiPost\":13,\"XMLHttpRequest\":0,\"sendBeacon\":0,\"WebSocket\":1}",
+    "[FAIL] S27_CORE_FUNCTIONS_UNCHANGED qty/subtotal/storage/restore/checkout/load 核心函式與 R47 逐位元組相同 — function reconcilePopupCartWithFreshProducts(cart, freshProducts){ | function popupAdjustCartQty(productId, delta){ | function popupFormatPaymentLabel(code){ | function popupValidateCheckout(){ | function popupApiPost(url, body){ | async function submitPopupCheckout(){ | async function loadPopupDirectSession(sessionPublicCode){ | function registerPopupRefreshListeners(){ | async function loadPopupStoreEntry(storeId){ | async function init(){",
+    "[FAIL] S28_OUTSIDE_REGIONS_UNCHANGED popup 區段以外（含一般 LINE 外帶/外送全部程式）與 R47 逐位元組相同 — ",
+    "[FAIL] S33_NO_STICKY_FIXED popup CSS 與程式不使用 position:fixed/sticky — ",
+    "R48 STATIC SUMMARY — PASS: 27  FAIL: 10  TOTAL: 37",
+    "R48_STATIC_RESULT {\"S01_COMPOSITION_HTML\":\"FAIL\",\"S02_COMPOSITION_CSS\":\"FAIL\",\"S03_FORBIDDEN_UNCHANGED\":\"FAIL\",\"S04_NO_UNEXPECTED_FILES\":\"FAIL\",\"S05_CSS_LINK_LOCAL_CACHEBUST\":\"FAIL\",\"S06_CSS_SELECTOR_SCOPE\":\"PASS\",\"S07_CSS_NO_EXTERNAL\":\"PASS\",\"S08_ROOT_CLASS_ROLE\":\"PASS\",\"S09_VIEW_ATTR\":\"PASS\",\"S10_MODE_BEFORE_RENDER\":\"PASS\",\"S11_JS_HIDE_LEGACY\":\"PASS\",\"S12_CSS_HIDE_LEGACY\":\"PASS\",\"S13_LOADING_CLOSE_PATHS\":\"PASS\",\"S14_NO_DUAL_LOADING\":\"PASS\",\"S15_ARIA_BUSY_LIVE\":\"PASS\",\"S16_STATUS_MAP_COMPLETE\":\"PASS\",\"S17_STATUS_SINGLE_AUTHORITY\":\"PASS\",\"S18_NO_RAW_STATE\":\"PASS\",\"S19_UNKNOWN_FAILSAFE\":\"PASS\",\"S20_NO_HTML_SINK\":\"PASS\",\"S21_QTY_ARIA_DISABLED\":\"PASS\",\"S22_QTY_TOUCH_44PX\":\"PASS\",\"S23_FORM_LABELS\":\"PASS\",\"S24_FORM_VERTICAL_CSS\":\"PASS\",\"S25_SUBMIT_REFRESH_E1\":\"FAIL\",\"S26_NO_NEW_FETCH\":\"FAIL\",\"S27_CORE_FUNCTIONS_UNCHANGED\":\"FAIL\",\"S28_OUTSIDE_REGIONS_UNCHANGED\":\"FAIL\",\"S29_INLINE_SCRIPT_SYNTAX\":\"PASS\",\"S30_CSS_PARSE\":\"PASS\",\"S31_NO_EXTERNAL_RESOURCES\":\"PASS\",\"S32_NO_TEST_MARKERS\":\"PASS\",\"S33_NO_STICKY_FIXED\":\"FAIL\",\"S34_MAX_WIDTH_720_CENTERED\":\"PASS\",\"S35_NO_POPUP_CURRENTMODE\":\"PASS\",\"S36_NO_DB_FILES\":\"PASS\",\"S37_TEST_FILES_PRESENT_READONLY\":\"PASS\"}"
+   ],
+   "tail": [
+    "[PASS] S36_NO_DB_FILES tree 內沒有任何 DB/SQLite 檔",
+    "[PASS] S37_TEST_FILES_PRESENT_READONLY R48 兩個 test-only 檔存在，且不寫入 repo 內 production 路徑",
+    "R48 STATIC SUMMARY — PASS: 27  FAIL: 10  TOTAL: 37",
+    "R48_STATIC_RESULT {\"S01_COMPOSITION_HTML\":\"FAIL\",\"S02_COMPOSITION_CSS\":\"FAIL\",\"S03_FORBIDDEN_UNCHANGED\":\"FAIL\",\"S04_NO_UNEXPECTED_FILES\":\"FAIL\",\"S05_CSS_LINK_LOCAL_CACHEBUST\":\"FAIL\",\"S06_CSS_SELECTOR_SCOPE\":\"PASS\",\"S07_CSS_NO_EXTERNAL\":\"PASS\",\"S08_ROOT_CLASS_ROLE\":\"PASS\",\"S09_VIEW_ATTR\":\"PASS\",\"S10_MODE_BEFORE_RENDER\":\"PASS\",\"S11_JS_HIDE_LEGACY\":\"PASS\",\"S12_CSS_HIDE_LEGACY\":\"PASS\",\"S13_LOADING_CLOSE_PATHS\":\"PASS\",\"S14_NO_DUAL_LOADING\":\"PASS\",\"S15_ARIA_BUSY_LIVE\":\"PASS\",\"S16_STATUS_MAP_COMPLETE\":\"PASS\",\"S17_STATUS_SINGLE_AUTHORITY\":\"PASS\",\"S18_NO_RAW_STATE\":\"PASS\",\"S19_UNKNOWN_FAILSAFE\":\"PASS\",\"S20_NO_HTML_SINK\":\"PASS\",\"S21_QTY_ARIA_DISABLED\":\"PASS\",\"S22_QTY_TOUCH_44PX\":\"PASS\",\"S23_FORM_LABELS\":\"PASS\",\"S24_FORM_VERTICAL_CSS\":\"PASS\",\"S25_SUBMIT_REFRESH_E1\":\"FAIL\",\"S26_NO_NEW_FETCH\":\"FAIL\",\"S27_CORE_FUNCTIONS_UNCHANGED\":\"FAIL\",\"S28_OUTSIDE_REGIONS_UNCHANGED\":\"FAIL\",\"S29_INLINE_SCRIPT_SYNTAX\":\"PASS\",\"S30_CSS_PARSE\":\"PASS\",\"S31_NO_EXTERNAL_RESOURCES\":\"PASS\",\"S32_NO_TEST_MARKERS\":\"PASS\",\"S33_NO_STICKY_FIXED\":\"FAIL\",\"S34_MAX_WIDTH_720_CENTERED\":\"PASS\",\"S35_NO_POPUP_CURRENTMODE\":\"PASS\",\"S36_NO_DB_FILES\":\"PASS\",\"S37_TEST_FILES_PRESENT_READONLY\":\"PASS\"}"
+   ]
+  },
+  {
+   "script": "scripts/test-phone-validation.js",
+   "exit": 0,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 0,
+   "fail_lines": [],
+   "tail": [
+    "PASS PHONE-BE-14",
+    "PASS PHONE-SSOT-1",
+    "PASS PHONE-SSOT-2",
+    "PHONE-FE/BE/SSOT total: 32 pass: 32 fail: 0"
+   ]
+  }
+ ],
+ "fresh_zip_verification": [
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c5-1-consistency.js",
+   "exit": 0,
+   "passCount": 61,
+   "failCount": 0,
+   "seconds": 133,
+   "fail_lines": [],
+   "tail": [
+    "  ✅ R7-C6 [API] 舊備份缺少訂單識別、同號多張：列為衝突（2 筆），不推定、不合併  — {\"st\":{\"added\":70,\"conflict\":2,\"dup\":0},\"n\":0}",
+    "  ✅ R7-D1 [API] 有歷史重號時啟動遷移不失敗；不刪除、不合併、不重新編號；診斷 API 列出重號群組  — {\"groups\":6,\"diag\":6,\"idx\":{\"order_number_v2_unique\":\"ok\",\"stable_identity\":\"primary_key_id\",\"duplicate_uuid_groups\":0}}",
+    "  ✅ Z 真實 LINE Messaging API 與 LINE Pay 呼叫 0 次（全部在測試程序內攔截）  — {\"line\":0,\"linepay\":0,\"lpMock\":9}",
+    "RESULT: 61 passed, 0 failed"
+   ]
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c4-5-restock-link.js",
+   "exit": 0,
+   "passCount": 42,
+   "failCount": 0,
+   "seconds": 77,
+   "fail_lines": [],
+   "tail": [
+    "  ✅ L11 一般首屏不等待 LIFF（SDK pending 時商品頁已顯示）  — {\"shown\":173}",
+    "  ✅ L12 診斷資料只有階段與次數  — {\"role\":\"page\",\"liff_init\":0,\"shop_fetch\":0,\"product_ref_fetch\":1,\"product_open\":1,\"url_cleanup\":1,\"fallback\":\"\",\"stages\":[\"product_ref_fetch\",\"product_open\",\"url_cleanup\"]}",
+    "  ✅ Z LINE 真實發送呼叫 0 次  — 0",
+    "RESULT: 42 passed, 0 failed"
+   ]
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c4-5-date-consent.js",
+   "exit": 0,
+   "passCount": 54,
+   "failCount": 0,
+   "seconds": 56,
+   "fail_lines": [],
+   "tail": [
+    "  ✅ S16-1 完整備份包含訂閱方式  — {\"store_id\":\"store_001\",\"key\":\"restock_notify_subscribe_mode\",\"value\":\"register_subscribe\"}",
+    "  ✅ S16-2 匯入：訂閱方式保留；匯入的同意仍需顧客重新確認（不自動變成同意）  — {\"st\":\"done\",\"mode\":\"register_subscribe\",\"consent\":\"reconfirm_required\"}",
+    "  ✅ S17 全程 LINE 呼叫 0 次（登記、訂閱、切換方式都不發送）  — {\"real\":0,\"mock\":0}",
+    "RESULT: 54 passed, 0 failed"
+   ]
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c4-4-mutation-response.js",
+   "exit": 0,
+   "passCount": 20,
+   "failCount": 0,
+   "seconds": 72,
+   "fail_lines": [],
+   "tail": [
+    "  ✅ X9 沒有重疊：新增（含同意）、修改、撤回同意、取消照常可用，畫面與資料庫一致  — {\"a\":{\"card\":\"已登記 1 份・管理登記\",\"s\":{\"qty\":1,\"consent\":\"granted\"}},\"b\":{\"card\":\"已登記 2 份・管理登記\",\"s\":{\"qty\":2,\"consent\":\"granted\"}},\"c\":{\"s\":{\"qty\":2,\"consent\":\"revoked\"},\"msg\":\"已取消補貨通知（補貨登記仍保留）\"},\"d\":{\"card\":\"🔔 補貨通知我\",\"s\":null}}",
+    "  ✅ Z1 全程未建立訂單、未改額度  — {\"c0\":{\"sold\":[[701,0,0],[1,0,0],[201,0,0],[702,0,0],[2,0,0],[202,0,0],[706,0,0],[3,0,0],[203,0,0],[4,0,0],[5,0,0],[6,0,0],[7,0,0],[8,0,0],[9,0,0],[10,0,0],[11,0,0],[12,0,0]],\"orders\":2},\"c1\":{\"sold\":[[701,0,0],[1,0,0],[201,0,0],[702,0,0],[2,0,0],[202,0,0],[706,0,0],[3,0,0],[203,0,0],[4,0,0],[5,0,0],[6,0,0],[7,0,0],[8,0,0],[9,0,0],[10,0,0],[11,0,0],[12,0,0]],\"orders\":2}}",
+    "  ✅ Z2 LINE API 呼叫 0 次（模擬與真實皆為 0；登記與撤回不觸發發送）  — {\"mock\":0,\"real\":0}",
+    "RESULT: 20 passed, 0 failed（真實 LINE 呼叫 0 次）"
+   ]
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c4-3-async-consistency.js",
+   "exit": 0,
+   "passCount": 34,
+   "failCount": 0,
+   "seconds": 144,
+   "fail_lines": [],
+   "tail": [
+    "  ✅ M8 正常查詢、清單與管理（改為 4 份）照常可用、無 JavaScript 錯誤  — {\"b0\":\"已登記 5 份・管理登記\",\"b1\":\"已登記 4 份・管理登記\",\"db\":4,\"e\":[]}",
+    "  ✅ Z1 全程未建立訂單、未改額度  — {\"c0\":{\"sold\":[[701,0,0],[1,0,0],[201,0,0],[702,0,0],[2,0,0],[202,0,0],[706,0,0],[3,0,0],[203,0,0],[708,0,0],[4,0,0],[5,0,0],[6,0,0],[7,0,0],[8,0,0],[9,0,0],[10,0,0],[11,0,0],[12,0,0]],\"orders\":2},\"c1\":{\"sold\":[[701,0,0],[1,0,0],[201,0,0],[702,0,0],[2,0,0],[202,0,0],[706,0,0],[3,0,0],[203,0,0],[708,0,0],[4,0,0],[5,0,0],[6,0,0],[7,0,0],[8,0,0],[9,0,0],[10,0,0],[11,0,0],[12,0,0]],\"orders\":2}}",
+    "  ✅ Z2 真實 LINE API 呼叫 0 次（全部由程序內模擬攔截）  — 0",
+    "RESULT: 34 passed, 0 failed（模擬 LINE 呼叫 2 次；真實 0 次需為 0：0）"
+   ]
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c4-restock-notify.js",
+   "exit": 0,
+   "passCount": 94,
+   "failCount": 0,
+   "seconds": 45,
+   "fail_lines": [],
+   "tail": [
+    "模擬 LINE API 呼叫次數（程序內攔截、未連外）：31",
+    "真實 LINE API 呼叫次數：0",
+    "  ✅ Z1 真實 LINE API 呼叫次數為 0（所有 api.line.me 請求皆由測試程序內模擬回應）  — simulated=31 real=0",
+    "RESULT: 94 passed, 0 failed  (screenshots: /tmp/mbv2-c4-shots-EHXaLl)"
+   ]
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c4-linepush-compat.js",
+   "exit": 0,
+   "passCount": 12,
+   "failCount": 0,
+   "seconds": 0,
+   "fail_lines": [],
+   "tail": [
+    "  ✅ LC11 retry key 格式錯誤：不送出",
+    "  ✅ LC12 回傳值不含權杖或 Authorization",
+    "模擬 fetch 呼叫次數（程序內）：12",
+    "RESULT: 12 passed, 0 failed（全部為程序內模擬，真實 LINE 呼叫 0 次）"
+   ]
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-hf1-c1-preorder-status.js",
+   "exit": 0,
+   "passCount": 93,
+   "failCount": 0,
+   "seconds": 77,
+   "fail_lines": [],
+   "tail": [
+    "  ✅ S2-12 錯誤列 colspan 一致（14／12）  — [\"14\",\"12\"]",
+    "  ✅ S2-13 空資料列 colspan 一致（14／12）  — [\"14\",\"12\"]",
+    "  ✅ S2-14 後台頁面無 JavaScript 錯誤",
+    "RESULT: 93 passed, 0 failed  (screenshots: /tmp/mbv2-hf1c1-shots-CQ1peH)"
+   ]
+  },
+  {
+   "script": "scripts/smoke-r54-4-mbv2-migration.js",
+   "exit": 0,
+   "passCount": 121,
+   "failCount": 0,
+   "seconds": 11,
+   "fail_lines": [],
+   "tail": [
+    "  ✅ R8 完整取代後店家密碼不變（pos_password 受保護）",
+    "  ✅ R9 完整取代只影響 store_001，store_002 資料仍在  — {\"orders\":9,\"products\":15}",
+    "  ✅ Z 專案內 data/pos.db 未被任何測試觸碰  — null",
+    "RESULT: 121 passed, 0 failed"
+   ]
+  },
+  {
+   "script": "scripts/run-h1-4-10-phase3-checkout-submit-payment-runtime.js",
+   "exit": 0,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 27,
+   "fail_lines": [
+    "TOTAL=111 PASS=111 FAIL=0"
+   ],
+   "tail": [
+    "[PASS] checkout_click → GA4 begin_checkout 映射契約未被本輪修改",
+    "[PASS] checkout_click → Meta InitiateCheckout 映射契約未被本輪修改",
+    "== Phase 3 Summary ==",
+    "TOTAL=111 PASS=111 FAIL=0"
+   ]
+  },
+  {
+   "script": "scripts/run-h1-4-10-phase4b-recovery-full-runtime.js",
+   "exit": 0,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 15,
+   "fail_lines": [
+    "[PASS] Composition. Backend Recovery Targeted: 92/92 PASS（FAIL=0）",
+    "[PASS] Composition. Frontend Recovery Targeted: 50/50 PASS（FAIL=0）",
+    "TOTAL=168 PASS=168 FAIL=0"
+   ],
+   "tail": [
+    "[PASS] Composition. Backend Recovery Targeted: 92/92 PASS（FAIL=0）",
+    "[PASS] Composition. Frontend Recovery Targeted: 50/50 PASS（FAIL=0）",
+    "== Phase 4B Full Suite Summary ==",
+    "TOTAL=168 PASS=168 FAIL=0"
+   ]
+  },
+  {
+   "script": "scripts/smoke-h1-4-12-popup-frontend.js",
+   "exit": 0,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 27,
+   "fail_lines": [
+    "  PASS: 293  FAIL: 0  TOTAL: 293"
+   ],
+   "tail": [
+    "======================================================================",
+    "SMOKE TEST SUMMARY — H1.4.12 Phase 3B popup frontend foundation (TZ=Asia/Taipei)",
+    "  PASS: 293  FAIL: 0  TOTAL: 293",
+    "======================================================================"
+   ]
+  },
+  {
+   "script": "scripts/smoke-h1-4-12-popup-public-checkout.js",
+   "exit": 0,
+   "passCount": null,
+   "failCount": null,
+   "seconds": 41,
+   "fail_lines": [
+    "[OBSERVATION] 23-no-separate-unique-product-cap：目前 production 沒有獨立於 MAX_ITEM_LINES 之外的 unique-product 數量上限；grouping 發生在 raw-row 上限檢查之後，這是靜態原始碼觀察，不列入測試 PASS/FAIL。",
+    "  PASS: 1447  FAIL: 0  TOTAL: 1447"
+   ],
+   "tail": [
+    "======================================================================",
+    "SMOKE TEST SUMMARY — H1.4.12 Phase 3 popup public entry + checkout (TZ=Asia/Taipei)",
+    "  PASS: 1447  FAIL: 0  TOTAL: 1447",
+    "======================================================================"
+   ]
+  }
+ ],
+ "fresh_c5_suite_offset0": "RESULT: 42 passed, 0 failed",
+ "rollback": {
+  "old_c5": {
+   "old": "/home/claude/base_c5",
+   "pass": 8,
+   "fail": 0,
+   "results": [
+    {
+     "ok": true,
+     "name": "RB0 C5.1 建立：通知批次（含 rt）、第一次付款請求 orderId＝訂單編號、第二次請求 orderId 加 -P2、新格式編號",
+     "detail": "{\"o1\":\"LINE-20261114-103005-KTDF\",\"lp1\":\"LINE-20261114-103005-KTDF\",\"lp2\":\"LINE-20261114-103005-6V28-P2\"}"
+    },
+    {
+     "ok": true,
+     "name": "RB1 舊版程式以 C5.1 資料庫啟動、讀取通知批次（新增欄位／資料表／索引不影響）",
+     "detail": "{\"up\":true,\"batches\":1}"
+    },
+    {
+     "ok": true,
+     "name": "RB2 舊版建立新訂單：使用舊編號格式，不受新編號唯一索引影響（舊版會重新出現同秒重號風險）",
+     "detail": "LINE-20261114-103006"
+    },
+    {
+     "ok": true,
+     "name": "RB3 C5.1 建立的第一次付款請求，在舊版完成 callback：付款成功",
+     "detail": "{\"l1\":\"/line-order.html?store_id=store_001&linepay=success&order=LINE-20261114-103005-KTDF\"}"
+    },
+    {
+     "ok": true,
+     "name": "RB4 C5.1 建立的「同一訂單第二次付款請求」（orderId 加 -P2）：舊版找不到訂單、不自動判定（回退限制，需人工核對）",
+     "detail": "{\"l2\":\"/line-order.html?store_id=store_001&linepay=error&msg=order_not_found\",\"st\":\"pending\"}"
+    },
+    {
+     "ok": true,
+     "name": "RB5 [BR] 舊版點餐頁開啟 C5.1 發出的通知連結（含 rt）：照常開啟商品",
+     "detail": "{\"s2\":{\"open\":true},\"errs\":[]}"
+    },
+    {
+     "ok": true,
+     "name": "RB6 回退後再升級回 C5.1：遷移可重複執行、舊版期間建立的訂單保留、新訂單恢復新編號",
+     "detail": "{\"cnt\":4,\"o5\":\"LINE-20261114-103011-DRN2\",\"dup\":0}"
+    },
+    {
+     "ok": true,
+     "name": "Z 真實 LINE／LINE Pay 呼叫 0 次",
+     "detail": "0"
+    }
+   ]
+  },
+  "old_c45": {
+   "old": "/home/claude/base_c45",
+   "pass": 8,
+   "fail": 0,
+   "results": [
+    {
+     "ok": true,
+     "name": "RB0 C5.1 建立：通知批次（含 rt）、第一次付款請求 orderId＝訂單編號、第二次請求 orderId 加 -P2、新格式編號",
+     "detail": "{\"o1\":\"LINE-20261114-103005-SDA4\",\"lp1\":\"LINE-20261114-103005-SDA4\",\"lp2\":\"LINE-20261114-103005-NS4H-P2\"}"
+    },
+    {
+     "ok": true,
+     "name": "RB1 舊版程式以 C5.1 資料庫啟動、讀取通知批次（新增欄位／資料表／索引不影響）",
+     "detail": "{\"up\":true,\"batches\":1}"
+    },
+    {
+     "ok": true,
+     "name": "RB2 舊版建立新訂單：使用舊編號格式，不受新編號唯一索引影響（舊版會重新出現同秒重號風險）",
+     "detail": "LINE-20261114-103006"
+    },
+    {
+     "ok": true,
+     "name": "RB3 C5.1 建立的第一次付款請求，在舊版完成 callback：付款成功",
+     "detail": "{\"l1\":\"/line-order.html?store_id=store_001&linepay=success&order=LINE-20261114-103005-SDA4\"}"
+    },
+    {
+     "ok": true,
+     "name": "RB4 C5.1 建立的「同一訂單第二次付款請求」（orderId 加 -P2）：舊版找不到訂單、不自動判定（回退限制，需人工核對）",
+     "detail": "{\"l2\":\"/line-order.html?store_id=store_001&linepay=error&msg=order_not_found\",\"st\":\"pending\"}"
+    },
+    {
+     "ok": true,
+     "name": "RB5 [BR] 舊版點餐頁開啟 C5.1 發出的通知連結（含 rt）：照常開啟商品",
+     "detail": "{\"s2\":{\"open\":true},\"errs\":[]}"
+    },
+    {
+     "ok": true,
+     "name": "RB6 回退後再升級回 C5.1：遷移可重複執行、舊版期間建立的訂單保留、新訂單恢復新編號",
+     "detail": "{\"cnt\":4,\"o5\":\"LINE-20261114-103011-D3E5\",\"dup\":0}"
+    },
+    {
+     "ok": true,
+     "name": "Z 真實 LINE／LINE Pay 呼叫 0 次",
+     "detail": "0"
+    }
+   ]
+  }
+ },
+ "line_api_calls": {
+  "real": 0
+ },
+ "linepay_api_calls": {
+  "real": 0,
+  "note": "c51-linepay-mock.js／c5-linepay-mock.js 於測試程序內攔截"
+ },
+ "not_verified": [
+  "LINE App／LIFF 真機",
+  "真實 Messaging API",
+  "真實 LINE Pay（Sandbox／正式）",
+  "正式 Zeabur",
+  "多台伺服器",
+  "真實 GA4／Meta Pixel"
+ ]
+}

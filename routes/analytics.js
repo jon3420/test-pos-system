@@ -388,6 +388,15 @@ router.post('/events', async (req, res) => {
 
     // ── metadata 大小限制（超過則整個丟棄，不擋事件本身）── 交由 insertEvent 處理
 
+    // R54.4／MBV2-HF1-C5：補貨通知加購歸因。只接受 add_to_cart 夾帶的 metadata.restock（rt／open_key／event_key），
+    // 取出後從事件 metadata 移除（追蹤識別不寫進一般事件、也不會送往外部 Analytics），事件寫入成功後另行記錄。
+    let restockAttr = null;
+    let eventMetadata = metadata;
+    if (metadata && typeof metadata === 'object' && !Array.isArray(metadata) && Object.prototype.hasOwnProperty.call(metadata, 'restock')) {
+      if (event_name === 'add_to_cart' && metadata.restock && typeof metadata.restock === 'object') restockAttr = metadata.restock;
+      eventMetadata = { ...metadata }; delete eventMetadata.restock;
+    }
+
     // ── fix18-10-hotfix24-A3：共用 Identity Resolver（需求文件四）──────────────
     // 前台一般事件一律附帶 member_session，只在驗證通過（本店已知、未過期、簽章
     // 正確）時才把 line_user_id 當作最高優先的身份依據；驗證失敗一律視為未登入，
@@ -437,7 +446,7 @@ router.post('/events', async (req, res) => {
       gclid: gclid || null,
       // fix18-10-hotfix30-B5-R5：cart_updated / cart_restored 的 metadata 欄位級白名單
       // （sanitizeFulfillmentMetadata 對其他事件維持既有行為，兩者互不影響對方事件）。
-      metadata: sanitizePaymentStartedMetadata(event_name, sanitizePaymentSuccessMetadata(event_name, sanitizeCheckoutSubmitMetadata(event_name, sanitizeFriendGuideMetadata(event_name, sanitizeLiffAutoIdentifyMetadata(event_name, sanitizeCartSnapshotMetadata(event_name, sanitizeFulfillmentMetadata(event_name, metadata))))))) || null,
+      metadata: sanitizePaymentStartedMetadata(event_name, sanitizePaymentSuccessMetadata(event_name, sanitizeCheckoutSubmitMetadata(event_name, sanitizeFriendGuideMetadata(event_name, sanitizeLiffAutoIdentifyMetadata(event_name, sanitizeCartSnapshotMetadata(event_name, sanitizeFulfillmentMetadata(event_name, eventMetadata))))))) || null,
       // fix18-10-hotfix24-A3：Identity × Channel × Page Type（需求文件四／六／七）
       line_user_id: knownLineUserId || null,
       // 前台一般事件只可能來自 LINE 點餐／宅配頁面（POS 收銀端本身不呼叫這支 API，
@@ -453,6 +462,11 @@ router.post('/events', async (req, res) => {
 
     if (!ok) {
       return res.status(500).json({ success: false, message: '事件寫入失敗' });
+    }
+
+    if (restockAttr && pid) {
+      try { require('../utils/restockTracking').recordCartAdd(db, storeId, { ...restockAttr, product_id: pid, quantity: qty }, knownLineUserId || null); }
+      catch (rtErr) { console.warn('[analytics] restock add_to_cart hook failed:', rtErr.message); }
     }
 
     // ── fix18-10-hotfix23-E：第一次 add_to_cart 記錄 CRM first_cart（需求文件八）──

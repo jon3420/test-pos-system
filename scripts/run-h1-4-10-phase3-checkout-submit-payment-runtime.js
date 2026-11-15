@@ -763,11 +763,15 @@ async function runPartD(db) {
   // production 程式碼本身的 dependency injection 方式。
   let confirmReturnCode = '0000';
   let lastConfirmRequestBody = null;
+  let confirmOrderId = ''; // C5.3 調整：Confirm 成功回應依官方結構回傳 orderId／transactionId／payInfo
   const nodeFetchPath = require.resolve('node-fetch');
   const fakeFetch = async (url, opts) => {
     if (String(url).includes('/confirm')) {
       try { lastConfirmRequestBody = JSON.parse((opts && opts.body) || '{}'); } catch (e) { lastConfirmRequestBody = null; }
-      return { json: async () => ({ returnCode: confirmReturnCode, returnMessage: confirmReturnCode === '0000' ? 'Success' : 'test failure' }) };
+      // C5.3 調整：原本成功回應只有 returnCode（沒有 info），屬於 C5.3 F3b 不再接受為已付款的回應；改為官方 Confirm 回應結構
+      const txFromUrl = String(url).split('/v3/payments/')[1].split('/')[0];
+      const okBody = { returnCode: '0000', returnMessage: 'Success', info: { orderId: confirmOrderId, transactionId: txFromUrl, payInfo: [{ method: 'BALANCE', amount: lastConfirmRequestBody && lastConfirmRequestBody.amount }] } };
+      return { json: async () => (confirmReturnCode === '0000' ? okBody : { returnCode: confirmReturnCode, returnMessage: 'test failure' }) };
     }
     if (String(url).includes('/request')) {
       return { json: async () => ({ returnCode: '0000', info: { paymentUrl: { web: 'https://sandbox.line.me/pay/fake' }, transactionId: 'txn-req-1' } }) };
@@ -819,6 +823,19 @@ async function runPartD(db) {
   async function confirmGet(orderId, transactionId) {
     return fetch(`${base}/api/linepay/confirm?store_id=store_001&orderId=${orderId}&transactionId=${transactionId}`, { redirect: 'manual' });
   }
+  // C5.3 調整：沒有付款嘗試的「舊付款」callback 在 C5.3 只做唯讀核對、不補送 Confirm。
+  // 成功／失敗情境改為與正式 /request 相同的付款嘗試（以受測模組 createAttempt＋attemptRequested 建立，不替換任何受測函式）。
+  const OIm = require('../utils/orderIdentity');
+  function makeAttempt(uuid, transactionId) {
+    const order = db.get('SELECT * FROM orders WHERE uuid=?', [uuid]);
+    const a = OIm.createAttempt(db, 'store_001', order, Number(order.total), 'line_order', 'test-channel-id');
+    OIm.attemptRequested(db, 'store_001', a.attempt_uuid, transactionId);
+    return a;
+  }
+  async function confirmAttempt(a, transactionId) {
+    confirmOrderId = a.lp_order_id;
+    return fetch(`${base}/api/linepay/confirm?store_id=store_001&attempt=${a.attempt_uuid}&orderId=${encodeURIComponent(a.lp_order_id)}&transactionId=${transactionId}`, { redirect: 'manual' });
+  }
   function countEvents(orderUuid, eventName) {
     return db.get(`SELECT COUNT(*) c FROM analytics_events WHERE store_id=? AND order_id=? AND event_name=?`, ['store_001', orderUuid, eventName]).c;
   }
@@ -831,7 +848,7 @@ async function runPartD(db) {
     makeOrder('phase3-order-001', 'P3-001', 1234);
     insertTrackingContext('phase3-order-001');
     confirmReturnCode = '0000';
-    const resB = await confirmGet('P3-001', 'txn-success-1');
+    const resB = await confirmAttempt(makeAttempt('phase3-order-001', 'txn-success-1'), 'txn-success-1');
     assert(resB.status === 302, 'Confirm Success：正常導回頁面（302 redirect）', `status=${resB.status}`);
     assert(lastConfirmRequestBody && lastConfirmRequestBody.amount === 1234, 'Confirm 送給 LINE Pay 官方 API 的 amount 使用 DB order.total（=1234），非任何前端/query 傳入值', JSON.stringify(lastConfirmRequestBody));
     const orderAfterB = db.get('SELECT * FROM orders WHERE uuid=?', ['phase3-order-001']);
@@ -856,7 +873,7 @@ async function runPartD(db) {
     makeOrder('phase3-order-fail', 'P3-FAIL-1', 777);
     insertTrackingContext('phase3-order-fail');
     confirmReturnCode = '9999';
-    const resA = await confirmGet('P3-FAIL-1', 'TX-P3-FAIL');
+    const resA = await confirmAttempt(makeAttempt('phase3-order-fail', 'TX-P3-FAIL'), 'TX-P3-FAIL');
     assert(resA.status === 302, 'Confirm Failure：仍安全導回（不 500）', `status=${resA.status}`);
     assert(countEvents('phase3-order-fail', 'payment_success') === 0, 'Confirm Failure：payment_success count=0');
     assert(countEvents('phase3-order-fail', 'purchase') === 0, 'Confirm Failure：purchase count=0（既有 authoritative 語意不變）');
@@ -882,8 +899,13 @@ async function runPartD(db) {
   const requestFnMatch = linepaySrc.match(/router\.post\('\/request'[\s\S]*?\nrouter\./);
   const paymentSuccessMarker = "event_name: 'payment_success'";
   assert(!!requestFnMatch && !requestFnMatch[0].includes(paymentSuccessMarker), 'LINE Pay /request 路由原始碼完全沒有 payment_success 寫入呼叫（靜態確認）');
-  const paymentSuccessWriteCount = (linepaySrc.match(/event_name: 'payment_success'/g) || []).length;
-  assert(paymentSuccessWriteCount === 1, 'payment_success 在 routes/linepay.js 只有唯一一處寫入（/confirm 的 Confirm 成功分支）', `found ${paymentSuccessWriteCount}`);
+  // C5.2 調整：payment_success 改由付款副作用 outbox（utils/linePayRecovery.js runSideEffects）在付款確認後寫入，
+  // 確保中斷後可補齊且只寫一次；仍要求全付款流程只有唯一一處寫入、路由本身不直接寫入。
+  const recoverySrc = fs.existsSync(path.join(ROOT, 'utils/linePayRecovery.js')) ? fs.readFileSync(path.join(ROOT, 'utils/linePayRecovery.js'), 'utf8') : '';
+  const routeWrites = (linepaySrc.match(/event_name: 'payment_success'/g) || []).length;
+  const outboxWrites = (recoverySrc.match(/event_name: 'payment_success'/g) || []).length;
+  const paymentSuccessWriteCount = routeWrites + outboxWrites;
+  assert(paymentSuccessWriteCount === 1, 'payment_success 在 LINE Pay 付款流程只有唯一一處寫入（C5.2：付款確認後的副作用 outbox）', `found route=${routeWrites} outbox=${outboxWrites}`);
 }
 
 // ════════════════════════════════════════════════════════════════

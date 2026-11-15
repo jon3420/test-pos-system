@@ -31,7 +31,12 @@ const { getLinePayConfig, signLinePayPost, makePostHeaders } = require('./linePa
  *   { success:false, reason:'not_configured' | 'line_api_error' | 'network_error' }
  * 絕不 throw。
  */
-async function requestLinePayPayment({ db, storeId, order, redirectUrl, cancelUrl }) {
+// R54.4／MBV2-HF1-C5.1：trackAttempt=true（一般 LINE 訂單的 Recovery 付款）時，與 /api/linepay/request 相同建立付款嘗試
+//   （店別＋訂單 uuid＋orderId＋transactionId），confirmUrl 附上 attempt 供 callback 唯一定位訂單。
+//   快閃付款（popup）有自己的付款嘗試與 callback，不使用此選項，orderId 維持訂單編號。
+//   transactionId 一律從原始回應文字擷取並以字串保存（19 位數字不經 JS Number）。
+async function requestLinePayPayment({ db, storeId, order, redirectUrl, cancelUrl, trackAttempt }) {
+  let attempt = null;
   try {
     if (!order || !order.uuid) return { success: false, reason: 'invalid_order' };
     const cfg = getLinePayConfig(db, storeId);
@@ -39,7 +44,12 @@ async function requestLinePayPayment({ db, storeId, order, redirectUrl, cancelUr
 
     const finalTotal = Number(order.total || 0);
     if (!(finalTotal > 0)) return { success: false, reason: 'invalid_order' };
-    const orderIdForLinePay = order.order_number || order.uuid;
+    const OI = require('./orderIdentity');
+    if (trackAttempt) {
+      attempt = OI.createAttempt(db, storeId, order, finalTotal, 'recovery', cfg.channelId);
+      redirectUrl = `${redirectUrl}${String(redirectUrl).includes('?') ? '&' : '?'}attempt=${attempt.attempt_uuid}`;
+    }
+    const orderIdForLinePay = attempt ? attempt.lp_order_id : (order.order_number || order.uuid);
 
     const requestBody = {
       amount: finalTotal,
@@ -65,14 +75,17 @@ async function requestLinePayPayment({ db, storeId, order, redirectUrl, cancelUr
       body: bodyStr,
       timeout: 10000,
     });
-    const data = await apiRes.json();
+    const { text, data } = await OI.readLinePayResponse(apiRes);
+    if (!data) throw new Error('invalid response');
 
     if (data.returnCode !== '0000') {
       console.error('[linePayService] request error:', data.returnCode);
+      if (attempt) OI.attemptFailed(db, storeId, attempt.attempt_uuid, data.returnCode);
       return { success: false, reason: 'line_api_error' };
     }
 
-    const transactionId = data.info && data.info.transactionId;
+    const transactionId = OI.extractTransactionId(text, data);
+    if (attempt) OI.attemptRequested(db, storeId, attempt.attempt_uuid, transactionId);
     db.run(
       `UPDATE orders SET payment_status='pending', order_status='pending', updated_at=datetime('now','localtime') WHERE uuid=? AND store_id=?`,
       [order.uuid, storeId]
@@ -87,6 +100,7 @@ async function requestLinePayPayment({ db, storeId, order, redirectUrl, cancelUr
       transaction_id: transactionId,
     };
   } catch (e) {
+    if (attempt) { try { require('./orderIdentity').attemptFailed(db, storeId, attempt.attempt_uuid, 'network'); } catch (e2) {} }
     console.warn('[linePayService] requestLinePayPayment exception:', e.message);
     return { success: false, reason: 'network_error' };
   }

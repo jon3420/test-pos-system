@@ -1,5 +1,6 @@
 // routes/print.js — SaaS R1 fix4（多店隔離 + storeId 傳入 printService）
 'use strict';
+const OrderIdentity = require('../utils/orderIdentity'); // C5.1：不以 OR 取第一筆，重號時不猜
 const express = require('express');
 const router  = express.Router();
 const { getDb } = require('../utils/db');
@@ -65,10 +66,7 @@ router.post('/receipt', async (req, res) => {
     const storeId = req.storeId;
     const { order_id } = req.body;
     if (!order_id) return res.status(400).json({ success: false, message: 'order_id 必填' });
-    const order = db.get(
-      'SELECT * FROM orders WHERE (id=? OR order_number=?) AND store_id=?',
-      [order_id, order_id, storeId]
-    );
+    const order = OrderIdentity.resolveOrderRef(db, storeId, order_id).order;
     if (!order) return res.status(404).json({ success: false, message: '訂單不存在' });
     // ★ fix4：傳入 storeId，printService 用該店設定列印
     const result = await ps.printOrder(parseOrder(order), storeId);
@@ -84,10 +82,7 @@ router.post('/kitchen', async (req, res) => {
     const storeId = req.storeId;
     const { order_id } = req.body;
     if (!order_id) return res.status(400).json({ success: false, message: 'order_id 必填' });
-    const order = db.get(
-      'SELECT * FROM orders WHERE (id=? OR order_number=?) AND store_id=?',
-      [order_id, order_id, storeId]
-    );
+    const order = OrderIdentity.resolveOrderRef(db, storeId, order_id).order;
     if (!order) return res.status(404).json({ success: false, message: '訂單不存在' });
     // ★ fix4：傳入 storeId
     const result = await ps.printKitchenTicket(parseOrder(order), storeId);
@@ -103,10 +98,7 @@ router.post('/order', async (req, res) => {
     const storeId = req.storeId;
     const { order_id } = req.body;
     if (!order_id) return res.status(400).json({ success: false, message: 'order_id 必填' });
-    const order = db.get(
-      'SELECT * FROM orders WHERE (id=? OR order_number=?) AND store_id=?',
-      [order_id, order_id, storeId]
-    );
+    const order = OrderIdentity.resolveOrderRef(db, storeId, order_id).order;
     if (!order) return res.status(404).json({ success: false, message: '訂單不存在' });
     // ★ fix4：傳入 storeId
     const result = await ps.printOrder(parseOrder(order), storeId);
