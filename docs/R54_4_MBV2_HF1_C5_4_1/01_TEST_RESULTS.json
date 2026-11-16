@@ -1,0 +1,1592 @@
+{
+ "round": "R54.4／MBV2-HF1-C5.4.1",
+ "generated_at": "2026-11-16 (Asia/Taipei)",
+ "baseline": {
+  "zip": "P3CD_DEPLOY_R54_4_MBV2_HF1_C5_4_POPUP_PAYMENT_RECOVERY_AND_PAYMENT_UI_FIX_APP_ROOT.zip",
+  "sha256": "7956751b0f146ec6894f96b9ebc53d5f138e966b57513376e5c8d2b3d32c91c6",
+  "files": 976,
+  "zip_entries": 1020,
+  "manifest_check": "973/973 SHA-256 相符（另 3 筆為 C5.4 報告檔本身）"
+ },
+ "environment": {
+  "node": "v22.23.4",
+  "npm": "10.9.9",
+  "browser": "Google Chrome（/usr/bin/google-chrome）經 Playwright 1.59 控制；部分既有腳本使用 Playwright 內建 headless shell，以 repo 外 PLAYWRIGHT_BROWSERS_PATH 指向已安裝版本",
+  "external_calls": "真實 LINE Messaging API／LINE Pay／Sandbox 呼叫 0 次（替身攔截並記錄）；未部署、未操作正式資料"
+ },
+ "test_layers": {
+  "API": "正式路由＋暫存 SQLite（node server.js）",
+  "BR": "真實 Chrome、實際點擊按鈕／鍵盤操作",
+  "RT": "Playwright route 攔截 /popup-payment/status，製造延遲、逾時、錯誤、竄改回應",
+  "FN": "以頁面既有函式觸發畫面切換（切換帳號、重新進入場次、顯示另一筆付款）",
+  "not_covered": "LINE App 內建瀏覽器真機、iOS Safari、真實行動網路"
+ },
+ "c5_4_1_acceptance": {
+  "script": "scripts/smoke-r54-4-mbv2-hf1-c5-4-1-popup-payment-status-refresh.js",
+  "c5_4_baseline": {
+   "pass": 2,
+   "fail": 17
+  },
+  "c5_4_1": {
+   "pass": 19,
+   "fail": 0
+  },
+  "c5_4_1_fresh_extract": {
+   "pass": 19,
+   "fail": 0
+  },
+  "classification": "D＝原始缺陷直接重現；N＝新增保護（基準不存在）；G＝回歸保護；C＝連帶",
+  "cases": [
+   {
+    "id": "A1",
+    "class": "G",
+    "name": "A1 [API] 付款狀態查詢 ×5 為唯讀：不新增付款嘗試、不呼叫 LINE Pay、不改訂單／付款資料；回應帶本次付款識別",
+    "c5_4_baseline": "PASS",
+    "c5_4_1": "PASS",
+    "c5_4_1_fresh_extract": "PASS",
+    "baseline_detail": "{\"lp\":[1,1],\"att\":1,\"st\":\"payment_failed\"}",
+    "c5_4_1_detail": "{\"lp\":[1,1],\"att\":1,\"st\":\"payment_failed\"}"
+   },
+   {
+    "id": "R1",
+    "class": "D",
+    "name": "R1 [BR][RT] 原始缺陷：查詢已送出（1 筆）；等待中立即顯示「查詢中…」並停用按鈕；完成後顯示「已查詢，付款狀態未變：等待付款」與最後成功查詢時間，按鈕恢復",
+    "c5_4_baseline": "FAIL",
+    "c5_4_1": "PASS",
+    "c5_4_1_fresh_extract": "PASS",
+    "baseline_detail": "{\"sent\":1,\"mid\":{\"state\":\"付款狀態：等待付款\",\"btn\":{\"disabled\":false,\"text\":\"重新查詢付款狀態\",\"busy\":null},\"status\":\"\",\"last\":\"\",\"pay\":true,\"cash\":false},\"fin\":{\"state\":\"付款狀態：等待付款\",\"btn\":{\"disabled\":false,\"text\":\"重新查詢付款狀態\",\"busy\":null},\"status\":\"\",\"last\":\"\",\"pay\":true,\"cash\":false},\"sameTextAfter\":true}",
+    "c5_4_1_detail": "{\"sent\":1,\"mid\":{\"state\":\"付款狀態：等待付款\",\"btn\":{\"disabled\":true,\"text\":\"查詢中…\",\"busy\":\"true\"},\"status\":\"查詢中…最後成功查詢：11/16 14:48:45（台灣時間）\",\"last\":\"最後成功查詢：11/16 14:48:45（台灣時間）\",\"pay\":true,\"cash\":false},\"fin\":{\"state\":\"付款狀態：等待付款\",\"btn\":{\"disabled\":false,\"text\":\"重新查詢付款狀態\",\"busy\":null},\"status\":\"已查詢，付款狀態未變：等待付款最後成功查詢：11/16 14:48:47（台灣時間）\",\"last\":\"最後成功查詢：11/16 14:48:47（台灣時間）\",\"pay\":true,\"cash\":false},\"sameTextAfter\":false}"
+   },
+   {
+    "id": "R2",
+    "class": "D",
+    "name": "R2 [BR][RT] 取消付款後重新查詢：顯示查詢中；完成後仍為「付款失敗，本次付款未完成」，有完成回饋，仍可改用現金；不呼叫 LINE Pay",
+    "c5_4_baseline": "FAIL",
+    "c5_4_1": "PASS",
+    "c5_4_1_fresh_extract": "PASS",
+    "baseline_detail": "{\"mid\":{\"state\":\"付款狀態：付款失敗，本次付款未完成\",\"btn\":{\"disabled\":false,\"text\":\"重新查詢付款狀態\",\"busy\":null},\"status\":\"\",\"last\":\"\",\"pay\":false,\"cash\":true},\"fin\":{\"state\":\"付款狀態：付款失敗，本次付款未完成\",\"btn\":{\"disabled\":false,\"text\":\"重新查詢付款狀態\",\"busy\":null},\"status\":\"\",\"last\":\"\",\"pay\":false,\"cash\":true}}",
+    "c5_4_1_detail": "{\"mid\":{\"state\":\"付款狀態：付款失敗，本次付款未完成\",\"btn\":{\"disabled\":true,\"text\":\"查詢中…\",\"busy\":\"true\"},\"status\":\"查詢中…最後成功查詢：11/16 14:48:48（台灣時間）\",\"last\":\"最後成功查詢：11/16 14:48:48（台灣時間）\",\"pay\":false,\"cash\":true},\"fin\":{\"state\":\"付款狀態：付款失敗，本次付款未完成\",\"btn\":{\"disabled\":false,\"text\":\"重新查詢付款狀態\",\"busy\":null},\"status\":\"已查詢，付款狀態未變：付款失敗，本次付款未完成最後成功查詢：11/16 14:48:49（台灣時間）\",\"last\":\"最後成功查詢：11/16 14:48:49（台灣時間）\",\"pay\":false,\"cash\":true}}"
+   },
+   {
+    "id": "R3",
+    "class": "D",
+    "name": "R3 [BR][RT] 改現金後重新查詢：仍顯示「取貨時付款」、現金，有完成回饋；查詢不呼叫付款建立／改現金／結帳、不新增付款嘗試、不呼叫 LINE Pay",
+    "c5_4_baseline": "FAIL",
+    "c5_4_1": "PASS",
+    "c5_4_1_fresh_extract": "PASS",
+    "baseline_detail": "{\"mid\":{\"state\":\"付款狀態：取貨時付款\",\"btn\":{\"disabled\":false,\"text\":\"重新查詢付款狀態\",\"busy\":null},\"status\":\"\",\"last\":\"\",\"pay\":false,\"cash\":false},\"fin\":{\"state\":\"付款狀態：取貨時付款\",\"btn\":{\"disabled\":false,\"text\":\"重新查詢付款狀態\",\"busy\":null},\"status\":\"\",\"last\":\"\",\"pay\":false,\"cash\":false},\"side\":0,\"att\":[1,1]}",
+    "c5_4_1_detail": "{\"mid\":{\"state\":\"付款狀態：取貨時付款\",\"btn\":{\"disabled\":true,\"text\":\"查詢中…\",\"busy\":\"true\"},\"status\":\"查詢中…最後成功查詢：11/16 14:48:50（台灣時間）\",\"last\":\"最後成功查詢：11/16 14:48:50（台灣時間）\",\"pay\":false,\"cash\":false},\"fin\":{\"state\":\"付款狀態：取貨時付款\",\"btn\":{\"disabled\":false,\"text\":\"重新查詢付款狀態\",\"busy\":null},\"status\":\"已查詢，付款狀態未變：取貨時付款最後成功查詢：11/16 14:48:52（台灣時間）\",\"last\":\"最後成功查詢：11/16 14:48:52（台灣時間）\",\"pay\":false,\"cash\":false},\"side\":0,\"att\":[1,1]}"
+   },
+   {
+    "id": "R4",
+    "class": "D",
+    "name": "R4 [BR][RT] 已付款後重新查詢：維持「已付款」，有完成回饋，不出現付款／改現金按鈕",
+    "c5_4_baseline": "FAIL",
+    "c5_4_1": "PASS",
+    "c5_4_1_fresh_extract": "PASS",
+    "baseline_detail": "{\"mid\":{\"state\":\"付款狀態：已付款\",\"btn\":{\"disabled\":false,\"text\":\"重新查詢付款狀態\",\"busy\":null},\"status\":\"\",\"last\":\"\",\"pay\":false,\"cash\":false},\"fin\":{\"state\":\"付款狀態：已付款\",\"btn\":{\"disabled\":false,\"text\":\"重新查詢付款狀態\",\"busy\":null},\"status\":\"\",\"last\":\"\",\"pay\":false,\"cash\":false}}",
+    "c5_4_1_detail": "{\"mid\":{\"state\":\"付款狀態：已付款\",\"btn\":{\"disabled\":true,\"text\":\"查詢中…\",\"busy\":\"true\"},\"status\":\"查詢中…最後成功查詢：11/16 14:48:53（台灣時間）\",\"last\":\"最後成功查詢：11/16 14:48:53（台灣時間）\",\"pay\":false,\"cash\":false},\"fin\":{\"state\":\"付款狀態：已付款\",\"btn\":{\"disabled\":false,\"text\":\"重新查詢付款狀態\",\"busy\":null},\"status\":\"已查詢，付款狀態未變：已付款最後成功查詢：11/16 14:48:55（台灣時間）\",\"last\":\"最後成功查詢：11/16 14:48:55（台灣時間）\",\"pay\":false,\"cash\":false}}"
+   },
+   {
+    "id": "R5",
+    "class": "D",
+    "name": "R5 [BR][RT] 狀態改變：等待付款 → 已付款；付款資訊、說明與操作按鈕一起更新（「前往 LINE Pay 付款」消失），回饋為「付款狀態已更新」",
+    "c5_4_baseline": "FAIL",
+    "c5_4_1": "PASS",
+    "c5_4_1_fresh_extract": "PASS",
+    "baseline_detail": "{\"before\":{\"state\":\"付款狀態：等待付款\",\"btn\":{\"disabled\":false,\"text\":\"重新查詢付款狀態\",\"busy\":null},\"status\":\"\",\"last\":\"\",\"pay\":true,\"cash\":false},\"fin\":{\"state\":\"付款狀態：已付款\",\"btn\":{\"disabled\":false,\"text\":\"重新查詢付款狀態\",\"busy\":null},\"status\":\"\",\"last\":\"\",\"pay\":false,\"cash\":false}}",
+    "c5_4_1_detail": "{\"before\":{\"state\":\"付款狀態：等待付款\",\"btn\":{\"disabled\":false,\"text\":\"重新查詢付款狀態\",\"busy\":null},\"status\":\"最後成功查詢：11/16 14:48:55（台灣時間）\",\"last\":\"最後成功查詢：11/16 14:48:55（台灣時間）\",\"pay\":true,\"cash\":false},\"fin\":{\"state\":\"付款狀態：已付款\",\"btn\":{\"disabled\":false,\"text\":\"重新查詢付款狀態\",\"busy\":null},\"status\":\"已查詢，付款狀態已更新：已付款最後成功查詢：11/16 14:48:56（台灣時間）\",\"last\":\"最後成功查詢：11/16 14:48:56（台灣時間）\",\"pay\":false,\"cash\":false}}"
+   },
+   {
+    "id": "R6",
+    "class": "D",
+    "name": "R6 [BR][RT] 待核對：查詢成功、HTTP 500、網路錯誤後都保留「付款結果確認中，請勿重複付款」與訂單編號，不開放前往付款或改現金",
+    "c5_4_baseline": "FAIL",
+    "c5_4_1": "PASS",
+    "c5_4_1_fresh_extract": "PASS",
+    "baseline_detail": "{\"ok\":{\"state\":\"付款狀態：付款結果確認中，請勿重複付款\",\"btn\":{\"disabled\":false,\"text\":\"重新查詢付款狀態\",\"busy\":null},\"status\":\"\",\"last\":\"\",\"pay\":false,\"cash\":false},\"e1\":{\"state\":\"付款狀態：付款狀態確認中\",\"btn\":{\"disabled\":false,\"text\":\"重新查詢付款狀態\",\"busy\":null},\"status\":\"\",\"last\":\"\",\"pay\":false,\"cash\":false},\"e2\":{\"state\":\"付款狀態：付款狀態確認中\",\"btn\":{\"disabled\":false,\"text\":\"重新查詢付款狀態\",\"busy\":null},\"status\":\"\",\"last\":\"\",\"pay\":false,\"cash\":false}}",
+    "c5_4_1_detail": "{\"ok\":{\"state\":\"付款狀態：付款結果確認中，請勿重複付款\",\"btn\":{\"disabled\":false,\"text\":\"重新查詢付款狀態\",\"busy\":null},\"status\":\"已查詢，付款狀態未變：付款結果確認中，請勿重複付款最後成功查詢：11/16 14:48:58（台灣時間）\",\"last\":\"最後成功查詢：11/16 14:48:58（台灣時間）\",\"pay\":false,\"cash\":false},\"e1\":{\"state\":\"付款狀態：付款結果確認中，請勿重複付款\",\"btn\":{\"disabled\":false,\"text\":\"重新查詢付款狀態\",\"busy\":null},\"status\":\"暫時無法取得付款狀態。請稍後再按「重新查詢付款狀態」；仍無法查詢請以訂單編號洽店家。（畫面保留上次取得的付款資訊）最後成功查詢：11/16 14:48:58（台灣時間）\",\"last\":\"最後成功查詢：11/16 14:48:58（台灣時間）\",\"pay\":false,\"cash\":false},\"e2\":{\"state\":\"付款狀態：付款結果確認中，請勿重複付款\",\"btn\":{\"disabled\":false,\"text\":\"重新查詢付款狀態\",\"busy\":null},\"status\":\"網路異常，無法查詢付款狀態。請確認網路連線後，再按「重新查詢"
+   },
+   {
+    "id": "R7",
+    "class": "D",
+    "name": "R7 [BR][RT] 連續點擊（一般點擊＋5 次合成點擊＋強制點擊＋雙擊）：進行中只有 1 筆查詢",
+    "c5_4_baseline": "FAIL",
+    "c5_4_1": "PASS",
+    "c5_4_1_fresh_extract": "PASS",
+    "baseline_detail": "{\"inflight\":9,\"total\":9}",
+    "c5_4_1_detail": "{\"inflight\":1,\"total\":1}"
+   },
+   {
+    "id": "R8",
+    "class": "D",
+    "name": "R8 [BR][RT] 網路錯誤、HTTP 500／404、無效 JSON、應用層失敗、資料格式不符：均有可理解錯誤與重試方式；保留已付款畫面與訂單編號、不畫成未付款",
+    "c5_4_baseline": "FAIL",
+    "c5_4_1": "PASS",
+    "c5_4_1_fresh_extract": "PASS",
+    "baseline_detail": "{\"network\":{\"ok\":false,\"state\":\"付款狀態：付款狀態確認中\",\"status\":\"\"},\"http500\":{\"ok\":false,\"state\":\"付款狀態：付款狀態確認中\",\"status\":\"\"},\"http404\":{\"ok\":false,\"state\":\"付款狀態：付款狀態確認中\",\"status\":\"\"},\"badjson\":{\"ok\":false,\"state\":\"付款狀態：付款狀態確認中\",\"status\":\"\"},\"appfail\":{\"ok\":false,\"state\":\"付款狀態：付款狀態確認中\",\"status\":\"\"},\"nodata\":{\"ok\":false,\"state\":\"付款狀態：付款狀態確認中\",\"status\":\"\"}}",
+    "c5_4_1_detail": "{\"network\":{\"ok\":true,\"state\":\"付款狀態：已付款\",\"status\":\"網路異常，無法查詢付款狀態。請確認網路連線後，再按「重新查詢付款狀態」。（畫面保留上次取得的付款資訊）最後成功查詢：11\"},\"http500\":{\"ok\":true,\"state\":\"付款狀態：已付款\",\"status\":\"暫時無法取得付款狀態。請稍後再按「重新查詢付款狀態」；仍無法查詢請以訂單編號洽店家。（畫面保留上次取得的付款資訊）最後成\"},\"http404\":{\"ok\":true,\"state\":\"付款狀態：已付款\",\"status\":\"暫時無法取得付款狀態。請稍後再按「重新查詢付款狀態」；仍無法查詢請以訂單編號洽店家。（畫面保留上次取得的付款資訊）最後成\"},\"badjson\":{\"ok\":true,\"state\":\"付款狀態：已付款\",\"status\":\"暫時無法取得付款狀態。請稍後再按「重新查詢付款狀態」；仍無法查詢請以訂單編號洽店家。（畫面保留上次取得的付款資訊）最後成\"},\"appfail\":{\"ok\":true,\"state\":\"付款狀態：已付款\",\"status\":\"暫時無法取得付款狀態。請稍後再按「重新查詢付款狀態」；仍無法查詢請以訂單編號洽店家。（畫面保留上次取得的付款資訊）最後成\"},\"nodata\":{\"ok\":true,\"state\":\"付款狀態："
+   },
+   {
+    "id": "R9",
+    "class": "N",
+    "name": "R9 [BR][RT] 逾時與重試：約 12 秒解除忙碌並顯示逾時提示；可再查詢；第一次晚到（且內容不同）的回應不覆蓋新結果",
+    "c5_4_baseline": "FAIL",
+    "c5_4_1": "PASS",
+    "c5_4_1_fresh_extract": "PASS",
+    "baseline_detail": "{\"unlockMs\":6044,\"at6\":{\"disabled\":false,\"text\":\"重新查詢付款狀態\",\"busy\":null},\"to\":{\"state\":\"付款狀態：付款失敗，本次付款未完成\",\"btn\":{\"disabled\":false,\"text\":\"重新查詢付款狀態\",\"busy\":null},\"status\":\"\",\"last\":\"\",\"pay\":false,\"cash\":true},\"second\":\"\",\"late\":\"付款狀態：已付款\"}",
+    "c5_4_1_detail": "{\"unlockMs\":12096,\"at6\":{\"disabled\":true,\"text\":\"查詢中…\",\"busy\":\"true\"},\"to\":{\"state\":\"付款狀態：付款失敗，本次付款未完成\",\"btn\":{\"disabled\":false,\"text\":\"重新查詢付款狀態\",\"busy\":null},\"status\":\"查詢逾時（12 秒內未取得回應），付款狀態未更新。請確認網路後，再按「重新查詢付款狀態」。（畫面保留上次取得的付款資訊）最後成功查詢：11/16 14:49:10（台灣時間）\",\"last\":\"最後成功查詢：11/16 14:49:10（台灣時間）\",\"pay\":false,\"cash\":true},\"second\":\"已查詢，付款狀態未變：付款失敗，本次付款未完成最後成功查詢：11/16 14:4\",\"late\":\"付款狀態：付款失敗，本次付款未完成\"}"
+   },
+   {
+    "id": "R10",
+    "class": "D",
+    "name": "R10 [BR][RT][FN] 切換訂單、離開付款畫面、切換帳號、重新進入其他場次後，較晚到的舊查詢回應被丟棄，不覆蓋目前畫面",
+    "c5_4_baseline": "FAIL",
+    "c5_4_1": "PASS",
+    "c5_4_1_fresh_extract": "PASS",
+    "baseline_detail": "{\"order\":{\"ok\":false,\"state\":\"付款狀態：付款失敗，本次付款未完成\"},\"leave\":{\"ok\":true,\"view\":\"session\"},\"account\":{\"ok\":false,\"mid\":\"\",\"status\":\"\",\"marker\":false},\"session\":{\"ok\":false,\"view\":\"payment\",\"session\":true}}",
+    "c5_4_1_detail": "{\"order\":{\"ok\":true,\"state\":\"付款狀態：已付款\"},\"leave\":{\"ok\":true,\"view\":\"session\"},\"account\":{\"ok\":true,\"mid\":\"已切換帳號，先前的查詢已取消。如需最新付款狀態，請再按「重新查詢付款狀態」。最後\",\"status\":\"已切換帳號，先前的查詢已取消。如需最新付款狀態，請再按「重新查詢付款狀態」。最後\",\"marker\":true},\"session\":{\"ok\":true,\"view\":\"session\",\"session\":true}}",
+    "note": "子案例「離開付款畫面（繼續點餐）」在基準也通過：繼續點餐會整頁導向，舊請求隨頁面結束，因此不作為缺陷重現證據；其餘 3 個子案例（切訂單、切換帳號、重新進入其他場次）在基準失敗"
+   },
+   {
+    "id": "R11",
+    "class": "D",
+    "name": "R11 [BR][RT] 改現金競態：查詢進行中改用現金成功，較早送出的查詢回應不會把畫面還原為 LINE Pay／付款失敗",
+    "c5_4_baseline": "FAIL",
+    "c5_4_1": "PASS",
+    "c5_4_1_fresh_extract": "PASS",
+    "baseline_detail": "{\"state\":\"付款狀態：付款失敗，本次付款未完成\",\"cash\":true,\"pm\":\"cash\"}",
+    "c5_4_1_detail": "{\"state\":\"付款狀態：取貨時付款\",\"cash\":false,\"pm\":\"cash\"}"
+   },
+   {
+    "id": "R12",
+    "class": "D",
+    "name": "R12 [BR][RT] 缺付款憑證時不送查詢並明確說明、保留訂單資訊；回應付款識別不符時不套用（不只看 success:true）",
+    "c5_4_baseline": "FAIL",
+    "c5_4_1": "PASS",
+    "c5_4_1_fresh_extract": "PASS",
+    "baseline_detail": "{\"noToken\":{\"ok\":false,\"sent\":0,\"state\":\"付款狀態：付款狀態確認中\",\"status\":\"\"},\"mismatch\":{\"ok\":false,\"state\":\"付款狀態：付款失敗，本次付款未完成\",\"status\":\"\"}}",
+    "c5_4_1_detail": "{\"noToken\":{\"ok\":true,\"sent\":0,\"state\":\"付款狀態：已付款\",\"status\":\"此瀏覽器找不到付款憑證，無法查詢付款狀態。請記下上方訂單編號，用「📜 我的訂單」或「🔍 查詢訂單\"},\"mismatch\":{\"ok\":true,\"state\":\"付款狀態：已付款\",\"status\":\"查詢結果與此筆付款不符，未套用。請再按「重新查詢付款狀態」；仍無法查詢請洽店家。\"}}"
+   },
+   {
+    "id": "R13",
+    "class": "N",
+    "name": "R13 [BR][RT] 首次付款返回：等待中不提前宣告成功、完成後沿用原成功流程；逾時顯示中性確認中說明並可重查；缺憑證不送查詢",
+    "c5_4_baseline": "FAIL",
+    "c5_4_1": "PASS",
+    "c5_4_1_fresh_extract": "PASS",
+    "baseline_detail": "{\"initial\":{\"ok\":true,\"mid\":\"session\",\"state\":\"付款狀態：已付款\",\"status\":\"\"},\"timeout\":{\"ok\":false,\"ms\":16208,\"state\":\"付款狀態：付款狀態確認中\"},\"noToken\":{\"ok\":true,\"sent\":0}}",
+    "c5_4_1_detail": "{\"initial\":{\"ok\":true,\"mid\":\"session\",\"state\":\"付款狀態：已付款\",\"status\":\"最後成功查詢：11/16 14:49:54（台灣時間）\"},\"timeout\":{\"ok\":true,\"ms\":12178,\"state\":\"付款狀態：付款狀態確認中\"},\"noToken\":{\"ok\":true,\"sent\":0}}",
+    "note": "子案例「首次返回等待中不提前宣告成功」「缺憑證不送查詢」在基準也通過（既有行為保留）；只有「首次返回逾時」為新增保護"
+   },
+   {
+    "id": "R14",
+    "class": "N",
+    "name": "R14 [BR] 手機寬度 360×640（觸控）：鍵盤操作查詢後焦點留在查詢按鈕、捲動位置不變；狀態提示 role=status／aria-live=polite、在可視範圍內、不遮住付款資訊、無水平捲動、按鈕高度足夠",
+    "c5_4_baseline": "FAIL",
+    "c5_4_1": "PASS",
+    "c5_4_1_fresh_extract": "PASS",
+    "baseline_detail": "{\"y\":[290,290],\"active\":\"BODY\",\"role\":\"\",\"geo\":{\"status\":null,\"state\":{\"t\":-8.453125,\"b\":30.234375,\"l\":28,\"r\":332},\"overlap\":false,\"sw\":360,\"iw\":360,\"ih\":640,\"btns\":[{\"w\":148,\"h\":64,\"r\":176},{\"w\":148,\"h\":64,\"r\":332}],\"pos\":null,\"fs\":0}}",
+    "c5_4_1_detail": "{\"y\":[338,338],\"active\":\"popupPayRefreshBtn\",\"role\":\"status/polite\",\"geo\":{\"status\":{\"t\":435,\"b\":528.171875,\"l\":28,\"r\":332},\"state\":{\"t\":-56.453125,\"b\":-17.765625,\"l\":28,\"r\":332},\"overlap\":false,\"sw\":360,\"iw\":360,\"ih\":640,\"btns\":[{\"w\":148,\"h\":64,\"r\":176},{\"w\":148,\"h\":64,\"r\":332}],\"pos\":\"static\",\"fs\":14}}"
+   },
+   {
+    "id": "R15",
+    "class": "N",
+    "name": "R15 [BR] 只有付款狀態查詢（首次返回與重新查詢）使用 cache:no-store 並可中止；其他快閃 API（場次載入等）的請求設定不變",
+    "c5_4_baseline": "FAIL",
+    "c5_4_1": "PASS",
+    "c5_4_1_fresh_extract": "PASS",
+    "baseline_detail": "{\"status\":[null,null],\"others\":[\"line-orders/popup-session/9tIPAx9YceuTsq:null\"]}",
+    "c5_4_1_detail": "{\"status\":[\"no-store\",\"no-store\"],\"others\":[\"line-orders/popup-session/5Yo6qNT9WyLjOn:null\"]}"
+   },
+   {
+    "id": "R16",
+    "class": "N",
+    "name": "R16 [BR] 最後成功查詢時間＝瀏覽器成功取得狀態的時刻（台灣時間，誤差 ≤3 秒），不是訂單更新時間；之後查詢失敗不更新此時間",
+    "c5_4_baseline": "FAIL",
+    "c5_4_1": "PASS",
+    "c5_4_1_fresh_extract": "PASS",
+    "baseline_detail": "{\"shown\":\"\",\"diff\":999,\"afterError\":\"\",\"orderUpdatedAt\":\"2026-11-16 10:31:37\"}",
+    "c5_4_1_detail": "{\"shown\":\"最後成功查詢：11/16 14:50:13（台灣時間）\",\"diff\":1,\"afterError\":\"最後成功查詢：11/16 14:50:13（台灣時間）\",\"orderUpdatedAt\":\"2026-11-16 10:31:34\"}"
+   },
+   {
+    "id": "R17",
+    "class": "G",
+    "name": "R17 [BR] 回歸：查詢本身不送付款建立；查詢後按「前往 LINE Pay 付款」照常送出 1 筆付款建立（替身網址依既有規則不導向）；頁面無 JavaScript 錯誤",
+    "c5_4_baseline": "FAIL",
+    "c5_4_1": "PASS",
+    "c5_4_1_fresh_extract": "PASS",
+    "baseline_detail": "{\"side\":[0,1],\"err\":\"目前無法前往付款，請稍後再試。\",\"errs\":[]}",
+    "c5_4_1_detail": "{\"side\":[0,1],\"err\":\"目前無法前往付款，請稍後再試。\",\"errs\":[]}",
+    "note": "基準失敗為連帶（C）：本案例前提「查詢後有完成回饋」在基準不存在；付款建立按鈕本身在基準與修正版行為相同（各送出 1 筆）"
+   },
+   {
+    "id": "Z",
+    "class": "G",
+    "name": "Z 真實 LINE Messaging API 與 LINE Pay 呼叫 0 次；未知 LINE Pay 路徑 0 次；替身核對簽章全部正確",
+    "c5_4_baseline": "PASS",
+    "c5_4_1": "PASS",
+    "c5_4_1_fresh_extract": "PASS",
+    "baseline_detail": "{\"real\":0,\"unexpected\":0,\"sigBad\":0,\"lineReal\":0,\"lpCalls\":26}",
+    "c5_4_1_detail": "{\"real\":0,\"unexpected\":0,\"sigBad\":0,\"lineReal\":0,\"lpCalls\":26}"
+   }
+  ]
+ },
+ "regression": {
+  "scope": "所有引用 line-order.html 或快閃（popup）的腳本＋C5.3／C5.4／phase3／phase4b，共 92 支（排除需 C5.3 舊樹的 C5.4 升級回退腳本）",
+  "parallel_same_time": "基準與修正版同時段並行執行",
+  "result": "92 支中 90 支逐案例結果完全相同；2 支為整批回歸 runner（run-regression-g1-6-ga4-h1-4-6／4-7）在兩棵樹都於 900 秒逾時，其子腳本已個別執行並相同",
+  "named_suites": {
+   "smoke-r54-4-mbv2-hf1-c5-4-payment-ui-popup.js": "27/27（基準、修正版、全新解壓）",
+   "smoke-r54-4-mbv2-hf1-c5-3-payment-guard.js": "25/25（同上）",
+   "run-h1-4-10-phase3-checkout-submit-payment-runtime.js": "111/111（同上）",
+   "run-h1-4-10-phase4b-recovery-full-runtime.js": "168/168（同上）",
+   "run-h1-4-10-phase4b-recovery-frontend-targeted.js": "50/50（同上）",
+   "run-h1-4-10-phase4b-recovery-resume-targeted.js": "92/92（同上）",
+   "smoke-h1-4-12-popup-frontend.js": "293/293（同上）",
+   "smoke-h1-4-12-popup-real-browser.js": "36/36（提供瀏覽器路徑後；基準、修正版、全新解壓）",
+   "smoke-h1-4-12-popup-public-checkout.js": "1447/1447（同上）",
+   "smoke-h1-4-12-popup-checkout-integration.js": "20/20（同上）",
+   "smoke-r54-4-mbv2-hf1-c5-2-payment-recovery.js": "33/33（基準、修正版）",
+   "smoke-r54-4-mbv2-hf1-c5-1-consistency.js": "61/61（基準、修正版）",
+   "smoke-r48-popup-order-ui-browser.js": "10 通過／3 失敗，基準完全相同（場次頁頁首按鈕高度 40px、sticky 元素、捲動逾時；與付款畫面無關）"
+  },
+  "scripts": [
+   {
+    "script": "run-g1-6-ga4-h1-4-4-view-item-runtime.js",
+    "first_run": {
+     "base_rc": 1,
+     "fix_rc": 1,
+     "identical": true
+    },
+    "rerun_with_browser_path": {
+     "base_rc": 1,
+     "fix_rc": 1,
+     "identical": true
+    },
+    "final_base_rc": 1,
+    "final_fix_rc": 1,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "run-g1-6-ga4-h1-4-7-two-stage-checkout-runtime.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "run-h1-4-10-asset-cache-bust-runtime.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "run-h1-4-10-friend-live-runtime.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "run-h1-4-10-historical-backend-reconcile-runtime.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "run-h1-4-10-historical-friend-first-touch-runtime.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "run-h1-4-10-phase1-liff-identity-runtime.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "run-h1-4-10-phase2-line-friend-guide-runtime.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "run-h1-4-10-phase3-checkout-submit-payment-runtime.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "run-h1-4-10-phase4b-recovery-frontend-targeted.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "run-h1-4-10-phase4b-recovery-full-runtime.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "run-h1-4-10-phase4b-recovery-resume-targeted.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "run-h1-4-10-required-friend-gate-runtime.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "run-h1-4-12-phase2.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": [
+     "FAIL: 0"
+    ]
+   },
+   {
+    "script": "run-h1-4-9-checkout-order-summary-runtime.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "run-regression-g1-6-ga4-h1-4-6.js",
+    "first_run": {
+     "base_rc": 124,
+     "fix_rc": 124,
+     "identical": false
+    },
+    "final_base_rc": 124,
+    "final_fix_rc": 124,
+    "final_identical": false,
+    "fail_lines_fix": [
+     "FAIL: 3",
+     "✗ FAIL [line-order.html] checkout_click 由獨立的 openCheckoutStep()（前往結帳）觸發，不在 openCartSheet() 內",
+     "✗ FAIL [line-shipping.html] checkout_click 由獨立的 openCheckoutStep()（前往結帳）觸發，不在 openCartSheet() 內"
+    ]
+   },
+   {
+    "script": "run-regression-g1-6-ga4-h1-4-7.js",
+    "first_run": {
+     "base_rc": 124,
+     "fix_rc": 124,
+     "identical": false
+    },
+    "final_base_rc": 124,
+    "final_fix_rc": 124,
+    "final_identical": false,
+    "fail_lines_fix": [
+     "FAIL: 3",
+     "FAIL: 4",
+     "✗ FAIL [line-order.html] checkout_click 由獨立的 openCheckoutStep()（前往結帳）觸發，不在 openCartSheet() 內",
+     "✗ FAIL [line-order.html] openProductDetail() 沿用 getProductAvailableModes()（與 buildCard() 同一套可購買判斷，不自建第二套規則）",
+     "✗ FAIL [line-order.html] 正式提交路徑仍保留 submitOrder()／_trackEvent('submit_order'...)，checkout_click 與 submit_order "
+    ]
+   },
+   {
+    "script": "smoke-cart-delivery-live-refresh.js",
+    "first_run": {
+     "base_rc": 1,
+     "fix_rc": 1,
+     "identical": true
+    },
+    "rerun_with_browser_path": {
+     "base_rc": 1,
+     "fix_rc": 1,
+     "identical": true
+    },
+    "final_base_rc": 1,
+    "final_fix_rc": 1,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-delivery-distance-promotion.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-h1-4-11-1-fixes.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": [
+     "FAIL: 0"
+    ]
+   },
+   {
+    "script": "smoke-h1-4-11-2-fixes.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": [
+     "FAIL: 0"
+    ]
+   },
+   {
+    "script": "smoke-h1-4-11-4-1-both-disabled-product-filter.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": [
+     "FAIL: 0"
+    ]
+   },
+   {
+    "script": "smoke-h1-4-11-4-product-mode-visibility.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": [
+     "FAIL: 0"
+    ]
+   },
+   {
+    "script": "smoke-h1-4-11-line-order-page-mode.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": [
+     "FAIL: 0"
+    ]
+   },
+   {
+    "script": "smoke-h1-4-12-durable-cart-recovery.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-h1-4-12-durable-popup-restore.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-h1-4-12-durable-release.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-h1-4-12-line-counter-snapshot-boundary.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-h1-4-12-popup-admin-api.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-h1-4-12-popup-admin-durable.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-h1-4-12-popup-admin-ui-browser.js",
+    "first_run": {
+     "base_rc": 1,
+     "fix_rc": 1,
+     "identical": true
+    },
+    "rerun_with_browser_path": {
+     "base_rc": 1,
+     "fix_rc": 1,
+     "identical": true
+    },
+    "final_base_rc": 1,
+    "final_fix_rc": 1,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-h1-4-12-popup-admin-ui.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-h1-4-12-popup-checkout-integration.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-h1-4-12-popup-frontend.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-h1-4-12-popup-migration.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": [
+     "FAIL: 0"
+    ]
+   },
+   {
+    "script": "smoke-h1-4-12-popup-phase2-1-audit.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-h1-4-12-popup-product-mode-migration.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-h1-4-12-popup-public-checkout.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-h1-4-12-popup-real-browser.js",
+    "first_run": {
+     "base_rc": 1,
+     "fix_rc": 1,
+     "identical": true
+    },
+    "rerun_with_browser_path": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-h1-4-12-popup-recovery-bootstrap.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-h1-4-12-popup-recovery-cart-frontend.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-h1-4-12-popup-recovery-cart-integration.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-h1-4-12-popup-recovery-cart-migration.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-h1-4-12-popup-recovery-identity-bridge.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-h1-4-12-popup-recovery-landing.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-h1-4-12-popup-recovery-rc2-security.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-h1-4-12-popup-state.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-h1-4-12-restore-recovery-durable.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-hotfix25.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-hotfix26-b.js",
+    "first_run": {
+     "base_rc": 1,
+     "fix_rc": 1,
+     "identical": true
+    },
+    "rerun_with_browser_path": {
+     "base_rc": 1,
+     "fix_rc": 1,
+     "identical": true
+    },
+    "final_base_rc": 1,
+    "final_fix_rc": 1,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-hotfix26-d.js",
+    "first_run": {
+     "base_rc": 1,
+     "fix_rc": 1,
+     "identical": true
+    },
+    "rerun_with_browser_path": {
+     "base_rc": 1,
+     "fix_rc": 1,
+     "identical": true
+    },
+    "final_base_rc": 1,
+    "final_fix_rc": 1,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-hotfix26-f2.js",
+    "first_run": {
+     "base_rc": 1,
+     "fix_rc": 1,
+     "identical": true
+    },
+    "rerun_with_browser_path": {
+     "base_rc": 1,
+     "fix_rc": 1,
+     "identical": true
+    },
+    "final_base_rc": 1,
+    "final_fix_rc": 1,
+    "final_identical": true,
+    "fail_lines_fix": [
+     "FAIL: /timeslots 截止判斷未限定於今天",
+     "FAIL: switchMode() 呼叫 refreshModeCutoffUI()",
+     "FAIL: 後端截止判斷未如預期限定於今天"
+    ]
+   },
+   {
+    "script": "smoke-hotfix26-f3.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-hotfix26-f4.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-hotfix26-f5.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-hotfix26-f7.js",
+    "first_run": {
+     "base_rc": 1,
+     "fix_rc": 1,
+     "identical": true
+    },
+    "rerun_with_browser_path": {
+     "base_rc": 1,
+     "fix_rc": 1,
+     "identical": true
+    },
+    "final_base_rc": 1,
+    "final_fix_rc": 1,
+    "final_identical": true,
+    "fail_lines_fix": [
+     "FAIL: 結構：INSERT 欄位數不符預期"
+    ]
+   },
+   {
+    "script": "smoke-hotfix26-f8-b.js",
+    "first_run": {
+     "base_rc": 1,
+     "fix_rc": 1,
+     "identical": true
+    },
+    "rerun_with_browser_path": {
+     "base_rc": 1,
+     "fix_rc": 1,
+     "identical": true
+    },
+    "final_base_rc": 1,
+    "final_fix_rc": 1,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-hotfix26-f8.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-hotfix26-i.js",
+    "first_run": {
+     "base_rc": 1,
+     "fix_rc": 1,
+     "identical": true
+    },
+    "rerun_with_browser_path": {
+     "base_rc": 1,
+     "fix_rc": 1,
+     "identical": true
+    },
+    "final_base_rc": 1,
+    "final_fix_rc": 1,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-hotfix27-cd.js",
+    "first_run": {
+     "base_rc": 1,
+     "fix_rc": 1,
+     "identical": true
+    },
+    "rerun_with_browser_path": {
+     "base_rc": 1,
+     "fix_rc": 1,
+     "identical": true
+    },
+    "final_base_rc": 1,
+    "final_fix_rc": 1,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-hotfix29-b.js",
+    "first_run": {
+     "base_rc": 1,
+     "fix_rc": 1,
+     "identical": true
+    },
+    "rerun_with_browser_path": {
+     "base_rc": 1,
+     "fix_rc": 1,
+     "identical": true
+    },
+    "final_base_rc": 1,
+    "final_fix_rc": 1,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-hotfix29-c.js",
+    "first_run": {
+     "base_rc": 1,
+     "fix_rc": 1,
+     "identical": true
+    },
+    "rerun_with_browser_path": {
+     "base_rc": 1,
+     "fix_rc": 1,
+     "identical": true
+    },
+    "final_base_rc": 1,
+    "final_fix_rc": 1,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-hotfix29.js",
+    "first_run": {
+     "base_rc": 1,
+     "fix_rc": 1,
+     "identical": true
+    },
+    "rerun_with_browser_path": {
+     "base_rc": 1,
+     "fix_rc": 1,
+     "identical": true
+    },
+    "final_base_rc": 1,
+    "final_fix_rc": 1,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-hotfix30-b5-r5-4-g1-live-geo.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": [
+     "FAIL: 0"
+    ]
+   },
+   {
+    "script": "smoke-hotfix30-b5-r5-debounce.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-r48-popup-order-ui-browser.js",
+    "first_run": {
+     "base_rc": 1,
+     "fix_rc": 1,
+     "identical": true
+    },
+    "rerun_with_browser_path": {
+     "base_rc": 1,
+     "fix_rc": 1,
+     "identical": true
+    },
+    "final_base_rc": 1,
+    "final_fix_rc": 1,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-r54-4-mbv2-hf1-c1-preorder-status.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-r54-4-mbv2-hf1-c3-1-backup-manage-login.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-r54-4-mbv2-hf1-c3-2-firstpaint-remap.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-r54-4-mbv2-hf1-c3-3-restore-cancel.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-r54-4-mbv2-hf1-c3-sale-status-demand.js",
+    "first_run": {
+     "base_rc": 1,
+     "fix_rc": 1,
+     "identical": true
+    },
+    "rerun_with_browser_path": {
+     "base_rc": 1,
+     "fix_rc": 1,
+     "identical": true
+    },
+    "final_base_rc": 1,
+    "final_fix_rc": 1,
+    "final_identical": true,
+    "fail_lines_fix": [
+     "❌ O1 今日完售：今日訂單被擋，未建立訂單、未扣今日額度",
+     "❌ O6-paused 今日與未來日期都被擋，訂單與額度不變",
+     "❌ O6-sold_out_indefinitely 今日與未來日期都被擋，訂單與額度不變",
+     "❌ O9 今日完售＋未啟用預購份數管理：今日仍擋；未來 30 份（超過原預購每日 20）不限額成功，今日額度不變"
+    ]
+   },
+   {
+    "script": "smoke-r54-4-mbv2-hf1-c4-1-dedupe-resume.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-r54-4-mbv2-hf1-c4-2-demand-ui-refresh.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-r54-4-mbv2-hf1-c4-3-async-consistency.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-r54-4-mbv2-hf1-c4-4-mutation-response.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-r54-4-mbv2-hf1-c4-5-date-consent.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-r54-4-mbv2-hf1-c4-5-restock-link.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-r54-4-mbv2-hf1-c4-restock-notify.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-r54-4-mbv2-hf1-c5-1-consistency.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-r54-4-mbv2-hf1-c5-1-rollback.js",
+    "first_run": {
+     "base_rc": 1,
+     "fix_rc": 1,
+     "identical": true
+    },
+    "rerun_with_browser_path": {
+     "base_rc": 1,
+     "fix_rc": 1,
+     "identical": true
+    },
+    "final_base_rc": 1,
+    "final_fix_rc": 1,
+    "final_identical": true,
+    "fail_lines_fix": [
+     "❌ 需要 C51_OLD_ROOT"
+    ]
+   },
+   {
+    "script": "smoke-r54-4-mbv2-hf1-c5-2-payment-recovery.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-r54-4-mbv2-hf1-c5-3-payment-guard.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-r54-4-mbv2-hf1-c5-4-payment-ui-popup.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "smoke-r54-4-mbv2-hf1-c5-restock-conversion.js",
+    "first_run": {
+     "base_rc": 1,
+     "fix_rc": 1,
+     "identical": true
+    },
+    "rerun_with_browser_path": {
+     "base_rc": 1,
+     "fix_rc": 1,
+     "identical": true
+    },
+    "final_base_rc": 1,
+    "final_fix_rc": 1,
+    "final_identical": true,
+    "fail_lines_fix": [
+     "❌ B1 LIFF 一次／二次導向後最終頁開啟商品：點擊 1 次、核對為收件人"
+    ]
+   },
+   {
+    "script": "smoke-r54-4-mbv2-migration.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "static-audit-g1-6-ga4-h1-4-4.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "static-audit-g1-6-ga4-h1-4-5.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": [
+     "FAIL: 0"
+    ]
+   },
+   {
+    "script": "static-audit-g1-6-ga4-h1-4-6.js",
+    "first_run": {
+     "base_rc": 1,
+     "fix_rc": 1,
+     "identical": true
+    },
+    "rerun_with_browser_path": {
+     "base_rc": 1,
+     "fix_rc": 1,
+     "identical": true
+    },
+    "final_base_rc": 1,
+    "final_fix_rc": 1,
+    "final_identical": true,
+    "fail_lines_fix": [
+     "FAIL: 3",
+     "✗ FAIL [line-order.html] checkout_click 由獨立的 openCheckoutStep()（前往結帳）觸發，不在 openCartSheet() 內",
+     "✗ FAIL [line-order.html] openProductDetail() 沿用 getProductAvailableModes()（與 buildCard() 同一套可購買判斷，不自建第二套規則）",
+     "✗ FAIL [line-shipping.html] checkout_click 由獨立的 openCheckoutStep()（前往結帳）觸發，不在 openCartSheet() 內"
+    ]
+   },
+   {
+    "script": "static-audit-g1-6-ga4-h1-4-7.js",
+    "first_run": {
+     "base_rc": 1,
+     "fix_rc": 1,
+     "identical": true
+    },
+    "rerun_with_browser_path": {
+     "base_rc": 1,
+     "fix_rc": 1,
+     "identical": true
+    },
+    "final_base_rc": 1,
+    "final_fix_rc": 1,
+    "final_identical": true,
+    "fail_lines_fix": [
+     "FAIL: 4",
+     "✗ FAIL [line-order.html] 正式提交路徑仍保留 submitOrder()／_trackEvent('submit_order'...)，checkout_click 與 submit_order ",
+     "✗ FAIL [line-order.html] 沒有建立第二套訂單提交函式（全檔案只有一個 function submitOrder 定義）",
+     "✗ FAIL [line-shipping.html] 正式提交路徑仍保留 submitOrder()／#submitBtn，checkout_click 與 submit_order 是不同階段（submitOrder",
+     "✗ FAIL [line-shipping.html] 沒有建立第二套訂單提交函式（全檔案只有一個 function submitOrder 定義）"
+    ]
+   },
+   {
+    "script": "static-audit-g1.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "static-audit-r48-popup-order-ui.js",
+    "first_run": {
+     "base_rc": 1,
+     "fix_rc": 1,
+     "identical": true
+    },
+    "rerun_with_browser_path": {
+     "base_rc": 1,
+     "fix_rc": 1,
+     "identical": true
+    },
+    "final_base_rc": 1,
+    "final_fix_rc": 1,
+    "final_identical": true,
+    "fail_lines_fix": []
+   },
+   {
+    "script": "test-phone-validation.js",
+    "first_run": {
+     "base_rc": 0,
+     "fix_rc": 0,
+     "identical": true
+    },
+    "final_base_rc": 0,
+    "final_fix_rc": 0,
+    "final_identical": true,
+    "fail_lines_fix": []
+   }
+  ]
+ },
+ "fresh_extract": {
+  "candidate_v1_sha256": "c8559310735b0fe3a5efe2980b8ac28d037cc9d59fb0a5321cdabb4201ece359",
+  "candidate_final_sha256": "e3a5b122d48340bd8b3ab03a1ac81c246afa595de57362830cd4789b1d2494bc",
+  "candidate_diff": "兩個候選版只差 C5.4.1 驗收腳本（等待條件修正）；產品程式逐檔相同",
+  "steps": "全新解壓 → npm ci（476 packages）→ 空資料庫 node server.js（/api/health 200、/popup-order 200、line-order.html 含新函式）→ 主要驗收",
+  "runs_on_candidate_v1": [
+   {
+    "script": "smoke-r54-4-mbv2-hf1-c5-4-payment-ui-popup.js",
+    "rc": 0,
+    "seconds": 92
+   },
+   {
+    "script": "smoke-r54-4-mbv2-hf1-c5-4-1-popup-payment-status-refresh.js",
+    "rc": 0,
+    "seconds": 117
+   },
+   {
+    "script": "smoke-r54-4-mbv2-hf1-c5-3-payment-guard.js",
+    "rc": 0,
+    "seconds": 59
+   },
+   {
+    "script": "run-h1-4-10-phase3-checkout-submit-payment-runtime.js",
+    "rc": 0,
+    "seconds": 36
+   },
+   {
+    "script": "run-h1-4-10-phase4b-recovery-frontend-targeted.js",
+    "rc": 0,
+    "seconds": 13
+   },
+   {
+    "script": "run-h1-4-10-phase4b-recovery-resume-targeted.js",
+    "rc": 0,
+    "seconds": 9
+   },
+   {
+    "script": "run-h1-4-10-phase4b-recovery-full-runtime.js",
+    "rc": 0,
+    "seconds": 28
+   },
+   {
+    "script": "smoke-h1-4-12-popup-real-browser.js",
+    "rc": 0,
+    "seconds": 13
+   },
+   {
+    "script": "smoke-h1-4-12-popup-frontend.js",
+    "rc": 0,
+    "seconds": 37
+   },
+   {
+    "script": "smoke-r48-popup-order-ui-browser.js",
+    "rc": 1,
+    "seconds": 36
+   },
+   {
+    "script": "smoke-h1-4-12-popup-checkout-integration.js",
+    "rc": 0,
+    "seconds": 8
+   },
+   {
+    "script": "smoke-h1-4-12-popup-public-checkout.js",
+    "rc": 0,
+    "seconds": 118
+   }
+  ],
+  "c5_4_1_on_final_candidate": {
+   "pass": 19,
+   "fail": 0
+  }
+ }
+}

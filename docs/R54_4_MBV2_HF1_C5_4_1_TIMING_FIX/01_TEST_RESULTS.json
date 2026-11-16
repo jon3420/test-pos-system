@@ -1,0 +1,288 @@
+{
+ "round": "R54.4／MBV2-HF1-C5.4.1 補修（TIMING_FIX）",
+ "generated_at": "2026-11-16 (Asia/Taipei)",
+ "baseline": {
+  "zip": "P3CD_DEPLOY_R54_4_MBV2_HF1_C5_4_1_POPUP_PAYMENT_STATUS_REFRESH_UX_FIX_APP_ROOT.zip",
+  "sha256": "c4c040d1590a06ff7dc243389cf13c5ee84604932b96ece07c3d4095ea087034",
+  "files": 980,
+  "zip_entries": 1025,
+  "manifest": "977/977 相符；未列入的 3 檔為 C5.4.1 三份文件本身",
+  "source": "本輪附件未重新附上 ZIP；使用前一輪交付到輸出區的同一檔案，雜湊與指定值相符"
+ },
+ "environment": {
+  "node": "v22.23.4",
+  "browser": "Google Chrome（/usr/bin/google-chrome），Playwright 1.59 控制；部分既有腳本以 repo 外 PLAYWRIGHT_BROWSERS_PATH 指向已安裝 headless shell",
+  "clock": "B 類案例以 Playwright clock.install＋pauseAt 凍結頁面時間，只在 runFor 時前進",
+  "external_calls": "真實 LINE／LINE Pay／Sandbox 呼叫 0 次（替身攔截）；未部署、未操作正式資料"
+ },
+ "test_layers": {
+  "BR": "真實 Chrome、實際點擊商品＋／查看購物車／前往結帳／鍵盤輸入與 Enter",
+  "RT": "Playwright route gate 控制 status 回應的時機與結果（成功／500／網路失敗／逾時）",
+  "CLK": "Playwright 假時鐘（凍結），控制 30ms 重填與 12 秒逾時",
+  "FN": "以頁面既有函式觸發：重新進入其他場次、顯示另一筆付款、切換帳號（需先建立查詢面板）",
+  "screen_reader": "未以實際螢幕閱讀器驗證；只驗證 DOM（role=status、aria-live=polite、重填 mutation 次數）",
+  "not_covered": "LINE App 內建瀏覽器真機、iOS Safari、真實行動網路"
+ },
+ "timing_acceptance": {
+  "script": "scripts/smoke-r54-4-mbv2-hf1-c5-4-1-timing-fix.js",
+  "classes": "DE＝既有缺口（C5.4 起）；DN＝C5.4.1 新增提示邏輯造成；N＝新增保護；G＝回歸保護",
+  "c5_4_1_unmodified": {
+   "pass": 4,
+   "fail": 7
+  },
+  "timing_fix": {
+   "pass": 11,
+   "fail": 0
+  },
+  "timing_fix_fresh_extract": {
+   "pass": 11,
+   "fail": 0
+  },
+  "cases": [
+   {
+    "id": "A1",
+    "class": "DE",
+    "name": "A1 [BR][RT] 首次付款返回查詢延遲期間，同場次選商品／改數量、查看購物車、前往結帳並以鍵盤輸入姓名：放行舊的成功回應後不顯示付款畫面，商品數量、步驟、購物車與輸入保留；之後背景更新也不重新拉回舊訂單",
+    "c5_4_1_unmodified": "FAIL",
+    "timing_fix": "PASS",
+    "timing_fix_fresh_extract": "PASS",
+    "baseline_detail": "{\"qty\":{\"ok\":false,\"before\":{\"step\":\"select\",\"qty\":2,\"name\":\"\",\"drawer\":false},\"after\":{\"view\":\"payment\",\"payScreen\":true,\"step\":\"done\",\"qty\":2,\"name\":null},\"bgPay\":true,\"bgStatusReq\":0},\"cart\":{\"ok\":false,\"before\":{\"step\":\"select\",\"qty\":1,\"name\":\"\",\"drawer\":true},\"after\":{\"view\":\"payment\",\"payScreen\":true,\"step\":\"done\",\"qty\":1,\"name\":null},\"bgPay\":true,\"bgStatusReq\":0},\"checkout\":{\"ok\":false,\"before\":{\"step\":\"details\",\"qty\":2,\"name\":\"王小明\",\"drawer\":false},\"after\":{\"view\":\"payment\",\"payScreen\":true,\"step\":\"done\",\"qty\":2,\"name\":null},\"bgPay\":true,\"bgStatusReq\":0}}",
+    "timing_fix_detail": "{\"qty\":{\"ok\":true,\"before\":{\"step\":\"select\",\"qty\":2,\"name\":\"\",\"drawer\":false},\"after\":{\"view\":\"session\",\"payScreen\":false,\"step\":\"select\",\"qty\":2,\"name\":\"\"},\"bgPay\":false,\"bgStatusReq\":0},\"cart\":{\"ok\":true,\"before\":{\"step\":\"select\",\"qty\":1,\"name\":\"\",\"drawer\":true},\"after\":{\"view\":\"session\",\"payScreen\":false,\"step\":\"select\",\"qty\":1,\"name\":\"\"},\"bgPay\":false,\"bgStatusReq\":0},\"checkout\":{\"ok\":true,\"before\":{\"step\":\"details\",\"qty\":2,\"name\":\"王小明\",\"drawer\":false},\"after\":{\"view\":\"session\",\"payScreen\":false,\"step\":\"details\",\"qty\":2,\"name\":\"王小明\"},\"bgPay\":false,\"bgStatusReq\":0}}"
+   },
+   {
+    "id": "A2",
+    "class": "DE",
+    "name": "A2 [BR][RT] 同情境但首次查詢回應為 HTTP 500、網路失敗或 12 秒逾時：不把正在進行的購物／結帳流程換成「付款狀態確認中」畫面",
+    "c5_4_1_unmodified": "FAIL",
+    "timing_fix": "PASS",
+    "timing_fix_fresh_extract": "PASS",
+    "baseline_detail": "{\"500\":{\"ok\":false,\"view\":\"payment\",\"pay\":\"付款狀態：付款狀態確認中\",\"qty\":[2,2],\"step\":[\"details\",\"done\"]},\"abort\":{\"ok\":false,\"view\":\"payment\",\"pay\":\"付款狀態：付款狀態確認中\",\"qty\":[2,2],\"step\":[\"details\",\"done\"]},\"timeout\":{\"ok\":false,\"view\":\"payment\",\"pay\":\"付款狀態：付款狀態確認中\",\"qty\":[2,2],\"step\":[\"details\",\"done\"]}}",
+    "timing_fix_detail": "{\"500\":{\"ok\":true,\"view\":\"session\",\"pay\":\"\",\"qty\":[2,2],\"step\":[\"details\",\"details\"]},\"abort\":{\"ok\":true,\"view\":\"session\",\"pay\":\"\",\"qty\":[2,2],\"step\":[\"details\",\"details\"]},\"timeout\":{\"ok\":true,\"view\":\"session\",\"pay\":\"\",\"qty\":[2,2],\"step\":[\"details\",\"details\"]}}"
+   },
+   {
+    "id": "A3",
+    "class": "G",
+    "name": "A3 [BR][RT] 首次付款返回、期間只有捲動與背景更新（無其他操作）：回應到達後正常顯示可信付款結果（已付款、付款成功），不顯示「我的訂單」查詢提示",
+    "c5_4_1_unmodified": "PASS",
+    "timing_fix": "PASS",
+    "timing_fix_fresh_extract": "PASS",
+    "baseline_detail": "{\"view\":\"payment\",\"pay\":\"付款狀態：已付款\",\"noticeShown\":false}",
+    "timing_fix_detail": "{\"view\":\"payment\",\"pay\":\"付款狀態：已付款\",\"noticeShown\":false}"
+   },
+   {
+    "id": "A4",
+    "class": "DE",
+    "name": "A4 [BR][RT][FN] 首次返回查詢中：重新進入其他場次、開啟我的訂單（帳號流程）、改顯示另一筆付款 → 舊回應被丟棄，不覆蓋目前畫面",
+    "c5_4_1_unmodified": "FAIL",
+    "timing_fix": "PASS",
+    "timing_fix_fresh_extract": "PASS",
+    "baseline_detail": "{\"session\":{\"ok\":true,\"view\":\"session\"},\"account\":{\"ok\":false,\"view\":\"payment\",\"overlay\":true},\"target\":{\"ok\":true,\"pay\":\"付款狀態：付款失敗，本次付款未完成\"}}",
+    "timing_fix_detail": "{\"session\":{\"ok\":true,\"view\":\"session\"},\"account\":{\"ok\":true,\"view\":\"session\",\"overlay\":true},\"target\":{\"ok\":true,\"pay\":\"付款狀態：付款失敗，本次付款未完成\"}}",
+    "note": "子案例 (a) 重新進入其他場次、(c) 改顯示另一筆付款在基準也通過（既有場次代碼／序號保護）；(b) 開啟「我的訂單」在基準失敗"
+   },
+   {
+    "id": "A5",
+    "class": "N",
+    "name": "A5 [BR][RT] 舊付款返回結果因使用者操作被丟棄時：頁面頂端提示「付款結果可至「📜 我的訂單」查看」一次（不切換畫面、不攔截點擊、不表示付款成敗、背景更新與後續操作不重複）；其他提示顯示中時不覆蓋、待其結束後才顯示",
+    "c5_4_1_unmodified": "FAIL",
+    "timing_fix": "PASS",
+    "timing_fix_fresh_extract": "PASS",
+    "baseline_detail": "{\"once\":{\"ok\":false,\"text\":\"\",\"pe\":\"none\",\"view\":[\"payment\",\"payment\"],\"showEpisodes\":0},\"noOverride\":{\"ok\":false,\"during\":\"測試用：其他錯誤提示\",\"after\":\"測試用：其他錯誤提示\",\"log\":[[689,true,\"測試用：其他錯誤\"],[3690,false,\"測試用：其他錯誤\"]]}}",
+    "timing_fix_detail": "{\"once\":{\"ok\":true,\"text\":\"付款結果可至「📜 我的訂單」查看，請勿重複付款\",\"pe\":\"none\",\"view\":[\"session\",\"session\"],\"showEpisodes\":1},\"noOverride\":{\"ok\":true,\"during\":\"測試用：其他錯誤提示\",\"after\":\"付款結果可至「📜 我的訂單」查看，請勿\",\"log\":[[706,true,\"測試用：其他錯誤\"],[3707,false,\"測試用：其他錯誤\"],[3947,true,\"付款結果可至「\\ud83d\"]]}}",
+    "note": "新增保護：基準沒有此提示；基準失敗的實際原因是舊結果取得畫面（view=payment），不是因為新函式不存在"
+   },
+   {
+    "id": "B1",
+    "class": "DN",
+    "name": "B1 [BR][CLK] 舊成功提示的延遲重填＋新查詢進行中（鍵盤 Enter）：「查詢中…」不被舊成功提示覆蓋",
+    "c5_4_1_unmodified": "FAIL",
+    "timing_fix": "PASS",
+    "timing_fix_fresh_extract": "PASS",
+    "baseline_detail": "{\"busy\":\"查詢中…最後成功查詢：11/16 15:46:21（台灣時間\",\"after\":\"已查詢，付款狀態未變：付款失敗，本次付款未完成最後成功查詢：11/16 15:46:21（台灣時間）\",\"btn\":{\"disabled\":true,\"text\":\"查詢中…\",\"busy\":\"true\"}}",
+    "timing_fix_detail": "{\"busy\":\"查詢中…最後成功查詢：11/16 15:46:22（台灣時間\",\"after\":\"查詢中…最後成功查詢：11/16 15:46:22（台灣時間）\",\"btn\":{\"disabled\":true,\"text\":\"查詢中…\",\"busy\":\"true\"}}"
+   },
+   {
+    "id": "B2",
+    "class": "DN",
+    "name": "B2 [BR][CLK] 舊成功提示的延遲重填＋新查詢快速網路失敗：錯誤提示持續可見（紅色），按鈕可重試且重試會送出新查詢",
+    "c5_4_1_unmodified": "FAIL",
+    "timing_fix": "PASS",
+    "timing_fix_fresh_extract": "PASS",
+    "baseline_detail": "{\"after\":\"已查詢，付款狀態未變：付款失敗，本次付款未完成最後成功查詢：11/16 15:4\",\"tone\":\"info\",\"retrySent\":1}",
+    "timing_fix_detail": "{\"after\":\"網路異常，無法查詢付款狀態。請確認網路連線後，再按「重新查詢付款狀態」。（畫面保\",\"tone\":\"danger\",\"retrySent\":1}"
+   },
+   {
+    "id": "B3",
+    "class": "DN",
+    "name": "B3 [BR][CLK][FN] 舊成功提示的延遲重填＋新查詢被取消（切換帳號）或逾時：保留最新提示，不回到舊成功文案",
+    "c5_4_1_unmodified": "FAIL",
+    "timing_fix": "PASS",
+    "timing_fix_fresh_extract": "PASS",
+    "baseline_detail": "{\"cancel\":{\"ok\":false,\"status\":\"已查詢，付款狀態未變：付款失敗，本次付款未完成最後成功查詢：11/16 15:4\"},\"timeout\":{\"ok\":true,\"status\":\"查詢逾時（12 秒內未取得回應），付款狀態未更新。請確認網路後，再按「重新查詢付\",\"first\":\"查詢逾時（12 秒內未取得回應），付款狀\"}}",
+    "timing_fix_detail": "{\"cancel\":{\"ok\":true,\"status\":\"已切換帳號，先前的查詢已取消。如需最新付款狀態，請再按「重新查詢付款狀態」。最後\"},\"timeout\":{\"ok\":true,\"status\":\"查詢逾時（12 秒內未取得回應），付款狀態未更新。請確認網路後，再按「重新查詢付\",\"first\":\"查詢逾時（12 秒內未取得回應），付款狀\"}}",
+    "note": "子案例 (b) 逾時在基準也通過（30ms 重填先於 12 秒逾時執行，最終仍為逾時提示）；(a) 取消（切換帳號）在基準失敗"
+   },
+   {
+    "id": "B4",
+    "class": "G",
+    "name": "B4 [BR][CLK] 新查詢成功且狀態改變（等待付款→已付款）：時鐘前進後仍保留最新狀態、「已更新」提示與最後查詢時間",
+    "c5_4_1_unmodified": "PASS",
+    "timing_fix": "PASS",
+    "timing_fix_fresh_extract": "PASS",
+    "baseline_detail": "{\"status\":\"已查詢，付款狀態已更新：已付款最後成功查詢：11/16 15:46:26（台灣時間）\",\"state\":\"付款狀態：已付款\"}",
+    "timing_fix_detail": "{\"status\":\"已查詢，付款狀態已更新：已付款最後成功查詢：11/16 15:46:27（台灣時間）\",\"state\":\"付款狀態：已付款\"}",
+    "note": "新畫面重畫後舊重填的節點已脫離頁面，基準也通過（回歸保護）"
+   },
+   {
+    "id": "B5",
+    "class": "G",
+    "name": "B5 [BR][CLK] 無後續操作時，30 毫秒延遲重填照常執行（同內容重寫一次，供朗讀）；role=status／aria-live=polite 保留",
+    "c5_4_1_unmodified": "PASS",
+    "timing_fix": "PASS",
+    "timing_fix_fresh_extract": "PASS",
+    "baseline_detail": "{\"same\":true,\"mutations\":1}",
+    "timing_fix_detail": "{\"same\":true,\"mutations\":1}"
+   },
+   {
+    "id": "Z",
+    "class": "G",
+    "name": "Z 真實 LINE Messaging API 與 LINE Pay 呼叫 0 次；未知 LINE Pay 路徑 0 次；替身核對簽章全部正確",
+    "c5_4_1_unmodified": "PASS",
+    "timing_fix": "PASS",
+    "timing_fix_fresh_extract": "PASS",
+    "baseline_detail": "{\"real\":0,\"unexpected\":0,\"sigBad\":0,\"lineReal\":0,\"lpCalls\":6}",
+    "timing_fix_detail": "{\"real\":0,\"unexpected\":0,\"sigBad\":0,\"lineReal\":0,\"lpCalls\":6}"
+   }
+  ]
+ },
+ "original_19": {
+  "c5_4_1_unmodified": "19/19",
+  "timing_fix": "19/19",
+  "fresh_extract": "19/19",
+  "assertions_changed": false
+ },
+ "regression": {
+  "parallel": "基準與補修版同時段並行",
+  "suites": [
+   {
+    "script": "smoke-r54-4-mbv2-hf1-c5-4-1-timing-fix.js",
+    "c5_4_1_unmodified": "結果：4 通過／7 失敗",
+    "timing_fix": "結果：11 通過／0 失敗",
+    "fresh_extract": "結果：11 通過／0 失敗",
+    "identical_failures": null
+   },
+   {
+    "script": "smoke-r54-4-mbv2-hf1-c5-4-1-popup-payment-status-refresh.js",
+    "c5_4_1_unmodified": "結果：19 通過／0 失敗",
+    "timing_fix": "結果：19 通過／0 失敗",
+    "fresh_extract": "結果：19 通過／0 失敗",
+    "identical_failures": true
+   },
+   {
+    "script": "smoke-r54-4-mbv2-hf1-c5-4-payment-ui-popup.js",
+    "c5_4_1_unmodified": "結果：27 通過／0 失敗",
+    "timing_fix": "結果：27 通過／0 失敗",
+    "fresh_extract": "結果：27 通過／0 失敗",
+    "identical_failures": true
+   },
+   {
+    "script": "smoke-r54-4-mbv2-hf1-c5-3-payment-guard.js",
+    "c5_4_1_unmodified": "RESULT: 25 passed, 0 failed",
+    "timing_fix": "RESULT: 25 passed, 0 failed",
+    "fresh_extract": "RESULT: 25 passed, 0 failed",
+    "identical_failures": true
+   },
+   {
+    "script": "smoke-r54-4-mbv2-hf1-c5-2-payment-recovery.js",
+    "c5_4_1_unmodified": "RESULT: 33 passed, 0 failed",
+    "timing_fix": "RESULT: 33 passed, 0 failed",
+    "fresh_extract": "RESULT: 33 passed, 0 failed",
+    "identical_failures": true
+   },
+   {
+    "script": "run-h1-4-10-phase3-checkout-submit-payment-runtime.js",
+    "c5_4_1_unmodified": "TOTAL=111 PASS=111 FAIL=0",
+    "timing_fix": "TOTAL=111 PASS=111 FAIL=0",
+    "fresh_extract": "TOTAL=111 PASS=111 FAIL=0",
+    "identical_failures": true
+   },
+   {
+    "script": "run-h1-4-10-phase4b-recovery-full-runtime.js",
+    "c5_4_1_unmodified": "TOTAL=168 PASS=168 FAIL=0",
+    "timing_fix": "TOTAL=168 PASS=168 FAIL=0",
+    "fresh_extract": "TOTAL=168 PASS=168 FAIL=0",
+    "identical_failures": true
+   },
+   {
+    "script": "run-h1-4-10-phase4b-recovery-frontend-targeted.js",
+    "c5_4_1_unmodified": "TOTAL=50 PASS=50 FAIL=0",
+    "timing_fix": "TOTAL=50 PASS=50 FAIL=0",
+    "fresh_extract": "TOTAL=50 PASS=50 FAIL=0",
+    "identical_failures": true
+   },
+   {
+    "script": "run-h1-4-10-phase4b-recovery-resume-targeted.js",
+    "c5_4_1_unmodified": "TOTAL=92 PASS=92 FAIL=0",
+    "timing_fix": "TOTAL=92 PASS=92 FAIL=0",
+    "fresh_extract": "TOTAL=92 PASS=92 FAIL=0",
+    "identical_failures": true
+   },
+   {
+    "script": "smoke-h1-4-12-popup-frontend.js",
+    "c5_4_1_unmodified": "PASS: 293  FAIL: 0  TOTAL: 293",
+    "timing_fix": "PASS: 293  FAIL: 0  TOTAL: 293",
+    "fresh_extract": "PASS: 293  FAIL: 0  TOTAL: 293",
+    "identical_failures": true
+   },
+   {
+    "script": "smoke-h1-4-12-popup-real-browser.js",
+    "c5_4_1_unmodified": "PASS: 36  FAIL: 0  TOTAL: 36",
+    "timing_fix": "PASS: 36  FAIL: 0  TOTAL: 36",
+    "fresh_extract": "PASS: 36  FAIL: 0  TOTAL: 36",
+    "identical_failures": true
+   },
+   {
+    "script": "smoke-h1-4-12-popup-public-checkout.js",
+    "c5_4_1_unmodified": "PASS: 1447  FAIL: 0  TOTAL: 1447",
+    "timing_fix": "PASS: 1447  FAIL: 0  TOTAL: 1447",
+    "fresh_extract": null,
+    "identical_failures": true
+   },
+   {
+    "script": "smoke-h1-4-12-popup-checkout-integration.js",
+    "c5_4_1_unmodified": "PASS: 20  FAIL: 0  TOTAL: 20",
+    "timing_fix": "PASS: 20  FAIL: 0  TOTAL: 20",
+    "fresh_extract": null,
+    "identical_failures": true
+   },
+   {
+    "script": "smoke-h1-4-12-popup-recovery-cart-frontend.js",
+    "c5_4_1_unmodified": "PASS: 67  FAIL: 0  TOTAL: 67",
+    "timing_fix": "PASS: 67  FAIL: 0  TOTAL: 67",
+    "fresh_extract": null,
+    "identical_failures": true
+   },
+   {
+    "script": "smoke-h1-4-12-popup-state.js",
+    "c5_4_1_unmodified": "PASS: 94  FAIL: 0  TOTAL: 94",
+    "timing_fix": "PASS: 94  FAIL: 0  TOTAL: 94",
+    "fresh_extract": null,
+    "identical_failures": true
+   },
+   {
+    "script": "smoke-r48-popup-order-ui-browser.js",
+    "c5_4_1_unmodified": "R48 SMOKE SUMMARY — PASS: 10  FAIL: 3  TOTAL: 13",
+    "timing_fix": "R48 SMOKE SUMMARY — PASS: 10  FAIL: 3  TOTAL: 13",
+    "fresh_extract": null,
+    "identical_failures": true
+   }
+  ],
+  "r48_note": "smoke-r48-popup-order-ui-browser 在兩棵樹皆 10 通過／3 失敗，失敗項目逐項相同（場次頁頁首按鈕 40px、sticky 元素、捲動逾時；C5.4.1 前即存在）。此腳本會攔截 console.log，以 repo 外 preload 固定輸出後比較"
+ },
+ "fresh_extract": {
+  "candidate_sha256": "17845a34b6706b107a673cf24a84c90d25e50a033af18abea05e685378e463b1",
+  "candidate_files": 978,
+  "candidate_entries": 1022,
+  "steps": "全新解壓 → npm ci（476 packages）→ 空資料庫 node server.js：/api/health 200、/popup-order 200、line-order.html 含補修函式 → 時序 11 項、原 19 項及主要回歸"
+ }
+}

@@ -2407,8 +2407,9 @@ function resolvePopupEntryContext(){
 // popup 專用 fetch：刻意不經過 apiFetch()（不自動帶 LINE_STORE_ID／不會
 // fallback store_001）。只有 store-entry 這一種入口本身就需要明確
 // store_id 時，才由呼叫端自己把已驗證過的 popupStoreId 組進 URL。
-function popupApiFetch(url){
-  return fetch(url, { headers:{ 'Content-Type':'application/json' } });
+// C5.4.1：extra 為選用（目前只有快閃付款狀態查詢帶 cache／signal）；未帶時行為與先前完全相同。
+function popupApiFetch(url, extra){
+  return fetch(url, Object.assign({ headers:{ 'Content-Type':'application/json' } }, extra||{}));
 }
 
 // H1.4.12 Phase 3B（Popup Recovery Storage Verification 修正）：最小 storage
@@ -4231,8 +4232,11 @@ function popupSafeLinePayUrl(u){
   try{ const x=new URL(String(u)); return (x.protocol==='https:' && /(^|\.)line\.me$/.test(x.hostname)) ? x.href : null; }catch(e){ return null; }
 }
 // 線上付款待付款／結果畫面（資料來源：checkout response 或 server status）。
-function renderPopupPaymentScreen(order, pay, notice){
+function renderPopupPaymentScreen(order, pay, notice, opts){
   popupArmGhostGuard();
+  // C5.4.1：畫面已被替換 → 進行中的付款狀態查詢一律作廢（晚到回應不得覆蓋新畫面）。
+  const prevView=_popupPayView;
+  popupPayInvalidateStatusQuery(null, true);
   const root=popupRootEl();
   root.textContent='';
   popupSetView(root,'payment');
@@ -4279,13 +4283,26 @@ function renderPopupPaymentScreen(order, pay, notice){
     cash.addEventListener('click', ()=>{ popupSwitchToCash(ref, cash, err); });
     nav.appendChild(cash);
   }
+  let refreshBtn=null;
   if(ref){
     const re=popupEl('button','popup-order-btn','重新查詢付款狀態');
     re.type='button'; re.id='popupPayRefreshBtn'; re.setAttribute('data-variant','secondary');
-    re.addEventListener('click', ()=>{ popupHandlePaymentReturn(ref); });
+    re.addEventListener('click', ()=>{ popupRefreshPaymentStatus(ref); });
     nav.appendChild(re);
+    refreshBtn=re;
   }
   card.appendChild(nav);
+  // C5.4.1：查詢回饋區（緊接在按鈕下方、不覆蓋付款資訊）：查詢中／完成／錯誤，以及最後成功查詢時間。
+  const status=popupEl('div','popup-order-notice popup-order-pay-refresh-status');
+  status.id='popupPayRefreshStatus'; status.setAttribute('role','status'); status.setAttribute('aria-live','polite');
+  status.hidden=true;
+  card.appendChild(status);
+  const lastOkAt=(opts && Object.prototype.hasOwnProperty.call(opts,'lastOkAt')) ? opts.lastOkAt
+    : ((prevView && ref && prevView.ref===ref) ? prevView.lastOkAt : null);
+  _popupPayView={ el:wrap, card, ref:ref||null, btn:refreshBtn, status, sig:popupPaySig(pay, state), state,
+    label:(pay && pay.state_label) || '付款狀態確認中', hasTrusted:!!(order && order.order_number), lastOkAt:lastOkAt||null, busy:false, ctrl:null, hadFocus:false };
+  if(opts && opts.feedback) popupPayShowFeedback(_popupPayView, opts.feedback.tone, opts.feedback.text, true);
+  else if(_popupPayView.lastOkAt) popupPayShowFeedback(_popupPayView, 'info', '', true);
   const keep=popupEl('p','popup-order-notice popup-order-save-reminder','請記下訂單編號；重新整理此頁不會重複下單或重複扣款。');
   keep.setAttribute('data-tone','info');
   card.appendChild(keep);
@@ -4328,20 +4345,212 @@ async function popupSwitchToCash(ref, btn, errEl){
   }catch(e){ errEl.textContent='網路異常，請稍後再試一次。'; }
   finally{ btn.disabled=false; }
 }
+// C5.4：付款結果確認中／待退款不使用成功或失敗的文案，也不提供再次付款
+function popupPayStateNotice(d){
+  const notices={ paid:'付款成功，訂單已成立。', payment_failed:'付款失敗，本次付款未完成（未扣款）。', payment_expired:'付款已逾時（未扣款），訂單已取消並釋放名額。', cancelled:'訂單已取消。', refund_pending:'此訂單已取消，款項已收到，店家將處理退款。請勿重複付款。', refunded:'已退款。',
+    payment_under_review:(d.order_status==='cancelled'?'付款結果確認中，請勿重複付款。付款期限已過，訂單已取消並釋放名額；若之後確認已付款，店家會處理退款。':'付款結果確認中，請勿重複付款。店家確認後會更新付款狀態，可稍後重新查詢。') };
+  return notices[d.state]||null;
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// R54.4／MBV2-HF1-C5.4.1：付款狀態查詢（首次付款返回與「重新查詢付款狀態」共用同一支唯讀查詢）。
+// - 只呼叫既有 GET /popup-payment/status（唯讀）；不建立訂單／付款、不送 Confirm、不改付款方式。
+// - 查詢序號 _popupPayStatusSeq：每次新查詢或付款畫面重畫都會遞增；回應只有在「序號仍是最新、
+//   仍是同一個付款畫面（未被切換／離開）、回應付款識別＝本次查詢」時才套用。
+// - 等待上限 POPUP_PAY_STATUS_TIMEOUT_MS（只用於本顧客端查詢，不影響 LINE Pay Request／Confirm／恢復模組）。
+// - 錯誤、逾時、格式不符：保留畫面上既有的可信資料，只更新查詢回饋區；不推定未付款、不開放改現金／再次付款。
+// - 最後查詢時間＝瀏覽器成功取得狀態的時刻（以台灣時間顯示）；不是付款時間，也不是付款成功的證據。
+// ══════════════════════════════════════════════════════════════════════
+const POPUP_PAY_STATUS_TIMEOUT_MS=12000;
+let _popupPayView=null;
+let _popupPayStatusSeq=0;
+function popupPaySig(pay, state){
+  const p=pay||{};
+  return [state, p.method||'', p.can_pay===true, p.can_switch_to_cash===true, p.under_review===true, p.order_status||''].join('|');
+}
+function popupFormatTaipeiTime(ms){
+  // 台灣無日光節約時間：固定 UTC+8，不依裝置時區。
+  const d=new Date(Number(ms)+8*3600e3);
+  if(isNaN(d.getTime())) return '';
+  const p=(n)=>String(n).padStart(2,'0');
+  return `${p(d.getUTCMonth()+1)}/${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`;
+}
+function popupPayShowFeedback(view, tone, text, deferAnnounce){
+  if(!view || !view.status) return;
+  const st=view.status;
+  // C5.4.1 補修：每次寫入提示都遞增版本；延遲重填只在「版本未變、仍是目前付款畫面」時才寫入，
+  // 避免較舊的成功提示覆蓋較新的查詢中／錯誤／逾時／帳號切換提示。
+  const ver=(view.fbVer=(view.fbVer||0)+1);
+  const fill=()=>{
+    st.textContent='';
+    if(text) st.appendChild(popupEl('span','popup-order-pay-refresh-msg',text));
+    if(view.lastOkAt){
+      const sub=popupEl('span','popup-order-notice-sub popup-order-pay-last-checked',`最後成功查詢：${popupFormatTaipeiTime(view.lastOkAt)}（台灣時間）`);
+      sub.setAttribute('data-testid','popup-payment-last-checked');
+      st.appendChild(sub);
+    }
+    st.setAttribute('data-tone', tone||'info');
+    st.hidden=!st.childNodes.length;
+  };
+  fill();
+  // 新插入的 live region 內容不一定被朗讀：重畫後立即填入（版面高度不變、捲動位置不跳動），
+  // 下一輪再以相同內容重填一次，讓輔助科技朗讀。
+  if(deferAnnounce) setTimeout(()=>{ if(st.isConnected && view.fbVer===ver && _popupPayView===view && view.el.isConnected) fill(); }, 30);
+}
+function popupPaySetBusy(view, busy){
+  view.busy=busy;
+  const b=view.btn;
+  if(b && b.isConnected){
+    b.disabled=busy;
+    b.textContent=busy ? '查詢中…' : '重新查詢付款狀態';
+    if(busy) b.setAttribute('aria-busy','true'); else b.removeAttribute('aria-busy');
+    if(!busy && view.hadFocus){ try{ b.focus({ preventScroll:true }); }catch(e){} }
+  }
+  if(view.card && view.card.isConnected){ if(busy) view.card.setAttribute('aria-busy','true'); else view.card.removeAttribute('aria-busy'); }
+}
+// 作廢進行中的查詢（付款畫面重畫、切換帳號）：晚到的回應因序號不符被丟棄。
+function popupPayInvalidateStatusQuery(feedbackText, replacing){
+  _popupPayStatusSeq++;
+  const v=_popupPayView;
+  if(v) v.fbVer=(v.fbVer||0)+1; // C5.4.1 補修：作廢時舊的延遲提示一併失效
+  if(v && v.busy){
+    try{ if(v.ctrl) v.ctrl.abort(); }catch(e){}
+    v.ctrl=null;
+    if(!replacing && v.el.isConnected){ popupPaySetBusy(v,false); if(feedbackText) popupPayShowFeedback(v,'wait',feedbackText); }
+    else v.busy=false;
+  }
+}
+// 唯讀查詢一次：{ ok:true, data } 或 { ok:false, kind:'timeout'|'network'|'http'|'format'|'app'|'mismatch' }
+async function popupFetchPaymentStatus(token, ref, onCtrl){
+  const ctrl=(typeof AbortController==='function') ? new AbortController() : null;
+  if(onCtrl) onCtrl(ctrl);
+  let timedOut=false;
+  let timer=null;
+  const timeout=new Promise((resolve)=>{ timer=setTimeout(()=>{ timedOut=true; try{ if(ctrl) ctrl.abort(); }catch(e){} resolve({ ok:false, kind:'timeout' }); }, POPUP_PAY_STATUS_TIMEOUT_MS); });
+  const work=(async ()=>{
+    let res;
+    try{
+      // 只針對付款狀態查詢略過瀏覽器 HTTP 快取，避免拿到舊狀態。
+      res=await popupApiFetch('/api/line-orders/popup-payment/status?token='+encodeURIComponent(token), { cache:'no-store', signal: ctrl ? ctrl.signal : undefined });
+    }catch(e){ return { ok:false, kind: timedOut ? 'timeout' : 'network' }; }
+    if(!res || !res.ok) return { ok:false, kind:'http', status: res ? res.status : 0 };
+    let json;
+    try{ json=await res.json(); }catch(e){ return { ok:false, kind: timedOut ? 'timeout' : 'format' }; }
+    if(!json || typeof json!=='object' || json.success!==true) return { ok:false, kind:'app' };
+    const d=json.data;
+    if(!d || typeof d!=='object' || typeof d.state!=='string' || typeof d.state_label!=='string') return { ok:false, kind:'format' };
+    if(d.ref!==ref) return { ok:false, kind:'mismatch' };
+    return { ok:true, data:d };
+  })();
+  try{ return await Promise.race([work, timeout]); }
+  finally{ clearTimeout(timer); }
+}
+function popupPayErrorText(kind){
+  if(kind==='timeout') return `查詢逾時（${Math.round(POPUP_PAY_STATUS_TIMEOUT_MS/1000)} 秒內未取得回應），付款狀態未更新。請確認網路後，再按「重新查詢付款狀態」。`;
+  if(kind==='network') return '網路異常，無法查詢付款狀態。請確認網路連線後，再按「重新查詢付款狀態」。';
+  if(kind==='mismatch') return '查詢結果與此筆付款不符，未套用。請再按「重新查詢付款狀態」；仍無法查詢請洽店家。';
+  return '暫時無法取得付款狀態。請稍後再按「重新查詢付款狀態」；仍無法查詢請以訂單編號洽店家。';
+}
+
+// C5.4.1 補修：首次付款返回的查詢期間，使用者在頁面上「實質操作」（對按鈕、連結、輸入欄位、選單等互動元件的
+// 真實點擊、鍵盤啟動或輸入）會遞增流程世代並中止該查詢；回應（成功、失敗、逾時）一律不再取得畫面控制權。
+// 只在查詢進行中掛上監聽（capture），結束即移除；捲動、程式初始化、背景更新（非使用者事件）都不計入。
+let _popupUserFlowGen=0;
+let _popupPayReturnCtrl=null;
+const POPUP_FLOW_CONTROL_SEL='button, a[href], input, select, textarea, label, summary, [role="button"], [role="tab"], [role="option"], [role="checkbox"], [contenteditable="true"]';
+function popupNoteUserFlowAction(ev){
+  if(!ev || ev.isTrusted!==true) return;
+  if(ev.type==='keydown' && ev.key!=='Enter' && ev.key!==' ' && ev.key!=='Spacebar') return;
+  const t=ev.target;
+  if(!t || typeof t.closest!=='function' || !t.closest(POPUP_FLOW_CONTROL_SEL)) return;
+  _popupUserFlowGen++;
+  try{ if(_popupPayReturnCtrl) _popupPayReturnCtrl.abort(); }catch(e){}
+}
+const POPUP_FLOW_EVENTS=['click','input','change','keydown'];
+let _popupFlowWatchers=0;
+function popupFlowWatch(on){
+  if(on){ if(_popupFlowWatchers++===0) POPUP_FLOW_EVENTS.forEach((t)=>document.addEventListener(t, popupNoteUserFlowAction, true)); }
+  else if(_popupFlowWatchers>0 && --_popupFlowWatchers===0) POPUP_FLOW_EVENTS.forEach((t)=>document.removeEventListener(t, popupNoteUserFlowAction, true));
+}
+// C5.4.1 補修：舊付款返回結果因使用者已開始其他操作而被丟棄時，以既有 #toast（頁面頂端、不攔截點擊、
+// 不切換畫面）提示查詢入口一次。內容只提供查詢入口，不表示付款成功或失敗。
+// - 同一付款識別在本頁只提示一次。
+// - #toast 正在顯示其他訊息（例如錯誤）時不覆蓋，等它結束後再顯示；最多等 10 秒，逾時則不顯示。
+const _popupPayReturnNoticeShown=new Set();
+function popupPayReturnDiscardNotice(ref){
+  if(!ref || _popupPayReturnNoticeShown.has(ref)) return;
+  _popupPayReturnNoticeShown.add(ref);
+  const msg='付款結果可至「📜 我的訂單」查看，請勿重複付款';
+  const t0=Date.now();
+  const tryShow=()=>{
+    const el=document.getElementById('toast');
+    if(!el || typeof toast!=='function') return;
+    if(el.classList.contains('show')){ if(Date.now()-t0<10000) setTimeout(tryShow, 400); return; }
+    try{ toast(msg, 4500); }catch(e){}
+  };
+  tryShow();
+}
+// 首次付款返回（網址帶 popup_pay_ref）：尚未取得結果時維持中性的確認中說明，不顯示「已查詢」等成功回饋。
 async function popupHandlePaymentReturn(ref){
   const token=popupRecallPayToken(ref);
   if(!token){ renderPopupPaymentScreen(null, { state:'unknown', state_label:'付款狀態確認中' }, '此瀏覽器找不到付款憑證，請以訂單編號洽店家確認。'); return; }
+  const seq=++_popupPayStatusSeq;
+  const sessionAtStart=popupSession && popupSession.public_code;
+  const flowAtStart=_popupUserFlowGen;
+  popupFlowWatch(true);
+  let ctrl=null;
+  let out;
   try{
-    const res=await popupApiFetch('/api/line-orders/popup-payment/status?token='+encodeURIComponent(token));
-    const json=await res.json().catch(()=>({}));
-    if(!json || !json.success || !json.data){ renderPopupPaymentScreen(null, { state:'unknown', state_label:'付款狀態確認中', ref }, '暫時無法取得付款狀態，請稍後再查詢。'); return; }
-    const d=json.data;
-    // C5.4：付款結果確認中／待退款不使用成功或失敗的文案，也不提供再次付款
-    const notices={ paid:'付款成功，訂單已成立。', payment_failed:'付款失敗，本次付款未完成（未扣款）。', payment_expired:'付款已逾時（未扣款），訂單已取消並釋放名額。', cancelled:'訂單已取消。', refund_pending:'此訂單已取消，款項已收到，店家將處理退款。請勿重複付款。', refunded:'已退款。',
-      payment_under_review:(d.order_status==='cancelled'?'付款結果確認中，請勿重複付款。付款期限已過，訂單已取消並釋放名額；若之後確認已付款，店家會處理退款。':'付款結果確認中，請勿重複付款。店家確認後會更新付款狀態，可稍後重新查詢。') };
-    renderPopupPaymentScreen(d, d, notices[d.state]||null);
-  }catch(e){
-    renderPopupPaymentScreen(null, { state:'unknown', state_label:'付款狀態確認中', ref }, '網路異常，請稍後再查詢付款狀態。');
+    out=await popupFetchPaymentStatus(token, ref, (c)=>{ ctrl=c; _popupPayReturnCtrl=c; });
+  }finally{
+    if(_popupPayReturnCtrl===ctrl) _popupPayReturnCtrl=null;
+    popupFlowWatch(false);
+  }
+  // 期間已顯示其他付款畫面、已切換到其他場次、或使用者已開始其他操作 → 舊回應不覆蓋目前畫面。
+  if(seq!==_popupPayStatusSeq || (popupSession && popupSession.public_code)!==sessionAtStart) return;
+  if(_popupUserFlowGen!==flowAtStart){ popupPayReturnDiscardNotice(ref); return; }
+  if(!out.ok){
+    const msg=out.kind==='timeout' ? '查詢逾時，尚未取得付款結果。請勿重複付款，稍後再按「重新查詢付款狀態」。'
+      : (out.kind==='network' ? '網路異常，請稍後再查詢付款狀態。' : '暫時無法取得付款狀態，請稍後再查詢。');
+    renderPopupPaymentScreen(null, { state:'unknown', state_label:'付款狀態確認中', ref }, msg);
+    return;
+  }
+  const d=out.data;
+  renderPopupPaymentScreen(d, d, popupPayStateNotice(d), { lastOkAt:Date.now() });
+}
+
+// 「重新查詢付款狀態」按鈕：查詢中提示＋停用、完成回饋、錯誤／逾時保留畫面。
+async function popupRefreshPaymentStatus(ref){
+  const view=_popupPayView;
+  if(!view || view.ref!==ref || !view.el.isConnected || view.busy) return; // 進行中再點：不重送
+  view.hadFocus=!!(view.btn && document.activeElement===view.btn);
+  const token=popupRecallPayToken(ref);
+  if(!token){
+    popupPayShowFeedback(view,'danger','此瀏覽器找不到付款憑證，無法查詢付款狀態。請記下上方訂單編號，用「📜 我的訂單」或「🔍 查詢訂單」查看，或洽店家確認；請勿重複付款。');
+    return;
+  }
+  const seq=++_popupPayStatusSeq;
+  popupPaySetBusy(view,true);
+  popupPayShowFeedback(view,'wait','查詢中…');
+  const out=await popupFetchPaymentStatus(token, ref, (c)=>{ view.ctrl=c; });
+  // 晚到／已作廢的回應：完全不碰畫面（含按鈕），因為畫面或查詢可能已被替換。
+  if(seq!==_popupPayStatusSeq || _popupPayView!==view || !view.el.isConnected) return;
+  view.ctrl=null;
+  if(!out.ok){
+    popupPaySetBusy(view,false);
+    popupPayShowFeedback(view,'danger',popupPayErrorText(out.kind)+(view.hasTrusted ? '（畫面保留上次取得的付款資訊）' : ''));
+    return;
+  }
+  const d=out.data;
+  const changed=popupPaySig(d, d.state)!==view.sig;
+  const text=changed ? `已查詢，付款狀態已更新：${d.state_label}` : `已查詢，付款狀態未變：${d.state_label}`;
+  const y=window.pageYOffset||0;
+  const hadFocus=view.hadFocus;
+  renderPopupPaymentScreen(d, d, popupPayStateNotice(d), { lastOkAt:Date.now(), feedback:{ tone: d.state==='payment_under_review' ? 'wait' : 'info', text } });
+  try{ popupScrollToY(y); }catch(e){}
+  if(hadFocus){
+    const nb=_popupPayView && _popupPayView.btn;
+    try{ if(nb) nb.focus({ preventScroll:true }); else { const h=document.getElementById('popupStepHeading-done'); if(h) h.focus({ preventScroll:true }); } }catch(e){}
   }
 }
 
@@ -4853,6 +5062,8 @@ function popupLookupRenderList(){
 async function popupLookupSwitchAccount(){
   const t=popupLookupLoadToken();
   popupLookupSaveToken(null);
+  // C5.4.1：切換帳號時作廢進行中的付款狀態查詢（舊回應不套用）。
+  popupPayInvalidateStatusQuery('已切換帳號，先前的查詢已取消。如需最新付款狀態，請再按「重新查詢付款狀態」。');
   _popupLookup.orders=[]; _popupLookup.total=0;
   try{ if(t) await popupApiPost('/api/line-orders/popup-orders/logout', { token:t }); }catch(e){}
   popupLookupRenderForm('history');
