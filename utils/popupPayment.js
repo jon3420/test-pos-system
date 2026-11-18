@@ -74,6 +74,8 @@ function ensurePopupPaymentSchema(db) {
   _ensureCbHashColumn(raw);
   // R54.4／MBV2-HF1-C5.4：付款處理階段、待核對與歷史隔離欄位（additive、idempotent）
   require('./popupPaymentRecovery').migrate(raw);
+  // R54.4／MBV2-HF1-C5.4.2：快閃訂單台北更新時間觸發器（付款表在執行中才建立時補建；只在缺少時建立）
+  try { require('./popupOrderTime').ensure(raw); } catch (e) { /* 啟動遷移會再建立；不影響付款流程 */ }
   _schemaReady.add(raw);
 }
 // R51：每次 LINE Pay request 的一次性 callback nonce（只存 SHA-256）。舊表補欄位，可重複執行；
@@ -427,14 +429,55 @@ function findAttemptById(db, attemptId) {
   return db.get('SELECT * FROM popup_payment_attempts WHERE attempt_id=?', [attemptId]);
 }
 
-// 釋放：取消訂單＋釋放份數（只在 attempt 單次轉態成功後呼叫；release 本身也是冪等）。
+// ══════════════════════════════════════════════════════════════════════
+// R54.4／MBV2-HF1-C5.4.2 補修：整單付款防護（同店、同張訂單的「全部」付款紀錄）
+//   付款摘要、建立付款（Request）、送出第一次 Confirm、改用現金、到期／失敗後的取消與釋放名額，
+//   一律先以本函式判斷整張訂單；不能只看目前選取的付款紀錄。可在交易內以 raw 連線使用（重新讀取資料庫）。
+//   回傳 null＝沒有阻擋；否則 { code }：
+//     refunded       已退款
+//     refund_pending 已付款・待退款（訂單 refund_status 或任一筆 paid_cancelled）
+//     paid           已付款（訂單 payment_status 或任一筆 paid）
+//     under_review   任一筆付款結果不明：review、confirm_pending、或 pending 但處理階段為 sent／unknown（可能已請款）
+// ══════════════════════════════════════════════════════════════════════
+function _rawAll(raw, sql, params) { const st = raw.prepare(sql); try { if (params) st.bind(params); const out = []; while (st.step()) out.push(st.getAsObject()); return out; } finally { st.free(); } }
+const isUnresolvedAttempt = (a) => !!a && (a.status === 'review' || a.status === 'confirm_pending'
+  || (a.status === 'pending' && (a.confirm_state === 'sent' || a.confirm_state === 'unknown')));
+function orderPaymentBlock(raw, storeId, orderId) {
+  const o = _rawAll(raw, 'SELECT payment_status, refund_status FROM orders WHERE id=? AND store_id=?', [String(orderId), storeId])[0] || null;
+  let list = [];
+  try { list = _rawAll(raw, 'SELECT * FROM popup_payment_attempts WHERE store_id=? AND order_id=?', [storeId, String(orderId)]); } catch (e) { list = []; }
+  if (o && o.refund_status === 'refunded') return { code: 'refunded' };
+  if ((o && o.refund_status === 'pending_refund') || list.some((a) => a.status === 'paid_cancelled')) return { code: 'refund_pending' };
+  if ((o && o.payment_status === 'paid') || list.some((a) => a.status === 'paid')) return { code: 'paid' };
+  const u = list.find(isUnresolvedAttempt);
+  if (u) return { code: 'under_review', attempt_id: u.attempt_id };
+  return null;
+}
+const BLOCK_ERRORS = {
+  under_review: ['POPUP_PAYMENT_UNDER_REVIEW', '付款結果確認中，請勿改用其他付款方式或重複付款'],
+  paid: ['POPUP_PAYMENT_ALREADY_PAID', '此訂單已付款，無需再付款或改用其他付款方式'],
+  refund_pending: ['POPUP_PAYMENT_NOT_PAYABLE', '此訂單已付款並進入退款處理，無法再付款或改用其他付款方式'],
+  refunded: ['POPUP_PAYMENT_NOT_PAYABLE', '此訂單已退款，無法再付款或改用其他付款方式'],
+};
+function orderBlockError(b) { const e = BLOCK_ERRORS[b.code] || BLOCK_ERRORS.under_review; return new PopupPaymentError(e[0], e[1], 409, { block: b.code }); }
+// 單筆付款嘗試的狀態 → 整單付款狀態（整單證據優先：退款 > 待退款 > 已付款 > 結果確認中）
+const BLOCK_STATE = { refunded: 'refunded', refund_pending: 'refund_pending', paid: 'paid', under_review: 'payment_under_review' };
+function orderLevelState(attemptState, block) { return block ? (BLOCK_STATE[block.code] || attemptState) : attemptState; }
+
+// 付款紀錄已確定未付款／逾時後關閉訂單：取消訂單並釋放名額（只在 attempt 單次轉態成功後呼叫；release 本身也是冪等）。
+//   C5.4.2 補修：同單已有可信的已付款／退款證據 → 不取消、不釋放（較新一筆失敗不能推翻已付款）；
+//   同單仍有結果不明的付款 → 取消履約與釋放名額照舊，但付款狀態維持 pending（不宣告未付款，由核對結果決定）；
+//   訂單付款狀態已不是 pending（UPDATE 沒有改到列）→ 不釋放。
 function _cancelOrderAndRelease(db, attempt, paymentStatus) {
   const { releasePopupOrderAllocations } = require('./popupCheckout');
+  const blk = orderPaymentBlock(db._db, attempt.store_id, attempt.order_id);
+  if (blk && blk.code !== 'under_review') return 0;
   db._db.run(
     `UPDATE orders SET order_status='cancelled', payment_status=?, updated_at=datetime('now','localtime')
      WHERE id=? AND store_id=? AND payment_status='pending'`,
-    [paymentStatus, attempt.order_id, attempt.store_id]
+    [blk ? 'pending' : paymentStatus, attempt.order_id, attempt.store_id]
   );
+  if (db._db.getRowsModified() !== 1) return 0;
   return releasePopupOrderAllocations(db, attempt.store_id, attempt.order_id, attempt.session_id);
 }
 
@@ -503,6 +546,16 @@ function switchFailedAttemptToCash(db, attempt) {
   const order = db.get('SELECT * FROM orders WHERE id=? AND store_id=?', [attempt.order_id, attempt.store_id]);
   if (!order || order.order_status === 'cancelled' || order.payment_status !== 'pending') pfail('POPUP_PAYMENT_FALLBACK_NOT_ALLOWED', '此訂單已無法改用現金', 409);
   db.runDurableTransaction(() => {
+    // C5.4.2 補修：在實際異動的交易邊界重新讀取並驗證（不使用進入函式前的狀態）——本筆、訂單與同單全部付款紀錄
+    const raw = db._db;
+    const a = _rawAll(raw, 'SELECT * FROM popup_payment_attempts WHERE attempt_id=? AND store_id=?', [attempt.attempt_id, attempt.store_id])[0];
+    if (!a) pfail('POPUP_PAYMENT_NOT_FOUND', '找不到此付款', 404);
+    if (a.status === 'review' || a.status === 'confirm_pending') pfail('POPUP_PAYMENT_UNDER_REVIEW', '付款結果確認中，請勿改用其他付款方式或重複付款', 409);
+    if (a.status !== 'failed' || !String(a.failure_basis || '')) pfail('POPUP_PAYMENT_FALLBACK_NOT_ALLOWED', '目前付款狀態無法改用現金', 409);
+    const o = _rawAll(raw, 'SELECT order_status, payment_status FROM orders WHERE id=? AND store_id=?', [a.order_id, a.store_id])[0];
+    if (!o || o.order_status === 'cancelled' || o.payment_status !== 'pending') pfail('POPUP_PAYMENT_FALLBACK_NOT_ALLOWED', '此訂單已無法改用現金', 409);
+    const blk = orderPaymentBlock(raw, a.store_id, a.order_id);
+    if (blk) throw orderBlockError(blk);
     db._db.run("UPDATE popup_payment_attempts SET status='cancelled', fail_reason='switched_to_cash', updated_at=datetime('now','localtime') WHERE attempt_id=? AND status='failed' AND COALESCE(failure_basis,'')<>''", [attempt.attempt_id]);
     if (db._db.getRowsModified() !== 1) pfail('POPUP_PAYMENT_FALLBACK_NOT_ALLOWED', '目前付款狀態無法改用現金', 409);
     db._db.run("UPDATE orders SET payment_method='cash', payment_category='cash', updated_at=datetime('now','localtime') WHERE id=? AND store_id=? AND payment_status='pending'", [attempt.order_id, attempt.store_id]);
@@ -520,6 +573,8 @@ function derivePopupPaymentState(order, attempt) {
   if (order.payment_status === 'paid' || (attempt && attempt.status === 'paid')) return 'paid';
   // C5.4：結果不明（已送出或可能已送出 Confirm）→ 確認中，不顯示逾時或失敗
   if (attempt && (attempt.status === 'review' || attempt.status === 'confirm_pending')) return 'payment_under_review';
+  // C5.4.2：處理階段不明（舊版可能已送出 Confirm）的 pending 同屬結果不明（linepay-request 亦拒絕重新付款）
+  if (attempt && attempt.status === 'pending' && (attempt.confirm_state === 'unknown' || attempt.confirm_state === 'sent')) return 'payment_under_review';
   if (attempt && attempt.status === 'aborted_cancelled') return 'cancelled';
   if (attempt && attempt.status === 'expired') return 'payment_expired';
   if (attempt && attempt.status === 'failed') return 'payment_failed';
@@ -544,4 +599,6 @@ module.exports = {
   issueCallbackNonce, verifyAttemptCallback, canonicalPublicBase, publicBaseStatus, liveBaseProblem, resolvePaymentReturnBase, paymentDiagnostics, LEGACY_SYSTEM_HOSTS,
   createAttemptInTransaction, findAttemptByToken, findAttemptById, reconcileExpiredPopupPayments,
   markAttemptFailed, markAttemptPaid, switchFailedAttemptToCash, derivePopupPaymentState, stateLabel,
+  // C5.4.2 補修：整單付款防護
+  isUnresolvedAttempt, orderPaymentBlock, orderBlockError, orderLevelState, closeOrderAfterAttempt: _cancelOrderAndRelease,
 };

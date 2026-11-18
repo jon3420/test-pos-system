@@ -20,6 +20,9 @@
 //   refunded             已退款
 //   not_charged_cancelled 訂單已取消・未付款
 //   offline_pending      待店家確認收款（轉帳、平台付款等非線上方式）
+//
+// C5.4.2：快閃訂單另附 establishment／establishment_label／established／fulfillment／fulfillment_label
+//   （utils/popupOrderStatus.derive；成立、付款、履約分開）。一般訂單輸出不變。
 'use strict';
 
 const LABELS = {
@@ -61,9 +64,8 @@ function lineAttempts(db, storeId, orderUuid) {
 }
 function popupAttempts(db, storeId, orderId) {
   if (orderId == null || !_hasTable(db, 'popup_payment_attempts')) return [];
-  try {
-    return db.all('SELECT status, fail_reason, created_at, rowid AS rid FROM popup_payment_attempts WHERE store_id=? AND order_id=? ORDER BY created_at ASC, rowid ASC', [storeId, String(orderId)]);
-  } catch { return []; }
+  // C5.4.2：與 utils/popupOrderStatus.loadAttempts 相同（含處理階段，供成立判定與歷史時間判讀共用）
+  return require('./popupOrderStatus').loadAttempts(db, { id: orderId, store_id: storeId });
 }
 
 // 核心判斷（純函式）：order＋付款嘗試清單（依建立先後排序）＋通路
@@ -78,7 +80,8 @@ function derive(order, attempts, channel) {
   const list = Array.isArray(attempts) ? attempts : [];
   const anyPaid = list.some((a) => paidSet.has(a.status));
   const anyPaidCancelled = list.some((a) => paidCancelledSet.has(a.status));
-  const anyOpen = list.some((a) => open.has(a.status));
+  // C5.4.2（快閃）：處理階段不明（舊版可能已送出 Confirm）的 pending 與待核對相同——不能顯示為可再付款的未付款
+  const anyOpen = list.some((a) => open.has(a.status) || (channel === 'popup' && a.status === 'pending' && (a.confirm_state === 'unknown' || a.confirm_state === 'sent')));
   const latest = list.length ? list[list.length - 1] : null;
   const cancelled = isCancelled(o);
   let state;
@@ -115,15 +118,25 @@ function derive(order, attempts, channel) {
   };
 }
 
+function popupEstablishment(order, attempts) {
+  const st = require('./popupOrderStatus').derive(order, attempts);
+  return { establishment: st.establishment, establishment_label: st.establishment_label, established: st.established,
+    fulfillment: st.fulfillment, fulfillment_label: st.fulfillment_label };
+}
 function computePaymentDisplay(db, storeId, order) {
   if (!order) return null;
   const isPopup = String(order.pickup_type || '') === 'popup';
   try {
     const attempts = isPopup ? popupAttempts(db, storeId, order.id) : lineAttempts(db, storeId, order.uuid);
-    return derive(order, attempts, isPopup ? 'popup' : 'line');
+    const out = derive(order, attempts, isPopup ? 'popup' : 'line');
+    // C5.4.2：快閃訂單附上後端統一成立判定（後台訂單、LINE 預購管理與顧客端使用同一份判定）
+    if (isPopup) Object.assign(out, popupEstablishment(order, attempts));
+    return out;
   } catch (e) {
     // 讀取失敗時不推定任何結果：以訂單本身的付款欄位判斷（仍不會把不明顯示成成功）
-    return derive(order, [], isPopup ? 'popup' : 'line');
+    const out = derive(order, [], isPopup ? 'popup' : 'line');
+    if (isPopup) { try { Object.assign(out, popupEstablishment(order, [])); } catch (e2) { /* 不推定 */ } }
+    return out;
   }
 }
 

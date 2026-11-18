@@ -332,6 +332,8 @@ function batchWhere(storeId, q) {
   if (q.product_id != null && q.product_id !== '' && Number.isInteger(Number(q.product_id))) { where.push('b.product_id=?'); params.push(Number(q.product_id)); }
   if (q.mode === 'takeout' || q.mode === 'delivery') { where.push('b.fulfillment_mode=?'); params.push(q.mode); }
   if (q.batch_uuid && UUID_RE.test(String(q.batch_uuid))) { where.push('b.batch_uuid=?'); params.push(String(q.batch_uuid)); }
+  // C6：手動／自動來源篩選（口徑相同，只是分開檢視；舊批次沒有欄位值時視為手動）
+  if (q.source === 'manual' || q.source === 'auto') { where.push("COALESCE(b.source,'manual')=?"); params.push(q.source); }
   return { where: where.join(' AND '), params };
 }
 // 某批次的「已核對點擊者」判斷（X 為帶 line_user_id 的別名）
@@ -342,7 +344,7 @@ const DEAL_ATTR = `EXISTS (SELECT 1 FROM analytics_events e WHERE e.store_id=a.s
   AND (COALESCE(o.payment_method,'')<>'linepay' OR o.payment_status='paid')`;
 const ATTR_FROM = `FROM restock_notify_order_attributions a JOIN orders o ON o.uuid=a.order_uuid AND o.store_id=a.store_id WHERE a.store_id=b.store_id AND a.batch_uuid=b.batch_uuid`;
 const PER_BATCH_COLS = `
-  b.id AS _id, b.batch_uuid, b.product_id, b.product_name_snapshot AS product_name, b.fulfillment_mode, b.supply_date, b.status, b.confirmed_at,
+  b.id AS _id, b.batch_uuid, b.product_id, b.product_name_snapshot AS product_name, b.fulfillment_mode, b.supply_date, b.status, b.confirmed_at, COALESCE(b.source,'manual') AS source,
   (COALESCE(b.tracking_id,'')<>'') AS tracked,
   (SELECT COUNT(DISTINCT d.line_user_id) FROM restock_notify_deliveries d WHERE d.store_id=b.store_id AND d.batch_uuid=b.batch_uuid AND d.status='accepted') AS accepted_people,
   (SELECT COUNT(*) FROM restock_notify_clicks c WHERE c.store_id=b.store_id AND c.batch_uuid=b.batch_uuid) AS all_clicks,
@@ -361,6 +363,7 @@ function batchRowOut(r) {
   const row = {
     batch_uuid: r.batch_uuid, product_id: r.product_id, product_name: r.product_name, fulfillment_mode: r.fulfillment_mode,
     supply_date: r.supply_date, status: r.status, confirmed_at: r.confirmed_at, tracked: !!Number(r.tracked), accepted_people: Number(r.accepted_people) || 0,
+    source: r.source || 'manual', // C6
   };
   if (!row.tracked) {
     return Object.assign(row, { click_people: null, click_count: null, add_people: null, order_people: null, deal_people: null, orders: null, deal_orders: null, amount: null,
@@ -418,7 +421,7 @@ function summary(db, storeId, q = {}) {
     .map((r) => ({ product_id: r.product_id, product_name: r.product_name || '', batches: Number(r.batches) || 0 }));
   return {
     rule: { version: RULE_VERSION, window_hours: 168, attribution: 'last_valid_click', amount: 'item_net_after_proportional_discount_excluding_delivery_fee' },
-    filters: { from: q.from || null, to: q.to || null, product_id: q.product_id || null, mode: q.mode || null, batch_uuid: q.batch_uuid || null },
+    filters: { from: q.from || null, to: q.to || null, product_id: q.product_id || null, mode: q.mode || null, batch_uuid: q.batch_uuid || null, source: q.source || null },
     totals, batches: rows,
     page: { page, page_size: pageSize, total_batches: totalBatches, total_pages: totalPages, has_more: page < totalPages },
     product_options,

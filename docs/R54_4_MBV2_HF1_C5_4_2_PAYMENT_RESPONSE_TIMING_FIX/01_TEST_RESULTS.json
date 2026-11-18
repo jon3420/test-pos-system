@@ -1,0 +1,2029 @@
+{
+ "round": "R54.4／MBV2-HF1-C5.4.2 補修：付款操作回應時序（PAYMENT_RESPONSE_TIMING_FIX）",
+ "baseline": {
+  "zip": "P3CD_DEPLOY_R54_4_MBV2_HF1_C5_4_2_PAYMENT_GUARD_TIME_MERGE_FIX_APP_ROOT.zip",
+  "sha256": "46ea307c7ac5e8d68242d11fbdb404feac8903b2ea5850e90d99920a1a535232",
+  "bytes": 7537009,
+  "files": 996,
+  "entries": 1044,
+  "manifest_entries": 993,
+  "manifest_verified": true
+ },
+ "external_calls": {
+  "real_line": 0,
+  "real_linepay": 0,
+  "sandbox": 0,
+  "browser_isolation": [
+   "--no-proxy-server",
+   "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1"
+  ],
+  "proxy_outbound_attempts_during_final_runs": {
+   "base": 0,
+   "work": 0,
+   "fresh": 0
+  },
+  "note": "開發中第一次在基準樹執行（尚未加入瀏覽器網路隔離）時，基準版的過時導向讓 Chrome 對 sandbox-web-pay.line.me 發出一次預先連線，被環境代理拒絕、沒有送出內容；加入隔離後重新執行全部三次。"
+ },
+ "labels": {
+  "BR": "真實 Chrome（Google Chrome for Testing）實際點擊",
+  "GATE": "page.route 只控制送達時機（伺服器真實回應）",
+  "API": "正式 API 推進後端狀態",
+  "FX": "同單第二筆付款紀錄 fixture（D1C、G6C）",
+  "FN": "popupHandlePaymentReturn 切換到另一筆付款（D4、D10a）",
+  "SS": "sessionStorage 寫入另一筆付款憑證",
+  "URL": "替身付款網址 example.invalid 在瀏覽器端換成 sandbox-web-pay.line.me，並由本機替身頁回應"
+ },
+ "new_acceptance": {
+  "script": "scripts/smoke-r54-4-mbv2-hf1-c5-4-2-payment-response-timing.js",
+  "baseline": {
+   "pass": 5,
+   "fail": 13,
+   "browser": "153.0.8010.12",
+   "cases": [
+    {
+     "id": "D1P",
+     "cls": "DE",
+     "ok": false,
+     "name": "D1P [BR][GATE][API] 前往 LINE Pay：舊的 409（付款結果確認中）延遲送達前，較新的查詢已顯示「已付款」→ 畫面保留已付款與成立狀態，不退回確認中；LINE Pay Request 0 次、付款建立 POST 只有 1 次"
+    },
+    {
+     "id": "D1C",
+     "cls": "DE",
+     "ok": false,
+     "name": "D1C [BR][GATE][FX][API] 改用現金：舊的 409 延遲送達前，較新的查詢已顯示「已付款」→ 畫面保留已付款，不退回確認中、不出現改現金；訂單仍為 LINE Pay 已付款"
+    },
+    {
+     "id": "D2P",
+     "cls": "DE",
+     "ok": false,
+     "name": "D2P [BR][GATE][API] 前往 LINE Pay：回應延遲期間顧客按瀏覽器上一頁離開付款頁、回到場次二 → 舊 409 不把舊付款頁拉回，畫面保留場次二；不導向、不補送"
+    },
+    {
+     "id": "D2C",
+     "cls": "DE",
+     "ok": false,
+     "name": "D2C [BR][GATE][API] 改用現金：回應延遲期間離開付款頁、回到場次二 → 舊 409 不把舊付款頁拉回；改現金只成立一次（名額已轉為成立、無重複）"
+    },
+    {
+     "id": "D3P",
+     "cls": "DE",
+     "ok": false,
+     "name": "D3P [BR][GATE][API] 前往 LINE Pay：切到場次二再切回原場次一後，舊 409 才送達 → 仍不接管畫面（停在場次一選購頁，不回到舊付款頁）"
+    },
+    {
+     "id": "D3C",
+     "cls": "DE",
+     "ok": false,
+     "name": "D3C [BR][GATE][API] 改用現金：切到場次二再切回場次一後，舊 409 才送達 → 仍不接管畫面"
+    },
+    {
+     "id": "D4P",
+     "cls": "DE",
+     "ok": false,
+     "name": "D4P [BR][GATE][FN][API] 前往 LINE Pay：舊 409 延遲送達時畫面已顯示另一筆（已付款）付款 → 保留另一筆付款，不被覆蓋成舊付款的確認中"
+    },
+    {
+     "id": "D4C",
+     "cls": "DE",
+     "ok": false,
+     "name": "D4C [BR][GATE][FN][API] 改用現金：舊 409 延遲送達時畫面已顯示另一筆付款 → 保留另一筆付款，不被覆蓋"
+    },
+    {
+     "id": "D5P",
+     "cls": "DE",
+     "ok": false,
+     "name": "D5P [BR][GATE][API] 前往 LINE Pay：回應延遲期間「切換帳號」後又切回同一帳號 → 舊身份的 409 不套用（畫面維持原狀、按鈕恢復可用、無錯誤提示）；之後再按一次為有效操作，正確更新為確認中並移除付款按鈕"
+    },
+    {
+     "id": "D5C",
+     "cls": "DE",
+     "ok": false,
+     "name": "D5C [BR][GATE][API] 改用現金：回應延遲期間切換帳號又切回 → 舊身份的 409 不套用、按鈕恢復可用；之後再按為有效操作，依目前摘要顯示取貨時付款"
+    },
+    {
+     "id": "G6P",
+     "cls": "G",
+     "ok": true,
+     "name": "G6P [BR][API] 前往 LINE Pay：仍在原付款頁且沒有較新結果時，有效 409 依目前摘要重畫——確認中移除付款／改現金按鈕；已付款顯示已付款與成立狀態"
+    },
+    {
+     "id": "G6C",
+     "cls": "G",
+     "ok": true,
+     "name": "G6C [BR][FX][API] 改用現金：仍在原付款頁時收到有效 409（確認中）→ 依目前摘要重畫、改現金按鈕消失，訂單仍為 LINE Pay"
+    },
+    {
+     "id": "G7P",
+     "cls": "G",
+     "ok": true,
+     "name": "G7P [BR][API][URL] 正常建立付款：LINE Pay Request 1 次，頁面導向允許的 LINE Pay 付款網址（以本機替身頁攔截）"
+    },
+    {
+     "id": "G8C",
+     "cls": "G",
+     "ok": true,
+     "name": "G8C [BR][API] 正常改用現金：顯示取貨時付款；名額由保留轉為成立一次（筆數不變、不重複），改現金 POST 1 次"
+    },
+    {
+     "id": "D9P",
+     "cls": "DE",
+     "ok": false,
+     "name": "D9P [BR][GATE][API] 付款建立成功但回應延遲，期間顧客已回到場次二 → 不執行過時導向、不接管畫面（後端已建立的付款不撤銷，也不補送）"
+    },
+    {
+     "id": "D9C",
+     "cls": "DE",
+     "ok": false,
+     "name": "D9C [BR][GATE][API] 改用現金成功但回應延遲，期間已回到場次二 → 不把付款頁拉回；後端改現金只執行一次（不補送、不重試）"
+    },
+    {
+     "id": "D10",
+     "cls": "DE",
+     "ok": false,
+     "name": "D10 [BR][GATE][FN][API] 清理流程：舊操作的網路錯誤不清除較新操作的忙碌狀態、也不鎖住另一筆付款（新操作照常完成導向）；舊操作的無效 JSON 不寫入新畫面；有效操作的網路錯誤顯示提示並恢復按鈕、可再操作、不自動重試"
+    },
+    {
+     "id": "Z",
+     "cls": "G",
+     "ok": true,
+     "name": "Z 真實 LINE／LINE Pay 呼叫 0 次；未知 LINE Pay 路徑 0 次；Chrome 不經代理且外部主機名稱一律無法解析，line.me 付款網址只由本機替身頁回應（瀏覽器不會連到外部付款網站）"
+    }
+   ]
+  },
+  "fix": {
+   "pass": 18,
+   "fail": 0,
+   "browser": "153.0.8010.12",
+   "cases": [
+    {
+     "id": "D1P",
+     "cls": "DE",
+     "ok": true,
+     "name": "D1P [BR][GATE][API] 前往 LINE Pay：舊的 409（付款結果確認中）延遲送達前，較新的查詢已顯示「已付款」→ 畫面保留已付款與成立狀態，不退回確認中；LINE Pay Request 0 次、付款建立 POST 只有 1 次"
+    },
+    {
+     "id": "D1C",
+     "cls": "DE",
+     "ok": true,
+     "name": "D1C [BR][GATE][FX][API] 改用現金：舊的 409 延遲送達前，較新的查詢已顯示「已付款」→ 畫面保留已付款，不退回確認中、不出現改現金；訂單仍為 LINE Pay 已付款"
+    },
+    {
+     "id": "D2P",
+     "cls": "DE",
+     "ok": true,
+     "name": "D2P [BR][GATE][API] 前往 LINE Pay：回應延遲期間顧客按瀏覽器上一頁離開付款頁、回到場次二 → 舊 409 不把舊付款頁拉回，畫面保留場次二；不導向、不補送"
+    },
+    {
+     "id": "D2C",
+     "cls": "DE",
+     "ok": true,
+     "name": "D2C [BR][GATE][API] 改用現金：回應延遲期間離開付款頁、回到場次二 → 舊 409 不把舊付款頁拉回；改現金只成立一次（名額已轉為成立、無重複）"
+    },
+    {
+     "id": "D3P",
+     "cls": "DE",
+     "ok": true,
+     "name": "D3P [BR][GATE][API] 前往 LINE Pay：切到場次二再切回原場次一後，舊 409 才送達 → 仍不接管畫面（停在場次一選購頁，不回到舊付款頁）"
+    },
+    {
+     "id": "D3C",
+     "cls": "DE",
+     "ok": true,
+     "name": "D3C [BR][GATE][API] 改用現金：切到場次二再切回場次一後，舊 409 才送達 → 仍不接管畫面"
+    },
+    {
+     "id": "D4P",
+     "cls": "DE",
+     "ok": true,
+     "name": "D4P [BR][GATE][FN][API] 前往 LINE Pay：舊 409 延遲送達時畫面已顯示另一筆（已付款）付款 → 保留另一筆付款，不被覆蓋成舊付款的確認中"
+    },
+    {
+     "id": "D4C",
+     "cls": "DE",
+     "ok": true,
+     "name": "D4C [BR][GATE][FN][API] 改用現金：舊 409 延遲送達時畫面已顯示另一筆付款 → 保留另一筆付款，不被覆蓋"
+    },
+    {
+     "id": "D5P",
+     "cls": "DE",
+     "ok": true,
+     "name": "D5P [BR][GATE][API] 前往 LINE Pay：回應延遲期間「切換帳號」後又切回同一帳號 → 舊身份的 409 不套用（畫面維持原狀、按鈕恢復可用、無錯誤提示）；之後再按一次為有效操作，正確更新為確認中並移除付款按鈕"
+    },
+    {
+     "id": "D5C",
+     "cls": "DE",
+     "ok": true,
+     "name": "D5C [BR][GATE][API] 改用現金：回應延遲期間切換帳號又切回 → 舊身份的 409 不套用、按鈕恢復可用；之後再按為有效操作，依目前摘要顯示取貨時付款"
+    },
+    {
+     "id": "G6P",
+     "cls": "G",
+     "ok": true,
+     "name": "G6P [BR][API] 前往 LINE Pay：仍在原付款頁且沒有較新結果時，有效 409 依目前摘要重畫——確認中移除付款／改現金按鈕；已付款顯示已付款與成立狀態"
+    },
+    {
+     "id": "G6C",
+     "cls": "G",
+     "ok": true,
+     "name": "G6C [BR][FX][API] 改用現金：仍在原付款頁時收到有效 409（確認中）→ 依目前摘要重畫、改現金按鈕消失，訂單仍為 LINE Pay"
+    },
+    {
+     "id": "G7P",
+     "cls": "G",
+     "ok": true,
+     "name": "G7P [BR][API][URL] 正常建立付款：LINE Pay Request 1 次，頁面導向允許的 LINE Pay 付款網址（以本機替身頁攔截）"
+    },
+    {
+     "id": "G8C",
+     "cls": "G",
+     "ok": true,
+     "name": "G8C [BR][API] 正常改用現金：顯示取貨時付款；名額由保留轉為成立一次（筆數不變、不重複），改現金 POST 1 次"
+    },
+    {
+     "id": "D9P",
+     "cls": "DE",
+     "ok": true,
+     "name": "D9P [BR][GATE][API] 付款建立成功但回應延遲，期間顧客已回到場次二 → 不執行過時導向、不接管畫面（後端已建立的付款不撤銷，也不補送）"
+    },
+    {
+     "id": "D9C",
+     "cls": "DE",
+     "ok": true,
+     "name": "D9C [BR][GATE][API] 改用現金成功但回應延遲，期間已回到場次二 → 不把付款頁拉回；後端改現金只執行一次（不補送、不重試）"
+    },
+    {
+     "id": "D10",
+     "cls": "DE",
+     "ok": true,
+     "name": "D10 [BR][GATE][FN][API] 清理流程：舊操作的網路錯誤不清除較新操作的忙碌狀態、也不鎖住另一筆付款（新操作照常完成導向）；舊操作的無效 JSON 不寫入新畫面；有效操作的網路錯誤顯示提示並恢復按鈕、可再操作、不自動重試"
+    },
+    {
+     "id": "Z",
+     "cls": "G",
+     "ok": true,
+     "name": "Z 真實 LINE／LINE Pay 呼叫 0 次；未知 LINE Pay 路徑 0 次；Chrome 不經代理且外部主機名稱一律無法解析，line.me 付款網址只由本機替身頁回應（瀏覽器不會連到外部付款網站）"
+    }
+   ]
+  },
+  "fresh_extract": {
+   "pass": 18,
+   "fail": 0,
+   "browser": "153.0.8010.12",
+   "cases": [
+    {
+     "id": "D1P",
+     "cls": "DE",
+     "ok": true,
+     "name": "D1P [BR][GATE][API] 前往 LINE Pay：舊的 409（付款結果確認中）延遲送達前，較新的查詢已顯示「已付款」→ 畫面保留已付款與成立狀態，不退回確認中；LINE Pay Request 0 次、付款建立 POST 只有 1 次"
+    },
+    {
+     "id": "D1C",
+     "cls": "DE",
+     "ok": true,
+     "name": "D1C [BR][GATE][FX][API] 改用現金：舊的 409 延遲送達前，較新的查詢已顯示「已付款」→ 畫面保留已付款，不退回確認中、不出現改現金；訂單仍為 LINE Pay 已付款"
+    },
+    {
+     "id": "D2P",
+     "cls": "DE",
+     "ok": true,
+     "name": "D2P [BR][GATE][API] 前往 LINE Pay：回應延遲期間顧客按瀏覽器上一頁離開付款頁、回到場次二 → 舊 409 不把舊付款頁拉回，畫面保留場次二；不導向、不補送"
+    },
+    {
+     "id": "D2C",
+     "cls": "DE",
+     "ok": true,
+     "name": "D2C [BR][GATE][API] 改用現金：回應延遲期間離開付款頁、回到場次二 → 舊 409 不把舊付款頁拉回；改現金只成立一次（名額已轉為成立、無重複）"
+    },
+    {
+     "id": "D3P",
+     "cls": "DE",
+     "ok": true,
+     "name": "D3P [BR][GATE][API] 前往 LINE Pay：切到場次二再切回原場次一後，舊 409 才送達 → 仍不接管畫面（停在場次一選購頁，不回到舊付款頁）"
+    },
+    {
+     "id": "D3C",
+     "cls": "DE",
+     "ok": true,
+     "name": "D3C [BR][GATE][API] 改用現金：切到場次二再切回場次一後，舊 409 才送達 → 仍不接管畫面"
+    },
+    {
+     "id": "D4P",
+     "cls": "DE",
+     "ok": true,
+     "name": "D4P [BR][GATE][FN][API] 前往 LINE Pay：舊 409 延遲送達時畫面已顯示另一筆（已付款）付款 → 保留另一筆付款，不被覆蓋成舊付款的確認中"
+    },
+    {
+     "id": "D4C",
+     "cls": "DE",
+     "ok": true,
+     "name": "D4C [BR][GATE][FN][API] 改用現金：舊 409 延遲送達時畫面已顯示另一筆付款 → 保留另一筆付款，不被覆蓋"
+    },
+    {
+     "id": "D5P",
+     "cls": "DE",
+     "ok": true,
+     "name": "D5P [BR][GATE][API] 前往 LINE Pay：回應延遲期間「切換帳號」後又切回同一帳號 → 舊身份的 409 不套用（畫面維持原狀、按鈕恢復可用、無錯誤提示）；之後再按一次為有效操作，正確更新為確認中並移除付款按鈕"
+    },
+    {
+     "id": "D5C",
+     "cls": "DE",
+     "ok": true,
+     "name": "D5C [BR][GATE][API] 改用現金：回應延遲期間切換帳號又切回 → 舊身份的 409 不套用、按鈕恢復可用；之後再按為有效操作，依目前摘要顯示取貨時付款"
+    },
+    {
+     "id": "G6P",
+     "cls": "G",
+     "ok": true,
+     "name": "G6P [BR][API] 前往 LINE Pay：仍在原付款頁且沒有較新結果時，有效 409 依目前摘要重畫——確認中移除付款／改現金按鈕；已付款顯示已付款與成立狀態"
+    },
+    {
+     "id": "G6C",
+     "cls": "G",
+     "ok": true,
+     "name": "G6C [BR][FX][API] 改用現金：仍在原付款頁時收到有效 409（確認中）→ 依目前摘要重畫、改現金按鈕消失，訂單仍為 LINE Pay"
+    },
+    {
+     "id": "G7P",
+     "cls": "G",
+     "ok": true,
+     "name": "G7P [BR][API][URL] 正常建立付款：LINE Pay Request 1 次，頁面導向允許的 LINE Pay 付款網址（以本機替身頁攔截）"
+    },
+    {
+     "id": "G8C",
+     "cls": "G",
+     "ok": true,
+     "name": "G8C [BR][API] 正常改用現金：顯示取貨時付款；名額由保留轉為成立一次（筆數不變、不重複），改現金 POST 1 次"
+    },
+    {
+     "id": "D9P",
+     "cls": "DE",
+     "ok": true,
+     "name": "D9P [BR][GATE][API] 付款建立成功但回應延遲，期間顧客已回到場次二 → 不執行過時導向、不接管畫面（後端已建立的付款不撤銷，也不補送）"
+    },
+    {
+     "id": "D9C",
+     "cls": "DE",
+     "ok": true,
+     "name": "D9C [BR][GATE][API] 改用現金成功但回應延遲，期間已回到場次二 → 不把付款頁拉回；後端改現金只執行一次（不補送、不重試）"
+    },
+    {
+     "id": "D10",
+     "cls": "DE",
+     "ok": true,
+     "name": "D10 [BR][GATE][FN][API] 清理流程：舊操作的網路錯誤不清除較新操作的忙碌狀態、也不鎖住另一筆付款（新操作照常完成導向）；舊操作的無效 JSON 不寫入新畫面；有效操作的網路錯誤顯示提示並恢復按鈕、可再操作、不自動重試"
+    },
+    {
+     "id": "Z",
+     "cls": "G",
+     "ok": true,
+     "name": "Z 真實 LINE／LINE Pay 呼叫 0 次；未知 LINE Pay 路徑 0 次；Chrome 不經代理且外部主機名稱一律無法解析，line.me 付款網址只由本機替身頁回應（瀏覽器不會連到外部付款網站）"
+    }
+   ]
+  },
+  "baseline_failure_evidence": {
+   "D1P": {
+    "after": {
+     "view": "payment",
+     "session": "SC1",
+     "ref": "57b95b41",
+     "state": "付款狀態：付款結果確認中，請勿重複付款",
+     "est": "訂單：付款結果確認中，請勿重複付款",
+     "pay": null,
+     "cash": null,
+     "err": "",
+     "notice": "付款結果確認中，請勿重複付款｜最後成功查詢：11/17 17:26:20（台灣時間）｜請記下訂單編號；重新整理此頁不會重複下單或重複扣款。",
+     "toast": {
+      "text": "",
+      "show": false
+     }
+    },
+    "stale_response": {
+     "http": 409,
+     "success": false,
+     "error": "PAYMENT_UNDER_REVIEW",
+     "state": "payment_under_review",
+     "label": "付款結果確認中，請勿重複付款",
+     "url": false
+    }
+   },
+   "D1C": {
+    "after": {
+     "view": "payment",
+     "session": "SC1",
+     "ref": "ebd8e3af",
+     "state": "付款狀態：付款結果確認中，請勿重複付款",
+     "est": "訂單：付款結果確認中，請勿重複付款",
+     "pay": null,
+     "cash": null,
+     "err": "",
+     "notice": "付款結果確認中，請勿改用其他付款方式或重複付款｜最後成功查詢：11/17 17:26:23（台灣時間）｜請記下訂單編號；重新整理此頁不會重複下單或重複扣款。",
+     "toast": {
+      "text": "",
+      "show": false
+     }
+    },
+    "stale_response": {
+     "http": 409,
+     "success": false,
+     "error": "POPUP_PAYMENT_UNDER_REVIEW",
+     "state": "payment_under_review",
+     "label": "付款結果確認中，請勿重複付款",
+     "url": false
+    }
+   },
+   "D2P": {
+    "after": {
+     "view": "payment",
+     "session": "SC2",
+     "ref": "3003ff39",
+     "state": "付款狀態：付款結果確認中，請勿重複付款",
+     "est": "訂單：付款結果確認中，請勿重複付款",
+     "pay": null,
+     "cash": null,
+     "err": "",
+     "notice": "付款結果確認中，請勿重複付款｜請記下訂單編號；重新整理此頁不會重複下單或重複扣款。",
+     "toast": {
+      "text": "",
+      "show": false
+     }
+    },
+    "stale_response": {
+     "http": 409,
+     "success": false,
+     "error": "PAYMENT_UNDER_REVIEW",
+     "state": "payment_under_review",
+     "label": "付款結果確認中，請勿重複付款",
+     "url": false
+    }
+   },
+   "D2C": {
+    "after": {
+     "view": "payment",
+     "session": "SC2",
+     "ref": "ccf3ad48",
+     "state": "付款狀態：取貨時付款",
+     "est": "訂單：已成立，取貨時付款",
+     "pay": null,
+     "cash": null,
+     "err": "",
+     "notice": "目前付款狀態無法改用現金｜最後成功查詢：11/17 17:26:37（台灣時間）｜請記下訂單編號；重新整理此頁不會重複下單或重複扣款。",
+     "toast": {
+      "text": "",
+      "show": false
+     }
+    },
+    "stale_response": {
+     "http": 409,
+     "success": false,
+     "error": "POPUP_PAYMENT_FALLBACK_NOT_ALLOWED",
+     "state": "pay_at_pickup",
+     "label": "取貨時付款",
+     "url": false
+    }
+   },
+   "D3P": {
+    "after": {
+     "view": "payment",
+     "session": "SC1",
+     "ref": "71ddda6a",
+     "state": "付款狀態：付款結果確認中，請勿重複付款",
+     "est": "訂單：付款結果確認中，請勿重複付款",
+     "pay": null,
+     "cash": null,
+     "err": "",
+     "notice": "付款結果確認中，請勿重複付款｜請記下訂單編號；重新整理此頁不會重複下單或重複扣款。",
+     "toast": {
+      "text": "",
+      "show": false
+     }
+    },
+    "stale_response": {
+     "http": 409,
+     "success": false,
+     "error": "PAYMENT_UNDER_REVIEW",
+     "state": "payment_under_review",
+     "label": "付款結果確認中，請勿重複付款",
+     "url": false
+    }
+   },
+   "D3C": {
+    "after": {
+     "view": "payment",
+     "session": "SC1",
+     "ref": "a6a32bc3",
+     "state": "付款狀態：取貨時付款",
+     "est": "訂單：已成立，取貨時付款",
+     "pay": null,
+     "cash": null,
+     "err": "",
+     "notice": "目前付款狀態無法改用現金｜最後成功查詢：11/17 17:27:08（台灣時間）｜請記下訂單編號；重新整理此頁不會重複下單或重複扣款。",
+     "toast": {
+      "text": "",
+      "show": false
+     }
+    },
+    "stale_response": {
+     "http": 409,
+     "success": false,
+     "error": "POPUP_PAYMENT_FALLBACK_NOT_ALLOWED",
+     "state": "pay_at_pickup",
+     "label": "取貨時付款",
+     "url": false
+    }
+   },
+   "D4P": {
+    "after": {
+     "view": "payment",
+     "session": "SC1",
+     "ref": "b2e09f9b",
+     "state": "付款狀態：付款結果確認中，請勿重複付款",
+     "est": "訂單：付款結果確認中，請勿重複付款",
+     "pay": null,
+     "cash": null,
+     "err": "",
+     "notice": "付款結果確認中，請勿重複付款｜請記下訂單編號；重新整理此頁不會重複下單或重複扣款。",
+     "toast": {
+      "text": "",
+      "show": false
+     }
+    },
+    "stale_response": {
+     "http": 409,
+     "success": false,
+     "error": "PAYMENT_UNDER_REVIEW",
+     "state": "payment_under_review",
+     "label": "付款結果確認中，請勿重複付款",
+     "url": false
+    }
+   },
+   "D4C": {
+    "after": {
+     "view": "payment",
+     "session": "SC1",
+     "ref": "db7290aa",
+     "state": "付款狀態：取貨時付款",
+     "est": "訂單：已成立，取貨時付款",
+     "pay": null,
+     "cash": null,
+     "err": "",
+     "notice": "目前付款狀態無法改用現金｜請記下訂單編號；重新整理此頁不會重複下單或重複扣款。",
+     "toast": {
+      "text": "",
+      "show": false
+     }
+    },
+    "stale_response": {
+     "http": 409,
+     "success": false,
+     "error": "POPUP_PAYMENT_FALLBACK_NOT_ALLOWED",
+     "state": "pay_at_pickup",
+     "label": "取貨時付款",
+     "url": false
+    }
+   },
+   "D5P": {
+    "after": {
+     "view": "payment",
+     "session": "SC1",
+     "ref": "f3dd9f60",
+     "state": "付款狀態：付款結果確認中，請勿重複付款",
+     "est": "訂單：付款結果確認中，請勿重複付款",
+     "pay": null,
+     "cash": null,
+     "err": "",
+     "notice": "付款結果確認中，請勿重複付款｜請記下訂單編號；重新整理此頁不會重複下單或重複扣款。",
+     "toast": {
+      "text": "",
+      "show": false
+     }
+    },
+    "stale_response": {
+     "http": 409,
+     "success": false,
+     "error": "PAYMENT_UNDER_REVIEW",
+     "state": "payment_under_review",
+     "label": "付款結果確認中，請勿重複付款",
+     "url": false
+    }
+   },
+   "D5C": {
+    "after": {
+     "view": "payment",
+     "session": "SC1",
+     "ref": "508b1df3",
+     "state": "付款狀態：取貨時付款",
+     "est": "訂單：已成立，取貨時付款",
+     "pay": null,
+     "cash": null,
+     "err": "",
+     "notice": "目前付款狀態無法改用現金｜最後成功查詢：11/17 17:28:00（台灣時間）｜請記下訂單編號；重新整理此頁不會重複下單或重複扣款。",
+     "toast": {
+      "text": "",
+      "show": false
+     }
+    },
+    "stale_response": {
+     "http": 409,
+     "success": false,
+     "error": "POPUP_PAYMENT_FALLBACK_NOT_ALLOWED",
+     "state": "pay_at_pickup",
+     "label": "取貨時付款",
+     "url": false
+    }
+   },
+   "D9P": {
+    "after": {
+     "view": null,
+     "session": null,
+     "ref": null,
+     "state": "",
+     "est": "",
+     "pay": null,
+     "cash": null,
+     "err": "",
+     "notice": "",
+     "toast": null
+    },
+    "stale_response": {
+     "http": 200,
+     "success": true,
+     "url": true
+    }
+   },
+   "D9C": {
+    "after": {
+     "view": "payment",
+     "session": "SC2",
+     "ref": "2eaf4694",
+     "state": "付款狀態：取貨時付款",
+     "est": "訂單：已成立，取貨時付款",
+     "pay": null,
+     "cash": null,
+     "err": "",
+     "notice": "已改為取貨時以現金付款。｜最後成功查詢：11/17 17:29:03（台灣時間）｜請記下訂單編號；重新整理此頁不會重複下單或重複扣款。",
+     "toast": {
+      "text": "",
+      "show": false
+     }
+    },
+    "stale_response": {
+     "http": 200,
+     "success": true,
+     "state": "pay_at_pickup",
+     "label": "取貨時付款",
+     "url": false
+    }
+   },
+   "D10": {
+    "busy": {
+     "ok": false,
+     "recB": false,
+     "busyB": {
+      "disabled": false,
+      "text": "前往 LINE Pay 付款"
+     },
+     "afterA": {
+      "ref": "8566f0d8",
+      "pay": {
+       "disabled": false,
+       "text": "前往 LINE Pay 付款"
+      },
+      "err": ""
+     },
+     "nav": 0
+    },
+    "badjson": {
+     "ok": true,
+     "fresh": "付款狀態：取貨時付款",
+     "u": {
+      "view": "payment",
+      "session": "SC1",
+      "ref": "9885d9d2",
+      "state": "付款狀態：取貨時付款",
+      "est": "訂單：已成立，取貨時付款",
+      "pay": null,
+      "cash": null,
+      "err": "",
+      "notice": "已查詢，付款狀態已更新：取貨時付款最後成功查詢：11/17 17:29:58（台灣時間）｜請記下訂單編號；重新整理此頁不會重複下單或重複扣款。",
+      "toast": {
+       "text": "",
+       "show": false
+      }
+     }
+    },
+    "valid": {
+     "ok": true,
+     "u": {
+      "view": "payment",
+      "session": "SC1",
+      "ref": "65097542",
+      "state": "付款狀態：等待付款",
+      "est": "訂單：尚未成立，待付款",
+      "pay": {
+       "disabled": false,
+       "text": "前往 LINE Pay 付款"
+      },
+      "cash": null,
+      "err": "網路異常，請稍後再試一次。",
+      "notice": "請記下訂單編號；重新整理此頁不會重複下單或重複扣款。",
+      "toast": {
+       "text": "",
+       "show": false
+      }
+     },
+     "p1": 1,
+     "p2": 2
+    }
+   }
+  },
+  "fix_logs": {
+   "isolation": [
+    "--no-proxy-server",
+    "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1"
+   ],
+   "browser": "153.0.8010.12",
+   "D1P": {
+    "before": {
+     "view": "payment",
+     "session": "SC1",
+     "ref": "3d2eb07b",
+     "state": "付款狀態：等待付款",
+     "est": "訂單：尚未成立，待付款",
+     "pay": {
+      "disabled": false,
+      "text": "前往 LINE Pay 付款"
+     },
+     "cash": null,
+     "err": "",
+     "notice": "請記下訂單編號；重新整理此頁不會重複下單或重複扣款。",
+     "toast": {
+      "text": "",
+      "show": false
+     }
+    },
+    "stale": {
+     "http": 409,
+     "success": false,
+     "error": "PAYMENT_UNDER_REVIEW",
+     "state": "payment_under_review",
+     "label": "付款結果確認中，請勿重複付款",
+     "url": false
+    },
+    "reconcile": 200,
+    "fresh": {
+     "view": "payment",
+     "session": "SC1",
+     "ref": "3d2eb07b",
+     "state": "付款狀態：已付款",
+     "est": "訂單：已成立",
+     "pay": null,
+     "cash": null,
+     "err": "",
+     "notice": "付款成功，訂單已成立。｜已查詢，付款狀態已更新：已付款最後成功查詢：11/17 17:30:24（台灣時間）｜請記下訂單編號；重新整理此頁不會重複下單或重複扣款。",
+     "toast": {
+      "text": "",
+      "show": false
+     }
+    },
+    "after": {
+     "view": "payment",
+     "session": "SC1",
+     "ref": "3d2eb07b",
+     "state": "付款狀態：已付款",
+     "est": "訂單：已成立",
+     "pay": null,
+     "cash": null,
+     "err": "",
+     "notice": "付款成功，訂單已成立。｜已查詢，付款狀態已更新：已付款最後成功查詢：11/17 17:30:24（台灣時間）｜請記下訂單編號；重新整理此頁不會重複下單或重複扣款。",
+     "toast": {
+      "text": "",
+      "show": false
+     }
+    },
+    "lpReq": 0,
+    "posts": 1,
+    "db": {
+     "payment_method": "linepay",
+     "payment_status": "paid",
+     "order_status": "pending",
+     "refund_status": ""
+    }
+   },
+   "D1C": {
+    "before": {
+     "view": "payment",
+     "session": "SC1",
+     "ref": "3fd0f363",
+     "state": "付款狀態：付款失敗，本次付款未完成",
+     "est": "訂單：未成立，付款未完成",
+     "pay": null,
+     "cash": {
+      "disabled": false,
+      "text": "改用現金（取貨時付款）"
+     },
+     "err": "",
+     "notice": "付款失敗，本次付款未完成（未扣款）。｜最後成功查詢：11/17 17:30:26（台灣時間）｜請記下訂單編號；重新整理此頁不會重複下單或重複扣款。",
+     "toast": {
+      "text": "",
+      "show": false
+     }
+    },
+    "s0": [
+     "review",
+     "failed"
+    ],
+    "stale": {
+     "http": 409,
+     "success": false,
+     "error": "POPUP_PAYMENT_UNDER_REVIEW",
+     "state": "payment_under_review",
+     "label": "付款結果確認中，請勿重複付款",
+     "url": false
+    },
+    "reconcile": 200,
+    "fresh": {
+     "view": "payment",
+     "session": "SC1",
+     "ref": "3fd0f363",
+     "state": "付款狀態：已付款",
+     "est": "訂單：已成立",
+     "pay": null,
+     "cash": null,
+     "err": "",
+     "notice": "付款成功，訂單已成立。｜已查詢，付款狀態已更新：已付款最後成功查詢：11/17 17:30:28（台灣時間）｜請記下訂單編號；重新整理此頁不會重複下單或重複扣款。",
+     "toast": {
+      "text": "",
+      "show": false
+     }
+    },
+    "after": {
+     "view": "payment",
+     "session": "SC1",
+     "ref": "3fd0f363",
+     "state": "付款狀態：已付款",
+     "est": "訂單：已成立",
+     "pay": null,
+     "cash": null,
+     "err": "",
+     "notice": "付款成功，訂單已成立。｜已查詢，付款狀態已更新：已付款最後成功查詢：11/17 17:30:28（台灣時間）｜請記下訂單編號；重新整理此頁不會重複下單或重複扣款。",
+     "toast": {
+      "text": "",
+      "show": false
+     }
+    },
+    "posts": 1,
+    "db": {
+     "payment_method": "linepay",
+     "payment_status": "paid",
+     "order_status": "pending",
+     "refund_status": ""
+    }
+   },
+   "D2P": {
+    "stale": {
+     "http": 409,
+     "success": false,
+     "error": "PAYMENT_UNDER_REVIEW",
+     "state": "payment_under_review",
+     "label": "付款結果確認中，請勿重複付款",
+     "url": false
+    },
+    "left": {
+     "view": "session",
+     "session": "SC2",
+     "ref": null,
+     "state": "",
+     "est": "",
+     "pay": null,
+     "cash": null,
+     "err": "",
+     "notice": "",
+     "toast": {
+      "text": "",
+      "show": false
+     }
+    },
+    "after": {
+     "view": "session",
+     "session": "SC2",
+     "ref": null,
+     "state": "",
+     "est": "",
+     "pay": null,
+     "cash": null,
+     "err": "",
+     "notice": "",
+     "toast": {
+      "text": "付款結果可至「📜 我的訂單」查看，請勿重複付款",
+      "show": true
+     }
+    },
+    "nav": [],
+    "posts": 1,
+    "pageErrors": []
+   },
+   "D2C": {
+    "other": 200,
+    "stale": {
+     "http": 409,
+     "success": false,
+     "error": "POPUP_PAYMENT_FALLBACK_NOT_ALLOWED",
+     "state": "pay_at_pickup",
+     "label": "取貨時付款",
+     "url": false
+    },
+    "left": {
+     "view": "session",
+     "session": "SC2",
+     "ref": null,
+     "state": "",
+     "est": "",
+     "pay": null,
+     "cash": null,
+     "err": "",
+     "notice": "",
+     "toast": {
+      "text": "",
+      "show": false
+     }
+    },
+    "after": {
+     "view": "session",
+     "session": "SC2",
+     "ref": null,
+     "state": "",
+     "est": "",
+     "pay": null,
+     "cash": null,
+     "err": "",
+     "notice": "",
+     "toast": {
+      "text": "付款結果可至「📜 我的訂單」查看，請勿重複付款",
+      "show": true
+     }
+    },
+    "posts": 1,
+    "db": {
+     "payment_method": "cash",
+     "payment_status": "pending",
+     "order_status": "pending",
+     "refund_status": ""
+    },
+    "al": [
+     {
+      "status": "active",
+      "stock_state": "committed"
+     }
+    ]
+   },
+   "D3P": {
+    "stale": {
+     "http": 409,
+     "success": false,
+     "error": "PAYMENT_UNDER_REVIEW",
+     "state": "payment_under_review",
+     "label": "付款結果確認中，請勿重複付款",
+     "url": false
+    },
+    "back": {
+     "view": "session",
+     "session": "SC1",
+     "ref": null,
+     "state": "",
+     "est": "",
+     "pay": null,
+     "cash": null,
+     "err": "",
+     "notice": "",
+     "toast": {
+      "text": "",
+      "show": false
+     }
+    },
+    "after": {
+     "view": "session",
+     "session": "SC1",
+     "ref": null,
+     "state": "",
+     "est": "",
+     "pay": null,
+     "cash": null,
+     "err": "",
+     "notice": "",
+     "toast": {
+      "text": "付款結果可至「📜 我的訂單」查看，請勿重複付款",
+      "show": true
+     }
+    },
+    "nav": [],
+    "posts": 1
+   },
+   "D3C": {
+    "other": 200,
+    "stale": {
+     "http": 409,
+     "success": false,
+     "error": "POPUP_PAYMENT_FALLBACK_NOT_ALLOWED",
+     "state": "pay_at_pickup",
+     "label": "取貨時付款",
+     "url": false
+    },
+    "back": {
+     "view": "session",
+     "session": "SC1",
+     "ref": null,
+     "state": "",
+     "est": "",
+     "pay": null,
+     "cash": null,
+     "err": "",
+     "notice": "",
+     "toast": {
+      "text": "",
+      "show": false
+     }
+    },
+    "after": {
+     "view": "session",
+     "session": "SC1",
+     "ref": null,
+     "state": "",
+     "est": "",
+     "pay": null,
+     "cash": null,
+     "err": "",
+     "notice": "",
+     "toast": {
+      "text": "付款結果可至「📜 我的訂單」查看，請勿重複付款",
+      "show": true
+     }
+    },
+    "posts": 1
+   },
+   "D4P": {
+    "stale": {
+     "http": 409,
+     "success": false,
+     "error": "PAYMENT_UNDER_REVIEW",
+     "state": "payment_under_review",
+     "label": "付款結果確認中，請勿重複付款",
+     "url": false
+    },
+    "shown": {
+     "view": "payment",
+     "session": "SC1",
+     "ref": "34236f17",
+     "state": "付款狀態：已付款",
+     "est": "訂單：已成立",
+     "pay": null,
+     "cash": null,
+     "err": "",
+     "notice": "付款成功，訂單已成立。｜最後成功查詢：11/17 17:31:35（台灣時間）｜請記下訂單編號；重新整理此頁不會重複下單或重複扣款。",
+     "toast": {
+      "text": "",
+      "show": false
+     }
+    },
+    "after": {
+     "view": "payment",
+     "session": "SC1",
+     "ref": "34236f17",
+     "state": "付款狀態：已付款",
+     "est": "訂單：已成立",
+     "pay": null,
+     "cash": null,
+     "err": "",
+     "notice": "付款成功，訂單已成立。｜最後成功查詢：11/17 17:31:35（台灣時間）｜請記下訂單編號；重新整理此頁不會重複下單或重複扣款。",
+     "toast": {
+      "text": "付款結果可至「📜 我的訂單」查看，請勿重複付款",
+      "show": true
+     }
+    },
+    "posts": 1
+   },
+   "D4C": {
+    "other": 200,
+    "stale": {
+     "http": 409,
+     "success": false,
+     "error": "POPUP_PAYMENT_FALLBACK_NOT_ALLOWED",
+     "state": "pay_at_pickup",
+     "label": "取貨時付款",
+     "url": false
+    },
+    "shown": {
+     "view": "payment",
+     "session": "SC1",
+     "ref": "59115db1",
+     "state": "付款狀態：已付款",
+     "est": "訂單：已成立",
+     "pay": null,
+     "cash": null,
+     "err": "",
+     "notice": "付款成功，訂單已成立。｜最後成功查詢：11/17 17:31:54（台灣時間）｜請記下訂單編號；重新整理此頁不會重複下單或重複扣款。",
+     "toast": {
+      "text": "",
+      "show": false
+     }
+    },
+    "after": {
+     "view": "payment",
+     "session": "SC1",
+     "ref": "59115db1",
+     "state": "付款狀態：已付款",
+     "est": "訂單：已成立",
+     "pay": null,
+     "cash": null,
+     "err": "",
+     "notice": "付款成功，訂單已成立。｜最後成功查詢：11/17 17:31:54（台灣時間）｜請記下訂單編號；重新整理此頁不會重複下單或重複扣款。",
+     "toast": {
+      "text": "付款結果可至「📜 我的訂單」查看，請勿重複付款",
+      "show": true
+     }
+    },
+    "posts": 1
+   },
+   "D5P": {
+    "before": {
+     "view": "payment",
+     "session": "SC1",
+     "ref": "6ea32778",
+     "state": "付款狀態：等待付款",
+     "est": "訂單：尚未成立，待付款",
+     "pay": {
+      "disabled": false,
+      "text": "前往 LINE Pay 付款"
+     },
+     "cash": null,
+     "err": "",
+     "notice": "請記下訂單編號；重新整理此頁不會重複下單或重複扣款。",
+     "toast": {
+      "text": "",
+      "show": false
+     }
+    },
+    "stale": {
+     "http": 409,
+     "success": false,
+     "error": "PAYMENT_UNDER_REVIEW",
+     "state": "payment_under_review",
+     "label": "付款結果確認中，請勿重複付款",
+     "url": false
+    },
+    "after": {
+     "view": "payment",
+     "session": "SC1",
+     "ref": "6ea32778",
+     "state": "付款狀態：等待付款",
+     "est": "訂單：尚未成立，待付款",
+     "pay": {
+      "disabled": false,
+      "text": "前往 LINE Pay 付款"
+     },
+     "cash": null,
+     "err": "",
+     "notice": "請記下訂單編號；重新整理此頁不會重複下單或重複扣款。",
+     "toast": {
+      "text": "",
+      "show": false
+     }
+    },
+    "again": {
+     "view": "payment",
+     "session": "SC1",
+     "ref": "6ea32778",
+     "state": "付款狀態：付款結果確認中，請勿重複付款",
+     "est": "訂單：付款結果確認中，請勿重複付款",
+     "pay": null,
+     "cash": null,
+     "err": "",
+     "notice": "付款結果確認中，請勿重複付款｜請記下訂單編號；重新整理此頁不會重複下單或重複扣款。",
+     "toast": {
+      "text": "",
+      "show": false
+     }
+    },
+    "posts": 2
+   },
+   "D5C": {
+    "other": 200,
+    "before": {
+     "view": "payment",
+     "session": "SC1",
+     "ref": "78e5ec12",
+     "state": "付款狀態：付款失敗，本次付款未完成",
+     "est": "訂單：未成立，付款未完成",
+     "pay": null,
+     "cash": {
+      "disabled": false,
+      "text": "改用現金（取貨時付款）"
+     },
+     "err": "",
+     "notice": "付款失敗，本次付款未完成（未扣款）。｜已查詢，付款狀態已更新：付款失敗，本次付款未完成最後成功查詢：11/17 17:32:04（台灣時間）｜請記下訂單編號；重新整理此頁不會重複下單或重複扣款。",
+     "toast": {
+      "text": "",
+      "show": false
+     }
+    },
+    "stale": {
+     "http": 409,
+     "success": false,
+     "error": "POPUP_PAYMENT_FALLBACK_NOT_ALLOWED",
+     "state": "pay_at_pickup",
+     "label": "取貨時付款",
+     "url": false
+    },
+    "after": {
+     "view": "payment",
+     "session": "SC1",
+     "ref": "78e5ec12",
+     "state": "付款狀態：付款失敗，本次付款未完成",
+     "est": "訂單：未成立，付款未完成",
+     "pay": null,
+     "cash": {
+      "disabled": false,
+      "text": "改用現金（取貨時付款）"
+     },
+     "err": "",
+     "notice": "付款失敗，本次付款未完成（未扣款）。｜已查詢，付款狀態已更新：付款失敗，本次付款未完成最後成功查詢：11/17 17:32:04（台灣時間）｜請記下訂單編號；重新整理此頁不會重複下單或重複扣款。",
+     "toast": {
+      "text": "",
+      "show": false
+     }
+    },
+    "again": {
+     "view": "payment",
+     "session": "SC1",
+     "ref": "78e5ec12",
+     "state": "付款狀態：取貨時付款",
+     "est": "訂單：已成立，取貨時付款",
+     "pay": null,
+     "cash": null,
+     "err": "",
+     "notice": "目前付款狀態無法改用現金｜最後成功查詢：11/17 17:32:04（台灣時間）｜請記下訂單編號；重新整理此頁不會重複下單或重複扣款。",
+     "toast": {
+      "text": "",
+      "show": false
+     }
+    },
+    "posts": 2,
+    "al": [
+     {
+      "status": "active",
+      "stock_state": "committed"
+     }
+    ]
+   },
+   "G6P": {
+    "review": {
+     "ok": true,
+     "u": {
+      "view": "payment",
+      "session": "SC1",
+      "ref": "0c2158e0",
+      "state": "付款狀態：付款結果確認中，請勿重複付款",
+      "est": "訂單：付款結果確認中，請勿重複付款",
+      "pay": null,
+      "cash": null,
+      "err": "",
+      "notice": "付款結果確認中，請勿重複付款｜請記下訂單編號；重新整理此頁不會重複下單或重複扣款。",
+      "toast": {
+       "text": "",
+       "show": false
+      }
+     }
+    },
+    "paid": {
+     "ok": true,
+     "u": {
+      "view": "payment",
+      "session": "SC1",
+      "ref": "9bdd64f3",
+      "state": "付款狀態：已付款",
+      "est": "訂單：已成立",
+      "pay": null,
+      "cash": null,
+      "err": "",
+      "notice": "此付款已結束或逾時｜請記下訂單編號；重新整理此頁不會重複下單或重複扣款。",
+      "toast": {
+       "text": "",
+       "show": false
+      }
+     }
+    }
+   },
+   "G6C": {
+    "before": {
+     "view": "payment",
+     "session": "SC1",
+     "ref": "a24c25df",
+     "state": "付款狀態：付款失敗，本次付款未完成",
+     "est": "訂單：未成立，付款未完成",
+     "pay": null,
+     "cash": {
+      "disabled": false,
+      "text": "改用現金（取貨時付款）"
+     },
+     "err": "",
+     "notice": "付款失敗，本次付款未完成（未扣款）。｜最後成功查詢：11/17 17:32:31（台灣時間）｜請記下訂單編號；重新整理此頁不會重複下單或重複扣款。",
+     "toast": {
+      "text": "",
+      "show": false
+     }
+    },
+    "resp": {
+     "http": 409,
+     "success": false,
+     "error": "POPUP_PAYMENT_UNDER_REVIEW",
+     "state": "payment_under_review",
+     "label": "付款結果確認中，請勿重複付款",
+     "url": false
+    },
+    "u": {
+     "view": "payment",
+     "session": "SC1",
+     "ref": "a24c25df",
+     "state": "付款狀態：付款結果確認中，請勿重複付款",
+     "est": "訂單：付款結果確認中，請勿重複付款",
+     "pay": null,
+     "cash": null,
+     "err": "",
+     "notice": "付款結果確認中，請勿改用其他付款方式或重複付款｜最後成功查詢：11/17 17:32:31（台灣時間）｜請記下訂單編號；重新整理此頁不會重複下單或重複扣款。",
+     "toast": {
+      "text": "",
+      "show": false
+     }
+    },
+    "db": {
+     "payment_method": "linepay",
+     "payment_status": "pending",
+     "order_status": "pending",
+     "refund_status": ""
+    }
+   },
+   "G7P": {
+    "nav": [
+     "https://sandbox-web-pay.line.me/web/payment/wait?mockTx=…"
+    ],
+    "url": "https://sandbox-web-pay.line.me/web/payment/wait?mockTx=…",
+    "lpReq": 1,
+    "posts": 1
+   },
+   "G8C": {
+    "u": {
+     "view": "payment",
+     "session": "SC1",
+     "ref": "796d963c",
+     "state": "付款狀態：取貨時付款",
+     "est": "訂單：已成立，取貨時付款",
+     "pay": null,
+     "cash": null,
+     "err": "",
+     "notice": "已改為取貨時以現金付款。｜最後成功查詢：11/17 17:32:39（台灣時間）｜請記下訂單編號；重新整理此頁不會重複下單或重複扣款。",
+     "toast": {
+      "text": "",
+      "show": false
+     }
+    },
+    "al0": [
+     {
+      "status": "active",
+      "stock_state": "reserved"
+     }
+    ],
+    "al": [
+     {
+      "status": "active",
+      "stock_state": "committed"
+     }
+    ],
+    "db": {
+     "payment_method": "cash",
+     "payment_status": "pending",
+     "order_status": "pending",
+     "refund_status": ""
+    },
+    "posts": 1
+   },
+   "D9P": {
+    "resp": {
+     "http": 200,
+     "success": true,
+     "url": true
+    },
+    "after": {
+     "view": "session",
+     "session": "SC2",
+     "ref": null,
+     "state": "",
+     "est": "",
+     "pay": null,
+     "cash": null,
+     "err": "",
+     "notice": "",
+     "toast": {
+      "text": "付款結果可至「📜 我的訂單」查看，請勿重複付款",
+      "show": true
+     }
+    },
+    "url": "http://127.0.0.1:39027/popup-order?session=DOnm7_2ITNMSuVI2wo_-Tg",
+    "nav": 0,
+    "lpReq": 1,
+    "posts": 1
+   },
+   "D9C": {
+    "resp": {
+     "http": 200,
+     "success": true,
+     "state": "pay_at_pickup",
+     "label": "取貨時付款",
+     "url": false
+    },
+    "after": {
+     "view": "session",
+     "session": "SC2",
+     "ref": null,
+     "state": "",
+     "est": "",
+     "pay": null,
+     "cash": null,
+     "err": "",
+     "notice": "",
+     "toast": {
+      "text": "付款結果可至「📜 我的訂單」查看，請勿重複付款",
+      "show": true
+     }
+    },
+    "db": {
+     "payment_method": "cash",
+     "payment_status": "pending",
+     "order_status": "pending",
+     "refund_status": ""
+    },
+    "al": [
+     {
+      "status": "active",
+      "stock_state": "committed"
+     }
+    ],
+    "posts": 1
+   },
+   "D10": {
+    "busy": {
+     "ok": true,
+     "recB": true,
+     "busyB": {
+      "disabled": true,
+      "text": "正在建立 LINE Pay 付款…"
+     },
+     "afterA": {
+      "ref": "a9b5bf80",
+      "pay": {
+       "disabled": true,
+       "text": "正在建立 LINE Pay 付款…"
+      },
+      "err": ""
+     },
+     "nav": 1
+    },
+    "badjson": {
+     "ok": true,
+     "fresh": "付款狀態：取貨時付款",
+     "u": {
+      "view": "payment",
+      "session": "SC1",
+      "ref": "83767e73",
+      "state": "付款狀態：取貨時付款",
+      "est": "訂單：已成立，取貨時付款",
+      "pay": null,
+      "cash": null,
+      "err": "",
+      "notice": "已查詢，付款狀態已更新：取貨時付款最後成功查詢：11/17 17:33:50（台灣時間）｜請記下訂單編號；重新整理此頁不會重複下單或重複扣款。",
+      "toast": {
+       "text": "",
+       "show": false
+      }
+     }
+    },
+    "valid": {
+     "ok": true,
+     "u": {
+      "view": "payment",
+      "session": "SC1",
+      "ref": "e625933a",
+      "state": "付款狀態：等待付款",
+      "est": "訂單：尚未成立，待付款",
+      "pay": {
+       "disabled": false,
+       "text": "前往 LINE Pay 付款"
+      },
+      "cash": null,
+      "err": "網路異常，請稍後再試一次。",
+      "notice": "請記下訂單編號；重新整理此頁不會重複下單或重複扣款。",
+      "toast": {
+       "text": "",
+       "show": false
+      }
+     },
+     "p1": 1,
+     "p2": 2
+    }
+   }
+  }
+ },
+ "c542_upgrade_rollback": {
+  "baseline": {
+   "pass": 6,
+   "fail": 0,
+   "old_root": "C5.4.1 TIMING_FIX 樹"
+  },
+  "fix": {
+   "pass": 6,
+   "fail": 0,
+   "old_root": "C5.4.1 TIMING_FIX 樹"
+  },
+  "fresh_extract": {
+   "pass": 6,
+   "fail": 0,
+   "old_root": "C5.4.1 TIMING_FIX 樹"
+  },
+  "note": "批次回歸未帶 C542_OLD_ROOT 而未執行（兩棵樹相同），之後補帶 TIMING_FIX 樹執行"
+ },
+ "regression": {
+  "baseline_tree": [
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-2-payment-response-timing.js",
+    "rc": "rc=1",
+    "seconds": "231s",
+    "summary": "結果：5 通過／13 失敗"
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-2-payment-guard-time-merge.js",
+    "rc": "rc=0",
+    "seconds": "49s",
+    "summary": "結果：22 通過／0 失敗"
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-2-payment-guard-upgrade-rollback.js",
+    "rc": "rc=0",
+    "seconds": "9s",
+    "summary": "結果：5 通過／0 失敗"
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-2-popup-establishment-taipei-time.js",
+    "rc": "rc=0",
+    "seconds": "64s",
+    "summary": "結果：29 通過／0 失敗"
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-2-upgrade-rollback.js",
+    "rc": "rc=1",
+    "seconds": "0s",
+    "summary": ""
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-1-popup-payment-status-refresh.js",
+    "rc": "rc=0",
+    "seconds": "101s",
+    "summary": "結果：19 通過／0 失敗"
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-1-timing-fix.js",
+    "rc": "rc=0",
+    "seconds": "83s",
+    "summary": "結果：11 通過／0 失敗"
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-payment-ui-popup.js",
+    "rc": "rc=0",
+    "seconds": "59s",
+    "summary": "結果：27 通過／0 失敗"
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-3-payment-guard.js",
+    "rc": "rc=0",
+    "seconds": "44s",
+    "summary": "RESULT: 25 passed, 0 failed"
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-2-payment-recovery.js",
+    "rc": "rc=0",
+    "seconds": "101s",
+    "summary": "RESULT: 33 passed, 0 failed"
+   },
+   {
+    "suite": "run-h1-4-10-phase3-checkout-submit-payment-runtime.js",
+    "rc": "rc=0",
+    "seconds": "29s",
+    "summary": "TOTAL=111 PASS=111 FAIL=0"
+   },
+   {
+    "suite": "run-h1-4-10-phase4b-recovery-full-runtime.js",
+    "rc": "rc=0",
+    "seconds": "18s",
+    "summary": "TOTAL=168 PASS=168 FAIL=0"
+   },
+   {
+    "suite": "run-h1-4-10-phase4b-recovery-frontend-targeted.js",
+    "rc": "rc=0",
+    "seconds": "9s",
+    "summary": "TOTAL=50 PASS=50 FAIL=0"
+   },
+   {
+    "suite": "run-h1-4-10-phase4b-recovery-resume-targeted.js",
+    "rc": "rc=0",
+    "seconds": "3s",
+    "summary": "TOTAL=92 PASS=92 FAIL=0"
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-frontend.js",
+    "rc": "rc=0",
+    "seconds": "31s",
+    "summary": "PASS: 293  FAIL: 0  TOTAL: 293"
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-real-browser.js",
+    "rc": "rc=0",
+    "seconds": "10s",
+    "summary": "PASS: 36  FAIL: 0  TOTAL: 36"
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-public-checkout.js",
+    "rc": "rc=0",
+    "seconds": "56s",
+    "summary": "PASS: 1447  FAIL: 0  TOTAL: 1447"
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-checkout-integration.js",
+    "rc": "rc=0",
+    "seconds": "2s",
+    "summary": "PASS: 20  FAIL: 0  TOTAL: 20"
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-recovery-cart-frontend.js",
+    "rc": "rc=0",
+    "seconds": "10s",
+    "summary": "PASS: 67  FAIL: 0  TOTAL: 67"
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-state.js",
+    "rc": "rc=0",
+    "seconds": "0s",
+    "summary": "PASS: 94  FAIL: 0  TOTAL: 94"
+   },
+   {
+    "suite": "smoke-r48-popup-order-ui-browser.js",
+    "rc": "rc=1",
+    "seconds": "33s",
+    "summary": "R48 SMOKE SUMMARY — PASS: 10  FAIL: 3  TOTAL: 13"
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-migration.js",
+    "rc": "rc=0",
+    "seconds": "15s",
+    "summary": "RESULT: 121 passed, 0 failed"
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-1-consistency.js",
+    "rc": "rc=0",
+    "seconds": "149s",
+    "summary": "RESULT: 61 passed, 0 failed"
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c3-3-restore-cancel.js",
+    "rc": "rc=0",
+    "seconds": "165s",
+    "summary": "RESULT: 30 passed, 0 failed"
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-1-dedupe-resume.js",
+    "rc": "rc=0",
+    "seconds": "71s",
+    "summary": "RESULT: 40 passed, 0 failed"
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c1-preorder-status.js",
+    "rc": "rc=0",
+    "seconds": "84s",
+    "summary": "RESULT: 93 passed, 0 failed  (screenshots: /tmp/mbv2-hf1c1-shots-Q7Snq8)"
+   }
+  ],
+  "fix_tree": [
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-2-payment-response-timing.js",
+    "rc": "rc=0",
+    "seconds": "220s",
+    "summary": "結果：18 通過／0 失敗"
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-2-payment-guard-time-merge.js",
+    "rc": "rc=0",
+    "seconds": "50s",
+    "summary": "結果：22 通過／0 失敗"
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-2-payment-guard-upgrade-rollback.js",
+    "rc": "rc=0",
+    "seconds": "9s",
+    "summary": "結果：5 通過／0 失敗"
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-2-popup-establishment-taipei-time.js",
+    "rc": "rc=0",
+    "seconds": "66s",
+    "summary": "結果：29 通過／0 失敗"
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-2-upgrade-rollback.js",
+    "rc": "rc=1",
+    "seconds": "0s",
+    "summary": ""
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-1-popup-payment-status-refresh.js",
+    "rc": "rc=0",
+    "seconds": "102s",
+    "summary": "結果：19 通過／0 失敗"
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-1-timing-fix.js",
+    "rc": "rc=0",
+    "seconds": "83s",
+    "summary": "結果：11 通過／0 失敗"
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-payment-ui-popup.js",
+    "rc": "rc=0",
+    "seconds": "59s",
+    "summary": "結果：27 通過／0 失敗"
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-3-payment-guard.js",
+    "rc": "rc=0",
+    "seconds": "45s",
+    "summary": "RESULT: 25 passed, 0 failed"
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-2-payment-recovery.js",
+    "rc": "rc=0",
+    "seconds": "102s",
+    "summary": "RESULT: 33 passed, 0 failed"
+   },
+   {
+    "suite": "run-h1-4-10-phase3-checkout-submit-payment-runtime.js",
+    "rc": "rc=0",
+    "seconds": "29s",
+    "summary": "TOTAL=111 PASS=111 FAIL=0"
+   },
+   {
+    "suite": "run-h1-4-10-phase4b-recovery-full-runtime.js",
+    "rc": "rc=0",
+    "seconds": "18s",
+    "summary": "TOTAL=168 PASS=168 FAIL=0"
+   },
+   {
+    "suite": "run-h1-4-10-phase4b-recovery-frontend-targeted.js",
+    "rc": "rc=0",
+    "seconds": "9s",
+    "summary": "TOTAL=50 PASS=50 FAIL=0"
+   },
+   {
+    "suite": "run-h1-4-10-phase4b-recovery-resume-targeted.js",
+    "rc": "rc=0",
+    "seconds": "4s",
+    "summary": "TOTAL=92 PASS=92 FAIL=0"
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-frontend.js",
+    "rc": "rc=0",
+    "seconds": "29s",
+    "summary": "PASS: 293  FAIL: 0  TOTAL: 293"
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-real-browser.js",
+    "rc": "rc=0",
+    "seconds": "10s",
+    "summary": "PASS: 36  FAIL: 0  TOTAL: 36"
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-public-checkout.js",
+    "rc": "rc=0",
+    "seconds": "56s",
+    "summary": "PASS: 1447  FAIL: 0  TOTAL: 1447"
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-checkout-integration.js",
+    "rc": "rc=0",
+    "seconds": "2s",
+    "summary": "PASS: 20  FAIL: 0  TOTAL: 20"
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-recovery-cart-frontend.js",
+    "rc": "rc=0",
+    "seconds": "9s",
+    "summary": "PASS: 67  FAIL: 0  TOTAL: 67"
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-state.js",
+    "rc": "rc=0",
+    "seconds": "0s",
+    "summary": "PASS: 94  FAIL: 0  TOTAL: 94"
+   },
+   {
+    "suite": "smoke-r48-popup-order-ui-browser.js",
+    "rc": "rc=1",
+    "seconds": "33s",
+    "summary": "R48 SMOKE SUMMARY — PASS: 10  FAIL: 3  TOTAL: 13"
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-migration.js",
+    "rc": "rc=0",
+    "seconds": "15s",
+    "summary": "RESULT: 121 passed, 0 failed"
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-1-consistency.js",
+    "rc": "rc=0",
+    "seconds": "147s",
+    "summary": "RESULT: 61 passed, 0 failed"
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c3-3-restore-cancel.js",
+    "rc": "rc=0",
+    "seconds": "167s",
+    "summary": "RESULT: 30 passed, 0 failed"
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-1-dedupe-resume.js",
+    "rc": "rc=0",
+    "seconds": "73s",
+    "summary": "RESULT: 40 passed, 0 failed"
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c1-preorder-status.js",
+    "rc": "rc=0",
+    "seconds": "83s",
+    "summary": "RESULT: 93 passed, 0 failed  (screenshots: /tmp/mbv2-hf1c1-shots-urQmKk)"
+   }
+  ],
+  "fresh_extract": [
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-2-payment-guard-time-merge.js",
+    "rc": "rc=0",
+    "seconds": "50s",
+    "summary": "結果：22 通過／0 失敗"
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-2-payment-guard-upgrade-rollback.js",
+    "rc": "rc=0",
+    "seconds": "9s",
+    "summary": "結果：5 通過／0 失敗"
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-2-popup-establishment-taipei-time.js",
+    "rc": "rc=0",
+    "seconds": "67s",
+    "summary": "結果：29 通過／0 失敗"
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-1-popup-payment-status-refresh.js",
+    "rc": "rc=0",
+    "seconds": "101s",
+    "summary": "結果：19 通過／0 失敗"
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-1-timing-fix.js",
+    "rc": "rc=0",
+    "seconds": "83s",
+    "summary": "結果：11 通過／0 失敗"
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-payment-ui-popup.js",
+    "rc": "rc=0",
+    "seconds": "61s",
+    "summary": "結果：27 通過／0 失敗"
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-3-payment-guard.js",
+    "rc": "rc=0",
+    "seconds": "46s",
+    "summary": "RESULT: 25 passed, 0 failed"
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-2-payment-recovery.js",
+    "rc": "rc=0",
+    "seconds": "101s",
+    "summary": "RESULT: 33 passed, 0 failed"
+   },
+   {
+    "suite": "run-h1-4-10-phase3-checkout-submit-payment-runtime.js",
+    "rc": "rc=0",
+    "seconds": "29s",
+    "summary": "TOTAL=111 PASS=111 FAIL=0"
+   },
+   {
+    "suite": "run-h1-4-10-phase4b-recovery-full-runtime.js",
+    "rc": "rc=0",
+    "seconds": "18s",
+    "summary": "TOTAL=168 PASS=168 FAIL=0"
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-frontend.js",
+    "rc": "rc=0",
+    "seconds": "30s",
+    "summary": "PASS: 293  FAIL: 0  TOTAL: 293"
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-real-browser.js",
+    "rc": "rc=0",
+    "seconds": "10s",
+    "summary": "PASS: 36  FAIL: 0  TOTAL: 36"
+   },
+   {
+    "suite": "smoke-r48-popup-order-ui-browser.js",
+    "rc": "rc=1",
+    "seconds": "34s",
+    "summary": "R48 SMOKE SUMMARY — PASS: 10  FAIL: 3  TOTAL: 13"
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-migration.js",
+    "rc": "rc=0",
+    "seconds": "15s",
+    "summary": "RESULT: 121 passed, 0 failed"
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-1-consistency.js",
+    "rc": "rc=0",
+    "seconds": "149s",
+    "summary": "RESULT: 61 passed, 0 failed"
+   }
+  ],
+  "comparison": "本輪新增套件以外，兩棵樹逐項相同（C1 只差截圖暫存目錄名稱）；R48 兩棵樹都是 10/13，失敗鍵相同：R_FATAL、R_NO_STICKY_FIXED、R_TOUCH_TARGET_44（C5.4.1 以前既有）"
+ },
+ "backend_unchanged": {
+  "changed": [
+   "public/line-order.html"
+  ],
+  "added": [
+   "scripts/smoke-r54-4-mbv2-hf1-c5-4-2-payment-response-timing.js"
+  ],
+  "removed": [],
+  "backend_files_checked": 155,
+  "backend_all_identical": true,
+  "key_files": {
+   "server.js": {
+    "baseline": "7032def359b5497067c6b12d9edd39d0248dfab0a9f068cbd6942c8f5c67892f",
+    "candidate": "7032def359b5497067c6b12d9edd39d0248dfab0a9f068cbd6942c8f5c67892f"
+   },
+   "routes/popup-public.js": {
+    "baseline": "8f73dee4b38b7c558d860d02011edd90f38fb72e22968176474df4b2bfb8fef0",
+    "candidate": "8f73dee4b38b7c558d860d02011edd90f38fb72e22968176474df4b2bfb8fef0"
+   },
+   "utils/popupPayment.js": {
+    "baseline": "8c34cf5d986cd9d061c4eeefc94aff36fee7aead8e1d1f5cc4344782528972be",
+    "candidate": "8c34cf5d986cd9d061c4eeefc94aff36fee7aead8e1d1f5cc4344782528972be"
+   },
+   "utils/popupPaymentRecovery.js": {
+    "baseline": "a3ce9998401a65bac353757e560d23c59d8b918276254ff3c4f35ea39a8d6ef7",
+    "candidate": "a3ce9998401a65bac353757e560d23c59d8b918276254ff3c4f35ea39a8d6ef7"
+   },
+   "utils/migrationV2.js": {
+    "baseline": "0490881e6a0c81d5c04e46b10f19831167b2b468e5e1ae403ecb61a808aebd2c",
+    "candidate": "0490881e6a0c81d5c04e46b10f19831167b2b468e5e1ae403ecb61a808aebd2c"
+   },
+   "utils/popupOrderTime.js": {
+    "baseline": "6bf086abd95f7098f836b6162f4fa58ac160da147c57608fdc57f659e8f57875",
+    "candidate": "6bf086abd95f7098f836b6162f4fa58ac160da147c57608fdc57f659e8f57875"
+   },
+   "utils/popupOrderStatus.js": {
+    "baseline": "6349689c359eaa0ac4a079a3aa945a3c809c82914f6b3362d10dae20fd0b2db8",
+    "candidate": "6349689c359eaa0ac4a079a3aa945a3c809c82914f6b3362d10dae20fd0b2db8"
+   },
+   "utils/db.js": {
+    "baseline": "2cb2e06a80a0586c7b5b46282bf230b8d3a45864640146e4f20d11917ce3e63a",
+    "candidate": "2cb2e06a80a0586c7b5b46282bf230b8d3a45864640146e4f20d11917ce3e63a"
+   },
+   "package.json": {
+    "baseline": "ef78a283fc9373f31c912678dd93efd22b5dc150cf35165743d9e98a1f8934d4",
+    "candidate": "ef78a283fc9373f31c912678dd93efd22b5dc150cf35165743d9e98a1f8934d4"
+   },
+   "package-lock.json": {
+    "baseline": "fb6c9c22f30424809dbc1e41ecae9936a74b5869a727b0dd3a8a15b20c196110",
+    "candidate": "fb6c9c22f30424809dbc1e41ecae9936a74b5869a727b0dd3a8a15b20c196110"
+   }
+  },
+  "empty_db_schema": {
+   "objects": 232,
+   "triggers": 5,
+   "sha256_baseline": "fecf6034ce265360b0982724db9adc4a054865a4e79c0d5743f11b199cc1d88b",
+   "sha256_candidate": "fecf6034ce265360b0982724db9adc4a054865a4e79c0d5743f11b199cc1d88b",
+   "identical": true
+  }
+ },
+ "fresh_extract": {
+  "npm_ci": "ok（476 packages）",
+  "empty_db_health": "GET /api/health 200",
+  "popup_order_page": "200，含本輪修正"
+ },
+ "existing_tests_modified": false
+}

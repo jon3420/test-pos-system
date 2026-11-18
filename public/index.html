@@ -615,6 +615,24 @@
             </select></label>
           <span id="pd-subscribe-mode-help" style="color:var(--text-muted,#64748b)">自行勾選：通知方框預設不勾，顧客勾選後送出才授權。登記即訂閱：顧客按「登記並通知我」即訂閱一次，可隨時取消。兩種方式都只在發送開關開啟且設定完整時向顧客顯示通知承諾；切換不會改變既有顧客的同意狀態。</span>
         </div>
+        <!-- R54.4／MBV2-HF1-C6：恢復販售自動補貨通知（全店預設關閉；商品預設不參與；手動「預覽 → 確認發送」不受影響） -->
+        <div id="pd-auto-box" style="margin-top:8px;padding:8px 10px;border:1px dashed var(--border,#334155);border-radius:8px;font-size:12px">
+          <label style="display:flex;gap:6px;align-items:center;font-weight:700"><input type="checkbox" id="pd-set-auto" onchange="rnAutoToggle(this.checked, this)"> 恢復販售時自動發送補貨通知</label>
+          <div id="pd-auto-state" style="color:var(--text-muted,#64748b);margin-top:4px">載入中…</div>
+          <details style="margin-top:4px"><summary style="cursor:pointer">適用商品、取餐方式與供應日期規則</summary><div id="pd-auto-rules" style="color:var(--text-muted,#64748b);line-height:1.6;margin-top:4px"></div></details>
+          <details style="margin-top:4px" ontoggle="if(this.open)rnAutoEvents()"><summary style="cursor:pointer">自動通知紀錄（觸發、排除與未發送原因）</summary>
+            <div style="margin-top:4px"><button class="btn-secondary" style="font-size:11px;padding:2px 8px" onclick="rnAutoEvents()">重新整理紀錄</button></div>
+            <div id="pd-auto-events" style="margin-top:4px"></div></details>
+        </div>
+        <!-- R54.4／MBV2-HF1-C6：需求資料 CSV 匯出（商家營運用；非搬家備份） -->
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12px;margin-top:6px">
+          <span>匯出需求資料：</span>
+          <select id="pd-export-status" class="form-input" style="width:auto;font-size:12px"><option value="">全部狀態</option><option value="active">有效</option><option value="expired">已過期</option><option value="cancelled">已取消</option></select>
+          <input type="date" id="pd-export-from" class="form-input" style="width:auto;font-size:12px" title="登記日期起（台北）">
+          <input type="date" id="pd-export-to" class="form-input" style="width:auto;font-size:12px" title="登記日期迄（台北）">
+          <button class="btn-secondary" style="font-size:12px;padding:3px 10px" onclick="pdExportCsv('summary')">⬇️ 統計 CSV</button>
+          <button class="btn-secondary" style="font-size:12px;padding:3px 10px" onclick="pdExportCsv('details')">⬇️ 明細 CSV</button>
+        </div>
         <div style="font-size:11px;color:var(--text-muted,#64748b);margin-top:6px">顧客留下想買的份數供店家安排備貨。補貨登記不建立訂單、不收款、不扣今日／預購份數、不保留庫存。統計已排除取消與過期登記。</div>
         <!-- R54.4／MBV2-HF1-C4.2：自動更新狀態（停留在本分頁且畫面可見時每 10 秒讀取一次） -->
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:12px;margin-top:6px">
@@ -4326,7 +4344,7 @@
 <div class="toast-container" id="toastContainer"></div>
 
 <script src="/js/line-member-gate.js?v=h1-4-10-backend-reconcile-1"></script>
-<script src="/js/app.js?v=r54-4-mbv2-hf1-c5-4"></script>
+<script src="/js/app.js?v=r54-4-mbv2-hf1-c6"></script>
 <script src="/js/migration-v2.js?v=r54-4-mbv2-hf1-c4"></script>
 <script src="/js/analytics-v2.js?v=r54-4-mbv2-hf1-c5-1"></script>
 <!-- fix18-10-hotfix30-B5-R5.4-G1.6-A1.2.1: 共用 Asia/Taipei 顯示 Helper（唯一的

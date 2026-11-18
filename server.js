@@ -778,5 +778,10 @@ initDb().then((db) => {
     const _lprSweep = () => { try { const r = require('./utils/linePayRecovery').sweepSideEffects(require('./utils/db').getDb()); if (r.done || r.pending) console.log(`[linepay_recovery] side effects: done=${r.done} pending=${r.pending}`); } catch (e) { console.warn('[linepay_recovery] sweep:', e && e.message); } };
     setTimeout(_lprSweep, 3000).unref();
     setInterval(_lprSweep, 5 * 60 * 1000).unref();
+    // R54.4／MBV2-HF1-C6：恢復販售自動補貨通知——啟動後恢復上次中斷的合法工作（排隊中事件、因重啟暫停的自動批次中
+    // 從未交給 LINE 的項目），之後每分鐘檢查排隊事件。全店自動開關關閉時不做任何事；匯入資料不會被當成新工作。
+    const _raBoot = () => { try { const RA = require('./utils/restockAuto'); const r = RA.bootRecover(require('./utils/db').getDb()); if (r.requeued || r.resumed_batches) console.log(`[restock_auto] boot: requeued=${r.requeued} resumed_batches=${r.resumed_batches}`); console.log(`[restock_auto] boot recovery done (stale_batches=${r.stale_batches || 0} legacy_review=${r.legacy_review || 0})`); } catch (e) { console.warn('[restock_auto] boot:', e && e.message); } };
+    setTimeout(_raBoot, 2000).unref();
+    setInterval(() => { try { require('./utils/restockAuto').sweep(require('./utils/db').getDb()); } catch (e) { console.warn('[restock_auto] sweep:', e && e.message); } }, 60 * 1000).unref();
   });
 }).catch(e => { console.error('DB 初始化失敗:', e); process.exit(1); });

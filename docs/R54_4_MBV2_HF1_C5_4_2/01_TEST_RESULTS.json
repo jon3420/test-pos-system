@@ -1,0 +1,542 @@
+{
+ "round": "R54.4／MBV2-HF1-C5.4.2 快閃訂單成立判定與台北時間一致性修正",
+ "baseline": {
+  "zip": "P3CD_DEPLOY_R54_4_MBV2_HF1_C5_4_1_POPUP_PAYMENT_STATUS_REFRESH_TIMING_FIX_APP_ROOT.zip",
+  "sha256": "f6722bb5b55a9d7b2a6e983c0f17a8b6652e0facfaf2922060661b46136753fb",
+  "files": 984,
+  "zip_entries": 1030,
+  "manifest": "docs/R54_4_MBV2_HF1_C5_4_1_TIMING_FIX/02_FILE_MANIFEST.json 981 筆逐檔 SHA-256／大小全部相符；未列入的 3 檔為該輪三份文件本身",
+  "root": "server.js、package.json 位於根目錄"
+ },
+ "environment": {
+  "node": "v22.23.4",
+  "browser": "Google Chrome（/usr/bin/google-chrome），Playwright 控制",
+  "host_tz": "時間案例分別以 TZ=UTC 與 TZ=Asia/Taipei 啟動伺服器；成立案例以 TZ=UTC 啟動",
+  "browser_tz": "Asia/Taipei、America/New_York（Playwright timezoneId）",
+  "clock": "c4-test-clock：同時位移伺服器 JS Date 與 sql.js now（可控制時鐘）；UTC 2026-11-16T08:08Z／08:09Z／15:50Z／16:05Z 等時刻以重新啟動切換",
+  "external_calls": "真實 LINE／LINE Pay／Sandbox 呼叫 0 次（替身攔截）；未部署、未操作正式資料"
+ },
+ "test_layers": {
+  "API": "正式路由＋暫存 SQLite 檔（node server.js）",
+  "BR": "真實 Chrome 實際點擊（我的訂單、查看詳情、重新下單、付款返回頁）",
+  "CLK": "可控制時鐘",
+  "FX": "以舊版寫入方式直接寫入的歷史資料（明確標示）",
+  "FN": "函式層：後台 c54PayBadge／twTime 取自 public/js/app.js 在 vm／子程序執行",
+  "DB": "直接讀資料庫檔核對",
+  "RS": "同一資料庫檔在舊版與修正版之間切換啟動",
+  "not_covered": "LINE App 內建瀏覽器真機、iOS Safari、真實 LINE Pay（Sandbox／正式）、正式資料庫歷史資料"
+ },
+ "acceptance": {
+  "script": "scripts/smoke-r54-4-mbv2-hf1-c5-4-2-popup-establishment-taipei-time.js",
+  "classes": "DE＝既有顯示／時間缺口（基準即存在）；R＝本輪業務規則調整（新成立規則，基準沒有此輸出）；G＝回歸保護",
+  "timing_fix_unmodified": {
+   "pass": 11,
+   "fail": 18
+  },
+  "c5_4_2": {
+   "pass": 29,
+   "fail": 0
+  },
+  "c5_4_2_fresh_extract": {
+   "pass": 29,
+   "fail": 0
+  },
+  "baseline_failures_by_class": {
+   "DE": [
+    "E1",
+    "E2",
+    "E5",
+    "E7",
+    "E11",
+    "T2",
+    "T3",
+    "T7"
+   ],
+   "R": [
+    "E1R",
+    "E2R",
+    "E3R",
+    "E6R",
+    "E9",
+    "E12",
+    "E13",
+    "E14",
+    "T9"
+   ],
+   "consequence": [
+    "T8"
+   ]
+  },
+  "cases": [
+   {
+    "id": "E1",
+    "class": "DE",
+    "name": "E1 [API] 有效 LINE Pay 訂單尚未完成付款（未前往付款／已建立付款未完成）：結帳回應、付款狀態、列表、詳情、後台都不顯示「已成立」",
+    "timing_fix_unmodified": "FAIL",
+    "c5_4_2": "PASS",
+    "c5_4_2_fresh_extract": "PASS",
+    "baseline_detail": "{\"pending\":{\"list\":{\"status\":\"待付款\",\"order\":\"已成立\",\"pay\":\"待付款\"},\"detail\":{\"status\":\"待付款\",\"order\":\"已成立\",\"pay\":\"待付款\"},\"status\":{\"state\":\"pending_payment\",\"label\":\"等待付款\",\"can_pay\":true,\"cash\":false},\"admin\":{\"state\":\"awaiting_payment\"},\"checkout\":null},\"requested\":{\"list\":{\"status\":\"待付款\",\"order\":\"已成立\",\"pay\":\"待付款\"},\"detail\":{\"status\":\"待付款\",\"order\":\"已成立\",\"pay\":\"待付款\"},\"status\":{\"state\":\"pending_payment\",\"label\":\"等待付款\",\"can_pay\":true,\"cash\":false},\"admin\":{\"state\":\"awaiting_payment\"},\"checkout\":null}}",
+    "c5_4_2_detail": "{\"pending\":{\"list\":{\"status\":\"待付款（尚未成立）\",\"est\":\"尚未成立，待付款\",\"order\":\"尚未成立，待付款\",\"pay\":\"待付款\",\"reorder\":\"重新下單\",\"ful\":null},\"detail\":{\"status\":\"待付款（尚未成立）\",\"est\":\"尚未成立，待付款\",\"order\":\"尚未成立，待付款\",\"pay\":\"待付款\",\"ful\":null},\"status\":{\"state\":\"pending_payment\",\"label\":\"等待付款\",\"est\":\"尚未成立，待付款\",\"can_pay\":true,\"cash\":false},\"admin\":{\"state\":\"awaiting_payment\",\"est\":\"尚未成立，待付款\",\"established\":false},\"checkout\":\"尚未成立，待付款\"},\"requested\":{\"list\":{\"status\":\"待付款（尚未成立）\",\"est\":\"尚未成立，待付款\",\"order\":\"尚未成立，待付款\",\"pay\":\"待付款\",\"reorder\":\"重新下單\",\"ful\":null},\"detail\":{\"status\":\"待付款（尚未成立）\",\"est\":\"尚未成立，待付款\",\"order\":\"尚未成立，待付款\",\"pay\":\"待付款\",\"ful\":null},\"status\":{\"state\":\"pending_payment\",\"label\":\"等待付款\",\"est\":\"尚未成立，待付款\",\"can_pay\":true,\"cash\":false},\"admin\":{\"state\":\"awaiting_payment\",\"est\":\"尚未成立，待付款\",\"established\":false},\"checkout\":\"尚未成立，待付款\"}}"
+   },
+   {
+    "id": "E1R",
+    "class": "R",
+    "name": "E1R [API] 新規則：同一筆待付款訂單在結帳回應、付款狀態、列表、詳情、後台皆為「尚未成立，待付款」（後端集中判定）",
+    "timing_fix_unmodified": "FAIL",
+    "c5_4_2": "PASS",
+    "c5_4_2_fresh_extract": "PASS",
+    "baseline_detail": "[null,null,null,null,null,null,null,null,null]",
+    "c5_4_2_detail": "[\"尚未成立，待付款\",\"尚未成立，待付款\",\"尚未成立，待付款\",\"尚未成立，待付款\",\"尚未成立，待付款\",\"尚未成立，待付款\",\"尚未成立，待付款\",\"尚未成立，待付款\",\"尚未成立，待付款\"]"
+   },
+   {
+    "id": "E2",
+    "class": "DE",
+    "name": "E2 [API] 顧客取消／付款失敗：付款狀態、列表、詳情、後台皆不顯示「已成立」；仍可依設定改用現金",
+    "timing_fix_unmodified": "FAIL",
+    "c5_4_2": "PASS",
+    "c5_4_2_fresh_extract": "PASS",
+    "baseline_detail": "{\"list\":{\"status\":\"付款失敗\",\"order\":\"已成立\",\"pay\":\"付款失敗\"},\"detail\":{\"status\":\"付款失敗\",\"order\":\"已成立\",\"pay\":\"付款失敗\"},\"status\":{\"state\":\"payment_failed\",\"label\":\"付款失敗，本次付款未完成\",\"can_pay\":false,\"cash\":true},\"admin\":{\"state\":\"failed\"},\"checkout\":null}",
+    "c5_4_2_detail": "{\"list\":{\"status\":\"付款未完成（未成立）\",\"est\":\"未成立，付款未完成\",\"order\":\"未成立，付款未完成\",\"pay\":\"付款失敗，本次付款未完成\",\"reorder\":\"重新下單\",\"ful\":null},\"detail\":{\"status\":\"付款未完成（未成立）\",\"est\":\"未成立，付款未完成\",\"order\":\"未成立，付款未完成\",\"pay\":\"付款失敗，本次付款未完成\",\"ful\":null},\"status\":{\"state\":\"payment_failed\",\"label\":\"付款失敗，本次付款未完成\",\"est\":\"未成立，付款未完成\",\"can_pay\":false,\"cash\":true},\"admin\":{\"state\":\"failed\",\"est\":\"未成立，付款未完成\",\"established\":false},\"checkout\":\"尚未成立，待付款\"}"
+   },
+   {
+    "id": "E2R",
+    "class": "R",
+    "name": "E2R [API] 新規則：付款失敗＝「未成立，付款未完成」（各畫面相同）；列表操作文字為「重新下單」（不是補繳原單）",
+    "timing_fix_unmodified": "FAIL",
+    "c5_4_2": "PASS",
+    "c5_4_2_fresh_extract": "PASS",
+    "baseline_detail": "{\"all\":[null,null,null,null]}",
+    "c5_4_2_detail": "{\"all\":[\"未成立，付款未完成\",\"未成立，付款未完成\",\"未成立，付款未完成\",\"未成立，付款未完成\"],\"reorder\":\"重新下單\"}"
+   },
+   {
+    "id": "E3",
+    "class": "G",
+    "name": "E3 [API] 付款失敗後成功改現金：名額由保留轉成立只 1 次（重複改現金 409、名額不再變動）；列表／詳情不再顯示失敗或未成立",
+    "timing_fix_unmodified": "PASS",
+    "c5_4_2": "PASS",
+    "c5_4_2_fresh_extract": "PASS",
+    "baseline_detail": "{\"c1\":200,\"c2\":409,\"allocBeforeCash\":[{\"status\":\"active\",\"stock_state\":\"reserved\"}],\"allocAfter1\":[{\"status\":\"active\",\"stock_state\":\"committed\"}],\"v\":{\"list\":{\"status\":\"已成立\",\"order\":\"已成立\",\"pay\":\"取貨時付款\"},\"detail\":{\"status\":\"已成立\",\"order\":\"已成立\",\"pay\":\"取貨時付款\"},\"status\":{\"state\":\"pay_at_pickup\",\"label\":\"取貨時付款\",\"can_pay\":false,\"cash\":false},\"admin\":{\"state\":\"pay_at_pickup\"},\"checkout\":null}}",
+    "c5_4_2_detail": "{\"c1\":200,\"c2\":409,\"allocBeforeCash\":[{\"status\":\"active\",\"stock_state\":\"reserved\"}],\"allocAfter1\":[{\"status\":\"active\",\"stock_state\":\"committed\"}],\"v\":{\"list\":{\"status\":\"已成立\",\"est\":\"已成立，取貨時付款\",\"order\":\"已成立，取貨時付款\",\"pay\":\"取貨時付款\",\"reorder\":\"再購\",\"ful\":\"待店家接單\"},\"detail\":{\"status\":\"已成立\",\"est\":\"已成立，取貨時付款\",\"order\":\"已成立，取貨時付款\",\"pay\":\"取貨時付款\",\"ful\":\"待店家接單\"},\"status\":{\"state\":\"pay_at_pickup\",\"label\":\"取貨時付款\",\"est\":\"已成立，取貨時付款\",\"can_pay\":false,\"cash\":false},\"admin\":{\"state\":\"pay_at_pickup\",\"est\":\"已成立，取貨時付款\",\"established\":true},\"checkout\":\"尚未成立，待付款\"}}"
+   },
+   {
+    "id": "E3R",
+    "class": "R",
+    "name": "E3R [API] 新規則：改現金成功後各畫面為「已成立，取貨時付款」",
+    "timing_fix_unmodified": "FAIL",
+    "c5_4_2": "PASS",
+    "c5_4_2_fresh_extract": "PASS",
+    "baseline_detail": "[null,null,null,null]",
+    "c5_4_2_detail": "[\"已成立，取貨時付款\",\"已成立，取貨時付款\",\"已成立，取貨時付款\",\"已成立，取貨時付款\"]"
+   },
+   {
+    "id": "E4",
+    "class": "G",
+    "name": "E4 [API] 後端確認付款成功 → 已成立、已付款；店家接單／準備中等履約進度如實呈現（不被成立文字覆蓋）",
+    "timing_fix_unmodified": "PASS",
+    "c5_4_2": "PASS",
+    "c5_4_2_fresh_extract": "PASS",
+    "baseline_detail": "{\"paid\":{\"list\":{\"status\":\"已成立\",\"order\":\"已成立\",\"pay\":\"已付款\"},\"detail\":{\"status\":\"已成立\",\"order\":\"已成立\",\"pay\":\"已付款\"},\"status\":{\"state\":\"paid\",\"label\":\"已付款\",\"can_pay\":false,\"cash\":false},\"admin\":{\"state\":\"paid\"},\"checkout\":null},\"preparing\":{\"status\":\"準備中\",\"order\":\"準備中\",\"pay\":\"已付款\"},\"preparingDetail\":{\"status\":\"準備中\",\"order\":\"準備中\",\"pay\":\"已付款\"}}",
+    "c5_4_2_detail": "{\"paid\":{\"list\":{\"status\":\"已成立\",\"est\":\"已成立\",\"order\":\"已成立\",\"pay\":\"已付款\",\"reorder\":\"再購\",\"ful\":\"待店家接單\"},\"detail\":{\"status\":\"已成立\",\"est\":\"已成立\",\"order\":\"已成立\",\"pay\":\"已付款\",\"ful\":\"待店家接單\"},\"status\":{\"state\":\"paid\",\"label\":\"已付款\",\"est\":\"已成立\",\"can_pay\":false,\"cash\":false},\"admin\":{\"state\":\"paid\",\"est\":\"已成立\",\"established\":true},\"checkout\":\"尚未成立，待付款\"},\"preparing\":{\"status\":\"準備中\",\"est\":\"已成立\",\"order\":\"準備中\",\"pay\":\"已付款\",\"reorder\":\"再購\",\"ful\":\"準備中\"},\"preparingDetail\":{\"status\":\"準備中\",\"est\":\"已成立\",\"order\":\"準備中\",\"pay\":\"已付款\",\"ful\":\"準備中\"}}"
+   },
+   {
+    "id": "E5",
+    "class": "DE",
+    "name": "E5 [API] 付款結果待核對：各畫面維持「付款結果確認中，請勿重複付款」，不判未付款／未完成、不提供付款或改現金、不顯示「重新下單」",
+    "timing_fix_unmodified": "FAIL",
+    "c5_4_2": "PASS",
+    "c5_4_2_fresh_extract": "PASS",
+    "baseline_detail": "{\"list\":{\"status\":\"付款結果確認中\",\"order\":\"已成立\",\"pay\":\"付款結果確認中，請勿重複付款\"},\"detail\":{\"status\":\"付款結果確認中\",\"order\":\"已成立\",\"pay\":\"付款結果確認中，請勿重複付款\"},\"status\":{\"state\":\"payment_under_review\",\"label\":\"付款結果確認中，請勿重複付款\",\"can_pay\":false,\"cash\":false},\"admin\":{\"state\":\"under_review\"},\"checkout\":null}",
+    "c5_4_2_detail": "{\"list\":{\"status\":\"付款結果確認中\",\"est\":\"付款結果確認中，請勿重複付款\",\"order\":\"付款結果確認中，請勿重複付款\",\"pay\":\"付款結果確認中，請勿重複付款\",\"reorder\":\"再購\",\"ful\":null},\"detail\":{\"status\":\"付款結果確認中\",\"est\":\"付款結果確認中，請勿重複付款\",\"order\":\"付款結果確認中，請勿重複付款\",\"pay\":\"付款結果確認中，請勿重複付款\",\"ful\":null},\"status\":{\"state\":\"payment_under_review\",\"label\":\"付款結果確認中，請勿重複付款\",\"est\":\"付款結果確認中，請勿重複付款\",\"can_pay\":false,\"cash\":false},\"admin\":{\"state\":\"under_review\",\"est\":\"付款結果確認中，請勿重複付款\",\"established\":null},\"checkout\":\"尚未成立，待付款\"}"
+   },
+   {
+    "id": "E6",
+    "class": "G",
+    "name": "E6 [API] 取消／退款優先順序：店家取消未付款＝已取消；付款逾期＝保留逾期原因；已付款後取消＝已付款・待退款；退款完成＝已退款（不退回待付款）；皆不顯示「已成立」",
+    "timing_fix_unmodified": "PASS",
+    "c5_4_2": "PASS",
+    "c5_4_2_fresh_extract": "PASS",
+    "baseline_detail": "{\"sc\":{\"status\":\"已取消\",\"order\":\"已取消\",\"pay\":\"待付款\"},\"ex\":{\"status\":\"已逾期\",\"order\":\"已取消\",\"pay\":\"已逾期\"},\"pc\":{\"status\":\"退款處理中\",\"order\":\"已取消\",\"pay\":\"退款處理中\"},\"rf\":{\"status\":\"已退款\",\"order\":\"已取消\",\"pay\":\"已退款\"}}",
+    "c5_4_2_detail": "{\"sc\":{\"status\":\"已取消\",\"est\":\"已取消\",\"order\":\"已取消\",\"pay\":\"未付款\",\"reorder\":\"重新下單\",\"ful\":null},\"ex\":{\"status\":\"已取消（付款逾期）\",\"est\":\"已取消（付款逾期）\",\"order\":\"已取消（付款逾期）\",\"pay\":\"付款逾時（未扣款）\",\"reorder\":\"重新下單\",\"ful\":null},\"pc\":{\"status\":\"已付款・待退款\",\"est\":\"已取消、已付款・待退款\",\"order\":\"已取消、已付款・待退款\",\"pay\":\"已付款・待退款\",\"reorder\":\"再購\",\"ful\":null},\"rf\":{\"status\":\"已退款\",\"est\":\"已取消、已退款\",\"order\":\"已取消、已退款\",\"pay\":\"已退款\",\"reorder\":\"再購\",\"ful\":null}}"
+   },
+   {
+    "id": "E6R",
+    "class": "R",
+    "name": "E6R [API] 新規則：成立欄位＝「已取消（付款逾期）」「已取消、已付款・待退款」",
+    "timing_fix_unmodified": "FAIL",
+    "c5_4_2": "PASS",
+    "c5_4_2_fresh_extract": "PASS",
+    "baseline_detail": "{}",
+    "c5_4_2_detail": "{\"ex\":\"已取消（付款逾期）\",\"pc\":\"已取消、已付款・待退款\"}"
+   },
+   {
+    "id": "E7",
+    "class": "DE",
+    "name": "E7 [API][FX] 歷史付款證據：較新的一筆失敗不推翻較早的已付款或待核對（列表、詳情、後台一致）",
+    "timing_fix_unmodified": "FAIL",
+    "c5_4_2": "PASS",
+    "c5_4_2_fresh_extract": "PASS",
+    "baseline_detail": "{\"paidThenFail\":{\"status\":\"付款失敗\",\"order\":\"已成立\",\"pay\":\"已付款\"},\"reviewThenFail\":{\"status\":\"付款失敗\",\"order\":\"已成立\",\"pay\":\"付款失敗\"},\"adm\":[{\"state\":\"paid\"},{\"state\":\"under_review\"}]}",
+    "c5_4_2_detail": "{\"paidThenFail\":{\"status\":\"已成立\",\"est\":\"已成立\",\"order\":\"已成立\",\"pay\":\"已付款\",\"reorder\":\"再購\",\"ful\":\"待店家接單\"},\"reviewThenFail\":{\"status\":\"付款結果確認中\",\"est\":\"付款結果確認中，請勿重複付款\",\"order\":\"付款結果確認中，請勿重複付款\",\"pay\":\"付款結果確認中，請勿重複付款\",\"reorder\":\"再購\",\"ful\":null},\"adm\":[{\"state\":\"paid\",\"est\":\"已成立\",\"established\":true},{\"state\":\"under_review\",\"est\":\"付款結果確認中，請勿重複付款\",\"established\":null}]}"
+   },
+   {
+    "id": "E8",
+    "class": "G",
+    "name": "E8 [API] 既有契約不被誤判：現金（含 0 元）＝已成立；轉帳＝待店家確認收款、不判未成立；未啟用快閃付款設定（legacy）現金＝已成立",
+    "timing_fix_unmodified": "PASS",
+    "c5_4_2": "PASS",
+    "c5_4_2_fresh_extract": "PASS",
+    "baseline_detail": "{\"c\":{\"status\":\"已成立\",\"order\":\"已成立\",\"pay\":\"取貨時付款\"},\"t\":{\"status\":\"付款確認中\",\"order\":\"已成立\",\"pay\":\"付款確認中\"},\"l\":{\"status\":\"已成立\",\"order\":\"已成立\",\"pay\":\"取貨時付款\"},\"z\":{\"status\":\"已成立\",\"order\":\"已成立\",\"pay\":\"取貨時付款\"},\"legacy\":\"ok\"}",
+    "c5_4_2_detail": "{\"c\":{\"status\":\"已成立\",\"est\":\"已成立，取貨時付款\",\"order\":\"已成立，取貨時付款\",\"pay\":\"取貨時付款\",\"reorder\":\"再購\",\"ful\":\"待店家接單\"},\"t\":{\"status\":\"已成立\",\"est\":\"已成立，待店家確認收款\",\"order\":\"已成立，待店家確認收款\",\"pay\":\"待店家確認收款\",\"reorder\":\"再購\",\"ful\":\"待店家接單\"},\"l\":{\"status\":\"已成立\",\"est\":\"已成立，取貨時付款\",\"order\":\"已成立，取貨時付款\",\"pay\":\"取貨時付款\",\"reorder\":\"再購\",\"ful\":\"待店家接單\"},\"z\":{\"status\":\"已成立\",\"est\":\"已成立，取貨時付款\",\"order\":\"已成立，取貨時付款\",\"pay\":\"取貨時付款\",\"reorder\":\"再購\",\"ful\":\"待店家接單\"},\"legacy\":\"ok\"}"
+   },
+   {
+    "id": "E9",
+    "class": "R",
+    "name": "E9 [API] 多畫面一致：每一筆訂單在付款狀態、列表、詳情、後台的成立判定文字完全相同（同一後端判定）",
+    "timing_fix_unmodified": "FAIL",
+    "c5_4_2": "PASS",
+    "c5_4_2_fresh_extract": "PASS",
+    "baseline_detail": "[{\"k\":\"pending\",\"vals\":[null,null,null,null]},{\"k\":\"requested\",\"vals\":[null,null,null,null]},{\"k\":\"failed\",\"vals\":[null,null,null,null]},{\"k\":\"cashSwitch\",\"vals\":[null,null,null,null]},{\"k\":\"paid\",\"vals\":[null,null,null,null]},{\"k\":\"review\",\"vals\":[null,null,null,null]},{\"k\":\"storeCancel\",\"vals\":[null,null,null,null]},{\"k\":\"expired\",\"vals\":[null,null,null,null]},{\"k\":\"paidCancel\",\"vals\":[null,null,null,null]},{\"k\":\"refunded\",\"vals\":[null,null,null,null]},{\"k\":\"cash\",\"vals\":[null,null,null]},{\"k\":\"transfer\",\"vals\":[null,null,null]},{\"k\":\"paidPreparing\",\"vals\":[null,null,null,null]},{\"k\":\"unpaidAccepted\",\"vals\":[null,null,null,null]},{\"k\":\"histPaidFail\",\"vals\":[null,null,null,null]},{\"k\":\"histReviewFail\",\"vals\":[null,null,null,null]},{\"k\":\"zero\",\"vals\":[null,null,null]},{\"k\":\"legacyCash\",\"vals\":[null,null,null]}]",
+    "c5_4_2_detail": "[]"
+   },
+   {
+    "id": "E10",
+    "class": "G",
+    "name": "E10 [API][DB] 重複查詢（付款狀態、列表、詳情、後台各 3 次）：不新增訂單／付款／名額異動／成交或通知，訂單與付款紀錄逐列不變",
+    "timing_fix_unmodified": "PASS",
+    "c5_4_2": "PASS",
+    "c5_4_2_fresh_extract": "PASS",
+    "baseline_detail": "{\"diff\":[],\"lp\":[20,20],\"line\":[0,0]}",
+    "c5_4_2_detail": "{\"diff\":[],\"lp\":[20,20],\"line\":[0,0]}"
+   },
+   {
+    "id": "E11",
+    "class": "DE",
+    "name": "E11 [BR] 真實 Chrome「📜 我的訂單」：付款失敗、待付款的卡片與詳情不顯示「已成立」，已付款者正常；台北與紐約時區瀏覽器顯示相同",
+    "timing_fix_unmodified": "FAIL",
+    "c5_4_2": "PASS",
+    "c5_4_2_fresh_extract": "PASS",
+    "baseline_detail": "{\"Asia/Taipei\":{\"failedCard\":\"POPUP-20261117-103004-dbb379\\n付款失敗\\n\\n建立：2026-11-17 10:30\\n\\nC542E 場次 活動 － C542E 場次\\n\\n取餐：2026-11-19 17:00～19:00｜C542E 場次 地點\\n\\n快閃測試品×1\\n\\n付款：LINE Pay（付款失敗）｜訂單：已成立\\n\\nNT$90\\n🔄 再購\\n查看詳情\",\"pendingCard\":\"POPUP-20261117-103003-3be9d4\\n待付款\\n\\n建立：2026-11-17 10:30\\n\\nC542E 場次 活動 － C542E 場次\\n\\n取餐：2026-11-19 17:00～19:00｜C542E 場次 地點\\n\\n快閃測試品×1\\n\\n付款：LINE Pay（待付款）｜訂單：已成立\\n\\nNT$90\\n🔄 再購\\n查看詳情\",\"paidCard\":\"POPUP-20261117-103004-7a7ae5\\n已成立\\n\\n建立：2026-11-17 10:30\\n\\nC542E 場次 活動 － C542E 場次\\n\\n取餐：2026-11-19 17:00～19:00｜C542E 場次 地點\\n\\n快閃測試品×1\\n\\n付款：LINE Pay（已付款）｜訂單：已成立\\n\\nNT$90\\n🔄 再購\\n查看詳情\",\"det\":\"訂單狀態\\n付款失敗\\n訂單編號\\nPOPUP-20261117-103004-dbb379\\n活動\\nC542E 場次 活動\\n場次\\nC542E 場次\\n取餐日期\\n2026-11-19\\n取餐時段\\n17:00～19:00\\n取餐地點\\nC542E 場次 地點\\n地址\\n台北市中正區測試路1號\\n顧客姓名\\n成立測試\\n電話\\n09*****222\\n\\n商品明細\\n\\n快閃測試品 × 1（單價 NT$90）\\nNT$90\\n總件數\\n1 件\\n訂單總額\\nNT$90\\n付款方式\\nLINE Pay\\n付款狀態\\n付款失敗\\n訂單進度\\n已成立\\n建立時間\\n2026-11-17 10:30\\n狀態更新\\n2026-11-17 02:30\\n🔄 再次購買\",\"errs\":[]},\"America/New_York\":{\"failedCard\":\"POPUP-20261117-103004-dbb379\\n付款失敗\\n\\n建立：2026-11-17 10:30\\n\\nC542E 場次 活動 － C542E 場次\\n\\n取餐：2026-11-19 17:00～19:00｜C542E 場次 地點\\n\\n快閃測試品×1\\n\\n付款：LINE Pay（付款失敗）｜訂單：已成立\\n\\nNT$90\\n🔄 再購\\n查看詳情\",\"pendingCard\":\"…",
+    "c5_4_2_detail": "{\"Asia/Taipei\":{\"failedCard\":\"POPUP-20261117-103004-257a83\\n付款未完成（未成立）\\n\\n建立：2026-11-17 10:30\\n\\nC542E 場次 活動 － C542E 場次\\n\\n取餐：2026-11-19 17:00～19:00｜C542E 場次 地點\\n\\n快閃測試品×1\\n\\n付款：LINE Pay（付款失敗，本次付款未完成）｜訂單：未成立，付款未完成\\n\\nNT$90\\n🔄 重新下單\\n查看詳情\",\"pendingCard\":\"POPUP-20261117-103004-7fc984\\n待付款（尚未成立）\\n\\n建立：2026-11-17 10:30\\n\\nC542E 場次 活動 － C542E 場次\\n\\n取餐：2026-11-19 17:00～19:00｜C542E 場次 地點\\n\\n快閃測試品×1\\n\\n付款：LINE Pay（待付款）｜訂單：尚未成立，待付款\\n\\nNT$90\\n🔄 重新下單\\n查看詳情\",\"paidCard\":\"POPUP-20261117-103004-9a8ca3\\n已成立\\n\\n建立：2026-11-17 10:30\\n\\nC542E 場次 活動 － C542E 場次\\n\\n取餐：2026-11-19 17:00～19:00｜C542E 場次 地點\\n\\n快閃測試品×1\\n\\n付款：LINE Pay（已付款）｜訂單：已成立\\n\\n進度：待店家接單\\n\\nNT$90\\n🔄 再購\\n查看詳情\",\"det\":\"訂單狀態\\n付款未完成（未成立）\\n訂單成立\\n未成立，付款未完成\\n訂單編號\\nPOPUP-20261117-103004-257a83\\n活動\\nC542E 場次 活動\\n場次\\nC542E 場次\\n取餐日期\\n2026-11-19\\n取餐時段\\n17:00～19:00\\n取餐地點\\nC542E 場次 地點\\n地址\\n台北市中正區測試路1號\\n顧客姓名\\n成立測試\\n電話\\n09*****222\\n\\n商品明細\\n\\n快閃測試品 × 1（單價 NT$90）\\nNT$90\\n總件數\\n1 件\\n訂單總額\\nNT$90\\n付款方式\\nLINE Pay\\n付款狀態\\n付款失敗，本次付款未完成\\n訂單進度\\n—\\n建立時間\\n2026-11-17 10:30\\n狀態更新\\n2026-11-17 10:30\\n\\n時間皆為台灣時間。\\n\\n此訂單未成立。「重新下單」會把商品帶回選購流程，建立一筆新的訂單，不是補繳原訂單；不會自動送出或付款。\\n\\n🔄 重新下單\",\"errs\":[]},\"America/New_York\":{\"failedCard\":\"POPUP-20261117-103004-257a83\\n付款未完成（未成立）\\n\\n建立：2026-11-…"
+   },
+   {
+    "id": "E12",
+    "class": "R",
+    "name": "E12 [BR] 新規則：未成立紀錄顯示「未成立」與「重新下單」；按下只帶回商品選購流程（不自動送單、不建立付款、不呼叫 LINE Pay）",
+    "timing_fix_unmodified": "FAIL",
+    "c5_4_2": "PASS",
+    "c5_4_2_fresh_extract": "PASS",
+    "baseline_detail": "{\"card\":\"POPUP-20261117-103004-dbb379\\n付款失敗\\n\\n建立：2026-11-17 10:30\\n\\nC542E 場次 活動 － C542E 場次\\n\\n取餐：2026-11-19 17:00～19:00｜C542E 場次 地點\\n\\n快閃測試品×1\\n\\n付款：LINE Pay（付款失敗）｜訂單：已成立\\n\\nNT$90\\n🔄 再購\\n查看詳情\",\"btn\":null,\"after\":{\"head\":\"訂單詳情\",\"body\":\"訂單狀態\\n付款失敗\\n訂單編號\\nPOPUP-20261117-103004-dbb379\\n活動\\nC542E 場次 活動\\n場次\\nC542E 場次\\n取餐日期\\n2026-11-19\\n取餐時段\\n17:00～19:00\\n取餐地點\\nC542E 場次 地點\\n地址\\n台北市中正區測試路1號\\n顧客姓名\\n成立測試\\n電話\\n09*****222\\n\\n商品明細\\n\\n快閃測試品 × 1（單價 NT$90）\\nNT$90\\n總件數\\n1 件\",\"url\":\"http://127.0.0.1:43047/popup-order?session=2W43LcNmkpoxk5NtV-mc6w\"},\"orders\":[27,27],\"att\":[16,16],\"reqs\":[]}",
+    "c5_4_2_detail": "{\"card\":\"POPUP-20261117-103004-257a83\\n付款未完成（未成立）\\n\\n建立：2026-11-17 10:30\\n\\nC542E 場次 活動 － C542E 場次\\n\\n取餐：2026-11-19 17:00～19:00｜C542E 場次 地點\\n\\n快閃測試品×1\\n\\n付款：LINE Pay（付款失敗，本次付款未完成）｜訂單：未成立，付款未完成\\n\\nNT$90\\n🔄 重新下單\\n查看詳情\",\"btn\":\"🔄 重新下單\",\"after\":{\"head\":\"🔄 重新下單\",\"body\":\"新訂單場次：C542E 場次 活動 － C542E 場次（2026-11-19 17:00）\\n\\n將建立一筆新的訂單（不是補繳原訂單）；商品只會加入購物車，不會自動送出或付款。\\n\\n可帶入的商品（使用目前售價）\\n\\n快閃測試品 × 1\\nNT$90\\n加入購物車並前往選購\",\"url\":\"http://127.0.0.1:36681/popup-order?session=WFrAOPj2V4-_rE1cBI3VKQ\"},\"orders\":[27,27],\"att\":[16,16],\"reqs\":[]}"
+   },
+   {
+    "id": "E13",
+    "class": "R",
+    "name": "E13 [BR] 付款頁（取消付款返回）：付款狀態失敗，同時標示訂單「未成立，付款未完成」，仍提供改用現金",
+    "timing_fix_unmodified": "FAIL",
+    "c5_4_2": "PASS",
+    "c5_4_2_fresh_extract": "PASS",
+    "baseline_detail": "快閃取餐\n\n🔍 查詢訂單\n📜 我的訂單\n線上付款\n付款\n\n訂單編號：POPUP-20261117-103004-dbb379\n\n付款方式：LINE Pay\n\n付款狀態：付款失敗，本次付款未完成\n\n應付總額：NT$90\n\n取貨：2026-11-19 17:00-19:00 C542E 場次 地點\n\n取餐地點\n地點名稱\nC542E 場次 地點\n取餐地址\n台北市中正區測試路1號\n開啟 Google Maps\n複製地址\n\n付款失敗，本次付款未完成（未扣款）。\n\n改用現金（取貨時付款）\n重新查詢付款狀態\n最後成功查詢：11/17 10:42:49（台灣時間）\n\n請記下訂單編號；重新整理此頁不會重複下單或重複扣款。",
+    "c5_4_2_detail": "快閃取餐\n\n🔍 查詢訂單\n📜 我的訂單\n線上付款\n付款\n\n訂單編號：POPUP-20261117-103004-257a83\n\n付款方式：LINE Pay\n\n付款狀態：付款失敗，本次付款未完成\n\n訂單：未成立，付款未完成\n\n應付總額：NT$90\n\n取貨：2026-11-19 17:00-19:00 C542E 場次 地點\n\n取餐地點\n地點名稱\nC542E 場次 地點\n取餐地址\n台北市中正區測試路1號\n開啟 Google Maps\n複製地址\n\n付款失敗，本次付款未完成（未扣款）。\n\n改用現金（取貨時付款）\n重新查詢付款狀態\n最後成功查詢：11/17 10:42:50（台灣時間）\n\n請記下訂單編號；重新整理此頁不會重複下單或重複扣款。"
+   },
+   {
+    "id": "E14",
+    "class": "R",
+    "name": "E14 [FN] 後台付款徽章（訂單列表、詳情、LINE 預購管理共用 c54PayBadge）同時顯示訂單成立狀態，與顧客端文字相同",
+    "timing_fix_unmodified": "FAIL",
+    "c5_4_2": "PASS",
+    "c5_4_2_fresh_extract": "PASS",
+    "baseline_detail": "{\"failed\":\"付款失敗，本次付款未完成\",\"pending\":\"等待付款\",\"paid\":\"已付款\",\"cashSwitch\":\"取餐時付款\",\"review\":\"付款結果確認中，請勿重複付款\"}",
+    "c5_4_2_detail": "{\"failed\":\"付款失敗，本次付款未完成 訂單：未成立，付款未完成\",\"pending\":\"等待付款 訂單：尚未成立，待付款\",\"paid\":\"已付款 訂單：已成立\",\"cashSwitch\":\"取餐時付款 訂單：已成立，取貨時付款\",\"review\":\"付款結果確認中，請勿重複付款 訂單：付款結果確認中，請勿重複付款\"}"
+   },
+   {
+    "id": "T1",
+    "class": "G",
+    "name": "T1 [API][CLK] 建立時間：UTC 2026-11-16T08:08Z 建立 → 資料庫與列表／詳情皆為台北 2026-11-16 16:08（主機 TZ=UTC 與 Asia/Taipei 相同）",
+    "timing_fix_unmodified": "PASS",
+    "c5_4_2": "PASS",
+    "c5_4_2_fresh_extract": "PASS",
+    "baseline_detail": "{\"UTC\":[{\"fail\":\"2026-11-16 16:08:06\",\"accept\":\"2026-11-16 16:08:06\",\"paid\":\"2026-11-16 16:08:06\",\"cash\":\"2026-11-16 16:08:06\",\"cancel\":\"2026-11-16 16:08:06\",\"kitchen\":\"2026-11-16 16:08:06\",\"expire\":\"2026-11-16 16:08:06\"},{\"listCreated\":\"2026-11-16 16:08\",\"created\":\"2026-11-16 16:08\",\"updated\":\"2026-11-16 08:08\"}],\"TPE\":[\"2026-11-16 16:08:06\",{\"listCreated\":\"2026-11-16 16:08\",\"created\":\"2026-11-16 16:08\",\"updated\":\"2026-11-16 16:08\"}]}",
+    "c5_4_2_detail": "{\"UTC\":[{\"fail\":\"2026-11-16 16:08:06\",\"accept\":\"2026-11-16 16:08:06\",\"paid\":\"2026-11-16 16:08:06\",\"cash\":\"2026-11-16 16:08:06\",\"cancel\":\"2026-11-16 16:08:06\",\"kitchen\":\"2026-11-16 16:08:06\",\"expire\":\"2026-11-16 16:08:06\"},{\"listCreated\":\"2026-11-16 16:08\",\"created\":\"2026-11-16 16:08\",\"updated\":\"2026-11-16 16:09\"}],\"TPE\":[\"2026-11-16 16:08:06\",{\"listCreated\":\"2026-11-16 16:08\",\"created\":\"2026-11-16 16:08\",\"updated\":\"2026-11-16 16:09\"}]}"
+   },
+   {
+    "id": "T2",
+    "class": "DE",
+    "name": "T2 [API][CLK] 一分鐘後各更新路徑（付款失敗、店家接單、付款成功、改現金、店家取消、廚房狀態）：狀態更新時間皆顯示台北 16:09（主機 TZ=UTC 也相同，不再出現 08:09）",
+    "timing_fix_unmodified": "FAIL",
+    "c5_4_2": "PASS",
+    "c5_4_2_fresh_extract": "PASS",
+    "baseline_detail": "{\"UTC\":{\"fail\":{\"listCreated\":\"2026-11-16 16:08\",\"created\":\"2026-11-16 16:08\",\"updated\":\"2026-11-16 08:08\"},\"accept\":{\"listCreated\":\"2026-11-16 16:08\",\"created\":\"2026-11-16 16:08\",\"updated\":\"2026-11-16 08:09\"},\"paid\":{\"listCreated\":\"2026-11-16 16:08\",\"created\":\"2026-11-16 16:08\",\"updated\":\"2026-11-16 08:09\"},\"cash\":{\"listCreated\":\"2026-11-16 16:08\",\"created\":\"2026-11-16 16:08\",\"updated\":\"2026-11-16 08:09\"},\"cancel\":{\"listCreated\":\"2026-11-16 16:08\",\"created\":\"2026-11-16 16:08\",\"updated\":\"2026-11-16 08:09\"},\"kitchen\":{\"listCreated\":\"2026-11-16 16:08\",\"created\":\"2026-11-16 16:08\",\"updated\":\"2026-11-16T08:09\"}},\"TPE\":{\"fail\":{\"listCreated\":\"2026-11-16 16:08\",\"created\":\"2026-11-16 16:08\",\"updated\":\"2026-11-16 16:08\"},\"accept\":{\"listCreated\":\"2026-11-16 16:08\",\"created\":\"2026-11-16 16:08\",\"updated\":\"2026-11-16 16:09\"},\"paid\":{\"listCreated\":\"2026-11-16 16:08\",\"created\":\"2026-11-16 16:08\",\"updated\":\"2026-11-16 16:09\"},\"cash\":{\"listCreated\":\"2026-11-16 16:08\",\"created\":\"2026-11-16 16:08\",\"updated\":\"2026-11-16 16:09\"},\"cancel\":{\"listCreated\":\"2026-11-16 16:08\",\"created\":\"2026-11-16 16:08\",\"updated\":\"2026-11-16 16:09\"},\"kitchen\":{\"listCreated\":\"2026-11-16 16:08\",\"created\":\"2026-11-16 16:08\",…",
+    "c5_4_2_detail": "{\"UTC\":{\"fail\":{\"listCreated\":\"2026-11-16 16:08\",\"created\":\"2026-11-16 16:08\",\"updated\":\"2026-11-16 16:09\"},\"accept\":{\"listCreated\":\"2026-11-16 16:08\",\"created\":\"2026-11-16 16:08\",\"updated\":\"2026-11-16 16:09\"},\"paid\":{\"listCreated\":\"2026-11-16 16:08\",\"created\":\"2026-11-16 16:08\",\"updated\":\"2026-11-16 16:09\"},\"cash\":{\"listCreated\":\"2026-11-16 16:08\",\"created\":\"2026-11-16 16:08\",\"updated\":\"2026-11-16 16:09\"},\"cancel\":{\"listCreated\":\"2026-11-16 16:08\",\"created\":\"2026-11-16 16:08\",\"updated\":\"2026-11-16 16:09\"},\"kitchen\":{\"listCreated\":\"2026-11-16 16:08\",\"created\":\"2026-11-16 16:08\",\"updated\":\"2026-11-16 16:09\"}},\"TPE\":{\"fail\":{\"listCreated\":\"2026-11-16 16:08\",\"created\":\"2026-11-16 16:08\",\"updated\":\"2026-11-16 16:09\"},\"accept\":{\"listCreated\":\"2026-11-16 16:08\",\"created\":\"2026-11-16 16:08\",\"updated\":\"2026-11-16 16:09\"},\"paid\":{\"listCreated\":\"2026-11-16 16:08\",\"created\":\"2026-11-16 16:08\",\"updated\":\"2026-11-16 16:09\"},\"cash\":{\"listCreated\":\"2026-11-16 16:08\",\"created\":\"2026-11-16 16:08\",\"updated\":\"2026-11-16 16:09\"},\"cancel\":{\"listCreated\":\"2026-11-16 16:08\",\"created\":\"2026-11-16 16:08\",\"updated\":\"2026-11-16 16:09\"},\"kitchen\":{\"listCreated\":\"2026-11-16 16:08\",\"created\":\"2026-11-16 16:08\",…"
+   },
+   {
+    "id": "T3",
+    "class": "DE",
+    "name": "T3 [DB][CLK] 資料契約：快閃訂單 updated_at 一律寫入台北時間「YYYY-MM-DD HH:MM:SS」（與 created_at 同一契約；含逾時收斂），不受主機時區影響",
+    "timing_fix_unmodified": "FAIL",
+    "c5_4_2": "PASS",
+    "c5_4_2_fresh_extract": "PASS",
+    "baseline_detail": "{\"UTC\":[{\"fail\":\"2026-11-16 08:08:06\",\"accept\":\"2026-11-16 08:09:06\",\"paid\":\"2026-11-16 08:09:06\",\"cash\":\"2026-11-16 08:09:06\",\"cancel\":\"2026-11-16 08:09:06\",\"kitchen\":\"2026-11-16T08:09:06.378Z\"},\"2026-11-16 08:23:27\"],\"TPE\":[{\"fail\":\"2026-11-16 16:08:06\",\"accept\":\"2026-11-16 16:09:06\",\"paid\":\"2026-11-16 16:09:06\",\"cash\":\"2026-11-16 16:09:06\",\"cancel\":\"2026-11-16 16:09:06\",\"kitchen\":\"2026-11-16T08:09:06.376Z\"},\"2026-11-16 16:23:27\"]}",
+    "c5_4_2_detail": "{\"UTC\":[{\"fail\":\"2026-11-16 16:09:06\",\"accept\":\"2026-11-16 16:09:06\",\"paid\":\"2026-11-16 16:09:06\",\"cash\":\"2026-11-16 16:09:06\",\"cancel\":\"2026-11-16 16:09:06\",\"kitchen\":\"2026-11-16 16:09:06\"},\"2026-11-16 16:23:27\"],\"TPE\":[{\"fail\":\"2026-11-16 16:09:06\",\"accept\":\"2026-11-16 16:09:06\",\"paid\":\"2026-11-16 16:09:06\",\"cash\":\"2026-11-16 16:09:06\",\"cancel\":\"2026-11-16 16:09:06\",\"kitchen\":\"2026-11-16 16:09:06\"},\"2026-11-16 16:23:27\"]}"
+   },
+   {
+    "id": "T4",
+    "class": "G",
+    "name": "T4 [API][CLK] 跨午夜：UTC 2026-11-16T16:05Z 建立 → 顯示台北 2026-11-17 00:05（日期一起轉換）；UTC 15:50Z → 台北 11/16 23:50",
+    "timing_fix_unmodified": "PASS",
+    "c5_4_2": "PASS",
+    "c5_4_2_fresh_extract": "PASS",
+    "baseline_detail": "{\"UTC\":[\"2026-11-17 00:05:06\",\"2026-11-16 23:50:06\",\"2026-11-17 00:05\"],\"TPE\":[\"2026-11-17 00:05:06\",\"2026-11-16 23:50:06\",\"2026-11-17 00:05\"]}",
+    "c5_4_2_detail": "{\"UTC\":[\"2026-11-17 00:05:06\",\"2026-11-16 23:50:06\",\"2026-11-17 00:05\"],\"TPE\":[\"2026-11-17 00:05:06\",\"2026-11-16 23:50:06\",\"2026-11-17 00:05\"]}"
+   },
+   {
+    "id": "T5",
+    "class": "G",
+    "name": "T5 [API][CLK] 日期篩選：台北 11/17 00:05 查「今日」只含 00:05 那筆、不含前一天 23:50；「最近 3 天」兩筆都含；後台日期篩選依台北日曆日",
+    "timing_fix_unmodified": "PASS",
+    "c5_4_2": "PASS",
+    "c5_4_2_fresh_extract": "PASS",
+    "baseline_detail": "{\"UTC\":[[\"POPUP-20261117-000506-3d03c5\"],[\"POPUP-20261117-000506-3d03c5\",\"POPUP-20261116-235006-e6da81\"],{\"today\":[\"POPUP-20261117-000506-3d03c5\"],\"prev\":[\"POPUP-20261116-235006-e6da81\",\"POPUP-20261116-160906-0b3cc5\",\"POPUP-20261116-160806-40dcbb\",\"POPUP-20261116-160806-f2e738\",\"POPUP-20261116-160806-ffedbf\",\"POPUP-20261116-160806-af50cc\",\"POPUP-20261116-160806-e36833\",\"POPUP-20261116-160806-bd402e\",\"POPUP-20261116-160806-bc297f\"]}],\"TPE\":[[\"POPUP-20261117-000506-247747\"],[\"POPUP-20261117-000506-247747\",\"POPUP-20261116-235006-18e234\"],{\"today\":[\"POPUP-20261117-000506-247747\"],\"prev\":[\"POPUP-20261116-235006-18e234\",\"POPUP-20261116-160906-2c796f\",\"POPUP-20261116-160806-d95b16\",\"POPUP-20261116-160806-e1674b\",\"POPUP-20261116-160806-ed8e6e\",\"POPUP-20261116-160806-7ee712\",\"POPUP-20261116-160806-9f4a38\",\"POPUP-20261116-160806-c6ba3b\",\"POPUP-20261116-160806-3b6b53\"]}]}",
+    "c5_4_2_detail": "{\"UTC\":[[\"POPUP-20261117-000506-835738\"],[\"POPUP-20261117-000506-835738\",\"POPUP-20261116-235006-4fb00e\"],{\"today\":[\"POPUP-20261117-000506-835738\"],\"prev\":[\"POPUP-20261116-235006-4fb00e\",\"POPUP-20261116-160906-21480c\",\"POPUP-20261116-160806-aaf1f9\",\"POPUP-20261116-160806-ce7db2\",\"POPUP-20261116-160806-760dd9\",\"POPUP-20261116-160806-78d9f9\",\"POPUP-20261116-160806-6eecd8\",\"POPUP-20261116-160806-abd638\",\"POPUP-20261116-160806-12bfe9\"]}],\"TPE\":[[\"POPUP-20261117-000506-62dd23\"],[\"POPUP-20261117-000506-62dd23\",\"POPUP-20261116-235006-67d052\"],{\"today\":[\"POPUP-20261117-000506-62dd23\"],\"prev\":[\"POPUP-20261116-235006-67d052\",\"POPUP-20261116-160906-6718c7\",\"POPUP-20261116-160806-66f6c2\",\"POPUP-20261116-160806-fd5743\",\"POPUP-20261116-160806-ef660f\",\"POPUP-20261116-160806-559749\",\"POPUP-20261116-160806-e1160a\",\"POPUP-20261116-160806-67dc41\",\"POPUP-20261116-160806-103d9e\"]}]}"
+   },
+   {
+    "id": "T6",
+    "class": "G",
+    "name": "T6 [API][CLK] 付款安全時間未改變：付款期限＝建立時刻＋15 分鐘（epoch 毫秒）；期限前 15 秒仍可付款、期限後 20 秒才逾時（兩種主機時區相同）",
+    "timing_fix_unmodified": "PASS",
+    "c5_4_2": "PASS",
+    "c5_4_2_fresh_extract": "PASS",
+    "baseline_detail": "{\"UTC\":[901445,{\"state\":\"pending_payment\",\"can_pay\":true},{\"state\":\"payment_expired\",\"can_pay\":false}],\"TPE\":[901320,{\"state\":\"pending_payment\",\"can_pay\":true},{\"state\":\"payment_expired\",\"can_pay\":false}]}",
+    "c5_4_2_detail": "{\"UTC\":[901469,{\"state\":\"pending_payment\",\"can_pay\":true},{\"state\":\"payment_expired\",\"can_pay\":false}],\"TPE\":[901521,{\"state\":\"pending_payment\",\"can_pay\":true},{\"state\":\"payment_expired\",\"can_pay\":false}]}"
+   },
+   {
+    "id": "T7",
+    "class": "DE",
+    "name": "T7 [BR][CLK] 瀏覽器時區：台北與紐約時區的 Chrome 顯示同一筆資料皆為建立 16:08、更新 16:09；付款期限「請於 16:24 前」（不依裝置時區）",
+    "timing_fix_unmodified": "FAIL",
+    "c5_4_2": "PASS",
+    "c5_4_2_fresh_extract": "PASS",
+    "baseline_detail": "{\"UTC\":{\"Asia/Taipei\":{\"card\":\"建立：2026-11-16 16:08\",\"created\":\"2026-11-16 16:08\",\"updated\":\"2026-11-16 08:08\",\"deadline\":\"16:24\"},\"America/New_York\":{\"card\":\"建立：2026-11-16 16:08\",\"created\":\"2026-11-16 16:08\",\"updated\":\"2026-11-16 08:08\",\"deadline\":\"03:24\"}},\"TPE\":{\"Asia/Taipei\":{\"card\":\"建立：2026-11-16 16:08\",\"created\":\"2026-11-16 16:08\",\"updated\":\"2026-11-16 16:08\",\"deadline\":\"16:24\"},\"America/New_York\":{\"card\":\"建立：2026-11-16 16:08\",\"created\":\"2026-11-16 16:08\",\"updated\":\"2026-11-16 16:08\",\"deadline\":\"03:24\"}}}",
+    "c5_4_2_detail": "{\"UTC\":{\"Asia/Taipei\":{\"card\":\"建立：2026-11-16 16:08\",\"created\":\"2026-11-16 16:08\",\"updated\":\"2026-11-16 16:09\",\"deadline\":\"16:24\"},\"America/New_York\":{\"card\":\"建立：2026-11-16 16:08\",\"created\":\"2026-11-16 16:08\",\"updated\":\"2026-11-16 16:09\",\"deadline\":\"16:24\"}},\"TPE\":{\"Asia/Taipei\":{\"card\":\"建立：2026-11-16 16:08\",\"created\":\"2026-11-16 16:08\",\"updated\":\"2026-11-16 16:09\",\"deadline\":\"16:24\"},\"America/New_York\":{\"card\":\"建立：2026-11-16 16:08\",\"created\":\"2026-11-16 16:08\",\"updated\":\"2026-11-16 16:09\",\"deadline\":\"16:24\"}}}"
+   },
+   {
+    "id": "T8",
+    "class": "G（基準失敗為 T2／T7 的連帶結果）",
+    "name": "T8 [API][BR] 主機時區一致：TZ=UTC 與 TZ=Asia/Taipei 的所有顯示結果逐項相同",
+    "timing_fix_unmodified": "FAIL",
+    "c5_4_2": "PASS",
+    "c5_4_2_fresh_extract": "PASS",
+    "baseline_detail": "{\"UTC\":\"{\\\"shown\\\":{\\\"fail\\\":{\\\"listCreated\\\":\\\"2026-11-16 16:08\\\",\\\"created\\\":\\\"2026-11-16 16:08\\\",\\\"updated\\\":\\\"2026-11-16 08:08\\\"},\\\"accept\\\":{\\\"listCreated\\\":\\\"2026-11-16 16:08\\\",\\\"created\\\":\\\"2026-11-16 16:08\\\",\\\"updated\\\":\\\"2026-11-16 08:09\\\"},\\\"paid\\\":{\\\"listCreated\\\":\\\"2026-11-16 16:08\\\",\\\"created\\\":\\\"2026-11-16 16:08\\\",\\\"updated\\\":\\\"2026-11-16 08:09\\\"},\\\"cash\\\":{\\\"listCreated\\\":\\\"2026-11-16 16:08\\\",\\\"created\\\":\\\"2026-11-16 16:08\\\",\\\"updated\\\":\\\"2026-11-16 08:09\\\"},\\\"cancel\\\":{\\\"listCreated\\\":\\\"2026-11-16 16:08\\\",\\\"created\\\":\\\"2026-11-16 16:08\\\",\\\"updated\\\":\\\"2026-11-16 08:09\\\"},\\\"kitchen\\\":{\\\"listCreated\\\":\\\"2026-11-16 16:08\\\",\\\"created\\\":\\\"2026-11-16 16:08\\\",\\\"updated\\\":\\\"2026-11-16T08:09\\\"}},\\\"browser\\\":{\\\"Asia/Taipei\\\":{\\\"card\\\":\\\"建立：2026-11-16 16:08\\\",\\\"created\\\":\\\"2026-11-16 16:08\\\",\\\"updated\\\":\\\"2026-11-16 08:08\\\",\\\"deadline\\\":\\\"16:24\\\"},\\\"America/New_York\\\":{\\\"card\\\":\\\"建立：2026-11-16 16:08\\\",\\\"created\\\":\\\"2026-11-16 16:08\\\",\\\"updated\\\":\\\"2026-11-16 08:08\\\",\\\"deadline\\\":\\\"03:24\\\"}},\\\"today\\\":1,\\\"recent\\\":2,\\\"mid\\\":\\\"2026-11-17 00:05\\\",\\\"exp\\\":\\\"2026-11-16 08:23\\\",\\\"before\\\":{\\\"state\\\":\\\"pending_payment\\\",\\\"can_pay\\\":true},\\\"after\\\":{\\\"state\\\":\\\"payment_expired\\\",\\\"can…",
+    "c5_4_2_detail": "{\"UTC\":\"{\\\"shown\\\":{\\\"fail\\\":{\\\"listCreated\\\":\\\"2026-11-16 16:08\\\",\\\"created\\\":\\\"2026-11-16 16:08\\\",\\\"updated\\\":\\\"2026-11-16 16:09\\\"},\\\"accept\\\":{\\\"listCreated\\\":\\\"2026-11-16 16:08\\\",\\\"created\\\":\\\"2026-11-16 16:08\\\",\\\"updated\\\":\\\"2026-11-16 16:09\\\"},\\\"paid\\\":{\\\"listCreated\\\":\\\"2026-11-16 16:08\\\",\\\"created\\\":\\\"2026-11-16 16:08\\\",\\\"updated\\\":\\\"2026-11-16 16:09\\\"},\\\"cash\\\":{\\\"listCreated\\\":\\\"2026-11-16 16:08\\\",\\\"created\\\":\\\"2026-11-16 16:08\\\",\\\"updated\\\":\\\"2026-11-16 16:09\\\"},\\\"cancel\\\":{\\\"listCreated\\\":\\\"2026-11-16 16:08\\\",\\\"created\\\":\\\"2026-11-16 16:08\\\",\\\"updated\\\":\\\"2026-11-16 16:09\\\"},\\\"kitchen\\\":{\\\"listCreated\\\":\\\"2026-11-16 16:08\\\",\\\"created\\\":\\\"2026-11-16 16:08\\\",\\\"updated\\\":\\\"2026-11-16 16:09\\\"}},\\\"browser\\\":{\\\"Asia/Taipei\\\":{\\\"card\\\":\\\"建立：2026-11-16 16:08\\\",\\\"created\\\":\\\"2026-11-16 16:08\\\",\\\"updated\\\":\\\"2026-11-16 16:09\\\",\\\"deadline\\\":\\\"16:24\\\"},\\\"America/New_York\\\":{\\\"card\\\":\\\"建立：2026-11-16 16:08\\\",\\\"created\\\":\\\"2026-11-16 16:08\\\",\\\"updated\\\":\\\"2026-11-16 16:09\\\",\\\"deadline\\\":\\\"16:24\\\"}},\\\"today\\\":1,\\\"recent\\\":2,\\\"mid\\\":\\\"2026-11-17 00:05\\\",\\\"exp\\\":\\\"2026-11-16 16:23\\\",\\\"before\\\":{\\\"state\\\":\\\"pending_payment\\\",\\\"can_pay\\\":true},\\\"after\\\":{\\\"state\\\":\\\"payment_expired\\\",\\\"can…"
+   },
+   {
+    "id": "T10",
+    "class": "G",
+    "name": "T10 [FN] 後台時間（twTime；後台只顯示建立時間）：快閃訂單建立 16:08（日期時間與時間兩種格式）、帶 Z 的跨日時間 11/17 00:05；台北／紐約／UTC 時區輸出相同",
+    "timing_fix_unmodified": "PASS",
+    "c5_4_2": "PASS",
+    "c5_4_2_fresh_extract": "PASS",
+    "baseline_detail": "{\"a\":\"[\\\"2026/11/16 16:08:06\\\",\\\"16:08:06\\\",\\\"2026/11/17 00:05:00\\\"]\",\"b\":\"[\\\"2026/11/16 16:08:06\\\",\\\"16:08:06\\\",\\\"2026/11/17 00:05:00\\\"]\",\"c\":\"[\\\"2026/11/16 16:08:06\\\",\\\"16:08:06\\\",\\\"2026/11/17 00:05:00\\\"]\"}",
+    "c5_4_2_detail": "{\"a\":\"[\\\"2026/11/16 16:08:06\\\",\\\"16:08:06\\\",\\\"2026/11/17 00:05:00\\\"]\",\"b\":\"[\\\"2026/11/16 16:08:06\\\",\\\"16:08:06\\\",\\\"2026/11/17 00:05:00\\\"]\",\"c\":\"[\\\"2026/11/16 16:08:06\\\",\\\"16:08:06\\\",\\\"2026/11/17 00:05:00\\\"]\"}"
+   },
+   {
+    "id": "T9",
+    "class": "R",
+    "name": "T9 [API][FX] 歷史時間：與建立時間相同者沿用台北；帶 Z 者依 UTC 解析一次（16:09）；已付款且同一交易有 UTC 確認時間者可確認來源（UTC→16:09；台北→16:09）；來源不明者保留原值並標示「時區未確認」（不因早於建立時間就加 8 小時）；啟動兩次不改寫任何舊時間",
+    "timing_fix_unmodified": "FAIL",
+    "c5_4_2": "PASS",
+    "c5_4_2_fresh_extract": "PASS",
+    "baseline_detail": "{\"shown\":{\"same\":{\"created\":\"2026-11-16 16:08\",\"updated\":\"2026-11-16 16:08\"},\"iso\":{\"created\":\"2026-11-16 16:08\",\"updated\":\"2026-11-16T08:09\"},\"unknown\":{\"created\":\"2026-11-16 16:08\",\"updated\":\"2026-11-16 08:09\"},\"paidUtc\":{\"created\":\"2026-11-16 16:08\",\"updated\":\"2026-11-16 08:09\"},\"paidTpe\":{\"created\":\"2026-11-16 16:08\",\"updated\":\"2026-11-16 16:09\"}},\"rawBefore\":[{\"id\":\"25716b64-89eb-4084-add8-45a11a543f6e\",\"created_at\":\"2026-11-16 16:08:03\",\"updated_at\":\"2026-11-16 08:09:00\"},{\"id\":\"266da46e-a029-4ca9-8d0d-eea996786275\",\"created_at\":\"2026-11-16 16:08:03\",\"updated_at\":\"2026-11-16 08:09:00\"},{\"id\":\"8dd5d8b5-744d-49b8-af43-07a2550c5df9\",\"created_at\":\"2026-11-16 16:08:03\",\"updated_at\":\"2026-11-16T08:09:00.000Z\"},{\"id\":\"a6b22b19-e38a-4581-b843-643977415292\",\"created_at\":\"2026-11-16 16:08:03\",\"updated_at\":\"2026-11-16 16:08:03\"},{\"id\":\"eb53b018-10c4-49a5-a137-b656551ded63\",\"created_at\":\"2026-11-16 16:08:03\",\"updated_at\":\"2026-11-16 16:09:00\"}],\"rawAfter\":[{\"id\":\"25716b64-89eb-4084-add8-45a11a543f6e\",\"created_at\":\"2026-11-16 16:08:03\",\"updated_at\":\"2026-11-16 08:09:00\"},{\"id\":\"266da46e-a029-4ca9-8d0d-eea996786275\",\"created_at\":\"2026-11-16 16:08:03\",\"updated_at\":\"2026-11-16 08:09:00\"},{\"i…",
+    "c5_4_2_detail": "{\"shown\":{\"same\":{\"created\":\"2026-11-16 16:08\",\"updated\":\"2026-11-16 16:08\"},\"iso\":{\"created\":\"2026-11-16 16:08\",\"updated\":\"2026-11-16 16:09\"},\"unknown\":{\"created\":\"2026-11-16 16:08\",\"updated\":\"2026-11-16 08:09（時區未確認）\"},\"paidUtc\":{\"created\":\"2026-11-16 16:08\",\"updated\":\"2026-11-16 16:09\"},\"paidTpe\":{\"created\":\"2026-11-16 16:08\",\"updated\":\"2026-11-16 16:09\"}},\"rawBefore\":[{\"id\":\"33c3d789-0317-4289-86eb-589cc115273e\",\"created_at\":\"2026-11-16 16:08:03\",\"updated_at\":\"2026-11-16 08:09:00\"},{\"id\":\"499c370b-1b7d-494b-908b-6651998a7dd7\",\"created_at\":\"2026-11-16 16:08:03\",\"updated_at\":\"2026-11-16 08:09:00\"},{\"id\":\"a1b7bcd9-17ce-43d1-a44a-79d34af18dca\",\"created_at\":\"2026-11-16 16:08:03\",\"updated_at\":\"2026-11-16 16:09:00\"},{\"id\":\"d5b850a7-2632-4fc1-90d7-1058a1c6d46b\",\"created_at\":\"2026-11-16 16:08:03\",\"updated_at\":\"2026-11-16 16:08:03\"},{\"id\":\"e7c4a2e9-80c9-4432-bc58-a4fca31a96c3\",\"created_at\":\"2026-11-16 16:08:03\",\"updated_at\":\"2026-11-16T08:09:00.000Z\"}],\"rawAfter\":[{\"id\":\"33c3d789-0317-4289-86eb-589cc115273e\",\"created_at\":\"2026-11-16 16:08:03\",\"updated_at\":\"2026-11-16 08:09:00\"},{\"id\":\"499c370b-1b7d-494b-908b-6651998a7dd7\",\"created_at\":\"2026-11-16 16:08:03\",\"updated_at\":\"2026-11-16 08:09:0…"
+   },
+   {
+    "id": "Z",
+    "class": "G",
+    "name": "Z 真實 LINE Messaging API 與 LINE Pay 呼叫 0 次；未知 LINE Pay 路徑 0 次；替身核對簽章全部正確",
+    "timing_fix_unmodified": "PASS",
+    "c5_4_2": "PASS",
+    "c5_4_2_fresh_extract": "PASS",
+    "baseline_detail": "{\"real\":0,\"unexpected\":0,\"sigBad\":0,\"lineReal\":0,\"lpCalls\":32}",
+    "c5_4_2_detail": "{\"real\":0,\"unexpected\":0,\"sigBad\":0,\"lineReal\":0,\"lpCalls\":32}"
+   }
+  ]
+ },
+ "upgrade_rollback": {
+  "script": "scripts/smoke-r54-4-mbv2-hf1-c5-4-2-upgrade-rollback.js（C542_OLD_ROOT＝未修改 TIMING_FIX 樹）",
+  "c5_4_2": "6/6",
+  "c5_4_2_fresh_extract": "6/6",
+  "cases": [
+   {
+    "name": "UP1 [RS] 舊版資料庫升級：新增 2 個來源標記欄位與 2 個觸發器；舊時間值逐列不變、標記維持 NULL；成立判定正確；舊建立時間由同交易名額紀錄證實為台北；舊更新時間：已付款者由同交易 UTC 確認時間證實、其餘來源不明者標示未確認（不加 8 小時）",
+    "ok": true
+   },
+   {
+    "name": "UP2 [RS] C5.4.2 重複啟動：欄位、觸發器定義與舊時間值都不變（遷移可重複執行）",
+    "ok": true
+   },
+   {
+    "name": "UP3 [API] 升級後更新舊訂單：狀態更新時間寫入台北並標記來源；建立時間值與標記不被改動；履約進度如實呈現",
+    "ok": true
+   },
+   {
+    "name": "RB1 [RS] 回退舊版（同一資料庫）：可啟動；結帳、店家接單、我的訂單、後台列表正常；資料庫觸發器仍讓快閃訂單更新時間維持台北（舊版程式不受影響）",
+    "ok": true
+   },
+   {
+    "name": "RB2 [RS] 再升級回 C5.4.2：回退期間建立的訂單建立時間由同交易名額紀錄證實為台北、更新時間有來源標記；成立判定正確；結構不變",
+    "ok": true
+   },
+   {
+    "name": "Z 真實 LINE／LINE Pay 呼叫 0 次；未知 LINE Pay 路徑 0 次",
+    "ok": true
+   }
+  ]
+ },
+ "lazy_trigger_check": {
+  "how": "repo 外臨時腳本（全新解壓樹）：全新資料庫啟動時沒有付款表 → 第一次快閃 LINE Pay 結帳即建立付款表與觸發器 → 不重新啟動，下一分鐘取消付款",
+  "result": {
+   "before": [],
+   "after_first_checkout": [
+    "popup_payment_attempts",
+    "trg_c542_popup_attempt_touch_order"
+   ],
+   "order_updated_at": [
+    "2026-11-16 16:08:02",
+    "2026-11-16 16:09:02"
+   ],
+   "popup_updated_tz": "Asia/Taipei",
+   "attempt_status": "failed"
+  }
+ },
+ "regression": {
+  "mode": "未修改 TIMING_FIX 樹與 C5.4.2 樹同時段並行（2 核心）；全新解壓樹單獨執行",
+  "suites": [
+   {
+    "script": "smoke-r54-4-mbv2-hf1-c5-4-2-popup-establishment-taipei-time.js",
+    "timing_fix_unmodified": "結果：10 通過／19 失敗",
+    "c5_4_2": "結果：27 通過／2 失敗",
+    "c5_4_2_fresh_extract": "結果：29 通過／0 失敗"
+   },
+   {
+    "script": "smoke-r54-4-mbv2-hf1-c5-4-1-timing-fix.js",
+    "timing_fix_unmodified": "結果：11 通過／0 失敗",
+    "c5_4_2": "結果：11 通過／0 失敗",
+    "c5_4_2_fresh_extract": "結果：11 通過／0 失敗"
+   },
+   {
+    "script": "smoke-r54-4-mbv2-hf1-c5-4-1-popup-payment-status-refresh.js",
+    "timing_fix_unmodified": "結果：18 通過／1 失敗",
+    "c5_4_2": "結果：18 通過／1 失敗",
+    "c5_4_2_fresh_extract": "結果：19 通過／0 失敗"
+   },
+   {
+    "script": "smoke-r54-4-mbv2-hf1-c5-4-payment-ui-popup.js",
+    "timing_fix_unmodified": "結果：27 通過／0 失敗",
+    "c5_4_2": "結果：27 通過／0 失敗",
+    "c5_4_2_fresh_extract": "結果：27 通過／0 失敗"
+   },
+   {
+    "script": "smoke-r54-4-mbv2-hf1-c5-3-payment-guard.js",
+    "timing_fix_unmodified": "RESULT: 25 passed, 0 failed",
+    "c5_4_2": "RESULT: 25 passed, 0 failed",
+    "c5_4_2_fresh_extract": "RESULT: 25 passed, 0 failed"
+   },
+   {
+    "script": "smoke-r54-4-mbv2-hf1-c5-2-payment-recovery.js",
+    "timing_fix_unmodified": "RESULT: 33 passed, 0 failed",
+    "c5_4_2": "RESULT: 33 passed, 0 failed",
+    "c5_4_2_fresh_extract": "（未於全新解壓重跑）"
+   },
+   {
+    "script": "run-h1-4-10-phase3-checkout-submit-payment-runtime.js",
+    "timing_fix_unmodified": "TOTAL=111 PASS=111 FAIL=0",
+    "c5_4_2": "TOTAL=111 PASS=111 FAIL=0",
+    "c5_4_2_fresh_extract": "TOTAL=111 PASS=111 FAIL=0"
+   },
+   {
+    "script": "run-h1-4-10-phase4b-recovery-full-runtime.js",
+    "timing_fix_unmodified": "TOTAL=168 PASS=168 FAIL=0",
+    "c5_4_2": "TOTAL=168 PASS=168 FAIL=0",
+    "c5_4_2_fresh_extract": "TOTAL=168 PASS=168 FAIL=0"
+   },
+   {
+    "script": "run-h1-4-10-phase4b-recovery-frontend-targeted.js",
+    "timing_fix_unmodified": "TOTAL=50 PASS=50 FAIL=0",
+    "c5_4_2": "TOTAL=50 PASS=50 FAIL=0",
+    "c5_4_2_fresh_extract": "（未於全新解壓重跑）"
+   },
+   {
+    "script": "run-h1-4-10-phase4b-recovery-resume-targeted.js",
+    "timing_fix_unmodified": "TOTAL=92 PASS=92 FAIL=0",
+    "c5_4_2": "TOTAL=92 PASS=92 FAIL=0",
+    "c5_4_2_fresh_extract": "（未於全新解壓重跑）"
+   },
+   {
+    "script": "smoke-h1-4-12-popup-frontend.js",
+    "timing_fix_unmodified": "PASS: 293  FAIL: 0  TOTAL: 293",
+    "c5_4_2": "PASS: 293  FAIL: 0  TOTAL: 293",
+    "c5_4_2_fresh_extract": "PASS: 293  FAIL: 0  TOTAL: 293"
+   },
+   {
+    "script": "smoke-h1-4-12-popup-real-browser.js",
+    "timing_fix_unmodified": "PASS: 36  FAIL: 0  TOTAL: 36",
+    "c5_4_2": "PASS: 36  FAIL: 0  TOTAL: 36",
+    "c5_4_2_fresh_extract": "PASS: 36  FAIL: 0  TOTAL: 36"
+   },
+   {
+    "script": "smoke-h1-4-12-popup-public-checkout.js",
+    "timing_fix_unmodified": "PASS: 1447  FAIL: 0  TOTAL: 1447",
+    "c5_4_2": "PASS: 1447  FAIL: 0  TOTAL: 1447",
+    "c5_4_2_fresh_extract": "PASS: 1447  FAIL: 0  TOTAL: 1447"
+   },
+   {
+    "script": "smoke-h1-4-12-popup-checkout-integration.js",
+    "timing_fix_unmodified": "PASS: 20  FAIL: 0  TOTAL: 20",
+    "c5_4_2": "PASS: 20  FAIL: 0  TOTAL: 20",
+    "c5_4_2_fresh_extract": "（未於全新解壓重跑）"
+   },
+   {
+    "script": "smoke-h1-4-12-popup-recovery-cart-frontend.js",
+    "timing_fix_unmodified": "PASS: 67  FAIL: 0  TOTAL: 67",
+    "c5_4_2": "PASS: 67  FAIL: 0  TOTAL: 67",
+    "c5_4_2_fresh_extract": "（未於全新解壓重跑）"
+   },
+   {
+    "script": "smoke-h1-4-12-popup-state.js",
+    "timing_fix_unmodified": "PASS: 94  FAIL: 0  TOTAL: 94",
+    "c5_4_2": "PASS: 94  FAIL: 0  TOTAL: 94",
+    "c5_4_2_fresh_extract": "（未於全新解壓重跑）"
+   },
+   {
+    "script": "smoke-r48-popup-order-ui-browser.js",
+    "timing_fix_unmodified": "R48 SMOKE SUMMARY — PASS: 10  FAIL: 3  TOTAL: 13",
+    "c5_4_2": "R48 SMOKE SUMMARY — PASS: 10  FAIL: 3  TOTAL: 13",
+    "c5_4_2_fresh_extract": "（未於全新解壓重跑）"
+   },
+   {
+    "script": "smoke-r54-4-mbv2-hf1-c5-1-consistency.js",
+    "timing_fix_unmodified": "RESULT: 61 passed, 0 failed",
+    "c5_4_2": "RESULT: 61 passed, 0 failed",
+    "c5_4_2_fresh_extract": "RESULT: 61 passed, 0 failed"
+   },
+   {
+    "script": "smoke-r54-4-mbv2-hf1-c1-preorder-status.js",
+    "timing_fix_unmodified": "RESULT: 93 passed, 0 failed  (screenshots: /tmp/mbv2-hf1c1-shots-wNK7K8)",
+    "c5_4_2": "RESULT: 93 passed, 0 failed  (screenshots: /tmp/mbv2-hf1c1-shots-6xOblc)",
+    "c5_4_2_fresh_extract": "（未於全新解壓重跑）"
+   }
+  ],
+  "notes": [
+   "smoke-r54-4-mbv2-hf1-c5-4-1-popup-payment-status-refresh 在兩棵樹並行時同為 18/19（R16「最後成功查詢時間誤差 ≤3 秒」受同時段負載影響）；兩棵樹單獨重跑皆 19/19，全新解壓 19/19；斷言未修改",
+   "smoke-r48-popup-order-ui-browser 兩棵樹皆 10 通過／3 失敗，失敗鍵逐項相同（R_FATAL、R_NO_STICKY_FIXED、R_TOUCH_TARGET_44；場次頁頁首按鈕 40px、sticky、捲動逾時，C5.4.1 以前即存在）；以 repo 外 preload 保存摘要輸出",
+   "C5.4.2 驗收腳本第一版的 T8 把「付款期限－建立時刻」秒數（900／901，受建立當下秒差影響）納入跨主機時區比較、T10 未容許 ICU 的窄空白（U+2009）；兩者為測試缺陷，已修正後在兩棵樹重跑（上表為修正後結果）。產品程式未因此修改"
+  ],
+  "solo_reruns": {
+   "smoke-r54-4-mbv2-hf1-c5-4-1-popup-payment-status-refresh.js": {
+    "timing_fix_unmodified": "結果：19 通過／0 失敗",
+    "c5_4_2": "結果：19 通過／0 失敗"
+   }
+  }
+ },
+ "existing_tests_changed": [],
+ "existing_test_expectation_changes": "無。既有測試沒有把「尚未付款的 LINE Pay 訂單已成立」當成預期；付款安全、名額與權限斷言皆未修改或放寬。"
+}

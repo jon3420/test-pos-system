@@ -2751,6 +2751,10 @@ function initTables(w) {
   // R54.4／MBV2-HF1-C5：補貨通知成效追蹤（批次 tracking_id 欄位＋點擊／加購／訂單歸因三張新表）。additive、idempotent。
   try { require('./restockTracking').migrate(w._db); w._save(); }
   catch (e) { console.warn('[DB] restock_tracking migration:', e.message); }
+  // R54.4／MBV2-HF1-C6：恢復販售自動補貨通知（products.restock_auto_notify、批次 source／auto_event_uuid／taken_over_by、
+  // restock_auto_events）。additive、idempotent；預設關閉，遷移本身不建立任何事件、不發送。
+  try { require('./restockAuto').migrate(w._db); w._save(); }
+  catch (e) { console.warn('[DB] restock_auto migration:', e.message); }
   // R54.4／MBV2-HF1-C5.1：訂單唯一識別（新編號唯一索引、LINE Pay 付款嘗試、歷史重號稽核）。additive、idempotent；
   // 歷史重號不刪除、不合併、不重新編號；稽核發現重複只記錄，不阻擋開機。
   try {
@@ -2777,6 +2781,13 @@ function initTables(w) {
     if (r && r.quarantined) console.warn(`[DB] popup_payment: 已隔離 ${r.quarantined} 筆可能已付款的歷史失敗紀錄為待核對`);
     if (n) console.warn(`[DB] popup_payment: ${n} 筆上次送出 Confirm 後中斷的快閃付款已轉為待核對（只做唯讀核對）`);
   } catch (e) { console.warn('[DB] popup_payment migration:', e.message); }
+  // R54.4／MBV2-HF1-C5.4.2：快閃訂單台北時間契約（orders 新增兩個可為 NULL 的來源標記欄位＋只作用於快閃訂單的觸發器）。
+  // additive、idempotent；不改寫任何既有時間值；一般訂單／POS／宅配不受影響。
+  try {
+    const r = require('./popupOrderTime').migrate(w._db);
+    w._save();
+    if (r.columns_added.length) console.warn(`[DB] popup_order_time: 已新增來源標記欄位 ${r.columns_added.join('、')}（舊資料維持 NULL，不改寫時間）`);
+  } catch (e) { console.warn('[DB] popup_order_time migration:', e.message); }
 }
 
 

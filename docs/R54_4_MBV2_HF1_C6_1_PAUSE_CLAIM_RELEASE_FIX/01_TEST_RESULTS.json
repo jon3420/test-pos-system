@@ -1,0 +1,1136 @@
+{
+ "round": "R54.4／MBV2-HF1-C6.1 補修：暫停分支的過期通知名額釋放",
+ "baseline": {
+  "file": "P3CD_DEPLOY_R54_4_MBV2_HF1_C6_1_AUTO_RESTOCK_GUARD_RECOVERY_FIX_APP_ROOT.zip",
+  "sha256": "a1b5f56bca0e5c920b9201e5c52b324d671dc51529bba95c8cd13720657de8ea",
+  "bytes": 7814999,
+  "files": 1017,
+  "zip_entries": 1068,
+  "manifest_entries": 1014,
+  "manifest_verified": true,
+  "manifest_excluded": [
+   "docs/R54_4_MBV2_HF1_C6_1/00_FINAL_REPORT.md",
+   "docs/R54_4_MBV2_HF1_C6_1/01_TEST_RESULTS.json",
+   "docs/R54_4_MBV2_HF1_C6_1/02_FILE_MANIFEST.json"
+  ]
+ },
+ "external_calls": {
+  "real_line": 0,
+  "real_linepay": 0,
+  "sandbox": 0,
+  "deployed": false,
+  "production_auto_notify_enabled": false
+ },
+ "labels": {
+  "RS": "實際 SIGKILL 後同一資料庫檔重啟",
+  "FX": "停機修改資料庫檔建立持久狀態",
+  "API": "正式路由＋正式事件與 worker 流程＋檔案型暫存 SQLite"
+ },
+ "product_changes": [
+  "utils/restockNotify.js",
+  "utils/restockAuto.js"
+ ],
+ "db_schema_changes": [],
+ "existing_tests_modified": 0,
+ "new_acceptance": {
+  "script": "scripts/smoke-r54-4-mbv2-hf1-c6-1-pause-claim-release.js",
+  "c6_1_unmodified": {
+   "pass": 14,
+   "fail": 15,
+   "mock": {
+    "http_calls": 21,
+    "retry_keys_seen": 19,
+    "unique_accepted_keys": 12
+   },
+   "cases": [
+    {
+     "name": "I1 [API] 全店關閉再開啟＋總開關關閉：A 結果照實保存（accepted／HTTP 200，名額與 key 保留）；B HTTP 0、未標示已通知、retry key 不變；B 過期且從未送出的名額已釋放並記錄「auto_epoch_stale」",
+     "ok": false,
+     "detail": "{\"pause\":[\"paused\",\"send_disabled\"],\"A\":[\"accepted\",200,\"\",1,1],\"B\":[\"pending\",0,1,\"\",false],\"httpB\":0,\"sameKey\":true}"
+    },
+    {
+     "name": "I1b [API] 批次保留原暫停原因「send_disabled」可追查（版本失效原因記在 B 的逐筆紀錄）",
+     "ok": true,
+     "detail": "{\"pause\":\"send_disabled\",\"B_reason\":\"\"}"
+    },
+    {
+     "name": "I1c [API] 恢復設定後新的合法恢復販售事件：通知 B 1 則（不再因舊名額 in_other_batch 被跳過）；A 不重複受理",
+     "ok": false,
+     "detail": "{\"ev\":[[\"skipped\",\"no_eligible_recipient\"],[\"completed\",\"\"]],\"nb\":[null,null],\"httpB\":0,\"accA\":1,\"accB\":0}"
+    },
+    {
+     "name": "I2 [API] 全店關閉再開啟＋授權錯誤：A 結果照實保存（held／HTTP 401，名額與 key 保留）；B HTTP 0、未標示已通知、retry key 不變；B 過期且從未送出的名額已釋放並記錄「auto_epoch_stale」",
+     "ok": false,
+     "detail": "{\"pause\":[\"paused\",\"auth_error\"],\"A\":[\"held\",401,\"unauthorized\",1,1],\"B\":[\"pending\",0,1,\"\",false],\"httpB\":0,\"sameKey\":true}"
+    },
+    {
+     "name": "I2b [API] 批次保留原暫停原因「auth_error」可追查（版本失效原因記在 B 的逐筆紀錄）",
+     "ok": true,
+     "detail": "{\"pause\":\"auth_error\",\"B_reason\":\"\"}"
+    },
+    {
+     "name": "I2c [API] 恢復設定後新的合法恢復販售事件：通知 B 1 則（不再因舊名額 in_other_batch 被跳過）；A 不重複受理",
+     "ok": false,
+     "detail": "{\"ev\":[[\"skipped\",\"no_eligible_recipient\"],[\"completed\",\"\"]],\"nb\":[null,null],\"httpB\":0,\"accA\":0,\"accB\":0}"
+    },
+    {
+     "name": "I3 [API] 全店關閉再開啟＋額度不足：A 結果照實保存（held／HTTP 429，名額與 key 保留）；B HTTP 0、未標示已通知、retry key 不變；B 過期且從未送出的名額已釋放並記錄「auto_epoch_stale」",
+     "ok": false,
+     "detail": "{\"pause\":[\"paused\",\"monthly_limit\"],\"A\":[\"held\",429,\"monthly_limit\",1,1],\"B\":[\"pending\",0,1,\"\",false],\"httpB\":0,\"sameKey\":true}"
+    },
+    {
+     "name": "I3b [API] 批次保留原暫停原因「monthly_limit」可追查（版本失效原因記在 B 的逐筆紀錄）",
+     "ok": true,
+     "detail": "{\"pause\":\"monthly_limit\",\"B_reason\":\"\"}"
+    },
+    {
+     "name": "I3c [API] 恢復設定後新的合法恢復販售事件：通知 B 1 則（不再因舊名額 in_other_batch 被跳過）；A 不重複受理",
+     "ok": false,
+     "detail": "{\"ev\":[[\"skipped\",\"no_eligible_recipient\"],[\"completed\",\"\"]],\"nb\":[null,null],\"httpB\":0,\"accA\":0,\"accB\":0}"
+    },
+    {
+     "name": "I4 [API] 商品退出再加入＋總開關關閉：A 結果照實保存（accepted／HTTP 200，名額與 key 保留）；B HTTP 0、未標示已通知、retry key 不變；B 過期且從未送出的名額已釋放並記錄「auto_product_version_stale」",
+     "ok": false,
+     "detail": "{\"pause\":[\"paused\",\"send_disabled\"],\"A\":[\"accepted\",200,\"\",1,1],\"B\":[\"pending\",0,1,\"\",false],\"httpB\":0,\"sameKey\":true}"
+    },
+    {
+     "name": "I4b [API] 批次保留原暫停原因「send_disabled」可追查（版本失效原因記在 B 的逐筆紀錄）",
+     "ok": true,
+     "detail": "{\"pause\":\"send_disabled\",\"B_reason\":\"\"}"
+    },
+    {
+     "name": "I4c [API] 恢復設定後新的合法恢復販售事件：通知 B 1 則（不再因舊名額 in_other_batch 被跳過）；A 不重複受理",
+     "ok": false,
+     "detail": "{\"ev\":[[\"skipped\",\"no_eligible_recipient\"],[\"completed\",\"\"]],\"nb\":[null,null],\"httpB\":0,\"accA\":1,\"accB\":0}"
+    },
+    {
+     "name": "I5 [API] 商品退出再加入＋授權錯誤：A 結果照實保存（held／HTTP 401，名額與 key 保留）；B HTTP 0、未標示已通知、retry key 不變；B 過期且從未送出的名額已釋放並記錄「auto_product_version_stale」",
+     "ok": false,
+     "detail": "{\"pause\":[\"paused\",\"auth_error\"],\"A\":[\"held\",401,\"unauthorized\",1,1],\"B\":[\"pending\",0,1,\"\",false],\"httpB\":0,\"sameKey\":true}"
+    },
+    {
+     "name": "I5b [API] 批次保留原暫停原因「auth_error」可追查（版本失效原因記在 B 的逐筆紀錄）",
+     "ok": true,
+     "detail": "{\"pause\":\"auth_error\",\"B_reason\":\"\"}"
+    },
+    {
+     "name": "I5c [API] 恢復設定後新的合法恢復販售事件：通知 B 1 則（不再因舊名額 in_other_batch 被跳過）；A 不重複受理",
+     "ok": false,
+     "detail": "{\"ev\":[[\"skipped\",\"no_eligible_recipient\"],[\"completed\",\"\"]],\"nb\":[null,null],\"httpB\":0,\"accA\":0,\"accB\":0}"
+    },
+    {
+     "name": "I6 [API] 商品退出再加入＋額度不足：A 結果照實保存（held／HTTP 429，名額與 key 保留）；B HTTP 0、未標示已通知、retry key 不變；B 過期且從未送出的名額已釋放並記錄「auto_product_version_stale」",
+     "ok": false,
+     "detail": "{\"pause\":[\"paused\",\"monthly_limit\"],\"A\":[\"held\",429,\"monthly_limit\",1,1],\"B\":[\"pending\",0,1,\"\",false],\"httpB\":0,\"sameKey\":true}"
+    },
+    {
+     "name": "I6b [API] 批次保留原暫停原因「monthly_limit」可追查（版本失效原因記在 B 的逐筆紀錄）",
+     "ok": true,
+     "detail": "{\"pause\":\"monthly_limit\",\"B_reason\":\"\"}"
+    },
+    {
+     "name": "I6c [API] 恢復設定後新的合法恢復販售事件：通知 B 1 則（不再因舊名額 in_other_batch 被跳過）；A 不重複受理",
+     "ok": false,
+     "detail": "{\"ev\":[[\"skipped\",\"no_eligible_recipient\"],[\"completed\",\"\"]],\"nb\":[null,null],\"httpB\":0,\"accA\":0,\"accB\":0}"
+    },
+    {
+     "name": "O1 [API] 版本未改變、只有總開關關閉：B 名額保留（claim=1、無失效原因）；恢復後續送以原 key 送出 1 則",
+     "ok": true,
+     "detail": "{\"pause\":\"send_disabled\",\"B\":[\"pending\",1,\"\"],\"rs\":200,\"B2\":\"accepted\"}"
+    },
+    {
+     "name": "O2 [API] 版本未改變、只有授權錯誤：批次暫停 auth_error，B 名額保留（不釋放）",
+     "ok": true,
+     "detail": "{\"pause\":\"auth_error\",\"B\":[\"pending\",1,\"\"]}"
+    },
+    {
+     "name": "O3 [API] 手動批次：商品參與切換＋授權錯誤時名額保留、不記錄自動版本原因",
+     "ok": true,
+     "detail": "{\"src\":\"manual\",\"pause\":\"auth_error\",\"B\":[\"pending\",1,\"\"]}"
+    },
+    {
+     "name": "O4 [API] 已人工接手的自動批次：再遇版本改變＋授權錯誤 → 維持接手規則（C 名額保留、可再續送）",
+     "ok": true,
+     "detail": "{\"take\":\"store:store_001\",\"pause\":\"auth_error\",\"C\":[\"pending\",1,\"\"]}"
+    },
+    {
+     "name": "O5 [API] 已受理（I1）、已嘗試未受理（I2 授權／I3 額度）、結果不明（5xx 等待重試）項目：名額（claim=1）、嘗試次數與 retry key 全部保留；只有從未送出的 B 釋放",
+     "ok": true,
+     "detail": "{\"rows\":[[\"I1\",\"accepted\",1,1,true],[\"I2\",\"held\",1,1,true],[\"I3\",\"held\",1,1,true],[\"O5u\",\"retry_wait\",1,1,true]],\"B\":[\"pending\",null]}"
+    },
+    {
+     "name": "O6 [API] 正常自動批次（沒有切換或暫停）全部送完",
+     "ok": true,
+     "detail": "{\"st\":\"completed\",\"c\":{\"pending\":0,\"sending\":0,\"retry_wait\":0,\"held\":0,\"accepted\":3,\"unknown\":0,\"failed\":0,\"blocked\":0,\"excluded\":0,\"cancelled\":0}}"
+    },
+    {
+     "name": "M1 [API] 清理後店家明確續送：B 以原 delivery、原 retry key 送出 1 則並重新取得名額；A 以同一 key 重試受理",
+     "ok": false,
+     "detail": "{\"before\":[\"pending\",1],\"rs\":200,\"after\":[\"accepted\",1],\"keysA\":1}"
+    },
+    {
+     "name": "M2 [API] 新批次已通知 B 後接手舊批次（兩次續送）：B 不再送出（HTTP 次數不變、唯一受理 1）",
+     "ok": false,
+     "detail": "{\"r\":[200,200],\"http\":[0,1],\"B\":[\"accepted\",\"\"]}"
+    },
+    {
+     "name": "D1 [RS] 實際 SIGKILL 後同一資料庫檔重啟：epoch、商品參與版本、逐筆名額／retry key／嘗試次數一致，沒有任何新發送（狀態只依既有開機防重規則把已由新批次通知者改為 already_notified）",
+     "ok": true,
+     "detail": "{\"sig\":\"SIGKILL\",\"http\":[21,21],\"moved_to_already_notified\":0,\"bad\":[],\"ep\":[\"8\",\"8\"]}"
+    },
+    {
+     "name": "D2 [FX] 基準留下的「過期暫停批次＋未送出仍占名額」：重啟後安全清理（釋放名額、記錄原因、保留原 key 與授權暫停原因）；歷史 skipped 事件不自動重排或補發",
+     "ok": false,
+     "detail": "{\"C\":[\"pending\",null,\"auto_epoch_stale\"],\"pause\":\"auto_epoch_stale\",\"fx\":\"skipped\",\"http\":0}"
+    },
+    {
+     "name": "Z 真實 LINE Messaging API 呼叫 0 次",
+     "ok": true,
+     "detail": "{\"real\":0,\"mock_http\":21}"
+    }
+   ]
+  },
+  "fix_worktree": {
+   "pass": 29,
+   "fail": 0,
+   "mock": {
+    "http_calls": 26,
+    "retry_keys_seen": 24,
+    "unique_accepted_keys": 17
+   }
+  },
+  "fix_candidate_fresh_extract": {
+   "pass": 29,
+   "fail": 0,
+   "mock": {
+    "http_calls": 26,
+    "retry_keys_seen": 24,
+    "unique_accepted_keys": 17
+   },
+   "cases": [
+    {
+     "name": "I1 [API] 全店關閉再開啟＋總開關關閉：A 結果照實保存（accepted／HTTP 200，名額與 key 保留）；B HTTP 0、未標示已通知、retry key 不變；B 過期且從未送出的名額已釋放並記錄「auto_epoch_stale」",
+     "ok": true,
+     "detail": "{\"pause\":[\"paused\",\"send_disabled\"],\"A\":[\"accepted\",200,\"\",1,1],\"B\":[\"pending\",0,null,\"auto_epoch_stale\",false],\"httpB\":0,\"sameKey\":true}"
+    },
+    {
+     "name": "I1b [API] 批次保留原暫停原因「send_disabled」可追查（版本失效原因記在 B 的逐筆紀錄）",
+     "ok": true,
+     "detail": "{\"pause\":\"send_disabled\",\"B_reason\":\"auto_epoch_stale\"}"
+    },
+    {
+     "name": "I1c [API] 恢復設定後新的合法恢復販售事件：通知 B 1 則（不再因舊名額 in_other_batch 被跳過）；A 不重複受理",
+     "ok": true,
+     "detail": "{\"ev\":[[\"completed\",\"\"],[\"completed\",\"\"]],\"nb\":[\"completed\",1],\"nbB\":\"accepted\",\"httpB\":1,\"accA\":1,\"accB\":1}"
+    },
+    {
+     "name": "I2 [API] 全店關閉再開啟＋授權錯誤：A 結果照實保存（held／HTTP 401，名額與 key 保留）；B HTTP 0、未標示已通知、retry key 不變；B 過期且從未送出的名額已釋放並記錄「auto_epoch_stale」",
+     "ok": true,
+     "detail": "{\"pause\":[\"paused\",\"auth_error\"],\"A\":[\"held\",401,\"unauthorized\",1,1],\"B\":[\"pending\",0,null,\"auto_epoch_stale\",false],\"httpB\":0,\"sameKey\":true}"
+    },
+    {
+     "name": "I2b [API] 批次保留原暫停原因「auth_error」可追查（版本失效原因記在 B 的逐筆紀錄）",
+     "ok": true,
+     "detail": "{\"pause\":\"auth_error\",\"B_reason\":\"auto_epoch_stale\"}"
+    },
+    {
+     "name": "I2c [API] 恢復設定後新的合法恢復販售事件：通知 B 1 則（不再因舊名額 in_other_batch 被跳過）；A 不重複受理",
+     "ok": true,
+     "detail": "{\"ev\":[[\"completed\",\"\"],[\"completed\",\"\"]],\"nb\":[\"completed\",1],\"nbB\":\"accepted\",\"httpB\":1,\"accA\":0,\"accB\":1}"
+    },
+    {
+     "name": "I3 [API] 全店關閉再開啟＋額度不足：A 結果照實保存（held／HTTP 429，名額與 key 保留）；B HTTP 0、未標示已通知、retry key 不變；B 過期且從未送出的名額已釋放並記錄「auto_epoch_stale」",
+     "ok": true,
+     "detail": "{\"pause\":[\"paused\",\"monthly_limit\"],\"A\":[\"held\",429,\"monthly_limit\",1,1],\"B\":[\"pending\",0,null,\"auto_epoch_stale\",false],\"httpB\":0,\"sameKey\":true}"
+    },
+    {
+     "name": "I3b [API] 批次保留原暫停原因「monthly_limit」可追查（版本失效原因記在 B 的逐筆紀錄）",
+     "ok": true,
+     "detail": "{\"pause\":\"monthly_limit\",\"B_reason\":\"auto_epoch_stale\"}"
+    },
+    {
+     "name": "I3c [API] 恢復設定後新的合法恢復販售事件：通知 B 1 則（不再因舊名額 in_other_batch 被跳過）；A 不重複受理",
+     "ok": true,
+     "detail": "{\"ev\":[[\"completed\",\"\"],[\"completed\",\"\"]],\"nb\":[\"completed\",1],\"nbB\":\"accepted\",\"httpB\":1,\"accA\":0,\"accB\":1}"
+    },
+    {
+     "name": "I4 [API] 商品退出再加入＋總開關關閉：A 結果照實保存（accepted／HTTP 200，名額與 key 保留）；B HTTP 0、未標示已通知、retry key 不變；B 過期且從未送出的名額已釋放並記錄「auto_product_version_stale」",
+     "ok": true,
+     "detail": "{\"pause\":[\"paused\",\"send_disabled\"],\"A\":[\"accepted\",200,\"\",1,1],\"B\":[\"pending\",0,null,\"auto_product_version_stale\",false],\"httpB\":0,\"sameKey\":true}"
+    },
+    {
+     "name": "I4b [API] 批次保留原暫停原因「send_disabled」可追查（版本失效原因記在 B 的逐筆紀錄）",
+     "ok": true,
+     "detail": "{\"pause\":\"send_disabled\",\"B_reason\":\"auto_product_version_stale\"}"
+    },
+    {
+     "name": "I4c [API] 恢復設定後新的合法恢復販售事件：通知 B 1 則（不再因舊名額 in_other_batch 被跳過）；A 不重複受理",
+     "ok": true,
+     "detail": "{\"ev\":[[\"completed\",\"\"],[\"completed\",\"\"]],\"nb\":[\"completed\",1],\"nbB\":\"accepted\",\"httpB\":1,\"accA\":1,\"accB\":1}"
+    },
+    {
+     "name": "I5 [API] 商品退出再加入＋授權錯誤：A 結果照實保存（held／HTTP 401，名額與 key 保留）；B HTTP 0、未標示已通知、retry key 不變；B 過期且從未送出的名額已釋放並記錄「auto_product_version_stale」",
+     "ok": true,
+     "detail": "{\"pause\":[\"paused\",\"auth_error\"],\"A\":[\"held\",401,\"unauthorized\",1,1],\"B\":[\"pending\",0,null,\"auto_product_version_stale\",false],\"httpB\":0,\"sameKey\":true}"
+    },
+    {
+     "name": "I5b [API] 批次保留原暫停原因「auth_error」可追查（版本失效原因記在 B 的逐筆紀錄）",
+     "ok": true,
+     "detail": "{\"pause\":\"auth_error\",\"B_reason\":\"auto_product_version_stale\"}"
+    },
+    {
+     "name": "I5c [API] 恢復設定後新的合法恢復販售事件：通知 B 1 則（不再因舊名額 in_other_batch 被跳過）；A 不重複受理",
+     "ok": true,
+     "detail": "{\"ev\":[[\"completed\",\"\"],[\"completed\",\"\"]],\"nb\":[\"completed\",1],\"nbB\":\"accepted\",\"httpB\":1,\"accA\":0,\"accB\":1}"
+    },
+    {
+     "name": "I6 [API] 商品退出再加入＋額度不足：A 結果照實保存（held／HTTP 429，名額與 key 保留）；B HTTP 0、未標示已通知、retry key 不變；B 過期且從未送出的名額已釋放並記錄「auto_product_version_stale」",
+     "ok": true,
+     "detail": "{\"pause\":[\"paused\",\"monthly_limit\"],\"A\":[\"held\",429,\"monthly_limit\",1,1],\"B\":[\"pending\",0,null,\"auto_product_version_stale\",false],\"httpB\":0,\"sameKey\":true}"
+    },
+    {
+     "name": "I6b [API] 批次保留原暫停原因「monthly_limit」可追查（版本失效原因記在 B 的逐筆紀錄）",
+     "ok": true,
+     "detail": "{\"pause\":\"monthly_limit\",\"B_reason\":\"auto_product_version_stale\"}"
+    },
+    {
+     "name": "I6c [API] 恢復設定後新的合法恢復販售事件：通知 B 1 則（不再因舊名額 in_other_batch 被跳過）；A 不重複受理",
+     "ok": true,
+     "detail": "{\"ev\":[[\"completed\",\"\"],[\"completed\",\"\"]],\"nb\":[\"completed\",1],\"nbB\":\"accepted\",\"httpB\":1,\"accA\":0,\"accB\":1}"
+    },
+    {
+     "name": "O1 [API] 版本未改變、只有總開關關閉：B 名額保留（claim=1、無失效原因）；恢復後續送以原 key 送出 1 則",
+     "ok": true,
+     "detail": "{\"pause\":\"send_disabled\",\"B\":[\"pending\",1,\"\"],\"rs\":200,\"B2\":\"accepted\"}"
+    },
+    {
+     "name": "O2 [API] 版本未改變、只有授權錯誤：批次暫停 auth_error，B 名額保留（不釋放）",
+     "ok": true,
+     "detail": "{\"pause\":\"auth_error\",\"B\":[\"pending\",1,\"\"]}"
+    },
+    {
+     "name": "O3 [API] 手動批次：商品參與切換＋授權錯誤時名額保留、不記錄自動版本原因",
+     "ok": true,
+     "detail": "{\"src\":\"manual\",\"pause\":\"auth_error\",\"B\":[\"pending\",1,\"\"]}"
+    },
+    {
+     "name": "O4 [API] 已人工接手的自動批次：再遇版本改變＋授權錯誤 → 維持接手規則（C 名額保留、可再續送）",
+     "ok": true,
+     "detail": "{\"take\":\"store:store_001\",\"pause\":\"auth_error\",\"C\":[\"pending\",1,\"\"]}"
+    },
+    {
+     "name": "O5 [API] 已受理（I1）、已嘗試未受理（I2 授權／I3 額度）、結果不明（5xx 等待重試）項目：名額（claim=1）、嘗試次數與 retry key 全部保留；只有從未送出的 B 釋放",
+     "ok": true,
+     "detail": "{\"rows\":[[\"I1\",\"accepted\",1,1,true],[\"I2\",\"held\",1,1,true],[\"I3\",\"held\",1,1,true],[\"O5u\",\"retry_wait\",1,1,true]],\"B\":[\"pending\",null]}"
+    },
+    {
+     "name": "O6 [API] 正常自動批次（沒有切換或暫停）全部送完",
+     "ok": true,
+     "detail": "{\"st\":\"completed\",\"c\":{\"pending\":0,\"sending\":0,\"retry_wait\":0,\"held\":0,\"accepted\":3,\"unknown\":0,\"failed\":0,\"blocked\":0,\"excluded\":0,\"cancelled\":0}}"
+    },
+    {
+     "name": "M1 [API] 清理後店家明確續送：B 以原 delivery、原 retry key 送出 1 則並重新取得名額；A 以同一 key 重試受理",
+     "ok": true,
+     "detail": "{\"before\":[\"pending\",null],\"rs\":200,\"after\":[\"accepted\",1],\"keysA\":1}"
+    },
+    {
+     "name": "M2 [API] 新批次已通知 B 後接手舊批次（兩次續送）：B 不再送出（HTTP 次數不變、唯一受理 1）",
+     "ok": true,
+     "detail": "{\"r\":[200,200],\"http\":[1,1],\"B\":[\"blocked\",\"already_notified\"]}"
+    },
+    {
+     "name": "D1 [RS] 實際 SIGKILL 後同一資料庫檔重啟：epoch、商品參與版本、逐筆名額／retry key／嘗試次數一致，沒有任何新發送（狀態只依既有開機防重規則把已由新批次通知者改為 already_notified）",
+     "ok": true,
+     "detail": "{\"sig\":\"SIGKILL\",\"http\":[26,26],\"moved_to_already_notified\":5,\"bad\":[],\"ep\":[\"8\",\"8\"]}"
+    },
+    {
+     "name": "D2 [FX] 基準留下的「過期暫停批次＋未送出仍占名額」：重啟後安全清理（釋放名額、記錄原因、保留原 key 與授權暫停原因）；歷史 skipped 事件不自動重排或補發",
+     "ok": true,
+     "detail": "{\"C\":[\"pending\",null,\"auto_epoch_stale\"],\"pause\":\"auth_error\",\"fx\":\"skipped\",\"http\":0}"
+    },
+    {
+     "name": "Z 真實 LINE Messaging API 呼叫 0 次",
+     "ok": true,
+     "detail": "{\"real\":0,\"mock_http\":26}"
+    }
+   ]
+  }
+ },
+ "upgrade_rollback": {
+  "script": "scripts/smoke-r54-4-mbv2-hf1-c6-1-pause-claim-release-upgrade-rollback.js",
+  "path": "C6.1 → 補修版 → 回退 C6.1 → 再升級補修版",
+  "pass": 7,
+  "fail": 0,
+  "cases": [
+   {
+    "name": "U1 [RS] C6.1 → 補修版：C6.1 留下的「過期暫停批次＋未送出仍占名額」在開機時安全清理（釋放名額、記錄原因、retry key 不變、保留授權暫停原因）；需求、同意、批次、逐筆、版本、訂單全部保留",
+    "ok": true,
+    "detail": "{\"c61_B\":[1,\"\"],\"fix_B\":[null,\"auto_epoch_stale\"],\"pause\":\"auth_error\",\"lost\":[],\"changed\":[],\"ver_same\":true}"
+   },
+   {
+    "name": "U2 [RS] 補修版：新的合法恢復販售事件通知 B 1 則",
+    "ok": true,
+    "detail": "{\"e2\":{\"status\":\"completed\",\"reason\":\"\"},\"n\":1}"
+   },
+   {
+    "name": "U3 [RS] 補修版：交錯（關閉再開啟＋額度不足）即時釋放 B 名額，不需重啟",
+    "ok": true,
+    "detail": "{\"bu\":\"277ab90e-db5f-4d41-a8f0-a02f91c763f5\",\"b\":{\"status\":\"pending\",\"claim\":null,\"exclusion_reason\":\"auto_epoch_stale\",\"retry_key\":\"4c4d7ec9-066b-4c90-82a2-d97cdf00fc1e\",\"attempt_count\":0},\"pause\":\"monthly_limit\"}"
+   },
+   {
+    "name": "R1 [RS] 補修版 → 回退 C6.1：資料、逐筆證據、retry key 與版本全部保留；已釋放的名額維持釋放（C6.1 不會重新占用）",
+    "ok": true,
+    "detail": "{\"lost\":[],\"changed\":[],\"B\":{\"claim\":null,\"exclusion_reason\":\"auto_epoch_stale\"}}"
+   },
+   {
+    "name": "R2 [RS] 回退 C6.1 期間：先前已釋放的 B 可由新事件通知 1 則；但新的交錯情境缺口恢復（B 仍占名額 claim=1、無原因）— 回退限制",
+    "ok": true,
+    "detail": "{\"n4\":1,\"g3\":{\"status\":\"pending\",\"claim\":1,\"exclusion_reason\":\"\",\"retry_key\":\"e6a9d524-fe13-483b-a5f4-c45a8c0ef757\",\"attempt_count\":0}}"
+   },
+   {
+    "name": "R3 [RS] 再升級補修版：回退期間留下的過期名額於開機清理；資料／版本保留；新事件通知 B 1 則；每位會員唯一受理 ≤ 1",
+    "ok": true,
+    "detail": "{\"lost\":[],\"changed\":[],\"B\":{\"claim\":null,\"exclusion_reason\":\"auto_epoch_stale\",\"retry_key\":\"e6a9d524-fe13-483b-a5f4-c45a8c0ef757\"},\"e6\":{\"status\":\"completed\",\"reason\":\"\"},\"n6\":1}"
+   },
+   {
+    "name": "Z 真實 LINE 呼叫 0 次",
+    "ok": true,
+    "detail": "{\"real\":0}"
+   }
+  ]
+ },
+ "fresh_extract": {
+  "npm_ci": "ok",
+  "empty_db_health": "ok",
+  "boot_recovery_log": "[restock_auto] boot recovery done (stale_batches=0 legacy_review=0)"
+ },
+ "regression": {
+  "window": "2026-11-18 約 16:53～17:45 台北時間，兩棵樹平行",
+  "c6_1_unmodified": [
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-2-popup-establishment-taipei-time.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 81,
+    "summary": "結果：29 通過／0 失敗",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-2-payment-guard-time-merge.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 58,
+    "summary": "結果：22 通過／0 失敗",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-2-payment-response-timing.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 222,
+    "summary": "結果：18 通過／0 失敗",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-1-popup-payment-status-refresh.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 105,
+    "summary": "結果：19 通過／0 失敗",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-1-timing-fix.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 87,
+    "summary": "結果：11 通過／0 失敗",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-payment-ui-popup.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 65,
+    "summary": "結果：27 通過／0 失敗",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-3-payment-guard.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 48,
+    "summary": "RESULT: 25 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-2-payment-recovery.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 104,
+    "summary": "RESULT: 33 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-1-consistency.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 162,
+    "summary": "RESULT: 61 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "run-h1-4-10-phase3-checkout-submit-payment-runtime.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 29,
+    "summary": "TOTAL=111 PASS=111 FAIL=0",
+    "fail_lines": []
+   },
+   {
+    "suite": "run-h1-4-10-phase4b-recovery-full-runtime.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 19,
+    "summary": "TOTAL=168 PASS=168 FAIL=0",
+    "fail_lines": []
+   },
+   {
+    "suite": "run-h1-4-10-phase4b-recovery-frontend-targeted.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 10,
+    "summary": "TOTAL=50 PASS=50 FAIL=0",
+    "fail_lines": []
+   },
+   {
+    "suite": "run-h1-4-10-phase4b-recovery-resume-targeted.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 4,
+    "summary": "TOTAL=92 PASS=92 FAIL=0",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-frontend.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 30,
+    "summary": "PASS: 293  FAIL: 0  TOTAL: 293",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-real-browser.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 11,
+    "summary": "PASS: 36  FAIL: 0  TOTAL: 36",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-public-checkout.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 72,
+    "summary": "PASS: 1447  FAIL: 0  TOTAL: 1447",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-checkout-integration.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 3,
+    "summary": "PASS: 20  FAIL: 0  TOTAL: 20",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-recovery-cart-frontend.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 10,
+    "summary": "PASS: 67  FAIL: 0  TOTAL: 67",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-state.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 0,
+    "summary": "PASS: 94  FAIL: 0  TOTAL: 94",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r48-popup-order-ui-browser.js",
+    "env": {},
+    "rc": 1,
+    "seconds": 33,
+    "summary": "",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-migration.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 20,
+    "summary": "RESULT: 121 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c1-preorder-status.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 89,
+    "summary": "RESULT: 93 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c3-sale-status-demand.js",
+    "env": {},
+    "rc": 1,
+    "seconds": 185,
+    "summary": "RESULT: 328 passed, 4 failed",
+    "fail_lines": [
+     "❌ O1 今日完售：今日訂單被擋，未建立訂單、未扣今日額度",
+     "❌ O6-paused 今日與未來日期都被擋，訂單與額度不變",
+     "❌ O6-sold_out_indefinitely 今日與未來日期都被擋，訂單與額度不變",
+     "❌ O9 今日完售＋未啟用預購份數管理：今日仍擋；未來 30 份（超過原預購每日 20）不限額成功，今日額度不變"
+    ]
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c3-1-backup-manage-login.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 124,
+    "summary": "RESULT: 54 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c3-2-firstpaint-remap.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 81,
+    "summary": "RESULT: 32 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c3-3-restore-cancel.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 165,
+    "summary": "RESULT: 30 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-restock-notify.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 74,
+    "summary": "RESULT: 94 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-1-dedupe-resume.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 90,
+    "summary": "RESULT: 40 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-2-demand-ui-refresh.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 390,
+    "summary": "RESULT: 80 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-3-async-consistency.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 145,
+    "summary": "RESULT: 34 passed, 0 failed（模擬 LINE 呼叫 2 次；真實 0 次需為 0：0）",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-4-mutation-response.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 75,
+    "summary": "RESULT: 20 passed, 0 failed（真實 LINE 呼叫 0 次）",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-5-date-consent.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 62,
+    "summary": "RESULT: 55 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-5-restock-link.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 82,
+    "summary": "RESULT: 42 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-linepush-compat.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 0,
+    "summary": "RESULT: 12 passed, 0 failed（全部為程序內模擬，真實 LINE 呼叫 0 次）",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-restock-conversion.js",
+    "env": {},
+    "rc": 1,
+    "seconds": 78,
+    "summary": "RESULT: 41 passed, 1 failed",
+    "fail_lines": [
+     "❌ B1 LIFF 一次／二次導向後最終頁開啟商品：點擊 1 次、核對為收件人"
+    ]
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-restock-conversion.js",
+    "env": {
+     "C4_CLOCK_OFFSET_MS": "0"
+    },
+    "rc": 0,
+    "seconds": 81,
+    "summary": "RESULT: 42 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-auto-restock.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 75,
+    "summary": "結果：24 通過／0 失敗",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-upgrade-rollback.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 15,
+    "summary": "結果：4 通過／0 失敗",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-1-auto-guard-recovery.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 63,
+    "summary": "結果：29 通過／0 失敗",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-1-upgrade-rollback.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 36,
+    "summary": "結果：11 通過／0 失敗",
+    "fail_lines": []
+   }
+  ],
+  "fix_candidate": [
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-2-popup-establishment-taipei-time.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 82,
+    "summary": "結果：29 通過／0 失敗",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-2-payment-guard-time-merge.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 57,
+    "summary": "結果：22 通過／0 失敗",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-2-payment-response-timing.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 221,
+    "summary": "結果：18 通過／0 失敗",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-1-popup-payment-status-refresh.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 105,
+    "summary": "結果：19 通過／0 失敗",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-1-timing-fix.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 88,
+    "summary": "結果：11 通過／0 失敗",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-payment-ui-popup.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 63,
+    "summary": "結果：27 通過／0 失敗",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-3-payment-guard.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 48,
+    "summary": "RESULT: 25 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-2-payment-recovery.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 104,
+    "summary": "RESULT: 33 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-1-consistency.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 161,
+    "summary": "RESULT: 61 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "run-h1-4-10-phase3-checkout-submit-payment-runtime.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 29,
+    "summary": "TOTAL=111 PASS=111 FAIL=0",
+    "fail_lines": []
+   },
+   {
+    "suite": "run-h1-4-10-phase4b-recovery-full-runtime.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 19,
+    "summary": "TOTAL=168 PASS=168 FAIL=0",
+    "fail_lines": []
+   },
+   {
+    "suite": "run-h1-4-10-phase4b-recovery-frontend-targeted.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 10,
+    "summary": "TOTAL=50 PASS=50 FAIL=0",
+    "fail_lines": []
+   },
+   {
+    "suite": "run-h1-4-10-phase4b-recovery-resume-targeted.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 4,
+    "summary": "TOTAL=92 PASS=92 FAIL=0",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-frontend.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 30,
+    "summary": "PASS: 293  FAIL: 0  TOTAL: 293",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-real-browser.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 11,
+    "summary": "PASS: 36  FAIL: 0  TOTAL: 36",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-public-checkout.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 72,
+    "summary": "PASS: 1447  FAIL: 0  TOTAL: 1447",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-checkout-integration.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 3,
+    "summary": "PASS: 20  FAIL: 0  TOTAL: 20",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-recovery-cart-frontend.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 10,
+    "summary": "PASS: 67  FAIL: 0  TOTAL: 67",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-state.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 0,
+    "summary": "PASS: 94  FAIL: 0  TOTAL: 94",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r48-popup-order-ui-browser.js",
+    "env": {},
+    "rc": 1,
+    "seconds": 33,
+    "summary": "",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-migration.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 19,
+    "summary": "RESULT: 121 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c1-preorder-status.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 88,
+    "summary": "RESULT: 93 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c3-sale-status-demand.js",
+    "env": {},
+    "rc": 1,
+    "seconds": 183,
+    "summary": "RESULT: 328 passed, 4 failed",
+    "fail_lines": [
+     "❌ O1 今日完售：今日訂單被擋，未建立訂單、未扣今日額度",
+     "❌ O6-paused 今日與未來日期都被擋，訂單與額度不變",
+     "❌ O6-sold_out_indefinitely 今日與未來日期都被擋，訂單與額度不變",
+     "❌ O9 今日完售＋未啟用預購份數管理：今日仍擋；未來 30 份（超過原預購每日 20）不限額成功，今日額度不變"
+    ]
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c3-1-backup-manage-login.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 124,
+    "summary": "RESULT: 54 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c3-2-firstpaint-remap.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 80,
+    "summary": "RESULT: 32 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c3-3-restore-cancel.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 166,
+    "summary": "RESULT: 30 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-restock-notify.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 72,
+    "summary": "RESULT: 94 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-1-dedupe-resume.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 88,
+    "summary": "RESULT: 40 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-2-demand-ui-refresh.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 392,
+    "summary": "RESULT: 80 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-3-async-consistency.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 145,
+    "summary": "RESULT: 34 passed, 0 failed（模擬 LINE 呼叫 2 次；真實 0 次需為 0：0）",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-4-mutation-response.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 74,
+    "summary": "RESULT: 20 passed, 0 failed（真實 LINE 呼叫 0 次）",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-5-date-consent.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 63,
+    "summary": "RESULT: 55 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-5-restock-link.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 83,
+    "summary": "RESULT: 42 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-linepush-compat.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 0,
+    "summary": "RESULT: 12 passed, 0 failed（全部為程序內模擬，真實 LINE 呼叫 0 次）",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-restock-conversion.js",
+    "env": {},
+    "rc": 1,
+    "seconds": 78,
+    "summary": "RESULT: 41 passed, 1 failed",
+    "fail_lines": [
+     "❌ B1 LIFF 一次／二次導向後最終頁開啟商品：點擊 1 次、核對為收件人"
+    ]
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-restock-conversion.js",
+    "env": {
+     "C4_CLOCK_OFFSET_MS": "0"
+    },
+    "rc": 0,
+    "seconds": 80,
+    "summary": "RESULT: 42 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-auto-restock.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 74,
+    "summary": "結果：24 通過／0 失敗",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-upgrade-rollback.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 17,
+    "summary": "結果：4 通過／0 失敗",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-1-auto-guard-recovery.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 64,
+    "summary": "結果：29 通過／0 失敗",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-1-upgrade-rollback.js",
+    "env": {},
+    "rc": 0,
+    "seconds": 37,
+    "summary": "結果：11 通過／0 失敗",
+    "fail_lines": []
+   }
+  ],
+  "identical": true,
+  "r48_isolated": {
+   "c6_1_unmodified": [
+    "[FAIL] R_TOUCH_TARGET_44 — open 320x568 small=[{\"n\":\"🔍 查詢訂單\",\"w\":106.796875,\"h\":40},{\"n\":\"📜 我的訂單\",\"w\":106.796875,\"h\":40},{\"n\":\"📅 選擇其他場次\",\"w\":134.796875,\"h\":40}]",
+    "[FAIL] R_NO_STICKY_FIXED — open 320x568 stickyFixed=1",
+    "[FAIL] R_FATAL — locator.scrollIntoViewIfNeeded: Timeout 29993.361999999997ms exceeded.",
+    "R48 SMOKE SUMMARY — PASS: 10  FAIL: 3  TOTAL: 13"
+   ],
+   "fix_candidate": [
+    "[FAIL] R_TOUCH_TARGET_44 — open 320x568 small=[{\"n\":\"🔍 查詢訂單\",\"w\":106.796875,\"h\":40},{\"n\":\"📜 我的訂單\",\"w\":106.796875,\"h\":40},{\"n\":\"📅 選擇其他場次\",\"w\":134.796875,\"h\":40}]",
+    "[FAIL] R_NO_STICKY_FIXED — open 320x568 stickyFixed=1",
+    "[FAIL] R_FATAL — locator.scrollIntoViewIfNeeded: Timeout 29988.104999999996ms exceeded.",
+    "R48 SMOKE SUMMARY — PASS: 10  FAIL: 3  TOTAL: 13"
+   ]
+  },
+  "existing_failures": [
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c3-sale-status-demand.js",
+    "items": [
+     "O1",
+     "O6-paused",
+     "O6-sold_out_indefinitely",
+     "O9"
+    ],
+    "note": "真實時鐘；17:00 後執行時今日訂單先因 time_too_early 被擋；兩棵樹相同；上午執行 C6.1 為 332/332"
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-restock-conversion.js（預設時鐘）",
+    "items": [
+     "B1"
+    ],
+    "note": "C4_CLOCK_OFFSET_MS=0 時兩棵樹 42/42；兩棵樹相同"
+   },
+   {
+    "suite": "smoke-r48-popup-order-ui-browser.js",
+    "items": [
+     "R_TOUCH_TARGET_44",
+     "R_NO_STICKY_FIXED",
+     "R_FATAL"
+    ],
+    "note": "既有；兩棵樹相同"
+   }
+  ],
+  "rejected_evidence": "以 NODE_OPTIONS 預載測試時鐘固定 10:30 重跑 C3／C5 會干擾其他項目（兩棵樹 C3 296/299、C5 40/42），不採用為證據",
+  "not_executed": [
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-2-upgrade-rollback.js",
+    "reason": "需要 C5.4.1 TIMING_FIX 程式樹，工作區沒有"
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-2-payment-guard-upgrade-rollback.js",
+    "reason": "需要 C5.4.2 原始程式樹，工作區沒有"
+   }
+  ]
+ },
+ "exits_coverage": {
+  "send_disabled": "實測 I1/I4/O1",
+  "config_incomplete": "同一分支，未單獨實測",
+  "auth_error": "實測 I2/I5/O2/O3/O4",
+  "monthly_limit": "實測 I3/I6",
+  "not_configured": "同一分支，未單獨實測",
+  "retry_pending": "未單獨實測（未送出項目先被選取，由 C6.1 預檢處理，O5）",
+  "worker_error": "未實測，僅程式檢查",
+  "boot_sweep": "D2、U1、R3"
+ }
+}

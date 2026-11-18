@@ -153,40 +153,30 @@ function revokeToken(db, token) {
 }
 
 // ── 顧客可理解的狀態 ─────────────────────────────────────────────────
+// C5.4.2：成立／付款／履約改由 utils/popupOrderStatus（後端單一判定，與付款頁、後台相同）產生；
+//   舊版 ORDER_STATUS_LABELS 把 pending／accepted 都翻成「已成立」，且只看最新一筆付款紀錄，已停用。
 const PAYMENT_METHOD_LABELS = { cash: '現金', linepay: 'LINE Pay', transfer: '轉帳', credit_card: '信用卡', platform: '平台付款' };
-const ORDER_STATUS_LABELS = { pending: '已成立', accepted: '已成立', preparing: '準備中', ready: '可取餐', completed: '已完成', cancelled: '已取消' };
+const PS = require('./popupOrderStatus');
+const PT = require('./popupOrderTime');
 
-function latestAttempt(db, order) {
-  try {
-    return db.get('SELECT status FROM popup_payment_attempts WHERE order_id=? AND store_id=? ORDER BY created_at DESC, rowid DESC LIMIT 1', [order.id, order.store_id]) || null;
-  } catch (e) { return null; } // R52 以前沒有付款表
-}
-
+// 相容：舊呼叫端（單一付款紀錄）
 function consumerStatus(order, attempt) {
-  const a = attempt ? attempt.status : null;
-  let payment;
-  if (order.refund_status === 'refunded') payment = '已退款';
-  else if (order.refund_status === 'pending_refund') payment = '退款處理中';
-  else if (a === 'paid_cancelled') payment = '已付款・待退款'; // C5.4
-  else if (order.payment_status === 'paid' || a === 'paid') payment = '已付款';
-  else if (a === 'review' || a === 'confirm_pending') payment = '付款結果確認中，請勿重複付款'; // C5.4：結果不明不顯示逾時或失敗
-  else if (a === 'expired') payment = '已逾期';
-  else if (a === 'failed') payment = '付款失敗';
-  else if (a === 'pending') payment = '待付款';
-  else if (order.order_status === 'cancelled') payment = '未付款';
-  else if (order.payment_method === 'cash') payment = '取貨時付款';
-  else payment = '付款確認中';
-
-  const orderLabel = ORDER_STATUS_LABELS[order.order_status] || '處理中';
-  let overall;
-  if (order.refund_status === 'refunded' || order.refund_status === 'pending_refund') overall = payment;
-  else if (a === 'review' || a === 'confirm_pending') overall = '付款結果確認中';
-  else if (order.order_status === 'cancelled') overall = a === 'expired' ? '已逾期' : (a === 'failed' ? '付款失敗' : '已取消');
-  else if (a === 'pending') overall = '待付款';
-  else if (a === 'failed') overall = '付款失敗';
-  else if (payment === '付款確認中' && order.order_status === 'pending') overall = '付款確認中';
-  else overall = orderLabel;
-  return { status_label: overall, order_status_label: orderLabel, payment_status_label: payment };
+  const st = PS.derive(order, attempt ? [attempt] : []);
+  return { status_label: st.status_label, order_status_label: st.order_status_label, payment_status_label: st.payment_status_label };
+}
+function statusView(db, order) {
+  const attempts = PS.loadAttempts(db, order);
+  const st = PS.derive(order, attempts);
+  return {
+    status_label: st.status_label,
+    establishment: st.establishment, establishment_label: st.establishment_label, established: st.established,
+    payment_status_label: st.payment_status_label,
+    fulfillment_label: st.fulfillment_label,
+    order_status_label: st.order_status_label,
+    reorder_label: st.reorder_label,
+    // 台北時間（伺服器格式化；來源不明者 known=false，畫面標示時區未確認）
+    times: PT.orderTimes(db, order, attempts),
+  };
 }
 
 function parseItems(order) {
@@ -209,7 +199,7 @@ function maskPhone(p) {
 // 列表摘要（不含電話／姓名以外的內部欄位）
 function summaryView(db, order) {
   const items = parseItems(order);
-  const st = consumerStatus(order, latestAttempt(db, order));
+  const st = statusView(db, order);
   const summary = items.slice(0, 2).map((i) => `${i.name}×${i.qty}`).join('、') + (items.length > 2 ? `…等${items.length}項` : '');
   return {
     order_number: order.order_number,
@@ -245,5 +235,5 @@ function detailView(db, order) {
 module.exports = {
   TOKEN_TTL_MS, PAGE_SIZE, GENERIC_NOT_FOUND, twNow, twDateStr, taipeiToday, taipeiThreeDaysAgo, cleanPhone, isFullPhone,
   escapeLike, buildScope, scopeWhere, countScope, listScope, findOrderInScope, issueToken, resolveToken, revokeToken,
-  consumerStatus, summaryView, detailView, parseItems, maskPhone, ensureLookupSchema,
+  consumerStatus, statusView, summaryView, detailView, parseItems, maskPhone, ensureLookupSchema,
 };

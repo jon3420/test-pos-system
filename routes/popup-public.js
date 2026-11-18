@@ -39,6 +39,18 @@ function sendPopupError(res, err) {
   return res.status(500).json({ success: false, error: 'POPUP_INTERNAL_ERROR', message: '系統發生錯誤，請稍後再試' });
 }
 
+// C5.4.2：快閃訂單對外成立判定（唯讀）。結帳回應、付款狀態查詢、我的訂單、後台共用 utils/popupOrderStatus。
+const popupTime = require('../utils/popupOrderTime');
+const popupStatus = require('../utils/popupOrderStatus');
+function popupEstablishmentFor(db, storeId, orderId) {
+  try {
+    const o = db.get('SELECT * FROM orders WHERE id=? AND store_id=?', [orderId, storeId]);
+    if (!o) return {};
+    const st = popupStatus.forOrder(db, o);
+    return { establishment: st.establishment, establishment_label: st.establishment_label, established: st.established };
+  } catch (e) { return {}; }
+}
+
 function buildDisplayOrder(rows) {
   const { compareSessionsForDisplay } = require('../utils/popupRegion');
   const m = new Map();
@@ -317,6 +329,7 @@ router.post('/popup-checkout', (req, res) => {
               items: its, subtotal: o.subtotal, total: o.total, total_qty: its.reduce((n, it) => n + (Number(it.qty) || 0), 0),
               customer_name: o.customer_name, customer_phone: o.customer_phone, note: o.note || '',
               payment_method: o.payment_method, payment_status: o.payment_status,
+              ...popupEstablishmentFor(db, storeId, o.id),
             } });
           }
         }
@@ -326,10 +339,12 @@ router.post('/popup-checkout', (req, res) => {
     const orderId = uuidv4();
     // R53：訂單時間一律使用台北時間（與一般 LINE 訂單 twNow() 相同），讓「今日／最近 3 天」
     // 查詢的日期切點不受伺服器時區影響。
-    const d = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Taipei' }));
+    // C5.4.2：改由 utils/popupOrderTime 集中產生（固定 UTC+8，與 SQL 端更新時間同一來源；結果與 R53 相同）。
+    const nowMs = Date.now();
+    const tp = popupTime.taipeiParts(nowMs);
     const pad = (v, l = 2) => String(v).padStart(l, '0');
-    const nowStr = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-    const orderNo = `POPUP-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}-${orderId.slice(0, 6)}`;
+    const nowStr = popupTime.taipeiString(nowMs);
+    const orderNo = `POPUP-${tp.y}${pad(tp.mo)}${pad(tp.d)}-${pad(tp.h)}${pad(tp.mi)}${pad(tp.s)}-${orderId.slice(0, 6)}`;
     const knownLineUserId = body.member_session ? verifyMemberSession(body.member_session, storeId) : null;
 
     let session, campaign, items, subtotal, paymentMethodCode, payAttempt = null, payTimeout = null;
@@ -395,7 +410,11 @@ router.post('/popup-checkout', (req, res) => {
         ppay.ensurePopupPaymentSchema(db);
         db._db.run('INSERT INTO popup_checkout_requests (store_id, idem_key, order_id) VALUES (?,?,?)', [storeId, idemKey, orderId]);
       }
+      // C5.4.2：標記建立／更新時間來源（台北）。只寫來源標記，不改時間值。
+      popupTime.markNewOrderInTransaction(db, orderId, storeId);
     });
+    // C5.4.2：後端統一成立判定（唯讀；與付款狀態查詢、我的訂單、後台相同）
+    const est = popupEstablishmentFor(db, storeId, orderId);
 
     res.status(201).json({
       success: true,
@@ -424,6 +443,7 @@ router.post('/popup-checkout', (req, res) => {
         note: typeof body.note === 'string' ? body.note : '',
         payment_method: paymentMethodCode,
         payment_status: 'pending',
+        ...est,
         ...(popupPayConfigured ? { payment: payAttempt
           ? { required: true, method: paymentMethodCode, token: payAttempt.token, ref: payAttempt.attemptId, expires_at: new Date(payAttempt.expiresAt).toISOString(), timeout_minutes: payTimeout, state: 'pending_payment', state_label: ppay.stateLabel('pending_payment') }
           : { required: false, method: paymentMethodCode, state: paymentMethodCode === 'cash' ? 'pay_at_pickup' : 'pending_confirmation', state_label: ppay.stateLabel(paymentMethodCode === 'cash' ? 'pay_at_pickup' : 'pending_confirmation') } } : {}),
@@ -438,17 +458,24 @@ router.post('/popup-checkout', (req, res) => {
 function popupPaymentSummary(db, attempt) {
   const order = db.get('SELECT * FROM orders WHERE id=? AND store_id=?', [attempt.order_id, attempt.store_id]);
   const fresh = db.get('SELECT * FROM popup_payment_attempts WHERE attempt_id=?', [attempt.attempt_id]);
-  const state = ppay.derivePopupPaymentState(order, fresh);
+  // C5.4.2 補修：對外付款狀態與操作許可依「整張訂單的全部付款紀錄」（與成立判定一致）；
+  //   本筆付款嘗試自身的結果另以 attempt_state 提供（僅供診斷，不作為操作許可依據，畫面不顯示）。
+  const attemptState = ppay.derivePopupPaymentState(order, fresh);
+  const block = order ? ppay.orderPaymentBlock(db._db, attempt.store_id, attempt.order_id) : null;
+  const state = ppay.orderLevelState(attemptState, block);
   const s = ppay.loadPopupPaymentSettings(db, attempt.store_id);
   const items = (() => { try { return JSON.parse((order && order.items) || '[]'); } catch (e) { return []; } })();
   return {
     order_number: order ? order.order_number : null, ref: fresh.attempt_id, method: order ? order.payment_method : null,
     state, state_label: ppay.stateLabel(state), amount: fresh.amount, currency: fresh.currency,
+    attempt_state: attemptState, attempt_state_label: '此筆付款嘗試：' + ppay.stateLabel(attemptState),
     expires_at: new Date(Number(fresh.expires_at)).toISOString(),
-    can_pay: fresh.status === 'pending' && (!fresh.confirm_state || fresh.confirm_state === 'never') && Number(fresh.expires_at) > Date.now() && !!order && order.order_status !== 'cancelled',
-    can_switch_to_cash: !!(s && s.allow_fallback_cash && s.methods.cash && s.methods.cash.enabled) && fresh.status === 'failed' && !!String(fresh.failure_basis || '') && !!order && order.order_status !== 'cancelled' && order.payment_status === 'pending',
-    under_review: fresh.status === 'review' || fresh.status === 'confirm_pending', // C5.4
+    can_pay: !block && fresh.status === 'pending' && (!fresh.confirm_state || fresh.confirm_state === 'never') && Number(fresh.expires_at) > Date.now() && !!order && order.order_status !== 'cancelled',
+    can_switch_to_cash: !block && !!(s && s.allow_fallback_cash && s.methods.cash && s.methods.cash.enabled) && fresh.status === 'failed' && !!String(fresh.failure_basis || '') && !!order && order.order_status !== 'cancelled' && order.payment_status === 'pending',
+    under_review: state === 'payment_under_review', // C5.4（C5.4.2：含處理階段不明的 pending）
     order_status: order ? order.order_status : null,
+    // C5.4.2：訂單成立判定（後端統一；付款狀態只代表本次付款）
+    ...(order ? (() => { const st = popupStatus.forOrder(db, order); return { establishment: st.establishment, establishment_label: st.establishment_label, established: st.established }; })() : {}),
     order: order ? {
       popup_session_public_code: order.popup_session_public_code_snapshot, popup_campaign_name: order.popup_campaign_name_snapshot,
       popup_session_name: order.popup_session_name_snapshot, pickup_date: order.popup_pickup_date_snapshot,
@@ -495,6 +522,12 @@ router.post('/popup-payment/linepay-request', async (req, res) => {
     }
     if (fresh.status !== 'pending' || !order || order.order_status === 'cancelled' || Number(fresh.expires_at) <= Date.now()) {
       return res.status(409).json({ success: false, error: 'POPUP_PAYMENT_NOT_PAYABLE', message: '此付款已結束或逾時', data: popupPaymentSummary(db, fresh) });
+    }
+    // C5.4.2 補修：同單其他付款紀錄已付款／待退款／結果不明 → 不建立另一筆線上付款（不呼叫 LINE Pay Request）
+    const block = ppay.orderPaymentBlock(db._db, fresh.store_id, fresh.order_id);
+    if (block) {
+      const be = ppay.orderBlockError(block);
+      return res.status(409).json({ success: false, error: block.code === 'under_review' ? 'PAYMENT_UNDER_REVIEW' : be.code, message: be.message, data: popupPaymentSummary(db, fresh) });
     }
     if (!ppay.providerReadiness(db, fresh.store_id, 'linepay').ready) return res.status(409).json({ success: false, error: 'POPUP_PAYMENT_METHOD_NOT_READY', message: 'LINE Pay 目前無法使用' });
     const readiness = ppay.providerReadiness(db, fresh.store_id, 'linepay');
@@ -556,7 +589,13 @@ router.post('/popup-payment/switch-to-cash', (req, res) => {
     const attempt = ppay.findAttemptByToken(db, String((req.body || {}).token || ''));
     if (!attempt) return res.status(404).json({ success: false, error: 'POPUP_PAYMENT_NOT_FOUND', message: '找不到此付款' });
     ppay.reconcileExpiredPopupPayments(db, attempt.store_id);
-    ppay.switchFailedAttemptToCash(db, ppay.findAttemptById(db, attempt.attempt_id));
+    try {
+      ppay.switchFailedAttemptToCash(db, ppay.findAttemptById(db, attempt.attempt_id));
+    } catch (e) {
+      // C5.4.2 補修：被拒絕時一併回傳目前的整單付款狀態，讓畫面以伺服器結果更新（不沿用舊畫面的改現金按鈕）
+      if (e instanceof ppay.PopupPaymentError) return res.status(e.status).json({ success: false, error: e.code, message: e.message, data: popupPaymentSummary(db, attempt) });
+      throw e;
+    }
     res.json({ success: true, data: popupPaymentSummary(db, attempt) });
   } catch (e) { sendPopupError(res, e); }
 });

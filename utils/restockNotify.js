@@ -3,7 +3,8 @@
 // 範圍：顧客主動訂閱（product_demand_consents，綁定登記週期 request_uuid）→ 店家預覽 →
 //       店家按「確認發送」→ 逐筆以 utils/linePush.js 送出（固定 X-Line-Retry-Key）→
 //       顧客點商品直達連結（product_uuid）→ 依現有流程下單。
-// 不做：自動補貨觸發、排程、群發、轉換歸因。修改庫存／商品狀態不會觸發任何訊息。
+// 不做：排程、群發。C4 本身不會因修改庫存／商品狀態觸發訊息；R54.4／MBV2-HF1-C6 的「恢復販售自動通知」
+//       （utils/restockAuto.js，預設關閉）也是呼叫本模組的 previewBatch／confirmBatch，沿用同一套資格、快照與防重送。
 //
 // 防重（全部靠資料庫，不靠前端或記憶體）：
 //   - restock_notify_deliveries 的部分唯一索引 (store_id, request_uuid) WHERE claim=1：
@@ -515,7 +516,7 @@ function computePreview(db, storeId, target) {
   return { cap, ord, collect, activeUsers, totalQty, consentedUsers, eligibleQty, exclusions, candidates };
 }
 
-function previewBatch(db, storeId, body, actor) {
+function previewBatch(db, storeId, body, actor, opts = {}) {
   const target = validateTarget(db, storeId, body);
   const { pid, mode, date, prod } = target;
   const pv = computePreview(db, storeId, target);
@@ -549,6 +550,12 @@ function previewBatch(db, storeId, body, actor) {
              VALUES (?,?,?,?,?,?,?,?,?,?,?,'previewed',?,?,?,datetime('now'),datetime('now'),?,?)`,
     [batchUuid, storeId, pid, productUuid, productName, mode, date, noticeKind, message, link, sha256(message),
       JSON.stringify({ stats, candidates: pv.candidates }), pv.candidates.length, String(actor || ''), expiresAt, trackingId]);
+    // C6：自動通知批次（同一個引擎、同一份訊息快照／名單規則；只多記錄來源與觸發事件）
+    if (opts && opts.source === 'auto') raw.run("UPDATE restock_notify_batches SET source='auto', auto_event_uuid=? WHERE batch_uuid=?", [String(opts.event_uuid || ''), batchUuid]);
+    // C6.1：自動批次記錄所屬全店 epoch 與商品參與版本（逐筆送出前、重啟恢復前核對）
+    if (opts && opts.source === 'auto' && Number.isInteger(opts.auto_epoch) && Number.isInteger(opts.auto_product_version)) {
+      raw.run('UPDATE restock_notify_batches SET auto_epoch=?, auto_product_version=? WHERE batch_uuid=?', [opts.auto_epoch, opts.auto_product_version, batchUuid]);
+    }
   });
   const remaining = pv.ord.ok ? pv.ord.remaining : null;
   return {
@@ -656,7 +663,12 @@ function startWorker(db, storeId, batchUuid) {
     try { await runBatch(db, storeId, batchUuid); }
     catch (e) {
       console.warn('[restockNotify] worker error:', e && e.message);
-      try { db.runDurableTransaction(() => { db._db.run("UPDATE restock_notify_batches SET status='paused', pause_reason='worker_error', updated_at=datetime('now') WHERE batch_uuid=? AND status='sending'", [batchUuid]); }); } catch {}
+      try {
+        db.runDurableTransaction(() => {
+          db._db.run("UPDATE restock_notify_batches SET status='paused', pause_reason='worker_error', updated_at=datetime('now') WHERE batch_uuid=? AND status='sending'", [batchUuid]);
+          require('./restockAuto').releaseIfStaleRaw(db._db, storeId, batchUuid); // C6.1 補修：例外收尾也核對版本
+        });
+      } catch {}
     } finally { activeWorkers.delete(batchUuid); }
   })();
   activeWorkers.set(batchUuid, p);
@@ -701,6 +713,13 @@ async function runBatch(db, storeId, batchUuid) {
     // ── 發送前重新檢查（同步；與預覽、確認、續送使用同一套判斷）──
     const cap = getCapability(db, storeId);
     if (!cap.notify_available) { pauseReason = cap.send_enabled ? 'config_incomplete' : 'send_disabled'; break; }
+    // C6：自動批次在自動開關關閉後暫停（店家明確接手續送者除外）；已送出的請求照常保存回應
+    // C6.1：不只看開關目前是否開啟，而是核對批次所屬事件的 epoch、商品參與與參與版本（關閉再開啟、退出再加入都算過時）。
+    //   這裡先判斷一次（避免多做資格檢查），真正的把關在下方 durable claim 交易內再判斷一次。
+    if (String(b.source || 'manual') === 'auto' && !String(b.taken_over_by || '')) {
+      const why = require('./restockAuto').staleReasonRaw(db._db, storeId, batchUuid);
+      if (why) { stopStaleAuto(db, batchUuid, why); return; }
+    }
     const req = db.get('SELECT * FROM product_demand_requests WHERE store_id=? AND request_uuid=?', [storeId, due.request_uuid]);
     let ev = evaluateRecipient(db, storeId, req, b.fulfillment_mode, { ownBatch: batchUuid, ownDelivery: due.delivery_uuid });
     if (ev.ok && req.product_id !== b.product_id) ev = { ok: false, reason: 'not_found' };
@@ -723,14 +742,20 @@ async function runBatch(db, storeId, batchUuid) {
       continue;
     }
     // ── 落地「正在送出」後才呼叫 LINE ──
-    let claimed = false;
+    let claimed = false, staleWhy = '';
     db.runDurableTransaction(() => {
+      // C6.1：取得發送資格（durable claim）與自動版本核對在同一個交易內；網路呼叫在交易提交之後
+      if (String(b.source || 'manual') === 'auto') {
+        staleWhy = require('./restockAuto').staleReasonRaw(db._db, storeId, batchUuid);
+        if (staleWhy) { require('./restockAuto').applyStaleRaw(db._db, batchUuid, staleWhy); return; }
+      }
       claimed = rawRun(db._db, `UPDATE restock_notify_deliveries SET status='sending', attempt_count=attempt_count+1,
                                  first_attempt_at=COALESCE(first_attempt_at, datetime('now')), last_attempt_at=datetime('now'),
                                  next_attempt_at=NULL, updated_at=datetime('now')
                                  WHERE id=? AND status IN ('pending','retry_wait') AND retry_key IS NOT NULL
                                    AND attempt_count < max_attempts`, [due.id]) === 1;
     });
+    if (staleWhy) return; // 批次已在同一交易內暫停並記錄原因
     if (!claimed) { skip.add(due.id); continue; }
     const row = db.get('SELECT * FROM restock_notify_deliveries WHERE id=?', [due.id]);
     const token = _setting(db, storeId, 'line_channel_token', '');
@@ -747,6 +772,11 @@ async function runBatch(db, storeId, batchUuid) {
     if (sendIntervalMs()) await sleep(sendIntervalMs());
   }
   finalizeBatch(db, storeId, batchUuid, pauseReason);
+}
+
+// C6.1：過時自動批次停止（未送出項目暫停並釋放名額；曾送出者保留證據）
+function stopStaleAuto(db, batchUuid, reason) {
+  db.runDurableTransaction(() => { require('./restockAuto').applyStaleRaw(db._db, batchUuid, reason); });
 }
 
 // 寫回單筆結果；回傳非空字串代表整批需暫停（權杖／額度／未設定）
@@ -814,6 +844,9 @@ function finalizeBatch(db, storeId, batchUuid, pauseReason) {
       rawRun(raw, `UPDATE restock_notify_batches SET status='completed', pause_reason='', completed_at=datetime('now'), updated_at=datetime('now')
                    WHERE batch_uuid=? AND status='sending'`, [batchUuid]);
     }
+    // C6.1 補修：所有停止／暫停出口（總開關、設定、授權、額度、權杖、等待重試）都經過這裡收尾。
+    //   同一交易內以目前資料核對版本；過期的自動批次釋放從未送出項目的名額（保留原暫停原因與已嘗試項目的結果）。
+    require('./restockAuto').releaseIfStaleRaw(raw, storeId, batchUuid);
   });
 }
 
@@ -857,6 +890,11 @@ function resumeBatch(db, storeId, batchUuid, actor, opts = {}) {
       let ev = evaluateRecipient(db, storeId, req, b0.fulfillment_mode, { ownBatch: b0.batch_uuid, ownDelivery: d.delivery_uuid });
       if (ev.ok && !gate.ok) ev = { ok: false, reason: gateReason(gate) };
       if (!ev.ok) { blocked += blockRowRaw(raw, d, ev.reason); continue; }
+      // C6.1：過時自動批次暫停時釋放的名額（claim=NULL）在店家明確續送時重新取得；同週期已被其他批次占用 → 擋下，不建立第二筆有效發送
+      if (d.claim == null) {
+        try { rawRun(raw, "UPDATE restock_notify_deliveries SET claim=1, exclusion_reason='' WHERE id=? AND claim IS NULL", [d.id]); }
+        catch (e) { if (!/UNIQUE/i.test(String(e && e.message))) throw e; blocked += blockRowRaw(raw, d, 'in_other_batch'); continue; }
+      }
       if (d.status === 'held' || d.status === 'unknown') {
         resumed += rawRun(raw, `UPDATE restock_notify_deliveries SET status='retry_wait', exclusion_reason='', next_attempt_at=NULL, updated_at=datetime('now')
                                 WHERE id=? AND status IN ('held','unknown') AND attempt_count < max_attempts`, [d.id]);
@@ -874,10 +912,11 @@ function resumeBatch(db, storeId, batchUuid, actor, opts = {}) {
     }
     ok = rawRun(raw, `UPDATE restock_notify_batches SET status='sending', pause_reason='', updated_at=datetime('now')
                       WHERE batch_uuid=? AND status IN ('paused','completed')`, [b0.batch_uuid]) === 1;
+    // C6：店家明確續送自動批次＝人工接手（沿用原逐筆紀錄與 retry key；之後不受自動開關影響）
+    if (ok && String(b0.source || 'manual') === 'auto') rawRun(raw, "UPDATE restock_notify_batches SET taken_over_by=? WHERE batch_uuid=?", [String(actor || 'staff').slice(0, 80), b0.batch_uuid]);
   });
   if (!ok) return { batch_uuid: b0.batch_uuid, already: false, resumed: 0, blocked, status: getBatchRow(db, storeId, batchUuid).status, message: blocked ? '可續送的項目已在重新檢查時擋下（原因見明細）' : '沒有可續送的項目（可能已達嘗試上限、超過重試期限或已有通知紀錄）' };
   if (opts.startWorker !== false) startWorker(db, storeId, b0.batch_uuid);
-  void actor;
   return { batch_uuid: b0.batch_uuid, already: false, resumed, blocked, status: 'sending' };
 }
 
@@ -919,6 +958,7 @@ function batchOut(db, b) {
     preview_expires_at: b.preview_expires_at, created_by: b.created_by, confirmed_by: b.confirmed_by, import_source: b.import_source || '',
     running: activeWorkers.has(b.batch_uuid), counts: batchCounts(db, b.batch_uuid), preview_stats: stats,
     tracked: !!b.tracking_id, // C5：是否建立成效追蹤（不回傳追蹤識別本身）
+    source: String(b.source || 'manual'), auto_event_uuid: String(b.auto_event_uuid || ''), taken_over_by: String(b.taken_over_by || ''), // C6
   };
 }
 function listBatches(db, storeId, productId) {

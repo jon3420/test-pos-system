@@ -4161,6 +4161,7 @@ function renderPopupCheckoutSuccess(data){
   card.appendChild(title);
   const addRow=(text)=>{ card.appendChild(popupEl('p','popup-order-info-row popup-order-success-row',text)); };
   addRow(`訂單編號：${data.order_number}`);
+  if(typeof data.establishment_label==='string' && data.establishment_label) addRow(`訂單：${data.establishment_label}`); // C5.4.2
   if(data.popup_campaign_name || data.popup_session_name){
     addRow(`活動場次：${[data.popup_campaign_name, data.popup_session_name].filter(Boolean).join(' － ')}`);
   }
@@ -4257,6 +4258,9 @@ function renderPopupPaymentScreen(order, pay, notice, opts){
   const st=popupEl('p','popup-order-info-row popup-order-success-row',`付款狀態：${(pay && pay.state_label) || '付款狀態確認中'}`);
   st.setAttribute('data-testid','popup-payment-state');
   card.appendChild(st);
+  // C5.4.2：訂單成立狀態與付款狀態分開（伺服器統一判定；付款狀態只代表本次付款）
+  const estLabel=(pay && typeof pay.establishment_label==='string' && pay.establishment_label) || (order && typeof order.establishment_label==='string' && order.establishment_label) || '';
+  if(estLabel){ const er=popupEl('p','popup-order-info-row popup-order-success-row',`訂單：${estLabel}`); er.setAttribute('data-testid','popup-order-establishment'); card.appendChild(er); }
   const total=order && (order.total!=null ? order.total : (order.order && order.order.total));
   if(total!=null) row(`應付總額：NT$${total}`);
   const o=(order && order.order) ? order.order : order;
@@ -4264,8 +4268,9 @@ function renderPopupPaymentScreen(order, pay, notice, opts){
   // R54：有訂單 snapshot 時顯示取餐地點、Google Maps 與複製地址。
   if(o && typeof o==='object' && (o.place_name || o.address || o.lat!=null || o.lng!=null)) card.appendChild(popupBuildPickupLocationSection(o));
   if(pay && pay.expires_at && state==='pending_payment'){
-    const ex=new Date(pay.expires_at);
-    if(!isNaN(ex.getTime())) row(`請於 ${String(ex.getHours()).padStart(2,'0')}:${String(ex.getMinutes()).padStart(2,'0')} 前完成付款，逾時將自動取消並釋放名額。`);
+    // C5.4.2：期限以台灣時間顯示（不依裝置時區）；只影響顯示，付款期限本身由伺服器 epoch 時間判斷
+    const hm=popupFormatTaipeiHM(Date.parse(pay.expires_at));
+    if(hm) row(`請於 ${hm} 前完成付款（台灣時間），逾時將自動取消並釋放名額。`);
   }
   if(notice){ const n=popupEl('p','popup-order-notice',notice); n.setAttribute('data-tone','info'); card.appendChild(n); }
   const err=popupEl('p','popup-order-error'); err.id='popupPaymentErrorRegion'; err.setAttribute('aria-live','assertive'); card.appendChild(err);
@@ -4316,34 +4321,93 @@ function renderPopupPaymentScreen(order, pay, notice, opts){
   wrap.appendChild(body);
   root.appendChild(wrap);
 }
+// ══════════════════════════════════════════════════════════════════════
+// C5.4.2 補修（PAYMENT_RESPONSE_TIMING_FIX）：付款／改現金操作的有效範圍。
+// 操作開始時記下「這個付款畫面物件、付款識別、場次與身份版本、查詢序號」；回應到達時只有仍屬於
+// 同一個有效範圍才可接管畫面（重畫、導向、寫入錯誤提示）。下列任一情形即為過時操作：
+//   - 原付款畫面已離開或被替換（含同一付款識別重新顯示的新畫面：比較的是畫面物件，不是字串）；
+//   - 較新的查詢或操作已開始或已更新畫面（_popupPayStatusSeq 前進）；
+//   - 場次已切換（_popupPaySessionGen 前進）或帳號／身份已切換（_popupPayIdentityGen 前進）。
+// 版本只會遞增：切換後再切回原場次／帳號，先前的操作也不會重新取得更新畫面的資格。
+// 丟棄過時回應不代表後端操作已撤銷：不宣告未付款、不補送 POST、不自動重試，後續狀態以有效查詢為準。
+// ══════════════════════════════════════════════════════════════════════
+let _popupPayOpSeq=0;
+let _popupPaySessionGen=0;
+let _popupPayIdentityGen=0;
+const _popupPayOpsInFlight=new Map(); // `${kind}:${ref}` → 操作識別（同一付款識別同時只送一個同類操作；不同付款互不鎖住）
+function popupPayOpBegin(kind, ref, btn){
+  const view=_popupPayView;
+  // 按鈕必須屬於目前顯示中的付款畫面（舊畫面殘留的按鈕不送出操作）
+  if(!view || view.ref!==ref || !view.el.isConnected || !btn || !view.el.contains(btn)) return null;
+  const key=kind+':'+ref;
+  if(_popupPayOpsInFlight.has(key)) return { busy:true };
+  const op={ id:++_popupPayOpSeq, key, kind, ref, view, statusSeq:_popupPayStatusSeq, sessionGen:_popupPaySessionGen,
+    identityGen:_popupPayIdentityGen, sessionCode:(popupSession && popupSession.public_code) || null };
+  _popupPayOpsInFlight.set(key, op.id);
+  if(kind==='linepay') popupUiState.paymentCreating=true;
+  return op;
+}
+function popupPayOpIsCurrent(op){
+  if(!op || !op.view) return false;
+  const v=op.view;
+  return _popupPayView===v && v.ref===op.ref && v.el.isConnected && popupCurrentView()==='payment'
+    && _popupPayStatusSeq===op.statusSeq && _popupPaySessionGen===op.sessionGen && _popupPayIdentityGen===op.identityGen
+    && ((popupSession && popupSession.public_code) || null)===op.sessionCode;
+}
+// 操作結束（成功、失敗、例外皆呼叫一次）：只釋放本操作自己的進行中標記；不碰其他操作或新畫面的按鈕。
+function popupPayOpEnd(op){
+  if(!op || !op.id) return;
+  if(_popupPayOpsInFlight.get(op.key)===op.id) _popupPayOpsInFlight.delete(op.key);
+  if(op.kind==='linepay') popupUiState.paymentCreating=Array.from(_popupPayOpsInFlight.keys()).some((k)=>k.indexOf('linepay:')===0);
+}
+// 過時回應被丟棄、且顧客已不在這筆付款的畫面上：沿用既有提示（同一付款識別只提示一次），只提供查詢入口，不表示成功或失敗。
+function popupPayOpDiscarded(op){
+  const v=_popupPayView;
+  if(v && v.ref===op.ref && v.el.isConnected && popupCurrentView()==='payment') return;
+  popupPayReturnDiscardNotice(op.ref);
+}
 async function popupStartLinePay(ref, btn, errEl){
   const token=popupRecallPayToken(ref);
   if(!token){ errEl.textContent='此瀏覽器找不到付款憑證，請洽店家確認訂單。'; return; }
-  if(popupUiState.paymentCreating) return;
-  popupUiState.paymentCreating=true;
+  const op=popupPayOpBegin('linepay', ref, btn);
+  if(!op) return;
+  if(op.busy){ errEl.textContent='付款建立中，請稍候；也可按「重新查詢付款狀態」確認。'; return; }
   btn.disabled=true;
   const label=btn.textContent;
   btn.textContent='正在建立 LINE Pay 付款…';
   try{
     const res=await popupApiPost('/api/line-orders/popup-payment/linepay-request', { token });
     const json=await res.json().catch(()=>({}));
+    if(!popupPayOpIsCurrent(op)){ popupPayOpDiscarded(op); return; } // 過時：不導向、不重畫、不寫提示
     const url=json && json.success && json.data ? popupSafeLinePayUrl(json.data.payment_url) : null;
     if(url){ window.location.assign(url); return; }
+    // C5.4.2 補修：後端拒絕時（整張訂單已付款或付款結果確認中等）以伺服器回傳的目前狀態重畫，不保留舊畫面的付款按鈕
+    if(json && !json.success && json.data && typeof json.data.state==='string' && json.data.ref===ref){ renderPopupPaymentScreen(json.data, json.data, typeof json.message==='string' ? json.message : null); return; }
     errEl.textContent=(json && json.error==='POPUP_PAYMENT_NOT_PAYABLE') ? '此付款已結束或逾時，請重新查詢付款狀態。' : '目前無法前往付款，請稍後再試。';
-  }catch(e){ errEl.textContent='網路異常，請稍後再試一次。'; }
-  finally{ popupUiState.paymentCreating=false; btn.disabled=false; btn.textContent=label; }
+  }catch(e){ if(popupPayOpIsCurrent(op)) errEl.textContent='網路異常，請稍後再試一次。'; }
+  finally{
+    popupPayOpEnd(op);
+    // 只還原本操作自己的按鈕（舊畫面的按鈕已不在畫面上；新畫面的按鈕是另外建立的，不受影響）
+    btn.disabled=false; btn.textContent=label;
+  }
 }
 async function popupSwitchToCash(ref, btn, errEl){
   const token=popupRecallPayToken(ref);
   if(!token){ errEl.textContent='此瀏覽器找不到付款憑證，請洽店家確認訂單。'; return; }
+  const op=popupPayOpBegin('cash', ref, btn);
+  if(!op) return;
+  if(op.busy){ errEl.textContent='改用現金處理中，請稍候；也可按「重新查詢付款狀態」確認。'; return; }
   btn.disabled=true;
   try{
     const res=await popupApiPost('/api/line-orders/popup-payment/switch-to-cash', { token });
     const json=await res.json().catch(()=>({}));
+    if(!popupPayOpIsCurrent(op)){ popupPayOpDiscarded(op); return; } // 過時：不重畫、不寫提示
     if(json && json.success && json.data){ renderPopupPaymentScreen(json.data, json.data, '已改為取貨時以現金付款。'); return; }
+    // C5.4.2 補修：後端重新驗證後拒絕 → 以伺服器回傳的目前整單狀態重畫（不沿用舊畫面的改現金按鈕）
+    if(json && !json.success && json.data && typeof json.data.state==='string' && json.data.ref===ref){ renderPopupPaymentScreen(json.data, json.data, typeof json.message==='string' ? json.message : '目前無法改用現金付款。'); return; }
     errEl.textContent='無法改用現金付款。';
-  }catch(e){ errEl.textContent='網路異常，請稍後再試一次。'; }
-  finally{ btn.disabled=false; }
+  }catch(e){ if(popupPayOpIsCurrent(op)) errEl.textContent='網路異常，請稍後再試一次。'; }
+  finally{ popupPayOpEnd(op); btn.disabled=false; }
 }
 // C5.4：付款結果確認中／待退款不使用成功或失敗的文案，也不提供再次付款
 function popupPayStateNotice(d){
@@ -4374,6 +4438,19 @@ function popupFormatTaipeiTime(ms){
   if(isNaN(d.getTime())) return '';
   const p=(n)=>String(n).padStart(2,'0');
   return `${p(d.getUTCMonth()+1)}/${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`;
+}
+// C5.4.2：台灣時間 HH:MM（固定 UTC+8，不依裝置時區）
+function popupFormatTaipeiHM(ms){
+  const d=new Date(Number(ms)+8*3600e3);
+  if(!Number.isFinite(Number(ms)) || isNaN(d.getTime())) return '';
+  return `${String(d.getUTCHours()).padStart(2,'0')}:${String(d.getUTCMinutes()).padStart(2,'0')}`;
+}
+// C5.4.2：訂單建立／狀態更新時間（伺服器已依可信來源格式化為台灣時間；來源不明者標示「時區未確認」，不在前端猜時區或加 8 小時）
+function popupOrderTimeText(o, k){
+  const t=o && o.times && o.times[k];
+  if(t && typeof t.text==='string') return t.text + (t.known===false ? '（時區未確認）' : '');
+  const raw=k==='created' ? (o && o.created_at) : (o && (o.updated_at || o.created_at));
+  return String(raw||'').slice(0,16);
 }
 function popupPayShowFeedback(view, tone, text, deferAnnounce){
   if(!view || !view.status) return;
@@ -4722,6 +4799,7 @@ function _popupHandlePickerPopState(ev){
   popupLoadGeneration++;
   popupLoading=false;
   popupSession=null;
+  _popupPaySessionGen++;
   popupCheckoutStep='select';
   _popupPickerContext={ ..._popupPickerContext, city:st.city || _popupPickerContext.city, district:st.district || _popupPickerContext.district };
   renderPopupEntryPicker(_popupPickerContext.kindLabel, _popupPickerContext.sessions, _popupPickerContext.opts);
@@ -4767,6 +4845,7 @@ async function popupOpenSessionSwitcher(btn){
     popupLoadGeneration++;
     popupLoading=false;
     popupSession=null;
+    _popupPaySessionGen++;
     popupCheckoutStep='select';
     try{
       if(window.history && typeof window.history.replaceState==='function' && typeof window.history.pushState==='function'){
@@ -4840,6 +4919,8 @@ function popupLookupLoadToken(){
   return _popupLookup.token;
 }
 function popupLookupSaveToken(t){
+  // C5.4.2 補修：已登入的身份被換掉或登出 → 身份版本遞增（進行中的付款操作回應不再套用）
+  if(_popupLookup.token && _popupLookup.token!==(t||null)) _popupPayIdentityGen++;
   _popupLookup.token=t||null;
   try{ if(t) window.sessionStorage.setItem(POPUP_LOOKUP_TOKEN_KEY, t); else window.sessionStorage.removeItem(POPUP_LOOKUP_TOKEN_KEY); }catch(e){}
 }
@@ -5034,16 +5115,20 @@ function popupLookupRenderList(){
     const badge=popupEl('span','popup-order-lookup-badge',o.status_label||'');
     h.appendChild(badge);
     li.appendChild(h);
-    li.appendChild(popupEl('p','popup-order-lookup-line',`建立：${String(o.created_at||'').slice(0,16)}`));
+    li.appendChild(popupEl('p','popup-order-lookup-line',`建立：${popupOrderTimeText(o,'created')}`));
     li.appendChild(popupEl('p','popup-order-lookup-line',`${o.campaign_name||''}${o.session_name?' － '+o.session_name:''}`));
     li.appendChild(popupEl('p','popup-order-lookup-line',`取餐：${o.pickup_date||''} ${o.pickup_start_time||''}～${o.pickup_end_time||''}｜${o.place_name||''}`));
     li.appendChild(popupEl('p','popup-order-lookup-line',o.items_summary||''));
-    li.appendChild(popupEl('p','popup-order-lookup-line',`付款：${o.payment_method_label||''}（${o.payment_status_label||''}）｜訂單：${o.order_status_label||''}`));
+    // C5.4.2：成立／付款／履約分開（伺服器統一判定）
+    li.appendChild(popupEl('p','popup-order-lookup-line',`付款：${o.payment_method_label||''}（${o.payment_status_label||''}）｜訂單：${o.establishment_label||o.order_status_label||''}`));
+    if(o.fulfillment_label && o.established===true) li.appendChild(popupEl('p','popup-order-lookup-line',`進度：${o.fulfillment_label}`));
     const foot=popupEl('div','popup-order-lookup-cardfoot');
     foot.appendChild(popupEl('span','popup-order-lookup-amount',popupFormatMoney(o.total||0)));
     const btns=popupEl('div','popup-order-lookup-actions');
-    const rb=popupEl('button','popup-order-lookup-btn2','🔄 再購'); rb.type='button';
-    rb.addEventListener('click',()=>popupLookupRebuy(o.order_number, null));
+    // C5.4.2：未成立紀錄為「重新下單」（帶商品回選購流程、建立新訂單；不是補繳原訂單、不會自動送單或付款）
+    const reLabel=o.reorder_label==='重新下單' ? '重新下單' : '再購';
+    const rb=popupEl('button','popup-order-lookup-btn2','🔄 '+reLabel); rb.type='button';
+    rb.addEventListener('click',()=>popupLookupRebuy(o.order_number, null, reLabel));
     const db=popupEl('button','popup-order-lookup-btn2','查看詳情'); db.type='button';
     db.addEventListener('click',()=>popupLookupOpenDetail(o.order_number));
     btns.appendChild(rb); btns.appendChild(db);
@@ -5061,6 +5146,7 @@ function popupLookupRenderList(){
 }
 async function popupLookupSwitchAccount(){
   const t=popupLookupLoadToken();
+  _popupPayIdentityGen++; // C5.4.2 補修：切換帳號 → 進行中的付款／改現金操作失效（切回同一帳號也不恢復）
   popupLookupSaveToken(null);
   // C5.4.1：切換帳號時作廢進行中的付款狀態查詢（舊回應不套用）。
   popupPayInvalidateStatusQuery('已切換帳號，先前的查詢已取消。如需最新付款狀態，請再按「重新查詢付款狀態」。');
@@ -5090,6 +5176,7 @@ async function popupLookupOpenDetail(orderNumber){
     body.textContent='';
     const sec=popupEl('div','popup-order-lookup-section');
     popupLookupRow(sec,'訂單狀態',d.status_label);
+    if(d.establishment_label) popupLookupRow(sec,'訂單成立',d.establishment_label); // C5.4.2
     popupLookupRow(sec,'訂單編號',d.order_number);
     popupLookupRow(sec,'活動',d.campaign_name);
     popupLookupRow(sec,'場次',d.session_name);
@@ -5113,21 +5200,26 @@ async function popupLookupOpenDetail(orderNumber){
     const pay=popupEl('div','popup-order-lookup-section');
     popupLookupRow(pay,'付款方式',d.payment_method_label);
     popupLookupRow(pay,'付款狀態',d.payment_status_label);
-    popupLookupRow(pay,'訂單進度',d.order_status_label);
-    popupLookupRow(pay,'建立時間',String(d.created_at||'').slice(0,16));
-    popupLookupRow(pay,'狀態更新',String(d.updated_at||'').slice(0,16));
+    // C5.4.2：履約進度只顯示真實紀錄（未成立且尚未處理時顯示「—」），不以成立文字代替
+    popupLookupRow(pay,'訂單進度', d.establishment ? (d.fulfillment_label || '—') : d.order_status_label);
+    popupLookupRow(pay,'建立時間',popupOrderTimeText(d,'created'));
+    popupLookupRow(pay,'狀態更新',popupOrderTimeText(d,'updated'));
+    if(d.times) popupLookupMsg(pay,'時間皆為台灣時間'+((d.times.created && d.times.created.known===false) || (d.times.updated && d.times.updated.known===false) ? '；標示「時區未確認」者為舊資料，原始紀錄無法確認時區，依原值顯示。' : '。'),'hint');
     body.appendChild(pay);
-    const rb=popupEl('button','popup-order-lookup-submit','🔄 再次購買');
+    const reLabel=d.reorder_label==='重新下單' ? '重新下單' : '再次購買';
+    if(reLabel==='重新下單') popupLookupMsg(body,'此訂單未成立。「重新下單」會把商品帶回選購流程，建立一筆新的訂單，不是補繳原訂單；不會自動送出或付款。','hint');
+    const rb=popupEl('button','popup-order-lookup-submit','🔄 '+reLabel);
     rb.type='button';
-    rb.addEventListener('click',()=>popupLookupRebuy(d.order_number, null));
+    rb.addEventListener('click',()=>popupLookupRebuy(d.order_number, null, reLabel==='重新下單' ? '重新下單' : '再購'));
     body.appendChild(rb);
   }catch(e){ body.textContent=''; popupLookupMsg(body,'載入失敗，請稍後再試','error'); }
 }
-async function popupLookupRebuy(orderNumber, sessionCode){
+async function popupLookupRebuy(orderNumber, sessionCode, label){
   const token=popupLookupLoadToken();
   if(!token){ popupLookupRenderForm('history'); return; }
   _popupLookup.view='rebuy';
-  popupLookupSetHead('🔄 再購', true);
+  const reLabel=label==='重新下單' ? '重新下單' : '再購'; // C5.4.2
+  popupLookupSetHead('🔄 '+reLabel, true);
   const body=popupLookupBody();
   popupLookupMsg(body,'正在確認目前可預訂的場次與商品…','hint');
   try{
@@ -5141,14 +5233,14 @@ async function popupLookupRebuy(orderNumber, sessionCode){
     const d=json.data;
     if(!d.sessions || !d.sessions.length){ popupLookupMsg(body,'目前沒有開放預訂的快閃場次，暫時無法再購。','hint'); return; }
     if(d.need_choice){
-      popupLookupMsg(body,'有多個場次開放預訂，請選擇要再購的場次（不會重新開啟已結束的舊場次）：','hint');
+      popupLookupMsg(body,`有多個場次開放預訂，請選擇要${reLabel==='重新下單'?'重新下單':'再購'}的場次（不會重新開啟已結束的舊場次）：`,'hint');
       const list=popupEl('ul','popup-order-lookup-list');
       d.sessions.forEach((x)=>{
         const li=popupEl('li','popup-order-lookup-card');
         li.appendChild(popupEl('p','popup-order-lookup-line',`${x.campaign_name||''} － ${x.session_name||''}`));
         li.appendChild(popupEl('p','popup-order-lookup-line',`${x.pickup_date||''} ${x.pickup_start_time||''}～${x.pickup_end_time||''}｜${x.place_name||''}`));
         const b=popupEl('button','popup-order-lookup-btn2','選擇此場次'); b.type='button';
-        b.addEventListener('click',()=>popupLookupRebuy(orderNumber, x.session_code));
+        b.addEventListener('click',()=>popupLookupRebuy(orderNumber, x.session_code, reLabel));
         li.appendChild(b);
         list.appendChild(li);
       });
@@ -5156,7 +5248,8 @@ async function popupLookupRebuy(orderNumber, sessionCode){
       return;
     }
     const target=(d.sessions||[]).find((x)=>x.session_code===d.session_code);
-    if(target) popupLookupMsg(body,`再購場次：${target.campaign_name||''} － ${target.session_name||''}（${target.pickup_date||''} ${target.pickup_start_time||''}）`,'hint');
+    if(target) popupLookupMsg(body,`${reLabel==='重新下單'?'新訂單場次':'再購場次'}：${target.campaign_name||''} － ${target.session_name||''}（${target.pickup_date||''} ${target.pickup_start_time||''}）`,'hint');
+    if(reLabel==='重新下單') popupLookupMsg(body,'將建立一筆新的訂單（不是補繳原訂單）；商品只會加入購物車，不會自動送出或付款。','hint');
     if(d.added && d.added.length){
       const sec=popupEl('div','popup-order-lookup-section');
       sec.appendChild(popupEl('p','popup-order-lookup-subtitle','可帶入的商品（使用目前售價）'));
@@ -5213,6 +5306,7 @@ async function loadPopupDirectSession(sessionPublicCode){
   // 不換掉畫面、不重建 DOM（資料完全相同時），失敗也保留目前畫面。
   const priorView=popupCurrentView();
   const silent=!!(popupSession && popupSession.public_code===sessionPublicCode && (priorView==='session' || priorView==='success' || priorView==='payment'));
+  if(!silent) _popupPaySessionGen++; // C5.4.2 補修：進入／切換場次 → 進行中的付款操作失效
   popupLoading=true;
   if(silent){ popupUiState.actionPending=true; }
   else{ popupUiState.initialLoading=true; renderPopupLoading(); }

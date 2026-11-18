@@ -5169,7 +5169,13 @@ function c54PayBadge(o, opts) {
   if (!d || !d.label) return '';
   const small = !opts || opts.small !== false;
   const bg = _C54_PAY_COLORS[d.tone] || '#2980B9';
-  return `<span class="c54-pay-badge" data-pay-state="${escHtml(d.state)}" style="font-size:${small ? 10 : 12}px;background:${bg};color:#fff;padding:1px 5px;border-radius:4px">${escHtml(d.label)}</span>`;
+  return `<span class="c54-pay-badge" data-pay-state="${escHtml(d.state)}" style="font-size:${small ? 10 : 12}px;background:${bg};color:#fff;padding:1px 5px;border-radius:4px">${escHtml(d.label)}</span>` + c542EstBadge(d, small);
+}
+// R54.4／MBV2-HF1-C5.4.2：快閃訂單成立狀態（伺服器 payment_display.establishment_label；與顧客端同一判定）。一般訂單沒有此欄位，不顯示。
+function c542EstBadge(d, small) {
+  if (!d || typeof d.establishment_label !== 'string' || !d.establishment_label) return '';
+  const bg = d.established === true ? '#27AE60' : (d.established === false ? '#64748b' : '#f59e0b');
+  return ` <span class="c542-est-badge" data-establishment="${escHtml(d.establishment || '')}" style="font-size:${small ? 10 : 12}px;border:1px solid ${bg};color:${bg};padding:0 5px;border-radius:4px;white-space:nowrap">訂單：${escHtml(d.establishment_label)}</span>`;
 }
 // 商品行金額：伺服器保存的行小計（合法數字）→ 保存單價×數量 → 金額資料不足（不讀商品現價、不以 truthy 判斷誤判 0 元）
 function c54LineAmount(i) {
@@ -10378,6 +10384,7 @@ function lpmSwitchTab(tab) {
   if (shippingCtrls)  shippingCtrls.style.display  = tab==='shipping' ? 'block' : 'none';
 
   if (tab !== 'demand' && typeof pdAutoLeave === 'function') pdAutoLeave(); // R54.4／MBV2-HF1-C4.2：離開補貨登記分頁即停止自動更新
+  if (tab === 'demand' && typeof rnAutoLoad === 'function') rnAutoLoad(); // C6：自動通知設定
   if (tableWrap)     tableWrap.style.display     = (tab==='shipping' || tab==='demand') ? 'none'  : 'block';
   if (shipTableWrap) shipTableWrap.style.display  = tab==='shipping' ? 'block' : 'none';
 
@@ -10713,8 +10720,104 @@ const _RN_EXCL_LABEL = {
 };
 const _RN_BATCH_STATUS = { previewed: '已預覽（尚未發送）', sending: '發送中', paused: '已暫停（待店家續送）', completed: '已完成', cancelled: '已取消', expired: '預覽已逾時' };
 const _RN_DEL_STATUS = { pending: '待發送', sending: '發送中', retry_wait: '待重試', held: '暫停（未受理）', accepted: 'LINE 已受理', unknown: '結果待確認', failed: '失敗', blocked: '發送前已擋下', excluded: '排除', cancelled: '已取消' };
-const _RN_PAUSE = { server_restart: '服務曾重新啟動，請確認後續送', retry_pending: '尚有待重試項目', auth_error: 'LINE 權杖錯誤', monthly_limit: 'LINE 訊息額度已用完', not_configured: 'LINE 權杖未設定', send_disabled: '通知發送已關閉', config_incomplete: '必要設定不完整', imported: '由備份匯入，須確認後續送', worker_error: '執行錯誤', link_mismatch: '連結或店別設定與目前不符，已停止：未送出項目已作廢，請重新預覽；已送出或結果不明者保留紀錄、不補送' };
+const _RN_PAUSE = { auto_disabled: '自動通知已關閉（未送出項目已暫停；可由店家明確續送接手）', auto_epoch_stale: '自動通知曾關閉後重新開啟，舊批次不再自動發送（未送出項目已暫停並釋放名額；可由店家明確續送接手）', auto_product_not_participating: '商品已退出自動通知，舊批次不再自動發送（未送出項目已暫停；可由店家明確續送接手）', auto_product_version_stale: '商品曾退出後重新加入自動通知，舊批次不再自動發送（未送出項目已暫停；可由店家明確續送接手）', auto_version_unproven: '無法確認此自動批次的版本（升級前資料），不自動續送；請確認後由店家明確續送', auto_event_mismatch: '自動批次與觸發事件不一致，已停止自動發送', auto_imported: '由備份匯入，須確認後續送', preview_expired: '預覽已逾時，未發送（不會自動重建預覽）', legacy_unverified: '升級前留下的未確認預覽，無法確認版本，已停止（不會自動發送）', server_restart: '服務曾重新啟動，請確認後續送', retry_pending: '尚有待重試項目', auth_error: 'LINE 權杖錯誤', monthly_limit: 'LINE 訊息額度已用完', not_configured: 'LINE 權杖未設定', send_disabled: '通知發送已關閉', config_incomplete: '必要設定不完整', imported: '由備份匯入，須確認後續送', worker_error: '執行錯誤', link_mismatch: '連結或店別設定與目前不符，已停止：未送出項目已作廢，請重新預覽；已送出或結果不明者保留紀錄、不補送' };
 function _rnTodayTaipei() { return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()); }
+// ── R54.4／MBV2-HF1-C6：恢復販售自動補貨通知（後台）──
+const _RA_REASON = {
+  auto_disabled: '自動通知已關閉', auto_reenabled_new_baseline: '自動通知曾關閉後重新開啟（新基線，不追發）', event_stale: '事件過久未處理，不再發送',
+  send_disabled: '補貨通知發送總開關關閉', config_incomplete: '必要設定不完整', product_missing: '商品已不存在', product_not_participating: '商品未參與自動通知',
+  no_eligible_recipient: '沒有合格且同意的登記', collect_disabled: '商品已關閉補貨登記收集', no_mode_sendable: '沒有可發送的取餐方式',
+  // C6.1
+  product_version_stale: '商品曾退出後重新加入自動通知（新基線，不追發）', auto_epoch_stale: '自動通知曾關閉後重新開啟（舊批次不再自動發送）',
+  auto_product_not_participating: '商品已退出自動通知', auto_product_version_stale: '商品曾退出後重新加入自動通知（舊批次不再自動發送）',
+  auto_version_unproven: '無法確認版本（升級前資料）', preview_expired: '預覽已逾時（不重建預覽）', link_mismatch: '連結或店別設定與預覽時不符',
+  legacy_event_unverified: '升級前留下的事件無法確認版本，待店家確認（未自動發送）', legacy_preview_unverified: '升級前留下的未確認預覽無法確認版本，待店家確認（未自動發送）',
+  legacy_unverified: '升級前資料無法確認版本', no_eligible_recipient_at_confirm: '確認時已沒有合格登記（0 則）',
+};
+const _RA_STATUS = { queued: '排隊中', processing: '處理中', completed: '已建立通知批次', skipped: '未發送', cancelled: '已取消', failed: '處理失敗', needs_review: '待店家確認（未自動發送）' };
+const _RA_SRC = { line_settings: 'LINE 商品設定', line_status: 'LINE 販售狀態', product_enabled: '商品上架', bulk_reset_sold_out_today: '重置今日完售（批量）' };
+let _raBusy = false;
+function _raReasonText(r) {
+  const s = String(r || '');
+  if (!s) return '';
+  if (_RA_REASON[s]) return _RA_REASON[s];
+  if (s.startsWith('date_not_orderable:')) return '供應日期已不可訂購（' + s.slice(19) + '）';
+  return s.split(',').map((x) => _RA_REASON[x] || x).join('、');
+}
+async function rnAutoLoad() {
+  try {
+    const res = await apiFetch('/api/product-demand-admin/restock/auto');
+    const j = await res.json();
+    if (!j.success) return;
+    const c = j.data;
+    const chk = document.getElementById('pd-set-auto');
+    if (chk && !_raBusy && document.activeElement !== chk) chk.checked = !!c.enabled;
+    const st = document.getElementById('pd-auto-state');
+    if (st) st.innerHTML = `${c.enabled ? '<strong style="color:#16a34a">已開啟</strong>' : '<strong>關閉</strong>（預設）'}・總開關：${c.send_enabled ? '已開啟' : '<span style="color:#ef4444">關閉（自動通知不會發送）</span>'}・必要設定：${c.config_complete ? '完整' : '<span style="color:#ef4444">不完整</span>'}`
+      + `・參與商品：${c.participating_products.length ? c.participating_products.map((p) => escHtml(p.name)).join('、') : '尚未選擇（請在商品明細勾選「參與恢復販售自動通知」）'}`
+      + (c.enabled && c.enabled_at ? `・基線建立時間 ${escHtml(fmtDemandTime(c.enabled_at))}` : '');
+    const ru = document.getElementById('pd-auto-rules');
+    if (ru) ru.innerHTML = ['trigger', 'modes', 'date', 'not_triggered', 'consent', 'master_switch', 'baseline'].map((k) => `・${escHtml(c.rules[k])}`).join('<br>') + '<br>・狀態「LINE 已受理」只代表 LINE API 已受理，不代表顧客已收到或已讀。';
+  } catch (e) { /* 讀取失敗不影響其他功能 */ }
+}
+async function rnAutoToggle(on, el) {
+  if (on && !confirm('開啟「恢復販售時自動發送補貨通知」？\n\n・只對勾選參與的商品生效（預設不參與）\n・只在店家明確恢復販售或增加可售額度、使商品變為可訂購時發送\n・供應日期為各取餐方式的最近可訂購日期（伺服器依台北時間、截止時間、行事曆、休息日、預訂範圍與額度計算）\n・開啟時只建立觀測基線，目前已可售的商品不會追發\n・仍需開啟「補貨通知發送」總開關')) { if (el) el.checked = false; return; }
+  _raBusy = true; if (el) el.disabled = true;
+  try {
+    const res = await apiFetch('/api/product-demand-admin/restock/auto', { method: 'PATCH', body: JSON.stringify({ enabled: !!on }) });
+    const j = await res.json();
+    if (!j.success) throw new Error(j.message || '儲存失敗');
+    showToast(on ? '已開啟恢復販售自動通知（已建立觀測基線）' : `已關閉恢復販售自動通知${j.data.cancelled_events ? `（取消 ${j.data.cancelled_events} 筆未處理事件）` : ''}；執行中的自動批次會在下一筆送出前暫停`, 'success');
+  } catch (e) { showToast(e.message || '儲存失敗', 'error'); if (el) el.checked = !on; }
+  finally { _raBusy = false; if (el) el.disabled = false; rnAutoLoad(); }
+}
+async function rnAutoProductState(pid) {
+  try {
+    const res = await apiFetch('/api/product-demand-admin/restock/auto');
+    const j = await res.json(); if (!j.success) return;
+    const cb = document.getElementById('rn-auto-product');
+    if (cb && Number(cb.dataset.pid) === Number(pid)) cb.checked = j.data.participating_products.some((p) => Number(p.product_id) === Number(pid));
+    const note = document.getElementById('rn-auto-product-note');
+    if (note) note.textContent = j.data.enabled ? (j.data.send_enabled ? '' : '（總開關關閉，自動通知不會發送）') : '（全店自動通知目前關閉）';
+  } catch (e) {}
+}
+async function rnAutoProduct(pid, on, el) {
+  if (el) el.disabled = true;
+  try {
+    const res = await apiFetch(`/api/product-demand-admin/restock/auto/products/${pid}`, { method: 'PATCH', body: JSON.stringify({ enabled: !!on }) });
+    const j = await res.json(); if (!j.success) throw new Error(j.message || '儲存失敗');
+    showToast(on ? '此商品已參與恢復販售自動通知（目前狀態不會追發）' : '此商品已不參與自動通知', 'success');
+  } catch (e) { showToast(e.message || '儲存失敗', 'error'); if (el) el.checked = !on; }
+  finally { if (el) el.disabled = false; rnAutoLoad(); }
+}
+async function rnAutoEvents() {
+  const box = document.getElementById('pd-auto-events'); if (!box) return;
+  try {
+    const res = await apiFetch('/api/product-demand-admin/restock/auto/events?limit=30');
+    const j = await res.json(); if (!j.success) throw new Error(j.message || '');
+    box.innerHTML = j.data.length ? `<table style="width:100%;border-collapse:collapse;font-size:11px"><thead><tr><th style="text-align:left">觸發時間</th><th>商品</th><th>觸發來源</th><th>日期／取餐方式</th><th>狀態</th><th>結果與原因</th></tr></thead><tbody>${j.data.map((e) => `<tr data-event="${escHtml(e.event_uuid)}" style="border-top:1px solid var(--border,#334155)">
+      <td>${escHtml(fmtDemandTime(e.created_at))}</td><td>${escHtml(e.product_name)}</td><td>${escHtml(_RA_SRC[e.trigger_source] || e.trigger_source)}</td>
+      <td>${e.modes.map((m) => `${escHtml(m.date)}・${m.mode === 'delivery' ? '外送' : '外帶自取'}`).join('<br>')}</td>
+      <td>${escHtml(_RA_STATUS[e.status] || e.status)}</td>
+      <td>${escHtml(_raReasonText(e.reason))}${(e.details || []).map((d) => `<div>${d.mode === 'delivery' ? '外送' : '外帶'}：${d.result === 'batch' || d.result === 'existing_batch' ? `已排入 ${Number(d.queued || 0)} 位、排除 ${Number(d.excluded || 0)}` : escHtml(_raReasonText(d.reason))}${d.exclusions && Object.keys(d.exclusions).length ? '（' + Object.entries(d.exclusions).map(([k, v]) => escHtml((_RN_EXCL_LABEL[k] || k) + ' ' + v)).join('、') + '）' : ''}</div>`).join('')}</td></tr>`).join('')}</tbody></table>` : '<div style="color:var(--text-muted,#64748b)">尚無自動通知紀錄</div>';
+  } catch (e) { box.textContent = '紀錄載入失敗'; }
+}
+async function pdExportCsv(type) {
+  const qs = new URLSearchParams({ type: type === 'summary' ? 'summary' : 'details' });
+  const st = document.getElementById('pd-export-status')?.value || ''; if (st && type !== 'summary') qs.set('status', st);
+  const f = document.getElementById('pd-export-from')?.value || ''; if (f) qs.set('from', f);
+  const t = document.getElementById('pd-export-to')?.value || ''; if (t) qs.set('to', t);
+  if (type === 'summary' && st === 'active') qs.set('only_active', '1');
+  try {
+    const res = await apiFetch('/api/product-demand-admin/export.csv?' + qs.toString());
+    if (!res.ok) throw new Error('匯出失敗');
+    const blob = await res.blob();
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+    a.download = (type === 'summary' ? '補貨需求統計' : '補貨需求明細') + '-' + _rnTodayTaipei().replace(/-/g, '') + '.csv';
+    document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+    showToast(`已匯出 ${res.headers.get('X-Export-Rows') || 0} 筆${res.headers.get('X-Export-Truncated') ? '（已達上限，請縮小篩選範圍）' : ''}`, 'success');
+  } catch (e) { showToast(e.message || '匯出失敗', 'error'); }
+}
 async function loadRestockCapability() {
   const box = document.getElementById('pd-restock-cap');
   if (!box) return;
@@ -10736,7 +10839,10 @@ async function saveRestockSendEnabled(on) {
 }
 function restockPanelHtml(prod) {
   // C4.5：日期預設空白，待伺服器回傳可供應日期後才預選（不依操作電腦的日期）
+  setTimeout(() => { try { rnAutoProductState(prod.product_id); } catch (e) {} }, 0);
   return `<div id="rn-panel" data-pid="${prod.product_id}" style="margin-top:14px;padding:12px;border:1px solid var(--border,#334155);border-radius:10px">
+    <div style="font-size:12px;margin-bottom:8px"><label style="display:inline-flex;gap:6px;align-items:center"><input type="checkbox" id="rn-auto-product" data-pid="${prod.product_id}" onchange="rnAutoProduct(${prod.product_id}, this.checked, this)"> 🤖 此商品參與「恢復販售自動通知」</label>
+      <span id="rn-auto-product-note" style="color:var(--text-muted,#64748b);margin-left:6px"></span></div>
     <div style="font-weight:700;margin-bottom:8px">🔔 補貨通知（店家手動發送）</div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;font-size:13px">
       <label>取餐方式 <select id="rn-mode" class="form-input" style="width:auto"><option value="takeout">外帶自取</option><option value="delivery">外送</option></select></label>
@@ -10919,7 +11025,7 @@ function _pdBatchesHtml(pid, list) {
     const c = b.counts;
     const canResume = (b.status === 'paused' || b.status === 'completed') && (c.pending + c.retry_wait + c.held + c.unknown) > 0;
     return `<div class="rn-batch" data-batch="${escHtml(b.batch_uuid)}" style="border-top:1px solid var(--border,#334155);padding:6px 0;font-size:12px">
-        <div><strong>${escHtml(b.supply_date)}・${b.fulfillment_mode === 'delivery' ? '外送' : '外帶自取'}</strong>・<span class="rn-status">${escHtml(_RN_BATCH_STATUS[b.status] || b.status)}</span>${b.pause_reason ? `（${escHtml(_RN_PAUSE[b.pause_reason] || b.pause_reason)}）` : ''}・確認時間 ${escHtml(fmtDemandTime(b.confirmed_at))}</div>
+        <div><span class="rn-source" style="font-size:11px;padding:0 5px;border-radius:4px;background:${b.source === 'auto' ? '#7c3aed' : '#475569'};color:#fff">${b.source === 'auto' ? '自動' + (b.taken_over_by ? '（已人工接手）' : '') : '手動'}</span> <strong>${escHtml(b.supply_date)}・${b.fulfillment_mode === 'delivery' ? '外送' : '外帶自取'}</strong>・<span class="rn-status">${escHtml(_RN_BATCH_STATUS[b.status] || b.status)}</span>${b.pause_reason ? `（${escHtml(_RN_PAUSE[b.pause_reason] || b.pause_reason)}）` : ''}・確認時間 ${escHtml(fmtDemandTime(b.confirmed_at))}</div>
         <div class="rn-counts">LINE 已受理 ${c.accepted}・待發送 ${c.pending}・發送中 ${c.sending}・待重試 ${c.retry_wait}・暫停 ${c.held}・結果待確認 ${c.unknown}・失敗 ${c.failed}・發送前擋下 ${c.blocked}・排除 ${c.excluded}・取消 ${c.cancelled}</div>
         <div style="display:flex;gap:6px;margin-top:4px">
           <button class="btn-secondary" data-act="detail" style="font-size:11px;padding:2px 8px" onclick="restockBatchDetail('${escHtml(b.batch_uuid)}')">明細</button>

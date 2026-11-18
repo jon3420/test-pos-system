@@ -112,7 +112,8 @@ const EXCLUDED_TABLES = {
 };
 
 // 設定值中永遠不匯出、不匯入、不清除的 key
-const PROTECTED_SETTING_KEYS = new Set(['pos_password']);
+// C6：恢復販售自動補貨通知的開關與基線不隨備份／搬家移轉（還原或匯入後一律維持目標店家目前的設定，避免意外大量發送）
+const PROTECTED_SETTING_KEYS = new Set(['pos_password', 'restock_auto_notify_enabled', 'restock_auto_notify_epoch', 'restock_auto_notify_enabled_at']);
 
 // 敏感欄位（沿用 hotfix26-F0 黑名單）
 const SENSITIVE_COLUMN_BLACKLIST = new Set([
@@ -737,8 +738,14 @@ function inspectPayload(payload) {
 const IGNORE_COMPARE = {
   _all: ['id', 'store_id', 'updated_at'],
   // C5.1：訂單識別由業務鍵（uuid／id）處理；匯入標記與新編號格式旗標不參與合併比較，也不會被填入既有本地訂單
-  orders: ['sync_status', 'webhook_sent', 'uuid', 'order_no_v', 'imported_at', 'import_origin_uuid', 'import_origin_store'],
-  products: ['current_stock_grams', 'total_stock_grams', 'allocated_grams', 'line_quota_sold', 'line_preorder_sold', 'category_id', 'line_category_id', 'product_uuid'],
+  // C5.4.2 補修：快閃訂單時間來源標記（popup_created_tz／popup_updated_tz）與對應時間值成對處理——
+  //   既有列合併時 updated_at 一律保留本地值（_all），created_at 不同則整列衝突；只補標記會讓「本地時間＋來源標記」錯配，
+  //   且無時區字串相同也不代表同一絕對時刻 → 既有列一律不比較、不補入這兩個標記（保守策略，保留本地配對）。
+  //   新增整列時時間與標記一起寫入（不在此清單影響範圍：新增不經過比較／補值）。
+  orders: ['sync_status', 'webhook_sent', 'uuid', 'order_no_v', 'imported_at', 'import_origin_uuid', 'import_origin_store', 'popup_created_tz', 'popup_updated_tz'],
+  // C6.1：商品「參與恢復販售自動通知」與其參與版本由本地系統維護（店家在本機操作才改變），不參與合併比較、不被備份補入或覆寫
+  products: ['current_stock_grams', 'total_stock_grams', 'allocated_grams', 'line_quota_sold', 'line_preorder_sold', 'category_id', 'line_category_id', 'product_uuid',
+    'restock_auto_notify', 'restock_auto_version'],
   ingredients: ['total_stock', 'frozen_stock', 'thawing_stock', 'refrigerated_stock', 'scrapped_total'],
   line_members: ['last_seen_at', 'last_login_at', 'order_count', 'total_spent', 'lifetime_value', 'last_order_at', 'last_purchase_at',
     'last_friend_check', 'last_friend_check_at', 'first_product_id', 'merged_into_id', 'is_friend', 'is_blocked', 'friend_status',
@@ -1023,6 +1030,9 @@ function stepProducts(ctx) {
     },
     // R54.4／MBV2-HF1-C4：商品穩定識別（product_uuid）在同店必須唯一；已被占用時不沿用（之後自動補發新識別）
     beforeInsert: (ins) => {
+      // C6.1：匯入／還原的新商品一律不參與自動通知、參與版本從 0 起算（不因備份內容自動開啟）
+      if ('restock_auto_notify' in ins) ins.restock_auto_notify = 0;
+      if ('restock_auto_version' in ins) ins.restock_auto_version = 0;
       if (ins.product_uuid != null && ins.product_uuid !== '' && ctx.colSet('products').set.has('product_uuid')) {
         if (rawGet(ctx.raw, 'SELECT 1 AS x FROM products WHERE store_id=? AND product_uuid=?', [ctx.storeId, String(ins.product_uuid)])) ins.product_uuid = null;
       }
@@ -1422,6 +1432,8 @@ function stepRestockNotify(ctx) {
       if (!r.batch_uuid) return { invalid: '缺少 batch_uuid' };
       const v = { ...r, product_id: mapProduct(r), import_source: tag };
       if (RESTOCK_OPEN_BATCH.has(String(r.status))) { v.status = r.status === 'previewed' ? 'expired' : 'paused'; v.pause_reason = 'imported'; }
+      // C6.1：自動批次的版本屬於來源系統，匯入後一律視為無法證明（不會被自動續送；店家明確續送才會再發送）
+      v.auto_epoch = null; v.auto_product_version = null;
       batchProduct.set(String(r.batch_uuid), v.product_id);
       return { values: v };
     },

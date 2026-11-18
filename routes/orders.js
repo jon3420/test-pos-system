@@ -390,7 +390,10 @@ router.get('/:id', (req, res) => {
     const storeId = req.storeId;
     const order = OrderIdentity.resolveOrderRef(db, storeId, req.params.id).order;
     if (!order) return res.status(404).json({ success: false, message: '訂單不存在' });
-    res.json({ success: true, data: parseOrder(order) });
+    const data = parseOrder(order);
+    // C5.4.2：快閃訂單附上與列表相同的付款／成立判定（後台詳情不再只有付款方式）；其他訂單輸出不變
+    if (order.pickup_type === 'popup') { try { data.payment_display = require('../utils/paymentDisplay').computePaymentDisplay(db, storeId, order); } catch (e) { data.payment_display = null; } }
+    res.json({ success: true, data });
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
 

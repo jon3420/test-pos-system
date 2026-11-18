@@ -192,12 +192,8 @@ function commitFailed(db, a, failReason, basis, code) {
     raw.run(`UPDATE popup_payment_attempts SET status='failed', fail_reason=?, failure_basis=?, result_code=?, updated_at=datetime('now','localtime')
              WHERE attempt_id=? AND status IN ('pending','confirm_pending')`, [failReason, basis, String(code || ''), a.attempt_id]);
     changed = raw.getRowsModified() === 1;
-    if (changed && !s.allow_fallback_cash) {
-      const { releasePopupOrderAllocations } = require('./popupCheckout');
-      raw.run(`UPDATE orders SET order_status='cancelled', payment_status='failed', updated_at=datetime('now','localtime')
-               WHERE id=? AND store_id=? AND payment_status='pending'`, [a.order_id, a.store_id]);
-      releasePopupOrderAllocations(db, a.store_id, a.order_id, a.session_id);
-    }
+    // C5.4.2 補修：經整單防護關閉訂單（同單已付款／待退款 → 不取消不釋放；同單仍有結果不明 → 付款狀態維持 pending）
+    if (changed && !s.allow_fallback_cash) ppay.closeOrderAfterAttempt(db, a, 'failed');
   });
   return changed;
 }
@@ -282,8 +278,20 @@ async function handleConfirmCallback(db, attemptId, query) {
     }
     // 送出前 durable 保存處理階段（條件式：必須恰好改到 1 列）；保存失敗或沒改到列 → 外部 Confirm 0 次
     let claimed = false;
+    let blocked = null;
     try {
       db.runDurableTransaction(() => {
+        // C5.4.2 補修：送出第一次 Confirm 前，在同一交易內重新檢查整張訂單的全部付款紀錄。
+        //   同單已付款／待退款，或仍有結果不明（可能已請款）的付款 → 本筆不送 Confirm（不請款；授權逾期即失效），
+        //   標記為送出前即中止（aborted_cancelled），整單狀態由其他紀錄與既有唯讀核對決定。舊付款連結／callback 同樣受此限制。
+        const blk = ppay.orderPaymentBlock(db._db, a.store_id, a.order_id);
+        if (blk) {
+          db._db.run(`UPDATE popup_payment_attempts SET status='aborted_cancelled', failure_basis=?, updated_at=datetime('now','localtime')
+                      WHERE attempt_id=? AND status='pending' AND confirm_state='never' AND COALESCE(confirm_calls,0)=0`,
+          ['order_payment_' + blk.code + '_before_confirm', attemptId]);
+          blocked = blk;
+          return;
+        }
         db._db.run(`UPDATE popup_payment_attempts SET status='confirm_pending', confirm_state='sent', confirm_calls=COALESCE(confirm_calls,0)+1,
                     merchant_ref=?, updated_at=datetime('now','localtime')
                     WHERE attempt_id=? AND status='pending' AND confirm_state='never' AND COALESCE(confirm_calls,0)=0 AND transaction_id=?`,
@@ -293,6 +301,7 @@ async function handleConfirmCallback(db, attemptId, query) {
     } catch (e) {
       return { result: 'error', reason: 'stage_save_failed' };
     }
+    if (blocked) return { result: 'pending', reason: 'order_payment_' + blocked.code };
     if (!claimed) return { result: 'pending', reason: 'claim_lost' };
     // ── 外部 Confirm（交易外；sql.js 同步，等待期間不持有寫入交易）──
     const confirmBody = { amount: Number(a.amount), currency: a.currency || 'TWD' };
@@ -370,8 +379,11 @@ function closeUnresolvedOnTimeout(db, storeId, now, settings) {
       n++;
       if (settings && settings.expire_cancel_release) {
         // 取消履約、釋放名額；payment_status 維持 pending（付款結果不明，不宣告未付款）
+        // C5.4.2 補修：同單已有已付款／待退款證據 → 不取消、不釋放；訂單付款狀態已不是 pending（沒有改到列）→ 不釋放
+        const blk = require('./popupPayment').orderPaymentBlock(raw, a.store_id, a.order_id);
+        if (blk && blk.code !== 'under_review') continue;
         raw.run(`UPDATE orders SET order_status='cancelled', updated_at=datetime('now','localtime') WHERE id=? AND store_id=? AND payment_status='pending'`, [a.order_id, a.store_id]);
-        require('./popupCheckout').releasePopupOrderAllocations(db, a.store_id, a.order_id, a.session_id);
+        if (raw.getRowsModified() === 1) require('./popupCheckout').releasePopupOrderAllocations(db, a.store_id, a.order_id, a.session_id);
       }
     }
   });

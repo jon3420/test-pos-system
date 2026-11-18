@@ -194,15 +194,32 @@ router.post('/', (req, res) => {
 });
 
 /* POST /api/products/reset-sold-out-today — ★ 固定路徑，在 /:id 之前 */
+// R54.4／MBV2-HF1-C6：恢復販售自動補貨通知的寫入掛勾。
+//   全店自動通知關閉或商品未參與時 captureBefore() 回傳 null，維持原本的寫入方式（行為完全不變）；
+//   否則商品 UPDATE 與事件在同一個 durable 交易內寫入，提交後才交給既有補貨通知引擎處理（外部發送在交易後）。
+function _c6Write(db, storeId, productIds, source, actor, writeFn) {
+  const RA = require('../utils/restockAuto');
+  let snap = null;
+  try { snap = RA.captureBefore(db, storeId, productIds); } catch (e) { snap = null; console.warn('[restockAuto] capture:', e && e.message); }
+  if (!snap) { writeFn(false); return []; }
+  let made = [];
+  db.runDurableTransaction(() => { writeFn(true); made = RA.recordAfterInTx(db, storeId, snap, source, actor); });
+  if (made.length) setImmediate(() => { try { RA.kick(db, storeId); } catch (e) { console.warn('[restockAuto] kick:', e && e.message); } });
+  return made;
+}
+function _c6Actor(req) { const a = req.auth || {}; return String(a.role || 'staff') + ':' + String(a.store_id || req.storeId || ''); }
+
 router.post('/reset-sold-out-today', requireFeature('line_order'), (req, res) => {
   try {
     const db = getDb();
     const storeId = req.storeId;
-    db.run(
-      `UPDATE products SET sale_status='available', updated_at=datetime('now','localtime')
-       WHERE store_id=? AND sale_status='sold_out_today' AND auto_restore_next_day=1`,
-      [storeId]
-    );
+    // C6：店家按下「重置今日完售」＝明確批量恢復販售（每日排程自動恢復不經過這裡，不觸發）
+    const ids = db.all("SELECT id FROM products WHERE store_id=? AND sale_status='sold_out_today' AND auto_restore_next_day=1", [storeId]).map((r) => r.id);
+    _c6Write(db, storeId, ids, 'bulk_reset_sold_out_today', _c6Actor(req), (inTx) => {
+      const sql = `UPDATE products SET sale_status='available', updated_at=datetime('now','localtime')
+       WHERE store_id=? AND sale_status='sold_out_today' AND auto_restore_next_day=1`;
+      if (inTx) db._db.run(sql, [storeId]); else db.run(sql, [storeId]);
+    });
     res.json({ success: true, message: '已重置今日完售商品' });
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });
@@ -238,14 +255,14 @@ router.put('/:id', (req, res) => {
     const newDip   = dine_in_price  !== undefined ? parseFloat(dine_in_price)  : (ex.dine_in_price  || newPrice);
     const newTap   = takeaway_price !== undefined ? parseFloat(takeaway_price) : (ex.takeaway_price || newDip);
     const newDep   = delivery_price !== undefined ? parseFloat(delivery_price) : (ex.delivery_price || newTap);
-    db.run(
-      `UPDATE products SET
+    const _putSql = `UPDATE products SET
         name=?,category=?,price=?,enabled=?,sort_order=?,image=?,
         dine_in_price=?,takeaway_price=?,delivery_price=?,
         inventory_enabled=?,total_stock_grams=?,allocated_grams=?,
         current_stock_grams=?,low_stock_alert=?,
         updated_at=datetime('now','localtime')
-       WHERE id=? AND store_id=?`,
+       WHERE id=? AND store_id=?`;
+    const _putParams =
       [name ?? ex.name, category ?? ex.category, newPrice,
        enabled !== undefined ? Number(enabled) : ex.enabled,
        sort_order !== undefined ? sort_order : ex.sort_order,
@@ -256,8 +273,9 @@ router.put('/:id', (req, res) => {
        allocated_grams !== undefined ? Number(allocated_grams) : ex.allocated_grams,
        current_stock_grams !== undefined ? Number(current_stock_grams) : ex.current_stock_grams,
        low_stock_alert !== undefined ? Number(low_stock_alert) : ex.low_stock_alert,
-       req.params.id, storeId]
-    );
+       req.params.id, storeId];
+    // C6：enabled 0→1（重新上架）可能觸發恢復販售自動通知；其他欄位（名稱、價格…）不觸發
+    _c6Write(db, storeId, [ex.id], 'product_enabled', _c6Actor(req), (inTx) => { if (inTx) db._db.run(_putSql, _putParams); else db.run(_putSql, _putParams); });
     res.json({
       success: true,
       data: enrichProduct(db.get('SELECT * FROM products WHERE id=?', [req.params.id]))
@@ -531,7 +549,8 @@ router.patch('/:id/line-settings', requireFeature('line_order'), (req, res) => {
     if (!sets.length) return res.status(400).json({ success: false, message: '沒有要更新的欄位' });
     sets.push("updated_at=datetime('now','localtime')");
     vals.push(id); vals.push(storeId);
-    db.run(`UPDATE products SET ${sets.join(',')} WHERE id=? AND store_id=?`, vals);
+    // C6：販售狀態恢復、取消完售、上架、開啟取餐方式、增加可售額度 → 可能觸發恢復販售自動通知（只在全店開啟且商品參與時）
+    _c6Write(db, storeId, [ex.id], 'line_settings', _c6Actor(req), (inTx) => { const sql = `UPDATE products SET ${sets.join(',')} WHERE id=? AND store_id=?`; if (inTx) db._db.run(sql, vals); else db.run(sql, vals); });
     const updated = db.get('SELECT * FROM products WHERE id=?', [id]);
     // 計算 LINE 剩餘份數供前端顯示
     const quotaRemaining = Number(updated.line_quota_enabled)
@@ -561,7 +580,7 @@ router.patch('/:id/line-status', requireFeature('line_order'), (req, res) => {
     if (!sets.length) return res.status(400).json({ success: false, message: '沒有要更新的欄位' });
     sets.push("updated_at=datetime('now','localtime')");
     vals.push(id); vals.push(storeId);
-    db.run(`UPDATE products SET ${sets.join(',')} WHERE id=? AND store_id=?`, vals);
+    _c6Write(db, storeId, [ex.id], 'line_status', _c6Actor(req), (inTx) => { const sql = `UPDATE products SET ${sets.join(',')} WHERE id=? AND store_id=?`; if (inTx) db._db.run(sql, vals); else db.run(sql, vals); });
     res.json({ success: true, data: enrichProduct(db.get('SELECT * FROM products WHERE id=?', [id])) });
   } catch(e) { res.status(500).json({ success: false, message: e.message }); }
 });

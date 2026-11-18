@@ -219,6 +219,55 @@ adminRouter.get('/restock/batches/:uuid', (req, res) => {
   catch (e) { sendErr(res, e, 'restock detail'); }
 });
 
+// ── R54.4／MBV2-HF1-C6：恢復販售自動補貨通知（全店開關預設關閉；商品預設不參與）──────────────
+//   GET   /restock/auto                     設定、適用商品、取餐方式與供應日期規則、總開關狀態
+//   PATCH /restock/auto { enabled }         開啟（新觀測基線，不追發）／關閉（取消未處理事件；自動批次下一筆前暫停）
+//   PATCH /restock/auto/products/:id { enabled }  商品是否參與自動通知
+//   GET   /restock/auto/events[?product_id=]      觸發紀錄（時間、商品、日期／取餐方式、狀態、排除與未發送原因、批次）
+const RA = require('../utils/restockAuto');
+adminRouter.get('/restock/auto', (req, res) => {
+  try { res.set('Cache-Control', 'no-store'); res.json({ success: true, data: RA.getConfig(getDb(), req.storeId) }); }
+  catch (e) { sendErr(res, e, 'restock auto config'); }
+});
+adminRouter.patch('/restock/auto', (req, res) => {
+  try {
+    const b = req.body || {};
+    if (!(b.enabled === true || b.enabled === false || b.enabled === 1 || b.enabled === 0 || b.enabled === '1' || b.enabled === '0')) throw new RN.RestockError('INVALID_INPUT', 'enabled 必須是布林值', 400);
+    const en = b.enabled === true || b.enabled === 1 || b.enabled === '1';
+    res.json({ success: true, data: RA.setEnabled(getDb(), req.storeId, en, actorOf(req)) });
+  } catch (e) { sendErr(res, e, 'restock auto set'); }
+});
+adminRouter.patch('/restock/auto/products/:id', (req, res) => {
+  try {
+    const b = req.body || {};
+    const en = b.enabled === true || b.enabled === 1 || b.enabled === '1';
+    res.json({ success: true, data: RA.setProductParticipation(getDb(), req.storeId, req.params.id, en) });
+  } catch (e) { sendErr(res, e, 'restock auto product'); }
+});
+adminRouter.get('/restock/auto/events', (req, res) => {
+  try { res.set('Cache-Control', 'no-store'); res.json({ success: true, data: RA.listEvents(getDb(), req.storeId, req.query || {}) }); }
+  catch (e) { sendErr(res, e, 'restock auto events'); }
+});
+
+// ── R54.4／MBV2-HF1-C6：需求資料 CSV 匯出（商家營運用；不是 MBV2 搬家備份）──────────────
+//   GET /export.csv?type=summary|details&product_id=&status=active|expired|cancelled&pref=&from=YYYY-MM-DD&to=YYYY-MM-DD[&only_active=1]
+//   店別只信任員工 JWT；中文 UTF-8＋BOM；防公式注入；LINE 使用者識別遮罩；不輸出憑證、session、權杖。
+adminRouter.get('/export.csv', (req, res) => {
+  try {
+    const q = req.query || {};
+    const type = q.type === 'summary' ? 'summary' : 'details';
+    const out = type === 'summary' ? require('../utils/demandExport').exportSummary(getDb(), req.storeId, q) : require('../utils/demandExport').exportDetails(getDb(), req.storeId, q);
+    const d = new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10).replace(/-/g, '');
+    const name = `restock-demand-${type}-${d}.csv`;
+    res.set('Content-Type', 'text/csv; charset=utf-8');
+    res.set('Content-Disposition', `attachment; filename="${name}"; filename*=UTF-8''${encodeURIComponent(type === 'summary' ? '補貨需求統計-' + d + '.csv' : '補貨需求明細-' + d + '.csv')}`);
+    res.set('Cache-Control', 'no-store');
+    res.set('X-Export-Rows', String(out.count));
+    if (out.truncated) res.set('X-Export-Truncated', '1');
+    res.send(out.csv);
+  } catch (e) { sendErr(res, e, 'demand export'); }
+});
+
 // ── R54.4／MBV2-HF1-C5：補貨通知成效（掛在 /api/analytics/restock-notify；requireStaffJwt＋reports）────────
 //   GET  /summary?from=&to=&product_id=&mode=&batch_uuid=   以通知批次為群體的漏斗（唯讀）
 //   POST /reconcile { days }                                  補登：重算尚無歸因的 LINE 會員訂單（可重跑，不重複計算）
