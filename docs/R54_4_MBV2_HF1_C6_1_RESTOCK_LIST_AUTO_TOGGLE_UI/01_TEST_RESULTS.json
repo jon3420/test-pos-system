@@ -1,0 +1,2034 @@
+{
+ "round": "R54.4／MBV2-HF1-C6.1 補貨通知列表操作優化（列表直接勾選恢復販售通知）",
+ "baseline": {
+  "file": "P3CD_DEPLOY_R54_4_MBV2_HF1_C6_1_AUTO_RESTOCK_PAUSE_CLAIM_RELEASE_FIX_APP_ROOT.zip",
+  "sha256": "794d1ec7faa7386a8253936a3a14d7a78b83a0ee2f403931d96e104e4ff2127e",
+  "bytes": 7904997,
+  "files": 1022,
+  "zip_entries": 1074,
+  "manifest_entries": 1019,
+  "manifest_verified": true,
+  "manifest_mismatch": 0,
+  "manifest_missing": 0,
+  "manifest_excluded": [
+   "docs/R54_4_MBV2_HF1_C6_1_PAUSE_CLAIM_RELEASE_FIX/00_FINAL_REPORT.md",
+   "docs/R54_4_MBV2_HF1_C6_1_PAUSE_CLAIM_RELEASE_FIX/01_TEST_RESULTS.json",
+   "docs/R54_4_MBV2_HF1_C6_1_PAUSE_CLAIM_RELEASE_FIX/02_FILE_MANIFEST.json"
+  ]
+ },
+ "external_calls": {
+  "real_line": 0,
+  "real_linepay": 0,
+  "sandbox": 0,
+  "deployed": false,
+  "production_data_touched": false,
+  "production_auto_notify_enabled": false
+ },
+ "labels": {
+  "BR": "真實 Chrome（Playwright）＋正式伺服器 server.js＋暫存 SQLite 檔",
+  "API": "正式路由",
+  "DB": "直接讀資料庫檔核對",
+  "模擬": "LINE 由 c4-line-mock 程序內攔截；逾時／中斷／延遲由 Playwright 攔截請求模擬",
+  "函式級": "本輪沒有"
+ },
+ "product_changes": [
+  "public/index.html",
+  "public/js/app.js",
+  "routes/product-demand.js"
+ ],
+ "api_changes": {
+  "new_endpoints": [],
+  "extended": "GET /api/product-demand-admin/snapshot 新增唯讀欄位 auto（enabled, enabled_at, send_enabled, notify_available, config_complete, missing, participating_product_ids）與 auto_error；既有欄位、權限（requireStaffJwt＋line_order）、店別（只信任 JWT）不變"
+ },
+ "db_schema_changes": [],
+ "db_schema_check": {
+  "base_objects": 236,
+  "cand_objects": 236,
+  "identical": true,
+  "schema_sha256": "edac2394105a86e445d3d45c9f39a9958b7d8319181ab8c34b356b77e44c9864"
+ },
+ "existing_tests_modified": [],
+ "existing_assertions_relaxed": [],
+ "core_files_unchanged": {
+  "付款": [
+   {
+    "path": "routes/line-checkout-handoff.js",
+    "same": true,
+    "sha256": "ac7f43f3318362b03dac92455ac0c6b64da0984f32b001558262d9775651dbeb"
+   },
+   {
+    "path": "routes/line-orders.js",
+    "same": true,
+    "sha256": "c1b81a50ea083ac3ab91514591898533ee0bc208f836ebcb787fa4c63adf850f"
+   },
+   {
+    "path": "routes/linepay.js",
+    "same": true,
+    "sha256": "0adb28d1f525df7dff969a79514290e126671a4980acfe30c3678b1d3e628c15"
+   },
+   {
+    "path": "routes/online-orders.js",
+    "same": true,
+    "sha256": "65d8fb3f83d6a6d59c9720d6f3e6e3ec18a08de1a05d87f21568d157c065ab35"
+   },
+   {
+    "path": "routes/orders.js",
+    "same": true,
+    "sha256": "505c1df9745d62053f3237e2b07401d35b48704a27f133719f0a99163934436f"
+   },
+   {
+    "path": "routes/payment-gateways.js",
+    "same": true,
+    "sha256": "fd4bca03aa184ca4695bcace4f300b7d32fc6d2b2f1f9eb4bd79e883d28b7a32"
+   },
+   {
+    "path": "routes/payment-methods.js",
+    "same": true,
+    "sha256": "19bd85273610ee7fc5ed5d100f626e742f88f6bb01f024862fb0d5490a7daef6"
+   },
+   {
+    "path": "utils/lineCheckoutHandoff.js",
+    "same": true,
+    "sha256": "ee78b975255d2c0a13c63cddb72ec97ba6bdf7e2c9b66fde2e3331ad5701fccc"
+   },
+   {
+    "path": "utils/lineOrderPricing.js",
+    "same": true,
+    "sha256": "9d13aaa3b1427aa1ce40b3243d5bd3312268600385b347a9190e0ed09a7e8a27"
+   },
+   {
+    "path": "utils/linePayClient.js",
+    "same": true,
+    "sha256": "6c6a033a0ff286613fa7caff0d09f724ece4e94972c6e6eb965f39663512c8c5"
+   },
+   {
+    "path": "utils/linePayRecovery.js",
+    "same": true,
+    "sha256": "73159a8afd4ec7eb53d2e8bee19a830a077c327525ecada910b24aa55b1dc2e3"
+   },
+   {
+    "path": "utils/linePayService.js",
+    "same": true,
+    "sha256": "8abc32f7aab16a5671e13a89ab17332328ecaed8ba257959c2bab8e21092943d"
+   },
+   {
+    "path": "utils/linePaymentMethods.js",
+    "same": true,
+    "sha256": "6c0ac6b217e7319e0270173087f56f768d8e19e93da9b4286b031053df1ed0db"
+   },
+   {
+    "path": "utils/orderIdentity.js",
+    "same": true,
+    "sha256": "9c8f1942cd82db58afdd98f967b28a73d081ecd9bc5d8b2425b7e7a38a58bc6d"
+   },
+   {
+    "path": "utils/orderStatusFlow.js",
+    "same": true,
+    "sha256": "639d06bafff73d891730f0cf70851bffe119b7a0bb6976feacd4028520614357"
+   },
+   {
+    "path": "utils/paymentDisplay.js",
+    "same": true,
+    "sha256": "c872846c45b729c18f08ca5e5736e8b1cb13e960c7eb78ad01506a92d77004b4"
+   },
+   {
+    "path": "utils/popupCheckout.js",
+    "same": true,
+    "sha256": "e8d2c3fd24eb18f4ce5cc6506275f607847f0025bc87e61f1c81a6969eb75748"
+   },
+   {
+    "path": "utils/popupOrderLookup.js",
+    "same": true,
+    "sha256": "7865275ed2a7f4758611bb0253bb4b5949d96fca4812d7527e08e429a826e02e"
+   },
+   {
+    "path": "utils/popupOrderStatus.js",
+    "same": true,
+    "sha256": "6349689c359eaa0ac4a079a3aa945a3c809c82914f6b3362d10dae20fd0b2db8"
+   },
+   {
+    "path": "utils/popupOrderTime.js",
+    "same": true,
+    "sha256": "6bf086abd95f7098f836b6162f4fa58ac160da147c57608fdc57f659e8f57875"
+   },
+   {
+    "path": "utils/popupPayment.js",
+    "same": true,
+    "sha256": "8c34cf5d986cd9d061c4eeefc94aff36fee7aead8e1d1f5cc4344782528972be"
+   },
+   {
+    "path": "utils/popupPaymentRecovery.js",
+    "same": true,
+    "sha256": "a3ce9998401a65bac353757e560d23c59d8b918276254ff3c4f35ea39a8d6ef7"
+   }
+  ],
+  "通知核心": [
+   {
+    "path": "routes/product-demand.js",
+    "same": false,
+    "sha256": "166bfd1809d17f373f1c9ee2c1b3e3a26a5251eb2617d8f32f5ab32def9524ce"
+   },
+   {
+    "path": "utils/demandExport.js",
+    "same": true,
+    "sha256": "14935cc5728c96117186fda26f6a412a2003de921cddaa5eab3a8225aef0371e"
+   },
+   {
+    "path": "utils/linePush.js",
+    "same": true,
+    "sha256": "d9b9656ebcd1b6f15079a647a4513caa2fd724af2d75ea668907bfede4d9bccc"
+   },
+   {
+    "path": "utils/productDemand.js",
+    "same": true,
+    "sha256": "62f4b40d33d7c1017ca564edcb8ce475a1b624b0db5e0319cbbf67acd794d9ac"
+   },
+   {
+    "path": "utils/restockAuto.js",
+    "same": true,
+    "sha256": "911975761a2f3fe54ee22fb3e10ddc7bee7756da6c95a59f8867b750622a5cb8"
+   },
+   {
+    "path": "utils/restockNotify.js",
+    "same": true,
+    "sha256": "61f0b68fc9b4150485a440b913ac4b090235ff876fdf4455166284b5d343ff48"
+   },
+   {
+    "path": "utils/restockTracking.js",
+    "same": true,
+    "sha256": "08c4933139c347d4a084fa68e93a836a1c2b3de4448a57521946e564c1639040"
+   }
+  ],
+  "資料庫／遷移": [
+   {
+    "path": "public/js/migration-v2.js",
+    "same": true,
+    "sha256": "ca9e5b52871e92fd5c5f4ae67370f7d0d2f74f35b923f7ff0bcfbb2ca072d138"
+   },
+   {
+    "path": "routes/migration-v2.js",
+    "same": true,
+    "sha256": "b56ce33b3065b99a08534659ad576bc01c8975e19085c4dc3d533573174bb133"
+   },
+   {
+    "path": "routes/migration.js",
+    "same": true,
+    "sha256": "24fc7326b480fbfc2f266bc3749c2e25dc7fbe4dfb2a287b8fa6cd9316a83402"
+   },
+   {
+    "path": "utils/db.js",
+    "same": true,
+    "sha256": "5b71fccc521f252e58c7343d477fe7f8673be24c3591a53f8621d4efe025e22e"
+   },
+   {
+    "path": "utils/migrationUploadLimit.js",
+    "same": true,
+    "sha256": "366291c3a8c21d59fd458b8c18d5d3596c0d912855d1fe34ab7e10b994b3e4ef"
+   },
+   {
+    "path": "utils/migrationV2.js",
+    "same": true,
+    "sha256": "07e8694fe7dcf5d5efd9c51e98ee51f2e455ec0a721924551a80644872917d2e"
+   }
+  ],
+  "MBV2": [
+   {
+    "path": "public/js/migration-v2.js",
+    "same": true,
+    "sha256": "ca9e5b52871e92fd5c5f4ae67370f7d0d2f74f35b923f7ff0bcfbb2ca072d138"
+   },
+   {
+    "path": "routes/migration-v2.js",
+    "same": true,
+    "sha256": "b56ce33b3065b99a08534659ad576bc01c8975e19085c4dc3d533573174bb133"
+   },
+   {
+    "path": "utils/migrationV2.js",
+    "same": true,
+    "sha256": "07e8694fe7dcf5d5efd9c51e98ee51f2e455ec0a721924551a80644872917d2e"
+   }
+  ],
+  "時間": [
+   {
+    "path": "public/js/date-time-format.js",
+    "same": true,
+    "sha256": "f4b65ea0e76f8a4cd03e80f2b990abe33efe31a55436433dc7b6a1cd14826eb2"
+   },
+   {
+    "path": "public/js/geo-ga4-realtime-layer.js",
+    "same": true,
+    "sha256": "56f6a25c768d7b9492435a3102f4d5519f983256c0279c4d3104b63da814b019"
+   },
+   {
+    "path": "utils/dateTime.js",
+    "same": true,
+    "sha256": "608ebd9461db6e6936b38f66682fd0a5ebdb5b2fd24c82c01c4ec711da154c6d"
+   },
+   {
+    "path": "utils/ga4Realtime/client.js",
+    "same": true,
+    "sha256": "fd548e2679500e4cbb41f2100d78f104055fc60f8d57665a95133639c6b3d9ab"
+   },
+   {
+    "path": "utils/ga4Realtime/connectionTest.js",
+    "same": true,
+    "sha256": "b1fb7da019605463e4185658b62cb8bdd7ea8f761c20b9b0dc0a0a7d2ece45ba"
+   },
+   {
+    "path": "utils/ga4Realtime/errors.js",
+    "same": true,
+    "sha256": "d02596508c5200cb08becb2df000e84dd6856b8d0aa0d0b9dcd625a87d13aaf6"
+   },
+   {
+    "path": "utils/ga4Realtime/index.js",
+    "same": true,
+    "sha256": "df608fe262b12341acfd80159a67c347c0ebce943a72b3078de5c044fef608b4"
+   },
+   {
+    "path": "utils/ga4Realtime/requestBuilder.js",
+    "same": true,
+    "sha256": "db2735e7be786e6cd2ebcf0660d8ef6aa409216169ad455d5623c19790d68f95"
+   },
+   {
+    "path": "utils/ga4Realtime/requestPair.js",
+    "same": true,
+    "sha256": "ac282d0d78d7b6d797ce5b14c1c58181a1cccefe315abbfad3df8f01525c0d38"
+   },
+   {
+    "path": "utils/ga4RealtimeConfig.js",
+    "same": true,
+    "sha256": "429b11b2773e6f2c5b3fb4638092dc56d2054d8e968eb8f2e43103a909947d03"
+   },
+   {
+    "path": "utils/popupOrderTime.js",
+    "same": true,
+    "sha256": "6bf086abd95f7098f836b6162f4fa58ac160da147c57608fdc57f659e8f57875"
+   }
+  ]
+ },
+ "new_acceptance": {
+  "script": "scripts/smoke-r54-4-mbv2-hf1-c6-1-restock-list-auto-toggle-ui.js",
+  "note": "基準樹＝同一份 ZIP 全新解壓＋只加入本腳本。基準上數個步驟在第一個動作（找不到列表勾選框）即中止，該步驟只記 1 項失敗，因此總斷言數 35 少於修正版 40。",
+  "baseline_unmodified": {
+   "pass": 7,
+   "fail": 28,
+   "cases": [
+    {
+     "id": "A1",
+     "ok": false,
+     "class": "N",
+     "name": "A1 表頭依序為「商品名稱｜商品狀態｜有效登記人數｜期望總份數｜收集登記｜恢復販售通知｜明細」，每列 7 欄 [N]"
+    },
+    {
+     "id": "A2",
+     "ok": false,
+     "class": "N",
+     "name": "A2 伺服器既有參與（古法冷拌麻油豬心）顯示已勾選、其他未勾選；摘要「已選擇 1／N」：列表外的參與商品不計入分子 [N]"
+    },
+    {
+     "id": "A3",
+     "ok": true,
+     "class": "G",
+     "name": "A3 載入新介面不重設店家既有設定（全店自動、epoch、參與商品、總開關、登記設定都不變） [G]"
+    },
+    {
+     "id": "B1",
+     "ok": false,
+     "class": "N",
+     "name": "B1 [N]（例外）"
+    },
+    {
+     "id": "B2",
+     "ok": true,
+     "class": "G",
+     "name": "B2 相同參與值重複儲存：沿用後端「版本不變」規則（changed=false、版本相同） [G]"
+    },
+    {
+     "id": "B3",
+     "ok": true,
+     "class": "G",
+     "name": "B3 勾選／取消參與當下：不建立自動通知事件、預覽或批次，不呼叫（模擬）LINE [G]"
+    },
+    {
+     "id": "C1",
+     "ok": false,
+     "class": "N",
+     "name": "C1 [N]（例外）"
+    },
+    {
+     "id": "C2",
+     "ok": false,
+     "class": "N",
+     "name": "C2 [N]（例外）"
+    },
+    {
+     "id": "C3",
+     "ok": false,
+     "class": "N",
+     "name": "C3 關閉通知發送總開關：商品保留勾選，顯示「已選擇，待開啟通知發送總開關」 [N]"
+    },
+    {
+     "id": "C4",
+     "ok": false,
+     "class": "N",
+     "name": "C4 必要設定不完整：保留勾選並顯示「已選擇，必要設定尚未完整」 [N]"
+    },
+    {
+     "id": "C5",
+     "ok": true,
+     "class": "G",
+     "name": "C5 關閉全店自動通知：通知發送總開關不受影響、商品參與不被清空 [G]"
+    },
+    {
+     "id": "C5-2",
+     "ok": false,
+     "class": "N",
+     "name": "C5-2 關閉後列表仍保留勾選並恢復提示「已選擇，待開啟自動通知」 [N]"
+    },
+    {
+     "id": "D1",
+     "ok": false,
+     "class": "N",
+     "name": "D1 [N]（例外）"
+    },
+    {
+     "id": "E1",
+     "ok": false,
+     "class": "N",
+     "name": "E1 [N]（例外）"
+    },
+    {
+     "id": "F1",
+     "ok": false,
+     "class": "N",
+     "name": "F1 [N]（例外）"
+    },
+    {
+     "id": "F2",
+     "ok": false,
+     "class": "N",
+     "name": "F2 [N]（例外）"
+    },
+    {
+     "id": "F3",
+     "ok": false,
+     "class": "N",
+     "name": "F3 [N]（例外）"
+    },
+    {
+     "id": "F4",
+     "ok": false,
+     "class": "N",
+     "name": "F4 [N]（例外）"
+    },
+    {
+     "id": "G1",
+     "ok": false,
+     "class": "N",
+     "name": "G1 [N]（例外）"
+    },
+    {
+     "id": "G2",
+     "ok": false,
+     "class": "N",
+     "name": "G2 [N]（例外）"
+    },
+    {
+     "id": "H1",
+     "ok": false,
+     "class": "N",
+     "name": "H1 [N]（例外）"
+    },
+    {
+     "id": "H2",
+     "ok": false,
+     "class": "N",
+     "name": "H2 [N]（例外）"
+    },
+    {
+     "id": "I1",
+     "ok": false,
+     "class": "N",
+     "name": "I1 [N]（例外）"
+    },
+    {
+     "id": "J1",
+     "ok": false,
+     "class": "N",
+     "name": "J1 [N]（例外）"
+    },
+    {
+     "id": "J2",
+     "ok": false,
+     "class": "N",
+     "name": "J2 [N]（例外）"
+    },
+    {
+     "id": "J3",
+     "ok": false,
+     "class": "N",
+     "name": "J3 [N]（例外）"
+    },
+    {
+     "id": "K1",
+     "ok": false,
+     "class": "N",
+     "name": "K1 參與狀態初次載入失敗：已參與商品顯示「狀態待更新」（不確定狀態），摘要不顯示 0／0 [N]"
+    },
+    {
+     "id": "K2",
+     "ok": false,
+     "class": "N",
+     "name": "K2 清單載入失敗：錯誤列 colspan＝7；摘要顯示「狀態待更新」 [N]"
+    },
+    {
+     "id": "K2-2",
+     "ok": false,
+     "class": "N",
+     "name": "K2-2 空清單列與載入中列 colspan＝7 [N]"
+    },
+    {
+     "id": "L1",
+     "ok": false,
+     "class": "N",
+     "name": "L1 [N]（例外）"
+    },
+    {
+     "id": "L2",
+     "ok": false,
+     "class": "N",
+     "name": "L2 開啟明細與自動更新不逐商品送 GET（參與清單隨 /snapshot 一次取得） [N]"
+    },
+    {
+     "id": "N1",
+     "ok": false,
+     "class": "N",
+     "name": "N1 [N]（例外）"
+    },
+    {
+     "id": "Z1",
+     "ok": true,
+     "class": "G",
+     "name": "Z1 全程（含勾選、開關切換、逾時、中斷）未建立自動通知事件、預覽或批次，未呼叫（模擬）LINE [G]"
+    },
+    {
+     "id": "Z2",
+     "ok": true,
+     "class": "G",
+     "name": "Z2 真實 LINE API 呼叫 0 次 [G]"
+    },
+    {
+     "id": "Z3",
+     "ok": true,
+     "class": "G",
+     "name": "Z3 全程無 JavaScript 錯誤 [G]"
+    }
+   ]
+  },
+  "fix_worktree": {
+   "pass": 40,
+   "fail": 0,
+   "cases": [
+    {
+     "id": "A1",
+     "ok": true,
+     "class": "N",
+     "name": "A1 表頭依序為「商品名稱｜商品狀態｜有效登記人數｜期望總份數｜收集登記｜恢復販售通知｜明細」，每列 7 欄 [N]"
+    },
+    {
+     "id": "A2",
+     "ok": true,
+     "class": "N",
+     "name": "A2 伺服器既有參與（古法冷拌麻油豬心）顯示已勾選、其他未勾選；摘要「已選擇 1／N」：列表外的參與商品不計入分子 [N]"
+    },
+    {
+     "id": "A3",
+     "ok": true,
+     "class": "G",
+     "name": "A3 載入新介面不重設店家既有設定（全店自動、epoch、參與商品、總開關、登記設定都不變） [G]"
+    },
+    {
+     "id": "B1",
+     "ok": true,
+     "class": "N",
+     "name": "B1 不開明細，在列表勾選「煙燻蒜味鳳爪」：顯示「儲存中…」→「已儲存」，伺服器已參與（PATCH 1 次、參與版本 +1） [N]"
+    },
+    {
+     "id": "B1-2",
+     "ok": true,
+     "class": "N",
+     "name": "B1-2 重新整理後仍為已勾選，摘要「已選擇 2／N」 [N]"
+    },
+    {
+     "id": "B1-3",
+     "ok": true,
+     "class": "N",
+     "name": "B1-3 取消勾選並重新整理：伺服器與畫面皆為未參與 [N]"
+    },
+    {
+     "id": "B2",
+     "ok": true,
+     "class": "G",
+     "name": "B2 相同參與值重複儲存：沿用後端「版本不變」規則（changed=false、版本相同） [G]"
+    },
+    {
+     "id": "B3",
+     "ok": true,
+     "class": "G",
+     "name": "B3 勾選／取消參與當下：不建立自動通知事件、預覽或批次，不呼叫（模擬）LINE [G]"
+    },
+    {
+     "id": "C1",
+     "ok": true,
+     "class": "N",
+     "name": "C1 全店自動通知關閉時仍可預選商品：保留勾選並顯示「已選擇，待開啟自動通知」 [N]"
+    },
+    {
+     "id": "C2",
+     "ok": true,
+     "class": "N",
+     "name": "C2 開啟全店自動通知：摘要「自動通知：已開啟｜通知發送總開關：已開啟｜已選擇 2／N 項商品」；商品勾選保留；不建立事件（只建立新基線） [N]"
+    },
+    {
+     "id": "C3",
+     "ok": true,
+     "class": "N",
+     "name": "C3 關閉通知發送總開關：商品保留勾選，顯示「已選擇，待開啟通知發送總開關」 [N]"
+    },
+    {
+     "id": "C4",
+     "ok": true,
+     "class": "N",
+     "name": "C4 必要設定不完整：保留勾選並顯示「已選擇，必要設定尚未完整」 [N]"
+    },
+    {
+     "id": "C5",
+     "ok": true,
+     "class": "G",
+     "name": "C5 關閉全店自動通知：通知發送總開關不受影響、商品參與不被清空 [G]"
+    },
+    {
+     "id": "C5-2",
+     "ok": true,
+     "class": "N",
+     "name": "C5-2 關閉後列表仍保留勾選並恢復提示「已選擇，待開啟自動通知」 [N]"
+    },
+    {
+     "id": "D1",
+     "ok": true,
+     "class": "N",
+     "name": "D1 收集登記與恢復販售通知分別儲存：關閉收集不改參與；勾選參與不替店家開啟收集 [N]"
+    },
+    {
+     "id": "E1",
+     "ok": true,
+     "class": "N",
+     "name": "E1 儲存期間：列表與明細的同商品勾選同時為忙碌（儲存中）狀態 [N]"
+    },
+    {
+     "id": "E1-2",
+     "ok": true,
+     "class": "N",
+     "name": "E1-2 儲存期間在明細點相反設定：不送出（同商品 PATCH 只有 1 次）；其他商品可正常勾選儲存 [N]"
+    },
+    {
+     "id": "E1-3",
+     "ok": true,
+     "class": "N",
+     "name": "E1-3 放行後兩個入口一致為伺服器結果（已參與） [N]"
+    },
+    {
+     "id": "F1",
+     "ok": true,
+     "class": "N",
+     "name": "F1 明確儲存失敗：回復已知狀態（未勾選）並顯示原因；不自動重送 [N]"
+    },
+    {
+     "id": "F2",
+     "ok": true,
+     "class": "N",
+     "name": "F2 回應中斷但伺服器已儲存：重新讀取確認後顯示已勾選（PATCH 只送 1 次、版本只 +1） [N]"
+    },
+    {
+     "id": "F3",
+     "ok": true,
+     "class": "N",
+     "name": "F3 網路中斷且伺服器未儲存：重新讀取後顯示伺服器目前設定（仍參與），不自動重送 [N]"
+    },
+    {
+     "id": "F4",
+     "ok": true,
+     "class": "N",
+     "name": "F4 儲存逾時（15 秒）：期間顯示儲存中；逾時後重新讀取確認（已取消參與），PATCH 只送 1 次 [N]"
+    },
+    {
+     "id": "G1",
+     "ok": true,
+     "class": "N",
+     "name": "G1 刻意延遲的舊讀取（snapshot）在儲存成功後才回來：不覆蓋勾選與摘要（已選擇 4／N） [N]"
+    },
+    {
+     "id": "G2",
+     "ok": true,
+     "class": "N",
+     "name": "G2 刻意延遲的舊讀取（GET /restock/auto）晚到：不把已取消的商品改回勾選 [N]"
+    },
+    {
+     "id": "H1",
+     "ok": true,
+     "class": "N",
+     "name": "H1 列表勾選 → 明細立即同步；明細取消 → 列表與上方「已選擇」數量立即同步（不另送讀取） [N]"
+    },
+    {
+     "id": "H2",
+     "ok": true,
+     "class": "N",
+     "name": "H2 明細切到其他商品後，舊商品較晚回來的儲存回應：只更新舊商品的列表列，不影響新商品明細 [N]"
+    },
+    {
+     "id": "I1",
+     "ok": true,
+     "class": "N",
+     "name": "I1 鍵盤（空白鍵）勾選＋商品列重建＋自動更新：取餐方式、日期、預覽內容、焦點與捲動位置保留；摘要分子分母都以目前列表範圍計算（N−1） [N]"
+    },
+    {
+     "id": "J1",
+     "ok": true,
+     "class": "N",
+     "name": "J1 儲存期間切換到其他店別／帳號：舊店的儲存回應不寫入目前畫面（伺服器已依舊店請求取消參與） [N]"
+    },
+    {
+     "id": "J1-2",
+     "ok": true,
+     "class": "N",
+     "name": "J1-2 切回原店：以伺服器資料顯示（未參與），不殘留儲存中 [N]"
+    },
+    {
+     "id": "J2",
+     "ok": true,
+     "class": "N",
+     "name": "J2 儲存期間離開分頁：回應不報錯、不殘留忙碌狀態；回到分頁以伺服器資料顯示 [N]"
+    },
+    {
+     "id": "J3",
+     "ok": true,
+     "class": "N",
+     "name": "J3 儲存期間登出：舊回應不寫入畫面 [N]"
+    },
+    {
+     "id": "K1",
+     "ok": true,
+     "class": "N",
+     "name": "K1 參與狀態初次載入失敗：已參與商品顯示「狀態待更新」（不確定狀態），摘要不顯示 0／0 [N]"
+    },
+    {
+     "id": "K2",
+     "ok": true,
+     "class": "N",
+     "name": "K2 清單載入失敗：錯誤列 colspan＝7；摘要顯示「狀態待更新」 [N]"
+    },
+    {
+     "id": "K2-2",
+     "ok": true,
+     "class": "N",
+     "name": "K2-2 空清單列與載入中列 colspan＝7 [N]"
+    },
+    {
+     "id": "L1",
+     "ok": true,
+     "class": "N",
+     "name": "L1 同店兩個頁面：一頁的儲存經自動更新反映到另一頁；不產生額外或重試的 PATCH [N]"
+    },
+    {
+     "id": "L2",
+     "ok": true,
+     "class": "N",
+     "name": "L2 開啟明細與自動更新不逐商品送 GET（參與清單隨 /snapshot 一次取得） [N]"
+    },
+    {
+     "id": "N1",
+     "ok": true,
+     "class": "N",
+     "name": "N1 窄螢幕（390px）：表格可橫向捲動；文字標籤可點選；「查看」未被遮住且可開啟明細（明細同步已勾選）；鍵盤空白鍵可勾選 [N]"
+    },
+    {
+     "id": "Z1",
+     "ok": true,
+     "class": "G",
+     "name": "Z1 全程（含勾選、開關切換、逾時、中斷）未建立自動通知事件、預覽或批次，未呼叫（模擬）LINE [G]"
+    },
+    {
+     "id": "Z2",
+     "ok": true,
+     "class": "G",
+     "name": "Z2 真實 LINE API 呼叫 0 次 [G]"
+    },
+    {
+     "id": "Z3",
+     "ok": true,
+     "class": "G",
+     "name": "Z3 全程無 JavaScript 錯誤 [G]"
+    }
+   ]
+  },
+  "candidate_fresh_extract": {
+   "pass": 40,
+   "fail": 0,
+   "cases": [
+    {
+     "id": "A1",
+     "ok": true,
+     "class": "N",
+     "name": "A1 表頭依序為「商品名稱｜商品狀態｜有效登記人數｜期望總份數｜收集登記｜恢復販售通知｜明細」，每列 7 欄 [N]"
+    },
+    {
+     "id": "A2",
+     "ok": true,
+     "class": "N",
+     "name": "A2 伺服器既有參與（古法冷拌麻油豬心）顯示已勾選、其他未勾選；摘要「已選擇 1／N」：列表外的參與商品不計入分子 [N]"
+    },
+    {
+     "id": "A3",
+     "ok": true,
+     "class": "G",
+     "name": "A3 載入新介面不重設店家既有設定（全店自動、epoch、參與商品、總開關、登記設定都不變） [G]"
+    },
+    {
+     "id": "B1",
+     "ok": true,
+     "class": "N",
+     "name": "B1 不開明細，在列表勾選「煙燻蒜味鳳爪」：顯示「儲存中…」→「已儲存」，伺服器已參與（PATCH 1 次、參與版本 +1） [N]"
+    },
+    {
+     "id": "B1-2",
+     "ok": true,
+     "class": "N",
+     "name": "B1-2 重新整理後仍為已勾選，摘要「已選擇 2／N」 [N]"
+    },
+    {
+     "id": "B1-3",
+     "ok": true,
+     "class": "N",
+     "name": "B1-3 取消勾選並重新整理：伺服器與畫面皆為未參與 [N]"
+    },
+    {
+     "id": "B2",
+     "ok": true,
+     "class": "G",
+     "name": "B2 相同參與值重複儲存：沿用後端「版本不變」規則（changed=false、版本相同） [G]"
+    },
+    {
+     "id": "B3",
+     "ok": true,
+     "class": "G",
+     "name": "B3 勾選／取消參與當下：不建立自動通知事件、預覽或批次，不呼叫（模擬）LINE [G]"
+    },
+    {
+     "id": "C1",
+     "ok": true,
+     "class": "N",
+     "name": "C1 全店自動通知關閉時仍可預選商品：保留勾選並顯示「已選擇，待開啟自動通知」 [N]"
+    },
+    {
+     "id": "C2",
+     "ok": true,
+     "class": "N",
+     "name": "C2 開啟全店自動通知：摘要「自動通知：已開啟｜通知發送總開關：已開啟｜已選擇 2／N 項商品」；商品勾選保留；不建立事件（只建立新基線） [N]"
+    },
+    {
+     "id": "C3",
+     "ok": true,
+     "class": "N",
+     "name": "C3 關閉通知發送總開關：商品保留勾選，顯示「已選擇，待開啟通知發送總開關」 [N]"
+    },
+    {
+     "id": "C4",
+     "ok": true,
+     "class": "N",
+     "name": "C4 必要設定不完整：保留勾選並顯示「已選擇，必要設定尚未完整」 [N]"
+    },
+    {
+     "id": "C5",
+     "ok": true,
+     "class": "G",
+     "name": "C5 關閉全店自動通知：通知發送總開關不受影響、商品參與不被清空 [G]"
+    },
+    {
+     "id": "C5-2",
+     "ok": true,
+     "class": "N",
+     "name": "C5-2 關閉後列表仍保留勾選並恢復提示「已選擇，待開啟自動通知」 [N]"
+    },
+    {
+     "id": "D1",
+     "ok": true,
+     "class": "N",
+     "name": "D1 收集登記與恢復販售通知分別儲存：關閉收集不改參與；勾選參與不替店家開啟收集 [N]"
+    },
+    {
+     "id": "E1",
+     "ok": true,
+     "class": "N",
+     "name": "E1 儲存期間：列表與明細的同商品勾選同時為忙碌（儲存中）狀態 [N]"
+    },
+    {
+     "id": "E1-2",
+     "ok": true,
+     "class": "N",
+     "name": "E1-2 儲存期間在明細點相反設定：不送出（同商品 PATCH 只有 1 次）；其他商品可正常勾選儲存 [N]"
+    },
+    {
+     "id": "E1-3",
+     "ok": true,
+     "class": "N",
+     "name": "E1-3 放行後兩個入口一致為伺服器結果（已參與） [N]"
+    },
+    {
+     "id": "F1",
+     "ok": true,
+     "class": "N",
+     "name": "F1 明確儲存失敗：回復已知狀態（未勾選）並顯示原因；不自動重送 [N]"
+    },
+    {
+     "id": "F2",
+     "ok": true,
+     "class": "N",
+     "name": "F2 回應中斷但伺服器已儲存：重新讀取確認後顯示已勾選（PATCH 只送 1 次、版本只 +1） [N]"
+    },
+    {
+     "id": "F3",
+     "ok": true,
+     "class": "N",
+     "name": "F3 網路中斷且伺服器未儲存：重新讀取後顯示伺服器目前設定（仍參與），不自動重送 [N]"
+    },
+    {
+     "id": "F4",
+     "ok": true,
+     "class": "N",
+     "name": "F4 儲存逾時（15 秒）：期間顯示儲存中；逾時後重新讀取確認（已取消參與），PATCH 只送 1 次 [N]"
+    },
+    {
+     "id": "G1",
+     "ok": true,
+     "class": "N",
+     "name": "G1 刻意延遲的舊讀取（snapshot）在儲存成功後才回來：不覆蓋勾選與摘要（已選擇 4／N） [N]"
+    },
+    {
+     "id": "G2",
+     "ok": true,
+     "class": "N",
+     "name": "G2 刻意延遲的舊讀取（GET /restock/auto）晚到：不把已取消的商品改回勾選 [N]"
+    },
+    {
+     "id": "H1",
+     "ok": true,
+     "class": "N",
+     "name": "H1 列表勾選 → 明細立即同步；明細取消 → 列表與上方「已選擇」數量立即同步（不另送讀取） [N]"
+    },
+    {
+     "id": "H2",
+     "ok": true,
+     "class": "N",
+     "name": "H2 明細切到其他商品後，舊商品較晚回來的儲存回應：只更新舊商品的列表列，不影響新商品明細 [N]"
+    },
+    {
+     "id": "I1",
+     "ok": true,
+     "class": "N",
+     "name": "I1 鍵盤（空白鍵）勾選＋商品列重建＋自動更新：取餐方式、日期、預覽內容、焦點與捲動位置保留；摘要分子分母都以目前列表範圍計算（N−1） [N]"
+    },
+    {
+     "id": "J1",
+     "ok": true,
+     "class": "N",
+     "name": "J1 儲存期間切換到其他店別／帳號：舊店的儲存回應不寫入目前畫面（伺服器已依舊店請求取消參與） [N]"
+    },
+    {
+     "id": "J1-2",
+     "ok": true,
+     "class": "N",
+     "name": "J1-2 切回原店：以伺服器資料顯示（未參與），不殘留儲存中 [N]"
+    },
+    {
+     "id": "J2",
+     "ok": true,
+     "class": "N",
+     "name": "J2 儲存期間離開分頁：回應不報錯、不殘留忙碌狀態；回到分頁以伺服器資料顯示 [N]"
+    },
+    {
+     "id": "J3",
+     "ok": true,
+     "class": "N",
+     "name": "J3 儲存期間登出：舊回應不寫入畫面 [N]"
+    },
+    {
+     "id": "K1",
+     "ok": true,
+     "class": "N",
+     "name": "K1 參與狀態初次載入失敗：已參與商品顯示「狀態待更新」（不確定狀態），摘要不顯示 0／0 [N]"
+    },
+    {
+     "id": "K2",
+     "ok": true,
+     "class": "N",
+     "name": "K2 清單載入失敗：錯誤列 colspan＝7；摘要顯示「狀態待更新」 [N]"
+    },
+    {
+     "id": "K2-2",
+     "ok": true,
+     "class": "N",
+     "name": "K2-2 空清單列與載入中列 colspan＝7 [N]"
+    },
+    {
+     "id": "L1",
+     "ok": true,
+     "class": "N",
+     "name": "L1 同店兩個頁面：一頁的儲存經自動更新反映到另一頁；不產生額外或重試的 PATCH [N]"
+    },
+    {
+     "id": "L2",
+     "ok": true,
+     "class": "N",
+     "name": "L2 開啟明細與自動更新不逐商品送 GET（參與清單隨 /snapshot 一次取得） [N]"
+    },
+    {
+     "id": "N1",
+     "ok": true,
+     "class": "N",
+     "name": "N1 窄螢幕（390px）：表格可橫向捲動；文字標籤可點選；「查看」未被遮住且可開啟明細（明細同步已勾選）；鍵盤空白鍵可勾選 [N]"
+    },
+    {
+     "id": "Z1",
+     "ok": true,
+     "class": "G",
+     "name": "Z1 全程（含勾選、開關切換、逾時、中斷）未建立自動通知事件、預覽或批次，未呼叫（模擬）LINE [G]"
+    },
+    {
+     "id": "Z2",
+     "ok": true,
+     "class": "G",
+     "name": "Z2 真實 LINE API 呼叫 0 次 [G]"
+    },
+    {
+     "id": "Z3",
+     "ok": true,
+     "class": "G",
+     "name": "Z3 全程無 JavaScript 錯誤 [G]"
+    }
+   ]
+  }
+ },
+ "fresh_extract": {
+  "npm_ci": "ok",
+  "empty_db_health": "{\"status\":\"ok\"}",
+  "boot_recovery_log": "[restock_auto] boot recovery done (stale_batches=0 legacy_review=0)"
+ },
+ "regression": {
+  "window": "2026-11-19 約 13:12～14:01 台北時間，兩棵樹同時段平行（2 核心）",
+  "baseline_unmodified": [
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-1-restock-list-auto-toggle-ui.js",
+    "env": {},
+    "rc": 1,
+    "signal": null,
+    "seconds": 162,
+    "summary": "結果：7 通過／28 失敗（模擬 LINE 呼叫 0 次；真實 LINE 0 次）",
+    "fail_lines": [
+     "❌ A1 表頭依序為「商品名稱｜商品狀態｜有效登記人數｜期望總份數｜收集登記｜恢復販售通知｜明細」，每列 7 欄 [N]",
+     "❌ A2 伺服器既有參與（古法冷拌麻油豬心）顯示已勾選、其他未勾選；摘要「已選擇 1／N」：列表外的參與商品不計入分子 [N]",
+     "❌ B1 [N]（例外）",
+     "❌ C1 [N]（例外）",
+     "❌ C2 [N]（例外）",
+     "❌ C3 關閉通知發送總開關：商品保留勾選，顯示「已選擇，待開啟通知發送總開關」 [N]",
+     "❌ C4 必要設定不完整：保留勾選並顯示「已選擇，必要設定尚未完整」 [N]",
+     "❌ C5-2 關閉後列表仍保留勾選並恢復提示「已選擇，待開啟自動通知」 [N]",
+     "❌ D1 [N]（例外）",
+     "❌ E1 [N]（例外）",
+     "❌ F1 [N]（例外）",
+     "❌ F2 [N]（例外）",
+     "❌ F3 [N]（例外）",
+     "❌ F4 [N]（例外）",
+     "❌ G1 [N]（例外）",
+     "❌ G2 [N]（例外）",
+     "❌ H1 [N]（例外）",
+     "❌ H2 [N]（例外）",
+     "❌ I1 [N]（例外）",
+     "❌ J1 [N]（例外）",
+     "❌ J2 [N]（例外）",
+     "❌ J3 [N]（例外）",
+     "❌ K1 參與狀態初次載入失敗：已參與商品顯示「狀態待更新」（不確定狀態），摘要不顯示 0／0 [N]",
+     "❌ K2 清單載入失敗：錯誤列 colspan＝7；摘要顯示「狀態待更新」 [N]",
+     "❌ K2-2 空清單列與載入中列 colspan＝7 [N]",
+     "❌ L1 [N]（例外）",
+     "❌ L2 開啟明細與自動更新不逐商品送 GET（參與清單隨 /snapshot 一次取得） [N]",
+     "❌ N1 [N]（例外）"
+    ]
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-auto-restock.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 63,
+    "summary": "結果：24 通過／0 失敗",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-1-auto-guard-recovery.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 51,
+    "summary": "結果：29 通過／0 失敗",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-1-pause-claim-release.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 16,
+    "summary": "結果：29 通過／0 失敗",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-2-demand-ui-refresh.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 384,
+    "summary": "RESULT: 80 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-3-async-consistency.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 144,
+    "summary": "RESULT: 34 passed, 0 failed（模擬 LINE 呼叫 2 次；真實 0 次需為 0：0）",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-4-mutation-response.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 75,
+    "summary": "RESULT: 20 passed, 0 failed（真實 LINE 呼叫 0 次）",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-restock-notify.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 52,
+    "summary": "RESULT: 94 passed, 0 failed  (screenshots: /tmp/mbv2-c4-shots-aFKZki)",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-1-dedupe-resume.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 60,
+    "summary": "RESULT: 40 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-5-date-consent.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 57,
+    "summary": "RESULT: 55 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-5-restock-link.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 79,
+    "summary": "RESULT: 42 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-linepush-compat.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 0,
+    "summary": "RESULT: 12 passed, 0 failed（全部為程序內模擬，真實 LINE 呼叫 0 次）",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c3-sale-status-demand.js",
+    "env": {},
+    "rc": 1,
+    "signal": null,
+    "seconds": 167,
+    "summary": "RESULT: 328 passed, 4 failed  (screenshots: /tmp/mbv2-hf1c3-shots-NrSBa0)",
+    "fail_lines": [
+     "❌ O1 今日完售：今日訂單被擋，未建立訂單、未扣今日額度",
+     "❌ O6-paused 今日與未來日期都被擋，訂單與額度不變",
+     "❌ O6-sold_out_indefinitely 今日與未來日期都被擋，訂單與額度不變",
+     "❌ O9 今日完售＋未啟用預購份數管理：今日仍擋；未來 30 份（超過原預購每日 20）不限額成功，今日額度不變"
+    ]
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c3-1-backup-manage-login.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 108,
+    "summary": "RESULT: 54 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c3-2-firstpaint-remap.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 66,
+    "summary": "RESULT: 32 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c3-3-restore-cancel.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 164,
+    "summary": "RESULT: 30 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-restock-conversion.js",
+    "env": {},
+    "rc": 1,
+    "signal": null,
+    "seconds": 72,
+    "summary": "RESULT: 41 passed, 1 failed",
+    "fail_lines": [
+     "❌ B1 LIFF 一次／二次導向後最終頁開啟商品：點擊 1 次、核對為收件人"
+    ]
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-restock-conversion.js",
+    "env": {
+     "C4_CLOCK_OFFSET_MS": "0"
+    },
+    "rc": 0,
+    "signal": null,
+    "seconds": 74,
+    "summary": "RESULT: 42 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c1-preorder-status.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 81,
+    "summary": "RESULT: 93 passed, 0 failed  (screenshots: /tmp/mbv2-hf1c1-shots-baSAHA)",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-migration.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 12,
+    "summary": "RESULT: 121 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-2-popup-establishment-taipei-time.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 58,
+    "summary": "結果：29 通過／0 失敗",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-2-payment-guard-time-merge.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 46,
+    "summary": "結果：22 通過／0 失敗",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-2-payment-response-timing.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 215,
+    "summary": "結果：18 通過／0 失敗",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-1-popup-payment-status-refresh.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 99,
+    "summary": "結果：19 通過／0 失敗",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-1-timing-fix.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 82,
+    "summary": "結果：11 通過／0 失敗",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-payment-ui-popup.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 58,
+    "summary": "結果：27 通過／0 失敗",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-3-payment-guard.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 42,
+    "summary": "RESULT: 25 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-2-payment-recovery.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 97,
+    "summary": "RESULT: 33 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-1-consistency.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 140,
+    "summary": "RESULT: 61 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "run-h1-4-10-phase3-checkout-submit-payment-runtime.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 28,
+    "summary": "TOTAL=111 PASS=111 FAIL=0",
+    "fail_lines": []
+   },
+   {
+    "suite": "run-h1-4-10-phase4b-recovery-full-runtime.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 17,
+    "summary": "TOTAL=168 PASS=168 FAIL=0",
+    "fail_lines": []
+   },
+   {
+    "suite": "run-h1-4-10-phase4b-recovery-frontend-targeted.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 9,
+    "summary": "TOTAL=50 PASS=50 FAIL=0",
+    "fail_lines": []
+   },
+   {
+    "suite": "run-h1-4-10-phase4b-recovery-resume-targeted.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 4,
+    "summary": "TOTAL=92 PASS=92 FAIL=0",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-frontend.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 28,
+    "summary": "PASS: 293  FAIL: 0  TOTAL: 293",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-real-browser.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 9,
+    "summary": "PASS: 36  FAIL: 0  TOTAL: 36",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-public-checkout.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 41,
+    "summary": "PASS: 1447  FAIL: 0  TOTAL: 1447",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-checkout-integration.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 2,
+    "summary": "PASS: 20  FAIL: 0  TOTAL: 20",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-recovery-cart-frontend.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 8,
+    "summary": "PASS: 67  FAIL: 0  TOTAL: 67",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-state.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 0,
+    "summary": "PASS: 94  FAIL: 0  TOTAL: 94",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r48-popup-order-ui-browser.js",
+    "env": {},
+    "rc": 1,
+    "signal": null,
+    "seconds": 32,
+    "summary": "",
+    "fail_lines": []
+   }
+  ],
+  "candidate_fresh_extract": [
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-1-restock-list-auto-toggle-ui.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 88,
+    "summary": "結果：40 通過／0 失敗（模擬 LINE 呼叫 0 次；真實 LINE 0 次）",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-auto-restock.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 62,
+    "summary": "結果：24 通過／0 失敗",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-1-auto-guard-recovery.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 50,
+    "summary": "結果：29 通過／0 失敗",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-1-pause-claim-release.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 14,
+    "summary": "結果：29 通過／0 失敗",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-2-demand-ui-refresh.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 386,
+    "summary": "RESULT: 80 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-3-async-consistency.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 144,
+    "summary": "RESULT: 34 passed, 0 failed（模擬 LINE 呼叫 2 次；真實 0 次需為 0：0）",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-4-mutation-response.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 73,
+    "summary": "RESULT: 20 passed, 0 failed（真實 LINE 呼叫 0 次）",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-restock-notify.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 49,
+    "summary": "RESULT: 94 passed, 0 failed  (screenshots: /tmp/mbv2-c4-shots-s7qdSk)",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-1-dedupe-resume.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 63,
+    "summary": "RESULT: 40 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-5-date-consent.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 58,
+    "summary": "RESULT: 55 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-5-restock-link.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 79,
+    "summary": "RESULT: 42 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-linepush-compat.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 0,
+    "summary": "RESULT: 12 passed, 0 failed（全部為程序內模擬，真實 LINE 呼叫 0 次）",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c3-sale-status-demand.js",
+    "env": {},
+    "rc": 1,
+    "signal": null,
+    "seconds": 168,
+    "summary": "RESULT: 328 passed, 4 failed  (screenshots: /tmp/mbv2-hf1c3-shots-aGpgic)",
+    "fail_lines": [
+     "❌ O1 今日完售：今日訂單被擋，未建立訂單、未扣今日額度",
+     "❌ O6-paused 今日與未來日期都被擋，訂單與額度不變",
+     "❌ O6-sold_out_indefinitely 今日與未來日期都被擋，訂單與額度不變",
+     "❌ O9 今日完售＋未啟用預購份數管理：今日仍擋；未來 30 份（超過原預購每日 20）不限額成功，今日額度不變"
+    ]
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c3-1-backup-manage-login.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 111,
+    "summary": "RESULT: 54 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c3-2-firstpaint-remap.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 68,
+    "summary": "RESULT: 32 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c3-3-restore-cancel.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 164,
+    "summary": "RESULT: 30 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-restock-conversion.js",
+    "env": {},
+    "rc": 1,
+    "signal": null,
+    "seconds": 72,
+    "summary": "RESULT: 41 passed, 1 failed",
+    "fail_lines": [
+     "❌ B1 LIFF 一次／二次導向後最終頁開啟商品：點擊 1 次、核對為收件人"
+    ]
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-restock-conversion.js",
+    "env": {
+     "C4_CLOCK_OFFSET_MS": "0"
+    },
+    "rc": 0,
+    "signal": null,
+    "seconds": 73,
+    "summary": "RESULT: 42 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c1-preorder-status.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 79,
+    "summary": "RESULT: 93 passed, 0 failed  (screenshots: /tmp/mbv2-hf1c1-shots-H7IKNU)",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-migration.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 13,
+    "summary": "RESULT: 121 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-2-popup-establishment-taipei-time.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 61,
+    "summary": "結果：29 通過／0 失敗",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-2-payment-guard-time-merge.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 47,
+    "summary": "結果：22 通過／0 失敗",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-2-payment-response-timing.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 217,
+    "summary": "結果：18 通過／0 失敗",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-1-popup-payment-status-refresh.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 98,
+    "summary": "結果：19 通過／0 失敗",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-1-timing-fix.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 81,
+    "summary": "結果：11 通過／0 失敗",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-payment-ui-popup.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 55,
+    "summary": "結果：27 通過／0 失敗",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-3-payment-guard.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 44,
+    "summary": "RESULT: 25 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-2-payment-recovery.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 97,
+    "summary": "RESULT: 33 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-1-consistency.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 142,
+    "summary": "RESULT: 61 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "run-h1-4-10-phase3-checkout-submit-payment-runtime.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 28,
+    "summary": "TOTAL=111 PASS=111 FAIL=0",
+    "fail_lines": []
+   },
+   {
+    "suite": "run-h1-4-10-phase4b-recovery-full-runtime.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 15,
+    "summary": "TOTAL=168 PASS=168 FAIL=0",
+    "fail_lines": []
+   },
+   {
+    "suite": "run-h1-4-10-phase4b-recovery-frontend-targeted.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 9,
+    "summary": "TOTAL=50 PASS=50 FAIL=0",
+    "fail_lines": []
+   },
+   {
+    "suite": "run-h1-4-10-phase4b-recovery-resume-targeted.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 3,
+    "summary": "TOTAL=92 PASS=92 FAIL=0",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-frontend.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 28,
+    "summary": "PASS: 293  FAIL: 0  TOTAL: 293",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-real-browser.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 9,
+    "summary": "PASS: 36  FAIL: 0  TOTAL: 36",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-public-checkout.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 44,
+    "summary": "PASS: 1447  FAIL: 0  TOTAL: 1447",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-checkout-integration.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 2,
+    "summary": "PASS: 20  FAIL: 0  TOTAL: 20",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-recovery-cart-frontend.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 8,
+    "summary": "PASS: 67  FAIL: 0  TOTAL: 67",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-state.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 0,
+    "summary": "PASS: 94  FAIL: 0  TOTAL: 94",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r48-popup-order-ui-browser.js",
+    "env": {},
+    "rc": 1,
+    "signal": null,
+    "seconds": 33,
+    "summary": "",
+    "fail_lines": []
+   }
+  ],
+  "identical_except_new_acceptance": [
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-1-restock-list-auto-toggle-ui.js",
+    "env": {},
+    "same": false
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-auto-restock.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-1-auto-guard-recovery.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-1-pause-claim-release.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-2-demand-ui-refresh.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-3-async-consistency.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-4-mutation-response.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-restock-notify.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-1-dedupe-resume.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-5-date-consent.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-5-restock-link.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-linepush-compat.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c3-sale-status-demand.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c3-1-backup-manage-login.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c3-2-firstpaint-remap.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c3-3-restore-cancel.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-restock-conversion.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-restock-conversion.js",
+    "env": {
+     "C4_CLOCK_OFFSET_MS": "0"
+    },
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c1-preorder-status.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-migration.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-2-popup-establishment-taipei-time.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-2-payment-guard-time-merge.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-2-payment-response-timing.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-1-popup-payment-status-refresh.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-1-timing-fix.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-payment-ui-popup.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-3-payment-guard.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-2-payment-recovery.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-1-consistency.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "run-h1-4-10-phase3-checkout-submit-payment-runtime.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "run-h1-4-10-phase4b-recovery-full-runtime.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "run-h1-4-10-phase4b-recovery-frontend-targeted.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "run-h1-4-10-phase4b-recovery-resume-targeted.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-frontend.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-real-browser.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-public-checkout.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-checkout-integration.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-recovery-cart-frontend.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-state.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r48-popup-order-ui-browser.js",
+    "env": {},
+    "same": true
+   }
+  ],
+  "r48_isolated_with_report_tap": {
+   "base": {
+    "summary": "R48 SMOKE SUMMARY — PASS: 10  FAIL: 3  TOTAL: 13",
+    "fail": [
+     "R_TOUCH_TARGET_44",
+     "R_NO_STICKY_FIXED",
+     "R_FATAL"
+    ]
+   },
+   "cand_fresh": {
+    "summary": "R48 SMOKE SUMMARY — PASS: 10  FAIL: 3  TOTAL: 13",
+    "fail": [
+     "R_TOUCH_TARGET_44",
+     "R_NO_STICKY_FIXED",
+     "R_FATAL"
+    ]
+   }
+  },
+  "existing_failures": [
+   "C3 販售狀態與需求 4 項（O1、O6-paused、O6-sold_out_indefinitely、O9；time_too_early，真實時鐘相依；兩棵樹相同）",
+   "C5 補貨轉換預設時鐘 1 項（B1；C4_CLOCK_OFFSET_MS=0 時 42/42；兩棵樹相同）",
+   "R48 3 項（R_TOUCH_TARGET_44、R_NO_STICKY_FIXED、R_FATAL；兩棵樹相同）"
+  ],
+  "not_executed": [
+   "smoke-r54-4-mbv2-hf1-c6-upgrade-rollback.js（需要 C5.4 程式樹，工作區沒有）",
+   "smoke-r54-4-mbv2-hf1-c6-1-upgrade-rollback.js（需要 C5.4.2 與 C6 程式樹，工作區沒有）",
+   "smoke-r54-4-mbv2-hf1-c6-1-pause-claim-release-upgrade-rollback.js（需要補修前 C6.1 程式樹，工作區沒有）",
+   "smoke-r54-4-mbv2-hf1-c5-4-2-upgrade-rollback.js、smoke-r54-4-mbv2-hf1-c5-4-2-payment-guard-upgrade-rollback.js（需要舊版程式樹，與前輪相同未執行）",
+   "真實 LINE 營運驗收、真機驗收"
+  ]
+ }
+}

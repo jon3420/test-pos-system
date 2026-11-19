@@ -16,6 +16,7 @@
 //   PATCH /products/:id/collect      個別商品開關需求收集 { enabled }
 //   PATCH /settings                  { enabled, ttl_days, notify_enabled, subscribe_mode }（C4.5：subscribe_mode＝opt_in｜register_subscribe）
 //   GET   /snapshot[?product_id=]    （C4.2）唯讀整合：總表＋通知能力＋（選定商品）明細與批次，同一資料時點
+//                                    （C6.1 列表操作優化）另含 auto：自動通知開關與參與商品 ID（唯讀）
 //
 // R54.4／MBV2-HF1-C4 補貨通知（同一個 adminRouter，沿用 requireStaffJwt＋line_order；store 只信任 JWT）：
 //   GET   /restock/capability                 通知能力、必要設定是否完整、啟用狀態
@@ -155,6 +156,15 @@ adminRouter.get('/snapshot', (req, res) => {
       catch (e) { if (e instanceof PD.DemandError && e.status === 404) out.detail_error = e.code; else throw e; }
       out.batches = RN.listBatches(db, sid, pid);
     }
+    // R54.4／MBV2-HF1-C6.1 列表操作優化：商品列表「恢復販售通知」欄所需的參與狀態（唯讀；同一資料時點、同一 JWT 店別）。
+    //   只回傳全店開關、總開關、設定完整度與參與商品 ID；不含 epoch／商品參與版本（前端不模擬版本）。
+    //   讀取失敗時只標記 auto_error，總表其餘部分照常回應（前端顯示「狀態待更新」，不當成未參與）。
+    out.auto = null; out.auto_error = '';
+    try {
+      const ac = RA.getConfig(db, sid);
+      out.auto = { enabled: !!ac.enabled, enabled_at: ac.enabled_at || null, send_enabled: !!ac.send_enabled, notify_available: !!ac.notify_available,
+        config_complete: !!ac.config_complete, missing: ac.missing || [], participating_product_ids: ac.participating_products.map((p) => Number(p.product_id)) };
+    } catch (e) { console.warn('[product-demand] snapshot auto:', e && e.message); out.auto = null; out.auto_error = 'AUTO_CONFIG_UNAVAILABLE'; }
     res.set('Cache-Control', 'no-store');
     res.json({ success: true, data: out });
   } catch (e) { sendErr(res, e, 'admin snapshot'); }

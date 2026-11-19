@@ -618,7 +618,9 @@
         <!-- R54.4／MBV2-HF1-C6：恢復販售自動補貨通知（全店預設關閉；商品預設不參與；手動「預覽 → 確認發送」不受影響） -->
         <div id="pd-auto-box" style="margin-top:8px;padding:8px 10px;border:1px dashed var(--border,#334155);border-radius:8px;font-size:12px">
           <label style="display:flex;gap:6px;align-items:center;font-weight:700"><input type="checkbox" id="pd-set-auto" onchange="rnAutoToggle(this.checked, this)"> 恢復販售時自動發送補貨通知</label>
-          <div id="pd-auto-state" style="color:var(--text-muted,#64748b);margin-top:4px">載入中…</div>
+          <div id="pd-auto-state" role="status" aria-live="polite" style="color:var(--text-muted,#64748b);margin-top:4px">載入中…</div>
+          <!-- R54.4／MBV2-HF1-C6.1 列表操作優化：參與商品改在下方商品列表直接勾選 -->
+          <div id="pd-auto-hint" style="color:var(--text-muted,#64748b);margin-top:4px;line-height:1.6">請在下方商品列表的「恢復販售通知」欄勾選參與商品（不必開啟明細）。勾選只儲存參與設定，不會立即發送。之後店家恢復販售或增加可售額度、使商品變為可訂購時，才依原有資格與通知規則發送。「收集登記」與「恢復販售通知」分別儲存，勾選其中一個不會改變另一個。</div>
           <details style="margin-top:4px"><summary style="cursor:pointer">適用商品、取餐方式與供應日期規則</summary><div id="pd-auto-rules" style="color:var(--text-muted,#64748b);line-height:1.6;margin-top:4px"></div></details>
           <details style="margin-top:4px" ontoggle="if(this.open)rnAutoEvents()"><summary style="cursor:pointer">自動通知紀錄（觸發、排除與未發送原因）</summary>
             <div style="margin-top:4px"><button class="btn-secondary" style="font-size:11px;padding:2px 8px" onclick="rnAutoEvents()">重新整理紀錄</button></div>
@@ -734,19 +736,21 @@
 
     <!-- 📋 商品補貨登記（Tab=demand 時顯示，R54.4／MBV2-HF1-C3）-->
     <div id="lpm-demand-wrap" style="display:none;overflow-x:auto;border:1px solid var(--border,#334155);border-radius:10px">
-      <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:760px">
+      <table id="lpm-demand-table" style="width:100%;border-collapse:collapse;font-size:13px;min-width:940px">
         <thead>
           <tr style="background:var(--bg-card,#1e293b);border-bottom:1px solid var(--border,#334155)">
-            <th style="padding:10px 12px;text-align:left">商品名稱</th>
+            <th style="padding:10px 12px;text-align:left;min-width:160px">商品名稱</th>
             <th style="padding:10px 8px;text-align:center;width:110px">商品狀態</th>
             <th style="padding:10px 8px;text-align:center;width:110px">有效登記人數</th>
             <th style="padding:10px 8px;text-align:center;width:110px">期望總份數</th>
             <th style="padding:10px 8px;text-align:center;width:110px">收集登記</th>
-            <th style="padding:10px 8px;text-align:center;width:100px">明細</th>
+            <!-- R54.4／MBV2-HF1-C6.1 列表操作優化：商品參與「恢復販售自動通知」（與收集登記分開儲存） -->
+            <th style="padding:10px 8px;text-align:center;width:170px" title="勾選只儲存參與設定，不會立即發送">恢復販售通知</th>
+            <th style="padding:10px 8px;text-align:center;width:100px;white-space:nowrap">明細</th>
           </tr>
         </thead>
         <tbody id="lpm-demand-tbody">
-          <tr><td colspan="6" style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">載入中…</td></tr>
+          <tr><td colspan="7" style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">載入中…</td></tr>
         </tbody>
       </table>
       <div id="lpm-demand-detail" style="display:none;padding:12px 14px;border-top:1px solid var(--border,#334155)"></div>
@@ -4344,7 +4348,7 @@
 <div class="toast-container" id="toastContainer"></div>
 
 <script src="/js/line-member-gate.js?v=h1-4-10-backend-reconcile-1"></script>
-<script src="/js/app.js?v=r54-4-mbv2-hf1-c6"></script>
+<script src="/js/app.js?v=r54-4-mbv2-hf1-c6-1-list-auto-timing"></script>
 <script src="/js/migration-v2.js?v=r54-4-mbv2-hf1-c4"></script>
 <script src="/js/analytics-v2.js?v=r54-4-mbv2-hf1-c5-1"></script>
 <!-- fix18-10-hotfix30-B5-R5.4-G1.6-A1.2.1: 共用 Asia/Taipei 顯示 Helper（唯一的

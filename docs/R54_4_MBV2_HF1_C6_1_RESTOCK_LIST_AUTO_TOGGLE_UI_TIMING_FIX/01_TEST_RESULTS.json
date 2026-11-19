@@ -1,0 +1,1951 @@
+{
+ "round": "R54.4／MBV2-HF1-C6.1 補貨通知列表 UI 時序補修",
+ "baseline": {
+  "file": "P3CD_DEPLOY_R54_4_MBV2_HF1_C6_1_RESTOCK_LIST_AUTO_TOGGLE_UI_APP_ROOT.zip",
+  "sha256": "8c6dbb14f552d8922aeb0efca84164b59d829f0d9256f8570543d86fa70b9009",
+  "bytes": 9252224,
+  "files": 1036,
+  "zip_entries": 1090,
+  "manifest_entries": 1033,
+  "manifest_verified": true,
+  "manifest_mismatch": 0,
+  "manifest_missing": 0,
+  "manifest_extra": 0,
+  "manifest_excluded": [
+   "docs/R54_4_MBV2_HF1_C6_1_RESTOCK_LIST_AUTO_TOGGLE_UI/00_FINAL_REPORT.md",
+   "docs/R54_4_MBV2_HF1_C6_1_RESTOCK_LIST_AUTO_TOGGLE_UI/01_TEST_RESULTS.json",
+   "docs/R54_4_MBV2_HF1_C6_1_RESTOCK_LIST_AUTO_TOGGLE_UI/02_FILE_MANIFEST.json"
+  ]
+ },
+ "external_calls": {
+  "real_line": 0,
+  "real_linepay": 0,
+  "sandbox": 0,
+  "deployed": false,
+  "production_data_touched": false
+ },
+ "labels": {
+  "BR": "真實 Chrome（Playwright 1.63）＋正式 server.js＋暫存 SQLite 檔",
+  "API": "正式路由",
+  "DB": "直接讀資料庫檔",
+  "模擬": "LINE＝c4-line-mock；回應時序＝Playwright 請求攔截（先取得正式回應再扣住／未送達中斷／永不回應／只送 headers 的本機伺服器）；受控時鐘＝page.clock"
+ },
+ "product_changes": [
+  "public/js/app.js",
+  "public/index.html（只改 app.js 快取版本字串）"
+ ],
+ "server_side_changes": [],
+ "api_changes": [],
+ "db_schema_changes": [],
+ "db_schema_check": {
+  "base_objects": 236,
+  "cand_objects": 236,
+  "identical": true,
+  "schema_sha256": "edac2394105a86e445d3d45c9f39a9958b7d8319181ab8c34b356b77e44c9864"
+ },
+ "existing_tests_modified": [],
+ "existing_assertions_relaxed": [],
+ "core_files_unchanged": {
+  "付款": [
+   {
+    "path": "public/line-order.html",
+    "same": true,
+    "sha256": "093977708fd6a77f5dbd2c6852a8bb5762665930a31b04574367e090ba0d253c"
+   },
+   {
+    "path": "routes/line-checkout-handoff.js",
+    "same": true,
+    "sha256": "ac7f43f3318362b03dac92455ac0c6b64da0984f32b001558262d9775651dbeb"
+   },
+   {
+    "path": "routes/line-orders.js",
+    "same": true,
+    "sha256": "c1b81a50ea083ac3ab91514591898533ee0bc208f836ebcb787fa4c63adf850f"
+   },
+   {
+    "path": "routes/linepay.js",
+    "same": true,
+    "sha256": "0adb28d1f525df7dff969a79514290e126671a4980acfe30c3678b1d3e628c15"
+   },
+   {
+    "path": "routes/online-orders.js",
+    "same": true,
+    "sha256": "65d8fb3f83d6a6d59c9720d6f3e6e3ec18a08de1a05d87f21568d157c065ab35"
+   },
+   {
+    "path": "routes/orders.js",
+    "same": true,
+    "sha256": "505c1df9745d62053f3237e2b07401d35b48704a27f133719f0a99163934436f"
+   },
+   {
+    "path": "routes/payment-gateways.js",
+    "same": true,
+    "sha256": "fd4bca03aa184ca4695bcace4f300b7d32fc6d2b2f1f9eb4bd79e883d28b7a32"
+   },
+   {
+    "path": "routes/payment-methods.js",
+    "same": true,
+    "sha256": "19bd85273610ee7fc5ed5d100f626e742f88f6bb01f024862fb0d5490a7daef6"
+   },
+   {
+    "path": "utils/lineCheckoutHandoff.js",
+    "same": true,
+    "sha256": "ee78b975255d2c0a13c63cddb72ec97ba6bdf7e2c9b66fde2e3331ad5701fccc"
+   },
+   {
+    "path": "utils/lineOrderPricing.js",
+    "same": true,
+    "sha256": "9d13aaa3b1427aa1ce40b3243d5bd3312268600385b347a9190e0ed09a7e8a27"
+   },
+   {
+    "path": "utils/linePayClient.js",
+    "same": true,
+    "sha256": "6c6a033a0ff286613fa7caff0d09f724ece4e94972c6e6eb965f39663512c8c5"
+   },
+   {
+    "path": "utils/linePayRecovery.js",
+    "same": true,
+    "sha256": "73159a8afd4ec7eb53d2e8bee19a830a077c327525ecada910b24aa55b1dc2e3"
+   },
+   {
+    "path": "utils/linePayService.js",
+    "same": true,
+    "sha256": "8abc32f7aab16a5671e13a89ab17332328ecaed8ba257959c2bab8e21092943d"
+   },
+   {
+    "path": "utils/linePaymentMethods.js",
+    "same": true,
+    "sha256": "6c0ac6b217e7319e0270173087f56f768d8e19e93da9b4286b031053df1ed0db"
+   },
+   {
+    "path": "utils/orderIdentity.js",
+    "same": true,
+    "sha256": "9c8f1942cd82db58afdd98f967b28a73d081ecd9bc5d8b2425b7e7a38a58bc6d"
+   },
+   {
+    "path": "utils/orderStatusFlow.js",
+    "same": true,
+    "sha256": "639d06bafff73d891730f0cf70851bffe119b7a0bb6976feacd4028520614357"
+   },
+   {
+    "path": "utils/paymentDisplay.js",
+    "same": true,
+    "sha256": "c872846c45b729c18f08ca5e5736e8b1cb13e960c7eb78ad01506a92d77004b4"
+   },
+   {
+    "path": "utils/popupCheckout.js",
+    "same": true,
+    "sha256": "e8d2c3fd24eb18f4ce5cc6506275f607847f0025bc87e61f1c81a6969eb75748"
+   },
+   {
+    "path": "utils/popupOrderLookup.js",
+    "same": true,
+    "sha256": "7865275ed2a7f4758611bb0253bb4b5949d96fca4812d7527e08e429a826e02e"
+   },
+   {
+    "path": "utils/popupOrderStatus.js",
+    "same": true,
+    "sha256": "6349689c359eaa0ac4a079a3aa945a3c809c82914f6b3362d10dae20fd0b2db8"
+   },
+   {
+    "path": "utils/popupOrderTime.js",
+    "same": true,
+    "sha256": "6bf086abd95f7098f836b6162f4fa58ac160da147c57608fdc57f659e8f57875"
+   },
+   {
+    "path": "utils/popupPayment.js",
+    "same": true,
+    "sha256": "8c34cf5d986cd9d061c4eeefc94aff36fee7aead8e1d1f5cc4344782528972be"
+   },
+   {
+    "path": "utils/popupPaymentRecovery.js",
+    "same": true,
+    "sha256": "a3ce9998401a65bac353757e560d23c59d8b918276254ff3c4f35ea39a8d6ef7"
+   }
+  ],
+  "通知核心與後端 API": [
+   {
+    "path": "routes/product-demand.js",
+    "same": true,
+    "sha256": "99499a2f0357290321220462f74d131d00e9693b30f43793e5ccdf2a5bf0e251"
+   },
+   {
+    "path": "utils/demandExport.js",
+    "same": true,
+    "sha256": "14935cc5728c96117186fda26f6a412a2003de921cddaa5eab3a8225aef0371e"
+   },
+   {
+    "path": "utils/linePush.js",
+    "same": true,
+    "sha256": "d9b9656ebcd1b6f15079a647a4513caa2fd724af2d75ea668907bfede4d9bccc"
+   },
+   {
+    "path": "utils/productDemand.js",
+    "same": true,
+    "sha256": "62f4b40d33d7c1017ca564edcb8ce475a1b624b0db5e0319cbbf67acd794d9ac"
+   },
+   {
+    "path": "utils/restockAuto.js",
+    "same": true,
+    "sha256": "911975761a2f3fe54ee22fb3e10ddc7bee7756da6c95a59f8867b750622a5cb8"
+   },
+   {
+    "path": "utils/restockNotify.js",
+    "same": true,
+    "sha256": "61f0b68fc9b4150485a440b913ac4b090235ff876fdf4455166284b5d343ff48"
+   },
+   {
+    "path": "utils/restockTracking.js",
+    "same": true,
+    "sha256": "08c4933139c347d4a084fa68e93a836a1c2b3de4448a57521946e564c1639040"
+   }
+  ],
+  "資料庫／遷移": [
+   {
+    "path": "public/js/migration-v2.js",
+    "same": true,
+    "sha256": "ca9e5b52871e92fd5c5f4ae67370f7d0d2f74f35b923f7ff0bcfbb2ca072d138"
+   },
+   {
+    "path": "routes/migration-v2.js",
+    "same": true,
+    "sha256": "b56ce33b3065b99a08534659ad576bc01c8975e19085c4dc3d533573174bb133"
+   },
+   {
+    "path": "routes/migration.js",
+    "same": true,
+    "sha256": "24fc7326b480fbfc2f266bc3749c2e25dc7fbe4dfb2a287b8fa6cd9316a83402"
+   },
+   {
+    "path": "utils/db.js",
+    "same": true,
+    "sha256": "5b71fccc521f252e58c7343d477fe7f8673be24c3591a53f8621d4efe025e22e"
+   },
+   {
+    "path": "utils/migrationUploadLimit.js",
+    "same": true,
+    "sha256": "366291c3a8c21d59fd458b8c18d5d3596c0d912855d1fe34ab7e10b994b3e4ef"
+   },
+   {
+    "path": "utils/migrationV2.js",
+    "same": true,
+    "sha256": "07e8694fe7dcf5d5efd9c51e98ee51f2e455ec0a721924551a80644872917d2e"
+   }
+  ],
+  "MBV2": [
+   {
+    "path": "public/js/migration-v2.js",
+    "same": true,
+    "sha256": "ca9e5b52871e92fd5c5f4ae67370f7d0d2f74f35b923f7ff0bcfbb2ca072d138"
+   },
+   {
+    "path": "routes/migration-v2.js",
+    "same": true,
+    "sha256": "b56ce33b3065b99a08534659ad576bc01c8975e19085c4dc3d533573174bb133"
+   },
+   {
+    "path": "utils/migrationV2.js",
+    "same": true,
+    "sha256": "07e8694fe7dcf5d5efd9c51e98ee51f2e455ec0a721924551a80644872917d2e"
+   }
+  ],
+  "時間": [
+   {
+    "path": "public/js/date-time-format.js",
+    "same": true,
+    "sha256": "f4b65ea0e76f8a4cd03e80f2b990abe33efe31a55436433dc7b6a1cd14826eb2"
+   },
+   {
+    "path": "public/js/geo-ga4-realtime-layer.js",
+    "same": true,
+    "sha256": "56f6a25c768d7b9492435a3102f4d5519f983256c0279c4d3104b63da814b019"
+   },
+   {
+    "path": "utils/dateTime.js",
+    "same": true,
+    "sha256": "608ebd9461db6e6936b38f66682fd0a5ebdb5b2fd24c82c01c4ec711da154c6d"
+   },
+   {
+    "path": "utils/ga4Realtime/client.js",
+    "same": true,
+    "sha256": "fd548e2679500e4cbb41f2100d78f104055fc60f8d57665a95133639c6b3d9ab"
+   },
+   {
+    "path": "utils/ga4Realtime/connectionTest.js",
+    "same": true,
+    "sha256": "b1fb7da019605463e4185658b62cb8bdd7ea8f761c20b9b0dc0a0a7d2ece45ba"
+   },
+   {
+    "path": "utils/ga4Realtime/errors.js",
+    "same": true,
+    "sha256": "d02596508c5200cb08becb2df000e84dd6856b8d0aa0d0b9dcd625a87d13aaf6"
+   },
+   {
+    "path": "utils/ga4Realtime/index.js",
+    "same": true,
+    "sha256": "df608fe262b12341acfd80159a67c347c0ebce943a72b3078de5c044fef608b4"
+   },
+   {
+    "path": "utils/ga4Realtime/requestBuilder.js",
+    "same": true,
+    "sha256": "db2735e7be786e6cd2ebcf0660d8ef6aa409216169ad455d5623c19790d68f95"
+   },
+   {
+    "path": "utils/ga4Realtime/requestPair.js",
+    "same": true,
+    "sha256": "ac282d0d78d7b6d797ce5b14c1c58181a1cccefe315abbfad3df8f01525c0d38"
+   },
+   {
+    "path": "utils/ga4RealtimeConfig.js",
+    "same": true,
+    "sha256": "429b11b2773e6f2c5b3fb4638092dc56d2054d8e968eb8f2e43103a909947d03"
+   },
+   {
+    "path": "utils/popupOrderTime.js",
+    "same": true,
+    "sha256": "6bf086abd95f7098f836b6162f4fa58ac160da147c57608fdc57f659e8f57875"
+   }
+  ],
+  "_server_side_all": {
+   "count": 523,
+   "changed": []
+  }
+ },
+ "timeouts": {
+  "patch_ms": 15000,
+  "confirm_get_ms": 10000,
+  "measured": {
+   "fix_worktree": {
+    "A1": {
+     "setting_ms": 10000,
+     "measured_from_confirm_get_ms": 10007
+    },
+    "A2": {
+     "setting_ms": 10000,
+     "measured_from_confirm_get_ms": 10075
+    },
+    "A3": {
+     "patch_setting_ms": 15000,
+     "confirm_setting_ms": 10000,
+     "measured_patch_to_confirm_ms": 15047,
+     "measured_confirm_ms": 10006,
+     "total_ms": 25053
+    },
+    "A4": {
+     "setting_ms": 10000,
+     "measured_from_confirm_get_ms": 10027,
+     "headers_sent": true
+    }
+   },
+   "candidate_fresh_extract": {
+    "A1": {
+     "setting_ms": 10000,
+     "measured_from_confirm_get_ms": 10055
+    },
+    "A2": {
+     "setting_ms": 10000,
+     "measured_from_confirm_get_ms": 10064
+    },
+    "A3": {
+     "patch_setting_ms": 15000,
+     "confirm_setting_ms": 10000,
+     "measured_patch_to_confirm_ms": 15055,
+     "measured_confirm_ms": 10032,
+     "total_ms": 25087
+    },
+    "A4": {
+     "setting_ms": 10000,
+     "measured_from_confirm_get_ms": 10005,
+     "headers_sent": true
+    }
+   },
+   "baseline_unmodified": {
+    "A1": {
+     "setting_ms": 10000,
+     "measured_from_confirm_get_ms": null
+    },
+    "A2": {
+     "setting_ms": 10000,
+     "measured_from_confirm_get_ms": null
+    },
+    "A3": {
+     "patch_setting_ms": 15000,
+     "confirm_setting_ms": 10000,
+     "measured_patch_to_confirm_ms": 15040,
+     "measured_confirm_ms": null,
+     "total_ms": 29093
+    },
+    "A4": {
+     "setting_ms": 10000,
+     "measured_from_confirm_get_ms": null,
+     "headers_sent": true
+    }
+   }
+  }
+ },
+ "new_acceptance": {
+  "script": "scripts/smoke-r54-4-mbv2-hf1-c6-1-restock-list-ui-timing-fix.js",
+  "baseline_unmodified": {
+   "pass": 13,
+   "fail": 15,
+   "N_fail": 15,
+   "N_total": 15,
+   "G_pass": 13,
+   "G_total": 13,
+   "cases": [
+    {
+     "id": "A1",
+     "ok": false,
+     "class": "N",
+     "name": "A1 PATCH 已儲存但回應中斷、確認 GET 一直不回：10 秒上限內結束確認，busy／pending 解除，值保持未知並提示「暫時無法確認，將重新更新狀態」 [N]"
+    },
+    {
+     "id": "A1-2（A5）確認逾時後，新的",
+     "ok": false,
+     "class": "N",
+     "name": "A1-2（A5）確認逾時後，新的 snapshot 成功：商品恢復伺服器狀態（已參與）且可操作；PATCH 只 1 次 [N]"
+    },
+    {
+     "id": "A1-3（A6）流程完成後才放行的舊確認回應（內容為未參與）：不覆蓋新值",
+     "ok": true,
+     "class": "G",
+     "name": "A1-3（A6）流程完成後才放行的舊確認回應（內容為未參與）：不覆蓋新值 [G]"
+    },
+    {
+     "id": "A2",
+     "ok": false,
+     "class": "N",
+     "name": "A2 PATCH 未送達就中斷、確認 GET 一直不回：上限內結束、值保持未知（不當成未參與） [N]"
+    },
+    {
+     "id": "A2-2",
+     "ok": false,
+     "class": "N",
+     "name": "A2-2 之後 snapshot 成功：顯示伺服器狀態（未參與，伺服器未儲存）並可操作 [N]"
+    },
+    {
+     "id": "A3",
+     "ok": false,
+     "class": "N",
+     "name": "A3 PATCH 15 秒逾時後確認 GET 再 10 秒逾時：兩段上限各自生效（實測見 TIMING），busy／pending 解除，值未知 [N]"
+    },
+    {
+     "id": "A3-2",
+     "ok": true,
+     "class": "G",
+     "name": "A3-2 之後才放行的舊 PATCH 回應與舊確認回應：不覆蓋 snapshot 取得的新值；PATCH 只 1 次 [G]"
+    },
+    {
+     "id": "A4",
+     "ok": false,
+     "class": "N",
+     "name": "A4 確認 GET 已收到 headers 但內容未完成：等待上限涵蓋內容解析，10 秒內結束、值未知 [N]"
+    },
+    {
+     "id": "A4-2",
+     "ok": true,
+     "class": "G",
+     "name": "A4-2 之後 snapshot 成功：恢復已參與並可操作 [G]"
+    },
+    {
+     "id": "A7",
+     "ok": false,
+     "class": "N",
+     "name": "A7 確認等待期間切換店別／帳號：舊流程在上限內解除 pending／busy，舊回應不寫入新身分畫面 [N]"
+    },
+    {
+     "id": "A7-2",
+     "ok": true,
+     "class": "G",
+     "name": "A7-2 切回原店：以伺服器資料顯示（PATCH 已在伺服器完成），可操作 [G]"
+    },
+    {
+     "id": "A8",
+     "ok": false,
+     "class": "N",
+     "name": "A8 確認等待期間離開分頁：上限內解除；回到分頁以伺服器資料顯示並可操作 [N]"
+    },
+    {
+     "id": "A9",
+     "ok": false,
+     "class": "N",
+     "name": "A9 確認等待期間登出：上限內解除 pending／busy，舊回應不寫入 [N]"
+    },
+    {
+     "id": "A10",
+     "ok": false,
+     "class": "N",
+     "name": "A10 受控時鐘快轉 2 分鐘：不再「確認中」、busy 與 pending 已解除、值保持未知 [N]"
+    },
+    {
+     "id": "B1",
+     "ok": false,
+     "class": "N",
+     "name": "B1 舊設定 GET（未參與）晚到：不蓋掉較新的 snapshot（已參與）；摘要一致 [N]"
+    },
+    {
+     "id": "B1-2",
+     "ok": false,
+     "class": "N",
+     "name": "B1-2 取消方向：舊設定 GET（已參與）晚到，不蓋掉較新的 snapshot（未參與） [N]"
+    },
+    {
+     "id": "B2",
+     "ok": false,
+     "class": "N",
+     "name": "B2 舊 snapshot（未參與）晚到：不蓋掉較新的設定 GET（已參與） [N]"
+    },
+    {
+     "id": "B2-2",
+     "ok": false,
+     "class": "N",
+     "name": "B2-2 取消方向：舊 snapshot（已參與）晚到，不蓋掉較新的設定 GET（未參與） [N]"
+    },
+    {
+     "id": "B3",
+     "ok": true,
+     "class": "G",
+     "name": "B3 商品儲存中、確認 GET 與背景 snapshot 同時進行：snapshot 不誤解鎖；確認結束後收斂到伺服器現況（另一用戶端已取消） [G]"
+    },
+    {
+     "id": "B4",
+     "ok": false,
+     "class": "N",
+     "name": "B4 舊 snapshot 失敗晚於較新的設定 GET 成功：摘要與商品不被改回「狀態待更新」 [N]"
+    },
+    {
+     "id": "B4-2",
+     "ok": true,
+     "class": "G",
+     "name": "B4-2 舊設定 GET 失敗晚於較新的 snapshot 成功：摘要不被標成待更新 [G]"
+    },
+    {
+     "id": "B5",
+     "ok": true,
+     "class": "G",
+     "name": "B5 較新的讀取失敗：摘要「狀態待更新」，已參與商品仍保留最後成功的勾選 [G]"
+    },
+    {
+     "id": "B6",
+     "ok": true,
+     "class": "G",
+     "name": "B6 換店／帳號後，舊設定 GET 與舊 snapshot 不寫入新身分的列表、明細與摘要 [G]"
+    },
+    {
+     "id": "G1",
+     "ok": true,
+     "class": "G",
+     "name": "G1 列表直接勾選、明細同步、明細取消後列表同步（既有行為保留） [G]"
+    },
+    {
+     "id": "Z1",
+     "ok": true,
+     "class": "G",
+     "name": "Z1 全程未因 UI 確認增加事件、批次、逐筆紀錄、retry key 或（模擬）LINE 發送 [G]"
+    },
+    {
+     "id": "Z2",
+     "ok": true,
+     "class": "G",
+     "name": "Z2 每次中斷／逾時／確認流程中 PATCH 都只送 1 次（不自動重送） [G]"
+    },
+    {
+     "id": "Z3",
+     "ok": true,
+     "class": "G",
+     "name": "Z3 真實 LINE API 呼叫 0 次 [G]"
+    },
+    {
+     "id": "Z4",
+     "ok": true,
+     "class": "G",
+     "name": "Z4 全程無 JavaScript 錯誤 [G]"
+    }
+   ]
+  },
+  "baseline_in_regression_run": {
+   "pass": 13,
+   "fail": 15,
+   "N_fail": 15,
+   "N_total": 15,
+   "G_pass": 13,
+   "G_total": 13
+  },
+  "fix_worktree": {
+   "pass": 28,
+   "fail": 0,
+   "N_fail": 0,
+   "N_total": 15,
+   "G_pass": 13,
+   "G_total": 13,
+   "cases": [
+    {
+     "id": "A1",
+     "ok": true,
+     "class": "N",
+     "name": "A1 PATCH 已儲存但回應中斷、確認 GET 一直不回：10 秒上限內結束確認，busy／pending 解除，值保持未知並提示「暫時無法確認，將重新更新狀態」 [N]"
+    },
+    {
+     "id": "A1-2（A5）確認逾時後，新的",
+     "ok": true,
+     "class": "N",
+     "name": "A1-2（A5）確認逾時後，新的 snapshot 成功：商品恢復伺服器狀態（已參與）且可操作；PATCH 只 1 次 [N]"
+    },
+    {
+     "id": "A1-3（A6）流程完成後才放行的舊確認回應（內容為未參與）：不覆蓋新值",
+     "ok": true,
+     "class": "G",
+     "name": "A1-3（A6）流程完成後才放行的舊確認回應（內容為未參與）：不覆蓋新值 [G]"
+    },
+    {
+     "id": "A2",
+     "ok": true,
+     "class": "N",
+     "name": "A2 PATCH 未送達就中斷、確認 GET 一直不回：上限內結束、值保持未知（不當成未參與） [N]"
+    },
+    {
+     "id": "A2-2",
+     "ok": true,
+     "class": "N",
+     "name": "A2-2 之後 snapshot 成功：顯示伺服器狀態（未參與，伺服器未儲存）並可操作 [N]"
+    },
+    {
+     "id": "A3",
+     "ok": true,
+     "class": "N",
+     "name": "A3 PATCH 15 秒逾時後確認 GET 再 10 秒逾時：兩段上限各自生效（實測見 TIMING），busy／pending 解除，值未知 [N]"
+    },
+    {
+     "id": "A3-2",
+     "ok": true,
+     "class": "G",
+     "name": "A3-2 之後才放行的舊 PATCH 回應與舊確認回應：不覆蓋 snapshot 取得的新值；PATCH 只 1 次 [G]"
+    },
+    {
+     "id": "A4",
+     "ok": true,
+     "class": "N",
+     "name": "A4 確認 GET 已收到 headers 但內容未完成：等待上限涵蓋內容解析，10 秒內結束、值未知 [N]"
+    },
+    {
+     "id": "A4-2",
+     "ok": true,
+     "class": "G",
+     "name": "A4-2 之後 snapshot 成功：恢復已參與並可操作 [G]"
+    },
+    {
+     "id": "A7",
+     "ok": true,
+     "class": "N",
+     "name": "A7 確認等待期間切換店別／帳號：舊流程在上限內解除 pending／busy，舊回應不寫入新身分畫面 [N]"
+    },
+    {
+     "id": "A7-2",
+     "ok": true,
+     "class": "G",
+     "name": "A7-2 切回原店：以伺服器資料顯示（PATCH 已在伺服器完成），可操作 [G]"
+    },
+    {
+     "id": "A8",
+     "ok": true,
+     "class": "N",
+     "name": "A8 確認等待期間離開分頁：上限內解除；回到分頁以伺服器資料顯示並可操作 [N]"
+    },
+    {
+     "id": "A9",
+     "ok": true,
+     "class": "N",
+     "name": "A9 確認等待期間登出：上限內解除 pending／busy，舊回應不寫入 [N]"
+    },
+    {
+     "id": "A10",
+     "ok": true,
+     "class": "N",
+     "name": "A10 受控時鐘快轉 2 分鐘：不再「確認中」、busy 與 pending 已解除、值保持未知 [N]"
+    },
+    {
+     "id": "B1",
+     "ok": true,
+     "class": "N",
+     "name": "B1 舊設定 GET（未參與）晚到：不蓋掉較新的 snapshot（已參與）；摘要一致 [N]"
+    },
+    {
+     "id": "B1-2",
+     "ok": true,
+     "class": "N",
+     "name": "B1-2 取消方向：舊設定 GET（已參與）晚到，不蓋掉較新的 snapshot（未參與） [N]"
+    },
+    {
+     "id": "B2",
+     "ok": true,
+     "class": "N",
+     "name": "B2 舊 snapshot（未參與）晚到：不蓋掉較新的設定 GET（已參與） [N]"
+    },
+    {
+     "id": "B2-2",
+     "ok": true,
+     "class": "N",
+     "name": "B2-2 取消方向：舊 snapshot（已參與）晚到，不蓋掉較新的設定 GET（未參與） [N]"
+    },
+    {
+     "id": "B3",
+     "ok": true,
+     "class": "G",
+     "name": "B3 商品儲存中、確認 GET 與背景 snapshot 同時進行：snapshot 不誤解鎖；確認結束後收斂到伺服器現況（另一用戶端已取消） [G]"
+    },
+    {
+     "id": "B4",
+     "ok": true,
+     "class": "N",
+     "name": "B4 舊 snapshot 失敗晚於較新的設定 GET 成功：摘要與商品不被改回「狀態待更新」 [N]"
+    },
+    {
+     "id": "B4-2",
+     "ok": true,
+     "class": "G",
+     "name": "B4-2 舊設定 GET 失敗晚於較新的 snapshot 成功：摘要不被標成待更新 [G]"
+    },
+    {
+     "id": "B5",
+     "ok": true,
+     "class": "G",
+     "name": "B5 較新的讀取失敗：摘要「狀態待更新」，已參與商品仍保留最後成功的勾選 [G]"
+    },
+    {
+     "id": "B6",
+     "ok": true,
+     "class": "G",
+     "name": "B6 換店／帳號後，舊設定 GET 與舊 snapshot 不寫入新身分的列表、明細與摘要 [G]"
+    },
+    {
+     "id": "G1",
+     "ok": true,
+     "class": "G",
+     "name": "G1 列表直接勾選、明細同步、明細取消後列表同步（既有行為保留） [G]"
+    },
+    {
+     "id": "Z1",
+     "ok": true,
+     "class": "G",
+     "name": "Z1 全程未因 UI 確認增加事件、批次、逐筆紀錄、retry key 或（模擬）LINE 發送 [G]"
+    },
+    {
+     "id": "Z2",
+     "ok": true,
+     "class": "G",
+     "name": "Z2 每次中斷／逾時／確認流程中 PATCH 都只送 1 次（不自動重送） [G]"
+    },
+    {
+     "id": "Z3",
+     "ok": true,
+     "class": "G",
+     "name": "Z3 真實 LINE API 呼叫 0 次 [G]"
+    },
+    {
+     "id": "Z4",
+     "ok": true,
+     "class": "G",
+     "name": "Z4 全程無 JavaScript 錯誤 [G]"
+    }
+   ]
+  },
+  "candidate_fresh_extract": {
+   "pass": 28,
+   "fail": 0,
+   "N_fail": 0,
+   "N_total": 15,
+   "G_pass": 13,
+   "G_total": 13,
+   "cases": [
+    {
+     "id": "A1",
+     "ok": true,
+     "class": "N",
+     "name": "A1 PATCH 已儲存但回應中斷、確認 GET 一直不回：10 秒上限內結束確認，busy／pending 解除，值保持未知並提示「暫時無法確認，將重新更新狀態」 [N]"
+    },
+    {
+     "id": "A1-2（A5）確認逾時後，新的",
+     "ok": true,
+     "class": "N",
+     "name": "A1-2（A5）確認逾時後，新的 snapshot 成功：商品恢復伺服器狀態（已參與）且可操作；PATCH 只 1 次 [N]"
+    },
+    {
+     "id": "A1-3（A6）流程完成後才放行的舊確認回應（內容為未參與）：不覆蓋新值",
+     "ok": true,
+     "class": "G",
+     "name": "A1-3（A6）流程完成後才放行的舊確認回應（內容為未參與）：不覆蓋新值 [G]"
+    },
+    {
+     "id": "A2",
+     "ok": true,
+     "class": "N",
+     "name": "A2 PATCH 未送達就中斷、確認 GET 一直不回：上限內結束、值保持未知（不當成未參與） [N]"
+    },
+    {
+     "id": "A2-2",
+     "ok": true,
+     "class": "N",
+     "name": "A2-2 之後 snapshot 成功：顯示伺服器狀態（未參與，伺服器未儲存）並可操作 [N]"
+    },
+    {
+     "id": "A3",
+     "ok": true,
+     "class": "N",
+     "name": "A3 PATCH 15 秒逾時後確認 GET 再 10 秒逾時：兩段上限各自生效（實測見 TIMING），busy／pending 解除，值未知 [N]"
+    },
+    {
+     "id": "A3-2",
+     "ok": true,
+     "class": "G",
+     "name": "A3-2 之後才放行的舊 PATCH 回應與舊確認回應：不覆蓋 snapshot 取得的新值；PATCH 只 1 次 [G]"
+    },
+    {
+     "id": "A4",
+     "ok": true,
+     "class": "N",
+     "name": "A4 確認 GET 已收到 headers 但內容未完成：等待上限涵蓋內容解析，10 秒內結束、值未知 [N]"
+    },
+    {
+     "id": "A4-2",
+     "ok": true,
+     "class": "G",
+     "name": "A4-2 之後 snapshot 成功：恢復已參與並可操作 [G]"
+    },
+    {
+     "id": "A7",
+     "ok": true,
+     "class": "N",
+     "name": "A7 確認等待期間切換店別／帳號：舊流程在上限內解除 pending／busy，舊回應不寫入新身分畫面 [N]"
+    },
+    {
+     "id": "A7-2",
+     "ok": true,
+     "class": "G",
+     "name": "A7-2 切回原店：以伺服器資料顯示（PATCH 已在伺服器完成），可操作 [G]"
+    },
+    {
+     "id": "A8",
+     "ok": true,
+     "class": "N",
+     "name": "A8 確認等待期間離開分頁：上限內解除；回到分頁以伺服器資料顯示並可操作 [N]"
+    },
+    {
+     "id": "A9",
+     "ok": true,
+     "class": "N",
+     "name": "A9 確認等待期間登出：上限內解除 pending／busy，舊回應不寫入 [N]"
+    },
+    {
+     "id": "A10",
+     "ok": true,
+     "class": "N",
+     "name": "A10 受控時鐘快轉 2 分鐘：不再「確認中」、busy 與 pending 已解除、值保持未知 [N]"
+    },
+    {
+     "id": "B1",
+     "ok": true,
+     "class": "N",
+     "name": "B1 舊設定 GET（未參與）晚到：不蓋掉較新的 snapshot（已參與）；摘要一致 [N]"
+    },
+    {
+     "id": "B1-2",
+     "ok": true,
+     "class": "N",
+     "name": "B1-2 取消方向：舊設定 GET（已參與）晚到，不蓋掉較新的 snapshot（未參與） [N]"
+    },
+    {
+     "id": "B2",
+     "ok": true,
+     "class": "N",
+     "name": "B2 舊 snapshot（未參與）晚到：不蓋掉較新的設定 GET（已參與） [N]"
+    },
+    {
+     "id": "B2-2",
+     "ok": true,
+     "class": "N",
+     "name": "B2-2 取消方向：舊 snapshot（已參與）晚到，不蓋掉較新的設定 GET（未參與） [N]"
+    },
+    {
+     "id": "B3",
+     "ok": true,
+     "class": "G",
+     "name": "B3 商品儲存中、確認 GET 與背景 snapshot 同時進行：snapshot 不誤解鎖；確認結束後收斂到伺服器現況（另一用戶端已取消） [G]"
+    },
+    {
+     "id": "B4",
+     "ok": true,
+     "class": "N",
+     "name": "B4 舊 snapshot 失敗晚於較新的設定 GET 成功：摘要與商品不被改回「狀態待更新」 [N]"
+    },
+    {
+     "id": "B4-2",
+     "ok": true,
+     "class": "G",
+     "name": "B4-2 舊設定 GET 失敗晚於較新的 snapshot 成功：摘要不被標成待更新 [G]"
+    },
+    {
+     "id": "B5",
+     "ok": true,
+     "class": "G",
+     "name": "B5 較新的讀取失敗：摘要「狀態待更新」，已參與商品仍保留最後成功的勾選 [G]"
+    },
+    {
+     "id": "B6",
+     "ok": true,
+     "class": "G",
+     "name": "B6 換店／帳號後，舊設定 GET 與舊 snapshot 不寫入新身分的列表、明細與摘要 [G]"
+    },
+    {
+     "id": "G1",
+     "ok": true,
+     "class": "G",
+     "name": "G1 列表直接勾選、明細同步、明細取消後列表同步（既有行為保留） [G]"
+    },
+    {
+     "id": "Z1",
+     "ok": true,
+     "class": "G",
+     "name": "Z1 全程未因 UI 確認增加事件、批次、逐筆紀錄、retry key 或（模擬）LINE 發送 [G]"
+    },
+    {
+     "id": "Z2",
+     "ok": true,
+     "class": "G",
+     "name": "Z2 每次中斷／逾時／確認流程中 PATCH 都只送 1 次（不自動重送） [G]"
+    },
+    {
+     "id": "Z3",
+     "ok": true,
+     "class": "G",
+     "name": "Z3 真實 LINE API 呼叫 0 次 [G]"
+    },
+    {
+     "id": "Z4",
+     "ok": true,
+     "class": "G",
+     "name": "Z4 全程無 JavaScript 錯誤 [G]"
+    }
+   ]
+  }
+ },
+ "fresh_extract": {
+  "npm_ci": "ok",
+  "empty_db_health": "{\"status\":\"ok\"}",
+  "boot_recovery_log": "[restock_auto] boot recovery done (stale_batches=0 legacy_review=0)"
+ },
+ "regression": {
+  "window": "2026-11-19 約 16:30～17:22 台北時間，兩棵樹同時段平行（2 核心）",
+  "baseline_unmodified": [
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-1-restock-list-ui-timing-fix.js",
+    "env": {},
+    "rc": 1,
+    "signal": null,
+    "seconds": 175,
+    "summary": "結果：13 通過／15 失敗（模擬 LINE 呼叫 0 次；真實 LINE 0 次）",
+    "fail_lines": [
+     "❌ A1 PATCH 已儲存但回應中斷、確認 GET 一直不回：10 秒上限內結束確認，busy／pending 解除，值保持未知並提示「暫時無法確認，將重新更新狀態」 [N]",
+     "❌ A1-2（A5）確認逾時後，新的 snapshot 成功：商品恢復伺服器狀態（已參與）且可操作；PATCH 只 1 次 [N]",
+     "❌ A2 PATCH 未送達就中斷、確認 GET 一直不回：上限內結束、值保持未知（不當成未參與） [N]",
+     "❌ A2-2 之後 snapshot 成功：顯示伺服器狀態（未參與，伺服器未儲存）並可操作 [N]",
+     "❌ A3 PATCH 15 秒逾時後確認 GET 再 10 秒逾時：兩段上限各自生效（實測見 TIMING），busy／pending 解除，值未知 [N]",
+     "❌ A4 確認 GET 已收到 headers 但內容未完成：等待上限涵蓋內容解析，10 秒內結束、值未知 [N]",
+     "❌ A7 確認等待期間切換店別／帳號：舊流程在上限內解除 pending／busy，舊回應不寫入新身分畫面 [N]",
+     "❌ A8 確認等待期間離開分頁：上限內解除；回到分頁以伺服器資料顯示並可操作 [N]",
+     "❌ A9 確認等待期間登出：上限內解除 pending／busy，舊回應不寫入 [N]",
+     "❌ A10 受控時鐘快轉 2 分鐘：不再「確認中」、busy 與 pending 已解除、值保持未知 [N]",
+     "❌ B1 舊設定 GET（未參與）晚到：不蓋掉較新的 snapshot（已參與）；摘要一致 [N]",
+     "❌ B1-2 取消方向：舊設定 GET（已參與）晚到，不蓋掉較新的 snapshot（未參與） [N]",
+     "❌ B2 舊 snapshot（未參與）晚到：不蓋掉較新的設定 GET（已參與） [N]",
+     "❌ B2-2 取消方向：舊 snapshot（已參與）晚到，不蓋掉較新的設定 GET（未參與） [N]",
+     "❌ B4 舊 snapshot 失敗晚於較新的設定 GET 成功：摘要與商品不被改回「狀態待更新」 [N]"
+    ]
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-1-restock-list-auto-toggle-ui.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 89,
+    "summary": "結果：40 通過／0 失敗（模擬 LINE 呼叫 0 次；真實 LINE 0 次）",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-auto-restock.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 66,
+    "summary": "結果：24 通過／0 失敗",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-1-auto-guard-recovery.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 53,
+    "summary": "結果：29 通過／0 失敗",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-1-pause-claim-release.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 16,
+    "summary": "結果：29 通過／0 失敗",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-2-demand-ui-refresh.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 385,
+    "summary": "RESULT: 80 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-3-async-consistency.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 145,
+    "summary": "RESULT: 34 passed, 0 failed（模擬 LINE 呼叫 2 次；真實 0 次需為 0：0）",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-4-mutation-response.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 75,
+    "summary": "RESULT: 20 passed, 0 failed（真實 LINE 呼叫 0 次）",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-restock-notify.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 52,
+    "summary": "RESULT: 94 passed, 0 failed  (screenshots: /tmp/mbv2-c4-shots-0LDlpn)",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-1-dedupe-resume.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 63,
+    "summary": "RESULT: 40 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-5-date-consent.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 57,
+    "summary": "RESULT: 55 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-5-restock-link.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 79,
+    "summary": "RESULT: 42 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-linepush-compat.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 0,
+    "summary": "RESULT: 12 passed, 0 failed（全部為程序內模擬，真實 LINE 呼叫 0 次）",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c3-sale-status-demand.js",
+    "env": {},
+    "rc": 1,
+    "signal": null,
+    "seconds": 174,
+    "summary": "RESULT: 328 passed, 4 failed  (screenshots: /tmp/mbv2-hf1c3-shots-irjMAd)",
+    "fail_lines": [
+     "❌ O1 今日完售：今日訂單被擋，未建立訂單、未扣今日額度",
+     "❌ O6-paused 今日與未來日期都被擋，訂單與額度不變",
+     "❌ O6-sold_out_indefinitely 今日與未來日期都被擋，訂單與額度不變",
+     "❌ O9 今日完售＋未啟用預購份數管理：今日仍擋；未來 30 份（超過原預購每日 20）不限額成功，今日額度不變"
+    ]
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c3-1-backup-manage-login.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 109,
+    "summary": "RESULT: 54 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c3-2-firstpaint-remap.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 71,
+    "summary": "RESULT: 32 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c3-3-restore-cancel.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 166,
+    "summary": "RESULT: 30 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-restock-conversion.js",
+    "env": {},
+    "rc": 1,
+    "signal": null,
+    "seconds": 73,
+    "summary": "RESULT: 41 passed, 1 failed",
+    "fail_lines": [
+     "❌ B1 LIFF 一次／二次導向後最終頁開啟商品：點擊 1 次、核對為收件人"
+    ]
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-restock-conversion.js",
+    "env": {
+     "C4_CLOCK_OFFSET_MS": "0"
+    },
+    "rc": 0,
+    "signal": null,
+    "seconds": 74,
+    "summary": "RESULT: 42 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c1-preorder-status.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 85,
+    "summary": "RESULT: 93 passed, 0 failed  (screenshots: /tmp/mbv2-hf1c1-shots-ag5GNY)",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-migration.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 13,
+    "summary": "RESULT: 121 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-2-popup-establishment-taipei-time.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 63,
+    "summary": "結果：29 通過／0 失敗",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-2-payment-guard-time-merge.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 48,
+    "summary": "結果：22 通過／0 失敗",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-2-payment-response-timing.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 218,
+    "summary": "結果：18 通過／0 失敗",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-1-popup-payment-status-refresh.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 99,
+    "summary": "結果：19 通過／0 失敗",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-1-timing-fix.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 83,
+    "summary": "結果：11 通過／0 失敗",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-payment-ui-popup.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 60,
+    "summary": "結果：27 通過／0 失敗",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-3-payment-guard.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 43,
+    "summary": "RESULT: 25 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-2-payment-recovery.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 97,
+    "summary": "RESULT: 33 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-1-consistency.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 143,
+    "summary": "RESULT: 61 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "run-h1-4-10-phase3-checkout-submit-payment-runtime.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 29,
+    "summary": "TOTAL=111 PASS=111 FAIL=0",
+    "fail_lines": []
+   },
+   {
+    "suite": "run-h1-4-10-phase4b-recovery-full-runtime.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 19,
+    "summary": "TOTAL=168 PASS=168 FAIL=0",
+    "fail_lines": []
+   },
+   {
+    "suite": "run-h1-4-10-phase4b-recovery-frontend-targeted.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 10,
+    "summary": "TOTAL=50 PASS=50 FAIL=0",
+    "fail_lines": []
+   },
+   {
+    "suite": "run-h1-4-10-phase4b-recovery-resume-targeted.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 4,
+    "summary": "TOTAL=92 PASS=92 FAIL=0",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-frontend.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 29,
+    "summary": "PASS: 293  FAIL: 0  TOTAL: 293",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-real-browser.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 9,
+    "summary": "PASS: 36  FAIL: 0  TOTAL: 36",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-public-checkout.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 45,
+    "summary": "PASS: 1447  FAIL: 0  TOTAL: 1447",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-checkout-integration.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 2,
+    "summary": "PASS: 20  FAIL: 0  TOTAL: 20",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-recovery-cart-frontend.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 9,
+    "summary": "PASS: 67  FAIL: 0  TOTAL: 67",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-state.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 0,
+    "summary": "PASS: 94  FAIL: 0  TOTAL: 94",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r48-popup-order-ui-browser.js",
+    "env": {},
+    "rc": 1,
+    "signal": null,
+    "seconds": 33,
+    "summary": "",
+    "fail_lines": []
+   }
+  ],
+  "candidate_fresh_extract": [
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-1-restock-list-ui-timing-fix.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 103,
+    "summary": "結果：28 通過／0 失敗（模擬 LINE 呼叫 0 次；真實 LINE 0 次）",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-1-restock-list-auto-toggle-ui.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 88,
+    "summary": "結果：40 通過／0 失敗（模擬 LINE 呼叫 0 次；真實 LINE 0 次）",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-auto-restock.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 64,
+    "summary": "結果：24 通過／0 失敗",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-1-auto-guard-recovery.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 53,
+    "summary": "結果：29 通過／0 失敗",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-1-pause-claim-release.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 15,
+    "summary": "結果：29 通過／0 失敗",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-2-demand-ui-refresh.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 387,
+    "summary": "RESULT: 80 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-3-async-consistency.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 144,
+    "summary": "RESULT: 34 passed, 0 failed（模擬 LINE 呼叫 2 次；真實 0 次需為 0：0）",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-4-mutation-response.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 73,
+    "summary": "RESULT: 20 passed, 0 failed（真實 LINE 呼叫 0 次）",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-restock-notify.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 48,
+    "summary": "RESULT: 94 passed, 0 failed  (screenshots: /tmp/mbv2-c4-shots-4rh9jx)",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-1-dedupe-resume.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 65,
+    "summary": "RESULT: 40 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-5-date-consent.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 58,
+    "summary": "RESULT: 55 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-5-restock-link.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 80,
+    "summary": "RESULT: 42 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-linepush-compat.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 0,
+    "summary": "RESULT: 12 passed, 0 failed（全部為程序內模擬，真實 LINE 呼叫 0 次）",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c3-sale-status-demand.js",
+    "env": {},
+    "rc": 1,
+    "signal": null,
+    "seconds": 170,
+    "summary": "RESULT: 328 passed, 4 failed  (screenshots: /tmp/mbv2-hf1c3-shots-IQiyEf)",
+    "fail_lines": [
+     "❌ O1 今日完售：今日訂單被擋，未建立訂單、未扣今日額度",
+     "❌ O6-paused 今日與未來日期都被擋，訂單與額度不變",
+     "❌ O6-sold_out_indefinitely 今日與未來日期都被擋，訂單與額度不變",
+     "❌ O9 今日完售＋未啟用預購份數管理：今日仍擋；未來 30 份（超過原預購每日 20）不限額成功，今日額度不變"
+    ]
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c3-1-backup-manage-login.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 113,
+    "summary": "RESULT: 54 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c3-2-firstpaint-remap.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 69,
+    "summary": "RESULT: 32 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c3-3-restore-cancel.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 165,
+    "summary": "RESULT: 30 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-restock-conversion.js",
+    "env": {},
+    "rc": 1,
+    "signal": null,
+    "seconds": 74,
+    "summary": "RESULT: 41 passed, 1 failed",
+    "fail_lines": [
+     "❌ B1 LIFF 一次／二次導向後最終頁開啟商品：點擊 1 次、核對為收件人"
+    ]
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-restock-conversion.js",
+    "env": {
+     "C4_CLOCK_OFFSET_MS": "0"
+    },
+    "rc": 0,
+    "signal": null,
+    "seconds": 73,
+    "summary": "RESULT: 42 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c1-preorder-status.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 81,
+    "summary": "RESULT: 93 passed, 0 failed  (screenshots: /tmp/mbv2-hf1c1-shots-O9haal)",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-migration.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 14,
+    "summary": "RESULT: 121 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-2-popup-establishment-taipei-time.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 67,
+    "summary": "結果：29 通過／0 失敗",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-2-payment-guard-time-merge.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 51,
+    "summary": "結果：22 通過／0 失敗",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-2-payment-response-timing.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 220,
+    "summary": "結果：18 通過／0 失敗",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-1-popup-payment-status-refresh.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 100,
+    "summary": "結果：19 通過／0 失敗",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-1-timing-fix.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 82,
+    "summary": "結果：11 通過／0 失敗",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-payment-ui-popup.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 58,
+    "summary": "結果：27 通過／0 失敗",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-3-payment-guard.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 47,
+    "summary": "RESULT: 25 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-2-payment-recovery.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 98,
+    "summary": "RESULT: 33 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-1-consistency.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 141,
+    "summary": "RESULT: 61 passed, 0 failed",
+    "fail_lines": []
+   },
+   {
+    "suite": "run-h1-4-10-phase3-checkout-submit-payment-runtime.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 28,
+    "summary": "TOTAL=111 PASS=111 FAIL=0",
+    "fail_lines": []
+   },
+   {
+    "suite": "run-h1-4-10-phase4b-recovery-full-runtime.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 16,
+    "summary": "TOTAL=168 PASS=168 FAIL=0",
+    "fail_lines": []
+   },
+   {
+    "suite": "run-h1-4-10-phase4b-recovery-frontend-targeted.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 10,
+    "summary": "TOTAL=50 PASS=50 FAIL=0",
+    "fail_lines": []
+   },
+   {
+    "suite": "run-h1-4-10-phase4b-recovery-resume-targeted.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 3,
+    "summary": "TOTAL=92 PASS=92 FAIL=0",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-frontend.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 29,
+    "summary": "PASS: 293  FAIL: 0  TOTAL: 293",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-real-browser.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 10,
+    "summary": "PASS: 36  FAIL: 0  TOTAL: 36",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-public-checkout.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 49,
+    "summary": "PASS: 1447  FAIL: 0  TOTAL: 1447",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-checkout-integration.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 2,
+    "summary": "PASS: 20  FAIL: 0  TOTAL: 20",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-recovery-cart-frontend.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 9,
+    "summary": "PASS: 67  FAIL: 0  TOTAL: 67",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-state.js",
+    "env": {},
+    "rc": 0,
+    "signal": null,
+    "seconds": 0,
+    "summary": "PASS: 94  FAIL: 0  TOTAL: 94",
+    "fail_lines": []
+   },
+   {
+    "suite": "smoke-r48-popup-order-ui-browser.js",
+    "env": {},
+    "rc": 1,
+    "signal": null,
+    "seconds": 33,
+    "summary": "",
+    "fail_lines": []
+   }
+  ],
+  "identical_except_new_acceptance": [
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-1-restock-list-ui-timing-fix.js",
+    "env": {},
+    "same": false
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-1-restock-list-auto-toggle-ui.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-auto-restock.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-1-auto-guard-recovery.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-1-pause-claim-release.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-2-demand-ui-refresh.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-3-async-consistency.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-4-mutation-response.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-restock-notify.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-1-dedupe-resume.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-5-date-consent.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-5-restock-link.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-linepush-compat.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c3-sale-status-demand.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c3-1-backup-manage-login.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c3-2-firstpaint-remap.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c3-3-restore-cancel.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-restock-conversion.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-restock-conversion.js",
+    "env": {
+     "C4_CLOCK_OFFSET_MS": "0"
+    },
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c1-preorder-status.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-migration.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-2-popup-establishment-taipei-time.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-2-payment-guard-time-merge.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-2-payment-response-timing.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-1-popup-payment-status-refresh.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-1-timing-fix.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-payment-ui-popup.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-3-payment-guard.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-2-payment-recovery.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-1-consistency.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "run-h1-4-10-phase3-checkout-submit-payment-runtime.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "run-h1-4-10-phase4b-recovery-full-runtime.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "run-h1-4-10-phase4b-recovery-frontend-targeted.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "run-h1-4-10-phase4b-recovery-resume-targeted.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-frontend.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-real-browser.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-public-checkout.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-checkout-integration.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-recovery-cart-frontend.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-state.js",
+    "env": {},
+    "same": true
+   },
+   {
+    "suite": "smoke-r48-popup-order-ui-browser.js",
+    "env": {},
+    "same": true
+   }
+  ],
+  "r48_isolated_with_report_tap": {
+   "base": {
+    "summary": "R48 SMOKE SUMMARY — PASS: 10  FAIL: 3  TOTAL: 13",
+    "fail": [
+     "R_TOUCH_TARGET_44",
+     "R_NO_STICKY_FIXED",
+     "R_FATAL"
+    ]
+   },
+   "cand": {
+    "summary": "R48 SMOKE SUMMARY — PASS: 10  FAIL: 3  TOTAL: 13",
+    "fail": [
+     "R_TOUCH_TARGET_44",
+     "R_NO_STICKY_FIXED",
+     "R_FATAL"
+    ]
+   }
+  },
+  "existing_failures": [
+   "C3 販售狀態與需求 4 項（O1、O6-paused、O6-sold_out_indefinitely、O9；time_too_early，真實時鐘相依；兩棵樹相同）",
+   "C5 補貨轉換預設時鐘 1 項（B1；C4_CLOCK_OFFSET_MS=0 時 42/42；兩棵樹相同）",
+   "R48 3 項（R_TOUCH_TARGET_44、R_NO_STICKY_FIXED、R_FATAL；兩棵樹相同）"
+  ],
+  "not_executed": [
+   "5 支升級／回退套件（smoke-r54-4-mbv2-hf1-c6-upgrade-rollback、c6-1-upgrade-rollback、c6-1-pause-claim-release-upgrade-rollback、c5-4-2-upgrade-rollback、c5-4-2-payment-guard-upgrade-rollback）：需要更舊的程式樹，本輪只修改前端、無資料庫或伺服器變更，以檔案差異與資料保留說明回退",
+   "真實 LINE 營運驗收、真機驗收"
+  ]
+ }
+}

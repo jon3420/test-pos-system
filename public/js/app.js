@@ -10420,6 +10420,11 @@ const _pdAuto = {
   settingsRev: 0,
   // R54.4／MBV2-HF1-C4.3：通知批次明細查詢序號（每個批次）。手動與背景查詢共用；只有比「已套用」更新的回應能寫入。
   batchReq: {}, batchStale: {},
+  // R54.4／MBV2-HF1-C6.1 列表操作優化：商品參與「恢復販售自動通知」的共用狀態（列表與明細是同一設定的兩個入口）。
+  //   part[pid]＝伺服器最後確認的參與值（1／0；未知＝undefined，不當成未參與）；busy[pid]＝儲存中（兩個入口一起鎖定）；
+  //   fb[pid]＝簡短回饋；cfg＝全店開關（未知＝null）；gen＝身分世代（換店／換帳號／登出時遞增，舊回應不寫入）。
+  ap: { gen: 0, cfgKnown: false, err: false, enabled: null, enabledAt: null, send: null, complete: null, part: {}, partSet: new Set(), partKnown: false, busy: {}, fb: {}, rows: null,
+        readSeq: 0, gseq: 0, errSeq: 0, pseq: {} }, // C6.1 UI 時序補修：跨來源讀取序號（見 _pdApApply）
 };
 function _pdOwnerKey() {
   let sid = '';
@@ -10460,7 +10465,7 @@ function pdAutoLeave() { _pdHalt(); }
 function pdAutoEnter() {
   _pdWire();
   const tbody = document.getElementById('lpm-demand-tbody');
-  if (tbody && !_pdAuto.hasData) tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">載入中…</td></tr>';
+  if (tbody && !_pdAuto.hasData) tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">載入中…</td></tr>';
   _pdHalt();
   pdAutoRefreshNow('enter');
 }
@@ -10486,7 +10491,7 @@ async function pdAutoRefreshNow(reason) {
   if (A.timer) { clearTimeout(A.timer); A.timer = null; }
   const owner = _pdOwnerKey();
   if (A.owner && A.owner !== owner) _pdClearDisplay('owner'); // 登入身分／店別已改變：先清除上一個身分的資料
-  const ctx = { epoch: A.epoch, owner, pid: A.openPid, detailEpoch: A.detailEpoch, mutSeq: A.mut.seq };
+  const ctx = { epoch: A.epoch, owner, pid: A.openPid, detailEpoch: A.detailEpoch, mutSeq: A.mut.seq, gen: A.ap.gen, rseq: ++A.ap.readSeq }; // rseq：C6.1 UI 時序補修（跨來源讀取順序）
   const ctl = new AbortController();
   A.inflight = ctl; A.inflightPid = ctx.pid; A.lastStartAt = Date.now();
   const to = setTimeout(() => { try { ctl.abort(); } catch {} }, PD_AUTO_TIMEOUT_MS);
@@ -10508,7 +10513,7 @@ async function pdAutoRefreshNow(reason) {
   if (outcome === 'auth') { _pdClearDisplay('auth'); _pdHalt(); return; }
   if (outcome === 'owner') { _pdClearDisplay('owner'); A.rerun = true; }
   else if (outcome === 'ok') { A.failCount = 0; A.lastOkAt = new Date(); }
-  else A.failCount++;
+  else { A.failCount++; _pdApReadFail(ctx); } // C6.1 UI 時序補修：自動通知資料的讀取失敗依讀取序號判斷
   _pdRenderStatus();
   if (A.rerun) { A.rerun = false; if (_pdShouldRun()) return pdAutoRefreshNow('rerun'); }
   _pdSchedule();
@@ -10528,15 +10533,17 @@ function _pdRenderStatus() {
   }
   if (A.failCount > 0 && !A.hasData) {
     const tbody = document.getElementById('lpm-demand-tbody');
-    if (tbody) tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:40px;color:#ef4444">載入失敗，將自動重試；也可按「重新整理」。</td></tr>';
+    if (tbody) tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:#ef4444">載入失敗，將自動重試；也可按「重新整理」。</td></tr>';
   }
+  _pdApRenderSummary(); // C6.1 列表操作優化：讀取失敗時摘要顯示「狀態待更新」
 }
 // 登入身分／店別改變或登入失效：不保留、不顯示上一個身分的資料
 function _pdClearDisplay(reason) {
   const A = _pdAuto;
   A.owner = null; A.hasData = false; A.lastOkAt = null; A.failCount = 0; A.settingsDirty = false;
   const tbody = document.getElementById('lpm-demand-tbody');
-  if (tbody) tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">${reason === 'auth' ? '登入已失效或沒有權限，請重新登入後再查看。' : '載入中…'}</td></tr>`;
+  _pdApReset(); // C6.1 列表操作優化：上一個身分的參與狀態不保留；進行中的儲存回應不再寫入畫面
+  if (tbody) tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">${reason === 'auth' ? '登入已失效或沒有權限，請重新登入後再查看。' : '載入中…'}</td></tr>`;
   _pdCloseDetailBox();
   const cap = document.getElementById('pd-restock-cap'); if (cap) cap.textContent = '';
   const ns = document.getElementById('pd-notify-state'); if (ns) ns.textContent = '';
@@ -10548,6 +10555,7 @@ function _pdApply(d, ctx) {
   const sum = d.summary || {};
   _pdApplyConfig(sum.config || {}, ctx);
   if (d.capability) _pdApplyCapability(d.capability, ctx);
+  _pdApApply(d.auto, d.auto_error, ctx, (sum.products || []).map((x) => Number(x.product_id))); // C6.1 列表操作優化：先套用參與狀態，列表重建時即為最新值
   _pdApplySummary(sum.products || [], ctx);
   A.hasData = true;
   // 明細與批次：只套用到「發出請求時」與「現在」都是同一個展開商品的面板
@@ -10568,7 +10576,8 @@ function _pdApplyConfig(cfg, ctx) {
   const sm = document.getElementById('pd-set-subscribe-mode');
   if (sm && !block && ae !== sm) sm.value = cfg.subscribe_mode === 'register_subscribe' ? 'register_subscribe' : 'opt_in';
   const ns = document.getElementById('pd-notify-state');
-  if (ns) ns.textContent = cfg.notify_available ? 'LINE 補貨通知：已啟用（由店家手動預覽並確認發送）' : 'LINE 補貨通知：尚未啟用（顧客僅能補貨登記，不會發送 LINE 通知）';
+  // C6.1 列表操作優化：區分手動與自動流程（自動發送另需全店自動通知開啟＋商品參與）
+  if (ns) ns.textContent = cfg.notify_available ? 'LINE 補貨通知：已啟用（手動：由店家預覽並確認發送；自動：只在開啟「恢復販售時自動發送」且商品參與時發送）' : 'LINE 補貨通知：尚未啟用（顧客僅能補貨登記，不會發送 LINE 通知）';
 }
 function _pdApplyCapability(c, ctx) {
   const box = document.getElementById('pd-restock-cap');
@@ -10589,7 +10598,8 @@ function _pdRowHtml(r) {
       <td style="padding:8px;text-align:center;font-weight:700" class="pd-users">${r.active_users}</td>
       <td style="padding:8px;text-align:center;font-weight:700" class="pd-qty">${r.total_qty}</td>
       <td style="padding:8px;text-align:center"><label style="display:inline-flex;gap:4px;align-items:center"><input type="checkbox" class="pd-collect" ${r.demand_collect_enabled ? 'checked' : ''} onchange="toggleDemandCollect(${r.product_id}, this.checked, this)"> 收集</label></td>
-      <td style="padding:8px;text-align:center"><button class="btn-secondary pd-view" style="font-size:12px;padding:3px 10px" onclick="openDemandDetail(${r.product_id})">查看</button></td>
+      ${_pdApCellHtml(r.product_id)}
+      <td style="padding:8px;text-align:center;white-space:nowrap"><button class="btn-secondary pd-view" style="font-size:12px;padding:3px 10px" onclick="openDemandDetail(${r.product_id})">查看</button></td>
     </tr>`;
 }
 function _pdNameHtml(r) { return `${escHtml(r.name)}${r.line_visible ? '' : ' <span style="font-size:11px;color:#ef4444">（LINE 未顯示）</span>'}`; }
@@ -10598,7 +10608,8 @@ function _pdApplySummary(rows, ctx) {
   const tbody = document.getElementById('lpm-demand-tbody');
   if (!tbody) return;
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">目前沒有 LINE 點餐商品</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--text-muted,#64748b)">目前沒有 LINE 點餐商品</td></tr>';
+    _pdAuto.ap.rows = []; _pdApRenderSummary();
     return;
   }
   const want = rows.map(r => 'pd-row-' + r.product_id).join(',');
@@ -10607,11 +10618,14 @@ function _pdApplySummary(rows, ctx) {
     // 商品清單有增減或排序改變：重建表格，並把焦點還給原本的商品列元件
     const ae = document.activeElement;
     const tr = ae && ae.closest ? ae.closest('tr[id^="pd-row-"]') : null;
-    const focusSel = tr ? `#${tr.id} ${ae.classList.contains('pd-collect') ? '.pd-collect' : (ae.classList.contains('pd-view') ? '.pd-view' : '')}` : '';
+    const focusSel = tr ? `#${tr.id} ${ae.classList.contains('pd-collect') ? '.pd-collect' : (ae.classList.contains('pd-view') ? '.pd-view' : (ae.classList.contains('pd-auto') ? '.pd-auto' : ''))}` : '';
+    _pdAuto.ap.rows = rows.map((x) => Number(x.product_id));
     tbody.innerHTML = rows.map(_pdRowHtml).join('');
+    _pdApRenderAll(); // C6.1：重建後的列沿用目前參與狀態（含儲存中），不閃回舊值
     if (focusSel && !/\s$/.test(focusSel)) { const el = document.querySelector(focusSel); if (el) el.focus({ preventScroll: true }); }
     return;
   }
+  _pdAuto.ap.rows = rows.map((x) => Number(x.product_id));
   for (const r of rows) {
     const tr = document.getElementById('pd-row-' + r.product_id);
     if (!tr) continue;
@@ -10623,6 +10637,7 @@ function _pdApplySummary(rows, ctx) {
     const cb = tr.querySelector('.pd-collect');
     if (cb && !_pdMutBlocks('collect:' + r.product_id, ctx) && document.activeElement !== cb) cb.checked = !!r.demand_collect_enabled;
   }
+  _pdApRenderAll();
 }
 async function toggleDemandCollect(pid, enabled, el) {
   const key = 'collect:' + pid;
@@ -10643,6 +10658,239 @@ async function toggleDemandCollect(pid, enabled, el) {
     _pdMutEnd(key);
   }
   pdAutoRefreshNow('mutation'); // 成功或失敗都立即以伺服器資料更新
+}
+// ── R54.4／MBV2-HF1-C6.1 列表操作優化：商品列表直接勾選「恢復販售通知」────────────────────────────
+//   - 同一個設定（PATCH /restock/auto/products/:id）的兩個入口：列表欄位與明細勾選，共用 _pdAuto.ap 狀態。
+//   - 讀取：隨既有 /snapshot 自動更新一次取得（auto.participating_product_ids）；不逐商品 GET、不另建輪詢。
+//   - 儲存：勾選即送出。同商品儲存期間兩個入口一起鎖定（其他商品可操作）；_pdMutBegin('auto:'+pid) 使較早發出的讀取不覆蓋。
+//   - 明確失敗（伺服器回覆 success:false，或 401／403）：回復已知狀態並顯示原因。
+//   - 逾時／網路中斷／回應無法解析（伺服器可能已完成）：不自動重送 PATCH，只重新讀取（GET /restock/auto）確認。
+//   - 未知狀態（尚未載入、讀取失敗）顯示載入中／狀態待更新，不當成未參與；全店開關關閉時仍可預選，不自動取消勾選。
+//   - 「收集登記」與「參與自動通知」分別儲存、互不連動。勾選只儲存參與設定：不建立預覽、不確認、不發送。
+//   - 不在前端模擬商品參與版本或全店 epoch：相同值重複儲存由後端「版本不變」規則處理。
+// ── R54.4／MBV2-HF1-C6.1 UI 時序補修 ──────────────────────────────────────────────────────────────
+//   A. 等待上限：PATCH 15 秒、確認 GET 10 秒，皆以 _pdApTimed() 涵蓋「請求＋回應內容解析」；到期即 abort 並結束該次流程
+//      （不再等待未結束的 Promise）。到期後解除本操作自己的 busy 與 mutation pending，值保持未知（'unknown'，不當成未參與），
+//      提示「暫時無法確認，將重新更新狀態」，交由既有自動更新取得伺服器狀態；不重送 PATCH、不另開確認輪詢。
+//   B. 跨來源讀取順序：/snapshot 的 auto、rnAutoLoad() 的設定 GET、確認 GET 共用同一個讀取序號 _pdAuto.ap.readSeq（發出時取號）。
+//      全店欄位與參與集合只接受比「已套用的最新讀取」更新的回應（gseq）；各商品另記自己的已套用序號（pseq），
+//      商品因儲存中而未套用的讀取不會被當成該商品的較新確定值。讀取失敗同樣依序號判斷（舊失敗不把較新成功標成失敗）。
+//      與既有 _pdMutBlocks（本頁寫入）、busy（儲存中）、gen／身分鍵（換店、換帳號、登出）防護並存。
+const PD_AP_SAVE_TIMEOUT_MS = 15000;
+const PD_AP_CONFIRM_TIMEOUT_MS = 10000;
+const _PD_AP_COLOR = { busy: '#f59e0b', ok: '#16a34a', err: '#ef4444', warn: '#f59e0b', unknown: 'var(--text-muted,#64748b)', '': 'var(--text-muted,#64748b)' };
+// 在 ms 內完成 run(signal)（含回應內容解析）；到期 abort 並回傳 { timeout: true }。永遠會 resolve，計時器一定清除。
+function _pdApTimed(run, ms) {
+  const ctl = new AbortController(); let timer = null;
+  const timeout = new Promise((resolve) => { timer = setTimeout(() => { try { ctl.abort(); } catch {} resolve({ timeout: true }); }, ms); });
+  let work;
+  try { work = Promise.resolve(run(ctl.signal)).then((value) => ({ value }), (error) => ({ error })); }
+  catch (error) { work = Promise.resolve({ error }); }
+  return Promise.race([work, timeout]).finally(() => { clearTimeout(timer); });
+}
+function _pdApNorm(c) {
+  return { enabled: !!c.enabled, enabled_at: c.enabled_at || null, send_enabled: !!c.send_enabled, notify_available: !!c.notify_available, config_complete: !!c.config_complete,
+    missing: c.missing || [], participating_product_ids: (c.participating_products || []).map((p) => Number(p.product_id)) };
+}
+function _pdApReset() {
+  const A = _pdAuto.ap;
+  A.gen++; A.cfgKnown = false; A.err = false; A.enabled = null; A.enabledAt = null; A.send = null; A.complete = null;
+  A.part = {}; A.partSet = new Set(); A.partKnown = false; A.busy = {}; A.fb = {}; A.rows = null;
+  A.gseq = 0; A.errSeq = 0; A.pseq = {}; // readSeq 持續遞增（不歸零），舊身分的讀取另由 gen 擋下
+  _pdApRenderSummary();
+}
+// 目前應顯示的值：儲存中＝送出的值；否則伺服器最後確認值；未知＝undefined（不當成 0）
+function _pdApValue(pid) {
+  const A = _pdAuto.ap; const b = A.busy[pid];
+  if (b) return b.want;
+  const v = A.part[pid];
+  if (v === 1 || v === 0) return v;
+  if (v === 'unknown') return undefined;
+  if (A.partKnown && A.partSet) return A.partSet.has(Number(pid)) ? 1 : 0;
+  return undefined;
+}
+// 只依「依序判斷後」的讀取失敗（不因較舊的失敗把較新的成功標成待更新）
+function _pdApStale() { return !!_pdAuto.ap.err; }
+function _pdApNote(pid) {
+  const A = _pdAuto.ap; const b = A.busy[pid];
+  if (b) return { t: b.phase === 'confirm' ? '確認中…' : '儲存中…', k: 'busy' };
+  if (A.fb[pid]) return A.fb[pid];
+  const v = _pdApValue(pid);
+  if (v === undefined) return { t: A.part[pid] === 'unknown' || _pdApStale() ? '狀態待更新' : '載入中…', k: 'unknown' };
+  if (v === 1 && A.cfgKnown) {
+    if (!A.enabled) return { t: '已選擇，待開啟自動通知', k: 'warn' };
+    if (!A.send) return { t: '已選擇，待開啟通知發送總開關', k: 'warn' };
+    if (!A.complete) return { t: '已選擇，必要設定尚未完整', k: 'warn' };
+  }
+  return { t: '', k: '' };
+}
+function _pdApCellHtml(pid) {
+  const id = Number(pid);
+  return `<td style="padding:8px;text-align:center" class="pd-auto-cell"><label style="display:inline-flex;gap:4px;align-items:center;cursor:pointer;white-space:nowrap"><input type="checkbox" class="pd-auto" data-pid="${id}" disabled aria-describedby="pd-auto-note-${id}" onchange="pdAutoPartToggle(${id}, this.checked, this)"> 參與</label><div class="pd-auto-note" id="pd-auto-note-${id}" role="status" aria-live="polite" style="font-size:11px;line-height:1.3"></div></td>`;
+}
+// 只改屬性與文字，不重建元件（保留焦點）。儲存中以 aria-disabled 鎖定（不使用 disabled，避免鍵盤焦點被移走）；
+// 未知狀態才使用 disabled（無法判斷要送出哪個值）。
+function _pdApPaint(cb, note, pid) {
+  const v = _pdApValue(pid); const busy = !!_pdAuto.ap.busy[pid];
+  if (cb) {
+    const unknown = v === undefined;
+    if (cb.indeterminate !== unknown) cb.indeterminate = unknown;
+    if (cb.checked !== (v === 1)) cb.checked = v === 1;
+    if (cb.disabled !== unknown) cb.disabled = unknown;
+    const ad = busy ? 'true' : 'false';
+    if (cb.getAttribute('aria-disabled') !== ad) { cb.setAttribute('aria-disabled', ad); cb.setAttribute('aria-busy', ad); }
+    const op = busy ? '0.55' : '';
+    if (cb.style.opacity !== op) cb.style.opacity = op;
+  }
+  if (note) {
+    const n = _pdApNote(pid);
+    if (note.textContent !== n.t) note.textContent = n.t;
+    if (note.dataset.k !== n.k) { note.dataset.k = n.k; note.style.color = _PD_AP_COLOR[n.k] || _PD_AP_COLOR['']; }
+  }
+}
+function _pdApRenderRow(pid) {
+  const tr = document.getElementById('pd-row-' + pid); if (!tr) return;
+  _pdApPaint(tr.querySelector('.pd-auto'), tr.querySelector('.pd-auto-note'), Number(pid));
+}
+function _pdApRenderDetail() {
+  const cb = document.getElementById('rn-auto-product'); if (!cb) return;
+  const pid = Number(cb.dataset.pid);
+  if (_pdAuto.openPid !== pid) return; // 已切換到其他商品：不寫入
+  _pdApPaint(cb, document.getElementById('rn-auto-product-note'), pid);
+}
+function _pdApRenderSummary() {
+  const st = document.getElementById('pd-auto-state'); if (!st) return;
+  const A = _pdAuto.ap; const stale = _pdApStale();
+  let html;
+  if (!A.cfgKnown && !stale) html = '載入中…';
+  else {
+    const pend = '<span style="color:#f59e0b">狀態待更新</span>';
+    const ok = A.cfgKnown && !stale;
+    const auto = ok ? (A.enabled ? '<strong style="color:#16a34a">已開啟</strong>' : '<strong>關閉</strong>') : pend;
+    const send = ok ? (A.send ? '<strong style="color:#16a34a">已開啟</strong>' : '<strong style="color:#ef4444">關閉</strong>') : pend;
+    // 分子與分母使用同一個商品列表範圍（列表外的參與商品不計入分子）
+    const rows = A.rows;
+    let sel = `已選擇：${pend}`;
+    if (!stale && A.partKnown && Array.isArray(rows) && rows.every((pid) => _pdApValue(pid) !== undefined)) {
+      sel = `已選擇 <strong>${rows.filter((pid) => _pdApValue(pid) === 1).length}</strong>／${rows.length} 項商品`;
+    }
+    html = `自動通知：${auto}｜通知發送總開關：${send}｜${sel}`;
+    if (ok && !A.complete) html += '｜<span style="color:#ef4444">必要設定尚未完整</span>';
+    if (ok && A.enabled && A.enabledAt) html += `<br>觀測基線建立時間 ${escHtml(fmtDemandTime(String(A.enabledAt).replace(/Z$/, '')))}（台北時間）`; // enabled_at 為 ISO（含 Z）
+    html += '<br>「已選擇」是商品參與設定，不代表目前已符合發送資格或已發送。';
+  }
+  if (st.dataset.h !== html) { st.innerHTML = html; st.dataset.h = html; }
+}
+function _pdApRenderAll() {
+  document.querySelectorAll('#lpm-demand-tbody .pd-auto').forEach((cb) => _pdApRenderRow(Number(cb.dataset.pid)));
+  _pdApRenderDetail();
+  _pdApRenderSummary();
+}
+// 讀取失敗（/snapshot 失敗或缺 auto、設定 GET 失敗、確認 GET 失敗／逾時）：只有在沒有更新的成功讀取已套用時才標成待更新；
+// 不清除最後成功資料（勾選保留，不顯示 0／0）
+function _pdApReadFail(ctx) {
+  const A = _pdAuto.ap;
+  if (!ctx || (ctx.gen != null && ctx.gen !== A.gen)) return;
+  const rseq = ctx.rseq || 0;
+  if (rseq > A.gseq && rseq > A.errSeq) { A.err = true; A.errSeq = rseq; }
+  _pdApRenderAll();
+}
+// 套用伺服器讀取結果（/snapshot 的 auto、設定 GET、確認 GET）。ctx.rseq＝發出時取的讀取序號；rowIds＝同一回應的列表商品
+//   - 身分：gen 不符 → 不套用
+//   - 全店欄位與參與集合：rseq 必須新於已套用的 gseq；另沿用 _pdMutBlocks('autocfg'／'notify')
+//   - 各商品：儲存中（busy）或本頁寫入在讀取後發生（_pdMutBlocks）→ 跳過且不更新該商品序號；否則 rseq 必須新於該商品的 pseq
+function _pdApApply(auto, err, ctx, rowIds) {
+  const A = _pdAuto.ap;
+  ctx = ctx || { mutSeq: _pdAuto.mut.seq };
+  if (ctx.gen != null && ctx.gen !== A.gen) return;
+  if (ctx.rseq == null) ctx.rseq = ++A.readSeq;
+  const rseq = ctx.rseq;
+  if (!auto || typeof auto !== 'object') { void err; _pdApReadFail(ctx); return; }
+  const set = new Set((auto.participating_product_ids || []).map(Number));
+  if (rseq > A.gseq) {
+    A.gseq = rseq;
+    if (rseq > A.errSeq) A.err = false;
+    if (!_pdMutBlocks('autocfg', ctx)) { A.enabled = !!auto.enabled; A.enabledAt = auto.enabled_at || null; }
+    if (!_pdMutBlocks('notify', ctx)) A.send = !!auto.send_enabled;
+    A.complete = !!auto.config_complete;
+    A.cfgKnown = A.enabled !== null && A.send !== null;
+    A.partSet = set; A.partKnown = true;
+    const chk = document.getElementById('pd-set-auto');
+    if (chk && !_raBusy && !_pdMutBlocks('autocfg', ctx) && document.activeElement !== chk) chk.checked = !!auto.enabled;
+  }
+  const ids = new Set([...(rowIds || []), ...(A.rows || []), ...Object.keys(A.part).map(Number), ...set]);
+  for (const pid of ids) {
+    if (A.busy[pid] || _pdMutBlocks('auto:' + pid, ctx)) continue;
+    if (rseq <= (A.pseq[pid] || 0)) continue;
+    if (A.part[pid] === 'unknown') delete A.fb[pid]; // 先前無法確認的商品已取得確定值
+    A.part[pid] = set.has(pid) ? 1 : 0; A.pseq[pid] = rseq;
+  }
+  _pdApRenderAll();
+}
+async function pdAutoPartToggle(pid, on, el) {
+  pid = Number(pid);
+  const A = _pdAuto.ap;
+  const prev = _pdApValue(pid);
+  // 同商品儲存中（另一個入口）或狀態未知：不送出，畫面維持目前狀態
+  if (A.busy[pid] || prev === undefined) { if (el) el.checked = prev === 1; _pdApRenderAll(); return; }
+  const want = on ? 1 : 0;
+  const gen = A.gen, owner = _pdOwnerKey(), key = 'auto:' + pid;
+  const op = { want, phase: 'save' }; // 本操作的識別：收尾只清除自己的 busy
+  const live = () => _pdAuto.ap.gen === gen && _pdOwnerKey() === owner;
+  A.busy[pid] = op; delete A.fb[pid];
+  _pdMutBegin(key);
+  _pdApRenderAll();
+  let outcome = 'unknown', msg = '', serverVal, valSeq = 0;
+  try {
+    const r1 = await _pdApTimed(async (signal) => {
+      const res = await apiFetch(`/api/product-demand-admin/restock/auto/products/${pid}`, { method: 'PATCH', body: JSON.stringify({ enabled: !!want }), signal });
+      if (!res || typeof res.json !== 'function') return { fail: (res && res.body && res.body.message) || (res && res.status === 401 ? '登入已失效' : '沒有權限') };
+      let j = null; try { j = await res.json(); } catch { j = null; }
+      return { j };
+    }, PD_AP_SAVE_TIMEOUT_MS);
+    if (r1.value && r1.value.fail) { outcome = 'fail'; msg = r1.value.fail; }
+    else if (r1.value) {
+      const j = r1.value.j;
+      if (j && j.success && j.data) { outcome = 'ok'; serverVal = Number(j.data.restock_auto_notify) === 1 ? 1 : 0; valSeq = ++_pdAuto.ap.readSeq; }
+      else if (j && j.success === false) { outcome = 'fail'; msg = j.message || '儲存失敗'; }
+      else outcome = 'unknown'; // 回應無法解析（例如代理逾時頁）：伺服器可能已完成
+    } else outcome = 'unknown';  // 逾時（15 秒）或網路中斷：伺服器可能已完成
+    // 逾時／中斷：只重新讀取確認（10 秒上限），不重送 PATCH
+    if (outcome === 'unknown' && live()) {
+      op.phase = 'confirm'; _pdApRenderAll();
+      const cctx = { mutSeq: _pdAuto.mut.seq, owner, gen, rseq: ++_pdAuto.ap.readSeq };
+      const r2 = await _pdApTimed(async (signal) => {
+        const res = await apiFetch('/api/product-demand-admin/restock/auto', { cache: 'no-store', signal });
+        if (!res || typeof res.json !== 'function') return null;
+        return await res.json();
+      }, PD_AP_CONFIRM_TIMEOUT_MS);
+      const j2 = r2.value;
+      if (j2 && j2.success && j2.data && live()) {
+        const norm = _pdApNorm(j2.data);
+        _pdApApply(norm, '', cctx); // 全店欄位與其他商品依讀取序號套用；本商品仍在 busy → 跳過，於下方處理
+        serverVal = norm.participating_product_ids.includes(pid) ? 1 : 0; valSeq = cctx.rseq; outcome = 'confirmed';
+      } else { outcome = 'unconfirmed'; if (live()) _pdApReadFail(cctx); }
+    }
+    if (!live()) return; // 換店／換帳號／登出後：舊回應不寫入目前畫面
+    const P = _pdAuto.ap;
+    if (outcome === 'ok') { P.fb[pid] = { t: '已儲存', k: 'ok' }; P.part[pid] = serverVal; P.pseq[pid] = Math.max(P.pseq[pid] || 0, valSeq); }
+    else if (outcome === 'fail') { P.fb[pid] = { t: '儲存失敗：' + msg, k: 'err' }; P.part[pid] = prev; showToast('恢復販售通知設定未儲存：' + msg, 'error'); }
+    else if (outcome === 'confirmed') {
+      if (valSeq > (P.pseq[pid] || 0)) { P.part[pid] = serverVal; P.pseq[pid] = valSeq; }
+      const cur = P.part[pid] === 1 || P.part[pid] === 0 ? P.part[pid] : serverVal;
+      P.fb[pid] = cur === want ? { t: '已儲存（已重新確認）', k: 'ok' } : { t: '未儲存，已顯示伺服器目前設定', k: 'err' };
+    } else {
+      // 無法確認：保留未知（不當成未參與），等待下一次成功讀取
+      P.part[pid] = 'unknown';
+      P.fb[pid] = { t: '暫時無法確認，將重新更新狀態', k: 'err', sticky: true };
+    }
+    const fbRef = P.fb[pid];
+    if (!fbRef.sticky) setTimeout(() => { if (_pdAuto.ap.gen === gen && _pdAuto.ap.fb[pid] === fbRef) { delete _pdAuto.ap.fb[pid]; _pdApRenderAll(); } }, fbRef.k === 'ok' ? 2500 : 8000);
+  } finally {
+    if (_pdAuto.ap.gen === gen && _pdAuto.ap.busy[pid] === op) delete _pdAuto.ap.busy[pid];
+    _pdMutEnd(key);
+    if (live()) { _pdApRenderAll(); pdAutoRefreshNow('mutation'); }
+  }
 }
 async function saveDemandSettings() {
   const enabled = !!document.getElementById('pd-set-enabled')?.checked;
@@ -10685,6 +10933,7 @@ function openDemandDetail(pid) {
         <tbody></tbody></table>
       ${restockPanelHtml({ product_id: Number(pid) })}`;
   _rnWirePanel(pid);
+  _pdApRenderDetail(); // C6.1 列表操作優化：明細勾選立即依共用參與狀態顯示（未知時為載入狀態）
   if (_pdTabActive()) pdAutoRefreshNow('open');
 }
 function _pdDetailRowsHtml(d) {
@@ -10745,51 +10994,42 @@ function _raReasonText(r) {
   return s.split(',').map((x) => _RA_REASON[x] || x).join('、');
 }
 async function rnAutoLoad() {
+  // C6.1 列表操作優化：開關與參與狀態改由共用流程套用（較早發出的讀取不覆蓋稍後成功的儲存；換身分後不寫入）；
+  //   摘要（#pd-auto-state）統一由 _pdApRenderSummary 顯示，分子分母使用同一個商品列表範圍。
+  // C6.1 UI 時序補修：發出時取讀取序號（與 /snapshot、確認 GET 共用）；較舊的回應（含失敗）不覆蓋已套用的較新資料
+  const ctx = { mutSeq: _pdAuto.mut.seq, owner: _pdOwnerKey(), gen: _pdAuto.ap.gen, rseq: ++_pdAuto.ap.readSeq };
+  const stillMine = () => _pdOwnerKey() === ctx.owner && _pdAuto.ap.gen === ctx.gen;
   try {
-    const res = await apiFetch('/api/product-demand-admin/restock/auto');
+    const res = await apiFetch('/api/product-demand-admin/restock/auto', { cache: 'no-store' });
+    if (!res || typeof res.json !== 'function') { if (stillMine()) _pdApReadFail(ctx); return; }
     const j = await res.json();
-    if (!j.success) return;
+    if (!stillMine()) return;
+    if (!j.success) { _pdApReadFail(ctx); return; }
     const c = j.data;
-    const chk = document.getElementById('pd-set-auto');
-    if (chk && !_raBusy && document.activeElement !== chk) chk.checked = !!c.enabled;
-    const st = document.getElementById('pd-auto-state');
-    if (st) st.innerHTML = `${c.enabled ? '<strong style="color:#16a34a">已開啟</strong>' : '<strong>關閉</strong>（預設）'}・總開關：${c.send_enabled ? '已開啟' : '<span style="color:#ef4444">關閉（自動通知不會發送）</span>'}・必要設定：${c.config_complete ? '完整' : '<span style="color:#ef4444">不完整</span>'}`
-      + `・參與商品：${c.participating_products.length ? c.participating_products.map((p) => escHtml(p.name)).join('、') : '尚未選擇（請在商品明細勾選「參與恢復販售自動通知」）'}`
-      + (c.enabled && c.enabled_at ? `・基線建立時間 ${escHtml(fmtDemandTime(c.enabled_at))}` : '');
+    _pdApApply(_pdApNorm(c), '', ctx);
     const ru = document.getElementById('pd-auto-rules');
     if (ru) ru.innerHTML = ['trigger', 'modes', 'date', 'not_triggered', 'consent', 'master_switch', 'baseline'].map((k) => `・${escHtml(c.rules[k])}`).join('<br>') + '<br>・狀態「LINE 已受理」只代表 LINE API 已受理，不代表顧客已收到或已讀。';
-  } catch (e) { /* 讀取失敗不影響其他功能 */ }
+  } catch (e) { if (stillMine()) _pdApReadFail(ctx); /* 讀取失敗不影響其他功能 */ }
 }
 async function rnAutoToggle(on, el) {
   if (on && !confirm('開啟「恢復販售時自動發送補貨通知」？\n\n・只對勾選參與的商品生效（預設不參與）\n・只在店家明確恢復販售或增加可售額度、使商品變為可訂購時發送\n・供應日期為各取餐方式的最近可訂購日期（伺服器依台北時間、截止時間、行事曆、休息日、預訂範圍與額度計算）\n・開啟時只建立觀測基線，目前已可售的商品不會追發\n・仍需開啟「補貨通知發送」總開關')) { if (el) el.checked = false; return; }
   _raBusy = true; if (el) el.disabled = true;
+  _pdMutBegin('autocfg'); // C6.1 列表操作優化：儲存期間較早發出的讀取不覆蓋全店開關
+  const gen = _pdAuto.ap.gen;
   try {
     const res = await apiFetch('/api/product-demand-admin/restock/auto', { method: 'PATCH', body: JSON.stringify({ enabled: !!on }) });
+    if (!res || typeof res.json !== 'function') throw new Error((res && res.body && res.body.message) || '儲存失敗');
     const j = await res.json();
     if (!j.success) throw new Error(j.message || '儲存失敗');
+    if (_pdAuto.ap.gen === gen && j.data) { const A = _pdAuto.ap; A.enabled = !!j.data.enabled; A.enabledAt = j.data.enabled_at || null; _pdApRenderAll(); }
     showToast(on ? '已開啟恢復販售自動通知（已建立觀測基線）' : `已關閉恢復販售自動通知${j.data.cancelled_events ? `（取消 ${j.data.cancelled_events} 筆未處理事件）` : ''}；執行中的自動批次會在下一筆送出前暫停`, 'success');
   } catch (e) { showToast(e.message || '儲存失敗', 'error'); if (el) el.checked = !on; }
-  finally { _raBusy = false; if (el) el.disabled = false; rnAutoLoad(); }
+  finally { _raBusy = false; if (el) el.disabled = false; _pdMutEnd('autocfg'); rnAutoLoad(); pdAutoRefreshNow('mutation'); }
 }
-async function rnAutoProductState(pid) {
-  try {
-    const res = await apiFetch('/api/product-demand-admin/restock/auto');
-    const j = await res.json(); if (!j.success) return;
-    const cb = document.getElementById('rn-auto-product');
-    if (cb && Number(cb.dataset.pid) === Number(pid)) cb.checked = j.data.participating_products.some((p) => Number(p.product_id) === Number(pid));
-    const note = document.getElementById('rn-auto-product-note');
-    if (note) note.textContent = j.data.enabled ? (j.data.send_enabled ? '' : '（總開關關閉，自動通知不會發送）') : '（全店自動通知目前關閉）';
-  } catch (e) {}
-}
-async function rnAutoProduct(pid, on, el) {
-  if (el) el.disabled = true;
-  try {
-    const res = await apiFetch(`/api/product-demand-admin/restock/auto/products/${pid}`, { method: 'PATCH', body: JSON.stringify({ enabled: !!on }) });
-    const j = await res.json(); if (!j.success) throw new Error(j.message || '儲存失敗');
-    showToast(on ? '此商品已參與恢復販售自動通知（目前狀態不會追發）' : '此商品已不參與自動通知', 'success');
-  } catch (e) { showToast(e.message || '儲存失敗', 'error'); if (el) el.checked = !on; }
-  finally { if (el) el.disabled = false; rnAutoLoad(); }
-}
+// C6.1 列表操作優化：明細的參與勾選與列表共用同一份狀態（不再為每次開啟明細另送 GET）；
+//   參與狀態隨既有自動更新（/snapshot）一併讀取。保留舊函式名稱供既有呼叫。
+function rnAutoProductState(pid) { void pid; _pdApRenderDetail(); }
+function rnAutoProduct(pid, on, el) { return pdAutoPartToggle(pid, on, el); }
 async function rnAutoEvents() {
   const box = document.getElementById('pd-auto-events'); if (!box) return;
   try {
@@ -10839,10 +11079,11 @@ async function saveRestockSendEnabled(on) {
 }
 function restockPanelHtml(prod) {
   // C4.5：日期預設空白，待伺服器回傳可供應日期後才預選（不依操作電腦的日期）
-  setTimeout(() => { try { rnAutoProductState(prod.product_id); } catch (e) {} }, 0);
+  setTimeout(() => { try { rnAutoProductState(prod.product_id); } catch (e) {} }, 0); // C6.1：依共用狀態顯示（未知時為載入狀態）
   return `<div id="rn-panel" data-pid="${prod.product_id}" style="margin-top:14px;padding:12px;border:1px solid var(--border,#334155);border-radius:10px">
-    <div style="font-size:12px;margin-bottom:8px"><label style="display:inline-flex;gap:6px;align-items:center"><input type="checkbox" id="rn-auto-product" data-pid="${prod.product_id}" onchange="rnAutoProduct(${prod.product_id}, this.checked, this)"> 🤖 此商品參與「恢復販售自動通知」</label>
-      <span id="rn-auto-product-note" style="color:var(--text-muted,#64748b);margin-left:6px"></span></div>
+    <div style="font-size:12px;margin-bottom:8px"><label style="display:inline-flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="rn-auto-product" data-pid="${prod.product_id}" disabled aria-describedby="rn-auto-product-note" onchange="rnAutoProduct(${prod.product_id}, this.checked, this)"> 🤖 此商品參與「恢復販售自動通知」</label>
+      <span id="rn-auto-product-note" role="status" aria-live="polite" style="color:var(--text-muted,#64748b);margin-left:6px">載入中…</span>
+      <div style="color:var(--text-muted,#64748b);margin-top:2px">與商品列表「恢復販售通知」欄是同一個設定。勾選只儲存參與設定，不會立即發送。</div></div>
     <div style="font-weight:700;margin-bottom:8px">🔔 補貨通知（店家手動發送）</div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;font-size:13px">
       <label>取餐方式 <select id="rn-mode" class="form-input" style="width:auto"><option value="takeout">外帶自取</option><option value="delivery">外送</option></select></label>
@@ -10850,7 +11091,7 @@ function restockPanelHtml(prod) {
       <button class="btn-secondary" id="rn-preview-btn" style="font-size:12px;padding:4px 12px" disabled onclick="restockPreview(${prod.product_id})">預覽通知</button>
     </div>
     <div id="rn-date-msg" role="status" aria-live="polite" style="font-size:12px;margin-top:6px;color:var(--text-muted,#64748b)">檢查可供應日期中…</div>
-    <div style="font-size:11px;color:var(--text-muted,#64748b);margin-top:6px">名單由伺服器依最新登記、同意、好友狀態與販售規則計算；修改庫存或商品狀態不會自動發送。登記與通知都不建立訂單、不保留商品。</div>
+    <div style="font-size:11px;color:var(--text-muted,#64748b);margin-top:6px">名單由伺服器依最新登記、同意、好友狀態與販售規則計算。此區為手動發送：須由店家預覽並按「確認發送」才會發送。另外，商品已勾選「恢復販售通知」且全店自動通知與發送總開關都已開啟時，店家恢復販售或增加可售額度、使商品變為可訂購，系統會依自動通知的資格與規則另行發送；未參與自動通知的商品，修改庫存或狀態不會自動發送。登記與通知都不建立訂單、不保留商品。</div>
     <div id="rn-preview" style="margin-top:10px"></div>
     <div id="rn-batches" style="margin-top:10px"></div>
   </div>`;
