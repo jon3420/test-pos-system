@@ -234,6 +234,11 @@ function applyOrderStatusChange(db, storeId, order, newStatus) {
   }
 
   const updated = db.get('SELECT * FROM orders WHERE id=? AND store_id=?', [order.id, storeId]);
+  // R54.4／MBV2-HF1-C6.2：有效訂單在未履約前取消 → 依原綁定回復補貨登記份數（已扣減者回復、訂購中者解除）。
+  // 取消交易已提交後才執行；fail-open（失敗由定期補齊處理），不影響取消結果。
+  if (newStatus === 'cancelled' && wasCancellableBefore && updated && updated.uuid) {
+    require('./demandSettlement').safeSync(db, storeId, updated.uuid, { voidPrior: 'open' }, 'order_cancel');
+  }
   return {
     ok: true,
     code: 200,

@@ -345,6 +345,28 @@ img{max-width:100%;display:block}
 .qty-ctrl-blocked .plus,.qty-ctrl .plus[aria-disabled="true"]{background:#cfcfcf;color:#fff;cursor:not-allowed}
 /* 商品詳情的想買登記入口（樣式放在本頁，不修改共用的 product-detail-modal.css） */
 .pdm-demand-btn{flex:0 0 auto;height:46px;padding:0 14px;border-radius:10px;border:1.5px solid #06C755;background:#fff;color:#06C755;font-size:15px;font-weight:700;cursor:pointer;white-space:nowrap}
+/* R54.4／MBV2-HF1-C6.2：補貨登記份數提示、其他登記商品一起加入 */
+.pdm-demand-note{margin:10px 0 0;padding:10px 12px;border-radius:10px;background:#f0faf4;border:1px solid #c8ecd6;color:#14532d;font-size:14px;line-height:1.55}
+.pdm-demand-line.pdm-tone-strong{font-weight:700;color:#06C755}
+.pdm-demand-line.pdm-tone-warn{color:#9a3412}
+.pdm-demand-line.pdm-tone-muted{color:#4b5563;font-size:13px}
+.pdm-footer:has(.pdm-bundle-btn),.pdm-footer:has(.pdm-add-btn.pdm-qty-label){flex-wrap:wrap}
+.pdm-footer:has(.pdm-add-btn.pdm-qty-label) .pdm-add-btn{white-space:nowrap}
+.pdm-footer:has(.pdm-bundle-btn) .pdm-demand-btn,.pdm-footer:has(.pdm-add-btn.pdm-qty-label) .pdm-demand-btn{flex:1 1 100%}
+.pdm-bundle-btn{flex:1 1 100%;min-height:42px;padding:0 12px;border-radius:10px;border:1.5px dashed #06C755;background:#fff;color:#06C755;font-size:14px;font-weight:700;cursor:pointer}
+#demandOverlay .db-ctx{margin:10px 0;padding:10px;border-radius:10px;background:#f7f7f7;font-size:13px;line-height:1.6}
+#demandOverlay .db-ctx-opts{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+#demandOverlay .db-ctx-opts button{border:1.5px solid #06C755;background:#fff;color:#06C755;border-radius:999px;padding:6px 12px;font-size:13px;font-weight:700;cursor:pointer}
+#demandOverlay .db-ctx-opts button[aria-pressed="true"]{background:#06C755;color:#fff}
+#demandOverlay .db-row{display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-top:1px solid #eee}
+#demandOverlay .db-row input[type=checkbox]{width:20px;height:20px;margin-top:2px;flex:0 0 auto}
+#demandOverlay .db-row .db-main{flex:1;min-width:0}
+#demandOverlay .db-row .db-name{font-weight:700;font-size:14px}
+#demandOverlay .db-row .db-nums{font-size:12px;color:#4b5563;margin-top:2px}
+#demandOverlay .db-row .db-can{font-size:13px;font-weight:700;color:#06C755;margin-top:2px}
+#demandOverlay .db-row .db-why{font-size:12px;color:#9a3412;margin-top:2px}
+#demandOverlay .db-result{margin-top:10px;padding:10px;border-radius:10px;background:#f0faf4;font-size:13px;line-height:1.6}
+#demandOverlay .db-result .db-fail{color:#9a3412}
 #demandOverlay{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:260;display:none;align-items:flex-end;justify-content:center}
 #demandOverlay.show{display:flex}
 #demandOverlay .dm-panel{background:#fff;width:100%;max-width:520px;border-radius:16px 16px 0 0;max-height:90vh;overflow-y:auto;padding:16px 16px calc(16px + env(safe-area-inset-bottom,0px));box-sizing:border-box;color:#222}
@@ -627,7 +649,7 @@ img{max-width:100%;display:block}
 <script src="/js/analytics-platforms.js"></script>
 <script src="/js/phone-utils.js?v=h1-4-10-phone-1"></script>
 <script src="/js/line-member-gate.js?v=h1-4-10-backend-reconcile-1"></script>
-<script src="/js/product-detail-modal.js?v=r54-4-mbv2-hf1-c4-2"></script>
+<script src="/js/product-detail-modal.js?v=r54-4-mbv2-hf1-c6-2"></script>
 <script src="/js/delivery-free-progress.js"></script>
 <!-- fix18-10-hotfix30-B5-R5.4-G1: Geo Intelligence V2 — 顧客頁面端 Consent-driven
      Coordinate Acquisition。全新獨立檔案，init()/requestOnDeliveryFlow() 由下面
@@ -7667,25 +7689,50 @@ function openProductDetail(id) {
       maxQty = _inc.limit - Number(cart[id]?.qty || 0);
     }
   }
-  const startQty = 1;
+  // R54.4／MBV2-HF1-C6.2：依本人登記份數預選（只讀取後端驗證的本人登記；不改購物車，只有按下加入才加入）
+  const _pdm = _pdDetailModel(p, detailBlocked, maxQty);
+  const startQty = _pdm.startQty || 1;
 
   // R54.4／MBV2-HF1-C3：詳情的想買登記入口（與商品卡同一判斷；只在不能加入時出現）
   // R54.4／MBV2-HF1-C3.1：本人已有登記時，即使商品可購買也提供「管理登記」
   const demand = (_demandManageAllowed(p.id) || (detailBlocked && _demandEntryAllowed(p, v))) ? _demandButtonModel(p) : null;
 
-  ProductDetailModal.open({
+  let _addedOnce = false; // C6.2：同一次開啟只加入一次（連點、「已加入」顯示期間再點不重複加入）
+  const _tok = ProductDetailModal.open({
     id: p.id, name, price, image, description,
     startQty, maxQty, blocked: detailBlocked, blockedLabel, demand,
+    demandNote: _pdm.demandNote, qtyInLabel: _pdm.qtyInLabel, bundle: _pdm.bundle,
   }, {
     onDemand: function () { openDemandSheet(p.id, 'detail'); },
+    onBundle: function () { openDemandBundleSheet('detail'); },
     onOpen: function () { _trackViewItem(p, name, price); },
     onAddToCart: function (prod, qty) {
+      if (_addedOnce) return true;
+      if (prod && (prod.qtyInLabel || prod.demandNote)) {
+        // C6.2：登記份數情境——一次驗證、一次加入指定份數（共用 checkCartIncrement，不繞過今日／預購額度）
+        const r = _pdAddQty(id, qty);
+        if (!r.ok) { _notifyCartBlocked(r.policy || { message: r.message }); return false; }
+        _addedOnce = true;
+        if (r.nextDay) toast('✅ 已加入購物車，將自動預約下個營業日');
+        return true;
+      }
       const before = cart[id] ? cart[id].qty : 0;
       for (let i = 0; i < qty; i++) addCart(id);
       const after = cart[id] ? cart[id].qty : 0;
+      if (after > before) _addedOnce = true;
       return after > before; // 只有真的加入成功（既有驗證通過）才回報成功
     },
   });
+  _pdDetailCtx = { token: _tok, pid: p.id, ms: _currentMemberSession() };
+}
+// R54.4／MBV2-HF1-C6.2：詳情「能否加入、最多再加幾份」（與 openProductDetail 相同判斷；晚到的本人資料重算用）
+function _pdDetailAvailability(p){
+  const v = computeProductSaleView(p);
+  const blocked = (v.isSoldOut && !v.canPreorderNextDay) || (v.quotaRealSoldOut && !v.canPreorderNextDay) || v.preorderFullBlocked;
+  if (blocked) return { detailBlocked:true, maxQty:null };
+  const inc = checkCartIncrement(p.id, p, 1);
+  if (!inc.ok) return { detailBlocked:true, maxQty:null };
+  return { detailBlocked:false, maxQty: inc.limit != null ? inc.limit - Number(cart[p.id]?.qty || 0) : null };
 }
 
 // fix18-10-hotfix30-B5-R5.4-G1.6-GA4-H1.4.6：GA4 view_item —— 只有商品詳情成功
@@ -8193,7 +8240,10 @@ function _pdEntryPending(p, v){
 function _demandManageAllowed(pid){ return !!_pdMine(pid); }
 function _demandButtonModel(p){
   const mine=_pdMine(p.id);
-  if(mine) return { label:`已登記 ${mine.desired_qty} 份・管理登記`, registered:true };
+  if(mine){
+    const q=_pdQty(mine); // C6.2：已有訂單成立時顯示剩餘份數
+    return { label: q.settled>0 ? `尚有 ${q.remaining} 份登記・管理登記` : `已登記 ${mine.desired_qty} 份・管理登記`, registered:true };
+  }
   return { label:_demandCopy().btn, registered:false };
 }
 function _demandEntryModel(p, v){
@@ -8285,6 +8335,7 @@ async function _pdReloadMineInner(){
   if(r==='stale') return r;
   _refreshAllDemandRows();
   _pdAfterMine();
+  _pdDetailRefresh(); // C6.2：詳情已開啟時，晚到的本人登記只更新同一次開啟（顧客已調整數量時不改數量）
   return r;
 }
 // 本人資料更新後：只重畫「正在等待本人資料」的表單或清單，不打斷正在填寫的表單
@@ -8292,12 +8343,13 @@ function _pdAfterMine(){
   const st=_demandSheetState;
   if(!st || !document.getElementById('demandOverlay')?.classList.contains('show')) return;
   if(st.view==='list'){ _renderMyDemandsList(); return; }
+  if(st.view==='bundle'){ _renderDemandBundle(); return; } // C6.2
   if(st.awaitMine && _pdMineState==='error'){ _renderDemandSheet(); return; } // 顯示暫時無法確認＋重新載入
   if(st.awaitMine && (_pdMineState==='ready' || _pdMineState==='expired' || _pdMineState==='none')){
     st.awaitMine=false;
     const mine=_pdMine(st.productId);
     const p=allProducts.find(x=>String(x.id)===String(st.productId))||null;
-    if(mine){ st.qty=Number(mine.desired_qty); st.pref=mine.fulfillment_pref; }
+    if(mine){ st.qty=_pdFormQty(mine); st.base=_pdQty(mine).settled; st.pref=mine.fulfillment_pref; }
     else if(!p || !_demandEntryAllowed(p)){ if(_currentMemberSession() && _pdMineState==='ready'){ _closeDemandSheetQuiet(); return; } }
     _renderDemandSheet();
   }
@@ -8310,6 +8362,7 @@ function _pdWireIdentityWatch(){
     const ms=_currentMemberSession();
     if(ms!==_pdMineSettledFor && !(ms===null && _pdMineState==='none')){
       if(ms) _pdReloadMine(); else { _pdMineValid(); _pdMineSettledFor=null; _pdMineState='none'; _refreshAllDemandRows(); }
+      _pdDetailRefresh(); // C6.2：換帳號／登出時，詳情上一位會員的登記份數立即移除
     }
   };
   try{ window.addEventListener('focus', chk); document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) chk(); }); }catch(e){}
@@ -8391,6 +8444,239 @@ async function _loadMyDemands(){
     return 'error';
   }
 }
+// ══════════════════════════════════════════════════════════════════════
+// R54.4／MBV2-HF1-C6.2：依登記份數加入購物車、其他登記商品一起加入
+//   - 份數只來自「伺服器已接受目前 member_session」的本人登記（_pdMine）；不讀網址、不讀其他會員的資料。
+//     未登入時一般瀏覽／加購照常，只是不預選。換帳號、登出：舊資料立即作廢（_pdMineValid）。
+//   - 本次需要補入 = max(0, 尚待購買（未完成 − 訂購中） − 購物車既有份數)；再受共用加購驗證（checkCartIncrement：
+//     今日／預購額度、限購、停售、取餐方式）限制。顧客手動放多於登記的份數不會被減少。
+//   - 開啟網址或詳情只預選，不改購物車；只有按下加入且驗證通過才加入並記錄加購事件。
+//   - 一起加入：只合併相同取餐方式與供應日期（今日／預約下個營業日）的商品；購物車是空的且有多種可能時由顧客選擇，不代選。
+// ══════════════════════════════════════════════════════════════════════
+let _pdDetailCtx=null; // { token, pid, ms }：目前開啟的商品詳情（晚到資料只更新同一次開啟、同一位會員）
+function _pdQty(m){
+  const reg=Math.max(0,Number(m.registered_qty!=null?m.registered_qty:m.desired_qty)||0);
+  const settled=Math.min(reg,Math.max(0,Number(m.settled_qty)||0));
+  const remaining=Math.max(0, m.remaining_qty!=null?Number(m.remaining_qty):reg-settled);
+  const reserved=Math.min(remaining,Math.max(0,Number(m.reserved_qty)||0));
+  const toBuy=m.to_buy_qty!=null?Math.min(remaining-reserved,Math.max(0,Number(m.to_buy_qty))):remaining-reserved;
+  return { reg, settled, remaining, reserved, toBuy };
+}
+function _pdNeedFor(pid){
+  const m=_pdMine(pid); if(!m) return null;
+  const q=_pdQty(m);
+  const inCart=Number(cart[pid]?.qty||0);
+  return Object.assign(q,{ mine:m, inCart, need:Math.max(0,q.toBuy-inCart) });
+}
+// 登記表單的份數：已有訂單成立時編輯「還想購買」的份數（送出時加回已購買份數）
+function _pdFormQty(m){ const q=_pdQty(m); return q.settled>0 ? Math.max(1,q.remaining) : Number(m.desired_qty); }
+function _pdSettleInfoHtml(m){
+  const q=_pdQty(m);
+  if(!q.settled && !q.reserved) return '';
+  return `<p class="dm-desc" id="dmSettleInfo" style="font-size:13px;color:#14532d">原登記 ${q.reg} 份・已購買 ${q.settled} 份${q.reserved?`・訂購中 ${q.reserved} 份`:''}・尚待購買 ${q.toBuy} 份</p>`;
+}
+function _pdBundleCandidates(excludePid){
+  return _pdMineList().filter(m=>(excludePid==null || String(m.product_id)!==String(excludePid)) && _pdQty(m).toBuy>0);
+}
+function _pdDetailModel(p, detailBlocked, maxQty){
+  const out={ demandNote:null, startQty:null, qtyInLabel:false, bundle:null };
+  const n=_pdNeedFor(p.id);
+  const loggedIn=!!_currentMemberSession();
+  if(!n){
+    if(loggedIn && !_demandAuthExpired && !_pdMineValid() && _pdMineState==='loading') out.demandNote=[{ text:'正在確認你的補貨登記…', tone:'muted' }];
+  } else if(n.remaining>0){
+    const lines=[{ text:`你尚有 ${n.remaining} 份補貨登記`, tone:'strong' }];
+    if(n.settled>0) lines.push({ text:`原登記 ${n.reg} 份，已購買 ${n.settled} 份`, tone:'muted' });
+    if(n.reserved>0) lines.push({ text:`其中 ${n.reserved} 份訂購中（等待付款），不會重複帶入`, tone:'muted' });
+    if(n.inCart>0) lines.push({ text:`購物車已有 ${n.inCart} 份`, tone:'muted' });
+    if(detailBlocked) lines.push({ text:'此商品目前無法加入購物車，你的登記會保留', tone:'warn' });
+    else if(n.need>0){
+      const cap=maxQty!=null ? Math.max(0,Number(maxQty)) : n.need;
+      const pre=Math.min(n.need,cap);
+      if(pre>=1){
+        out.startQty=pre; out.qtyInLabel=true;
+        lines.push(pre<n.need ? { text:`目前最多只能再加入 ${pre} 份，其餘 ${n.need-pre} 份需求會保留`, tone:'warn' } : { text:`已依登記預選 ${pre} 份，可自行調整後再加入`, tone:'muted' });
+      }
+    } else if(n.inCart>0) lines.push({ text:'登記份數已在購物車中，不會再自動累加', tone:'muted' });
+    else if(n.reserved>0) lines.push({ text:'登記份數已在訂購中', tone:'muted' });
+    out.demandNote=lines;
+  }
+  const others=_pdBundleCandidates(p.id);
+  if(others.length) out.bundle={ label:`我的登記商品，一起加入（${others.length}）` };
+  return out;
+}
+// 晚到的本人登記（或換帳號）只更新同一次開啟的詳情；顧客已調整數量或已加入時不改數量
+function _pdDetailRefresh(){
+  const c=_pdDetailCtx; if(!c) return;
+  const cur=(window.ProductDetailModal && ProductDetailModal.current) ? ProductDetailModal.current() : null;
+  if(!cur || cur.token!==c.token || cur.added){ _pdDetailCtx=null; return; }
+  const p=(allProducts||[]).find(x=>String(x.id)===String(c.pid)); if(!p) return;
+  const av=_pdDetailAvailability(p);
+  const m=_pdDetailModel(p, av.detailBlocked, av.maxQty);
+  ProductDetailModal.update(c.token, { demandNote:m.demandNote, qtyInLabel:m.qtyInLabel, bundle:m.bundle, maxQty:av.maxQty, startQty:m.startQty || 1 });
+  c.ms=_currentMemberSession();
+}
+// 一次驗證、一次加入 n 份（共用 checkCartIncrement；不足則整次不加入）。opts.batch：由呼叫端統一更新畫面
+function _pdAddQty(id, qty, opts){
+  const p=_latestCartProduct(id);
+  if(!p) return { ok:false, added:0, message:'此商品目前無法購買（已下架或停用）' };
+  if(_cartLockedForRestore()) return { ok:false, added:0, message:'購物車還原中，請稍後再試' };
+  const n=Math.max(1,Math.trunc(Number(qty)||1));
+  const pol=checkCartIncrement(id,p,n);
+  if(!pol.ok) return { ok:false, added:0, message:pol.message||'此商品目前無法加入購物車', policy:pol };
+  if(!cart[id]) cart[id]={ product:p, qty:0 };
+  cart[id].qty+=n;
+  if(pol.nextDay) preorderRequiredIds.add(Number(id));
+  _trackAddToCart(id,n); // 只有實際加入成功才記錄加購事件
+  updateBar(); updateProductCard(id);
+  if(!(opts && opts.batch)){ reconcileFulfillmentMode(); persistCart(); refreshCartAfterMutation(); }
+  return { ok:true, added:n, nextDay:!!pol.nextDay };
+}
+// ── 我的登記商品，一起加入 ───────────────────────────────────────────────
+const _PD_MODE_LBL={ takeout:'外帶自取', delivery:'外送' };
+const _PD_DAY_LBL={ today:'今日', next:'預約下個營業日' };
+function _pdWithMode(mode, fn){ const prev=currentMode; currentMode=mode; try{ return fn(); } finally{ currentMode=prev; } }
+function _pdProdDayKind(p, mode){ return productRequiresNextDayPreorder(p, mode) ? 'next' : 'today'; }
+function _pdCartCtx(){
+  if(!Object.keys(cart).length) return null;
+  const mode=currentMode, fut=_isCartFutureDateSelected();
+  const next=fut || Object.values(cart).some(({product:p})=>productRequiresNextDayPreorder(p, mode));
+  return { mode, day: next?'next':'today', cartFuture:fut, fixed:true };
+}
+function _pdBundleRow(m, ctx){
+  const q=_pdQty(m); const pid=Number(m.product_id); const p=_latestCartProduct(pid);
+  const inCart=Number(cart[pid]?.qty||0); const need=Math.max(0,q.toBuy-inCart);
+  const row={ pid, name: p?(p.effective_line_name||p.line_name||p.name):(m.product_name||''), q, inCart, need, can:0, why:'', partial:'', done:false };
+  if(!p){ row.why='目前未在 LINE 點餐頁提供（登記保留）'; return row; }
+  if(need<=0){ row.done=true; row.why = inCart>0 ? '已在購物車' : (q.reserved>0 ? '訂購中（等待付款）' : '目前沒有需要加入的份數'); return row; }
+  if(!ctx){ row.why='請先選擇共同的取餐方式與日期'; return row; }
+  if(!isProductSupportedForAnyFulfillmentMode(p) || !isProductSupportedForFulfillmentMode(p, ctx.mode)){ row.why=`不支援${_PD_MODE_LBL[ctx.mode]||ctx.mode}（登記保留）`; return row; }
+  const dk=_pdProdDayKind(p, ctx.mode);
+  if(ctx.day==='today' && dk==='next'){ row.why='需預約下個營業日，與目前日期不同（登記保留）'; return row; }
+  if(ctx.day==='next' && dk==='today' && !ctx.cartFuture){ row.why='今日供應，與預約日期不同（登記保留）'; return row; }
+  const pol=_pdWithMode(ctx.mode, ()=>checkCartIncrement(pid, p, 1));
+  if(!pol.ok){ const nm=_cartProductLabel(p); row.why=String(pol.message||'目前無法加入').replace(nm,'').trim()+'（登記保留）'; return row; } // 名稱已顯示在列上
+  const cap = pol.limit==null ? need : Math.max(0, Number(pol.limit)-inCart);
+  row.can=Math.min(need, cap);
+  if(row.can<=0){ row.why='額度不足（登記保留）'; return row; }
+  if(row.can<need) row.partial=`目前最多只能再加入 ${row.can} 份，其餘 ${need-row.can} 份需求保留`;
+  return row;
+}
+function _pdBundleCtxOptions(items){
+  const opts=[];
+  for(const mode of ['takeout','delivery']){
+    let st=null; try{ st=getFulfillmentStatus(mode); }catch(e){ st=null; }
+    if(st && st.selectable===false) continue;
+    for(const day of ['today','next']){
+      const ctx={ mode, day, cartFuture:false };
+      const n=items.filter(m=>_pdBundleRow(m, ctx).can>0).length;
+      if(n) opts.push({ mode, day, n });
+    }
+  }
+  return opts;
+}
+// 目前採用的共同情境：購物車已有商品 → 依購物車；否則只有一種可能 → 該情境；多種 → 顧客選擇（未選前為 null）
+function _pdBundleCtx(st, items){
+  const cc=_pdCartCtx(); if(cc) return { ctx:cc, opts:[] };
+  const opts=_pdBundleCtxOptions(items);
+  if(st.ctxSel){ const o=opts.find(x=>x.mode===st.ctxSel.mode && x.day===st.ctxSel.day); if(o) return { ctx:{ mode:o.mode, day:o.day, cartFuture:false }, opts }; st.ctxSel=null; }
+  if(opts.length===1) return { ctx:{ mode:opts[0].mode, day:opts[0].day, cartFuture:false, only:true }, opts };
+  return { ctx:null, opts };
+}
+function openDemandBundleSheet(source){
+  _pdSyncAuth();
+  _demandSheetState={ view:'bundle', source:source||'list', ms:_currentMemberSession(), checks:null, ctxSel:null, ctxKey:'', result:null, submitting:false, seq:(_demandSheetState&&_demandSheetState.seq||0)+1 };
+  _ensureDemandOverlay().classList.add('show');
+  _renderDemandBundle();
+  // 開啟時重新讀取本人登記（以伺服器目前的已完成／訂購中為準）；回應時仍是同一張表單、同一位會員才重畫
+  const st=_demandSheetState;
+  if(_currentMemberSession() && _pdIdentityOk){
+    _pdReloadMine().then(()=>{ if(_demandSheetState===st && st.view==='bundle') _renderDemandBundle(); }).catch(()=>{});
+  }
+}
+function _renderDemandBundle(msg, isErr){
+  _pdSyncAuth();
+  const st=_demandSheetState; if(!st || st.view!=='bundle') return;
+  const panel=document.getElementById('demandPanel'); if(!panel) return;
+  const ms=_currentMemberSession();
+  if(st.ms!==ms){ st.ms=ms; st.checks=null; st.ctxSel=null; st.result=null; } // 換帳號：上一位會員的勾選與結果全部作廢
+  const loggedIn=!!ms && !_demandAuthExpired;
+  const valid=_pdMineValid();
+  const items=_pdBundleCandidates(null).concat(_pdMineList().filter(m=>_pdQty(m).toBuy<=0 && (_pdQty(m).reserved>0 || Number(cart[m.product_id]?.qty||0)>0)));
+  let body='';
+  let rows=[];
+  if(!loggedIn) body=`<p class="dm-desc">${_demandAuthExpired?'LINE 會員登入已過期，請重新登入。':'請先以 LINE 會員登入，才能讀取你的補貨登記。'}</p><button type="button" class="dm-login" id="dmLoginBtn">${_demandAuthExpired?'重新以 LINE 登入':'以 LINE 登入'}</button>`;
+  else if(!valid && _pdMineState==='error') body=`<p class="dm-desc" id="dbError">暫時無法取得你的補貨登記，請稍後再試。</p><button type="button" class="dm-login" id="dbRetry">重新載入</button>`;
+  else if(!valid) body=`<p class="dm-desc" id="dbLoading">正在確認你的補貨登記…</p>`;
+  else if(!items.length) body=`<p class="dm-desc" id="dbEmpty">目前沒有需要加入購物車的登記商品。</p>`;
+  else {
+    const { ctx, opts } = _pdBundleCtx(st, items);
+    const key=ctx?`${ctx.mode}|${ctx.day}|${ctx.cartFuture?1:0}`:'';
+    rows=items.map(m=>_pdBundleRow(m, ctx));
+    if(st.checks===null || st.ctxKey!==key){ st.checks={}; rows.forEach(r=>{ if(r.can>0) st.checks[r.pid]=true; }); st.ctxKey=key; }
+    rows.forEach(r=>{ if(r.can<=0) delete st.checks[r.pid]; });
+    let ctxHtml;
+    if(ctx && ctx.fixed) ctxHtml=`<div class="db-ctx" id="dbCtx">依購物車：<strong>${_PD_MODE_LBL[ctx.mode]}・${_PD_DAY_LBL[ctx.day]}</strong>。只會加入可使用相同取餐方式與供應日期的商品。</div>`;
+    else if(ctx && ctx.only) ctxHtml=`<div class="db-ctx" id="dbCtx">共同取餐方式與日期：<strong>${_PD_MODE_LBL[ctx.mode]}・${_PD_DAY_LBL[ctx.day]}</strong>（目前唯一可一起加入的組合）</div>`;
+    else if(opts.length) ctxHtml=`<div class="db-ctx" id="dbCtx">${ctx?`已選擇：<strong>${_PD_MODE_LBL[ctx.mode]}・${_PD_DAY_LBL[ctx.day]}</strong>`:'這些商品的取餐方式或供應日期不同，請先選擇要一起加入的組合：'}
+        <div class="db-ctx-opts">${opts.map(o=>`<button type="button" class="db-ctx-btn" data-mode="${o.mode}" data-day="${o.day}" aria-pressed="${ctx&&ctx.mode===o.mode&&ctx.day===o.day?'true':'false'}">${_PD_MODE_LBL[o.mode]}・${_PD_DAY_LBL[o.day]}（${o.n} 項）</button>`).join('')}</div></div>`;
+    else ctxHtml=`<div class="db-ctx" id="dbCtx">目前沒有可以一起加入購物車的登記商品（登記都會保留）。</div>`;
+    const rowHtml=rows.map(r=>{
+      const nums=`未完成 ${r.q.remaining} 份${r.q.reserved?`・訂購中 ${r.q.reserved} 份`:''}${r.inCart?`・購物車已有 ${r.inCart} 份`:''}`;
+      const can=r.can>0;
+      return `<label class="db-row" data-pid="${r.pid}"><input type="checkbox" class="db-chk" data-pid="${r.pid}" ${can?'':'disabled'} ${can&&st.checks[r.pid]?'checked':''} aria-label="勾選${esc(r.name)}">
+        <div class="db-main"><div class="db-name">${esc(r.name)}</div><div class="db-nums">${esc(nums)}</div>
+        ${can?`<div class="db-can">本次可加入 ${r.can} 份</div>`:''}${r.partial?`<div class="db-why">${esc(r.partial)}</div>`:''}${!can&&r.why?`<div class="db-why">${esc(r.why)}</div>`:''}</div></label>`;
+    }).join('');
+    const nChecked=rows.filter(r=>r.can>0 && st.checks[r.pid]).length;
+    body=`${ctxHtml}<div id="dbList">${rowHtml}</div>
+      <button type="button" class="dm-submit" id="dbSubmit" ${st.submitting||!nChecked?'disabled':''}>將勾選商品加入購物車${nChecked?`（${nChecked} 項）`:''}</button>`;
+  }
+  const res=st.result;
+  const resHtml=res?`<div class="db-result" id="dbResult" role="status">${res.added.length?`<div>已加入：${res.added.map(a=>esc(`${a.name} ${a.qty} 份`)).join('、')}</div>`:''}${res.failed.length?`<div class="db-fail">未加入：${res.failed.map(f=>esc(`${f.name}（${f.why}）`)).join('、')}</div>`:''}${!res.added.length&&!res.failed.length?'<div>沒有勾選可加入的商品。</div>':''}</div>`:'';
+  panel.innerHTML=`<div class="dm-hd"><h3 class="dm-title" id="dmTitle">我的登記商品，一起加入</h3><button type="button" class="close-btn" id="dmClose" aria-label="關閉">✕</button></div>
+    <div class="dm-msg${isErr?' err':''}" id="dmMsg">${msg?esc(msg):''}</div>${resHtml}${body}
+    <p class="dm-note" id="dmDisclaimer">加入購物車不會扣減登記份數；訂單成立後才依實際購買份數更新。價格、可售量以送出訂單時為準。</p>`;
+  panel.querySelector('#dmClose').onclick=closeDemandSheet;
+  const lb=panel.querySelector('#dmLoginBtn'); if(lb) lb.onclick=_demandLogin;
+  const rb=panel.querySelector('#dbRetry'); if(rb) rb.onclick=()=>{ _pdMineState='loading'; _renderDemandBundle(); _pdReloadMine(); };
+  panel.querySelectorAll('.db-ctx-btn').forEach(b=>{ b.onclick=()=>{ st.ctxSel={ mode:b.getAttribute('data-mode'), day:b.getAttribute('data-day') }; st.result=null; _renderDemandBundle(); }; });
+  panel.querySelectorAll('.db-chk').forEach(c=>{ c.onchange=()=>{ const pid=Number(c.getAttribute('data-pid')); if(c.checked) st.checks[pid]=true; else delete st.checks[pid]; const n=Object.keys(st.checks).length; const sb=panel.querySelector('#dbSubmit'); if(sb){ sb.disabled=!n||st.submitting; sb.textContent='將勾選商品加入購物車'+(n?`（${n} 項）`:''); } }; });
+  const sb=panel.querySelector('#dbSubmit'); if(sb) sb.onclick=_pdBundleSubmit;
+}
+function _pdBundleSubmit(){
+  const st=_demandSheetState; if(!st || st.view!=='bundle' || st.submitting) return;
+  const ms=_currentMemberSession();
+  if(!ms || st.ms!==ms || !_pdMineValid()){ _renderDemandBundle('登入身分已變更或登記資料尚未確認，請重新開啟。', true); return; }
+  const items=_pdBundleCandidates(null);
+  const { ctx } = _pdBundleCtx(st, items);
+  if(!ctx){ _renderDemandBundle('請先選擇共同的取餐方式與日期。', true); return; }
+  st.submitting=true;
+  const res={ added:[], failed:[] };
+  try{
+    if(!Object.keys(cart).length && ctx.mode!==currentMode){
+      // 顧客選擇的取餐方式（購物車為空時才切換；走既有的切換流程）
+      try{ const pr=applyFulfillmentMode(ctx.mode); if(pr && pr.catch) pr.catch(()=>{}); }catch(e){}
+      if(currentMode!==ctx.mode){ res.failed.push({ name:'全部', why:'目前無法切換取餐方式' }); return; }
+    }
+    const pids=Object.keys(st.checks||{}).map(Number);
+    for(const pid of pids){
+      const m=_pdMine(pid);
+      const row=m ? _pdBundleRow(m, ctx) : null; // 送出當下重新計算（不沿用畫面上的舊數字）
+      if(!row){ res.failed.push({ name:'商品 '+pid, why:'登記已變更' }); continue; }
+      if(row.can<=0){ res.failed.push({ name:row.name, why:row.why||'目前無法加入' }); continue; }
+      const r=_pdAddQty(pid, row.can, { batch:true });
+      if(r.ok) res.added.push({ name:row.name, qty:r.added });
+      else res.failed.push({ name:row.name, why:r.message||'目前無法加入' });
+    }
+    if(res.added.length){ reconcileFulfillmentMode(); persistCart(); refreshCartAfterMutation(); }
+  } finally {
+    st.submitting=false; st.result=res; st.checks={};
+    { const c2=_pdBundleCtx(st, _pdBundleCandidates(null)).ctx; st.ctxKey=c2?`${c2.mode}|${c2.day}|${c2.cartFuture?1:0}`:''; } // 送出後不重新預設勾選
+    _renderDemandBundle();
+    if(res.added.length) toast(`已加入 ${res.added.length} 項登記商品`);
+  }
+}
 function onDemandBtnClick(evt, id){
   if(evt){ evt.stopPropagation(); evt.preventDefault(); }
   openDemandSheet(id, 'card');
@@ -8435,7 +8721,7 @@ function openDemandSheet(id, source){
   if(!mine && loggedIn && !_demandAuthExpired && !mineUnknown && !(p && _demandEntryAllowed(p))) return false;
   if(!mine && !p) return false;
   const prefs=_demandPrefOptions(p, mine);
-  _demandSheetState={ productId:id, qty: mine?Number(mine.desired_qty):1,
+  _demandSheetState={ productId:id, qty: mine?_pdFormQty(mine):1, base: mine?_pdQty(mine).settled:0,
     pref: mine?mine.fulfillment_pref:(prefs.find(o=>o.v==='any')||prefs[0]||{v:'any'}).v,
     consent:false, submitting:false, source:source||'card', view:'item', awaitMine:mineUnknown };
   _ensureDemandOverlay().classList.add('show');
@@ -8452,6 +8738,7 @@ function _renderDemandSheet(msg, isErr){
   _pdSyncAuth(); // C4.3：登入過期旗標只屬於當時的 session
   const st=_demandSheetState; if(!st) return;
   if(st.view==='list') return _renderMyDemandsList(msg, isErr);
+  if(st.view==='bundle') return _renderDemandBundle(msg, isErr); // C6.2
   const p=allProducts.find(x=>String(x.id)===String(st.productId))||null;
   const mine=_pdMine(st.productId);
   const waiting=!!_currentMemberSession() && !_demandAuthExpired && (st.awaitMine || (_pdCfgState==='idle'||_pdCfgState==='loading'));
@@ -8460,7 +8747,7 @@ function _renderDemandSheet(msg, isErr){
   const name=p ? (p.effective_line_name||p.line_name||p.name) : ((mine&&mine.product_name)||'');
   const panel=document.getElementById('demandPanel');
   const loggedIn=!!_currentMemberSession() && !_demandAuthExpired;
-  const max=_demandConfig.max_qty||99;
+  const max=Math.max(1,(_demandConfig.max_qty||99)-(mine?_pdQty(mine).settled:0)); // C6.2：原登記上限扣除已購買份數
   const canModify=_demandCanModify(p, mine);
   let body='';
   if(loggedIn && waiting){
@@ -8476,7 +8763,7 @@ function _renderDemandSheet(msg, isErr){
       <div class="dm-msg${isErr?' err':''}" id="dmMsg">${msg?esc(msg):''}</div>`;
   } else if(!canModify){
     // 只能查詢／取消／撤回（商品已恢復販售且未開放修改、關閉收集、關閉總開關、隱藏或停用）
-    body=mine?`<p class="dm-desc" style="color:#06C755;font-weight:700" id="dmMineInfo">已登記 ${Number(mine.desired_qty)} 份</p>
+    body=mine?`<p class="dm-desc" style="color:#06C755;font-weight:700" id="dmMineInfo">已登記 ${Number(mine.desired_qty)} 份</p>${_pdSettleInfoHtml(mine)}
       <p class="dm-desc" id="dmReadonlyNote">${_pdCfgState==='error'?'暫時無法確認目前是否開放修改份數，你仍可以取消登記。':'此商品目前不開放新增或修改登記份數，你仍可以取消登記。'}</p>
       <div class="dm-msg${isErr?' err':''}" id="dmMsg">${msg?esc(msg):''}</div>
       <button type="button" class="dm-link" id="dmCancel">${DEMAND_COPY.cancel}</button>
@@ -8485,8 +8772,8 @@ function _renderDemandSheet(msg, isErr){
   } else {
     const prefs=_demandPrefOptions(p, mine);
     body=`<p class="dm-desc">${esc(copy.desc)}</p>
-      ${mine?`<p class="dm-desc" style="color:#06C755;font-weight:700" id="dmMineInfo">已登記 ${Number(mine.desired_qty)} 份</p>`:''}
-      <div class="dm-row"><span>登記份數</span><div class="dm-qty">
+      ${mine?`<p class="dm-desc" style="color:#06C755;font-weight:700" id="dmMineInfo">已登記 ${Number(mine.desired_qty)} 份</p>${_pdSettleInfoHtml(mine)}`:''}
+      <div class="dm-row"><span>${mine && _pdQty(mine).settled>0 ? '還想購買份數' : '登記份數'}</span><div class="dm-qty">
         <button type="button" id="dmMinus" aria-label="減少" ${st.qty<=1?'disabled':''}>&minus;</button>
         <span class="dm-qty-num" id="dmQty">${st.qty}</span>
         <button type="button" id="dmPlus" aria-label="增加" ${st.qty>=max?'disabled':''}>+</button></div></div>
@@ -8547,7 +8834,7 @@ async function openMyDemandsSheet(){
   _demandSheetState={ view:'list' };
   _ensureDemandOverlay().classList.add('show');
   _renderMyDemandsList();
-  if(_currentMemberSession() && _pdIdentityOk){ if(!_pdMineValid()) _pdMineState='loading'; _renderMyDemandsList(); await _pdReloadMine(); }
+  if(_currentMemberSession() && _pdIdentityOk){ if(!_pdMineValid()) _pdMineState='loading'; _renderMyDemandsList(); await Promise.all([_pdReloadMine(), _pdLoadHistory()]); }
   if(_demandSheetState && _demandSheetState.view==='list') _renderMyDemandsList();
 }
 function _renderMyDemandsList(msg, isErr){
@@ -8562,7 +8849,14 @@ function _renderMyDemandsList(msg, isErr){
   else if(!valid && _pdMineState==='error') body=`<p class="dm-desc" id="dmListError">暫時無法取得你的補貨登記，請稍後再試。</p><button type="button" class="dm-login" id="dmRetryList">重新載入</button>`;
   else if(!valid) body=`<p class="dm-desc" id="dmListLoading">載入中…</p>`;
   else if(!items.length) body=`<p class="dm-desc" id="dmListEmpty">目前沒有有效的補貨登記。</p>`;
-  else body=`<div id="dmList">${items.map(d=>`<div class="dm-row dm-list-item" data-pid="${d.product_id}"><span><strong>${esc(d.product_name||'')}</strong><br><span style="font-size:12px;color:#666">${Number(d.desired_qty)} 份・${esc(L[d.fulfillment_pref]||d.fulfillment_pref)}</span></span><button type="button" class="dm-manage-btn" data-pid="${d.product_id}" style="border:1px solid #06C755;background:#fff;color:#06C755;border-radius:8px;padding:6px 10px;font-weight:700">管理</button></div>`).join('')}</div>`;
+  else body=`${_pdBundleCandidates(null).length?`<button type="button" class="dm-submit" id="dmBundleBtn" style="margin:6px 0 4px">🛒 我的登記商品，一起加入（${_pdBundleCandidates(null).length}）</button>`:''}<div id="dmList">${items.map(d=>{ const q=_pdQty(d);
+      // C6.2：原登記／已完成／訂購中／尚待購買
+      const nums=(q.settled||q.reserved)?`<br><span class="dm-settle" style="font-size:12px;color:#14532d">已購買 ${q.settled}・訂購中 ${q.reserved}・尚待購買 ${q.toBuy}</span>`:'';
+      return `<div class="dm-row dm-list-item" data-pid="${d.product_id}"><span><strong>${esc(d.product_name||'')}</strong><br><span style="font-size:12px;color:#666">${Number(d.desired_qty)} 份・${esc(L[d.fulfillment_pref]||d.fulfillment_pref)}</span>${nums}</span><button type="button" class="dm-manage-btn" data-pid="${d.product_id}" style="border:1px solid #06C755;background:#fff;color:#06C755;border-radius:8px;padding:6px 10px;font-weight:700">管理</button></div>`; }).join('')}</div>`;
+  // C6.2：已完成的登記（歷史，最近 90 天；只屬於目前會員）
+  if(loggedIn && valid && _pdHist && _pdHist.ms===_currentMemberSession() && _pdHist.items.length){
+    body+=`<div id="dmHistory" style="margin-top:12px"><div style="font-size:13px;font-weight:700;color:#4b5563">已完成的登記</div>${_pdHist.items.map(h=>`<div class="dm-row dm-hist-item" style="font-size:12px;color:#4b5563"><span>${esc(h.product_name||'')}</span><span>已購買 ${Number(h.settled_qty)}／${Number(h.registered_qty)} 份・已完成</span></div>`).join('')}</div>`;
+  }
   panel.innerHTML=`<div class="dm-hd"><h3 class="dm-title" id="dmTitle">${DEMAND_COPY.myList}</h3><button type="button" class="close-btn" id="dmClose" aria-label="關閉">✕</button></div>
     <div class="dm-msg${isErr?' err':''}" id="dmMsg">${msg?esc(msg):''}</div>${body}
     <p class="dm-note" id="dmDisclaimer">${esc(DEMAND_COPY.disclaimer)}</p>`;
@@ -8570,6 +8864,18 @@ function _renderMyDemandsList(msg, isErr){
   const lb=panel.querySelector('#dmLoginBtn'); if(lb) lb.onclick=_demandLogin;
   const rb=panel.querySelector('#dmRetryList'); if(rb) rb.onclick=()=>{ openMyDemandsSheet(); };
   panel.querySelectorAll('.dm-manage-btn').forEach(b=>{ b.onclick=(e)=>{ e.stopPropagation(); openDemandSheet(b.getAttribute('data-pid'),'my_list'); }; });
+  const bb=panel.querySelector('#dmBundleBtn'); if(bb) bb.onclick=()=>openDemandBundleSheet('my_list'); // C6.2
+}
+// C6.2：本人已完成的登記（歷史）；綁定讀取當時的 session，換帳號即作廢
+let _pdHist=null;
+async function _pdLoadHistory(){
+  const ms=_currentMemberSession(); if(!ms) { _pdHist=null; return; }
+  try{
+    const resp=await apiFetch('/api/product-demand/mine/history',{method:'POST',body:JSON.stringify({member_session:ms})});
+    const r=await resp.json().catch(()=>null);
+    if(_currentMemberSession()!==ms) return;
+    if(resp.ok && r && r.success && Array.isArray(r.data)) _pdHist={ ms, items:r.data };
+  }catch(e){ /* 歷史讀取失敗不影響有效登記 */ }
 }
 async function _demandLogin(){
   const st=_demandSheetState||{};
@@ -8646,7 +8952,9 @@ async function _submitDemand(opts){
   // 不送出份數或取餐偏好（另一裝置剛修改的內容不會被本頁快取覆蓋）；後端在同一交易核對店別、會員、商品與週期。
   const payload=subscribeOnly
     ? { member_session:ms, product_id:st.productId, request_uuid:_mineBefore.request_uuid||undefined, request_id:_mineBefore.request_id }
-    : { member_session:ms, product_id:st.productId, desired_qty:st.qty, fulfillment_pref:st.pref };
+    : { member_session:ms, product_id:st.productId, desired_qty:st.qty+(_mineBefore?(Number(st.base)||0):0), fulfillment_pref:st.pref,
+        // C6.2：已有登記時帶上表單開啟時看到的已購買份數（伺服器不同則 409、不寫入）
+        ...(_mineBefore ? { expect_settled_qty:Number(st.base)||0 } : {}) };
   // R54.4／MBV2-HF1-C4：只有顧客明確勾選才送出同意；未勾選不送此欄位（不會撤回、不會改變既有同意）
   // C4.5：登記即訂閱 → 新登記按「登記並通知我」即為本次授權；既有登記只有明確按「訂閱／重新訂閱」才授權（修改份數不重新授權）
   let _subscribing=false;
@@ -8668,6 +8976,13 @@ async function _submitDemand(opts){
     const r=await resp.json().catch(()=>({}));
     if(!_pdOpCurrent(op)) return _pdOpStale(op);
     if(resp.status===401){ _pdOpFail401(op); return; }
+    if(!subscribeOnly && resp.status===409 && r && r.code==='REQUEST_CHANGED'){
+      // C6.2：已購買份數剛更新（例如另一筆訂單剛成立）→ 伺服器未寫入；重新讀取後以新份數重畫，由顧客再確認
+      st.submitting=false; _pdMineNeedsRefresh=true; after=r.message||'你的已購買份數剛更新，請重新確認登記內容後再送出。';
+      st.awaitMine=true;
+      if(_pdOpOwnsSheet(op)) _renderDemandSheet(after, true);
+      return;
+    }
     if(subscribeOnly && resp.status===409 && r && r.code==='REQUEST_CHANGED'){
       // C5.1：登記已在其他裝置變更、取消、過期或換成新週期 → 伺服器未寫入任何資料；重新讀取本人登記後提示
       st.submitting=false; _pdMineNeedsRefresh=true; after=r.message||'這筆補貨登記已變更，請重新確認後再訂閱。';
@@ -8911,6 +9226,11 @@ async function _initRestockDeepLink(gatePromise){
   else { const n=document.getElementById('restockNotice'); if(n) n.remove(); }
   try{ const card=document.getElementById('pc-'+p.id); if(card && card.scrollIntoView) card.scrollIntoView({block:'center'}); }catch(e){}
   _restockMarkOpened();
+  // C6.2：已登入時先短暫等待本人登記（最多 2.5 秒），讓詳情直接依登記份數預選；之後才到的資料只更新同一次開啟
+  if(_currentMemberSession() && _pdIdentityOk && !_pdMineValid()){
+    try{ await Promise.race([_pdReloadMine(), new Promise(r=>setTimeout(r,2500))]); }catch(e){}
+    if(_pageLeaving) return;
+  }
   _restockLinkDiag.product_open++; _rlDiag('product_open');
   openProductDetail(p.id);
   // C5：最終頁實際開啟目標商品後才記錄「點擊」（GET 連結、網址預覽、讀取商品資料都不算）
@@ -9832,7 +10152,7 @@ async function submitOrder(event){
         cart_token:_activeCartHandoffToken||undefined,
       })
     }).then(r=>r.json());
-    if(orderRes.success){ _activeCartHandoffToken=''; }
+    if(orderRes.success){ _activeCartHandoffToken=''; try{ if(_currentMemberSession()) _pdReloadMine(); }catch(e){} } // C6.2：訂單成立後重新讀取登記份數（扣減／訂購中以後端為準）
     if(!orderRes.success){
       toast(orderRes.message||'送出失敗');
       // hotfix22-B：外帶/外送「今日最後接單時間」在送單當下才過期（例如顧客瀏覽期間店家臨時調整截止時間），

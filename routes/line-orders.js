@@ -1894,6 +1894,7 @@ router.post('/', async (req, res) => {
     // R44.2F：BEGIN／COMMIT／durable file write 由 db.runDurableTransaction() 統一管理；
     // work 為同步函式，persistence 失敗時 memory 與 disk 都回到 before-state，side effect 只在 durable 成功後。
     let cartTokenConsumed = false;
+    let _pdBind = null; // R54.4／MBV2-HF1-C6.2
     db.runDurableTransaction(() => {
     // R44.2D：交易內 fresh 重建 canonical items／subtotal，再重算 coupon 折扣與總額。
     {
@@ -2056,7 +2057,18 @@ router.post('/', async (req, res) => {
       const tokenResult = consumeCartTokenInTransaction(db, storeId, String(cart_token), uuid);
       cartTokenConsumed = !!(tokenResult && tokenResult.ok);
     }
+    // R54.4／MBV2-HF1-C6.2：補貨登記份數連動——同一交易內綁定「訂單商品 → 本人目前有效登記週期 → 份數」。
+    // 現金／非 LINE Pay：有效訂單成立即扣減；LINE Pay：標記訂購中（付款成功才扣減）。
+    // SAVEPOINT 隔離：綁定失敗只回滾綁定本身，訂單照常成立（之後補綁一次）。
+    if (knownLineUserId) {
+      _pdBind = require('../utils/demandSettlement').bindInTx(db, { storeId, orderUuid: uuid, orderNumber: orderNo, lineUserId: knownLineUserId,
+        items: txItems, paymentMethod: payment_method || 'cash' });
+    }
     });
+    if (_pdBind && !_pdBind.ok) {
+      try { require('../utils/demandSettlement').bindLate(db, { storeId, orderUuid: uuid, orderNumber: orderNo, lineUserId: knownLineUserId, items: txItems, paymentMethod: payment_method || 'cash' }); }
+      catch (bindErr) { console.warn('[line-orders] demand settlement bind failed:', bindErr && bindErr.message); }
+    }
 
     const newOrder = db.get('SELECT * FROM orders WHERE uuid=? AND store_id=?', [uuid, storeId]);
     // ── 訂單建立通知 ─────────────────────────────────

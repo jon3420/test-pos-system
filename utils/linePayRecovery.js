@@ -278,6 +278,8 @@ function commitPaid(db, storeId, attemptUuid, tx) {
       raw.run("UPDATE linepay_payment_attempts SET status='paid', review_reason='', confirmed_at=datetime('now'), result_code='0000', updated_at=datetime('now') WHERE id=?", [a.id]);
       const kinds = ['purchase', 'payment_success'];
       if (o.line_user_id) kinds.push('member_purchase');
+      // R54.4／MBV2-HF1-C6.2：補貨登記份數連動（訂購中 → 已扣減）以 outbox 執行；更新失敗可補齊，不會再次送出 Confirm
+      if (o.line_user_id) kinds.push('demand_settle');
       for (const k of kinds) {
         raw.run('INSERT OR IGNORE INTO payment_side_effects (store_id, order_uuid, attempt_uuid, kind) VALUES (?,?,?,?)', [storeId, a.order_uuid, a.attempt_uuid, k]);
       }
@@ -305,6 +307,15 @@ function runSideEffects(db, storeId, orderUuid) {
   for (const r of rows) {
     try {
       if (!order) { mark(r, false, 'order_missing'); pending++; continue; }
+      if (r.kind === 'demand_settle') {
+        // R54.4／MBV2-HF1-C6.2：依訂單「目前」後端狀態同步登記份數（已付款 → 扣減；已取消 → 解除訂購中）。可重複執行、只套用一次。
+        const DS = require('./demandSettlement');
+        DS.syncOrder(db, storeId, order.uuid, {});
+        const left = db.get(`SELECT COUNT(*) AS c FROM ${DS.LINK_TABLE} WHERE store_id=? AND order_uuid=? AND state='reserved' AND COALESCE(import_source,'')=''`, [storeId, order.uuid]);
+        const ok = !(left && Number(left.c) > 0) || (!isCancelled(order) && order.payment_status !== 'paid');
+        mark(r, ok, ok ? '' : 'not_saved'); ok ? done++ : pending++;
+        continue;
+      }
       if (isCancelled(order) || order.payment_status !== 'paid') {
         // 已取消／作廢（或尚未付款）不視為正常完成，不補寫購買與會員消費
         db.run("UPDATE payment_side_effects SET status='skipped', last_error='order_not_payable_completion', updated_at=datetime('now') WHERE id=?", [r.id]);
@@ -543,6 +554,8 @@ async function reconcile(db, getCfg, storeId, opts = {}) {
         if (_inflight.has(r.attempt_uuid)) { out.skipped_in_progress++; continue; }
         out.checked++;
         const res = await settle(db, cfg, storeId, r.attempt_uuid, { allowConfirm: false });
+        // R54.4／MBV2-HF1-C6.2：補貨登記份數同步（fail-open、可重複）
+        try { const a2 = getAttempt(db, storeId, r.attempt_uuid); if (a2) require('./demandSettlement').safeSync(db, storeId, a2.order_uuid, {}, 'linepay_reconcile'); } catch {}
         if (res.outcome === 'success') out.recovered++;
         else if (res.outcome === 'paid_cancelled') out.paid_cancelled++;
         else out.still_review++;

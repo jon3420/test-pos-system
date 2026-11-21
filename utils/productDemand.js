@@ -45,6 +45,7 @@ const SETTING_KEYS = {
   subscribeMode: 'restock_notify_subscribe_mode', // C4.5：消費者訂閱方式（預設 opt_in）
 };
 function RN() { return require('./restockNotify'); }
+function DS() { return require('./demandSettlement'); }
 
 // ── Schema（safe migration：只用 CREATE TABLE/INDEX IF NOT EXISTS、ALTER ADD COLUMN）──
 function migrate(raw) {
@@ -175,14 +176,20 @@ function parseQty(v) {
   return v;
 }
 
-function rowOut(r) {
+// R54.4／MBV2-HF1-C6.2：reservedRaw＝本週期「訂購中」訂單綁定份數（未截斷；見 utils/demandSettlement.qtyView）
+function rowOut(r, reservedRaw) {
   if (!r) return null;
+  const q = DS().qtyView(r.desired_qty, r.settled_qty, reservedRaw || 0);
   return {
     request_id: r.id, request_uuid: r.request_uuid || null, product_id: r.product_id, desired_qty: Number(r.desired_qty),
     fulfillment_pref: r.fulfillment_pref, status: r.eff_status || r.status,
     created_at: r.created_at, updated_at: r.updated_at, expires_at: r.expires_at,
+    // C6.2：原登記／已完成／訂購中／尚待購買（同一份定義）
+    registered_qty: q.registered_qty, settled_qty: q.settled_qty, reserved_qty: q.reserved_qty, remaining_qty: q.remaining_qty, to_buy_qty: q.to_buy_qty,
+    completed_at: r.completed_at || null,
   };
 }
+function _reserved(db, storeId, uuid) { try { return DS().reservedMap(db, storeId, [uuid]).get(String(uuid)) || 0; } catch { return 0; } }
 
 // R54.4／MBV2-HF1-C4：通知同意綁定登記週期（request_uuid）。
 //   'granted'（本週期有效）｜'revoked'｜'reconfirm_required'（匯入或舊版，需顧客重新確認）｜'none'
@@ -218,11 +225,13 @@ function listMine(db, storeId, lineUserId, productId) {
   // 只回傳「本人自己的登記」用到的商品名稱；不會讓隱藏商品出現在公開商品列表，也不提供購買。
   // can_modify：新增／修改份數仍依最新設定（功能開關、商品可見、收集開關），由 register() 再次把關。
   const cfg = getConfig(db, storeId);
+  let rmap = new Map();
+  try { rmap = DS().reservedMap(db, storeId, rows.map((r) => r.request_uuid)); } catch { rmap = new Map(); }
   return rows.map((r) => {
     const prod = db.get('SELECT id, name, line_name, enabled, show_on_line, line_takeout_enabled, line_delivery_enabled, COALESCE(demand_collect_enabled,1) AS demand_collect_enabled FROM products WHERE id=? AND store_id=?', [r.product_id, storeId]);
     const visible = !!prod && Number(prod.enabled) === 1 && Number(prod.show_on_line ?? 1) === 1 && supportedPrefs(prod).length > 0;
     const canModify = cfg.enabled && visible && Number(prod.demand_collect_enabled) !== 0;
-    return Object.assign(rowOut(r), {
+    return Object.assign(rowOut(r, rmap.get(String(r.request_uuid)) || 0), {
       product_name: prod ? String(prod.line_name || prod.name || '') : String(r.product_name_snapshot || ''),
       can_modify: canModify,
       supported_prefs: visible ? supportedPrefs(prod) : [],
@@ -288,7 +297,7 @@ function subscribe(db, storeId, lineUserId, body, opts = {}) {
   });
   const fresh = db.get(`SELECT *, ${EFFECTIVE_STATUS_SQL} AS eff_status FROM product_demand_requests WHERE id=?`, [requestRow.id]);
   const prod = db.get('SELECT id, name, line_name, enabled, show_on_line, line_takeout_enabled, line_delivery_enabled FROM products WHERE id=? AND store_id=?', [pid, storeId]);
-  const out = rowOut(fresh);
+  const out = rowOut(fresh, _reserved(db, storeId, fresh.request_uuid));
   out.product_name = prod ? String(prod.line_name || prod.name || '') : String(fresh.product_name_snapshot || '');
   out.can_modify = true;
   out.supported_prefs = prod ? supportedPrefs(prod) : [];
@@ -313,6 +322,7 @@ function register(db, storeId, lineUserId, body) {
   if (!PREFS.includes(pref) || !prefs.includes(pref)) throw new DemandError('INVALID_PREF', '取餐偏好不在此商品支援的方式內', 400);
   const wantConsent = body.notify_consent === true;
   const revokeConsent = body.notify_consent === false;
+  const expectSettled = body.expect_settled_qty == null || body.expect_settled_qty === '' ? null : Math.trunc(Number(body.expect_settled_qty));
   // C4.5：本次授權必須對應「目前」的訂閱方式與文案版本。顧客開著表單時店家切換方式 → 拒絕（不寫入任何資料），
   // 由前端重新讀取設定、保留輸入、清楚更新提示後讓顧客再次確認。舊版前端（未帶 consent_mode）仍視為明確勾選。
   const clientMode = body.consent_mode == null || body.consent_mode === '' ? null : String(body.consent_mode);
@@ -335,6 +345,16 @@ function register(db, storeId, lineUserId, body) {
     const existing = db.get(`SELECT * FROM product_demand_requests WHERE store_id=? AND product_id=? AND line_user_id=? AND status='active'`,
       [storeId, prod.id, lineUserId]);
     if (existing) {
+      // R54.4／MBV2-HF1-C6.2：已有訂單成立（已完成份數）的週期
+      //   - 前端帶 expect_settled_qty（表單開啟時看到的已完成份數）而伺服器已不同 → 409，不寫入（避免以舊畫面計算的總份數覆寫）
+      //   - 登記份數不得少於或等於已完成份數（不再需要時請取消登記）；不改動任何訂單或已扣減紀錄
+      const settledNow = Math.max(0, Number(existing.settled_qty) || 0);
+      if (expectSettled != null && expectSettled !== settledNow) {
+        throw new DemandError('REQUEST_CHANGED', '你的已購買份數剛更新，請重新確認登記內容後再送出。', 409);
+      }
+      if (settledNow > 0 && qty <= settledNow) {
+        throw new DemandError('QTY_NOT_ABOVE_SETTLED', `此登記已購買 ${settledNow} 份，登記份數須大於已購買份數；若不再需要，請取消登記。`, 400);
+      }
       if (Number(existing.desired_qty) === qty && existing.fulfillment_pref === pref) outcome = 'unchanged';
       else {
         raw.run(`UPDATE product_demand_requests SET desired_qty=?, fulfillment_pref=?, updated_at=datetime('now') WHERE id=?`,
@@ -399,7 +419,7 @@ function register(db, storeId, lineUserId, body) {
       consentOutcome = 'revoked';
     }
   });
-  const out = rowOut(requestRow);
+  const out = rowOut(requestRow, _reserved(db, storeId, requestRow.request_uuid));
   out.product_name = String(prod.line_name || prod.name || '');
   out.can_modify = true;
   out.supported_prefs = prefs;
@@ -455,6 +475,8 @@ function adminSummary(db, storeId) {
   const hist = db.all(`SELECT product_id, COUNT(*) AS all_rows FROM product_demand_requests WHERE store_id=? GROUP BY product_id`, [storeId]);
   const aggMap = new Map(agg.map((a) => [Number(a.product_id), a]));
   const histMap = new Map(hist.map((h) => [Number(h.product_id), Number(h.all_rows)]));
+  // R54.4／MBV2-HF1-C6.2：有效登記的份數拆分（原登記＝total_qty；已完成／訂購中／尚待購買）與已完成週期數（歷史）
+  const qmap = settlementByProduct(db, storeId);
   const out = [];
   for (const p of prods) {
     const visible = Number(p.enabled) === 1 && Number(p.show_on_line ?? 1) === 1 && supportedPrefs(p).length > 0;
@@ -467,9 +489,47 @@ function adminSummary(db, storeId) {
       demand_collect_enabled: Number(p.demand_collect_enabled) !== 0 ? 1 : 0,
       active_users: a ? Number(a.active_users) : 0, total_qty: a ? Number(a.total_qty) : 0,
       last_updated_at: a ? a.last_updated_at : null, history_rows: allRows,
+      ...(qmap.get(Number(p.id)) || { settled_qty: 0, reserved_qty: 0, to_buy_qty: a ? Number(a.total_qty) : 0, completed_requests: 0 }),
     });
   }
   return { config: getConfig(db, storeId), products: out };
+}
+
+// R54.4／MBV2-HF1-C6.2：每個商品（有效登記）的已完成／訂購中／尚待購買份數，以及已完成週期數（歷史，不計入有效需求）
+function settlementByProduct(db, storeId) {
+  const out = new Map();
+  let act = [];
+  try {
+    act = db.all(`SELECT product_id, request_uuid, desired_qty, COALESCE(settled_qty,0) AS settled_qty FROM product_demand_requests WHERE store_id=? AND ${ACTIVE_WHERE}`, [storeId]);
+  } catch { return out; }
+  let rmap = new Map();
+  try { rmap = DS().reservedMap(db, storeId, act.map((r) => r.request_uuid)); } catch { rmap = new Map(); }
+  for (const r of act) {
+    const q = DS().qtyView(r.desired_qty, r.settled_qty, rmap.get(String(r.request_uuid)) || 0);
+    const cur = out.get(Number(r.product_id)) || { settled_qty: 0, reserved_qty: 0, to_buy_qty: 0, completed_requests: 0 };
+    cur.settled_qty += q.settled_qty; cur.reserved_qty += q.reserved_qty; cur.to_buy_qty += q.to_buy_qty;
+    out.set(Number(r.product_id), cur);
+  }
+  try {
+    for (const c of db.all("SELECT product_id, COUNT(*) AS n FROM product_demand_requests WHERE store_id=? AND status='completed' GROUP BY product_id", [storeId])) {
+      const cur = out.get(Number(c.product_id)) || { settled_qty: 0, reserved_qty: 0, to_buy_qty: 0, completed_requests: 0 };
+      cur.completed_requests = Number(c.n) || 0;
+      out.set(Number(c.product_id), cur);
+    }
+  } catch { /* 欄位尚未遷移 */ }
+  return out;
+}
+
+// R54.4／MBV2-HF1-C6.2：本人已完成的登記（歷史，最近 90 天，最多 20 筆）；不影響有效登記清單
+function listMineCompleted(db, storeId, lineUserId) {
+  const rows = db.all(`SELECT * FROM product_demand_requests WHERE store_id=? AND line_user_id=? AND status='completed'
+                       AND COALESCE(completed_at, updated_at) >= datetime('now','-90 days') ORDER BY COALESCE(completed_at, updated_at) DESC, id DESC LIMIT 20`, [storeId, lineUserId]);
+  return rows.map((r) => {
+    const prod = db.get('SELECT name, line_name FROM products WHERE id=? AND store_id=?', [r.product_id, storeId]);
+    const o = rowOut(r, 0);
+    return { product_id: o.product_id, product_name: prod ? String(prod.line_name || prod.name || '') : String(r.product_name_snapshot || ''),
+      status: 'completed', registered_qty: o.registered_qty, settled_qty: o.settled_qty, completed_at: o.completed_at, created_at: o.created_at };
+  });
 }
 
 function adminDetail(db, storeId, productId) {
@@ -482,16 +542,24 @@ function adminDetail(db, storeId, productId) {
                        LEFT JOIN line_members m ON m.store_id=r.store_id AND m.line_user_id=r.line_user_id
                        WHERE r.store_id=? AND r.product_id=? ORDER BY r.id DESC LIMIT 500`, [storeId, pid]);
   const active = rows.filter((r) => r.eff_status === 'active');
+  let rmap = new Map();
+  try { rmap = DS().reservedMap(db, storeId, rows.map((r) => r.request_uuid)); } catch { rmap = new Map(); }
+  const qv = (r) => DS().qtyView(r.desired_qty, r.settled_qty, r.eff_status === 'active' ? (rmap.get(String(r.request_uuid)) || 0) : 0);
+  const sumActive = (k) => active.reduce((s, r) => s + qv(r)[k], 0);
   return {
     product: { product_id: p.id, name: p.line_name || p.name, sale_status: p.sale_status || 'available', demand_collect_enabled: Number(p.demand_collect_enabled) !== 0 ? 1 : 0 },
     active_users: new Set(active.map((r) => r.line_user_id)).size,
     total_qty: active.reduce((s, r) => s + Number(r.desired_qty || 0), 0),
+    // C6.2：有效登記的份數拆分；已完成週期另計（歷史）
+    settled_qty: sumActive('settled_qty'), reserved_qty: sumActive('reserved_qty'), to_buy_qty: sumActive('to_buy_qty'),
+    completed_requests: rows.filter((r) => r.eff_status === 'completed').length,
     rows: rows.map((r) => ({
       request_id: r.id, member: maskUid(r.line_user_id), member_display_name: r.member_display_name || '',
       desired_qty: Number(r.desired_qty), fulfillment_pref: r.fulfillment_pref, status: r.eff_status,
       created_at: r.created_at, updated_at: r.updated_at, expires_at: r.expires_at, cancelled_at: r.cancelled_at || '',
       notify_consent: consentStatusFor(db, storeId, r.line_user_id, pid, r.request_uuid),
       restock_notify: RN().requestNotifyState(db, storeId, r.request_uuid),
+      ...(() => { const q = qv(r); return { settled_qty: q.settled_qty, reserved_qty: q.reserved_qty, to_buy_qty: q.to_buy_qty, completed_at: r.completed_at || null }; })(),
     })),
   };
 }
@@ -530,6 +598,6 @@ function setSettings(db, storeId, body) {
 module.exports = {
   MAX_QTY, DEFAULT_TTL_DAYS, NOTIFY_CHANNEL_IMPLEMENTED, CONSENT_TEXT_VERSION, SETTING_KEYS,
   SUBSCRIBE_MODES, REGISTER_CONSENT_TEXT, REGISTER_CONSENT_TEXT_VERSION, normalizeSubscribeMode,
-  DemandError, migrate, getConfig, listMine, register, subscribe, cancel, revokeConsent,
+  DemandError, migrate, getConfig, listMine, listMineCompleted, settlementByProduct, register, subscribe, cancel, revokeConsent,
   adminSummary, adminDetail, setProductCollect, setSettings, maskUid, supportedPrefs,
 };

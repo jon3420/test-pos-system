@@ -13,7 +13,7 @@ const RN = require('./restockNotify');
 
 const MAX_ROWS = 20000;
 const PREF = { takeout: '外帶自取', delivery: '外送', any: '都可以' };
-const STATUS = { active: '有效', expired: '已過期', cancelled: '已取消', fulfilled: '已完成' };
+const STATUS = { active: '有效', expired: '已過期', cancelled: '已取消', fulfilled: '已完成', completed: '已完成' };
 const CONSENT = { granted: '已同意（本週期）', revoked: '已撤回', reconfirm_required: '需重新確認', none: '未同意' };
 const NOTIFY = { accepted: 'LINE 已受理', in_progress: '通知處理中', none: '尚未通知' };
 const SALE = { available: '可販售', sold_out_today: '今日完售', paused: '暫停販售', sold_out_indefinitely: '停售' };
@@ -35,9 +35,12 @@ function exportSummary(db, storeId, q = {}) {
   let list = sum.products;
   if (q.product_id != null && q.product_id !== '') list = list.filter((p) => Number(p.product_id) === Number(q.product_id));
   if (String(q.only_active || '') === '1') list = list.filter((p) => p.active_users > 0);
-  const header = ['商品編號', '商品名稱', '販售狀態', 'LINE 點餐頁顯示', '開放補貨登記', '有效登記人數', '期望總份數', '最近更新（台北）', '歷史登記筆數'];
+  // C6.2：既有欄位順序不變，新增欄位接在最後（期望總份數＝有效登記的原登記份數）
+  const header = ['商品編號', '商品名稱', '販售狀態', 'LINE 點餐頁顯示', '開放補貨登記', '有效登記人數', '期望總份數', '最近更新（台北）', '歷史登記筆數',
+    '已完成份數（有效登記）', '訂購中份數', '尚待購買份數', '已完成登記筆數'];
   const rows = list.slice(0, MAX_ROWS).map((p) => [p.product_id, p.name, SALE[p.sale_status] || p.sale_status, p.line_visible ? '是' : '否',
-    p.demand_collect_enabled ? '是' : '否', p.active_users, p.total_qty, twTime(p.last_updated_at), p.history_rows]);
+    p.demand_collect_enabled ? '是' : '否', p.active_users, p.total_qty, twTime(p.last_updated_at), p.history_rows,
+    Number(p.settled_qty) || 0, Number(p.reserved_qty) || 0, Number(p.to_buy_qty) || 0, Number(p.completed_requests) || 0]);
   return { csv: toCsv(header, rows), count: rows.length, truncated: list.length > MAX_ROWS };
 }
 
@@ -46,7 +49,7 @@ function exportDetails(db, storeId, q = {}) {
   const params = [storeId];
   if (q.product_id != null && q.product_id !== '' && Number.isInteger(Number(q.product_id))) { where.push('r.product_id=?'); params.push(Number(q.product_id)); }
   const eff = "CASE WHEN r.status='active' AND r.expires_at <= datetime('now') THEN 'expired' ELSE r.status END";
-  if (['active', 'expired', 'cancelled'].includes(String(q.status || ''))) { where.push(`${eff}=?`); params.push(String(q.status)); }
+  if (['active', 'expired', 'cancelled', 'completed'].includes(String(q.status || ''))) { where.push(`${eff}=?`); params.push(String(q.status)); }
   if (['takeout', 'delivery', 'any'].includes(String(q.pref || ''))) { where.push('r.fulfillment_pref=?'); params.push(String(q.pref)); }
   // 登記時間以台北日期篩選（資料庫為 UTC）
   if (ymd(q.from)) { where.push("date(datetime(r.created_at, '+8 hours')) >= ?"); params.push(ymd(q.from)); }
@@ -57,7 +60,10 @@ function exportDetails(db, storeId, q = {}) {
                        LEFT JOIN line_members m ON m.store_id=r.store_id AND m.line_user_id=r.line_user_id
                        WHERE ${where.join(' AND ')} ORDER BY r.product_id ASC, r.id DESC LIMIT ?`, [...params, MAX_ROWS + 1]);
   const truncated = rows.length > MAX_ROWS;
-  const header = ['商品編號', '商品名稱', '會員（遮罩）', '會員顯示名稱', '期望份數', '取餐偏好', '登記狀態', '通知同意', '補貨通知', '登記時間（台北）', '更新時間（台北）', '有效期限（台北）', '取消時間（台北）'];
+  const header = ['商品編號', '商品名稱', '會員（遮罩）', '會員顯示名稱', '期望份數', '取餐偏好', '登記狀態', '通知同意', '補貨通知', '登記時間（台北）', '更新時間（台北）', '有效期限（台北）', '取消時間（台北）',
+    '已完成份數', '訂購中份數', '尚待購買份數', '完成時間（台北）']; // C6.2：新增欄位接在最後
+  let rmap = new Map();
+  try { rmap = require('./demandSettlement').reservedMap(db, storeId, rows.slice(0, MAX_ROWS).map((r) => r.request_uuid)); } catch { rmap = new Map(); }
   const out = rows.slice(0, MAX_ROWS).map((r) => {
     let consent = 'none';
     try { consent = RN.consentState(RN.cycleConsent(db, storeId, r)); } catch { consent = 'none'; }
@@ -65,7 +71,9 @@ function exportDetails(db, storeId, q = {}) {
     try { notify = RN.requestNotifyState(db, storeId, r.request_uuid); } catch { notify = 'none'; }
     return [r.product_id, String((r.p_line_name || '').trim() || r.p_name || ''), PD.maskUid(r.line_user_id), r.member_display_name || '', Number(r.desired_qty) || 0,
       PREF[r.fulfillment_pref] || r.fulfillment_pref, STATUS[r.eff_status] || r.eff_status, CONSENT[consent] || consent, NOTIFY[notify] || notify,
-      twTime(r.created_at), twTime(r.updated_at), twTime(r.expires_at), twTime(r.cancelled_at)];
+      twTime(r.created_at), twTime(r.updated_at), twTime(r.expires_at), twTime(r.cancelled_at),
+      ...(() => { const qv = require('./demandSettlement').qtyView(r.desired_qty, r.settled_qty, r.eff_status === 'active' ? (rmap.get(String(r.request_uuid)) || 0) : 0);
+        return [qv.settled_qty, qv.reserved_qty, r.eff_status === 'active' ? qv.to_buy_qty : 0, twTime(r.completed_at)]; })()];
   });
   return { csv: toCsv(header, out), count: out.length, truncated };
 }

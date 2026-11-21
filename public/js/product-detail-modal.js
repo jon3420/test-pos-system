@@ -28,6 +28,7 @@
   let _state = null; // 目前開啟中的商品詳情狀態
   let _scrollY = 0;
   let _lastAddClickTs = 0; // 防止快速連點重複觸發加入購物車
+  let _openSeq = 0; // R54.4／MBV2-HF1-C6.2：每次 open() 的識別，供呼叫端晚到資料只更新「同一次開啟」
 
   function _ensureDom() {
     if (overlayEl) return;
@@ -85,6 +86,10 @@
   //   startQty(number, 預設 1), maxQty(number|null, 份數/庫存上限，null=不限),
   //   blocked(bool, 是否完全無法加入), blockedLabel(string),
   //   demand(null|{label}) — R54.4／MBV2-HF1-C3：想買登記入口（選用；C3.1 起可與加入按鈕並存）
+  //   R54.4／MBV2-HF1-C6.2（皆選用；未提供時畫面與既有行為完全相同）：
+  //   demandNote([{text, tone}]) — 補貨登記提示（例如「你尚有 5 份補貨登記」）
+  //   qtyInLabel(bool)           — 加入按鈕顯示明確份數（「加入購物車 5 份」）
+  //   bundle(null|{label})       — 「其他登記商品一起加入」入口（opts.onBundle）
   // }
   // opts: {
   //   onOpen(product)          — 開啟成功時觸發一次（用於 view_item 追蹤），
@@ -104,6 +109,8 @@
       opts: opts,
       qty: startQty,
       added: false,
+      token: ++_openSeq,  // C6.2
+      qtyTouched: false,  // C6.2：顧客是否已自行調整數量（調整後晚到資料不再改動數量）
     };
     _render();
     overlayEl.classList.add('pdm-open');
@@ -112,6 +119,24 @@
     if (typeof opts.onOpen === 'function') {
       try { opts.onOpen(product); } catch (e) { /* 追蹤失敗不影響商品詳情本身 */ }
     }
+    return _state.token;
+  }
+
+  // R54.4／MBV2-HF1-C6.2：目前開啟中的詳情（id、開啟識別、數量是否已被顧客調整）
+  function current() {
+    if (!_state || !isOpen()) return null;
+    return { id: _state.product.id, token: _state.token, qtyTouched: !!_state.qtyTouched, qty: _state.qty, added: !!_state.added };
+  }
+  // R54.4／MBV2-HF1-C6.2：只更新「同一次開啟」（token 相同）的顯示資料；顧客已調整數量時不改數量；已加入時不更新
+  function update(token, patch) {
+    const s = _state;
+    if (!s || !isOpen() || s.token !== token || s.added || !patch) return false;
+    const p = s.product;
+    ['demandNote', 'qtyInLabel', 'bundle', 'maxQty', 'blocked', 'blockedLabel'].forEach(function (k) { if (Object.prototype.hasOwnProperty.call(patch, k)) p[k] = patch[k]; });
+    if (patch.startQty != null && !s.qtyTouched) { p.startQty = patch.startQty; s.qty = Math.max(1, Number(patch.startQty) || 1); }
+    s.qty = _clampQty(s.qty);
+    _render();
+    return true;
   }
 
   function close() {
@@ -137,6 +162,7 @@
 
   function _changeQty(delta) {
     if (!_state) return;
+    _state.qtyTouched = true; // C6.2
     _state.qty = _clampQty(_state.qty + delta);
     _renderFooter();
     _renderQtyRow();
@@ -158,8 +184,8 @@
     const subtotal = price * s.qty;
     footerEl.innerHTML =
       '<div class="pdm-subtotal">小計 <b>$' + subtotal + '</b></div>' +
-      '<button type="button" class="pdm-add-btn" ' + (s.product.blocked ? 'disabled' : '') + '>' +
-        (s.product.blocked ? (s.product.blockedLabel || '無法加入') : (s.added ? '已加入 ✓' : '加入購物車')) +
+      '<button type="button" class="pdm-add-btn' + (s.product.qtyInLabel && !s.product.blocked ? ' pdm-qty-label' : '') + '" ' + (s.product.blocked ? 'disabled' : '') + '>' +
+        (s.product.blocked ? (s.product.blockedLabel || '無法加入') : (s.added ? '已加入 ✓' : (s.product.qtyInLabel ? '加入購物車 ' + s.qty + ' 份' : '加入購物車'))) +
       '</button>';
     const btn = footerEl.querySelector('.pdm-add-btn');
     if (btn && !s.product.blocked) {
@@ -180,6 +206,20 @@
         try { cb(prod); } catch (err) { /* 登記入口失敗不影響詳情 */ }
       });
       footerEl.appendChild(d);
+    }
+    // R54.4／MBV2-HF1-C6.2：其他登記商品一起加入（獨立入口；不經過本商品的加入流程）
+    if (s.product.bundle && typeof s.opts.onBundle === 'function') {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'pdm-bundle-btn';
+      b.textContent = String(s.product.bundle.label || '其他登記商品一起加入');
+      b.addEventListener('click', function (e) {
+        e.stopPropagation();
+        const cb = s.opts.onBundle; const prod = s.product;
+        close();
+        try { cb(prod); } catch (err) { /* 入口失敗不影響詳情 */ }
+      });
+      footerEl.appendChild(b);
     }
   }
 
@@ -220,6 +260,10 @@
       '<h3 class="pdm-name" id="pdmName">' + _escapeHtml(p.name) + '</h3>' +
       (descText ? '<p class="pdm-desc">' + descText + '</p>' : '') +
       '<div class="pdm-price-row">基本價格 <span class="pdm-price">$' + (Number(p.price) || 0) + '</span></div>' +
+      // R54.4／MBV2-HF1-C6.2：補貨登記提示（只有呼叫端提供時才顯示）
+      (Array.isArray(p.demandNote) && p.demandNote.length ? '<div class="pdm-demand-note" role="status">' + p.demandNote.map(function (n) {
+        return '<div class="pdm-demand-line' + (n && n.tone ? ' pdm-tone-' + _escapeHtml(n.tone) : '') + '">' + _escapeHtml(n && n.text) + '</div>';
+      }).join('') + '</div>' : '') +
       (p.blocked ? '' :
         '<div class="pdm-qty-row">' +
           '<span class="pdm-qty-label">數量</span>' +
@@ -239,5 +283,5 @@
     _renderFooter();
   }
 
-  global.ProductDetailModal = { open: open, close: close, isOpen: isOpen };
+  global.ProductDetailModal = { open: open, close: close, isOpen: isOpen, current: current, update: update };
 })(window);

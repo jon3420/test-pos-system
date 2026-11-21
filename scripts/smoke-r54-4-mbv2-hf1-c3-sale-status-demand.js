@@ -612,8 +612,9 @@ function checkManualExpect(name, st, ss) {
         'B2 完整備份包含 3 筆登記（含已取消）與 2 筆通知同意', JSON.stringify({ c: fj.table_counts && { r: fj.table_counts.product_demand_requests, k: fj.table_counts.product_demand_consents } }));
       const part = await H.download(C.s.base, C.tok, '/api/migration/v2/export?categories=product_demand');
       const pj = JSON.parse(part.buf.toString('utf8'));
-      assert(pj.backup_type === 'partial' && Object.keys(pj.data).filter((k) => Array.isArray(pj.data[k])).sort().join(',') === 'product_demand_consents,product_demand_requests' && pj.ref_maps && pj.ref_maps.products && pj.ref_maps.products[PID],
-        'B3 選擇性備份只含想買登記兩張表，並附商品對照表', Object.keys(pj.data).join(','));
+      // C6.2 調整：「商品想買登記」分類新增登記與訂單的份數關聯（product_demand_order_links），精確清單同步更新（其餘條件不變）
+      assert(pj.backup_type === 'partial' && Object.keys(pj.data).filter((k) => Array.isArray(pj.data[k])).sort().join(',') === 'product_demand_consents,product_demand_order_links,product_demand_requests' && pj.ref_maps && pj.ref_maps.products && pj.ref_maps.products[PID],
+        'B3 選擇性備份只含想買登記分類的三張表（登記、同意、份數關聯），並附商品對照表', Object.keys(pj.data).join(','));
       await safeStop(C.s);
       // 目標：同店別、商品 ID 不同（名稱相同）→ 匯入需重新對應商品
       const dir2 = H.tmpDir('hf1c3-b2'); const T = await bootServer(dir2, { pid: 801, pid2: 802 }); ctxs.push(T);

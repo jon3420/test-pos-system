@@ -2737,6 +2737,10 @@ function initTables(w) {
   // 與 products.demand_collect_enabled。additive、idempotent；失敗只記錄、不阻擋開機。
   try { require('./productDemand').migrate(w._db); w._save(); }
   catch (e) { console.warn('[DB] product_demand migration:', e.message); }
+  // R54.4／MBV2-HF1-C6.2：補貨登記份數與訂單連動（requests.settled_qty／completed_at、product_demand_order_links）。
+  // additive、idempotent；不回溯處理升級前的歷史訂單、不發送任何通知。
+  try { require('./demandSettlement').migrate(w._db); w._save(); }
+  catch (e) { console.warn('[DB] demand_settlement migration:', e.message); }
   // R54.4／MBV2-HF1-C4：LINE 補貨通知（restock_notify_batches／restock_notify_deliveries、
   // products.product_uuid、通知同意補欄位）。additive、idempotent。
   // 啟動時只把「上次中斷的發送」改為待店家確認（sending→unknown、批次→paused），不會自動發送。

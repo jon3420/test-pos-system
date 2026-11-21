@@ -393,6 +393,8 @@ router.get('/confirm', async (req, res) => {
     if (_confirmInflight.has(key)) { await _confirmInflight.get(key).catch(() => null); }
     const p = (async () => {
       const out = await LPR.settle(db, cfg, storeId, attempt.attempt_uuid, { tx, allowConfirm: true });
+      // R54.4／MBV2-HF1-C6.2：依訂單目前後端狀態同步補貨登記份數（已付款扣減／失敗解除訂購中；fail-open、可重複）
+      require('../utils/demandSettlement').safeSync(db, storeId, order.uuid, {}, 'linepay_confirm');
       if (out.reason === 'in_progress') {
         // 後台核對正在處理同一筆：顯示確認中（不推定）
         return lpRedirect(pageBase, storeId, 'pending', `&order=${encodeURIComponent(order.order_number)}&order_ref=${encodeURIComponent(order.uuid)}`);

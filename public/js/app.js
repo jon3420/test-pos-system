@@ -10395,7 +10395,15 @@ function lpmSwitchTab(tab) {
 // 只讀取 /api/product-demand-admin（店家 JWT）；統計由後端計算並排除取消／過期登記。
 const _PD_STATUS_LABEL = { available: '正常販售', sold_out_today: '今日完售', paused: '暫停販售', sold_out_indefinitely: '長期下架' };
 const _PD_PREF_LABEL = { takeout: '外帶自取', delivery: '外送', any: '都可以' };
-const _PD_ROW_STATUS = { active: '有效', cancelled: '已取消', expired: '已過期', notified: '已通知', converted: '已轉單' };
+const _PD_ROW_STATUS = { active: '有效', cancelled: '已取消', expired: '已過期', notified: '已通知', converted: '已轉單', completed: '已完成' };
+// R54.4／MBV2-HF1-C6.2：份數拆分（原登記＝期望份數；已完成＝有效訂單已成立；訂購中＝待付款；尚待購買）。只有出現訂單連動時才顯示。
+function _pdQtySubText(r, sep) {
+  const s = Number(r.settled_qty) || 0, rv = Number(r.reserved_qty) || 0, c = Number(r.completed_requests) || 0;
+  if (!s && !rv && !c) return '';
+  const parts = [`已完成 ${s}`, `訂購中 ${rv}`, `尚待購買 ${Number(r.to_buy_qty) || 0}`];
+  if (c) parts.push(`已完成登記 ${c} 筆`);
+  return parts.join(sep || '・');
+}
 
 // ── R54.4／MBV2-HF1-C4.2：補貨登記分頁自動更新 ─────────────────────────────────
 //   - 進入分頁立即讀取；停留在分頁且頁面可見時每 10 秒讀取一次（發送中的批次期間 2 秒）；
@@ -10596,7 +10604,7 @@ function _pdRowHtml(r) {
       <td style="padding:8px 12px" class="pd-name">${_pdNameHtml(r)}</td>
       <td style="padding:8px;text-align:center" class="pd-status">${escHtml(_PD_STATUS_LABEL[r.sale_status] || r.sale_status)}</td>
       <td style="padding:8px;text-align:center;font-weight:700" class="pd-users">${r.active_users}</td>
-      <td style="padding:8px;text-align:center;font-weight:700" class="pd-qty">${r.total_qty}</td>
+      <td style="padding:8px;text-align:center;font-weight:700" class="pd-qty-cell"><span class="pd-qty">${r.total_qty}</span><div class="pd-qty-sub" style="font-size:11px;font-weight:400;line-height:1.4;white-space:pre-line;color:var(--text-muted,#64748b)">${escHtml(_pdQtySubText(r, '\n'))}</div></td>
       <td style="padding:8px;text-align:center"><label style="display:inline-flex;gap:4px;align-items:center"><input type="checkbox" class="pd-collect" ${r.demand_collect_enabled ? 'checked' : ''} onchange="toggleDemandCollect(${r.product_id}, this.checked, this)"> 收集</label></td>
       ${_pdApCellHtml(r.product_id)}
       <td style="padding:8px;text-align:center;white-space:nowrap"><button class="btn-secondary pd-view" style="font-size:12px;padding:3px 10px" onclick="openDemandDetail(${r.product_id})">查看</button></td>
@@ -10634,6 +10642,7 @@ function _pdApplySummary(rows, ctx) {
     _pdSetText(tr.querySelector('.pd-status'), _PD_STATUS_LABEL[r.sale_status] || r.sale_status);
     _pdSetText(tr.querySelector('.pd-users'), r.active_users);
     _pdSetText(tr.querySelector('.pd-qty'), r.total_qty);
+    _pdSetText(tr.querySelector('.pd-qty-sub'), _pdQtySubText(r, '\n')); // C6.2
     const cb = tr.querySelector('.pd-collect');
     if (cb && !_pdMutBlocks('collect:' + r.product_id, ctx) && document.activeElement !== cb) cb.checked = !!r.demand_collect_enabled;
   }
@@ -10939,7 +10948,7 @@ function openDemandDetail(pid) {
 function _pdDetailRowsHtml(d) {
   return d.rows.length ? d.rows.map(r => `<tr style="border-top:1px solid var(--border,#334155)">
           <td style="padding:4px">${escHtml(r.member_display_name || '')} <span style="color:var(--text-muted,#64748b)">${escHtml(r.member)}</span></td>
-          <td style="padding:4px;text-align:center">${r.desired_qty}</td>
+          <td style="padding:4px;text-align:center">${r.desired_qty}${(Number(r.settled_qty) || Number(r.reserved_qty)) ? `<br><span class="pd-row-settle" style="font-size:11px;color:var(--text-muted,#64748b)">已完成 ${Number(r.settled_qty) || 0}・訂購中 ${Number(r.reserved_qty) || 0}${r.status === 'active' ? `・尚待購買 ${Number(r.to_buy_qty) || 0}` : ''}</span>` : ''}</td>
           <td style="padding:4px;text-align:center">${escHtml(_PD_PREF_LABEL[r.fulfillment_pref] || r.fulfillment_pref)}</td>
           <td style="padding:4px;text-align:center">${escHtml(_PD_ROW_STATUS[r.status] || r.status)}</td>
           <td style="padding:4px;text-align:center">${escHtml(_PD_CONSENT_LABEL[r.notify_consent] || '—')}${r.restock_notify === 'accepted' ? '<br><span style="font-size:11px;color:#16a34a">LINE 已受理通知</span>' : (r.restock_notify === 'in_progress' ? '<br><span style="font-size:11px;color:#f59e0b">通知處理中</span>' : '')}</td>
@@ -10952,7 +10961,8 @@ function _pdApplyDetail(d, err) {
   const tbody = document.querySelector('#pd-detail-table tbody');
   if (!head || !tbody) return;
   if (!d) { _pdSetText(head, err === 'PRODUCT_NOT_FOUND' ? '商品已不存在' : '明細載入失敗'); if (tbody.dataset.h !== '') { tbody.innerHTML = ''; tbody.dataset.h = ''; } return; }
-  _pdSetText(head, `${d.product.name}：有效登記 ${d.active_users} 人、期望 ${d.total_qty} 份`);
+  const _sub = _pdQtySubText(d); // C6.2：份數拆分（只有出現訂單連動時才顯示）
+  _pdSetText(head, `${d.product.name}：有效登記 ${d.active_users} 人、期望 ${d.total_qty} 份${_sub ? `（${_sub}）` : ''}`);
   const html = _pdDetailRowsHtml(d);
   if (tbody.dataset.h !== html) { tbody.innerHTML = html; tbody.dataset.h = html; }
 }

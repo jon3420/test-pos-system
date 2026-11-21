@@ -783,5 +783,10 @@ initDb().then((db) => {
     const _raBoot = () => { try { const RA = require('./utils/restockAuto'); const r = RA.bootRecover(require('./utils/db').getDb()); if (r.requeued || r.resumed_batches) console.log(`[restock_auto] boot: requeued=${r.requeued} resumed_batches=${r.resumed_batches}`); console.log(`[restock_auto] boot recovery done (stale_batches=${r.stale_batches || 0} legacy_review=${r.legacy_review || 0})`); } catch (e) { console.warn('[restock_auto] boot:', e && e.message); } };
     setTimeout(_raBoot, 2000).unref();
     setInterval(() => { try { require('./utils/restockAuto').sweep(require('./utils/db').getDb()); } catch (e) { console.warn('[restock_auto] sweep:', e && e.message); } }, 60 * 1000).unref();
+    // R54.4／MBV2-HF1-C6.2：補貨登記份數連動補齊（訂購中逾期／付款結果／取消回復；只處理本機資料、不呼叫外部 API、不發送通知）
+    const _pdsSweep = (boot) => { try { const r = require('./utils/demandSettlement').sweep(require('./utils/db').getDb(), { boot: boot === true }); if (r.changed || r.failed || process.env.PD_SETTLE_SWEEP_LOG === '1') console.log(`[demand_settlement] sweep: round=${r.round} orders=${r.orders} changed=${r.changed} failed=${r.failed}` + (process.env.PD_SETTLE_SWEEP_LOG === '1' ? ' ' + JSON.stringify(r.cats) : '')); } catch (e) { console.warn('[demand_settlement] sweep:', e && e.message); } };
+    setTimeout(() => _pdsSweep(true), 2500).unref(); // 啟動時：待辦不等待退避（重啟後立即補齊）
+    // C6.2 補修：補齊間隔可由環境變數 PD_SETTLE_SWEEP_MS 調整（預設 60 秒、最短 1 秒；只影響本機補齊頻率）
+    setInterval(() => _pdsSweep(false), Math.max(1000, Number(process.env.PD_SETTLE_SWEEP_MS) || 60 * 1000)).unref();
   });
 }).catch(e => { console.error('DB 初始化失敗:', e); process.exit(1); });

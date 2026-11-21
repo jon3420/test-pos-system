@@ -1,0 +1,1122 @@
+{
+ "round": "R54.4／MBV2-HF1-C6.2 歷史待核對紀錄掃描漏標修正",
+ "baseline": {
+  "file": "P3CD_DEPLOY_R54_4_MBV2_HF1_C6_2_DEMAND_SETTLEMENT_STATE_EDGE_FIX_APP_ROOT.zip",
+  "sha256": "f0ab3ee3860ddf64aeacf77d58eba742ee897061a83fc3ccda59401d85c95dc1",
+  "bytes": 10843964,
+  "files": 1076,
+  "zip_entries": 1136,
+  "manifest_entries": 1073,
+  "manifest_mismatch": 0
+ },
+ "external_calls": {
+  "real_line": 0,
+  "real_linepay": 0,
+  "sandbox": 0
+ },
+ "labels": {
+  "N": "本輪修正（基準應以漏標／處理不完的業務斷言失敗）",
+  "G": "保留既有行為",
+  "FX-DB": "SQLite fixture",
+  "BOOT": "正式啟動流程（node server.js 啟動補齊／定期補齊）",
+  "API": "正式 HTTP 路由",
+  "RS": "一般重啟",
+  "KILL": "真實 SIGKILL",
+  "FAULT": "測試 preload 注入單筆保存失敗",
+  "DB": "直接讀資料庫檔"
+ },
+ "new_acceptance": {
+  "script": "scripts/smoke-r54-4-mbv2-hf1-c6-2-legacy-review-scan-fix.js",
+  "baseline_summary": "結果：3 通過、8 失敗",
+  "baseline_exceptions": 0,
+  "work_tree_summary": "結果：11 通過、0 失敗",
+  "candidate_in_regression": "結果：11 通過、0 失敗",
+  "items": [
+   {
+    "id": "T0",
+    "class": "G",
+    "title": "T0 [API] 範本：通知批次逐筆受理 2 筆（含 retry key）、LINE Pay 已付款訂單 1 筆，供前後比對",
+    "baseline": true,
+    "baseline_detail": "{\"d\":2,\"lp_paid\":1}",
+    "work_tree": true,
+    "candidate": true,
+    "work_tree_detail": "{\"d\":2,\"lp_paid\":1}"
+   },
+   {
+    "id": "L1",
+    "class": "N",
+    "title": "L1 [FX-DB][BOOT] 前 500 筆為合法未履約作廢（accepted）、第 501 筆原狀態 NULL → 第一次正式啟動即標記 legacy_review:void_prior_state_missing",
+    "baseline": false,
+    "baseline_detail": "{\"boot\":1,\"marked\":0,\"rounds\":[],\"sweep_rounds\":12}",
+    "work_tree": true,
+    "candidate": true,
+    "work_tree_detail": "{\"boot\":1,\"marked\":1,\"rounds\":[[2,1,1,0,true]],\"sweep_rounds\":5}"
+   },
+   {
+    "id": "L1-2",
+    "class": "N",
+    "title": "L1-2 [FX-DB][BOOT][RS][DB] 連續三次啟動：只標記一次、不重複追加；500 筆正常紀錄、份數、關聯 state／applied_qty、登記週期、訂單、付款、通知與 retry key 皆不變",
+    "baseline": false,
+    "baseline_detail": "{\"boots\":[0,0,0],\"bad\":[\"link_note:503=order_cancelled\",\"task_result:503=cancel\"],\"badN\":2}",
+    "work_tree": true,
+    "candidate": true,
+    "work_tree_detail": "{\"boots\":[1,1,1],\"bad\":[],\"badN\":0}"
+   },
+   {
+    "id": "L2",
+    "class": "N",
+    "title": "L2 [FX-DB][BOOT][DB] 1,100 筆正常（含前後空白、Tab、全形空白等正規化後合法值）之後混入 NULL、空字串、空白、全形空白、大小寫不符、不合法值 → 6 筆依 classifyVoidPrior 原因正確標記；1,150 筆正常紀錄不變",
+    "baseline": false,
+    "baseline_detail": "{\"n\":0,\"rounds\":[],\"bad\":[\"link_note:1103=order_cancelled\",\"link_note:1104=order_cancelled\",\"link_note:1105=order_cancelled\",\"link_note:1106=order_cancelled\",\"link_note:1107=order_cancelled\",\"link_note:1108=order_cancelled\",\"task_result:1103=cancel\",\"task_result:1104=cancel\"],\"badN\":12}",
+    "work_tree": true,
+    "candidate": true,
+    "work_tree_detail": "{\"n\":6,\"rounds\":[[2,1,6,110,true]],\"bad\":[],\"badN\":0}"
+   },
+   {
+    "id": "L3",
+    "class": "N",
+    "title": "L3 [FX-DB][BOOT][DB] 應標記者 2,300 筆（超過 4 批）、store_001／store_002 交錯：同一次啟動中依批次上限分輪自動續行到全部完成；每筆只更新其店別、訂單、關聯與作廢待辦",
+    "baseline": false,
+    "baseline_detail": "{\"n\":500,\"sec\":62,\"lr\":[],\"bad\":[\"link_note:503=order_cancelled\",\"link_note:504=order_cancelled\",\"link_note:505=order_cancelled\",\"link_note:506=order_cancelled\",\"link_note:507=order_cancelled\",\"link_note:508=order_cancelled\"],\"badN\":3600}",
+    "work_tree": true,
+    "candidate": true,
+    "work_tree_detail": "{\"n\":2300,\"sec\":6,\"lr\":[[2,4,2000,false],[3,1,300,true]],\"bad\":[],\"badN\":0}"
+   },
+   {
+    "id": "L3-2",
+    "class": "N",
+    "title": "L3-2 [BOOT] 有界工作量：每輪最多 4 批 × 500 筆；最後一輪標示完成，之後的補齊輪次不再執行歷史掃描",
+    "baseline": false,
+    "baseline_detail": "{\"lr\":[],\"after\":40}",
+    "work_tree": true,
+    "candidate": true,
+    "work_tree_detail": "{\"lr\":[[2,4,2000,false],[3,1,300,true]],\"after\":4}"
+   },
+   {
+    "id": "L3K",
+    "class": "N",
+    "title": "L3K [FX-DB][KILL][BOOT] 第 2 批處理到第 700 筆時 SIGKILL：磁碟上只有已提交的第 1 批 500 筆（沒有半批）；同一資料庫重啟後續行至 1,500 筆、不重複標記",
+    "baseline": false,
+    "baseline_detail": "{\"sig\":null,\"mid\":500,\"n\":1000,\"badN\":1000}",
+    "work_tree": true,
+    "candidate": true,
+    "work_tree_detail": "{\"sig\":\"SIGKILL\",\"mid\":500,\"n\":1500,\"badN\":0}"
+   },
+   {
+    "id": "L4",
+    "class": "N",
+    "title": "L4 [FX-DB][BOOT][RS][DB] 正常、已標記、匯入、未作廢訂單與應標記紀錄穿插：只有 3 筆應標記者變動（含跨店同訂單 UUID 只更新 store_002 的關聯與待辦）；重啟不重複",
+    "baseline": false,
+    "baseline_detail": "{\"res\":[0,0],\"bad\":[\"link_note:648=order_cancelled\",\"link_note:650=order_cancelled\",\"link_note:681=order_cancelled\",\"task_result:648=cancel\",\"task_result:650=cancel\",\"task_result:681=cancel\"],\"badN\":6}",
+    "work_tree": true,
+    "candidate": true,
+    "work_tree_detail": "{\"res\":[3,3],\"bad\":[],\"badN\":0}"
+   },
+   {
+    "id": "L4-A",
+    "class": "G",
+    "title": "L4-A [FX-DB][BOOT][RS] A 型歷史修復：可信購買證據（現金）只補記一次 3；LINE Pay 未付款只轉待核對不扣；匯入資料與缺綁定待辦證據者不處理；兩次啟動不重複",
+    "baseline": true,
+    "baseline_detail": "{\"aRows\":[{\"id\":682,\"state\":\"review\",\"applied_qty\":3,\"note\":\"void_after_completed:legacy_repaired\"},{\"id\":683,\"state\":\"review\",\"applied_qty\":0,\"note\":\"void_after_completed:payment_unconfirmed:legacy_review\"},{\"id\":684,\"state\":\"released\",\"applied_qty\":0,\"note\":\"void_after_completed\"},{\"id\":685,\"state\":\"released\",\"applied_qty\":0,\"note\":\"void_after_completed\"}],\"aReq\":[{\"request_uuid\":\"fx-r-18410\",\"settled_qty\":3},{\"request_uuid\":\"fx-r-18413\",\"settled_qty\":0},{\"request_uuid\":\"fx-r-18416\",\"settled_qty\":0},{\"request_uuid\":\"fx-r-18419\",\"settled_qty\":0}]}",
+    "work_tree": true,
+    "candidate": true,
+    "work_tree_detail": "{\"aRows\":[{\"id\":682,\"state\":\"review\",\"applied_qty\":3,\"note\":\"void_after_completed:legacy_repaired\"},{\"id\":683,\"state\":\"review\",\"applied_qty\":0,\"note\":\"void_after_completed:payment_unconfirmed:legacy_review\"},{\"id\":684,\"state\":\"released\",\"applied_qty\":0,\"note\":\"void_after_completed\"},{\"id\":685,\"state\":\"released\",\"applied_qty\":0,\"note\":\"void_after_completed\"}],\"aReq\":[{\"request_uuid\":\"fx-r-18410\",\"settled_qty\":3},{\"request_uuid\":\"fx-r-18413\",\"settled_qty\":0},{\"request_uuid\":\"fx-r-18416\",\"settled_qty\":0},{\"request_uuid\":\"fx-r-18419\",\"settled_qty\":0}]}"
+   },
+   {
+    "id": "L5",
+    "class": "N",
+    "title": "L5 [FX-DB][FAULT][BOOT] 600 筆正常之後 3 筆應標記、其中 1 筆標記失敗：其餘 2 筆照常標記；故障解除後不需重啟，由重試補齊第 3 筆",
+    "baseline": false,
+    "baseline_detail": "{\"mid\":{\"others\":0,\"failed\":0},\"fin\":0,\"lr\":[],\"badN\":6}",
+    "work_tree": true,
+    "candidate": true,
+    "work_tree_detail": "{\"mid\":{\"others\":2,\"failed\":0},\"fin\":3,\"lr\":[[2,2,1,false],[5,1,0,true]],\"badN\":0}"
+   },
+   {
+    "id": "Z1",
+    "class": "G",
+    "title": "Z1 全程：真實 LINE 0（LINE Pay 由程序內替身處理）",
+    "baseline": true,
+    "baseline_detail": "{\"real\":0}",
+    "work_tree": true,
+    "candidate": true,
+    "work_tree_detail": "{\"real\":0}"
+   }
+  ],
+  "observed_rounds": {
+   "template": {
+    "d": 2,
+    "lp_paid": 1
+   },
+   "s1": [
+    {
+     "boot": 1,
+     "marked": 1,
+     "rounds": [
+      [
+       2,
+       1,
+       1,
+       0,
+       true
+      ]
+     ],
+     "sweep_rounds": 5
+    },
+    {
+     "boot": 2,
+     "marked": 1,
+     "rounds": [
+      [
+       2,
+       1,
+       0,
+       0,
+       true
+      ]
+     ],
+     "sweep_rounds": 4
+    },
+    {
+     "boot": 3,
+     "marked": 1,
+     "rounds": [
+      [
+       2,
+       1,
+       0,
+       0,
+       true
+      ]
+     ],
+     "sweep_rounds": 4
+    }
+   ],
+   "s2": {
+    "n": 6,
+    "rounds": [
+     [
+      2,
+      1,
+      6,
+      110,
+      true
+     ]
+    ]
+   },
+   "s3": {
+    "n": 2300,
+    "sec": 6,
+    "legacy_rounds": [
+     [
+      2,
+      4,
+      2000,
+      false
+     ],
+     [
+      3,
+      1,
+      300,
+      true
+     ]
+    ],
+    "rounds_after_done_without_scan": 4
+   },
+   "s3k": {
+    "sig": "SIGKILL",
+    "mid": 500,
+    "n": 1500
+   },
+   "s4": {
+    "res": [
+     3,
+     3
+    ],
+    "aRows": [
+     {
+      "id": 682,
+      "state": "review",
+      "applied_qty": 3,
+      "note": "void_after_completed:legacy_repaired"
+     },
+     {
+      "id": 683,
+      "state": "review",
+      "applied_qty": 0,
+      "note": "void_after_completed:payment_unconfirmed:legacy_review"
+     },
+     {
+      "id": 684,
+      "state": "released",
+      "applied_qty": 0,
+      "note": "void_after_completed"
+     },
+     {
+      "id": 685,
+      "state": "released",
+      "applied_qty": 0,
+      "note": "void_after_completed"
+     }
+    ],
+    "aReq": [
+     {
+      "request_uuid": "fx-r-18410",
+      "settled_qty": 3
+     },
+     {
+      "request_uuid": "fx-r-18413",
+      "settled_qty": 0
+     },
+     {
+      "request_uuid": "fx-r-18416",
+      "settled_qty": 0
+     },
+     {
+      "request_uuid": "fx-r-18419",
+      "settled_qty": 0
+     }
+    ]
+   },
+   "s5": {
+    "mid": {
+     "others": 2,
+     "failed": 0
+    },
+    "fin": 3,
+    "lr": [
+     [
+      2,
+      2,
+      1,
+      false
+     ],
+     [
+      5,
+      1,
+      0,
+      true
+     ]
+    ]
+   }
+  }
+ },
+ "upgrade_rollback_same_db": {
+  "script": "scripts/smoke-r54-4-mbv2-hf1-c6-2-legacy-review-scan-upgrade-rollback.js",
+  "sequence": "STATE_EDGE_FIX → 本輪 → 回退 STATE_EDGE_FIX → 再升級",
+  "summary": "結果：4 通過、0 失敗",
+  "items": [
+   {
+    "id": "U0",
+    "class": "G",
+    "title": "U0 [API][FX-DB][BOOT] STATE_EDGE_FIX：600 筆合法紀錄之後的 2 筆未知原狀態沒有被標記（重現）；通知批次逐筆 2 筆、LINE Pay 付款扣減 3",
+    "pass": true,
+    "detail": "{\"M0\":[\"order_cancelled\",\"order_cancelled\"],\"nd\":2}"
+   },
+   {
+    "id": "U1",
+    "class": "G",
+    "title": "U1 [BOOT][DB] 升級：2 筆依原因標記；份數、關聯 state／applied_qty、待辦（result 以外）、訂單、付款、通知與 retry key 不變；沒有結構變更",
+    "pass": true,
+    "detail": "{\"M1\":[\"order_cancelled:legacy_review:void_prior_state_missing\",\"order_cancelled:legacy_review:void_prior_state_invalid\"],\"same\":[],\"schema\":true}"
+   },
+   {
+    "id": "U2",
+    "class": "G",
+    "title": "U2 [BOOT][API][DB] 回退 STATE_EDGE_FIX：已完成標記（關聯 note、待辦 result）不被移除或改寫；回退版本照常下單扣減",
+    "pass": true,
+    "detail": "{\"M2\":[\"order_cancelled:legacy_review:void_prior_state_missing\",\"order_cancelled:legacy_review:void_prior_state_invalid\"],\"R2\":[{\"result\":\"legacy_review:void_prior_state_missing\"},{\"result\":\"legacy_review:void_prior_state_invalid\"}]}"
+   },
+   {
+    "id": "U3",
+    "class": "G",
+    "title": "U3 [BOOT][RS][DB] 再升級並重啟：不重複標記；份數、待辦、訂單、付款、通知與 retry key 與回退後相同；結構與最初相同；真實 LINE 0",
+    "pass": true,
+    "detail": "{\"M3\":[\"order_cancelled:legacy_review:void_prior_state_missing\",\"order_cancelled:legacy_review:void_prior_state_invalid\"],\"dup\":0,\"changed\":[],\"real\":0}"
+   }
+  ]
+ },
+ "empty_db_boot": {
+  "baseline": {
+   "objects": 246,
+   "schema_hash": "14c0f17e16256a3b"
+  },
+  "candidate": {
+   "objects": 246,
+   "schema_hash": "14c0f17e16256a3b"
+  },
+  "schema_changes": []
+ },
+ "regression": {
+  "window": "2026-11-21 台北約 09:46～11:00；候選版先、基準後，依序執行（2 核心）",
+  "suites": [
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-2-legacy-review-scan-fix.js",
+    "env": {},
+    "baseline": {
+     "rc": 1,
+     "summary": "結果：3 通過、8 失敗",
+     "fail_lines": [
+      "❌ L1 [FX-DB][BOOT] 前 500 筆為合法未履約作廢（accepted）、第 501 筆原狀態 NULL → 第一次正式啟動即標記 legacy_review:void_prior_state_missing [N]",
+      "❌ L1-2 [FX-DB][BOOT][RS][DB] 連續三次啟動：只標記一次、不重複追加；500 筆正常紀錄、份數、關聯 state／applied_qty、登記週期、訂單、付款、通知與 retry key 皆不變 [N]",
+      "❌ L2 [FX-DB][BOOT][DB] 1,100 筆正常（含前後空白、Tab、全形空白等正規化後合法值）之後混入 NULL、空字串、空白、全形空白、大小寫不符、不合法值 → 6 筆依 classifyVoidPrior 原因正確標記；1,150 筆正常紀錄不變 [N]",
+      "❌ L3 [FX-DB][BOOT][DB] 應標記者 2,300 筆（超過 4 批）、store_001／store_002 交錯：同一次啟動中依批次上限分輪自動續行到全部完成；每筆只更新其店別、訂單、關聯與作廢待辦 [N]",
+      "❌ L3-2 [BOOT] 有界工作量：每輪最多 4 批 × 500 筆；最後一輪標示完成，之後的補齊輪次不再執行歷史掃描 [N]",
+      "❌ L3K [FX-DB][KILL][BOOT] 第 2 批處理到第 700 筆時 SIGKILL：磁碟上只有已提交的第 1 批 500 筆（沒有半批）；同一資料庫重啟後續行至 1,500 筆、不重複標記 [N]",
+      "❌ L4 [FX-DB][BOOT][RS][DB] 正常、已標記、匯入、未作廢訂單與應標記紀錄穿插：只有 3 筆應標記者變動（含跨店同訂單 UUID 只更新 store_002 的關聯與待辦）；重啟不重複 [N]",
+      "❌ L5 [FX-DB][FAULT][BOOT] 600 筆正常之後 3 筆應標記、其中 1 筆標記失敗：其餘 2 筆照常標記；故障解除後不需重啟，由重試補齊第 3 筆 [N]"
+     ]
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "結果：11 通過、0 失敗",
+     "fail_lines": []
+    },
+    "identical": false
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-2-legacy-review-scan-upgrade-rollback.js",
+    "env": {
+     "C62L_OLD_ROOT": "/home/claude/r4/base"
+    },
+    "baseline": null,
+    "candidate": {
+     "rc": 0,
+     "summary": "結果：4 通過、0 失敗",
+     "fail_lines": [],
+     "note": "清單內執行時結果行未輸出（測試 stop() 對已被 SIGTERM 結束的程序判斷不完整，程序在等待中提早結束）；修正測試後於候選版重跑"
+    },
+    "identical": false
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-2-state-edge-fix.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "結果：31 通過、0 失敗",
+     "fail_lines": []
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "結果：31 通過、0 失敗",
+     "fail_lines": []
+    },
+    "identical": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-2-state-edge-upgrade-rollback.js",
+    "env": {
+     "C62S_OLD_ROOT": "/home/claude/r3/base"
+    },
+    "baseline": {
+     "rc": 0,
+     "summary": "結果：6 通過、0 失敗",
+     "fail_lines": []
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "結果：6 通過、0 失敗",
+     "fail_lines": []
+    },
+    "identical": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-2-durable-recovery-fix.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "結果：22 通過、0 失敗",
+     "fail_lines": []
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "結果：22 通過、0 失敗",
+     "fail_lines": []
+    },
+    "identical": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-2-durable-recovery-upgrade-rollback.js",
+    "env": {
+     "C62R_OLD_ROOT": "/home/claude/r2/base"
+    },
+    "baseline": {
+     "rc": 0,
+     "summary": "結果：6 通過、0 失敗",
+     "fail_lines": []
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "結果：6 通過、0 失敗",
+     "fail_lines": []
+    },
+    "identical": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-2-demand-cart-order-settlement.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "結果：44 通過、0 失敗",
+     "fail_lines": []
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "結果：44 通過、0 失敗",
+     "fail_lines": []
+    },
+    "identical": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-2-upgrade-rollback.js",
+    "env": {
+     "C62_OLD_ROOT": "/home/claude/r2/c61"
+    },
+    "baseline": {
+     "rc": 0,
+     "summary": "結果：9 通過、0 失敗",
+     "fail_lines": []
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "結果：9 通過、0 失敗",
+     "fail_lines": []
+    },
+    "identical": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-1-consistency.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "RESULT: 61 passed, 0 failed",
+     "fail_lines": []
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "RESULT: 61 passed, 0 failed",
+     "fail_lines": []
+    },
+    "identical": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-2-payment-recovery.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "RESULT: 33 passed, 0 failed",
+     "fail_lines": []
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "RESULT: 33 passed, 0 failed",
+     "fail_lines": []
+    },
+    "identical": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-migration.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "RESULT: 121 passed, 0 failed",
+     "fail_lines": []
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "RESULT: 121 passed, 0 failed",
+     "fail_lines": []
+    },
+    "identical": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c3-1-backup-manage-login.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "RESULT: 54 passed, 0 failed",
+     "fail_lines": []
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "RESULT: 54 passed, 0 failed",
+     "fail_lines": []
+    },
+    "identical": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c3-2-firstpaint-remap.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "RESULT: 32 passed, 0 failed",
+     "fail_lines": []
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "RESULT: 32 passed, 0 failed",
+     "fail_lines": []
+    },
+    "identical": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c3-3-restore-cancel.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "RESULT: 30 passed, 0 failed",
+     "fail_lines": []
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "RESULT: 30 passed, 0 failed",
+     "fail_lines": []
+    },
+    "identical": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-large-upload.js",
+    "env": {},
+    "baseline": {
+     "rc": 1,
+     "summary": "RESULT: 24 passed, 1 failed",
+     "fail_lines": [
+      "❌ L8 超過 256MB（256MB+1 byte）→ 413"
+     ]
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "RESULT: 25 passed, 0 failed",
+     "fail_lines": []
+    },
+    "identical": false
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-system-regression.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "",
+     "fail_lines": []
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "",
+     "fail_lines": []
+    },
+    "identical": true
+   }
+  ],
+  "reruns_same_window": [
+   {
+    "suite": "smoke-r54-4-mbv2-large-upload.js",
+    "candidate": "RESULT: 25 passed, 0 failed",
+    "baseline": "RESULT: 25 passed, 0 failed"
+   }
+  ],
+  "not_run": "本輪只修改 utils/demandSettlement.js 的歷史處理掃描；其他 33 支先前清單套件（列表 UI、C6／C6.1、通知、付款 UI、popup、R48 等）未執行，對應檔案逐檔雜湊相同（unchanged_files）"
+ },
+ "unchanged_files": {
+  "frontend": {
+   "files": 78,
+   "all_same": true,
+   "items": [
+    {
+     "path": "public/ai-marketing.html",
+     "sha256": "d2dc5859c896a5e7489d410dd588ea68fe1b580a3bc41a69d63ae7d850f552bd",
+     "same": true
+    },
+    {
+     "path": "public/ai-marketing/analytics.html",
+     "sha256": "b34095649d9745217704adf331a9e4039fb797513c81a0203027f3a76c73476b",
+     "same": true
+    },
+    {
+     "path": "public/ai-marketing/coming-soon.html",
+     "sha256": "5e6f39edcd3f0796d22eb3fa97a856118834716b9471239452581b11a814740c",
+     "same": true
+    },
+    {
+     "path": "public/ai-marketing/css/ai-marketing.css",
+     "sha256": "2ad774124b27b68c82c0f988cdcc13473d4e3c2757400681dbd90d0d4d684f28",
+     "same": true
+    },
+    {
+     "path": "public/ai-marketing/dashboard.html",
+     "sha256": "f2a93f89a5ccdadd4419498a4ad9c1c6d892cf9e1593596d690672e247961e54",
+     "same": true
+    },
+    {
+     "path": "public/ai-marketing/generate.html",
+     "sha256": "d12d7cbe42414cd9f8422165d6f774e28ff65a54474b61110df436cb22aea639",
+     "same": true
+    },
+    {
+     "path": "public/ai-marketing/index.html",
+     "sha256": "5b4a9a43a0bf28358dfd374aba50ae1c957984ff17d45f5146a3df7266956fd3",
+     "same": true
+    },
+    {
+     "path": "public/ai-marketing/js/analytics.js",
+     "sha256": "a2dc50ecaf1d0120cad79ddf1f60a952b249e794fd709105ec87279fdfa279bc",
+     "same": true
+    },
+    {
+     "path": "public/ai-marketing/js/comingsoon.js",
+     "sha256": "08b66991612e27948c89d08eccd90c6edd46d6f7142e29bcbd4be0bc69748a90",
+     "same": true
+    },
+    {
+     "path": "public/ai-marketing/js/dashboard.js",
+     "sha256": "3f5d853ebd6211f34eb9868e2204935fcbf1cc0808c866b84aa3ac8a9ffe14a2",
+     "same": true
+    },
+    {
+     "path": "public/ai-marketing/js/debug.js",
+     "sha256": "bd10f6eb82ed48132efd0a5fd87388835d2c6cba6964ac9459e398a80f0bc388",
+     "same": true
+    },
+    {
+     "path": "public/ai-marketing/js/generate.js",
+     "sha256": "edd25d11e65b97095e5e9e7173597eb3e323643fc219195df2dfcc948b401362",
+     "same": true
+    },
+    {
+     "path": "public/ai-marketing/js/knowledge.js",
+     "sha256": "fd1af53ddb8592569d8e2108b7a28b3abf204b8e992986a964d66b7ae8f3a224",
+     "same": true
+    },
+    {
+     "path": "public/ai-marketing/js/prompts.js",
+     "sha256": "f6552f4903dd4dbea8687acf4358d0f7c5d186d7ea9ae5e622ff46c6fcdac005",
+     "same": true
+    },
+    {
+     "path": "public/ai-marketing/js/review.js",
+     "sha256": "4e4ce74922f3a997f3e2d6bf38abcdf02f25b88368e20bdb6780be8b497323ad",
+     "same": true
+    },
+    {
+     "path": "public/ai-marketing/js/router.js",
+     "sha256": "ee4a5b0607d136c553e1565ca86a8297e1492087ad84b2dbe237a64bcda370e1",
+     "same": true
+    },
+    {
+     "path": "public/ai-marketing/js/settings.js",
+     "sha256": "de5679a924205d587fbc7a8e392c3ca6520d9f483609b2eb2cfb1fdfff438e08",
+     "same": true
+    },
+    {
+     "path": "public/ai-marketing/js/shared.js",
+     "sha256": "9bf2a968aa79b1a6c0abd9926beefb8204816433d3586f804cfe37174d81c9be",
+     "same": true
+    },
+    {
+     "path": "public/ai-marketing/js/sidebar.js",
+     "sha256": "f00118239ed068bc4fb8e098b2a5a9dc932b61ed119157f56cfb980fcee5d422",
+     "same": true
+    },
+    {
+     "path": "public/ai-marketing/js/topics.js",
+     "sha256": "ca51fbef3cf342c4f3a51f0ac14027a7345b529b31c2dbd02853b1fbdcf29ae4",
+     "same": true
+    },
+    {
+     "path": "public/ai-marketing/js/workflow.js",
+     "sha256": "a5cb58c598b08f2897b68146829ef1210c5402ca04b299f09d31391ed1105eab",
+     "same": true
+    },
+    {
+     "path": "public/ai-marketing/knowledge.html",
+     "sha256": "f85f500e7c7ca405e0411f9d2ff07aa88320a807a4505687219021d93cddba5e",
+     "same": true
+    },
+    {
+     "path": "public/ai-marketing/prompts.html",
+     "sha256": "9ed6a9e64b9b7dedaa740483a86a58b06c4a4f5a0a0957509156971bc3ef0de6",
+     "same": true
+    },
+    {
+     "path": "public/ai-marketing/review.html",
+     "sha256": "488202f691f0e5348b77623061213b176d971d333bed517b07b79db90f4994d3",
+     "same": true
+    },
+    {
+     "path": "public/ai-marketing/settings.html",
+     "sha256": "944787ccb27d3d3e84ad7265f9c7789cfb8f53082f5de1d5f6edd41b67869bcc",
+     "same": true
+    },
+    {
+     "path": "public/ai-marketing/topics.html",
+     "sha256": "ab2fde1ed6a16b4d62b1c1738fe80bebb270ffaeac9bf58a64e2284f85620fe3",
+     "same": true
+    },
+    {
+     "path": "public/css/geo-ga4-h1.css",
+     "sha256": "cda023845706585591363e5f3cf0c9b07d3348dc6b2926d4dfdf1d201f72f28a",
+     "same": true
+    },
+    {
+     "path": "public/css/geo-ga4-realtime-layer.css",
+     "sha256": "1228cd1ba0afcbabe44c48911191a2624b1631140360a67de984fc9e21a9bec1",
+     "same": true
+    },
+    {
+     "path": "public/css/geo-ga4-settings.css",
+     "sha256": "5a0da473713990fed01d59fc3326a3f3dde448fe73b252b34e721b57ffb77f91",
+     "same": true
+    },
+    {
+     "path": "public/css/geo-heatmap.css",
+     "sha256": "a97213fec70a29a326fb31a667055aaaff762818b210fcdd66dae7e208aee84e",
+     "same": true
+    },
+    {
+     "path": "public/css/geo-intelligence.css",
+     "sha256": "d2a881e4087a2dcd28bcd701ec61e8a03a9d87252103e38464aa0fd91989e9ed",
+     "same": true
+    },
+    {
+     "path": "public/css/geo-live-layer.css",
+     "sha256": "fd2e089325ffd36b57cde300b27c0efefa0a9f8b32164113c4b9e9f60de6d7f4",
+     "same": true
+    },
+    {
+     "path": "public/css/geo-map-settings.css",
+     "sha256": "d98ec9df00d5db9d1a9bd28a22dfe8bc43b233812b4b109fbd65a6541131da9c",
+     "same": true
+    },
+    {
+     "path": "public/css/geo-marker-renderer.css",
+     "sha256": "47918f22799617ebec4636b665fe8217b8357cde06620c07dfa203abe2a53b36",
+     "same": true
+    },
+    {
+     "path": "public/css/geo-visitor-layer.css",
+     "sha256": "0d51db64c0f7a5ba33128efa75534bbc0ffd5a1bfe4cad8589d03418c7ddc0d3",
+     "same": true
+    },
+    {
+     "path": "public/css/main.css",
+     "sha256": "713818bf1ffc965786ec7d5a799ebbaf39fa9f8040f61f329d91b1915acae6e3",
+     "same": true
+    },
+    {
+     "path": "public/css/migration-v2.css",
+     "sha256": "68f3bea4fbb89048d4e437c5bae3d6f6b645193e42b015661349bc29330cb8bd",
+     "same": true
+    },
+    {
+     "path": "public/css/popup-order.css",
+     "sha256": "5e9dc74ef228680c1ca40a788c10912c50c7352593ecaf59fbe62385772c6711",
+     "same": true
+    },
+    {
+     "path": "public/css/product-detail-modal.css",
+     "sha256": "ebf3e8b1f5a8d4c3332e8feedceebc397ab15225034f8b1295d4a7cfe7c308ef",
+     "same": true
+    },
+    {
+     "path": "public/css/vendor/MarkerCluster.Default.css",
+     "sha256": "61258232d98d64dc2a7b1e02130d67421bc5b9bda5994eef70228ff97570c170",
+     "same": true
+    },
+    {
+     "path": "public/css/vendor/MarkerCluster.css",
+     "sha256": "614dea0a98ff3f4ead74f04918f6b1d1b9ba435c25b5fc23b21a394d1e3e4d87",
+     "same": true
+    },
+    {
+     "path": "public/data/geo/taiwan-districts.geojson",
+     "sha256": "6814631f50fc99c6664829edcb98ba073a100cd74673ef6290d8793d077042d9",
+     "same": true
+    },
+    {
+     "path": "public/data/geo/taiwan/manifest.json",
+     "sha256": "bdd969e0cfaf65c2925e1ba099b0248fce1ad74624b1e2f8da484651342d33f1",
+     "same": true
+    },
+    {
+     "path": "public/data/geo/taiwan/taoyuan-districts.geojson",
+     "sha256": "474bf8cf10ee4616538a4f729bd809ed7724594b2805e73491846bbe24457e35",
+     "same": true
+    },
+    {
+     "path": "public/index.html",
+     "sha256": "ef7fa70e0f5ffec3d6c13e431c991e7786c3f11f1327e9e309cc4b3a691735a2",
+     "same": true
+    },
+    {
+     "path": "public/js/analytics-attribution.js",
+     "sha256": "462e368838c7d97eb68c56403c138a2c87ca43a988e900c5f7b3054d2544ce64",
+     "same": true
+    },
+    {
+     "path": "public/js/analytics-platforms.js",
+     "sha256": "1609778e2ebf77da7572850818cffa430cdb9cfd579ee1b420ae8f3ced501207",
+     "same": true
+    },
+    {
+     "path": "public/js/analytics-v2.js",
+     "sha256": "cbaa4601f4c8d04cec231cca9eb8b2cbaab006075198aadfb59109471c74f3bc",
+     "same": true
+    },
+    {
+     "path": "public/js/app.js",
+     "sha256": "1def622301d55f1a6749f205863d7d2424b8ee33174ff9d4af971c9a7775b381",
+     "same": true
+    },
+    {
+     "path": "public/js/coupons.js",
+     "sha256": "48c4aefc7bfb6bbde8d321ab4a39338bbd048ed62c74ebf9cdb4d61cf9694b24",
+     "same": true
+    },
+    {
+     "path": "public/js/date-time-format.js",
+     "sha256": "f4b65ea0e76f8a4cd03e80f2b990abe33efe31a55436433dc7b6a1cd14826eb2",
+     "same": true
+    },
+    {
+     "path": "public/js/delivery-free-progress.js",
+     "sha256": "3284336b5cc88178238e32631819b27413aadab7fc15dc0f513b6d83c831d53c",
+     "same": true
+    },
+    {
+     "path": "public/js/geo-ga4-dashboard-layer.js",
+     "sha256": "948787cf33f014e229fed2d54466ca497cc4187d0279736a5b516d372d8fae82",
+     "same": true
+    },
+    {
+     "path": "public/js/geo-ga4-h1-panel.js",
+     "sha256": "44fbb670b204a7e2cbe888b75ee8ed0c0a93c912dfa44907a97ccb5e9b9f1ed6",
+     "same": true
+    },
+    {
+     "path": "public/js/geo-ga4-realtime-layer.js",
+     "sha256": "56f6a25c768d7b9492435a3102f4d5519f983256c0279c4d3104b63da814b019",
+     "same": true
+    },
+    {
+     "path": "public/js/geo-ga4-settings.js",
+     "sha256": "139f28635aabcebb1d21713e6e582225299b8bf0a7dd040f4740ea252e4ed510",
+     "same": true
+    },
+    {
+     "path": "public/js/geo-heatmap-ui.js",
+     "sha256": "7ff36f7ae354e5499341b8ebe52f18571f24001167718457f0bfdcbbb92a9a2c",
+     "same": true
+    },
+    {
+     "path": "public/js/geo-heatmap.js",
+     "sha256": "c8898a3c469890b7d3e036937cb01f747cece4dafc22e8eac070abce2556f67d",
+     "same": true
+    },
+    {
+     "path": "public/js/geo-intelligence-map.js",
+     "sha256": "9997c0b84a867e27b11a1a499b06de0b83f78403dd9feba401a6edbc49f1970d",
+     "same": true
+    },
+    {
+     "path": "public/js/geo-intelligence.js",
+     "sha256": "0266dc4d4da01ef147df0436c9ce3f1636f1c33d4f14587dd2ab65374a5cff96",
+     "same": true
+    },
+    {
+     "path": "public/js/geo-live-coordinate.js",
+     "sha256": "331c10f7bd8e9c7e94de7d2bf452fcb0daab7eaef78f2cc733cd2bbe8b26ffac",
+     "same": true
+    },
+    {
+     "path": "public/js/geo-live-layer.js",
+     "sha256": "b2b5b547e40f07c33360c1b2c48d2041a96910ab842058eedcc61adc9b2569d1",
+     "same": true
+    },
+    {
+     "path": "public/js/geo-map-settings.js",
+     "sha256": "f7ab62d8c163d015b342a29dae7098e27cd7e32a36a6ca999e32e19134510d1b",
+     "same": true
+    },
+    {
+     "path": "public/js/geo-marker-renderer.js",
+     "sha256": "4268a52a7340b2b9f54c0533280682a94877f7cf2eed7eb641ca9c1c90581e68",
+     "same": true
+    },
+    {
+     "path": "public/js/geo-range-control.js",
+     "sha256": "8395bef4f11266c2f0fa32c2a6a6e01ce8497dce5c2b076c9ea51b677c6cf81d",
+     "same": true
+    },
+    {
+     "path": "public/js/geo-range-resolver.js",
+     "sha256": "ae6851d4febe422aef3f93fec60b8103c408e02deabcdc7063b89793af213eca",
+     "same": true
+    },
+    {
+     "path": "public/js/geo-visitor-layer.js",
+     "sha256": "336947f9bd51e79aef6fd800902b40af0a0f636b44356857ff6fcb47aa5f929d",
+     "same": true
+    },
+    {
+     "path": "public/js/line-member-gate.js",
+     "sha256": "eff9b8fa50050f6c8744f8e17f4ee99c46ce5dd63efd161b42d76448c59804ec",
+     "same": true
+    },
+    {
+     "path": "public/js/migration-v2.js",
+     "sha256": "ca9e5b52871e92fd5c5f4ae67370f7d0d2f74f35b923f7ff0bcfbb2ca072d138",
+     "same": true
+    },
+    {
+     "path": "public/js/phone-utils.js",
+     "sha256": "3cd280b0d9a166ead3f17ec4f5999cb03a52f824294552bcfa557cdb26109616",
+     "same": true
+    },
+    {
+     "path": "public/js/product-detail-modal.js",
+     "sha256": "a4b480339f4353c914eff2cb732487e9897e6113e4c7cced2af3b03ae79a52d7",
+     "same": true
+    },
+    {
+     "path": "public/js/qrcode.min.js",
+     "sha256": "87bc33a2b39b503589da2e0cfde6d1e3d51aba7d09859f1366ffae0abcdc3067",
+     "same": true
+    },
+    {
+     "path": "public/js/vendor/leaflet-heat.js",
+     "sha256": "a89148e0b6fa3cc26824925296928aca0fd3756327dc266e2d8d0a30d61d437d",
+     "same": true
+    },
+    {
+     "path": "public/js/vendor/leaflet.markercluster.js",
+     "sha256": "5dd1ecd9f1d13fef43b6b69dfdc041a8cb63028b88e5a90afeacb687582f3449",
+     "same": true
+    },
+    {
+     "path": "public/license.js",
+     "sha256": "c7637dfbeac9c09c0464dda7195d9dd21faec480aa3aa6fad141da23c1a80aa8",
+     "same": true
+    },
+    {
+     "path": "public/line-order.html",
+     "sha256": "246756b95bb52068aa3bc637af4d292f0687c5b5d9915a126922f6c29bb99321",
+     "same": true
+    },
+    {
+     "path": "public/line-shipping.html",
+     "sha256": "5a778c23f45189de94c75c56bf23d84de2360e85248889414845e23ea4556f68",
+     "same": true
+    },
+    {
+     "path": "public/system-admin.html",
+     "sha256": "4e21be11ac0a33a9813f295dcf136cc6105d545da0a7df8523a9d857c186ed12",
+     "same": true
+    }
+   ]
+  },
+  "payment_core": {
+   "files": 7,
+   "all_same": true,
+   "items": [
+    {
+     "path": "routes/line-orders.js",
+     "sha256": "14b508474b179ef3db26bee2e67af4c8fc8c07450adc1838a75f2d79d7dd3fed",
+     "same": true
+    },
+    {
+     "path": "routes/linepay.js",
+     "sha256": "e7ef846c63985edfc263d536ae810ef685466c74d85cb399980eca0c4290a0b8",
+     "same": true
+    },
+    {
+     "path": "routes/orders.js",
+     "sha256": "7a34f94f84ace00b0656145f7533c01255a068b04382ac75d14cf932944965f0",
+     "same": true
+    },
+    {
+     "path": "utils/linePayRecovery.js",
+     "sha256": "59ce5b5d71192b2b211424046839ffaeb9e70035264b2823c45d7c1ec59958cc",
+     "same": true
+    },
+    {
+     "path": "utils/linePayService.js",
+     "sha256": "8abc32f7aab16a5671e13a89ab17332328ecaed8ba257959c2bab8e21092943d",
+     "same": true
+    },
+    {
+     "path": "utils/orderStatusFlow.js",
+     "sha256": "6600d69957d5ef5dfeb64debc7eff92664eab50eb3dff502f83f63880e8bb0c8",
+     "same": true
+    },
+    {
+     "path": "utils/popupPayment.js",
+     "sha256": "8c34cf5d986cd9d061c4eeefc94aff36fee7aead8e1d1f5cc4344782528972be",
+     "same": true
+    }
+   ]
+  },
+  "notification_engine": {
+   "files": 3,
+   "all_same": true,
+   "items": [
+    {
+     "path": "utils/linePush.js",
+     "sha256": "d9b9656ebcd1b6f15079a647a4513caa2fd724af2d75ea668907bfede4d9bccc",
+     "same": true
+    },
+    {
+     "path": "utils/restockAuto.js",
+     "sha256": "911975761a2f3fe54ee22fb3e10ddc7bee7756da6c95a59f8867b750622a5cb8",
+     "same": true
+    },
+    {
+     "path": "utils/restockNotify.js",
+     "sha256": "61f0b68fc9b4150485a440b913ac4b090235ff876fdf4455166284b5d343ff48",
+     "same": true
+    }
+   ]
+  },
+  "other": {
+   "files": 7,
+   "all_same": true,
+   "items": [
+    {
+     "path": ".env.example",
+     "sha256": "37c075ac7497176249c4d7858ab76cf436c70fb476f25eeb7539c6fd102b40d9",
+     "same": true
+    },
+    {
+     "path": "package-lock.json",
+     "sha256": "fb6c9c22f30424809dbc1e41ecae9936a74b5869a727b0dd3a8a15b20c196110",
+     "same": true
+    },
+    {
+     "path": "package.json",
+     "sha256": "ef78a283fc9373f31c912678dd93efd22b5dc150cf35165743d9e98a1f8934d4",
+     "same": true
+    },
+    {
+     "path": "routes/product-demand.js",
+     "sha256": "7d041763b178a3f988152ed8dcafe0a2b1fec8c05416a3e7df5564bf9415997f",
+     "same": true
+    },
+    {
+     "path": "server.js",
+     "sha256": "992e32eb533d3c765cafc335bea0e780897712f11735bb7037c4def1f3168bc9",
+     "same": true
+    },
+    {
+     "path": "utils/db.js",
+     "sha256": "56516a178dea128a215bc16c76d4f4aa48b1e69266cc57ec79245bb8f8bf65fd",
+     "same": true
+    },
+    {
+     "path": "utils/migrationV2.js",
+     "sha256": "9f07700ca9addcfba081c1153960553ede12e60bf9c996b9621811c793b09e15",
+     "same": true
+    }
+   ]
+  }
+ },
+ "existing_assertions_changed": [],
+ "existing_assertions_relaxed": []
+}

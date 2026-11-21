@@ -1,0 +1,1351 @@
+{
+ "round": "R54.4／MBV2-HF1-C6.2 補貨登記數量一鍵加購與訂單連動",
+ "baseline": {
+  "file": "P3CD_DEPLOY_R54_4_MBV2_HF1_C6_1_RESTOCK_LIST_AUTO_TOGGLE_UI_TIMING_FIX_APP_ROOT.zip",
+  "sha256": "749617a54de6589aa57c649a07b4489004a6b519472475a9f440f4481498cfdb",
+  "bytes": 9578406,
+  "files": 1044,
+  "zip_entries": 1100,
+  "manifest_entries": 1041,
+  "manifest_check": {
+   "mismatch": 0,
+   "missing": 0,
+   "unlisted": [
+    "00_FINAL_REPORT.md",
+    "01_TEST_RESULTS.json",
+    "02_FILE_MANIFEST.json（C6.1 自我參照文件）"
+   ]
+  }
+ },
+ "external_calls": {
+  "real_line": 0,
+  "real_linepay": 0,
+  "sandbox": 0,
+  "note": "LINE 由 c4-line-mock、LINE Pay 由 c5-linepay-mock 程序內攔截"
+ },
+ "labels": {
+  "N": "本輪新功能（未修改基準應失敗）",
+  "G": "保留既有行為（基準也應通過）",
+  "Z": "全程檢查",
+  "BR": "真實瀏覽器",
+  "API": "正式路由",
+  "DB": "資料庫檔核對",
+  "RS": "真實重啟",
+  "FX": "測試替身"
+ },
+ "new_acceptance": {
+  "script": "scripts/smoke-r54-4-mbv2-hf1-c6-2-demand-cart-order-settlement.js",
+  "baseline_summary": "結果：7 通過、36 失敗",
+  "candidate_summary": "結果：43 通過、0 失敗",
+  "work_tree_summary": "結果：41 通過、0 失敗（加入 A17-2、B13-2 與重新分類之前的版本）",
+  "cases": [
+   {
+    "id": "A1",
+    "class": "N",
+    "title": "[API] 登記 5 份：本人登記回傳原登記 5、已完成 0、訂購中 0、尚待購買 5",
+    "baseline": false,
+    "candidate": true
+   },
+   {
+    "id": "A2",
+    "class": "N",
+    "title": "[API][DB] 現金訂單（後端成立有效訂單）3 份 → 立即扣減：已完成 3、尚待購買 2；關聯以訂單 UUID＋商品＋登記週期保存",
+    "baseline": false,
+    "candidate": true
+   },
+   {
+    "id": "A3",
+    "class": "N",
+    "title": "[API][DB] 再成立 2 份 → 剩餘 0、標記已完成；移出有效需求統計；會員歷史與後台明細仍可查詢",
+    "baseline": false,
+    "candidate": true
+   },
+   {
+    "id": "A4",
+    "class": "N",
+    "title": "[API][DB] 已完成後重新登記（新週期）；取消舊訂單只回復舊週期（2/5），不復活舊週期、不改動新週期",
+    "baseline": false,
+    "candidate": true
+   },
+   {
+    "id": "A5",
+    "class": "N",
+    "title": "[API][RS] 重複取消被拒；真實重啟＋啟動補齊後仍只回復一次（不回復成負數或超額）",
+    "baseline": false,
+    "candidate": true
+   },
+   {
+    "id": "A6",
+    "class": "N",
+    "title": "[API][DB] 有效訂單在未履約前取消 → 依原綁定回復（已完成 2 → 0，同一週期恢復有效，尚待購買 2）",
+    "baseline": false,
+    "candidate": true
+   },
+   {
+    "id": "A7",
+    "class": "N",
+    "title": "[API][DB] 已履約（已完成）訂單作廢 → 關聯待核對，不自動回復需求、不重建登記或通知同意",
+    "baseline": false,
+    "candidate": true
+   },
+   {
+    "id": "A8",
+    "class": "N",
+    "title": "[API][DB] 實際成立 5 份（登記 2）→ 只扣到 0、標記已完成（不超額）",
+    "baseline": false,
+    "candidate": true
+   },
+   {
+    "id": "A9",
+    "class": "N",
+    "title": "[API][DB] LINE Pay 訂單已建立、等待付款 → 標記訂購中 4（不扣減；尚待購買 0，不會重複帶入）",
+    "baseline": false,
+    "candidate": true
+   },
+   {
+    "id": "A10",
+    "class": "N",
+    "title": "[API][DB][RS] LINE Pay 已付款 → 扣減 4、完成；重複 callback、同時重複、後台核對、真實重啟都只扣一次；Confirm 只送 1 次",
+    "baseline": false,
+    "candidate": true
+   },
+   {
+    "id": "A11",
+    "class": "N",
+    "title": "[API][DB] LINE Pay 付款失敗 → 解除訂購中，保留未完成需求（尚待購買 3）",
+    "baseline": false,
+    "candidate": true
+   },
+   {
+    "id": "A12",
+    "class": "N",
+    "title": "[API][RS] LINE Pay 逾期未付款 → 解除訂購中（尚待購買 2）；之後付款成功 → 扣減一次並完成",
+    "baseline": false,
+    "candidate": true
+   },
+   {
+    "id": "A13",
+    "class": "N",
+    "title": "[API][DB] 待付款時取消訂單 → 解除訂購中；取消後才回來的付款 callback（不送 Confirm）也不扣減",
+    "baseline": false,
+    "candidate": true
+   },
+   {
+    "id": "A14",
+    "class": "N",
+    "title": "[API][DB] 付款期間把登記改為 2 → 付款後只扣 2（不為負、不超額）；已送出的訂單（3 份）不被改動",
+    "baseline": false,
+    "candidate": true
+   },
+   {
+    "id": "A15",
+    "class": "N",
+    "title": "[API][DB] 付款期間取消登記、再建立新登記 → 舊訂單付款後不復活舊週期、不扣到新週期",
+    "baseline": false,
+    "candidate": true
+   },
+   {
+    "id": "A16",
+    "class": "N",
+    "title": "[API][DB] 修改登記：已購買份數變動時 409 不寫入；不得少於或等於已購買份數；正常修改後尚待購買 4",
+    "baseline": false,
+    "candidate": true
+   },
+   {
+    "id": "A17",
+    "class": "G",
+    "title": "[API] 本人登記只來自後端驗證會員：其他帳號看不到；未登入、偽造 session、body 帶他人 line_user_id 一律無效（既有保護）",
+    "baseline": true,
+    "candidate": true
+   },
+   {
+    "id": "A17-2",
+    "class": "N",
+    "title": "[API] 新增的「已完成的登記」查詢同樣只限後端驗證會員本人（他人 line_user_id 無效、未登入 401）",
+    "baseline": false,
+    "candidate": true
+   },
+   {
+    "id": "A18",
+    "class": "N",
+    "title": "[API][DB] 未登入下單（沒有後端驗證會員）不綁定任何登記、不扣減",
+    "baseline": false,
+    "candidate": true
+   },
+   {
+    "id": "A19",
+    "class": "N",
+    "title": "[API][FX] 交易內綁定失敗：訂單照常成立並補綁一次；補綁也失敗時訂單仍成立、不留下半套扣減",
+    "baseline": false,
+    "candidate": true
+   },
+   {
+    "id": "A20",
+    "class": "N",
+    "title": "[API] 會員、後台總表、明細 CSV、統計 CSV 與「登記→訂單」查詢使用同一份數定義（原登記／已完成／訂購中／尚待購買）；不外露會員識別",
+    "baseline": false,
+    "candidate": true
+   },
+   {
+    "id": "A21",
+    "class": "N",
+    "title": "[API][RS] MBV2 匯出／匯入：份數關聯隨登記搬家並標記匯入來源；來源「訂購中」改為待核對；匯入與重啟都不扣減、不回復、不發送通知",
+    "baseline": false,
+    "candidate": true
+   },
+   {
+    "id": "B1",
+    "class": "N",
+    "title": "[BR] 從通知開啟：顯示「你尚有 5 份補貨登記」、預選 5 份、按鈕「加入購物車 5 份」；單純開啟不改購物車",
+    "baseline": false,
+    "candidate": true
+   },
+   {
+    "id": "B2",
+    "class": "N",
+    "title": "[BR][DB] 確認加入（含連點）只加入 5 份、加購事件 1 筆（5 份）；加入購物車不扣減登記、不建立訂單關聯",
+    "baseline": false,
+    "candidate": true
+   },
+   {
+    "id": "B3",
+    "class": "N",
+    "title": "[BR] 重新整理不重複開啟或加入；再次開啟通知 → 提示已在購物車、不再累加（購物車仍 5）",
+    "baseline": false,
+    "candidate": true
+   },
+   {
+    "id": "B4",
+    "class": "N",
+    "title": "[BR] 購物車已有 2 → 只補入 3；已有 5 → 提示已在購物車、不累加；顧客手動放 6 → 維持 6 不自動減少",
+    "baseline": false,
+    "candidate": true
+   },
+   {
+    "id": "B5",
+    "class": "N",
+    "title": "[BR] 今日額度剩 3：明確提示最多再加 3、其餘 2 份需求保留；加入 3 份後無法再加；登記仍為 5（加購不扣減）",
+    "baseline": false,
+    "candidate": true
+   },
+   {
+    "id": "B6",
+    "class": "N",
+    "title": "[BR] 一起加入：購物車為空且商品的取餐方式／日期不同 → 列出可選組合，引導顧客選擇、不任意代選（未選前不能送出）",
+    "baseline": false,
+    "candidate": true
+   },
+   {
+    "id": "B7",
+    "class": "N",
+    "title": "[BR] 選擇「外帶自取・今日」：清單顯示名稱、未完成份數、本次可加入份數、勾選與原因；不同日期、不支援方式、停售、額度不足都不強行加入",
+    "baseline": false,
+    "candidate": true
+   },
+   {
+    "id": "B8",
+    "class": "N",
+    "title": "[BR] 「將勾選商品加入購物車」（含連點）：回報實際加入的商品與份數；購物車、商品卡同步；加購事件只記錄實際加入的份數",
+    "baseline": false,
+    "candidate": true
+   },
+   {
+    "id": "B9",
+    "class": "N",
+    "title": "[BR] 購物車已有商品 → 共同情境依購物車；已加入的商品顯示「已在購物車」、不重複加入",
+    "baseline": false,
+    "candidate": true
+   },
+   {
+    "id": "B10",
+    "class": "G",
+    "title": "[BR] 未登入：詳情不顯示登記、從 1 份開始、一般加購照常",
+    "baseline": true,
+    "candidate": true
+   },
+   {
+    "id": "B11",
+    "class": "G",
+    "title": "[BR] 轉傳的通知連結：開啟者（另一位會員）看不到原收件人的登記，從 1 份開始",
+    "baseline": true,
+    "candidate": true
+   },
+   {
+    "id": "B12",
+    "class": "N",
+    "title": "[BR] 詳情開啟中換帳號：前一位會員的登記份數立即移除，數量回到 1（不以舊會員資料加購）",
+    "baseline": false,
+    "candidate": true
+   },
+   {
+    "id": "B13",
+    "class": "N",
+    "title": "[BR] 晚到的本人登記：只更新目前開啟的商品（豆干，不套用雞爪）；顧客已調整為 2 時不改數量；未調整時改為預選 3",
+    "baseline": false,
+    "candidate": true
+   },
+   {
+    "id": "B13-2",
+    "class": "N",
+    "title": "[BR] 本人登記讀取失敗：不預選、不殘留舊資料，一般加購照常；重新讀取成功後依「登記 3 − 購物車 1」預選 2",
+    "baseline": false,
+    "candidate": true
+   },
+   {
+    "id": "B14",
+    "class": "N",
+    "title": "[BR][DB] 清空購物車、離開頁面：登記份數不變（仍 5、已完成 0、無訂單關聯）",
+    "baseline": false,
+    "candidate": true
+   },
+   {
+    "id": "B15",
+    "class": "N",
+    "title": "[BR][API] 現金訂單成立後：商品卡、詳情、我的補貨登記、後台總表顯示一致（原登記 5、已購買 2、尚待購買 3）",
+    "baseline": false,
+    "candidate": true
+   },
+   {
+    "id": "B16",
+    "class": "N",
+    "title": "[BR] 後台補貨登記：總表與明細清楚區分原登記、已完成、訂購中、尚待購買；已完成週期保留可查（表格仍為 7 欄）",
+    "baseline": false,
+    "candidate": true
+   },
+   {
+    "id": "B17",
+    "class": "G",
+    "title": "[BR] 前台與後台沒有 JavaScript 錯誤",
+    "baseline": true,
+    "candidate": true
+   },
+   {
+    "id": "Z1",
+    "class": "Z",
+    "title": "[DB] 份數連動沒有建立任何補貨通知批次或逐筆發送紀錄",
+    "baseline": true,
+    "candidate": true
+   },
+   {
+    "id": "Z2",
+    "class": "Z",
+    "title": "[FX] 真實 LINE 呼叫 0",
+    "baseline": true,
+    "candidate": true
+   },
+   {
+    "id": "Z3",
+    "class": "Z",
+    "title": "[FX] LINE Pay 全部由替身處理（呼叫數 11，真實／Sandbox 0）",
+    "baseline": true,
+    "candidate": true
+   }
+  ]
+ },
+ "upgrade_rollback": {
+  "script": "scripts/smoke-r54-4-mbv2-hf1-c6-2-upgrade-rollback.js",
+  "old_root": "未修改基準全新解壓（C6.1）",
+  "summary": "結果：9 通過、0 失敗",
+  "cases": [
+   {
+    "id": "U0",
+    "title": "[RS] C6.1 資料庫：尚無份數欄位與訂單關聯表（真正的升級前狀態）",
+    "candidate": true
+   },
+   {
+    "id": "U1",
+    "title": "[RS][DB] 升級：新增欄位與關聯表；升級前的歷史現金訂單不被自動扣減（雞爪仍 5、已完成 0、無關聯）",
+    "candidate": true
+   },
+   {
+    "id": "U2",
+    "title": "[RS] 升級前建立的 LINE Pay 訂單在升級後付款成功：付款照常，但不以新功能回溯扣減（豆干仍 3）",
+    "candidate": true
+   },
+   {
+    "id": "U3",
+    "title": "[RS] 遷移可重複執行：再次啟動結構雜湊不變",
+    "candidate": true
+   },
+   {
+    "id": "U4",
+    "title": "[API] 升級後的新訂單正常連動（雞爪 1/5、腱子完成、雜項完成、LINE Pay 訂購中）",
+    "candidate": true
+   },
+   {
+    "id": "U5",
+    "title": "[RS] 回退為 C6.1：可啟動、可查詢、可登記、可付款與取消；回退期間不做份數連動（已完成週期不顯示、付款與取消不更新份數）",
+    "candidate": true
+   },
+   {
+    "id": "U6",
+    "title": "[RS] 再升級：回退期間已綁定訂單的付款（→ 扣減 3、完成）與取消（→ 回復並恢復有效）由啟動補齊各處理一次",
+    "candidate": true
+   },
+   {
+    "id": "U7",
+    "title": "[RS] 回退限制如實呈現：回退期間建立的訂單不連動；舊版把登記改為 ≤ 已購買份數者，再升級時視為已完成；舊版建立的新週期不受影響",
+    "candidate": true
+   },
+   {
+    "id": "U8",
+    "title": "[RS] 再次重啟不重複扣減或回復；升級、回退、再升級都沒有建立通知、真實 LINE 0",
+    "candidate": true
+   }
+  ],
+  "also_in_regression_v1": "結果：9 通過、0 失敗"
+ },
+ "empty_db_boot": {
+  "baseline": {
+   "objects": 236,
+   "health": "ok"
+  },
+  "candidate": {
+   "objects": 241,
+   "health": "ok",
+   "boot_log": "[restock_auto] boot recovery done (stale_batches=0 legacy_review=0)"
+  },
+  "schema_only_in_candidate": [
+   "table:product_demand_order_links",
+   "index:idx_pdol_uuid",
+   "index:idx_pdol_order_product",
+   "index:idx_pdol_request",
+   "index:idx_pdol_state"
+  ],
+  "columns_added": [
+   "product_demand_requests.settled_qty",
+   "product_demand_requests.completed_at"
+  ]
+ },
+ "regression": {
+  "window": "2026-11-20 台北約 12:25～13:15，基準與候選版（v1）同時段平行，2 核心",
+  "note": "候選版 v1 與最終候選版 v2 的差異只有 3 支測試腳本（本輪驗收重新分類／加 2 項；2 支既有測試的規格調整斷言）；應用程式檔案逐位元組相同。這 3 支在 v2 重跑（見 new_acceptance、existing_assertions_changed）",
+  "suites": [
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-2-demand-cart-order-settlement.js",
+    "env": {},
+    "baseline": {
+     "rc": 1,
+     "summary": "結果：6 通過、35 失敗",
+     "fail_lines": [
+      "❌ A1 [API] 登記 5 份：本人登記回傳原登記 5、已完成 0、訂購中 0、尚待購買 5 [N]",
+      "❌ A2 [N]（例外）",
+      "❌ A3 [API][DB] 再成立 2 份 → 剩餘 0、標記已完成；移出有效需求統計；會員歷史與後台明細仍可查詢 [N]",
+      "❌ A4 [N]（例外）",
+      "❌ A5 [N]（例外）",
+      "❌ A6 [API][DB] 有效訂單在未履約前取消 → 依原綁定回復（已完成 2 → 0，同一週期恢復有效，尚待購買 2） [N]",
+      "❌ A7 [N]（例外）",
+      "❌ A8 [N]（例外）",
+      "❌ A9 [N]（例外）",
+      "❌ A10 [N]（例外）",
+      "❌ A11 [N]（例外）",
+      "❌ A12 [N]（例外）",
+      "❌ A13 [N]（例外）",
+      "❌ A14 [N]（例外）",
+      "❌ A15 [N]（例外）",
+      "❌ A16 [API][DB] 修改登記：已購買份數變動時 409 不寫入；不得少於或等於已購買份數；正常修改後尚待購買 4 [N]",
+      "❌ A17 [N]（例外）",
+      "❌ A18 [N]（例外）",
+      "❌ A19 [N]（例外）",
+      "❌ A20 [API] 會員、後台總表、明細 CSV、統計 CSV 與「登記→訂單」查詢使用同一份數定義（原登記／已完成／訂購中／尚待購買）；不外露會員識別 [N]",
+      "❌ A21 [N]（例外）",
+      "❌ B1 [BR] 從通知開啟：顯示「你尚有 5 份補貨登記」、預選 5 份、按鈕「加入購物車 5 份」；單純開啟不改購物車 [N]",
+      "❌ B2 [N]（例外）",
+      "❌ B3 [BR] 重新整理不重複開啟或加入；再次開啟通知 → 提示已在購物車、不再累加（購物車仍 5） [N]",
+      "❌ B4 [BR] 購物車已有 2 → 只補入 3；已有 5 → 提示已在購物車、不累加；顧客手動放 6 → 維持 6 不自動減少 [N]",
+      "❌ B5 [BR] 今日額度剩 3：明確提示最多再加 3、其餘 2 份需求保留；加入 3 份後無法再加；登記仍為 5（加購不扣減） [N]",
+      "❌ B6 [N]（例外）",
+      "❌ B7 [N]（例外）",
+      "❌ B8 [N]（例外）",
+      "❌ B9 [N]（例外）",
+      "❌ B12 [BR] 詳情開啟中換帳號：前一位會員的登記份數立即移除，數量回到 1（不以舊會員資料加購） [N]",
+      "❌ B13 [BR] 晚到的本人登記：只更新目前開啟的商品（豆干，不套用雞爪）；顧客已調整為 2 時不改數量；未調整時改為預選 3 [N]",
+      "❌ B14 [N]（例外）",
+      "❌ B15 [BR][API] 現金訂單成立後：商品卡、詳情、我的補貨登記、後台總表顯示一致（原登記 5、已購買 2、尚待購買 3） [N]",
+      "❌ B16 [BR] 後台補貨登記：總表與明細清楚區分原登記、已完成、訂購中、尚待購買；已完成週期保留可查（表格仍為 7 欄） [N]"
+     ],
+     "seconds": 199
+    },
+    "candidate_v1": {
+     "rc": 0,
+     "summary": "結果：41 通過、0 失敗",
+     "fail_lines": [],
+     "seconds": 143
+    },
+    "identical": false
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-2-upgrade-rollback.js",
+    "env": {
+     "C62_OLD_ROOT": "/home/claude/base_run"
+    },
+    "baseline": null,
+    "candidate_v1": {
+     "rc": 0,
+     "summary": "結果：9 通過、0 失敗",
+     "fail_lines": [],
+     "seconds": 38
+    },
+    "identical": false
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-1-restock-list-ui-timing-fix.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "結果：28 通過／0 失敗（模擬 LINE 呼叫 0 次；真實 LINE 0 次）",
+     "fail_lines": [],
+     "seconds": 102
+    },
+    "candidate_v1": {
+     "rc": 0,
+     "summary": "結果：28 通過／0 失敗（模擬 LINE 呼叫 0 次；真實 LINE 0 次）",
+     "fail_lines": [],
+     "seconds": 102
+    },
+    "identical": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-1-restock-list-auto-toggle-ui.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "結果：40 通過／0 失敗（模擬 LINE 呼叫 0 次；真實 LINE 0 次）",
+     "fail_lines": [],
+     "seconds": 88
+    },
+    "candidate_v1": {
+     "rc": 0,
+     "summary": "結果：40 通過／0 失敗（模擬 LINE 呼叫 0 次；真實 LINE 0 次）",
+     "fail_lines": [],
+     "seconds": 88
+    },
+    "identical": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-auto-restock.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "結果：24 通過／0 失敗",
+     "fail_lines": [],
+     "seconds": 65
+    },
+    "candidate_v1": {
+     "rc": 0,
+     "summary": "結果：24 通過／0 失敗",
+     "fail_lines": [],
+     "seconds": 66
+    },
+    "identical": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-1-auto-guard-recovery.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "結果：29 通過／0 失敗",
+     "fail_lines": [],
+     "seconds": 51
+    },
+    "candidate_v1": {
+     "rc": 0,
+     "summary": "結果：29 通過／0 失敗",
+     "fail_lines": [],
+     "seconds": 51
+    },
+    "identical": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-1-pause-claim-release.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "結果：29 通過／0 失敗",
+     "fail_lines": [],
+     "seconds": 16
+    },
+    "candidate_v1": {
+     "rc": 0,
+     "summary": "結果：29 通過／0 失敗",
+     "fail_lines": [],
+     "seconds": 15
+    },
+    "identical": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-2-demand-ui-refresh.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "RESULT: 80 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 385
+    },
+    "candidate_v1": {
+     "rc": 0,
+     "summary": "RESULT: 80 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 387
+    },
+    "identical": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-3-async-consistency.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "RESULT: 34 passed, 0 failed（模擬 LINE 呼叫 2 次；真實 0 次需為 0：0）",
+     "fail_lines": [],
+     "seconds": 144
+    },
+    "candidate_v1": {
+     "rc": 0,
+     "summary": "RESULT: 34 passed, 0 failed（模擬 LINE 呼叫 2 次；真實 0 次需為 0：0）",
+     "fail_lines": [],
+     "seconds": 143
+    },
+    "identical": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-4-mutation-response.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "RESULT: 20 passed, 0 failed（真實 LINE 呼叫 0 次）",
+     "fail_lines": [],
+     "seconds": 74
+    },
+    "candidate_v1": {
+     "rc": 0,
+     "summary": "RESULT: 20 passed, 0 failed（真實 LINE 呼叫 0 次）",
+     "fail_lines": [],
+     "seconds": 74
+    },
+    "identical": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-restock-notify.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "RESULT: 94 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 59
+    },
+    "candidate_v1": {
+     "rc": 1,
+     "summary": "RESULT: 93 passed, 1 failed",
+     "fail_lines": [
+      "❌ B2 完整與選擇性備份涵蓋通知歷史"
+     ],
+     "seconds": 56
+    },
+    "identical": false
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-1-dedupe-resume.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "RESULT: 40 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 67
+    },
+    "candidate_v1": {
+     "rc": 0,
+     "summary": "RESULT: 40 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 71
+    },
+    "identical": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-5-date-consent.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "RESULT: 55 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 58
+    },
+    "candidate_v1": {
+     "rc": 0,
+     "summary": "RESULT: 55 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 60
+    },
+    "identical": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-5-restock-link.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "RESULT: 42 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 78
+    },
+    "candidate_v1": {
+     "rc": 0,
+     "summary": "RESULT: 42 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 78
+    },
+    "identical": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-linepush-compat.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "RESULT: 12 passed, 0 failed（全部為程序內模擬，真實 LINE 呼叫 0 次）",
+     "fail_lines": [],
+     "seconds": 0
+    },
+    "candidate_v1": {
+     "rc": 0,
+     "summary": "RESULT: 12 passed, 0 failed（全部為程序內模擬，真實 LINE 呼叫 0 次）",
+     "fail_lines": [],
+     "seconds": 0
+    },
+    "identical": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c3-sale-status-demand.js",
+    "env": {},
+    "baseline": {
+     "rc": 1,
+     "summary": "RESULT: 328 passed, 4 failed",
+     "fail_lines": [
+      "❌ O1 今日完售：今日訂單被擋，未建立訂單、未扣今日額度",
+      "❌ O6-paused 今日與未來日期都被擋，訂單與額度不變",
+      "❌ O6-sold_out_indefinitely 今日與未來日期都被擋，訂單與額度不變",
+      "❌ O9 今日完售＋未啟用預購份數管理：今日仍擋；未來 30 份（超過原預購每日 20）不限額成功，今日額度不變"
+     ],
+     "seconds": 170
+    },
+    "candidate_v1": {
+     "rc": 1,
+     "summary": "RESULT: 327 passed, 5 failed",
+     "fail_lines": [
+      "❌ O1 今日完售：今日訂單被擋，未建立訂單、未扣今日額度",
+      "❌ O6-paused 今日與未來日期都被擋，訂單與額度不變",
+      "❌ O6-sold_out_indefinitely 今日與未來日期都被擋，訂單與額度不變",
+      "❌ O9 今日完售＋未啟用預購份數管理：今日仍擋；未來 30 份（超過原預購每日 20）不限額成功，今日額度不變",
+      "❌ B3 選擇性備份只含想買登記兩張表，並附商品對照表"
+     ],
+     "seconds": 169
+    },
+    "identical": false
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c3-1-backup-manage-login.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "RESULT: 54 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 115
+    },
+    "candidate_v1": {
+     "rc": 0,
+     "summary": "RESULT: 54 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 117
+    },
+    "identical": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c3-2-firstpaint-remap.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "RESULT: 32 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 73
+    },
+    "candidate_v1": {
+     "rc": 0,
+     "summary": "RESULT: 32 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 72
+    },
+    "identical": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c3-3-restore-cancel.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "RESULT: 30 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 164
+    },
+    "candidate_v1": {
+     "rc": 0,
+     "summary": "RESULT: 30 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 165
+    },
+    "identical": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-restock-conversion.js",
+    "env": {},
+    "baseline": {
+     "rc": 1,
+     "summary": "RESULT: 41 passed, 1 failed",
+     "fail_lines": [
+      "❌ B1 LIFF 一次／二次導向後最終頁開啟商品：點擊 1 次、核對為收件人"
+     ],
+     "seconds": 73
+    },
+    "candidate_v1": {
+     "rc": 1,
+     "summary": "RESULT: 41 passed, 1 failed",
+     "fail_lines": [
+      "❌ B1 LIFF 一次／二次導向後最終頁開啟商品：點擊 1 次、核對為收件人"
+     ],
+     "seconds": 73
+    },
+    "identical": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-restock-conversion.js",
+    "env": {
+     "C4_CLOCK_OFFSET_MS": "0"
+    },
+    "baseline": {
+     "rc": 0,
+     "summary": "RESULT: 42 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 73
+    },
+    "candidate_v1": {
+     "rc": 0,
+     "summary": "RESULT: 42 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 73
+    },
+    "identical": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c1-preorder-status.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "RESULT: 93 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 81
+    },
+    "candidate_v1": {
+     "rc": 0,
+     "summary": "RESULT: 93 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 81
+    },
+    "identical": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-migration.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "RESULT: 121 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 13
+    },
+    "candidate_v1": {
+     "rc": 0,
+     "summary": "RESULT: 121 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 14
+    },
+    "identical": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-2-popup-establishment-taipei-time.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "結果：29 通過／0 失敗",
+     "fail_lines": [],
+     "seconds": 65
+    },
+    "candidate_v1": {
+     "rc": 0,
+     "summary": "結果：29 通過／0 失敗",
+     "fail_lines": [],
+     "seconds": 64
+    },
+    "identical": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-2-payment-guard-time-merge.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "結果：22 通過／0 失敗",
+     "fail_lines": [],
+     "seconds": 48
+    },
+    "candidate_v1": {
+     "rc": 0,
+     "summary": "結果：22 通過／0 失敗",
+     "fail_lines": [],
+     "seconds": 50
+    },
+    "identical": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-2-payment-response-timing.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "結果：18 通過／0 失敗",
+     "fail_lines": [],
+     "seconds": 216
+    },
+    "candidate_v1": {
+     "rc": 0,
+     "summary": "結果：18 通過／0 失敗",
+     "fail_lines": [],
+     "seconds": 216
+    },
+    "identical": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-1-popup-payment-status-refresh.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "結果：19 通過／0 失敗",
+     "fail_lines": [],
+     "seconds": 99
+    },
+    "candidate_v1": {
+     "rc": 0,
+     "summary": "結果：19 通過／0 失敗",
+     "fail_lines": [],
+     "seconds": 99
+    },
+    "identical": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-1-timing-fix.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "結果：11 通過／0 失敗",
+     "fail_lines": [],
+     "seconds": 83
+    },
+    "candidate_v1": {
+     "rc": 0,
+     "summary": "結果：11 通過／0 失敗",
+     "fail_lines": [],
+     "seconds": 82
+    },
+    "identical": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-payment-ui-popup.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "結果：27 通過／0 失敗",
+     "fail_lines": [],
+     "seconds": 58
+    },
+    "candidate_v1": {
+     "rc": 0,
+     "summary": "結果：27 通過／0 失敗",
+     "fail_lines": [],
+     "seconds": 58
+    },
+    "identical": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-3-payment-guard.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "RESULT: 25 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 44
+    },
+    "candidate_v1": {
+     "rc": 0,
+     "summary": "RESULT: 25 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 43
+    },
+    "identical": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-2-payment-recovery.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "RESULT: 33 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 97
+    },
+    "candidate_v1": {
+     "rc": 0,
+     "summary": "RESULT: 33 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 98
+    },
+    "identical": true
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-1-consistency.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "RESULT: 61 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 142
+    },
+    "candidate_v1": {
+     "rc": 0,
+     "summary": "RESULT: 61 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 143
+    },
+    "identical": true
+   },
+   {
+    "suite": "run-h1-4-10-phase3-checkout-submit-payment-runtime.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "TOTAL=111 PASS=111 FAIL=0",
+     "fail_lines": [],
+     "seconds": 28
+    },
+    "candidate_v1": {
+     "rc": 0,
+     "summary": "TOTAL=111 PASS=111 FAIL=0",
+     "fail_lines": [],
+     "seconds": 28
+    },
+    "identical": true
+   },
+   {
+    "suite": "run-h1-4-10-phase4b-recovery-full-runtime.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "TOTAL=168 PASS=168 FAIL=0",
+     "fail_lines": [],
+     "seconds": 16
+    },
+    "candidate_v1": {
+     "rc": 0,
+     "summary": "TOTAL=168 PASS=168 FAIL=0",
+     "fail_lines": [],
+     "seconds": 15
+    },
+    "identical": true
+   },
+   {
+    "suite": "run-h1-4-10-phase4b-recovery-frontend-targeted.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "TOTAL=50 PASS=50 FAIL=0",
+     "fail_lines": [],
+     "seconds": 9
+    },
+    "candidate_v1": {
+     "rc": 0,
+     "summary": "TOTAL=50 PASS=50 FAIL=0",
+     "fail_lines": [],
+     "seconds": 9
+    },
+    "identical": true
+   },
+   {
+    "suite": "run-h1-4-10-phase4b-recovery-resume-targeted.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "TOTAL=92 PASS=92 FAIL=0",
+     "fail_lines": [],
+     "seconds": 3
+    },
+    "candidate_v1": {
+     "rc": 0,
+     "summary": "TOTAL=92 PASS=92 FAIL=0",
+     "fail_lines": [],
+     "seconds": 3
+    },
+    "identical": true
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-frontend.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "PASS: 293  FAIL: 0  TOTAL: 293",
+     "fail_lines": [],
+     "seconds": 28
+    },
+    "candidate_v1": {
+     "rc": 0,
+     "summary": "PASS: 293  FAIL: 0  TOTAL: 293",
+     "fail_lines": [],
+     "seconds": 29
+    },
+    "identical": true
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-real-browser.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "PASS: 36  FAIL: 0  TOTAL: 36",
+     "fail_lines": [],
+     "seconds": 11
+    },
+    "candidate_v1": {
+     "rc": 0,
+     "summary": "PASS: 36  FAIL: 0  TOTAL: 36",
+     "fail_lines": [],
+     "seconds": 10
+    },
+    "identical": true
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-public-checkout.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "PASS: 1447  FAIL: 0  TOTAL: 1447",
+     "fail_lines": [],
+     "seconds": 57
+    },
+    "candidate_v1": {
+     "rc": 0,
+     "summary": "PASS: 1447  FAIL: 0  TOTAL: 1447",
+     "fail_lines": [],
+     "seconds": 58
+    },
+    "identical": true
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-checkout-integration.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "PASS: 20  FAIL: 0  TOTAL: 20",
+     "fail_lines": [],
+     "seconds": 2
+    },
+    "candidate_v1": {
+     "rc": 0,
+     "summary": "PASS: 20  FAIL: 0  TOTAL: 20",
+     "fail_lines": [],
+     "seconds": 3
+    },
+    "identical": true
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-recovery-cart-frontend.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "PASS: 67  FAIL: 0  TOTAL: 67",
+     "fail_lines": [],
+     "seconds": 9
+    },
+    "candidate_v1": {
+     "rc": 0,
+     "summary": "PASS: 67  FAIL: 0  TOTAL: 67",
+     "fail_lines": [],
+     "seconds": 9
+    },
+    "identical": true
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-state.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "PASS: 94  FAIL: 0  TOTAL: 94",
+     "fail_lines": [],
+     "seconds": 0
+    },
+    "candidate_v1": {
+     "rc": 0,
+     "summary": "PASS: 94  FAIL: 0  TOTAL: 94",
+     "fail_lines": [],
+     "seconds": 0
+    },
+    "identical": true
+   },
+   {
+    "suite": "smoke-r48-popup-order-ui-browser.js",
+    "env": {},
+    "baseline": {
+     "rc": 1,
+     "summary": "",
+     "fail_lines": [],
+     "seconds": 33
+    },
+    "candidate_v1": {
+     "rc": 1,
+     "summary": "",
+     "fail_lines": [],
+     "seconds": 33
+    },
+    "identical": true
+   }
+  ],
+  "r48_isolated_with_report_tap": {
+   "base": {
+    "summary": "R48 SMOKE SUMMARY — PASS: 10  FAIL: 3  TOTAL: 13",
+    "fail": [
+     "R_TOUCH_TARGET_44",
+     "R_NO_STICKY_FIXED",
+     "R_FATAL"
+    ]
+   },
+   "cand": {
+    "summary": "R48 SMOKE SUMMARY — PASS: 10  FAIL: 3  TOTAL: 13",
+    "fail": [
+     "R_TOUCH_TARGET_44",
+     "R_NO_STICKY_FIXED",
+     "R_FATAL"
+    ]
+   },
+   "method": "node -r tools/r48-tap.js（應用程式外 preload，包裝 console.log 取得報告行）"
+  }
+ },
+ "existing_assertions_changed": [
+  {
+   "file": "scripts/smoke-r54-4-mbv2-hf1-c4-restock-notify.js",
+   "assertion": "B2 完整與選擇性備份涵蓋通知歷史",
+   "original": "選擇性備份（product_demand,restock_notify）的資料表精確清單 === 'product_demand_consents,product_demand_requests,restock_notify_batches,restock_notify_cart_adds,restock_notify_clicks,restock_notify_deliveries,restock_notify_order_attributions'",
+   "new": "精確清單 === 'product_demand_consents,product_demand_order_links,product_demand_requests,restock_notify_batches,restock_notify_cart_adds,restock_notify_clicks,restock_notify_deliveries,restock_notify_order_attributions'（其餘條件不變）",
+   "reason": "本輪規格要求登記與訂單的份數關聯隨「商品想買登記」分類搬家（MBV2 匯出／匯入）；清單仍為精確比對，沒有放寬",
+   "baseline_original": "RESULT: 94 passed, 0 failed",
+   "candidate_original": "RESULT: 93 passed, 1 failed",
+   "baseline_updated": "RESULT: 93 passed, 1 failed",
+   "candidate_updated": "RESULT: 94 passed, 0 failed"
+  },
+  {
+   "file": "scripts/smoke-r54-4-mbv2-hf1-c3-sale-status-demand.js",
+   "assertion": "B3 選擇性備份只含想買登記兩張表，並附商品對照表",
+   "original": "選擇性備份（product_demand）的資料表精確清單 === 'product_demand_consents,product_demand_requests'，且附商品對照表",
+   "new": "精確清單 === 'product_demand_consents,product_demand_order_links,product_demand_requests'，且附商品對照表（名稱改為「三張表（登記、同意、份數關聯）」）",
+   "reason": "同上：分類新增份數關聯表；清單仍為精確比對，其餘條件不變",
+   "baseline_original": "RESULT: 328 passed, 4 failed",
+   "candidate_original": "RESULT: 327 passed, 5 failed",
+   "baseline_updated": "RESULT: 327 passed, 5 failed",
+   "candidate_updated": "RESULT: 328 passed, 4 failed"
+  }
+ ],
+ "existing_assertions_relaxed": [],
+ "existing_failures": [
+  {
+   "suite": "smoke-r54-4-mbv2-hf1-c3-sale-status-demand.js",
+   "items": [
+    "O1",
+    "O6-paused",
+    "O6-sold_out_indefinitely",
+    "O9"
+   ],
+   "cause": "time_too_early（真實時鐘相依）",
+   "same_in_baseline": true
+  },
+  {
+   "suite": "smoke-r54-4-mbv2-hf1-c5-restock-conversion.js（預設時鐘）",
+   "items": [
+    "B1"
+   ],
+   "cause": "時鐘相依；C4_CLOCK_OFFSET_MS=0 時 42/42",
+   "same_in_baseline": true
+  },
+  {
+   "suite": "smoke-r48-popup-order-ui-browser.js",
+   "items": [
+    "R_TOUCH_TARGET_44",
+    "R_NO_STICKY_FIXED",
+    "R_FATAL"
+   ],
+   "cause": "既有（清單內執行時無結果行，另以 preload 單獨執行）",
+   "same_in_baseline": true
+  }
+ ],
+ "core_files_unchanged": [
+  {
+   "path": "utils/restockNotify.js",
+   "baseline": "61f0b68fc9b4150485a440b913ac4b090235ff876fdf4455166284b5d343ff48",
+   "candidate": "61f0b68fc9b4150485a440b913ac4b090235ff876fdf4455166284b5d343ff48"
+  },
+  {
+   "path": "utils/restockAuto.js",
+   "baseline": "911975761a2f3fe54ee22fb3e10ddc7bee7756da6c95a59f8867b750622a5cb8",
+   "candidate": "911975761a2f3fe54ee22fb3e10ddc7bee7756da6c95a59f8867b750622a5cb8"
+  },
+  {
+   "path": "utils/linePush.js",
+   "baseline": "d9b9656ebcd1b6f15079a647a4513caa2fd724af2d75ea668907bfede4d9bccc",
+   "candidate": "d9b9656ebcd1b6f15079a647a4513caa2fd724af2d75ea668907bfede4d9bccc"
+  },
+  {
+   "path": "utils/restockTracking.js",
+   "baseline": "08c4933139c347d4a084fa68e93a836a1c2b3de4448a57521946e564c1639040",
+   "candidate": "08c4933139c347d4a084fa68e93a836a1c2b3de4448a57521946e564c1639040"
+  },
+  {
+   "path": "utils/linePayClient.js",
+   "baseline": "6c6a033a0ff286613fa7caff0d09f724ece4e94972c6e6eb965f39663512c8c5",
+   "candidate": "6c6a033a0ff286613fa7caff0d09f724ece4e94972c6e6eb965f39663512c8c5"
+  },
+  {
+   "path": "utils/linePayService.js",
+   "baseline": "8abc32f7aab16a5671e13a89ab17332328ecaed8ba257959c2bab8e21092943d",
+   "candidate": "8abc32f7aab16a5671e13a89ab17332328ecaed8ba257959c2bab8e21092943d"
+  },
+  {
+   "path": "utils/orderIdentity.js",
+   "baseline": "9c8f1942cd82db58afdd98f967b28a73d081ecd9bc5d8b2425b7e7a38a58bc6d",
+   "candidate": "9c8f1942cd82db58afdd98f967b28a73d081ecd9bc5d8b2425b7e7a38a58bc6d"
+  },
+  {
+   "path": "utils/popupPayment.js",
+   "baseline": "8c34cf5d986cd9d061c4eeefc94aff36fee7aead8e1d1f5cc4344782528972be",
+   "candidate": "8c34cf5d986cd9d061c4eeefc94aff36fee7aead8e1d1f5cc4344782528972be"
+  },
+  {
+   "path": "utils/popupPaymentRecovery.js",
+   "baseline": "a3ce9998401a65bac353757e560d23c59d8b918276254ff3c4f35ea39a8d6ef7",
+   "candidate": "a3ce9998401a65bac353757e560d23c59d8b918276254ff3c4f35ea39a8d6ef7"
+  },
+  {
+   "path": "utils/lineMemberSession.js",
+   "baseline": "be466bbb58c0d7bc12bbd8502f97a9933aa9570118c4278b0cf93c42427209c5",
+   "candidate": "be466bbb58c0d7bc12bbd8502f97a9933aa9570118c4278b0cf93c42427209c5"
+  },
+  {
+   "path": "routes/popup-public.js",
+   "baseline": "8f73dee4b38b7c558d860d02011edd90f38fb72e22968176474df4b2bfb8fef0",
+   "candidate": "8f73dee4b38b7c558d860d02011edd90f38fb72e22968176474df4b2bfb8fef0"
+  },
+  {
+   "path": "routes/line-shipping.js",
+   "baseline": "94092938ee63c981c62b1758a0048a63a7d2c5ef1727ea1bb99b69e31c6d8bcd",
+   "candidate": "94092938ee63c981c62b1758a0048a63a7d2c5ef1727ea1bb99b69e31c6d8bcd"
+  },
+  {
+   "path": "public/line-shipping.html",
+   "baseline": "5a778c23f45189de94c75c56bf23d84de2360e85248889414845e23ea4556f68",
+   "candidate": "5a778c23f45189de94c75c56bf23d84de2360e85248889414845e23ea4556f68"
+  }
+ ]
+}

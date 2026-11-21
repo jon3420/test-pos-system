@@ -859,6 +859,8 @@ router.post('/:id/void', (req, res) => {
       // 不需要處理一般庫存回補。
       const { releasePopupOrderAllocations } = require('../utils/popupCheckout');
       db.runDurableTransaction(() => { // R44.2F：durable transaction（memory＋disk 一致）
+        // R54.4／MBV2-HF1-C6.2 補修：同一交易內（狀態更新之前）保存交易中重新讀取的原履約狀態，供份數回復使用（重啟後仍可依此處理）
+        require('../utils/demandSettlement').recordVoidTaskRaw(db._db, storeId, order.id);
         db._db.run(
           `INSERT INTO order_logs (store_id,order_id,order_number,action,reason,operator,before_data,after_data,
              before_total,after_total,amount_diff,before_payment,after_payment,
@@ -892,6 +894,8 @@ router.post('/:id/void', (req, res) => {
       // 交易——先前這四步是各自獨立的 auto-save 呼叫，任一步失敗都可能
       // 留下「log 寫了但狀態沒變」或「狀態變了但庫存沒補」這種半套狀態。
       db.runDurableTransaction(() => { // R44.2F：durable transaction（memory＋disk 一致）
+        // R54.4／MBV2-HF1-C6.2 補修：同一交易內（狀態更新之前）保存交易中重新讀取的原履約狀態，供份數回復使用（重啟後仍可依此處理）
+        require('../utils/demandSettlement').recordVoidTaskRaw(db._db, storeId, order.id);
         db._db.run(
           `INSERT INTO order_logs (store_id,order_id,order_number,action,reason,operator,before_data,after_data,
              before_total,after_total,amount_diff,before_payment,after_payment,
@@ -941,6 +945,9 @@ router.post('/:id/void', (req, res) => {
       });
     }
 
+    // R54.4／MBV2-HF1-C6.2：作廢後同步補貨登記份數。作廢前已完成（已履約）→ 待核對、不自動回復；未完成 → 依原綁定回復。fail-open。
+    // C6.2 補修：作廢前履約狀態只採用交易內保存的作廢待辦（不使用記憶體中的訂單資料）；本次失敗或中斷由定期補齊依待辦處理
+    if (order.uuid) require('../utils/demandSettlement').safeSync(db, storeId, order.uuid, {}, 'order_void');
     res.json({
       success: true,
       data: parseOrder(db.get('SELECT * FROM orders WHERE id=? AND store_id=?', [order.id, storeId])),

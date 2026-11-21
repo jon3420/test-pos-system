@@ -1,0 +1,1467 @@
+{
+ "round": "R54.4／MBV2-HF1-C6.2 補修：登記份數持久化補齊與作廢回復",
+ "baseline": {
+  "file": "P3CD_DEPLOY_R54_4_MBV2_HF1_C6_2_DEMAND_CART_ORDER_SETTLEMENT_APP_ROOT.zip",
+  "sha256": "24f7ff067f6d7541b38abf8cfa9ebf1602ff30b08220fa07a884f584afb6605a",
+  "bytes": 10627748
+ },
+ "external_calls": {
+  "real_line": 0,
+  "real_linepay": 0,
+  "sandbox": 0,
+  "note": "LINE 由 c4-line-mock、LINE Pay 由 c5-linepay-mock、其他網路由 hf1c3-net-mock 於程序內攔截；本輪新驗收 LINE Pay 替身呼叫 2 次"
+ },
+ "labels": {
+  "N": "本輪修正（未修改基準應失敗）",
+  "G": "保留既有行為（基準也應通過）",
+  "Z": "全程檢查",
+  "API": "正式 HTTP 路由",
+  "DB": "直接讀資料庫檔",
+  "FX-DB": "資料庫夾具",
+  "RS": "正常停機與重啟",
+  "KILL": "真實 SIGKILL",
+  "BR": "真實瀏覽器"
+ },
+ "fault_injection": "scripts/lib/c62r-fault.js（測試 preload，以 C62R_CTRL 檔案控制）；正式程式沒有新增可觸發故障或中斷的端點",
+ "new_acceptance": {
+  "script": "scripts/smoke-r54-4-mbv2-hf1-c6-2-durable-recovery-fix.js",
+  "baseline_summary": "結果：7 通過、15 失敗",
+  "work_tree_summary": "結果：22 通過、0 失敗",
+  "candidate_summary": "結果：22 通過、0 失敗",
+  "candidate_in_regression": "結果：22 通過、0 失敗",
+  "items": [
+   {
+    "id": "A1",
+    "class": "G",
+    "title": "[API][DB] 交易內綁定與立即補綁都失敗：訂單照常成立、沒有半套扣減（無關聯、已完成 0）",
+    "baseline": true,
+    "baseline_detail": "{\"links\":0,\"s\":0}",
+    "candidate": true,
+    "candidate_detail": "{\"links\":0,\"s\":0}"
+   },
+   {
+    "id": "A2",
+    "class": "N",
+    "title": "[API][DB] 故障解除後，背景定期處理以原訂單與原登記週期補齊：已完成 3、尚待購買 2（不需重啟）",
+    "baseline": false,
+    "baseline_detail": "",
+    "candidate": true,
+    "candidate_detail": "{\"links\":[[\"settled\",3]],\"s\":3}"
+   },
+   {
+    "id": "A3",
+    "class": "N",
+    "title": "[RS][DB] 補齊後重啟兩次：只扣一次；購買與送單事件不增加",
+    "baseline": false,
+    "baseline_detail": "",
+    "candidate": true,
+    "candidate_detail": "{\"s\":3,\"ev0\":2,\"ev1\":2}"
+   },
+   {
+    "id": "A4",
+    "class": "N",
+    "title": "[RS][DB] 故障期間成立的訂單：重啟後啟動補齊完成扣減（4/4、已完成）",
+    "baseline": false,
+    "baseline_detail": "",
+    "candidate": true,
+    "candidate_detail": "{\"r\":[\"completed\",4],\"L\":[\"settled\"]}"
+   },
+   {
+    "id": "A5",
+    "class": "N",
+    "title": "[API][DB] 同一訂單多商品：成功的商品立即扣減，失敗的商品保留待辦，故障解除後補齊；已完成的不重複扣",
+    "baseline": false,
+    "baseline_detail": "",
+    "candidate": true,
+    "candidate_detail": "{\"L1\":[803],\"c1\":2,\"d1\":0,\"L2\":[[803,2],[804,3]]}"
+   },
+   {
+    "id": "A6",
+    "class": "N",
+    "title": "[API][DB] 待辦期間登記被取消並重新登記：補齊只綁定原週期（已取消 → 不扣、不復活），新週期 0",
+    "baseline": false,
+    "baseline_detail": "",
+    "candidate": true,
+    "candidate_detail": "{\"L\":[[true,0,\"cycle_closed:cancelled\"]],\"a\":\"cancelled\",\"b\":[\"active\",0]}"
+   },
+   {
+    "id": "A7",
+    "class": "N",
+    "title": "[FX-DB][API] 待辦期間原週期過期並重新登記：補齊只綁定原週期（已過期 → 不扣），新週期不受影響",
+    "baseline": false,
+    "baseline_detail": "",
+    "candidate": true,
+    "candidate_detail": "{\"L\":[[0,\"cycle_closed:expired\"]],\"a\":\"expired\",\"b\":[2,0]}"
+   },
+   {
+    "id": "A8",
+    "class": "N",
+    "title": "[API][RS] LINE Pay：綁定故障期間付款成功 → 補齊後依付款狀態扣減一次；不再送 Confirm、不重送購買事件",
+    "baseline": false,
+    "baseline_detail": "",
+    "candidate": true,
+    "candidate_detail": "{\"s\":2,\"confirms\":[1,1],\"pur\":[1,1]}"
+   },
+   {
+    "id": "A9",
+    "class": "N",
+    "title": "[KILL][RS] 訂單與待辦已提交、補綁前 SIGKILL：同一資料庫重啟後補齊原訂單與原週期（3/5）；再次重啟不變",
+    "baseline": false,
+    "baseline_detail": "",
+    "candidate": true,
+    "candidate_detail": "{\"http\":0,\"signal\":\"SIGKILL\",\"order_saved\":true,\"s\":3,\"L\":1}"
+   },
+   {
+    "id": "A10",
+    "class": "N",
+    "title": "[API][DB] 待辦無法保存：訂單交易整筆回滾（HTTP 500），訂單數、預購份數、送單事件都不變",
+    "baseline": false,
+    "baseline_detail": "",
+    "candidate": true,
+    "candidate_detail": "{\"status\":500,\"before\":{\"orders\":16,\"sold\":3,\"ev\":7},\"after\":{\"orders\":16,\"sold\":3,\"ev\":7}}"
+   },
+   {
+    "id": "C1",
+    "class": "N",
+    "title": "[KILL][RS] 未履約訂單：作廢交易已提交、回復前 SIGKILL → 重啟後依原關聯回復一次（3 → 0）；再次重啟不變",
+    "baseline": false,
+    "baseline_detail": "",
+    "candidate": true,
+    "candidate_detail": "{\"signal\":\"SIGKILL\",\"voided\":true,\"link\":\"reverted\",\"settled_after\":0}"
+   },
+   {
+    "id": "C2",
+    "class": "G",
+    "title": "[KILL][RS] 已履約訂單：相同停點中斷 → 重啟後待核對，不自動回復需求（仍 3）",
+    "baseline": true,
+    "baseline_detail": "{\"signal\":\"SIGKILL\",\"link\":[\"review\",\"void_prior_state_unknown\"],\"settled\":3}",
+    "candidate": true,
+    "candidate_detail": "{\"signal\":\"SIGKILL\",\"link\":[\"review\",\"void_after_completed\"],\"settled\":3}"
+   },
+   {
+    "id": "C2-2",
+    "class": "N",
+    "title": "[DB] 已履約作廢的待核對原因來自交易中保存的原履約狀態（void_after_completed，而非「原狀態不明」）",
+    "baseline": false,
+    "baseline_detail": "",
+    "candidate": true,
+    "candidate_detail": "\"void_after_completed\""
+   },
+   {
+    "id": "C3",
+    "class": "N",
+    "title": "[FX-DB][KILL] 紀錄狀態為 completed、履約流程為 accepted：以 order_status 判斷未履約 → 重啟後回復（2 → 0）",
+    "baseline": false,
+    "baseline_detail": "",
+    "candidate": true,
+    "candidate_detail": "{\"sig\":\"SIGKILL\",\"L\":\"reverted\",\"s\":0}"
+   },
+   {
+    "id": "C4",
+    "class": "G",
+    "title": "[API][RS] 取消（已回復）後再作廢、重複作廢、重複重啟：登記份數只回復一次，不為負",
+    "baseline": true,
+    "baseline_detail": "{\"s1\":0,\"v2\":400,\"s\":0,\"L\":\"reverted\"}",
+    "candidate": true,
+    "candidate_detail": "{\"s1\":0,\"v2\":400,\"s\":0,\"L\":\"reverted\"}"
+   },
+   {
+    "id": "C5",
+    "class": "G",
+    "title": "[FX-DB][RS] 沒有原狀態證據的歷史作廢：待核對、不猜測、不回復（仍 2）",
+    "baseline": true,
+    "baseline_detail": "{\"L\":[\"review\",\"void_prior_state_unknown\"],\"s\":2}",
+    "candidate": true,
+    "candidate_detail": "{\"L\":[\"review\",\"void_prior_state_unknown\"],\"s\":2}"
+   },
+   {
+    "id": "B1",
+    "class": "N",
+    "title": "[FX-DB][RS] 前 200 筆待核對必須保留訂購中：第 201 筆逾期訂單在第 3 輪解除（不永遠排不到）",
+    "baseline": false,
+    "baseline_detail": "",
+    "candidate": true,
+    "candidate_detail": "{\"r201\":3}"
+   },
+   {
+    "id": "B2",
+    "class": "N",
+    "title": "[FX-DB][RS] 超過兩個批次（store_001 451 筆）與另一店別（store_002 302 筆）：後段逾期訂單在可預期輪數內全部解除",
+    "baseline": false,
+    "baseline_detail": "",
+    "candidate": true,
+    "candidate_detail": "{\"s1_451\":6,\"s2_301\":5,\"s2_302\":5}"
+   },
+   {
+    "id": "B3",
+    "class": "N",
+    "title": "[FX-DB][KILL] 單筆故障不阻擋其他訂單；處理中 SIGKILL 後重啟繼續；故障解除後該筆也完成",
+    "baseline": false,
+    "baseline_detail": "",
+    "candidate": true,
+    "candidate_detail": "{\"r402\":11,\"killed\":[[2,\"SIGKILL\"]]}"
+   },
+   {
+    "id": "B4",
+    "class": "G",
+    "title": "[DB] 待核對付款的訂購中份數全部保留（748 筆，未被標成失敗或解除）",
+    "baseline": true,
+    "baseline_detail": "748",
+    "candidate": true,
+    "candidate_detail": "748"
+   },
+   {
+    "id": "Z1",
+    "class": "Z",
+    "title": "[DB] 沒有建立任何補貨通知批次或逐筆發送紀錄",
+    "baseline": true,
+    "baseline_detail": "{\"b\":0,\"d\":0}",
+    "candidate": true,
+    "candidate_detail": "{\"b\":0,\"d\":0}"
+   },
+   {
+    "id": "Z2",
+    "class": "Z",
+    "title": "真實 LINE 呼叫 0（LINE Pay 由替身處理：2 次，真實／Sandbox 0）",
+    "baseline": true,
+    "baseline_detail": "0",
+    "candidate": true,
+    "candidate_detail": "0"
+   }
+  ],
+  "candidate_obs": {
+   "A9": {
+    "http": 0,
+    "signal": "SIGKILL",
+    "order_saved": true
+   },
+   "C1": {
+    "signal": "SIGKILL",
+    "voided": true,
+    "link": "reverted",
+    "settled_after": 0
+   },
+   "C2": {
+    "signal": "SIGKILL",
+    "link": [
+     "review",
+     "void_after_completed"
+    ],
+    "settled": 3
+   },
+   "B": {
+    "plan": {
+     "store_001": {
+      "n": 451,
+      "expired": [
+       201,
+       402,
+       451
+      ],
+      "fail": [
+       402
+      ]
+     },
+     "store_002": {
+      "n": 302,
+      "expired": [
+       301,
+       302
+      ],
+      "fail": []
+     }
+    },
+    "rounds": [
+     {
+      "round": 1,
+      "released": [],
+      "log": "[demand_settlement] sweep: round=1 orders=200 changed=0 failed=0 {\"reserved\":{\"store_001\":{\"from\":0,\"to\":113,\"rows\":100,\"orders\":100,\"wrapped\":false},\"store_002\":{\"from\":0,\"to\":564,\"rows\":100,\"orders\":100,\"wrapped\":false}}}"
+     },
+     {
+      "round": 2,
+      "killed": "SIGKILL"
+     },
+     {
+      "round": 3,
+      "released": [
+       "store_001-0201"
+      ],
+      "log": "[demand_settlement] sweep: round=1 orders=201 changed=1 failed=0 {\"reserved\":{\"store_001\":{\"from\":138,\"to\":238,\"rows\":100,\"orders\":100,\"wrapped\":false},\"store_002\":{\"from\":564,\"to\":664,\"rows\":100,\"orders\":100,\"wrapped\":false}},\"released\":{\"store_001\":{\"from\":0,\"to\":214,\"rows\":1,\"orders\":1,\"wrapped\":true}}}"
+     },
+     {
+      "round": 4,
+      "released": [
+       "store_001-0201"
+      ],
+      "log": "[demand_settlement] sweep: round=1 orders=201 changed=0 failed=0 {\"reserved\":{\"store_001\":{\"from\":238,\"to\":338,\"rows\":100,\"orders\":100,\"wrapped\":false},\"store_002\":{\"from\":664,\"to\":764,\"rows\":100,\"orders\":100,\"wrapped\":false}},\"released\":{\"store_001\":{\"from\":0,\"to\":214,\"rows\":1,\"orders\":1,\"wrapped\":true}}}"
+     },
+     {
+      "round": 5,
+      "released": [
+       "store_001-0201",
+       "store_002-0301",
+       "store_002-0302"
+      ],
+      "log": "[demand_settlement] sweep: round=1 orders=105 changed=2 failed=1 {\"reserved\":{\"store_001\":{\"from\":338,\"to\":438,\"rows\":100,\"orders\":100,\"wrapped\":false},\"store_002\":{\"from\":764,\"to\":766,\"rows\":2,\"orders\":2,\"wrapped\":true}},\"released\":{\"store_001\":{\"from\":0,\"to\":214,\"rows\":1,\"orders\":1,\"wrapped\":true},\"store_002\":{\"from\":0,\"to\":766,\"rows\":2,\"orders\":2,\"wrapped\":true}}}"
+     },
+     {
+      "round": 6,
+      "released": [
+       "store_001-0201",
+       "store_001-0451",
+       "store_002-0301",
+       "store_002-0302"
+      ],
+      "log": "[demand_settlement] sweep: round=1 orders=130 changed=1 failed=0 {\"reserved\":{\"store_001\":{\"from\":438,\"to\":464,\"rows\":26,\"orders\":26,\"wrapped\":true},\"store_002\":{\"from\":0,\"to\":564,\"rows\":100,\"orders\":100,\"wrapped\":false}},\"released\":{\"store_001\":{\"from\":0,\"to\":464,\"rows\":2,\"orders\":2,\"wrapped\":true},\"store_002\":{\"from\":0,\"to\":766,\"rows\":2,\"orders\":2,\"wrapped\":true}}}"
+     },
+     {
+      "round": 7,
+      "released": [
+       "store_001-0201",
+       "store_001-0451",
+       "store_002-0301",
+       "store_002-0302"
+      ],
+      "log": "[demand_settlement] sweep: round=1 orders=204 changed=0 failed=0 {\"reserved\":{\"store_001\":{\"from\":0,\"to\":113,\"rows\":100,\"orders\":100,\"wrapped\":false},\"store_002\":{\"from\":564,\"to\":664,\"rows\":100,\"orders\":100,\"wrapped\":false}},\"released\":{\"store_001\":{\"from\":0,\"to\":464,\"rows\":2,\"orders\":2,\"wrapped\":true},\"store_002\":{\"from\":0,\"to\":766,\"rows\":2,\"orders\":2,\"wrapped\":true}}}"
+     },
+     {
+      "round": 8,
+      "released": [
+       "store_001-0201",
+       "store_001-0451",
+       "store_002-0301",
+       "store_002-0302"
+      ],
+      "log": "[demand_settlement] sweep: round=1 orders=204 changed=0 failed=0 {\"reserved\":{\"store_001\":{\"from\":113,\"to\":213,\"rows\":100,\"orders\":100,\"wrapped\":false},\"store_002\":{\"from\":664,\"to\":764,\"rows\":100,\"orders\":100,\"wrapped\":false}},\"released\":{\"store_001\":{\"from\":0,\"to\":464,\"rows\":2,\"orders\":2,\"wrapped\":true},\"store_002\":{\"from\":0,\"to\":766,\"rows\":2,\"orders\":2,\"wrapped\":true}}}"
+     },
+     {
+      "round": 9,
+      "released": [
+       "store_001-0201",
+       "store_001-0451",
+       "store_002-0301",
+       "store_002-0302"
+      ],
+      "log": "[demand_settlement] sweep: round=1 orders=104 changed=0 failed=0 {\"reserved\":{\"store_001\":{\"from\":213,\"to\":314,\"rows\":100,\"orders\":100,\"wrapped\":false},\"store_002\":{\"from\":764,\"to\":764,\"rows\":0,\"orders\":0,\"wrapped\":true}},\"released\":{\"store_001\":{\"from\":0,\"to\":464,\"rows\":2,\"orders\":2,\"wrapped\":true},\"store_002\":{\"from\":0,\"to\":766,\"rows\":2,\"orders\":2,\"wrapped\":true}}}"
+     },
+     {
+      "round": 10,
+      "released": [
+       "store_001-0201",
+       "store_001-0451",
+       "store_002-0301",
+       "store_002-0302"
+      ],
+      "log": "[demand_settlement] sweep: round=1 orders=204 changed=0 failed=0 {\"reserved\":{\"store_001\":{\"from\":314,\"to\":414,\"rows\":100,\"orders\":100,\"wrapped\":false},\"store_002\":{\"from\":0,\"to\":564,\"rows\":100,\"orders\":100,\"wrapped\":false}},\"released\":{\"store_001\":{\"from\":0,\"to\":464,\"rows\":2,\"orders\":2,\"wrapped\":true},\"store_002\":{\"from\":0,\"to\":766,\"rows\":2,\"orders\":2,\"wrapped\":true}}}"
+     },
+     {
+      "round": 11,
+      "released": [
+       "store_001-0201",
+       "store_001-0402",
+       "store_001-0451",
+       "store_002-0301",
+       "store_002-0302"
+      ],
+      "log": "[demand_settlement] sweep: round=1 orders=154 changed=1 failed=0 {\"reserved\":{\"store_001\":{\"from\":414,\"to\":463,\"rows\":49,\"orders\":49,\"wrapped\":true},\"store_002\":{\"from\":564,\"to\":664,\"rows\":100,\"orders\":100,\"wrapped\":false}},\"released\":{\"store_001\":{\"from\":0,\"to\":464,\"rows\":3,\"orders\":3,\"wrapped\":true},\"store_002\":{\"from\":0,\"to\":766,\"rows\":2,\"orders\":2,\"wrapped\":true}}}"
+     }
+    ]
+   }
+  }
+ },
+ "upgrade_rollback_same_db": {
+  "script": "scripts/smoke-r54-4-mbv2-hf1-c6-2-durable-recovery-upgrade-rollback.js",
+  "sequence": "C6.2 → 補修 → C6.2 → 補修（同一資料庫檔）",
+  "old_root": "未修改 C6.2 全新解壓",
+  "summary": "結果：6 通過、0 失敗",
+  "items": [
+   {
+    "id": "V0",
+    "title": "[RS] 原 C6.2：登記、現金扣減（雞爪 2/5）、LINE Pay 訂購中、通知批次 1 筆與逐筆受理 2 筆",
+    "candidate": true,
+    "detail": "{\"d\":2,\"b\":1,\"lp\":\"reserved\"}"
+   },
+   {
+    "id": "V1",
+    "title": "[RS][DB] 升級：新增待辦與游標資料表；不為升級前的訂單回溯建立待辦或重新扣減；訂單、付款、通知紀錄與 retry key 完全相同",
+    "candidate": true,
+    "detail": "{\"tasks\":0}"
+   },
+   {
+    "id": "V2",
+    "title": "[API][DB] 補修版：綁定故障期間成立的訂單留有待辦（原登記週期）",
+    "candidate": true,
+    "detail": "{\"state\":\"pending\",\"request_uuid\":\"2b968e32-dd17-4c0c-a81e-97c2e6f074f8\"}"
+   },
+   {
+    "id": "V3",
+    "title": "[RS] 回退原 C6.2：可運作（作廢回復、LINE Pay 付款扣減、新訂單照 C6.2 連動）；舊版不處理補修版的待辦（滷蛋仍 0、待辦仍 pending）",
+    "candidate": true,
+    "detail": "{\"pend\":0,\"task\":\"pending\",\"d\":0,\"b\":3,\"g\":1}"
+   },
+   {
+    "id": "V4",
+    "title": "[RS] 再升級：只恢復有可信原始證據的工作（滷蛋待辦 → 2/4、完成）；回退期間的訂單與作廢不另建待辦；訂單、付款、通知紀錄不變；結構相同",
+    "candidate": true,
+    "detail": "{\"f\":2,\"task\":\"done\",\"tasks\":1,\"schemaSame\":true}"
+   },
+   {
+    "id": "V5",
+    "title": "[RS] 再次重啟：各登記已完成份數不重複扣減或回復；通知逐筆紀錄與 retry key 與升級前相同；真實 LINE 0",
+    "candidate": true,
+    "detail": "{\"all\":[[\"active\",2],[\"completed\",3],[\"active\",0],[\"active\",0],[\"active\",0],[\"active\",2],[\"active\",1]],\"real\":0}"
+   }
+  ]
+ },
+ "c62_upgrade_rollback_from_c61": {
+  "script": "scripts/smoke-r54-4-mbv2-hf1-c6-2-upgrade-rollback.js",
+  "old_root": "C6.1 timing-fix 全新解壓",
+  "baseline": "結果：9 通過、0 失敗",
+  "candidate": "結果：9 通過、0 失敗"
+ },
+ "c62_main_updated_on_baseline": "結果：43 通過、1 失敗",
+ "empty_db_boot": {
+  "baseline": {
+   "objects": 241,
+   "health": "ok"
+  },
+  "candidate": {
+   "objects": 246,
+   "health": "ok",
+   "boot_log": "[restock_auto] boot recovery done (stale_batches=0 legacy_review=0)"
+  },
+  "schema_only_in_candidate": [
+   "index:idx_pdst_order_kind_product",
+   "index:idx_pdst_state",
+   "index:idx_pdst_uuid",
+   "table:product_demand_settle_tasks",
+   "table:product_demand_sweep_cursors"
+  ],
+  "removed": []
+ },
+ "regression": {
+  "window": "2026-11-20 台北約 14:30～17:30；候選版先、基準後，依序執行（2 核心，不平行）。候選版執行中雲端環境重新啟動一次，已完成的 26 支保留，第 27 支起重新執行",
+  "suites": [
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-2-demand-cart-order-settlement.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "結果：43 通過、0 失敗",
+     "fail_lines": [],
+     "seconds": 151
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "結果：44 通過、0 失敗",
+     "fail_lines": [],
+     "seconds": 153
+    },
+    "identical": false,
+    "note": "基準執行原 43 項版本；候選版為 44 項（新增 A19-2，見第 10 節）。更新後的 44 項版本在基準執行：43 通過、1 失敗（只有 A19-2）"
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-2-durable-recovery-upgrade-rollback.js",
+    "env": {
+     "C62R_OLD_ROOT": "/home/claude/r2/base"
+    },
+    "baseline": null,
+    "candidate": {
+     "rc": 0,
+     "summary": "結果：6 通過、0 失敗",
+     "fail_lines": [],
+     "seconds": 37
+    },
+    "identical": false,
+    "note": "只在候選版執行（需要原 C6.2 作為舊版根目錄）"
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-2-durable-recovery-fix.js",
+    "env": {},
+    "baseline": {
+     "rc": 1,
+     "summary": "結果：7 通過、15 失敗",
+     "fail_lines": [
+      "❌ A2 [API][DB] 故障解除後，背景定期處理以原訂單與原登記週期補齊：已完成 3、尚待購買 2（不需重啟） [N]",
+      "❌ A3 [RS][DB] 補齊後重啟兩次：只扣一次；購買與送單事件不增加 [N]",
+      "❌ A4 [RS][DB] 故障期間成立的訂單：重啟後啟動補齊完成扣減（4/4、已完成） [N]",
+      "❌ A5 [API][DB] 同一訂單多商品：成功的商品立即扣減，失敗的商品保留待辦，故障解除後補齊；已完成的不重複扣 [N]",
+      "❌ A6 [API][DB] 待辦期間登記被取消並重新登記：補齊只綁定原週期（已取消 → 不扣、不復活），新週期 0 [N]",
+      "❌ A7 [FX-DB][API] 待辦期間原週期過期並重新登記：補齊只綁定原週期（已過期 → 不扣），新週期不受影響 [N]",
+      "❌ A8 [API][RS] LINE Pay：綁定故障期間付款成功 → 補齊後依付款狀態扣減一次；不再送 Confirm、不重送購買事件 [N]",
+      "❌ A9 [KILL][RS] 訂單與待辦已提交、補綁前 SIGKILL：同一資料庫重啟後補齊原訂單與原週期（3/5）；再次重啟不變 [N]",
+      "❌ A10 [API][DB] 待辦無法保存：訂單交易整筆回滾（HTTP 200），訂單數、預購份數、送單事件都不變 [N]",
+      "❌ C1 [KILL][RS] 未履約訂單：作廢交易已提交、回復前 SIGKILL → 重啟後依原關聯回復一次（3 → 0）；再次重啟不變 [N]",
+      "❌ C2-2 [DB] 已履約作廢的待核對原因來自交易中保存的原履約狀態（void_after_completed，而非「原狀態不明」） [N]",
+      "❌ C3 [FX-DB][KILL] 紀錄狀態為 completed、履約流程為 accepted：以 order_status 判斷未履約 → 重啟後回復（2 → 0） [N]",
+      "❌ B1 [FX-DB][RS] 前 200 筆待核對必須保留訂購中：第 201 筆逾期訂單在第 null 輪解除（不永遠排不到） [N]",
+      "❌ B2 [FX-DB][RS] 超過兩個批次（store_001 451 筆）與另一店別（store_002 302 筆）：後段逾期訂單在可預期輪數內全部解除 [N]",
+      "❌ B3 [FX-DB][KILL] 單筆故障不阻擋其他訂單；處理中 SIGKILL 後重啟繼續；故障解除後該筆也完成 [N]"
+     ],
+     "seconds": 408
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "結果：22 通過、0 失敗",
+     "fail_lines": [],
+     "seconds": 215
+    },
+    "identical": false,
+    "note": "本輪新驗收：基準 15 項失敗即重現案例"
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-2-upgrade-rollback.js",
+    "env": {
+     "C62_OLD_ROOT": "/home/claude/r2/c61"
+    },
+    "baseline": {
+     "rc": 0,
+     "summary": "結果：9 通過、0 失敗",
+     "fail_lines": [],
+     "seconds": 40
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "結果：9 通過、0 失敗",
+     "fail_lines": [],
+     "seconds": 38
+    },
+    "identical": true,
+    "note": ""
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-1-restock-list-ui-timing-fix.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "結果：28 通過／0 失敗（模擬 LINE 呼叫 0 次；真實 LINE 0 次）",
+     "fail_lines": [],
+     "seconds": 102
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "結果：28 通過／0 失敗（模擬 LINE 呼叫 0 次；真實 LINE 0 次）",
+     "fail_lines": [],
+     "seconds": 101
+    },
+    "identical": true,
+    "note": ""
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-1-restock-list-auto-toggle-ui.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "結果：40 通過／0 失敗（模擬 LINE 呼叫 0 次；真實 LINE 0 次）",
+     "fail_lines": [],
+     "seconds": 88
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "結果：40 通過／0 失敗（模擬 LINE 呼叫 0 次；真實 LINE 0 次）",
+     "fail_lines": [],
+     "seconds": 87
+    },
+    "identical": true,
+    "note": ""
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-auto-restock.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "結果：24 通過／0 失敗",
+     "fail_lines": [],
+     "seconds": 64
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "結果：24 通過／0 失敗",
+     "fail_lines": [],
+     "seconds": 62
+    },
+    "identical": true,
+    "note": ""
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-1-auto-guard-recovery.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "結果：29 通過／0 失敗",
+     "fail_lines": [],
+     "seconds": 51
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "結果：29 通過／0 失敗",
+     "fail_lines": [],
+     "seconds": 50
+    },
+    "identical": true,
+    "note": ""
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c6-1-pause-claim-release.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "結果：29 通過／0 失敗",
+     "fail_lines": [],
+     "seconds": 15
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "結果：29 通過／0 失敗",
+     "fail_lines": [],
+     "seconds": 14
+    },
+    "identical": true,
+    "note": ""
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-2-demand-ui-refresh.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "RESULT: 80 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 385
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "RESULT: 80 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 385
+    },
+    "identical": true,
+    "note": ""
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-3-async-consistency.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "RESULT: 34 passed, 0 failed（模擬 LINE 呼叫 2 次；真實 0 次需為 0：0）",
+     "fail_lines": [],
+     "seconds": 144
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "RESULT: 34 passed, 0 failed（模擬 LINE 呼叫 2 次；真實 0 次需為 0：0）",
+     "fail_lines": [],
+     "seconds": 144
+    },
+    "identical": true,
+    "note": ""
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-4-mutation-response.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "RESULT: 20 passed, 0 failed（真實 LINE 呼叫 0 次）",
+     "fail_lines": [],
+     "seconds": 74
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "RESULT: 20 passed, 0 failed（真實 LINE 呼叫 0 次）",
+     "fail_lines": [],
+     "seconds": 73
+    },
+    "identical": true,
+    "note": ""
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-restock-notify.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "RESULT: 94 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 51
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "RESULT: 94 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 47
+    },
+    "identical": true,
+    "note": ""
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-1-dedupe-resume.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "RESULT: 40 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 66
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "RESULT: 40 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 59
+    },
+    "identical": true,
+    "note": ""
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-5-date-consent.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "RESULT: 55 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 59
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "RESULT: 55 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 57
+    },
+    "identical": true,
+    "note": ""
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-5-restock-link.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "RESULT: 42 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 79
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "RESULT: 42 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 77
+    },
+    "identical": true,
+    "note": ""
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c4-linepush-compat.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "RESULT: 12 passed, 0 failed（全部為程序內模擬，真實 LINE 呼叫 0 次）",
+     "fail_lines": [],
+     "seconds": 0
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "RESULT: 12 passed, 0 failed（全部為程序內模擬，真實 LINE 呼叫 0 次）",
+     "fail_lines": [],
+     "seconds": 0
+    },
+    "identical": true,
+    "note": ""
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c3-sale-status-demand.js",
+    "env": {},
+    "baseline": {
+     "rc": 1,
+     "summary": "RESULT: 328 passed, 4 failed",
+     "fail_lines": [
+      "❌ O1 今日完售：今日訂單被擋，未建立訂單、未扣今日額度",
+      "❌ O6-paused 今日與未來日期都被擋，訂單與額度不變",
+      "❌ O6-sold_out_indefinitely 今日與未來日期都被擋，訂單與額度不變",
+      "❌ O9 今日完售＋未啟用預購份數管理：今日仍擋；未來 30 份（超過原預購每日 20）不限額成功，今日額度不變"
+     ],
+     "seconds": 171
+    },
+    "candidate": {
+     "rc": 1,
+     "summary": "RESULT: 328 passed, 4 failed",
+     "fail_lines": [
+      "❌ O1 今日完售：今日訂單被擋，未建立訂單、未扣今日額度",
+      "❌ O6-paused 今日與未來日期都被擋，訂單與額度不變",
+      "❌ O6-sold_out_indefinitely 今日與未來日期都被擋，訂單與額度不變",
+      "❌ O9 今日完售＋未啟用預購份數管理：今日仍擋；未來 30 份（超過原預購每日 20）不限額成功，今日額度不變"
+     ],
+     "seconds": 162
+    },
+    "identical": true,
+    "note": "O1、O6×2、O9：以今日 12:00 取餐，執行時已過台北 12:00（time_too_early），既有時鐘相依失敗，兩版相同"
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c3-1-backup-manage-login.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "RESULT: 54 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 112
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "RESULT: 54 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 104
+    },
+    "identical": true,
+    "note": ""
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c3-2-firstpaint-remap.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "RESULT: 32 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 71
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "RESULT: 32 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 65
+    },
+    "identical": true,
+    "note": ""
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c3-3-restore-cancel.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "RESULT: 30 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 165
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "RESULT: 30 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 164
+    },
+    "identical": true,
+    "note": ""
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-restock-conversion.js",
+    "env": {},
+    "baseline": {
+     "rc": 1,
+     "summary": "RESULT: 41 passed, 1 failed",
+     "fail_lines": [
+      "❌ B1 LIFF 一次／二次導向後最終頁開啟商品：點擊 1 次、核對為收件人"
+     ],
+     "seconds": 75
+    },
+    "candidate": {
+     "rc": 1,
+     "summary": "RESULT: 41 passed, 1 failed",
+     "fail_lines": [
+      "❌ B1 LIFF 一次／二次導向後最終頁開啟商品：點擊 1 次、核對為收件人"
+     ],
+     "seconds": 71
+    },
+    "identical": true,
+    "note": "預設時鐘 B1 既有時鐘相依失敗，兩版相同；C4_CLOCK_OFFSET_MS=0 時 42/42"
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-restock-conversion.js",
+    "env": {
+     "C4_CLOCK_OFFSET_MS": "0"
+    },
+    "baseline": {
+     "rc": 0,
+     "summary": "RESULT: 42 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 75
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "RESULT: 42 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 70
+    },
+    "identical": true,
+    "note": "預設時鐘 B1 既有時鐘相依失敗，兩版相同；C4_CLOCK_OFFSET_MS=0 時 42/42"
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c1-preorder-status.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "RESULT: 93 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 82
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "RESULT: 93 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 76
+    },
+    "identical": true,
+    "note": ""
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-migration.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "RESULT: 121 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 14
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "RESULT: 121 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 11
+    },
+    "identical": true,
+    "note": ""
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-2-popup-establishment-taipei-time.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "結果：29 通過／0 失敗",
+     "fail_lines": [],
+     "seconds": 65
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "結果：29 通過／0 失敗",
+     "fail_lines": [],
+     "seconds": 54
+    },
+    "identical": true,
+    "note": ""
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-2-payment-guard-time-merge.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "結果：22 通過／0 失敗",
+     "fail_lines": [],
+     "seconds": 50
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "結果：22 通過／0 失敗",
+     "fail_lines": [],
+     "seconds": 52
+    },
+    "identical": true,
+    "note": ""
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-2-payment-response-timing.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "結果：18 通過／0 失敗",
+     "fail_lines": [],
+     "seconds": 218
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "結果：18 通過／0 失敗",
+     "fail_lines": [],
+     "seconds": 216
+    },
+    "identical": true,
+    "note": ""
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-1-popup-payment-status-refresh.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "結果：19 通過／0 失敗",
+     "fail_lines": [],
+     "seconds": 101
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "結果：19 通過／0 失敗",
+     "fail_lines": [],
+     "seconds": 99
+    },
+    "identical": true,
+    "note": ""
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-1-timing-fix.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "結果：11 通過／0 失敗",
+     "fail_lines": [],
+     "seconds": 83
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "結果：11 通過／0 失敗",
+     "fail_lines": [],
+     "seconds": 81
+    },
+    "identical": true,
+    "note": ""
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-4-payment-ui-popup.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "結果：27 通過／0 失敗",
+     "fail_lines": [],
+     "seconds": 58
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "結果：27 通過／0 失敗",
+     "fail_lines": [],
+     "seconds": 56
+    },
+    "identical": true,
+    "note": ""
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-3-payment-guard.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "RESULT: 25 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 44
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "RESULT: 25 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 43
+    },
+    "identical": true,
+    "note": ""
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-2-payment-recovery.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "RESULT: 33 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 100
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "RESULT: 33 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 98
+    },
+    "identical": true,
+    "note": ""
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-hf1-c5-1-consistency.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "RESULT: 61 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 149
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "RESULT: 61 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 142
+    },
+    "identical": true,
+    "note": ""
+   },
+   {
+    "suite": "run-h1-4-10-phase3-checkout-submit-payment-runtime.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "TOTAL=111 PASS=111 FAIL=0",
+     "fail_lines": [],
+     "seconds": 29
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "TOTAL=111 PASS=111 FAIL=0",
+     "fail_lines": [],
+     "seconds": 29
+    },
+    "identical": true,
+    "note": ""
+   },
+   {
+    "suite": "run-h1-4-10-phase4b-recovery-full-runtime.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "TOTAL=168 PASS=168 FAIL=0",
+     "fail_lines": [],
+     "seconds": 17
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "TOTAL=168 PASS=168 FAIL=0",
+     "fail_lines": [],
+     "seconds": 16
+    },
+    "identical": true,
+    "note": ""
+   },
+   {
+    "suite": "run-h1-4-10-phase4b-recovery-frontend-targeted.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "TOTAL=50 PASS=50 FAIL=0",
+     "fail_lines": [],
+     "seconds": 9
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "TOTAL=50 PASS=50 FAIL=0",
+     "fail_lines": [],
+     "seconds": 9
+    },
+    "identical": true,
+    "note": ""
+   },
+   {
+    "suite": "run-h1-4-10-phase4b-recovery-resume-targeted.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "TOTAL=92 PASS=92 FAIL=0",
+     "fail_lines": [],
+     "seconds": 3
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "TOTAL=92 PASS=92 FAIL=0",
+     "fail_lines": [],
+     "seconds": 3
+    },
+    "identical": true,
+    "note": ""
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-frontend.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "PASS: 293  FAIL: 0  TOTAL: 293",
+     "fail_lines": [],
+     "seconds": 29
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "PASS: 293  FAIL: 0  TOTAL: 293",
+     "fail_lines": [],
+     "seconds": 28
+    },
+    "identical": true,
+    "note": ""
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-real-browser.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "PASS: 36  FAIL: 0  TOTAL: 36",
+     "fail_lines": [],
+     "seconds": 10
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "PASS: 36  FAIL: 0  TOTAL: 36",
+     "fail_lines": [],
+     "seconds": 9
+    },
+    "identical": true,
+    "note": ""
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-public-checkout.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "PASS: 1447  FAIL: 0  TOTAL: 1447",
+     "fail_lines": [],
+     "seconds": 52
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "PASS: 1447  FAIL: 0  TOTAL: 1447",
+     "fail_lines": [],
+     "seconds": 50
+    },
+    "identical": true,
+    "note": ""
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-checkout-integration.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "PASS: 20  FAIL: 0  TOTAL: 20",
+     "fail_lines": [],
+     "seconds": 2
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "PASS: 20  FAIL: 0  TOTAL: 20",
+     "fail_lines": [],
+     "seconds": 2
+    },
+    "identical": true,
+    "note": ""
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-recovery-cart-frontend.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "PASS: 67  FAIL: 0  TOTAL: 67",
+     "fail_lines": [],
+     "seconds": 9
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "PASS: 67  FAIL: 0  TOTAL: 67",
+     "fail_lines": [],
+     "seconds": 9
+    },
+    "identical": true,
+    "note": ""
+   },
+   {
+    "suite": "smoke-h1-4-12-popup-state.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "PASS: 94  FAIL: 0  TOTAL: 94",
+     "fail_lines": [],
+     "seconds": 0
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "PASS: 94  FAIL: 0  TOTAL: 94",
+     "fail_lines": [],
+     "seconds": 0
+    },
+    "identical": true,
+    "note": ""
+   },
+   {
+    "suite": "smoke-r48-popup-order-ui-browser.js",
+    "env": {},
+    "baseline": {
+     "rc": 1,
+     "summary": "",
+     "fail_lines": [],
+     "seconds": 33
+    },
+    "candidate": {
+     "rc": 1,
+     "summary": "",
+     "fail_lines": [],
+     "seconds": 33
+    },
+    "identical": true,
+    "note": "清單內執行時沒有結果行（腳本替換 console.log）；另以 preload 單獨執行，兩版都是 10/13，失敗項目相同（第 9.3 節）"
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-system-regression.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "",
+     "fail_lines": [],
+     "seconds": 7
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "",
+     "fail_lines": [],
+     "seconds": 6
+    },
+    "identical": true,
+    "note": "輸出沒有計數行；exit 0，兩版相同"
+   },
+   {
+    "suite": "smoke-r54-4-mbv2-large-upload.js",
+    "env": {},
+    "baseline": {
+     "rc": 0,
+     "summary": "RESULT: 25 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 134
+    },
+    "candidate": {
+     "rc": 0,
+     "summary": "RESULT: 25 passed, 0 failed",
+     "fail_lines": [],
+     "seconds": 125
+    },
+    "identical": true,
+    "note": ""
+   }
+  ],
+  "r48_isolated_with_report_tap": {
+   "base": {
+    "summary": "R48 SMOKE SUMMARY — PASS: 10  FAIL: 3  TOTAL: 13",
+    "fail": [
+     "R_TOUCH_TARGET_44",
+     "R_NO_STICKY_FIXED",
+     "R_FATAL"
+    ]
+   },
+   "cand": {
+    "summary": "R48 SMOKE SUMMARY — PASS: 10  FAIL: 3  TOTAL: 13",
+    "fail": [
+     "R_TOUCH_TARGET_44",
+     "R_NO_STICKY_FIXED",
+     "R_FATAL"
+    ]
+   },
+   "method": "node -r tools/r48-tap.js（應用程式外 preload，包裝 console.log；不修改受測程式或測試）"
+  }
+ },
+ "existing_assertions_changed": [
+  {
+   "file": "scripts/smoke-r54-4-mbv2-hf1-c6-2-demand-cart-order-settlement.js",
+   "assertion": "A19",
+   "original": "A19 依序：設定故障 first → 下單 o1；故障 always → 下單 o2；故障 off；核對 o1 已補綁扣 1、o2 無關聯且已完成 0（沒有半套扣減）",
+   "new": "A19 斷言內容完全不變；只把「故障 off」移到核對之後（補修版有背景補齊，若先解除故障，核對前就可能已補齊，無法核對「沒有半套扣減」）。另新增 A19-2：故障解除 → 重啟 → o2 由持久化待辦補齊為已完成 1／3、o1 仍 1（只扣一次）",
+   "reason": "規格要求 A19 保留「不留下半套結果」並新增恢復斷言；沒有放寬任何付款、原子性或冪等斷言",
+   "baseline_original": "結果：43 通過、0 失敗",
+   "baseline_updated": "結果：43 通過、1 失敗",
+   "candidate_updated": "結果：44 通過、0 失敗"
+  }
+ ],
+ "existing_assertions_relaxed": [],
+ "existing_failures": [
+  {
+   "suite": "smoke-r54-4-mbv2-hf1-c3-sale-status-demand.js",
+   "items": [
+    "O1",
+    "O6-paused",
+    "O6-sold_out_indefinitely",
+    "O9"
+   ],
+   "cause": "time_too_early（測試以今日 12:00 取餐，執行時已過 12:00）",
+   "same_in_baseline": true
+  },
+  {
+   "suite": "smoke-r54-4-mbv2-hf1-c5-restock-conversion.js（預設時鐘）",
+   "items": [
+    "B1"
+   ],
+   "cause": "時鐘相依；C4_CLOCK_OFFSET_MS=0 時 42/42",
+   "same_in_baseline": true
+  },
+  {
+   "suite": "smoke-r48-popup-order-ui-browser.js",
+   "items": [
+    "R_TOUCH_TARGET_44",
+    "R_NO_STICKY_FIXED",
+    "R_FATAL"
+   ],
+   "cause": "既有（C6.2 報告同樣列出）",
+   "same_in_baseline": true
+  }
+ ],
+ "core_files_unchanged": [
+  {
+   "path": "routes/line-orders.js",
+   "baseline": "14b508474b179ef3db26bee2e67af4c8fc8c07450adc1838a75f2d79d7dd3fed",
+   "candidate": "14b508474b179ef3db26bee2e67af4c8fc8c07450adc1838a75f2d79d7dd3fed",
+   "same": true
+  },
+  {
+   "path": "routes/linepay.js",
+   "baseline": "e7ef846c63985edfc263d536ae810ef685466c74d85cb399980eca0c4290a0b8",
+   "candidate": "e7ef846c63985edfc263d536ae810ef685466c74d85cb399980eca0c4290a0b8",
+   "same": true
+  },
+  {
+   "path": "utils/restockNotify.js",
+   "baseline": "61f0b68fc9b4150485a440b913ac4b090235ff876fdf4455166284b5d343ff48",
+   "candidate": "61f0b68fc9b4150485a440b913ac4b090235ff876fdf4455166284b5d343ff48",
+   "same": true
+  },
+  {
+   "path": "utils/restockAuto.js",
+   "baseline": "911975761a2f3fe54ee22fb3e10ddc7bee7756da6c95a59f8867b750622a5cb8",
+   "candidate": "911975761a2f3fe54ee22fb3e10ddc7bee7756da6c95a59f8867b750622a5cb8",
+   "same": true
+  },
+  {
+   "path": "utils/linePush.js",
+   "baseline": "d9b9656ebcd1b6f15079a647a4513caa2fd724af2d75ea668907bfede4d9bccc",
+   "candidate": "d9b9656ebcd1b6f15079a647a4513caa2fd724af2d75ea668907bfede4d9bccc",
+   "same": true
+  },
+  {
+   "path": "utils/linePayClient.js",
+   "baseline": "6c6a033a0ff286613fa7caff0d09f724ece4e94972c6e6eb965f39663512c8c5",
+   "candidate": "6c6a033a0ff286613fa7caff0d09f724ece4e94972c6e6eb965f39663512c8c5",
+   "same": true
+  },
+  {
+   "path": "utils/linePayService.js",
+   "baseline": "8abc32f7aab16a5671e13a89ab17332328ecaed8ba257959c2bab8e21092943d",
+   "candidate": "8abc32f7aab16a5671e13a89ab17332328ecaed8ba257959c2bab8e21092943d",
+   "same": true
+  },
+  {
+   "path": "utils/orderIdentity.js",
+   "baseline": "9c8f1942cd82db58afdd98f967b28a73d081ecd9bc5d8b2425b7e7a38a58bc6d",
+   "candidate": "9c8f1942cd82db58afdd98f967b28a73d081ecd9bc5d8b2425b7e7a38a58bc6d",
+   "same": true
+  },
+  {
+   "path": "utils/popupPayment.js",
+   "baseline": "8c34cf5d986cd9d061c4eeefc94aff36fee7aead8e1d1f5cc4344782528972be",
+   "candidate": "8c34cf5d986cd9d061c4eeefc94aff36fee7aead8e1d1f5cc4344782528972be",
+   "same": true
+  },
+  {
+   "path": "utils/db.js",
+   "baseline": "56516a178dea128a215bc16c76d4f4aa48b1e69266cc57ec79245bb8f8bf65fd",
+   "candidate": "56516a178dea128a215bc16c76d4f4aa48b1e69266cc57ec79245bb8f8bf65fd",
+   "same": true
+  },
+  {
+   "path": ".env.example",
+   "baseline": "37c075ac7497176249c4d7858ab76cf436c70fb476f25eeb7539c6fd102b40d9",
+   "candidate": "37c075ac7497176249c4d7858ab76cf436c70fb476f25eeb7539c6fd102b40d9",
+   "same": true
+  },
+  {
+   "path": "package.json",
+   "baseline": "ef78a283fc9373f31c912678dd93efd22b5dc150cf35165743d9e98a1f8934d4",
+   "candidate": "ef78a283fc9373f31c912678dd93efd22b5dc150cf35165743d9e98a1f8934d4",
+   "same": true
+  },
+  {
+   "path": "package-lock.json",
+   "baseline": "fb6c9c22f30424809dbc1e41ecae9936a74b5869a727b0dd3a8a15b20c196110",
+   "candidate": "fb6c9c22f30424809dbc1e41ecae9936a74b5869a727b0dd3a8a15b20c196110",
+   "same": true
+  }
+ ]
+}

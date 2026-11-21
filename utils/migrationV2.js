@@ -64,7 +64,8 @@ const CATEGORY_DEFS = [
   // R54.4／MBV2-HF1-C3：商品想買登記（需求與通知同意分開保存）。匯入只寫資料，不發送任何通知。
   { key: 'product_demand', label: '商品想買登記', fileTag: 'demand',
     desc: '顧客的商品想買登記（期望份數、取餐偏好、有效期限、狀態）與另外記錄的補貨通知同意；匯入不會發送任何通知',
-    tables: ['product_demand_requests', 'product_demand_consents'],
+    // R54.4／MBV2-HF1-C6.2：登記與訂單的份數關聯（訂單商品 → 登記週期 → 份數）一起搬家；匯入只保留為歷史（不自動扣減或回復）
+    tables: ['product_demand_requests', 'product_demand_consents', 'product_demand_order_links'],
     recommends: ['products', 'line_members'], history: false, dateFilter: false },
   // R54.4／MBV2-HF1-C4：LINE 補貨通知紀錄（批次、逐筆受理紀錄與執行狀態）。屬防重歷史：
   // 匯入只合併、不會清除現有紀錄（完整取代也不清除），未完成的工作一律暫停，匯入不發送任何通知。
@@ -410,6 +411,7 @@ function collectExport(raw, storeId, categories, filters, onRow) {
   if (sel.has('product_demand')) {
     simple('product_demand_requests', 'store_id=?', [storeId], 'id ASC');
     simple('product_demand_consents', 'store_id=?', [storeId], 'id ASC');
+    if (tableExists(raw, 'product_demand_order_links')) simple('product_demand_order_links', 'store_id=?', [storeId], 'id ASC');
   }
   if (sel.has('restock_notify')) {
     simple('restock_notify_batches', 'store_id=?', [storeId], 'id ASC');
@@ -1407,6 +1409,27 @@ function stepProductDemand(ctx) {
   });
 }
 
+// R54.4／MBV2-HF1-C6.2：登記與訂單的份數關聯。只合併（appendOnly），一律標記匯入來源：
+//   - 匯入的關聯只作為歷史，本環境的訂單同步與定期補齊都不處理（不扣減、不回復、不發送通知）。
+//   - 來源仍為「訂購中」的關聯改為待核對（review），不計入本環境的訂購中份數。
+function stepProductDemandLinks(ctx) {
+  if (!tableExists(ctx.raw, 'product_demand_order_links')) return;
+  const tag = importSourceTag(ctx);
+  importTable(ctx, { table: 'product_demand_order_links', cat: 'product_demand', rows: ctx.rows('product_demand_order_links'), idMode: 'int', appendOnly: true,
+    keyOf: r => (r.link_uuid ? k(r.link_uuid) : null),
+    transform: r => {
+      if (!r.link_uuid || !r.order_uuid || !r.request_uuid) return { invalid: '缺少 link_uuid／order_uuid／request_uuid' };
+      const p = ctx.resolveProduct(r.product_id);
+      const v = { ...r, product_id: p == null ? 0 : p, order_uuid: ctx.mapOrderRef(r.order_uuid), import_source: tag };
+      if (String(r.state) === 'reserved') { v.state = 'review'; v.note = 'imported_reserved'; }
+      return { values: v };
+    },
+    beforeInsert: (ins) => ((rawGet(ctx.raw, 'SELECT 1 AS x FROM product_demand_order_links WHERE store_id=? AND order_uuid=? AND product_id=?', [ctx.storeId, ins.order_uuid, ins.product_id])
+      || rawGet(ctx.raw, 'SELECT 1 AS x FROM product_demand_order_links WHERE link_uuid=?', [ins.link_uuid]))
+      ? { missing: '同一訂單同一商品已有份數關聯（或屬於其他店別），保留現有紀錄' } : null),
+  });
+}
+
 // R54.4／MBV2-HF1-C4：補貨通知紀錄。只合併（appendOnly：同 uuid 已存在即跳過），不覆蓋現有紀錄；
 //   - 商品以 ref_maps／名稱快照重新對應；無法唯一對應時 product_id=0（未連結），絕不指向另一款商品。
 //   - 未完成的批次一律改為 paused（pause_reason='imported'），未完成的逐筆紀錄改為 held／unknown，
@@ -1580,7 +1603,7 @@ function purgeTablesFor(categories) {
   if (set.has('analytics')) add('analytics_events', 'geo_visit_log');
   if (set.has('member_history')) add('line_member_history', 'line_member_order_links', 'line_friend_events', 'line_member_sessions');
   // R54.4／MBV2-HF1-C3：只在備份檔確實含「商品想買登記」且已選取時才清除；舊備份沒有此分類 → 不清除現有登記
-  if (set.has('product_demand')) add('product_demand_consents', 'product_demand_requests');
+  if (set.has('product_demand')) add('product_demand_settle_tasks', 'product_demand_order_links', 'product_demand_consents', 'product_demand_requests'); // C6.2：份數關聯隨分類一起清除；補修：本店待辦一併清除（待辦不匯出）
   if (set.has('line_members')) add('line_member_tags', 'line_members');
   if (set.has('inventory_movements')) add('inventory_logs', 'ingredient_logs');
   if (set.has('popup')) add('popup_session_change_logs', 'popup_order_allocations', 'popup_session_product_sales', 'popup_session_products', 'popup_sessions', 'popup_campaigns', 'popup_locations');
@@ -1713,6 +1736,16 @@ function remapPreservedDemand(raw, storeId, snap) {
   // 核對：不得殘留暫存值；每列都等於預期的最終商品
   const leftover = rawGet(raw, 'SELECT (SELECT COUNT(*) FROM product_demand_requests WHERE store_id=? AND product_id<0) + (SELECT COUNT(*) FROM product_demand_consents WHERE store_id=? AND product_id<0) AS c', [storeId, storeId]);
   if (leftover && Number(leftover.c) > 0) throw new MigrationError('DEMAND_PRODUCT_REMAP_FAILED', '想買登記商品關聯重新對應未完成，已整批回滾，資料庫未變更。', 500);
+  // R54.4／MBV2-HF1-C6.2：份數關聯的商品編號跟隨所屬登記週期（request_uuid 為準；份數、狀態不變）
+  if (tableExists(raw, 'product_demand_order_links')) {
+    raw.run(`UPDATE OR IGNORE product_demand_order_links SET product_id=(SELECT r.product_id FROM product_demand_requests r WHERE r.store_id=product_demand_order_links.store_id AND r.request_uuid=product_demand_order_links.request_uuid)
+             WHERE store_id=? AND EXISTS (SELECT 1 FROM product_demand_requests r WHERE r.store_id=product_demand_order_links.store_id AND r.request_uuid=product_demand_order_links.request_uuid AND r.product_id<>product_demand_order_links.product_id)`, [storeId]);
+  }
+  // C6.2 補修：本機綁定待辦的商品編號同樣跟隨所屬登記週期（request_uuid 為準），避免重新對應後錯綁
+  if (tableExists(raw, 'product_demand_settle_tasks')) {
+    raw.run(`UPDATE OR IGNORE product_demand_settle_tasks SET product_id=(SELECT r.product_id FROM product_demand_requests r WHERE r.store_id=product_demand_settle_tasks.store_id AND r.request_uuid=product_demand_settle_tasks.request_uuid)
+             WHERE store_id=? AND kind='bind' AND EXISTS (SELECT 1 FROM product_demand_requests r WHERE r.store_id=product_demand_settle_tasks.store_id AND r.request_uuid=product_demand_settle_tasks.request_uuid AND r.product_id<>product_demand_settle_tasks.product_id)`, [storeId]);
+  }
   const changes = [];
   for (const [from, m] of map) changes.push({ from, to: m.to, matched_by: m.by, rows: countFor(from) });
   return changes;
@@ -1798,7 +1831,7 @@ function executeImport(db, storeId, payload, info, opts) {
     if (c.has('inventory_movements')) stepInventoryMovements(ctx);
     if (c.has('line_members')) stepMembers(ctx);
     if (c.has('member_history')) stepMemberHistory(ctx);
-    if (c.has('product_demand')) stepProductDemand(ctx);
+    if (c.has('product_demand')) { stepProductDemand(ctx); stepProductDemandLinks(ctx); }
     if (c.has('restock_notify')) stepRestockNotify(ctx);
     if (c.has('analytics')) stepAnalytics(ctx);
     if (c.has('settings')) stepSettings(ctx);

@@ -94,6 +94,14 @@ publicRouter.post('/mine', (req, res) => {
     res.json({ success: true, data: PD.listMine(getDb(), req.storeId, uid, Number.isInteger(pid) && pid > 0 ? pid : null) });
   } catch (e) { sendErr(res, e, 'mine'); }
 });
+// R54.4／MBV2-HF1-C6.2：本人最近已完成的登記（歷史；只限後端驗證的會員本人）
+publicRouter.post('/mine/history', (req, res) => {
+  try {
+    const uid = identify(req, res); if (!uid) return;
+    res.set('Cache-Control', 'no-store');
+    res.json({ success: true, data: PD.listMineCompleted(getDb(), req.storeId, uid) });
+  } catch (e) { sendErr(res, e, 'mine history'); }
+});
 publicRouter.post('/register', (req, res) => {
   try {
     const uid = identify(req, res); if (!uid) return;
@@ -101,6 +109,7 @@ publicRouter.post('/register', (req, res) => {
     const r = PD.register(getDb(), req.storeId, uid, {
       product_id: b.product_id, desired_qty: b.desired_qty, fulfillment_pref: b.fulfillment_pref, notify_consent: b.notify_consent,
       consent_mode: b.consent_mode, consent_action: b.consent_action, consent_text_version: b.consent_text_version,
+      expect_settled_qty: b.expect_settled_qty, // C6.2：表單開啟時看到的已完成份數（不同則 409，不寫入）
     });
     res.json({ success: true, data: r });
   } catch (e) { sendErr(res, e, 'register'); }
@@ -168,6 +177,27 @@ adminRouter.get('/snapshot', (req, res) => {
     res.set('Cache-Control', 'no-store');
     res.json({ success: true, data: out });
   } catch (e) { sendErr(res, e, 'admin snapshot'); }
+});
+// R54.4／MBV2-HF1-C6.2：單一登記週期的訂單關聯（訂單商品 → 登記週期 → 份數；唯讀、店別只信任 JWT）
+adminRouter.get('/requests/:id/orders', (req, res) => {
+  try {
+    const db = getDb();
+    const rid = Number(req.params.id);
+    if (!Number.isInteger(rid) || rid <= 0) throw new PD.DemandError('INVALID_REQUEST', '登記參數不正確', 400);
+    const r = db.get('SELECT id, request_uuid, product_id, desired_qty, COALESCE(settled_qty,0) AS settled_qty, status, completed_at FROM product_demand_requests WHERE id=? AND store_id=?', [rid, req.storeId]);
+    if (!r) throw new PD.DemandError('NOT_FOUND', '找不到登記', 404);
+    const DS = require('../utils/demandSettlement');
+    const links = DS.linksForRequest(db, req.storeId, r.request_uuid).map((l) => ({
+      order_uuid: l.order_uuid, order_number: l.order_number, product_id: l.product_id, order_qty: Number(l.order_qty) || 0, applied_qty: Number(l.applied_qty) || 0,
+      state: l.state, payment_method: l.payment_method, note: l.note, created_at: l.created_at, settled_at: l.settled_at, released_at: l.released_at, reverted_at: l.reverted_at,
+      imported: !!l.import_source, order_status: l.order_status || null, payment_status: l.payment_status || null, order_record_status: l.order_record_status || null, refund_status: l.refund_status || null,
+    }));
+    res.set('Cache-Control', 'no-store');
+    // C6.2 補修：此登記週期的綁定待辦（待處理、已完成、待核對；含嘗試次數與最近錯誤）
+    const tasks = db.all(`SELECT order_uuid, order_number, product_id, order_qty, payment_method, state, attempts, last_error, next_at, result, created_at, done_at FROM ${DS.TASK_TABLE}
+                          WHERE store_id=? AND request_uuid=? AND kind='bind' ORDER BY id`, [req.storeId, r.request_uuid]);
+    res.json({ success: true, data: { request_id: r.id, product_id: r.product_id, desired_qty: Number(r.desired_qty), settled_qty: Number(r.settled_qty), status: r.status, completed_at: r.completed_at || null, links, tasks } });
+  } catch (e) { sendErr(res, e, 'admin request orders'); }
 });
 adminRouter.patch('/products/:id/collect', (req, res) => {
   try {
